@@ -273,6 +273,12 @@ identity. A real one (`link_arm`: a bar plus two placements of a pin model):
   `eagerSurface` in its geometry identity. Native access raises
   `NativeUnavailable`; a saved-file reader may privately reparse its exact
   selected STEP bytes. Authored child pins never substitute a saved document.
+  A saved-document read-back skips that private decode for a parsed prototype
+  whose exact bintools-v4 bytes already exist as an object under a component
+  entry declaring the same native recipe: the fence was proven for those bytes
+  by the build that published them, and the parsed prototype — private to its
+  parse, measured but never meshed — stands in as the prepared native input.
+  A forced build derives and fences every component again.
 
   `store.surfaces.request_view` captures a runtime producer separately from the
   tree. The producer contains extraction scheme19, SURF format2 and the actual
@@ -681,7 +687,13 @@ Decided mechanically from the returned geometry and occurrence metadata.
 Operation keys serialize current geometry from private topology, normalizing
 only non-geometric `Free`/`Checked` flags. Native mutations must change the key.
 Each input is read again: Python properties can mutate geometry even during key
-construction. No TShape-to-content mapping replaces those reads. Shape hashes
+construction. No TShape-to-content mapping replaces those reads. The one
+exception is scoped to a single read-only traversal: a tree's bounds
+(`_bbox_from_shape`) walk the native leaves of one composed document with no
+Python callback between leaves, so within that call a prototype's content digest
+is computed once per TShape encountered and discarded when the call returns —
+never retained, never shared with an op patch, never a substitute for the next
+call's read. Shape hashes
 use a cheaper subset of the full equality signature, so collisions still require
 the complete equality check. Vertex hashes read their current native point at
 that same precision, including native point or location edits that leave Python

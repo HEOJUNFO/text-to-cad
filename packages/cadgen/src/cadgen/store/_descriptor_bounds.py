@@ -232,7 +232,7 @@ class Snapshot:
 
     def bounds(self, *, shapes: dict[str, Any] | None = None) -> dict[str, list[float]]:
         from cadgen._internal import component_package as cp, op_memo
-        from cadgen.store.materialize import _location_from_matrix
+        from cadgen.store.materialize import _location_from_matrix, _placed_copy
         payloads, breps = dict(self.objects), dict(self.component_breps)
         entries = self.descriptor()["components"]
         boxes = []
@@ -244,7 +244,7 @@ class Snapshot:
                     shapes[cid] if shapes is not None
                     else cp.decode_geometry_component(entries[cid], payloads[brep])
                 )
-                placed = private.moved(_location_from_matrix(list(transform)))
+                placed = _placed_copy(private, _location_from_matrix(list(transform)))
                 box = cp._bbox_from_shape(placed)
                 if type(box) is not dict:
                     raise Ineligible("native bounds unavailable")

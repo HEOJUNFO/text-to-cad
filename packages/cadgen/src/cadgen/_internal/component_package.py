@@ -188,6 +188,12 @@ def _bbox_from_shape(shape: Any) -> dict[str, list[float]] | None:
     cost ~0.08 ms per face, which a whole
     150k-face assembly could not absorb on every finalize but an unchanged
     occurrence never pays twice.
+
+    The memo key's content digest serializes the leaf's geometry. Occurrences
+    of one prototype share its TShape, and nothing runs between two leaves of
+    this read-only traversal that could edit it, so the digest is computed once
+    per TShape encountered here and never kept past the call: a 2400-occurrence
+    assembly of 470 prototypes serializes 470 shapes, not 2400.
     """
     try:
         from cadgen._internal import op_memo
@@ -195,16 +201,33 @@ def _bbox_from_shape(shape: Any) -> dict[str, list[float]] | None:
         from OCP.gp import gp_Vec
 
         boxes = []
+        digests: dict[Any, str] = {}
+        memoized = op_memo._enabled()
         for leaf in _world_leaves(shape.wrapped):
             transform = leaf.Location().Transformation()
             translation = tuple(transform.TranslationPart().Coord())
             transform.SetTranslationPart(gp_Vec(0.0, 0.0, 0.0))
             untranslated = leaf.Located(TopLoc_Location(transform))
+            if not memoized:
+                # A disabled memo keys nothing: measure without serializing.
+                box = optimal_box(untranslated)
+                if box is not None:
+                    boxes.append([value + translation[index % 3] for index, value in enumerate(box)])
+                continue
+            try:
+                tshape = leaf.TShape()
+                digest = digests.get(tshape)
+            except TypeError:  # an unhashable native handle: digest this leaf alone
+                tshape, digest = None, None
+            if digest is None:
+                digest = op_memo._tshape_digest(untranslated)
+                if tshape is not None:
+                    digests[tshape] = digest
             box = op_memo.memoized_value(
                 # The op_name names the FUNCTION: change what this computes and
                 # change the name (or _OP_MEMO_VERSION) with it.
                 "occurrence_bbox.optimal.untranslated.v1",
-                op_memo.placed_shape_key(untranslated),
+                (digest, op_memo._location_key(untranslated)),
                 lambda untranslated=untranslated: optimal_box(untranslated),
             )
             if box is not None:
@@ -780,6 +803,44 @@ def prepare_geometry_component(shape: Any, *, face_colors: object = None) -> dic
     if private is not None:
         private.cad_face_ordinal_colors = dict(colors)
     return {"entry": entry, "payload": payload, "shape": private, "surface": surface}
+
+
+def prepare_published_component(shape: Any, *, face_colors: object = None) -> dict[str, Any]:
+    """:func:`prepare_geometry_component` for a parsed prototype whose exact bytes
+    may already be published.
+
+    A STEP read-back parses every prototype again, and each one was encoded,
+    privately decoded and fenced for point fidelity on every save even when
+    the exact bytes were published by the previous save. When the prototype's
+    bintools-v4 bytes already exist as an object under a component entry that
+    declares them native with this recipe, the codec fence was proven for
+    exactly those bytes by the build that published them, so the decode that
+    re-proves it is skipped and the prototype itself stands in as the prepared
+    native input — a parsed shape is private to its parse, and its only
+    consumer measures bounds without meshing. Anything else (a new or changed
+    prototype, an eager-only or alternate-codec entry, a missing object) takes
+    the ordinary path, and a forced build never calls this.
+    """
+    from cadgen.store.index import read_entry
+    from cadgen.store.objects import has_object
+
+    wrapped = getattr(shape, "wrapped", shape)
+    payload = _shape_brep_bytes(wrapped)
+    digest = hashlib.sha256(payload).hexdigest()
+    if has_object(digest):
+        colors = effective_face_colors(
+            wrapped, getattr(shape, "cad_face_ordinal_colors", None) if face_colors is None else face_colors,
+        )
+        content = geometry_component_hash("bintools-v4", payload, colors)
+        entry = {"kind": "native", "codec": "bintools-v4", "brep": digest,
+                 "faceColors": colors, "contentHash": content}
+        indexed = read_entry("component", _component_id(content)) or {}
+        published = {key: value for key, value in indexed.items() if key not in ("schemaVersion", "color")}
+        if published and canonical_json_bytes(published) == canonical_json_bytes(entry):
+            prototype = _build123d_shape_from_topods(wrapped)
+            prototype.cad_face_ordinal_colors = dict(colors)
+            return {"entry": entry, "payload": payload, "shape": prototype, "surface": None}
+    return prepare_geometry_component(shape, face_colors=face_colors)
 
 
 def decode_geometry_component(entry: dict[str, Any], payload: bytes) -> Any:
