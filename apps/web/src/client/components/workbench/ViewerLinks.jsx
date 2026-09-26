@@ -317,6 +317,7 @@ function VersionReleaseLink({ version, releaseUrl, githubUrl, discordUrl, releas
         className="w-fit max-w-[calc(100vw-1rem)] border border-border bg-popover p-2 text-left text-popover-foreground shadow-lg shadow-black/10"
       >
         <div className="inline-flex max-w-full flex-col gap-3">
+          <div className="px-0.5 text-sm font-medium leading-none text-foreground">text-to-cad</div>
           {latestVersionVisible ? (
             <div className="grid w-full min-w-0 grid-cols-2 gap-3">
               <VersionTooltipRow
@@ -411,7 +412,8 @@ function VersionReleaseLink({ version, releaseUrl, githubUrl, discordUrl, releas
             </div>
           ) : null}
         </div>
-        <DropdownMenuSeparator />
+        {/* Edge to edge, outside the content's own padding, with room either side. */}
+        <DropdownMenuSeparator className="-mx-2 my-2" />
         {targetReleaseUrl ? <DropdownMenuItem asChild><a href={targetReleaseUrl} target="_blank" rel="noreferrer">Release notes</a></DropdownMenuItem> : null}
         {githubUrl ? <DropdownMenuItem asChild><a href={githubUrl} target="_blank" rel="noreferrer"><GitHubMark className="size-3.5" />GitHub</a></DropdownMenuItem> : null}
         <DropdownMenuItem asChild><a href={discordUrl} target="_blank" rel="noreferrer"><DiscordMark className="size-3.5" />Discord</a></DropdownMenuItem>
