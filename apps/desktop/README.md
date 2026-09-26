@@ -1109,7 +1109,7 @@ Markdown declares one, the two readings of the same bytes (`View source` /
 (`cad-file`, the sliders glyph), and only a STEP and a URDF, SRDF or SDF have
 one (`viewerPanels(ready, { file: true })`). Its sections are Features (Links
 for a robot) and Position, shown as two tabs when a file has both. An STL, a
-3MF, a GLB and a DXF declare none; Display is a toolbar popover, never a panel.
+3MF, a GLB and a DXF declare none; Display is a popover in the viewport's top-right bar, never a panel.
 Code, images and PDFs declare none, leaving the tree as the whole list.
 
 A declaration identifies where its content belongs: `tree` is the app's file
@@ -1143,20 +1143,19 @@ what follows is what a desktop tab shows. Every 3D file has a toolbar at the
 top left, ending in **Display**
 ([tools and lifecycle](../../packages/ui/docs/settings-ui.md#tools-and-lifecycle)).
 A STEP's is Select, Draw, Measure, Explode, Clip, then Position where the
-sidecar declares kinematics and Animate where it declares routines, then Display.
+sidecar declares kinematics and Animate where it declares routines.
 No tool has a menu on the strip: what a tool can be set to (Select's modes,
 Measure's snapping, Animate's routine, speed and loop) is its panel beneath the
 toolbar while it is up; Explode and Clip are toggles whose panels sit there too. A robot description's is Select (which picks
 whole links; Shift, Ctrl or Cmd adds one), Position where it has movable joints,
-then Display; it opens in Select. An agent's select command on a robot fails
+and it opens in Select. An agent's select command on a robot fails
 with a sentence saying so; its clearSelection clears the link selection. Draw is
 a STEP tool and appears nowhere else. A GLB, an STL and a 3MF have nothing to
-select: their toolbar is Display, plus Animate for a GLB with clips, and an
+select: they have no toolbar, save Animate for a GLB with clips, and an
 agent's select command on one fails with a sentence saying so. The playbar
 shows while Animate is active and in fullscreen. Buttons wrap inside the
-toolbar in a narrow pane. Display is a popover tool: it takes the pointer from the
-active tool, and closing it hands the pointer to the file's default tool
-(Select, where there is one).
+toolbar in a narrow pane. Display is not a tool: its settings are a popover
+from the button beside Fullscreen, and opening it leaves the tool in hand.
 
 The file navbar's snapshot action (the camera) attaches the viewport PNG and
 the selected references to this tab's owning session draft through the
@@ -1198,8 +1197,8 @@ and a 3MF have no CAD edges, so they offer only Solid and Render and no Edges
 section. Switching modes never reframes the camera
 or changes the open panel. Display settings, Clip and Explode persist in the
 tab's record for the file.
-The file's Settings stays mounted while Display is open, so the Features tree
-keeps its disclosure and scroll.
+The tool stack stays as it is while the Display popover is open, so the Features
+tree keeps its disclosure and scroll.
 
 Settings › Appearance owns the app's System, Light and Dark preference; the
 desktop adds no appearance control to Display. Authored materials are read-only

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import ToolPanel from "../../../kit/tools/ToolPanel.jsx";
-import { CrossSectionControls, ExplodeControls } from "./ModelViewControls.js";
+import { CrossSectionControls, ExplodeControls, clipSummary } from "./ModelViewControls.js";
 import { explodablePartCount } from "../../workbench/explodableParts.js";
 
 /** Separated assembly layers, distinct from a fullscreen/expand affordance. */
@@ -65,7 +65,7 @@ export function useModelTools({ modelKey, view, features, store, mesh, disabled,
     { id: "exploded", label: "Explode", Icon: ExplodeIcon, unavailable: Boolean(mesh) && explodablePartCount(mesh) <= 1,
       summary: `${Math.round((view.exploded.enabled ? view.exploded.amount : 0) * 100)}%`,
       controls: <ExplodeControls viewSettings={view} onViewSettingsPatch={store.patch} /> },
-    { id: "clip", label: "Clip", Icon: ClipIcon,
+    { id: "clip", label: "Clip", Icon: ClipIcon, summary: clipSummary(view),
       controls: <CrossSectionControls viewSettings={view} onViewSettingsPatch={store.patch} bounds={mesh?.bounds || null} /> }
   ].filter(tool => tool.id === "measure" || features.sections.includes(tool.id));
   const remove = id => {
@@ -94,9 +94,10 @@ export function useModelTools({ modelKey, view, features, store, mesh, disabled,
       {[...(measure?.shown ? ["measure"] : []), ...panelIds].map(id => {
         const tool = definitions.find(value => value.id === id);
         // Measure's results can run long, so they give way like a details panel; Explode and
-        // Clip are a row or two and keep their height.
+        // Clip are one slider and keep their height. None of them folds: the X is how a person
+        // is done with one.
         return tool ? <ToolPanel key={id} id={id} title={tool.label} label={`${tool.label} controls`} summary={tool.summary} actions={tool.actions}
-          fit={id === "measure" ? "details" : "fixed"} onClose={() => remove(id)}>
+          fit={id === "measure" ? "details" : "fixed"} collapsible={false} onClose={() => remove(id)}>
           <div className="space-y-1 pb-1">{tool.controls}</div>
         </ToolPanel> : null;
       })}

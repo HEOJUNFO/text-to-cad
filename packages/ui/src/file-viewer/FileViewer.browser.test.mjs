@@ -160,7 +160,7 @@ test("an empty tab opens on the tree, a pick in the tree opens the file with the
   assert.equal(await page.getByRole("tree").count(), 0);
   assert.equal(await page.evaluate(() => window.harness.state.panel), null, "the field is back to the file's own default");
 });
-test("a renderer's panel suspension hides the column and disables its toggles, another document restores it, and widths stay bounded", async () => {
+test("the panel column's width stays bounded, and no renderer can suspend the column or its toggles", async () => {
   await reset();
   await page.getByTestId("tree-toggle").click();
   await page.getByRole("tree").waitFor();
@@ -170,12 +170,11 @@ test("a renderer's panel suspension hides the column and disables its toggles, a
   const handle = page.getByRole("separator", { name: "Resize files panel" });
   await page.waitForFunction(() => document.querySelector('[role="separator"][aria-label="Resize files panel"]')?.getAttribute("aria-valuenow") !== "300");
   assert.equal(await handle.getAttribute("aria-valuenow"), await handle.getAttribute("aria-valuemax"));
-  await page.evaluate(() => window.harness.rendererCallbacks.get("root-a").onPanelVisibilityChange(false));
-  await page.getByRole("tree").waitFor({ state: "hidden" });
-  assert.equal(await page.getByTestId("tree-toggle").isDisabled(), true, "the navbar stays; its panel toggles wait");
+  // The column is the host's: a renderer is handed no way to hide it (fullscreen leaves it as it is).
+  assert.equal(await page.evaluate(() => "onPanelVisibilityChange" in window.harness.rendererCallbacks.get("root-a")), false);
   await page.evaluate(() => window.harness.open("next.txt"));
   await waitValue("root-a next");
-  await page.getByRole("tree").waitFor();
+  assert.equal(await page.getByRole("tree").isVisible(), true);
   assert.equal(await page.getByTestId("tree-toggle").isDisabled(), false);
 });
 test("root changes, multiple instances, cancelled loads and readonly documents remain isolated", async () => {
@@ -200,7 +199,7 @@ test("root changes, multiple instances, cancelled loads and readonly documents r
   assert.equal(await document().getAttribute("readonly"), "");
   assert.equal(await page.getByRole("button", { name: "Save", exact: true }).isDisabled(), true);
 });
-test("a former renderer cannot change the new root's panels, state or panel visibility", async () => {
+test("a former renderer cannot change the new root's panels or state", async () => {
   await reset();
   await page.getByTestId("tree-toggle").click();
   await page.getByRole("tree").waitFor();
@@ -208,7 +207,7 @@ test("a former renderer cannot change the new root's panels, state or panel visi
   await waitValue("root-b original");
   await page.evaluate(() => {
     const stale = window.harness.rendererCallbacks.get("root-a");
-    stale.onPanelOpen("details"); stale.onStateChange({ from: "old root" }); stale.onPanelVisibilityChange(false);
+    stale.onPanelOpen("details"); stale.onStateChange({ from: "old root" });
   });
   await page.getByTestId("tree-toggle").waitFor();
   assert.equal(await page.getByTestId("tree-toggle").isDisabled(), false);

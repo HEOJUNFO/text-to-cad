@@ -115,8 +115,6 @@ export interface RendererViewProps {
   openPanel: string;
   /** Renderer status beside the filename. */
   navigationStatusSlot?: HTMLElement | null;
-  /** Suspend the panel column (a renderer's own fullscreen); the open panel and its width are kept. */
-  onPanelVisibilityChange?: (visible: boolean) => void;
   /** The column's box for a declared `"slot"` panel to draw into. */
   panelSlot: HTMLElement | null;
   onPanelOpen: (id: string) => void;

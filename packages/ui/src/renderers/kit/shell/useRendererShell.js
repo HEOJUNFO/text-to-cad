@@ -12,6 +12,7 @@ import { prefetchRenderStudio } from "../look/renderStudioChunk.js";
 import { CAD_DRAWING_DEFAULTS } from "../tools/draw/DrawingOverlay.jsx";
 import { normalizeOrbit } from "../tools/fullscreen/orbitPreferences.js";
 import { normalizeToolStack } from "../tools/toolStackLayout.js";
+import { normalizeAnimationPreferences } from "../tools/playbar/animationPreferences.js";
 import { DisplaySettingsSection } from "../view-settings/DisplaySettingsSection.js";
 import { useAppliedViewSettings } from "../view-settings/useAppliedViewSettings.js";
 import { useViewSettings } from "../view-settings/useViewSettings.js";
@@ -52,7 +53,7 @@ export function presentationIsPending(state, { modelKey, key, renderMode }) {
 }
 
 /** The tool ids the shell itself understands. A renderer's own tools use any other id. */
-export const SHELL_TOOL = Object.freeze({ DRAW: "draw", DISPLAY: "display" });
+export const SHELL_TOOL = Object.freeze({ DRAW: "draw" });
 
 const SESSION_SAVE_DELAY_MS = 180;
 const EMPTY = Object.freeze({});
@@ -76,7 +77,7 @@ const EMPTY = Object.freeze({});
  *
  * @param {object} options
  * @param {import("../../../file-viewer/types.js").RendererViewProps} options.view  The host's props, unchanged.
- * @param {{ preferences: { orbit?: { speed: number }, toolStack?: object }, onPreferenceChange(patch: object): void,
+ * @param {{ preferences: { orbit?: { speed: number }, toolStack?: object, animation?: { autoplay: boolean } }, onPreferenceChange(patch: object): void,
  *   live?: object, captureRequest?: { key: string | number } | null,
  *   acknowledgeCommand?: (kind: string, key: string | number) => void }} options.services
  * @param {import("@hardcore/core/prompt").ResourceRef} options.resource  The document on screen, for prompt context and live state.
@@ -265,6 +266,10 @@ export function useRendererShell({
     toolStackRef.current = next;
     services.onPreferenceChange({ toolStack: next });
   }, [services.onPreferenceChange]);
+  // Whether taking up Animate starts the routine: the person's, across files, kept with the orbit.
+  const autoplay = normalizeAnimationPreferences(services.preferences?.animation).autoplay;
+  const setAutoplay = useCallback(value => services.onPreferenceChange({ animation: normalizeAnimationPreferences({ autoplay: value }) }),
+    [services.onPreferenceChange]);
   const hostRef = useRef(null);
   const [hostElement, setHostElement] = useState(null);
   useEffect(() => { setHostElement(hostRef.current); }, []);
@@ -300,6 +305,8 @@ export function useRendererShell({
   const idle = viewerLoading || !scene;
   const drawToolActive = !presenting && toolMode === SHELL_TOOL.DRAW;
   const selectTool = useCallback((mode) => setToolMode(current => (toolModes ? toolModes.next(current, mode) : mode)), [toolModes, setToolMode]);
+  // A tool panel's X: back to the file's default tool (Select, where there is one), from any tool.
+  const selectDefaultTool = useCallback(() => setToolMode(toolModes ? toolModes.defaultMode : ""), [toolModes, setToolMode]);
   const drawing = useDrawingSession(drawToolActive, CAD_DRAWING_DEFAULTS);
 
   // ---- prompt snapshots, clipboard ------------------------------------------
@@ -365,14 +372,12 @@ export function useRendererShell({
   useViewerShortcuts({
     viewerElement,
     onCopy: () => copyActionRef.current?.() || false,
-    escapeActive: Boolean(escape.active || presenting || toolMode === SHELL_TOOL.DISPLAY),
+    escapeActive: Boolean(escape.active || presenting),
     onEscape(event) {
-      // A popup opened in THIS viewer (a menu, a Select, the Display sheet) owns Escape before
+      // A popup opened in THIS viewer (a menu, a Select, the Display popover) owns Escape before
       // fullscreen; another viewer's popup is not this one's business.
       if (hasOpenPopup(viewerElement.current)) return;
       if (presenting) { setPresenting(false); return; }
-      // Display is a tool whose panel is its settings: Escape puts it down, as its button does.
-      if (toolMode === SHELL_TOOL.DISPLAY) { selectTool(""); return; }
       // Draw's surface spends its own Escape (its editor deselects, or drops the stroke in hand).
       if (drawToolActive && event.target instanceof Element && event.target.closest("[data-cad-drawing-overlay]")) return;
       escapeRef.current?.();
@@ -465,7 +470,9 @@ export function useRendererShell({
 
   return {
     // Renderer-facing.
-    toolMode, selectTool, tools, idle, presenting, setPresenting,
+    toolMode, selectTool, selectDefaultTool, tools, idle, presenting, setPresenting,
+    // Whether taking up Animate plays (its settings menu's Autoplay).
+    autoplay, setAutoplay,
     // Deliver a prompt context through the host, reporting a failure as the viewport's alert.
     reportActionError, deliverPrompt, requestRender: () => viewerRef.current?.requestRender?.(),
     // The scene moved its own bounds: lighting, shadows and the floor follow, with no React render.

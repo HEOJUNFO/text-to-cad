@@ -1,5 +1,6 @@
 import { ORBIT_STORAGE_KEY, readOrbit, writeOrbit } from '../kit/tools/fullscreen/orbitPreferences.js';
 import { TOOL_STACK_STORAGE_KEY, readToolStack, writeToolStack } from '../kit/tools/toolStackLayout.js';
+import { ANIMATION_STORAGE_KEY, readAnimationPreferences, writeAnimationPreferences } from '../kit/tools/playbar/animationPreferences.js';
 
 
 export interface CadPreferences {
@@ -9,6 +10,8 @@ export interface CadPreferences {
    * pixels, the caps a person dragged the tree and Reference panels to, and which panels are folded.
    */
   toolStack?: ToolStackLayout;
+  /** Whether taking up Animate starts the routine (`kit/tools/playbar/animationPreferences.js`). */
+  animation?: { autoplay: boolean };
 }
 export interface ToolStackLayout {
   width: number;
@@ -55,19 +58,20 @@ export interface StoredCadPreferences extends CadPreferenceSource {
  * is this module's. Construction reads the storage and nothing else.
  */
 export function createStoredCadPreferences(storage: Storage): StoredCadPreferences {
-  const read = (): CadPreferences => ({ orbit: readOrbit(storage), toolStack: readToolStack(storage) });
+  const read = (): CadPreferences => ({ orbit: readOrbit(storage), toolStack: readToolStack(storage), animation: readAnimationPreferences(storage) });
   let syncing = false;
   let baseline = read();
   const source = createCadPreferences({ initial: baseline, onChange(preferences) {
     // A preference read back from storage is not written again.
     if (!syncing && preferences.orbit && JSON.stringify(preferences.orbit) !== JSON.stringify(baseline.orbit)) writeOrbit(storage, preferences.orbit);
     if (!syncing && preferences.toolStack && JSON.stringify(preferences.toolStack) !== JSON.stringify(baseline.toolStack)) writeToolStack(storage, preferences.toolStack);
+    if (!syncing && preferences.animation && JSON.stringify(preferences.animation) !== JSON.stringify(baseline.animation)) writeAnimationPreferences(storage, preferences.animation);
     baseline = preferences;
   } });
   return {
     ...source,
     storageChanged(key) {
-      if (key !== null && key !== ORBIT_STORAGE_KEY && key !== TOOL_STACK_STORAGE_KEY) return;
+      if (key !== null && key !== ORBIT_STORAGE_KEY && key !== TOOL_STACK_STORAGE_KEY && key !== ANIMATION_STORAGE_KEY) return;
       syncing = true;
       try { source.update(read()); } finally { syncing = false; }
     },

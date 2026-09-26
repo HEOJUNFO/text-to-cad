@@ -47,9 +47,11 @@ async function open(server) {
     at: projector(await page.evaluate(() => window.__cadCamera()), box),
     state: () => page.evaluate(() => window.cadHarness.a.controller.readState()),
     tool: name => pane.locator('[data-cad-toolbar]').getByRole('button', { name, exact: true }),
+    // Display is not a tool: its settings are a popover from the button beside Fullscreen.
+    displayButton: () => pane.getByRole('button', { name: 'Display settings', exact: true }),
     tools: () => pane.locator('[data-cad-toolbar]').getByRole('button')
       .evaluateAll(buttons => buttons.map(button => `${button.getAttribute('aria-label')}:${button.getAttribute('aria-pressed')}`)),
-    displayPanel: () => page.locator('[data-tool-panel][aria-label="Display settings"]'),
+    displayPanel: () => page.locator('[data-display-popover]'),
   };
 }
 const pressed = async view => (await view.tools()).filter(tool => tool.endsWith(':true')).map(tool => tool.split(':')[0]);
@@ -57,49 +59,43 @@ const selection = async view => { const { selectedPartIds, selectedReferenceIds 
 // A single press is held for the double-click window before it acts; wait it out, and a frame.
 const afterPress = async page => { await page.waitForTimeout(600); await settle(page); };
 
-test('a press on the model under Display leaves Display the tool and picks nothing, and the camera still orbits', async () => {
+test('opening Display leaves the tool and the selection as they are; a press on the model closes it, and the camera still orbits', async () => {
   const view = await open(harness);
-  const { page, pane, at, box, errors } = view;
-  const emptySpace = [box.x + 30, box.y + box.height - 30];
+  const { page, at, box, errors } = view;
+  const openDisplay = async () => { await view.displayButton().click(); await view.displayPanel().waitFor(); };
 
-  // From Select, with nothing selected: a press on the base picks nothing and keeps Display up.
-  await view.tool('Display').click();
-  await view.displayPanel().waitFor();
-  assert.deepEqual(await pressed(view), ['Display']);
-  await page.mouse.click(...at([6, 6, 5]));
-  await afterPress(page);
-  assert.deepEqual(await pressed(view), ['Display'], 'a press on the model never trades Display for Select');
-  assert.equal(await view.displayPanel().isVisible(), true, 'and its panel stays up');
-  assert.deepEqual(await selection(view), { selectedPartIds: [], selectedReferenceIds: [] }, 'and picks nothing');
-  // A double-click on the model neither copies nor isolates.
-  await page.mouse.dblclick(...at([6, 6, 5]));
-  await afterPress(page);
-  assert.deepEqual([await pressed(view), (await view.state()).isolatedPartIds || []], [['Display'], []]);
-
-  // Beside the model too. (Putting Display up leaves Select, which drops any selection — the
-  // design system's Select row — so there is none here to keep; a press must not make one.)
-  await page.mouse.click(...emptySpace);
-  await afterPress(page);
-  assert.deepEqual(await pressed(view), ['Display']);
-  assert.deepEqual(await selection(view), { selectedPartIds: [], selectedReferenceIds: [] });
-  // Escape puts Display down and brings back Select, whose presses pick again.
-  await page.keyboard.press('Escape');
-  await view.displayPanel().waitFor({ state: 'hidden' });
-  assert.deepEqual(await pressed(view), ['Select']);
+  // Under Select, with the base picked: Display opens over it and changes neither.
   await page.mouse.click(...at([6, 6, 5]));
   await page.waitForFunction(() => { const state = window.cadHarness.a.controller.readState();
     return state.selectedPartIds.length + state.selectedReferenceIds.length > 0; });
-
-  // From Measure: the same press under Display neither measures nor returns to Select.
-  await view.tool('Measure').click();
-  await view.tool('Display').click();
-  await view.displayPanel().waitFor();
-  await page.mouse.click(...at([6, 6, 5]));
   await afterPress(page);
-  assert.deepEqual(await pressed(view), ['Display']);
-  assert.deepEqual(await selection(view), { selectedPartIds: [], selectedReferenceIds: [] });
+  const picked = await selection(view);
+  await openDisplay();
+  assert.deepEqual(await pressed(view), ['Select'], 'Display is not a tool: Select stays the tool');
+  assert.deepEqual(await selection(view), picked, 'and the selection stays');
+  assert.equal(await view.tool('Display').count(), 0, 'there is no Display on the strip');
+  // A press on the model puts it away; Select is still the tool.
+  await page.mouse.click(...at([6, 6, 5]));
+  await view.displayPanel().waitFor({ state: 'detached' });
+  await afterPress(page);
+  assert.deepEqual(await pressed(view), ['Select']);
+  assert.equal(await view.displayButton().getAttribute('aria-pressed'), 'false');
 
-  // Orbiting is the camera's and still works under Display: a drag over the model turns the view.
+  // Under Measure: Display opens beside its panel, and Escape puts it away with Measure still up.
+  await view.tool('Measure').click();
+  const measurePanel = view.pane.locator('[data-tool-panel][aria-label="Measure controls"]');
+  await measurePanel.waitFor();
+  await openDisplay();
+  assert.deepEqual(await pressed(view), ['Measure']);
+  assert.equal(await measurePanel.isVisible(), true, 'Measure\'s panel stays');
+  await page.keyboard.press('Escape');
+  await view.displayPanel().waitFor({ state: 'detached' });
+  assert.deepEqual(await pressed(view), ['Measure']);
+  assert.equal(await measurePanel.isVisible(), true);
+
+  // Orbiting is the camera's with Display open: a drag over the model puts Display away and turns
+  // the view, and neither measures nor changes the tool.
+  await openDisplay();
   const before = await page.evaluate(() => window.__cadCamera().position);
   await page.mouse.move(...at([6, 6, 5]));
   await page.mouse.down();
@@ -107,8 +103,10 @@ test('a press on the model under Display leaves Display the tool and picks nothi
   await page.mouse.up();
   await page.waitForFunction(previous => window.__cadCamera().position.some((value, index) => Math.abs(value - previous[index]) > 1e-3), before,
     { timeout: 5000 });
+  await view.displayPanel().waitFor({ state: 'detached' });
   await afterPress(page);
-  assert.deepEqual([await pressed(view), await selection(view)], [['Display'], { selectedPartIds: [], selectedReferenceIds: [] }]);
+  assert.deepEqual(await pressed(view), ['Measure']);
+  assert.equal(await view.pane.locator('[data-measure-hint]').count(), 1, 'a drag measures nothing');
   assert.deepEqual(errors, []);
 });
 

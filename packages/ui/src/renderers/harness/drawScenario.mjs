@@ -54,13 +54,13 @@ export async function runDrawScenario({ page, pane, errors }) {
   await menu.waitFor();
   assert.equal(await tool('Pen').getAttribute('aria-pressed'), 'true', 'Draw opens on the pen');
   // The panel's tools read left to right: the two ways of moving around what was drawn,
-  // then the marks; beneath a rule, the colour they are made in, undo/redo and Clear.
+  // then the marks; then, with no rule between, the colour and weight they are made in, undo/redo and Clear.
   assert.deepEqual(await menu.getByRole('group', { name: 'Drawing tools' }).getByRole('button')
     .evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))),
   ['Select and move drawings', 'Pan view', 'Pen', 'Line', 'Arrow', 'Rectangle', 'Ellipse', 'Text', 'Fill area', 'Eraser']);
   assert.deepEqual(await menu.getByRole('group', { name: 'Drawing settings' }).getByRole('button')
     .evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))),
-  ['Color', 'Undo', 'Redo', 'Clear drawing']);
+  ['Color', 'Stroke width', 'Undo', 'Redo', 'Clear drawing']);
   assert.equal(await pane.locator('.layer-ui__wrapper').isVisible(), false, 'the SDK has no controls of its own here');
   // Clear of the tool stack at the overlay's left, where the Drawing panel sits.
   const box = await pane.locator('[data-cad-drawing-overlay]').boundingBox();
@@ -140,7 +140,7 @@ export async function runDrawScenario({ page, pane, errors }) {
   const [copied] = await page.evaluate(() => window.__drawingCopies);
   assert.ok(copied.type === 'image/png' && copied.size > 100, JSON.stringify(copied));
 
-  // Leaving Draw ends the session and the sketch with it.
+  // Leaving Draw ends the session and the sketch with it; the tool and colour in hand wait for the next.
   await pane.getByRole('group', { name: 'Interaction tools' }).getByRole('button', { name: 'Select', exact: true }).click();
   await pane.locator('[data-cad-drawing-overlay]').waitFor({ state: 'detached' });
   assert.equal(await page.getByRole('group', { name: 'Drawing tools' }).count(), 0, 'its panel went with it');
@@ -149,5 +149,10 @@ export async function runDrawScenario({ page, pane, errors }) {
   await draw.click();
   await page.waitForFunction(() => document.querySelector('[data-testid="one"] [data-drawing-ready]'));
   assert.equal((await ink()).ink, 0, 'a new session starts empty');
+  await menu.waitFor();
+  assert.equal(await tool('Fill area').getAttribute('aria-pressed'), 'true', 'with the tool it was left on');
+  await choose('Color');
+  assert.equal(await menu.getByRole('radio', { name: 'Neon green', exact: true }).getAttribute('aria-checked'), 'true', 'and its colour');
+  await choose('Color');
   assert.deepEqual(errors, []);
 }

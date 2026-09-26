@@ -3,7 +3,8 @@ import { buildEdgeChainGraph } from "./workbench/edgeChainSelection.js";
 
 import { MeasureModeIcon, MeasureModeMenu, SelectModeIcon, SelectModeMenu } from "./components/workbench/SelectionModes.jsx";
 import { NO_CONNECTED_SELECTION, connectedSelectionApplies } from "./workbench/selectionFilter.js";
-import { Play, Spline } from "lucide-react";
+import { CirclePlay } from "lucide-react";
+import { PositionToolIcon, positionValuesAreDefault } from "../kit/inspector/kinematicsControls.jsx";
 import { filterSelectionReferences, toggleReferenceGroupSelection, connectedReferenceIds } from "./workbench/selectionFilter.js";
 import { buildTangentFaceGraph } from "./workbench/tangentFaceSelection.js";
 
@@ -15,7 +16,7 @@ import { VIEWER_PICK_MODE } from "@hardcore/core/lib/viewer/constants.js";
 import { runtimeModelKeyMatches, toNumber } from "@hardcore/core/lib/viewer/modelRuntime.js";
 import { normalizePartIdList } from "@hardcore/core/lib/viewer/partVisualState.js";
 import RendererShell from "../kit/shell/RendererShell.jsx";
-import { SHELL_TOOL, presentationIsPending, usePresentationReport, usePresentationState, useRendererShell } from "../kit/shell/useRendererShell.js";
+import { presentationIsPending, usePresentationReport, usePresentationState, useRendererShell } from "../kit/shell/useRendererShell.js";
 import { readShellState, shellPresentationKey } from "../kit/shell/shellState.js";
 import StepSceneLayers, { releaseStepRuntime } from "./scene/StepSceneLayers.jsx";
 import { displayRecordExplodedViewTranslation } from "./scene/useStepExplode.js";
@@ -249,7 +250,7 @@ function StepSurfaceBody({ view, data }) {
   const [largeFileState, setLargeFileState] = useState(() => normalizeLargeFileState(DEFAULT_LARGE_FILE_STATE));
   const [hoveredModelReferenceId, setHoveredModelReferenceId] = useState("");
   // The Select tool's mode (`workbench/selectionFilter.js`: All, Parts, Faces or Edges), and how a
-  // face or edge pick grows (Tangent faces, Edge chain), which is independent of it.
+  // face or edge pick grows (Group faces, Group edges), which is independent of it.
   const [selectionFilter, setSelectionFilter] = useState("all");
   const [connectedSelection, setConnectedSelection] = useState(NO_CONNECTED_SELECTION);
   // A press under a face or edge filter on an assembly part whose faces are not loaded yet:
@@ -1694,10 +1695,19 @@ function StepSurfaceBody({ view, data }) {
   const copyButtonLabel = (copySelectionPayload.copiedCount || canonicalCopySelectionLines.length) > 1 ? "Copy References" : "Copy Reference";
   const copySelectedReferences = useCallback(async () => {
     const text = canonicalCopySelectionLines.join("\n");
-    if (!text || stepInteractionBlocked) return;
-    try { await host.clipboard.writeText(text); }
-    catch (error) { shellRef.current?.reportActionError(error instanceof Error ? error.message : "Could not copy reference"); }
+    if (!text || stepInteractionBlocked) return false;
+    try { await host.clipboard.writeText(text); return true; }
+    catch (error) { shellRef.current?.reportActionError(error instanceof Error ? error.message : "Could not copy reference"); return false; }
   }, [canonicalCopySelectionLines, stepInteractionBlocked, host.clipboard]);
+  // The Reference heading's Copy: the one reference it shows, the way the selection is copied;
+  // with no reference of its own on show (parts alone), the selection.
+  const copyReference = useCallback(async (referenceId) => {
+    if (!referenceId) return copySelectedReferences();
+    const text = copyTextLines(selectionCopyPayload(copyContext, { referenceIds: [referenceId], partIds: [] }).lines, fileRefPrefix).join("\n");
+    if (!text || stepInteractionBlocked) return false;
+    try { await host.clipboard.writeText(text); return true; }
+    catch (error) { shellRef.current?.reportActionError(error instanceof Error ? error.message : "Could not copy reference"); return false; }
+  }, [copySelectedReferences, copyContext, fileRefPrefix, stepInteractionBlocked, host.clipboard]);
   // The tip teaches reference syntax, so it fires on the first pick that yields
   // a reference to copy — a component, a subassembly, or a face/edge. Gating it
   // on topology alone would hide it from anyone who only ever clicks parts.
@@ -3052,12 +3062,6 @@ function StepSurfaceBody({ view, data }) {
   const topologySelectionDeferred = Boolean(selectedTopologyDeferredByCost && selectedMeshData);
   // Animate, like fullscreen, is watching, and Pose offers its knobs alone.
   const watching = presenting || animateToolActive || Boolean(jointHandles);
-  // Display's panel stands in for Select's while it is up: a press on the model, or beside it,
-  // picks nothing, isolates nothing and never trades Display for Select (settings-ui.md, Display
-  // panel). Only the camera answers it (orbit, pan, zoom), as over a robot or a mesh. Picking is
-  // suspended rather than switched off (`pickMode` stays): the pick mode also decides how the
-  // scene draws its parts, and putting Display up must not redraw the model.
-  const displayToolActive = tabToolMode === SHELL_TOOL.DISPLAY;
   const pickMode = watching || retainingPreviousStepMesh ? VIEWER_PICK_MODE.NONE : viewerPickModeForRenderPane({
     selectionFilter,
     topologySelectionPending: referenceSelectionPending,
@@ -3085,7 +3089,6 @@ function StepSurfaceBody({ view, data }) {
     receiveShadows: resolvedScene.view.lighting.enabled,
     previewMode: presenting,
     pickMode,
-    pickingSuspended: displayToolActive,
     pickableParts: !retainingPreviousStepMesh ? viewerAssemblyRenderParts : EMPTY_LIST,
     hiddenPartIds: viewerHiddenPartIdsForRenderPane({ inspectionEnabled: true, hasParts: true, hiddenPartIds: hiddenPartIds }),
     selectedPartIds: presenting ? EMPTY_LIST : viewerSelectedPartIdsForRenderPane({ hasParts: true, selectedPartIds: viewerSelectedPartIds }),
@@ -3170,15 +3173,20 @@ function StepSurfaceBody({ view, data }) {
     ...modelEffects.tools,
     // Position follows the model effects; only files with movable joints offer it.
     poseAvailable ? shell.tools.own({ id: TAB_TOOL_MODE.POSE, label: "Position",
-      icon: <Spline className="size-3" strokeWidth={2} aria-hidden="true" />,
+      icon: <PositionToolIcon custom={!positionValuesAreDefault(motion.positionControls?.parameterValues, motion.positionControls?.definition?.defaultParameterValues)} />,
       active: poseToolActive, disabled: toolIdle,
       // Its panel is in the tool stack for as long as it is the tool.
       onSelect: () => { if (!poseToolActive) handleSelectTabToolMode(TAB_TOOL_MODE.POSE); } }) : null,
     // The shared animation tool uses this action when routines exist.
     animationAvailable ? shell.tools.own({ id: TAB_TOOL_MODE.ANIMATE, label: "Animate",
-      icon: <Play className="size-3" aria-hidden="true" />,
+      icon: <CirclePlay className="size-3" aria-hidden="true" />,
       active: animateToolActive, disabled: toolIdle,
-      onSelect: () => { if (!animateToolActive) { handleSelectTabToolMode(TAB_TOOL_MODE.ANIMATE); if (!animationState.playing) motion.onPlayToggle(); } },
+      // Taken up, it plays when Autoplay is on; a second press, as on any tool that is up, does nothing.
+      onSelect: () => {
+        if (animateToolActive) return;
+        handleSelectTabToolMode(TAB_TOOL_MODE.ANIMATE);
+        if (shell.autoplay && !animationState.playing) motion.onPlayToggle();
+      },
     }) : null,
   ].filter(Boolean);
 
@@ -3202,6 +3210,8 @@ function StepSurfaceBody({ view, data }) {
   // Under the strip: Select's Features and Reference, Position's joints, then the kept effects.
   const stepPanels = useStepPanels({
     // Select's mode and options: a menu in the Features filter row, beside its fold chevron.
+    onCopyReference: copyReference,
+    onClosePosition: () => handleSelectTabToolMode(TAB_TOOL_MODE.REFERENCES),
     selectModeMenu: <SelectModeMenu mode={selectionFilter} assembly={isAssemblyView} disabled={selectDisabled}
       onModeChange={value => { changeSelectMode(value); handleSelectTabToolMode(TAB_TOOL_MODE.REFERENCES); }}
       connected={connectedSelection} onConnectedChange={(id, checked) => setConnectedSelection(current => ({ ...current, [id]: checked }))} />,

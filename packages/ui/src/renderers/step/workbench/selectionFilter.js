@@ -11,14 +11,14 @@ export const SELECT_MODES = [
 ];
 
 /**
- * How a face or edge pick grows, independent of the mode and of each other: Tangent faces
- * takes the smoothly joined faces with a picked face, Edge chain the connected edges with a
+ * How a face or edge pick grows, independent of the mode and of each other: Group faces
+ * takes the smoothly joined faces with a picked face, Group edges the connected edges with a
  * picked edge. Each applies wherever its kind of topology is picked — All, and its own mode —
  * and has no effect elsewhere.
  */
 export const CONNECTED_SELECTION = [
-  { id: 'edgeChain', label: 'Edge chain', appliesIn: ['all', 'edges'] },
-  { id: 'tangentFaces', label: 'Tangent faces', appliesIn: ['all', 'faces'] },
+  { id: 'edgeChain', label: 'Group edges', appliesIn: ['all', 'edges'] },
+  { id: 'tangentFaces', label: 'Group faces', appliesIn: ['all', 'faces'] },
 ];
 export const NO_CONNECTED_SELECTION = Object.freeze({ edgeChain: false, tangentFaces: false });
 

@@ -47,4 +47,11 @@ const PopoverContent = React.forwardRef(function PopoverContent({
   )
 });
 
-export { Popover, PopoverAnchor, PopoverContent, PopoverTrigger }
+// A button inside a popover that closes it (a panel-like popover's X).
+const PopoverClose = React.forwardRef(function PopoverClose({
+  ...props
+}, ref) {
+  return <PopoverPrimitive.Close ref={ref} data-slot="popover-close" {...props} />
+});
+
+export { Popover, PopoverAnchor, PopoverClose, PopoverContent, PopoverTrigger }

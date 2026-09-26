@@ -114,7 +114,7 @@ test('the Features tree presents a lone part as its features, and precise viewpo
     // Found by its label: Radix names a menu after its trigger.
     const modeMenu=page.locator('[role=menu][aria-label="Select mode"]');
     await expect(modeMenu.getByRole('menuitemradio')).toHaveText(['All','Faces','Edges']);
-    await expect(modeMenu.getByRole('menuitemcheckbox')).toHaveText(['Edge chain','Tangent faces']);
+    await expect(modeMenu.getByRole('menuitemcheckbox')).toHaveText(['Group edges','Group faces']);
     await modeMenu.getByRole('menuitemradio',{name:'Faces',exact:true}).click();
     await expect(page.getByRole('menu')).toHaveCount(0);
     await expect(features.getByRole('button',{name:'Select mode: Faces',exact:true})).toBeVisible();

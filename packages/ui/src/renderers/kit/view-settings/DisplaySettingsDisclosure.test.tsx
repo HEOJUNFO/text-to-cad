@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { resolveViewSettings } from '@hardcore/core/common/viewSettings.js';
 import { createViewSettingsStore } from './viewSettingsStore.js';
 import { DisplaySettingsSection } from '../../../../dist/renderers/kit/view-settings/DisplaySettingsSection.js';
-import { CrossSectionControls, ExplodeControls } from '../../../../dist/renderers/step/components/workbench/ModelViewControls.js';
+import { CrossSectionControls, ExplodeControls, clipSummary } from '../../../../dist/renderers/step/components/workbench/ModelViewControls.js';
 import { FileSheetSettingsSection } from '../../../../dist/renderers/kit/inspector/FileSheet.js';
 
 Object.assign(globalThis, { React });
@@ -127,6 +127,7 @@ function Tools() {
     <button type="button" onClick={() => store.setEnabled('exploded', !resolveViewSettings(settings).exploded.enabled)}>Explode</button>
     <button type="button" onClick={() => store.setEnabled('clip', !resolveViewSettings(settings).clip.enabled)}>Cross-section</button>
     <ExplodeControls viewSettings={settings} onViewSettingsPatch={store.patch} />
+    <output aria-label="Clip summary">{clipSummary(settings)}</output>
     <CrossSectionControls viewSettings={settings} onViewSettingsPatch={store.patch} bounds={{ min: [0, 0, 0], max: [100, 100, 100] }} />
   </>;
 }
@@ -153,19 +154,32 @@ it('Explode turns on at half, its slider sets the amount, zero removes it, and i
   expect(amount().getAttribute('aria-valuenow')).toBe('50');
 });
 
-it('Cross-section turns on at an X centre cut, and Flip reverses it', async () => {
+it('Cross-section turns on at an X centre cut; its body is the axis toggle and one slider: the slider sets the amount, zero removes it, the toggle moves the cut', async () => {
   const user = userEvent.setup();
   render(<Tools />);
   await user.click(screen.getByRole('button', { name: 'Cross-section' }));
   expect(resolveViewSettings(current).clip.offsets.x).toBe(0.5);
-  const x = screen.getByRole('textbox', { name: 'Clip amount value' });
-  expect((x as HTMLInputElement).value).toBe('50.0%');
-  fireEvent.change(x, { target: { value: '35' } }); fireEvent.blur(x);
-  expect(resolveViewSettings(current).clip.offsets.x).toBeCloseTo(0.65);
-  await user.click(screen.getByRole('checkbox', { name: 'Flip' }));
-  expect(resolveViewSettings(current).clip.invert).toBe(true);
-  await user.click(screen.getByRole('button', { name: 'Cross-section' }));
+  // One slider and nothing else: no typed value, no Flip.
+  expect(screen.queryByRole('textbox', { name: 'Clip amount value' })).toBeNull();
+  expect(screen.queryByRole('checkbox', { name: 'Flip' })).toBeNull();
+  const amount = () => screen.getByRole('slider', { name: 'Clip amount' });
+  expect(amount().getAttribute('aria-valuenow')).toBe('50');
+  // The axis sits left of the slider, in the one row of the body.
+  const axis = screen.getByRole('radiogroup', { name: 'Clip axis' });
+  expect(axis.parentElement).toBe(amount().closest('[data-slot="slider"]')!.parentElement);
+  expect(axis.compareDocumentPosition(amount()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.getByRole('status', { name: 'Clip summary' }).textContent).toBe('50%');
+  amount().focus();
+  await user.keyboard('{End}');
+  expect(resolveViewSettings(current).clip.offsets.x).toBe(0);
+  expect(screen.getByRole('status', { name: 'Clip summary' }).textContent).toBe('100%');
+  await user.click(screen.getByRole('radio', { name: 'Clip Y axis' }));
+  expect(resolveViewSettings(current).clip.axis).toBe('y');
+  expect(resolveViewSettings(current).clip.offsets.y).toBe(0);
+  amount().focus();
+  await user.keyboard('{Home}');
   expect(resolveViewSettings(current).clip.enabled).toBe(false);
+  expect(resolveViewSettings(current).clip.invert).toBe(false);
 });
 
 it('disables and restores Grid / Axes together while keeping colors independent', async () => {

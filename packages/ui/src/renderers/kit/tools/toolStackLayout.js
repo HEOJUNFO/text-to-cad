@@ -9,15 +9,14 @@
 //
 // Importing this module has no environmental effects.
 
-// The default width: the strip of the fullest tool set with one tool a file adds when
-// it has something for it — seven tools (Select, Draw, Measure, two kept effects, a joint tool and
-// Display), each a 24px button (`size-6`, `primitives/toolbar-button.jsx`), 2px apart (`gap-0.5`),
-// inside 4px of padding (`p-1`) and a 1px border (`FloatingToolBar.js`): 190px.
-const BASE_TOOLS = 7, BUTTON_PX = 24, GAP_PX = 2, PADDING_PX = 4, BORDER_PX = 1;
-export const TOOL_STACK_DEFAULT_WIDTH = BASE_TOOLS * BUTTON_PX + (BASE_TOOLS - 1) * GAP_PX + 2 * PADDING_PX + 2 * BORDER_PX;
-// The narrowest a person can make it: tree rows still show an icon and a few characters of their
-// name beside their row actions, and Display's two-up controls still read (both truncate).
-export const TOOL_STACK_MIN_WIDTH = 160;
+// The default width: a strip of five tools — each a 24px button (`size-6`,
+// `primitives/toolbar-button.jsx`), 2px apart (`gap-0.5`), inside 4px of padding (`p-1`) and a 1px
+// border (`FloatingToolBar.js`): 138px, whatever tools a file's own strip has.
+const DEFAULT_TOOLS = 5, BUTTON_PX = 24, GAP_PX = 2, PADDING_PX = 4, BORDER_PX = 1;
+export const TOOL_STACK_DEFAULT_WIDTH = DEFAULT_TOOLS * BUTTON_PX + (DEFAULT_TOOLS - 1) * GAP_PX + 2 * PADDING_PX + 2 * BORDER_PX;
+// The narrowest a person can make it: a dense tree row still shows an icon and a few characters
+// of its name under its row actions (it truncates).
+export const TOOL_STACK_MIN_WIDTH = 128;
 // The panels whose height a person sets, and what each opens at when they have not:
 //   tree       the model tree, half the stack's own height — the viewer's less the strip above
 //              it and the insets (`toolPanelDefaultHeight`);
@@ -77,8 +76,14 @@ export function clampToolPanelHeight(height, stackHeight) {
 }
 
 /** What a sizable panel opens at in a stack `stackHeight` tall, before a person sets it. */
-export function toolPanelDefaultHeight(key, stackHeight) {
-  if (key === "tree" || key === "position") return Math.round((Number(stackHeight) || 0) / 2) || TOOL_PANEL_REFERENCE_DEFAULT_HEIGHT;
+/**
+ * The cap a panel opens with where a person has set none: the tree and Position, half the stack's
+ * own height on desktop and all of it on a phone (where the tree starts folded, and gives way to
+ * whatever joins it); the Reference, its own default.
+ */
+export function toolPanelDefaultHeight(key, stackHeight, mobile = false) {
+  const height = Number(stackHeight) || 0;
+  if (key === "tree" || key === "position") return Math.round(mobile ? height : height / 2) || TOOL_PANEL_REFERENCE_DEFAULT_HEIGHT;
   return TOOL_PANEL_REFERENCE_DEFAULT_HEIGHT;
 }
 

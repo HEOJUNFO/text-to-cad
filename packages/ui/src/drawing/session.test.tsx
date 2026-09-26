@@ -26,19 +26,23 @@ it('is the toolbar\'s view of the mounted editor and its only way to drive it', 
   expect(session.result.current).toMatchObject({ tool: 'rectangle', color: '#39ff14' });
 });
 
-it('keeps nothing of a sketch once Draw is left', () => {
+it('keeps nothing of a sketch once Draw is left, but keeps its tool, colour and stroke width for the next', () => {
   const session = renderHook(({ active }) => useDrawingSession(active, CAD), { initialProps: { active: true } });
-  const controller = editor();
-  act(() => { session.result.current.onReady(controller); session.result.current.onToolChange('text'); session.result.current.onColorChange('#ffffff'); session.result.current.onContentChange(true); });
+  const controller = { ...editor(), setStrokeWidth: vi.fn() };
+  expect(session.result.current.strokeWidth).toBe(2);
+  act(() => { session.result.current.onReady(controller); session.result.current.onToolChange('text'); session.result.current.onColorChange('#ffffff');
+    session.result.current.selectStrokeWidth(4); session.result.current.onContentChange(true); });
+  expect(controller.setStrokeWidth).toHaveBeenCalledWith(4);
+  expect(session.result.current.strokeWidth).toBe(4);
   session.rerender({ active: false });
-  expect(session.result.current).toMatchObject({ ready: false, tool: 'freedraw', color: '#ff2d55', hasContent: false });
+  expect(session.result.current).toMatchObject({ ready: false, tool: 'text', color: '#ffffff', strokeWidth: 4, hasContent: false, canUndo: false, canRedo: false });
   act(() => session.result.current.clear());
   expect(controller.clear).not.toHaveBeenCalled();
   // The editor releasing its controller on unmount is the same ending.
   session.rerender({ active: true });
   act(() => session.result.current.onReady(controller));
   act(() => session.result.current.onReady(null));
-  expect(session.result.current.ready).toBe(false);
+  expect(session.result.current).toMatchObject({ ready: false, tool: 'text', color: '#ffffff', strokeWidth: 4 });
 });
 
 it('does not re-render the viewer for reports that change nothing', () => {

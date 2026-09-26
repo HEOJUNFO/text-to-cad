@@ -995,8 +995,9 @@ const ShellViewport = forwardRef(function ShellViewport({
         previewMode={previewMode}
         isLoading={isLoading}
         meshData={scene}
-        viewPlaneOffsetRight={16}
-        viewPlaneOffsetBottom={32}
+        // Close into the corner: the cube's box is larger than the cube, whose labels overhang it.
+        viewPlaneOffsetRight={4}
+        viewPlaneOffsetBottom={12}
         viewPlaneSize={VIEW_PLANE_CONTROL_SIZE}
         compact={false}
         activeViewPlaneFace={activeViewPlaneFace}

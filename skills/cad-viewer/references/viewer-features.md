@@ -5,7 +5,7 @@ Load this only when a task needs Viewer file-support details or UI control guida
 ## Supported Files
 
 - `.step`, `.stp`: STEP/STP review through the document's tree in the store (compiled from the file's bytes on open when missing); supports assembly trees, part hide/show, inspect/focus, face/edge/part selection, copied `#...` CAD references, display modes, clip planes, and a live Position section (named poses and joint sliders) when the model's sidecar declares kinematics, plus animation clips through the Animate tool when it declares animation.
-- `.stl`, `.3mf`, `.glb`: mesh viewing with orbit/pan/zoom, screenshots, and the Display tool's shading modes. Measure is not offered — it is a STEP-only tool that snaps to B-rep topology, which a mesh has none of. A plain GLB's `COLOR_0` vertex colors render as source colors, exactly like authored material colors; a GLB carrying embedded animation plays it through the Animate tool, not a tab of its own, and looks the same at rest and while animating: a GLB is always drawn as its own glTF scene, wearing the viewer's surface finish outside Render mode (keeping its colors, maps and opacity) and its authored finish in Render mode.
+- `.stl`, `.3mf`, `.glb`: mesh viewing with orbit/pan/zoom, screenshots, and the Display settings' shading modes. Measure is not offered — it is a STEP-only tool that snaps to B-rep topology, which a mesh has none of. A plain GLB's `COLOR_0` vertex colors render as source colors, exactly like authored material colors; a GLB carrying embedded animation plays it through the Animate tool, not a tab of its own, and looks the same at rest and while animating: a GLB is always drawn as its own glTF scene, wearing the viewer's surface finish outside Render mode (keeping its colors, maps and opacity) and its authored finish in Render mode.
 - `.dxf`: read-only 2D drawing viewing — a straight render of the sheet, with no 3D view and no flat pattern. The server flattens the drawing to 2D primitives per request (text outlined, dimensions exploded, hatches filled, blocks placed) and the viewer paints them; no render artifact exists for a `.dxf`, so generated and imported drawings alike render straight from their own bytes.
 - `.urdf`: robot link/mesh viewing with movable joint sliders, and reset pose.
 - `.srdf`: paired-URDF viewing with planning groups, group-state presets, and joint controls.
@@ -28,16 +28,17 @@ Load this only when a task needs Viewer file-support details or UI control guida
   toggle, puts it down again). What a tool can be set to is its panel under the
   toolbar while it is up: Select's modes, Measure's snapping (the panel is there,
   empty, as soon as Measure is picked), Draw's tools, Position's joints, Animate's
-  Routine, Speed, Loop and play/pause. A tool's modes are one small button in its
-  panel's header row, beside the fold chevron, that opens a dropdown — Select's in
-  the Features filter row, Measure's (All, Points, Edges, Faces) in its heading.
+  Routine and play/pause. A tool's modes or settings are one small sliders button
+  in its panel's header row, beside the fold chevron or X, that opens a dropdown —
+  Select's in the Features filter row, Measure's (All, Points, Edges, Faces) and
+  Animate's (Speed, Loop) in their headings.
 - STEP Select modes: All (pointer icon), Parts (assemblies only), Faces, Edges,
   in the Features filter row's mode menu, each row the mode's glyph (a cube, a
   filled face, a heavy edge); the Select button shows the pointer
   badged with it (Measure's button: the ruler badged with its snapping mode).
-  Edge chain and Tangent faces are checkboxes in that menu, independent of the
-  mode and each other, shown only where they apply (Tangent faces under
-  All/Faces, Edge chain under All/Edges; a hidden one keeps its choice).
+  Group edges and Group faces are checkboxes in that menu, independent of the
+  mode and each other, shown only where they apply (Group faces under
+  All/Faces, Group edges under All/Edges; a hidden one keeps its choice).
   The mode shapes the Features tree: All is your own expansion; Parts shows every
   part, none expandable; Faces/Edges expand everything and load each part's
   topology as its row scrolls into view. Outside All the tree cannot be expanded
@@ -75,22 +76,24 @@ panels in the tool stack under the toolbar, shown by their tool, and no pick or
 tool opens, closes or switches the explorer. Under Select: Features (STEP) or
 Links (robots) — the filter box is its top row — then, with a selection, the
 Reference, then STEP Issues or SDF metadata. Under Position: the Position panel.
-Under Display, Draw or Animate: that tool's panel, first. Kept Measure results,
-Explode and Clip follow. All panels share one width (190px default, 160px
-minimum, up to half the viewer; drag or arrow-key the handle on the stack's
-right edge). Each panel is its content's height; the tree and Position open
+Under Draw or Animate: that tool's panel, first. Kept Measure results,
+Explode and Clip follow. All panels share one width (138px default, 128px
+minimum, up to half the viewer; drag or arrow-key the
+handle on the stack's right edge, or drag its bottom-right corner, which also
+sizes the tree, Position and Reference together, as the stack's bottom edge does). Each panel is its content's height; the tree and Position open
 capped at half the stack's height and the Reference at 288px, and a handle on
 each one's bottom edge changes the cap. Every panel but Draw's folds to its
 first row with a chevron (up to fold, down to open); pulling a folded panel's
 handle down reopens it. Width, caps and folded panels are remembered across
 files. The stack never extends past the viewer: the tree scrolls first, then
 details panels, and the column scrolls only if the rest still does not fit. On
-mobile (below 720px) the same stack applies, the tree taking at most 40% of it;
+mobile (below 720px) the same stack applies, the tree starting folded and taking
+up to the whole column when opened;
 the file explorer is a floating sheet. The file explorer column is 200px minimum and
 closes only when dragged below half of that.
 
 The Reference panel's header names the reference (a label, else part and kind,
-e.g. "base · face 3"; its ID is a row) with an X to clear; with several selected
+e.g. "base · face 3"; its ID is a row) with Copy (that reference) and an X to clear; with several selected
 the header is a picker with "i/N" and the rows show the chosen one only.
 
 Position is headed "Position" with a Reset; a Pose label and dropdown (Default
@@ -100,10 +103,12 @@ survive tool changes. Reset restores authored defaults, including SRDF home.
 Filters match model/link names; link filters also match joint names. File names
 retain their on-disk suffixes.
 
-Display is a toolbar tool whose panel leads the stack: Mode, Appearance and
+Display settings are a popover from the button beside Fullscreen at the viewport's
+top right (not a tool: the tool in hand stays): Mode, Appearance and
 Projection; Surfaces; then optional Edges, Grid / Axes, Lighting, Background and
 Floor. Plus enables a section with defaults; minus disables it. There is no
-extra Enabled checkbox. Color and choice popups close before the panel does.
+extra Enabled checkbox. Color and choice popups close before the popover does;
+a press on the model leaves it open, so you can orbit to judge a setting.
 Mode presets are Solid, Render, X-ray, Hidden line and Wireframe where supported.
 Render defaults to perspective; other presets to orthographic. Meshes and robots
 offer Solid/Render without STEP topology effects. Manual changes show Custom.

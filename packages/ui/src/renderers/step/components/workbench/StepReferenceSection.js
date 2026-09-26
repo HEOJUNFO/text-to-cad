@@ -1,4 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Check, Copy } from "lucide-react";
+import { TOOL_PANEL_BUTTON_CLASS } from "../../../kit/tools/ToolPanel.jsx";
 import { referenceMeasurements } from "../../workbench/referenceMeasurements.js";
 import { stepSelectionMaterialInfo } from "../../workbench/stepSelectionMaterial.js";
 import { nodeVolume } from "../../workbench/partVolume.js";
@@ -215,15 +217,29 @@ function referenceName(item, meshData, partName) {
   return [parent, number ? `${kind} ${number}` : kind].filter(Boolean).join(" · ");
 }
 
+/** The Reference heading's Copy: the reference it shows, as the Copy Reference action copies it; a tick for a moment after. */
+function CopyReferenceButton({ onCopy }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return undefined;
+    const timer = setTimeout(() => setCopied(false), 1200);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  return <TooltipHint content="Copy reference"><button type="button" aria-label="Copy reference" className={TOOL_PANEL_BUTTON_CLASS}
+    onClick={async () => { if (await onCopy()) setCopied(true); }}>
+    {copied ? <Check className="size-3" aria-hidden="true" /> : <Copy className="size-3" aria-hidden="true" />}
+  </button></TooltipHint>;
+}
+
 /**
  * The Reference panel's heading and rows for what is selected: read-only facts. The heading is
  * the reference being read — its name (or kind) and id — and, with several selected, a picker
  * that browses them; it never changes the selection, and it is the only thing a multi-selection
  * adds: the rows are always the browsed reference's alone. `null` with nothing to say.
  *
- * @returns {{ title: import("react").ReactNode, content: import("react").ReactNode } | null}
+ * @returns {{ title: import("react").ReactNode, content: import("react").ReactNode, actions: import("react").ReactNode } | null}
  */
-export function useStepReference({ references = [], meshData = null, sourceAppearance = null, measurements = null, partName = null }) {
+export function useStepReference({ references = [], meshData = null, sourceAppearance = null, measurements = null, partName = null, onCopy = null }) {
   const items = useMemo(() => Array.isArray(references) ? references.filter(Boolean) : [], [references]);
   const idsKey = JSON.stringify(items.map(itemKey));
   const [browsed, setBrowsed] = useState(null);
@@ -245,7 +261,7 @@ export function useStepReference({ references = [], meshData = null, sourceAppea
   const at = items.indexOf(activeItem) + 1;
   const title = items.length > 1 ? <Select value={itemKey(activeItem)} onValueChange={id=>setBrowsed({selection:idsKey,id})}>
     <SelectTrigger size="sm" aria-label="Inspect selected reference" data-reference-picker=""
-      className="!h-6 min-w-0 max-w-full gap-1 rounded-sm border-none bg-transparent !px-0 text-xs shadow-none hover:bg-transparent focus-visible:ring-2 focus-visible:ring-ring/45 dark:bg-transparent dark:hover:bg-transparent [&_svg]:size-3 [&_svg]:opacity-50 hover:[&_svg]:opacity-100 data-[state=open]:[&_svg]:opacity-100">
+      className="!h-6 min-w-0 max-w-full gap-1 rounded-sm border-none bg-transparent !px-0 text-tiny leading-4 shadow-none hover:bg-transparent focus-visible:ring-2 focus-visible:ring-ring/45 dark:bg-transparent dark:hover:bg-transparent [&_svg]:size-3 [&_svg]:opacity-50 hover:[&_svg]:opacity-100 data-[state=open]:[&_svg]:opacity-100">
       <span className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left" data-reference-label="">
         <span className="min-w-0 truncate">{name(activeItem)}</span>
         <span className="shrink-0 text-tiny text-muted-foreground tabular-nums" data-reference-count="">{at}/{items.length}</span>
@@ -260,5 +276,8 @@ export function useStepReference({ references = [], meshData = null, sourceAppea
       : <TopologyDetail reference={activeItem} fallbackSize={items.length === 1 ? measurements?.size : null}/>)}
     <MaterialDetail info={materialInfo}/>
   </div>;
-  return { title, content };
+  // The heading's Copy, where the X's fold chevron would be: the reference on show — the one
+  // browsed to, with several selected — or, with parts alone selected, the selection.
+  const actions = onCopy ? <CopyReferenceButton onCopy={() => onCopy(activeItem ? itemKey(activeItem) : "")} /> : null;
+  return { title, content, actions };
 }

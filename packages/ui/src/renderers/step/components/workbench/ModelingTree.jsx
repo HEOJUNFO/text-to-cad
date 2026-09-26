@@ -2,13 +2,14 @@ import { TooltipHint } from "@hardcore/ui/primitives/tooltip";
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Boxes, Circle, CornerUpRight, Focus, Layers, RotateCw, Shapes, Spline, SquareDashed } from 'lucide-react';
 import { Button } from '@hardcore/ui/primitives/button';
-import { TreeRowSurface, TreeRowChevron, TreeRowLabel } from '@hardcore/ui/primitives/tree-row';
+import { TREE_ROW_DENSE_ICON_CLASS, TreeRowSurface, TreeRowChevron, TreeRowLabel } from '@hardcore/ui/primitives/tree-row';
 import { TreeFilterHighlight, TreeFilterInput } from '@hardcore/ui/primitives/tree-filter';
 import { cn } from '@hardcore/ui/utils';
 import ModelPartMenu from './ModelPartMenu.jsx';
 import ModelPartActions from './ModelPartActions.jsx';
 import { modelingSelectionPaths } from '../../workbench/modelingSelection.js';
 import ToolPanel, { ToolPanelCollapse } from '../../../kit/tools/ToolPanel.jsx';
+import { useViewerMobile } from '../../../../file-viewer/responsive.js';
 import { modelingReferenceIds } from '../../workbench/modelingTree.js';
 import { implicitModelingRoots, presentModelingAssembly } from '../../workbench/modelingPresentation.js';
 import { modelTreeSearchChain, useTreeSearch } from '../../../kit/inspector/modelTreeSearch.js';
@@ -66,10 +67,10 @@ function findNodeLabel(nodes, selectionId) {
 // The disclosure a row shows: a button, or — while the Select mode decides the tree's shape
 // (`TREE_SHAPES`) — the same chevron as a mark nobody can press.
 function Disclosure({ node, open, locked, toggle }) {
-  if (locked) return <span aria-hidden="true" data-disclosure-locked={open ? "open" : "shut"} className="grid h-7 w-5 shrink-0 place-items-center opacity-50"><TreeRowChevron expanded={open}/></span>;
+  if (locked) return <span aria-hidden="true" data-disclosure-locked={open ? "open" : "shut"} className="grid h-6 w-4 shrink-0 place-items-center opacity-50"><TreeRowChevron expanded={open} dense/></span>;
   return <button type="button" aria-label={`${open ? 'Collapse' : 'Expand'} ${node.label}`} aria-expanded={open}
-    className="grid h-7 w-5 shrink-0 place-items-center rounded focus-visible:ring-2 focus-visible:ring-ring"
-    onClick={()=>toggle(node)}><TreeRowChevron expanded={open}/></button>;
+    className="grid h-6 w-4 shrink-0 place-items-center rounded focus-visible:ring-2 focus-visible:ring-ring"
+    onClick={()=>toggle(node)}><TreeRowChevron expanded={open} dense/></button>;
 }
 
 function ModelingRow({ node, depth=0, selected, joins=NO_JOINS, expanded, locked=false, toggle, choose, disabled, partControls, feature, rowRefs, inheritedHidden=false, inheritedUnavailable=false }) {
@@ -83,15 +84,15 @@ function ModelingRow({ node, depth=0, selected, joins=NO_JOINS, expanded, locked
   return <li className="min-w-0" data-tree-part={node.kind === 'part' ? node.id : undefined}
     ref={element => { if (element) rowRefs.current.set(node.id, element); else rowRefs.current.delete(node.id); }}>
     <ModelPartMenu node={node} controls={partControls} feature={feature} disabled={disabled}>
-      <TreeRowSurface active={selected.has(node.id)} className={cn('group/row gap-0 pr-0', hiddenByOwner && 'opacity-50')}
+      <TreeRowSurface dense active={selected.has(node.id)} className={cn('group/row relative gap-0 pr-0', hiddenByOwner && 'opacity-50')}
         onMouseEnter={() => partControls.onHoverTreeNode?.(node.selectionId || node.occurrenceId || '')}
         onMouseLeave={() => partControls.onHoverTreeNode?.('')} style={{paddingLeft:depth*12, ...joinedCorners(joins.get(node.id))}}>
-        {branch ? <Disclosure node={node} open={open} locked={locked} toggle={toggle}/> : <span className="w-5 shrink-0"/>}
+        {branch ? <Disclosure node={node} open={open} locked={locked} toggle={toggle}/> : <span className="w-4 shrink-0"/>}
         <TooltipHint content={node.label} overflowOnly><button type="button" aria-label={`Select ${node.label}`} aria-pressed={selected.has(node.id)}
           disabled={disabled || unavailable || !(node.selectionId || node.memberSelectionIds?.length || node.faces?.length || node.edges?.length)}
           onClick={event=>{if(event.detail < 2)choose(node,event);}} onDoubleClick={event=>choose(node,event)}
           className="flex h-full min-w-0 flex-1 items-center gap-1 rounded pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40">
-          <Icon className="size-3.5 shrink-0 text-muted-foreground"/><TreeRowLabel className="flex-1">{node.label}</TreeRowLabel>
+          <Icon className={TREE_ROW_DENSE_ICON_CLASS}/><TreeRowLabel className="flex-1">{node.label}</TreeRowLabel>
         </button></TooltipHint>
         {node.selectionId && <ModelPartActions node={node} controls={partControls} disabled={disabled}/>}
       </TreeRowSurface>
@@ -109,14 +110,14 @@ function ModelingSearchRow({ match, index, selected, joins=NO_JOINS, cursor, cho
     (owner,step)=>nodeAvailability(step,partControls,owner.hiddenByOwner,owner.outsideFrontier),{hiddenByOwner:false,outsideFrontier:false});
   return <li className="min-w-0" data-search-row={node.id}>
     <ModelPartMenu node={node} controls={partControls} feature={feature} disabled={disabled}>
-      <TreeRowSurface active={selected.has(node.id)} cursor={cursor} className={cn('group/row gap-0 pr-0', hiddenByOwner && 'opacity-50')}
+      <TreeRowSurface dense active={selected.has(node.id)} cursor={cursor} className={cn('group/row relative gap-0 pr-0', hiddenByOwner && 'opacity-50')}
         onMouseEnter={() => partControls.onHoverTreeNode?.(node.selectionId || node.occurrenceId || '')}
         onMouseLeave={() => partControls.onHoverTreeNode?.('')} style={joinedCorners(joins.get(node.id))}>
         <TooltipHint content={`${entry.prefix}${node.label}`} overflowOnly><button type="button" aria-label={`Select ${node.label}`} aria-pressed={selected.has(node.id)}
           disabled={disabled || unavailable || !(node.selectionId || node.faces?.length || node.edges?.length)}
           onClick={event=>{if(event.detail < 2)choose(node,event);}} onDoubleClick={event=>choose(node,event)}
           className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded pl-2 pr-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40">
-          <Icon className="size-3.5 shrink-0 text-muted-foreground"/>
+          <Icon className={TREE_ROW_DENSE_ICON_CLASS}/>
           {/* Name first: in a narrow panel a deep owner path takes the truncation, never the name. */}
           <TreeRowLabel className="max-w-full shrink-0"><TreeFilterHighlight indices={indices} text={entry.label}/></TreeRowLabel>
           {entry.prefix && <TreeRowLabel className="flex-1 text-micro text-muted-foreground">{entry.prefix.slice(0,-1)}</TreeRowLabel>}
@@ -141,6 +142,7 @@ function ModelingSearchRow({ match, index, selected, joins=NO_JOINS, cursor, cho
  * row comes on screen, never for a whole large assembly at once.
  */
 export default function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, loading=false, references=EMPTY, selectedReferenceIds=EMPTY, selectedPartIds=EMPTY, onLoadTopology, onRequestRecognition, onSelect, onClearSelection, stepRoot, selectedReferences, selectionDetails, activeTreeNodeScrollKey, partControls={} }) {
+  const mobile = useViewerMobile();
   const {descriptor,results,error,retryFailed}=modeling;
   const [selected,setSelected]=useState(null),[pending,setPending]=useState(null),[localExpanded,setLocalExpanded]=useState(new Set());
   const tree=useMemo(()=>presentModelingAssembly(descriptor,results,stepRoot),[descriptor,results,stepRoot]);
@@ -368,8 +370,9 @@ export default function ModelingTree({ modeling, active, disabled, mode='all', m
   const hasDetails=Boolean(nodeDetails || pending || selectionDetails);
   return <>
     {/* No heading: the filter is the panel's top row, and stays put while the tree scrolls under it. */}
-    <ToolPanel id="tree" label="Features" fit="tree" sizable hidden={!active}
-      header={<TreeFilterInput className="px-1" label="Filter model" placeholder="Filter model…" value={query} onChange={changeQuery} onKeyDown={onSearchKeyDown}
+    {/* On a phone it starts folded: the model gets the screen until the person opens it. */}
+    <ToolPanel id="tree" label="Features" fit="tree" sizable defaultCollapsed={mobile} hidden={!active}
+      header={<TreeFilterInput dense label="Filter model" placeholder="Filter…" yieldWhileTyping value={query} onChange={changeQuery} onKeyDown={onSearchKeyDown}
         trailing={<>
           {loading && <span role="status" className="shrink-0 text-micro text-muted-foreground">Loading…</span>}
           {partControls.hiddenPartIds?.length > 0 && <Button disabled={disabled} type="button" variant="ghost" size="sm" className="h-6 shrink-0 px-1.5 text-tiny text-muted-foreground" onClick={partControls.showAllHiddenParts}>Show all</Button>}
@@ -377,7 +380,7 @@ export default function ModelingTree({ modeling, active, disabled, mode='all', m
           {modeMenu}
           <ToolPanelCollapse/>
         </>}/>}>
-      <div className="flex flex-col text-xs" aria-label="Modeling tree">
+      <div className="flex flex-col text-tiny" aria-label="Modeling tree">
         {(error || failed>0) && <p role="alert" className="px-3 pb-2 text-micro text-muted-foreground">{error || `${failed} ${failed===1?'component is':'components are'} unavailable.`} <button type="button" className="underline" onClick={retryFailed}>Retry</button></p>}
         <div ref={listRef} className="px-1 py-1" aria-label="Model tree area"
           onClick={event=>{if(!disabled && !event.target.closest('li,button,input,[role="menu"]'))clearSelection();}}>
@@ -389,7 +392,7 @@ export default function ModelingTree({ modeling, active, disabled, mode='all', m
           {searching && <p role="status" className="px-2 py-1 text-micro text-muted-foreground">{found.total > found.matches.length ? `First ${found.matches.length} of ${found.total.toLocaleString()} matches` : `${found.total} ${found.total === 1 ? 'match' : 'matches'}`}</p>}
           {searching ? found.matches.length
             ? <ul aria-label="Model search results">{found.matches.map(match=><ModelingSearchRow key={match.entry.node.id} {...{match,index:searchIndex,selected:highlighted,joins:searchJoins,cursor:match.entry.node.id === cursorId,choose,disabled,partControls,feature}}/>)}</ul>
-            : deferredQuery.trim() && <p className="px-3 py-6 text-center text-xs text-muted-foreground">{`No part or feature matches “${deferredQuery.trim()}”`}</p>
+            : deferredQuery.trim() && <p className="px-3 py-6 text-center text-tiny text-muted-foreground">{`No part or feature matches “${deferredQuery.trim()}”`}</p>
           : empty && !stepRoot ? <p role="status" className="p-2 leading-relaxed text-muted-foreground">This component has no faces to inspect.</p>
           : !visibleRoots.length && implicitRoots.at(-1)?.recognitionPending ? <p role="status" className="p-2 text-tiny text-muted-foreground">Loading features…</p>
           : <ul aria-label="Model">{visibleRoots.map(node=><ModelingRow key={node.id} {...{node,selected:highlighted,joins,expanded,locked,choose,disabled,partControls,feature,rowRefs,toggle,inheritedHidden:implicitOwner.hiddenByOwner,inheritedUnavailable:implicitOwner.outsideFrontier}}/>)}</ul>}
@@ -397,7 +400,9 @@ export default function ModelingTree({ modeling, active, disabled, mode='all', m
       </div>
     </ToolPanel>
     {/* What is picked, as its own panel under the tree: it comes with a selection and goes with it. */}
-    {hasDetails ? <ToolPanel id="reference" title={referenceTitle || 'Reference'} label="Reference details" closeLabel="Clear selection" fit="details" sizable hidden={!active} onClose={clearSelection}>
+    {/* Not folded away: its X clears the selection, and its Copy (the heading's action) copies the reference on show. */}
+    {hasDetails ? <ToolPanel id="reference" title={referenceTitle || 'Reference'} label="Reference details" closeLabel="Clear selection" fit="details" sizable
+      collapsible={false} actions={selectionDetails?.actions} hidden={!active} onClose={clearSelection}>
       <div className="px-2 pb-1.5">{details}</div>
     </ToolPanel> : null}
   </>;

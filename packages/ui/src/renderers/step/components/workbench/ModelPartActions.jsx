@@ -15,8 +15,13 @@ export default function ModelPartActions({ node, controls, disabled }) {
   const hidden = node.leafPartIds?.length > 0 && node.leafPartIds.every(id => controls.hiddenPartIds?.includes(id));
   const canIsolate = isAssemblyView && typeof onFocusTreeNode === 'function';
   const isolateLabel = `${focused ? 'Exit isolate' : 'Isolate'} ${node.label}`;
-  // The row itself has no right padding (its select button runs to the edge), so the actions bring their own.
-  return <div className="flex shrink-0 items-center gap-0.5 pr-1">
+  // The actions float over the row's right end rather than taking width from it: the name runs
+  // the row's full width, and while an action shows, the name under the buttons alone is blurred
+  // away — no tint and no fade beyond them, so the row reads in its own (hover) colour throughout.
+  const persistent = focused || hidden;
+  return <div data-row-actions="" className={cn(
+    "absolute inset-y-0 right-0 flex items-center gap-0.5 rounded-r-md pl-0.5 pr-1 backdrop-blur-sm transition-opacity",
+    persistent ? "opacity-100" : "opacity-0 group-hover/row:opacity-100 focus-within:opacity-100")}>
     {canIsolate && <TooltipHint content={focused ? "Exit isolate" : "Isolate"}><Button variant="ghost" size="icon-xs" disabled={disabled || hidden} aria-label={isolateLabel} aria-pressed={focused}
       className={cn('size-5', focused ? 'text-foreground' : cn('text-muted-foreground', REVEAL_ON_HOVER))}
       onClick={() => focused ? onUnfocusTreeNode?.(node.selectionId) : onFocusTreeNode(node.selectionId)}>

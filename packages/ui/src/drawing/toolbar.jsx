@@ -52,6 +52,16 @@ export const DRAWING_COLORS = [
 ];
 export const DEFAULT_OVERLAY_DRAWING_COLOR = DRAWING_COLORS[0].value;
 
+// A shape's stroke in px; the pen draws at the same weight (`drawing/index.tsx`).
+/** @type {readonly { value: number, label: string }[]} */
+export const DRAWING_STROKE_WIDTHS = [
+  { value: 1, label: 'Thin' },
+  { value: 2, label: 'Medium' },
+  { value: 4, label: 'Bold' },
+];
+// The weight as a line across a button: 1px, 2px or 3px drawn, whatever it draws on the model.
+const strokeGlyph = width => <span aria-hidden="true" className="block w-3 rounded-full bg-current" style={{ height: `${width === 1 ? 1 : width === 2 ? 2 : 3}px` }} />;
+
 // Two rows of seven by default, the width of the block fixed by that count; a
 // container narrower than it wraps the same buttons into more rows.
 const SURFACE = 'pointer-events-auto flex w-[calc(7*1.5rem+6*0.125rem+0.5rem+2px)] max-w-full flex-wrap gap-0.5 rounded-md border border-border bg-background p-1 text-foreground shadow-sm';
@@ -64,7 +74,9 @@ const swatch = color => ({ backgroundColor: color, boxShadow: 'inset 0 0 0 1px c
  * @param {{ drawing: import('./session.js').DrawingSession, className?: string, layout?: 'toolbar' | 'panel' }} props
  */
 export function DrawingToolbar({ drawing, className = '', layout = 'toolbar' }) {
-  const [choosingColor, setChoosingColor] = useState(false);
+  // Which of the two pickers is open under the buttons, if either: the colours or the weights.
+  const [choosing, setChoosing] = useState(/** @type {'' | 'color' | 'width'} */ (''));
+  const choosingColor = choosing === 'color';
   const disabled = !drawing.ready;
   // No tooltips: over a canvas they cover the ink being pointed at. Every button keeps its accessible name.
   const toolButton = ({ id, label, Icon }) => <ToolbarButton key={id} tooltip={false} label={label} disabled={disabled}
@@ -73,8 +85,11 @@ export function DrawingToolbar({ drawing, className = '', layout = 'toolbar' }) 
   </ToolbarButton>;
   const panel = layout === 'panel';
   const settings = <>
-    <ToolbarButton tooltip={false} label="Color" disabled={disabled} active={choosingColor} aria-expanded={choosingColor} onClick={() => setChoosingColor(open => !open)}>
+    <ToolbarButton tooltip={false} label="Color" disabled={disabled} active={choosingColor} aria-expanded={choosingColor} onClick={() => setChoosing(open => open === 'color' ? '' : 'color')}>
       <span className="size-3 rounded-full" style={swatch(drawing.color)} aria-hidden="true" />
+    </ToolbarButton>
+    <ToolbarButton tooltip={false} label="Stroke width" disabled={disabled} active={choosing === 'width'} aria-expanded={choosing === 'width'} onClick={() => setChoosing(open => open === 'width' ? '' : 'width')}>
+      {strokeGlyph(drawing.strokeWidth ?? 2)}
     </ToolbarButton>
     <ToolbarButton tooltip={false} label="Undo" disabled={disabled || !drawing.canUndo} onClick={() => drawing.undo()}><Undo2 className="size-3" strokeWidth={2} aria-hidden="true" /></ToolbarButton>
     <ToolbarButton tooltip={false} label="Redo" disabled={disabled || !drawing.canRedo} onClick={() => drawing.redo()}><Redo2 className="size-3" strokeWidth={2} aria-hidden="true" /></ToolbarButton>
@@ -84,13 +99,22 @@ export function DrawingToolbar({ drawing, className = '', layout = 'toolbar' }) 
     className={panel ? "mt-1 flex flex-wrap gap-0.5" : SURFACE}>
     {DRAWING_COLORS.map(({ value, label }) => <ToolbarButton key={value} tooltip={false} label={label} role="radio"
       aria-checked={drawing.color.toLowerCase() === value} active={drawing.color.toLowerCase() === value}
-      onClick={() => { drawing.selectColor(value); setChoosingColor(false); }}>
+      onClick={() => { drawing.selectColor(value); setChoosing(''); }}>
       <span className="size-3.5 rounded-full" style={swatch(value)} aria-hidden="true" />
+    </ToolbarButton>)}
+  </div> : choosing === 'width' && !disabled ? <div role="radiogroup" aria-label="Stroke width"
+    className={panel ? "mt-1 flex flex-wrap gap-0.5" : SURFACE}>
+    {DRAWING_STROKE_WIDTHS.map(({ value, label }) => <ToolbarButton key={value} tooltip={false} label={label} role="radio"
+      aria-checked={(drawing.strokeWidth ?? 2) === value} active={(drawing.strokeWidth ?? 2) === value}
+      onClick={() => { drawing.selectStrokeWidth?.(value); setChoosing(''); }}>
+      {strokeGlyph(value)}
     </ToolbarButton>)}
   </div> : null;
   if (panel) return <div className={`hardcore-drawing-toolbar ${className}`}>
-    {/* One wrapping row: the two groups are only names for assistive technology. */}
-    <div className="flex min-w-0 flex-wrap gap-0.5" data-drawing-controls="">
+    {/* One wrapping row: the two groups are only names for assistive technology. A grid of 24px
+        columns spread across the width, so however wide the stack is, the buttons wrap into even
+        columns (at the strip's own width, two rows of seven under the strip's seven). */}
+    <div className="grid min-w-0 grid-cols-[repeat(auto-fill,1.5rem)] justify-between gap-0.5" data-drawing-controls="">
       <div role="group" aria-label="Drawing tools" className="contents">{DRAWING_TOOLBAR_TOOLS.map(toolButton)}</div>
       <div role="group" aria-label="Drawing settings" className="contents">{settings}</div>
     </div>

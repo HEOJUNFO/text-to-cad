@@ -202,7 +202,7 @@ function PoseGroupStateRow({ pose }) {
 export default function PositionControls({ pose }) {
   if (!pose.joints.length) return <FileSheetStatusText className="py-2">No movable joints.</FileSheetStatusText>;
   return (
-    <div className="space-y-1 px-1 pb-1.5 pt-0.5">
+    <div className="space-y-1.5 pb-1.5 pt-0.5">
       {/* A named state is a way of SETTING the joints, so it leads them. A plain URDF
           declares none and opens straight onto its values. */}
       <PoseGroupStateRow pose={pose} />

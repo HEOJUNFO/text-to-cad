@@ -4,15 +4,19 @@ import { cn } from '@hardcore/ui/utils';
 /**
  * The filter box above a tree, and the highlight its matches use. Shared by the
  * file tree and the Model tree so the two filters are one control; each caller
- * owns its corpus, ranking and keyboard.
+ * owns its corpus, ranking and keyboard. `yieldWhileTyping`: the `trailing` controls step aside
+ * while the box has focus, so the whole row is the box (a narrow panel's filter). `dense`: a
+ * tool-stack panel's first row — a panel heading's 28px and 11px text, the box close to its walls,
+ * so its buttons sit exactly where a heading's do.
  */
-export function TreeFilterInput({ label, placeholder, value, onChange, onKeyDown, trailing, clearLabel = 'Clear filter', className, ...props }) {
-  return <div {...props} data-slot="tree-filter" className={cn('flex h-9 shrink-0 items-center gap-1 border-b px-2', className)}>
+export function TreeFilterInput({ label, placeholder, value, onChange, onKeyDown, trailing, yieldWhileTyping = false, dense = false, clearLabel = 'Clear filter', className, ...props }) {
+  return <div {...props} data-slot="tree-filter" className={cn('group/filter flex shrink-0 items-center gap-1 border-b', dense ? 'h-7 px-1' : 'h-9 px-2', className)}>
     <div className="relative flex min-w-0 flex-1 items-center">
-      <Search className="pointer-events-none absolute left-2 size-3 text-muted-foreground" />
+      <Search className={cn('pointer-events-none absolute text-muted-foreground', dense ? 'left-1.5 size-2.5' : 'left-2 size-3')} />
       <input
         aria-label={label}
-        className="h-6 w-full min-w-0 rounded-md bg-transparent pr-5 pl-6.5 text-xs outline-none placeholder:text-muted-foreground focus:bg-background/70"
+        className={cn('w-full min-w-0 rounded-md bg-transparent pr-5 outline-none placeholder:text-muted-foreground focus:bg-background/70',
+          dense ? 'h-5 pl-5 text-tiny' : 'h-6 pl-6.5 text-xs')}
         onChange={event => onChange(event.target.value)}
         onKeyDown={onKeyDown}
         placeholder={placeholder}
@@ -26,7 +30,9 @@ export function TreeFilterInput({ label, placeholder, value, onChange, onKeyDown
         type="button"
       ><X className="size-2.5" /></button> : null}
     </div>
-    {trailing}
+    {/* The same spacing as a panel heading's buttons, so the icons line up down a stack. */}
+    {trailing ? <div data-tree-filter-trailing="" className={cn('flex shrink-0 items-center gap-0.5',
+      yieldWhileTyping && 'group-has-[input:focus]/filter:hidden')}>{trailing}</div> : null}
   </div>;
 }
 

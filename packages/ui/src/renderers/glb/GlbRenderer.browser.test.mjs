@@ -81,7 +81,7 @@ test('fullscreen stays separate from conditional GLB animation tools', async (t)
   const { open } = await serveHarness(t);
   const staticView = await open('static.glb');
   await ready(staticView.pane);
-  assert.deepEqual(await staticView.pane.getByRole('group', { name: 'Interaction tools' }).getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), ['Display']);
+  await noTools(staticView.pane);
   await staticView.pane.getByRole('button', { name: 'Fullscreen', exact: true }).click();
   await staticView.pane.getByRole('button', { name: 'Pause orbit', exact: true }).waitFor();
   assert.equal(await staticView.pane.getByRole('button', { name: 'Animation settings', exact: true }).count(), 0);
@@ -100,39 +100,67 @@ test('fullscreen stays separate from conditional GLB animation tools', async (t)
 
   const { page, pane, errors } = await open('animated.glb');
   await ready(pane);
-  const animate = pane.getByRole('button', { name: 'Animate', exact: true });
-  assert.equal(await pane.getByRole('toolbar', { name: 'Animation playback' }).count(), 0);
-  await animate.click();
-  await pane.getByRole('button', { name: 'Pause animation', exact: true }).waitFor();
-  assert.equal(await pane.getByLabel('View cube', { exact: true }).isVisible(), true);
-  // The Animate panel leads the stack while it plays: Speed and Loop (one clip, so no Routine),
-  // and nothing of Orbit's, which is fullscreen's.
+  const playing = () => pane.getByRole('button', { name: 'Pause animation', exact: true }).count().then(count => count > 0);
+  // Animate would be its only tool, so there is no strip: its panel is simply there, top left,
+  // with nothing to leave it for and so no X; the routine waits, Autoplay being off by default.
+  await noTools(pane);
   const animatePanel = pane.getByRole('region', { name: 'Animate controls', exact: true });
   await animatePanel.waitFor();
-  assert.equal(await animatePanel.getByRole('combobox', { name: 'Speed', exact: true }).count(), 1);
-  assert.equal(await animatePanel.getByRole('checkbox', { name: 'Loop', exact: true }).count(), 1);
+  await animatePanel.getByRole('button', { name: 'Play animation', exact: true }).waitFor();
+  assert.equal(await playing(), false, 'Autoplay is off: the routine waits for its play button');
+  const [panelBox, backdrop] = await Promise.all([animatePanel.boundingBox(), pane.locator('[data-cad-scene-backdrop]').boundingBox()]);
+  assert.ok(Math.abs(panelBox.x - backdrop.x - 8) <= 1 && Math.abs(panelBox.y - backdrop.y - 8) <= 1, `top left, where the strip would be: ${JSON.stringify(panelBox)}`);
+  assert.equal(await pane.getByLabel('View cube', { exact: true }).isVisible(), true);
+  // Its heading: the name and the settings button, no chevron and no X; its body the transport
+  // (one clip, so no Routine) — and nothing of Orbit's, which is fullscreen's. The playbar under
+  // the model is fullscreen's alone.
+  assert.equal(await animatePanel.getByRole('heading', { name: 'Animate', exact: true }).count(), 1);
+  assert.deepEqual(await animatePanel.locator('[data-tool-panel-heading]').getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))),
+    ['Animation settings']);
+  assert.equal(await animatePanel.getByRole('slider', { name: 'Animation time', exact: true }).count(), 1);
+  assert.equal(await animatePanel.getByRole('combobox', { name: 'Routine', exact: true }).count(), 0, 'one clip: no Routine');
   assert.equal(await animatePanel.getByText(/Orbit/).count(), 0);
-  await animate.click();
-  assert.equal(await page.getByRole('menu').count(), 0, 'a second press opens nothing');
+  assert.equal(await pane.getByRole('toolbar', { name: 'Animation playback' }).count(), 0, 'no playbar under the model outside fullscreen');
+  // Its settings: a Speed submenu showing the speed in hand, then Autoplay and Loop.
+  await animatePanel.getByRole('button', { name: 'Animation settings', exact: true }).click();
+  const settings = page.getByRole('menu', { name: 'Animation settings', exact: true });
+  await settings.waitFor();
+  assert.deepEqual((await settings.getByRole('menuitem').allInnerTexts()).map(text => text.replace(/\s+/g, '')), ['Speed1×']);
+  assert.deepEqual(await settings.getByRole('menuitemcheckbox').evaluateAll(items => items.map(item => `${item.textContent}:${item.getAttribute('aria-checked')}`)),
+    ['Autoplay:false', 'Loop:true']);
+  await page.keyboard.press('Escape');
+  await settings.waitFor({ state: 'detached' });
+  // The panel's play button plays and pauses.
+  await animatePanel.getByRole('button', { name: 'Play animation', exact: true }).click();
+  await animatePanel.getByRole('button', { name: 'Pause animation', exact: true }).waitFor();
+  await animatePanel.getByRole('button', { name: 'Pause animation', exact: true }).click();
+  await animatePanel.getByRole('button', { name: 'Play animation', exact: true }).waitFor();
+  await animatePanel.getByRole('button', { name: 'Play animation', exact: true }).click();
+  await animatePanel.getByRole('button', { name: 'Pause animation', exact: true }).waitFor();
+  // Fullscreen draws the playbar under the model, and the animation's settings beside Orbit's.
   await pane.getByRole('button', { name: 'Fullscreen', exact: true }).click();
   await pane.getByRole('button', { name: 'Animation settings', exact: true }).waitFor();
   assert.equal(await pane.getByRole('button', { name: 'Animation settings', exact: true }).locator('svg.lucide-play').count(), 1);
   assert.equal(await pane.getByRole('button', { name: 'Orbit settings', exact: true }).count(), 1);
   assert.equal(await pane.getByRole('toolbar', { name: 'Animation playback' }).isVisible(), true);
   await pane.getByRole('button', { name: 'Exit fullscreen', exact: true }).click();
-  assert.equal(await animate.getAttribute('aria-pressed'), 'true');
-  await pane.locator('[data-cad-toolbar]').getByRole('button', { name: 'Display', exact: true }).click();
-  await pane.locator('[data-tool-panel][aria-label="Display settings"]').waitFor();
-  assert.equal(await animate.getAttribute('aria-pressed'), 'false');
+  await animatePanel.waitFor();
   assert.equal(await pane.getByRole('toolbar', { name: 'Animation playback' }).count(), 0);
-  await animate.click();
-  await pane.locator('[data-tool-panel][aria-label="Display settings"]').waitFor({ state: 'hidden' });
-  await pane.getByRole('button', { name: 'Pause animation', exact: true }).waitFor();
+  // Display's settings are a popover over it all: the panel stays, and the routine plays on.
+  await pane.getByRole('button', { name: 'Display settings', exact: true }).click();
+  await page.locator('[data-display-popover]').waitFor();
+  assert.equal(await animatePanel.isVisible(), true);
+  assert.equal(await playing(), true);
+  // A press outside it — on the Animate panel here — puts it away.
+  await animatePanel.getByRole('heading', { name: 'Animate', exact: true }).click();
+  await page.locator('[data-display-popover]').waitFor({ state: 'detached' });
+  assert.equal(await playing(), true);
   assert.deepEqual([...staticView.errors, ...errors], []);
 });
-// A static GLB has only the shared Display control.
+// A static GLB has no tools; its Display settings are the button beside Fullscreen.
 const noTools = async (pane) => {
-  assert.deepEqual(await pane.getByRole('group', { name: 'Interaction tools' }).getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), ['Display']);
+  assert.equal(await pane.getByRole('group', { name: 'Interaction tools' }).count(), 0, 'a static GLB has no tools, so no strip');
+  assert.equal(await pane.getByRole('button', { name: 'Display settings', exact: true }).count(), 1, 'its Display settings are the button beside Fullscreen');
   for (const name of ['Orbit', 'Draw', 'Select', 'Measure', 'Position', 'Animate']) {
     assert.equal(await pane.getByRole('button', { name, exact: true }).count(), 0, name);
   }
@@ -194,18 +222,20 @@ test('a static GLB opens on its native scene with no tools: display settings, or
   // A GLB has no panel of its own: its only settings are Display's, and Display is never
   // where a file opens. So it opens with the column shut and the model given the room.
   assert.deepEqual(await panels(pane), ['Show files:false']);
-  assert.equal(await pane.locator('[data-tool-panel]').count(), 0, 'nothing in the tool stack until Display is taken up');
-  await pane.locator('[data-cad-toolbar]').getByRole('button', { name: 'Display', exact: true }).click();
-  await pane.locator('[data-tool-panel][aria-label="Display settings"]').waitFor();
+  assert.equal(await pane.locator('[data-tool-panel]').count(), 0, 'nothing in the tool stack');
+  await pane.getByRole('button', { name: 'Display settings', exact: true }).click();
+  await pane.page().locator('[data-display-popover]').waitFor();
   assert.deepEqual(await panels(pane), ['Show files:false']);
-  assert.equal(await pane.getByRole('tab').count(), 0, 'a panel has no tabs inside it');
-  assert.deepEqual(await pane.getByRole('combobox', { name: 'Mode', exact: true }).innerText(), 'Solid');
-  await pane.getByRole('combobox', { name: 'Mode', exact: true }).click();
+  const displayMenu = page.locator('[data-display-popover]');
+  assert.equal(await displayMenu.getByRole('tab').count(), 0, 'the popover has no tabs inside it');
+  assert.deepEqual(await displayMenu.getByRole('combobox', { name: 'Mode', exact: true }).innerText(), 'Solid');
+  await displayMenu.getByRole('combobox', { name: 'Mode', exact: true }).click();
   assert.deepEqual(await page.getByRole('option').allInnerTexts(), ['Solid', 'Render'], 'a GLB has no edges to draw: Solid and Render only');
   await page.keyboard.press('Escape');
-  for (const section of ['Edges', 'Cross-section', 'Explode']) assert.equal(await pane.getByRole('heading', { name: section, exact: true }).count(), 0, section);
-  await pane.locator('[data-cad-toolbar]').getByRole('button', { name: 'Display', exact: true }).click();
-  await pane.locator('[data-tool-panel][aria-label="Display settings"]').waitFor({ state: 'detached' });
+  assert.equal(await displayMenu.getByRole('heading', { name: 'Surfaces', exact: true }).count(), 1);
+  for (const section of ['Edges', 'Cross-section', 'Explode']) assert.equal(await displayMenu.getByRole('heading', { name: section, exact: true }).count(), 0, section);
+  await pane.getByRole('button', { name: 'Display settings', exact: true }).click();
+  await pane.page().locator('[data-display-popover]').waitFor({ state: 'detached' });
   // The column closing reaches the scene as a resize; let that frame land before comparing pictures.
   await page.waitForFunction(() => document.querySelector('[data-testid="one"] [aria-busy] > div > canvas').width >= 1190);
   await settle(page);
@@ -312,17 +342,18 @@ test('an animated GLB opens at rest and Animate exposes the shared playback tran
   const { page, pane, errors } = await open('animated.glb');
   await ready(pane);
   assert.equal(await pane.getByRole('toolbar', { name: 'Animation playback' }).count(), 0);
-  await pane.getByRole('button', { name: 'Animate', exact: true }).click();
-  await pane.getByRole('button', { name: 'Pause animation', exact: true }).click();
-  await pane.getByRole('slider', { name: 'Animation time' }).focus();
-  await page.keyboard.press('Home');
+  // Its only tool would be Animate, so its Animate panel is simply there, with Autoplay off (the
+  // default) the routine paused at its start.
+  assert.equal(await pane.getByRole('button', { name: 'Animate', exact: true }).count(), 0, 'no Animate tool: no strip');
   await pane.locator('[data-animation-transport]').waitFor();
+  await pane.getByRole('button', { name: 'Play animation', exact: true }).waitFor();
   await page.waitForFunction(() => window.cadHarness.a.controller?.readState().loading === false);
   const rest = await capture(page);
   // The bar is simply there, and the file is at rest under it: nothing about its
   // appearance re-shades or re-poses the model.
   assert.equal(await pane.getByRole('button', { name: 'Play animation', exact: true }).count(), 1);
   assert.equal(await pane.getByRole('button', { name: 'Pause animation', exact: true }).count(), 0, 'it opens paused');
+  assert.equal(await pane.getByRole('toolbar', { name: 'Animation playback' }).count(), 0, 'the transport is the Animate panel\'s, not a playbar under the model');
   assert.equal(Number(await pane.getByRole('slider', { name: 'Animation time' }).getAttribute('aria-valuenow')), 0);
 
   // Scrubbing away and back is the rest pose again.

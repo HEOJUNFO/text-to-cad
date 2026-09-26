@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import * as THREE from "three";
-import { Spline, MousePointer2 } from "lucide-react";
+import { MousePointer2 } from "lucide-react";
 import { EDGELESS_VIEW_FEATURES } from "@hardcore/core/common/viewSettings.js";
 import { resolveLocalAssetFileRef } from "@hardcore/core/lib/urdf/meshAssetUrl.js";
 import { createRobotScene } from "@hardcore/core/lib/urdf/robotScene.js";
@@ -12,7 +12,7 @@ import { useRendererShell } from "../kit/shell/useRendererShell.js";
 import { failureAlert } from "../kit/status/loadAlerts.js";
 import JointHandleOverlay from "../kit/tools/pose/JointHandleOverlay.jsx";
 import ToolPanel from "../kit/tools/ToolPanel.jsx";
-import { MotionResetButton } from "../kit/inspector/kinematicsControls.jsx";
+import { MotionResetButton, PositionToolIcon, positionValuesAreDefault } from "../kit/inspector/kinematicsControls.jsx";
 import { PointerPick } from "../kit/tools/select/usePointerPick.js";
 import { useDeclinedSelectReference, useWorkspaceDocument, workspaceLoadAlert } from "../workspace/useWorkspaceDocument.js";
 import PositionControls from "./PositionControls.jsx";
@@ -25,7 +25,6 @@ import { useLinkSelection } from "./useLinkSelection.js";
 import { useRobotDocument } from "./useRobotDocument.js";
 
 const NO_HANDLES = Object.freeze([]);
-const POSITION_ICON = <Spline className="size-3" strokeWidth={2} aria-hidden="true" />;
 const SELECT_ICON = <MousePointer2 className="size-3" strokeWidth={2} aria-hidden="true" />;
 
 function RobotSurface({ view, data }) {
@@ -174,11 +173,16 @@ function RobotSurface({ view, data }) {
   }, [hostPath]);
   const groupNamesByLink = useMemo(() => (robot?.description?.srdf ? srdfGroupNamesByLink(robot.description) : null), [robot]);
 
+  // Whether the pose is not the opening one, for the dot on the Position icon: a boolean read off
+  // the pose store, so moving a joint re-renders this only when it flips.
+  const noPose = useCallback(() => () => {}, []);
+  const poseCustom = useSyncExternalStore(pose ? pose.subscribe : noPose,
+    () => Boolean(pose) && !positionValuesAreDefault(pose.getSnapshot().values, pose.defaults));
   // Position is offered where a joint can be driven; until the robot has loaded that is not
   // known, and it is shown, idle, meanwhile.
   const tools = [
     shell.tools.own({ id: ROBOT_TOOL.SELECT, label: "Select", icon: SELECT_ICON }),
-    !robot || posable ? shell.tools.own({ id: ROBOT_TOOL.POSE, label: "Position", icon: POSITION_ICON,
+    !robot || posable ? shell.tools.own({ id: ROBOT_TOOL.POSE, label: "Position", icon: <PositionToolIcon custom={poseCustom} />,
       // Its panel is in the tool stack for as long as it is the tool.
       onSelect: () => { if (!poseActive) selectTool(ROBOT_TOOL.POSE); } }) : null
   ].filter(Boolean);
@@ -191,8 +195,9 @@ function RobotSurface({ view, data }) {
       <SdfSection info={robot?.description?.sdf || null} movableJointCount={pose?.joints.length || 0} />
     </ToolPanel> : null}
     {/* Headed "Position" with its Reset; sized like the tree: its content's height, up to half the stack. */}
+    {/* Its X puts Position down, back to Select (a robot's default tool); the pose stays. */}
     {posable && pose ? <ToolPanel id="position" title="Position" actions={<MotionResetButton onReset={pose.reset} />} label="Position controls"
-      fit="details" sizable hidden={!poseActive}>
+      fit="details" sizable collapsible={false} onClose={shell.selectDefaultTool} closeLabel="Close position" hidden={!poseActive}>
       <PositionControls key={robot.revision} pose={pose} />
     </ToolPanel> : null}
   </>;

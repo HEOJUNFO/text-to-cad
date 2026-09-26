@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { buildModelTreeSearchIndex, modelTreeSearchChain, searchModelTree } from './modelTreeSearch.js';
 
-/** The Model tree's `Filter model…` box: what it can find, and in what order. */
+/** The Model tree's filter box (`Filter…`): what it can find, and in what order. */
 
 const part = (id, label, children = []) => ({ id: `model:${id}`, selectionId: id, kind: 'part', label, children });
 const assembly = (id, label, children) => ({ id: `model:${id}`, selectionId: id, kind: 'assembly', label, children });

@@ -6,9 +6,10 @@ import { measureLabelText, measureSeriesColor } from "@hardcore/core/lib/viewer/
 import { cn } from "@hardcore/ui/utils";
 
 
-// The measurement list is content inside the shared persistent tool popover.
+// The Measure panel's body: its measurements, one row each, or — before the first — one hint row
+// the height of a measurement row.
 const SURFACE = "flex min-w-0 flex-col gap-px px-1";
-const ROW = "flex h-6 min-w-0 w-full items-center gap-1.5 rounded-sm px-1.5 text-micro outline-none";
+const ROW = "flex h-6 min-w-0 w-full items-center gap-1.5 rounded-sm px-1 text-micro outline-none";
 
 // What each endpoint bound to, so an exact edge or face reading is visibly
 // different from a free point taken off the tessellated surface.
@@ -19,8 +20,10 @@ function snapPairLabel(item) {
 }
 
 export default function MeasurePanel({ measurements = [], activeId = "", onActivate = null, onDelete = null }) {
-  // Nothing measured, nothing to show: the panel arrives with the first ruler.
-  if (!measurements.length) return null;
+  // Nothing measured yet: a few words in the first row's place, so the panel is never a bare heading.
+  if (!measurements.length) return <p className={cn(SURFACE, "select-none")} data-measure-hint="">
+    <span className={cn(ROW, "text-muted-foreground")}>Pick two points to measure</span>
+  </p>;
   return (
     <section aria-label="Measurements" className={SURFACE}>
       <div className="select-none" role="list">

@@ -38,8 +38,10 @@ none.
   actions, the renderer's actions (the snapshot camera) and one toggle per
   declared panel, **Show files** last. A CAD file declares none: its toggle
   row is the file tree's alone.
-- **Toolbar** at top-left, 14px in. **Fullscreen** is a small transparent
-  two-diagonal-arrows icon button at top-right, aligned with the toolbar.
+- **Toolbar** at top-left, 8px in — the gap between it and the stack under it.
+  At top-right, 8px in and level with it, a bar of two small transparent icon
+  buttons: **Display settings** (sliders) then **Fullscreen** (two
+  diagonal arrows).
 - **Tool stack** beneath the toolbar: the panels of the tool in hand and of the
   effects a person keeps (see [The tool stack](#the-tool-stack)).
 - **View cube** at bottom-right: enlarged face/edge/corner hit areas, neutral
@@ -55,14 +57,17 @@ none.
 
 | File | Toolbar, left to right |
 | --- | --- |
-| STEP | Select, Draw, Measure, Explode (two or more parts), Clip, Position (movable joints only), Animate (routines only), Display |
-| URDF / SRDF / SDF | Select, Position (posable joints only), Display |
-| GLB | Animate (clips only), Display |
-| STL / 3MF | Display |
+| STEP | Select, Draw, Measure, Explode (two or more parts), Clip, Position (movable joints only), Animate (routines only) |
+| URDF / SRDF / SDF | Select, Position (posable joints only) |
+| GLB | Animate (clips only) |
+| STL / 3MF | none |
 | DXF | none: a 2D canvas with the snapshot action only |
 
-There is no separator or activity dot. Animate is always the last tool before
-Display, and Display is last in every 3D renderer.
+There is no separator or activity dot. Animate is always the last tool. Display
+is not a tool: every 3D renderer has its **Display settings** button in the
+viewport's top-right bar, beside Fullscreen (see
+[Display settings](#display-settings-and-section-primitives)). A file with no
+tools has no strip at all.
 
 **A tool the file cannot offer is not on the strip**: never shown disabled.
 Renderers leave it out of the `tools` they hand over; `FloatingToolBar` draws
@@ -81,20 +86,26 @@ owner.
 | Draw | Draws on the view; its tools, color and history are the Drawing panel; a second press puts it down | The sketch is gone |
 | Measure | Arms picking and shows the Measure panel: its snapping modes, then its results; a press while it is up clears the results and puts it down | Unfinished picks are cancelled; completed measurements and their panel stay |
 | Explode / Clip | Opens a neutral panel; an edit applies the effect | A neutral panel goes; an applied effect and its panel stay |
-| Position | Shows joint handles and the Position panel | Handles and panel hide; joint values stay |
-| Animate | Starts playback and shows the Animate panel: Routine, Speed, Loop, and play/pause in its heading | Playback stops and the model returns to rest; Routine, Speed and Loop stay |
-| Display | Shows the Display panel at the top of the stack; a second press or Escape puts it down | The panel goes and the default tool returns; settings stay |
+| Position | Shows joint handles and the Position panel; its icon carries a small dot while the pose is not the default | Handles and panel hide; joint values stay |
+| Animate | Shows the Animate panel — its settings menu (Speed, Autoplay, Loop) in the heading; Routine and the playbar in the body — and starts playback when Autoplay is on (off by default). Its icon is a play circle; a second press does nothing | Playback stops and the model returns to rest; Routine, Speed and Loop stay |
 
 A tree is Select's panel, so it is used under Select; a tree row's menu action
 returns to Select before it acts.
 
+**Every tool's panel but Select's has an X, and no fold chevron.** The X puts
+the tool down and returns to Select, the default tool, which cannot itself be put
+down — its panels (Features or Links, Issues, SDF) fold instead. A file whose
+only tool would be Animate (a mesh scene with clips) has no strip at all: its
+Animate panel is simply there, top-left, with no X.
+
 **No tool has a menu on the strip.** A press on a tool is its only action:
 it takes the tool up, and — for a tool that toggles (Draw, Measure, Explode,
-Clip, Display) — a press while it is up puts it down. Whatever a tool can be
+Clip) — a press while it is up puts it down. Whatever a tool can be
 set to is its panel in the stack, up while the tool is: Select's modes, Measure's
 snapping, Draw's tools, Position's joints, Animate's routine. A tool's exclusive
 modes are never a panel or a row of their own: they are ONE small button in its
-panel's header row, just before the fold chevron, showing the mode in hand, whose
+panel's header row, just before the fold chevron or the X — a sliders icon, the
+size of those buttons (the strip's button shows the mode in hand) — whose
 dropdown lists the modes — each its glyph and its name — then any options that
 go with them (`kit/tools/ToolModeMenu.jsx`). Select's sits in the Features
 filter row, Measure's in the Measure heading. A dropdown is ordinary — under
@@ -108,15 +119,15 @@ fullscreen's orbit and animation settings (`ToolPopover`, `OrbitMenu`,
 **Select** (STEP) has four exclusive modes, each with its own glyph: **All**
 (the pointer), **Parts** (a cube), **Faces** (a cube, its top face filled) and
 **Edges** (a faint cube, one edge heavy). They are the mode menu in the
-Features filter row, beside its chevron; the button shows the mode in hand's
-glyph and each menu row its mode's glyph at full size. The strip's Select button shows the mode in hand as ONE composite:
+Features filter row, beside its chevron; each menu row shows its mode's glyph
+at full size. The strip's Select button shows the mode in hand as ONE composite:
 the pointer, with the mode's glyph shrunk to a badge in its top-right corner
 (cut out of the pointer so the two never touch at the strip's 14px), and the
 bare pointer for All (`data-select-mode`). One drawing of each glyph serves
 both sizes (`SelectionModes.jsx`). Parts is offered only in an assembly. Under the modes,
-checkboxes — **Edge chain** and **Tangent faces** — change how a pick grows,
-independently of the mode and of each other: Tangent faces applies under All
-and Faces, Edge chain under All and Edges. Only the options that apply under the
+checkboxes — **Group edges** and **Group faces** — change how a pick grows,
+independently of the mode and of each other: Group faces applies under All
+and Faces, Group edges under All and Edges. Only the options that apply under the
 mode in hand are shown (both under All, none under Parts); a hidden one keeps
 its choice for when it applies again. Nothing under the strip names the mode. The mode sets the Features tree's shape: under **All** it
 is the person's own (put back as it was when they left All, with the owners of
@@ -128,12 +139,13 @@ a part's topology is asked for as its row comes on screen in the tree, never for
 a whole large assembly at once; a viewport press on a part not yet loaded loads
 that part and picks, and the Features filter row says "Loading…" meanwhile.
 
-**Draw.** Its **Drawing** panel leads the stack while Draw is up: ONE row of
-controls that wraps to the stack's width — the tools, then Color, Undo, Redo and
-Clear inline after them — with no rule between them, no heading, no menu
-and no inset beyond the panel's own (its first button's left edge is the Features
-filter row's). It is the one panel that does not fold: a row of buttons, nothing
-folding it away would make room for. Choosing a drawing tool changes the toolbar
+**Draw.** Its **Drawing** panel leads the stack while Draw is up, headed "Draw"
+with its X: the tools, then Color, Stroke width (Thin, Medium, Bold — a shape's
+1, 2 or 4px, the pen drawn to look the same weight), Undo, Redo and Clear, in one
+grid of 24px columns spread across the stack's width — so they wrap into even
+columns at any width — with no rule, no menu and no inset beyond the panel's own.
+Leaving Draw forgets the sketch, but not the tool, colour and weight in hand,
+which the next time opens with. Choosing a drawing tool changes the toolbar
 icon. Undo and Redo are disabled when their history is empty. The select tool uses lucide's
 SquareMousePointer. The pencil and the shapes share one default stroke width.
 While Draw has ink, the bottom action is **Copy Drawing** (the view with its
@@ -143,8 +155,9 @@ ink, as a PNG to the clipboard). Draw disables the cube without hiding it.
 heading whose mode menu, beside the chevron and the X, holds the four snapping
 modes — **All**, **Points**, **Edges**, **Faces**, plain rows with no title and
 no descriptions, each the mode's glyph at full size (All: the ruler; Points: a
-dot in a ring; Edges and Faces: Select's glyphs) — and there is no "pick two
-points" prompt. The strip's Measure button shows the mode in hand
+dot in a ring; Edges and Faces: Select's glyphs) — and, before the first
+measurement, one hint row the height of a measurement row ("Pick two points to
+measure"). The strip's Measure button shows the mode in hand
 as Select's does: the ruler badged with the mode's glyph (`data-measure-mode`).
 Completed measurements are the panel's body, and keep the panel in the
 stack when another tool is taken up; choosing a mode there takes Measure up
@@ -152,26 +165,27 @@ again, results and all. A press on Measure while it is up — results or none �
 or the panel's X clears them all and puts it down. Removing the last result
 leaves Measure picking, its panel empty. There is no Clear All footer.
 
-**Explode and Clip** are toggles with no enabled checkbox. Explode opens at 0%,
+**Measure, Explode and Clip** do not fold: their X is how a person is done
+with one (it clears the results or removes the effect, and puts the tool down).
+
+**Explode and Clip** are toggles with no enabled checkbox, drawn alike: the
+amount in the heading beside the title, one row for a body — Explode's a
+slider, Clip's its X/Y/Z axis toggle and then its slider. Explode opens at 0%,
 Clip at no cut; an edit applies the effect and the panel is then kept. A panel
 still at its neutral value goes when another tool is chosen, or when the pointer
 is released after a drag that ended at neutral — never mid-drag. Pressing the
 tool again while its panel shows is the same as its X: the effect is removed and,
-if the tool held the pointer, Select returns. Axis or Flip alone is not an effect. The view settings
+if the tool held the pointer, Select returns. An axis alone is not an effect. The view settings
 own both effects, so a Display Reset removes their panels and a restored effect
-reappears with its panel without another press. Clip has one axis/Flip row and
-one slider row: left to right cuts deeper through the original bounding box;
-Flip keeps the other half at the same plane; pose, animation and Explode never
-redefine the range. With fewer than two parts Explode is not on the strip.
-
-**Display** is a tool whose panel is its settings. It takes the pointer from any
-tool, Draw included, and kept panels stay highlighted beside it. See
-[Display panel and section primitives](#display-panel-and-section-primitives).
+reappears with its panel without another press. Clip's slider, left to right,
+cuts deeper through the original bounding box; pose, animation and Explode never
+redefine the range. There is no Flip. With fewer than two parts Explode is not
+on the strip.
 
 ## The tool stack
 
-Under the toolbar, in one column: the shell's tools' panels (**Display**,
-**Drawing**, **Animate**) while their tool is up; Select's **Features** (STEP; a
+Under the toolbar, in one column: the shell's tools' panels (**Drawing**,
+**Animate**) while their tool is up; Select's **Features** (STEP; a
 robot's **Links**) and, whenever something is selected, its **Reference** (then
 STEP's **Issues**, a `.sdf`'s **SDF**); Position's **Position**; then the panels
 of the effects a person keeps (**Measurements**, **Explode**, **Clip**). A panel
@@ -179,11 +193,14 @@ whose tool is not up is `hidden`, not unmounted: a tree keeps its expansion,
 filter and scroll across a trip to another tool. Fullscreen hides the whole
 stack.
 
-- **One width.** Every panel is the stack's width. The default is the strip of
-  the base STEP toolset plus one tool — seven 24px buttons, 2px gaps, 4px
-  padding and a 1px border: 190px. A handle ON the stack's right edge — centred
-  on it, an 8px hit area, nothing beside the panels — widens or narrows every
-  panel together, from 160px up to half the viewer, by pointer or keyboard
+- **Heights by default.** The tree and Position open capped at half the stack
+  column on desktop, and at the whole column on a phone.
+- **One width.** Every panel is the stack's width: 138px by default, a strip
+  of five tools (five 24px buttons, 2px gaps, 4px padding and a 1px border),
+  whatever tools the file's own strip has. A handle ON the stack's right edge — centred
+  on it, an 8px hit area, nothing drawn: a resize cursor, and a focus ring for
+  the keyboard — widens or narrows every
+  panel together, from 128px up to half the viewer, by pointer or keyboard
   (ArrowLeft/ArrowRight by 16px, Home, End). Content truncates to fit; it never
   widens the stack.
 - **Heights.** A panel is exactly its content's height — never padded to a
@@ -193,45 +210,59 @@ stack.
   the stack's own height (the area under the strip, not the viewer), the
   Reference at 288px (its heading and a dozen compact rows: a part's or a face's
   facts and material fit without scrolling). A handle on each one's bottom edge
-  (centred on it, the panel's width) sets its cap by pointer or keyboard
-  (ArrowUp/ArrowDown by 16px, Home to 64px, End to the stack's height). A cap is
-  never a floor.
-- **Never past the viewer.** The column is the viewer's height less the 14px
+  (centred on it, the panel's width; like every handle, a cursor and nothing
+  drawn) sets its cap by pointer or keyboard (ArrowUp/ArrowDown by 16px, Home to
+  64px, End to the stack's height). A cap is never a floor. While any of them is
+  on screen and open, the stack has two handles of its own: one on its foot
+  ("Resize tool panel heights"; ArrowUp/ArrowDown) and one on its bottom-right
+  corner (pointer only). Either sizes every such panel at once, each in
+  proportion to its height; the corner sets the width as well. One write, when
+  the pointer lets go.
+- **Never past the viewer.** The column is the viewer's height less the 8px
   insets and the strip. When the panels need more, the tree gives way first and
   scrolls inside itself, down to 128px or its content, whichever is less; then a
-  details panel (Reference, Position, Measurements, Display, Issues, Animate)
+  details panel (Reference, Position, Measurements, Issues, Animate)
   gives way, down to 96px or its content; a small panel (Explode, Clip, Drawing)
   keeps its height. If what cannot give way still does not fit, the column
-  itself scrolls — a panel is never cut. On mobile the tree takes at most 40% of
-  the column; Display is not a tree and is not held to it.
-- **Folding.** Every panel but Drawing folds to its first row and unfolds again,
+  itself scrolls — a panel is never cut. On mobile the tree starts folded and,
+  opened, may take the whole column, giving way as other panels join it.
+- **Folding.** Only Select's panels fold (Features or Links, Issues, SDF): every tool panel and the Reference has an X instead. A folding panel folds to its first row and unfolds again,
   by a chevron at that row's trailing end: up while open (fold), down while
   folded (open), with `aria-expanded` and the panel's name ("Collapse
   features"). Folded content stays mounted, so a tree keeps its expansion,
   selection and scroll. A panel with a height handle keeps it while folded:
   pulling it down opens the panel at the height it is pulled to, in one gesture
-  and one write; ArrowDown or End on it opens it from the keyboard.
+  and one write; ArrowDown or End on it opens it from the keyboard. Typing into a
+  folded tree's filter opens it, since what the filter finds is in its body; a
+  folded filter row draws no rule under it.
 - **First rows.** Features and Links have no heading: the filter is their top
-  row, stays put while the tree scrolls, and carries the chevron at its end.
-  Display's first row is its Display section heading (Reset, then the chevron).
-  Drawing has no heading. Every other panel has a heading row: a title, a
-  summary where there is one (Explode's amount), its own action (Position's
-  Reset; Animate's play/pause), the chevron, and an X when there is something to
-  remove. The Reference's heading is the reference itself and an X that clears
-  the selection; a kept panel's X removes the effect.
+  row ("Filter…"), stays put while the tree scrolls, and carries the mode menu
+  (Select's) and the chevron at its end — both step aside while the box has
+  focus, so the whole row is the box. Every other panel
+  has a heading row, and every heading reads alike: the Display section
+  headings' text (11px, regular, `TOOL_PANEL_HEADING_TEXT_CLASS`), 28px tall,
+  8px in — a title; a summary where there is one (Explode's and Clip's amount);
+  then, at its right
+  end, its own actions (a mode or settings menu — Measure's, Animate's —
+  Position's Reset, the Reference's Copy), the chevron where it folds, and an X
+  when there is something to remove. Every small button in a heading or a filter
+  row is 20px, 2px apart and 4px from the edge, so the icons line up down the
+  stack. The Reference's heading is the reference itself, then **Copy** (the
+  reference on show — the one browsed to, with several selected — as Copy
+  Reference copies it) and an X that clears the selection; a kept panel's X
+  removes the effect.
 - **The layout is the person's.** Width, caps and folded panels are one viewer
   preference the host keeps across files (`CadPreferences.toolStack`: `{ width,
   heights: { tree?, position?, reference? }, collapsed: { [panel id]: boolean } }`,
   stored beside the orbit speed). `collapsed` holds only what differs from a
   panel's start (the SDF panel starts folded). Every size is written back once,
   when the pointer lets go (or per key), never per pointer move.
-- **Surfaces.** Two, defined once (`floatingSurface.js`) with one blur and one
-  border: the toolbar and every menu or popover over the viewport share
-  `FLOATING_SURFACE_CLASS` (the background at 75%); the stack's panels, which stay
-  up beside the model, share `FLOATING_PANEL_SURFACE_CLASS` (the background at
-  55%, so more of the model reads through). With a full stack over the planetary
-  gear assembly and `juno.step`, orbiting measured the same frame time with the
-  blur as without it.
+- **Surfaces.** Two, defined once (`floatingSurface.js`), with one border: the
+  toolbar and the stack's panels, which stay up beside the model, share
+  `FLOATING_CHROME_SURFACE_CLASS` — the background at 35% and barely blurred
+  (2px), so the model behind them is easy to make out; every menu and popover
+  over the viewport shares `FLOATING_SURFACE_CLASS` (the background at 75%,
+  blurred), so its text never competes with the model.
 - **Scrolling.** Every scroll region in the viewer's chrome — a panel's body,
   the stack's column, the file tree, a menu, the alert card — is the
   `ScrollArea` primitive (`primitives/scroll-area.jsx`, shadcn's): thin overlay
@@ -242,14 +273,21 @@ stack.
   or turns the host's panel column, on desktop or mobile.
 
 Tree rows inset their backgrounds 4px from the panel edges, and the filter row
-shares that inset. Rows are 28px, with a 20px disclosure column and 12px of
-indent per level. An assembly row's actions, shown on hover and kept while they
+shares that inset. A tree in the stack (Features, Links) is dense (`TreeRowSurface`'s
+`dense`): 24px rows in the panels' 11px text, 12px kind icons, a 16px disclosure
+column with a small chevron, and 12px of indent per level; its filter row is a
+heading's 28px, the box 20px tall and close to the row's walls. The host's file
+tree keeps 28px rows. An assembly row's actions, shown on hover and kept while they
 are on, are **Isolate** then the **Hide/Reveal** eye; a part file has no
-Isolate. Model and link filters share `TreeFilterInput`.
+Isolate. They float over the row's right end rather than taking width from it:
+the name runs the row's full width, and while an action shows, a blurred backing
+in the row's own colour, faded in from the left, keeps it legible over the name.
+Model and link filters share `TreeFilterInput`.
 
 **Mobile** is below 720px of FileViewer width — the one viewer breakpoint
 (`useViewerMobile`); chrome never uses window breakpoints. The tool stack is
-the same stack. The host's panels (the file tree) become non-modal floating
+the same stack, but Select's tree (Features, Links) starts folded, so the model
+has the screen until the person opens it. The host's panels (the file tree) become non-modal floating
 sheets over the viewer (280px, inset 8px) that never resize or move the scene
 or shift the page; a sheet has a compact X, outside dismissal and Escape.
 Breadcrumbs collapse to the current file's crumb; the cube and the shortcut
@@ -262,19 +300,20 @@ pick.
 minimum closes the column, and the keyboard never does. The next open starts at
 280px.
 
-## Display panel and section primitives
+## Display settings and section primitives
 
-Display uses the render-sphere icon. While it is the tool, its settings are the
-first panel of the stack, the stack's width, left-aligned under the toolbar: a
-details panel, its content's height, giving way (and scrolling) after the tree
-when the viewer is short. Its Display section's heading row is the panel's first
-row and carries the fold chevron after Reset.
-Setting changes, and presses on the model, never close it; the button again or Escape puts Display down
-and returns the default tool.
+Display is not a tool. Its button — the sliders icon, "Display settings"
+— sits in the viewport's top-right bar beside Fullscreen, and opens an ordinary
+popover end-aligned under it (`kit/shell/DisplayPopover.jsx`), 256px wide and
+never taller than the viewer. Opening it leaves the tool in hand as it is: a
+selection, a Draw session or Position stay. It goes with Escape, its button, or
+a press anywhere but the model; a press on the model (to orbit and judge a
+setting) and setting changes leave it up. Fullscreen hides it with the rest of
+the chrome.
 
-One scroller (the panel's body), shared section primitives, no sticky headings
+One scroller (the popover's body), shared section primitives, no sticky headings
 and no nested cards. Nested dropdowns and color pickers own their dismissal:
-Escape closes the innermost popup first, Display only on a later press.
+Escape closes the innermost popup first, the popover only on a later press.
 
 | Section | Contents |
 | --- | --- |
@@ -386,16 +425,22 @@ Zoom to Selection frames the selection and is unavailable without one. Both are
 STEP context-menu items; the live `resetCamera` command takes the same fit path.
 
 Animate starts playback when pressed, and its **Animate** panel leads the stack
-while it is the tool: headed "Animate" with play/pause and the fold chevron;
-Routine (with more than one) and Speed as a label beside its dropdown; then Loop.
-There is no menu on the strip. The playbar under the model owns pause, scrub and
-restart and has no settings of its own. Orbit is not an Animate setting.
+while it is the tool: headed "Animate", with its settings menu (the sliders
+button, "Animation settings": a Speed submenu, then Autoplay and Loop) and the fold
+chevron; in its body, with more than one routine, the routine's dropdown alone
+(no label: it says what it is), then the playbar — play/pause 4px in from the panel's
+edge and foot, the scrubber to the heading text's inset. There is no menu on
+the strip, and its button (a play circle) behaves as every tool's does: it takes
+Animate up, playing only when Autoplay is on, and a second press does nothing —
+play and pause are the panel's. In fullscreen the playbar sits under the model
+instead. Orbit is not an
+Animate setting.
 
 **Fullscreen** is available for every 3D file, animated or not, and is the
 shell's own state (`presenting`); hosts neither start nor observe it. It fills
-the viewer below the host's nav row, which stays; the host's column is hidden
-and its toggles disabled; the toolbar, the tool stack, cube, bottom action and
-context menu are gone. It starts orbiting. Its top-right controls are an Animation menu
+the viewer below the host's nav row, which stays, and beside the host's column,
+which stays as it was and can still be opened and shut; the toolbar, the tool
+stack, cube, bottom action and context menu are gone. It starts orbiting. Its top-right controls are an Animation menu
 (Play icon, the same Routine/Speed/Loop menu as Animate) for animated files, an
 Orbit menu (Orbit on/off and Speed) and Exit (X). An animated file shows its
 playbar; a static one shows an orbit play/pause. These controls share one
@@ -405,8 +450,8 @@ their area or an open menu holds them.
 Presenting turns off picks, hover, selection highlights, recognition, Draw,
 Measure, joint handles, Animate and Position as tools, and Explode and Clip,
 without discarding any of their values. Entering saves the camera and fits a
-presentation camera; leaving restores the exact camera, the host's column as it
-was and every suspended tool with its panels. The viewport stays mounted throughout.
+presentation camera; leaving restores the exact camera and every suspended tool
+with its panels. The viewport stays mounted throughout.
 
 ## Keyboard
 
@@ -414,8 +459,8 @@ Escape and Copy belong to one viewer: the one with focus, or the one last
 pressed in while focus is on the page. Editable targets keep their own keys.
 
 - **Escape**, innermost first: an open popup in this viewer (a menu, a Select,
-  a color picker) closes itself; then fullscreen exits; then Display is put
-  down; then Draw's canvas spends its own Escape; then the renderer's (STEP: an
+  a color picker, the Display popover) closes itself; then fullscreen exits;
+  then Draw's canvas spends its own Escape; then the renderer's (STEP: an
   unfinished measurement, then the Measure tool, then the selection, then
   isolation; robots: the selection). The tool stack's panels and the host's
   column are never Escape's to close.

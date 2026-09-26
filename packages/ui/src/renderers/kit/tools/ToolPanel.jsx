@@ -1,8 +1,8 @@
-import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, X } from "lucide-react";
 import { cn } from "@hardcore/ui/utils";
 import { ScrollArea } from "@hardcore/ui/primitives/scroll-area";
-import { FLOATING_PANEL_SURFACE_CLASS } from "./floatingSurface.js";
+import { FLOATING_CHROME_SURFACE_CLASS } from "./floatingSurface.js";
 import { ToolStackContext } from "./ToolStack.jsx";
 import { TOOL_PANEL_MIN_HEIGHT, clampToolPanelHeight } from "./toolStackLayout.js";
 
@@ -16,7 +16,7 @@ import { TOOL_PANEL_MIN_HEIGHT, clampToolPanelHeight } from "./toolStackLayout.j
  */
 const FIT = Object.freeze({
   fixed: "shrink-0",
-  tree: "shrink-[100000] group-data-[mobile]/tool-stack:max-h-[40cqh]",
+  tree: "shrink-[100000]",
   details: "shrink",
 });
 // How far a panel gives way before the next one does: never below its content's own height (a
@@ -25,6 +25,12 @@ const FIT = Object.freeze({
 const FLOOR = Object.freeze({ tree: 128, details: 96 });
 const KEY_NUDGE_PX = 16;
 /** A panel header's small icon button: the chevron, the X, and a tool's mode menu (`ToolModeMenu.jsx`). */
+/**
+ * Every panel's heading text: the size and weight of the Display panel's section headings
+ * (`FILE_SHEET_SECTION_HEADING_CLASSES`, 11px), so every heading in the stack reads alike.
+ */
+export const TOOL_PANEL_HEADING_TEXT_CLASS = "text-tiny font-normal leading-4 text-foreground";
+
 export const TOOL_PANEL_BUTTON_CLASS = "flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45";
 
 const ToolPanelContext = createContext(null);
@@ -110,14 +116,16 @@ export default function ToolPanel({ id, title = null, name = "", label, summary 
   const panel = useMemo(() => collapsible ? { collapsed, toggle, label, place } : null, [collapsible, collapsed, toggle, label, place]);
   // A folded panel being dragged open is drawn open, at the height it is dragged to.
   const folded = collapsed && draft === null;
+  // While it is on screen and open, a panel a person sizes is one the stack's own bottom and
+  // corner handles size too (`ToolStack.jsx`).
+  const registerSizable = stack?.register;
+  useEffect(() => (registerSizable && capKey && !hidden && !folded ? registerSizable(capKey) : undefined), [registerSizable, capKey, hidden, folded]);
 
   const section = useRef(null), body = useRef(null), content = useRef(null);
   const drag = useRef(null);
   const personal = capKey ? draft ?? (kept ? stack.height(capKey) : ownHeight) : null;
   const cap = capKey ? personal ?? stack?.defaultHeight(capKey) ?? null : null;
-  // On mobile a tree stays within 40% of the stack, whatever cap it was given.
-  const mobileTree = Boolean(stack?.mobile) && fit === "tree";
-  const maxHeight = folded || cap === null ? undefined : mobileTree ? (personal === null ? "40cqh" : `min(${personal}px, 40cqh)`) : `${cap}px`;
+  const maxHeight = folded || cap === null ? undefined : `${cap}px`;
   const room = () => stack?.room() || Infinity;
 
   // The floor it gives way to: its content's own height when that is less (`FLOOR`).
@@ -133,7 +141,7 @@ export default function ToolPanel({ id, title = null, name = "", label, summary 
     observer.observe(content.current);
     return () => observer.disconnect();
   }, [floored]);
-  const minHeight = floored && natural !== null ? Math.min(natural, FLOOR[fit], cap === null || mobileTree ? Infinity : cap) : undefined;
+  const minHeight = floored && natural !== null ? Math.min(natural, FLOOR[fit], cap === null ? Infinity : cap) : undefined;
 
   const stopDrag = event => {
     const current = drag.current;
@@ -149,10 +157,9 @@ export default function ToolPanel({ id, title = null, name = "", label, summary 
   const drawnHeight = () => Math.min(cap ?? Infinity, section.current?.getBoundingClientRect().height ?? Infinity);
 
   const heading = title ? <div className="flex min-h-7 shrink-0 items-center justify-end gap-0.5 pl-2 pr-1" data-tool-panel-heading="">
-    <h3 className="mr-auto flex min-w-0 flex-1 items-center gap-2 text-xs font-normal">
-      <span className="min-w-0 truncate">{title}</span>
-      {summary ? <span className="shrink-0 text-tiny text-muted-foreground">{summary}</span> : null}
-    </h3>
+    <h3 className={cn("min-w-0 truncate", TOOL_PANEL_HEADING_TEXT_CLASS)}>{title}</h3>
+    {summary ? <span className="ml-2 shrink-0 text-tiny text-muted-foreground">{summary}</span> : null}
+    <span className="min-w-0 flex-1" aria-hidden="true" />
     {actions}
     {panel ? <CollapseButton panel={panel} /> : null}
     {onClose ? <button type="button" aria-label={closeLabel || `Close ${label.toLowerCase()}`}
@@ -161,17 +168,26 @@ export default function ToolPanel({ id, title = null, name = "", label, summary 
     // No heading of its own: while its content's first row is out of sight (folded) or carries no
     // chevron, the panel's name stands in for it.
     : panel && (!placed || (folded && !header)) ? <div className="flex min-h-7 shrink-0 items-center gap-0.5 pl-2 pr-1" data-tool-panel-heading="">
-      <h3 className="min-w-0 flex-1 truncate text-xs font-normal">{name || label}</h3>
+      <h3 className={cn("min-w-0 flex-1 truncate", TOOL_PANEL_HEADING_TEXT_CLASS)}>{name || label}</h3>
       <CollapseButton panel={panel} />
     </div> : null;
 
   return <section ref={section} aria-label={label} hidden={hidden} data-tool-panel={fit} data-tool-panel-id={id || undefined}
     data-collapsed={folded ? "" : undefined}
-    className={cn("pointer-events-auto relative flex w-full flex-col rounded-md text-tiny", FLOATING_PANEL_SURFACE_CLASS, folded ? "shrink-0" : FIT[fit])}
+    // Folded to a filter row, the row's rule under it has nothing under it to divide off.
+    className={cn("pointer-events-auto relative flex w-full flex-col rounded-md text-tiny", FLOATING_CHROME_SURFACE_CLASS, folded ? "shrink-0" : FIT[fit],
+      "data-[collapsed]:[&_[data-slot=tree-filter]]:border-transparent")}
     style={{ maxHeight, minHeight }}>
     <ToolPanelContext.Provider value={panel}>
       {heading}
-      {header}
+      {/* Typing into a folded panel's filter opens it: what the filter finds is in the body. The
+          keystroke is the filter's first — it lands as it would in an open panel — and the panel
+          opens once it has: opening writes the viewer's preferences, whose store re-renders at once,
+          and doing that mid-keystroke would put the box back to what it held before the key. */}
+      {header ? <div className="contents" onInput={event => {
+        if (!folded || !(event.target instanceof HTMLInputElement) || !event.target.value) return;
+        queueMicrotask(() => { if (kept) stack.settle(id, { collapsed: false, fallback: defaultCollapsed }); else setOwnCollapsed(false); });
+      }}>{header}</div> : null}
       {/* A panel that gives way scrolls in the chrome's one scroll region; a fixed one never scrolls. */}
       {fit === "fixed" ? <div ref={body} hidden={folded} data-tool-panel-body="" className="min-w-0 overflow-x-clip rounded-b-md">
         <div ref={content} className="flow-root">{children}</div>
@@ -183,7 +199,7 @@ export default function ToolPanel({ id, title = null, name = "", label, summary 
     {capKey ? <div role="separator" tabIndex={0} aria-label={`Resize ${label.toLowerCase()}`} aria-orientation="horizontal"
       data-tool-panel-height-handle="" data-dragging={draft === null ? undefined : ""}
       aria-valuemin={TOOL_PANEL_MIN_HEIGHT} aria-valuenow={clampToolPanelHeight(folded ? section.current?.getBoundingClientRect().height ?? 0 : cap, room())}
-      className="pointer-events-auto absolute -inset-x-px top-full z-10 h-2 -translate-y-1/2 cursor-row-resize touch-none rounded-full outline-none before:absolute before:inset-x-1 before:top-1/2 before:h-0.5 before:-translate-y-1/2 before:rounded-full before:bg-transparent hover:before:bg-ring active:before:bg-ring focus-visible:before:bg-ring data-[dragging]:before:bg-ring"
+      className="pointer-events-auto absolute -inset-x-px top-full z-10 h-2 -translate-y-1/2 cursor-row-resize touch-none rounded-full outline-none before:absolute before:inset-x-1 before:top-1/2 before:h-0.5 before:-translate-y-1/2 before:rounded-full before:bg-transparent focus-visible:before:bg-ring"
       onPointerDown={event => {
         if (event.button !== 0) return;
         event.preventDefault();

@@ -1,5 +1,5 @@
 import { TooltipHint } from "@hardcore/ui/primitives/tooltip";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, Spline } from "lucide-react";
 import { Button } from "@hardcore/ui/primitives/button";
 import { cn } from "@hardcore/ui/utils";
 import { FILE_SHEET_FIELD_LABEL_CLASSES, FileSheetSelectRow } from "./FileSheet.js";
@@ -26,11 +26,24 @@ export function KinematicsPoseRow({ poses = [], activeValue, onSelect, onReset }
   const active = options.find(pose => pose.value === activeValue);
   return <div data-position-header="" className="flex min-w-0 items-center gap-2 px-2">
     <span className={cn(FILE_SHEET_FIELD_LABEL_CLASSES, "shrink-0")}>Pose</span>
-    <FileSheetSelectRow hideLabel className="min-w-0 flex-1 px-0" triggerClassName="h-6" value={active?.value || NO_PRESET_VALUE}
+    {/* Compact and at the row's right end, the size of the joint value boxes under it. */}
+    <FileSheetSelectRow hideLabel className="ml-auto min-w-0 px-0" triggerClassName="!h-6 w-auto max-w-full gap-1 !px-1.5 text-tiny" value={active?.value || NO_PRESET_VALUE}
       onValueChange={value => value === DEFAULT_POSE_VALUE ? onReset?.() : onSelect?.(value)}
       ariaLabel="Pose" triggerContent={<span className="truncate">{active?.label || "Custom"}</span>}
       options={options} />
   </div>;
+}
+
+/**
+ * The Position tool's icon: the spline, with a small dot at its top-left while the pose is not the
+ * default one (a joint moved, or a named pose applied), so a person can see that from the strip.
+ */
+export function PositionToolIcon({ custom = false }) {
+  return <span className="relative inline-flex" data-position-custom={custom ? "" : undefined}>
+    <Spline className="size-3" strokeWidth={2} aria-hidden="true" />
+    {/* The size of the spline's own end dots and in its colour: a note, not a badge. */}
+    {custom ? <span aria-hidden="true" className="absolute -left-px -top-px size-1 rounded-full bg-current" /> : null}
+  </span>;
 }
 
 /** A Position panel's Reset: in its heading, before the fold chevron. */

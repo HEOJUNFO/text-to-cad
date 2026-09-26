@@ -78,7 +78,7 @@ as its localStorage fallback; neither changes the per-file Render recipe.
 
 Fullscreen orbit speed uses `cad-viewer:orbit:v1`, and the tool stack's layout
 `cad-viewer:tool-stack:v1`: one width for every panel under the viewer's toolbar
-(190px by default, 160px at least), the caps a person dragged the tree, Position and
+(138px by default, 128px at least), the caps a person dragged the tree, Position and
 Reference panels to, and which panels are folded. The web adapter reads, writes and synchronizes
 both keys through `createStoredCadPreferences`; the shared
 renderer discovers no browser storage. Both are global across files and

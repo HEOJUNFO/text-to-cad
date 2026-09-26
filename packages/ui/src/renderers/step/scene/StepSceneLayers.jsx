@@ -41,7 +41,7 @@ export default function StepSceneLayers({ viewport, stepScene, policy, props, ap
   const { runtimeRef, hostRef, mountRef, viewerReadyTick } = viewport;
   const {
     meshData, modelKey, isLoading, renderMode, previewMode, pickMode, hiddenPartIds, selectedPartIds,
-    hoveredPartId, selectorRuntime, stepParameterRuntime, stepAnimationRuntime, animateMode, pickingSuspended = false,
+    hoveredPartId, selectorRuntime, stepParameterRuntime, stepAnimationRuntime, animateMode,
     jointHandles, measureState, activeMeasurementId, measureModeActive,
     onLodCameraChange, onMeshSourceAdoption, onViewerAlertChange,
     onHoverReferenceChange, onActivateReference, onDoubleActivateReference, onMeasurePick, onMeasureHoverPoint
@@ -254,9 +254,8 @@ export default function StepSceneLayers({ viewport, stepScene, policy, props, ap
     onMeasurePick: handleMeasurePick,
     onMeasureHoverPoint: handleMeasureHoverPoint,
     viewerReadyTick,
-    // Nothing under the pointer is picked or hovered while a routine plays, under Animate or
-    // Position, or while the surface suspends picking (Display is up).
-    suppressTopologyPicking: animateMode || Array.isArray(jointHandles) || stepAnimationPlaying || pickingSuspended
+    // Nothing under the pointer is picked or hovered while a routine plays, under Animate or Position.
+    suppressTopologyPicking: animateMode || Array.isArray(jointHandles) || stepAnimationPlaying
   });
 
   // Read-only debug/test seams. `__cadCamera` and `__cadStage` are the viewport's.

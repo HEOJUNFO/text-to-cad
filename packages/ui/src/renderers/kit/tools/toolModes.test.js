@@ -14,9 +14,10 @@ test("an unknown tool falls back to the default tool", () => {
   assert.equal(modes.normalize(undefined), "pick");
 });
 
-test("Display is an exclusive transient tool shared by all renderers", () => {
-  assert.equal(modes.next("ink", "display"), "display");
-  assert.equal(modes.next("display", "pick"), "pick");
+test("Display is not a tool: its old mode id is unknown, so it is the default tool and never restored", () => {
+  assert.equal(modes.normalize("display"), "pick");
+  assert.equal(modes.next("ink", "display"), "pick");
+  assert.equal(modes.persisted("display"), "pick");
   assert.equal(modes.restore("display"), "pick");
 });
 

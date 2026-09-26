@@ -6,13 +6,13 @@ import { cn } from "@hardcore/ui/utils";
 import { ToolbarButton } from "@hardcore/ui/primitives/toolbar-button";
 import { FILE_SHEET_PRECISION_SLIDER_CLASSES } from "../../inspector/FileSheet.js";
 
-// The playbar owns play/pause and scrubbing. Routine, speed and loop are the Animate panel's
+// The transport owns play/pause and scrubbing; routine, speed and loop are the Animate panel's
 // (and, in fullscreen, PlayMenu's).
 //
-// Every animation source shares this transport UI. The bar only edits the clip
-// and clock state of the runtime it is handed; evaluating a clip is its owner's.
-// Animation has no panel section: it is the Animate tool's bottom action,
-// and the whole of fullscreen's animation control.
+// Every animation source shares this transport UI. It only edits the clip and clock state of
+// the runtime it is handed; evaluating a clip is its owner's. In the regular view it is a row of
+// the Animate panel (`AnimateControls.jsx`); in fullscreen the playbar under the model is the
+// whole of the animation control.
 //
 // runtime: { clips: [{ id, label, duration }], activeClipId, playing, elapsedSec,
 //   speed, loopEnabled, clock, onClipSelect, onPlayToggle, onScrub, onSpeedChange,
@@ -47,17 +47,17 @@ function AnimationTimeControl({ playing, elapsedSec, duration, onScrub, clock, d
 }
 
 /** Play/Pause and the scrubber over the renderer's live clock. Dragging the scrubber to the start is the restart. */
-export function AnimationTransport({ runtime, disabled = false, responsive = false }) {
+export function AnimationTransport({ runtime, disabled = false, responsive = false, compact = false }) {
   const activeClip = runtime?.clips?.find(clip => clip.id === runtime?.activeClipId);
   const duration = Math.max(Number(activeClip?.duration) || 1, 0.001);
   const iconClass = "size-3.5";
-  return <div className={cn("flex min-w-0 flex-1 items-center gap-2", "h-6",
+  return <div className={cn("flex min-w-0 flex-1 items-center", compact ? "gap-1.5" : "gap-2", "h-6",
     responsive && "@max-[8rem]/cad-viewport:h-auto @max-[8rem]/cad-viewport:flex-wrap")} data-animation-transport>
     <ToolbarButton tooltip={false} disabled={disabled} tooltipSide="top"
       onClick={() => runtime?.onPlayToggle?.()} label={`${runtime?.playing ? "Pause" : "Play"} animation`}>
       {runtime?.playing ? <Pause className={iconClass} strokeWidth={1.5} aria-hidden="true"/> : <Play className={iconClass} strokeWidth={1.5} aria-hidden="true"/>}
     </ToolbarButton>
-    <div className={cn("min-w-0 flex-1 px-1", responsive && "@max-[8rem]/cad-viewport:order-last @max-[8rem]/cad-viewport:basis-full")}>
+    <div className={cn("min-w-0 flex-1", !compact && "px-1", responsive && "@max-[8rem]/cad-viewport:order-last @max-[8rem]/cad-viewport:basis-full")}>
       <AnimationTimeControl playing={runtime?.playing === true} elapsedSec={runtime?.elapsedSec}
         duration={duration} onScrub={runtime?.onScrub} clock={runtime?.clock} disabled={disabled}/>
     </div>
@@ -65,10 +65,9 @@ export function AnimationTransport({ runtime, disabled = false, responsive = fal
 }
 
 /**
- * The playbar: transport in one transparent row. It is
- * the Animate tool's bottom action in the regular view and the whole of
- * fullscreen's animation control; both mount this component over the same
- * runtime. It stays centered until it needs to make room for the XYZ control.
+ * The playbar: transport in one transparent row under the model, fullscreen's animation control
+ * (the regular view's is the Animate panel's row). It stays centered until it needs to make room
+ * for the XYZ control.
  */
 export function ViewportAnimationBar({ runtime, disabled = false, avoidViewControl = false, className }) {
 

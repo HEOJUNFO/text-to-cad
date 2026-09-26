@@ -94,9 +94,10 @@ async function serveHarness(t) {
 }
 
 const ready = pane => pane.locator('[aria-busy="false"] > div > canvas').first().waitFor();
-// A mesh exposes Display, but no interaction tools.
+// A mesh has no interaction tools; Display is the settings button beside Fullscreen.
 const noTools = async (pane) => {
-  assert.equal(await pane.getByRole('group', { name: 'Interaction tools' }).count(), 1, 'a mesh exposes a Display toolbar');
+  assert.equal(await pane.getByRole('group', { name: 'Interaction tools' }).count(), 0, 'a mesh has no tools, so no strip');
+  assert.equal(await pane.getByRole('button', { name: 'Display settings', exact: true }).count(), 1, 'its Display settings are the button beside Fullscreen');
   for (const name of ['Orbit', 'Draw', 'Select', 'Measure', 'Position', 'Animate']) {
     assert.equal(await pane.getByRole('button', { name, exact: true }).count(), 0, name);
   }
@@ -164,11 +165,11 @@ test('an STL opens as one mesh with no tools: display settings, orbit, host comm
   // where a file opens. So it opens with the column shut and the model given the room.
   assert.deepEqual(await panels(pane), ['Show files:false']);
   assert.equal(await pane.locator('[data-tool-panel]').count(), 0, 'nothing in the tool stack until Display is taken up');
-  await pane.locator('[data-cad-toolbar]').getByRole('button', { name: 'Display', exact: true }).click();
-  await pane.locator('[data-tool-panel][aria-label="Display settings"]').waitFor();
+  await pane.getByRole('button', { name: 'Display settings', exact: true }).click();
+  await pane.page().locator('[data-display-popover]').waitFor();
   assert.deepEqual(await panels(pane), ['Show files:false']);
   assert.equal(await pane.getByRole('tab').count(), 0, 'a panel has no tabs inside it');
-  const displayMenu = pane.locator('[data-tool-panel][aria-label="Display settings"]');
+  const displayMenu = pane.page().locator('[data-display-popover]');
   assert.match(await displayMenu.getByRole('combobox', { name: 'Mode', exact: true }).innerText(), /Solid/);
   const options = async label => {
     await displayMenu.getByRole('combobox', { name: label, exact: true }).click();
@@ -184,8 +185,8 @@ test('an STL opens as one mesh with no tools: display settings, orbit, host comm
   for (const section of ['Grid / Axes', 'Lighting', 'Background', 'Floor']) assert.equal(await displayMenu.getByRole('heading', { name: section, exact: true }).count(), 1, section);
   assert.deepEqual(await options('Projection'), ['Orthographic', 'Perspective']);
   assert.equal(await displayMenu.getByRole('button', { name: 'Reset', exact: true }).count(), 1);
-  await pane.locator('[data-cad-toolbar]').getByRole('button', { name: 'Display', exact: true }).click();
-  await pane.locator('[data-tool-panel][aria-label="Display settings"]').waitFor({ state: 'detached' });
+  await pane.getByRole('button', { name: 'Display settings', exact: true }).click();
+  await pane.page().locator('[data-display-popover]').waitFor({ state: 'detached' });
   // The column closing reaches the scene as a resize; let that frame land before comparing pictures.
   await page.waitForFunction(() => document.querySelector('[data-testid="one"] [aria-busy] > div > canvas').width >= 1190);
   await settle(page);
@@ -302,10 +303,10 @@ test('a 3MF is one mesh per object with its source colour; an uncoloured one tak
   await noTools(pane);
   // A 3MF's panels are a mesh's: Display alone, shut as it opens, and the same panel an STL has.
   assert.deepEqual(await panels(pane), ['Show files:false']);
-  await pane.locator('[data-cad-toolbar]').getByRole('button', { name: 'Display', exact: true }).click();
-  await pane.locator('[data-tool-panel][aria-label="Display settings"]').waitFor();
-  await pane.locator('[data-cad-toolbar]').getByRole('button', { name: 'Display', exact: true }).click();
-  await pane.locator('[data-tool-panel][aria-label="Display settings"]').waitFor({ state: 'detached' });
+  await pane.getByRole('button', { name: 'Display settings', exact: true }).click();
+  await pane.page().locator('[data-display-popover]').waitFor();
+  await pane.getByRole('button', { name: 'Display settings', exact: true }).click();
+  await pane.page().locator('[data-display-popover]').waitFor({ state: 'detached' });
   await page.waitForFunction(() => document.querySelector('[data-testid="one"] [aria-busy] > div > canvas').width >= 1190);
   await settle(page);
 

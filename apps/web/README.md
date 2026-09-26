@@ -218,9 +218,9 @@ snapshot, without a 3D toolbar or tool stack.
 
 Below 720px of FileViewer width, the file tree becomes a floating sheet over the
 viewer, the crumbs collapse to the current file, the view cube is hidden and the
-tree panel of the tool stack takes at most 40% of its height. Fullscreen is the
-shared shell's top-right button: it keeps the navbar and suspends the file tree
-column and the tool stack, orbits by default and
+tree panel of the tool stack starts folded. Fullscreen is the shared shell's
+top-right button: it keeps the navbar and the file tree column, hides the tool
+stack, orbits by default and
 offers separate Orbit and animation menus; the host passes no fullscreen props.
 The camera is never stored, so a refresh frames the file anew; Display settings,
 pose and explode are kept per file through the shared state contract (see

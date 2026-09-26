@@ -12,7 +12,7 @@ test('stored preferences read their storage, write the orbit back, and re-read o
   values.set('cad-viewer:orbit:v1', JSON.stringify({ speed: 2 }));
   values.set('cad-viewer:theme', 'retired');
   const preferences = createStoredCadPreferences(storage);
-  expect(preferences.getSnapshot()).toEqual({ orbit: { speed: 2 }, toolStack: { width: 190, heights: {}, collapsed: {} } });
+  expect(preferences.getSnapshot()).toEqual({ orbit: { speed: 2 }, toolStack: { width: 138, heights: {}, collapsed: {} }, animation: { autoplay: false } });
   preferences.update({ orbit: { speed: 1.37 } });
   expect(JSON.parse(values.get('cad-viewer:orbit:v1')!)).toEqual({ speed: 1.37 });
   expect(createStoredCadPreferences(storage).getSnapshot().orbit).toEqual({ speed: 1.37 });
@@ -38,7 +38,8 @@ test('the tool stack layout is one stored record: its width, the panel caps and 
   // The retired width-only key is nobody's any more: it is neither read nor removed.
   values.set('cad-viewer:tool-stack-width:v1', '300');
   const preferences = createStoredCadPreferences(storage);
-  expect(preferences.getSnapshot().toolStack).toEqual({ width: 190, heights: {}, collapsed: {} });
+  // The default width: a strip of five tools.
+  expect(preferences.getSnapshot().toolStack).toEqual({ width: 138, heights: {}, collapsed: {} });
   const layout = { width: 240, heights: { tree: 320, reference: 180 }, collapsed: { reference: true, sdf: false } };
   preferences.update({ toolStack: layout });
   expect(JSON.parse(values.get('cad-viewer:tool-stack:v1')!)).toEqual(layout);
@@ -49,6 +50,30 @@ test('the tool stack layout is one stored record: its width, the panel caps and 
   const written = JSON.stringify({ width: 12, heights: { tree: 3, reference: 'tall', other: 400 }, collapsed: { tree: true, 'Not an id': true, clip: 'yes' } });
   values.set('cad-viewer:tool-stack:v1', written);
   preferences.storageChanged('cad-viewer:tool-stack:v1');
-  expect(preferences.getSnapshot().toolStack).toEqual({ width: 160, heights: { tree: 64 }, collapsed: { tree: true } });
+  expect(preferences.getSnapshot().toolStack).toEqual({ width: 128, heights: { tree: 64 }, collapsed: { tree: true } });
   expect(values.get('cad-viewer:tool-stack:v1')).toBe(written);
+});
+
+test('Autoplay is one stored preference, off by default: written back, bounded, and heard from other windows', () => {
+  const { values, storage } = memory();
+  const preferences = createStoredCadPreferences(storage);
+  expect(preferences.getSnapshot().animation).toEqual({ autoplay: false });
+  expect(values.has('cad-viewer:animation:v1')).toBe(false);
+  preferences.update({ animation: { autoplay: true } });
+  expect(JSON.parse(values.get('cad-viewer:animation:v1')!)).toEqual({ autoplay: true });
+  expect(values.has('cad-viewer:orbit:v1') || values.has('cad-viewer:tool-stack:v1')).toBe(false);
+  expect(createStoredCadPreferences(storage).getSnapshot().animation).toEqual({ autoplay: true });
+  // Another window wrote it: read back and bounded, never written again.
+  const heard: unknown[] = [];
+  preferences.subscribe(() => heard.push(preferences.getSnapshot().animation));
+  values.set('cad-viewer:animation:v1', JSON.stringify({ autoplay: false }));
+  preferences.storageChanged('cad-viewer:animation:v1');
+  expect(heard).toEqual([{ autoplay: false }]);
+  const written = JSON.stringify({ autoplay: 'yes' });
+  values.set('cad-viewer:animation:v1', written);
+  preferences.storageChanged('cad-viewer:animation:v1');
+  expect(preferences.getSnapshot().animation).toEqual({ autoplay: false });
+  expect(values.get('cad-viewer:animation:v1')).toBe(written);
+  values.set('cad-viewer:animation:v1', 'not json');
+  expect(createStoredCadPreferences(storage).getSnapshot().animation).toEqual({ autoplay: false });
 });

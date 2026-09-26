@@ -6,9 +6,11 @@ afterEach(cleanup);
 const measurement = (id: string, distance: number, colorIndex: number) => ({ id, colorIndex,
   measurement: { euclidean: distance, delta: [distance, 0, 0], unit: 'mm' }, pickA: { snapKind: 'vertex' }, pickB: { snapKind: 'edge' } });
 
-it('does not exist until something has been measured', () => {
+it('before the first measurement it is one hint row, the height of a measurement row, and no list', () => {
   const view = render(<MeasurePanel measurements={[]} />);
-  expect(view.container.innerHTML).toBe('');
+  expect(view.container.textContent).toBe('Pick two points to measure');
+  expect(view.container.querySelector('[data-measure-hint] > span')?.className).toContain('h-6');
+  expect(view.queryByRole('region', { name: 'Measurements' })).toBeNull();
 });
 
 it('adds one dense row per measurement, which can be activated or deleted; clearing all belongs to the panel close button', () => {

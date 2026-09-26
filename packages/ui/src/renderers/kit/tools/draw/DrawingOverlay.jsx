@@ -19,7 +19,9 @@ export default function DrawingOverlay({ drawing, onReady, onContentChange, onVi
   return <div className="absolute inset-0 z-10" data-cad-drawing-overlay="">
     <Suspense fallback={null}>
       {/* The host draws the controls: Draw's panel in the tool stack. */}
-      <DrawingEditor mode="overlay" toolbar={false} initialTool={CAD_DRAWING_DEFAULTS.tool} name="CAD drawing" platform={platform} onReady={onReady}
+      {/* It reopens on the tool, colour and weight the last session left (`drawing/session.js`). */}
+      <DrawingEditor mode="overlay" toolbar={false} initialTool={drawing?.tool || CAD_DRAWING_DEFAULTS.tool}
+        initialColor={drawing?.color || CAD_DRAWING_DEFAULTS.color} initialStrokeWidth={drawing?.strokeWidth} name="CAD drawing" platform={platform} onReady={onReady}
         onHistoryChange={drawing?.onHistoryChange} onToolChange={drawing?.onToolChange} onColorChange={drawing?.onColorChange}
         onContentChange={onContentChange} onViewportChange={onViewportChange} />
     </Suspense>

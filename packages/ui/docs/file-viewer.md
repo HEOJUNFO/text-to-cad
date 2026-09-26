@@ -89,10 +89,7 @@ A renderer is handed, besides its document: `navigationStatusSlot`, the nav-row
 element after the filename where it portals its loading and update status (the
 row itself adds only the unsaved-changes dot); `onNavigationActionsChange`, for
 its nav-row actions (`FileNavigationAction`, with an optional shorter `hint`);
-`displayActions`, the host's controls for the Display panel;
-`onPanelVisibilityChange(visible)`, which suspends the panel column and disables
-its toggles while keeping the open panel and width (the shell's fullscreen uses
-it; the next document restores it); and `appearance`. Host-specific empty,
+`displayActions`, the host's controls for the Display settings; and `appearance`. Host-specific empty,
 loading, and error artwork can be supplied through `presentation`, without
 duplicating the tab's placement. Per-file renderer state is also accepted during
 a departing renderer's cleanup, while it still belongs to the same root.

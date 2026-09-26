@@ -3,6 +3,7 @@ import { TreeRowSurface, TreeRowChevron, TreeRowLabel } from "@hardcore/ui/primi
 import { TreeFilterHighlight, TreeFilterInput } from "@hardcore/ui/primitives/tree-filter";
 import { cn } from "@hardcore/ui/utils";
 import ToolPanel, { ToolPanelCollapse } from "../kit/tools/ToolPanel.jsx";
+import { useViewerMobile } from "../../file-viewer/responsive.js";
 import RobotComponentDetails, { RobotLinkDetails, RobotLinksSummary } from "./LinkDetails.jsx";
 import { useTreeSearch } from "../kit/inspector/modelTreeSearch.js";
 import { buildRobotTree, robotComponentNodeId, robotLinkFacts, robotLinkNodeId, robotTreeAncestorIds } from "./robotTree.js";
@@ -52,11 +53,11 @@ function RobotRow({ node, depth = 0, pinned = false, highlighted, expanded, togg
   const open = pinned || expanded.has(node.id), branch = node.children.length > 0;
   const { choose, enter, leave } = rowHandlers(node, selection);
   return <li className="min-w-0" ref={element => { if (element) rowRefs.current.set(node.id, element); else rowRefs.current.delete(node.id); }}>
-    <TreeRowSurface active={highlighted.has(node.id)} className="gap-0 pr-0" style={{ paddingLeft: depth * 12 }}
+    <TreeRowSurface dense active={highlighted.has(node.id)} className="gap-0 pr-0" style={{ paddingLeft: depth * 12 }}
       onMouseEnter={enter} onMouseLeave={leave}>
       {pinned ? null : branch ? <button type="button" aria-label={`${open ? "Collapse" : "Expand"} ${node.label}`} aria-expanded={open}
-        className="grid h-7 w-5 shrink-0 place-items-center rounded focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={() => toggle(node)}><TreeRowChevron expanded={open}/></button> : <span className="w-5 shrink-0"/>}
+        className="grid h-6 w-4 shrink-0 place-items-center rounded focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={() => toggle(node)}><TreeRowChevron expanded={open} dense/></button> : <span className="w-4 shrink-0"/>}
       <button type="button" aria-label={`Select ${node.label}`} aria-pressed={highlighted.has(node.id)}
         onClick={choose} onFocus={enter} onBlur={leave}
         className={cn("flex h-full min-w-0 flex-1 items-center gap-1.5 rounded pr-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", pinned && "pl-2")}>
@@ -76,7 +77,7 @@ function RobotSearchRow({ match, highlighted, cursor, selection }) {
   const { choose, enter, leave } = rowHandlers(node, selection);
   const owners = entry.prefix.slice(0, -1);
   return <li className="min-w-0" data-search-row={node.id}>
-    <TreeRowSurface active={highlighted.has(node.id)} cursor={cursor} className="gap-0 pr-0" onMouseEnter={enter} onMouseLeave={leave}>
+    <TreeRowSurface dense active={highlighted.has(node.id)} cursor={cursor} className="gap-0 pr-0" onMouseEnter={enter} onMouseLeave={leave}>
       <button type="button" aria-label={`Select ${node.label}`} aria-pressed={highlighted.has(node.id)} onClick={choose}
         className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded pl-2 pr-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <TreeRowLabel className="max-w-full shrink-0"><TreeFilterHighlight indices={indices} text={entry.label}/></TreeRowLabel>
@@ -100,6 +101,7 @@ function RobotSearchRow({ match, highlighted, cursor, selection }) {
  * @param {(path: string) => void} [props.onOpenFile] Opens a file the description names.
  */
 export default function LinksSection({ description = null, components = EMPTY, parts = EMPTY, selection, groupNamesByLink = null, active = true, meshPath = null, onOpenFile = null }) {
+  const mobile = useViewerMobile();
   const tree = useMemo(() => buildRobotTree(description, { components, parts }), [description, components, parts]);
   const [userExpanded, setUserExpanded] = useState(null);
   const defaultExpanded = useMemo(() => initialExpansion(tree), [tree]);
@@ -154,15 +156,15 @@ export default function LinksSection({ description = null, components = EMPTY, p
 
   return <>
     {/* No heading: the filter is the panel's top row, and stays put while the tree scrolls under it. */}
-    <ToolPanel id="tree" label="Links" fit="tree" sizable hidden={!active}
-      header={<TreeFilterInput className="px-1" label="Filter links" placeholder="Filter links…" value={query} onChange={changeQuery} onKeyDown={onSearchKeyDown} trailing={<ToolPanelCollapse/>}/>}>
-      <div className="flex flex-col text-xs" aria-label="Robot links">
+    <ToolPanel id="tree" label="Links" fit="tree" sizable defaultCollapsed={mobile} hidden={!active}
+      header={<TreeFilterInput dense label="Filter links" placeholder="Filter…" yieldWhileTyping value={query} onChange={changeQuery} onKeyDown={onSearchKeyDown} trailing={<ToolPanelCollapse/>}/>}>
+      <div className="flex flex-col text-tiny" aria-label="Robot links">
         <div ref={listRef} className="px-1 py-1" aria-label="Robot tree area"
           onClick={event => { if (!event.target.closest("li,button,input")) clearSelection(); }}>
           {searching && <p role="status" className="px-2 py-1 text-micro text-muted-foreground">{found.total > found.matches.length ? `First ${found.matches.length} of ${found.total.toLocaleString()} matches` : `${found.total} ${found.total === 1 ? "match" : "matches"}`}</p>}
           {searching ? found.matches.length
             ? <ul aria-label="Link search results">{found.matches.map(match => <RobotSearchRow key={match.entry.node.id} {...{ match, highlighted, cursor: match.entry.node.id === cursorId, selection }}/>)}</ul>
-            : deferredQuery.trim() && <p className="px-3 py-6 text-center text-xs text-muted-foreground">{`No link matches “${deferredQuery.trim()}”`}</p>
+            : deferredQuery.trim() && <p className="px-3 py-6 text-center text-tiny text-muted-foreground">{`No link matches “${deferredQuery.trim()}”`}</p>
           : tree.roots.length
             ? <ul aria-label="Robot links">{tree.roots.map(node => <RobotRow key={node.id} pinned={tree.roots.length === 1 && node.children.length > 0} {...{ node, highlighted, expanded, toggle, selection, rowRefs }}/>)}</ul>
             : <p role="status" className="p-2 text-tiny text-muted-foreground">{description ? "This description has no links." : "Loading links…"}</p>}

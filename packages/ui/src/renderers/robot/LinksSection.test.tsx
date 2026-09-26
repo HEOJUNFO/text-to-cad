@@ -65,13 +65,13 @@ const filter = () => screen.getByRole('textbox', { name: 'Filter links' });
 
 it('draws the kinematic tree collapsed below the first real choice, with each link’s joint beside it', () => {
   render(<Harness/>);
-  expect(filter().getAttribute('placeholder')).toBe('Filter links…');
+  expect(filter().getAttribute('placeholder')).toBe('Filter…');
   // base_footprint is only a frame (no geometry, no mass, base_link fixed to it): it has nothing
   // to select or read back, so it gets no row and base_link leads the tree.
   expect(rows()).toEqual(['Select base_link', 'Select shoulder_link', 'Select camera_link']);
   const shoulder = screen.getByRole('button', { name: 'Select shoulder_link' });
   expect(shoulder.textContent).toBe('shoulder_linkshoulder_pan · revolute');
-  expect(shoulder.closest('div')!.style.height).toBe('28px');
+  expect(shoulder.closest('div')!.style.height).toBe('24px'); // the dense tree's rows
   expect(shoulder.getAttribute('title')).toBeNull();
   expect(screen.getByRole('button', { name: 'Select base_link' }).textContent).toBe('base_linkfootprint_to_base · fixed');
   // The one root is pinned: a row you can select, with nothing to collapse and no indent

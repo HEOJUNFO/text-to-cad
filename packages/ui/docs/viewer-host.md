@@ -66,11 +66,8 @@ is one viewer preference the host stores with `createStoredCadPreferences` (key
 
 Fullscreen is the shared shell's own presentation state; there is no host prop
 for it and a host cannot start or observe it. It expands the scene below the
-host's navbar, which stays, by calling
-`RendererViewProps.onPanelVisibilityChange(false)`: the panel column is
-suspended and its toggles disabled without changing the selected panel or its
-width, and exit or unmount restores it. It never uses the browser Fullscreen
-API. The shell saves the regular camera, fits a presentation camera and restores
+host's navbar and panel column, which both stay as they are (the column can
+still be opened and shut). It never uses the browser Fullscreen API. The shell saves the regular camera, fits a presentation camera and restores
 the regular camera on exit; nothing of the presentation is persisted. Orbit
 starts by default, with its speed from `CadPreferences.orbit` (the app's
 preference store). The rules are in
@@ -299,8 +296,4 @@ routing. The host supplies `environment.platform` for the ⌘C / Ctrl+C hint;
 the web host derives that field from its browser environment.
 
 Renderer status uses `RendererViewProps.navigationStatusSlot`, a named portal
-slot immediately after the filename. `onPanelVisibilityChange(false)` temporarily
-hides the panel and disables panel toggles without changing the user's selected
-panel or width. Renderers restore visibility on exit/unmount; FileViewer scopes
-this callback to the current document generation. Fullscreen uses this
-suspension while keeping the navbar visible.
+slot immediately after the filename. 

@@ -363,20 +363,29 @@ export function FileSheetValueInput({
   );
 }
 
+// The value box's width: as narrow as a joint's figure allows — an angle ("-102°", "0.00°") fits
+// five characters, a length with its unit ("0.00 mm") seven — so a unit is never cut off.
+const valueInputWidth = value => {
+  const length = String(value ?? "").length;
+  return length <= 5 ? "w-[calc(5ch+0.75rem)]" : length <= 7 ? "w-[calc(7ch+0.75rem)]" : "w-[calc(9ch+0.75rem)]";
+};
+
 /**
  * A slider row (a joint of Position), compact: its label tight above its slider in the flexible
- * left column, and a small committed value input (24px tall, about five characters wide, its
- * figures tabular) in the right column (`docs/settings-ui.md`).
+ * left column, and a small committed value input (24px tall, as wide as its figure and unit need,
+ * its figures tabular) in the right column (`docs/settings-ui.md`).
  */
 export function FileSheetSliderField({ label, value, onValueCommit, valueInputProps, labelTitle, children }) {
   return <FileSheetControlRow>
     <div className="grid min-h-7 min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5" data-position-control="">
       <div className="min-w-0">
         {label != null ? <TooltipHint content={labelTitle || label} overflowOnly><span className={cn(FILE_SHEET_FIELD_LABEL_CLASSES, "leading-3")}>{label}</span></TooltipHint> : null}
-        <div className="min-w-0">{children}</div>
+        {/* Tight under its label: the slider's own box is taller than its track, so it is pulled up
+            until its thumb's top meets the label's foot. */}
+        <div className="-mt-0.5 min-w-0">{children}</div>
       </div>
       {onValueCommit ? <FileSheetValueInput value={value} onValueCommit={onValueCommit} {...valueInputProps}
-        className={cn("h-6 w-[calc(5ch+0.75rem)] px-1.5", valueInputProps?.className)} /> : null}
+        className={cn("h-6 px-1.5", valueInputWidth(value), valueInputProps?.className)} /> : null}
     </div>
   </FileSheetControlRow>;
 }

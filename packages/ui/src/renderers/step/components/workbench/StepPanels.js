@@ -33,7 +33,7 @@ export function useStepPanels({
   // and edges (the viewport's menu over that topology), and the one set of actions behind both.
   menuForNode = null, menuForReferences = null, partMenuActions = null,
   treeSelectionDisabled = false, selectMode = 'all', loadingGeometry = false,
-  statusItems = EMPTY, positionRuntime = null, selectModeMenu = null,
+  statusItems = EMPTY, positionRuntime = null, selectModeMenu = null, onCopyReference = null, onClosePosition = null,
 }) {
   const recognitionKey = `${selectedEntry?.file}:${geometryInspection?.revision}`;
   const [recognitionRequest, setRecognitionRequest] = useState({ key: recognitionKey, ids: EMPTY });
@@ -61,7 +61,7 @@ export function useStepPanels({
     return names;
   }, [stepTreeRoot]);
   const partName = useCallback(id => partNames.get(String(id || '')) || '', [partNames]);
-  const reference = useStepReference({ references: selectedReferences, meshData: selectedMeshData, sourceAppearance: selectedSourceAppearance, measurements, partName });
+  const reference = useStepReference({ references: selectedReferences, meshData: selectedMeshData, sourceAppearance: selectedSourceAppearance, measurements, partName, onCopy: onCopyReference });
   if (!selectedEntry) return null;
   const selectionDetails = selectedReferences.length || measuredSelection.partIds.length ? reference : null;
   const position = buildPositionSection({ poseRuntime: positionRuntime });
@@ -83,7 +83,8 @@ export function useStepPanels({
     />
     {issues ? <ToolPanel id="issues" title={issues.title} label="Issues" fit="details" hidden={!selectActive}>{issues.content}</ToolPanel> : null}
     {/* Headed "Position" with its Reset; sized like the tree: its content's height, up to half the stack. */}
+    {/* Its X puts Position down, back to Select; the values stay. */}
     {position ? <ToolPanel id="position" title={position.title} actions={position.actions} label="Position controls" fit="details" sizable
-      hidden={!positionActive}>{position.content}</ToolPanel> : null}
+      collapsible={false} onClose={onClosePosition} closeLabel="Close position" hidden={!positionActive}>{position.content}</ToolPanel> : null}
   </>;
 }

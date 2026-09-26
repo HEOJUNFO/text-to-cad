@@ -291,7 +291,6 @@ export const FileNavRow: ComponentType<{
 
 /** One panel's toggle at the end of the nav row; `active` is its panel being open. */
 export const PanelToggle: ComponentType<{
-  disabled?: boolean;
   icon: ElementType;
   label: string;
   active: boolean;

@@ -204,7 +204,7 @@ it('starts the compact tree immediately below the filter and keeps disclosure se
  expect(screen.queryByText('2 features')).toBeNull();
  expect(screen.queryByText(/Recognizing/)).toBeNull();
  const select=screen.getByRole('button',{name:'Select Arm'});
- expect(select.parentElement?.style.height).toBe('28px');
+ expect(select.parentElement?.style.height).toBe('24px'); // the dense tree's rows
  fireEvent.click(screen.getByRole('button',{name:'Expand Arm'}));
  expect(onToggleTreeNode).toHaveBeenCalledWith('arm');
  expect(onSelectTreeNode).not.toHaveBeenCalled();

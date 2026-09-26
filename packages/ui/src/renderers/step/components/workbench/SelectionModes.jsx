@@ -84,7 +84,7 @@ export function MeasureModeMenu({ mode, onModeChange, disabled = false }) {
  * Select's mode, in the Features panel's filter row beside its fold chevron: a button showing
  * the mode in hand, whose dropdown lists the four exclusive modes (Parts only in an assembly),
  * then the connected-selection options that do something under the mode in hand, as checkboxes
- * — both under All, Tangent faces under Faces, Edge chain under Edges, none under Parts. An option
+ * — both under All, Group faces under Faces, Group edges under Edges, none under Parts. An option
  * that does nothing is not shown, and keeps its choice for when it does; ticking one leaves the
  * menu open. Select has no menu on the strip.
  *

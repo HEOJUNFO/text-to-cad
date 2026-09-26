@@ -138,9 +138,11 @@ describe('drawing editor', () => {
     await waitFor(() => expect(controller).not.toBeNull());
     const editor = view.container.firstChild as HTMLElement;
     expect(view.container.querySelector('[aria-label="Drawing tools"]')).toBeNull();
-    // Locked: a line is followed by another line, as a pen stroke always was by another stroke.
+    // Locked: a line is followed by another line, as a pen stroke always was by another stroke. The
+    // pen draws a Medium (2) weight at 2/4.25 of it, since the SDK widens freehand 4.25 times and its
+    // pressure shaping thins it: so it reads as heavy as a rectangle drawn at the same weight.
     expect(sdk.props.initialData.appState).toMatchObject({ viewBackgroundColor: 'transparent', currentItemStrokeColor: '#ff2d55',
-      activeTool: { type: 'freedraw', locked: true }, currentItemStrokeWidth: 2 / 4.25 });
+      activeTool: { type: 'freedraw', locked: true }, currentItemStrokeWidth: 2 * (2 / 4.25) });
     // The SDK paints a white page until the given scene is in place; the overlay stays hidden until then.
     expect(editor.dataset.drawingReady).toBe('');
 
@@ -158,6 +160,17 @@ describe('drawing editor', () => {
     // The color of what is drawn next: no element is touched, selected or not, and it is not an undo step.
     controller!.setColor('#39ff14');
     expect(sdk.api.updateScene).toHaveBeenLastCalledWith({ appState: { currentItemStrokeColor: '#39ff14' }, captureUpdate: 'NEVER' });
+
+    // The weight of what is drawn next, likewise: a shape takes it as it is, and a later tool keeps it.
+    const appState = sdk.api.getAppState;
+    sdk.api.getAppState = () => ({ ...appState(), activeTool: { type: 'rectangle' } });
+    controller!.setStrokeWidth(4);
+    expect(sdk.api.updateScene).toHaveBeenLastCalledWith({ appState: { currentItemStrokeWidth: 4 }, captureUpdate: 'NEVER' });
+    sdk.api.getAppState = appState;
+    controller!.setTool('freedraw');
+    expect(sdk.api.updateScene).toHaveBeenLastCalledWith({ appState: { currentItemStrokeWidth: 4 * (2 / 4.25) }, captureUpdate: 'NEVER' });
+    controller!.setTool('line');
+    expect(sdk.api.updateScene).toHaveBeenLastCalledWith({ appState: { currentItemStrokeWidth: 4 }, captureUpdate: 'NEVER' });
 
     // The SDK reports every tool and color change, whoever made it.
     expect(onToolChange).toHaveBeenLastCalledWith('selection');

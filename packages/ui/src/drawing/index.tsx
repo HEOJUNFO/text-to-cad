@@ -24,6 +24,8 @@ export interface DrawingController {
   setTool(tool: DrawingTool): void;
   /** The color of what is drawn next. Existing ink keeps its own, selected or not. */
   setColor(color: string): void;
+  /** How heavy what is drawn next is: a shape's stroke in px (1, 2, 4); the pen takes its weight. */
+  setStrokeWidth(width: number): void;
   undo(): void;
   redo(): void;
   /** Undoable, unlike unmounting the editor. */
@@ -41,6 +43,9 @@ export interface DrawingEditorProps {
   toolbar?: boolean;
   /** The tool a new editor opens on; the SDK's own default is selection. */
   initialTool?: DrawingTool;
+  /** The ink colour and stroke weight a new editor opens with (a remounted overlay keeps the last ones). */
+  initialColor?: string;
+  initialStrokeWidth?: number;
   /** The host's keyboard platform (`ViewerHost.environment.platform`): ⌘ on `darwin`, Ctrl elsewhere. */
   platform?: string;
   onReady(controller: DrawingController | null): void;
@@ -71,23 +76,26 @@ function pressHistoryKey(editor: HTMLElement | null, redo: boolean, platform: st
     shiftKey: redo, metaKey: mac, ctrlKey: !mac }));
 }
 
-// Excalidraw 0.18 expands freehand size by 4.25 before pressure shaping. Match
-// the nominal 2px shape strokes rather than giving the pen an 8.5px brush.
-function drawingStrokeWidth(tool: string) {
-  return tool === 'freedraw' ? 2 / 4.25 : ['line', 'arrow', 'rectangle', 'ellipse'].includes(tool) ? 2 : undefined;
+// Excalidraw 0.18 expands freehand size by 4.25 before pressure shaping, and its pressure
+// shaping thins the line besides: at 2/4.25 of a shape's stroke the pen read visibly lighter
+// than a rectangle drawn at the same weight. Twice that reads the same.
+const FREEDRAW_WEIGHT = 2 / 4.25;
+export const DEFAULT_DRAWING_STROKE_WIDTH = 2;
+function drawingStrokeWidth(tool: string, width = DEFAULT_DRAWING_STROKE_WIDTH) {
+  return tool === 'freedraw' ? width * FREEDRAW_WEIGHT : ['line', 'arrow', 'rectangle', 'ellipse'].includes(tool) ? width : undefined;
 }
 
 /** An editor only: no app detection, persistence, network, file dialogs or prompt routing. */
-export function DrawingEditor({ initialScene, name = 'Drawing', mode = 'canvas', toolbar = true, initialTool = 'selection', platform, onReady, onContentChange, onHistoryChange, onToolChange, onColorChange, onViewportChange }: DrawingEditorProps) {
+export function DrawingEditor({ initialScene, name = 'Drawing', mode = 'canvas', toolbar = true, initialTool = 'selection', initialColor, initialStrokeWidth = DEFAULT_DRAWING_STROKE_WIDTH, platform, onReady, onContentChange, onHistoryChange, onToolChange, onColorChange, onViewportChange }: DrawingEditorProps) {
   const [initialData] = useState(() => {
     const document = initialScene ? parseDrawingScene(initialScene) : emptyDrawingDocument();
     // Ink over someone else's picture cannot assume a light background.
-    const overlayInk = mode === 'overlay' ? { currentItemStrokeColor: DEFAULT_OVERLAY_DRAWING_COLOR, currentItemStrokeWidth: 2 } : {};
+    const overlayInk = mode === 'overlay' ? { currentItemStrokeColor: initialColor ?? DEFAULT_OVERLAY_DRAWING_COLOR, currentItemStrokeWidth: initialStrokeWidth } : {};
     // Locked: a tool stays chosen after each shape, as the pen always has, rather
     // than handing every new line back to selection.
     const tool = { activeTool: { type: DRAWING_TOOLS.includes(initialTool) ? initialTool : 'selection', customType: null, locked: true, lastActiveTool: null } };
     return { ...document, appState: { currentItemFontFamily: 5, ...overlayInk, ...document.appState, ...tool,
-      ...(drawingStrokeWidth(initialTool) != null ? { currentItemStrokeWidth: drawingStrokeWidth(initialTool) } : {}),
+      ...(drawingStrokeWidth(initialTool, initialStrokeWidth) != null ? { currentItemStrokeWidth: drawingStrokeWidth(initialTool, initialStrokeWidth) } : {}),
       viewBackgroundColor: mode === 'overlay' ? 'transparent' : '#ffffff',
       exportBackground: mode !== 'overlay', exportWithDarkMode: false,
     } } as unknown as ExcalidrawInitialDataState;
@@ -114,13 +122,15 @@ export function DrawingEditor({ initialScene, name = 'Drawing', mode = 'canvas',
   const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null);
   const liveApi = useRef<ExcalidrawImperativeAPI | null>(null);
   const root = useRef<HTMLDivElement | null>(null);
-  const session = useDrawingSession(true, { tool: initialTool, color: mode === 'overlay' ? DEFAULT_OVERLAY_DRAWING_COLOR : '#1e1e1e' });
+  const session = useDrawingSession(true, { tool: initialTool, color: initialColor ?? (mode === 'overlay' ? DEFAULT_OVERLAY_DRAWING_COLOR : '#1e1e1e'), strokeWidth: initialStrokeWidth });
+  // The weight a shape is drawn at; the pen's is derived from it (`drawingStrokeWidth`).
+  const strokeWidth = useRef(initialStrokeWidth);
   const toolChange = useRef(onToolChange), colorChange = useRef(onColorChange), viewportChange = useRef(onViewportChange);
   const historyChange = useRef(onHistoryChange);
   historyChange.current = onHistoryChange;
   // Keyboard tool changes use the same defaults as the toolbar.
   useEffect(() => {
-    const width = drawingStrokeWidth(session.tool);
+    const width = drawingStrokeWidth(session.tool, strokeWidth.current);
     if (api && width != null && api.getAppState().currentItemStrokeWidth !== width) {
       api.updateScene({ appState: { currentItemStrokeWidth: width }, captureUpdate: CaptureUpdateAction.NEVER });
     }
@@ -172,11 +182,17 @@ export function DrawingEditor({ initialScene, name = 'Drawing', mode = 'canvas',
       },
       setTool(tool) {
         if (!DRAWING_TOOLS.includes(tool)) return;
-        const width = drawingStrokeWidth(tool);
+        const width = drawingStrokeWidth(tool, strokeWidth.current);
         if (width != null) api.updateScene({ appState: { currentItemStrokeWidth: width }, captureUpdate: CaptureUpdateAction.NEVER });
         api.setActiveTool(tool === 'fill' ? { type: 'custom', customType: 'fill', locked: true } : { type: tool, locked: true });
       },
       setColor(color) { api.updateScene({ appState: { currentItemStrokeColor: color }, captureUpdate: CaptureUpdateAction.NEVER }); },
+      setStrokeWidth(width) {
+        strokeWidth.current = width;
+        const active = api.getAppState().activeTool;
+        const next = drawingStrokeWidth(active.type === 'custom' ? active.customType ?? '' : active.type, width);
+        api.updateScene({ appState: { currentItemStrokeWidth: next ?? width }, captureUpdate: CaptureUpdateAction.NEVER });
+      },
       // History is not part of the SDK's imperative API; its own shortcuts are.
       undo() { pressHistoryKey(root.current, false, platformRef.current); },
       redo() { pressHistoryKey(root.current, true, platformRef.current); },

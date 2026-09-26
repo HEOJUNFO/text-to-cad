@@ -14,7 +14,7 @@ export function buildPositionSection({ poseRuntime = null } = {}) {
     // Reset is the panel heading's, beside its title.
     actions: onReset ? <MotionResetButton onReset={onReset} /> : null,
     content: (
-      <div className="space-y-1 px-1 pb-1.5 pt-0.5">
+      <div className="space-y-1.5 pb-1.5 pt-0.5">
         <PoseControlsSection runtime={poseRuntime} />
       </div>
     ),

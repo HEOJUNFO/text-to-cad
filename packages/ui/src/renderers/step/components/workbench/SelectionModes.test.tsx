@@ -19,7 +19,8 @@ it('Select\'s mode is one button showing the mode in hand; its menu lists the mo
   const view = render(<SelectModeMenu mode="faces" assembly={false} onModeChange={modeChange}
     connected={{ edgeChain: true, tangentFaces: true }} onConnectedChange={connectedChange} />);
   const button = screen.getByRole('button', { name: 'Select mode: Faces' });
-  expect(glyphs(button)).toEqual(['faces']);
+  // The button is the panel header's sliders icon; the strip shows the mode.
+  expect([glyphs(button), !!button.querySelector('svg.lucide-sliders-horizontal')]).toEqual([[], true]);
   await user.click(button);
   expect(menu().getAttribute('aria-label')).toBe('Select mode');
   expect(screen.getAllByRole('menuitemradio').map(item => [item.textContent, item.getAttribute('aria-checked')]))
@@ -27,9 +28,9 @@ it('Select\'s mode is one button showing the mode in hand; its menu lists the mo
   // Each row its mode's own glyph at full size (All: the pointer); no composite in a menu.
   expect(glyphs(menu())).toEqual(['select', 'faces', 'edges']);
   expect(badges(document.body)).toEqual([]);
-  // Faces grows by tangency only: Edge chain does nothing here, so it is not offered.
-  expect(screen.getAllByRole('menuitemcheckbox').map(item => item.textContent)).toEqual(['Tangent faces']);
-  await user.click(screen.getByRole('menuitemcheckbox', { name: 'Tangent faces' }));
+  // Faces grows by tangency only: Group edges does nothing here, so it is not offered.
+  expect(screen.getAllByRole('menuitemcheckbox').map(item => item.textContent)).toEqual(['Group faces']);
+  await user.click(screen.getByRole('menuitemcheckbox', { name: 'Group faces' }));
   expect(connectedChange).toHaveBeenCalledWith('tangentFaces', false);
   expect(screen.getByRole('menu')).toBeTruthy();
   await user.click(screen.getByRole('menuitemradio', { name: 'Edges' }));
@@ -40,7 +41,7 @@ it('Select\'s mode is one button showing the mode in hand; its menu lists the mo
   await user.click(screen.getByRole('button', { name: 'Select mode: All' }));
   expect(screen.getAllByRole('menuitemradio').map(item => item.textContent)).toEqual(['All', 'Parts', 'Faces', 'Edges']);
   expect(screen.getAllByRole('menuitemcheckbox').map(item => [item.textContent, item.getAttribute('aria-checked')]))
-    .toEqual([['Edge chain', 'true'], ['Tangent faces', 'false']]);
+    .toEqual([['Group edges', 'true'], ['Group faces', 'false']]);
   await user.keyboard('{Escape}');
   view.rerender(<SelectModeMenu mode="parts" assembly onModeChange={modeChange}
     connected={{ edgeChain: true, tangentFaces: true }} onConnectedChange={connectedChange} />);

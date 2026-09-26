@@ -9,7 +9,7 @@ import { chromium } from 'playwright';
 // Render the real shared tree surfaces with a tiny in-memory assembly. Geometry
 // inference and viewport picking have separate contract tests; this exercises
 // browser layout and scrolling, which jsdom cannot measure.
-test('file and model trees share row sizing and insets while model disclosure, isolation and one-shot reveal remain independent', async t => {
+test('file and model trees share insets, the model tree in denser rows, while model disclosure, isolation and one-shot reveal remain independent', async t => {
   const { outputFiles } = await build({ stdin: {
     resolveDir: fileURLToPath(new URL('.', import.meta.url)), loader: 'jsx', contents: `
 import React, { useState } from 'react';
@@ -65,8 +65,13 @@ createRoot(document.getElementById('root')).render(<App/>);
   assert.equal(await model.getByRole('button', { name: 'Select Document', exact: true }).count(), 0);
   const modelHeight = (await part.boundingBox()).height;
   const fileHeight = await page.getByTestId('files').locator('[data-path="part.step"]').evaluate(node => node.getBoundingClientRect().height);
-  assert.equal(modelHeight, 28);
-  assert.equal(modelHeight, fileHeight);
+  // The model tree is dense (24px rows, 11px text); the host's file tree keeps its 28px rows.
+  assert.equal(modelHeight, 24);
+  assert.equal(fileHeight, 28);
+  assert.equal(await part.evaluate(node => getComputedStyle(node).fontSize), '11px');
+  // Its disclosure column is 16px wide, a row tall.
+  const disclosure = await model.getByRole('button', { name: 'Expand Subassembly', exact: true }).boundingBox();
+  assert.deepEqual([disclosure.width, disclosure.height], [16, 24]);
   const modelInsets = await part.evaluate(node => {
     const row = node.parentElement.getBoundingClientRect();
     const list = node.closest('[aria-label="Model"]').parentElement;
@@ -94,6 +99,19 @@ createRoot(document.getElementById('root')).render(<App/>);
   await page.getByTestId('files').getByRole('option').waitFor();
   assert.deepEqual(await fileInsets(), modelInsets, 'filtered rows retain the same horizontal inset');
   await page.getByTestId('files').getByRole('button', {name:'Clear filter'}).click();
+  // A row's actions (Hide, Isolate) float over its right end, blurring the name under them, rather
+  // than taking width from it: the name runs the row's full width.
+  await part.hover();
+  const rowLayout = await part.evaluate(node => {
+    const row = node.closest('li'), actions = row.querySelector('[data-row-actions]');
+    const [name, box, own] = [node.getBoundingClientRect(), actions.getBoundingClientRect(), node.parentElement.getBoundingClientRect()];
+    return { position: getComputedStyle(actions).position, blur: getComputedStyle(actions).backdropFilter, opacity: getComputedStyle(actions).opacity,
+      nameRight: name.right, rowRight: own.right, actionsLeft: box.left, actionsRight: box.right };
+  });
+  assert.equal(rowLayout.position, 'absolute');
+  assert.match(rowLayout.blur, /blur/);
+  assert.ok(rowLayout.nameRight > rowLayout.actionsLeft, `the name runs under the actions: ${JSON.stringify(rowLayout)}`);
+  assert.ok(Math.abs(rowLayout.actionsRight - rowLayout.rowRight) <= 1, `the actions sit at the row's right end: ${JSON.stringify(rowLayout)}`);
   const beforeHide = await part.boundingBox();
   await model.getByRole('button', { name: 'Hide Part 2', exact: true }).click();
   await model.getByRole('button', { name: 'Show all', exact: true }).waitFor();
@@ -139,7 +157,7 @@ createRoot(document.getElementById('root')).render(<App/>);
   const firstRow = searchResults.locator('li[data-search-row]').first();
   const firstHit = firstRow.getByRole('button', { name: /^Select / });
   assert.equal(await firstHit.getAttribute('aria-label'), 'Select Part 1', 'query "part 1" must rank the nested Part 1 first');
-  assert.equal((await firstHit.boundingBox()).height, 28);
+  assert.equal((await firstHit.boundingBox()).height, 24, 'search hits are the tree\'s dense rows');
   const searchInsets = await firstHit.evaluate(node => {
     const row = node.parentElement.getBoundingClientRect();
     const list = node.closest('[aria-label="Model search results"]').parentElement;

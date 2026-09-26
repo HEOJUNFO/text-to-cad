@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import { interactiveCameraFrameForBounds } from '../../../../dist/renderers/kit/camera/viewportCameraFit.js';
 import { DEFAULT_VIEW_DIRECTION, WORLD_UP } from '../../../../dist/renderers/kit/camera/viewportCameraKit.js';
 import { CAD_DEFAULT_VERTICAL_FOV_DEGREES } from '../../../../dist/renderers/kit/camera/cameraLens.js';
+import { TOOL_STACK_DEFAULT_WIDTH, TOOL_STACK_MIN_WIDTH } from '../../../../dist/renderers/kit/tools/toolStackLayout.js';
 
 // The shell end to end, in a real browser, under the smallest renderer that mounts it: a
 // one-triangle mesh file. Everything asserted here is the shell's (kit/shell), so it holds
@@ -87,23 +88,25 @@ test('a shell renderer resolves deferred files, reuses warm assets, restores iso
   // The nav row's panel toggles, in order, each with whether its panel is the open one.
   const panels = pane => pane.locator('[data-file-panel]')
     .evaluateAll(buttons => buttons.map(button => `${button.getAttribute('aria-label')}:${button.getAttribute('aria-pressed')}`));
-  // A mesh's one panel is Display's, in the tool stack while Display is the tool: a file never
-  // opens with it; its tool shows it.
+  // Display's settings are a popover from the button beside Fullscreen (`DisplayPopover.jsx`),
+  // portaled out of the pane: a file never opens with it, and it is not a tool.
+  const displayButton = pane => pane.getByRole('button', { name: 'Display settings', exact: true });
+  const display = page.locator('[data-display-popover]');
   const openDisplay = async pane => {
-    if (await pane.locator('[data-cad-toolbar]').getByRole('button', { name: 'Display', exact: true }).getAttribute('aria-pressed') !== 'true') await pane.locator('[data-cad-toolbar]').getByRole('button', { name: 'Display', exact: true }).click();
-    await pane.locator('[data-tool-panel][aria-label="Display settings"]').waitFor();
+    if (await displayButton(pane).getAttribute('aria-pressed') !== 'true') await displayButton(pane).click();
+    await display.waitFor();
   };
   const openSection = async title => {
     await openDisplay(first);
-    if (['Mode', 'Projection'].includes(title)) await first.getByRole('combobox', { name: title, exact: true }).click();
-    else await first.getByRole('heading', { name: title, exact: true }).hover();
+    if (['Mode', 'Projection'].includes(title)) await display.getByRole('combobox', { name: title, exact: true }).click();
+    else await display.getByRole('heading', { name: title, exact: true }).hover();
   };
   const setEnabled = async (title, enabled) => {
     await openDisplay(first);
-    const button = first.getByRole('button', { name: `${enabled ? 'Enable' : 'Disable'} ${title}`, exact: true });
+    const button = display.getByRole('button', { name: `${enabled ? 'Enable' : 'Disable'} ${title}`, exact: true });
     if (await button.count()) await button.click();
   };
-  const modeLabel = async () => `Mode${await first.getByRole('combobox', { name: 'Mode', exact: true }).innerText()}`;
+  const modeLabel = async () => `Mode${await display.getByRole('combobox', { name: 'Mode', exact: true }).innerText()}`;
   // The camera is moved through the live controller now: there is no zoom control in the
   // viewer to press.
   const zoomTo = (testId, zoom) => page.evaluate(async ([id, value]) => {
@@ -111,7 +114,7 @@ test('a shell renderer resolves deferred files, reuses warm assets, restores iso
     await controller.setCamera({ ...controller.readState().camera, zoom: value });
   }, [testId, zoom]);
   const cameraZoom = () => page.evaluate(() => window.cadHarness.a.controller.readState().camera?.zoom ?? null);
-  await first.locator('[data-cad-toolbar]').getByRole('button', { name: 'Display', exact: true }).waitFor().catch(async (error) => { throw new Error(`${error.message}; page errors: ${errors.join('; ')}; body: ${await page.locator("body").innerText()}; requests: ${requests.join(", ")}`); });
+  await displayButton(first).waitFor().catch(async (error) => { throw new Error(`${error.message}; page errors: ${errors.join('; ')}; body: ${await page.locator("body").innerText()}; requests: ${requests.join(", ")}`); });
   // The file opened directly and opened with nothing: a mesh has no panel of its own, and
   // Display, its only one, is never where a file opens. Nor is the tree.
   assert.deepEqual(await panels(first), ['Show files:false']);
@@ -130,7 +133,10 @@ test('a shell renderer resolves deferred files, reuses warm assets, restores iso
   await page.waitForFunction(() => Math.abs((window.cadHarness.a.controller.readState().camera?.zoom ?? 0) - 1.1) < 1e-6);
   await openDisplay(first);
   assert.equal(await first.getByRole('button', { name: 'Theme settings', exact: true }).count(), 0);
-  await first.locator('[data-cad-toolbar]').getByRole('button', { name: 'Display', exact: true }).click();
+  // Its button puts it away again.
+  await displayButton(first).click();
+  await display.waitFor({ state: 'detached' });
+  assert.equal(await displayButton(first).getAttribute('aria-pressed'), 'false');
   await first.getByRole('button', { name: 'Take snapshot', exact: true }).click();
   await page.waitForFunction(() => window.cadHarness.captures.length === 1);
   const captured = await page.evaluate(() => window.cadHarness.captures[0]);
@@ -141,10 +147,11 @@ test('a shell renderer resolves deferred files, reuses warm assets, restores iso
   assert.deepEqual(captured.references[0].target, { kind: 'whole-resource' });
   assert.equal(captured.references[0].resource.workspaceId, 'one');
   assert.equal(captured.references[0].resource.path, 'part.stl');
-  await first.locator('[data-tool-panel][aria-label="Display settings"]').waitFor({ state: 'detached' });
   // A mesh hands the shell no tools, so there is no strip over its viewport at
-  // all: orbit, pan and zoom, and nothing to take up — nor Fullscreen, which is a STEP's.
-  assert.equal(await first.getByRole('group', { name: 'Interaction tools' }).count(), 1, 'Display has a toolbar on every 3D file');
+  // all: orbit, pan and zoom, and nothing to take up. Display is not a tool: its settings are
+  // the button in the top-right bar.
+  assert.equal(await first.getByRole('group', { name: 'Interaction tools' }).count(), 0, 'no tools, so no strip');
+  assert.equal(await first.locator('[data-cad-toolbar]').getByRole('button', { name: /^Display/ }).count(), 0, 'Display is never on the strip');
   for (const name of ['Orbit', 'Draw', 'Select', 'Measure', 'Position', 'Animate']) {
     assert.equal(await first.getByRole('button', { name, exact: true }).count(), 0, name);
   }
@@ -164,6 +171,12 @@ test('a shell renderer resolves deferred files, reuses warm assets, restores iso
   await openDisplay(first);
   await page.evaluate(() => window.cadHarness.second(true));
   await openDisplay(page.getByTestId('two'));
+  // One popover at a time: the press on the second viewer's button put the first one's away.
+  assert.equal(await display.count(), 1);
+  assert.equal(await displayButton(first).getAttribute('aria-pressed'), 'false');
+  assert.equal(await displayButton(page.getByTestId('two')).getAttribute('aria-pressed'), 'true');
+  await displayButton(page.getByTestId('two')).click();
+  await display.waitFor({ state: 'detached' });
   assert.equal(await page.getByTestId('two').getByRole('button', { name: 'Zoom controls', exact: true }).count(), 0);
   assert.equal(await page.evaluate(() => window.cadHarness.b.controller.readState().camera?.zoom), 1,
     'a sibling renderer opens at its own framing');
@@ -175,7 +188,10 @@ test('a shell renderer resolves deferred files, reuses warm assets, restores iso
   // A second pane changes the first viewport's dimensions. Let its resize
   // observer and camera event publish before taking the saved snapshot.
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  // The file goes with its Display settings open.
+  await openDisplay(first);
   await page.evaluate(() => window.cadHarness.mounted(false));
+  await display.waitFor({ state: 'detached' });
   await first.locator('[data-slot="cad-file-view"]').waitFor({ state: 'detached' });
   // Unmount persists display preferences, but never camera framing.
   const before = await page.evaluate(() => window.cadHarness.state);
@@ -183,8 +199,9 @@ test('a shell renderer resolves deferred files, reuses warm assets, restores iso
   for (const saved of Object.values(before.renderers)) assert.equal(saved.camera, null, 'camera framing is not persisted');
   await page.evaluate(() => window.cadHarness.mounted(true));
   // Popover visibility is transient, not file state.
-  await first.locator('[data-cad-toolbar]').getByRole('button', { name: 'Display', exact: true }).waitFor();
-  assert.equal(await first.locator('[data-tool-panel][aria-label="Display settings"]').count(), 0);
+  await displayButton(first).waitFor();
+  assert.equal(await display.count(), 0, 'the remounted file opens with its Display settings shut');
+  assert.equal(await displayButton(first).getAttribute('aria-pressed'), 'false');
   // The pane remounts before the viewport adopts the mesh and publishes its restored
   // camera. Wait for the actual presented frame, not an arbitrary settling delay.
   const restoreDiagnostic = await page.evaluate(() => {
@@ -230,33 +247,32 @@ test('a shell renderer resolves deferred files, reuses warm assets, restores iso
     observer.observe(pane, { subtree: true, childList: true, attributes: true, attributeFilter: ['style'], attributeOldValue: true });
   });
   await openDisplay(first);
-  // A mesh's panels are Display and the tree, and Display is the one open: sections under
-  // headings, with no tab in sight.
+  // Display's popover: sections under headings, with no tab in sight; the nav row is unchanged.
   assert.deepEqual(await panels(first), ['Show files:false']);
   assert.equal(await first.getByRole('tab').count(), 0);
   for (const title of ['Explode', 'Cross-section', 'Edges']) {
-    assert.equal(await first.getByRole('heading', { name: title, exact: true }).count(), 0);
+    assert.equal(await display.getByRole('heading', { name: title, exact: true }).count(), 0);
   }
-  assert.equal(await first.getByRole('heading', { name: 'Lighting', exact: true }).count(), 1);
+  assert.equal(await display.getByRole('heading', { name: 'Lighting', exact: true }).count(), 1);
   await openSection('Lighting');
-  assert.equal(await first.getByLabel('Exposure value', { exact: true }).count(), 0);
+  assert.equal(await display.getByLabel('Exposure value', { exact: true }).count(), 0);
   await setEnabled('Lighting', true);
-  assert.equal(await first.getByLabel('Exposure value', { exact: true }).inputValue(), '0.0 EV');
+  assert.equal(await display.getByLabel('Exposure value', { exact: true }).inputValue(), '0.0 EV');
   await setEnabled('Lighting', false);
-  assert.equal(await first.getByLabel('Exposure value', { exact: true }).count(), 0);
-  assert.equal(await first.getByRole('button', { name: /^Projection:/ }).count(), 0);
-  assert.equal(await first.getByRole('combobox', { name: 'Projection', exact: true }).innerText(), 'Orthographic');
-  assert.equal(await first.getByRole('combobox', { name: 'Surface style', exact: true }).count(), 1);
-  assert.equal(await first.getByRole('combobox', { name: 'Parts', exact: true }).count(), 1);
+  assert.equal(await display.getByLabel('Exposure value', { exact: true }).count(), 0);
+  assert.equal(await display.getByRole('button', { name: /^Projection:/ }).count(), 0);
+  assert.equal(await display.getByRole('combobox', { name: 'Projection', exact: true }).innerText(), 'Orthographic');
+  assert.equal(await display.getByRole('combobox', { name: 'Surface style', exact: true }).count(), 1);
+  assert.equal(await display.getByRole('combobox', { name: 'Parts', exact: true }).count(), 1);
   await openSection('Floor');
   await page.waitForTimeout(250);
-  assert.equal(await first.getByRole('button', { name: 'Enable Floor', exact: true }).count(), 1, 'hover never enables Floor');
+  assert.equal(await display.getByRole('button', { name: 'Enable Floor', exact: true }).count(), 1, 'hover never enables Floor');
   await setEnabled('Floor', true);
   await page.waitForFunction(() => Object.values(window.cadHarness.state.renderers || {}).some(saved => saved.display?.floor?.enabled));
-  assert.match(await first.getByRole('combobox', { name: 'Floor position', exact: true }).innerText(), /Model origin/);
+  assert.match(await display.getByRole('combobox', { name: 'Floor position', exact: true }).innerText(), /Model origin/);
   await setEnabled('Floor', false);
   await page.waitForTimeout(200);
-  assert.equal(await first.getByRole('button', { name: 'Enable Floor', exact: true }).count(), 1);
+  assert.equal(await display.getByRole('button', { name: 'Enable Floor', exact: true }).count(), 1);
   assert.deepEqual(await page.evaluate(() => window.cadHarness.a.controller.readState().display.floor), { enabled: false });
   // A guide's paint is a settings-only edit: it reaches the saved state without a scene sync.
   // The floor is scene content, so its gate above does sync; let that land first.
@@ -269,17 +285,17 @@ test('a shell renderer resolves deferred files, reuses warm assets, restores iso
   });
   const syncsBeforeGrid = await settledSceneSyncs();
   await openSection('Grid / Axes');
-  await first.getByRole('button', { name: 'Grid color', exact: true }).click();
+  await display.getByRole('button', { name: 'Grid color', exact: true }).click();
   await page.getByRole('spinbutton', { name: 'Color opacity' }).fill('40');
   await page.getByRole('spinbutton', { name: 'Color opacity' }).press('Tab');
   await page.waitForFunction(() => Object.values(window.cadHarness.state.renderers || {}).some(saved => saved.display?.grid?.opacity === 0.4));
   await page.keyboard.press('Escape');
   assert.equal(await settledSceneSyncs(), syncsBeforeGrid, 'Grid paint only changes the guide: the scene is not dressed again');
   await setEnabled('Lighting', true);
-  await first.getByLabel('Exposure value', { exact: true }).fill('0.8');
-  await first.getByLabel('Exposure value', { exact: true }).press('Enter');
-  await first.getByLabel('Rotation value', { exact: true }).fill('45');
-  await first.getByLabel('Rotation value', { exact: true }).press('Enter');
+  await display.getByLabel('Exposure value', { exact: true }).fill('0.8');
+  await display.getByLabel('Exposure value', { exact: true }).press('Enter');
+  await display.getByLabel('Rotation value', { exact: true }).fill('45');
+  await display.getByLabel('Rotation value', { exact: true }).press('Enter');
   await page.waitForFunction(() => Object.values(window.cadHarness.state.renderers || {}).some(saved => {
     const lighting = saved.display?.lighting;
     return lighting?.exposure === 0.8 && lighting.rotation === 45;
@@ -288,8 +304,8 @@ test('a shell renderer resolves deferred files, reuses warm assets, restores iso
   assert.deepEqual(await page.evaluate(() => window.cadHarness.a.controller.readState().display.lighting), { enabled: false });
   // Reopening a gate starts from its defaults, never its previous values.
   await setEnabled('Lighting', true);
-  assert.equal(await first.getByLabel('Exposure value', { exact: true }).inputValue(), '0.0 EV');
-  assert.equal(await first.getByLabel('Rotation value', { exact: true }).inputValue(), '0°');
+  assert.equal(await display.getByLabel('Exposure value', { exact: true }).inputValue(), '0.0 EV');
+  assert.equal(await display.getByLabel('Rotation value', { exact: true }).inputValue(), '0°');
   await page.evaluate(() => window.cadHarness.a.controller.setDisplaySettings({
     clip: { enabled: true, axis: 'x', offsets: { x: 0.6 } },
     exploded: { enabled: true, amount: 0.3 },
@@ -300,8 +316,10 @@ test('a shell renderer resolves deferred files, reuses warm assets, restores iso
   // A command's tools are saved as written, never rewritten to fit the file; a view whose
   // features leave those sections out resolves them off, and no section appears.
   const assertMeshToolsStayOff = async () => {
-    assert.equal(await first.getByRole('region', { name: /^(?:Cross-section|Explode)$/ }).count(), 0);
-    assert.equal(await first.getByRole('button', { name: /^(?:Cross-section|Explode)$/ }).count(), 0);
+    for (const scope of [first, display]) {
+      assert.equal(await scope.getByRole('region', { name: /^(?:Cross-section|Explode|Clip)$/ }).count(), 0);
+      assert.equal(await scope.getByRole('button', { name: /^(?:Cross-section|Explode|Clip)$/ }).count(), 0);
+    }
   };
   assert.equal(beforeStyle.display.clip.enabled, true);
   assert.equal(beforeStyle.display.clip.axis, 'x');
@@ -365,13 +383,13 @@ test('a shell renderer resolves deferred files, reuses warm assets, restores iso
   // Actual control edits must survive subsequent edits and the debounced host
   // save, rather than only being visible in an intermediate React render.
   await openSection('Surfaces');
-  await first.getByLabel('Surface opacity value', { exact: true }).fill('65');
-  await first.getByLabel('Surface opacity value', { exact: true }).press('Enter');
-  await first.getByRole('combobox', { name: 'Surface style', exact: true }).click();
+  await display.getByLabel('Surface opacity value', { exact: true }).fill('65');
+  await display.getByLabel('Surface opacity value', { exact: true }).press('Enter');
+  await display.getByRole('combobox', { name: 'Surface style', exact: true }).click();
   await page.getByRole('option', { name: 'Flat', exact: true }).click();
-  assert.equal(await first.locator('[data-tool-panel][aria-label="Display settings"]').isVisible(), true);
+  assert.equal(await display.isVisible(), true, 'choosing an option in its Select leaves the popover open');
   await openSection('Surfaces');
-  await first.getByRole('combobox', { name: 'Parts', exact: true }).click();
+  await display.getByRole('combobox', { name: 'Parts', exact: true }).click();
   await page.getByRole('option', { name: 'Single color', exact: true }).click();
   await page.waitForFunction(() => Object.values(window.cadHarness.state.renderers || {}).some(saved => {
     const surfaces = saved.display?.surfaces;
@@ -396,21 +414,21 @@ test('a shell renderer resolves deferred files, reuses warm assets, restores iso
   }));
   await page.waitForFunction(() => !window.cadHarness.a.controller.readState().loading);
   await openSection('Lighting');
-  assert.equal(await first.getByLabel('Exposure value', { exact: true }).inputValue(), '0.5 EV');
+  assert.equal(await display.getByLabel('Exposure value', { exact: true }).inputValue(), '0.5 EV');
   assert.equal((await modeLabel()).replace(/\s/g, ''), 'ModeCustom');
-  assert.equal(await first.getByRole('checkbox', { name: 'Transparent', exact: true }).count(), 0);
+  assert.equal(await display.getByRole('checkbox', { name: 'Transparent', exact: true }).count(), 0);
   await openSection('Background');
-  await first.getByRole('button', { name: 'Background color', exact: true }).click();
+  await display.getByRole('button', { name: 'Background color', exact: true }).click();
   await page.getByRole('spinbutton', { name: 'Color opacity' }).fill('0');
   await page.getByRole('spinbutton', { name: 'Color opacity' }).press('Tab');
   await page.waitForFunction(() => window.cadHarness.a.controller.readState().display.background.opacity === 0);
   await page.keyboard.press('Escape');
   await setEnabled('Lighting', false);
   await page.waitForFunction(() => window.cadHarness.a.controller.readState().display.lighting.enabled === false);
-  assert.equal(await first.getByLabel('Exposure value', { exact: true }).count(), 0);
+  assert.equal(await display.getByLabel('Exposure value', { exact: true }).count(), 0);
   await openSection('Background');
-  assert.equal(await first.getByRole('button', { name: 'Background color', exact: true }).count(), 1, 'disabling Lighting does not disable Background');
-  await first.getByRole('button', { name: 'Reset', exact: true }).click();
+  assert.equal(await display.getByRole('button', { name: 'Background color', exact: true }).count(), 1, 'disabling Lighting does not disable Background');
+  await display.getByRole('button', { name: 'Reset', exact: true }).click();
   await page.waitForFunction(() => !window.cadHarness.a.controller.readState().loading);
   await assertPreservedState(false);
   await openDisplay(first);
@@ -420,13 +438,13 @@ test('a shell renderer resolves deferred files, reuses warm assets, restores iso
   await page.getByRole('option', { name: 'Render', exact: true }).click();
   await page.waitForFunction(() => window.cadHarness.a.controller.readState().display.mode === 'render' && !window.cadHarness.a.controller.readState().loading);
   await openSection('Lighting');
-  await first.getByLabel('Exposure value', { exact: true }).fill('1.5');
-  await first.getByLabel('Exposure value', { exact: true }).press('Enter');
-  await first.getByRole('button', { name: 'Reset', exact: true }).click();
+  await display.getByLabel('Exposure value', { exact: true }).fill('1.5');
+  await display.getByLabel('Exposure value', { exact: true }).press('Enter');
+  await display.getByRole('button', { name: 'Reset', exact: true }).click();
   await page.waitForFunction(() => window.cadHarness.a.controller.readState().display.mode === 'render' && !window.cadHarness.a.controller.readState().loading);
   assert.equal((await modeLabel()).replace(/\s/g, ''), 'ModeRender');
   await openSection('Lighting');
-  assert.equal(await first.getByLabel('Exposure value', { exact: true }).inputValue(), '0.0 EV');
+  assert.equal(await display.getByLabel('Exposure value', { exact: true }).inputValue(), '0.0 EV');
   await assertPreservedState(false);
   // Several commands in one turn must leave controls at the final request,
   // and capture must await that recipe rather than the last React render.
@@ -669,13 +687,51 @@ test('the shell keeps its Draw session across fullscreen, and fullscreen drags a
   await pane.getByRole('button', { name: 'Draw', exact: true }).waitFor();
   assert.equal(await pane.getByRole('button', { name: 'Draw', exact: true }).getAttribute('aria-pressed'), 'true',
     'the session the sketch is in survives a trip through fullscreen');
-  // Its tools, color and history are a panel in the tool stack for as long as Draw is the tool,
-  // and a second press puts Draw down, panel and all.
+  // Its tools, color, stroke width and history are a panel in the tool stack for as long as Draw is
+  // the tool, headed "Draw": it does not fold, and its X, like a second press on its button, puts
+  // Draw down, panel and all.
+  const draw = pane.getByRole('button', { name: 'Draw', exact: true });
   const drawPanel = pane.locator('[data-tool-panel][aria-label="Drawing controls"]');
   await drawPanel.waitFor();
-  await pane.getByRole('button', { name: 'Draw', exact: true }).click();
+  const drawHeading = drawPanel.locator('[data-tool-panel-heading]');
+  assert.equal((await drawHeading.getByRole('heading').innerText()).trim(), 'Draw');
+  assert.deepEqual(await drawHeading.getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), ['Close draw']);
+  // Its buttons are laid in a grid of 24px columns spread across the panel, with no separator.
+  assert.equal(await drawPanel.locator('[data-drawing-controls]').evaluate(node => getComputedStyle(node).display), 'grid');
+  assert.equal(await drawPanel.getByRole('separator').count(), 0);
+  // The weight is a button beside Color: a radiogroup of three.
+  const drawSettings = drawPanel.getByRole('group', { name: 'Drawing settings', exact: true });
+  assert.deepEqual((await drawSettings.getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')))).slice(0, 2), ['Color', 'Stroke width']);
+  await drawPanel.getByRole('button', { name: 'Stroke width', exact: true }).click();
+  const widths = drawPanel.getByRole('radiogroup', { name: 'Stroke width', exact: true });
+  assert.deepEqual(await widths.getByRole('radio').evaluateAll(radios => radios.map(radio => `${radio.getAttribute('aria-label')}:${radio.getAttribute('aria-checked')}`)),
+    ['Thin:false', 'Medium:true', 'Bold:false']);
+  // What the person chose — the tool, the weight, the colour — outlasts leaving Draw.
+  await widths.getByRole('radio', { name: 'Bold', exact: true }).click();
+  await widths.waitFor({ state: 'detached' });
+  await drawPanel.getByRole('button', { name: 'Line', exact: true }).click();
+  await drawPanel.getByRole('button', { name: 'Color', exact: true }).click();
+  await drawPanel.getByRole('radiogroup', { name: 'Drawing color', exact: true }).getByRole('radio', { name: 'Neon cyan', exact: true }).click();
+  const chosen = async () => {
+    await drawPanel.getByRole('button', { name: 'Stroke width', exact: true }).click();
+    const weight = await drawPanel.getByRole('radiogroup', { name: 'Stroke width', exact: true }).locator('[aria-checked="true"]').getAttribute('aria-label');
+    await drawPanel.getByRole('button', { name: 'Stroke width', exact: true }).click();
+    await drawPanel.getByRole('button', { name: 'Color', exact: true }).click();
+    const color = await drawPanel.getByRole('radiogroup', { name: 'Drawing color', exact: true }).locator('[aria-checked="true"]').getAttribute('aria-label');
+    await drawPanel.getByRole('button', { name: 'Color', exact: true }).click();
+    return { tool: await drawPanel.getByRole('group', { name: 'Drawing tools', exact: true }).locator('[aria-pressed="true"]').getAttribute('aria-label'), weight, color };
+  };
+  assert.deepEqual(await chosen(), { tool: 'Line', weight: 'Bold', color: 'Neon cyan' });
+  await drawHeading.getByRole('button', { name: 'Close draw', exact: true }).click();
   await drawPanel.waitFor({ state: 'detached' });
-  assert.equal(await pane.getByRole('button', { name: 'Draw', exact: true }).getAttribute('aria-pressed'), 'false');
+  assert.equal(await draw.getAttribute('aria-pressed'), 'false', 'the X puts Draw down');
+  await draw.click();
+  await pane.locator('[data-drawing-ready]').waitFor();
+  await drawPanel.waitFor();
+  assert.deepEqual(await chosen(), { tool: 'Line', weight: 'Bold', color: 'Neon cyan' }, 'taken up again, Draw is as it was left');
+  await draw.click();
+  await drawPanel.waitFor({ state: 'detached' });
+  assert.equal(await draw.getAttribute('aria-pressed'), 'false');
   assert.deepEqual(errors, []);
 });
 
@@ -1118,7 +1174,7 @@ test('a renderer says more about its load than a download: finding the file, edi
 });
 
 // The tool stack under the strip, and keyboard ownership between two viewers on one page.
-test('the tool stack: one width, bounded by the viewer, resizable, one floating surface; Display and Draw are its panels; and keys belong to the viewer that has them', async (t) => {
+test('the tool stack: one width, bounded by the viewer, resizable by edge, foot and corner, one floating surface; Display is a popover beside it, Draw a panel; and keys belong to the viewer that has them', async (t) => {
   const temporary = await mkdtemp(join(tmpdir(), 'hardcore-shell-keys-'));
   let server, browser;
   t.after(async () => { await browser?.close(); if (server) await new Promise(resolve => server.close(resolve)); await rm(temporary, { recursive: true, force: true }); });
@@ -1161,11 +1217,27 @@ test('the tool stack: one width, bounded by the viewer, resizable, one floating 
     }));
   const withinViewer = async () => {
     const [panels, box] = [await shown(), await viewer()];
-    assert.ok(panels.at(-1).bottom <= box.y + box.height - 14 + 1, `the stack ends inside the viewer: ${panels.at(-1).bottom} vs ${box.y + box.height}`);
+    assert.ok(panels.at(-1).bottom <= box.y + box.height - 8 + 1, `the stack ends inside the viewer: ${panels.at(-1).bottom} vs ${box.y + box.height}`);
     return panels;
   };
 
   const layout = () => page.evaluate(() => window.cadHarness.preferences.getSnapshot().toolStack);
+  const strip = one.locator('[data-cad-toolbar] [role=group]');
+
+  // THE CHROME'S INSET: the strip sits 8px in from the viewer's top and left, and the top-right
+  // bar (Display settings, then Fullscreen) 8px in from its top and right.
+  const [stripBox, backdrop] = [await strip.boundingBox(), await viewer()];
+  assert.ok(Math.abs(stripBox.x - backdrop.x - 8) <= 1 && Math.abs(stripBox.y - backdrop.y - 8) <= 1, `the strip is inset 8px: ${JSON.stringify(stripBox)}`);
+  const [displayBox, fullscreenBox] = [await one.getByRole('button', { name: 'Display settings', exact: true }).boundingBox(),
+    await one.getByRole('button', { name: 'Fullscreen', exact: true }).boundingBox()];
+  assert.ok(displayBox.x + displayBox.width <= fullscreenBox.x + 1 && Math.abs(displayBox.y - fullscreenBox.y) <= 1, 'Display settings sits left of Fullscreen, level with it');
+  assert.ok(Math.abs(backdrop.x + backdrop.width - (fullscreenBox.x + fullscreenBox.width) - 8) <= 1, 'the bar is inset 8px from the right');
+  // The stack's default width is a five-tool strip's (138px), whatever tools this file's strip has
+  // (two here): nothing is stored until a person drags it.
+  assert.equal((await layout())?.width, undefined, 'no width is stored until one is dragged');
+  const defaultWidth = TOOL_STACK_DEFAULT_WIDTH;
+  assert.equal(defaultWidth, 138);
+  assert.ok(stripBox.width < defaultWidth, 'not the strip\'s own width');
 
   // HEIGHTS. A tree opens at half the stack's own height — the viewer's less the strip above it
   // and the insets — (its default cap) and scrolls inside it; the Reference opens at its content's
@@ -1173,7 +1245,8 @@ test('the tool stack: one width, bounded by the viewer, resizable, one floating 
   const stackHeight = await stack.evaluate(node => node.clientHeight);
   let panels = await shown();
   assert.deepEqual(panels.map(panel => panel.label), ['Harness tree', 'Harness reference']);
-  assert.ok(stackHeight < (await viewer()).height - 60, 'the stack is the area under the strip');
+  assert.ok(Math.abs(stackHeight - ((await viewer()).height - stripBox.height - 3 * 8)) <= 1,
+    `the stack is the area under the strip, 8px from it and from the viewer's bottom: ${stackHeight}`);
   assert.ok(Math.abs(panels[0].height - stackHeight / 2) <= 1, `the tree opens at half the stack: ${panels[0].height} of ${stackHeight}`);
   assert.equal(panels[0].scrolls, true);
   assert.equal(panels[1].scrolls, false, 'a Reference that fits its cap is its content\'s height');
@@ -1185,7 +1258,7 @@ test('the tool stack: one width, bounded by the viewer, resizable, one floating 
   await kept.waitFor();
   panels = await withinViewer();
   assert.deepEqual(panels.map(panel => panel.label), ['Harness tree', 'Harness reference', 'Kept controls']);
-  assert.deepEqual(new Set(panels.map(panel => panel.width)), new Set([190]), 'one width, the strip\'s base width with one more tool');
+  assert.deepEqual(new Set(panels.map(panel => Math.round(panel.width))), new Set([defaultWidth]), 'one width, the default');
   const [treePanel, referencePanel, keptPanel] = panels;
   assert.equal(treePanel.scrolls, true, 'the tree gives way and scrolls inside itself');
   assert.equal(referencePanel.scrolls, false, 'the Reference keeps its height while the tree can give way');
@@ -1214,14 +1287,17 @@ test('the tool stack: one width, bounded by the viewer, resizable, one floating 
   await page.mouse.down();
   await page.mouse.move(handleBox.x + handleBox.width / 2 + 60, handleBox.y + 40, { steps: 5 });
   await page.mouse.up();
-  await page.waitForFunction(() => window.cadHarness.preferences.getSnapshot().toolStack?.width > 190);
+  await page.waitForFunction(wider => window.cadHarness.preferences.getSnapshot().toolStack?.width > wider, defaultWidth);
   const widened = (await layout()).width;
   assert.deepEqual(new Set((await shown()).map(panel => panel.width)), new Set([widened]), 'every panel follows');
   await handle.focus();
   await page.keyboard.press('Home');
-  await page.waitForFunction(() => window.cadHarness.preferences.getSnapshot().toolStack?.width === 160);
-  assert.deepEqual(new Set((await shown()).map(panel => panel.width)), new Set([160]), 'down to its minimum, narrower than the default');
-  await page.evaluate(() => window.cadHarness.preferences.update({ toolStack: { ...window.cadHarness.preferences.getSnapshot().toolStack, width: 190 } }));
+  await page.waitForFunction(minimum => window.cadHarness.preferences.getSnapshot().toolStack?.width === minimum, TOOL_STACK_MIN_WIDTH);
+  assert.deepEqual(new Set((await shown()).map(panel => panel.width)), new Set([TOOL_STACK_MIN_WIDTH]), 'down to its minimum, narrower than the default');
+  // A width that is no width is the default again.
+  await page.evaluate(() => window.cadHarness.preferences.update({ toolStack: { ...window.cadHarness.preferences.getSnapshot().toolStack, width: null } }));
+  await page.waitForTimeout(100);
+  assert.deepEqual(new Set((await shown()).map(panel => Math.round(panel.width))), new Set([defaultWidth]));
 
   // A TREE'S HEIGHT is the person's too: a handle on its bottom edge (centred on it, like the
   // width's) sets its cap by pointer or keyboard, written back once on release, and a remount opens
@@ -1312,44 +1388,154 @@ test('the tool stack: one width, bounded by the viewer, resizable, one floating 
   await reference.getByRole('button', { name: 'Expand harness reference', exact: true }).click();
   assert.equal(await tree.getByText('Row 1', { exact: true }).isVisible(), true);
   assert.deepEqual((await layout()).collapsed, {}, 'unfolded as they start, nothing is kept');
-  await page.evaluate(() => window.cadHarness.preferences.update({ toolStack: { width: 190, heights: {}, collapsed: {} } }));
+  await page.evaluate(width => window.cadHarness.preferences.update({ toolStack: { width, heights: {}, collapsed: {} } }), TOOL_STACK_DEFAULT_WIDTH);
+
+  // THE STACK'S FOOT AND CORNER: while a panel a person sizes (here the tree and the Reference) is
+  // on screen and open, a handle along the stack's bottom scales every such panel's cap together,
+  // each in proportion to its height, and one at its bottom-right corner does that and sets the
+  // width too — drawn at once, written back once, on release.
+  const foot = one.locator('[data-tool-stack-height-handle]');
+  const corner = one.locator('[data-tool-stack-corner-handle]');
+  await foot.waitFor();
+  assert.equal(await corner.count(), 1);
+  assert.deepEqual([await foot.getAttribute('role'), await foot.getAttribute('aria-label')], ['separator', 'Resize tool panel heights']);
+  // Nothing is drawn on the handles, hovered or dragged: a cursor, and a ring only for the keyboard.
+  for (const handleLocator of [foot, one.getByRole('separator', { name: 'Resize tool panels', exact: true }), treeHandle]) {
+    assert.doesNotMatch(await handleLocator.getAttribute('class'), /(?:^|\s)(?:hover|active|data-\[dragging\]):before:bg-/, 'no line on hover or drag');
+  }
+  // Folded panels are not sized: with both folded, neither handle is there.
+  await fold.click();
+  await referenceFold.click();
+  await foot.waitFor({ state: 'detached' });
+  assert.equal(await corner.count(), 0, 'no corner without a sizable panel open');
+  await tree.getByRole('button', { name: 'Expand harness tree', exact: true }).click();
+  await reference.getByRole('button', { name: 'Expand harness reference', exact: true }).click();
+  await foot.waitFor();
+  await page.evaluate(width => window.cadHarness.preferences.update({ toolStack: { width, heights: {}, collapsed: {} } }), TOOL_STACK_DEFAULT_WIDTH);
+  await page.waitForTimeout(100);
+  const heightsNow = async () => Object.fromEntries(await Promise.all([['tree', tree], ['reference', reference]]
+    .map(async ([key, panel]) => [key, (await panel.boundingBox()).height])));
+  const before = await heightsNow();
+  const footBox = await foot.boundingBox();
+  const stackBox = await stack.boundingBox();
+  const lastPanel = await reference.boundingBox();
+  assert.ok(footBox.y >= lastPanel.y + lastPanel.height && footBox.y <= lastPanel.y + lastPanel.height + 16,
+    `the foot is at the stack's bottom, just under the last panel: ${footBox.y} vs ${lastPanel.y + lastPanel.height}`);
+  assert.ok(footBox.width >= stackBox.width - 2, 'and runs the stack\'s width');
+  await page.evaluate(() => { window.layoutWrites = 0; });
+  await page.mouse.move(footBox.x + footBox.width / 2, footBox.y + footBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(footBox.x + footBox.width / 2, footBox.y + footBox.height / 2 - 90, { steps: 8 });
+  const midway = await heightsNow();
+  assert.ok(midway.tree < before.tree - 10 && midway.reference < before.reference - 10, `both panels shrink as the pointer moves: ${JSON.stringify([before, midway])}`);
+  assert.equal(await page.evaluate(() => window.layoutWrites), 0, 'nothing is written while the pointer moves');
+  await page.mouse.up();
+  await page.waitForFunction(() => Object.keys(window.cadHarness.preferences.getSnapshot().toolStack?.heights || {}).length === 2);
+  assert.equal(await page.evaluate(() => window.layoutWrites), 1, 'both caps written back in one write, on release');
+  const caps = (await layout()).heights;
+  const factor = (before.tree + before.reference - 90) / (before.tree + before.reference);
+  assert.ok(Math.abs(caps.tree - before.tree * factor) <= 2 && Math.abs(caps.reference - before.reference * factor) <= 2,
+    `each cap scaled by the same factor: ${JSON.stringify({ before, caps, factor })}`);
+  assert.ok(Math.abs(caps.tree / before.tree - caps.reference / before.reference) < 0.02, 'in proportion');
+  const after = await heightsNow();
+  assert.ok(Math.abs(after.tree - caps.tree) <= 1 && Math.abs(after.reference - caps.reference) <= 1, `the panels are drawn at their new caps: ${JSON.stringify(after)}`);
+  assert.equal((await layout()).width, TOOL_STACK_DEFAULT_WIDTH, 'the foot leaves the width alone');
+  // The keyboard: ArrowDown and ArrowUp nudge the total by 16px, split in proportion.
+  await foot.focus();
+  await page.keyboard.press('ArrowDown');
+  await page.waitForFunction(total => {
+    const heights = window.cadHarness.preferences.getSnapshot().toolStack.heights;
+    return Math.abs(heights.tree + heights.reference - total) <= 2;
+  }, caps.tree + caps.reference + 16);
+  await page.keyboard.press('ArrowUp');
+  await page.waitForFunction(total => {
+    const heights = window.cadHarness.preferences.getSnapshot().toolStack.heights;
+    return Math.abs(heights.tree + heights.reference - total) <= 2;
+  }, caps.tree + caps.reference);
+  // The corner scales the caps and sets the width in the same gesture.
+  const cornerBefore = { heights: await heightsNow(), width: (await stack.boundingBox()).width };
+  const cornerBox = await corner.boundingBox();
+  assert.ok(Math.abs(cornerBox.x + cornerBox.width / 2 - (stackBox.x + stackBox.width)) <= 1, 'the corner is centred on the stack\'s right edge');
+  await page.evaluate(() => { window.layoutWrites = 0; });
+  await page.mouse.move(cornerBox.x + cornerBox.width / 2, cornerBox.y + cornerBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(cornerBox.x + cornerBox.width / 2 + 50, cornerBox.y + cornerBox.height / 2 - 60, { steps: 8 });
+  assert.ok(Math.abs((await stack.boundingBox()).width - (cornerBefore.width + 50)) <= 2, 'the stack widens under the pointer');
+  await page.mouse.up();
+  await page.waitForFunction(from => window.cadHarness.preferences.getSnapshot().toolStack?.width !== from, TOOL_STACK_DEFAULT_WIDTH);
+  const cornerLayout = await layout();
+  assert.ok(Math.abs(cornerLayout.width - (cornerBefore.width + 50)) <= 2, `the corner set the width: ${cornerLayout.width}`);
+  const cornerFactor = (cornerBefore.heights.tree + cornerBefore.heights.reference - 60) / (cornerBefore.heights.tree + cornerBefore.heights.reference);
+  assert.ok(Math.abs(cornerLayout.heights.tree - cornerBefore.heights.tree * cornerFactor) <= 2
+    && Math.abs(cornerLayout.heights.reference - cornerBefore.heights.reference * cornerFactor) <= 2, `and scaled the caps: ${JSON.stringify(cornerLayout)}`);
+  assert.equal(await page.evaluate(() => window.layoutWrites), 1, 'the corner writes its caps and its width at once');
+  await page.evaluate(width => window.cadHarness.preferences.update({ toolStack: { width, heights: {}, collapsed: {} } }), TOOL_STACK_DEFAULT_WIDTH);
   await keep.click();
   await kept.waitFor();
 
-  // TWO SURFACES, one place (`floatingSurface.js`): the strip and a menu over the viewport share
-  // one; a stack panel has the same blur and border over a more transparent background.
+  // TWO SURFACES, one place (`floatingSurface.js`): the strip and the stack's panels, which stay up
+  // beside the model, share the light chrome surface; a menu or a popover over the viewport has the
+  // other, more opaque and more blurred. Both have the same border.
   await one.locator('[data-cad-surface] canvas').first().click({ button: 'right', position: { x: 600, y: 400 } });
   const menu = page.getByRole('menu');
   await menu.waitFor();
   const surface = locator => locator.evaluate(node => { const style = getComputedStyle(node); return [style.backdropFilter, style.borderTopColor].join(' | '); });
   const alpha = locator => locator.evaluate(node => Number(getComputedStyle(node).backgroundColor.match(/[\d.]+(?=\)$)/)?.[0] ?? 1));
+  const border = locator => locator.evaluate(node => getComputedStyle(node).borderTopColor);
   // Located by CSS: the open menu hides the rest of the page from the accessibility tree.
   const stripSurface = one.locator('[data-cad-toolbar] [role=group]'), panelSurface = one.locator('[data-tool-panel][aria-label="Harness tree"]');
-  const strip = await surface(stripSurface);
-  assert.match(strip, /blur/);
-  assert.equal(await surface(panelSurface), strip, 'a stack panel has the strip\'s blur and border');
-  assert.equal(await surface(menu), strip, 'and so has a menu over the viewport');
-  assert.equal(await alpha(stripSurface), 0.75);
-  assert.equal(await alpha(menu), 0.75, 'a menu is the strip\'s background');
-  assert.equal(await alpha(panelSurface), 0.55, 'a panel is more transparent than either');
+  const chrome = await surface(stripSurface);
+  assert.match(chrome, /blur\(2px\)/);
+  assert.equal(await surface(panelSurface), chrome, 'a stack panel has the strip\'s blur and border');
+  assert.equal(await alpha(stripSurface), 0.35);
+  assert.equal(await alpha(panelSurface), 0.35, 'and its background');
+  assert.match(await surface(menu), /blur\(12px\)/, 'a menu over the viewport is blurred more');
+  assert.equal(await alpha(menu), 0.75, 'and more opaque');
+  assert.equal(await border(menu), await border(stripSurface), 'with the same border');
   await page.keyboard.press('Escape');
   await menu.waitFor({ state: 'detached' });
 
-  // DISPLAY is a tool whose panel is its settings: it leads the stack while it is up, a kept
-  // effect stays highlighted beside it, and a second press puts it down.
-  const display = one.locator('[data-cad-toolbar]').getByRole('button', { name: 'Display', exact: true });
-  const displayPanel = one.locator('[data-tool-panel][aria-label="Display settings"]');
+  // DISPLAY is not a tool: its settings are a popover from its button in the top-right bar. Opening
+  // it leaves the tools as they were — a kept effect highlighted, Draw in hand with its panel — and
+  // the stack's panels where they were; the popover has the menus' surface.
+  const display = one.getByRole('button', { name: 'Display settings', exact: true });
+  const displayPanel = page.locator('[data-display-popover]');
+  assert.equal(await one.locator('[data-cad-toolbar]').getByRole('button', { name: /^Display/ }).count(), 0, 'Display is never on the strip');
+  await one.getByRole('button', { name: 'Draw', exact: true }).click();
+  await one.locator('[data-drawing-ready]').waitFor();
+  const stackBefore = (await withinViewer()).map(panel => panel.label);
+  assert.deepEqual(stackBefore, ['Drawing controls', 'Harness tree', 'Harness reference', 'Kept controls']);
   await display.click(); await displayPanel.waitFor();
-  assert.deepEqual((await withinViewer()).map(panel => panel.label), ['Display settings', 'Harness tree', 'Harness reference', 'Kept controls']);
-  assert.deepEqual(new Set((await shown()).map(panel => panel.width)), new Set([190]));
-  assert.equal(await keep.getAttribute('aria-pressed'), 'true', 'the kept effect stays highlighted while Display is the tool');
+  assert.equal(await displayPanel.getAttribute('aria-label'), 'Display settings');
   assert.equal(await display.getAttribute('aria-pressed'), 'true');
-  await display.click(); await displayPanel.waitFor({ state: 'detached' });
-
-  // ESCAPE. A quick second Escape after closing a Select puts Display down: a listbox on its way
-  // out does not hold the key. The stack's own panels are never Escape's to close.
+  assert.deepEqual((await withinViewer()).map(panel => panel.label), stackBefore, 'the stack is as it was: no Display panel in it');
+  assert.equal(await keep.getAttribute('aria-pressed'), 'true', 'the kept effect stays highlighted');
+  assert.equal(await one.getByRole('button', { name: 'Draw', exact: true }).getAttribute('aria-pressed'), 'true', 'Draw stays the tool');
+  assert.equal(await alpha(displayPanel), 0.75, 'the popover is a menu\'s surface');
+  // (Measured once its opening animation, a slide and a zoom, has run.)
+  await displayPanel.evaluate(node => Promise.all(node.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => {}))));
+  const [popoverBox, displayButtonBox] = [await displayPanel.boundingBox(), await display.boundingBox()];
+  assert.ok(popoverBox.y >= displayButtonBox.y + displayButtonBox.height, 'it opens under its button');
+  // Its X puts it away, and so does its button; Draw is still the tool.
+  await displayPanel.getByRole('button', { name: 'Close display settings', exact: true }).click();
+  await displayPanel.waitFor({ state: 'detached' });
+  assert.equal(await display.getAttribute('aria-pressed'), 'false');
   await display.click(); await displayPanel.waitFor();
-  await one.getByRole('combobox', { name: 'Mode', exact: true }).click();
+  await display.click(); await displayPanel.waitFor({ state: 'detached' });
+  assert.equal(await one.getByRole('button', { name: 'Draw', exact: true }).getAttribute('aria-pressed'), 'true');
+  await one.getByRole('button', { name: 'Draw', exact: true }).click();
+  await one.locator('[data-cad-drawing-overlay]').waitFor({ state: 'detached' });
+  // A press anywhere outside it — the model included — puts it away; the press is still the model's.
+  await display.click(); await displayPanel.waitFor();
+  const modelBox = await one.locator('[data-cad-surface] canvas').first().boundingBox();
+  await page.mouse.click(modelBox.x + modelBox.width * 0.6, modelBox.y + modelBox.height * 0.6);
+  await displayPanel.waitFor({ state: 'detached' });
+  assert.equal(await keep.getAttribute('aria-pressed'), 'true');
+
+  // ESCAPE. A quick second Escape after closing a Select puts the popover away: a listbox on its
+  // way out does not hold the key. The stack's own panels are never Escape's to close.
+  await display.click(); await displayPanel.waitFor();
+  await displayPanel.getByRole('combobox', { name: 'Mode', exact: true }).click();
   await page.getByRole('listbox').waitFor();
   await page.keyboard.press('Escape');
   await page.waitForTimeout(120);
@@ -1358,6 +1544,7 @@ test('the tool stack: one width, bounded by the viewer, resizable, one floating 
   await displayPanel.waitFor({ state: 'detached' });
   assert.equal(await display.getAttribute('aria-pressed'), 'false');
   assert.equal(await tree.isVisible(), true, 'Escape leaves the stack\'s panels alone');
+  assert.equal(await kept.isVisible(), true);
 
   // Draw's surface keeps its Escape: Draw stays, with its panel.
   await one.getByRole('button', { name: 'Draw', exact: true }).click();
@@ -1370,17 +1557,25 @@ test('the tool stack: one width, bounded by the viewer, resizable, one floating 
   await page.waitForTimeout(150);
   assert.equal(await one.getByRole('button', { name: 'Draw', exact: true }).getAttribute('aria-pressed'), 'true', 'Escape on the drawing surface is Draw\'s');
   assert.equal(await one.locator('[data-tool-panel][aria-label="Drawing controls"]').isVisible(), true);
-  assert.equal(await one.locator('[data-tool-panel][aria-label="Drawing controls"] [data-tool-panel-collapse]').count(), 0, 'the Drawing panel does not fold');
+  assert.equal(await one.locator('[data-tool-panel][aria-label="Drawing controls"]').getByRole('button', { name: /^(?:Collapse|Expand) / }).count(), 0, 'the Drawing panel does not fold');
   await one.getByRole('button', { name: 'Draw', exact: true }).click();
   await one.locator('[data-cad-drawing-overlay]').waitFor({ state: 'detached' });
   await keep.click();
   await kept.waitFor({ state: 'detached' });
 
-  // MOBILE: the same stack, the tree held to 40% of it (a second pane halves the width).
+  // MOBILE (a second pane halves the width): the same stack. A tree's default cap is the whole
+  // column there, not half of it — it is not held to a share of it — and with the Reference up too,
+  // the tree gives way so that both fit, nothing running past the viewer.
   await page.evaluate(() => window.cadHarness.second(true));
   await page.waitForFunction(() => document.querySelector('[data-testid="one"] .hardcore-file-viewer')?.getAttribute('data-viewer-layout') === 'mobile');
-  const [mobileTree, column] = await Promise.all([tree.boundingBox(), stack.boundingBox()]);
-  assert.ok(mobileTree.height <= column.height * 0.4 + 1, `the tree is capped on mobile: ${mobileTree.height} of ${column.height}`);
+  await page.waitForTimeout(200);
+  const [mobileTree, mobileReference, column] = await Promise.all([tree.boundingBox(), reference.boundingBox(), stack.boundingBox()]);
+  const columnHeight = await stack.evaluate(node => node.clientHeight);
+  assert.equal(await tree.evaluate(node => node.style.maxHeight), `${columnHeight}px`, 'its cap is the whole column');
+  assert.ok(mobileTree.height > column.height * 0.4 + 1, `not held to 40%: ${mobileTree.height} of ${column.height}`);
+  assert.ok(mobileReference.y >= mobileTree.y + mobileTree.height && mobileReference.y + mobileReference.height <= column.y + column.height + 1,
+    `the Reference fits under it: ${JSON.stringify({ mobileTree, mobileReference, column })}`);
+  assert.equal(await tree.locator('[data-tool-panel-body]').evaluate(body => body.scrollHeight > body.clientHeight), true, 'the tree gave way and scrolls');
   await page.evaluate(() => window.cadHarness.second(false));
   await page.waitForFunction(() => document.querySelector('[data-testid="one"] .hardcore-file-viewer')?.getAttribute('data-viewer-layout') === 'desktop');
 
@@ -1424,7 +1619,9 @@ test('the tool stack: one width, bounded by the viewer, resizable, one floating 
   await tree.waitFor();
   const [shortTree, longReference] = await Promise.all([tree, reference].map(panel => panel.evaluate(node => {
     const body = node.querySelector('[data-tool-panel-body]');
-    const header = node.firstElementChild.getBoundingClientRect().height;
+    // The panel's first row: its header, drawn through a `display: contents` wrapper.
+    const first = node.firstElementChild;
+    const header = (getComputedStyle(first).display === 'contents' ? first.firstElementChild : first).getBoundingClientRect().height;
     return { height: node.getBoundingClientRect().height, header, content: body.scrollHeight, scrolls: body.scrollHeight > body.clientHeight + 1 };
   })));
   assert.equal(shortTree.scrolls, false);
