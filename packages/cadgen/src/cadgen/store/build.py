@@ -796,13 +796,19 @@ def _document_correspondence(
     return occurrence_map, appearance, node_map
 
 
-# Read-back verification tolerances. A STEP round trip of the same surfaces
-# reproduces volume to ~1e-12 relative and bounds to the kernel's precision;
-# real translation damage — a sphere cap replaced by its complement, a solid
-# blown into a spike, a member dropped — is orders of magnitude past these.
-READBACK_VOLUME_RELATIVE = 1e-4
-READBACK_BOUNDS_RELATIVE = 1e-4
-READBACK_BOUNDS_ABSOLUTE = 1e-3  # mm
+# Read-back verification tolerances, set from a survey of 473 real components
+# (a nine-cylinder radial engine's 18 systems). An honest STEP round trip
+# reproduces volume to a median 6e-13 relative, p99 7e-5, worst 1.0e-4 (a
+# spline-heavy rocker cover); real translation damage — a sphere cap replaced
+# by its 0.35 mm³ complement, a ring blown into a 988 mm spike, balls fused
+# into a race losing 7–22 % of their volume while staying BRepCheck-valid —
+# starts three orders of magnitude past the volume limit. Bounds are the
+# control-hull box, whose honest drift reaches 4e-3 of the extent on swept
+# surfaces (the translation changes the representation, not the geometry), so
+# they are a coarse backstop for volume-neutral displacement, not a fine check.
+READBACK_VOLUME_RELATIVE = 1e-3
+READBACK_BOUNDS_RELATIVE = 2e-2
+READBACK_BOUNDS_ABSOLUTE = 0.1  # mm
 
 
 @dataclass(frozen=True)
@@ -823,8 +829,13 @@ class ReadbackFacts:
 def readback_facts(shape: Any) -> ReadbackFacts:
     """Solid count, volume and axis-aligned bounds of one unlocated ``TopoDS_Shape``.
 
-    Bounds come from the surface control hulls (no triangulation), so both
-    sides are measured the same way whether or not the source was meshed.
+    Bounds are the control-hull box (no triangulation), so both sides are
+    measured the same way whether or not the source was ever meshed. It is
+    loose — the translation changes a swept surface's representation and its
+    hull moved 0.6 mm with the geometry unchanged — which is why its limit is
+    coarse. ``AddOptimal`` is not the answer: it approximates rough surfaces
+    and disagreed by 5 mm on a rocker arm whose volume agreed to 1e-5, at four
+    times the cost.
     """
     from OCP.Bnd import Bnd_Box
     from OCP.BRepBndLib import BRepBndLib

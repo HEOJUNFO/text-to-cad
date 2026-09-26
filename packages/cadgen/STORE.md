@@ -519,20 +519,26 @@ Each with the failure it prevents.
   Before anything is published under the document's digest, every distinct
   component the re-read carries back (`build_tree_through_step`, one check
   per cid) is compared with the shape the model returned: solid count, volume
-  (within 1e-4 relative) and axis-aligned bounds (within 1 µm + 1e-4 of the
-  extent), plus BRepCheck validity — asked of the read-back first, and of the
-  source only when the read-back fails, so a solid the model itself left
-  invalid is never blamed on the writer. Any discrepancy is a build failure
-  naming the file, occurrence, label, component and the numbers; the staged
-  document is discarded and no record, output mapping or document index entry
-  is written. The check reuses the parsed read-back and costs a small fraction
-  of the re-read itself (facts ~0.02 ms per face, BRepCheck ~0.15 ms per face,
-  in parallel). Prevents: OCCT's translation silently replacing a solid with
+  (within 1e-3 relative) and the control-hull bounds (within 0.1 mm + 2 % of
+  the extent, a coarse backstop for volume-neutral displacement), plus
+  BRepCheck validity — asked of the read-back first, and of the source only
+  when the read-back fails, so a solid the model itself left invalid is never
+  blamed on the writer. The limits come from a survey of 473 real components:
+  an honest round trip reproduces volume to a worst 1.0e-4 relative and hull
+  bounds to 4e-3 of the extent, while real damage starts at 7 % of the volume.
+  Any discrepancy is a build failure naming the file, occurrence, label,
+  component and the numbers; the staged document is discarded and no record,
+  output mapping or document index entry is written. The check reuses the
+  parsed read-back and costs a small fraction of the re-read itself (under a
+  second per heavy casting: the volume integral dominates, BRepCheck runs in
+  parallel). Prevents: OCCT's translation silently replacing a solid with
   something else — a sphere-boolean cap read back as its 0.35 mm³ complement,
-  a ring read back as a 988 mm spike, a swept bore leaving a face with
-  `BadOrientationOfSubshape` — and that garbage being stored, served by every
-  door, and composed into every parent at exit 0 (law 10). Model authors no
-  longer need to round-trip their own solids through STEP to find out.
+  a ring read back as a 988 mm spike, balls fused into a race read back
+  BRepCheck-valid with 22 % of their volume gone, a swept bore leaving a face
+  with `BadOrientationOfSubshape` — and that garbage being stored, served by
+  every door, and composed into every parent at exit 0 (law 10). Model
+  authors no longer need to round-trip their own solids through STEP to find
+  out.
 - **Canonical STEP bytes.** Before a written STEP is published, the writer
   canonicalizes what OCCT emitted: NAUO instance ids, presentation-style
   order, and the sign of zero — `-0.` is rewritten `0.`, because which IEEE
