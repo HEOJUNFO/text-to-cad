@@ -207,26 +207,99 @@ def overlap_volume(a: Solid, b: Solid) -> float:
         raise GeometryError(f"intersection computation failed: {exc}") from exc
 
 
+# --- Reused verdicts ------------------------------------------------------------
+#
+# The checks below are pure functions of the shape they are handed: its
+# geometry, placement and orientation. The op memo's value tier already keys
+# exactly that identity -- the location-stripped BREP digest and the location
+# matrix, bound to the loaded build123d/OCP runtime -- in its RAM and disk
+# tiers, so an identical shape gets the stored verdict instead of a rerun. A
+# verdict holds only issue codes and, per affected entity, its index in the
+# checked copy's ``TopExp.MapShapes`` order and its orientation; never native
+# geometry. A hit decodes it against a fresh private copy of the caller's
+# shape: the same owned entities, placements and orientations the kernel named
+# on the miss (``MapShapes`` order is a function of the BREP the key digests).
+# A check that raises stores nothing. An entity the index cannot address
+# stores None, which reruns the check on every call. The op name names the
+# check: change what one computes and change its name with it.
+
+
+def _entity_map(private):
+    from OCP.TopExp import TopExp
+    from OCP.TopTools import TopTools_IndexedMapOfShape
+
+    entities = TopTools_IndexedMapOfShape()
+    TopExp.MapShapes_s(private, entities)
+    return entities
+
+
+def _encode(entities, shapes) -> list | None:
+    codes = []
+    for shape in shapes:
+        index = entities.FindIndex(shape)
+        if not index:
+            return None
+        codes.append([index, int(shape.Orientation())])
+    return codes
+
+
+def _decode(entities, codes) -> tuple:
+    from OCP.TopAbs import TopAbs_Orientation
+
+    return tuple(_cast(entities.FindKey(index).Oriented(TopAbs_Orientation(orientation)))
+                 for index, orientation in codes)
+
+
+def _reused(op_name: str, wrapped, run, decode):
+    """``run(private)`` returns ``(answer, encoded)``; memoize ``encoded``.
+
+    ``private`` is a fresh owned copy of ``wrapped``. A miss returns the
+    kernel's own answer; a hit decodes the stored one against a fresh copy.
+    A shape the op memo cannot key is checked directly, as is a stored None.
+    """
+    from cadgen._internal import op_memo
+
+    live = []
+
+    def compute():
+        private = _copy(wrapped)
+        answer, encoded = run(private)
+        live.append((private, answer))
+        return encoded
+
+    try:
+        # CADGEN_OP_MEMO=0 skips the key: its digest serializes the whole shape.
+        key = (*op_memo.placed_shape_key(wrapped), int(wrapped.Orientation())) if op_memo._enabled() else None
+    except Exception:  # noqa: BLE001 - an unkeyable shape is still checkable
+        key = None
+    if key is None:
+        compute()
+        return live[0][1]
+    encoded = op_memo.memoized_value(op_name, key, compute)
+    if live:
+        return live[0][1]
+    if encoded is None:
+        compute()
+        return live[0][1]
+    return decode(_copy(wrapped), encoded) if encoded else ()
+
+
 def topology_errors(shape: Shape) -> tuple[GeometryIssue, ...]:
     """BRepCheck topology/geometry faults, with affected owned entities.
 
     Codes are OCCT's ``BRepCheck_*`` status names. Open shells and reversed
     solids can have valid topology. Closure, signed volume and expensive
-    boolean self-intersection testing are separate questions.
+    boolean self-intersection testing are separate questions. An identical
+    shape (geometry, placement, orientation) reuses the stored verdict.
     """
     from OCP.BRepCheck import BRepCheck_Analyzer, BRepCheck_NoError
-    from OCP.TopExp import TopExp
-    from OCP.TopTools import TopTools_IndexedMapOfShape
 
-    wrapped = _wrapped(shape)
-    try:
-        private = _copy(wrapped)
+    def run(private):
         analyzer = BRepCheck_Analyzer(private)
         if analyzer.IsValid():
-            return ()
-        entities = TopTools_IndexedMapOfShape()
-        TopExp.MapShapes_s(private, entities)
-        issues = []
+            return (), []
+        entities = _entity_map(private)
+        found = []
         for i in range(1, entities.Extent() + 1):
             entity = entities.FindKey(i)
             result = analyzer.Result(entity)
@@ -238,17 +311,26 @@ def topology_errors(shape: Shape) -> tuple[GeometryIssue, ...]:
                     key = (int(status), entities.FindIndex(context) if context is not None else 0)
                     if status != BRepCheck_NoError and key not in seen:
                         seen.add(key)
-                        affected = (entity,) if context is None else (entity, context)
-                        issues.append(GeometryIssue(status.name, tuple(_cast(s) for s in affected)))
+                        found.append((status.name, (entity,) if context is None else (entity, context)))
             collect(result.Status())
             result.InitContextIterator()
             while result.MoreShapeInContext():
                 context = result.ContextualShape()
                 collect(result.StatusOnShape(context), context)
                 result.NextShapeInContext()
-        if not issues:
+        if not found:
             raise GeometryError("topology is invalid but the kernel provided no diagnostic")
-        return tuple(issues)
+        answer = tuple(GeometryIssue(code, tuple(_cast(s) for s in affected)) for code, affected in found)
+        encoded = [[code, _encode(entities, affected)] for code, affected in found]
+        return answer, None if any(codes is None for _, codes in encoded) else encoded
+
+    def decode(private, encoded):
+        entities = _entity_map(private)
+        return tuple(GeometryIssue(code, _decode(entities, codes)) for code, codes in encoded)
+
+    wrapped = _wrapped(shape)
+    try:
+        return _reused("geometry.topology_errors.v1", wrapped, run, decode)
     except Exception as exc:
         raise GeometryError(f"topology check failed: {exc}") from exc
 
@@ -283,27 +365,41 @@ def self_intersections(shape: Shape) -> tuple[GeometryIssue, ...]:
 
     This can be expensive. Codes are OCCT's ``BOPAlgo_SelfIntersect``; affected
     entities are owned copies. Inconclusive/failed checks raise an exception.
+    An identical shape (geometry, placement, orientation) reuses the stored
+    verdict.
     """
     from OCP.BOPAlgo import BOPAlgo_CheckStatus
     from OCP.BRepAlgoAPI import BRepAlgoAPI_Check
 
-    wrapped = _wrapped(shape)
-    try:
-        private = _copy(wrapped)
+    def run(private):
         # This constructor performs the check; Perform() would run it again.
         checker = BRepAlgoAPI_Check(private, False, True)
         if checker.HasErrors():
             raise GeometryError("self-intersection checker failed")
-        issues = []
+        found = []
         for result in checker.Result():
             status = result.GetCheckStatus()
             if status != BOPAlgo_CheckStatus.BOPAlgo_SelfIntersect:
                 raise GeometryError(f"self-intersection check was inconclusive: {status.name}")
-            entities = list(result.GetFaultyShapes1()) + list(result.GetFaultyShapes2())
-            issues.append(GeometryIssue(status.name, tuple(_cast(s) for s in entities or [private])))
-        if not checker.IsValid() and not issues:
+            found.append((status.name, list(result.GetFaultyShapes1()) + list(result.GetFaultyShapes2())))
+        if not checker.IsValid() and not found:
             raise GeometryError("self-intersection check failed without diagnostics")
-        return tuple(issues)
+        answer = tuple(GeometryIssue(code, tuple(_cast(s) for s in entities or [private]))
+                       for code, entities in found)
+        if not found:
+            return answer, []
+        entity_map = _entity_map(private)
+        encoded = [[code, _encode(entity_map, entities)] for code, entities in found]
+        return answer, None if any(codes is None for _, codes in encoded) else encoded
+
+    def decode(private, encoded):
+        entities = _entity_map(private)
+        return tuple(GeometryIssue(code, _decode(entities, codes) or (_cast(private),))
+                     for code, codes in encoded)
+
+    wrapped = _wrapped(shape)
+    try:
+        return _reused("geometry.self_intersections.v1", wrapped, run, decode)
     except Exception as exc:
         raise GeometryError(f"self-intersection check failed: {exc}") from exc
 

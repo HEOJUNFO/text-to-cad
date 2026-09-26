@@ -1,14 +1,32 @@
 """Independent native geometry diagnostics; no automatic assembly verdict."""
+import os
+import tempfile
 import unittest
 from unittest import mock
 
-from build123d import Compound, Pos, Shell, Solid
+from build123d import Compound, Pos, Rot, Shell, Solid
 from OCP.TopoDS import TopoDS
+from cadgen._internal import op_memo
 from cadgen.geometry import GeometryError, boundary_edges, self_intersections, topology_errors
 
 
-class GeometryDiagnosticsTests(unittest.TestCase):
+class _FreshStore(unittest.TestCase):
+    """Each test gets its own store and an empty RAM tier, so verdicts reused
+    from another test (or an earlier run) can never answer for this one."""
+
     def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        env = mock.patch.dict(os.environ, {"CADGEN_CACHE_DIR": tmp.name, "CADGEN_OP_MEMO": "1"})
+        env.start()
+        self.addCleanup(env.stop)
+        op_memo.clear()
+        self.addCleanup(op_memo.clear)
+
+
+class GeometryDiagnosticsTests(_FreshStore):
+    def setUp(self):
+        super().setUp()
         self.box = Solid.make_box(10, 10, 10)
 
     def test_open_shell_and_reversed_solid_are_not_topology_errors(self):
@@ -88,3 +106,121 @@ class GeometryDiagnosticsTests(unittest.TestCase):
         self.assertEqual(performs, [])
         self.assertTrue(issues)
         self.assertTrue(all(i.code == "BOPAlgo_SelfIntersect" and i.entities for i in issues))
+
+
+def _open_solid():
+    from OCP.BRep import BRep_Builder
+    from OCP.TopoDS import TopoDS_Solid
+    wrapped, builder = TopoDS_Solid(), BRep_Builder()
+    builder.MakeSolid(wrapped)
+    builder.Add(wrapped, Shell(Solid.make_box(10, 10, 10).faces()[1:]).wrapped)
+    return Solid(wrapped)
+
+
+def _overlapping_boxes():
+    box = Solid.make_box(10, 10, 10)
+    return Compound([box, Pos(5, 0, 0) * box])
+
+
+def _describe(issues):
+    """Everything a verdict says: codes, and each entity's kind, orientation,
+    placement and vertices, plus which entities are the same sub-shape."""
+    entities = [entity for issue in issues for entity in issue.entities]
+    def entity(shape):
+        trsf = shape.wrapped.Location().Transformation()
+        return (type(shape).__name__, int(shape.wrapped.Orientation()),
+                tuple(round(trsf.Value(r, c), 9) for r in (1, 2, 3) for c in (1, 2, 3, 4)),
+                tuple(tuple(round(x, 9) for x in v) for v in shape.vertices()))
+    shared = tuple(tuple(a.wrapped.IsSame(b.wrapped) for b in entities) for a in entities)
+    return tuple((issue.code, tuple(entity(s) for s in issue.entities)) for issue in issues), shared
+
+
+class _Counting:
+    """Count constructions of an OCCT checker class while delegating to it."""
+
+    def __init__(self, real):
+        self.real, self.calls = real, 0
+
+    def __call__(self, *args):
+        self.calls += 1
+        return self.real(*args)
+
+
+class ReusedVerdictTests(_FreshStore):
+    def _uncached(self, check, make):
+        with mock.patch.dict(os.environ, {"CADGEN_OP_MEMO": "0"}):
+            return check(make())
+
+    def _assert_reused(self, check, make, target):
+        module, name = target.rsplit(".", 1)
+        import importlib
+        counter = _Counting(getattr(importlib.import_module(module), name))
+        expected = _describe(self._uncached(check, make))
+        with mock.patch(target, counter):
+            first = check(make())
+            self.assertEqual(counter.calls, 1)
+            second = check(make())          # warm: the RAM tier
+            op_memo.clear()
+            third = check(make())           # a fresh process: the disk tier
+        self.assertEqual(counter.calls, 1)
+        for verdict in (first, second, third):
+            self.assertEqual(_describe(verdict), expected)
+        return first, second
+
+    def test_self_intersection_verdict_is_reused_exactly(self):
+        first, second = self._assert_reused(
+            self_intersections, _overlapping_boxes, "OCP.BRepAlgoAPI.BRepAlgoAPI_Check")
+        self.assertTrue(first)
+        # Every answer owns its entities: a reused verdict shares no topology
+        # with an earlier answer or with the caller's shape.
+        self.assertFalse(first[0].entities[0].wrapped.IsPartner(second[0].entities[0].wrapped))
+        source = _overlapping_boxes()
+        self.assertFalse(any(second[0].entities[0].wrapped.IsPartner(f.wrapped) for f in source.faces()))
+
+    def test_clean_self_intersection_verdict_is_reused(self):
+        self._assert_reused(self_intersections, lambda: Solid.make_box(10, 10, 10),
+                            "OCP.BRepAlgoAPI.BRepAlgoAPI_Check")
+
+    def test_topology_verdict_is_reused_exactly(self):
+        first, _ = self._assert_reused(topology_errors, _open_solid, "OCP.BRepCheck.BRepCheck_Analyzer")
+        self.assertTrue(first)
+        self._assert_reused(topology_errors, lambda: Solid.make_box(10, 10, 10),
+                            "OCP.BRepCheck.BRepCheck_Analyzer")
+
+    def test_placement_and_orientation_are_part_of_the_key(self):
+        counter = _Counting(__import__("OCP.BRepAlgoAPI", fromlist=["x"]).BRepAlgoAPI_Check)
+        box = Solid.make_box(10, 10, 10)
+        with mock.patch("OCP.BRepAlgoAPI.BRepAlgoAPI_Check", counter):
+            self_intersections(box)
+            self_intersections(Pos(1, 0, 0) * box)
+            self_intersections(Rot(0, 0, 90) * box)
+            self_intersections(Solid(TopoDS.Solid_s(box.wrapped.Reversed())))
+        self.assertEqual(counter.calls, 4)
+
+    def test_failures_are_not_reused(self):
+        checker = mock.Mock()
+        checker.HasErrors.return_value = True
+        box = Solid.make_box(10, 10, 10)
+        with mock.patch("OCP.BRepAlgoAPI.BRepAlgoAPI_Check", return_value=checker):
+            with self.assertRaises(GeometryError):
+                self_intersections(box)
+        self.assertEqual(self_intersections(box), ())
+
+    def test_disabled_memo_runs_every_check(self):
+        counter = _Counting(__import__("OCP.BRepAlgoAPI", fromlist=["x"]).BRepAlgoAPI_Check)
+        with mock.patch.dict(os.environ, {"CADGEN_OP_MEMO": "0"}), \
+                mock.patch("OCP.BRepAlgoAPI.BRepAlgoAPI_Check", counter):
+            self_intersections(_overlapping_boxes())
+            self_intersections(_overlapping_boxes())
+        self.assertEqual(counter.calls, 2)
+
+    def test_unaddressable_entities_are_rechecked_not_reused(self):
+        counter = _Counting(__import__("OCP.BRepAlgoAPI", fromlist=["x"]).BRepAlgoAPI_Check)
+        expected = _describe(self._uncached(self_intersections, _overlapping_boxes))
+        with mock.patch("cadgen.geometry._encode", return_value=None), \
+                mock.patch("OCP.BRepAlgoAPI.BRepAlgoAPI_Check", counter):
+            first = self_intersections(_overlapping_boxes())
+            second = self_intersections(_overlapping_boxes())
+        self.assertEqual(counter.calls, 2)
+        self.assertEqual(_describe(first), expected)
+        self.assertEqual(_describe(second), expected)

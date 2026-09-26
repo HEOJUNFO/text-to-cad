@@ -201,6 +201,9 @@ crossings = self_intersections(shape)     # tuple[GeometryIssue, ...], expensive
 Topology codes are OCCT `BRepCheck_*` statuses; self-intersection codes are
 `BOPAlgo_SelfIntersect`. Failed/inconclusive checks raise `GeometryError`,
 never an empty success result. None of these functions repairs geometry.
+`topology_errors` and `self_intersections` reuse the stored verdict for an
+identical shape in the same placement, so rerunning a check script over
+unchanged geometry skips the kernel work; `CADGEN_OP_MEMO=0` recomputes.
 
 Choose checks appropriate to the artifact. For an intended closed solid,
 check topology, free shell edges and each solid's signed volume. A reversed

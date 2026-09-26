@@ -90,6 +90,16 @@ salts on document-byte keys. Computed results and disk hits share the same
 process LRU limit; dropping a RAM entry does not delete its persistent entry or
 invalidate a consumer's private geometry.
 
+`cadgen.geometry`'s checks (`topology_errors`, `self_intersections`) store
+their verdicts as inline `index/op` values, keyed by the check's name and
+version, the checked shape's location-stripped BREP digest, its location
+matrix and its orientation. A verdict holds issue codes and each affected
+entity's `TopExp.MapShapes` index and orientation, never native geometry; a
+hit rebuilds the owned entities from a private copy of the caller's shape. A
+failed or inconclusive check stores nothing, and `CADGEN_OP_MEMO=0` runs every
+check. These are answers to a caller's question, and no build or publication
+step consults them.
+
 ### The two sides of the store — a law
 
 `objects/` is the **artifact side**: what geometry exists. `index/model`,
