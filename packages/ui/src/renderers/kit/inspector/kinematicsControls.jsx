@@ -15,27 +15,27 @@ export function positionValuesAreDefault(values, defaults) {
 }
 
 /** One compact header for authored position controls. */
-export function KinematicsPoseRow({ poses = [], activeValue, onSelect, onReset, disabled = false, label = "Pose", ariaLabel = "Pose" }) {
+export function KinematicsPoseRow({ poses = [], activeValue, onSelect, onReset }) {
   const hasPoses = poses.length > 0;
   if (!hasPoses && !onReset) return null;
   const options = [...(onReset ? [{ value: DEFAULT_POSE_VALUE, label: "Default" }] : []), ...poses];
   const active = options.find(pose => pose.value === activeValue);
   return <div data-position-header="">
-    <FileSheetControlRow className={hasPoses ? "space-y-0 pb-1" : undefined} label={hasPoses ? label : "Position"}
-      trailing={<MotionResetButton onReset={onReset} disabled={disabled} />}>
+    <FileSheetControlRow className={hasPoses ? "space-y-0 pb-1" : undefined} label={hasPoses ? "Pose" : "Position"}
+      trailing={<MotionResetButton onReset={onReset} />}>
       {hasPoses ? <FileSheetSelectRow hideLabel className="px-0" value={active?.value || NO_PRESET_VALUE}
         onValueChange={value => value === DEFAULT_POSE_VALUE ? onReset?.() : onSelect?.(value)}
-        ariaLabel={ariaLabel} disabled={disabled} triggerContent={<span className="truncate">{active?.label || "Custom"}</span>}
+        ariaLabel="Pose" triggerContent={<span className="truncate">{active?.label || "Custom"}</span>}
         options={options} /> : null}
     </FileSheetControlRow>
   </div>;
 }
 
 /** Reset stays beside the pose choice, above the joint list. */
-export function MotionResetButton({ onReset, disabled = false }) {
+export function MotionResetButton({ onReset }) {
   if (!onReset) return null;
   return <TooltipHint content="Reset motion"><Button variant="ghost" size="icon-xs" className="size-5 shrink-0 text-muted-foreground"
-    disabled={disabled} onClick={onReset} aria-label="Reset" >
+    onClick={onReset} aria-label="Reset">
     <RotateCcw className="size-3" aria-hidden="true" />
   </Button></TooltipHint>;
 }

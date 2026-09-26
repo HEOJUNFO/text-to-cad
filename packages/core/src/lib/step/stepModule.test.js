@@ -7,7 +7,7 @@ import {
   normalizeStepModuleParameterValues,
   resolveStepModuleFeatures,
   stepModuleRuntimeAtZeroState
-} from "./stepModule.js";
+} from "../../common/stepModule.js";
 import {
   normalizeStepParameterRenderValues,
   stepParameterRenderValues

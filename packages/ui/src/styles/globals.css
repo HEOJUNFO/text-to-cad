@@ -23,21 +23,6 @@
     backdrop-filter: blur(14px) saturate(1.12);
   }
 
-  [data-slot="sidebar-wrapper"][data-sidebar-resizing="true"] [data-slot="sidebar-gap"],
-  [data-slot="sidebar-wrapper"][data-sidebar-resizing="true"] [data-slot="sidebar-container"] {
-    transition: none !important;
-  }
-
-  .cad-file-viewer-scroll [data-slot="scroll-area-viewport"] {
-    overflow-x: hidden !important;
-  }
-
-  .cad-file-viewer-scroll [data-slot="scroll-area-viewport"] > div {
-    display: block !important;
-    min-width: 0 !important;
-    width: 100% !important;
-  }
-
   ::selection {
     background: var(--selection);
     color: var(--selection-foreground);

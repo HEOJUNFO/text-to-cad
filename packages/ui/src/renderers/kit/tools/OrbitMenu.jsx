@@ -2,7 +2,7 @@ import { Orbit } from "lucide-react";
 import { cn } from "@hardcore/ui/utils";
 import { FLOATING_SURFACE_CLASS } from "./floatingSurface.js";
 import { DropdownMenuCheckboxItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger } from "@hardcore/ui/primitives/dropdown-menu";
-import { ToolbarButton } from "./ToolbarButton.js";
+import { ToolbarButton } from "@hardcore/ui/primitives/toolbar-button";
 import ToolPopover from "./ToolPopover.jsx";
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5];

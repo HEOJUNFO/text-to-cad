@@ -62,7 +62,7 @@ export function useModelTools({ modelKey, view, features, store, mesh, disabled,
     ...(measure ? [{ ...measure, id: "measure", label: "Measure" }] : []),
     { id: "exploded", label: "Explode", Icon: ExplodeIcon, unavailable: Boolean(mesh) && explodablePartCount(mesh) <= 1,
       summary: `${Math.round((view.exploded.enabled ? view.exploded.amount : 0) * 100)}%`,
-      controls: <ExplodeControls compact viewSettings={view} onViewSettingsPatch={store.patch} /> },
+      controls: <ExplodeControls viewSettings={view} onViewSettingsPatch={store.patch} /> },
     { id: "clip", label: "Clip", Icon: ClipIcon,
       controls: <CrossSectionControls viewSettings={view} onViewSettingsPatch={store.patch} bounds={mesh?.bounds || null} /> }
   ].filter(tool => tool.id === "measure" || features.sections.includes(tool.id));

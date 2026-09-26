@@ -3,7 +3,7 @@ import { Pause, Play } from "lucide-react";
 import { useAnimationClockValue } from "./animationClock.js";
 import { Slider } from "@hardcore/ui/primitives/slider";
 import { cn } from "@hardcore/ui/utils";
-import { ToolbarButton } from "../ToolbarButton.js";
+import { ToolbarButton } from "@hardcore/ui/primitives/toolbar-button";
 import { FILE_SHEET_PRECISION_SLIDER_CLASSES } from "../../inspector/FileSheet.js";
 
 // The playbar owns play/pause and scrubbing. Routine, speed and loop live in PlayMenu.

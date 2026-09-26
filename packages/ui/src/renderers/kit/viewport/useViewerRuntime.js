@@ -77,7 +77,6 @@ export function useViewerRuntime({
   sceneScaleMode,
   floorMode,
   renderMode = false,
-  onManualCameraInteraction,
   onViewportResize,
   onContextLost,
   onContextRestored,
@@ -583,16 +582,7 @@ export function useViewerRuntime({
       const zoomReanchorPointer = zoomReanchor.pointer;
       let zoomPivotReanchorPending = false;
 
-      let controlsStartDistance = null;
-      const readControlsDistance = () => {
-        const activeRuntime = runtimeRef.current;
-        if (!activeRuntime?.camera || !activeRuntime?.controls?.target) {
-          return null;
-        }
-        return activeRuntime.camera.position.distanceTo(activeRuntime.controls.target);
-      };
       const handleControlsStart = () => {
-        controlsStartDistance = readControlsDistance();
         // Any drag on the controls — orbit, pan or zoom — means the view is the
         // user's now. A progressive load re-frames the camera when the model
         // finishes arriving, and must not do that over someone's shoulder.
@@ -611,21 +601,12 @@ export function useViewerRuntime({
         requestRender();
       };
       const handleControlsEnd = () => {
-        const controlsEndDistance = readControlsDistance();
-        if (Number.isFinite(controlsStartDistance) && Number.isFinite(controlsEndDistance)) {
-          const threshold = Math.max(Math.abs(controlsStartDistance) * 0.002, 1e-4);
-          if (Math.abs(controlsEndDistance - controlsStartDistance) > threshold) {
-            runtimeRef.current?.onManualCameraInteraction?.("zoom");
-          }
-        }
-        controlsStartDistance = null;
         scheduleIdleQuality();
       };
       const handleWheel = (event) => {
         if (runtimeRef.current) {
           runtimeRef.current.userMovedCamera = true;
         }
-        runtimeRef.current?.onManualCameraInteraction?.("wheel");
         cancelCameraTransition(runtimeRef.current);
         controls.enableDamping = false;
         // Three input classes, three speeds. OrbitControls (r161+) normalizes the delta
@@ -838,7 +819,6 @@ export function useViewerRuntime({
         refreshRenderQuality: () => {
           applyRenderQuality(interactionState.pixelRatioCap, { force: true });
         },
-        onManualCameraInteraction,
         onViewportResize,
         registerScreenSpaceLineMaterial,
         unregisterScreenSpaceLineMaterial,

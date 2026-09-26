@@ -57,35 +57,11 @@ function parseNumberList(value, count, fallback, context) {
   return parsed;
 }
 
-function translationTransform(x, y, z) {
-  return [
-    1, 0, 0, x,
-    0, 1, 0, y,
-    0, 0, 1, z,
-    0, 0, 0, 1
-  ];
-}
-
 function scaleTransform(x, y, z) {
   return [
     x, 0, 0, 0,
     0, y, 0, 0,
     0, 0, z, 0,
-    0, 0, 0, 1
-  ];
-}
-
-function rotationTransformFromRpy(roll, pitch, yaw) {
-  const sr = Math.sin(roll);
-  const cr = Math.cos(roll);
-  const sp = Math.sin(pitch);
-  const cp = Math.cos(pitch);
-  const sy = Math.sin(yaw);
-  const cy = Math.cos(yaw);
-  return [
-    cy * cp, (cy * sp * sr) - (sy * cr), (cy * sp * cr) + (sy * sr), 0,
-    sy * cp, (sy * sp * sr) + (cy * cr), (sy * sp * cr) - (cy * sr), 0,
-    -sp, cp * sr, cp * cr, 0,
     0, 0, 0, 1
   ];
 }

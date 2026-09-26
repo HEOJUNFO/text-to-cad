@@ -29,7 +29,6 @@ import {
 } from "./renderEdges.js";
 import { resolveStepModuleFeatures } from "./stepModule.js";
 import {
-  applyStepModuleEffectsToRecords,
   buildStepModuleContext,
   createStepModuleEffectsApi,
   displayTransformForPart
@@ -37,8 +36,7 @@ import {
 import { applySceneState } from "./applySceneState.js";
 import {
   buildCadEdgeSegmentTexture,
-  CadEdgeInstances,
-  syncEdgeInstanceStyle
+  CadEdgeInstances
 } from "./cadEdgeInstances.js";
 import {
   dissolveCadSurfaceInstanceSets,
@@ -127,10 +125,6 @@ function isNumericArray(value, stride = 1) {
   );
 }
 
-function normalizeBoolean(value, fallback = false) {
-  return typeof value === "boolean" ? value : fallback;
-}
-
 export function normalizeCadSceneScale(value) {
   return normalizeSceneScaleMode(value);
 }
@@ -191,10 +185,6 @@ function cacheForOwner(cacheOwner) {
     meshGeometryCache.set(cacheOwner, cache);
   }
   return cache;
-}
-
-function cacheForMeshData(meshData) {
-  return cacheForOwner(cacheOwnerForMeshData(meshData));
 }
 
 // Geometry built from a shared component (`part.sourceMesh`) is cached on the
@@ -783,18 +773,6 @@ export function readBoundsCenter(THREE, bounds, target = new THREE.Vector3()) {
     (toNumber(min[1]) + toNumber(max[1])) / 2,
     (toNumber(min[2]) + toNumber(max[2])) / 2
   );
-}
-
-function safeColor(THREE, value, fallback = null) {
-  const text = String(value || "").trim();
-  if (!text) {
-    return fallback;
-  }
-  try {
-    return new THREE.Color(text);
-  } catch {
-    return fallback;
-  }
 }
 
 export function applyMaterialSettingsToRecord(THREE, record, materialSettings, {

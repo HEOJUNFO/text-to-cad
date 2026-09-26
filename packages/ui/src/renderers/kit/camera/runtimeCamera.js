@@ -59,9 +59,7 @@ export function normalizeZoomPercent(value, fallback = 100) {
   return clamp(numeric, ZOOM_CONTROL_MIN_PERCENT, ZOOM_CONTROL_MAX_PERCENT);
 }
 
-export function formatZoomPercent(value) {
-  return `${Math.round(normalizeZoomPercent(value))}%`;
-}
+
 
 export function readCameraTargetDistance(runtime) {
   if (!runtime?.camera?.position || !runtime?.controls?.target) {

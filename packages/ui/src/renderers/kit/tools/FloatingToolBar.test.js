@@ -42,10 +42,10 @@ test('every press reaches onSelect; a menu tool keeps its first press for itself
   view.unmount();
 });
 
-test('an active menu tool lets its presses through to the menu; sub-toolbars follow tool order', () => {
+test('an active menu tool lets its presses through to the menu', () => {
   const view = render(FloatingToolBar, { tools: [
-    tool('first', { subToolbar: 'under-first' }),
-    tool('second', { active: true, secondPressOpensMenu: true, subToolbar: 'under-second' }),
+    tool('first'),
+    tool('second', { active: true, secondPressOpensMenu: true }),
     tool('third'),
   ] });
   const second = buttons(view.tree)[1];
@@ -53,9 +53,5 @@ test('an active menu tool lets its presses through to the menu; sub-toolbars fol
   second.props.onPointerDown({ preventDefault: () => { prevented += 1; } });
   second.props.onKeyDown({ key: 'Enter', preventDefault: () => { prevented += 1; } });
   assert.equal(prevented, 0);
-  const text = [];
-  const walk = node => { if (typeof node === 'string') text.push(node); else if (Array.isArray(node)) node.forEach(walk); else if (node?.props) walk(node.props.children); };
-  walk(view.tree);
-  assert.deepEqual(text, ['under-first', 'under-second']);
   view.unmount();
 });

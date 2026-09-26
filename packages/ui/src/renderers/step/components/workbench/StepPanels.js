@@ -28,7 +28,7 @@ export function useStepPanels({
   expandedTreeNodeIds = EMPTY, onToggleTreeNode,
   activeTreeNodeScrollKey = '', onSelectTreeNode, onSelectReferenceGroup, onClearSelection,
   onFocusTreeNode, onUnfocusTreeNode, onExitAllIsolate, onTogglePartVisibility,
-  onCopySelection, onCopyTreeNodeReference, onHoverTreeNode, showAllHiddenParts,
+  onCopySelection, onHoverTreeNode, showAllHiddenParts,
   // The menus a tree row carries: a part's descriptor per node, a feature's per set of faces
   // and edges (the viewport's menu over that topology), and the one set of actions behind both.
   menuForNode = null, menuForReferences = null, partMenuActions = null,
@@ -78,7 +78,7 @@ export function useStepPanels({
       onLoadTopology={geometryInspection?.onLoadTopology} onSelect={onSelectReferenceGroup} onClearSelection={onClearSelection}
       partControls={{isAssemblyView, hiddenPartIds, focusedNodeIds, selectableNodeIds, expandedTreeNodeIds, onToggleTreeNode,
         onSelectTreeNode, onFocusTreeNode, onUnfocusTreeNode, onExitAllIsolate,
-        onTogglePartVisibility, showAllHiddenParts, onCopySelection, onCopyTreeNodeReference, onHoverTreeNode,
+        onTogglePartVisibility, showAllHiddenParts, onCopySelection, onHoverTreeNode,
         menuForNode, menuForReferences, partMenuActions}}
     />
     {issues ? <ToolPanel title={issues.title} label="Issues" fit="details" collapsible hidden={!selectActive}>{issues.content}</ToolPanel> : null}

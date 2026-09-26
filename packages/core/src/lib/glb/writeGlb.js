@@ -69,7 +69,6 @@ import {
   boundsForPositions,
   buildGlb,
   clamp01,
-  concatBytes,
   hexToRgb01,
   sanitizeName,
   srgbToLinear,

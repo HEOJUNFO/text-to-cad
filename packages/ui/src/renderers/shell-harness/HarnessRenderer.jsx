@@ -183,10 +183,10 @@ function HarnessSurface({ view, data }) {
     frameProvider={frame => <HarnessFrameContext.Provider value={`frame:${stage}`}>{frame}</HarnessFrameContext.Provider>}
     onCanvasPointerDown={() => setPutDown(`put down @${stage}`)}
     bottomAction={shell.toolMode === SHELL_TOOL.DRAW ? null : {
-      label: actionLabel, shortLabel: "Copy 1 reference", title: actionLabel,
+      label: actionLabel, shortLabel: "Copy 1 reference",
       // A renderer whose action is not a plain press renders its own control.
-      render: ({ className, disabled, title, children }) => (
-        <Button type="button" variant="default" size="sm" className={className} disabled={disabled} title={title}
+      render: ({ className, disabled, children }) => (
+        <Button type="button" variant="default" size="sm" className={className} disabled={disabled}
           data-harness-bottom-action onClick={() => setActionLabel(SHORT_LABEL)}>{children}</Button>
       )
     }}

@@ -19,7 +19,6 @@ import {
 import {
   TessellationCacheProbeMissError,
   resolvedTessellationIdentity,
-  tessellationCacheKey,
 } from "./surf/tessellationCache.js";
 import {
   assertAssetSourceScope,

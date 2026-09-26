@@ -129,7 +129,7 @@ const JointRow = memo(function JointRow({
   };
 
   return (
-    <FileSheetSliderField stacked
+    <FileSheetSliderField
       label={jointName || "Joint"}
       value={formatJointValue(liveValueDeg, joint)}
       onValueCommit={(nextValue) => {

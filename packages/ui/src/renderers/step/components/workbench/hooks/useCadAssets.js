@@ -853,7 +853,7 @@ export function useCadAssets({
             skipCacheProbes = false,
           } = {}) => {
             const surfaceInput = String(component?.surfaceInput || "");
-            const cached = !skipCacheProbes && await probeInitialDisplayLod({ resources, tessellationCache,
+            const cached = !skipCacheProbes && await probeInitialDisplayLod({ tessellationCache,
               surfaceInput,
               surfaceObject: component.surfaceObject,
               maxInFlightBytes: PROGRESSIVE_LOAD_MAX_INFLIGHT_BYTES,

@@ -205,7 +205,6 @@ test("buildFileStatusItems combines producers and exposes the most intense level
         message: "GLB was generated from older source."
       }
     },
-    fileSheetKind: "step",
     stepArtifactGenerationState: failedStepArtifactGenerationState,
     viewerAlert: {
       severity: "error",
@@ -357,10 +356,9 @@ test("artifact advisory: busy is a quiet info chip", () => {
   assert.equal(artifactAdvisoryStatusItems(null, { entry }).length, 0);
 });
 
-test("buildFileStatusItems threads the artifact advisory for every kind", () => {
+test("buildFileStatusItems threads the artifact advisory", () => {
   const items = buildFileStatusItems({
-    entry: { file: "drawings/plate.dxf", kind: "drawing" },
-    fileSheetKind: "dxf",
+    entry: { file: "parts/plate.step", kind: "part" },
     artifactAdvisory: { busy: true, runId: "" },
     viewerServerInfo
   });

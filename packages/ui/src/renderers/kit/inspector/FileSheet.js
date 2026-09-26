@@ -16,7 +16,6 @@ import {
 
 export const FILE_SHEET_CONTROL_ROW_CLASSES = "space-y-1 px-2";
 export const FILE_SHEET_ROW_STACK_CLASSES = "space-y-3";
-export const FILE_SHEET_SLIDER_FIELD_CLASSES = "space-y-1 px-2";
 export const FILE_SHEET_INLINE_CONTROL_ROW_CLASSES = "px-2";
 // Section headers sit at the navbar's size (12px, normal weight) — a sheet's headings
 // and the chrome above it read as the same level of structure. Row labels stay
@@ -77,14 +76,14 @@ export const FILE_SHEET_SECTION_HEADING_CLASSES = "flex min-h-7 items-center px-
  * press on an open section's title does (scroll the section into view).
  */
 export function FileSheetSettingsSection({ title, children, open = true, onOpenChange,
-  gated = false, disabled = false, onReveal, headingAction = null, sectionId }) {
+  gated = false, onReveal, headingAction = null, sectionId }) {
   const titleId = useId();
   const contentId = useId();
   const collapsible = typeof onOpenChange === "function";
   return <section aria-labelledby={titleId} data-settings-section={sectionId} className="[&+section]:border-t border-border">
     <div data-settings-section-heading="" className="relative h-7 shrink-0">
-      {collapsible ? <FileSheetToggleHeading as="h2" title={title} open={open} onOpenChange={onOpenChange}
-        headingId={titleId} contentId={contentId} disabled={disabled} onTitleClick={onReveal}
+      {collapsible ? <FileSheetToggleHeading title={title} open={open} onOpenChange={onOpenChange}
+        headingId={titleId} contentId={contentId} onTitleClick={onReveal}
         verbs={gated ? ["Enable", "Disable"] : ["Expand", "Collapse"]} />
         : <h2>{onReveal ? <button id={titleId} type="button" onClick={onReveal}
           className={`${FILE_SHEET_SECTION_HEADING_CLASSES} w-full text-left`}>{title}</button>
@@ -93,10 +92,6 @@ export function FileSheetSettingsSection({ title, children, open = true, onOpenC
     </div>
     <div id={contentId} hidden={!open} data-settings-section-body="" className="space-y-1 pb-2">{!gated || open ? children : null}</div>
   </section>;
-}
-
-export function FileSheetStaticSection({ title, children }) {
-  return <FileSheetSettingsSection title={title}>{children}</FileSheetSettingsSection>;
 }
 
 // Expanded IS enabled. Only explicit activation changes settings: hover, focus,
@@ -108,23 +103,23 @@ export function FileSheetStaticSection({ title, children }) {
  * for the button's label: `["Enable", "Disable"]` for a Display gate, `["Expand",
  * "Collapse"]` for a section a person folds away.
  */
-export function FileSheetToggleHeading({ title, open, onOpenChange, headingId, contentId, verbs, disabled = false, onTitleClick, as: Heading = "h3" }) {
-  const show = () => { if (!disabled) { onOpenChange(true); onTitleClick?.(); } };
+function FileSheetToggleHeading({ title, open, onOpenChange, headingId, contentId, verbs, onTitleClick }) {
+  const show = () => { onOpenChange(true); onTitleClick?.(); };
   const act = `${open ? verbs[1] : verbs[0]} ${title}`;
   return (
-    <div className={cn("flex min-h-7 items-center", !open && !disabled && "hover:bg-accent", disabled && "opacity-40")}>
-      <Heading className="min-w-0 flex-1">
-        {open && onTitleClick ? <button id={headingId} type="button" disabled={disabled} aria-expanded={true} aria-controls={contentId}
+    <div className={cn("flex min-h-7 items-center", !open && "hover:bg-accent")}>
+      <h2 className="min-w-0 flex-1">
+        {open && onTitleClick ? <button id={headingId} type="button" aria-expanded={true} aria-controls={contentId}
           onClick={onTitleClick}
           className="flex min-h-7 w-full items-center px-2 py-1 text-left text-xs font-normal leading-4 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/45">{title}</button>
-          : open ? <span id={headingId} className="flex min-h-7 items-center px-2 py-1 text-xs font-normal leading-4 text-foreground">{title}</span> : <button id={headingId} type="button" disabled={disabled} aria-expanded={false} aria-controls={contentId}
+          : open ? <span id={headingId} className="flex min-h-7 items-center px-2 py-1 text-xs font-normal leading-4 text-foreground">{title}</span> : <button id={headingId} type="button" aria-expanded={false} aria-controls={contentId}
           onClick={show}
           className="flex min-h-7 w-full items-center px-2 py-1 text-left text-xs font-normal leading-4 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/45">
           {title}
         </button>}
-      </Heading>
+      </h2>
       <Button type="button" variant="ghost" size="icon-xs" aria-label={act}
-        disabled={disabled} aria-expanded={open} aria-controls={contentId}
+        aria-expanded={open} aria-controls={contentId}
         onClick={open ? () => onOpenChange(false) : show}
         className="mr-1 size-6 shrink-0 text-muted-foreground hover:text-foreground">
         {open ? <Minus className="size-3.5" strokeWidth={1.5} aria-hidden="true" /> : <Plus className="size-3.5" strokeWidth={1.5} aria-hidden="true" />}
@@ -133,38 +128,34 @@ export function FileSheetToggleHeading({ title, open, onOpenChange, headingId, c
   );
 }
 
-export function FileSheetGatedSection({ title, enabled, onEnabledChange, children }) {
-  return <FileSheetSettingsSection title={title} open={enabled} onOpenChange={onEnabledChange} gated>{children}</FileSheetSettingsSection>;
-}
-
-export function FileSheetCheckboxRow({ label, checked, onCheckedChange, disabled = false, title, className }) {
+export function FileSheetCheckboxRow({ label, checked, onCheckedChange, className }) {
   return (
-    <TooltipHint content={title}><label  className={cn("flex min-h-6 cursor-pointer items-center gap-2 px-2 text-tiny text-muted-foreground has-disabled:cursor-default has-disabled:opacity-40", className)}>
-      <input type="checkbox" checked={checked} disabled={disabled} onChange={event => onCheckedChange(event.target.checked)} className="size-3.5 shrink-0 accent-primary" />
+    <label className={cn("flex min-h-6 cursor-pointer items-center gap-2 px-2 text-tiny text-muted-foreground", className)}>
+      <input type="checkbox" checked={checked} onChange={event => onCheckedChange(event.target.checked)} className="size-3.5 shrink-0 accent-primary" />
       <span>{label}</span>
-    </label></TooltipHint>
+    </label>
   );
 }
 
 // Figma-like property: the icon/unit carries the visible meaning; its accessible
 // name and shared hover hint keep the exact setting discoverable.
-export function FileSheetNumberProperty({ label, Icon, value, onValueCommit, disabled = false }) {
+export function FileSheetNumberProperty({ label, Icon, value, onValueCommit }) {
   return (
     <TooltipHint content={label}><div  className="flex h-7 min-w-0 items-center gap-1 rounded-md border border-input bg-muted/30 px-2 focus-within:ring-1 focus-within:ring-ring">
       {Icon ? <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
-      <FileSheetValueInput ariaLabel={`${label} value`} value={value} onValueCommit={onValueCommit} disabled={disabled}
+      <FileSheetValueInput ariaLabel={`${label} value`} value={value} onValueCommit={onValueCommit}
         className="h-6 min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-left shadow-none focus-visible:ring-0 dark:bg-transparent" />
     </div></TooltipHint>
   );
 }
 
-export function FileSheetColorProperty({ label, value, onChange, opacity, onOpacityChange, disabled = false, className }) {
+export function FileSheetColorProperty({ label, value, onChange, opacity, onOpacityChange, className }) {
   const withOpacity = typeof onOpacityChange === "function";
   return (
     <div className={cn("min-w-0 px-2", className)}>
-      <TooltipHint content={label} disabled={disabled}><div className="flex h-7 min-w-0 items-center overflow-hidden rounded-md border border-input bg-muted/30">
+      <TooltipHint content={label}><div className="flex h-7 min-w-0 items-center overflow-hidden rounded-md border border-input bg-muted/30">
         <FileSheetColorPicker value={value} onChange={onChange} opacity={opacity} onOpacityChange={onOpacityChange}
-          showOpacity={withOpacity} disabled={disabled} aria-label={label}
+          showOpacity={withOpacity} aria-label={label}
           className="min-w-0 flex-1 rounded-none border-0 bg-transparent shadow-none dark:bg-transparent" />
 
       </div></TooltipHint>
@@ -172,14 +163,7 @@ export function FileSheetColorProperty({ label, value, onChange, opacity, onOpac
   );
 }
 
-export function FileSheetSubsection({
-  title,
-  trailing = null,
-  children,
-  className,
-  contentClassName,
-  hideFirstSeparator = true
-}) {
+export function FileSheetSubsection({ title, children, contentClassName }) {
   // A gated section collapses to its heading alone. The heading's bottom gap
   // exists to separate it from the first row, so with no rows it must go —
   // otherwise a collapsed section carries 16px above its heading and 24px
@@ -191,13 +175,7 @@ export function FileSheetSubsection({
     // (mb-4). Both are 16px, which is what makes the space above a heading and
     // below a section's last row read as equal. Inside, rows sit 12px apart and
     // the heading takes 12px to clear them.
-    <div
-      className={cn(
-        "pb-4",
-        hideFirstSeparator && "first:pt-2 first:[&_.cad-sheet-subsection-separator]:hidden",
-        className
-      )}
-    >
+    <div className="pb-4 first:pt-2 first:[&_.cad-sheet-subsection-separator]:hidden">
       <div className="cad-sheet-subsection-separator mx-2 mb-4 h-px bg-border/60" />
       {/* Titleless subsections are a rule plus rows: for a couple of settings
           that belong to the sheet as a whole rather than to any named group, and
@@ -210,44 +188,21 @@ export function FileSheetSubsection({
           )}
         >
           <span className={cn("min-w-0 truncate leading-4", FILE_SHEET_SECTION_TITLE_CLASSES)}>{title}</span>
-          {/* Trailing holds the section's control — most often its gate switch,
-              kept on the shared right-edge control axis like every other row. */}
-          {trailing ? <span className="flex shrink-0 items-center">{trailing}</span> : null}
         </div>
       ) : null}
-      {hasRows ? (
-        <div
-          className={cn(FILE_SHEET_ROW_STACK_CLASSES, contentClassName)}
-          data-file-sheet-row-stack=""
-        >
-          {children}
-        </div>
-      ) : null}
+      {hasRows ? <div className={cn(FILE_SHEET_ROW_STACK_CLASSES, contentClassName)}>{children}</div> : null}
     </div>
   );
 }
 
-export function FileSheetControlRow({
-  label,
-  value,
-  trailing,
-  children,
-  className,
-  contentClassName,
-  labelClassName,
-  rowKind = "control"
-}) {
+export function FileSheetControlRow({ label, value, trailing, children, className }) {
   // A row whose control lives in the trailing slot (a color picker, a value
   // readout) has no block content. Rendering the content div anyway left an
   // empty box carrying the stack's 4px top margin, so those rows stood 4px
   // taller than every switch row beside them.
   const hasContent = Children.toArray(children).length > 0;
   return (
-    <div
-      className={cn(FILE_SHEET_CONTROL_ROW_CLASSES, className)}
-      data-file-sheet-control-row=""
-      data-file-sheet-row-kind={rowKind}
-    >
+    <div className={cn(FILE_SHEET_CONTROL_ROW_CLASSES, className)}>
       {label != null || value != null || trailing != null ? (
         <div
           className={cn(
@@ -256,7 +211,7 @@ export function FileSheetControlRow({
           )}
         >
           {label != null ? (
-            <span className={cn(FILE_SHEET_FIELD_LABEL_CLASSES, labelClassName)}>{label}</span>
+            <span className={FILE_SHEET_FIELD_LABEL_CLASSES}>{label}</span>
           ) : <span />}
           {trailing != null ? trailing : value != null ? (
             <span className={FILE_SHEET_VALUE_BADGE_CLASSES}>{value}</span>
@@ -264,7 +219,7 @@ export function FileSheetControlRow({
         </div>
       ) : null}
       {hasContent ? (
-        <div className={cn("min-w-0", contentClassName)}>{children}</div>
+        <div className="min-w-0">{children}</div>
       ) : null}
     </div>
   );
@@ -293,9 +248,7 @@ export function FileSheetValueInput({
   disabled = false,
   ariaLabel,
   inputMode = "decimal",
-  title,
-  className,
-  style
+  className
 }) {
   const inputRef = useRef(null);
   const displayValue = String(value ?? "");
@@ -337,14 +290,12 @@ export function FileSheetValueInput({
   };
 
   return (
-    <TooltipHint content={title}><input
+    <input
       ref={inputRef}
       type="text"
       inputMode={inputMode}
-
       value={visibleValue}
       disabled={disabled}
-      data-editing={editing ? "true" : "false"}
       onChange={(event) => {
         // Typing cancels every pending select — the selection belongs to focus, never to a
         // frame that lands mid-word.
@@ -406,118 +357,35 @@ export function FileSheetValueInput({
         FILE_SHEET_VALUE_BADGE_INPUT_CLASSES,
         className
       )}
-      style={{
-        borderColor: editing ? "var(--ring)" : undefined,
-        ...style
-      }}
+      style={{ borderColor: editing ? "var(--ring)" : undefined }}
       aria-label={ariaLabel}
-    /></TooltipHint>
-  );
-}
-
-export function FileSheetSliderField({
-  label,
-  value,
-  trailing,
-  onValueCommit,
-  valueInputProps,
-  children,
-  className,
-  contentClassName,
-  labelClassName,
-  labelTitle,
-  compact = false,
-  stacked = false,
-  hideLabel = false
-}) {
-  const valueTrailing = trailing ?? (onValueCommit ? (
-    <FileSheetValueInput
-      value={value}
-      onValueCommit={onValueCommit}
-      {...valueInputProps}
     />
-  ) : null);
-
-  if (stacked) {
-    return <FileSheetControlRow className={className} rowKind="slider">
-      <div className="grid min-h-8 min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2" data-position-control=""
-        >
-        <div className="min-w-0">
-          {!hideLabel && label != null ? <TooltipHint content={labelTitle || label} overflowOnly><span className={cn(FILE_SHEET_FIELD_LABEL_CLASSES, "leading-3")}>{label}</span></TooltipHint> : null}
-          <div className="min-w-0">{children}</div>
-        </div>
-        {valueTrailing}
-      </div>
-    </FileSheetControlRow>;
-  }
-  if (compact) {
-    return (
-      <div className={cn("px-2", className)} >
-        <div className={cn("flex min-h-7 items-center gap-2", contentClassName)}>
-          {!hideLabel && label != null ? <TooltipHint content={labelTitle || label} overflowOnly><span className={cn("min-w-0 max-w-[40%] truncate text-tiny text-muted-foreground", labelClassName)}>{label}</span></TooltipHint> : null}
-          <div className="min-w-12 flex-1">{children}</div>
-          {valueTrailing}
-        </div>
-      </div>
-    );
-  }
-  return (
-    <FileSheetControlRow
-      label={valueTrailing ? null : label}
-      value={null}
-      className={cn(FILE_SHEET_SLIDER_FIELD_CLASSES, className)}
-      contentClassName={cn(valueTrailing ? "space-y-0" : "space-y-1", contentClassName)}
-      labelClassName={labelClassName}
-      rowKind="slider"
-    >
-      {valueTrailing ? (
-        <div
-          className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2"
-          data-file-sheet-slider-input-row=""
-        >
-          <div className="min-w-0 pr-3">
-            {label != null ? (
-              <span
-                className={cn(
-                  FILE_SHEET_FIELD_LABEL_CLASSES,
-                  "block h-3 leading-3",
-                  labelClassName
-                )}
-              >
-                {label}
-              </span>
-            ) : null}
-            <div className={cn("min-w-0", label != null && "-mt-0.5")}>
-              {children}
-            </div>
-          </div>
-          {valueTrailing}
-        </div>
-      ) : children}
-    </FileSheetControlRow>
   );
 }
 
-export function FileSheetInlineControlRow({
-  label,
-  description,
-  children,
-  className,
-  labelClassName
-}) {
+/**
+ * A slider row (a joint of Position): its label tight above its slider in the flexible left
+ * column, a committed value input in the right column (`docs/settings-ui.md`).
+ */
+export function FileSheetSliderField({ label, value, onValueCommit, valueInputProps, labelTitle, children }) {
+  return <FileSheetControlRow>
+    <div className="grid min-h-8 min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2" data-position-control="">
+      <div className="min-w-0">
+        {label != null ? <TooltipHint content={labelTitle || label} overflowOnly><span className={cn(FILE_SHEET_FIELD_LABEL_CLASSES, "leading-3")}>{label}</span></TooltipHint> : null}
+        <div className="min-w-0">{children}</div>
+      </div>
+      {onValueCommit ? <FileSheetValueInput value={value} onValueCommit={onValueCommit} {...valueInputProps} /> : null}
+    </div>
+  </FileSheetControlRow>;
+}
+
+export function FileSheetInlineControlRow({ label, children, className }) {
   return (
-    <div
-      className={cn(FILE_SHEET_INLINE_CONTROL_ROW_CLASSES, className)}
-      data-file-sheet-control-row=""
-      data-file-sheet-row-kind="inline"
-    >
+    <div className={cn(FILE_SHEET_INLINE_CONTROL_ROW_CLASSES, className)}>
       <div className="flex min-h-7 max-w-full items-center justify-between gap-2">
-        <span className={cn(FILE_SHEET_FIELD_LABEL_CLASSES, labelClassName)}>{label}</span>
+        <span className={FILE_SHEET_FIELD_LABEL_CLASSES}>{label}</span>
         <span className="shrink-0">{children}</span>
       </div>
-      {description ? (
-        <p className="mt-0.5 max-w-[28rem] text-tiny leading-4 text-muted-foreground">{description}</p>
-      ) : null}
     </div>
   );
 }
@@ -540,18 +408,13 @@ export function FileSheetStatusText({ children, tone = "muted", className }) {
 
 // Read-only fact in a field grid: same silhouette as an input, muted fill so it
 // reads as data, not an editable control.
-export function FileSheetValueField({ label, value, mono = false }) {
+export function FileSheetValueField({ label, value }) {
   const displayValue = String(value ?? "");
   return (
     <div className="block min-w-0">
       <span className={FILE_SHEET_FIELD_LABEL_CLASSES}>{label}</span>
       <TooltipHint content={displayValue} overflowOnly><div
-        className={cn(
-          "mt-1 min-h-7 truncate rounded-md border border-border/70 bg-muted/25 px-2 py-1 text-tiny leading-4 text-foreground",
-          mono && "font-mono tabular-nums"
-        )}
-
-      >
+        className="mt-1 min-h-7 truncate rounded-md border border-border/70 bg-muted/25 px-2 py-1 text-tiny leading-4 text-foreground">
         {displayValue}
       </div></TooltipHint>
     </div>
@@ -563,7 +426,6 @@ export function FileSheetFieldGrid({ columns = 2, children, className }) {
     <div
       className={cn("grid gap-1 px-2", className)}
       style={{ gridTemplateColumns: typeof columns === "number" ? `repeat(${columns}, minmax(0, 1fr))` : columns }}
-      data-file-sheet-field-grid=""
     >
       {children}
     </div>
@@ -571,23 +433,20 @@ export function FileSheetFieldGrid({ columns = 2, children, className }) {
 }
 
 // Sibling actions as equal-width columns; a single child renders full width.
-export function FileSheetButtonRow({ children, columns, className }) {
-  const columnCount = Math.max(1, columns || Children.count(children));
+export function FileSheetButtonRow({ children }) {
+  const columnCount = Math.max(1, Children.count(children));
   return (
     <div
-      className={cn("grid gap-1.5 px-2", className)}
+      className="grid gap-1.5 px-2"
       style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}
-      data-file-sheet-button-row=""
     >
       {children}
     </div>
   );
 }
 
-// The standard select: an inline row, trigger on the control axis. `stacked`
-// gives the block-row treatment — label above, full width — and is reserved for
-// a surface's primary control, the first row that reframes everything under it.
-// Nothing else.
+// The standard select: an inline row, trigger on the control axis; `hideLabel` is the
+// trigger alone, full width, its label its accessible name.
 // Pass triggerContent to replace the plain SelectValue (e.g. a swatch + label).
 export function FileSheetSelectRow({
   label,
@@ -595,20 +454,18 @@ export function FileSheetSelectRow({
   onValueChange,
   options,
   ariaLabel,
-  disabled = false,
   placeholder,
   triggerContent,
-  stacked = false,
   hideLabel = false,
   triggerClassName,
   className
 }) {
   const selectedIcon = options.find(option => option.value === value)?.icon;
   const select = (
-    <Select value={value} onValueChange={onValueChange} disabled={disabled}>
+    <Select value={value} onValueChange={onValueChange}>
       <TooltipHint content={hideLabel ? ariaLabel || label : undefined}><SelectTrigger
         size="sm"
-        className={cn(stacked || hideLabel ? FILE_SHEET_SELECT_TRIGGER_CLASSES : FILE_SHEET_INLINE_SELECT_TRIGGER_CLASSES, triggerClassName)}
+        className={cn(hideLabel ? FILE_SHEET_SELECT_TRIGGER_CLASSES : FILE_SHEET_INLINE_SELECT_TRIGGER_CLASSES, triggerClassName)}
 
         aria-label={ariaLabel || (typeof label === "string" ? label : undefined)}
       >
@@ -652,13 +509,6 @@ export function FileSheetSelectRow({
     </Select>
   );
   if (hideLabel) return <div className={cn("min-w-0 px-2", className)}>{select}</div>;
-  if (stacked) {
-    return (
-      <FileSheetControlRow label={label} className={className}>
-        {select}
-      </FileSheetControlRow>
-    );
-  }
   return (
     <FileSheetInlineControlRow label={label} className={className}>
       {select}

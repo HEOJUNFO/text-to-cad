@@ -4,7 +4,6 @@ import test from "node:test";
 import {
   entrySourceFormat,
   fileExtensionFromPath,
-  fileSheetKindForEntry,
   isMeshRenderFormat,
   meshAssetKeyForEntry,
   normalizeRenderFormat,
@@ -23,18 +22,6 @@ test("entrySourceFormat maps manifest kinds to stable render formats", () => {
   assert.equal(entrySourceFormat({ kind: "urdf" }), RENDER_FORMAT.URDF);
   assert.equal(entrySourceFormat({ kind: "srdf" }), RENDER_FORMAT.SRDF);
   assert.equal(entrySourceFormat({ kind: "sdf" }), RENDER_FORMAT.SDF);
-});
-
-test("fileSheetKindForEntry preserves specialized sheet routing", () => {
-  assert.equal(fileSheetKindForEntry({ kind: "part" }), "step");
-  assert.equal(fileSheetKindForEntry({ kind: "assembly" }), "step");
-  assert.equal(fileSheetKindForEntry({ kind: "stl" }), "mesh");
-  assert.equal(fileSheetKindForEntry({ kind: "3mf" }), "mesh");
-  assert.equal(fileSheetKindForEntry({ kind: "glb" }), "mesh");
-  assert.equal(fileSheetKindForEntry({ kind: "urdf" }), "urdf");
-  assert.equal(fileSheetKindForEntry({ kind: "srdf" }), "srdf");
-  assert.equal(fileSheetKindForEntry({ kind: "sdf" }), "sdf");
-  assert.equal(fileSheetKindForEntry({ kind: "dxf" }), "dxf");
 });
 
 test("the mesh format predicate stays narrow", () => {

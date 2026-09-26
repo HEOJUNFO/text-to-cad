@@ -6,7 +6,7 @@ import { resolveViewSettings } from '@hardcore/core/common/viewSettings.js';
 import { createViewSettingsStore } from './viewSettingsStore.js';
 import { DisplaySettingsSection } from '../../../../dist/renderers/kit/view-settings/DisplaySettingsSection.js';
 import { CrossSectionControls, ExplodeControls } from '../../../../dist/renderers/step/components/workbench/ModelViewControls.js';
-import { FileSheetGatedSection } from '../../../../dist/renderers/kit/inspector/FileSheet.js';
+import { FileSheetSettingsSection } from '../../../../dist/renderers/kit/inspector/FileSheet.js';
 
 Object.assign(globalThis, { React });
 beforeEach(() => vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }));
@@ -26,7 +26,7 @@ it('a deliberate click on a shut plus after hovering cannot shut it again', asyn
   const user = userEvent.setup();
   function Gate() {
     const [enabled, setEnabled] = React.useState(false);
-    return <FileSheetGatedSection title="Grid" enabled={enabled} onEnabledChange={setEnabled}>Grid settings</FileSheetGatedSection>;
+    return <FileSheetSettingsSection gated title="Grid" open={enabled} onOpenChange={setEnabled}>Grid settings</FileSheetSettingsSection>;
   }
   render(<Gate />);
   const plus = screen.getByRole('button', { name: 'Enable Grid' });
@@ -79,7 +79,7 @@ it('opens individual features by click or keyboard; only the minus disables and 
 
 it('does not enable a section when the pointer only passes across it', async () => {
   const enabled = vi.fn();
-  render(<FileSheetGatedSection title="Feature" enabled={false} onEnabledChange={enabled}>Controls</FileSheetGatedSection>);
+  render(<FileSheetSettingsSection gated title="Feature" open={false} onOpenChange={enabled}>Controls</FileSheetSettingsSection>);
   const header = screen.getByRole('button', { name: 'Feature' }).parentElement!;
   fireEvent.pointerEnter(header, { pointerType: 'mouse' });
   fireEvent.pointerLeave(header);
@@ -134,24 +134,23 @@ function Tools() {
 it('Display has no Explode or Cross-section: they are STEP tools of their own', () => {
   render(<Harness />);
   for (const name of ['Explode', 'Clip', 'Cross-section']) expect(screen.queryByRole('heading', { name })).toBeNull();
-  expect(screen.queryByRole('textbox', { name: 'Explode value' })).toBeNull();
+  expect(screen.queryByRole('slider', { name: 'Explode amount' })).toBeNull();
   expect(screen.queryByRole('textbox', { name: /^Cross-section [XYZ] position$/ })).toBeNull();
 });
 
-it('Explode turns on at half, stays on at zero, and restarts at half', async () => {
+it('Explode turns on at half, its slider sets the amount, zero removes it, and it restarts at half', async () => {
   const user = userEvent.setup();
   render(<Tools />);
   await user.click(screen.getByRole('button', { name: 'Explode' }));
-  const input = screen.getByRole('textbox', { name: 'Explode value' });
-  expect((input as HTMLInputElement).value).toBe('50%');
-  for (const amount of ['50', '0', '75']) {
-    fireEvent.change(input, { target: { value: amount } }); fireEvent.blur(input);
-    expect(current.exploded).toEqual({ enabled: true, amount: Number(amount) / 100 });
-  }
+  const amount = () => screen.getByRole('slider', { name: 'Explode amount' });
+  expect(amount().getAttribute('aria-valuenow')).toBe('50');
+  amount().focus();
+  await user.keyboard('{ArrowRight}');
+  expect(current.exploded).toEqual({ enabled: true, amount: 0.51 });
+  await user.keyboard('{Home}');
+  expect(current.exploded).toEqual({ enabled: false, amount: 0 });
   await user.click(screen.getByRole('button', { name: 'Explode' }));
-  expect(current.exploded).toEqual({ enabled: false });
-  await user.click(screen.getByRole('button', { name: 'Explode' }));
-  expect((screen.getByRole('textbox', { name: 'Explode value' }) as HTMLInputElement).value).toBe('50%');
+  expect(amount().getAttribute('aria-valuenow')).toBe('50');
 });
 
 it('Cross-section turns on at an X centre cut, and Flip reverses it', async () => {

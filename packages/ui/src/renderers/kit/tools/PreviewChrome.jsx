@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
-import { ToolbarButton } from "./ToolbarButton.js";
-import { ToolbarTooltipScope } from "@hardcore/ui/primitives/toolbar-button";
+import { ToolbarButton, ToolbarTooltipScope } from "@hardcore/ui/primitives/toolbar-button";
 
 export const PREVIEW_CHROME_IDLE_MS = 1000;
 

@@ -130,19 +130,6 @@ function SelectItem({
   )
 }
 
-function SelectSeparator({
-  className,
-  ...props
-}) {
-  return (
-    <SelectPrimitive.Separator
-      data-slot="select-separator"
-      className={cn("-mx-1 my-1 h-px bg-border", className)}
-      {...props}
-    />
-  )
-}
-
 function SelectScrollUpButton({
   className,
   ...props
@@ -181,7 +168,6 @@ export {
   SelectLabel,
   SelectScrollDownButton,
   SelectScrollUpButton,
-  SelectSeparator,
   SelectTrigger,
   SelectValue,
 }

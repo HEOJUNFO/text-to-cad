@@ -101,14 +101,8 @@ export function posePresetSelection(runtime) {
   return { poseNames, activePose };
 }
 
-export default function PoseControlsSection({
-  runtime = null,
-  loadingLabel = "Loading pose...",
-  noParametersLabel = "No pose controls.",
-  hideWhenEmpty = false,
-  stacked = true,
-  onReset = runtime?.onResetMotion || runtime?.onResetParameters
-}) {
+export default function PoseControlsSection({ runtime = null }) {
+  const onReset = runtime?.onResetMotion || runtime?.onResetParameters;
   const definition = runtime?.definition || null;
   const parameters = Array.isArray(definition?.parameters) ? definition.parameters : [];
   const status = String(runtime?.status || "").trim();
@@ -124,14 +118,14 @@ export default function PoseControlsSection({
     const write = poseControlWrite({ driven: drivenDofs, values, parameterId, value });
     runtime?.onParameterChange?.(write.id, write.value);
   };
-  if (!poseControlsHaveContent(runtime, { hideWhenEmpty })) {
+  if (!poseControlsHaveContent(runtime)) {
     return null;
   }
 
   return (
     <>
       {status === "loading" ? (
-        <FileSheetStatusText className="py-2">{loadingLabel}</FileSheetStatusText>
+        <FileSheetStatusText className="py-2">Loading pose...</FileSheetStatusText>
       ) : null}
       {error ? (
         <FileSheetStatusText tone="error" className="py-2">{error}</FileSheetStatusText>
@@ -163,7 +157,6 @@ export default function PoseControlsSection({
                   label={parameter.label}
                   checked={currentValue === true}
                   onCheckedChange={(checked) => runtime?.onParameterChange?.(parameter.id, checked)}
-                  ariaLabel={parameter.label}
                 />
               );
             }
@@ -227,12 +220,10 @@ export default function PoseControlsSection({
               );
             }
             return (
-              <FileSheetSliderField compact={!stacked} stacked={stacked}
+              <FileSheetSliderField
                 key={parameter.id}
                 label={parameter.label}
                 labelTitle={driver ? `${parameter.label} · driven by ${driver.coupling}` : parameter.label}
-                labelClassName="w-24"
-                contentClassName="gap-1"
                 value={`${formatControlNumber(currentValue)}${parameter.unit ? ` ${parameter.unit}` : ""}`}
                 onValueCommit={(nextValue) => {
                   changeParameter(parameter.id, parseFileSheetNumberInput(nextValue, {
@@ -241,10 +232,7 @@ export default function PoseControlsSection({
                     max: parameter.max
                   }));
                 }}
-                valueInputProps={{
-                  ariaLabel: `${parameter.label} slider value`,
-                  className: undefined
-                }}
+                valueInputProps={{ ariaLabel: `${parameter.label} slider value` }}
               >
                 <Slider
                   className={FILE_SHEET_PRECISION_SLIDER_CLASSES}
@@ -258,7 +246,7 @@ export default function PoseControlsSection({
               </FileSheetSliderField>
             );
           })}
-          {!parameters.length && !poseNames.length ? <FileSheetStatusText>{noParametersLabel}</FileSheetStatusText> : null}
+          {!parameters.length && !poseNames.length ? <FileSheetStatusText>No pose controls.</FileSheetStatusText> : null}
         </>
       ) : null}
     </>
@@ -266,13 +254,8 @@ export default function PoseControlsSection({
 }
 
 // Whether the pose controls would render any content for this runtime.
-export function poseControlsHaveContent(runtime, { hideWhenEmpty = false } = {}) {
-  const definition = runtime?.definition || null;
-  const parameters = Array.isArray(definition?.parameters) ? definition.parameters : [];
+export function poseControlsHaveContent(runtime) {
   const status = String(runtime?.status || "").trim();
   const error = String(runtime?.error || "").trim();
-  if (hideWhenEmpty && definition && !parameters.length && !poseNamesFromDefinition(definition).length && status !== "loading" && !error) {
-    return false;
-  }
-  return Boolean(definition || status === "loading" || error);
+  return Boolean(runtime?.definition || status === "loading" || error);
 }

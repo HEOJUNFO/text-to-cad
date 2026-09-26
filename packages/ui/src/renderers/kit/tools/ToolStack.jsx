@@ -36,7 +36,6 @@ export default function ToolStack({ width, onWidthChange, hidden = false, childr
       {children}
       <div role="separator" tabIndex={0} aria-label="Resize tool panels" aria-orientation="vertical"
         aria-valuemin={TOOL_STACK_MIN_WIDTH} aria-valuemax={clampToolStackWidth(Infinity, viewerWidth())} aria-valuenow={clampToolStackWidth(shown, viewerWidth())}
-        data-tool-stack-resize=""
         className="pointer-events-auto absolute inset-y-0 left-full ml-1 w-2 cursor-col-resize touch-none rounded-full outline-none before:absolute before:inset-y-1 before:left-1/2 before:w-0.5 before:-translate-x-1/2 before:rounded-full before:bg-transparent hover:before:bg-ring active:before:bg-ring focus-visible:before:bg-ring"
         onPointerDown={event => {
           if (event.button !== 0) return;

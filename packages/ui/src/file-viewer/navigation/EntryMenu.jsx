@@ -129,7 +129,6 @@ export function EntryMenuItems({
           {index > 0 ? <Separator /> : null}
           {section.map((item) => (
             <Item
-              data-action={item.action}
               key={item.action}
               onSelect={() => onAction(item.action, entry)}
               variant={item.destructive ? "destructive" : "default"}

@@ -41,7 +41,6 @@ import {
   applyLighting as applySharedLighting,
   boundsCorners as sharedBoundsCorners,
   boundsFromVertices as sharedBoundsFromVertices,
-  centerAndRadiusFromBounds as sharedCenterAndRadiusFromBounds,
   colorTextureFromBackground as sharedColorTextureFromBackground,
   configurePngRenderer,
   createSharedRenderOptions,
@@ -49,10 +48,8 @@ import {
   fitPerspectiveCamera as fitSharedPerspectiveCamera,
   fitCameraDepthToBounds,
   fitOrthographicCamera,
-  frameHalfHeightForView as sharedFrameHalfHeightForView,
   framePadding as sharedFramePadding,
   inferRenderSceneScale,
-  normalizeRenderSceneScale as normalizeSharedRenderSceneScale,
   outputSize as sharedOutputSize,
   RENDER_SCENE_SCALE,
   RENDER_VIEW_PRESETS,
@@ -114,10 +111,6 @@ function normalizeBoolean(value, fallback = false) {
   return typeof value === "boolean" ? value : fallback;
 }
 
-function normalizeRenderSceneScale(value) {
-  return normalizeSharedRenderSceneScale(value);
-}
-
 function resolveRenderSceneScale(job = {}) {
   const explicit = String(job.scale || "").trim().toLowerCase();
   return inferRenderSceneScale({
@@ -134,33 +127,12 @@ function boundsFromVertices(vertices) {
   return sharedBoundsFromVertices(vertices);
 }
 
-function centerAndRadiusFromBounds(bounds, sceneScale = RENDER_SCENE_SCALE.CAD) {
-  return sharedCenterAndRadiusFromBounds(bounds, sceneScale, RENDER_SCENE_SCALE_SETTINGS);
-}
-
 function colorTextureFromBackground(background, width, height) {
   return sharedColorTextureFromBackground(background, width, height);
 }
 
 function applyLighting(scene, themeSettings, bounds, sceneScale, shadowMapSize) {
   return applySharedLighting(scene, themeSettings, { bounds, sceneScale, shadowMapSize });
-}
-
-function mergeBoundsList(boundsList) {
-  const min = [Infinity, Infinity, Infinity];
-  const max = [-Infinity, -Infinity, -Infinity];
-  let count = 0;
-  for (const bounds of Array.isArray(boundsList) ? boundsList : []) {
-    if (!bounds || !Array.isArray(bounds.min) || !Array.isArray(bounds.max)) {
-      continue;
-    }
-    count += 1;
-    for (let axis = 0; axis < 3; axis += 1) {
-      min[axis] = Math.min(min[axis], toFiniteNumber(bounds.min[axis]));
-      max[axis] = Math.max(max[axis], toFiniteNumber(bounds.max[axis]));
-    }
-  }
-  return count > 0 && min.every(Number.isFinite) && max.every(Number.isFinite) ? { min, max } : null;
 }
 
 function addFloor(scene, bounds, themeSettings, sceneScale = RENDER_SCENE_SCALE.CAD, guideSettings = null, sizeBounds = null) {
@@ -173,10 +145,6 @@ function boundsCorners(bounds) {
 
 function framePadding(job = {}) {
   return sharedFramePadding(job);
-}
-
-function frameHalfHeightForView(view, bounds, width, height, padding = 0.12, sceneScale = RENDER_SCENE_SCALE.CAD) {
-  return sharedFrameHalfHeightForView(view, bounds, width, height, padding, sceneScale, RENDER_SCENE_SCALE_SETTINGS);
 }
 
 function fitCamera(camera, view, bounds, width, height, lockedHalfHeight = null, padding = 0.12, sceneScale = RENDER_SCENE_SCALE.CAD) {

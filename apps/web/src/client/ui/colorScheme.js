@@ -32,9 +32,7 @@ function normalizeColorSchemeId(colorSchemeId) {
   return Object.hasOwn(COLOR_SCHEME_REGISTRY, normalizedId) ? normalizedId : DEFAULT_COLOR_SCHEME_ID;
 }
 
-function getColorSchemeOption(colorSchemeId) {
-  return COLOR_SCHEME_REGISTRY[normalizeColorSchemeId(colorSchemeId)];
-}
+
 
 export function resolveColorSchemeMode(colorSchemeId, { prefersDark = false } = {}) {
   const normalizedId = normalizeColorSchemeId(colorSchemeId);

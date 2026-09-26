@@ -1,16 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import {
-  filterPreservingIdentity,
-  toFiniteNumber
-} from "./valueUtils.js";
-
-test("numeric value helpers preserve workspace coercion behavior", () => {
-  assert.equal(toFiniteNumber("2.5", 0), 2.5);
-  assert.equal(toFiniteNumber(Number.NaN, 4), 4);
-  assert.equal(toFiniteNumber(Infinity, 4), 4);
-});
+import { filterPreservingIdentity } from "./valueUtils.js";
 
 test("selection validation retains empty and unchanged lists across new geometry ID sets", () => {
   const empty = [];

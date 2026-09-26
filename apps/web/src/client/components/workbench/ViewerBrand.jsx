@@ -9,6 +9,6 @@ export default function ViewerBrand({ title = "" }) {
       onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}>
       <LoadingIcon size={20} active={hovered} />
     </span>
-    {title ? <span className="truncate text-foreground" data-viewer-title="">{title}</span> : null}
+    {title ? <span className="truncate text-foreground">{title}</span> : null}
   </>;
 }

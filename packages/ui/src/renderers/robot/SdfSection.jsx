@@ -30,7 +30,7 @@ function SdfMetadataList({ title, items, fields }) {
 }
 
 /** What an SDF document says about itself beyond its links and joints: the parser's `sdf` record. */
-export default function SdfSection({ info, movableJointCount = 0, title = "SDF" }) {
+export default function SdfSection({ info, movableJointCount = 0 }) {
   const sdfInfo = info && typeof info === "object" ? info : {};
   const metadata = sdfInfo.staticMetadata && typeof sdfInfo.staticMetadata === "object" ? sdfInfo.staticMetadata : {};
   const list = key => (Array.isArray(metadata[key]) ? metadata[key] : []);
@@ -45,7 +45,7 @@ export default function SdfSection({ info, movableJointCount = 0, title = "SDF" 
           {sdfInfo.worldName ? <FileSheetValueField label="World" value={String(sdfInfo.worldName)} /> : null}
           <FileSheetValueField label="Frame mode" value={sdfInfo.nativeFrameSemantics ? "native" : "compat"} />
           <FileSheetValueField label="Root link" value={String(sdfInfo.rootLink || "")} />
-          <FileSheetValueField label="Model" value={String(sdfInfo.modelName || title || "model")} />
+          <FileSheetValueField label="Model" value={String(sdfInfo.modelName || "SDF")} />
         </FileSheetFieldGrid>
       </FileSheetSubsection>
       <FileSheetSubsection title="Counts">

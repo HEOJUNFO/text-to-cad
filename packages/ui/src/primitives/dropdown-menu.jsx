@@ -12,18 +12,6 @@ function DropdownMenu({
   return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />;
 }
 
-function DropdownMenuPortal({
-  ...props
-}) {
-  return <DropdownMenuPrimitive.Portal data-slot="dropdown-menu-portal" {...props} />;
-}
-
-function DropdownMenuGroup({
-  ...props
-}) {
-  return <DropdownMenuPrimitive.Group data-slot="dropdown-menu-group" {...props} />;
-}
-
 const DropdownMenuTrigger = React.forwardRef(/**
  * @param {React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Trigger>} props
  * @param {React.ForwardedRef<React.ComponentRef<typeof DropdownMenuPrimitive.Trigger>>} ref
@@ -230,10 +218,8 @@ export {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuPortal,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,

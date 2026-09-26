@@ -4,46 +4,14 @@ import { clipAxisBounds, normalizeStepClipSettings } from "@hardcore/core/lib/vi
 import { ToggleGroup, ToggleGroupItem } from "@hardcore/ui/primitives/toggle-group";
 import { Slider } from "@hardcore/ui/primitives/slider";
 import {
-  FILE_SHEET_PRECISION_SLIDER_CLASSES, FileSheetCheckboxRow, FileSheetSliderField, FileSheetValueInput,
-  parseFileSheetNumberInput
+  FILE_SHEET_PRECISION_SLIDER_CLASSES, FileSheetCheckboxRow, FileSheetValueInput, parseFileSheetNumberInput
 } from "../../../kit/inspector/FileSheet.js";
 
 const AXES = Object.freeze(["x", "y", "z"]);
 
-function clamp(value, min, max) {
-  return Math.min(Math.max(Number(value) || 0, min), max);
-}
-
 function formatNumber(value, digits = 2) {
   const number = Number(value);
   return Number.isFinite(number) ? number.toFixed(digits) : "0";
-}
-
-function SettingsSlider({ label, value, min, max, step = 0.01, suffix = "", digits = 2, disabled = false, hideLabel = false, onChange }) {
-  const numericValue = Number.isFinite(Number(value)) ? Number(value) : min;
-  return (
-    <FileSheetSliderField compact hideLabel={hideLabel}
-      label={label}
-      value={`${formatNumber(numericValue, digits)}${suffix}`}
-      onValueCommit={(draft) => onChange(parseFileSheetNumberInput(draft, {
-        fallback: numericValue,
-        min,
-        max
-      }))}
-      valueInputProps={{ disabled, ariaLabel: `${label} value` }}
-    >
-      <Slider
-        value={[numericValue]}
-        min={min}
-        max={max}
-        step={step}
-        disabled={disabled}
-        onValueChange={(next) => onChange(clamp(next[0], min, max))}
-        thumbProps={{ "aria-label": label }}
-        className={FILE_SHEET_PRECISION_SLIDER_CLASSES}
-      />
-    </FileSheetSliderField>
-  );
 }
 
 // Persistent model effects are separate from Display and its presets.
@@ -88,13 +56,12 @@ export function CrossSectionControls({ viewSettings, onViewSettingsPatch, bounds
   </>;
 }
 
-export function ExplodeControls({ viewSettings, onViewSettingsPatch, disabled = false, compact = false }) {
+// The Explode panel: one slider, which applies the effect as it leaves zero and removes it at zero.
+export function ExplodeControls({ viewSettings, onViewSettingsPatch }) {
   const exploded = normalizeExplodedViewSettings(normalizeViewSettings(viewSettings).exploded);
-  if (compact) return <div className="px-2 py-1"><Slider thumbProps={{ "aria-label": "Explode amount" }}
-    value={[exploded.enabled ? exploded.amount * 100 : 0]} min={0} max={100} step={1} disabled={disabled}
+  return <div className="px-2 py-1"><Slider thumbProps={{ "aria-label": "Explode amount" }}
+    value={[exploded.enabled ? exploded.amount * 100 : 0]} min={0} max={100} step={1}
     onValueChange={([amount]) => onViewSettingsPatch({ exploded: { amount: amount / 100, enabled: amount > 0 } })}
     className={FILE_SHEET_PRECISION_SLIDER_CLASSES} /></div>;
-  return <SettingsSlider label="Explode" hideLabel value={exploded.enabled ? exploded.amount * 100 : 0} min={0} max={100} step={1} digits={0} suffix="%" disabled={disabled}
-    onChange={amount => onViewSettingsPatch({ exploded: { amount: amount / 100, enabled: true } })} />;
 }
 

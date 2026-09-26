@@ -32,8 +32,6 @@ export const VIEW_PLANE_POLE_DIRECTION_DOT_THRESHOLD = 0.9999;
 // It was 0.02 (1.146 degrees, 20px across that viewport), which is what made a "top" view
 // visibly not top-down.
 export const VIEW_PLANE_POLE_DIRECTION_NUDGE = 1e-4;
-export const DEFAULT_PERSPECTIVE_DIRECTION_DOT_THRESHOLD = 0.999;
-export const DEFAULT_PERSPECTIVE_UP_DOT_THRESHOLD = 0.999;
 export const DEFAULT_VIEW_DIRECTION = Object.freeze([2.1, -1.65, 1.08]);
 export const DEFAULT_VIEW_PLANE_ORIENTATION = Object.freeze({
   x: [1, 0, 0],
@@ -74,13 +72,6 @@ export const VIEW_CUBE_EDGES = [0, 1, 2].flatMap((along) => [-1, 1].flatMap((a) 
 export const VIEW_PLANE_FACE_BY_ID = Object.fromEntries(
   [...VIEW_PLANE_FACES, ...VIEW_CUBE_EDGES, ...VIEW_CUBE_CORNERS].map((face) => [face.id, face])
 );
-export const VIEW_PLANE_DEFAULT_PRESET = {
-  id: "isometric",
-  title: "Reset to default isometric view",
-  direction: DEFAULT_VIEW_DIRECTION,
-  up: WORLD_UP
-};
-
 export function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
@@ -311,14 +302,6 @@ export function clearKeyboardOrbitState(keyboardOrbitState) {
   keyboardOrbitState.directionCounts.up = 0;
   keyboardOrbitState.directionCounts.down = 0;
   keyboardOrbitState.lastFrameTime = 0;
-}
-
-export function createKeyboardOrbitState() {
-  return {
-    pressedKeys: new Set(),
-    directionCounts: { left: 0, right: 0, up: 0, down: 0 },
-    lastFrameTime: 0
-  };
 }
 
 export function applyOrbitDelta(runtime, azimuthDelta, polarDelta) {
@@ -552,38 +535,4 @@ export function getActiveViewPlaneFaceId(runtime) {
     }
   }
   return bestScore >= VIEW_PLANE_ACTIVE_DOT_THRESHOLD ? bestId : "";
-}
-
-export function cameraMatchesViewPreset(runtime, preset, {
-  directionDotThreshold = DEFAULT_PERSPECTIVE_DIRECTION_DOT_THRESHOLD,
-  upDotThreshold = DEFAULT_PERSPECTIVE_UP_DOT_THRESHOLD
-} = {}) {
-  if (
-    !runtime?.THREE ||
-    !runtime?.camera ||
-    !runtime?.controls ||
-    !preset ||
-    !Array.isArray(preset.direction) ||
-    !Array.isArray(preset.up)
-  ) {
-    return false;
-  }
-  const currentDirection = runtime.camera.position.clone().sub(runtime.controls.target);
-  const nextDirection = new runtime.THREE.Vector3(...preset.direction);
-  const currentUp = runtime.camera.up.clone();
-  const nextUp = new runtime.THREE.Vector3(...preset.up);
-  if (
-    currentDirection.lengthSq() <= 1e-8 ||
-    nextDirection.lengthSq() <= 1e-8 ||
-    currentUp.lengthSq() <= 1e-8 ||
-    nextUp.lengthSq() <= 1e-8
-  ) {
-    return false;
-  }
-  currentDirection.normalize();
-  nextDirection.normalize();
-  currentUp.normalize();
-  nextUp.normalize();
-  return currentDirection.dot(nextDirection) >= directionDotThreshold &&
-    currentUp.dot(nextUp) >= upDotThreshold;
 }

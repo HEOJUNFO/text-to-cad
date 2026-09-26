@@ -60,24 +60,6 @@ function ContextMenuItem({
   );
 }
 
-function ContextMenuLabel({
-  className,
-  inset,
-  ...props
-}) {
-  return (
-    <ContextMenuPrimitive.Label
-      data-slot="context-menu-label"
-      data-inset={inset}
-      className={cn(
-        "px-2 py-1.5 text-tiny leading-4 text-muted-foreground data-[inset]:pl-8",
-        className
-      )}
-      {...props}
-    />
-  );
-}
-
 function ContextMenuSeparator({
   className,
   ...props
@@ -111,7 +93,6 @@ export {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuLabel,
   ContextMenuSeparator,
   ContextMenuShortcut,
   ContextMenuTrigger,

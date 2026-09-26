@@ -323,7 +323,6 @@ export function viewerAlertFileStatusItem(viewerAlert = null) {
 
 export function buildFileStatusItems({
   entry = null,
-  fileSheetKind = "",
   stepSourceStatus = null,
   stepArtifactGenerationAvailable = true,
   stepArtifactGenerationState = null,
@@ -339,20 +338,17 @@ export function buildFileStatusItems({
     return [];
   }
 
-  const kind = cleanText(fileSheetKind).toLowerCase();
-  const items = [];
-  // Advisory badges apply to every artifact-managed kind, not just STEP.
-  items.push(...artifactAdvisoryStatusItems(artifactAdvisory, { entry, viewerServerInfo }));
-  if (kind === "step") {
-    items.push(...stepFileStatusItems({
+  const items = [
+    ...artifactAdvisoryStatusItems(artifactAdvisory, { entry, viewerServerInfo }),
+    ...stepFileStatusItems({
       entry,
       stepSourceStatus,
       stepArtifactGenerationAvailable,
       stepArtifactGenerationState,
       activeGenerationFiles,
       viewerServerInfo
-    }));
-  }
+    })
+  ];
 
   for (const alert of [viewerAlert, warningAlert]) {
     const alertItem = viewerAlertFileStatusItem(alert);

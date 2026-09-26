@@ -26,7 +26,6 @@ function Progress({ className, value, ...props }) {
     >
       <ProgressPrimitive.Indicator
         data-slot="progress-indicator"
-        data-indeterminate={indeterminate ? "true" : undefined}
         className={cn(
           "h-full bg-primary",
           indeterminate

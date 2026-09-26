@@ -5,40 +5,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import ToolPopover from '../../../../dist/renderers/kit/tools/ToolPopover.js';
 import FloatingToolBar from '../../../../dist/renderers/kit/tools/FloatingToolBar.js';
 import SelectionFilterMenu, { SelectModeMenu } from '../../../../dist/renderers/step/components/workbench/SelectionFilterMenu.js';
-import { DrawingToolbar } from '../../../../dist/drawing/toolbar.js';
 
 beforeEach(() => vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
-
-it('Draw keeps settings actions open but closes on a tool choice or outside click', async () => {
-  const user = userEvent.setup();
-  const drawing = { ready: true, tool: 'freedraw', color: '#ff2d55', hasContent: true, canUndo: true, canRedo: true,
-    selectTool: vi.fn(), selectColor: vi.fn(), undo: vi.fn(), redo: vi.fn(), clear: vi.fn() };
-  function Harness() {
-    const [active, setActive] = useState(false), [open, setOpen] = useState(false);
-    return <><button>Outside</button><FloatingToolBar tools={[{ id: 'draw', label: 'Draw', active, icon: null,
-      secondPressOpensMenu: true, onSelect: () => setActive(true),
-      menu: trigger => <ToolPopover trigger={trigger} label="Drawing controls" open={open} onOpenChange={setOpen}>
-        <DrawingToolbar drawing={drawing} layout="panel" onToolSelect={() => setOpen(false)} onClear={() => setOpen(false)} />
-      </ToolPopover> }]} /></>;
-  }
-  render(<Harness />);
-  const draw = screen.getByRole('button', { name: 'Draw', exact: true });
-  await user.click(draw.querySelector('[data-tool-menu-corner]')!);
-  expect(screen.queryByRole('menu')).toBeNull();
-  await user.click(draw);
-  await user.click(screen.getByRole('button', { name: 'Undo' }));
-  await user.click(screen.getByRole('button', { name: 'Redo' }));
-  expect(drawing.undo).toHaveBeenCalledOnce();
-  expect(drawing.redo).toHaveBeenCalledOnce();
-  expect(screen.getByRole('menu')).toBeTruthy();
-  await user.click(screen.getByRole('button', { name: 'Line', exact: true }));
-  expect(drawing.selectTool).toHaveBeenCalledWith('line');
-  expect(screen.queryByRole('menu')).toBeNull();
-  await user.click(draw);
-  await user.click(screen.getByRole('button', { name: 'Outside' }));
-  expect(screen.queryByRole('menu')).toBeNull();
-});
 
 it('ephemeral tool options dismiss on a choice, outside press, or repeated trigger press', async () => {
   const user = userEvent.setup();

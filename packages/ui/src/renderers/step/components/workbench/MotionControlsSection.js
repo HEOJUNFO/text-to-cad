@@ -4,15 +4,14 @@ import PoseControlsSection, { poseControlsHaveContent } from "./PoseControlsSect
 // named poses, its joint values and the Reset that puts them back. Animation is the Animate
 // tool and its playbar, not a section, so a file with routines and no joints has no Position
 // at all. One host command still resets all motion, including pending playback and pose frames.
-export function buildPositionSection({ poseRuntime = null, animationRuntime = null, poseProps = {} } = {}) {
-  if (!poseControlsHaveContent(poseRuntime, poseProps)) return null;
-  const onReset = poseRuntime?.onResetMotion || animationRuntime?.resetModel || poseRuntime?.onResetParameters;
+export function buildPositionSection({ poseRuntime = null } = {}) {
+  if (!poseControlsHaveContent(poseRuntime)) return null;
   return {
     id: "position",
     title: "Position",
     content: (
       <div className="space-y-2 px-1 py-2">
-        <PoseControlsSection {...poseProps} runtime={poseRuntime} onReset={onReset} />
+        <PoseControlsSection runtime={poseRuntime} />
       </div>
     ),
   };

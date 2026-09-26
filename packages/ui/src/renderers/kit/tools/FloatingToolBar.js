@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import { ToolbarButton } from "./ToolbarButton.js";
+import { ToolbarButton } from "@hardcore/ui/primitives/toolbar-button";
 import { FLOATING_SURFACE_CLASS } from "./floatingSurface.js";
 
 /**
@@ -21,8 +21,6 @@ import { FLOATING_SURFACE_CLASS } from "./floatingSurface.js";
  * @property {boolean} [secondPressOpensMenu]  The first press takes up the tool and a
  *   press while it is active is spent on its menu. The corner follows the same rule: until it is active a pointer
  *   press never reaches the menu trigger, and Enter, Space and ArrowDown select it.
- * @property {import("react").ReactNode} [subToolbar]  Drawn under the strip, in tool order,
- *   whenever it is given (its owner decides when).
  */
 
 // A plain function, not a component: the strip's own output is the buttons.
@@ -62,8 +60,7 @@ function toolButton(tool) {
 
 /**
  * The interaction tools: a dumb strip positioned by the viewport shell. It renders the
- * tools it is handed, left to right, then each tool's `subToolbar` beneath. It
- * holds no state and knows no tool by name.
+ * tools it is handed, left to right. It holds no state and knows no tool by name.
  *
  * @param {{ tools: ViewportTool[] }} props
  */
@@ -72,6 +69,5 @@ export default function FloatingToolBar({ tools = [] }) {
       <div role="group" aria-label="Interaction tools" className={`pointer-events-auto inline-flex max-w-full flex-wrap items-center gap-0.5 rounded-md ${tools.length === 1 ? "p-0.5" : "min-h-8 p-1"} ${FLOATING_SURFACE_CLASS}`}>
         {tools.map(tool => <Fragment key={tool.id}>{toolButton(tool)}</Fragment>)}
       </div>
-    {tools.map(tool => (tool.subToolbar ? <Fragment key={tool.id}>{tool.subToolbar}</Fragment> : null))}
   </div>);
 }

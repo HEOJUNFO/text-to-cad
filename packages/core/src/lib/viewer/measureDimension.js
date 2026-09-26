@@ -1,5 +1,5 @@
 import { formatMeasurement } from "./measurement.js";
-import { dimensionEndpoints, measureDimensionSegments } from "./measureLines.js";
+import { dimensionEndpoints } from "./measureLines.js";
 import { projectWorldPointToClient } from "./measureRuler.js";
 
 // Draft state is amber so it can never be confused with a committed dimension.

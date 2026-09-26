@@ -14,10 +14,7 @@ import {
   kinematicsPoses
 } from "./kinematicsRuntime.js";
 import { normalizeStepModuleDefinition } from "./stepModule.js";
-import {
-  loadSourceSidecar,
-  SOURCE_SIDECAR_SCHEMA_VERSION
-} from "./sourceSidecar.js";
+import { loadSourceSidecar } from "./sourceSidecar.js";
 
 export { SOURCE_SIDECAR_SCHEMA_VERSION } from "./sourceSidecar.js";
 

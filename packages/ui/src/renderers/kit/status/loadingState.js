@@ -1,5 +1,3 @@
-export { prolongedLoadingMessage } from "./loadingMessage.js";
-
 // A stage reports a real fraction (`done`/`total`, flagged `determinate`) or nothing.
 function stageFraction(progress) {
   const determinate = Boolean(progress?.determinate) && progress.total > 0;

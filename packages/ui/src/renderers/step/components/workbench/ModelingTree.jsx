@@ -374,7 +374,7 @@ export default function ModelingTree({ modeling, active, disabled, mode='all', l
           {loading && <span role="status" className="shrink-0 text-micro text-muted-foreground">Loading…</span>}
           {partControls.hiddenPartIds?.length > 0 && <Button disabled={disabled} type="button" variant="ghost" size="sm" className="h-6 shrink-0 px-1.5 text-tiny text-muted-foreground" onClick={partControls.showAllHiddenParts}>Show all</Button>}
         </>}/>}>
-      <div className="flex flex-col text-xs" aria-label="Modeling tree" data-tree-mode={mode}>
+      <div className="flex flex-col text-xs" aria-label="Modeling tree">
         {(error || failed>0) && <p role="alert" className="px-3 pb-2 text-micro text-muted-foreground">{error || `${failed} ${failed===1?'component is':'components are'} unavailable.`} <button type="button" className="underline" onClick={retryFailed}>Retry</button></p>}
         <div ref={listRef} className="px-1 py-1" aria-label="Model tree area"
           onClick={event=>{if(!disabled && !event.target.closest('li,button,input,[role="menu"]'))clearSelection();}}>

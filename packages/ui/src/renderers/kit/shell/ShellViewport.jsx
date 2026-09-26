@@ -985,7 +985,7 @@ const ShellViewport = forwardRef(function ShellViewport({
       ) : null}
       {drawingOverlayActive ? <DrawingOverlay drawing={drawing} onReady={handleDrawingReady} onContentChange={handleDrawingContent} onViewportChange={followDrawingViewport} /> : null}
       {overlay}
-      {!mobile && <div className={`pointer-events-none absolute inset-0 transition-opacity duration-150 motion-reduce:transition-none ${controlsHidden ? "opacity-0" : "opacity-100"}`} hidden={controlsHidden} inert={controlsHidden} aria-hidden={controlsHidden} data-preview-cube="" data-visible={!controlsHidden}>
+      {!mobile && <div className={`pointer-events-none absolute inset-0 transition-opacity duration-150 motion-reduce:transition-none ${controlsHidden ? "opacity-0" : "opacity-100"}`} hidden={controlsHidden} inert={controlsHidden} aria-hidden={controlsHidden}>
       <ViewPlaneControl
         showViewPlane={!previewMode}
         disabled={drawingOverlayActive}

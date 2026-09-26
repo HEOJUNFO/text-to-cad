@@ -4,7 +4,6 @@ import { buildEdgeChainGraph } from "./workbench/edgeChainSelection.js";
 import SelectionFilterMenu, { SelectModeIcon, SelectModeMenu } from "./components/workbench/SelectionFilterMenu.jsx";
 import { MEASURE_SELECTION_FILTERS, NO_CONNECTED_SELECTION, connectedSelectionApplies } from "./workbench/selectionFilter.js";
 import { Play, Ruler, Spline } from "lucide-react";
-import { stepGeometryContextText, stepGeometryPromptText } from "./workbench/stepGeometryPrompt.js";
 import { filterSelectionReferences, toggleReferenceGroupSelection, connectedReferenceIds } from "./workbench/selectionFilter.js";
 import { buildTangentFaceGraph } from "./workbench/tangentFaceSelection.js";
 
@@ -253,13 +252,9 @@ function StepSurfaceBody({ view, data }) {
   // face or edge pick grows (Tangent faces, Edge chain), which is independent of it.
   const [selectionFilter, setSelectionFilter] = useState("all");
   const [connectedSelection, setConnectedSelection] = useState(NO_CONNECTED_SELECTION);
-  const [inspectionHighlight, setInspectionHighlight] = useState(null);
   // A press under a face or edge filter on an assembly part whose faces are not loaded yet:
   // `{ partId, clientX, clientY, pointerType, multiSelect }`, replayed once they can be picked.
   const [pendingTopologyPick, setPendingTopologyPick] = useState(null);
-  const handleInspectionHighlight = useCallback((selection, label, context) => {
-    setInspectionHighlight(selection ? { ...selection, label, context } : null);
-  }, []);
   const [selectedPartIds, setSelectedPartIds, selectedPartIdsRef] = useSyncedState([]);
   const [selectedRenderPartIdByAssemblyPartId, setSelectedRenderPartIdByAssemblyPartId] = useState({});
   const [expandedStepTreeNodeIds, setExpandedStepTreeNodeIds] = useState([]);
@@ -874,13 +869,12 @@ function StepSurfaceBody({ view, data }) {
       ? []
       : buildFileStatusItems({
         entry: selectedEntry,
-        fileSheetKind: "step",
         stepSourceStatus: selectedStepSourceStatus,
         viewerAlert,
         warningAlert: annotationAlert,
         stepArtifactGenerationAvailable,
         activeGenerationFiles: activeStepArtifactGenerationFiles,
-        serverInfo,
+        viewerServerInfo: serverInfo,
         artifactAdvisory: selectedArtifact.advisory
       })
   ), [
@@ -1033,7 +1027,6 @@ function StepSurfaceBody({ view, data }) {
 
   useEffect(() => {
     setSelectionFilter("all");
-    setInspectionHighlight(null);
   }, [selectedKey, artifactRevision]);
   const selectedStepParameterRuntime = useMemo(() => {
     if (
@@ -1411,7 +1404,6 @@ function StepSurfaceBody({ view, data }) {
     !stepInteractionBlocked &&
     !viewerLoading;
   const measure = useStepMeasure({ fileKey: selectedKey, revision: selectedEntry?.hash, picking: measureModeActive });
-  useEffect(() => { if (measureModeActive) setInspectionHighlight(null); }, [measureModeActive]);
   const measureMeasurements = measure.measurements;
 
   const filteredViewerReferences = useMemo(() => filterSelectionReferences(viewerPickableReferences, selectionFilter),
@@ -1701,13 +1693,11 @@ function StepSurfaceBody({ view, data }) {
   );
   const copyButtonLabel = (copySelectionPayload.copiedCount || canonicalCopySelectionLines.length) > 1 ? "Copy References" : "Copy Reference";
   const copySelectedReferences = useCallback(async () => {
-    const text = inspectionHighlight ? stepGeometryPromptText(inspectionHighlight, {
-      referenceMap: effectiveActiveReferenceMap, parts: selectedMeshData?.parts || EMPTY_LIST, entry: selectedEntry,
-    }) : canonicalCopySelectionLines.join("\n");
+    const text = canonicalCopySelectionLines.join("\n");
     if (!text || stepInteractionBlocked) return;
     try { await host.clipboard.writeText(text); }
     catch (error) { shellRef.current?.reportActionError(error instanceof Error ? error.message : "Could not copy reference"); }
-  }, [canonicalCopySelectionLines, copySelectionPayload.copiedCount, stepInteractionBlocked, host.clipboard, inspectionHighlight, effectiveActiveReferenceMap, selectedMeshData, selectedEntry]);
+  }, [canonicalCopySelectionLines, stepInteractionBlocked, host.clipboard]);
   // The tip teaches reference syntax, so it fires on the first pick that yields
   // a reference to copy — a component, a subassembly, or a face/edge. Gating it
   // on topology alone would hide it from anyone who only ever clicks parts.
@@ -1831,29 +1821,22 @@ function StepSurfaceBody({ view, data }) {
     () => ({ deliverReference: deliverReferenceText, addReference: addReferenceText, canAddToPrompt: composerDestination && promptAvailable }),
     [composerDestination, promptAvailable, deliverReferenceText, addReferenceText]
   );
-  const selectionKey = JSON.stringify([promptResource, canonicalCopySelectionLines, inspectionHighlight?.label, inspectionHighlight?.context]);
+  const selectionKey = JSON.stringify([promptResource, canonicalCopySelectionLines]);
   const liveSelectionKey = useRef(selectionKey);
   liveSelectionKey.current = selectionKey;
   useLayoutEffect(() => { liveSelectionKey.current = selectionKey; return () => { liveSelectionKey.current = null; }; }, [selectionKey]);
   const createSelectionPromptContext = useCallback(({ text: instruction = '', capture: includeCapture = false } = {}) => {
     if (liveSelectionKey.current !== selectionKey) throw new Error('This selection has changed. Open the action again.');
     if (viewerLoading || stepInteractionBlocked) throw new Error('Wait for the model before using this selection.');
-    const copied = inspectionHighlight ? stepGeometryPromptText(inspectionHighlight, {
-      referenceMap: effectiveActiveReferenceMap,
-      parts: selectedMeshData?.parts || EMPTY_LIST,
-      entry: selectedEntry,
-    }) : canonicalCopySelectionLines.join("\n");
-    const references = referencesForHost(copied).map(reference => inspectionHighlight?.label ? { ...reference, label: inspectionHighlight.label } : reference);
-    const inspected = inspectionHighlight?.context?.file === selectedEntry?.file
-      ? stepGeometryContextText({ ...inspectionHighlight.context, file: promptResource.path }, { includeModel: !references.length }) : '';
+    const references = referencesForHost(canonicalCopySelectionLines.join("\n"));
     let capture;
     if (includeCapture) {
       if (!viewerRef.current?.captureScreenshotBlob) throw new Error('CAD Viewer not ready');
       capture = viewerRef.current.captureScreenshotBlob();
       void capture.catch(() => {});
     }
-    return createCadPromptContext({ resource: promptResource, references, text: [inspected, instruction].filter(Boolean).join('\n\n'), capture });
-  }, [selectionKey, promptResource, viewerLoading, stepInteractionBlocked, inspectionHighlight, effectiveActiveReferenceMap, selectedMeshData, selectedEntry, canonicalCopySelectionLines, referencesForHost]);
+    return createCadPromptContext({ resource: promptResource, references, text: instruction, capture });
+  }, [selectionKey, promptResource, viewerLoading, stepInteractionBlocked, canonicalCopySelectionLines, referencesForHost]);
 
   const toggleStepTreeNode = useCallback((nodeId) => {
     const normalizedNodeId = String(nodeId || "").trim();
@@ -2050,7 +2033,6 @@ function StepSurfaceBody({ view, data }) {
 
   const clearAssemblySelectionForFocus = useCallback(() => {
     setActiveTreeNodeScrollKey("");
-    setInspectionHighlight(null);
     setSelectedPartIds([]);
     setSelectedRenderPartIdByAssemblyPartId({});
     setSelectedReferenceIds([]);
@@ -2443,12 +2425,10 @@ function StepSurfaceBody({ view, data }) {
     }
     const topologyReference = effectiveActiveReferenceMap.get(nextReferenceId) || null;
     if (edgeChainActive && topologyReference?.selectorType === "edge") {
-      setInspectionHighlight(null);
       selectReferenceGroup(connectedReferenceIds(edgeChains, topologyReference.id), { multiSelect });
       return;
     }
     if (tangentFacesActive && topologyReference?.selectorType === "face") {
-      setInspectionHighlight(null);
       selectReferenceGroup(connectedReferenceIds(tangentFaces, topologyReference.id), { multiSelect });
       return;
     }
@@ -2971,14 +2951,10 @@ function StepSurfaceBody({ view, data }) {
     }
   }, [selectedEntry, selectedEntryHasReferences, topologyTarget, loadFilterTopology]);
 
-  // An inspection highlight is a narrower selection than the tree's, and is what the
-  // person is actually looking at, so it wins.
-  const zoomSelectionPartIds = inspectionHighlight ? inspectionHighlight.partIds || EMPTY_LIST : viewerSelectedPartIds;
-  const zoomSelectionReferenceIds = inspectionHighlight ? inspectionHighlight.faceIds || EMPTY_LIST : selectedReferenceIds;
   zoomSelectionRef.current = {
-    partIds: zoomSelectionPartIds,
-    referenceIds: zoomSelectionReferenceIds,
-    available: Boolean(zoomSelectionPartIds.length || zoomSelectionReferenceIds.length)
+    partIds: viewerSelectedPartIds,
+    referenceIds: selectedReferenceIds,
+    available: Boolean(viewerSelectedPartIds.length || selectedReferenceIds.length)
   };
 
   // What Escape means in this renderer, innermost first: a measurement in progress, then
@@ -3013,17 +2989,15 @@ function StepSurfaceBody({ view, data }) {
         ...(reference.label ? { label: reference.label } : {})
       })),
       loading: Boolean(viewerLoading || stepInteractionBlocked),
-      selectedPartIds: [...(inspectionHighlight ? inspectionHighlight.partIds || [] : viewerSelectedPartIds)],
-      selectedReferenceIds: [...(inspectionHighlight ? inspectionHighlight.faceIds || [] : selectedReferenceIdsRef.current)],
+      selectedPartIds: [...viewerSelectedPartIds],
+      selectedReferenceIds: [...selectedReferenceIdsRef.current],
       hiddenPartIds: [...hiddenPartIds], isolatedPartIds: [...isolatedAssemblyNodeIds],
       resource: { ...displayedResource }, revision: String(displayedResource.revision || '')
     };
   };
   // What a snapshot depicts: the references the selection resolves to, in this renderer's own
   // vocabulary (`createCadPromptContext` speaks it).
-  promptReferencesRef.current = () => referencesForHost(inspectionHighlight ? stepGeometryPromptText(inspectionHighlight, {
-    referenceMap: effectiveActiveReferenceMap, parts: selectedMeshData?.parts || EMPTY_LIST, entry: selectedEntry,
-  }) : canonicalCopySelectionLines.join("\n"));
+  promptReferencesRef.current = () => referencesForHost(canonicalCopySelectionLines.join("\n"));
   stepLiveCommandsRef.current = {
     select({ selectors, replace = true }) {
       const names = uniqueStringList(selectors.flatMap(selector => String(selector).split(',').map(value => value.trim())).filter(Boolean));
@@ -3040,7 +3014,6 @@ function StepSurfaceBody({ view, data }) {
       const references = uniqueStringList([...(replace ? [] : selectedReferenceIdsRef.current), ...selections.filter(selection => selection.kind === 'reference').map(selection => selection.id)]);
       setSelectedPartIds(parts);
       setSelectedReferenceIds(references);
-      setInspectionHighlight(null);
       setSelectedRenderPartIdByAssemblyPartId(current => Object.fromEntries(parts.map(id => [id, renderPartIdForAssemblySelection(id, current[id])]).filter(([, id]) => id)));
       const last = selections[selections.length - 1];
       revealStepTreeNode(last.kind === 'part' ? last.id : findStepTreeTopologyNodeIdForReference(displayStepTreeRoot, last.id) || referencePartId(effectiveActiveReferenceMap.get(last.id)), { source: 'reference' });
@@ -3049,22 +3022,12 @@ function StepSurfaceBody({ view, data }) {
       setSelectedPartIds([]);
       setSelectedRenderPartIdByAssemblyPartId({});
       clearReferenceSelection();
-      setInspectionHighlight(null);
     }
   };
 
   const selectionToolActive = tabToolMode === TAB_TOOL_MODE.REFERENCES;
-  const canAddInspectionContext = promptAvailable &&
-    inspectionHighlight?.context?.file === selectedEntry?.file;
-  let selectionCount = selectedReferences.length + selectedParts.length
+  const selectionCount = selectedReferences.length + selectedParts.length
     + (!isAssemblyView && selectedPartIds.includes(STEP_MODEL_ROOT_ID) ? 1 : 0);
-  if (inspectionHighlight) {
-    selectionCount = 0;
-    if (inspectionHighlight.label && !viewerLoading && !stepUpdateInProgress) {
-      if (canAddInspectionContext) selectionCount = inspectionHighlight.faceIds.length + inspectionHighlight.partIds.length;
-      else if (promptAvailable) selectionCount = inspectionHighlight.faceIds.length + inspectionHighlight.partIds.length;
-    }
-  }
   // Every CAD format shares the View settings and camera contract.
 
   // A mated child's label names its parts, and the mesh here is the model at
@@ -3118,21 +3081,19 @@ function StepSurfaceBody({ view, data }) {
     pickMode,
     pickableParts: !retainingPreviousStepMesh ? viewerAssemblyRenderParts : EMPTY_LIST,
     hiddenPartIds: viewerHiddenPartIdsForRenderPane({ inspectionEnabled: true, hasParts: true, hiddenPartIds: hiddenPartIds }),
-    selectedPartIds: presenting ? EMPTY_LIST : viewerSelectedPartIdsForRenderPane({ renderMode: resolvedScene.render.enabled, hasParts: true,
-      selectedPartIds: inspectionHighlight ? inspectionHighlight.partIds || EMPTY_LIST : viewerSelectedPartIds }),
+    selectedPartIds: presenting ? EMPTY_LIST : viewerSelectedPartIdsForRenderPane({ hasParts: true, selectedPartIds: viewerSelectedPartIds }),
     hoveredPartId: !presenting ? viewerHoveredPartIds : "",
     hoveredReferenceId: !presenting && !retainingPreviousStepMesh ? effectiveHoveredReferenceId : "",
-    selectedReferenceIds: !presenting && !retainingPreviousStepMesh
-      ? (inspectionHighlight ? inspectionHighlight.faceIds || EMPTY_LIST : selectedReferenceIds) : EMPTY_LIST,
-    selectorRuntime: viewerSelectorRuntimeForRenderPane({ renderMode: resolvedScene.render.enabled, hasTopology: true,
+    selectedReferenceIds: !presenting && !retainingPreviousStepMesh ? selectedReferenceIds : EMPTY_LIST,
+    selectorRuntime: viewerSelectorRuntimeForRenderPane({ hasTopology: true,
       retainingPreviousStepMesh: retainingPreviousStepMesh, selectorRuntime: effectiveSelectorRuntime }),
     stepParameterRuntime: selectedStepParameterRuntime,
     // {clip, elapsedSec, playing} or null. Null means no clip is selected, and the evaluator never runs.
     stepAnimationRuntime: selectedAnimationRuntime,
     animateMode: presenting || animateToolActive,
     jointHandles: presenting ? null : jointHandles,
-    measureState: presenting ? null : inspectionHighlight?.measurement ? { measurements: [inspectionHighlight.measurement] } : measure.state,
-    activeMeasurementId: inspectionHighlight?.measurement?.id || measure.activeId,
+    measureState: presenting ? null : measure.state,
+    activeMeasurementId: measure.activeId,
     measureModeActive: !presenting && measureModeActive,
     onLodCameraChange: onLodCameraMoved,
     onMeshSourceAdoption: handleDisplayMeshAdoption,
@@ -3169,7 +3130,6 @@ function StepSurfaceBody({ view, data }) {
     features: viewFeatures, store: viewSettingsStore, mesh: selectedDisplayMeshData,
     disabled: toolIdle, selectedTool: tabToolMode, onSelect: handleSelectTabToolMode,
     measure: {
-      Icon: Ruler, unavailable: measureToolDisabled, isPicking: measureModeActive,
       hasMeasurements: measureMeasurements.length > 0,
       onRemove: removeMeasurements,
       controls: <MeasurePanel measurements={measureMeasurements} activeId={measure.activeId}
@@ -3245,10 +3205,10 @@ function StepSurfaceBody({ view, data }) {
     selectedMeshData: selectedDisplayMeshData,
     selectedSourceAppearance,
     client,
-    geometryInspection: { file: selectedEntry?.file, revision: artifactRevision,
+    geometryInspection: { revision: artifactRevision,
       references: !viewerLoading && !stepUpdateInProgress ? isAssemblyView ? assemblyStepTreeTopologyReferences : selectedSelectorRuntime?.references || EMPTY_LIST : EMPTY_LIST,
       parts: !viewerLoading && !stepUpdateInProgress ? selectedMeshData?.parts || EMPTY_LIST : EMPTY_LIST,
-      onHighlight: handleInspectionHighlight, onLoadTopology: loadInspectionTopology },
+      onLoadTopology: loadInspectionTopology },
     selectedEntry,
     viewerLoading: viewerLoading || assemblyTreeLoading,
     isAssemblyView,
@@ -3263,7 +3223,6 @@ function StepSurfaceBody({ view, data }) {
     focusedNodeIds: focusedAssemblyNodeIds,
     onSelectTreeNode: selectStepTreeNode,
     onSelectReferenceGroup: selectReferenceGroup,
-    onCopyTreeNodeReference: copyStepTreeContextMenuReference,
     onCopySelection: copySelectedReferences,
     onFocusTreeNode: focusStepTreeNode,
     onUnfocusTreeNode: handleExitSingleIsolate,
@@ -3285,9 +3244,6 @@ function StepSurfaceBody({ view, data }) {
     contextMenuItems={selectionToolActive
       ? press => viewportContextMenuItems(press, pickAtRef.current?.(press.clientX, press.clientY) || "") : null}
     onContextMenuOpenChange={handleViewportContextMenuOpenChange}
-    // A press on the model puts the inspection highlight down: what the person is looking at
-    // is what they just pointed at.
-    onCanvasPointerDown={() => setInspectionHighlight(null)}
     // Both halves read it: the viewport's menu resolves references through it, and so do the
     // Features rows in the tool stack.
     frameProvider={frame => <HostReferenceContext.Provider value={hostReference}>{frame}</HostReferenceContext.Provider>}

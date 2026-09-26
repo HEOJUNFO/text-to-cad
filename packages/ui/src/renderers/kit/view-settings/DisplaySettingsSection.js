@@ -139,7 +139,7 @@ export function DisplaySettingsSection({
         {view.surfaces.colorMode !== "single" ? <FileSheetFieldGrid columns={1}><NumberProperty label="Surface opacity" Icon={Blend} value={view.surfaces.opacity * 100} min={0} max={100} unit="%" digits={0} onChange={value => setGroup("surfaces", { opacity: value / 100 })} /></FileSheetFieldGrid> : null}
   </>;
   const sections = [
-      offers("mode") && { id: "display", title: "Display", collapsible: false, headingAction: <TooltipHint content="Reset display"><Button type="button" variant="ghost" size="icon-xs" aria-label="Reset"  className="size-5 text-muted-foreground" onClick={onViewReset}><RotateCcw className="size-3" aria-hidden="true" /></Button></TooltipHint>, content: <>
+      offers("mode") && { id: "display", title: "Display", headingAction: <TooltipHint content="Reset display"><Button type="button" variant="ghost" size="icon-xs" aria-label="Reset"  className="size-5 text-muted-foreground" onClick={onViewReset}><RotateCcw className="size-3" aria-hidden="true" /></Button></TooltipHint>, content: <>
         <FileSheetFieldGrid columns={1}>
           <FileSheetSelectRow hideLabel className="px-0" label="Mode" value={custom ? "" : selectedMode.value} placeholder="Custom" onValueChange={onModeChange}
             triggerContent={custom ? undefined : <span className="flex min-w-0 items-center gap-1"><ModeIcon className="size-3 shrink-0" aria-hidden="true" /><span className="truncate">{presetLabel}</span></span>}
@@ -155,7 +155,7 @@ export function DisplaySettingsSection({
             options={Object.entries(PROJECTIONS).map(([value, { label, icon }]) => ({ value, label, icon }))} />
         </FileSheetFieldGrid>
       </> },
-      offers("surfaces") && { id: "surfaces", title: "Surfaces", collapsible: false, content: surfaces },
+      offers("surfaces") && { id: "surfaces", title: "Surfaces", content: surfaces },
       section("edges", "Edges", <FileSheetFieldGrid>
         <FileSheetSelectRow hideLabel className="px-0" label="Edge visibility" value={view.edges.visibility} onValueChange={visibility => setGroup("edges", { visibility })}
           options={[{ value: "visible", label: "Visible" }, { value: "all", label: "All" }]} />

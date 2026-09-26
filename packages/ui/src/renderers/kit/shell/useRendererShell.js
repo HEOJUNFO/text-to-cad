@@ -12,7 +12,6 @@ import { prefetchRenderStudio } from "../look/renderStudioChunk.js";
 import { CAD_DRAWING_DEFAULTS } from "../tools/draw/DrawingOverlay.jsx";
 import { normalizeOrbit } from "../tools/fullscreen/orbitPreferences.js";
 import { normalizeToolStackWidth } from "../tools/toolStackWidth.js";
-import { animationControlsHaveContent } from "../tools/playbar/ViewportAnimationBar.js";
 import { DisplaySettingsSection } from "../view-settings/DisplaySettingsSection.js";
 import { useAppliedViewSettings } from "../view-settings/useAppliedViewSettings.js";
 import { useViewSettings } from "../view-settings/useViewSettings.js";
@@ -67,7 +66,7 @@ const EMPTY = Object.freeze({});
  *    settings, the recorded tool, and one `renderer` slot that is the
  *    renderer's own (the camera is never stored);
  *  - Display settings: store, resolution against the renderer's FEATURES, the
- *    queued application to the viewport, and the Display popover's content;
+ *    queued application to the viewport, and the Display panel's content;
  *  - tools: the mode state machine and Draw's session, or none at all for a
  *    renderer whose viewport is the camera's alone;
  *  - the host contract: navbar actions, prompt snapshots, clipboard screenshots,
@@ -292,8 +291,6 @@ export function useRendererShell({
 
   // ---- tools ----------------------------------------------------------------
   const idle = viewerLoading || !scene;
-  // A file with routines gets Animate, and its playbar while Animate is up (`RendererShell.jsx`).
-  const animationAvailable = animationControlsHaveContent(animation);
   const drawToolActive = !presenting && toolMode === SHELL_TOOL.DRAW;
   const selectTool = useCallback((mode) => setToolMode(current => (toolModes ? toolModes.next(current, mode) : mode)), [toolModes, setToolMode]);
   const drawing = useDrawingSession(drawToolActive, CAD_DRAWING_DEFAULTS);
@@ -439,7 +436,7 @@ export function useRendererShell({
   }, [liveBinding, commandNames]);
 
   // ---- what the frame and the renderer read ---------------------------------
-  // The Display popover's content: every renderer's, built here from its display settings.
+  // The Display panel's content: every renderer's, built here from its display settings.
   const display = <DisplaySettingsSection appearanceControl={view.displayActions}
     features={features} viewSettings={displaySettings} hostAppearance={colorScheme} lightingQuality="preview"
     resolvedView={desiredScene.view} onViewSettingsPatch={viewSettingsStore.patch}
@@ -461,16 +458,16 @@ export function useRendererShell({
 
   return {
     // Renderer-facing.
-    toolMode, selectTool, tools, display, idle, presenting, setPresenting, rendering, resolvedScene, viewerRef,
+    toolMode, selectTool, tools, idle, presenting, setPresenting,
     // Deliver a prompt context through the host, reporting a failure as the viewport's alert.
-    reportActionError, capture, deliverPrompt, requestRender: () => viewerRef.current?.requestRender?.(),
+    reportActionError, deliverPrompt, requestRender: () => viewerRef.current?.requestRender?.(),
     // The scene moved its own bounds: lighting, shadows and the floor follow, with no React render.
     syncSceneBounds: () => viewerRef.current?.syncSceneBounds?.(),
     // State the renderer keeps outside React changed: write the record soon (and on unmount).
     scheduleStateSave: scheduleSessionSave,
     // Frame-facing (RendererShell).
     frame: {
-      view, hostRef, hostElement, viewerElement, sceneBackdrop, colorScheme, modelKey, presentationKey, sceneScaleMode, scene,
+      view, hostRef, hostElement, sceneBackdrop, modelKey, presentationKey, sceneScaleMode, scene,
       viewerRef, viewUpdate, resolvedScene, viewerPerspective, activePerspectiveRef, handlePerspectiveChange,
       onCameraSettled: reportCameraSettled,
       preserveInteractionPixelRatio: preserveInteractionPixelRatio === true,
@@ -478,7 +475,7 @@ export function useRendererShell({
       previewOrbitSpeed, setPreviewOrbitSpeed, toolStackWidth, setToolStackWidth, viewerLoading, loading, presentationState,
       handlePresentationChange, viewerAlert, setRuntimeAlert,
       copyActionRef, copyDrawing, copyShortcut: host.environment.platform === "darwin" ? "⌘C" : "Ctrl+C",
-      drawToolActive, drawing, animationAvailable, animation, capture, display
+      drawToolActive, drawing, animation, display
     }
   };
 }

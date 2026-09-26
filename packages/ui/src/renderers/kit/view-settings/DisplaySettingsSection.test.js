@@ -30,7 +30,7 @@ test("View has the same feature groups for every preset, with Render second", ()
     // Projection shares Display with Mode.
     assert.equal(labelled(view.tree, "Projection").props.value, resolveViewSettings({ mode }).camera.projection);
     assert.equal(labelled(view.tree, "Lens"), undefined);
-    assert.deepEqual(sections(view.tree).filter(section => section.collapsible === false).map(section => section.title),
+    assert.deepEqual(sections(view.tree).filter(section => !section.onEnabledChange).map(section => section.title),
       ["Display", "Surfaces"]);
     assert.deepEqual(labelled(view.tree, "Surface style").props.options.map(option => option.value), ["shaded", "flat", "hidden", "off"]);
     assert.equal(labelled(view.tree, "Surface style").props.value, resolveViewSettings({ mode }).surfaces.style);
@@ -55,7 +55,7 @@ test("projection and tools update independent groups; only the view change is Cu
   const view = panel({ mode: "solid" });
   // Explode is a STEP tool with its own panel, and writes the same store.
   const explode = render(ExplodeControls, { viewSettings: view.settings(), onViewSettingsPatch: panel.store.patch });
-  labelled(explode.tree, "Explode").props.onChange(45);
+  elements(explode.tree).find(node => node.props.thumbProps?.["aria-label"] === "Explode amount").props.onValueChange([45]);
   explode.unmount();
   assert.equal(viewSettingsAreCustom(view.settings()), false);
   assert.deepEqual(view.settings().exploded, { amount: 0.45, enabled: true });

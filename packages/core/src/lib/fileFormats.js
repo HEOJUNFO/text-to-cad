@@ -89,32 +89,6 @@ export function meshAssetKeyForEntry(entry) {
   return meshAssetKeyForFormat(entrySourceFormat(entry));
 }
 
-export function fileSheetKindForEntry(entry) {
-  if (!entry) {
-    return "";
-  }
-  const kind = entryKind(entry);
-  if (kind === RENDER_FORMAT.DXF) {
-    return RENDER_FORMAT.DXF;
-  }
-  if (kind === RENDER_FORMAT.URDF) {
-    return RENDER_FORMAT.URDF;
-  }
-  if (kind === RENDER_FORMAT.SRDF) {
-    return RENDER_FORMAT.SRDF;
-  }
-  if (kind === RENDER_FORMAT.SDF) {
-    return RENDER_FORMAT.SDF;
-  }
-  if (entrySourceFormat(entry) === RENDER_FORMAT.STEP) {
-    return RENDER_FORMAT.STEP;
-  }
-  if (isMeshRenderFormat(entrySourceFormat(entry))) {
-    return "mesh";
-  }
-  return "";
-}
-
 export function fileExtensionFromPath(value, { baseUrl = "" } = {}) {
   const rawValue = String(value || "").trim();
   if (!rawValue) {

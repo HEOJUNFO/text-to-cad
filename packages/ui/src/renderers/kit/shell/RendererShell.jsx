@@ -2,9 +2,8 @@ import { createPortal } from "react-dom";
 import { VIEWPORT_BOTTOM_CENTER } from "./viewportLayout.js";
 import { useEffect, useMemo, useState } from "react";
 import { Play, Pause, Maximize2 } from "lucide-react";
-import { ToolbarButton } from "../tools/ToolbarButton.js";
+import { ToolbarButton } from "@hardcore/ui/primitives/toolbar-button";
 import PreviewChrome from "../tools/PreviewChrome.jsx";
-import { cn } from "@hardcore/ui/utils";
 import { useViewerMobile } from "../../../file-viewer/responsive.js";
 import ViewerAlertCard from "../status/ViewerAlertCard.jsx";
 import { ViewUpdateStatus } from "../status/ViewUpdateStatus.jsx";
@@ -32,7 +31,7 @@ const MODEL_UPDATE_STATUS = Object.freeze({ pending: true, label: "Updating mode
  * The frame every file-family renderer draws itself in: the viewport box with
  * the tool strip at its corner and the tool stack under it, the active tool's bottom
  * action, the loading, update and alert overlays, fullscreen's controls, and the Display
- * toolbar popover. The same structure, classes and data attributes for every renderer:
+ * panel. The same structure, classes and data attributes for every renderer:
  * hosts, stylesheets and tests key on them. A file's controls are never a sidebar: they are
  * panels in the tool stack, shown by the tool they belong to.
  *
@@ -40,11 +39,10 @@ const MODEL_UPDATE_STATUS = Object.freeze({ pending: true, label: "Updating mode
  *   tools: import("../tools/FloatingToolBar.js").ViewportTool[],
  *   toolPanels?: import("react").ReactNode,
  *   playback?: any,
- *   bottomAction?: { label: string, shortLabel?: string, title?: string, disabled?: boolean,
+ *   bottomAction?: { label: string, shortLabel?: string, disabled?: boolean,
  *     onInvoke?(): void, render?: (props: object) => import("react").ReactNode, children?: import("react").ReactNode } | null,
  *   contextMenuItems?: ((press: { clientX: number, clientY: number, shiftKey: boolean }) => object[] | null) | null,
  *   onContextMenuOpenChange?: ((open: boolean) => void) | null,
- *   className?: string,
  *   frameProvider?: ((frame: import("react").ReactNode) => import("react").ReactNode) | null,
  *   onCanvasPointerDown?: ((event: import("react").PointerEvent) => void) | null,
  *   viewportOverlay?: import("react").ReactNode | ((viewport: { runtimeRef: object, hostRef: object,
@@ -77,7 +75,7 @@ const MODEL_UPDATE_STATUS = Object.freeze({ pending: true, label: "Updating mode
  *   that also has something to put down when the person reaches for the model.
  */
 export default function RendererShell({ shell, tools, playback = null, toolPanels = null, bottomAction = null, contextMenuItems = null,
-  onContextMenuOpenChange = null, viewportOverlay = null, className = "",
+  onContextMenuOpenChange = null, viewportOverlay = null,
   frameProvider = null, onCanvasPointerDown = null }) {
   const frame = shell.frame;
   const mobile = useViewerMobile();
@@ -147,7 +145,7 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
   </>;
   const body = (
     <div
-      className={cn("relative flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground", className)}
+      className="relative flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground"
       data-slot="cad-file-view"
       data-cad-surface
       tabIndex={-1}
