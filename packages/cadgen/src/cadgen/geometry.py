@@ -82,6 +82,17 @@ def _cast(shape):
     return Compound.cast(shape)
 
 
+def _items(collection) -> list:
+    """An OCCT list's elements, taking exactly ``Size()`` from its iterator.
+
+    Exhausting the binding's iterator ends in a C++ exception that pybind
+    turns into StopIteration; unwinding it costs ~2.4 ms on macOS arm64, which
+    a check paid once per issue, per status list, per sub-shape.
+    """
+    iterator = iter(collection)
+    return [next(iterator) for _ in range(collection.Size())]
+
+
 def _properties(shape):
     from OCP.BRepGProp import BRepGProp
     from OCP.GProp import GProp_GProps
@@ -307,7 +318,7 @@ def topology_errors(shape: Shape) -> tuple[GeometryIssue, ...]:
                 continue
             seen = set()
             def collect(statuses, context=None):
-                for status in statuses:
+                for status in _items(statuses):
                     key = (int(status), entities.FindIndex(context) if context is not None else 0)
                     if status != BRepCheck_NoError and key not in seen:
                         seen.add(key)
@@ -377,11 +388,11 @@ def self_intersections(shape: Shape) -> tuple[GeometryIssue, ...]:
         if checker.HasErrors():
             raise GeometryError("self-intersection checker failed")
         found = []
-        for result in checker.Result():
+        for result in _items(checker.Result()):
             status = result.GetCheckStatus()
             if status != BOPAlgo_CheckStatus.BOPAlgo_SelfIntersect:
                 raise GeometryError(f"self-intersection check was inconclusive: {status.name}")
-            found.append((status.name, list(result.GetFaultyShapes1()) + list(result.GetFaultyShapes2())))
+            found.append((status.name, _items(result.GetFaultyShapes1()) + _items(result.GetFaultyShapes2())))
         if not checker.IsValid() and not found:
             raise GeometryError("self-intersection check failed without diagnostics")
         answer = tuple(GeometryIssue(code, tuple(_cast(s) for s in entities or [private]))

@@ -78,9 +78,10 @@ class GeometryDiagnosticsTests(_FreshStore):
                 self_intersections(self.box)
         checker.HasErrors.return_value = False
         checker.IsValid.return_value = False
-        checker.Result.return_value = []
+        from OCP.BOPAlgo import BOPAlgo_ListOfCheckResult
+        checker.Result.return_value = BOPAlgo_ListOfCheckResult()
         with mock.patch("OCP.BRepAlgoAPI.BRepAlgoAPI_Check", return_value=checker):
-            with self.assertRaises(GeometryError):
+            with self.assertRaisesRegex(GeometryError, "without diagnostics"):
                 self_intersections(self.box)
 
     def test_self_intersection_check_runs_the_kernel_once(self):
@@ -224,3 +225,38 @@ class ReusedVerdictTests(_FreshStore):
         self.assertEqual(counter.calls, 2)
         self.assertEqual(_describe(first), expected)
         self.assertEqual(_describe(second), expected)
+
+
+class OcctListIterationTests(unittest.TestCase):
+    def test_items_never_exhausts_the_binding_iterator(self):
+        # Exhausting a pybind iterator over an OCCT list unwinds a C++
+        # exception (milliseconds each on macOS); _items takes Size() elements.
+        from cadgen.geometry import _items
+
+        class Guarded:
+            def __init__(self, values):
+                self.values = values
+
+            def Size(self):
+                return len(self.values)
+
+            def __iter__(self):
+                yield from self.values
+                raise AssertionError("iterated past Size()")
+
+        self.assertEqual(_items(Guarded(["a", "b"])), ["a", "b"])
+        self.assertEqual(_items(Guarded([])), [])
+
+    def test_items_match_full_iteration_of_real_checker_lists(self):
+        from OCP.BRepAlgoAPI import BRepAlgoAPI_Check
+        from cadgen.geometry import _items
+        checker = BRepAlgoAPI_Check(_overlapping_boxes().wrapped, False, True)
+        results = list(checker.Result())
+        self.assertTrue(results)
+        self.assertEqual(len(_items(checker.Result())), len(results))
+        for result in results:
+            for faulty in (result.GetFaultyShapes1(), result.GetFaultyShapes2()):
+                expected = list(faulty)
+                got = _items(faulty)
+                self.assertEqual(len(got), len(expected))
+                self.assertTrue(all(a.IsEqual(b) for a, b in zip(got, expected)))
