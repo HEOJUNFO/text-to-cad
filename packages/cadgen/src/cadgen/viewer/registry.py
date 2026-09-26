@@ -29,6 +29,8 @@ __all__ = [
     "PROBE_TIMEOUT_SECONDS",
     "registry_dir",
     "entry_path",
+    "log_path",
+    "launch_log_path",
     "register",
     "unregister",
     "read_entries",
@@ -73,6 +75,27 @@ def entry_path(pid) -> str:
     return os.path.join(registry_dir(), f"viewer-{int(pid)}.json")
 
 
+def log_path(pid) -> str:
+    """Where a DETACHED viewer's stdout and stderr end up, beside its entry.
+
+    It lives exactly as long as the entry: ``unregister`` removes both, so a
+    stale entry reaped by ``live_entries`` takes its log with it.
+    """
+    return os.path.join(registry_dir(), f"viewer-{int(pid)}.log")
+
+
+def launch_log_path() -> str:
+    """The log a ``--detach`` launch hands its child before the child's pid exists.
+
+    Renamed to ``log_path(<pid>)`` once the child announces a started server.
+    Falls back to the plain temp dir when the registry directory is unusable,
+    for the same reason registration fails soft: a shared ``/tmp`` we do not own
+    must not stop a viewer from starting.
+    """
+    directory = _ensure_registry_dir() or tempfile.gettempdir()
+    return os.path.join(directory, f"viewer-launch-{os.getpid()}.log")
+
+
 def register(*, host, port, root: str = "", viewer_version: str = "", token: str = "", started_at=None) -> str:
     """Announce this process. Returns the entry path, or ``""`` on any failure.
 
@@ -114,10 +137,12 @@ def register(*, host, port, root: str = "", viewer_version: str = "", token: str
 
 
 def unregister(pid=None) -> None:
-    try:
-        os.unlink(entry_path(os.getpid() if pid is None else pid))
-    except OSError:
-        pass  # best-effort
+    pid = os.getpid() if pid is None else pid
+    for path in (entry_path(pid), log_path(pid)):
+        try:
+            os.unlink(path)
+        except OSError:
+            pass  # best-effort; an open log on Windows stays until reaped by hand
 
 
 def _is_int(value) -> bool:

@@ -310,12 +310,16 @@ class RollAndReuse(LauncherFixture):
 
         # Reuse: same realpath(served dir) x exact runtime identity -> the
         # existing URL, exit 0, no spawn.
-        code, stdout, _ = self.run_to_exit(["--dist", dist, "--json"], cwd=root)
+        code, stdout, stderr = self.run_to_exit(["--dist", dist, "--json"], cwd=root)
         self.assertEqual(code, 0)
+        # --json: stdout is the one JSON line in a reuse exactly as in a start,
+        # so nothing reading it needs "the last line" (the habit that ended in
+        # `| tail -1` on a server that never exits). The narration is stderr's.
         self.assertEqual(
-            self.json_line(stdout), {"url": a["url"], "port": a["port"], "action": "reused"}
+            [line for line in stdout.splitlines() if line.strip()],
+            [json.dumps({"url": a["url"], "port": a["port"], "action": "reused"}, separators=(",", ":"))],
         )
-        self.assertRegex(stdout, r"Reusing CAD Viewer at ")
+        self.assertRegex(stderr, r"Reusing CAD Viewer at ")
 
         # Reuse must also work when launched from a symlinked spelling of the
         # same directory (the reuse key is the realpath).
@@ -739,6 +743,170 @@ class ApiOnly(LauncherFixture):
             CADGEN_VIEWER_DIST=self.make_dist(),
         )
         self.assertEqual(self.json_line(self.wait_for_url_line(child))["action"], "started")
+
+
+def _make_busy_root(fixture: LauncherFixture, files: int = 3000) -> str:
+    """A served root like a real project: two models and thousands of scratch files."""
+    root = fixture.make_root()
+    Path(root, "part.stl").write_text("solid p\nendsolid p\n", encoding="utf-8")
+    Path(root, "asm.step").write_text("ISO-10303-21;\n", encoding="utf-8")
+    for index in range(files):
+        directory = Path(root, "tmp", "renders", f"r{index // 100}")
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / f"frame{index}.png").write_bytes(b"x")
+    return root
+
+
+# Run by the child through ``-c``: any listing of the served tree BLOCKS until
+# the test creates the release file, so a launcher that walked the tree before
+# announcing would never announce at all. Listings elsewhere (the development
+# reloader walks cadgen's own package) are untouched.
+_BLOCKED_WALK_BOOTSTRAP = """
+import os, runpy, sys, time
+_served = os.path.realpath(os.getcwd())
+_release = os.environ["CADGEN_TEST_WALK_RELEASE"]
+_scandir = os.scandir
+def _blocking_scandir(path=".", *args, **kwargs):
+    if os.path.realpath(os.fspath(path)).startswith(_served):
+        while not os.path.exists(_release):
+            time.sleep(0.02)
+    return _scandir(path, *args, **kwargs)
+os.scandir = _blocking_scandir
+sys.argv[0] = "cadgen.viewer"
+runpy.run_module("cadgen.viewer", run_name="__main__", alter_sys=True)
+"""
+
+
+class AnnounceWaitsForNoWalk(LauncherFixture):
+    """The URL line is the readiness signal, and nothing about the served tree
+    may stand in front of it — not its size, not a slow filesystem.
+
+    Pinned with a walk that cannot finish at all until the test says so: the
+    JSON line must arrive while every listing of the served root is blocked,
+    and once the walk is released the first catalog request answers.
+    """
+
+    def test_the_json_line_arrives_while_every_walk_of_the_root_is_blocked(self) -> None:
+        root = _make_busy_root(self, files=200)
+        release = os.path.join(self._tmp.name, "release-walk")
+        child = subprocess.Popen(
+            [sys.executable, "-c", _BLOCKED_WALK_BOOTSTRAP, "--dist", self.make_dist(), "--json", "--port", "3206"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=root,
+            env=self.env(CADGEN_TEST_WALK_RELEASE=release),
+        )
+        self._children.append(child)
+        announced = self.json_line(self.wait_for_url_line(child))
+        self.assertEqual(announced["action"], "started")
+        # Still blocked, and still answering: readiness is not the catalog.
+        with urllib.request.urlopen(f"{announced['url']}__cad/server", timeout=5) as response:
+            self.assertEqual(response.status, 200)
+
+        Path(release).write_text("go", encoding="utf-8")
+        with urllib.request.urlopen(f"{announced['url']}__cad/catalog", timeout=30) as response:
+            files = sorted(entry["rootRelativeFile"] for entry in json.loads(response.read())["entries"])
+        self.assertEqual(files, ["asm.step", "part.stl"])
+
+
+class Detach(LauncherFixture):
+    """``--detach``: the launch RETURNS once its server has announced itself.
+
+    Without it the launcher that starts a server IS that server and never
+    exits. An agent that ran the documented command as ``… --json 2>&1 | tail
+    -1`` waited on an EOF that never came, never saw the JSON line, and had to
+    find the URL with ``list`` hours later — while the server itself had been
+    answering since its first second.
+    """
+
+    def launch_detached(self, root: str, *extra: str) -> tuple[int, str, str, float]:
+        started = time.monotonic()
+        code, stdout, stderr = self.run_to_exit(
+            ["--dist", self.dist, "--json", "--detach", *extra], cwd=root, timeout=60
+        )
+        return code, stdout, stderr, time.monotonic() - started
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.dist = self.make_dist()
+
+    def registry_files(self) -> list[str]:
+        try:
+            return sorted(os.listdir(os.path.join(self.registry_home, "cadgen-viewer-info")))
+        except OSError:
+            return []
+
+    def test_it_returns_with_one_json_line_and_leaves_a_reusable_server(self) -> None:
+        root = _make_busy_root(self)
+        code, stdout, stderr, elapsed = self.launch_detached(root)
+        self.assertEqual(code, 0, stderr)
+        self.assertLess(elapsed, 30.0)
+        lines = [line for line in stdout.splitlines() if line.strip()]
+        self.assertEqual(len(lines), 1, f"stdout must be the one JSON line: {stdout!r}")
+        announced = json.loads(lines[0])
+        self.assertEqual(announced["action"], "started")
+        port = announced["port"]
+
+        # The launcher is gone; the server it started answers as the pid the
+        # registry names, and was registered before the line was printed.
+        entries = json.loads(self.run_to_exit(["list", "--json"])[1])
+        self.assertEqual([entry["port"] for entry in entries], [port])
+        pid = entries[0]["pid"]
+        self.adopt_server(port, pid)
+        with urllib.request.urlopen(f"{announced['url']}__cad/server", timeout=5) as response:
+            self.assertEqual(json.loads(response.read())["pid"], pid)
+        self.assertIn("Running in the background", stderr)
+        if os.name != "nt":
+            self.assertIn(f"viewer-{pid}.log", self.registry_files())
+
+        # A second detached launch reuses it, and returns just the same.
+        code, stdout, stderr, _ = self.launch_detached(root)
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(
+            self.json_line(stdout), {"url": announced["url"], "port": port, "action": "reused"}
+        )
+
+        code, _, _ = self.run_to_exit(["stop", "--port", str(port)])
+        self.assertEqual(code, 0)
+        self.assertNotIn(f"viewer-{pid}.json", self.registry_files())
+        if os.name != "nt":
+            self.assertNotIn(f"viewer-{pid}.log", self.registry_files(), "the log lives as long as the entry")
+
+    @unittest.skipIf(os.name == "nt", "a POSIX shell pipeline")
+    def test_piped_into_tail_it_ends_on_the_json_line(self) -> None:
+        # The exact shape that hung for seven hours, plus --detach.
+        command = " ".join(
+            [*(f"'{part}'" for part in LAUNCH), "--dist", f"'{self.dist}'", "--json", "--detach", "2>&1", "|", "tail", "-1"]
+        )
+        result = subprocess.run(
+            ["/bin/sh", "-c", command], cwd=self.make_root(), env=self.env(),
+            capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        announced = json.loads(result.stdout.strip())
+        self.assertEqual(announced["action"], "started")
+        entries = json.loads(self.run_to_exit(["list", "--json"])[1])
+        self.adopt_server(announced["port"], entries[0]["pid"])
+
+    def test_a_child_that_cannot_start_relays_its_refusal_and_leaves_nothing(self) -> None:
+        import socket  # noqa: PLC0415
+
+        holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.addCleanup(holder.close)
+        holder.bind(("127.0.0.1", 0))
+        holder.listen(1)
+        taken = holder.getsockname()[1]
+        code, stdout, stderr, _ = self.launch_detached(self.make_root(), "--port", str(taken))
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("already in use", stderr)
+        self.assertEqual(self.registry_files(), [], "a failed detach must not leave a log behind")
+
+    def test_it_refuses_to_detach_an_unregistered_server(self) -> None:
+        code, _, stderr = self.run_to_exit(["--detach", "--no-registry"], cwd=self.make_root())
+        self.assertEqual(code, 2)
+        self.assertIn("--detach cannot be combined with --no-registry", stderr)
 
 
 class InterpreterFloor(unittest.TestCase):

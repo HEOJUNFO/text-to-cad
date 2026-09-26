@@ -48,11 +48,15 @@ The viewer lists files recursively beneath this directory, so choose it rather
 than an individual artifact’s output folder.
 
 ```bash
-cd /absolute/path/to/model-workspace && cadgen viewer --host 127.0.0.1 --json
+cd /absolute/path/to/model-workspace && cadgen viewer --host 127.0.0.1 --json --detach
 ```
 
-The launcher starts or reuses the correct instance. Read `url` from its final
-JSON line; never guess the port. Verify each artifact exists under the root,
+`--detach` returns once the server answers requests and leaves it running in the
+background. Always use it for agent launches; a foreground server does not exit,
+so piping its output through `tail` can hide the URL indefinitely.
+
+The launcher starts or reuses the correct instance. Read `url` from its single
+JSON stdout line; never guess the port. Verify each artifact exists under the root,
 then append `?file=<URL-encoded path relative to that root>` to return one link
 per file. For directory review, return the origin alone.
 

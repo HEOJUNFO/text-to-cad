@@ -109,8 +109,22 @@ already serving that realpath with the same code on disk is REUSED
 `--new` forces a fresh instance of the same code; an explicit `--port` is
 strict; `--dist DIR` (or `CADGEN_VIEWER_DIST`) names another built client. The
 URL line (and the `--json` line) is written only after the socket is bound and
-listening with the app attached, so the first request after reading it answers
-— no poll, no retry, no grace period. `cadgen viewer list` shows every running
+listening with the app attached and the instance registered, so the first
+request after reading it answers and `list`/`stop`/reuse already see it — no
+poll, no retry, no grace period. Nothing about the served tree stands in front
+of that line: the catalog walk happens after it, in the background.
+
+A launch that STARTS a server is that server: it stays in the foreground until
+it is stopped (Ctrl-C, `stop`), which is what a terminal and `npm run dev`
+want. A launch that REUSES one prints and exits. `--detach` makes both return:
+the server runs as a background process in its own session, its output goes
+to a log beside its registry entry (`<tmp>/cadgen-viewer-info/viewer-<pid>.log`,
+removed with the entry), and the launcher exits 0 once the server has
+announced itself — or relays the server's refusal and exits non-zero. Agents
+and scripts use `--detach`; never pipe a foreground launch into `tail` or
+`head`, which wait for an EOF a running server never sends.
+`--detach` refuses `--no-registry`, since `list`/`stop` are the only way to
+find a detached server again. `cadgen viewer list` shows every running
 instance; `cadgen viewer stop --port <n>` ends one. Do not stop instances you
 did not start. Dev lives on Vite's port (5173, strict) and never enters the
 instance registry.
@@ -127,7 +141,16 @@ the build — detection only; it keeps serving.
 
 - **The catalog scan skips dot-directories.** A buildable entry under
   `.review/` (or any dotted path) never appears, even when the server is
-  launched from inside it.
+  launched from inside it. It also skips `__cadgen__`, `__pycache__`, `build`,
+  `coverage`, `dist`, `node_modules` and `viewer` (exact case). Everything
+  else is walked — a project's `tmp/` included.
+- **Every catalog request is fresh, and a warm one is cheap.** A new model
+  appears on the next request and a deleted one is gone from it. The server
+  remembers each directory's listing against that directory's own mtime, so a
+  root with a few hundred thousand scratch files costs one stat per directory
+  per request, not one entry per file; only the first walk after launch (done
+  in the background) pays for every file. [docs/backend.md](docs/backend.md)
+  has the rule.
 - **Verify a link by loading the page**, never by curling `/__cad/asset` —
   that route serves raw files; generated entries render through a
   different route, so probing it 404s whether or not anything is wrong.

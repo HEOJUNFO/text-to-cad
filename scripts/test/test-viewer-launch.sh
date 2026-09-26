@@ -7,7 +7,7 @@
 # and stayed broken from 0.4.0 to 0.4.18 because no test ever executed the one command the
 # skill documents.
 #
-# The command below is that command: `cadgen viewer --host 127.0.0.1 --json`, spelled
+# The command below is that command: `cadgen viewer --host 127.0.0.1 --json --detach`, spelled
 # `python -m cadgen.viewer` so the interpreter is explicit. Keep it identical to the one
 # in skills/cad/SKILL.md; keep its launch options aligned with this test. Launching is
 # unconditional (the server rolls to a free port and prints the real URL/port), so this
@@ -115,38 +115,45 @@ export CADGEN_CACHE_DIR="$(mktemp -d)"
 registry_tmp="$("$PYTHON" -c 'import tempfile; print(tempfile.mkdtemp(prefix="cv-"))')"
 export TMPDIR="$registry_tmp" TEMP="$registry_tmp" TMP="$registry_tmp"
 export CADGEN_DAEMON_STATE_DIR="$registry_tmp/daemon"
-# The launcher has no directory flag: the cwd IS the served directory, so the
-# launch cd's there first — exactly as SKILL.md instructs. `exec` makes the
-# subshell BECOME the python process, so $! is the server's pid.
-(cd "$serve_root" && exec "$PYTHON" -m cadgen.viewer --host "$HOST" --json) > "$log" 2>&1 &
-server_pid=$!
-disown "$server_pid" 2>/dev/null || true
-
+PORT=""
 cleanup() {
-  kill "$server_pid" 2>/dev/null || true
-  wait "$server_pid" 2>/dev/null || true
+  if [ -n "$PORT" ]; then
+    "$PYTHON" -m cadgen.viewer stop --port "$PORT" >/dev/null 2>&1 || true
+  fi
   rm -rf "$serve_root" "$CADGEN_CACHE_DIR" "$registry_tmp"
   rm -f "$log"
 }
 trap cleanup EXIT
 
-# The port is an OUTPUT of launch: read it from the {url,port,action} JSON line.
-PORT=""
-for _ in $(seq 1 30); do
-  PORT="$(sed -n 's/^{.*"port":\([0-9]*\).*}$/\1/p' "$log" | tail -1)"
-  [ -n "$PORT" ] && break
-  if ! kill -0 "$server_pid" 2>/dev/null; then
-    echo "FAIL: the server exited before printing its contract" >&2
-    sed 's/^/    /' "$log" >&2
-    exit 1
-  fi
-  sleep 1
-done
-if [ -z "$PORT" ]; then
-  echo "FAIL: no {url,port,action} JSON line appeared" >&2
+# The launcher has no directory flag: the cwd IS the served directory, so the
+# launch cd's there first — exactly as SKILL.md instructs. --detach makes the
+# command RETURN once the server announces itself: the server keeps running in
+# the background, writing to a log beside its registry entry, and $log holds
+# only what the launcher itself said. A launcher that never returned would hang
+# here rather than fail, so the documented command is bounded where the
+# platform can bound it.
+bounded=()
+if command -v timeout >/dev/null 2>&1; then
+  bounded=(timeout 120)
+fi
+if ! launch_json="$(cd "$serve_root" && ${bounded[@]+"${bounded[@]}"} "$PYTHON" -m cadgen.viewer --host "$HOST" --json --detach 2>"$log")"; then
+  echo "FAIL: the detached launch did not return success" >&2
   sed 's/^/    /' "$log" >&2
   exit 1
 fi
+
+# The port is an OUTPUT of launch: read it from the {url,port,action} JSON line,
+# which --json makes the whole of stdout.
+PORT="$(printf '%s\n' "$launch_json" | sed -n 's/^{.*"port":\([0-9]*\).*}$/\1/p')"
+if [ -z "$PORT" ] || ! printf '%s' "$launch_json" | grep -q '"action":"started"'; then
+  echo "FAIL: no {url,port,action:started} JSON line on stdout: $launch_json" >&2
+  sed 's/^/    /' "$log" >&2
+  exit 1
+fi
+# What the detached server itself writes, for the failure messages below.
+server_log() {
+  cat "$registry_tmp"/cadgen-viewer-info/viewer-*.log 2>/dev/null || true
+}
 
 # The launcher writes the {url,port,action} line only after the socket is bound and
 # listening with the app attached (pinned by tests/python/packages/cadgen/viewer/test_launcher.py
@@ -165,7 +172,7 @@ for _ in $(seq 1 3); do
 done
 if [ "$status" != "200" ]; then
   echo "FAIL: no 200 from http://$HOST:$PORT/ within $attempt requests (last status: ${status:-none})" >&2
-  sed 's/^/    /' "$log" >&2
+  server_log | sed 's/^/    /' >&2
   exit 1
 fi
 
@@ -174,13 +181,13 @@ fi
 api="$(curl -s -o /dev/null -m 3 -w '%{http_code}' "http://$HOST:$PORT/__cad/server" || true)"
 if [ "$api" != "200" ]; then
   echo "FAIL: the page served but /__cad/server returned ${api:-none}" >&2
-  sed 's/^/    /' "$log" >&2
+  server_log | sed 's/^/    /' >&2
   exit 1
 fi
 
 # Launch idempotence: relaunching from the same directory at the same version must
 # REUSE the running viewer (same port, action:"reused"), not spawn a second instance.
-reuse_json="$(cd "$serve_root" && "$PYTHON" -m cadgen.viewer --host "$HOST" --json | grep '^{' | tail -1)"
+reuse_json="$(cd "$serve_root" && "$PYTHON" -m cadgen.viewer --host "$HOST" --json --detach)"
 if ! printf '%s' "$reuse_json" | grep -q '"action":"reused"'; then
   echo "FAIL: relaunching the same root did not reuse the running viewer: $reuse_json" >&2
   exit 1
