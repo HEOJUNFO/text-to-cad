@@ -290,8 +290,8 @@ def self_intersections(shape: Shape) -> tuple[GeometryIssue, ...]:
     wrapped = _wrapped(shape)
     try:
         private = _copy(wrapped)
+        # This constructor performs the check; Perform() would run it again.
         checker = BRepAlgoAPI_Check(private, False, True)
-        checker.Perform()
         if checker.HasErrors():
             raise GeometryError("self-intersection checker failed")
         issues = []

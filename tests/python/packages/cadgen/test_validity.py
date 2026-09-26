@@ -64,3 +64,27 @@ class GeometryDiagnosticsTests(unittest.TestCase):
         with mock.patch("OCP.BRepAlgoAPI.BRepAlgoAPI_Check", return_value=checker):
             with self.assertRaises(GeometryError):
                 self_intersections(self.box)
+
+    def test_self_intersection_check_runs_the_kernel_once(self):
+        # BRepAlgoAPI_Check(shape, bTestSE, bTestSI) performs the check in its
+        # constructor; a further Perform() repeats the whole boolean analysis.
+        from OCP.BRepAlgoAPI import BRepAlgoAPI_Check as real_check
+        performs = []
+
+        class Counted:
+            def __init__(self, *args):
+                self._checker = real_check(*args)
+
+            def Perform(self, *args):
+                performs.append(args)
+                return self._checker.Perform(*args)
+
+            def __getattr__(self, name):
+                return getattr(self._checker, name)
+
+        overlapping = Compound([self.box, Pos(5, 0, 0) * self.box])
+        with mock.patch("OCP.BRepAlgoAPI.BRepAlgoAPI_Check", Counted):
+            issues = self_intersections(overlapping)
+        self.assertEqual(performs, [])
+        self.assertTrue(issues)
+        self.assertTrue(all(i.code == "BOPAlgo_SelfIntersect" and i.entities for i in issues))
