@@ -141,7 +141,8 @@ export function FilePanelColumn({ id, label, width, onWidthChange, onCollapse, c
       <aside
         hidden={hidden}
         aria-label={label}
-        className="shrink-0 overflow-hidden border-l bg-background"
+        // The handle before it is the column's one edge line; a border here doubled it.
+        className="shrink-0 overflow-hidden bg-background"
         data-file-panel-container={id}
         style={{ width, minWidth: PANEL_MIN_WIDTH }}
       >
