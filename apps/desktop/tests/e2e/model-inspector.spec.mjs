@@ -101,21 +101,23 @@ test('the Features tree presents a lone part as its features, and precise viewpo
     await expect(feature).toHaveAttribute('aria-pressed','true');
     await page.keyboard.press('Escape');
     await expect(feature).toHaveAttribute('aria-pressed','false');
-    // Precise refs: the Select tool's second press opens its mode menu under the button — All,
-    // Faces and Edges for a lone part (Parts is an assembly's), then the two checkboxes — and
-    // Faces puts its own icon on the strip.
+    // Precise refs: Select's mode is a button in the Features filter row beside the fold chevron;
+    // its menu lists All, Faces and Edges for a lone part (Parts is an assembly's), then the
+    // connected options that apply under the mode. A second press on the tool opens nothing.
+    // Faces puts its own badge on the strip.
     const selectTool = tools.getByRole('button', {name:'Select', exact:true});
     await expect(selectTool).toHaveAttribute('aria-pressed','true');
     await expect(selectTool.locator('[data-select-mode]')).toHaveAttribute('data-select-mode','all');
     await selectTool.click();
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    await features.getByRole('button',{name:'Select mode: All',exact:true}).click();
     // Found by its label: Radix names a menu after its trigger.
     const modeMenu=page.locator('[role=menu][aria-label="Select mode"]');
     await expect(modeMenu.getByRole('menuitemradio')).toHaveText(['All','Faces','Edges']);
     await expect(modeMenu.getByRole('menuitemcheckbox')).toHaveText(['Edge chain','Tangent faces']);
-    const [menuBox,selectBox]=await Promise.all([modeMenu.boundingBox(),selectTool.boundingBox()]);
-    expect(menuBox.y).toBeGreaterThanOrEqual(selectBox.y+selectBox.height-1);
     await modeMenu.getByRole('menuitemradio',{name:'Faces',exact:true}).click();
     await expect(page.getByRole('menu')).toHaveCount(0);
+    await expect(features.getByRole('button',{name:'Select mode: Faces',exact:true})).toBeVisible();
     await expect(selectTool.locator('[data-select-mode]')).toHaveAttribute('data-select-mode','faces');
     // Pick the model itself; no exhaustive topology list is needed to inspect faces or edges.
     const canvas=page.locator('[data-cad-surface] canvas').first();

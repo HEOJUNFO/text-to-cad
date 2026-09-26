@@ -52,7 +52,6 @@ export async function runDrawScenario({ page, pane, errors }) {
   await pane.locator('[data-cad-drawing-overlay] canvas.excalidraw__canvas.interactive').waitFor();
   await page.waitForFunction(() => document.querySelector('[data-testid="one"] [data-drawing-ready]'));
   await menu.waitFor();
-  assert.equal(await pane.getByRole('button', { name: 'Draw', exact: true }).locator('[data-tool-menu-corner]').count(), 0, 'no corner menu');
   assert.equal(await tool('Pen').getAttribute('aria-pressed'), 'true', 'Draw opens on the pen');
   // The panel's tools read left to right: the two ways of moving around what was drawn,
   // then the marks; beneath a rule, the colour they are made in, undo/redo and Clear.

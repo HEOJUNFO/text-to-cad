@@ -140,7 +140,7 @@ function ModelingSearchRow({ match, index, selected, joins=NO_JOINS, cursor, cho
  * edges are picked. Outside All the disclosure is locked. A part's topology is asked for as its
  * row comes on screen, never for a whole large assembly at once.
  */
-export default function ModelingTree({ modeling, active, disabled, mode='all', loading=false, references=EMPTY, selectedReferenceIds=EMPTY, selectedPartIds=EMPTY, onLoadTopology, onRequestRecognition, onSelect, onClearSelection, stepRoot, selectedReferences, selectionDetails, activeTreeNodeScrollKey, partControls={} }) {
+export default function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, loading=false, references=EMPTY, selectedReferenceIds=EMPTY, selectedPartIds=EMPTY, onLoadTopology, onRequestRecognition, onSelect, onClearSelection, stepRoot, selectedReferences, selectionDetails, activeTreeNodeScrollKey, partControls={} }) {
   const {descriptor,results,error,retryFailed}=modeling;
   const [selected,setSelected]=useState(null),[pending,setPending]=useState(null),[localExpanded,setLocalExpanded]=useState(new Set());
   const tree=useMemo(()=>presentModelingAssembly(descriptor,results,stepRoot),[descriptor,results,stepRoot]);
@@ -373,6 +373,8 @@ export default function ModelingTree({ modeling, active, disabled, mode='all', l
         trailing={<>
           {loading && <span role="status" className="shrink-0 text-micro text-muted-foreground">Loading…</span>}
           {partControls.hiddenPartIds?.length > 0 && <Button disabled={disabled} type="button" variant="ghost" size="sm" className="h-6 shrink-0 px-1.5 text-tiny text-muted-foreground" onClick={partControls.showAllHiddenParts}>Show all</Button>}
+          {/* Select's mode menu (`SelectionModes.jsx`), beside the fold chevron. */}
+          {modeMenu}
           <ToolPanelCollapse/>
         </>}/>}>
       <div className="flex flex-col text-xs" aria-label="Modeling tree">

@@ -1,15 +1,13 @@
 import { useId } from 'react';
-import {
-  DropdownMenuCheckboxItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator
-} from '@hardcore/ui/primitives/dropdown-menu';
 import { CONNECTED_SELECTION, MEASURE_SNAP_MODES, SELECT_MODES, connectedSelectionApplies } from '../../workbench/selectionFilter.js';
-import ToolPopover from "../../../kit/tools/ToolPopover.jsx";
+import { DropdownMenuCheckboxItem } from '@hardcore/ui/primitives/dropdown-menu';
+import ToolModeMenu from "../../../kit/tools/ToolModeMenu.jsx";
 
 // The two tools that pick in modes share one set of drawings. Each mode has ONE glyph, drawn on
 // the 24-unit grid: a cube whole and bold for Parts; faint, with the element a pick takes drawn
 // solid, for Faces (its top face filled) and Edges (its front edge heavy); a dot in a ring for
-// Points. A menu row shows it at full size — All shows the tool's own glyph, Select's pointer or
-// Measure's ruler. The strip's button shows the tool's glyph with the mode's glyph shrunk to a
+// Points. The mode menu in the tool's panel shows it at full size — All shows the tool's own
+// glyph, Select's pointer or Measure's ruler. The strip's button shows the tool's glyph with the mode's glyph shrunk to a
 // badge in its top-right corner (none for All); the tool's glyph steps down to the bottom-left to
 // make room, and the badge is cut out of it, so the two never touch at the strip's 14px.
 // `weight` thickens a glyph's strokes for the badge, which is drawn at under half size.
@@ -34,7 +32,7 @@ const SVG = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", stroke
 const BADGE_SCALE = 0.44, BADGE_CENTRE = [18.5, 5.5];
 const BADGE_TRANSFORM = `translate(${BADGE_CENTRE[0] - 12 * BADGE_SCALE} ${BADGE_CENTRE[1] - 12 * BADGE_SCALE}) scale(${BADGE_SCALE})`;
 
-/** A mode's own glyph at full size, for a menu row: `mode` "all" is the tool's glyph (`tool`). */
+/** A mode's own glyph at full size, for the mode menu in the tool's panel: `mode` "all" is the tool's glyph (`tool`). */
 function ModeGlyph({ tool, mode, ...props }) {
   const glyph = MODE_GLYPHS[mode];
   return <svg {...SVG} data-mode-glyph={glyph ? mode : tool} {...props}>{glyph ? glyph(1) : TOOL_GLYPHS[tool]}</svg>;
@@ -67,44 +65,41 @@ export function MeasureModeIcon({ mode, ...props }) {
   return <ToolModeIcon tool="measure" mode={value} data-measure-mode={value} {...props} />;
 }
 
+const modeItems = (tool, modes) => modes.map(item => ({ id: item.id, label: item.label,
+  icon: <ModeGlyph tool={tool} mode={item.id} className="size-3.5" aria-hidden="true" /> }));
+
 /**
- * Measure's corner menu: its four exclusive snapping modes, each a plain row with its mode's glyph
- * at full size — no heading and no descriptions. Choosing one closes the menu.
+ * Measure's snapping, in the Measure panel's heading beside its fold chevron: a button showing
+ * the mode in hand, whose dropdown lists the four modes, each its glyph at full size (All the
+ * ruler). Measure has no menu on the strip.
  *
- * @param {{ trigger: import("react").ReactElement, mode: string, onModeChange(mode: string): void }} props
+ * @param {{ mode: string, onModeChange(mode: string): void, disabled?: boolean }} props
  */
-export function MeasureModeMenu({ trigger, mode, onModeChange }) {
-  return <ToolPopover trigger={trigger} label="Measure snapping" className="w-36">
-    <DropdownMenuRadioGroup value={mode} onValueChange={onModeChange}>
-      {MEASURE_SNAP_MODES.map(item => <DropdownMenuRadioItem key={item.id} value={item.id}>
-        <ModeGlyph tool="measure" mode={item.id} data-measure-mode={item.id} className="size-3.5 text-muted-foreground" aria-hidden="true" />{item.label}
-      </DropdownMenuRadioItem>)}
-    </DropdownMenuRadioGroup>
-  </ToolPopover>;
+export function MeasureModeMenu({ mode, onModeChange, disabled = false }) {
+  return <ToolModeMenu label="Measure snapping" modes={modeItems('measure', MEASURE_SNAP_MODES)} value={known(MEASURE_SNAP_MODES, mode)}
+    onChange={onModeChange} disabled={disabled} />;
 }
 
 /**
- * The Select tool's corner menu: the four exclusive modes, each with its mode's glyph at full
- * size, then the two
- * connected-selection options as checkboxes. The options are independent of the mode and of
- * each other; one that has no effect under the mode in hand stays in the menu, disabled, with
- * its choice kept. Choosing a mode closes the menu; ticking an option leaves it open.
+ * Select's mode, in the Features panel's filter row beside its fold chevron: a button showing
+ * the mode in hand, whose dropdown lists the four exclusive modes (Parts only in an assembly),
+ * then the connected-selection options that do something under the mode in hand, as checkboxes
+ * — both under All, Tangent faces under Faces, Edge chain under Edges, none under Parts. An option
+ * that does nothing is not shown, and keeps its choice for when it does; ticking one leaves the
+ * menu open. Select has no menu on the strip.
  *
- * @param {{ trigger: import("react").ReactElement, mode: string, onModeChange(mode: string): void,
- *   assembly: boolean, connected: { edgeChain: boolean, tangentFaces: boolean },
- *   onConnectedChange(id: "edgeChain" | "tangentFaces", checked: boolean): void }} props
- *   `assembly`: Parts is offered only in an assembly.
+ * @param {{ mode: string, onModeChange(mode: string): void, assembly: boolean,
+ *   connected: { edgeChain: boolean, tangentFaces: boolean },
+ *   onConnectedChange(id: "edgeChain" | "tangentFaces", checked: boolean): void, disabled?: boolean }} props
  */
-export function SelectModeMenu({ trigger, mode, onModeChange, assembly, connected, onConnectedChange }) {
-  return <ToolPopover trigger={trigger} label="Select mode" className="w-44">
-    <DropdownMenuRadioGroup value={mode} onValueChange={onModeChange}>
-      {SELECT_MODES.filter(item => assembly || !item.assemblyOnly).map(item => <DropdownMenuRadioItem key={item.id} value={item.id}>
-        <ModeGlyph tool="select" mode={item.id} data-select-mode={item.id} className="size-3.5 text-muted-foreground" aria-hidden="true" />{item.label}
-      </DropdownMenuRadioItem>)}
-    </DropdownMenuRadioGroup>
-    <DropdownMenuSeparator />
-    {CONNECTED_SELECTION.map(option => <DropdownMenuCheckboxItem key={option.id} checked={connected[option.id] === true}
-      disabled={!connectedSelectionApplies(option.id, mode)} onSelect={event => event.preventDefault()}
-      onCheckedChange={checked => onConnectedChange(option.id, checked === true)}>{option.label}</DropdownMenuCheckboxItem>)}
-  </ToolPopover>;
+export function SelectModeMenu({ mode, onModeChange, assembly, connected, onConnectedChange, disabled = false }) {
+  const modes = SELECT_MODES.filter(item => assembly || !item.assemblyOnly);
+  const value = known(modes, mode);
+  const options = CONNECTED_SELECTION.filter(option => connectedSelectionApplies(option.id, value));
+  return <ToolModeMenu label="Select mode" modes={modeItems('select', modes)} value={value} onChange={onModeChange} disabled={disabled}>
+    {options.length ? options.map(option => <DropdownMenuCheckboxItem key={option.id} checked={connected[option.id] === true}
+      onSelect={event => event.preventDefault()} onCheckedChange={checked => onConnectedChange(option.id, checked === true)}>
+      {option.label}
+    </DropdownMenuCheckboxItem>) : null}
+  </ToolModeMenu>;
 }

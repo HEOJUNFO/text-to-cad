@@ -104,7 +104,7 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
   const previewDisplay = useMemo(() => presenting ? presentationDisplaySettings(resolvedScene.display) : resolvedScene.display, [presenting, resolvedScene.display]);
   const leaveFullscreen = () => setPresenting(false);
   // A renderer's own Animate tool is drawn as it is handed over; a renderer without one gets
-  // the shell's. Neither has a corner menu: its routine, speed and loop are the Animate panel.
+  // the shell's. Its routine, speed and loop are the Animate panel.
   const animateTool = !hasAnimation ? null : animationTool ? animationTool : {
     id: "animate", label: "Animate", icon: <Play className="size-3" aria-hidden="true" />,
     active: Boolean(animationActive), disabled: shell.idle,

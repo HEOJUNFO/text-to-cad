@@ -19,8 +19,10 @@ function ClipIcon(props) {
 }
 
 /**
- * Explode, Clip and Measure's results: tools whose effects a person keeps, each with a panel in
- * the tool stack that outlives the tool being in hand. Selection belongs to the toolbar.
+ * Explode, Clip and Measure: tools whose effects a person keeps, each with a panel in the tool
+ * stack that outlives the tool being in hand. Measure's is up while it is the tool — its snapping
+ * a menu in its heading (`measure.actions`), its results, if any, the body — and stays while it
+ * has results (`measure.shown`).
  *
  * A tool the file cannot offer is not on the strip: Explode needs two parts to separate. While
  * the mesh is still loading that is not known yet, so Explode is shown, idle, until it is.
@@ -89,11 +91,11 @@ export function useModelTools({ modelKey, view, features, store, mesh, disabled,
     // The panels sit in the tool stack as its own items (`contents`); a press in any of them holds
     // their order until the pointer lets go.
     panels: <div className="contents" data-model-tool-panels="" onPointerDownCapture={() => setHolding(true)}>
-      {[...(measure?.hasMeasurements ? ["measure"] : []), ...panelIds].map(id => {
+      {[...(measure?.shown ? ["measure"] : []), ...panelIds].map(id => {
         const tool = definitions.find(value => value.id === id);
         // Measure's results can run long, so they give way like a details panel; Explode and
         // Clip are a row or two and keep their height.
-        return tool ? <ToolPanel key={id} id={id} title={tool.label} label={`${tool.label} controls`} summary={tool.summary}
+        return tool ? <ToolPanel key={id} id={id} title={tool.label} label={`${tool.label} controls`} summary={tool.summary} actions={tool.actions}
           fit={id === "measure" ? "details" : "fixed"} onClose={() => remove(id)}>
           <div className="space-y-1 pb-1">{tool.controls}</div>
         </ToolPanel> : null;

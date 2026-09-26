@@ -34,7 +34,7 @@ the reverse.
 | `camera/` | `runtimeCamera` (zoom percent against the authored framing, projection and lens sync, perspective snapshots, eased transitions, fit-to-bounds, recentre), `useViewportCamera` (that behaviour bound to a mounted viewport: the perspective kept by a mounted view, the fullscreen camera swap and its restore, the reset that Zoom to fit and the live `resetCamera` share, view-cube presets, which turn the camera and keep its zoom and target), `viewportCameraKit` and `viewportCameraFit`, `orbitControls`, `zoomPivotReanchor`, `zoomSpeeds`, `cameraLens`, `ViewPlaneControl` (view cube). |
 | `look/` | `stageEffects` (lighting rig scaled to the model, floor, glow and shadow catcher, grid and origin axes), the Render studio boundary (`renderStudioChunk`, `studioEnvironmentCache` and its worker). `chromeBackdrop` and `useChromeBackdropColor` (the frame colour around a scene). The surface LOOK is data the viewport resolves and a scene applies to its own materials: `@hardcore/core/lib/viewer/surfaceLook.js` (`createSurfaceLook(THREE, root).apply(look)`) does it for any authored material tree. The viewport resolves it with core's `resolveSceneSurfaceLook` (`common/sceneSettings.js`), the resolver the snapshot CLI dresses the same scenes with. |
 | `view-settings/` | The settings model and store (`viewSettingsStore`, `useViewSettings`, `viewerDisplaySettings`, `renderState`), applying a change to a viewport (`useAppliedViewSettings`, `viewUpdateCoordinator`, `viewUpdateGate`, `viewUpdatePlan`), and the Display tool's content (`DisplaySettingsSection`, `DisplayModeOptions`; the shell draws it as a stack panel while Display is the tool). |
-| `tools/` | `FloatingToolBar` (the dumb strip), `toolModes` (the tool-mode state machine), `ToolPopover` (a tool's corner menu: an ordinary dropdown under its button), `ToolStack` (the bounded, resizable column under the strip, which scrolls only when what cannot give way still does not fit), `ToolPanel` (one panel of it: `fit` says how it gives way when the viewer is short, `sizable` gives it a cap with a height handle, and every panel but Drawing folds to its first row; `ToolPanelCollapse` is the chevron for a panel whose first row is its content's), `toolStackLayout` (the width, the panels' caps and the folded panels: defaults, bounds and their stored record), `floatingSurface` (the two surfaces, defined together: the strip's and every menu's over the viewport, and the stack panels' more transparent one), `AnimateControls` (the Animate panel's Routine, Speed and Loop, and its heading's play/pause), and the format-blind tools: `draw/` (overlay, view lock, `useDrawingViewLock`), `PreviewChrome` (fullscreen's controls and their visibility), `PlayMenu` (Routine, Speed and Loop: fullscreen's Play menu; outside fullscreen they are the Animate panel) and `OrbitMenu` (fullscreen's orbit and its speed), `fullscreen/` (orbit preferences), `playbar/` (`ViewportAnimationBar`, `animationClock`, `usePlaybackFrames`), `pose/` (the handle overlay, canvas, drag mathematics), `select/` (`usePointerPick`: taps and hover through a scene's own `pick`). Screenshot capture is `@hardcore/core/lib/viewer/screenshotCapture.js`. |
+| `tools/` | `FloatingToolBar` (the dumb strip), `toolModes` (the tool-mode state machine), `ToolModeMenu` (a tool's exclusive modes: one button in its panel's header row and its dropdown), `ToolPopover` (fullscreen's settings dropdowns: an ordinary dropdown under its button), `ToolStack` (the bounded, resizable column under the strip, which scrolls only when what cannot give way still does not fit), `ToolPanel` (one panel of it: `fit` says how it gives way when the viewer is short, `sizable` gives it a cap with a height handle, and every panel but Drawing folds to its first row; `ToolPanelCollapse` is the chevron for a panel whose first row is its content's), `toolStackLayout` (the width, the panels' caps and the folded panels: defaults, bounds and their stored record), `floatingSurface` (the two surfaces, defined together: the strip's and every menu's over the viewport, and the stack panels' more transparent one), `AnimateControls` (the Animate panel's Routine, Speed and Loop, and its heading's play/pause), and the format-blind tools: `draw/` (overlay, view lock, `useDrawingViewLock`), `PreviewChrome` (fullscreen's controls and their visibility), `PlayMenu` (Routine, Speed and Loop: fullscreen's Play menu; outside fullscreen they are the Animate panel) and `OrbitMenu` (fullscreen's orbit and its speed), `fullscreen/` (orbit preferences), `playbar/` (`ViewportAnimationBar`, `animationClock`, `usePlaybackFrames`), `pose/` (the handle overlay, canvas, drag mathematics), `select/` (`usePointerPick`: taps and hover through a scene's own `pick`). Screenshot capture is `@hardcore/core/lib/viewer/screenshotCapture.js`. |
 | `inspector/` | `FileSheet` and its row and section primitives, `modelTreeSearch` (`useTreeSearch`, the ranked flat search every tree shares), `referenceRows` (`InfoRow`, `MonoValue`, `CoordValue`), `kinematicsControls` (the `Pose` row that heads every Position section, with its Reset). The tree row and filter box are `primitives/tree-row` and `primitives/tree-filter`. |
 | `status/` | `LoadingIndicator` and `ViewerLoadingOverlay`, `ViewerAlertCard` (the card over the viewport, and `viewportAlert`, which alert it shows), `MissingFileAlert`, `ViewUpdateStatus`, `loadingState` (`viewerLoadingState`), `loadAlerts` (`failureAlert`, `noGeometryAlert`). |
 | `shell/` | The host glue every renderer needs that is not about its scene: see [Shell](#shell). |
@@ -52,11 +52,12 @@ tools), the GLB, mesh and robot renderers the second. The headless renderer
 (`renderMeshScene.js`) resolves a job of each family under the same list.
 
 **Tools.** The strip draws the list it is handed: `{ id, label, icon, active,
-disabled, onSelect, description?, menu?, secondPressOpensMenu?, menuOnCornerOnly?,
-onMenuSelect? }`, then Display as its last button (`trailing`). A renderer
+disabled, onSelect, description? }` — a press is a tool's only action; no tool has a menu
+on the strip, and what it can be set to is its panel in the stack — then Display as its
+last button (`trailing`). A renderer
 builds its own list from `shell.tools.own(...)`, adding `shell.tools.draw` where it offers
 Draw; STEP's is in `step/StepSurface.jsx`. RendererShell gives a renderer's own Animate
-tool its routine menu (`PlayMenu`), or supplies an Animate tool for a file with routines
+tool its Animate panel, or supplies an Animate tool for a file with routines
 whose renderer has none (a GLB), and puts Animate last before Display. Fullscreen is not
 a tool: it is a separate button at the viewport's top-right. `createToolModes({ defaultMode, modes })`
 answers what a press does (`next`), what a saved tab may record (`persisted`) and
@@ -858,13 +859,15 @@ one `copyTextLines`. Escape clears the
 selection after any open menu has been dismissed. Input fields
 keep their own Escape behaviour.
 
-Measure starts as an exclusive picking tool; its corner menu selects snapping (All, Points,
-Edges, Faces: plain rows, no title), and its button shows the mode in hand.
-The first completed ruler adds a retained `MeasurePanel.jsx` below the toolbar.
+Measure starts as an exclusive picking tool, and its **Measure** panel is up at once,
+empty: its heading carries the snapping menu (All, Points, Edges, Faces:
+`MeasureModeMenu` in `SelectionModes.jsx`, over `ToolModeMenu`, passed as the panel's
+`actions`), and its button shows the mode in hand. Completed rulers are the panel's body
+(`MeasurePanel.jsx`).
 Leaving Measure cancels its draft but retains completed rulers, its panel and the
-button highlight. With results, a main-button press or X clears the retained tool;
-the corner resumes picking and opens settings without clearing. Before a result,
-repeated activation keeps Measure armed. Panels use the shared `ToolPanel`.
+button highlight (`useModelTools`' `measure.shown`); a mode chosen in the kept panel takes
+Measure up again without clearing. A press on Measure while it is up — results or none —
+or the panel's X clears it and puts it down. Panels use the shared `ToolPanel`.
 
 Clip mode colours cut surfaces amber using stencil winding over the display
 meshes. Holes remain open for closed, consistently oriented solids. This is a
@@ -905,13 +908,15 @@ A STEP's panels in the tool stack (`components/workbench/StepPanels.js`), in ord
 
 Each is `hidden`, not unmounted, while its tool is not up.
 
-**Select modes.** The Select tool's corner menu (`SelectModeMenu` in
-`SelectionFilterMenu.jsx`) holds four exclusive modes — All, Parts (assemblies only),
-Faces, Edges (`workbench/selectionFilter.js`'s `SELECT_MODES`), each row with its mode's
-glyph at full size — whose composite the strip's button shows (`SelectModeIcon`: the
-pointer badged with the mode's glyph; Measure's `MeasureModeIcon` is the ruler badged with
-its snapping mode, `MEASURE_SNAP_MODES`, in a menu of four plain rows) — and two independent checkboxes, Edge chain and Tangent
-faces (`CONNECTED_SELECTION`, applying under All and their own mode). `StepSurface`
+**Select modes.** Select's mode menu (`SelectModeMenu` in `SelectionModes.jsx`, over
+`ToolModeMenu`), in the Features filter row beside its chevron (`ModelingTree`'s
+`modeMenu`), holds four exclusive modes — All, Parts (assemblies only), Faces, Edges
+(`workbench/selectionFilter.js`'s `SELECT_MODES`), each row its mode's glyph at full
+size — whose composite the strip's button shows (`SelectModeIcon`: the pointer badged with
+the mode's glyph; Measure's `MeasureModeIcon` is the ruler badged with its snapping mode,
+`MEASURE_SNAP_MODES`) — then, below a rule, the independent checkboxes Edge chain and Tangent faces
+(`CONNECTED_SELECTION`, applying under All and their own mode; only those that apply
+under the mode in hand are shown, and a hidden one keeps its choice). `StepSurface`
 keeps the mode (`selectionFilter`) and the options (`connectedSelection`), and a mode
 change sets the tree's expansion (`changeSelectMode`): leaving All saves the person's
 expansion and coming back restores it (with the owners of selected topology kept open);
@@ -1028,7 +1033,7 @@ copying is the viewport's bottom action (**Copy Reference** or **Copy References
 shown only for a resolved selection) and the tree and viewport menus, and
 measurement previews are the Measure tool's. There is no source feature view.
 
-Tool order, corner menus, persistent panels and cleanup policies are defined in
+Tool order, tool panels, persistent panels and cleanup policies are defined in
 [the shared design system](settings-ui.md#tools-and-lifecycle). Keep renderer
 implementations aligned with that contract instead of defining another layout here.
 
@@ -1041,7 +1046,7 @@ to Select first. No other tool ever sees a selection, so none needs a rule for o
 
 Position edits persist when switching tools or tabs, or closing the panel. Reset
 explicitly restores STEP defaults or the robot opening pose (including SRDF `home`).
-The Position tool controls joint handles and shows its panel, with no corner menu.
+The Position tool controls joint handles and shows its panel.
 Animate sets the Position values aside when a routine takes the pose and gives them
 back when it lets go (`workbench/useStepMotionControls.js`). The Position panel's layout
 is [the design system's](settings-ui.md#position-and-references).
@@ -1133,7 +1138,7 @@ tool's. Each format has one write path (`write` in `robot/poseStore.js`;
 
 Animate is a session, like Draw: the tool is never persisted, never restored. It
 exists only for a file with routines, and pressing it takes up the tool and starts
-playing. It has no corner menu: while it is the tool its **Animate** panel leads the
+playing. While it is the tool its **Animate** panel leads the
 stack (`kit/tools/AnimateControls.jsx`, which the shell adds), headed "Animate" with
 play/pause, holding Routine (only with two or more routines) and Speed (the presets, and
 an authored speed outside them) as a label beside its dropdown, then Loop. While it is active nothing under the pointer is pickable and the
@@ -1183,13 +1188,11 @@ the SHELL's — `kit/tools/draw`, `shell.tools.draw` — and STEP is the rendere
 puts it on its strip; `renderers/shell-harness` also mounts it, for tests.) The
 chunk loads on the first use of the tool, and the
 surface stays hidden until the editor has its scene, so its default white page
-never flashes over the model. Draw's corner dropdown uses the shared drawing
-controls: Select and move drawings, Pan view, Pen, Line, Arrow, Rectangle,
-Ellipse, Text, Fill area and Eraser, followed by a separated settings row with
-Color, Undo, Redo and Clear drawing. Choosing a tool updates Draw's toolbar icon
-and closes the dropdown. Color, Undo and Redo keep it open; Clear drawing closes
-it. Outside click, Escape and pressing Draw again dismiss the menu; leaving Draw
-ends the drawing session. Select and move drawings wears lucide's
+never flashes over the model. Draw's **Drawing** panel leads the stack while Draw is
+up, with the shared drawing controls in one wrapping row: Select and move drawings,
+Pan view, Pen, Line, Arrow, Rectangle, Ellipse, Text, Fill area and Eraser, then Color,
+Undo, Redo and Clear drawing. Choosing a tool updates Draw's toolbar icon. Pressing Draw
+again puts it down, and leaving Draw ends the drawing session. Select and move drawings wears lucide's
 `SquareMousePointer`; Undo and Redo are off while there is nothing to undo or redo.
 A line is followed by another line. Color changes what
 is drawn next without recoloring existing ink. Fill area is not an

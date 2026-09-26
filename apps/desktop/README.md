@@ -1144,9 +1144,9 @@ top left, ending in **Display**
 ([tools and lifecycle](../../packages/ui/docs/settings-ui.md#tools-and-lifecycle)).
 A STEP's is Select, Draw, Measure, Explode, Clip, then Position where the
 sidecar declares kinematics and Animate where it declares routines, then Display.
-A tool with a corner mark has a menu (Select's selection filter, Measure's
-snapping, Animate's routine, speed and loop); Explode and Clip are toggles whose
-panels sit beneath the toolbar. A robot description's is Select (which picks
+No tool has a menu on the strip: what a tool can be set to (Select's modes,
+Measure's snapping, Animate's routine, speed and loop) is its panel beneath the
+toolbar while it is up; Explode and Clip are toggles whose panels sit there too. A robot description's is Select (which picks
 whole links; Shift, Ctrl or Cmd adds one), Position where it has movable joints,
 then Display; it opens in Select. An agent's select command on a robot fails
 with a sentence saying so; its clearSelection clears the link selection. Draw is

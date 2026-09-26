@@ -667,11 +667,13 @@ test("renders a STEP file through the bundled runtime's viewer", async () => {
   const measure = page.getByRole("button", { name: "Measure", exact: true });
   await measure.click();
   await expect(measure).toHaveAttribute("aria-pressed", "true");
-  // No panel until something is measured; a second press offers what measurements snap to.
+  // Its panel is up at once, empty: a heading with its snapping menu, and no results until
+  // something is measured.
   const measurements = page.getByRole("region", { name: "Measurements" });
   await expect(measurements).toHaveCount(0);
-  await measure.click();
-  await expect(page.getByRole("menuitemradio", { name: "All", exact: true })).toBeVisible();
+  const measureControls = page.locator('[data-cad-tool-stack]').getByRole("region", { name: "Measure controls", exact: true });
+  await measureControls.getByRole("button", { name: "Measure snapping: All", exact: true }).click();
+  await expect(page.getByRole("menuitemradio", { name: "All", exact: true })).toHaveAttribute("aria-checked", "true");
   await page.keyboard.press("Escape");
   await expect(measure).toHaveAttribute("aria-pressed", "true");
   await shoot("file-cad-measure.png", true);

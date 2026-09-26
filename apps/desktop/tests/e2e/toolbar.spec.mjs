@@ -185,15 +185,20 @@ test('CAD tools stay within the scene, with direct snapshot and Select filters',
     await select.click();
     await expect(select).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByRole('menu')).toHaveCount(0);
+    // A second press opens nothing: Select's modes are a menu in the Features filter row, which
+    // opens inside the window.
     await select.click();
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    await expect(select).toHaveAttribute('aria-pressed', 'true');
+    await stack.getByRole('button', { name: /^Select mode: / }).click();
     await expect(page.getByRole('menuitemradio').first()).toBeVisible();
     const menuBounds = await page.getByRole('menu').boundingBox();
     const windowWidth = await page.evaluate(() => innerWidth);
     assert(menuBounds.x >= 0 && menuBounds.x + menuBounds.width <= windowWidth);
     await page.keyboard.press('Escape');
-    await expect(select).toBeFocused();
+    await expect(page.getByRole('menu')).toHaveCount(0);
 
-    // Draw has no corner menu: its tools, color and history are the Drawing panel, which leads
+    // Draw has no menu either: its tools, color and history are the Drawing panel, which leads
     // the stack while Draw is up and stays inside the window.
     await tools.getByRole('button', { name: 'Draw', exact: true }).click();
     await expect(tools.getByRole('button', { name: 'Draw', exact: true })).toHaveAttribute('aria-pressed', 'true');

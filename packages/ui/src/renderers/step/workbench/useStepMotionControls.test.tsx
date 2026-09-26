@@ -42,7 +42,7 @@ function setup(initialClips: any = clips) {
   return { ...hook, clock };
 }
 
-// The transport preferences Animate's corner menu sets: not the defaults, so keeping them shows.
+// The transport preferences Animate's panel sets: not the defaults, so keeping them shows.
 const preferences = { activeClipId: 'close', speed: 2, loopEnabled: true };
 const pickPreferences = (result: any) => act(() => {
   result.current.handleAnimationClipSelect('close'); result.current.handleAnimationSpeedChange(2); result.current.handleAnimationLoopToggle(true);

@@ -24,17 +24,20 @@ Load this only when a task needs Viewer file-support details or UI control guida
   it has routines, and Display. Robots start in Select and may offer Position.
   Meshes offer Display; animated GLBs also offer Animate. DXF uses a 2D canvas:
   drag to pan, wheel/pinch to zoom, double-click to fit.
-- A corner triangle means options, an ordinary dropdown under the button that
-  may overlap the panels below. First press selects; another press opens it.
-  Select chooses its mode, Measure its snapping (All, Points, Edges, Faces).
-  Animate has no corner menu: its Routine, Speed, Loop and play/pause are the
-  Animate panel, which leads the stack while it plays.
-- STEP Select modes: All (pointer icon), Parts (assemblies only), Faces, Edges;
-  each menu row shows the mode's glyph (a cube, a filled face, a heavy edge),
-  and the Select button shows the pointer badged with it (Measure's button: the
-  ruler badged with its snapping mode). Edge chain and Tangent faces are
-  checkboxes below them, independent of the mode and each other (Tangent faces
-  applies under All/Faces, Edge chain under All/Edges; otherwise disabled, kept).
+- No tool opens a menu from the toolbar: a press takes the tool up (and, for a
+  toggle, puts it down again). What a tool can be set to is its panel under the
+  toolbar while it is up: Select's modes, Measure's snapping (the panel is there,
+  empty, as soon as Measure is picked), Draw's tools, Position's joints, Animate's
+  Routine, Speed, Loop and play/pause. A tool's modes are one small button in its
+  panel's header row, beside the fold chevron, that opens a dropdown — Select's in
+  the Features filter row, Measure's (All, Points, Edges, Faces) in its heading.
+- STEP Select modes: All (pointer icon), Parts (assemblies only), Faces, Edges,
+  in the Features filter row's mode menu, each row the mode's glyph (a cube, a
+  filled face, a heavy edge); the Select button shows the pointer
+  badged with it (Measure's button: the ruler badged with its snapping mode).
+  Edge chain and Tangent faces are checkboxes in that menu, independent of the
+  mode and each other, shown only where they apply (Tangent faces under
+  All/Faces, Edge chain under All/Edges; a hidden one keeps its choice).
   The mode shapes the Features tree: All is your own expansion; Parts shows every
   part, none expandable; Faces/Edges expand everything and load each part's
   topology as its row scrolls into view. Outside All the tree cannot be expanded

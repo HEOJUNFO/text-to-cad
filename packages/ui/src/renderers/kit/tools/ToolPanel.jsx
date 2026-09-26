@@ -24,13 +24,14 @@ const FIT = Object.freeze({
 // room for its first row and a few more.
 const FLOOR = Object.freeze({ tree: 128, details: 96 });
 const KEY_NUDGE_PX = 16;
-const BUTTON_CLASS = "flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45";
+/** A panel header's small icon button: the chevron, the X, and a tool's mode menu (`ToolModeMenu.jsx`). */
+export const TOOL_PANEL_BUTTON_CLASS = "flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45";
 
 const ToolPanelContext = createContext(null);
 
 function CollapseButton({ panel, className }) {
   return <button type="button" aria-label={`${panel.collapsed ? "Expand" : "Collapse"} ${panel.label.toLowerCase()}`} aria-expanded={!panel.collapsed}
-    data-tool-panel-collapse="" className={cn(BUTTON_CLASS, className)} onClick={panel.toggle}>
+    data-tool-panel-collapse="" className={cn(TOOL_PANEL_BUTTON_CLASS, className)} onClick={panel.toggle}>
     {/* Down to open a folded panel, up to fold an open one. */}
     {panel.collapsed ? <ChevronDown className="size-3" aria-hidden="true" data-chevron="down" /> : <ChevronUp className="size-3" aria-hidden="true" data-chevron="up" />}
   </button>;
@@ -155,7 +156,7 @@ export default function ToolPanel({ id, title = null, name = "", label, summary 
     {actions}
     {panel ? <CollapseButton panel={panel} /> : null}
     {onClose ? <button type="button" aria-label={closeLabel || `Close ${label.toLowerCase()}`}
-      className={BUTTON_CLASS} onClick={onClose}><X className="size-3" aria-hidden="true" /></button> : null}
+      className={TOOL_PANEL_BUTTON_CLASS} onClick={onClose}><X className="size-3" aria-hidden="true" /></button> : null}
   </div>
     // No heading of its own: while its content's first row is out of sight (folded) or carries no
     // chevron, the panel's name stands in for it.

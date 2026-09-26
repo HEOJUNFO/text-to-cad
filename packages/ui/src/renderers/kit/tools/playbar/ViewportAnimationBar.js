@@ -6,7 +6,8 @@ import { cn } from "@hardcore/ui/utils";
 import { ToolbarButton } from "@hardcore/ui/primitives/toolbar-button";
 import { FILE_SHEET_PRECISION_SLIDER_CLASSES } from "../../inspector/FileSheet.js";
 
-// The playbar owns play/pause and scrubbing. Routine, speed and loop live in PlayMenu.
+// The playbar owns play/pause and scrubbing. Routine, speed and loop are the Animate panel's
+// (and, in fullscreen, PlayMenu's).
 //
 // Every animation source shares this transport UI. The bar only edits the clip
 // and clock state of the runtime it is handed; evaluating a clip is its owner's.

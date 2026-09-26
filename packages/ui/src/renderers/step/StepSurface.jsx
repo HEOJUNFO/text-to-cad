@@ -1,7 +1,7 @@
 import { buildEdgeChainGraph } from "./workbench/edgeChainSelection.js";
 "use client";
 
-import { MeasureModeIcon, MeasureModeMenu, SelectModeIcon, SelectModeMenu } from "./components/workbench/SelectionFilterMenu.jsx";
+import { MeasureModeIcon, MeasureModeMenu, SelectModeIcon, SelectModeMenu } from "./components/workbench/SelectionModes.jsx";
 import { NO_CONNECTED_SELECTION, connectedSelectionApplies } from "./workbench/selectionFilter.js";
 import { Play, Spline } from "lucide-react";
 import { filterSelectionReferences, toggleReferenceGroupSelection, connectedReferenceIds } from "./workbench/selectionFilter.js";
@@ -3137,8 +3137,14 @@ function StepSurfaceBody({ view, data }) {
     features: viewFeatures, store: viewSettingsStore, mesh: selectedDisplayMeshData,
     disabled: toolIdle, selectedTool: tabToolMode, onSelect: handleSelectTabToolMode,
     measure: {
-      hasMeasurements: measureMeasurements.length > 0,
+      // Up while Measure is the tool, empty or not, and kept while it has results.
+      shown: tabToolMode === TAB_TOOL_MODE.MEASURE || measureMeasurements.length > 0,
       onRemove: removeMeasurements,
+      // Its snapping, a mode menu in the panel's heading beside the fold chevron.
+      actions: <MeasureModeMenu mode={measure.filter} disabled={measureToolDisabled} onModeChange={value => {
+        measure.setFilter(value); measure.cancelDraft();
+        handleSelectTabToolMode(TAB_TOOL_MODE.MEASURE);
+      }} />,
       controls: <MeasurePanel measurements={measureMeasurements} activeId={measure.activeId}
         onActivate={measure.setActiveId} onDelete={measure.onDelete} />
     } });
@@ -3149,25 +3155,18 @@ function StepSurfaceBody({ view, data }) {
       // The button shows the mode in hand; nothing under the strip names it.
       icon: <SelectModeIcon mode={selectionFilter} className="size-3.5" aria-hidden="true" />,
       active: !topologySelectionDeferred && selectionToolActive, disabled: selectDisabled,
-      description: "Select again to choose what to select",
-      secondPressOpensMenu: true,
+      // Its modes and options are a menu in the Features panel's filter row.
       onSelect: () => handleSelectTabToolMode(TAB_TOOL_MODE.REFERENCES),
-      menu: trigger => <SelectModeMenu trigger={trigger} mode={selectionFilter} assembly={isAssemblyView}
-        onModeChange={value => { changeSelectMode(value); handleSelectTabToolMode(TAB_TOOL_MODE.REFERENCES); }}
-        connected={connectedSelection} onConnectedChange={(id, checked) => setConnectedSelection(current => ({ ...current, [id]: checked }))} />
     }),
     { ...shell.tools.draw, disabled: toolIdle },
     shell.tools.own({ id: TAB_TOOL_MODE.MEASURE, label: "Measure",
       // Like Select's, the button shows the snapping mode in hand.
       icon: <MeasureModeIcon mode={measure.filter} className="size-3.5" aria-hidden="true" />,
       active: tabToolMode === TAB_TOOL_MODE.MEASURE || measureMeasurements.length > 0, disabled: measureToolDisabled,
-      secondPressOpensMenu: true, menuOnCornerOnly: measureMeasurements.length > 0,
-      onMenuSelect: () => handleSelectTabToolMode(TAB_TOOL_MODE.MEASURE),
-      onSelect: () => measureMeasurements.length ? removeMeasurements() : handleSelectTabToolMode(TAB_TOOL_MODE.MEASURE),
-      menu: trigger => <MeasureModeMenu trigger={trigger} mode={measure.filter} onModeChange={value => {
-          measure.setFilter(value); measure.cancelDraft();
-          handleSelectTabToolMode(TAB_TOOL_MODE.MEASURE);
-        }} /> }),
+      // Like Explode and Clip, a press on it while it is up puts it down, with its results; its
+      // snapping is a menu in its panel's heading.
+      onSelect: () => tabToolMode === TAB_TOOL_MODE.MEASURE || measureMeasurements.length
+        ? removeMeasurements() : handleSelectTabToolMode(TAB_TOOL_MODE.MEASURE) }),
     ...modelEffects.tools,
     // Position follows the model effects; only files with movable joints offer it.
     poseAvailable ? shell.tools.own({ id: TAB_TOOL_MODE.POSE, label: "Position",
@@ -3202,6 +3201,10 @@ function StepSurfaceBody({ view, data }) {
   // ---- the tool stack ---------------------------------------------------------------------------
   // Under the strip: Select's Features and Reference, Position's joints, then the kept effects.
   const stepPanels = useStepPanels({
+    // Select's mode and options: a menu in the Features filter row, beside its fold chevron.
+    selectModeMenu: <SelectModeMenu mode={selectionFilter} assembly={isAssemblyView} disabled={selectDisabled}
+      onModeChange={value => { changeSelectMode(value); handleSelectTabToolMode(TAB_TOOL_MODE.REFERENCES); }}
+      connected={connectedSelection} onConnectedChange={(id, checked) => setConnectedSelection(current => ({ ...current, [id]: checked }))} />,
     selectActive: selectionToolActive && !presenting,
     positionActive: poseToolActive,
     selectMode: selectionFilter,

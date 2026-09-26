@@ -143,6 +143,12 @@ async function open(options) {
       .filter(panel => panel.getClientRects().length > 0).map(panel => panel.getAttribute('aria-label'))),
     // The Select tool's mode, as its button draws it.
     selectMode: () => pane.locator('[data-cad-toolbar]').getByRole('button', { name: 'Select', exact: true }).locator('[data-select-mode]').getAttribute('data-select-mode'),
+    // Select's modes are a menu in the Features filter row (`SelectionModes.jsx`); the strip opens no menu.
+    chooseSelectMode: async name => {
+      await pane.getByRole('button', { name: /^Select mode: / }).click();
+      await page.locator('[role=menu][aria-label="Select mode"]').getByRole('menuitemradio', { name, exact: true }).click();
+      await page.locator('[role=menu]').waitFor({ state: 'detached' });
+    },
     section: name => pane.getByRole('region', { name, exact: true }),
     displayPanel: () => page.locator('[data-tool-panel][aria-label="Display settings"]'),
     rows: () => pane.locator('[aria-label="Modeling tree"]').getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))
@@ -306,7 +312,7 @@ test('Select picks parts and faces, a selection lives only under Select, and the
   await page.waitForFunction(() => window.cadHarness.a.controller.readState().selectedPartIds.length === 1);
   await view.tool('Measure').click();
   await page.waitForFunction(() => window.cadHarness.a.controller.readState().selectedPartIds.length === 0);
-  assert.deepEqual(await view.stack(), [], 'Measure shows no Features and no Reference');
+  assert.deepEqual(await view.stack(), ['Measure controls'], 'Measure shows its own panel: no Features and no Reference');
   await view.tool('Select').click();
   assert.deepEqual(await view.stack(), ['Features']);
   await pane.getByRole('button', { name: 'Select arm', exact: true }).click();
@@ -340,7 +346,7 @@ test('Select picks parts and faces, a selection lives only under Select, and the
   assert.deepEqual(errors, []);
 });
 
-test('the Select tool has four modes with their own icons: each sets the tree, locked, and the connected options are independent checkboxes', async () => {
+test('the Select tool has four modes with their own icons, a menu in the Features filter row: each sets the tree, locked, and the connected options are the ones that apply', async () => {
   const view = await open();
   const { page, pane, at, errors } = view;
   // Recognition is unavailable in this harness: supply one feature per part, so what the tree
@@ -354,12 +360,19 @@ test('the Select tool has four modes with their own icons: each sets the tree, l
       terminate() {}
     };
   });
-  // Found by its label: Radix names a menu after its trigger.
+  // Select's mode is one button in the Features filter row, beside the fold chevron, showing
+  // the mode in hand; its menu holds the modes and the options. The strip opens no menu, and
+  // the modes are never a panel of their own.
+  const features = pane.getByRole('region', { name: 'Features', exact: true });
+  const modeButton = features.getByRole('button', { name: /^Select mode: / });
   const menu = page.locator('[role=menu][aria-label="Select mode"]');
-  const openMenu = async () => { await view.tool('Select').click(); await menu.waitFor(); };
-  const choose = async name => { await openMenu(); await menu.getByRole('menuitemradio', { name, exact: true }).click(); await menu.waitFor({ state: 'detached' }); };
+  const openMenu = async () => { await modeButton.click(); await menu.waitFor(); };
+  const options = () => menu.getByRole('menuitemcheckbox').evaluateAll(items => items.map(item => `${item.textContent}${item.getAttribute('aria-checked') === 'true' ? '*' : ''}`));
   // Locked rows: the chevron a row shows while the mode holds the tree, open or shut.
   const locks = () => pane.locator('[aria-label="Modeling tree"] [data-disclosure-locked]').evaluateAll(marks => marks.map(mark => mark.dataset.disclosureLocked));
+  assert.deepEqual(await view.stack(), ['Features'], 'no panel for the modes');
+  assert.deepEqual(await features.locator('[data-slot=tree-filter] button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))),
+    ['Select mode: All', 'Collapse features'], 'the mode button sits beside the fold chevron');
   // All is the plain pointer, and the tree is the person's own: open the base.
   assert.equal(await view.selectMode(), 'all');
   await pane.getByRole('button', { name: 'Expand base', exact: true }).click();
@@ -368,8 +381,7 @@ test('the Select tool has four modes with their own icons: each sets the tree, l
   assert.deepEqual(await view.rows(), ['Collapse base', 'Select base', 'Select Box', 'Expand arm', 'Select arm']);
   await openMenu();
   assert.deepEqual(await menu.getByRole('menuitemradio').allInnerTexts(), ['All', 'Parts', 'Faces', 'Edges'], 'an assembly offers Parts');
-  assert.deepEqual(await menu.getByRole('menuitemcheckbox').allInnerTexts(), ['Edge chain', 'Tangent faces'], 'the connected options are checkboxes, after the modes');
-  assert.equal(await menu.locator('[data-select-mode]').count(), 4, 'each mode has its icon');
+  assert.deepEqual(await options(), ['Edge chain', 'Tangent faces'], 'under All both connected options apply, after the modes');
   // A row shows its mode's own glyph at full size (All: the pointer); the strip shows the pointer
   // badged in its corner with the mode's glyph, and the bare pointer for All.
   const glyphs = root => root.locator('svg[data-mode-glyph]').evaluateAll(icons => icons.map(icon => icon.dataset.modeGlyph));
@@ -379,12 +391,20 @@ test('the Select tool has four modes with their own icons: each sets the tree, l
   assert.deepEqual(await badges(menu), [], 'no composite in the menu');
   assert.deepEqual(await badges(view.tool('Select')), ['select:'], 'the strip\'s composite: the bare pointer under All');
   await page.keyboard.press('Escape');
-  assert.equal(await view.tool('Select').getAttribute('aria-pressed'), 'true', 'a second press opens the menu; it does not toggle the tool off');
+  await menu.waitFor({ state: 'detached' });
+  await view.tool('Select').click();
+  assert.equal(await view.tool('Select').getAttribute('aria-pressed'), 'true', 'a second press keeps Select');
+  assert.equal(await page.locator('[role=menu]').count(), 0, 'and opens nothing');
 
   // Parts: every part a row, none open, and nothing opens.
-  await choose('Parts');
+  await view.chooseSelectMode('Parts');
   assert.equal(await view.selectMode(), 'parts', 'the strip shows the mode in hand');
+  assert.equal(await modeButton.getAttribute('aria-label'), 'Select mode: Parts', 'and so does the button');
+  assert.deepEqual(await glyphs(modeButton), ['parts']);
   assert.deepEqual(await badges(view.tool('Select')), ['select:parts']);
+  await openMenu();
+  assert.deepEqual(await options(), [], 'a part pick grows by nothing: no options');
+  await page.keyboard.press('Escape');
   assert.deepEqual(await view.rows(), ['Select base', 'Select arm'], 'no disclosure to press, and no feature under a part');
   assert.deepEqual(await locks(), ['shut', 'shut']);
   // Nothing names the mode under the strip: the icon does.
@@ -394,7 +414,7 @@ test('the Select tool has four modes with their own icons: each sets the tree, l
   await page.keyboard.press('Escape');
 
   // Faces: everything open and locked, and each part's faces are loaded as its row shows.
-  await choose('Faces');
+  await view.chooseSelectMode('Faces');
   assert.equal(await view.selectMode(), 'faces');
   // Each part's features, shown as its row came on screen, and nothing to press.
   await page.waitForFunction(() => document.querySelectorAll('[data-testid="one"] [aria-label="Modeling tree"] button[aria-label="Select Box"]').length === 2);
@@ -408,28 +428,25 @@ test('the Select tool has four modes with their own icons: each sets the tree, l
   assert.equal((await view.state()).selectedPartIds.length, 0, 'the Faces mode does not fall back to the part');
 
   // The connected options are independent of the mode and of each other; one that has no effect
-  // under the mode stays in the menu, disabled, its choice kept.
+  // under the mode is not in the menu, and keeps its choice for when it does.
   await openMenu();
-  const tangent = menu.getByRole('menuitemcheckbox', { name: 'Tangent faces', exact: true });
-  const chain = menu.getByRole('menuitemcheckbox', { name: 'Edge chain', exact: true });
-  assert.deepEqual([await tangent.getAttribute('aria-disabled'), await chain.getAttribute('data-disabled')], [null, ''],
-    'under Faces, Tangent faces applies and Edge chain does not');
-  await tangent.click();
-  assert.equal(await tangent.getAttribute('aria-checked'), 'true');
+  assert.deepEqual(await options(), ['Tangent faces'], 'under Faces, only Tangent faces applies');
+  await menu.getByRole('menuitemcheckbox', { name: 'Tangent faces', exact: true }).click();
+  assert.deepEqual(await options(), ['Tangent faces*']);
   assert.equal(await menu.isVisible(), true, 'ticking an option leaves the menu open');
   await menu.getByRole('menuitemradio', { name: 'Edges', exact: true }).click();
   await menu.waitFor({ state: 'detached' });
   assert.equal(await view.selectMode(), 'edges');
   await openMenu();
-  assert.equal(await tangent.getAttribute('aria-checked'), 'true', 'the option outlives a mode it does not apply to');
-  assert.equal(await tangent.getAttribute('data-disabled'), '');
-  assert.equal(await chain.getAttribute('data-disabled'), null);
-  await chain.click();
-  assert.deepEqual([await chain.getAttribute('aria-checked'), await tangent.getAttribute('aria-checked')], ['true', 'true'], 'both at once');
+  assert.deepEqual(await options(), ['Edge chain'], 'under Edges, only Edge chain');
+  await menu.getByRole('menuitemcheckbox', { name: 'Edge chain', exact: true }).click();
+  await menu.getByRole('menuitemradio', { name: 'All', exact: true }).click();
+  await menu.waitFor({ state: 'detached' });
+  await openMenu();
+  assert.deepEqual(await options(), ['Edge chain*', 'Tangent faces*'], 'both kept, and both at once');
   await page.keyboard.press('Escape');
 
   // All: the tree the person left — the base open, the arm shut — and unlocked.
-  await choose('All');
   assert.equal(await view.selectMode(), 'all');
   assert.deepEqual(await locks(), []);
   assert.deepEqual(await view.rows(), ['Collapse base', 'Select base', 'Select Box', 'Expand arm', 'Select arm']);
@@ -440,11 +457,7 @@ test('under Faces or Edges, one press on a part whose faces are not loaded loads
   const view = await open();
   const { page, pane, at, errors } = view;
   const reference = pane.getByRole('region', { name: 'Reference details', exact: true });
-  const mode = async name => {
-    await view.tool('Select').click();
-    await page.getByRole('menuitemradio', { name, exact: true }).click();
-    await page.getByRole('menu').waitFor({ state: 'detached' });
-  };
+  const mode = name => view.chooseSelectMode(name);
   const selected = () => page.evaluate(() => window.cadHarness.a.controller.readState().selectedReferenceIds);
   // The tree loads a part's faces as its row comes on screen. With a filter that matches
   // nothing, no row is on screen, so under Faces no part has its faces loaded.
@@ -1162,34 +1175,45 @@ test('Measure reads a distance between two picks; Draw lays ink over a STEP; and
   await pane.getByRole('button', { name: 'Expand base', exact: true }).click();
   await pane.getByRole('button', { name: 'Expand arm', exact: true }).click();
   await view.tool('Measure').click();
-  assert.equal(await page.getByRole('region', { name: 'Measure controls' }).count(), 0, 'activating Measure adds no empty panel');
+  // Measure's panel is up as soon as it is the tool, empty: a heading with its snapping menu.
+  const measurePanel = pane.getByRole('region', { name: 'Measure controls', exact: true });
+  await measurePanel.waitFor();
   assert.equal(await view.tool('Measure').getAttribute('aria-pressed'), 'true');
-  await view.tool('Measure').click();
-  // Its snapping menu: no title and no descriptions, four rows, each the ruler badged with its
-  // mode as Select's are; the strip's button shows the mode in hand.
+  assert.equal(await page.locator('[role=menu]').count(), 0, 'the strip opens no menu');
+  // Its snapping: one button in its heading, beside the fold chevron and the X, showing the mode
+  // in hand; its menu is four plain rows, each its mode's own glyph at full size (All the ruler).
+  // The strip's button is the ruler badged with the mode in hand, as Select's is.
+  assert.deepEqual(await measurePanel.locator('[data-tool-panel-heading] button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))),
+    ['Measure snapping: All', 'Collapse measure controls', 'Close measure controls']);
   const snapping = page.locator('[role=menu][aria-label="Measure snapping"]');
-  await snapping.waitFor();
+  const snap = async name => {
+    await measurePanel.getByRole('button', { name: /^Measure snapping: / }).click();
+    await snapping.getByRole('menuitemradio', { name, exact: true }).click();
+    await snapping.waitFor({ state: 'detached' });
+  };
+  await measurePanel.getByRole('button', { name: /^Measure snapping: / }).click();
   assert.deepEqual(await snapping.getByRole('menuitemradio').allInnerTexts(), ['All', 'Points', 'Edges', 'Faces']);
-  assert.equal(await snapping.locator('[data-slot=dropdown-menu-label], [role=heading], .text-muted-foreground:not(svg)').count(), 0, 'no heading and no sublabels');
+  assert.equal(await snapping.locator('[data-slot=dropdown-menu-label], [role=heading], [role=separator]').count(), 0, 'no heading and no sublabels');
   const measureIcons = root => root.locator('svg[data-tool-icon-base]').evaluateAll(icons => icons.map(icon =>
     `${icon.dataset.toolIconBase}:${icon.querySelector('[data-tool-icon-badge]')?.dataset.toolIconBadge ?? ''}`));
   assert.deepEqual(await snapping.locator('svg[data-mode-glyph]').evaluateAll(icons => icons.map(icon => icon.dataset.modeGlyph)),
-    ['measure', 'points', 'edges', 'faces'], 'each row its mode\'s own glyph at full size; All the ruler');
+    ['measure', 'points', 'edges', 'faces']);
   assert.deepEqual(await measureIcons(snapping), [], 'no composite in the menu');
   const measureMode = () => view.tool('Measure').locator('[data-measure-mode]').getAttribute('data-measure-mode');
   assert.equal(await measureMode(), 'all');
   await snapping.getByRole('menuitemradio', { name: 'Edges', exact: true }).click();
+  await snapping.waitFor({ state: 'detached' });
   await page.waitForFunction(() => document.querySelector('[data-testid="one"] [data-cad-toolbar] [data-measure-mode]')?.getAttribute('data-measure-mode') === 'edges');
   assert.deepEqual(await measureIcons(view.tool('Measure')), ['measure:edges'], 'the strip follows the chosen mode');
-  await view.tool('Measure').click();
-  await page.getByRole('menuitemradio', { name: 'All', exact: true }).click();
+  assert.equal(await measurePanel.getByRole('button', { name: /^Measure snapping: / }).getAttribute('aria-label'), 'Measure snapping: Edges');
+  await snap('All');
   assert.equal(await measureMode(), 'all');
-  assert.equal(await view.tool('Measure').getAttribute('aria-pressed'), 'true', 'repeated activation and options keep Measure armed');
+  assert.equal(await view.tool('Measure').getAttribute('aria-pressed'), 'true', 'choosing a mode keeps Measure armed');
   // Measure says what the pointer does over the model: a crosshair, not Select's hand.
   await page.mouse.move(...at([0, 0, 5]));
   await view.waitCursor('crosshair');
   const measurements = page.getByRole('region', { name: 'Measurements' });
-  assert.equal(await measurements.count(), 0, 'no panel until something is measured');
+  assert.equal(await measurements.count(), 0, 'no results until something is measured');
   const measure = async (from, to) => {
     for (const point of [from, to]) {
       await page.mouse.move(...at(point));
@@ -1204,11 +1228,12 @@ test('Measure reads a distance between two picks; Draw lays ink over a STEP; and
   await measure([0, 10, 0], [15, -4, 4]);
   await page.waitForFunction(() => document.querySelectorAll('[aria-label="Measurements"] [role="listitem"]').length === 2);
   assert.equal(await page.getByRole('button', { name: /^Clear all$/i }).count(), 0, 'no Clear all footer: the tool and the panel X clear');
-  // Each ruler goes on its own; the last one takes the panel with it, and Measure keeps picking.
+  // Each ruler goes on its own; the last one leaves the panel empty, and Measure keeps picking.
   await measurements.getByRole('button', { name: 'Delete measurement 2', exact: true }).click();
   assert.equal(await measurements.getByRole('listitem').count(), 1);
   await measurements.getByRole('button', { name: 'Delete measurement 1', exact: true }).click();
   await measurements.waitFor({ state: 'detached' });
+  assert.equal(await measurePanel.isVisible(), true, 'the empty panel stays while Measure is the tool');
   assert.equal(await view.tool('Measure').getAttribute('aria-pressed'), 'true', 'removing the last ruler leaves Measure armed');
   await measure([0, 0, 5], [15, 0, 4]);
   await measurements.waitFor();
@@ -1216,22 +1241,24 @@ test('Measure reads a distance between two picks; Draw lays ink over a STEP; and
   assert.equal(await measurements.isVisible(), true, 'completed rulers persist under another pointer tool');
   assert.equal(await view.tool('Measure').getAttribute('aria-pressed'), 'true');
   assert.equal(await view.tool('Select').getAttribute('aria-pressed'), 'true');
-  await view.tool('Measure').locator('[data-tool-menu-corner]').click();
-  await page.getByRole('menuitemradio', { name: 'All', exact: true }).click();
-  assert.equal(await measurements.getByRole('listitem').count(), 1, 'corner activation preserves measurements');
+  // A mode in the kept panel takes Measure up again, results and all.
+  await snap('Points');
+  assert.equal(await measurements.getByRole('listitem').count(), 1, 'choosing a mode preserves measurements');
   assert.equal(await view.tool('Select').getAttribute('aria-pressed'), 'false');
+  await snap('All');
   await measure([0, 10, 0], [15, -4, 4]);
   assert.equal(await measurements.getByRole('listitem').count(), 2);
   await view.tool('Measure').click();
-  await measurements.waitFor({ state: 'detached' });
-  assert.equal(await view.tool('Measure').getAttribute('aria-pressed'), 'false', 'main press clears the retained tool');
+  await measurePanel.waitFor({ state: 'detached' });
+  assert.equal(await view.tool('Measure').getAttribute('aria-pressed'), 'false', 'a press on the armed tool clears it and puts it down');
   assert.equal(await view.tool('Select').getAttribute('aria-pressed'), 'true');
-  assert.equal(await page.getByRole('menu').count(), 0, 'clearing results does not open options');
-  // Idle again, Measure's corner is its first press: it selects the tool and opens nothing.
-  await view.tool('Measure').locator('[data-tool-menu-corner]').click();
-  await page.waitForTimeout(150);
-  assert.equal(await view.tool('Measure').getAttribute('aria-pressed'), 'true');
-  assert.equal(await page.getByRole('menu').count(), 0, 'a first press on the corner opens no options');
+  // Armed and empty, a second press puts it down too, like Explode and Clip.
+  await view.tool('Measure').click();
+  await measurePanel.waitFor();
+  await view.tool('Measure').click();
+  await measurePanel.waitFor({ state: 'detached' });
+  assert.equal(await view.tool('Select').getAttribute('aria-pressed'), 'true');
+  await view.tool('Measure').click();
   await measure([0, 0, 5], [15, 0, 4]);
   await measurements.waitFor();
   await view.tool('Select').click();
@@ -1623,7 +1650,6 @@ test('Animate starts playback and shows its panel — routine, speed and loop, p
   } finally { animation.source = original; }
   const { page, pane, errors } = view;
   const tool = view.tool('Animate');
-  assert.equal(await tool.locator('[data-tool-menu-corner]').count(), 0, 'no corner menu: its options are its panel');
   await tool.click();
   const bar = pane.getByRole('toolbar', { name: 'Animation playback' });
   await bar.getByRole('button', { name: 'Pause animation' }).waitFor();
@@ -1791,7 +1817,7 @@ test('reference CTA, double clicks and copy shortcut deliver references silently
   assert.deepEqual((await view.state()).isolatedPartIds, ['o1.1']);
   assert.equal(await page.evaluate(() => window.__clipboardWrites.length), 2, 'tree component double-click never copies');
   await view.tool('Select').click();
-  await page.getByRole('menuitemradio', { name: /^Faces/ }).click();
+  await view.chooseSelectMode('Faces');
   await page.mouse.dblclick(...at([6,6,5]));
   await page.waitForFunction(() => window.__clipboardWrites.length === 3);
   const face = await page.evaluate(() => window.__clipboardWrites[2]);
@@ -1811,7 +1837,7 @@ test('reference CTA, double clicks and copy shortcut deliver references silently
   await page.evaluate(() => { window.__clipboardWrites.splice(3); });
   await page.waitForTimeout(350);
   await view.tool('Select').click();
-  await page.getByRole('menuitemradio', { name: /^Edges/ }).click();
+  await view.chooseSelectMode('Edges');
   await page.mouse.dblclick(...at([10,6,5]));
   await page.waitForFunction(() => window.__clipboardWrites.length === 4);
   assert.match(await page.evaluate(() => window.__clipboardWrites[3]), /#o1\.1\.e\d+/);
@@ -1842,7 +1868,7 @@ test('reference CTA, double clicks and copy shortcut deliver references silently
 });
 
 
-test('toolbar tooltips wait for deliberate hover and never stick after selection or menu dismissal', async () => {
+test('toolbar tooltips wait for deliberate hover and never stick after selection or a second press', async () => {
   const view = await open();
   const { page } = view;
   const tips = page.getByRole('tooltip');
@@ -1861,10 +1887,11 @@ test('toolbar tooltips wait for deliberate hover and never stick after selection
   await page.getByRole('tooltip', { name: 'Measure', exact: true }).waitFor();
   await measure.click();
   await tips.waitFor({ state: 'detached' });
+  // A second press puts Measure down again and opens nothing: no tool has a menu on the strip.
   await measure.click();
-  await page.getByRole('menu').waitFor();
-  await page.keyboard.press('Escape');
-  await page.getByRole('menu').waitFor({ state: 'detached' });
+  await page.waitForTimeout(300);
+  assert.equal(await page.getByRole('menu').count(), 0);
+  assert.equal(await tips.count(), 0, 'a second press does not bring the tip back');
   await page.mouse.move(view.box.x + 20, view.box.y + 150);
   await view.tool('Select').click();
   await page.mouse.move(view.box.x + 20, view.box.y + 150);
@@ -1960,7 +1987,6 @@ test('Fullscreen settings and playback share visibility while editor controls st
   const { page, pane, errors } = view;
   const sheet = pane.locator('[data-cad-tool-stack]');
   await view.tool('Position').click();
-  assert.equal(await pane.getByRole('button', { name: 'Fullscreen', exact: true }).locator('[data-tool-menu-corner]').count(), 0, 'Preview is a direct action without a corner menu');
   await pane.getByRole('button', { name: 'Fullscreen', exact: true }).click();
   await sheet.waitFor({ state: 'hidden' });
   const bar = pane.getByRole('toolbar', { name: 'Animation playback' });
@@ -2074,11 +2100,10 @@ test('Draw history buttons track the SDK stacks, including empty canvas and disc
   const { page, pane, errors } = view;
   await view.tool('Draw').click();
   await page.waitForFunction(() => document.querySelector('[data-testid="one"] [data-drawing-ready]'));
-  // Draw's tools, color and history are a stack panel while it is up: no corner menu.
+  // Draw's tools, color and history are a stack panel while it is up.
   const panel = pane.locator('[data-tool-panel][aria-label="Drawing controls"]');
   await panel.waitFor();
   assert.deepEqual(await view.stack(), ['Drawing controls']);
-  assert.equal(await view.tool('Draw').locator('[data-tool-menu-corner]').count(), 0);
   const undo = panel.getByRole('button', { name: 'Undo', exact: true });
   const redo = panel.getByRole('button', { name: 'Redo', exact: true });
   assert.equal(await undo.isEnabled(), false);
@@ -2272,8 +2297,13 @@ test('mobile touch operates every STEP tool without hover or accidental pinch se
   const project = projector(await page.evaluate(() => window.__cadCamera()), sceneBox);
   // Collapse nothing: on a phone the Features panel is on screen with Select, as on desktop.
   assert.deepEqual(await view.stack(), ['Features']);
-  await view.tool('Select').tap();
-  await page.getByRole('menuitemradio', { name: 'Parts', exact: true }).tap();
+  // Select's modes are a menu in the Features filter row, by touch as by pointer: the strip opens no menu.
+  const tapMode = async name => {
+    await pane.getByRole('button', { name: /^Select mode: / }).tap();
+    await page.locator('[role=menu][aria-label="Select mode"]').getByRole('menuitemradio', { name, exact: true }).tap();
+    await page.locator('[role=menu]').waitFor({ state: 'detached' });
+  };
+  await tapMode('Parts');
   await page.touchscreen.tap(...project([6, 6, 5]));
   await page.waitForFunction(() => window.cadHarness.a.controller.readState().selectedPartIds.length === 1);
   assert.equal(await pane.locator('[data-mobile-panel]').count(), 0, 'a touch pick opens no sheet over the model');
@@ -2282,26 +2312,13 @@ test('mobile touch operates every STEP tool without hover or accidental pinch se
   await copyAction.waitFor();
   assert.ok((await copyAction.boundingBox()).width < 260, 'the mobile action hugs its content');
   assert.equal(await copyAction.locator('kbd').count(), 0, 'no desktop shortcut on mobile');
-  // Reopening the mode menu by touch at once, while the one just closed would still be fading
-  // out, opens it and keeps it open: a closed menu leaves nothing behind to take the tap.
-  const openMenu = page.locator('[role=menu][data-state=open]');
-  await view.tool('Select').tap();
-  await openMenu.getByRole('menuitemradio', { name: 'Faces', exact: true }).tap();
-  await view.tool('Select').tap();
-  await openMenu.waitFor({ timeout: 1000 });
-  await page.waitForTimeout(300);
-  assert.equal(await openMenu.count(), 1, 'the tap that reopened the menu does not close it again');
-  assert.equal(await page.locator('[role=menu]').count(), 1, 'and no closed menu lingers');
-  await page.keyboard.press('Escape');
-  await openMenu.waitFor({ state: 'detached' });
+  await tapMode('Faces');
   // Under Faces, one tap on a part picks the face under it.
   await page.touchscreen.tap(...project([15, 0, 4]));
   await page.waitForFunction(() => /\|o1\.2\.f\d+$/.test(window.cadHarness.a.controller.readState().selectedReferenceIds.join()));
-  await view.tool('Select').tap();
-  await openMenu.getByRole('menuitemradio', { name: 'All', exact: true }).tap();
+  await tapMode('All');
   await view.tool('Measure').tap();
-  await view.tool('Measure').tap();
-  await page.getByRole('menuitemradio', { name: 'All', exact: true }).tap();
+  await page.getByRole('region', { name: 'Measure controls', exact: true }).waitFor();
   for (const point of [[0, 0, 5], [15, 0, 4]]) await page.touchscreen.tap(...project(point));
   await page.getByRole('region', { name: 'Measurements', exact: true }).waitFor();
   assert.match(await page.getByRole('region', { name: 'Measurements', exact: true }).innerText(), /\d+\.\d+ mm/);

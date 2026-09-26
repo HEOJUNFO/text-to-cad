@@ -4,9 +4,9 @@ import { cn } from "@hardcore/ui/utils";
 import { FLOATING_SURFACE_CLASS } from "./floatingSurface.js";
 
 /**
- * A tool's corner menu: an ordinary dropdown under its own button, start-aligned, which may
- * overlap the tool stack while it is open. It is always temporary; what a person keeps is a
- * panel in the stack.
+ * A settings popover under its own button: an ordinary dropdown, start-aligned — fullscreen's
+ * orbit and animation settings (`OrbitMenu.jsx`, `PlayMenu.jsx`). It is always temporary. No
+ * tool on the strip has one: a tool's settings are its panel in the tool stack.
  *
  * It closes with no exit animation. A menu on its way out is still mounted, and its outside-
  * press layer still listens: a tap on the tool while the last menu was fading reopened the menu

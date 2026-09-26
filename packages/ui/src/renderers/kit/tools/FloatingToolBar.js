@@ -4,7 +4,8 @@ import { FLOATING_SURFACE_CLASS } from "./floatingSurface.js";
 
 /**
  * One tool of the strip. The strip draws it; whoever hands it over decides what
- * it is, when it exists and what pressing it does.
+ * it is, when it exists and what pressing it does. A press is the tool's only action: a tool
+ * has no menu on the strip — what it can be set to is its panel in the tool stack.
  *
  * @typedef {object} ViewportTool
  * @property {string} id
@@ -14,48 +15,15 @@ import { FLOATING_SURFACE_CLASS } from "./floatingSurface.js";
  * @property {boolean} [disabled]
  * @property {() => void} onSelect  Every press of the button.
  * @property {string} [description]  `aria-description`.
- * @property {(trigger: import("react").ReactElement) => import("react").ReactNode} [menu]
- *   Wraps the button as its menu's trigger.
- * @property {boolean} [menuOnCornerOnly] Reserve main presses for the tool action; only its corner opens options.
- * @property {() => void} [onMenuSelect] Activate options without invoking the main button action.
- * @property {boolean} [secondPressOpensMenu]  The first press takes up the tool and a
- *   press while it is active is spent on its menu. The corner follows the same rule: until it is active a pointer
- *   press never reaches the menu trigger, and Enter, Space and ArrowDown select it.
  */
 
 // A plain function, not a component: the strip's own output is the buttons.
 function toolButton(tool) {
   const active = tool.active === true;
-  const holdForMenu = tool.secondPressOpensMenu === true;
-  const cornerOnly = tool.menuOnCornerOnly === true;
-  const menuReady = active;
-  const cornerPress = event => Boolean(event?.target?.closest?.("[data-tool-menu-corner]"));
-  const button = <ToolbarButton className="relative" tooltipSide="top" label={tool.label} active={active} disabled={tool.disabled}
-    aria-pressed={active} aria-description={tool.description}
-    onPointerDown={holdForMenu ? event => {
-      if (!menuReady || (cornerOnly && !cornerPress(event))) event.preventDefault();
-      else if (cornerPress(event)) tool.onMenuSelect?.();
-    } : undefined}
-    onKeyDown={holdForMenu ? event => {
-      if (menuReady && cornerOnly && event.key === "ArrowDown") { tool.onMenuSelect?.(); return; }
-      if (cornerOnly && ["Enter", " "].includes(event.key)) { event.preventDefault(); tool.onSelect(); return; }
-      if (!menuReady && ["Enter", " ", "ArrowDown"].includes(event.key)) {
-        event.preventDefault(); tool.onSelect();
-      }
-    } : undefined}
-    onClick={event => {
-      // Popovers open on click; dropdowns open on pointer-down. Reserve the first
-      // icon press for activating the tool in either kind of options panel.
-      if (holdForMenu && (!menuReady || (cornerOnly && !cornerPress(event)))) event?.preventDefault?.();
-      if (!menuReady || !cornerPress(event)) tool.onSelect();
-    }}>
+  return <ToolbarButton tooltipSide="top" label={tool.label} active={active} disabled={tool.disabled}
+    aria-pressed={active} aria-description={tool.description} onClick={() => tool.onSelect()}>
     {tool.icon}
-    {tool.menu && holdForMenu ? <span data-tool-menu-corner="" aria-hidden="true"
-      className="absolute bottom-0 right-0 flex size-2 items-center justify-center">
-      <svg viewBox="0 0 5 5" className="pointer-events-none size-1" fill="currentColor"><path d="M5 0v5H0Z" /></svg>
-    </span> : null}
   </ToolbarButton>;
-  return tool.menu ? tool.menu(button) : button;
 }
 
 /**

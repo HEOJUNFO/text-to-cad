@@ -77,9 +77,9 @@ owner.
 
 | Tool | Pressing it | Leaving it |
 | --- | --- | --- |
-| Select | The default tool of STEP and robots; shows Features (Links) and, with a selection, the Reference panel; the STEP corner menu sets the mode | The selection is dropped; its panels leave the stack |
+| Select | The default tool of STEP and robots; shows Features (Links) and, with a selection, the Reference panel; a STEP's Select panel above them sets the mode | The selection is dropped; its panels leave the stack |
 | Draw | Draws on the view; its tools, color and history are the Drawing panel; a second press puts it down | The sketch is gone |
-| Measure | Arms picking; the corner menu chooses snapping | Unfinished picks are cancelled; completed measurements stay |
+| Measure | Arms picking and shows the Measure panel: its snapping modes, then its results; a press while it is up clears the results and puts it down | Unfinished picks are cancelled; completed measurements and their panel stay |
 | Explode / Clip | Opens a neutral panel; an edit applies the effect | A neutral panel goes; an applied effect and its panel stay |
 | Position | Shows joint handles and the Position panel | Handles and panel hide; joint values stay |
 | Animate | Starts playback and shows the Animate panel: Routine, Speed, Loop, and play/pause in its heading | Playback stops and the model returns to rest; Routine, Speed and Loop stay |
@@ -88,44 +88,49 @@ owner.
 A tree is Select's panel, so it is used under Select; a tree row's menu action
 returns to Select before it acts.
 
-**Corner menus.** A corner triangle marks a tool whose options are a temporary
-menu: Select's modes and Measure's snapping. A tool whose options stay up while
-it is in hand (Draw, Animate, Position) shows them as a panel of the stack
-instead, and has no corner menu. The first press takes up the tool, wherever it lands; a press while the
-tool is active opens the menu, and pressing again closes it. Enter, Space and
-ArrowDown select an inactive tool before they open anything. Menus are
-`ToolPopover`s (keyboard access, outside dismissal, Escape). **A corner menu is
-an ordinary dropdown under its own button, start-aligned, and may overlap the
-tool stack while it is open; only persistent panels live in the stack.** A
-closed menu unmounts at once, with no exit animation, so a quick second tap
-(touch included) always reaches the trigger. Choosing a value closes an
-ordinary option menu. Menu checks sit on the right.
+**No tool has a menu on the strip.** A press on a tool is its only action:
+it takes the tool up, and — for a tool that toggles (Draw, Measure, Explode,
+Clip, Display) — a press while it is up puts it down. Whatever a tool can be
+set to is its panel in the stack, up while the tool is: Select's modes, Measure's
+snapping, Draw's tools, Position's joints, Animate's routine. A tool's exclusive
+modes are never a panel or a row of their own: they are ONE small button in its
+panel's header row, just before the fold chevron, showing the mode in hand, whose
+dropdown lists the modes — each its glyph and its name — then any options that
+go with them (`kit/tools/ToolModeMenu.jsx`). Select's sits in the Features
+filter row, Measure's in the Measure heading. A dropdown is ordinary — under
+its own button, free to overlap the stack — and closes with no exit animation,
+so a quick second tap (touch included) always reaches its trigger. Choosing a
+value closes it; ticking an option leaves it open. Menu checks sit on the
+right. The other dropdowns over the viewport are its context menu and
+fullscreen's orbit and animation settings (`ToolPopover`, `OrbitMenu`,
+`PlayMenu`).
 
 **Select** (STEP) has four exclusive modes, each with its own glyph: **All**
 (the pointer), **Parts** (a cube), **Faces** (a cube, its top face filled) and
-**Edges** (a faint cube, one edge heavy). A menu row shows the mode's glyph at
-full size. The strip's Select button shows the mode in hand as ONE composite:
+**Edges** (a faint cube, one edge heavy). They are the mode menu in the
+Features filter row, beside its chevron; the button shows the mode in hand's
+glyph and each menu row its mode's glyph at full size. The strip's Select button shows the mode in hand as ONE composite:
 the pointer, with the mode's glyph shrunk to a badge in its top-right corner
 (cut out of the pointer so the two never touch at the strip's 14px), and the
 bare pointer for All (`data-select-mode`). One drawing of each glyph serves
-both sizes (`SelectionFilterMenu.jsx`). Parts is offered only in an assembly. Below a rule, two
+both sizes (`SelectionModes.jsx`). Parts is offered only in an assembly. Under the modes,
 checkboxes — **Edge chain** and **Tangent faces** — change how a pick grows,
 independently of the mode and of each other: Tangent faces applies under All
-and Faces, Edge chain under All and Edges; elsewhere it stays in the menu,
-disabled, its choice kept. Ticking one leaves the menu open. Nothing under the
-strip names the mode. The mode sets the Features tree's shape: under **All** it
+and Faces, Edge chain under All and Edges. Only the options that apply under the
+mode in hand are shown (both under All, none under Parts); a hidden one keeps
+its choice for when it applies again. Nothing under the strip names the mode. The mode sets the Features tree's shape: under **All** it
 is the person's own (put back as it was when they left All, with the owners of
 what is still selected kept open); **Parts** opens every assembly and shuts
 every part; **Faces** and **Edges** open everything down to the features whose
 faces and edges are picked. Outside All the disclosure is locked (chevrons
-shown, not pressable) and Expand/Collapse leave the menus. Under Faces or Edges
+shown, not pressable) and Expand/Collapse leave the row menus. Under Faces or Edges
 a part's topology is asked for as its row comes on screen in the tree, never for
 a whole large assembly at once; a viewport press on a part not yet loaded loads
 that part and picks, and the Features filter row says "Loading…" meanwhile.
 
 **Draw.** Its **Drawing** panel leads the stack while Draw is up: ONE row of
 controls that wraps to the stack's width — the tools, then Color, Undo, Redo and
-Clear inline after them — with no rule between them, no heading, no corner menu
+Clear inline after them — with no rule between them, no heading, no menu
 and no inset beyond the panel's own (its first button's left edge is the Features
 filter row's). It is the one panel that does not fold: a row of buttons, nothing
 folding it away would make room for. Choosing a drawing tool changes the toolbar
@@ -134,16 +139,18 @@ SquareMousePointer. The pencil and the shapes share one default stroke width.
 While Draw has ink, the bottom action is **Copy Drawing** (the view with its
 ink, as a PNG to the clipboard). Draw disables the cube without hiding it.
 
-**Measure.** Its corner menu is four plain radio rows — **All**, **Points**,
-**Edges**, **Faces** — with no title and no descriptions, each with the snapping
-mode's glyph at full size (All: the ruler; Points: a dot in a ring; Edges and
-Faces: Select's glyphs). The strip's Measure button shows the mode in hand as
-Select's does: the ruler badged with the mode's glyph (`data-measure-mode`).
-A measurement makes a results panel only once it is complete: no
-empty panel and no "pick two points" prompt. With results, pressing Measure or
-the panel's X clears them all, and the corner resumes picking and opens
-snapping. Removing the last result returns Measure to ordinary picking. There is
-no Clear All footer.
+**Measure.** Its **Measure** panel is up as soon as it is the tool, empty: a
+heading whose mode menu, beside the chevron and the X, holds the four snapping
+modes — **All**, **Points**, **Edges**, **Faces**, plain rows with no title and
+no descriptions, each the mode's glyph at full size (All: the ruler; Points: a
+dot in a ring; Edges and Faces: Select's glyphs) — and there is no "pick two
+points" prompt. The strip's Measure button shows the mode in hand
+as Select's does: the ruler badged with the mode's glyph (`data-measure-mode`).
+Completed measurements are the panel's body, and keep the panel in the
+stack when another tool is taken up; choosing a mode there takes Measure up
+again, results and all. A press on Measure while it is up — results or none —
+or the panel's X clears them all and puts it down. Removing the last result
+leaves Measure picking, its panel empty. There is no Clear All footer.
 
 **Explode and Clip** are toggles with no enabled checkbox. Explode opens at 0%,
 Clip at no cut; an edit applies the effect and the panel is then kept. A panel
@@ -381,7 +388,7 @@ STEP context-menu items; the live `resetCamera` command takes the same fit path.
 Animate starts playback when pressed, and its **Animate** panel leads the stack
 while it is the tool: headed "Animate" with play/pause and the fold chevron;
 Routine (with more than one) and Speed as a label beside its dropdown; then Loop.
-There is no corner menu. The playbar under the model owns pause, scrub and
+There is no menu on the strip. The playbar under the model owns pause, scrub and
 restart and has no settings of its own. Orbit is not an Animate setting.
 
 **Fullscreen** is available for every 3D file, animated or not, and is the

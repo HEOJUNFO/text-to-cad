@@ -14,44 +14,19 @@ test('the strip draws the tools it is handed, in order, and knows none by name',
   view.unmount();
 });
 
-test('every press reaches onSelect; a menu tool keeps its first press for itself', () => {
+test('every press reaches onSelect, and a press is all a tool is: no tool opens a menu from the strip', () => {
   const pressed = [];
-  const Menu = () => null;
   const view = render(FloatingToolBar, { tools: [
     tool('plain', { onSelect: () => pressed.push('plain') }),
-    tool('menu', { secondPressOpensMenu: true, description: 'again for the menu', onSelect: () => pressed.push('menu'),
-      menu: trigger => ({ type: Menu, props: { trigger }, key: null }) }),
+    tool('active', { active: true, description: 'described', onSelect: () => pressed.push('active') }),
   ] });
-  const [plain] = buttons(view.tree);
-  assert.equal(plain.props.onPointerDown, undefined);
+  const [plain, active] = buttons(view.tree);
   plain.props.onClick();
-  const trigger = elements(view.tree).find(node => node.type === Menu).props.trigger;
-  assert.equal(trigger.props['aria-description'], 'again for the menu');
-  let prevented = 0;
-  trigger.props.onPointerDown({ preventDefault: () => { prevented += 1; } });
-  trigger.props.onKeyDown({ key: 'ArrowDown', preventDefault: () => { prevented += 1; } });
-  trigger.props.onKeyDown({ key: 'a', preventDefault: () => { prevented += 1; } });
-  assert.equal(prevented, 2, 'until it is active, a press never opens the menu and the keyboard selects the tool');
-  assert.deepEqual(pressed, ['plain', 'menu']);
-  const corner = { target: { closest: () => ({}) }, preventDefault: () => { prevented += 1; } };
-  trigger.props.onPointerDown(corner);
-  trigger.props.onClick(corner);
-  assert.equal(prevented, 4, 'an inactive corner selects only, blocking menu pointer-down and click');
-  assert.deepEqual(pressed, ['plain', 'menu', 'menu'], 'a corner press activates once');
-
-  view.unmount();
-});
-
-test('an active menu tool lets its presses through to the menu', () => {
-  const view = render(FloatingToolBar, { tools: [
-    tool('first'),
-    tool('second', { active: true, secondPressOpensMenu: true }),
-    tool('third'),
-  ] });
-  const second = buttons(view.tree)[1];
-  let prevented = 0;
-  second.props.onPointerDown({ preventDefault: () => { prevented += 1; } });
-  second.props.onKeyDown({ key: 'Enter', preventDefault: () => { prevented += 1; } });
-  assert.equal(prevented, 0);
+  active.props.onClick();
+  active.props.onClick();
+  assert.deepEqual(pressed, ['plain', 'active', 'active'], 'a press on an active tool is the tool\'s too');
+  assert.equal(active.props['aria-description'], 'described');
+  assert.equal(elements(view.tree).some(node => node.props['data-tool-menu-corner'] !== undefined), false, 'no corner marker');
+  assert.equal([plain, active].some(node => node.props.onPointerDown || node.props.onKeyDown), false);
   view.unmount();
 });

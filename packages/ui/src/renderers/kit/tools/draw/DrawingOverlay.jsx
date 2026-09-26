@@ -18,7 +18,7 @@ export default function DrawingOverlay({ drawing, onReady, onContentChange, onVi
   const { platform } = useViewerHost().environment;
   return <div className="absolute inset-0 z-10" data-cad-drawing-overlay="">
     <Suspense fallback={null}>
-      {/* The host exposes drawing controls through Draw's corner dropdown. */}
+      {/* The host draws the controls: Draw's panel in the tool stack. */}
       <DrawingEditor mode="overlay" toolbar={false} initialTool={CAD_DRAWING_DEFAULTS.tool} name="CAD drawing" platform={platform} onReady={onReady}
         onHistoryChange={drawing?.onHistoryChange} onToolChange={drawing?.onToolChange} onColorChange={drawing?.onColorChange}
         onContentChange={onContentChange} onViewportChange={onViewportChange} />

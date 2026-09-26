@@ -1,6 +1,6 @@
 /**
  * The Select tool's modes: exclusive, each the pointer badged with its mode on the strip
- * (`components/workbench/SelectionFilterMenu.jsx`). `assemblyOnly`: a single part is one
+ * (`components/workbench/SelectionModes.jsx`). `assemblyOnly`: a single part is one
  * thing, so picking parts in it would pick nothing but the whole.
  */
 export const SELECT_MODES = [
@@ -29,7 +29,7 @@ export function connectedSelectionApplies(id, mode) {
 
 /**
  * Measure's snapping modes, exclusive, each with Select's badge treatment on the ruler
- * (`components/workbench/SelectionFilterMenu.jsx`): All snaps to points, edges and faces; Points
+ * (`components/workbench/SelectionModes.jsx`): All snaps to points, edges and faces; Points
  * to points alone (point-to-point distance); Edges and Faces to that topology only.
  */
 export const MEASURE_SNAP_MODES = [

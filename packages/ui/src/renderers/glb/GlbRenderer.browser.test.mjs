@@ -101,7 +101,6 @@ test('fullscreen stays separate from conditional GLB animation tools', async (t)
   const { page, pane, errors } = await open('animated.glb');
   await ready(pane);
   const animate = pane.getByRole('button', { name: 'Animate', exact: true });
-  assert.equal(await animate.locator('[data-tool-menu-corner]').count(), 0, 'no corner menu: its options are the Animate panel');
   assert.equal(await pane.getByRole('toolbar', { name: 'Animation playback' }).count(), 0);
   await animate.click();
   await pane.getByRole('button', { name: 'Pause animation', exact: true }).waitFor();

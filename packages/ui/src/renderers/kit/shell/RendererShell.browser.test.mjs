@@ -669,11 +669,10 @@ test('the shell keeps its Draw session across fullscreen, and fullscreen drags a
   await pane.getByRole('button', { name: 'Draw', exact: true }).waitFor();
   assert.equal(await pane.getByRole('button', { name: 'Draw', exact: true }).getAttribute('aria-pressed'), 'true',
     'the session the sketch is in survives a trip through fullscreen');
-  // Its tools, color and history are a panel in the tool stack for as long as Draw is the tool —
-  // no corner menu — and a second press puts Draw down, panel and all.
+  // Its tools, color and history are a panel in the tool stack for as long as Draw is the tool,
+  // and a second press puts Draw down, panel and all.
   const drawPanel = pane.locator('[data-tool-panel][aria-label="Drawing controls"]');
   await drawPanel.waitFor();
-  assert.equal(await pane.getByRole('button', { name: 'Draw', exact: true }).locator('[data-tool-menu-corner]').count(), 0);
   await pane.getByRole('button', { name: 'Draw', exact: true }).click();
   await drawPanel.waitFor({ state: 'detached' });
   assert.equal(await pane.getByRole('button', { name: 'Draw', exact: true }).getAttribute('aria-pressed'), 'false');

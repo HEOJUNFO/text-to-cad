@@ -33,7 +33,7 @@ export function useStepPanels({
   // and edges (the viewport's menu over that topology), and the one set of actions behind both.
   menuForNode = null, menuForReferences = null, partMenuActions = null,
   treeSelectionDisabled = false, selectMode = 'all', loadingGeometry = false,
-  statusItems = EMPTY, positionRuntime = null,
+  statusItems = EMPTY, positionRuntime = null, selectModeMenu = null,
 }) {
   const recognitionKey = `${selectedEntry?.file}:${geometryInspection?.revision}`;
   const [recognitionRequest, setRecognitionRequest] = useState({ key: recognitionKey, ids: EMPTY });
@@ -69,7 +69,7 @@ export function useStepPanels({
   return <>
     {/* Features, then the Reference for a selection: both the tree's, which knows what is picked in it. */}
     <ModelingTree key={`${selectedEntry.file}:${geometryInspection?.revision}`}
-      modeling={modeling} stepRoot={stepTreeRoot} active={selectActive} mode={selectMode} loading={loadingGeometry}
+      modeling={modeling} stepRoot={stepTreeRoot} active={selectActive} mode={selectMode} modeMenu={selectModeMenu} loading={loadingGeometry}
       onRequestRecognition={onRequestRecognition}
       disabled={treeSelectionDisabled || viewerLoading}
       references={modelReferences} selectedReferences={selectedReferences}
