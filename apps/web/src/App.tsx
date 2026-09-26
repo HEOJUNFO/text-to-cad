@@ -105,12 +105,14 @@ function RootView({ client, server }: { client: CadClient; server: CadServerInfo
     navigation: { openFile: open }, environment: { ...appearance, platform: keyboardPlatform() },
   }), [source, fileActions, promptContext, open, appearance]);
   const empty = <div className="pointer-events-auto absolute inset-0 z-10 bg-background"><EmptyState icon={FileText} title="No file open" description="Pick one from the tree on the right, or filter by name." /></div>;
+  // Unselected while the catalog resolves the file; once it has, a missing file is named by its own crumbs.
+  const navigationPath = selectedEntry ? normalizeCadFileQueryParam(cadFileParamForEntry(selectedEntry)) : catalog.hydrated ? normalizeCadFileQueryParam(file) || null : null;
   return <div className="flex h-svh flex-col overflow-hidden"><div className="min-h-0 flex-1">
     <FileViewer file={file || null} host={host} renderers={renderers} state={state} onStateChange={setState}
-      leading={<ViewerBrand title={file ? "" : "text-to-cad"} />} navigationActions={<ViewerLinks />}
+      // The app names itself wherever no crumbs do: no file, or one still resolving.
+      leading={<ViewerBrand title={navigationPath ? "" : "text-to-cad"} />} navigationActions={<ViewerLinks />}
       displayActions={<ViewerAppearance colorSchemePreference={colorSchemePreference} resolvedColorSchemeMode={appearance.colorScheme} onColorSchemePreferenceChange={changeColorScheme} />}
-      // Unselected while the catalog resolves the file; once it has, a missing file is named by its own crumbs.
-      navigationPath={selectedEntry ? normalizeCadFileQueryParam(cadFileParamForEntry(selectedEntry)) : catalog.hydrated ? normalizeCadFileQueryParam(file) || null : null}
+      navigationPath={navigationPath}
       onError={error => console.error(error)} presentation={{
         empty: <div className="relative h-full">{empty}</div>,
         loading: <div className="relative h-full"><ViewerLoadingOverlay viewerLoading /></div>,

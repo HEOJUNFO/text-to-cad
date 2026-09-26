@@ -73,11 +73,13 @@ test('web host preserves compact navigation, history, root state and focus refre
     assert.deepEqual(await autoReloadOptions().fetchServerInfo(), { ok: true, identityToken: 'restarted' });
     assert.deepEqual(serverCalls[0], { fresh: true });
     assert.equal(snapshot().navigationPath, null);
+    assert.equal(snapshot().leading.props.title, 'text-to-cad', 'while the file is resolving there are no crumbs, so the app names itself');
     await act(() => {
       catalog = { ...catalog, entries: [{ file: 'one.step' }, { file: 'folder/two.step' }], hydrated: true, refreshing: false, revision: 1 };
       for (const listener of listeners) listener();
     });
     assert.equal(snapshot().navigationPath, 'one.step');
+    assert.equal(snapshot().leading.props.title, '', 'once the crumbs name the file the title goes');
     // A page load is a file opened directly, so it opens on that file's own default panel
     // (`null`) — a narrow window included — and never on one a previous page left open.
     assert.equal(snapshot().state.panel, null);
