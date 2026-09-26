@@ -167,23 +167,43 @@ class TopLevelCoalescing(unittest.TestCase):
         except FileNotFoundError:
             return 0
 
+    def _evidence(self, proc: subprocess.Popen | None = None) -> str:
+        """What a failed wait needs to say: the requester's streams (a --json run
+        reports failure on stdout) and the daemon's log."""
+        parts = []
+        if proc is not None and proc.poll() is not None:
+            out, err = proc.communicate(timeout=10)
+            parts.append(f"requester stdout:\n{out}\nrequester stderr:\n{err}")
+        try:
+            parts.append("daemon log tail:\n" + "\n".join(self.log_path.read_text(encoding="utf-8").splitlines()[-40:]))
+        except OSError:
+            pass
+        return "\n".join(parts)
+
     def _wait_runs(self, name: str, count: int, *procs: subprocess.Popen) -> None:
         deadline = time.monotonic() + 120
         while self._runs(name) < count:
-            self.assertLess(time.monotonic(), deadline, f"{name}: body never ran {count} time(s)")
+            self.assertLess(time.monotonic(), deadline, f"{name}: body never ran {count} time(s)\n{self._evidence()}")
             for proc in procs:
-                self.assertIsNone(proc.poll(), f"{name}: a requester exited early:\n{proc.stderr.read()}")
+                self.assertIsNone(proc.poll(), f"{name}: a requester exited early:\n{self._evidence(proc)}")
             time.sleep(0.02)
 
     def _coalesced(self) -> int:
-        status = daemon_client.status() or {}
-        return int((status.get("jobsRunning") or {}).get("coalesced") or 0)
+        deadline = time.monotonic() + 30
+        while True:
+            status = daemon_client.status()
+            if status is not None:
+                return int((status.get("jobsRunning") or {}).get("coalesced") or 0)
+            # A status reply can be slow on a loaded machine; a daemon that is
+            # gone stays gone, and that is the evidence to show.
+            self.assertLess(time.monotonic(), deadline, f"the daemon stopped answering status\n{self._evidence()}")
+            time.sleep(0.5)
 
     def _wait_coalesced(self, before: int, proc: subprocess.Popen) -> None:
-        deadline = time.monotonic() + 60
+        deadline = time.monotonic() + 120
         while self._coalesced() <= before:
-            self.assertLess(time.monotonic(), deadline, "the second request never joined the job in flight")
-            self.assertIsNone(proc.poll(), f"the second request exited before joining:\n{proc.stderr.read()}")
+            self.assertLess(time.monotonic(), deadline, f"the second request never joined the job in flight\n{self._evidence()}")
+            self.assertIsNone(proc.poll(), f"the second request exited before joining:\n{self._evidence(proc)}")
             time.sleep(0.05)
 
     def _release(self, name: str) -> None:
