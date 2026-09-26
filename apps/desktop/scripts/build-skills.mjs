@@ -25,7 +25,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { integrations } from "../src/main/integrations/registry.mjs";
+// Every plugin's skills ship; which a run hands to agents is `HARDCORE_PLUGINS`'s (integrations/skills.ts).
+import { allIntegrations as integrations } from "../src/main/integrations/registry.mjs";
 import { plugins } from "../src/plugins/index.mjs";
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

@@ -81,7 +81,7 @@ test.afterAll(async () => { await app?.close(); if (base) fs.rmSync(base, { recu
 test('real ACP session starts isolated domain MCPs and operates the live app resources', async () => {
   test.setTimeout(180_000);
   const catalog = await proof({ operation: 'catalog' }) as { catalog: Array<{ name: string; tools: string[] }> };
-  expect(catalog.catalog.map(entry => entry.name).sort()).toEqual(['browser', 'cad', 'documents', 'drawings', 'gcode', 'pdf', 'terminals', 'workspace'].map(name => `hardcore-${name}`).sort());
+  expect(catalog.catalog.map(entry => entry.name).sort()).toEqual(['browser', 'cad', 'csv', 'documents', 'drawings', 'gcode', 'pdf', 'terminals', 'workspace'].map(name => `hardcore-${name}`).sort());
   expect(catalog.catalog.find(entry => entry.name === 'hardcore-documents')?.tools).toContain('edit_document');
   expect(catalog.catalog.find(entry => entry.name === 'hardcore-pdf')?.tools).not.toContain('edit_document');
 

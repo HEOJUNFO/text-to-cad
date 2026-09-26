@@ -1,33 +1,76 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { selectRenderer, type FileMetadata } from "@hardcore/ui/file-viewer";
+import { parseTable, tableState } from "@plugins/csv/table";
 import { parseGcode } from "@plugins/gcode/parse";
 import { plugins } from "@plugins/index.mjs";
-import { rendererPlugins } from "@plugins/renderer";
-import { codeRenderer } from "@renderer/features/explorer/renderers/code";
+import { allRendererPlugins, rendererPlugins, setEnabledPlugins } from "@plugins/renderer";
+import { createDesktopRenderers } from "@renderer/features/explorer/renderers";
 import cup from "../../fixtures/gcode/cup.gcode?raw";
 
 const file = (path: string, mediaType: string, mime?: string): FileMetadata => ({
   path, name: path.split("/").at(-1) ?? path, kind: "file", size: 12,
   extension: path.split(".").at(-1)?.toLowerCase() ?? "", mediaType, mime,
 });
-const tab = { projectId: "p", root: null, tabId: "t" };
+const opens = (path: string, mediaType: string, mime?: string) => {
+  const composition = createDesktopRenderers("p", null, "t", { acquire: async () => { throw new Error("no CAD backend in a unit test"); } });
+  try { return selectRenderer(composition.renderers, file(path, mediaType, mime)).id; }
+  finally { composition.dispose(); }
+};
+
+afterEach(() => setEnabledPlugins(plugins.map(plugin => plugin.id)));
 
 describe("plugins, from the page", () => {
-  it("the page composes one plugin per manifest, in order", () => {
-    expect(rendererPlugins.map(plugin => plugin.manifest)).toEqual([...plugins]);
+  it("the page has one plugin per manifest, in order", () => {
+    expect(allRendererPlugins.map(plugin => plugin.manifest)).toEqual([...plugins]);
   });
 
-  it("a plugin's viewer takes its files before the code editor does", () => {
-    const renderers = [codeRenderer, ...rendererPlugins.flatMap(plugin => plugin.renderers(tab))];
-    expect(selectRenderer(renderers, file("cup.gcode", "text", "text/x-gcode")).id).toBe("gcode");
-    expect(selectRenderer(renderers, file("paper.pdf", "pdf", "application/pdf")).id).toBe("pdf");
-    expect(selectRenderer(renderers, file("notes.txt", "text", "text/plain")).id).toBe("code");
+  it("with every plugin on, each plugin's files open in its viewer, before the code editor", () => {
+    expect(opens("cup.gcode", "text", "text/x-gcode")).toBe("gcode");
+    expect(opens("paper.pdf", "pdf", "application/pdf")).toBe("pdf");
+    expect(opens("sheet.csv", "text", "text/csv")).toBe("csv");
+    expect(opens("part.step", "cad", "model/step")).toBe("step");
+    expect(opens("notes.txt", "text", "text/plain")).toBe("code");
+  });
+
+  it("the base app alone opens text, Markdown and images, and nothing else", () => {
+    setEnabledPlugins([]);
+    expect(rendererPlugins()).toEqual([]);
+    expect(opens("part.step", "cad", "model/step")).toBe("unsupported");
+    expect(opens("paper.pdf", "pdf", "application/pdf")).toBe("unsupported");
+    expect(opens("sheet.csv", "text", "text/csv")).toBe("code");
+    expect(opens("README.md", "text", "text/markdown")).toBe("markdown");
+    expect(opens("photo.png", "image", "image/png")).toBe("image");
+  });
+
+  it("one plugin on is that plugin's viewers and no other's", () => {
+    setEnabledPlugins(["csv"]);
+    expect(rendererPlugins().map(plugin => plugin.manifest.id)).toEqual(["csv"]);
+    expect(opens("sheet.csv", "text", "text/csv")).toBe("csv");
+    expect(opens("part.step", "cad", "model/step")).toBe("unsupported");
   });
 
   it("a G-code command for a tab with no toolpath showing is refused, not answered from elsewhere", async () => {
-    const gcode = rendererPlugins.find(plugin => plugin.manifest.id === "gcode")!;
+    const gcode = allRendererPlugins.find(plugin => plugin.manifest.id === "gcode")!;
     await expect(gcode.perform("gcode-state", { tabId: "t" }, { projectId: "p", root: null, path: "cup.gcode" })).rejects.toThrow(/No G-code toolpath/);
+  });
+
+  it("a CAD command for a tab that is not a CAD file is refused", async () => {
+    const cad = allRendererPlugins.find(plugin => plugin.manifest.id === "cad")!;
+    await expect(cad.perform("viewer-state", { tabId: "t" }, { projectId: "p", root: null, path: "notes.txt" })).rejects.toThrow(/does not contain a CAD model/);
+  });
+});
+
+describe("the CSV example plugin", () => {
+  it("reads quoted fields, separators and newlines inside quotes, and TSV", () => {
+    expect(parseTable('name,note\n"Smith, J","said ""hi""\nthen left"\r\nLee,ok\n')).toEqual([
+      ["name", "note"], ["Smith, J", 'said "hi"\nthen left'], ["Lee", "ok"],
+    ]);
+    expect(parseTable("a\tb\n1\t2", "\t")).toEqual([["a", "b"], ["1", "2"]]);
+  });
+
+  it("describes a table's shape for the agent", () => {
+    expect(tableState("t.csv", [["a", "b"], ["1", "2"], ["3", "4"]])).toEqual({ path: "t.csv", header: ["a", "b"], rows: 2, columns: 2, firstRows: [["1", "2"], ["3", "4"]] });
   });
 });
 

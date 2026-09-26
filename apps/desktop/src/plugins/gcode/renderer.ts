@@ -6,7 +6,7 @@ import { createGcodeRenderer } from "./viewer";
 /** The G-code plugin: a toolpath viewer per tab, and its commands answered from that viewer. */
 const gcode: RendererPlugin = {
   manifest,
-  renderers: (tab) => [createGcodeRenderer(tab)],
+  viewers: (tab) => ({ renderers: [createGcodeRenderer(tab)] }),
   perform: performGcodeCommand,
 };
 export default gcode;

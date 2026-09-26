@@ -159,13 +159,7 @@ const BASE_TYPES: ReadonlyArray<readonly [FileKind, string, readonly string[]]> 
   ["image", "image/bmp", ["bmp"]],
   ["image", "image/x-icon", ["ico"]],
   ["image", "image/avif", ["avif"]],
-  // The nine extensions the CAD Viewer's file surface understands (plan §3).
-  ["cad", "model/step", ["step", "stp"]],
-  ["cad", "model/gltf-binary", ["glb"]],
-  ["cad", "model/stl", ["stl"]],
-  ["cad", "model/3mf", ["3mf"]],
-  ["cad", "image/vnd.dxf", ["dxf"]],
-  ["cad", "application/xml", ["urdf", "srdf", "sdf"]],
+  // CAD's nine extensions are the CAD plugin's rows (src/plugins/cad/manifest.mjs).
   ["binary", "application/zip", ["zip", "gz", "tgz", "bz2", "xz", "7z", "rar"]],
   ["binary", "font/woff2", ["woff", "woff2", "ttf", "otf", "eot"]],
   ["binary", "video/mp4", ["mp4", "mov", "webm", "avi", "mkv"]],
@@ -185,8 +179,11 @@ const BASE_TYPES: ReadonlyArray<readonly [FileKind, string, readonly string[]]> 
   ["text", "text/x-c", ["c", "h", "cc", "cpp", "hpp", "cxx"]],
   ["text", "text/x-sh", ["sh", "bash", "zsh", "fish"]],
   ["text", "text/x-sql", ["sql"]],
-  ["text", "text/plain", ["txt", "log", "csv", "tsv", "env", "ini", "cfg", "conf", "lock"]],
+  ["text", "text/plain", ["txt", "log", "env", "ini", "cfg", "conf", "lock"]],
 ];
+
+// Every plugin's rows, enabled or not: what kind of file an extension is does not change with the
+// plugins a run turns on; which viewer opens it does.
 
 const TYPES: ReadonlyArray<readonly [FileKind, string, readonly string[]]> = [
   ...BASE_TYPES,

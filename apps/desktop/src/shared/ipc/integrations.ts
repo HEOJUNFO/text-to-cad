@@ -5,9 +5,9 @@ import { invoke } from "./define";
 /** The app's own commands; a plugin's come from its manifest (`src/plugins`). */
 const APP_COMMAND_KINDS = [
   "open-file", "reveal", "open-url", "open-drawing", "drawing-state", "drawing-capture", "drawing-rename",
-  "list-tabs", "show-tab", "close-tab", "viewer-state", "select-reference", "capture-view",
+  "list-tabs", "show-tab", "close-tab",
   "document-read", "document-edit", "document-save",
-  "terminal-open", "tab-resource", "cad-clear-selection", "cad-camera", "cad-reset-camera", "cad-render-mode",
+  "terminal-open", "tab-resource",
 ] as const;
 type Plugin = (typeof plugins)[number];
 export type PluginCommandKind = Plugin extends infer Each ? Each extends Plugin ? Each["commands"][keyof Each["commands"]] : never : never;

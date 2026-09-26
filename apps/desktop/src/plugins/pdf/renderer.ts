@@ -10,7 +10,7 @@ import { pdfRenderer } from "./viewer";
  */
 const pdf: RendererPlugin = {
   manifest,
-  renderers: () => [pdfRenderer],
+  viewers: () => ({ renderers: [pdfRenderer] }),
   perform: (kind, params, scope) => performPdfCommand(kind, params, scope),
 };
 export default pdf;

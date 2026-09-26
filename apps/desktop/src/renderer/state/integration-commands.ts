@@ -1,5 +1,4 @@
 /** Authenticated integration commands. Background reads never change project or focus. */
-import { isCadFile } from "@hardcore/core/lib/fileFormats.js";
 import { emptyDrawingDocument, parseDrawingScene } from "@hardcore/core/drawing";
 import { selectRenderer } from "@hardcore/ui/file-viewer";
 import { rendererPlugins } from "@plugins/renderer";
@@ -12,7 +11,6 @@ import { getDrawingScene } from "./drawings";
 import { useProjects } from "./projects";
 import { useSessions } from "./sessions";
 import { hasDirtyDocument, performDocumentCommand } from "./live-documents";
-import { performCadViewerCommand } from "./live-cad";
 
 async function rendererIdForPath(projectId: string, root: string | null, path: string, tabId: string) {
   const composition = createDesktopRenderers(projectId, root, tabId);
@@ -67,7 +65,7 @@ export async function performIntegrationCommand(command: IntegrationCommand, sig
     if (tab.kind !== "file" || !tab.path) throw new Error("This is not a document tab.");
     return performDocumentCommand(command.kind, { ...params, tabId: tab.id }, { ...scope, path: tab.path });
   }
-  const plugin = rendererPlugins.find(candidate => Object.values(candidate.manifest.commands).includes(command.kind));
+  const plugin = rendererPlugins().find(candidate => Object.values(candidate.manifest.commands).includes(command.kind));
   if (plugin) {
     const tab = await scopedTab(command, signal);
     signal?.throwIfAborted();
@@ -142,18 +140,6 @@ export async function performIntegrationCommand(command: IntegrationCommand, sig
       const tab = await openSessionTab(command.sessionId, command.projectId, scope.root, "terminal", { cwd: String(params.cwd ?? command.rootDirectory), ptyId: String(params.ptyId) }, signal);
       if (!tab) throw new Error("the explorer could not open a terminal tab");
       return { tabId: tab.id, ptyId: params.ptyId, cwd: params.cwd };
-    }
-    case "viewer-state":
-    case "select-reference":
-    case "cad-clear-selection":
-    case "cad-camera":
-    case "cad-reset-camera":
-    case "cad-render-mode":
-    case "capture-view": {
-      const tab = await scopedTab(command, signal);
-      signal?.throwIfAborted();
-      if (tab.kind !== "file" || !tab.path || !isCadFile(tab.path)) throw new Error("this tab does not contain a CAD model");
-      return performCadViewerCommand(command.kind, { ...params, tabId: tab.id }, { ...scope, path: tab.path });
     }
   }
 }
