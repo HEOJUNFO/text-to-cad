@@ -26,6 +26,13 @@ document tree comes entirely from that STEP's
 read-back, through the same builder a cold import uses. Only the latter belongs
 under the document byte digest. Resolved appearance and the occurrence mapping
 are returned as private publication data, never inserted into that tree.
+
+That read-back is VERIFIED, never trusted (STORE.md §5, read-back
+verification): every distinct component the document carries back is
+compared with the shape the model returned — solid count, volume, bounds —
+and a read-back that BRepCheck rejects where the source passed is a lossy
+translation. Any of these fails the build with the occurrence, the label and
+the numbers, before anything is published under the document's digest.
 """
 
 from __future__ import annotations
@@ -789,6 +796,139 @@ def _document_correspondence(
     return occurrence_map, appearance, node_map
 
 
+# Read-back verification tolerances. A STEP round trip of the same surfaces
+# reproduces volume to ~1e-12 relative and bounds to the kernel's precision;
+# real translation damage — a sphere cap replaced by its complement, a solid
+# blown into a spike, a member dropped — is orders of magnitude past these.
+READBACK_VOLUME_RELATIVE = 1e-4
+READBACK_BOUNDS_RELATIVE = 1e-4
+READBACK_BOUNDS_ABSOLUTE = 1e-3  # mm
+
+
+@dataclass(frozen=True)
+class ReadbackFacts:
+    """What a component is measured by on both sides of the STEP round trip."""
+
+    solids: int
+    volume: float
+    bounds: tuple[float, float, float, float, float, float] | None
+
+    @property
+    def extent(self) -> float:
+        if self.bounds is None:
+            return 0.0
+        return max(self.bounds[axis + 3] - self.bounds[axis] for axis in range(3))
+
+
+def readback_facts(shape: Any) -> ReadbackFacts:
+    """Solid count, volume and axis-aligned bounds of one unlocated ``TopoDS_Shape``.
+
+    Bounds come from the surface control hulls (no triangulation), so both
+    sides are measured the same way whether or not the source was meshed.
+    """
+    from OCP.Bnd import Bnd_Box
+    from OCP.BRepBndLib import BRepBndLib
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+    from OCP.TopAbs import TopAbs_ShapeEnum
+    from OCP.TopExp import TopExp_Explorer
+
+    solids = 0
+    explorer = TopExp_Explorer(shape, TopAbs_ShapeEnum.TopAbs_SOLID)
+    while explorer.More():
+        solids += 1
+        explorer.Next()
+    volume = 0.0
+    if solids:
+        props = GProp_GProps()
+        BRepGProp.VolumeProperties_s(shape, props)
+        volume = float(props.Mass())
+    box = Bnd_Box()
+    BRepBndLib.Add_s(shape, box, False)
+    bounds = None if box.IsVoid() else tuple(float(v) for v in box.Get())
+    return ReadbackFacts(solids=solids, volume=volume, bounds=bounds)
+
+
+def compare_readback(written: ReadbackFacts, read: ReadbackFacts) -> str | None:
+    """The first discrepancy between what was written and what read back, or None."""
+    if written.solids != read.solids:
+        return f"{written.solids} solid(s) written, {read.solids} read back"
+    if written.solids:
+        scale = max(abs(written.volume), abs(read.volume))
+        if not math.isfinite(read.volume) or abs(written.volume - read.volume) > READBACK_VOLUME_RELATIVE * scale:
+            return (
+                f"volume {written.volume:.6g} mm³ written, {read.volume:.6g} mm³ read back "
+                f"(limit {READBACK_VOLUME_RELATIVE:.0e} relative)"
+            )
+    if (written.bounds is None) != (read.bounds is None):
+        return f"bounds {written.bounds} written, {read.bounds} read back"
+    if written.bounds is not None and read.bounds is not None:
+        limit = READBACK_BOUNDS_ABSOLUTE + READBACK_BOUNDS_RELATIVE * max(written.extent, read.extent)
+        for index, name in enumerate(("xmin", "ymin", "zmin", "xmax", "ymax", "zmax")):
+            if not math.isfinite(read.bounds[index]) or abs(written.bounds[index] - read.bounds[index]) > limit:
+                return (
+                    f"{name} {written.bounds[index]:.6g} written, {read.bounds[index]:.6g} read back "
+                    f"(limit {limit:.3g} mm)"
+                )
+    return None
+
+
+def _brepcheck_valid(shape: Any) -> bool:
+    from OCP.BRepCheck import BRepCheck_Analyzer
+
+    return BRepCheck_Analyzer(shape, True, True).IsValid()
+
+
+def _topology_codes(shape: Any) -> str:
+    from build123d import Compound
+
+    from cadgen.geometry import GeometryError, topology_errors
+
+    try:
+        issues = topology_errors(Compound.cast(shape))
+    except (GeometryError, TypeError, ValueError):
+        return "BRepCheck reports it invalid"
+    codes: list[str] = []
+    for issue in issues:
+        kinds = "/".join(type(entity).__name__.lower() for entity in issue.entities)
+        code = f"{issue.code} on {kinds}"
+        if code not in codes:
+            codes.append(code)
+    if not codes:
+        return "BRepCheck reports it invalid"
+    return ", ".join(codes[:6]) + (" …" if len(codes) > 6 else "")
+
+
+def verify_readback_component(label: str, written: Any, read: Any) -> ReadbackFacts:
+    """Fail unless ``read`` (the document's prototype) is the solid ``written`` was.
+
+    ``written`` is the model's own shape with its placement stripped, ``read``
+    the unlocated prototype the STEP carried back. Solid count, volume and
+    bounds must agree within the tolerances above. Validity is asked of the
+    read-back first; only when BRepCheck rejects it is the source examined, so
+    a clean round trip costs one analyzer pass and a source the model itself
+    left invalid is never blamed on the writer.
+    """
+    written_facts = readback_facts(written)
+    read_facts = readback_facts(read)
+    discrepancy = compare_readback(written_facts, read_facts)
+    if discrepancy is not None:
+        raise RuntimeError(
+            f"{label} reads back from the STEP as different geometry: {discrepancy}. "
+            "OCCT's STEP translation of this solid is lossy; rework the feature "
+            "(sphere/spline booleans and near-coincident surfaces are the usual causes) "
+            "or split it, then rebuild"
+        )
+    if not _brepcheck_valid(read) and _brepcheck_valid(written):
+        raise RuntimeError(
+            f"{label} reads back from the STEP invalid where the returned solid was valid: "
+            f"{_topology_codes(read)}. OCCT's STEP translation damaged this solid; "
+            "rework the feature (near-coincident surfaces are the usual cause) or "
+            "split it, then rebuild"
+        )
+    return read_facts
+
+
 def _reread_component(
     scene: Any, node: Any, occurrence: dict[str, Any], step_name: str, *, written: Any
 ) -> tuple[Any, dict[int, tuple] | None]:
@@ -931,6 +1071,10 @@ def build_tree_through_step(
 
     Any own occurrence the re-read does not account for — no node at its id, a
     member without a shape, a placement that moved — is a hard error (law 10).
+    So is a component that reads back as different geometry
+    (:func:`verify_readback_component`: solid count, volume, bounds, and
+    BRepCheck validity where the returned shape was valid), checked once per
+    distinct cid against the shape the model returned.
     Source and translated component identities may differ; a saved-file reader
     always resolves the canonical document tree by the file's actual bytes.
     """
@@ -1039,6 +1183,9 @@ def build_tree_through_step(
         nodes[_selector_id(node.path)] = node
         stack.extend(node.children)
 
+    # One verification per distinct component: the first occurrence that places
+    # a cid stands for every placement of it (XCAF reads one product back).
+    to_verify: dict[str, tuple[str, Any, Any]] = {}
     with timed("tree: re-read components"):
         for occurrence in walk.occurrences:
             occ_id = str(occurrence["id"])
@@ -1048,15 +1195,27 @@ def build_tree_through_step(
                     f"{step_path.name}: occurrence {occ_id} ({occurrence.get('name')}) has no "
                     "product at that path in the STEP just written"
                 )
-            own_shape = walk.shapes.get(str(occurrence["component"]))
-            _prototype, face_colors = _reread_component(
-                scene, node, occurrence, step_path.name, written=getattr(own_shape, "wrapped", None)
+            cid = str(occurrence["component"])
+            own_shape = walk.shapes.get(cid)
+            own_wrapped = getattr(own_shape, "wrapped", None)
+            prototype, face_colors = _reread_component(
+                scene, node, occurrence, step_path.name, written=own_wrapped
             )
             if not _normalized_face_colors(face_colors) and getattr(own_shape, "cad_face_ordinal_colors", None):
                 raise RuntimeError(
                     f"{step_path.name}: occurrence {occ_id} ({occurrence.get('name')}) was "
                     "written with per-face colours the STEP does not carry back"
                 )
+            if own_wrapped is not None and cid not in to_verify:
+                to_verify[cid] = (
+                    f"{step_path.name}: occurrence {occ_id} ({occurrence.get('name')}, component {cid})",
+                    own_wrapped, prototype,
+                )
+    with timed(f"tree: verify read-back ({len(to_verify)} components)"):
+        from OCP.TopLoc import TopLoc_Location
+
+        for label, own_wrapped, prototype in to_verify.values():
+            verify_readback_component(label, own_wrapped.Located(TopLoc_Location()), prototype)
     with timed("tree: canonical document"):
         if readback is not None and readback.tree_hash is not None:
             # Only this internal call owns the verified closure and the scene

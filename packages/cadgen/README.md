@@ -211,6 +211,13 @@ The cardinal sin is plausible-wrong output at exit 0. No silent fallbacks,
 no globs, no guessing; a failed render leaves NO file at the requested
 path.
 
+A written artifact is verified, never trusted: the STEP a build writes is
+read back and each component compared with the shape the model returned
+(solid count, volume, bounds, BRepCheck validity where the source was valid),
+and a discrepancy fails the build with the label and the numbers
+([`STORE.md`](STORE.md) §5, read-back verification). OCCT's translator can
+turn a valid solid into its complement or a spike; that is never stored.
+
 ### 11–14. Runtime laws (shared with the bundled JavaScript runtime)
 
 Kinematics is pure data and choreography is pure JS, fully independent

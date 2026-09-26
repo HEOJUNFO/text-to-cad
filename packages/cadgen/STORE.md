@@ -247,7 +247,9 @@ identity. A real one (`link_arm`: a bar plus two placements of a pin model):
   RAM/disk reuse, a top-level return, and a child call, independent of STEP
   declarations or an attached UI. OCCT's STEP translation can change geometry,
   so a saved document always has a separate tree read back from its bytes
-  (`cadgen.store.build.build_tree_through_step`). `occurrences`
+  (`cadgen.store.build.build_tree_through_step`) — and that read-back is
+  verified against the result, never trusted (§5, read-back verification):
+  a component that comes back as different geometry fails the build. `occurrences`
   place components; `links` place children's
   trees. Two placements of one child are two links to one tree. Transforms
   are 16 numbers, row-major, translation in the fourth column, in the
@@ -513,6 +515,24 @@ Each with the failure it prevents.
   read-back use a private sibling staging directory outside the store.
   Prevents: a record pointing at a tree that does not exist yet, or a `.step`
   whose sha the record has not seen.
+- **Read-back verification.** A written STEP is verified, never trusted.
+  Before anything is published under the document's digest, every distinct
+  component the re-read carries back (`build_tree_through_step`, one check
+  per cid) is compared with the shape the model returned: solid count, volume
+  (within 1e-4 relative) and axis-aligned bounds (within 1 µm + 1e-4 of the
+  extent), plus BRepCheck validity — asked of the read-back first, and of the
+  source only when the read-back fails, so a solid the model itself left
+  invalid is never blamed on the writer. Any discrepancy is a build failure
+  naming the file, occurrence, label, component and the numbers; the staged
+  document is discarded and no record, output mapping or document index entry
+  is written. The check reuses the parsed read-back and costs a small fraction
+  of the re-read itself (facts ~0.02 ms per face, BRepCheck ~0.15 ms per face,
+  in parallel). Prevents: OCCT's translation silently replacing a solid with
+  something else — a sphere-boolean cap read back as its 0.35 mm³ complement,
+  a ring read back as a 988 mm spike, a swept bore leaving a face with
+  `BadOrientationOfSubshape` — and that garbage being stored, served by every
+  door, and composed into every parent at exit 0 (law 10). Model authors no
+  longer need to round-trip their own solids through STEP to find out.
 - **Canonical STEP bytes.** Before a written STEP is published, the writer
   canonicalizes what OCCT emitted: NAUO instance ids, presentation-style
   order, and the sign of zero — `-0.` is rewritten `0.`, because which IEEE
