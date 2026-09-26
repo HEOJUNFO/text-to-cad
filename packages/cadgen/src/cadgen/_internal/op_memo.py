@@ -77,6 +77,12 @@ returns its live result and pointer identity holds on its own.
 Anything unkeyable — an argument type the normalizer does not understand, a
 shape that fails to serialize — falls through to the original call, uncached.
 Correctness never depends on a cache hit.
+
+A keyed op that RAISES is recorded too, when the exception is a plain
+``ValueError`` (build123d's wrapper for a failed OCCT fillet, chamfer,
+shell...): a hit re-raises it without re-running the kernel. Models probe with
+failing ops (radius ladders), and a memo-hit re-execution otherwise paid for
+every failure again. See ``_StoredFailure``.
 """
 
 from __future__ import annotations
@@ -99,7 +105,8 @@ _cache: OrderedDict[tuple, object] = OrderedDict()
 # pointer is not an input digest: native geometry/descendants can mutate while
 # the pointer remains unchanged, and retaining pointer keys also pins topology.
 _stats = {"hits": 0, "misses": 0, "disk_hits": 0, "unkeyable": 0,
-          "unstorable": 0, "evicted": 0, "errors": 0}
+          "unstorable": 0, "evicted": 0, "errors": 0,
+          "failures": 0, "failure_hits": 0}
 _installed = False
 
 
@@ -376,13 +383,17 @@ def _op_index_key(key: tuple) -> str:
 
 def _disk_put(key: tuple, stored) -> None:
     """The result bytes become an OBJECT (content-addressed); the entry under
-    ``index/op/<key>`` maps the op key to it plus the class/recipe header."""
-    if not _disk_enabled() or not isinstance(stored, _StoredShape):
+    ``index/op/<key>`` maps the op key to it plus the class/recipe header.
+    A recorded failure is inline: ``{"raised": {"cls": ..., "args": [...]}}``."""
+    if not _disk_enabled() or not isinstance(stored, (_StoredShape, _StoredFailure)):
         return
     try:
         from cadgen.store.index import write_entry
         from cadgen.store.objects import put_object
 
+        if isinstance(stored, _StoredFailure):
+            write_entry("op", _op_index_key(key), {"raised": {"cls": stored.cls_path, "args": list(stored.args)}})
+            return
         write_entry(
             "op",
             _op_index_key(key),
@@ -415,6 +426,13 @@ def _disk_get(key: tuple):
         entry = read_entry("op", index_key)
         if not entry:
             return None
+        raised = entry.get("raised")
+        if raised is not None:
+            args = raised.get("args")
+            if (raised.get("cls") not in _REPLAYABLE_FAILURES or not isinstance(args, list)
+                    or not all(isinstance(arg, str) for arg in args)):
+                return None
+            return _StoredFailure(raised["cls"], tuple(args))
         digest = str(entry.get("object") or "")
         if not digest or not has_object(digest):
             # An evicted or half-swept entry is a miss, never an error: the op
@@ -575,6 +593,47 @@ class _StoredShape:
         self.cls_path = cls_path
         self.brep = brep
         self.recipe = recipe
+
+
+class _StoredFailure:
+    """A cached op FAILURE: the op raised a replayable exception on these inputs.
+
+    A kernel op is a pure function of its keyed inputs whether it returns or
+    raises, and models routinely probe with ops that fail -- a fillet ladder
+    trying radii from the largest down, where every rejected rung is a full
+    OCCT fillet plus the validity check build123d runs before raising. Without
+    this record every failing call re-ran on every re-execution while every
+    succeeding one hit, so a memo-hit re-execution still paid for all its
+    failures. A hit re-raises the same exception type with the same arguments;
+    the original's traceback and ``__cause__`` (the native OCCT exception) are
+    not replayed. Only :data:`_REPLAYABLE_FAILURES` with plain string arguments
+    are recorded; any other exception (memory, interrupts, native exception
+    types, anything with rich arguments) propagates uncached, as before.
+    The inputs a failure leaves behind are the caller's untouched originals on
+    both paths: a miss runs on protected copies (:func:`_protect_inputs`).
+    """
+
+    __slots__ = ("cls_path", "args")
+
+    def __init__(self, cls_path: str, args: tuple):
+        self.cls_path = cls_path
+        self.args = args
+
+    def exception(self) -> BaseException:
+        return _REPLAYABLE_FAILURES[self.cls_path](*self.args)
+
+
+# Exact types only (no subclasses): the class is rebuilt from this table.
+_REPLAYABLE_FAILURES = {"builtins.ValueError": ValueError}
+
+
+def _freeze_failure(exc: BaseException) -> _StoredFailure | None:
+    cls_path = f"{type(exc).__module__}.{type(exc).__qualname__}"
+    if _REPLAYABLE_FAILURES.get(cls_path) is not type(exc):
+        return None
+    if not all(isinstance(arg, str) for arg in exc.args):
+        return None
+    return _StoredFailure(cls_path, tuple(exc.args))
 
 
 def _write_brep(wrapped) -> bytes:
@@ -932,6 +991,9 @@ def _memoized(op_name: str, fn, *, is_classmethod: bool):
             return fn(*args, **kwargs)
 
         cached = _lookup(key)
+        if isinstance(cached, _StoredFailure):
+            _stats["failure_hits"] += 1
+            raise cached.exception()
         if cached is not None:
             try:
                 value = _thaw_result(cached, shape_args)
@@ -948,7 +1010,14 @@ def _memoized(op_name: str, fn, *, is_classmethod: bool):
         except Exception:
             _stats["errors"] += 1
             run_args, run_kwargs = args, kwargs
-        result = fn(*run_args, **run_kwargs)
+        try:
+            result = fn(*run_args, **run_kwargs)
+        except Exception as exc:
+            _stats["failures"] += 1
+            failure = _freeze_failure(exc)
+            if failure is not None:
+                _store(key, failure)
+            raise
         _stats["misses"] += 1
         try:
             stored, first_value = _freeze_result_for_first_consumer(result, shape_args)

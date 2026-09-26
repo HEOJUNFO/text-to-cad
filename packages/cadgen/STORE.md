@@ -72,7 +72,7 @@ Two words are NOT retired, and each has exactly one meaning:
   index/output/<sha256(output path)>  {model}: which script wrote the file at this path
   index/component/<cid>               geometry-input entries → encoded BREP and intrinsic recipe
   index/surface/<surfaceInput>        attested extraction inputs → SURF object hash
-  index/op/<sha256(op key)>           op-memo entries → object hash, or an inline value
+  index/op/<sha256(op key)>           op-memo entries → object hash, an inline value, or a recorded ValueError
   index/mesh/<key>                    tessellation entries → object hash
   index/drawing/<sha256(scheme + document hash)>  a 2D drawing's render payload → object hash
 ```

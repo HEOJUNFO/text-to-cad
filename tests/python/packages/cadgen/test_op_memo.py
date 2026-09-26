@@ -829,3 +829,87 @@ class CurrentInputKeyTest(unittest.TestCase):
         key = op_memo._build_key("caller-conversion", (shape, converter, shape), {})
         self.assertEqual(calls, [True])
         self.assertNotEqual(key[2][0], key[2][2])
+
+
+class OpMemoFailureTest(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+
+        op_memo.install()
+        op_memo.clear()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        env = mock.patch.dict(os.environ, {"CADGEN_OP_MEMO": "1", "CADGEN_CACHE_DIR": tmp.name})
+        env.start()
+        self.addCleanup(env.stop)
+        self.addCleanup(op_memo.clear)
+
+    def test_a_failing_op_is_replayed_without_rerunning_the_kernel(self):
+        """A memo-hit re-execution used to re-run every op that FAILED: only
+        successes were recorded, so a fillet ladder probing radii from the
+        largest down paid a full OCCT fillet (plus build123d's validity check)
+        for every rejected rung on every re-execution. A failure is a function
+        of the same keyed inputs; it is recorded and replayed, from RAM and
+        from disk, as the same exception type and message."""
+        from build123d.topology import Solid
+
+        def attempt(part):
+            try:
+                part.fillet(30.0, part.edges())
+            except ValueError as exc:
+                return str(exc)
+            self.fail("an oversized fillet must fail")
+
+        part = _build_part()
+        edges_before = len(part.edges())
+        base = dict(op_memo.stats())
+        message = attempt(part)
+        self.assertEqual(op_memo.stats()["failures"], base["failures"] + 1)
+
+        with mock.patch("build123d.topology.three_d.BRepFilletAPI_MakeFillet",
+                        side_effect=AssertionError("the kernel ran on a recorded failure")):
+            self.assertEqual(attempt(part), message)  # RAM tier
+            op_memo.clear()
+            self.assertEqual(attempt(part), message)  # disk tier
+        self.assertEqual(op_memo.stats()["failure_hits"], base["failure_hits"] + 2)
+        self.assertEqual(op_memo.stats()["failures"], base["failures"] + 1)
+        self.assertEqual(len(part.edges()), edges_before)
+        # A successful call on the same inputs is keyed apart (the radius) and still runs.
+        self.assertLess(part.fillet(0.5, part.edges()[:1]).volume, part.volume)
+        self.assertIsInstance(Solid.make_box(1, 1, 1), Solid)
+
+    def test_only_replayable_failures_are_recorded(self):
+        """Exact ValueError with string arguments is replayable; anything else
+        -- a subclass, a native or other exception type, rich arguments -- is
+        re-raised as it came and re-runs next time."""
+        from build123d.topology import Solid
+
+        class Subclassed(ValueError):
+            pass
+
+        raised = [ValueError("plain"), Subclassed("sub"), RuntimeError("runtime"), ValueError(3)]
+        calls = []
+
+        def op(shape, index):
+            calls.append(index)
+            raise raised[index]
+
+        memoized = op_memo._memoized("test.failing_op", op, is_classmethod=False)
+        shape = Solid.make_box(2, 2, 2)
+        for _round in range(2):
+            for index, exc in enumerate(raised):
+                with self.assertRaises(type(exc)) as caught:
+                    memoized(shape, index)
+                self.assertEqual(caught.exception.args, exc.args)
+        # Round two re-ran every call except the plain ValueError, which replayed.
+        self.assertEqual(calls, [0, 1, 2, 3, 1, 2, 3])
+
+    def test_a_recorded_failure_is_not_replayed_with_the_memo_off(self):
+        part = _build_part()
+        with self.assertRaises(ValueError):
+            part.fillet(30.0, part.edges())
+        os.environ["CADGEN_OP_MEMO"] = "0"
+        hits = op_memo.stats()["failure_hits"]
+        with self.assertRaises(ValueError):
+            part.fillet(30.0, part.edges())
+        self.assertEqual(op_memo.stats()["failure_hits"], hits)
