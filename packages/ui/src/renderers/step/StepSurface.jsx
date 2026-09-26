@@ -1,9 +1,9 @@
 import { buildEdgeChainGraph } from "./workbench/edgeChainSelection.js";
 "use client";
 
-import SelectionFilterMenu, { SelectModeIcon, SelectModeMenu } from "./components/workbench/SelectionFilterMenu.jsx";
-import { MEASURE_SELECTION_FILTERS, NO_CONNECTED_SELECTION, connectedSelectionApplies } from "./workbench/selectionFilter.js";
-import { Play, Ruler, Spline } from "lucide-react";
+import { MeasureModeIcon, MeasureModeMenu, SelectModeIcon, SelectModeMenu } from "./components/workbench/SelectionFilterMenu.jsx";
+import { NO_CONNECTED_SELECTION, connectedSelectionApplies } from "./workbench/selectionFilter.js";
+import { Play, Spline } from "lucide-react";
 import { filterSelectionReferences, toggleReferenceGroupSelection, connectedReferenceIds } from "./workbench/selectionFilter.js";
 import { buildTangentFaceGraph } from "./workbench/tangentFaceSelection.js";
 
@@ -3147,7 +3147,7 @@ function StepSurfaceBody({ view, data }) {
       id: TAB_TOOL_MODE.REFERENCES,
       label: referenceSelectionPending ? "Preparing selection" : "Select",
       // The button shows the mode in hand; nothing under the strip names it.
-      icon: <SelectModeIcon mode={selectionFilter} className="size-3" aria-hidden="true" />,
+      icon: <SelectModeIcon mode={selectionFilter} className="size-3.5" aria-hidden="true" />,
       active: !topologySelectionDeferred && selectionToolActive, disabled: selectDisabled,
       description: "Select again to choose what to select",
       secondPressOpensMenu: true,
@@ -3158,13 +3158,13 @@ function StepSurfaceBody({ view, data }) {
     }),
     { ...shell.tools.draw, disabled: toolIdle },
     shell.tools.own({ id: TAB_TOOL_MODE.MEASURE, label: "Measure",
-      icon: <Ruler className="size-3" strokeWidth={2} aria-hidden="true" />,
+      // Like Select's, the button shows the snapping mode in hand.
+      icon: <MeasureModeIcon mode={measure.filter} className="size-3.5" aria-hidden="true" />,
       active: tabToolMode === TAB_TOOL_MODE.MEASURE || measureMeasurements.length > 0, disabled: measureToolDisabled,
       secondPressOpensMenu: true, menuOnCornerOnly: measureMeasurements.length > 0,
       onMenuSelect: () => handleSelectTabToolMode(TAB_TOOL_MODE.MEASURE),
       onSelect: () => measureMeasurements.length ? removeMeasurements() : handleSelectTabToolMode(TAB_TOOL_MODE.MEASURE),
-      menu: trigger => <SelectionFilterMenu trigger={trigger} value={measure.filter}
-        options={MEASURE_SELECTION_FILTERS} menuLabel="Measure snapping" onChange={value => {
+      menu: trigger => <MeasureModeMenu trigger={trigger} mode={measure.filter} onModeChange={value => {
           measure.setFilter(value); measure.cancelDraft();
           handleSelectTabToolMode(TAB_TOOL_MODE.MEASURE);
         }} /> }),

@@ -12,6 +12,7 @@ import { useRendererShell } from "../kit/shell/useRendererShell.js";
 import { failureAlert } from "../kit/status/loadAlerts.js";
 import JointHandleOverlay from "../kit/tools/pose/JointHandleOverlay.jsx";
 import ToolPanel from "../kit/tools/ToolPanel.jsx";
+import { MotionResetButton } from "../kit/inspector/kinematicsControls.jsx";
 import { PointerPick } from "../kit/tools/select/usePointerPick.js";
 import { useDeclinedSelectReference, useWorkspaceDocument, workspaceLoadAlert } from "../workspace/useWorkspaceDocument.js";
 import PositionControls from "./PositionControls.jsx";
@@ -186,11 +187,12 @@ function RobotSurface({ view, data }) {
   const toolPanels = <>
     <LinksSection key={modelKey} active={linksShown} description={robot?.description || null} components={robot?.components}
       parts={robot?.parts} selection={treeSelection} groupNamesByLink={groupNamesByLink} meshPath={meshPath} onOpenFile={view.onOpenFile} />
-    {kind === "sdf" ? <ToolPanel title="SDF" label="SDF" fit="details" collapsible defaultCollapsed hidden={!linksShown}>
+    {kind === "sdf" ? <ToolPanel id="sdf" title="SDF" label="SDF" fit="details" defaultCollapsed hidden={!linksShown}>
       <SdfSection info={robot?.description?.sdf || null} movableJointCount={pose?.joints.length || 0} />
     </ToolPanel> : null}
-    {/* No heading: its Pose row leads it. */}
-    {posable && pose ? <ToolPanel label="Position controls" fit="details" hidden={!poseActive}>
+    {/* Headed "Position" with its Reset; sized like the tree: its content's height, up to half the stack. */}
+    {posable && pose ? <ToolPanel id="position" title="Position" actions={<MotionResetButton onReset={pose.reset} />} label="Position controls"
+      fit="details" sizable hidden={!poseActive}>
       <PositionControls key={robot.revision} pose={pose} />
     </ToolPanel> : null}
   </>;

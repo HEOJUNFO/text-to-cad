@@ -88,7 +88,7 @@ export function FileSheetSettingsSection({ title, children, open = true, onOpenC
         : <h2>{onReveal ? <button id={titleId} type="button" onClick={onReveal}
           className={`${FILE_SHEET_SECTION_HEADING_CLASSES} w-full text-left`}>{title}</button>
           : <span id={titleId} className={FILE_SHEET_SECTION_HEADING_CLASSES}>{title}</span>}</h2>}
-      {headingAction && <div className="absolute right-1 top-0 flex h-7 items-center">{headingAction}</div>}
+      {headingAction && <div className="absolute right-1 top-0 flex h-7 items-center gap-0.5">{headingAction}</div>}
     </div>
     <div id={contentId} hidden={!open} data-settings-section-body="" className="space-y-1 pb-2">{!gated || open ? children : null}</div>
   </section>;
@@ -364,17 +364,19 @@ export function FileSheetValueInput({
 }
 
 /**
- * A slider row (a joint of Position): its label tight above its slider in the flexible left
- * column, a committed value input in the right column (`docs/settings-ui.md`).
+ * A slider row (a joint of Position), compact: its label tight above its slider in the flexible
+ * left column, and a small committed value input (24px tall, about five characters wide, its
+ * figures tabular) in the right column (`docs/settings-ui.md`).
  */
 export function FileSheetSliderField({ label, value, onValueCommit, valueInputProps, labelTitle, children }) {
   return <FileSheetControlRow>
-    <div className="grid min-h-8 min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2" data-position-control="">
+    <div className="grid min-h-7 min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5" data-position-control="">
       <div className="min-w-0">
         {label != null ? <TooltipHint content={labelTitle || label} overflowOnly><span className={cn(FILE_SHEET_FIELD_LABEL_CLASSES, "leading-3")}>{label}</span></TooltipHint> : null}
         <div className="min-w-0">{children}</div>
       </div>
-      {onValueCommit ? <FileSheetValueInput value={value} onValueCommit={onValueCommit} {...valueInputProps} /> : null}
+      {onValueCommit ? <FileSheetValueInput value={value} onValueCommit={onValueCommit} {...valueInputProps}
+        className={cn("h-6 w-[calc(5ch+0.75rem)] px-1.5", valueInputProps?.className)} /> : null}
     </div>
   </FileSheetControlRow>;
 }

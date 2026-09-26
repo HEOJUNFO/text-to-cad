@@ -7,7 +7,7 @@ import { Button } from "@hardcore/ui/primitives/button";
 import RendererShell from "../kit/shell/RendererShell.jsx";
 import { SHELL_TOOL, useRendererShell } from "../kit/shell/useRendererShell.js";
 import { createToolModes } from "../kit/tools/toolModes.js";
-import ToolPanel from "../kit/tools/ToolPanel.jsx";
+import ToolPanel, { ToolPanelCollapse } from "../kit/tools/ToolPanel.jsx";
 
 // TEST SCAFFOLDING. This renderer is never registered in a product: it exists so
 // the shell's own tools can be driven in a real browser under a frame that is
@@ -165,16 +165,20 @@ function HarnessSurface({ view, data }) {
   // under them, highlighted, whatever tool is up.
   const [kept, setKept] = useState(false);
   const withPanel = view.file.path.startsWith("panel");
+  // `panel-short.harness` turns the heights round: a tree of two rows and a Reference of many.
+  const short = view.file.path.startsWith("panel-short");
+  const [treeRows, referenceRows] = short ? [2, 40] : [120, 8];
   const keepTool = { id: "keep", label: "Keep", icon: <span aria-hidden="true">K</span>, active: kept, disabled: shell.idle,
     onSelect: () => setKept(value => !value) };
   const rows = (count, name) => <ul className="px-2 py-1">{Array.from({ length: count }, (_, index) =>
     <li key={index} className="flex h-6 items-center">{name} {index + 1}</li>)}</ul>;
   const toolPanels = <>
     {withPanel ? <>
-      <ToolPanel label="Harness tree" fit="tree" header={<p className="flex h-9 items-center border-b px-2">Filter</p>}>{rows(120, "Row")}</ToolPanel>
-      <ToolPanel title="Reference" label="Harness reference" fit="details" onClose={() => {}}>{rows(8, "Fact")}</ToolPanel>
+      <ToolPanel id="tree" label="Harness tree" fit="tree" sizable
+        header={<p className="flex h-9 items-center border-b px-2"><span className="flex-1">Filter</span><ToolPanelCollapse /></p>}>{rows(treeRows, "Row")}</ToolPanel>
+      <ToolPanel id="reference" title="Reference" label="Harness reference" fit="details" sizable onClose={() => {}}>{rows(referenceRows, "Fact")}</ToolPanel>
     </> : null}
-    {kept ? <ToolPanel title="Kept" label="Kept controls" onClose={() => setKept(false)}><div className="h-16 px-2">Kept</div></ToolPanel> : null}
+    {kept ? <ToolPanel id="kept" title="Kept" label="Kept controls" onClose={() => setKept(false)}><div className="h-16 px-2">Kept</div></ToolPanel> : null}
   </>;
 
   return <RendererShell shell={shell} tools={withPanel ? [shell.tools.draw, keepTool] : [shell.tools.draw]}

@@ -17,7 +17,7 @@ const description = {
 };
 const field = (name: string, unit: string) => screen.getByRole('textbox', { name: `${name} value in ${unit}` }) as HTMLInputElement;
 
-it('lists the named pose on a labelled row, then a slider per joint a person can drive, with Reset in its header: no sections of its own', () => {
+it('lists the named pose on a labelled row, then a slider per joint a person can drive: no sections, and no Reset of its own', () => {
   render(<PositionControls pose={createPoseStore(description)}/>);
   // One section's rows: the Position section around them is the panel's.
   expect(screen.queryAllByRole('heading')).toEqual([]);
@@ -25,7 +25,8 @@ it('lists the named pose on a labelled row, then a slider per joint a person can
   expect(screen.getByText('Pose')).toBeTruthy();
   expect([field('shoulder', 'deg').value, field('lift', 'm').value]).toEqual(['0°', '0 m']);
   expect(screen.queryByRole('textbox', { name: /mount|follower/ })).toBeNull();
-  expect(screen.getByRole('button', { name: 'Reset' })).toBeTruthy();
+  // Reset is the Position panel heading's (RobotRenderer), not a row here.
+  expect(screen.queryByRole('button', { name: 'Reset' })).toBeNull();
   // Each thumb is named for its joint, as its number field is.
   expect(screen.getAllByRole('slider').map(thumb => thumb.getAttribute('aria-label'))).toEqual(['shoulder', 'lift']);
 });
@@ -39,7 +40,7 @@ it('a plain description has no pose row, and one with nothing to move says so', 
   expect(screen.getByText('No movable joints.')).toBeTruthy();
 });
 
-it('follows the pose store, and writes to it: a typed value is clamped, Reset returns the defaults', () => {
+it('follows the pose store, and writes to it: a typed value is clamped, and a reset shows the defaults', () => {
   const pose = createPoseStore(description);
   render(<PositionControls pose={pose}/>);
   act(() => { pose.write(pose.joints[0], 30); });
@@ -49,7 +50,7 @@ it('follows the pose store, and writes to it: a typed value is clamped, Reset re
   expect(pose.getSnapshot().values.lift).toBe(0.3);
   act(() => { pose.selectGroupState(pose.groupStates[0]); });
   expect(screen.getByRole('combobox').textContent).toBe('raised');
-  fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+  act(() => { pose.reset(); });
   expect(pose.getSnapshot().values).toEqual({ shoulder: 0, lift: 0 });
   expect(screen.getByRole('combobox').textContent).toBe('Default');
 });

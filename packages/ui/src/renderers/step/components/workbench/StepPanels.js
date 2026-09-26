@@ -81,8 +81,9 @@ export function useStepPanels({
         onTogglePartVisibility, showAllHiddenParts, onCopySelection, onHoverTreeNode,
         menuForNode, menuForReferences, partMenuActions}}
     />
-    {issues ? <ToolPanel title={issues.title} label="Issues" fit="details" collapsible hidden={!selectActive}>{issues.content}</ToolPanel> : null}
-    {/* No heading: its Pose row leads it. */}
-    {position ? <ToolPanel label="Position controls" fit="details" hidden={!positionActive}>{position.content}</ToolPanel> : null}
+    {issues ? <ToolPanel id="issues" title={issues.title} label="Issues" fit="details" hidden={!selectActive}>{issues.content}</ToolPanel> : null}
+    {/* Headed "Position" with its Reset; sized like the tree: its content's height, up to half the stack. */}
+    {position ? <ToolPanel id="position" title={position.title} actions={position.actions} label="Position controls" fit="details" sizable
+      hidden={!positionActive}>{position.content}</ToolPanel> : null}
   </>;
 }

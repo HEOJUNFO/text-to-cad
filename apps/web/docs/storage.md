@@ -28,7 +28,7 @@ Current intended use:
 - `cad-viewer:color-scheme`: the app's System/Light/Dark appearance preference,
   used when its cross-port appearance cookie is unavailable.
 - `cad-viewer:orbit:v1`: the fullscreen orbit speed (below).
-- `cad-viewer:tool-stack-width:v1`: the width of the viewer's tool stack (below).
+- `cad-viewer:tool-stack:v1`: the layout of the viewer's tool stack (below).
 
 The host adapter is [cadPreferences.ts](../src/persistence/cadPreferences.ts),
 a thin wrapper over the shared `createStoredCadPreferences`
@@ -76,9 +76,10 @@ chooses a browser storage backend.
 Appearance uses a host cookie across viewer ports, with `cad-viewer:color-scheme`
 as its localStorage fallback; neither changes the per-file Render recipe.
 
-Fullscreen orbit speed uses `cad-viewer:orbit:v1`, and the tool stack's width (one
-width for every panel under the viewer's toolbar, 190px by default, 160px at least)
-`cad-viewer:tool-stack-width:v1`. The web adapter reads, writes and synchronizes
+Fullscreen orbit speed uses `cad-viewer:orbit:v1`, and the tool stack's layout
+`cad-viewer:tool-stack:v1`: one width for every panel under the viewer's toolbar
+(190px by default, 160px at least), the caps a person dragged the tree, Position and
+Reference panels to, and which panels are folded. The web adapter reads, writes and synchronizes
 both keys through `createStoredCadPreferences`; the shared
 renderer discovers no browser storage. Both are global across files and
 synchronized across tabs. Fullscreen camera changes are transient and never

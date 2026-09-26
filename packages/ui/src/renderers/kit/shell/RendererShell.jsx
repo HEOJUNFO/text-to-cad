@@ -13,6 +13,7 @@ import { RenderModeIcon } from "../view-settings/DisplayModeOptions.js";
 import { DrawingToolbar } from "../../../drawing/toolbar.jsx";
 import ToolPanel from "../tools/ToolPanel.jsx";
 import PlayMenu from "../tools/PlayMenu.jsx";
+import { AnimateControls, AnimatePlayButton } from "../tools/AnimateControls.jsx";
 import OrbitMenu from "../tools/OrbitMenu.jsx";
 import FloatingToolBar from "../tools/FloatingToolBar.js";
 import ToolStack from "../tools/ToolStack.jsx";
@@ -102,18 +103,15 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
   }, [presenting, view.onPanelVisibilityChange]);
   const previewDisplay = useMemo(() => presenting ? presentationDisplaySettings(resolvedScene.display) : resolvedScene.display, [presenting, resolvedScene.display]);
   const leaveFullscreen = () => setPresenting(false);
-  // A renderer's own Animate tool is drawn as it is handed over; the shell adds only the
-  // routine menu. A renderer without one gets the shell's.
-  const playMenu = trigger => <PlayMenu trigger={trigger} animation={animation} />;
-  const animateTool = !hasAnimation ? null : animationTool ? { ...animationTool, secondPressOpensMenu: true, menu: playMenu } : {
+  // A renderer's own Animate tool is drawn as it is handed over; a renderer without one gets
+  // the shell's. Neither has a corner menu: its routine, speed and loop are the Animate panel.
+  const animateTool = !hasAnimation ? null : animationTool ? animationTool : {
     id: "animate", label: "Animate", icon: <Play className="size-3" aria-hidden="true" />,
     active: Boolean(animationActive), disabled: shell.idle,
-    secondPressOpensMenu: true,
     onSelect: () => {
       if (animationActive) return;
       shell.selectTool("animate"); setLocalAnimationActive(true); if (!animation.playing) animation.onPlayToggle();
     },
-    menu: playMenu,
   };
   // Display takes the pointer from whichever tool had it (each tool's own `active` says so); a
   // retained effect (a panel the person keeps) stays highlighted beside it. It is the last tool,
@@ -121,11 +119,18 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
   const displayTool = { id: "display", label: "Display", icon: <RenderModeIcon className="size-3.5" aria-hidden="true" />,
     active: displayActive, disabled: shell.idle, onSelect: () => (displayActive ? shell.selectTool("") : activateDisplay()) };
   const viewerTools = [...tools.filter(tool => tool !== animationTool), ...(animateTool ? [animateTool] : []), displayTool];
-  // The shell's own tools' panels lead the stack while their tool is up: Display's settings and
-  // Draw's tools, color and history. The renderer's follow.
+  // The shell's own tools' panels lead the stack while their tool is up: Display's settings,
+  // Draw's tools, color and history, and Animate's routine, speed and loop. The renderer's follow.
   const shellPanels = <>
-    {displayActive && !presenting ? <ToolPanel label="Display settings" fit="tree">{frame.display}</ToolPanel> : null}
-    {frame.drawToolActive ? <ToolPanel label="Drawing controls"><DrawingToolbar drawing={frame.drawing} layout="panel" className="p-1" /></ToolPanel> : null}
+    {displayActive && !presenting ? <ToolPanel id="display" name="Display" label="Display settings" fit="details">{frame.display}</ToolPanel> : null}
+    {/* Not collapsible: a row of buttons, nothing that folding it away would leave room for. */}
+    {frame.drawToolActive ? <ToolPanel id="drawing" label="Drawing controls" collapsible={false}>
+      <DrawingToolbar drawing={frame.drawing} layout="panel" className="p-1" />
+    </ToolPanel> : null}
+    {hasAnimation && animationActive && !presenting ? <ToolPanel id="animate" title="Animate" label="Animate controls" fit="details"
+      actions={<AnimatePlayButton animation={animation} disabled={viewerLoading || !scene} />}>
+      <AnimateControls animation={animation} />
+    </ToolPanel> : null}
   </>;
 
   const hasContent = Boolean(scene) && !viewerLoading;
@@ -229,7 +234,7 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
               <div className="group/tool-stack pointer-events-none absolute z-20 flex flex-col items-start gap-2" style={TOOLBAR_POSITION}
                 data-mobile={mobile ? "" : undefined} data-cad-tool-groups="">
                 <FloatingToolBar tools={viewerTools} />
-                <ToolStack hidden={presenting} width={frame.toolStackWidth} onWidthChange={frame.setToolStackWidth}>{shellPanels}{toolPanels}</ToolStack>
+                <ToolStack hidden={presenting} mobile={mobile} layout={frame.toolStack} onLayoutChange={frame.changeToolStack}>{shellPanels}{toolPanels}</ToolStack>
               </div>
               <div className="pointer-events-auto absolute flex h-[34px] items-center" style={{ top: TOOLBAR_POSITION.top, right: TOOLBAR_POSITION.left }}>
                 <ToolbarButton tooltip={false} label="Fullscreen" className="size-6 bg-transparent hover:bg-transparent dark:hover:bg-transparent"

@@ -1,5 +1,5 @@
 /**
- * The Select tool's modes: exclusive, each with its own icon on the strip
+ * The Select tool's modes: exclusive, each the pointer badged with its mode on the strip
  * (`components/workbench/SelectionFilterMenu.jsx`). `assemblyOnly`: a single part is one
  * thing, so picking parts in it would pick nothing but the whole.
  */
@@ -27,11 +27,16 @@ export function connectedSelectionApplies(id, mode) {
   return CONNECTED_SELECTION.find(option => option.id === id)?.appliesIn.includes(mode) === true;
 }
 
-export const MEASURE_SELECTION_FILTERS = [
-  { id: 'all', label: 'Any geometry', detail: 'Points, edges and faces' },
-  { id: 'points', label: 'Points', detail: 'Point-to-point distance' },
-  { id: 'edges', label: 'Edges', detail: 'Snap to edges only' },
-  { id: 'faces', label: 'Faces', detail: 'Snap to faces only' },
+/**
+ * Measure's snapping modes, exclusive, each with Select's badge treatment on the ruler
+ * (`components/workbench/SelectionFilterMenu.jsx`): All snaps to points, edges and faces; Points
+ * to points alone (point-to-point distance); Edges and Faces to that topology only.
+ */
+export const MEASURE_SNAP_MODES = [
+  { id: 'all', label: 'All' },
+  { id: 'points', label: 'Points' },
+  { id: 'edges', label: 'Edges' },
+  { id: 'faces', label: 'Faces' },
 ];
 
 /** What a viewport press can pick under a Select mode (or Measure's snapping). */

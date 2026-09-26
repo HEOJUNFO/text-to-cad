@@ -413,8 +413,8 @@ test("View presets preserve authored materials and independent tools without a M
 test("robot Position edits, preserves and resets a joint through the robot's own panel", async () => {
   await openFile("hinge.urdf");
   // A robot declares no panel of its own and has no tabs: Select shows its Links in the tool
-  // stack, and the Position tool shows the Position panel in their place, with no heading of
-  // its own and no Joints heading inside it.
+  // stack, and the Position tool shows the Position panel in their place, headed "Position"
+  // (its Reset beside the title) and with no Joints heading inside it.
   expect(await page.locator("header [data-file-panel]").evaluateAll(toggles => toggles.map(toggle => toggle.getAttribute("aria-label")))).toEqual(["Hide files"]);
   await expect(page.locator("[data-cad-surface]").getByRole("tab")).toHaveCount(0);
   expect(await stackPanels()).toEqual(["Links"]);
@@ -423,7 +423,7 @@ test("robot Position edits, preserves and resets a joint through the robot's own
   const position = stack().locator('[data-tool-panel][aria-label="Position controls"]');
   await expect(position).toBeVisible();
   expect(await stackPanels()).toEqual(["Position controls"]);
-  await expect(position.getByRole("heading")).toHaveCount(0);
+  await expect(position.getByRole("heading")).toHaveText(["Position"]);
   const joint = position.getByLabel("hinge value in deg", { exact: true });
   await expect(joint).toHaveValue("0°");
   await joint.fill("35");

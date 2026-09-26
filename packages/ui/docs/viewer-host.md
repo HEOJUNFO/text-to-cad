@@ -57,9 +57,10 @@ its own tool stack over the viewport (`settings-ui.md#the-tool-stack`), and noth
 does opens, closes or turns the host's panel column. FileViewer still hands every
 renderer those props — they are the generic panel contract, which the file tree and
 the desktop markdown's source view use. A host's stored `panel` naming the retired CAD
-Settings panel (`cad-file`) resolves as nothing open. The tool stack's width is a
-viewer preference the host stores with `createStoredCadPreferences` (key
-`cad-viewer:tool-stack-width:v1`), beside the orbit speed.
+Settings panel (`cad-file`) resolves as nothing open. The tool stack's layout — its width, the
+caps a person dragged the tree, Position and Reference panels to, and the folded panels —
+is one viewer preference the host stores with `createStoredCadPreferences` (key
+`cad-viewer:tool-stack:v1`), beside the orbit speed.
 
 ## Fullscreen and renderer navigation actions
 

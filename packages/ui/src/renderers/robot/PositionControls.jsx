@@ -194,15 +194,15 @@ function PoseGroupStateRow({ pose }) {
 
 /**
  * A robot's Position panel (the tool stack's, while the Position tool is up): its named pose (an
- * SRDF's group states), then a slider per joint a person can drive, with Reset beside the pose
- * selector — one panel's rows, with no sections of their own.
+ * SRDF's group states) when it has one, then a compact slider row per joint a person can drive —
+ * one panel's rows, with no sections of their own. Reset is the panel heading's.
  *
  * @param {{ pose: ReturnType<typeof import("./poseStore.js").createPoseStore> }} props
  */
 export default function PositionControls({ pose }) {
   if (!pose.joints.length) return <FileSheetStatusText className="py-2">No movable joints.</FileSheetStatusText>;
   return (
-    <div className="space-y-2 px-1 py-2">
+    <div className="space-y-1 px-1 pb-1.5 pt-0.5">
       {/* A named state is a way of SETTING the joints, so it leads them. A plain URDF
           declares none and opens straight onto its values. */}
       <PoseGroupStateRow pose={pose} />

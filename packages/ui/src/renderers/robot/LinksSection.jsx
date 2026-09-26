@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { TreeRowSurface, TreeRowChevron, TreeRowLabel } from "@hardcore/ui/primitives/tree-row";
 import { TreeFilterHighlight, TreeFilterInput } from "@hardcore/ui/primitives/tree-filter";
 import { cn } from "@hardcore/ui/utils";
-import ToolPanel from "../kit/tools/ToolPanel.jsx";
+import ToolPanel, { ToolPanelCollapse } from "../kit/tools/ToolPanel.jsx";
 import RobotComponentDetails, { RobotLinkDetails, RobotLinksSummary } from "./LinkDetails.jsx";
 import { useTreeSearch } from "../kit/inspector/modelTreeSearch.js";
 import { buildRobotTree, robotComponentNodeId, robotLinkFacts, robotLinkNodeId, robotTreeAncestorIds } from "./robotTree.js";
@@ -154,8 +154,8 @@ export default function LinksSection({ description = null, components = EMPTY, p
 
   return <>
     {/* No heading: the filter is the panel's top row, and stays put while the tree scrolls under it. */}
-    <ToolPanel label="Links" fit="tree" hidden={!active}
-      header={<TreeFilterInput className="px-1" label="Filter links" placeholder="Filter links…" value={query} onChange={changeQuery} onKeyDown={onSearchKeyDown}/>}>
+    <ToolPanel id="tree" label="Links" fit="tree" sizable hidden={!active}
+      header={<TreeFilterInput className="px-1" label="Filter links" placeholder="Filter links…" value={query} onChange={changeQuery} onKeyDown={onSearchKeyDown} trailing={<ToolPanelCollapse/>}/>}>
       <div className="flex flex-col text-xs" aria-label="Robot links">
         <div ref={listRef} className="px-1 py-1" aria-label="Robot tree area"
           onClick={event => { if (!event.target.closest("li,button,input")) clearSelection(); }}>
@@ -169,8 +169,8 @@ export default function LinksSection({ description = null, components = EMPTY, p
         </div>
       </div>
     </ToolPanel>
-    {details ? <ToolPanel title={referenceTitle} label="Reference details" closeLabel="Clear selection" fit="details" capped hidden={!active} onClose={clearSelection}>
-      <div className="px-2 pb-2">{details}</div>
+    {details ? <ToolPanel id="reference" title={referenceTitle} label="Reference details" closeLabel="Clear selection" fit="details" sizable hidden={!active} onClose={clearSelection}>
+      <div className="px-2 pb-1.5">{details}</div>
     </ToolPanel> : null}
   </>;
 }

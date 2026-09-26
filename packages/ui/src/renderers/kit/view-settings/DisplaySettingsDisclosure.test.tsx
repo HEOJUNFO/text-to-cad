@@ -197,3 +197,13 @@ it('the Projection value ends in an ellipsis when its column is narrow, with its
   expect(value.classList.contains('truncate')).toBe(true);
   expect(value.parentElement!.querySelector('svg')).not.toBeNull();
 });
+
+it('Explode and Clip report their value at their step\'s precision, never float noise', () => {
+  // 0.28 × 100 is 28.000000000000004, and 1 − 0.7 is 0.30000000000000004: a screen reader would read both.
+  render(<ExplodeControls viewSettings={{ exploded: { enabled: true, amount: 0.28 } }} onViewSettingsPatch={() => {}} />);
+  expect(screen.getByRole('slider', { name: 'Explode amount' }).getAttribute('aria-valuenow')).toBe('28');
+  cleanup();
+  render(<CrossSectionControls viewSettings={{ clip: { enabled: true, axis: 'x', offsets: { x: 0.7, y: 1, z: 1 }, invert: false } }}
+    onViewSettingsPatch={() => {}} bounds={{ min: [0, 0, 0], max: [100, 100, 100] }} />);
+  expect(screen.getByRole('slider', { name: 'Clip amount' }).getAttribute('aria-valuenow')).toBe('30');
+});

@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import ToolPopover from '../../../../dist/renderers/kit/tools/ToolPopover.js';
 import FloatingToolBar from '../../../../dist/renderers/kit/tools/FloatingToolBar.js';
-import SelectionFilterMenu, { SelectModeMenu } from '../../../../dist/renderers/step/components/workbench/SelectionFilterMenu.js';
+import { MeasureModeIcon, MeasureModeMenu, SelectModeIcon, SelectModeMenu } from '../../../../dist/renderers/step/components/workbench/SelectionFilterMenu.js';
 
 beforeEach(() => vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -16,8 +16,7 @@ it('ephemeral tool options dismiss on a choice, outside press, or repeated trigg
     const [active, setActive] = useState(false);
     return <><button>Outside</button><FloatingToolBar tools={[{ id: 'select', label: 'Select', active, icon: null,
       secondPressOpensMenu: true, onSelect: () => setActive(true),
-      menu: trigger => <SelectionFilterMenu trigger={trigger} value="all" onChange={changed}
-        options={[{ id: 'all', label: 'All' }, { id: 'faces', label: 'Faces' }]} /> }]} /></>;
+      menu: trigger => <MeasureModeMenu trigger={trigger} mode="all" onModeChange={changed} /> }]} /></>;
   }
   render(<Harness />);
   const select = screen.getByRole('button', { name: 'Select', exact: true });
@@ -79,4 +78,35 @@ it('the Select mode menu offers Parts only in an assembly, keeps inapplicable op
   await user.click(screen.getByRole('button', { name: 'Select', exact: true }));
   expect(screen.getAllByRole('menuitemradio').map(item => item.textContent)).toEqual(['All', 'Parts', 'Faces', 'Edges']);
   expect(screen.getByRole('menuitemcheckbox', { name: 'Edge chain' }).getAttribute('aria-disabled')).toBeNull();
+});
+
+it('Select and Measure draw one composite icon, the tool\'s glyph badged with the mode, and Measure\'s menu is four plain rows', async () => {
+  const user = userEvent.setup();
+  const changed = vi.fn();
+  render(<FloatingToolBar tools={[
+    { id: 'select', label: 'Select', active: false, icon: <SelectModeIcon mode="parts" aria-hidden="true" />, onSelect: () => {} },
+    { id: 'measure', label: 'Measure', active: true, icon: <MeasureModeIcon mode="edges" aria-hidden="true" />, secondPressOpensMenu: true, onSelect: () => {},
+      menu: trigger => <MeasureModeMenu trigger={trigger} mode="edges" onModeChange={changed} /> }]} />);
+  const badges = (root: Element) => [...root.querySelectorAll('svg[data-tool-icon-base]')].map(icon =>
+    `${icon.getAttribute('data-tool-icon-base')}:${icon.querySelector('[data-tool-icon-badge]')?.getAttribute('data-tool-icon-badge') ?? ''}`);
+  // The strip shows the mode in hand, on the tool's own glyph.
+  const select = screen.getByRole('button', { name: 'Select', exact: true });
+  const measure = screen.getByRole('button', { name: 'Measure', exact: true });
+  expect(select.querySelector('[data-select-mode]')?.getAttribute('data-select-mode')).toBe('parts');
+  expect(measure.querySelector('[data-measure-mode]')?.getAttribute('data-measure-mode')).toBe('edges');
+  expect([...badges(select), ...badges(measure)]).toEqual(['select:parts', 'measure:edges']);
+  await user.click(measure);
+  const menu = document.querySelector('[role=menu][aria-label="Measure snapping"]')!;
+  expect(menu).toBeTruthy();
+  // No heading and no descriptions: four rows, each its icon and one word.
+  expect(screen.getAllByRole('menuitemradio').map(item => item.textContent)).toEqual(['All', 'Points', 'Edges', 'Faces']);
+  expect(menu.querySelector('[data-slot=dropdown-menu-label]')).toBeNull();
+  // Each row its mode's own glyph at full size (All: the ruler); the composite is the strip's alone.
+  expect([...menu.querySelectorAll('svg[data-mode-glyph]')].map(icon => icon.getAttribute('data-mode-glyph'))).toEqual(['measure', 'points', 'edges', 'faces']);
+  expect(badges(menu)).toEqual([]);
+  await user.click(screen.getByRole('menuitemradio', { name: 'Points' }));
+  expect(changed).toHaveBeenCalledWith('points');
+  cleanup();
+  render(<SelectModeIcon mode="nonsense" />);
+  expect(badges(document.body)).toEqual(['select:']);
 });

@@ -1166,12 +1166,25 @@ test('the tool stack: one width, bounded by the viewer, resizable, one floating 
     return panels;
   };
 
+  const layout = () => page.evaluate(() => window.cadHarness.preferences.getSnapshot().toolStack);
+
+  // HEIGHTS. A tree opens at half the stack's own height — the viewer's less the strip above it
+  // and the insets — (its default cap) and scrolls inside it; the Reference opens at its content's
+  // height, under its own cap.
+  const stackHeight = await stack.evaluate(node => node.clientHeight);
+  let panels = await shown();
+  assert.deepEqual(panels.map(panel => panel.label), ['Harness tree', 'Harness reference']);
+  assert.ok(stackHeight < (await viewer()).height - 60, 'the stack is the area under the strip');
+  assert.ok(Math.abs(panels[0].height - stackHeight / 2) <= 1, `the tree opens at half the stack: ${panels[0].height} of ${stackHeight}`);
+  assert.equal(panels[0].scrolls, true);
+  assert.equal(panels[1].scrolls, false, 'a Reference that fits its cap is its content\'s height');
+
   // THE STACK. A tree far taller than the viewer, a Reference and a kept effect: every panel the
   // stack's one width, the whole never past the viewer, the tree giving way and scrolling inside
   // itself while the others keep their natural height.
   await keep.click();
   await kept.waitFor();
-  let panels = await withinViewer();
+  panels = await withinViewer();
   assert.deepEqual(panels.map(panel => panel.label), ['Harness tree', 'Harness reference', 'Kept controls']);
   assert.deepEqual(new Set(panels.map(panel => panel.width)), new Set([190]), 'one width, the strip\'s base width with one more tool');
   const [treePanel, referencePanel, keptPanel] = panels;
@@ -1190,34 +1203,136 @@ test('the tool stack: one width, bounded by the viewer, resizable, one floating 
   await one.evaluate(element => { element.parentElement.style.height = '720px'; });
   await page.waitForTimeout(200);
 
-  // One handle, in a gutter right of the stack, widens every panel together; the width is the
-  // person's, kept by the host across files (both viewers share it) and bounded to the minimum.
+  // One handle ON the stack's right edge — centred on it, nothing beside the panels — widens every
+  // panel together; the width is the person's, kept by the host across files (both viewers share
+  // it) and bounded to the minimum.
   const handle = one.getByRole('separator', { name: 'Resize tool panels', exact: true });
-  const handleBox = await handle.boundingBox();
-  assert.ok(handleBox.x >= treePanel.width + (await tree.boundingBox()).x + 2, 'the handle sits in a gutter beside the stack');
+  const [handleBox, treeBox] = [await handle.boundingBox(), await tree.boundingBox()];
+  assert.ok(Math.abs(handleBox.x + handleBox.width / 2 - (treeBox.x + treeBox.width)) <= 1,
+    `the handle is centred on the stack's edge: ${handleBox.x + handleBox.width / 2} vs ${treeBox.x + treeBox.width}`);
+  assert.ok(handleBox.width >= 8, 'with a comfortable hit area');
   await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + 40);
   await page.mouse.down();
   await page.mouse.move(handleBox.x + handleBox.width / 2 + 60, handleBox.y + 40, { steps: 5 });
   await page.mouse.up();
-  await page.waitForFunction(() => window.cadHarness.preferences.getSnapshot().toolStackWidth > 190);
-  const widened = await page.evaluate(() => window.cadHarness.preferences.getSnapshot().toolStackWidth);
+  await page.waitForFunction(() => window.cadHarness.preferences.getSnapshot().toolStack?.width > 190);
+  const widened = (await layout()).width;
   assert.deepEqual(new Set((await shown()).map(panel => panel.width)), new Set([widened]), 'every panel follows');
   await handle.focus();
   await page.keyboard.press('Home');
-  await page.waitForFunction(() => window.cadHarness.preferences.getSnapshot().toolStackWidth === 160);
+  await page.waitForFunction(() => window.cadHarness.preferences.getSnapshot().toolStack?.width === 160);
   assert.deepEqual(new Set((await shown()).map(panel => panel.width)), new Set([160]), 'down to its minimum, narrower than the default');
-  await page.evaluate(() => window.cadHarness.preferences.update({ toolStackWidth: 190 }));
+  await page.evaluate(() => window.cadHarness.preferences.update({ toolStack: { ...window.cadHarness.preferences.getSnapshot().toolStack, width: 190 } }));
 
-  // ONE SURFACE for everything floating over the model: the strip, a stack panel, and a menu.
+  // A TREE'S HEIGHT is the person's too: a handle on its bottom edge (centred on it, like the
+  // width's) sets its cap by pointer or keyboard, written back once on release, and a remount opens
+  // at what was left.
+  await keep.click();
+  await kept.waitFor({ state: 'detached' });
+  const treeHandle = one.getByRole('separator', { name: 'Resize harness tree', exact: true });
+  const [bottomHandle, treeNow] = [await treeHandle.boundingBox(), await tree.boundingBox()];
+  assert.ok(Math.abs(bottomHandle.y + bottomHandle.height / 2 - (treeNow.y + treeNow.height)) <= 1, 'the height handle is centred on the panel\'s bottom edge');
+  assert.ok(Math.abs(bottomHandle.x - treeNow.x) <= 1 && Math.abs(bottomHandle.width - treeNow.width) <= 1, 'and runs its width');
+  await page.evaluate(() => { window.layoutWrites = 0; window.cadHarness.preferences.subscribe(() => { window.layoutWrites += 1; }); });
+  await page.mouse.move(bottomHandle.x + 60, bottomHandle.y + bottomHandle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(bottomHandle.x + 60, bottomHandle.y + bottomHandle.height / 2 - 100, { steps: 8 });
+  const midDrag = await tree.boundingBox();
+  assert.ok(Math.abs(midDrag.height - (treeNow.height - 100)) <= 2, `the tree follows the pointer: ${midDrag.height}`);
+  assert.equal(await page.evaluate(() => window.layoutWrites), 0, 'nothing is written while the pointer moves');
+  await page.mouse.up();
+  await page.waitForFunction(() => window.cadHarness.preferences.getSnapshot().toolStack?.heights?.tree !== undefined);
+  assert.equal(await page.evaluate(() => window.layoutWrites), 1, 'the height is written back once, on release');
+  const dragged = (await layout()).heights.tree;
+  assert.ok(Math.abs(dragged - (treeNow.height - 100)) <= 2, `the cap is the height it was dragged to: ${dragged}`);
+  await treeHandle.focus();
+  await page.keyboard.press('ArrowDown');
+  await page.waitForFunction(wanted => window.cadHarness.preferences.getSnapshot().toolStack?.heights?.tree === wanted, dragged + 16);
+  await page.keyboard.press('Home');
+  await page.waitForFunction(() => window.cadHarness.preferences.getSnapshot().toolStack?.heights?.tree === 64);
+  assert.ok(Math.abs((await tree.boundingBox()).height - 64) <= 1, 'down to its minimum');
+  await page.evaluate(height => window.cadHarness.preferences.update({ toolStack: { ...window.cadHarness.preferences.getSnapshot().toolStack,
+    heights: { tree: height } } }), dragged);
+  await page.evaluate(() => window.cadHarness.mounted(false));
+  await tree.waitFor({ state: 'detached' });
+  await page.evaluate(() => window.cadHarness.mounted(true));
+  await tree.waitFor();
+  assert.ok(Math.abs((await tree.boundingBox()).height - dragged) <= 1, 'a remount opens the tree at the height the person left');
+
+  // FOLDING. Every panel folds to its first row by a chevron at that row's end — up to fold, down
+  // to open — and unfolds again, its content kept mounted meanwhile; which panels are folded is
+  // the person's, across remounts.
+  const treeScroller = tree.locator('[data-tool-panel-body]');
+  await treeScroller.evaluate(element => { element.scrollTop = 200; });
+  const fold = tree.getByRole('button', { name: 'Collapse harness tree', exact: true });
+  assert.deepEqual([await fold.getAttribute('aria-expanded'), await fold.locator('[data-chevron]').getAttribute('data-chevron')], ['true', 'up'], 'open: up folds it');
+  await fold.click();
+  const unfold = tree.getByRole('button', { name: 'Expand harness tree', exact: true });
+  await unfold.waitFor();
+  assert.deepEqual([await unfold.getAttribute('aria-expanded'), await unfold.locator('[data-chevron]').getAttribute('data-chevron')], ['false', 'down'], 'folded: down opens it');
+  const foldedBox = await tree.boundingBox();
+  assert.ok(Math.abs(foldedBox.height - 36 - 2) <= 1, 'folded to its first row');
+  assert.equal(await tree.getByText('Row 1', { exact: true }).count(), 1, 'its content stays mounted');
+  assert.equal(await tree.getByText('Row 1', { exact: true }).isVisible(), false);
+  assert.deepEqual((await layout()).collapsed, { tree: true });
+  // Its height handle stays on the folded edge: pulling it down opens the panel at the height it
+  // is pulled to — one gesture, one write.
+  const foldedHandle = await treeHandle.boundingBox();
+  assert.ok(Math.abs(foldedHandle.y + foldedHandle.height / 2 - (foldedBox.y + foldedBox.height)) <= 1, 'the handle is on the folded panel\'s edge');
+  await page.evaluate(() => { window.layoutWrites = 0; });
+  await page.mouse.move(foldedHandle.x + 60, foldedHandle.y + foldedHandle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(foldedHandle.x + 60, foldedHandle.y + foldedHandle.height / 2 + 150, { steps: 8 });
+  assert.ok(Math.abs((await tree.boundingBox()).height - (foldedBox.height + 150)) <= 2, 'it opens under the pointer');
+  await page.mouse.up();
+  await page.waitForFunction(() => !window.cadHarness.preferences.getSnapshot().toolStack?.collapsed?.tree);
+  assert.equal(await page.evaluate(() => window.layoutWrites), 1, 'opened and sized in one write');
+  assert.ok(Math.abs((await layout()).heights.tree - (foldedBox.height + 150)) <= 2, 'at the height it was pulled to');
+  assert.equal(await tree.getByText('Row 1', { exact: true }).isVisible(), true);
+  // From the keyboard, ArrowDown on a folded panel's handle opens it too.
+  await fold.click();
+  await unfold.waitFor();
+  await treeHandle.focus();
+  await page.keyboard.press('ArrowDown');
+  await fold.waitFor();
+  assert.deepEqual((await layout()).collapsed, {});
+  // A heading panel folds to its heading.
+  await fold.click();
+  const referenceFold = reference.getByRole('button', { name: 'Collapse harness reference', exact: true });
+  assert.equal(await referenceFold.locator('[data-chevron]').getAttribute('data-chevron'), 'up');
+  await referenceFold.click();
+  assert.equal(await reference.locator('[data-tool-panel-body]').isVisible(), false);
+  assert.ok((await reference.boundingBox()).height <= 28 + 2 + 1, 'a heading panel folds to its heading');
+  assert.equal(await reference.getByRole('button', { name: 'Expand harness reference', exact: true }).locator('[data-chevron]').getAttribute('data-chevron'), 'down');
+  await page.evaluate(() => window.cadHarness.mounted(false));
+  await tree.waitFor({ state: 'detached' });
+  await page.evaluate(() => window.cadHarness.mounted(true));
+  await tree.waitFor();
+  assert.equal(await tree.getByRole('button', { name: 'Expand harness tree', exact: true }).isVisible(), true, 'folded across a remount');
+  await tree.getByRole('button', { name: 'Expand harness tree', exact: true }).click();
+  await reference.getByRole('button', { name: 'Expand harness reference', exact: true }).click();
+  assert.equal(await tree.getByText('Row 1', { exact: true }).isVisible(), true);
+  assert.deepEqual((await layout()).collapsed, {}, 'unfolded as they start, nothing is kept');
+  await page.evaluate(() => window.cadHarness.preferences.update({ toolStack: { width: 190, heights: {}, collapsed: {} } }));
+  await keep.click();
+  await kept.waitFor();
+
+  // TWO SURFACES, one place (`floatingSurface.js`): the strip and a menu over the viewport share
+  // one; a stack panel has the same blur and border over a more transparent background.
   await one.locator('[data-cad-surface] canvas').first().click({ button: 'right', position: { x: 600, y: 400 } });
   const menu = page.getByRole('menu');
   await menu.waitFor();
-  const surface = locator => locator.evaluate(node => { const style = getComputedStyle(node); return [style.backgroundColor, style.backdropFilter, style.borderTopColor].join(' | '); });
+  const surface = locator => locator.evaluate(node => { const style = getComputedStyle(node); return [style.backdropFilter, style.borderTopColor].join(' | '); });
+  const alpha = locator => locator.evaluate(node => Number(getComputedStyle(node).backgroundColor.match(/[\d.]+(?=\)$)/)?.[0] ?? 1));
   // Located by CSS: the open menu hides the rest of the page from the accessibility tree.
-  const strip = await surface(one.locator('[data-cad-toolbar] [role=group]'));
+  const stripSurface = one.locator('[data-cad-toolbar] [role=group]'), panelSurface = one.locator('[data-tool-panel][aria-label="Harness tree"]');
+  const strip = await surface(stripSurface);
   assert.match(strip, /blur/);
-  assert.equal(await surface(one.locator('[data-tool-panel][aria-label="Harness tree"]')), strip, 'a stack panel is the strip\'s surface');
-  assert.equal(await surface(menu), strip, 'and so is a menu over the viewport');
+  assert.equal(await surface(panelSurface), strip, 'a stack panel has the strip\'s blur and border');
+  assert.equal(await surface(menu), strip, 'and so has a menu over the viewport');
+  assert.equal(await alpha(stripSurface), 0.75);
+  assert.equal(await alpha(menu), 0.75, 'a menu is the strip\'s background');
+  assert.equal(await alpha(panelSurface), 0.55, 'a panel is more transparent than either');
   await page.keyboard.press('Escape');
   await menu.waitFor({ state: 'detached' });
 
@@ -1256,6 +1371,7 @@ test('the tool stack: one width, bounded by the viewer, resizable, one floating 
   await page.waitForTimeout(150);
   assert.equal(await one.getByRole('button', { name: 'Draw', exact: true }).getAttribute('aria-pressed'), 'true', 'Escape on the drawing surface is Draw\'s');
   assert.equal(await one.locator('[data-tool-panel][aria-label="Drawing controls"]').isVisible(), true);
+  assert.equal(await one.locator('[data-tool-panel][aria-label="Drawing controls"] [data-tool-panel-collapse]').count(), 0, 'the Drawing panel does not fold');
   await one.getByRole('button', { name: 'Draw', exact: true }).click();
   await one.locator('[data-cad-drawing-overlay]').waitFor({ state: 'detached' });
   await keep.click();
@@ -1300,5 +1416,23 @@ test('the tool stack: one width, bounded by the viewer, resizable, one floating 
   [a1, b1] = await cameras();
   assert.equal(turned(a0, a1), true, 'the focused viewer turns');
   assert.equal(turned(b0, b1), false, 'and the one under the pointer does not');
+
+  // A CAP IS NEVER A FLOOR. A tree of two rows is its filter and its two rows, with no empty space
+  // under them; a Reference of forty facts stops at its cap and scrolls.
+  await page.evaluate(() => window.cadHarness.second(false));
+  await page.goto(`http://127.0.0.1:${server.address().port}/?file=panel-short.harness`);
+  await one.locator('[aria-busy="false"] > div > canvas').first().waitFor();
+  await tree.waitFor();
+  const [shortTree, longReference] = await Promise.all([tree, reference].map(panel => panel.evaluate(node => {
+    const body = node.querySelector('[data-tool-panel-body]');
+    const header = node.firstElementChild.getBoundingClientRect().height;
+    return { height: node.getBoundingClientRect().height, header, content: body.scrollHeight, scrolls: body.scrollHeight > body.clientHeight + 1 };
+  })));
+  assert.equal(shortTree.scrolls, false);
+  assert.ok(Math.abs(shortTree.height - (shortTree.header + shortTree.content + 2)) <= 1,
+    `the tree is its filter row and its rows: ${JSON.stringify(shortTree)}`);
+  assert.ok(shortTree.height < 128, 'with no minimum height of its own');
+  assert.equal(longReference.scrolls, true, 'a long Reference scrolls');
+  assert.ok(Math.abs(longReference.height - 288) <= 1, `at its cap: ${longReference.height}`);
   assert.deepEqual(errors, []);
 });

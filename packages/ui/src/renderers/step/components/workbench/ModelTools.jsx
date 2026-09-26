@@ -93,7 +93,7 @@ export function useModelTools({ modelKey, view, features, store, mesh, disabled,
         const tool = definitions.find(value => value.id === id);
         // Measure's results can run long, so they give way like a details panel; Explode and
         // Clip are a row or two and keep their height.
-        return tool ? <ToolPanel key={id} title={tool.label} label={`${tool.label} controls`} summary={tool.summary} collapsible
+        return tool ? <ToolPanel key={id} id={id} title={tool.label} label={`${tool.label} controls`} summary={tool.summary}
           fit={id === "measure" ? "details" : "fixed"} onClose={() => remove(id)}>
           <div className="space-y-1 pb-1">{tool.controls}</div>
         </ToolPanel> : null;

@@ -28,3 +28,20 @@ test("viewer chrome uses the type scale and the viewer breakpoint, never window 
   }
   assert.deepEqual(found, []);
 });
+
+// Every scroll region of the chrome is the one ScrollArea primitive (`primitives/scroll-area.jsx`):
+// thin overlay bars in the theme's colours, never the platform's scrollbar.
+const NATIVE_SCROLLER = /\boverflow(?:-[xy])?-(?:auto|scroll)\b/;
+const SCROLL_REGIONS = ["renderers/kit/tools/ToolPanel.jsx", "file-viewer/navigation/FileTree.jsx", "primitives/dropdown-menu.jsx",
+  "file-viewer/navigation/Breadcrumbs.jsx", "renderers/kit/status/ViewerAlertCard.jsx"];
+
+test("every scroll region in the viewer's chrome is the ScrollArea primitive, never a native scroller", () => {
+  const found = [];
+  for (const dir of [...CHROME, "renderers/step", "renderers/robot"]) for (const file of sources(join(root, dir))) {
+    readFileSync(file, "utf8").split("\n").forEach((line, index) => {
+      if (NATIVE_SCROLLER.test(line)) found.push(`${relative(root, file)}:${index + 1}: ${line.trim().slice(0, 120)}`);
+    });
+  }
+  assert.deepEqual(found, []);
+  for (const file of SCROLL_REGIONS) assert.match(readFileSync(join(root, file), "utf8"), /<ScrollArea\b/, `${file} scrolls in a ScrollArea`);
+});

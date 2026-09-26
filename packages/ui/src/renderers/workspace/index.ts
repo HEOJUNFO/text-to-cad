@@ -4,5 +4,5 @@
 export { prepareWorkspaceEntry } from './prepare.js';
 export type { PreparedWorkspaceEntry, WorkspaceClientOption } from './prepare.js';
 export { createCadPreferences, createStoredCadPreferences } from './preferences.js';
-export type { CadPreferences, CadPreferenceSource, StoredCadPreferences } from './preferences.js';
+export type { CadPreferences, CadPreferenceSource, StoredCadPreferences, ToolStackLayout } from './preferences.js';
 export type { ViewerCommands, ViewerCommandSource } from './commands.js';

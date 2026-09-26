@@ -1,4 +1,5 @@
 import { TooltipHint } from "@hardcore/ui/primitives/tooltip";
+import { ToolPanelCollapse } from "../tools/ToolPanel.jsx";
 import { useMemo, useRef } from "react";
 import { Blend, Expand, Plus, RotateCcw, RotateCw, Sun, SunDim, X } from "lucide-react";
 import { ALL_VIEW_FEATURES, normalizeViewFeatures, normalizeViewSettings, resolveViewSettings, viewSettingsAreCustom } from "@hardcore/core/common/viewSettings.js";
@@ -182,6 +183,11 @@ export function DisplaySettingsSection({
           options={[{ value: "origin", label: "Model origin" }, { value: "lowest", label: "Lowest point" }]} />
       </>),
   ];
+  // Its panel has no heading: the first always-open section's heading row is the panel's first
+  // row, and carries the panel's fold chevron after its own action (`ToolPanelCollapse`, nothing
+  // outside a panel).
+  const lead = sections.findIndex(item => item && typeof item.onEnabledChange !== "function");
+  if (lead >= 0) sections[lead] = { ...sections[lead], headingAction: <>{sections[lead].headingAction}<ToolPanelCollapse /></> };
   return <div className="[&_[data-settings-section-heading]_.text-xs]:text-tiny">
     <DisplaySections sections={sections} />
   </div>;

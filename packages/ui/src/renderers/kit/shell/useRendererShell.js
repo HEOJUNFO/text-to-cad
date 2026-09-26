@@ -11,7 +11,7 @@ import { useChromeBackdropColor } from "../look/useChromeBackdropColor.js";
 import { prefetchRenderStudio } from "../look/renderStudioChunk.js";
 import { CAD_DRAWING_DEFAULTS } from "../tools/draw/DrawingOverlay.jsx";
 import { normalizeOrbit } from "../tools/fullscreen/orbitPreferences.js";
-import { normalizeToolStackWidth } from "../tools/toolStackWidth.js";
+import { normalizeToolStack } from "../tools/toolStackLayout.js";
 import { DisplaySettingsSection } from "../view-settings/DisplaySettingsSection.js";
 import { useAppliedViewSettings } from "../view-settings/useAppliedViewSettings.js";
 import { useViewSettings } from "../view-settings/useViewSettings.js";
@@ -76,7 +76,7 @@ const EMPTY = Object.freeze({});
  *
  * @param {object} options
  * @param {import("../../../file-viewer/types.js").RendererViewProps} options.view  The host's props, unchanged.
- * @param {{ preferences: { orbit?: { speed: number }, toolStackWidth?: number }, onPreferenceChange(patch: object): void,
+ * @param {{ preferences: { orbit?: { speed: number }, toolStack?: object }, onPreferenceChange(patch: object): void,
  *   live?: object, captureRequest?: { key: string | number } | null,
  *   acknowledgeCommand?: (kind: string, key: string | number) => void }} options.services
  * @param {import("@hardcore/core/prompt").ResourceRef} options.resource  The document on screen, for prompt context and live state.
@@ -254,10 +254,17 @@ export function useRendererShell({
   const previewOrbitSpeed = normalizeOrbit(services.preferences?.orbit).speed;
   const setPreviewOrbitSpeed = useCallback(speed => services.onPreferenceChange({ orbit: normalizeOrbit({ speed }) }),
     [services.onPreferenceChange]);
-  // The tool stack's one width is the person's, across files: the host keeps it with the orbit.
-  const toolStackWidth = normalizeToolStackWidth(services.preferences?.toolStackWidth);
-  const setToolStackWidth = useCallback(width => services.onPreferenceChange({ toolStackWidth: normalizeToolStackWidth(width) }),
-    [services.onPreferenceChange]);
+  // The tool stack's layout — its one width, the panels' caps, the folded panels — is the
+  // person's, across files: the host keeps it with the orbit. A change is a patch over the
+  // layout as it last stood (or a function of it), so two panels written back in one turn both land.
+  const toolStack = useMemo(() => normalizeToolStack(services.preferences?.toolStack), [services.preferences?.toolStack]);
+  const toolStackRef = useRef(toolStack);
+  toolStackRef.current = toolStack;
+  const changeToolStack = useCallback(patch => {
+    const next = normalizeToolStack({ ...toolStackRef.current, ...(typeof patch === "function" ? patch(toolStackRef.current) : patch) });
+    toolStackRef.current = next;
+    services.onPreferenceChange({ toolStack: next });
+  }, [services.onPreferenceChange]);
   const hostRef = useRef(null);
   const [hostElement, setHostElement] = useState(null);
   useEffect(() => { setHostElement(hostRef.current); }, []);
@@ -472,7 +479,7 @@ export function useRendererShell({
       onCameraSettled: reportCameraSettled,
       preserveInteractionPixelRatio: preserveInteractionPixelRatio === true,
       runtimeLifecycle: stableRuntimeLifecycle,
-      previewOrbitSpeed, setPreviewOrbitSpeed, toolStackWidth, setToolStackWidth, viewerLoading, loading, presentationState,
+      previewOrbitSpeed, setPreviewOrbitSpeed, toolStack, changeToolStack, viewerLoading, loading, presentationState,
       handlePresentationChange, viewerAlert, setRuntimeAlert,
       copyActionRef, copyDrawing, copyShortcut: host.environment.platform === "darwin" ? "⌘C" : "Ctrl+C",
       drawToolActive, drawing, animation, display

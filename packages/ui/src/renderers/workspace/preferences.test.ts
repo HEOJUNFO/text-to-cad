@@ -12,7 +12,7 @@ test('stored preferences read their storage, write the orbit back, and re-read o
   values.set('cad-viewer:orbit:v1', JSON.stringify({ speed: 2 }));
   values.set('cad-viewer:theme', 'retired');
   const preferences = createStoredCadPreferences(storage);
-  expect(preferences.getSnapshot()).toEqual({ orbit: { speed: 2 }, toolStackWidth: 190 });
+  expect(preferences.getSnapshot()).toEqual({ orbit: { speed: 2 }, toolStack: { width: 190, heights: {}, collapsed: {} } });
   preferences.update({ orbit: { speed: 1.37 } });
   expect(JSON.parse(values.get('cad-viewer:orbit:v1')!)).toEqual({ speed: 1.37 });
   expect(createStoredCadPreferences(storage).getSnapshot().orbit).toEqual({ speed: 1.37 });
@@ -33,16 +33,22 @@ test('stored preferences read their storage, write the orbit back, and re-read o
   expect(values.size).toBe(0);
 });
 
-test('the tool stack width is a stored preference of its own: bounded, written back, and heard from other windows', () => {
+test('the tool stack layout is one stored record: its width, the panel caps and the folded panels, bounded, written back and heard from other windows', () => {
   const { values, storage } = memory();
+  // The retired width-only key is nobody's any more: it is neither read nor removed.
+  values.set('cad-viewer:tool-stack-width:v1', '300');
   const preferences = createStoredCadPreferences(storage);
-  expect(preferences.getSnapshot().toolStackWidth).toBe(190);
-  preferences.update({ toolStackWidth: 240 });
-  expect(values.get('cad-viewer:tool-stack-width:v1')).toBe('240');
+  expect(preferences.getSnapshot().toolStack).toEqual({ width: 190, heights: {}, collapsed: {} });
+  const layout = { width: 240, heights: { tree: 320, reference: 180 }, collapsed: { reference: true, sdf: false } };
+  preferences.update({ toolStack: layout });
+  expect(JSON.parse(values.get('cad-viewer:tool-stack:v1')!)).toEqual(layout);
+  expect(values.get('cad-viewer:tool-stack-width:v1')).toBe('300');
   expect(values.has('cad-viewer:orbit:v1')).toBe(false);
-  expect(createStoredCadPreferences(storage).getSnapshot().toolStackWidth).toBe(240);
-  values.set('cad-viewer:tool-stack-width:v1', '12');
-  preferences.storageChanged('cad-viewer:tool-stack-width:v1');
-  expect(preferences.getSnapshot().toolStackWidth).toBe(160);
-  expect(values.get('cad-viewer:tool-stack-width:v1')).toBe('12');
+  expect(createStoredCadPreferences(storage).getSnapshot().toolStack).toEqual(layout);
+  // Another window wrote it: read back and bounded, never written again.
+  const written = JSON.stringify({ width: 12, heights: { tree: 3, reference: 'tall', other: 400 }, collapsed: { tree: true, 'Not an id': true, clip: 'yes' } });
+  values.set('cad-viewer:tool-stack:v1', written);
+  preferences.storageChanged('cad-viewer:tool-stack:v1');
+  expect(preferences.getSnapshot().toolStack).toEqual({ width: 160, heights: { tree: 64 }, collapsed: { tree: true } });
+  expect(values.get('cad-viewer:tool-stack:v1')).toBe(written);
 });

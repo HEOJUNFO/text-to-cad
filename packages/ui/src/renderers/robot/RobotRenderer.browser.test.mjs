@@ -187,19 +187,6 @@ async function open(t, file, { panel = true } = {}) {
   }
   return robot;
 }
-/**
- * A labelled row, measured where it is drawn: the label sits just above its full-width control,
- * sharing its left edge, and the control runs to the section's right edge — not a control whose
- * label is only a tooltip.
- */
-async function assertLabelledRow(section, label, control) {
-  const [sectionBox, labelBox, controlBox] = await Promise.all([
-    section.locator('[data-tool-panel-body]').boundingBox(), section.getByText(label, { exact: true }).boundingBox(), control.boundingBox()]);
-  assert.ok(labelBox.y + labelBox.height <= controlBox.y, 'the Pose label sits above its dropdown');
-  assert.ok(Math.abs(labelBox.x - controlBox.x) <= 1, 'label and control share a left edge');
-  assert.ok(sectionBox.x + sectionBox.width - (controlBox.x + controlBox.width) <= 12,
-    `and the control is right-aligned: ${JSON.stringify({ sectionBox, controlBox })}`);
-}
 // Orbit controls re-derive the camera from its spherical form on a repaint: rounding, not motion.
 const sameCamera = (a, b) => a.every((value, index) => Math.abs(value - b[index]) < 1e-9);
 const round6 = value => Math.round(value * 1e6) / 1e6;
@@ -243,19 +230,32 @@ test('a robot can enter Position with sidebar controls: knobs drag joints, the c
   assert.equal(await pane.locator('[data-tool-panel][aria-label="Display settings"]').count(), 0, 'Display is never where a file opens');
   assert.equal(await pane.getByRole('tab').count(), 0, 'no tabs');
   assert.deepEqual(await robot.stack(), ['Position controls']);
-  assert.equal(await robot.position().getByRole('heading').count(), 0, 'no title: its Pose row leads it');
+  // Headed "Position", with its Reset and the fold chevron in the heading.
+  const positionHeading = robot.position().locator('[data-tool-panel-heading]');
+  assert.equal((await positionHeading.getByRole('heading').innerText()).trim(), 'Position');
+  assert.equal(await positionHeading.getByRole('button', { name: 'Reset', exact: true }).count(), 1);
+  assert.equal(await positionHeading.getByRole('button', { name: 'Collapse position controls', exact: true }).count(), 1);
   await robot.openPosition();
   // One knob per joint a person can drive: no fixed joint, no mimic follower. The follower has no slider either.
   assert.deepEqual(Object.keys(await robot.handles()).sort(), ['grip', 'lift', 'nod', 'shoulder']);
   assert.equal(await robot.jointField('grip_mirror', 'm').count(), 0);
   assert.equal(await robot.jointField('camera_mount').count(), 0);
-  // The SRDF's "home" state is the pose the robot opens in, and the Position section's Pose
-  // row names it: a labelled row of that one section, with its dropdown beside the label.
+  // The SRDF's "home" state is the pose the robot opens in, and the Position panel's Pose row
+  // names it: a label and its dropdown side by side.
   assert.equal(round6((await robot.handles()).shoulder.value), round6(home));
   assert.equal((await robot.handles()).lift.value, 0.1);
   const position = robot.position();
   const poseSelect = position.getByRole('combobox', { name: 'Pose', exact: true });
-  await assertLabelledRow(position, 'Pose', poseSelect);
+  const [poseLabel, poseBox, panelBody] = await Promise.all([position.getByText('Pose', { exact: true }).boundingBox(), poseSelect.boundingBox(),
+    position.locator('[data-tool-panel-body]').boundingBox()]);
+  assert.ok(poseLabel.x + poseLabel.width <= poseBox.x, 'the label is beside its dropdown');
+  assert.ok(Math.abs((poseLabel.y + poseLabel.height / 2) - (poseBox.y + poseBox.height / 2)) <= 2, 'on one line');
+  assert.ok(panelBody.x + panelBody.width - (poseBox.x + poseBox.width) <= 12, 'and the dropdown runs to the row\'s end');
+  // Compact joint rows: a small value field beside each slider, rows close together.
+  const fields = await position.locator('[data-position-control] input').evaluateAll(inputs => inputs.map(input => input.getBoundingClientRect()));
+  assert.ok(fields.length >= 3 && fields.every(field => field.height <= 24 && field.width <= 60), `small value fields: ${JSON.stringify(fields.map(field => [field.width, field.height]))}`);
+  const rowTops = await position.locator('[data-position-control]').evaluateAll(rows => rows.map(row => row.getBoundingClientRect()));
+  assert.ok(rowTops.slice(1).every((row, index) => row.top - rowTops[index].bottom <= 4), 'rows 4px apart at most');
   for (const heading of ['Pose', 'Joints', 'Kinematics']) {
     assert.equal(await position.getByRole('heading', { name: heading, exact: true }).count(), 0, `no ${heading} heading inside Position`);
   }
@@ -403,7 +403,7 @@ test('Select picks links at once; a selection lives only under Select; Links sho
   await pane.getByRole('button', { name: 'Select upper_arm', exact: true }).click();
   assert.deepEqual(await robot.toolNames(), ['Select:true', 'Position:false', 'Display:false']);
   assert.deepEqual(await robot.pressedRows(), ['Select upper_arm']);
-  const reference = pane.getByLabel('Reference details');
+  const reference = pane.getByRole('region', { name: 'Reference details', exact: true });
   await reference.getByText('shoulder', { exact: true }).first().waitFor();
   assert.match(await reference.innerText(), /arm/, 'the SRDF planning group of the link');
   // The Reference is the next panel of the stack, under Links, headed by the link's name.
@@ -412,6 +412,21 @@ test('Select picks links at once; a selection lives only under Select; Links sho
   const [links, pinned] = await Promise.all([robot.linksPanel().boundingBox(), reference.boundingBox()]);
   assert.ok(pinned.y >= links.y + links.height, 'under Links');
   assert.equal(pinned.width, links.width, 'the stack\'s one width');
+  // A link's facts are in the panel's one face and size, never monospace, in compact rows.
+  const faces = await reference.locator('[data-tool-panel-body] *').evaluateAll(nodes => [...new Set(nodes
+    .filter(node => !node.childElementCount && node.textContent.trim())
+    .map(node => `${getComputedStyle(node).fontFamily} | ${getComputedStyle(node).fontSize}`))]);
+  assert.equal(faces.length, 1, `one face and size: ${faces.join(' / ')}`);
+  assert.doesNotMatch(faces[0], /mono/i);
+  assert.ok((await reference.locator('[data-info-row]').first().boundingBox()).height <= 19, 'a compact row');
+  // Links folds to its filter row by the chevron at that row's end, and its Reference keeps its place under it.
+  const linksPanel = robot.linksPanel();
+  const filterRow = linksPanel.locator('[data-slot=tree-filter]');
+  await filterRow.getByRole('button', { name: 'Collapse links', exact: true }).click();
+  assert.ok(Math.abs((await linksPanel.boundingBox()).height - (await filterRow.boundingBox()).height - 2) <= 1, 'folded to its filter row');
+  assert.ok((await reference.boundingBox()).y < pinned.y, 'the Reference moves up under it');
+  await filterRow.getByRole('button', { name: 'Expand links', exact: true }).click();
+  assert.deepEqual(await robot.pressedRows(), ['Select upper_arm'], 'the tree kept its selection while folded');
   // Leaving Select drops the selection, in the tree and the viewport alike.
   await robot.tool('Position').click();
   await robot.waitPressed(0);

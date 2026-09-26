@@ -71,7 +71,7 @@ function MaterialChannelValues({ channels }) {
     <span className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
       {channels.map((channel) => (
         <span key={channel.key} className="inline-flex items-baseline gap-1">
-          <span className="text-micro text-muted-foreground">{channel.label}</span>
+          <span className="text-muted-foreground">{channel.label}</span>
           <MonoValue>{`${formatNumber(channel.value * 100, 0)}%`}</MonoValue>
         </span>
       ))}
@@ -85,14 +85,14 @@ function MaterialDetail({ info }) {
   const coating = info.channels.filter((channel) => ["clearcoat", "clearcoatRoughness"].includes(channel.key));
   const opacity = info.channels.filter((channel) => channel.key === "opacity");
   return (
-    <div className="mt-2 border-t border-sidebar-border/60 pt-2" aria-label="Source material">
+    <div className="mt-1 border-t border-sidebar-border/60 pt-1" aria-label="Source material">
       <InfoRow label="Material">{info.label}</InfoRow>
       {info.color ? (
         <InfoRow label="Color">
           {info.color.mixed ? "Mixed" : (
-            <span className="inline-flex items-center gap-1.5">
+            <span className="inline-flex items-baseline gap-1.5">
               <span
-                className="size-3 shrink-0 rounded-[2px] border border-sidebar-border"
+                className="size-3 shrink-0 self-center rounded-[2px] border border-sidebar-border"
                 style={{ backgroundColor: info.color.value }}
                 aria-label={`${info.color.value} color swatch`}
               />
@@ -239,14 +239,16 @@ export function useStepReference({ references = [], meshData = null, sourceAppea
 
   const name = item => referenceName(item, meshData, partName);
   // Flush with the rows' labels: the trigger brings no inset of its own. Several references
-  // add their count ("1/2") so the name reads as a chooser.
+  // add their count ("1/2") so the name reads as a chooser. It is quiet like the heading's other
+  // buttons: no fill on hover in either theme — only its chevron comes up to full strength — and
+  // nothing that changes its size, so hovering never moves the heading.
   const at = items.indexOf(activeItem) + 1;
   const title = items.length > 1 ? <Select value={itemKey(activeItem)} onValueChange={id=>setBrowsed({selection:idsKey,id})}>
-    <SelectTrigger size="sm" aria-label="Inspect selected reference"
-      className="!h-6 min-w-0 max-w-full gap-1 border-none bg-transparent !px-0 text-xs shadow-none hover:bg-transparent dark:bg-transparent [&_svg]:size-3">
+    <SelectTrigger size="sm" aria-label="Inspect selected reference" data-reference-picker=""
+      className="!h-6 min-w-0 max-w-full gap-1 rounded-sm border-none bg-transparent !px-0 text-xs shadow-none hover:bg-transparent focus-visible:ring-2 focus-visible:ring-ring/45 dark:bg-transparent dark:hover:bg-transparent [&_svg]:size-3 [&_svg]:opacity-50 hover:[&_svg]:opacity-100 data-[state=open]:[&_svg]:opacity-100">
       <span className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left" data-reference-label="">
         <span className="min-w-0 truncate">{name(activeItem)}</span>
-        <span className="shrink-0 text-micro text-muted-foreground tabular-nums" data-reference-count="">{at}/{items.length}</span>
+        <span className="shrink-0 text-tiny text-muted-foreground tabular-nums" data-reference-count="">{at}/{items.length}</span>
       </span>
     </SelectTrigger>
     <SelectContent className="max-w-[max(var(--radix-select-trigger-width),12rem)]">{items.map(item=><SelectItem className="break-all" key={itemKey(item)} value={itemKey(item)}>{name(item)}</SelectItem>)}</SelectContent>

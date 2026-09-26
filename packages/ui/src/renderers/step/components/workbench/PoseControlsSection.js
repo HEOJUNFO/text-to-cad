@@ -44,6 +44,12 @@ function formatControlNumber(value) {
   return numericValue.toFixed(2);
 }
 
+// A value's unit as its compact field shows it: degrees as the sign ("90.0°"), others after a space.
+function unitSuffix(unit) {
+  const text = String(unit || "").trim();
+  return !text ? "" : /^(deg|degrees?|°)$/i.test(text) ? "\u00b0" : ` ${text}`;
+}
+
 // The model's named configurations, straight off the sidecar's kinematics
 // block. A preset is a full configuration, not a patch: applying one puts every
 // DOF it does not name back at 0 (the artifact as written), so clicking two
@@ -133,7 +139,7 @@ export default function PoseControlsSection({ runtime = null }) {
 
       {definition ? (
         <>
-          {poseNames.length || onReset ? (
+          {poseNames.length ? (
             <KinematicsPoseRow
               poses={poseNames.map((poseName) => ({ value: poseName, label: poseName }))}
               activeValue={activePose}
@@ -224,7 +230,7 @@ export default function PoseControlsSection({ runtime = null }) {
                 key={parameter.id}
                 label={parameter.label}
                 labelTitle={driver ? `${parameter.label} · driven by ${driver.coupling}` : parameter.label}
-                value={`${formatControlNumber(currentValue)}${parameter.unit ? ` ${parameter.unit}` : ""}`}
+                value={`${formatControlNumber(currentValue)}${unitSuffix(parameter.unit)}`}
                 onValueCommit={(nextValue) => {
                   changeParameter(parameter.id, parseFileSheetNumberInput(nextValue, {
                     fallback: currentValue,

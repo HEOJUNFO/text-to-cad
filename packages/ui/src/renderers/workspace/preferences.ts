@@ -1,11 +1,19 @@
 import { ORBIT_STORAGE_KEY, readOrbit, writeOrbit } from '../kit/tools/fullscreen/orbitPreferences.js';
-import { TOOL_STACK_WIDTH_STORAGE_KEY, readToolStackWidth, writeToolStackWidth } from '../kit/tools/toolStackWidth.js';
+import { TOOL_STACK_STORAGE_KEY, readToolStack, writeToolStack } from '../kit/tools/toolStackLayout.js';
 
 
 export interface CadPreferences {
   orbit?: { speed: number };
-  /** The tool stack's width in CSS pixels: every panel under the strip, in every file (`kit/tools/toolStackWidth.js`). */
-  toolStackWidth?: number;
+  /**
+   * The tool stack's layout, in every file (`kit/tools/toolStackLayout.js`): its one width in CSS
+   * pixels, the caps a person dragged the tree and Reference panels to, and which panels are folded.
+   */
+  toolStack?: ToolStackLayout;
+}
+export interface ToolStackLayout {
+  width: number;
+  heights: { tree?: number; position?: number; reference?: number };
+  collapsed: Record<string, boolean>;
 }
 export interface CadPreferenceSource {
   getSnapshot(): CadPreferences;
@@ -47,19 +55,19 @@ export interface StoredCadPreferences extends CadPreferenceSource {
  * is this module's. Construction reads the storage and nothing else.
  */
 export function createStoredCadPreferences(storage: Storage): StoredCadPreferences {
-  const read = (): CadPreferences => ({ orbit: readOrbit(storage), toolStackWidth: readToolStackWidth(storage) });
+  const read = (): CadPreferences => ({ orbit: readOrbit(storage), toolStack: readToolStack(storage) });
   let syncing = false;
   let baseline = read();
   const source = createCadPreferences({ initial: baseline, onChange(preferences) {
     // A preference read back from storage is not written again.
     if (!syncing && preferences.orbit && JSON.stringify(preferences.orbit) !== JSON.stringify(baseline.orbit)) writeOrbit(storage, preferences.orbit);
-    if (!syncing && preferences.toolStackWidth !== undefined && preferences.toolStackWidth !== baseline.toolStackWidth) writeToolStackWidth(storage, preferences.toolStackWidth);
+    if (!syncing && preferences.toolStack && JSON.stringify(preferences.toolStack) !== JSON.stringify(baseline.toolStack)) writeToolStack(storage, preferences.toolStack);
     baseline = preferences;
   } });
   return {
     ...source,
     storageChanged(key) {
-      if (key !== null && key !== ORBIT_STORAGE_KEY && key !== TOOL_STACK_WIDTH_STORAGE_KEY) return;
+      if (key !== null && key !== ORBIT_STORAGE_KEY && key !== TOOL_STACK_STORAGE_KEY) return;
       syncing = true;
       try { source.update(read()); } finally { syncing = false; }
     },

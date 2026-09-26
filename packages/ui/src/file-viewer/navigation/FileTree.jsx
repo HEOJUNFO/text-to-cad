@@ -2,6 +2,7 @@ import { TooltipHint } from "@hardcore/ui/primitives/tooltip";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@hardcore/ui/primitives/context-menu";
+import { ScrollArea } from "@hardcore/ui/primitives/scroll-area";
 import { TreeFilterHighlight, TreeFilterInput } from "@hardcore/ui/primitives/tree-filter";
 import { TREE_ROW_HEIGHT, TreeRowSurface, TreeRowChevron, TreeRowLabel } from "@hardcore/ui/primitives/tree-row";
 
@@ -526,13 +527,12 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
 
       <ContextMenu modal={false}>
         <ContextMenuTrigger asChild>
-          <div
-            className="min-h-0 flex-1 overflow-auto px-1 py-1 outline-none"
+          <ScrollArea
+            className="min-h-0 flex-1"
             onContextMenu={aim}
-            onKeyDown={onKeyDown}
-            ref={listRef}
-            role="tree"
-            tabIndex={0}
+            viewportClassName="px-1 py-1"
+            viewportProps={{ onKeyDown, role: "tree", tabIndex: 0 }}
+            viewportRef={listRef}
           >
             {filtering ? (
               matches.length === 0 ? (
@@ -586,7 +586,7 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
                 ))}
               </>
             )}
-          </div>
+          </ScrollArea>
         </ContextMenuTrigger>
         <ContextMenuContent
           className="w-56"

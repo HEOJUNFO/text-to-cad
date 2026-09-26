@@ -101,16 +101,20 @@ test('fullscreen stays separate from conditional GLB animation tools', async (t)
   const { page, pane, errors } = await open('animated.glb');
   await ready(pane);
   const animate = pane.getByRole('button', { name: 'Animate', exact: true });
-  assert.equal(await animate.locator('[data-tool-menu-corner]').count(), 1);
+  assert.equal(await animate.locator('[data-tool-menu-corner]').count(), 0, 'no corner menu: its options are the Animate panel');
   assert.equal(await pane.getByRole('toolbar', { name: 'Animation playback' }).count(), 0);
   await animate.click();
   await pane.getByRole('button', { name: 'Pause animation', exact: true }).waitFor();
   assert.equal(await pane.getByLabel('View cube', { exact: true }).isVisible(), true);
+  // The Animate panel leads the stack while it plays: Speed and Loop (one clip, so no Routine),
+  // and nothing of Orbit's, which is fullscreen's.
+  const animatePanel = pane.getByRole('region', { name: 'Animate controls', exact: true });
+  await animatePanel.waitFor();
+  assert.equal(await animatePanel.getByRole('combobox', { name: 'Speed', exact: true }).count(), 1);
+  assert.equal(await animatePanel.getByRole('checkbox', { name: 'Loop', exact: true }).count(), 1);
+  assert.equal(await animatePanel.getByText(/Orbit/).count(), 0);
   await animate.click();
-  await page.getByRole('menu').waitFor();
-  assert.equal(await page.getByRole('menuitem', { name: /Orbit/ }).count(), 0);
-  await page.keyboard.press('Escape');
-  await page.getByRole('menu').waitFor({ state: 'hidden' });
+  assert.equal(await page.getByRole('menu').count(), 0, 'a second press opens nothing');
   await pane.getByRole('button', { name: 'Fullscreen', exact: true }).click();
   await pane.getByRole('button', { name: 'Animation settings', exact: true }).waitFor();
   assert.equal(await pane.getByRole('button', { name: 'Animation settings', exact: true }).locator('svg.lucide-play').count(), 1);

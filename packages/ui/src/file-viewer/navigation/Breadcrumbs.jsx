@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger
 } from "@hardcore/ui/primitives/dropdown-menu";
 import { cn } from "@hardcore/ui/utils";
+import { ScrollArea } from "@hardcore/ui/primitives/scroll-area";
 
 import { menuEntries, nameOf, stepToward } from "./crumbs.js";
 import { FileIcon, FolderIcon } from "./icons.jsx";
@@ -214,13 +215,15 @@ function DirectorySubMenu({ directory, label, marked, activePath, onOpen, source
         <FolderIcon className="size-3.5 shrink-0" open={open} />
         <span className="min-w-0 flex-1 truncate">{label}</span>
       </DropdownMenuSubTrigger></TooltipHint>
-      <DropdownMenuSubContent className="max-h-80 w-max min-w-44 max-w-80 overflow-y-auto">
-        <DirectoryMenuItems
-          activePath={activePath}
-          directory={directory}
-          onOpen={onOpen}
-          source={source}
-        />
+      <DropdownMenuSubContent className="flex max-h-80 w-max min-w-44 max-w-80 flex-col overflow-hidden">
+        <ScrollArea className="min-h-0 flex-1">
+          <DirectoryMenuItems
+            activePath={activePath}
+            directory={directory}
+            onOpen={onOpen}
+            source={source}
+          />
+        </ScrollArea>
       </DropdownMenuSubContent>
     </DropdownMenuSub>
   );

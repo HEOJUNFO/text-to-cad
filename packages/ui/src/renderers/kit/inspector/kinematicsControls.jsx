@@ -1,7 +1,8 @@
 import { TooltipHint } from "@hardcore/ui/primitives/tooltip";
 import { RotateCcw } from "lucide-react";
 import { Button } from "@hardcore/ui/primitives/button";
-import { FileSheetSelectRow, FileSheetControlRow } from "./FileSheet.js";
+import { cn } from "@hardcore/ui/utils";
+import { FILE_SHEET_FIELD_LABEL_CLASSES, FileSheetSelectRow } from "./FileSheet.js";
 
 export const NO_PRESET_VALUE = "__none__";
 export const DEFAULT_POSE_VALUE = "__default__";
@@ -14,24 +15,25 @@ export function positionValuesAreDefault(values, defaults) {
   });
 }
 
-/** One compact header for authored position controls. */
+/**
+ * The Pose row of a Position panel: a "Pose" label beside its dropdown, drawn only when there is a
+ * named pose to choose; Default leads the options when the panel can reset. Without a named pose
+ * there is no row: Reset is the panel heading's (`MotionResetButton`).
+ */
 export function KinematicsPoseRow({ poses = [], activeValue, onSelect, onReset }) {
-  const hasPoses = poses.length > 0;
-  if (!hasPoses && !onReset) return null;
+  if (!poses.length) return null;
   const options = [...(onReset ? [{ value: DEFAULT_POSE_VALUE, label: "Default" }] : []), ...poses];
   const active = options.find(pose => pose.value === activeValue);
-  return <div data-position-header="">
-    <FileSheetControlRow className={hasPoses ? "space-y-0 pb-1" : undefined} label={hasPoses ? "Pose" : "Position"}
-      trailing={<MotionResetButton onReset={onReset} />}>
-      {hasPoses ? <FileSheetSelectRow hideLabel className="px-0" value={active?.value || NO_PRESET_VALUE}
-        onValueChange={value => value === DEFAULT_POSE_VALUE ? onReset?.() : onSelect?.(value)}
-        ariaLabel="Pose" triggerContent={<span className="truncate">{active?.label || "Custom"}</span>}
-        options={options} /> : null}
-    </FileSheetControlRow>
+  return <div data-position-header="" className="flex min-w-0 items-center gap-2 px-2">
+    <span className={cn(FILE_SHEET_FIELD_LABEL_CLASSES, "shrink-0")}>Pose</span>
+    <FileSheetSelectRow hideLabel className="min-w-0 flex-1 px-0" triggerClassName="h-6" value={active?.value || NO_PRESET_VALUE}
+      onValueChange={value => value === DEFAULT_POSE_VALUE ? onReset?.() : onSelect?.(value)}
+      ariaLabel="Pose" triggerContent={<span className="truncate">{active?.label || "Custom"}</span>}
+      options={options} />
   </div>;
 }
 
-/** Reset stays beside the pose choice, above the joint list. */
+/** A Position panel's Reset: in its heading, before the fold chevron. */
 export function MotionResetButton({ onReset }) {
   if (!onReset) return null;
   return <TooltipHint content="Reset motion"><Button variant="ghost" size="icon-xs" className="size-5 shrink-0 text-muted-foreground"

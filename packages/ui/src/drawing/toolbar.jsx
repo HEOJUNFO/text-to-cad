@@ -57,7 +57,12 @@ export const DEFAULT_OVERLAY_DRAWING_COLOR = DRAWING_COLORS[0].value;
 const SURFACE = 'pointer-events-auto flex w-[calc(7*1.5rem+6*0.125rem+0.5rem+2px)] max-w-full flex-wrap gap-0.5 rounded-md border border-border bg-background p-1 text-foreground shadow-sm';
 const swatch = color => ({ backgroundColor: color, boxShadow: 'inset 0 0 0 1px color-mix(in oklab, currentColor 35%, transparent)' });
 
-/** @param {{ drawing: import('./session.js').DrawingSession, className?: string, layout?: 'toolbar' | 'panel' }} props */
+/**
+ * `layout="panel"`: the controls of a panel as wide as its column — the tools, then the colour,
+ * undo, redo and clear, in one row that wraps to the width it is given, with nothing between the
+ * two groups and no inset of its own beyond the panel's.
+ * @param {{ drawing: import('./session.js').DrawingSession, className?: string, layout?: 'toolbar' | 'panel' }} props
+ */
 export function DrawingToolbar({ drawing, className = '', layout = 'toolbar' }) {
   const [choosingColor, setChoosingColor] = useState(false);
   const disabled = !drawing.ready;
@@ -76,21 +81,26 @@ export function DrawingToolbar({ drawing, className = '', layout = 'toolbar' }) 
     <ToolbarButton tooltip={false} label="Clear drawing" disabled={disabled || !drawing.hasContent} onClick={() => drawing.clear()}><Trash2 className="size-3" strokeWidth={2} aria-hidden="true" /></ToolbarButton>
   </>;
   const palette = choosingColor && !disabled ? <div role="radiogroup" aria-label="Drawing color"
-    className={panel ? "mt-1 grid grid-cols-5 gap-0.5" : SURFACE}>
+    className={panel ? "mt-1 flex flex-wrap gap-0.5" : SURFACE}>
     {DRAWING_COLORS.map(({ value, label }) => <ToolbarButton key={value} tooltip={false} label={label} role="radio"
       aria-checked={drawing.color.toLowerCase() === value} active={drawing.color.toLowerCase() === value}
       onClick={() => { drawing.selectColor(value); setChoosingColor(false); }}>
       <span className="size-3.5 rounded-full" style={swatch(value)} aria-hidden="true" />
     </ToolbarButton>)}
   </div> : null;
-  return <div className={`hardcore-drawing-toolbar ${panel ? '' : 'flex max-w-full flex-col items-end gap-1'} ${className}`}>
-    <div role="group" aria-label="Drawing tools" className={panel ? "pb-1" : SURFACE}>
-      {panel ? <div className="grid grid-cols-5 gap-0.5">{DRAWING_TOOLBAR_TOOLS.map(toolButton)}</div> : DRAWING_TOOLBAR_TOOLS.map(toolButton)}
-      {!panel ? settings : null}
+  if (panel) return <div className={`hardcore-drawing-toolbar ${className}`}>
+    {/* One wrapping row: the two groups are only names for assistive technology. */}
+    <div className="flex min-w-0 flex-wrap gap-0.5" data-drawing-controls="">
+      <div role="group" aria-label="Drawing tools" className="contents">{DRAWING_TOOLBAR_TOOLS.map(toolButton)}</div>
+      <div role="group" aria-label="Drawing settings" className="contents">{settings}</div>
     </div>
-    {panel ? <div role="group" aria-label="Drawing settings" className="border-t border-border pt-1">
-      <div className="flex gap-0.5">{settings}</div>
-      {palette}
-    </div> : palette}
+    {palette}
+  </div>;
+  return <div className={`hardcore-drawing-toolbar flex max-w-full flex-col items-end gap-1 ${className}`}>
+    <div role="group" aria-label="Drawing tools" className={SURFACE}>
+      {DRAWING_TOOLBAR_TOOLS.map(toolButton)}
+      {settings}
+    </div>
+    {palette}
   </div>;
 }

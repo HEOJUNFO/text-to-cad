@@ -25,7 +25,7 @@ export default function ToolPopover({ trigger, label, className, onOpenChange, a
   return <DropdownMenu open={open && active} onOpenChange={setOpen} modal={false}>
     <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
     <DropdownMenuContent align="start" sideOffset={8} collisionPadding={8} aria-label={label}
-      className={cn(FLOATING_SURFACE_CLASS, "w-40 max-w-[calc(100vw-16px)] max-h-[min(24rem,var(--radix-popper-available-height))] overflow-y-auto data-[state=closed]:animate-none!", className)}
+      className={cn(FLOATING_SURFACE_CLASS, "w-40 max-w-[calc(100vw-16px)] max-h-[min(24rem,var(--radix-popper-available-height))] data-[state=closed]:animate-none!", className)}
       onEscapeKeyDown={event => { event.stopPropagation(); setOpen(false); }}>
       {children}
     </DropdownMenuContent>

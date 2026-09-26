@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CircleAlert, X } from "lucide-react";
 import { Button } from "@hardcore/ui/primitives/button";
+import { ScrollArea } from "@hardcore/ui/primitives/scroll-area";
 import { cn } from "@hardcore/ui/utils";
 import { useViewerMobile } from "../../../file-viewer/responsive.js";
 
@@ -42,35 +43,39 @@ export default function ViewerAlertCard({ alert, hasContent, onReload }) {
     <div className={cn("pointer-events-none absolute inset-0 z-30 flex min-w-0 items-center justify-center py-3", mobile ? "px-3" : "px-4")}>
       <div
         role="alert"
-        className="bg-popover pointer-events-auto w-full max-w-lg min-w-0 max-h-full overflow-y-auto rounded-lg border p-5 text-left shadow-md"
+        className="bg-popover pointer-events-auto flex w-full max-w-lg min-w-0 max-h-full flex-col overflow-hidden rounded-lg border text-left shadow-md"
       >
-        <div className="mb-3 flex items-start gap-2">
-          <h2 className="flex min-w-0 flex-1 items-start gap-2 text-base font-semibold leading-6 text-foreground">
-            <CircleAlert className={cn("mt-0.5 size-5 shrink-0", shown.severity === "warning" ? "text-amber-500" : "text-destructive")} aria-hidden="true" />
-            {shown.title || shown.summary || "Couldn’t display the model"}
-          </h2>
-          {dismissible ? (
-            <Button type="button" variant="ghost" size="icon-xs" aria-label="Dismiss"  onClick={() => setDismissed(key)}>
-              <X aria-hidden="true" />
-            </Button>
-          ) : null}
-        </div>
-        <div className="space-y-3 text-sm leading-6 text-muted-foreground">
-          {shown.message ? <p className="whitespace-pre-line break-words">{shown.message}</p> : null}
-          {readableReason ? <p className="break-words text-foreground">{readableReason}</p> : null}
-          {shown.recovery ? <p className="break-words">{shown.recovery}</p> : null}
-          {shown.details ? (
-            <details className="text-xs">
-              <summary className="w-fit cursor-pointer rounded-sm text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">Details</summary>
-              <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-3 font-mono text-xs leading-5 select-text">{shown.details}</pre>
-            </details>
-          ) : null}
-          {shown.reload ? (
-            <Button type="button" variant="outline" size="sm" onClick={onReload} disabled={!onReload}>
-              Try again
-            </Button>
-          ) : null}
-        </div>
+        <ScrollArea className="min-h-0 flex-1" viewportClassName="p-5">
+          <div className="mb-3 flex items-start gap-2">
+            <h2 className="flex min-w-0 flex-1 items-start gap-2 text-base font-semibold leading-6 text-foreground">
+              <CircleAlert className={cn("mt-0.5 size-5 shrink-0", shown.severity === "warning" ? "text-amber-500" : "text-destructive")} aria-hidden="true" />
+              {shown.title || shown.summary || "Couldn’t display the model"}
+            </h2>
+            {dismissible ? (
+              <Button type="button" variant="ghost" size="icon-xs" aria-label="Dismiss"  onClick={() => setDismissed(key)}>
+                <X aria-hidden="true" />
+              </Button>
+            ) : null}
+          </div>
+          <div className="space-y-3 text-sm leading-6 text-muted-foreground">
+            {shown.message ? <p className="whitespace-pre-line break-words">{shown.message}</p> : null}
+            {readableReason ? <p className="break-words text-foreground">{readableReason}</p> : null}
+            {shown.recovery ? <p className="break-words">{shown.recovery}</p> : null}
+            {shown.details ? (
+              <details className="text-xs">
+                <summary className="w-fit cursor-pointer rounded-sm text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">Details</summary>
+                <ScrollArea className="mt-2 max-h-48 rounded-md bg-muted">
+                  <pre className="whitespace-pre-wrap break-words p-3 font-mono text-xs leading-5 select-text">{shown.details}</pre>
+                </ScrollArea>
+              </details>
+            ) : null}
+            {shown.reload ? (
+              <Button type="button" variant="outline" size="sm" onClick={onReload} disabled={!onReload}>
+                Try again
+              </Button>
+            ) : null}
+          </div>
+        </ScrollArea>
       </div>
     </div>
   );

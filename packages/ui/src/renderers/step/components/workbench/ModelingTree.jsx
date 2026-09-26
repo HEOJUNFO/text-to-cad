@@ -8,7 +8,7 @@ import { cn } from '@hardcore/ui/utils';
 import ModelPartMenu from './ModelPartMenu.jsx';
 import ModelPartActions from './ModelPartActions.jsx';
 import { modelingSelectionPaths } from '../../workbench/modelingSelection.js';
-import ToolPanel from '../../../kit/tools/ToolPanel.jsx';
+import ToolPanel, { ToolPanelCollapse } from '../../../kit/tools/ToolPanel.jsx';
 import { modelingReferenceIds } from '../../workbench/modelingTree.js';
 import { implicitModelingRoots, presentModelingAssembly } from '../../workbench/modelingPresentation.js';
 import { modelTreeSearchChain, useTreeSearch } from '../../../kit/inspector/modelTreeSearch.js';
@@ -355,11 +355,11 @@ export default function ModelingTree({ modeling, active, disabled, mode='all', l
   // its faces are what is selected.
   const referenceTitle=selectionDetails?.title ?? (selectedNode ? <span className="block truncate">{selectedNode.label}</span> : null);
   const details=showDetails && selected.edges?.length === 1 && !pending && selectionDetails ? selectionDetails.content : <>
-    {nodeDetails && (showDetails || !selectionDetails) && <div className="mb-2 space-y-1 text-tiny" aria-label="Feature details">
+    {nodeDetails && (showDetails || !selectionDetails) && <div className="mb-1 space-y-0.5 text-tiny" aria-label="Feature details">
       {showDetails && selectionDetails && <p>{selectedNode.label}</p>}
       {selectedNode.summary && <p className="text-muted-foreground">{selectedNode.summary}</p>}
       {selectedNode.note && <p className="text-muted-foreground">{selectedNode.note}</p>}
-      {!!selectedNode.measurements?.length && <dl>{selectedNode.measurements.map(([label,value,unit])=><div key={label} className="grid grid-cols-[4rem_minmax(0,1fr)] gap-2 py-1"><dt className="text-muted-foreground">{label}</dt><dd className="tabular-nums">{number(value)} {unit}</dd></div>)}</dl>}
+      {!!selectedNode.measurements?.length && <dl>{selectedNode.measurements.map(([label,value,unit])=><div key={label} className="grid grid-cols-[4rem_minmax(0,1fr)] gap-2 py-0.5"><dt className="text-muted-foreground">{label}</dt><dd className="tabular-nums">{number(value)} {unit}</dd></div>)}</dl>}
     </div>}
     {pending && <p role="status" className="py-1 text-tiny text-muted-foreground">Loading selectable geometry…</p>}
     {selectionDetails?.content}
@@ -368,11 +368,12 @@ export default function ModelingTree({ modeling, active, disabled, mode='all', l
   const hasDetails=Boolean(nodeDetails || pending || selectionDetails);
   return <>
     {/* No heading: the filter is the panel's top row, and stays put while the tree scrolls under it. */}
-    <ToolPanel label="Features" fit="tree" hidden={!active}
+    <ToolPanel id="tree" label="Features" fit="tree" sizable hidden={!active}
       header={<TreeFilterInput className="px-1" label="Filter model" placeholder="Filter model…" value={query} onChange={changeQuery} onKeyDown={onSearchKeyDown}
         trailing={<>
           {loading && <span role="status" className="shrink-0 text-micro text-muted-foreground">Loading…</span>}
           {partControls.hiddenPartIds?.length > 0 && <Button disabled={disabled} type="button" variant="ghost" size="sm" className="h-6 shrink-0 px-1.5 text-tiny text-muted-foreground" onClick={partControls.showAllHiddenParts}>Show all</Button>}
+          <ToolPanelCollapse/>
         </>}/>}>
       <div className="flex flex-col text-xs" aria-label="Modeling tree">
         {(error || failed>0) && <p role="alert" className="px-3 pb-2 text-micro text-muted-foreground">{error || `${failed} ${failed===1?'component is':'components are'} unavailable.`} <button type="button" className="underline" onClick={retryFailed}>Retry</button></p>}
@@ -394,8 +395,8 @@ export default function ModelingTree({ modeling, active, disabled, mode='all', l
       </div>
     </ToolPanel>
     {/* What is picked, as its own panel under the tree: it comes with a selection and goes with it. */}
-    {hasDetails ? <ToolPanel title={referenceTitle || 'Reference'} label="Reference details" closeLabel="Clear selection" fit="details" capped hidden={!active} onClose={clearSelection}>
-      <div className="px-2 pb-2">{details}</div>
+    {hasDetails ? <ToolPanel id="reference" title={referenceTitle || 'Reference'} label="Reference details" closeLabel="Clear selection" fit="details" sizable hidden={!active} onClose={clearSelection}>
+      <div className="px-2 pb-1.5">{details}</div>
     </ToolPanel> : null}
   </>;
 }

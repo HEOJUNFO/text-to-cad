@@ -136,6 +136,11 @@ it('reads a link’s inertial and geometry back, opens the mesh files it names a
   expect(inertial).toContain('2.5 kg');
   expect(inertial).toContain('Z0.05');
   for (const term of ['0.01', '0.02', '0.03']) expect(inertial).toContain(term);
+  // Nine cells the panel's width: a long value truncates in its cell (its hint has the whole),
+  // never wrapping inside the number.
+  const cells = details.getByLabelText('Inertial').querySelectorAll('[data-inertia-term]');
+  expect(cells).toHaveLength(9);
+  for (const cell of cells) expect(cell.className.split(' ')).toEqual(expect.arrayContaining(['min-w-0', 'truncate']));
   // Only what the description bothered to say: a scale that is not 1, an origin that is not zero.
   const geometry = details.getByLabelText('Geometry').textContent!;
   expect(geometry).toContain('scale 0.001  0.001  0.001');

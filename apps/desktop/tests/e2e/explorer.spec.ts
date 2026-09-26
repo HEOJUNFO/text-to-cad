@@ -671,7 +671,7 @@ test("renders a STEP file through the bundled runtime's viewer", async () => {
   const measurements = page.getByRole("region", { name: "Measurements" });
   await expect(measurements).toHaveCount(0);
   await measure.click();
-  await expect(page.getByRole("menuitemradio", { name: /Any geometry/ })).toBeVisible();
+  await expect(page.getByRole("menuitemradio", { name: "All", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(measure).toHaveAttribute("aria-pressed", "true");
   await shoot("file-cad-measure.png", true);

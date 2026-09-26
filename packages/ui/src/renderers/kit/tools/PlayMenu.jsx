@@ -5,6 +5,8 @@ import ToolPopover from "./ToolPopover.jsx";
 
 import { PLAYBACK_SPEEDS as ANIMATION_SPEEDS } from "./playbar/ViewportAnimationBar.js";
 
+// Fullscreen's Animation menu (Routine, Speed and Loop, under its Play button): with no tool stack
+// on screen, the menu is where they are. Outside fullscreen they are the Animate panel (`AnimateControls.jsx`).
 export default function PlayMenu({ trigger, animation, onOpenChange, allowInactive = false }) {
   const animationSpeed = Number(animation?.speed) || 1;
   const animationSpeeds = ANIMATION_SPEEDS.includes(animationSpeed) ? ANIMATION_SPEEDS : [...ANIMATION_SPEEDS, animationSpeed].sort((a, b) => a - b);

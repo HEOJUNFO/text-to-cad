@@ -37,7 +37,7 @@ const ANGULAR = new Set(["revolute", "continuous"]);
 const degrees = radians => `${formatValue((radians * 180) / Math.PI, 1)}°`;
 
 function Section({ label, children }) {
-  return <div className="mt-2 border-t border-sidebar-border/60 pt-2" aria-label={label}>{children}</div>;
+  return <div className="mt-1 border-t border-sidebar-border/60 pt-1" aria-label={label}>{children}</div>;
 }
 
 const LINK_CLASS = "rounded-sm text-left text-sidebar-foreground underline decoration-muted-foreground/50 underline-offset-2 hover:decoration-current focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring [overflow-wrap:anywhere]";
@@ -78,7 +78,7 @@ function GeometryEntry({ entry, meshPath, onOpenFile }) {
           : <span>{entry.filename}</span>
         : <span>{entry.type}</span>}
     </span>
-    {detail.map(line => <span key={line} className="block font-mono text-micro tabular-nums text-muted-foreground">{line}</span>)}
+    {detail.map(line => <span key={line} className="block tabular-nums text-muted-foreground">{line}</span>)}
   </span>;
 }
 
@@ -96,8 +96,15 @@ function InertiaRows({ inertia }) {
   if (!inertia) return null;
   const rows = [["ixx", "ixy", "ixz"], ["ixy", "iyy", "iyz"], ["ixz", "iyz", "izz"]];
   return <InfoRow label="Inertia" title="Inertia at centre of mass (kg·m²)">
-    <span className="grid w-fit grid-cols-3 gap-x-3 font-mono tabular-nums">
-      {rows.flatMap((row, r) => row.map((term, c) => <span key={`${r}${c}`} className={c < r ? "text-muted-foreground" : undefined}>{formatValue(inertia[term], 6)}</span>))}
+    {/* Three columns the panel's width: a value too long for its cell truncates (the whole of it
+        is its hint), never wrapping inside the number. */}
+    <span className="grid w-full grid-cols-3 gap-x-2 tabular-nums">
+      {rows.flatMap((row, r) => row.map((term, c) => {
+        const text = formatValue(inertia[term], 6);
+        return <TooltipHint key={`${r}${c}`} content={text} overflowOnly>
+          <span className={`min-w-0 truncate${c < r ? " text-muted-foreground" : ""}`} data-inertia-term={term}>{text}</span>
+        </TooltipHint>;
+      }))}
     </span>
   </InfoRow>;
 }
@@ -160,8 +167,8 @@ function ComponentDetails({ component }) {
     <InfoRow label="Type">Mesh object</InfoRow>
     <InfoRow label="Link">{component.linkName}</InfoRow>
     {/* A cadgen mesh export groups an object BY colour, so it tells two rows of one link apart. */}
-    {component.color && <InfoRow label="Colour"><span className="inline-flex items-center gap-1.5">
-      <span className="size-3 shrink-0 rounded-sm border border-border/70" style={{ backgroundColor: component.color }} aria-hidden="true"/>
+    {component.color && <InfoRow label="Colour"><span className="inline-flex items-baseline gap-1.5">
+      <span className="size-3 shrink-0 self-center rounded-sm border border-border/70" style={{ backgroundColor: component.color }} aria-hidden="true"/>
       <MonoValue>{component.color}</MonoValue>
     </span></InfoRow>}
     <InfoRow label="Triangles"><MonoValue>{formatCount(component.triangleCount)}</MonoValue></InfoRow>

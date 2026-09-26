@@ -26,9 +26,13 @@ Load this only when a task needs Viewer file-support details or UI control guida
   drag to pan, wheel/pinch to zoom, double-click to fit.
 - A corner triangle means options, an ordinary dropdown under the button that
   may overlap the panels below. First press selects; another press opens it.
-  Select chooses its mode, Measure snapping, Animate Routine, Speed and Loop.
+  Select chooses its mode, Measure its snapping (All, Points, Edges, Faces).
+  Animate has no corner menu: its Routine, Speed, Loop and play/pause are the
+  Animate panel, which leads the stack while it plays.
 - STEP Select modes: All (pointer icon), Parts (assemblies only), Faces, Edges;
-  the Select button shows the mode's icon. Edge chain and Tangent faces are
+  each menu row shows the mode's glyph (a cube, a filled face, a heavy edge),
+  and the Select button shows the pointer badged with it (Measure's button: the
+  ruler badged with its snapping mode). Edge chain and Tangent faces are
   checkboxes below them, independent of the mode and each other (Tangent faces
   applies under All/Faces, Edge chain under All/Edges; otherwise disabled, kept).
   The mode shapes the Features tree: All is your own expansion; Parts shows every
@@ -68,21 +72,27 @@ panels in the tool stack under the toolbar, shown by their tool, and no pick or
 tool opens, closes or switches the explorer. Under Select: Features (STEP) or
 Links (robots) — the filter box is its top row — then, with a selection, the
 Reference, then STEP Issues or SDF metadata. Under Position: the Position panel.
-Under Display or Draw: that tool's panel, first. Kept Measure results, Explode
-and Clip follow. All panels share one width (190px default, 160px minimum, up to
-half the viewer; drag or arrow-key the handle right of the stack; remembered
-across files) and never extend past the viewer: the tree scrolls first, then
-details panels; the Reference holds about eight rows before scrolling. On mobile
-(below 720px) the same stack applies, the tree taking at most 40% of it; the file
-explorer is a floating sheet. The file explorer column is 200px minimum and
+Under Display, Draw or Animate: that tool's panel, first. Kept Measure results,
+Explode and Clip follow. All panels share one width (190px default, 160px
+minimum, up to half the viewer; drag or arrow-key the handle on the stack's
+right edge). Each panel is its content's height; the tree and Position open
+capped at half the stack's height and the Reference at 288px, and a handle on
+each one's bottom edge changes the cap. Every panel but Draw's folds to its
+first row with a chevron (up to fold, down to open); pulling a folded panel's
+handle down reopens it. Width, caps and folded panels are remembered across
+files. The stack never extends past the viewer: the tree scrolls first, then
+details panels, and the column scrolls only if the rest still does not fit. On
+mobile (below 720px) the same stack applies, the tree taking at most 40% of it;
+the file explorer is a floating sheet. The file explorer column is 200px minimum and
 closes only when dragged below half of that.
 
 The Reference panel's header names the reference (a label, else part and kind,
 e.g. "base · face 3"; its ID is a row) with an X to clear; with several selected
 the header is a picker with "i/N" and the rows show the chosen one only.
 
-Position has a full-width Pose dropdown with Default and named poses, a Reset
-beside its label, then joint sliders/value inputs. Edits apply immediately and
+Position is headed "Position" with a Reset; a Pose label and dropdown (Default
+and the named poses) appear only when the file names a pose; then compact joint
+sliders with small value fields. Edits apply immediately and
 survive tool changes. Reset restores authored defaults, including SRDF home.
 Filters match model/link names; link filters also match joint names. File names
 retain their on-disk suffixes.

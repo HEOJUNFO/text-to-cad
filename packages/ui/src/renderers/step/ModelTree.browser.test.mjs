@@ -80,6 +80,15 @@ createRoot(document.getElementById('root')).render(<App/>);
     return {left:row.left-bounds.left,right:bounds.left+list.clientWidth-row.right};
   });
   assert.deepEqual(modelInsets, {left:4,right:4});
+  // Both trees scroll in the chrome's one scroll region, never a native scroller.
+  for (const [name, scroller] of [['model', model.locator('[aria-label="Model"]')], ['files', page.getByTestId('files').getByRole('tree')]]) {
+    assert.equal(await scroller.evaluate(node => Boolean(node.closest('[data-slot=scroll-area]'))), true, `the ${name} tree scrolls in a ScrollArea`);
+  }
+  // Its bar is the thin overlay one, shown while the pointer is over a region that overflows.
+  await part.hover();
+  const bar = model.locator('[data-slot=scroll-area-scrollbar][data-orientation=vertical]');
+  await bar.waitFor();
+  assert.ok((await bar.boundingBox()).width <= 8, 'a thin bar');
   assert.deepEqual(await fileInsets(), modelInsets, 'selected file rows must share the model tree horizontal inset');
   await page.getByTestId('files').getByRole('textbox', {name:'Filter files'}).fill('part');
   await page.getByTestId('files').getByRole('option').waitFor();
@@ -103,18 +112,15 @@ createRoot(document.getElementById('root')).render(<App/>);
   await model.getByRole('status', { name: 'Isolation' }).getByRole('button', { name: 'Exit', exact: true }).click();
   await page.evaluate(() => window.treeTest.select('o69'));
   const scrollPosition = () => page.evaluate(() => {
-    let node = document.querySelector('[aria-label="Model"]');
-    while (node && getComputedStyle(node).overflowY !== 'auto') node = node.parentElement;
+    const node = document.querySelector('[aria-label="Model"]').closest('[data-slot=scroll-area-viewport]');
     return node?.scrollTop;
   });
   await page.waitForFunction(() => {
-    let node = document.querySelector('[aria-label="Model"]');
-    while (node && getComputedStyle(node).overflowY !== 'auto') node = node.parentElement;
+    const node = document.querySelector('[aria-label="Model"]').closest('[data-slot=scroll-area-viewport]');
     return node?.scrollTop > 100;
   });
   await page.evaluate(() => {
-    let node = document.querySelector('[aria-label="Model"]');
-    while (node && getComputedStyle(node).overflowY !== 'auto') node = node.parentElement;
+    const node = document.querySelector('[aria-label="Model"]').closest('[data-slot=scroll-area-viewport]');
     node.scrollTop = 0;
     window.treeTest.refresh();
   });
