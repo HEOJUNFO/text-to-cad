@@ -10,7 +10,8 @@
  * per frame.
  *
  * Painting is on demand: one `requestAnimationFrame` is scheduled when
- * something changed, and an idle drawing draws nothing at all.
+ * something changed, and an idle drawing draws nothing at all. A resize is the
+ * exception: resizing the canvas wipes it, so the pane's observer paints at once.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -87,6 +88,12 @@ export function useDrawingView({ drawing, restored = null, colorScheme = "light"
   const requestPaint = useCallback(() => {
     if (frameRef.current) return;
     frameRef.current = requestAnimationFrame(paint);
+  }, [paint]);
+
+  /** Paint in the caller's task, in place of any frame already asked for. */
+  const paintNow = useCallback(() => {
+    if (frameRef.current) cancelAnimationFrame(frameRef.current);
+    paint();
   }, [paint]);
 
   /** Recompute the fitted scale for the current pane, and adopt it unless the view is the person's. */
@@ -168,13 +175,17 @@ export function useDrawingView({ drawing, restored = null, colorScheme = "light"
           offsetY: height / 2 + heldCentre[1] * scale
         });
       }
-      requestPaint();
+      // Resizing the canvas above wiped it. The observer runs after layout and before
+      // paint, but after this frame's animation callbacks, so a frame asked for now would
+      // only be painted in the NEXT frame and the pane would show empty for one. Paint the
+      // drawing at its new size here, so the frame the pane changed in already shows it.
+      paintNow();
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(container);
     return () => observer.disconnect();
-  }, [moveTo, refit, requestPaint]);
+  }, [moveTo, paintNow, refit]);
 
   // A new drawing frames itself, unless this file's view is already the person's.
   useEffect(() => {

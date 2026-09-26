@@ -299,7 +299,10 @@ the viewer was inventing from the file; a drawing is not that.
   person moves the view, drag to pan (any primary press, one finger), wheel or pinch to
   zoom about the pointer, double-click to fit again. The view lives in a REF and the
   canvas repaints through one `requestAnimationFrame` when something changed; a pan
-  never re-renders the component tree. The backing store is DPR-aware
+  never re-renders the component tree. A resize paints at once, inside the pane's
+  ResizeObserver (after layout, before paint): resizing the canvas wipes it, and a frame
+  asked for there would leave the pane empty for one frame
+  (`dxf/DxfResize.browser.test.mjs`). The backing store is DPR-aware
   (`kit/viewport/pixelRatio.js`), and the cursor is `grab` / `grabbing`.
 - **Navbar**: `Take snapshot`, then the file tree's toggle, and nothing else — no
   panel toggle of its own, because the registration declares no panels, and no zoom
