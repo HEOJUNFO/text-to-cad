@@ -50,7 +50,6 @@ edit is not a change.
 
 from __future__ import annotations
 
-import ast
 import dataclasses
 import functools
 import hashlib
