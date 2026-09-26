@@ -444,6 +444,20 @@ export function useViewerRuntime({
         }
       };
 
+      // Draw the frame now, in the caller's task, in place of any frame already
+      // queued. For a caller that runs after layout and before paint (a
+      // ResizeObserver), whose picture a frame scheduled for later would leave stale.
+      const renderNow = () => {
+        if (interactionState.renderQueued) {
+          window.cancelAnimationFrame(rafId);
+        }
+        renderFrame(
+          typeof performance !== "undefined" && typeof performance.now === "function"
+            ? performance.now()
+            : Date.now()
+        );
+      };
+
       function renderFrame(timestamp) {
         const frameStartedAt = perfStart();
         interactionState.renderQueued = false;
@@ -553,21 +567,58 @@ export function useViewerRuntime({
         }, idleDelayMs);
       };
 
-      const onResize = () => {
+      // The canvas is sized 100% by CSS, so the moment its box changes the browser
+      // stretches the last picture over the new box. Whatever resizes the box in one
+      // layout step (the file tree opening, the tool stack widened, a window snap) must
+      // therefore be answered with a picture at the new size IN THE FRAME that layout
+      // lands in, or the model is painted squashed or stretched until the next frame.
+      //
+      // A ResizeObserver callback runs after layout and before paint, but after this
+      // frame's animation callbacks: a render requested from it with
+      // requestAnimationFrame only runs in the NEXT frame, one frame behind the box.
+      // So the observer draws the frame itself, synchronously: the drawing buffer, the
+      // cameras and the line resolution are brought to the new box and the frame is
+      // rendered before the browser paints. A drag resizes once per frame, and that one
+      // render replaces the queued one rather than adding to it.
+      //
+      // Where no frame can be drawn now (the view-update gate is holding the last one,
+      // or nothing has been presented yet), the draw is skipped exactly as a scheduled
+      // frame would skip it, the buffer stays at its old size so the held picture is not
+      // wiped, and the frame that releases the hold catches up.
+      let handledViewport = { width, height, pixelRatio: window.devicePixelRatio || 1 };
+      const onResize = ({ paintNow = false } = {}) => {
         const w = container.clientWidth || 800;
         const h = container.clientHeight || 640;
+        const pixelRatio = window.devicePixelRatio || 1;
+        // The window's resize event has already answered a box the observer now reports
+        // (its frame was drawn at the new size): nothing is left to redo.
+        if (
+          paintNow && !interactionState.renderQueued &&
+          handledViewport.width === w && handledViewport.height === h && handledViewport.pixelRatio === pixelRatio
+        ) {
+          return;
+        }
+        handledViewport = { width: w, height: h, pixelRatio };
         applyRenderQuality(interactionState.pixelRatioCap);
         viewportBuffer.request({ width: w, height: h });
         syncCameraViewport(perspectiveCamera, w, h);
         syncCameraViewport(orthographicCamera, w, h);
         syncScreenSpaceLineMaterials();
         runtimeRef.current?.onViewportResize?.();
-        requestRender();
+        if (paintNow && runtimeRef.current) {
+          renderNow();
+        } else {
+          requestRender();
+        }
       };
-      window.addEventListener("resize", onResize);
+      // The window's resize event runs before this frame's animation callbacks, so a
+      // scheduled frame still lands in the same paint. It also covers a device pixel
+      // ratio change (a window dragged to another display), which moves no box.
+      const onWindowResize = () => onResize();
+      window.addEventListener("resize", onWindowResize);
       const resizeObserver = typeof ResizeObserver === "function"
         ? new ResizeObserver(() => {
-          onResize();
+          onResize({ paintNow: true });
         })
         : null;
       resizeObserver?.observe(container);
@@ -788,6 +839,7 @@ export function useViewerRuntime({
         interactionState,
         keyboardOrbitState,
         onResize,
+        onWindowResize,
         resizeObserver,
         rafId,
         // Renders requested through the runtime come from scene mutations
@@ -856,7 +908,7 @@ export function useViewerRuntime({
         }
         cancelCameraTransition(runtime, { scheduleIdle: false });
         window.cancelAnimationFrame(runtime.rafId);
-        window.removeEventListener("resize", runtime.onResize);
+        window.removeEventListener("resize", runtime.onWindowResize);
         runtime.resizeObserver?.disconnect();
         runtime.controls.removeEventListener("start", handleControlsStart);
         runtime.controls.removeEventListener("change", handleControlsChange);

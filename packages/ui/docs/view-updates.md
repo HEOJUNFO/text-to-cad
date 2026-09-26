@@ -54,7 +54,15 @@ scene is reconciled and Three's `compileAsync` prepares its programs. The
 renderer/context and cached geometry stay mounted. `viewportBuffer.js` queues
 canvas resolution changes and flushes them inside the next actual draw callback.
 Changing DPR or dimensions outside that callback clears the retained frame, so
-no quality effect or resize observer may resize the backing buffer directly. Presentation resumes after
+no quality effect or resize observer may resize the backing buffer directly. A viewport
+resize DRAWS that frame instead, synchronously inside its ResizeObserver callback (after
+layout, before paint): the canvas is sized 100% by CSS, and a frame requested from there
+with `requestAnimationFrame` would land a frame late, painting the old picture stretched
+over the new box whenever the viewer changes width in one step (the file tree opening, a
+window snap). That synchronous frame replaces any queued one, so a drag still draws once
+per frame, and an idle viewer draws nothing. While the gate holds, the draw is skipped
+like any other, the buffer keeps its size, and the held picture waits for the frame that
+releases it (`kit/viewport/ViewportResize.browser.test.mjs`). Presentation resumes after
 preparation; completion is acknowledged after an actual draw. Camera input is
 accepted during preparation, though the displayed pose can briefly wait while
 the scene is held. Shader support and GPU drivers can still impose synchronous
