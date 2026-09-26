@@ -189,7 +189,7 @@ describe("the file tab's panel column", () => {
     expect(columns()[0]).toHaveStyle({ width: "320px" });
     // One handle, named for the panel it sizes, and its value is the width
     // every panel in this column gets.
-    const handle = screen.getByRole("separator", { name: "Resize Hide files panel" });
+    const handle = screen.getByRole("separator", { name: "Resize files panel" });
     expect(handle).toHaveAttribute("aria-valuenow", "320");
   });
 });

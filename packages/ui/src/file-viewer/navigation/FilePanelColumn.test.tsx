@@ -1,7 +1,7 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { FilePanelColumn, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH } from '../../../dist/file-viewer/navigation/FilePanelColumn.js';
+import { FilePanelColumn, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH, filePanelName } from '../../../dist/file-viewer/navigation/FilePanelColumn.js';
 
 afterEach(cleanup);
 it('resizes any panel down to the minimum by keyboard and stops there: the keyboard never closes it', () => {
@@ -45,4 +45,15 @@ it('a drag past the minimum stops at it, closes only well below it, and a cancel
   expect(collapse).toHaveBeenCalledOnce();
   pointer('pointermove', 680);
   expect(resize).toHaveBeenCalledTimes(2);
+});
+it("names its resize handle and its sheet after the panel, never after the toggle's verb", () => {
+  expect(['Hide files', 'Show files', 'files'].map(filePanelName)).toEqual(['files', 'files', 'files']);
+  for (const label of ['Hide files', 'Show files']) {
+    render(<FilePanelColumn id="tree" label={label} width={280} onWidthChange={vi.fn()}>Content</FilePanelColumn>);
+    expect(screen.getByRole('separator').getAttribute('aria-label')).toBe('Resize files panel');
+    cleanup();
+    render(<FilePanelColumn id="tree" label={label} width={280} onWidthChange={vi.fn()} mobile>Content</FilePanelColumn>);
+    expect(screen.getByRole('dialog', { name: 'files' })).toBeTruthy();
+    cleanup();
+  }
 });

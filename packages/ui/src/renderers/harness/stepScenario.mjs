@@ -115,8 +115,36 @@ export function stageProgressiveFixture(fixture) {
   return { ...fixture, view, surfaces, heldInputs, assembly: Buffer.from(JSON.stringify(view)) };
 }
 
+/**
+ * The base alone, staged as the SINGLE-PART STEP cadgen writes: one component, one occurrence,
+ * `entryKind: "part"`, and — as in every such file cadgen writes — the part under a root product
+ * OCCT named by its label entry, `=>[0:1:1:2]`, which the reader hands back as the occurrence's,
+ * the root's and the view's name. It carries no sidecar: kinematics need two parts.
+ */
+export function stageSinglePartFixture(fixture) {
+  const original = fixture.view;
+  const XCAF_ENTRY = '=>[0:1:1:2]';
+  const base = original.occurrences.find(occurrence => occurrence.name === 'base');
+  const view = {
+    ...original,
+    entryKind: 'part', label: XCAF_ENTRY,
+    components: { [base.component]: original.components[base.component] },
+    occurrences: [{ ...base, id: 'o1.1', name: XCAF_ENTRY }],
+    bbox: { min: [-10, -10, -5], max: [10, 10, 5] },
+    stats: { ...original.stats, occurrenceCount: 1, shapeCount: 1 },
+    assembly: { root: { id: 'o1', name: XCAF_ENTRY, nodeType: 'assembly', leafPartIds: ['o1.1'],
+      children: [{ ...leaf('o1.1', XCAF_ENTRY) }] } }
+  };
+  const surfaces = new Map([...fixture.surfaces].filter(([input]) => input === original.components[base.component].surfaceInput));
+  return { ...fixture, view, surfaces, sidecar: null, file: 'hinge_base.step', assembly: Buffer.from(JSON.stringify(view)) };
+}
+
 /** The catalog entry the real scanner writes for this document, with the sidecar inline. */
 export function stepCatalogEntry({ view, sidecar, assembly, file }) {
+  if (!sidecar) {
+    return { file, rootRelativeFile: file, kind: 'part', url: `/__cad/store?file=${view.tree}&documentHash=${view.documentHash}`,
+      hash: view.tree, documentHash: view.documentHash, bytes: assembly.length };
+  }
   return {
     file,
     rootRelativeFile: file,
@@ -146,11 +174,12 @@ export function stepCatalogEntry({ view, sidecar, assembly, file }) {
  *   progressive?: boolean }} [options]  `progressive` serves the twenty-five-component
  *   staging (`stageProgressiveFixture`) and HOLDS each batch after the first until
  *   `release(gate)` is called, so the package's three publishes are a test's to place
- *   rather than a race.
+ *   rather than a race. `singlePart` serves the base alone as a cadgen single-part STEP
+ *   (`stageSinglePartFixture`), its part named by an XCAF label entry.
  */
-export async function serveStepHarness(t, { onRequest, progressive = false } = {}) {
+export async function serveStepHarness(t, { onRequest, progressive = false, singlePart = false } = {}) {
   const loaded = await loadStepFixture();
-  const fixture = progressive ? stageProgressiveFixture(loaded) : loaded;
+  const fixture = progressive ? stageProgressiveFixture(loaded) : singlePart ? stageSinglePartFixture(loaded) : loaded;
   const entry = stepCatalogEntry(fixture);
   // Each gate is a latch a test can close again (`hold`), so one server can serve the same
   // package progressively more than once — an open, and then a REOPEN in a fresh page.
@@ -229,7 +258,7 @@ export async function serveStepHarness(t, { onRequest, progressive = false } = {
     // 404 is what "nothing warm here" looks like. Falling through to the HTML
     // shell instead makes the probe throw on a page that is not JSON.
     if (url.pathname.includes('/__tess_cache/')) { notFound(response); return; }
-    if (url.pathname.endsWith(`/${fixture.file}.json`)) { json(response, fixture.sidecar); return; }
+    if (url.pathname.endsWith(`/${fixture.file}.json`)) { if (fixture.sidecar) json(response, fixture.sidecar); else notFound(response); return; }
     if (/\.(woff2|ttf)$/.test(url.pathname)) { notFound(response); return; }
     response.setHeader('Content-Type', 'text/html');
     response.end('<!doctype html><html><head><title>Host title</title><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/harness.css"></head><body><div id="root"></div><script type="module" src="/harness.js"></script></body></html>');

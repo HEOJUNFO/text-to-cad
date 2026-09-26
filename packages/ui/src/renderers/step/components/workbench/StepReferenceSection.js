@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { referenceMeasurements } from "../../workbench/referenceMeasurements.js";
 import { stepSelectionMaterialInfo } from "../../workbench/stepSelectionMaterial.js";
 import { nodeVolume } from "../../workbench/partVolume.js";
+import { STEP_MODEL_ROOT_ID } from "@hardcore/core/lib/step/stepTree.js";
+import { stepPartNameFromFile, stepProductName } from "@hardcore/core/lib/step/productName.js";
 
 import { TooltipHint } from "@hardcore/ui/primitives/tooltip";
 import { CoordValue, InfoRow, MonoValue, formatNumber } from "../../../kit/inspector/referenceRows.jsx";
@@ -187,13 +189,16 @@ function itemKey(item) {
  * A reference as a person reads it: its own label when it has one (a part's or subassembly's
  * name, a named face), otherwise where it is and what — "base · face 3" — from its part as the
  * tree names it (`partName`) and its selector's last token. A generated label that only
- * restates the selector ("Face o1.1.f3") is not a name. Never the raw id first: that is the ID row.
+ * restates the selector ("Face o1.1.f3") is not a name, and neither is an XCAF label entry
+ * (`=>[0:1:1:2]`, `stepProductName`). A single-part file's part with no name of its own is the
+ * file's ("l_bracket · face 11"): the tree's root is that part, named after the file. Never the
+ * raw id first: that is the ID row.
  */
 function referenceName(item, meshData, partName) {
   if (isPartNode(item)) return String(item.name || item.displayName || "").trim() || itemKey(item);
   const selector = String(item.displaySelector || item.normalizedSelector || item.id || "").split("|").pop();
   const token = selector.split(".").filter(Boolean).pop() || "";
-  const own = [item.name, item.pickData?.name, item.label].map(value => String(value || "").trim())
+  const own = [item.name, item.pickData?.name, item.label].map(stepProductName)
     .find(value => value && !(token && value.includes(token)) && !value.includes(selector));
   if (own) return own;
   const kind = (SELECTOR_TYPE_LABELS[item.selectorType] || "Reference").toLowerCase();
@@ -201,7 +206,12 @@ function referenceName(item, meshData, partName) {
   const occurrence = item.occurrenceId || selector.slice(0, -token.length - 1);
   const parts = Array.isArray(meshData?.parts) ? meshData.parts : [];
   const part = parts.find(entry => [entry.occurrenceId, entry.id].includes(occurrence));
-  const parent = String(item.pickData?.sourceName || item.sourceName || partName?.(occurrence) || part?.name || part?.displayName || occurrence || "").trim();
+  // The part's own name, where it is one: an occurrence with none goes by its id, and that is
+  // the last resort here, after the name a single-part file gives its part.
+  const partLabel = [part?.name, part?.displayName].map(stepProductName).find(value => value && value !== occurrence) || "";
+  const fileName = stepPartNameFromFile(partName?.(STEP_MODEL_ROOT_ID));
+  const parent = [item.pickData?.sourceName, item.sourceName, partName?.(occurrence), partLabel, fileName, occurrence]
+    .map(stepProductName).find(Boolean) || "";
   return [parent, number ? `${kind} ${number}` : kind].filter(Boolean).join(" · ");
 }
 

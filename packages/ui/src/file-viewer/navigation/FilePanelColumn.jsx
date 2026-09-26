@@ -47,6 +47,14 @@ export function clampPanelWidth(width) {
 }
 
 /**
+ * The panel's own name, from the toggle's label: "Hide files" and "Show files" both name the
+ * files panel. The toggle's verb says what pressing it would do, which is no name for the panel.
+ */
+export function filePanelName(label) {
+  return String(label || "").trim().replace(/^(Show|Hide)\s+/i, "");
+}
+
+/**
  * @param {object} props
  * @param {string} props.id The open panel's id, for tests and for styling hooks.
  * @param {string} props.label Names the column for the accessibility tree: the toggle's own label.
@@ -60,6 +68,7 @@ export function clampPanelWidth(width) {
  * @param {import("react").ReactNode} props.children
  */
 export function FilePanelColumn({ id, label, width, onWidthChange, onCollapse, children, hidden = false, mobile = false, portalContainer = null, onDismiss }) {
+  const name = filePanelName(label);
   const drag = useRef(null);
   const content = useRef(null);
   const resize = (nextWidth, { dragging = false } = {}) => {
@@ -108,7 +117,7 @@ export function FilePanelColumn({ id, label, width, onWidthChange, onCollapse, c
         if (target?.closest?.('[data-file-panel], [data-slot=select-content], [data-slot=dropdown-menu-content], [data-slot=dropdown-menu-sub-content], [data-slot=popover-content]')
           || hasOpenPopup(content.current)) event.preventDefault();
       }}>
-      <SheetTitle className="sr-only">{label.replace(/^(Show|Hide) /, "")}</SheetTitle>
+      <SheetTitle className="sr-only">{name}</SheetTitle>
       <SheetClose asChild><Button className="absolute right-2 top-2 z-10 size-5" variant="ghost" size="icon-xs" aria-label="Close panel"><X className="size-3" /></Button></SheetClose>
       <div className="min-h-0 flex-1 overflow-hidden [&_[data-mobile-panel-top-row]]:pr-9">{children}</div>
     </SheetContent>
@@ -118,7 +127,7 @@ export function FilePanelColumn({ id, label, width, onWidthChange, onCollapse, c
     <>
       <div
         hidden={hidden}
-        aria-label={`Resize ${label} panel`}
+        aria-label={`Resize ${name} panel`}
         aria-orientation="vertical"
         aria-valuemax={PANEL_MAX_WIDTH}
         aria-valuemin={PANEL_MIN_WIDTH}

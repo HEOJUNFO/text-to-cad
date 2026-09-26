@@ -155,3 +155,27 @@ it('names a face or edge by its own label, else by its part and kind, never by i
  expect(heading()).toBe('base · edge 4');
  expect(screen.getByText('o1.1.e4')).toBeTruthy();
 });
+
+it('never heads a reference with an XCAF label entry: a single-part file names its part after the file',()=>{
+ // A cadgen single-part STEP: the occurrence carries `=>[0:1:1:2]` where a name belongs, and the
+ // tree's root is the part, named after the file.
+ const meshData={parts:[{id:'o1.1',occurrenceId:'o1.1',name:'=>[0:1:1:2]'}]};
+ const root=new Map([['__step_model__','l_bracket.step']]);
+ const partName=(id:string)=>root.get(id)||'';
+ const face=(ord:number)=>({id:`o1.1.f${ord}`,normalizedSelector:`o1.1.f${ord}`,selectorType:'face',occurrenceId:'o1.1',
+   label:`Face o1.1.f${ord}`,pickData:{surfaceType:'plane',name:null,sourceName:'=>[0:1:1:2]'}});
+ const {rerender}=render(<StepReferenceSection references={[face(11)]} meshData={meshData} partName={partName}/>);
+ expect(heading()).toBe('l_bracket · face 11');
+ // The picker's entries read the same.
+ rerender(<StepReferenceSection references={[face(11),face(12)]} meshData={meshData} partName={partName}/>);
+ expect(picker()).toEqual(['l_bracket · face 12','2/2']);
+ fireEvent.keyDown(screen.getByRole('combobox',{name:'Inspect selected reference'}),{key:'ArrowDown'});
+ expect(screen.getAllByRole('option').map(option=>option.textContent)).toEqual(['l_bracket · face 11','l_bracket · face 12']);
+ cleanup();
+ // A lone part with a name of its own keeps it; one with none and no file to go by is its occurrence.
+ render(<StepReferenceSection references={[face(3)]} meshData={{parts:[{id:'o1.1',occurrenceId:'o1.1',name:'sun_gear'}]}} partName={partName}/>);
+ expect(heading()).toBe('sun_gear · face 3');
+ cleanup();
+ render(<StepReferenceSection references={[face(3)]} meshData={meshData}/>);
+ expect(heading()).toBe('o1.1 · face 3');
+});

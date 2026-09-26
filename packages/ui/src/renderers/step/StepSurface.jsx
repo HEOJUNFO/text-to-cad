@@ -15,7 +15,7 @@ import { VIEWER_PICK_MODE } from "@hardcore/core/lib/viewer/constants.js";
 import { runtimeModelKeyMatches, toNumber } from "@hardcore/core/lib/viewer/modelRuntime.js";
 import { normalizePartIdList } from "@hardcore/core/lib/viewer/partVisualState.js";
 import RendererShell from "../kit/shell/RendererShell.jsx";
-import { presentationIsPending, usePresentationReport, usePresentationState, useRendererShell } from "../kit/shell/useRendererShell.js";
+import { SHELL_TOOL, presentationIsPending, usePresentationReport, usePresentationState, useRendererShell } from "../kit/shell/useRendererShell.js";
 import { readShellState, shellPresentationKey } from "../kit/shell/shellState.js";
 import StepSceneLayers, { releaseStepRuntime } from "./scene/StepSceneLayers.jsx";
 import { displayRecordExplodedViewTranslation } from "./scene/useStepExplode.js";
@@ -3052,6 +3052,12 @@ function StepSurfaceBody({ view, data }) {
   const topologySelectionDeferred = Boolean(selectedTopologyDeferredByCost && selectedMeshData);
   // Animate, like fullscreen, is watching, and Pose offers its knobs alone.
   const watching = presenting || animateToolActive || Boolean(jointHandles);
+  // Display's panel stands in for Select's while it is up: a press on the model, or beside it,
+  // picks nothing, isolates nothing and never trades Display for Select (settings-ui.md, Display
+  // panel). Only the camera answers it (orbit, pan, zoom), as over a robot or a mesh. Picking is
+  // suspended rather than switched off (`pickMode` stays): the pick mode also decides how the
+  // scene draws its parts, and putting Display up must not redraw the model.
+  const displayToolActive = tabToolMode === SHELL_TOOL.DISPLAY;
   const pickMode = watching || retainingPreviousStepMesh ? VIEWER_PICK_MODE.NONE : viewerPickModeForRenderPane({
     selectionFilter,
     topologySelectionPending: referenceSelectionPending,
@@ -3079,6 +3085,7 @@ function StepSurfaceBody({ view, data }) {
     receiveShadows: resolvedScene.view.lighting.enabled,
     previewMode: presenting,
     pickMode,
+    pickingSuspended: displayToolActive,
     pickableParts: !retainingPreviousStepMesh ? viewerAssemblyRenderParts : EMPTY_LIST,
     hiddenPartIds: viewerHiddenPartIdsForRenderPane({ inspectionEnabled: true, hasParts: true, hiddenPartIds: hiddenPartIds }),
     selectedPartIds: presenting ? EMPTY_LIST : viewerSelectedPartIdsForRenderPane({ hasParts: true, selectedPartIds: viewerSelectedPartIds }),

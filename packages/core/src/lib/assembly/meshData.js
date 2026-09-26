@@ -6,6 +6,7 @@
 // path shaded, so a flat override renders pixel-identically without baking per-occurrence vertices.
 import { linearRgbToHex } from "../color.js";
 import { mergeBounds } from "../urdf/kinematics.js";
+import { stepProductName } from "../step/productName.js";
 
 const IDENTITY_TRANSFORM = Object.freeze([
   1, 0, 0, 0,
@@ -556,7 +557,8 @@ export function buildComposedPackageMeshData(descriptor, componentMeshDataByCid,
     }));
 
     const bounds = boundsForTransformedBox(componentMeshData?.bounds, matrix);
-    const displayName = String(occurrence?.name || occurrenceId || cid || meshPartId(sourceParts[0])).trim();
+    // An XCAF label entry (`=>[0:1:1:2]`) is no name: the occurrence then goes by its id.
+    const displayName = String(stepProductName(occurrence?.name) || occurrenceId || cid || meshPartId(sourceParts[0])).trim();
     const part = {
       id: occurrenceId || cid,
       occurrenceId: occurrenceId || cid,
@@ -639,7 +641,7 @@ function enrichPackageAssemblyNode(node, partById, previous = null) {
     : previous?.children?.length === 0 ? previous.children : [];
   const nodeType = String(node?.nodeType || "").trim() || (children.length ? "subassembly" : "part");
   const id = String(node?.id || "").trim();
-  const name = String(node?.name || node?.label || id).trim();
+  const name = String(stepProductName(node?.name) || stepProductName(node?.label) || id).trim();
   const declaredLeafIds = Array.isArray(node?.leafPartIds)
     ? node.leafPartIds.map((leafId) => String(leafId || "").trim()).filter(Boolean)
     : [];

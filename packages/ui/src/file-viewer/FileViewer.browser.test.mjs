@@ -167,8 +167,8 @@ test("a renderer's panel suspension hides the column and disables its toggles, a
   await page.evaluate(() => window.harness.width(99999));
   // The width is bounded at the column's maximum. (The store write renders on React's
   // schedule, so the handle is read once it has.)
-  const handle = page.getByRole("separator", { name: "Resize Hide files panel" });
-  await page.waitForFunction(() => document.querySelector('[role="separator"][aria-label="Resize Hide files panel"]')?.getAttribute("aria-valuenow") !== "300");
+  const handle = page.getByRole("separator", { name: "Resize files panel" });
+  await page.waitForFunction(() => document.querySelector('[role="separator"][aria-label="Resize files panel"]')?.getAttribute("aria-valuenow") !== "300");
   assert.equal(await handle.getAttribute("aria-valuenow"), await handle.getAttribute("aria-valuemax"));
   await page.evaluate(() => window.harness.rendererCallbacks.get("root-a").onPanelVisibilityChange(false));
   await page.getByRole("tree").waitFor({ state: "hidden" });
