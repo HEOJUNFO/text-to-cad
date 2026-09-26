@@ -865,10 +865,15 @@ def compare_readback(written: ReadbackFacts, read: ReadbackFacts) -> str | None:
     if written.solids != read.solids:
         return f"{written.solids} solid(s) written, {read.solids} read back"
     if written.solids:
-        scale = max(abs(written.volume), abs(read.volume))
-        if not math.isfinite(read.volume) or abs(written.volume - read.volume) > READBACK_VOLUME_RELATIVE * scale:
+        # Magnitudes: STEP carries no solid orientation, so a ``Reversed``
+        # solid (signed volume −V) legitimately reads back as +V with the same
+        # geometry. The result tree keeps the author's sign; the document is
+        # what the format carries.
+        written_volume, read_volume = abs(written.volume), abs(read.volume)
+        scale = max(written_volume, read_volume)
+        if not math.isfinite(read_volume) or abs(written_volume - read_volume) > READBACK_VOLUME_RELATIVE * scale:
             return (
-                f"volume {written.volume:.6g} mm³ written, {read.volume:.6g} mm³ read back "
+                f"volume {written_volume:.6g} mm³ written, {read_volume:.6g} mm³ read back "
                 f"(limit {READBACK_VOLUME_RELATIVE:.0e} relative)"
             )
     if (written.bounds is None) != (read.bounds is None):

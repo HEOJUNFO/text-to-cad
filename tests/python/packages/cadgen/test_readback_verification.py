@@ -103,6 +103,19 @@ class VerifyReadbackComponent(unittest.TestCase):
         self.assertIn("different geometry", message)
         self.assertIn("volume 42.3353 mm³ written, 0.354915 mm³ read back", message)
 
+    def test_a_reversed_solid_passes_on_magnitude(self) -> None:
+        # STEP carries no solid orientation: a Reversed solid (signed volume
+        # -V) reads back as +V with the same geometry, and that is not damage.
+        import build123d as bd
+
+        from cadgen.store.build import readback_facts, verify_readback_component
+
+        written = bd.Box(2, 3, 4)
+        written.wrapped.Reverse()
+        self.assertAlmostEqual(readback_facts(written.wrapped).volume, -24.0, places=9)
+        facts = verify_readback_component("part", written.wrapped, _round_trip(written, self.directory))
+        self.assertAlmostEqual(facts.volume, 24.0, places=6)
+
     def test_a_dropped_member_fails_on_solid_count(self) -> None:
         import build123d as bd
 
