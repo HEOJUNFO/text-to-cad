@@ -11,6 +11,8 @@ The frames here are deliberately the same shape the daemon sends its client
 relay and the client's wire protocol is untouched. A third frame, ``{"event": ...}``,
 carries build-tree events (STORE.md §Lazy children): a child a model's body submits
 from inside this worker reports through the same channel as the worker's own output.
+A fourth, ``{"heartbeat": {"phase": ..., "cpu": ...}}``, is the worker's liveness
+while a job runs (``_heartbeat``); the supervisor consumes it and never relays it.
 
 One request kind, ``run`` — a CLI tool, output streamed as frames. The store root
 arrives on every request (``store_root``) and is applied per job, so one daemon serves
@@ -31,6 +33,8 @@ import json
 import os
 import sys
 import tempfile
+import threading
+import time
 import traceback
 
 # Same registry the supervisor validates against; imported rather than duplicated.
@@ -76,10 +80,68 @@ def _apply_request_env(request: dict) -> None:
         os.environ.pop("CADGEN_JOB_ID", None)
 
 
+# A job's frames come from its body, from the threads relaying its children's events
+# and from the heartbeat. A line is one frame only if each write is whole.
+_EMIT_LOCK = threading.Lock()
+# While a job runs, a daemon thread emits a heartbeat this often. The supervisor
+# calls a worker hung only well past it (server.WORKER_SILENCE_TIMEOUT_SECONDS).
+HEARTBEAT_INTERVAL_SECONDS = 10.0
+# The phase the running job last announced about itself; its heartbeat carries it.
+_PHASE: list[str | None] = [None]
+
+
 def _emit(frame: dict) -> None:
     """One JSON line on the real stdout. Never the redirected one."""
-    sys.__stdout__.write(json.dumps(frame, separators=(",", ":")) + "\n")
-    sys.__stdout__.flush()
+    line = json.dumps(frame, separators=(",", ":")) + "\n"
+    event = frame.get("event")
+    if isinstance(event, dict) and event.get("phase") and event.get("job") == os.environ.get("CADGEN_JOB_ID"):
+        _PHASE[0] = str(event["phase"])
+    with _EMIT_LOCK:
+        sys.__stdout__.write(line)
+        sys.__stdout__.flush()
+
+
+def _beat() -> None:
+    # process_time is the whole process's CPU, every thread: the same clock the
+    # supervisor reads from outside when a native call starves this thread.
+    _emit({"heartbeat": {"phase": _PHASE[0], "cpu": round(time.process_time(), 3)}})
+
+
+@contextlib.contextmanager
+def _heartbeat():
+    """Emit a liveness frame every ``HEARTBEAT_INTERVAL_SECONDS`` while a job runs.
+
+    Silence then means hung, not busy: a model body can compute for an hour without
+    announcing anything, and the supervisor could not tell that from a wedge. The
+    first beat is written synchronously, so the supervisor holds a CPU baseline from
+    the job's first instant. The thread beats only while the interpreter schedules
+    it: a stopped process, or a native deadlock holding the GIL, goes silent as it
+    must. A native call that holds the GIL while computing (an OCCT boolean does)
+    starves it too, which is why the supervisor reads the worker's CPU clock before
+    it kills a silent worker (``pool.Worker.frames``).
+
+    Joined before the job's exit frame is written, so no heartbeat ever follows
+    ``exit`` or lands in the next job; a daemon thread, so it dies with the process.
+    Not progress: nothing relays it to the client or folds it into the job ledger.
+    """
+    _PHASE[0] = None
+    stop = threading.Event()
+
+    def run() -> None:
+        while not stop.wait(HEARTBEAT_INTERVAL_SECONDS):
+            try:
+                _beat()
+            except (OSError, ValueError):
+                return  # the frame channel is gone; stdin's EOF ends the worker
+
+    _beat()
+    thread = threading.Thread(target=run, name="cadgen-worker-heartbeat", daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join()
 
 
 class _FrameWriter(io.TextIOBase):
@@ -276,7 +338,9 @@ def serve() -> int:
             return 0
         else:
             _apply_request_env(request)
-            _emit({"exit": _run(request), "pid": os.getpid()})
+            with _heartbeat():
+                code = _run(request)
+            _emit({"exit": code, "pid": os.getpid()})
     return 0
 
 

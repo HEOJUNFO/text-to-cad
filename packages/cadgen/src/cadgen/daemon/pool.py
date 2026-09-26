@@ -30,7 +30,9 @@ as a leak hedge; its model binds a fresh worker on the next request.
 
 Workers read frames on a thread so every read honours a timeout: a worker that
 hangs before announcing itself, or mid-job, is reported instead of blocking its
-caller forever.
+caller forever. Mid-job, "hangs" means neither heartbeat nor CPU: a running job
+beats (``worker._heartbeat``), and a worker whose heartbeat a GIL-holding native
+call starves is still computing, which its CPU clock shows (``Worker.frames``).
 """
 
 from __future__ import annotations
@@ -53,6 +55,10 @@ DEFAULT_RECYCLE_AFTER = 1000
 DEFAULT_IDLE_UNBIND_SECONDS = 600.0
 BORROWED_SURPLUS_IDLE_SECONDS = 2.0
 SPAWN_TIMEOUT_SECONDS = 120.0
+# A silent worker whose CPU clock advanced at least this much across the silent window
+# is computing inside a native call that holds the GIL, not hung. A stopped process or
+# a deadlock accrues ~0; one that is paging under memory pressure still accrues some.
+BUSY_CPU_SECONDS = 0.1
 _USE_SEQUENCE = itertools.count()
 
 
@@ -128,6 +134,59 @@ def describe_exit(status: int | None) -> str:
             return f"exited with 0x{unsigned:08X} ({name})"
         return f"exited with code {status}"
     return f"exited with code {status}"
+
+
+def _parse_cpu_time(text: str) -> float:
+    """``ps -o time=``: ``[[DD-]HH:]MM:SS[.ss]``; minutes may exceed 59 (BSD/macOS)."""
+    days, _, clock = text.strip().rpartition("-")
+    seconds = 0.0
+    for part in clock.split(":"):
+        seconds = seconds * 60 + float(part)
+    return seconds + (int(days) * 86400 if days else 0)
+
+
+def _windows_cpu_seconds(pid: int) -> float | None:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.GetProcessTimes.argtypes = (wintypes.HANDLE, *(ctypes.POINTER(wintypes.FILETIME),) * 4)
+    kernel32.GetProcessTimes.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return None
+    try:
+        created, exited, kernel, user = (wintypes.FILETIME() for _ in range(4))
+        if not kernel32.GetProcessTimes(handle, ctypes.byref(created), ctypes.byref(exited),
+                                        ctypes.byref(kernel), ctypes.byref(user)):
+            return None
+        return sum((t.dwHighDateTime << 32 | t.dwLowDateTime) for t in (kernel, user)) / 1e7
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def process_cpu_seconds(pid: int) -> float | None:
+    """User + system CPU seconds process ``pid`` has used, read from outside it.
+
+    ``None`` when the platform will not say. Read only when a worker has gone silent,
+    so the ``ps`` spawn on macOS costs nothing in the common case.
+    """
+    try:
+        if sys.platform.startswith("linux"):
+            with open(f"/proc/{pid}/stat", encoding="ascii") as handle:
+                fields = handle.read().rsplit(")", 1)[1].split()
+            return (int(fields[11]) + int(fields[12])) / os.sysconf("SC_CLK_TCK")
+        if os.name == "nt":
+            return _windows_cpu_seconds(pid)
+        output = subprocess.check_output(
+            ["ps", "-o", "time=", "-p", str(pid)], text=True, timeout=5, stderr=subprocess.DEVNULL,
+        )
+        return _parse_cpu_time(output) if output.strip() else None
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+        return None
 
 
 _TIMED_OUT = object()  # _read_frame: the wait elapsed; distinct from None (pipe closed)
@@ -226,17 +285,39 @@ class Worker:
     def frames(self, *, silence_timeout: float | None = None):
         """Yield frames until the terminating one, which is yielded last.
 
-        ``silence_timeout`` bounds the wait for ANY frame; a worker silent that
-        long is reported as gone (its process is killed) rather than waited for.
+        ``silence_timeout`` bounds the wait for ANY frame, heartbeats included. A
+        running job beats every few seconds, so silence that long means the
+        interpreter is not being scheduled. Before calling that a hang, the worker's
+        CPU clock is read from outside: if it advanced past ``BUSY_CPU_SECONDS``
+        since the last sign of life, a native call holding the GIL (a long OCCT
+        boolean) is starving the heartbeat and the wait continues for another
+        window. Otherwise — stopped, deadlocked, or a clock this platform will not
+        report — the worker is killed and reported as gone. Heartbeats are
+        consumed here, never yielded: to the relay and the ledger they do not exist.
         """
+        cpu_seen: float | None = None  # the worker's CPU seconds at its last sign of life
+        phase: str | None = None
         while True:
             frame = self._read_frame(timeout=silence_timeout)
             if frame is _TIMED_OUT:
+                cpu_now = process_cpu_seconds(self.proc.pid)
+                if cpu_now is not None and (cpu_seen is None or cpu_now - cpu_seen >= BUSY_CPU_SECONDS):
+                    # With no baseline (no beat yet) the next window decides.
+                    cpu_seen = cpu_now
+                    continue
                 self.kill()
                 raise WorkerGone(
                     f"worker {getattr(self, 'pid', self.proc.pid)} went silent for "
-                    f"{silence_timeout:.0f}s and was killed"
+                    f"{silence_timeout:.0f}s with no CPU progress"
+                    f"{f' (last phase: {phase})' if phase else ''} and was killed"
                 )
+            heartbeat = frame.get("heartbeat") if isinstance(frame, dict) else None
+            if heartbeat is not None:
+                if isinstance(heartbeat, dict):
+                    cpu = heartbeat.get("cpu")
+                    cpu_seen = float(cpu) if isinstance(cpu, (int, float)) else cpu_seen
+                    phase = heartbeat.get("phase") or phase
+                continue
             if frame is None:
                 status = self._exit_status()
                 raise WorkerGone(

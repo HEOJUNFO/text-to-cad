@@ -833,6 +833,17 @@ Every build goes through one interface, `cadgen.daemon.executors.submit(model)
   siblings. It inherits the environment, so a test's `CADGEN_CACHE_DIR`
   isolates its store; tests and CI run this way.
 
+**Silence means hung, not busy.** While a job runs, its worker emits a
+heartbeat frame every 10 s (carrying the job's last announced phase and its
+CPU clock). The supervisor consumes heartbeats; they are never relayed to the
+client, never enter the job ledger and never count as progress. A worker that
+sends no frame for 120 s is killed as hung, unless its CPU clock, read from
+outside the process, advanced meanwhile: a native call that holds the GIL (a
+long OCCT boolean) starves the heartbeat thread but is computing. A stopped
+process or a deadlock sends nothing and accrues no CPU. A body's length is
+therefore unbounded; the heartbeat stops before the job's exit frame, so none
+reaches the next job.
+
 **One daemon per address, by lock.** The daemon takes a process-lifetime
 exclusive lock keyed by its socket address (`cadgen.daemon.transport.
 SingletonLock`: `flock` on POSIX, `msvcrt.locking` on Windows, released by the
