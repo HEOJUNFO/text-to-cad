@@ -230,13 +230,16 @@ class ModelClosureBoundaries(unittest.TestCase):
         from cadgen.store.closure import static_closure
 
         (self.root / "parts").mkdir()
-        self.write("parts/__init__.py", "")
+        package = self.write("parts/__init__.py", "")
         family = self.write("parts/family.py", FAMILY)
         imports = "from parts import family as models"
         with mock.patch("cadgen.metadata.imported_model", side_effect=AssertionError("model imported")):
             control = static_closure(self.parent(imports, body="return models.left()"))
         self.assertEqual(control.child_models, (family,))
-        self.assertEqual(control.source_files, ())
+        # Importing the submodule executes the package: its preamble is a source
+        # edge of the importer, sliced to nothing beyond that preamble.
+        self.assertEqual(control.source_files, (package,))
+        self.assertEqual(control.names, {package: ()})
         for expression in (
             "models.helper()",
             "getattr(models, 'helper')()",

@@ -227,7 +227,9 @@ session may consume runtime-announced preview trees as specified in STORE §9b.
 Correctness never depends on a
 store hit (13). Composition: importing binds, calling links — a parent
 depends on a child by its RESULT (the pinned tree), on a constant by its
-VALUE, on a helper by its FILE — and a model must never `read_step` its own
+VALUE, on a helper by its REACH (the helper's own source and everything it
+can execute, closed statically; the whole file wherever the analysis cannot
+see — [`STORE.md`](STORE.md) §3) — and a model must never `read_step` its own
 output (14). The bundled runtime under `_runtime/` is the JS half of these;
 the laws' JS statements live in that runtime. It is built
 when the wheel is packaged and travels only inside it: the source tree never

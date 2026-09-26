@@ -3,8 +3,10 @@
 ``stale(x)`` is true if any of:
 
 1. no record;
-2. ``sha256(closure.files as they are now) != closure.hash``, or a constant the
-   model imported by value (``record.constants``) no longer hashes the same;
+2. ``sha256(closure.files as they are now) != closure.hash`` — a file the
+   record sliced (``closure.names``) is re-sliced by those names, every other
+   file hashed whole — or a constant the model imported by value
+   (``record.constants``) no longer hashes the same;
 3. for any recorded child: ``stale(child)`` **or** its current tree hash != the
    pinned hash;
 4. the tree object or any object it (transitively) references is missing;
@@ -97,13 +99,15 @@ def stale(model: Path | str, *, memo: dict[str, Verdict] | None = None) -> Verdi
     closure = record.get("closure") or {}
     recorded_hash = str(closure.get("hash") or "")
     files = list(closure.get("files") or [])
+    names = dict(closure.get("names") or {})
     if closure.get("static"):
         # A closure with no source files to re-hash (a re-emitted document: its
         # source is another document's bytes plus an annotation, both compared
         # by the door that owns it). The hash stands as recorded.
         now = recorded_hash
     else:
-        now = current_closure_hash(script, files) if files else None
+        # Sliced files are re-sliced by their recorded names; the rest whole.
+        now = current_closure_hash(script, files, names) if files else None
     verdict.closure = now or _sha256_file(script)
     if not recorded_hash or now != recorded_hash:
         clauses.append(
@@ -178,7 +182,7 @@ def _closure_why(script: Path, closure: Mapping[str, Any], now: str | None) -> s
     """Clause 2's phrase: name the files that moved when the record can say."""
     from cadgen.store.closure import changed_closure_files
 
-    changed = changed_closure_files(script, closure.get("shas") or {})
+    changed = changed_closure_files(script, closure.get("shas") or {}, closure.get("names") or {})
     if now is None:
         missing = [rel for rel in changed if not (Path(script).resolve().parent / rel).exists()]
         return f"closure file missing: {', '.join(missing or changed)}" if (missing or changed) else "closure file missing"

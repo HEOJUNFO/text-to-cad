@@ -176,7 +176,7 @@ def refresh_annotations(spec) -> str | None:
     from cadgen.store.index import resolve_model_ref
     from cadgen.store.records import read_record, write_record, note_output, forget_output
     from cadgen.store.gate import stale
-    from cadgen.store.closure import current_closure_hash, closure_hash, changed_constant
+    from cadgen.store.closure import current_closure_hash, closure_hash, changed_constant, sliced_source_hash
     from cadgen._internal.source_hash import _semantic_source_hash, _semantic_source_bytes
     from cadgen.store.trees import get_tree, put_tree, flatten, tree_complete
     from cadgen.catalog import artifact_file_hash
@@ -199,13 +199,17 @@ def refresh_annotations(spec) -> str | None:
     if changed_constant(script, record.get('constants') or {}) is not None:
         return None
     closure = record.get('closure') or {}
+    sliced = dict(closure.get('names') or {})
     try:
         source = script.read_bytes()
         parts = _source_parts(source, entry_name)
+        # Each closure file as the gate hashes it: the script whole, a sliced
+        # helper by its recorded names, any other helper whole.
         shas = {name: (_semantic_source_bytes(source) if name == script.name else
+                       sliced_source_hash((script.parent / name).resolve(), sliced[name]) if name in sliced else
                        _semantic_source_hash((script.parent / name).resolve()))
                 for name in closure['files']}
-    except (OSError, KeyError):
+    except (OSError, KeyError, SyntaxError, ValueError):
         return None
     if parts is None or script.name not in shas:
         return None
@@ -256,7 +260,7 @@ def refresh_annotations(spec) -> str | None:
     pair = _document_pair_state(spec.step_path)
     if pair[0] != record.get('stepHash'):
         return None
-    if current_closure_hash(script, closure['files']) != full_hash or read_record(model) != record:
+    if current_closure_hash(script, closure['files'], sliced) != full_hash or read_record(model) != record:
         return None
     if _document_pair_state(spec.step_path) != pair:
         return None

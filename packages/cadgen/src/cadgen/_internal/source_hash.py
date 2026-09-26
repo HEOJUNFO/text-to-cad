@@ -130,6 +130,9 @@ class PythonSourceClosure:
     # relative path -> that file's content hash, so a stale verdict can NAME the
     # file that changed instead of only reporting that the digest moved.
     file_hashes: dict[str, str] = field(default_factory=dict)
+    # relative path -> the names reached in a sliced helper (``cadgen.store.closure``);
+    # a file absent here is hashed whole.
+    names: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 def _is_within(path: Path, root: Path) -> bool:

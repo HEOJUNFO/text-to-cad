@@ -373,8 +373,17 @@ class ClosureBoundaryRule(StoreCase):
             ),
             encoding="utf-8",
         )
-        sources = {p.name for p in static_closure(finger).source_files}
-        self.assertEqual(sources, {"digits.py", "chain.py", "common.py", "palette.py"})
+        closure = static_closure(finger)
+        sources = {p.name for p in closure.source_files}
+        # The package executes on import (its preamble), digits.py reaches
+        # chain.LENGTH and common.attach by name, and its star import makes
+        # digits.py and palette.py whole.
+        self.assertEqual(sources, {"__init__.py", "digits.py", "chain.py", "common.py", "palette.py"})
+        names = {p.name: v for p, v in closure.names.items()}
+        self.assertEqual(names["chain.py"], ("LENGTH",))
+        self.assertEqual(names["common.py"], ("attach",))
+        self.assertIsNone(names["digits.py"])
+        self.assertIsNone(names["palette.py"])
 
 
 class HashAtExecution(StoreCase):

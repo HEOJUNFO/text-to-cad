@@ -93,9 +93,11 @@ class ClosureSyntaxRecipes(unittest.TestCase):
         self.assertNotEqual(first.constants, second.constants)
         recipe = next(iter(memo.entries.values()))[1]
         with self.assertRaises(AttributeError):
-            recipe.imports = ()
+            recipe.statements = ()
         self.assertIsInstance(recipe.imports, tuple)
-        self.assertIsInstance(recipe.taken, tuple)
+        self.assertIsInstance(recipe.statements, tuple)
+        with self.assertRaises(AttributeError):
+            recipe.statements[0].reads = ()
 
     def test_invalid_source_is_not_admitted_and_empty_syntax_is_a_hit(self):
         memo = self.closure._ImportSyntaxMemo()
@@ -145,7 +147,9 @@ class ClosureSyntaxRecipes(unittest.TestCase):
             return sys.getsizeof(value) + (sum(size(item) for item in value) if isinstance(value, tuple) else 0)
 
         retained = (sys.getsizeof(memo.entries) - empty_bytes + size(payload)
-                    + size(memo.entries[payload]) + size(recipe.imports) + size(recipe.taken))
+                    + size(memo.entries[payload]) + size(recipe.statements)
+                    + sum(size(statement.dump) + size(statement.reads) + size(statement.chains)
+                          for statement in recipe.statements))
         self.assertGreaterEqual(memo.size, retained)
 
 

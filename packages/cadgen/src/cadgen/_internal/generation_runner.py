@@ -96,7 +96,7 @@ def _load_generator_module(script_path: Path) -> object:
     from cadgen._internal.source_hash import _semantic_source_bytes
     from cadgen.store.closure import note_consumed_file_hash
 
-    note_consumed_file_hash(resolved_script_path, _semantic_source_bytes(source_bytes))
+    note_consumed_file_hash(resolved_script_path, _semantic_source_bytes(source_bytes), source=source_bytes)
 
     module = importlib.util.module_from_spec(module_spec)
     # sys.path is exactly what `python script.py` gives: the script's own folder first,
@@ -340,6 +340,7 @@ def _write_drawing_record(
             "hash": closure_hash,
             "files": closure_files,
             "shas": dict(getattr(source_closure, "file_hashes", None) or {}),
+            "names": {rel: list(names) for rel, names in (getattr(source_closure, "names", None) or {}).items()},
             "static": False,
         },
         "constants": dict(getattr(source_closure, "constants", None) or {}),
@@ -347,7 +348,8 @@ def _write_drawing_record(
         "outputs": {str(written): {"sha256": hashlib.sha256(written.read_bytes()).hexdigest()}},
         "stepHash": "",
     }
-    decision = decide(model_path, ran_closure_hash=closure_hash, ran_files=closure_files)
+    decision = decide(model_path, ran_closure_hash=closure_hash, ran_files=closure_files,
+                      ran_names=record["closure"]["names"])
     if not decision.publish_outputs:
         return
     write_record(model_path, record)
@@ -604,12 +606,14 @@ def _run_script_generator_body(
             executed=executed_hashes.hashes,
             discovered_inputs=read_files,
             children=[child for child, _tree in child_trees],
+            sources=executed_hashes.sources,
         )
         source_closure = PythonSourceClosure(
             closure_hash=store_closure.hash,
             files=store_closure.files,
             constants=store_closure.constants,
             file_hashes=store_closure.shas,
+            names=store_closure.names,
         )
         generated_scene = _write_shape_step_payload(
             payload,
@@ -662,6 +666,7 @@ def _run_script_generator_body(
         generated_scene.source_closure_hash = source_closure.closure_hash
         generated_scene.source_closure_files = source_closure.files
         generated_scene.source_closure_file_hashes = dict(getattr(source_closure, "file_hashes", None) or {})
+        generated_scene.source_closure_names = dict(getattr(source_closure, "names", None) or {})
         generated_scene.source_closure_constants = dict(source_closure.constants)
     if model_format == "dxf":
         written = spec.dxf_path

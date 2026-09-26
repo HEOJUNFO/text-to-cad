@@ -387,7 +387,7 @@ A real one (`link_robot`: a base, two placements of `link_arm`, one of
   "sourceKind": "python",
   "tree": "64429167…",
   "documentTree": "b291420a…",
-  "closure": {"hash": "e341ac84…", "files": ["/abs/models/assemblies/src/link_robot/link_robot.py"], "static": false},
+  "closure": {"hash": "e341ac84…", "files": ["link_robot.py", "lib/frame.py"], "shas": {"link_robot.py": "ast1:…", "lib/frame.py": "slice1:…"}, "names": {"lib/frame.py": ["WIDTH", "bar"]}, "static": false},
   "children": [
     {"model": "/abs/models/assemblies/src/link_robot/link_arm.py::link_arm", "tree": "c161092b…"},
     {"model": "/abs/models/assemblies/src/link_robot/link_pin.py::link_pin", "tree": "265aee57…"}
@@ -401,9 +401,10 @@ A real one (`link_robot`: a base, two placements of `link_arm`, one of
   entered during the body appends `(model, pinned tree)`, whether that child
   ended up linked, inlined, modified or discarded. It is never derived from
   links.
-- `closure.files` is the model's static import closure (AST, transitive,
+- `closure.files` is the model's static reach (AST, transitive,
   first-party, absolute and relative imports alike — a `lib/` package's
-  `from .chain import X` counts) **stopping at model files**, plus files executed in its own
+  `from .chain import X` counts, and importing `lib.x` executes
+  `lib/__init__.py`, so the package is in it) **stopping at model files**, plus files executed in its own
   frame and discovered inputs (`read_step` documents). The animation module
   declared by `@step(animation=...)` is source annotation;
   it is embedded in the unified sidecar and never enters geometry identity. The
@@ -415,10 +416,84 @@ A real one (`link_robot`: a base, two placements of `link_arm`, one of
   lists/dicts of those) → a value edge, file excluded, the value tracked in
   `constants`; anything else (a helper function, a `bd.` object, an
   expression) → a source edge, file included. **Constants by value,
-  functions by file, models by result.** Hit and miss runs record identical
+  functions by reach, models by result.** Hit and miss runs record identical
   closures by construction. `closure.static: true` marks a record whose
   inputs are not files (a document re-emitted by `cadgen step build`); the
   gate's clause 2 does not re-hash files for it.
+- **Functions by reach** (`cadgen.store.reach`, the walk in
+  `cadgen.store.closure`): a non-model file in the closure is hashed by the
+  part of it the model can execute, not by its whole text, so editing a helper
+  the model never reaches leaves it current. The record keeps the reached
+  names per sliced file in `closure.names`; a file absent from `names` (the
+  script itself, a model file taken as source, a `read_step` document, a file
+  the fallbacks below made whole) is hashed whole as before. What a slice is,
+  by construction:
+  - Every top-level statement of a module is a **definition** — a `def`, a
+    `class`, or a plain-name assignment whose import-time evaluation is inert:
+    its only calls are to the pure vocabulary (a pure builtin such as `tuple`,
+    `sorted`, `float`; a name or attribute chain from `math`, `cadgen`,
+    `build123d`, `OCP`, `numpy`, `operator`, `itertools`, `functools`,
+    `dataclasses`, `enum`, `typing`, `collections`, `fractions`, `decimal`,
+    `string`, `re`; a method on a literal or on another pure call — so
+    `COLOR = srgb("#fff")` and `AXIS = bd.Vector(0, 0, 1)` are definitions,
+    `TABLE = load_table()` and `X = REGISTRY.get(k)` are not); a decorator
+    only from `cadgen`/`functools`/`dataclasses`/`typing`/`contextlib`/`enum`/
+    `abc` or `staticmethod`/`classmethod`/`property`; defaults and
+    annotations inert by the same rule; for a class, no first-party base, no
+    `metaclass=`, an inert class body — or
+    **preamble**: everything else (imports, calls, `if`/`for`/`try`/`with`
+    blocks, attribute writes, a decorated `def`, a default that calls, a class
+    deriving from a project class). Preamble is in every slice of the file and
+    its reads are roots; a definition is in a slice only when a reached name
+    binds it. Adding an unreached helper, or editing one, changes nothing the
+    model hashes. An `if __name__ == "__main__":` block never runs on import
+    and is in no slice (the script itself is always hashed whole).
+  - A **function edge** brings in that function's own source plus everything
+    it can reach: every module-scope name its body, decorators, defaults and
+    annotations read (also inside nested functions, lambdas and
+    comprehensions, and names it declares `global`), each resolved to the
+    definitions binding it in the same module — transitively — or, through
+    an import binding, to a name in another project module, where the same
+    rule continues. A class edge brings in the whole class. A module-scope
+    import executes its module's preamble (a package's `__init__.py` on the
+    way too); a from-import of a name reaches that name whether or not it is
+    used. Attribute chains on a module alias (`geo.plane`, `lib.geo.plane`)
+    walk submodules and end on a name.
+  - **Anything dynamic falls back to the whole file**, per module, and the
+    walk then descends into all of it: a star import (importer and target
+    whole); `exec`, `eval`, `compile`, `__import__`, `globals()`, `locals()`,
+    any binding from `importlib`/`builtins`/`runpy`/`pkgutil`, `sys.modules`
+    (the module whole, and for all but `globals`/`locals` every module it
+    imports whole too — it can reach any name of them); a module-level
+    `__getattr__`/`__dir__`; a read of a name nothing binds and no builtin
+    answers; a name reached in a module that has no binding for it. A module
+    alias used bare — `getattr(geo, name)`, `vars(geo)`, `geo` passed along —
+    makes the target whole; a package alias used bare makes every file of
+    that package whole; an attribute write or delete on a module alias
+    (`geo.X = 1`, a monkeypatch) makes the target and the writer whole. The
+    reach through model files is unchanged: a result or value edge stops
+    there; a source edge into a model file takes it whole.
+  - **Module-level side effects keep file-level tracking**: they are
+    preamble, always hashed, their reads always reached — a constant table
+    built by a call, a registry filled at import, a conditional definition.
+    A helper reached only by execution (a dynamic load static analysis never
+    saw) is whole, as today.
+  - **Static and deterministic.** The walk reads the bytes the exec hook
+    captured when each module ran (§5, hash at execution) and resolves
+    imports against the script's `sys.path` (its folder, then `PYTHONPATH`);
+    nothing in it depends on which children hit. Hit and miss runs therefore
+    record identical closures by construction — the invariant above — and the
+    gate never re-derives cross-module reach: it re-slices each file on disk
+    by its recorded names (`cadgen.store.closure.sliced_source_hash`: the
+    names closed within the module, each marked bound or unbound, then the
+    preamble and the reached definitions in source order, `ast.dump` per
+    statement, so comments and formatting do not count), and any edit that
+    would change what the walk reaches — a reached body calling something
+    new, a new binding shadowing a name, an import added or changed — also
+    changes a hashed statement or marker. A sliced file that turns dynamic
+    hashes whole (`ast1:` against a recorded `slice1:`) and reads stale.
+    `cadgen store why` prints a sliced file as `lib/geo.py[plane, cyl_along,
+    …]`.
 - `constants` is `{"<model file, relative to the script>": {"<NAME>":
   "<sha256 of the literal's canonical repr>"}}` — every literal the model
   took from a model file by value. Empty for most models. The gate's clause
@@ -469,7 +544,12 @@ of:
 2. **`sha256(closure.files as they are now) != closure.hash`, or a constant
    in `constants` no longer hashes to its recorded value.** Protects against
    a source edit; the hash is a semantic hash of each file's Python
-   (comments and formatting do not count), computed at execution time (§5).
+   (comments and formatting do not count), computed at execution time (§5) —
+   over the whole file for the script and every file `closure.names` does not
+   list, over the reached slice for a file it does (§3, functions by reach):
+   editing a helper the model never reaches leaves it current; editing one it
+   reaches, directly or through other helpers, or a module-level name a
+   reached helper reads, makes it stale.
    A literal imported from a model file is compared as a value: a comment,
    a body edit or a new helper in that file leaves the importer current; a
    changed value (or the name no longer bound to a literal) makes it stale.
@@ -558,11 +638,14 @@ Each with the failure it prevents.
 - **Closure boundary rule.** A model file reached only through its model
   function is a result edge (pin); a module-level literal taken from it is a
   value edge (`constants`); anything else taken from it is a source edge
-  (file in the closure). Constants by value, functions by file, models by
+  (file in the closure). A non-model file is in the closure by the names the
+  model reaches in it (§3, functions by reach), whole when anything dynamic
+  is in the way. Constants by value, functions by reach, models by
   result. Prevents both false-current (a constant imported from a model file
-  changing unnoticed) and false-stale (a child's internal edit — or a comment
-  beside a shared constant — rebuilding every parent).
-  One closure calculation may share immutable import-syntax recipes keyed by
+  changing unnoticed; a helper edit hidden behind a `getattr` on its module)
+  and false-stale (a child's internal edit, a comment beside a shared
+  constant, or a helper no reached code calls — rebuilding every parent).
+  One closure calculation may share immutable module-syntax recipes keyed by
   exact source bytes, bounded by 8 MiB of accounted inputs/recipes and 256
   entries. Every lookup still reads the file and resolves current import
   availability, model classification and constant values; the recipes contain
@@ -1245,7 +1328,8 @@ Explicit model saves still obey every child/output/publication requirement.
 - Which record: `index/model/<sha256(script::function)>` —
   `cadgen store why <model.py>` prints it (every model of the file; name one
   as `model.py::function`), the gate's verdict clause by
-  clause (with each child's pinned vs current tree), the closure files and
+  clause (with each child's pinned vs current tree), the closure files (a
+  sliced helper as `lib/geo.py[plane, cyl_along, …]`, its reached names) and
   the tree's links. The verdict line names the first stale clause as a
   phrase: `no record`, `closure changed: <file>` (the record keeps each
   closure file's hash under `closure.shas`), `constant changed: <NAME> in
