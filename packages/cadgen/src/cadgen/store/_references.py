@@ -327,7 +327,8 @@ def source_scene(owner: Any, output_path: Any):
     from cadgen.store.materialize import _location_from_matrix
     from cadgen.store.trees import capture_tree
 
-    scene = LoadedStepScene(output_path.expanduser().resolve(), [], {}, source_kind="python")
+    scene = LoadedStepScene(output_path.expanduser().resolve(), [], {}, source_kind="python",
+                            disposable_prototypes=True)
     descriptors, decoded = {}, {}
     groups = []
     for child_index, child in enumerate(children, 1):

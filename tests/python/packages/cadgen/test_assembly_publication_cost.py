@@ -259,5 +259,65 @@ class ReadbackTests(Fixture):
         self.assertEqual(alive_at_readback, [[False], [False, False]])
 
 
+class ReferenceSceneTests(Fixture):
+    def test_reference_scene_prototypes_are_released_once_the_edge_policy_is_decided(self):
+        import contextlib
+        import io
+        from cadgen.cli._run_model import run_model_argv
+        from cadgen.store.records import read_record, remove_record
+        from cadgen._internal import generation, step_scene_mesh
+
+        for name, geometry in (("box", "bd.Solid.make_box(2, 3, 4)"), ("curve", "bd.Solid.make_torus(7, 1)")):
+            (self.root / f"{name}.py").write_text(
+                f"from cadgen import step, build123d as bd\n@step\ndef {name}():\n    return {geometry}\n")
+        parent = self.root / "parent.py"
+        parent.write_text(
+            "from cadgen import step, build123d as bd\nfrom box import box\nfrom curve import curve\n"
+            "@step\ndef parent():\n"
+            "    return bd.Compound(children=[bd.Pos(5, 0, 0) * box(), bd.Pos(-5, 0, 0) * curve()], label='assembly')\n")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+            for name in ("box", "curve"):
+                self.assertEqual(run_model_argv([str(self.root / f"{name}.py"), "--json"]), 0, output.getvalue())
+        from cadgen._internal import generation_runner
+        from cadgen.store import _references
+
+        results = []
+        for released in (False, True):
+            remove_record(parent)
+            scenes, sizes = [], []
+            original = generation._selector_options_for_part
+            hints = step_scene_mesh._scene_mesh_resolution_hints
+            source_scene = _references.source_scene
+
+            def capture(spec, *, scene=None):
+                scenes.append(scene)
+                return original(spec, scene=scene)
+
+            def counted_hints(scene):
+                sizes.append(len(scene.prototype_shapes))
+                return hints(scene)
+
+            def retained_scene(*args, **kwargs):
+                scene = source_scene(*args, **kwargs)
+                scene.disposable_prototypes = released
+                return scene
+
+            with mock.patch.object(generation, "_selector_options_for_part", side_effect=capture), \
+                    mock.patch.object(step_scene_mesh, "_scene_mesh_resolution_hints", side_effect=counted_hints), \
+                    mock.patch.object(_references, "source_scene", side_effect=retained_scene), \
+                    mock.patch.object(generation, "_assembly_provenance_manifest",
+                                      wraps=generation._assembly_provenance_manifest) as provenance, \
+                    contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+                self.assertEqual(run_model_argv([str(parent), "--json"]), 0, output.getvalue())
+            self.assertEqual(len(scenes), 1)
+            self.assertEqual(sizes, [2])  # the policy saw both prototypes
+            self.assertEqual(provenance.call_count, 1)
+            self.assertEqual(len(scenes[0].prototype_shapes), 0 if released else 2)
+            results.append((read_record(parent)["tree"], read_record(parent)["documentTree"],
+                            (self.root / "parent.step").read_bytes()))
+        self.assertEqual(results[0], results[1])
+
+
 if __name__ == "__main__":
     unittest.main()

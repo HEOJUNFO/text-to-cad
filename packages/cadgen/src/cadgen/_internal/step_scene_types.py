@@ -67,6 +67,11 @@ class LoadedStepScene:
     # occurrences (interference) walk this tree instead when present.
     instance_occurrence_tree: dict[str, Any] | None = None
     doc: Any | None = None
+    # A reference scene (cadgen.store._references.source_scene) decodes its
+    # prototypes only to classify the topology for the adaptive edge policy;
+    # the build reads geometry from the pinned trees. The generator may drop
+    # them once that policy is decided, before the export owns its own copy.
+    disposable_prototypes: bool = False
 
 
 @dataclass(frozen=True)

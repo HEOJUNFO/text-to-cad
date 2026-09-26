@@ -344,6 +344,13 @@ def _generate_part_outputs(
     package_provenance = {} if raw_document else _assembly_provenance_manifest(
         scene, selector_options=selector_options, step_path=spec.step_path
     )
+    if getattr(scene, "disposable_prototypes", False):
+        # The reference scene's decoded prototypes have classified the topology
+        # (the edge policy above); everything after this reads geometry from
+        # the pinned trees. Drop them now rather than carry a second complete
+        # native copy of a large assembly through its export and read-back.
+        scene.prototype_shapes = {}
+        scene.prototype_face_colors = {}
 
     def component_package_job() -> dict[str, object]:
         from pathlib import Path
