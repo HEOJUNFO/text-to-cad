@@ -76,6 +76,37 @@ def _sha256_file(path: Path) -> str | None:
     return digest.hexdigest()
 
 
+def _closure_now(script: Path, record: Mapping[str, Any] | None) -> str | None:
+    """Clause 2's left-hand side: the record's closure files hashed as they are now.
+    None when the record names no files to hash (or there is no record)."""
+    closure = (record or {}).get("closure") or {}
+    recorded_hash = str(closure.get("hash") or "")
+    files = list(closure.get("files") or [])
+    names = dict(closure.get("names") or {})
+    if closure.get("static"):
+        # A closure with no source files to re-hash (a re-emitted document: its
+        # source is another document's bytes plus an annotation, both compared
+        # by the door that owns it). The hash stands as recorded.
+        return recorded_hash
+    # Sliced files are re-sliced by their recorded names; the rest whole.
+    return current_closure_hash(script, files, names) if files else None
+
+
+def closure_hash(model: Path | str) -> str | None:
+    """The source's closure hash as it is NOW: what in-flight coalescing keys on.
+
+    The same value ``stale(model).closure`` carries, without the rest of the gate
+    (no child walk, no output digests): the record's closure files re-hashed, or
+    the script's own sha when there is no record to name a closure. A top-level
+    request computes this before asking the pool so it can join an identical
+    build already in flight, exactly as a parent's child call does. None only
+    when the script itself cannot be read.
+    """
+    key = resolve_model_ref(model)
+    script, _function = split_model_ref(key)
+    return _closure_now(script, read_record(key)) or _sha256_file(script)
+
+
 def stale(model: Path | str, *, memo: dict[str, Verdict] | None = None) -> Verdict:
     memo = memo if memo is not None else {}
     key = resolve_model_ref(model)
@@ -99,15 +130,7 @@ def stale(model: Path | str, *, memo: dict[str, Verdict] | None = None) -> Verdi
     closure = record.get("closure") or {}
     recorded_hash = str(closure.get("hash") or "")
     files = list(closure.get("files") or [])
-    names = dict(closure.get("names") or {})
-    if closure.get("static"):
-        # A closure with no source files to re-hash (a re-emitted document: its
-        # source is another document's bytes plus an annotation, both compared
-        # by the door that owns it). The hash stands as recorded.
-        now = recorded_hash
-    else:
-        # Sliced files are re-sliced by their recorded names; the rest whole.
-        now = current_closure_hash(script, files, names) if files else None
+    now = _closure_now(script, record)
     verdict.closure = now or _sha256_file(script)
     if not recorded_hash or now != recorded_hash:
         clauses.append(

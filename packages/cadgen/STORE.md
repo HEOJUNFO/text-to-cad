@@ -814,15 +814,23 @@ even when they also contain a private native wrapper.
 
 ## 7. Concurrency
 
-No persistent build locks. CPU admission and identical child coalescing may
+No persistent build locks. CPU admission and identical-build coalescing may
 wait; memory admission waits on builds in flight and fails only when nothing
 running could make room (§9). Explicit builds
 are not cancelled merely because a newer editing request exists.
 
-- **Same model twice.** Both builds run. Each publishes objects (idempotent)
-  and then consults the publish rule: the one whose closure matches the
-  sources as they are now wins the record; the other's result is left as
-  unreferenced objects for GC. A rejected explicit save reports failure.
+- **Same model twice, same source.** One build runs. A request for a model
+  whose identical build — same store, same closure hash, same run flags — is
+  already in flight joins it (§9, in-flight coalescing) and receives its
+  output, result and exit; two terminals running `python heads.py` at once
+  are one 25-minute job, not two. The join is process state in the daemon,
+  never a lock on disk. A forced request does not join (below).
+- **Same model twice, different source.** Both builds run. Each publishes
+  objects (idempotent) and then consults the publish rule: the one whose
+  closure matches the sources as they are now wins the record; the other's
+  result is left as unreferenced objects for GC. A rejected explicit save
+  reports failure. The same holds for two identical requests that could not
+  be brokered together (no daemon, or a `--force` on either side).
 - **Edit a child while its parent builds.** The parent already pinned the
   child's tree when it called it; it materializes that pin and publishes a
   record whose pin no longer matches the child's current tree. The parent is
@@ -847,8 +855,10 @@ are not cancelled merely because a newer editing request exists.
   status`; the CAD Viewer matches jobs to the documents it shows by output
   path — a CLI build, a parent's child build and its own compile read alike —
   and nothing reads any of it to decide freshness. With `CADGEN_DAEMON=0`
-  there is no ledger, and concurrent builds are unbrokered
-  — safe by the two invariants above, wasteful, and a debugging mode.
+  there is no ledger and no shared broker: a transient build's private broker
+  coalesces the children of that one build, and top-level builds in separate
+  processes are unbrokered — both run, safe by the two invariants above,
+  wasteful, and a debugging mode.
 
 Before a generated body runs, the build captures its target STEP and sidecar
 digests (absence counts too). It prepares the result once, exports and reads
@@ -1035,12 +1045,32 @@ CPU scheduling and reuse remain independent of memory admission:
    a job: it runs on a spare, holds a slot through its read and emit, coalesces
    on the document's bytes and shows in the tree. The tree shows `queued` when a
    slot did not come at once.
-2. **In-flight coalescing.** A child submit carries its source's closure hash;
-   a submit for `(store, model, closure)` matching a job already in flight attaches to
-   that job instead of starting another. In flight only, identical source only,
-   never a lookup into the past — and never the model a top-level request named
-   (a second `python a.py` still runs, on an extra). Two parents needing one
-   stale child build it once.
+2. **In-flight coalescing.** Every source request carries its source's closure
+   hash — a child submit the gate's, a top-level `python model.py` the same
+   value computed before it asks (`cadgen.store.gate.closure_hash`), a compile
+   door and the CAD Viewer's compile the document's bytes — and a request for
+   `(store, model, closure)` matching a job already in flight attaches to that
+   job instead of starting another. In flight only, identical source only,
+   never a lookup into the past. Two parents needing one stale child build it
+   once; two terminals, two agents, or a terminal and a parent needing one
+   stale model build it once. The run's own flags are part of the key
+   (`--json`, `--verbose`, a tolerance override): only requests that would print
+   and write the same things are one job, and a bare `python model.py` keys
+   exactly as a child submit does.
+   A joined top-level request receives the producer's output as its own — the
+   frames it missed are replayed from a bounded log (the newest 4096), then it
+   follows live, its build tree drawn from the producer's events — and exits
+   with the producer's exit, so a failure reaches every joiner. The producer's
+   worker outlives the requester that started it while any joiner still waits
+   (the last disconnect retires it, as for a child), so an agent whose terminal
+   died does not take the other agent's build with it.
+   **`--force` never joins** — the closure is the only thing coalescing can
+   compare, and `--force` exists for what the closure cannot see (an input a
+   model reads without `declare_input`, an environment it depends on); a forced
+   request that joined a build started before the user's change would return
+   that build's result at exit 0 — but it registers when nothing identical is
+   in flight, so unforced requests may join a forced build and wait for its
+   rewrite rather than answer "current" from outputs about to be replaced.
 3. **Idle unbind — 10 minutes** (`CADGEN_DAEMON_IDLE_UNBIND`). A bound worker
    idle that long returns to the spare set (spares beyond K exit); its model's
    next build rebinds a spare — no import repaid — with a cold RAM op-memo tier.
