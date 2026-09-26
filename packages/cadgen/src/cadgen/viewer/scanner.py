@@ -42,6 +42,7 @@ import os
 import re
 import stat as stat_module
 import threading
+import time
 
 
 from .content_types import extension_of
@@ -357,31 +358,60 @@ def _node_decoded_name(name: str) -> str:
     return name
 
 
-def _collect_cad_source_files(root_path: str, result: list, visited=None, depth: int = 0) -> list:
-    if depth > SCAN_MAX_DEPTH:
-        return result
+# --- directory listing cache ----------------------------------------------
+#
+# The catalog is re-read on every poll (the client polls every 2s, and the
+# artifact status route reads it too), and a served root can hold a project's
+# scratch: hundreds of thousands of renders, BREPs and logs that are not
+# artifacts. Re-listing all of them per request made every request cost a full
+# walk. So each directory's RELEVANT rows — subdirectories the walk descends
+# into, symlinks, and CAD files — are memoised on that directory's own
+# identity, and a warm walk costs one stat per directory rather than one entry
+# per file.
+#
+# This changes nothing a walk can observe. Adding, removing or renaming an
+# entry updates its directory's mtime, and a changed identity is a miss; a
+# file's CONTENT is not a listing fact (catalog rows fingerprint their own
+# files). Symlinks are cached as links and their targets are re-stated on every
+# walk, because a target can change without its link's directory changing.
+# The one hole is timestamp granularity — a change landing in the same clock
+# tick as the listing leaves the mtime unchanged — so a listing is trusted only
+# once its directory has been quiet for ``_LISTING_SETTLE_NS`` before it was
+# read (the "racy git" rule), covering 1s HFS+ and 2s FAT stamps. A directory
+# being written right now is therefore simply re-listed on every walk.
+_LISTING_CACHE: dict[str, tuple] = {}
+_LISTING_CACHE_LIMIT = 65536
+_LISTING_CACHE_LOCK = threading.Lock()
+_LISTING_SETTLE_NS = 2_000_000_000
+
+_ROW_DIRECTORY = "d"
+_ROW_FILE = "f"
+_ROW_LINK = "l"
+
+
+def _listing_rows(dir_path: str) -> list | None:
+    """The sorted ``(name, kind)`` rows the walk acts on, or ``None`` if unreadable."""
     try:
-        real_root = os.path.realpath(root_path, strict=True)
+        dir_stat = os.stat(dir_path)
     except (OSError, ValueError):
-        return result
-    if visited is None:
-        visited = set()
-    if real_root in visited:
-        # An earlier-sorted alias of a directory therefore HIDES the real one.
-        # That is the flip side of the loop guard, not a separate rule.
-        return result
-    visited.add(real_root)
+        return None
+    identity = (dir_stat.st_dev, dir_stat.st_ino, dir_stat.st_mtime_ns, dir_stat.st_ctime_ns)
+    with _LISTING_CACHE_LOCK:
+        cached = _LISTING_CACHE.get(dir_path)
+    if cached is not None and cached[0] == identity:
+        return cached[1]
+    listed_at = time.time_ns()
     try:
-        with os.scandir(root_path) as scan:
+        with os.scandir(dir_path) as scan:
             # Node sorts the DECODED names, so decode first and sort on that.
             entries = sorted(
                 ((_node_decoded_name(entry.name), entry) for entry in scan),
                 key=lambda pair: _walk_sort_key(pair[0]),
             )
     except (OSError, ValueError):
-        return result
+        return None
+    rows = []
     for name, entry in entries:
-        entry_path = os.path.join(root_path, name)
         try:
             is_directory = entry.is_dir(follow_symlinks=False)
             is_file = entry.is_file(follow_symlinks=False)
@@ -389,21 +419,68 @@ def _collect_cad_source_files(root_path: str, result: list, visited=None, depth:
         except OSError:
             continue
         if is_symlink:
-            try:
-                target = os.stat(entry_path)
-            except (OSError, ValueError):
-                continue  # broken link
-            is_directory = stat_module.S_ISDIR(target.st_mode)
-            is_file = stat_module.S_ISREG(target.st_mode)
-        if is_directory:
+            if not is_hidden_name(name):
+                rows.append((name, _ROW_LINK))
+        elif is_directory:
+            if not _should_skip_directory(name):
+                rows.append((name, _ROW_DIRECTORY))
+        elif is_file and not is_hidden_name(name) and extension_of(name) in SOURCE_EXTENSIONS:
+            rows.append((name, _ROW_FILE))
+    if listed_at - dir_stat.st_mtime_ns >= _LISTING_SETTLE_NS:
+        with _LISTING_CACHE_LOCK:
+            if len(_LISTING_CACHE) >= _LISTING_CACHE_LIMIT:
+                _LISTING_CACHE.clear()
+            _LISTING_CACHE[dir_path] = (identity, rows)
+    return rows
+
+
+def _collect_cad_source_files(
+    root_path: str, result: list, visited=None, depth: int = 0, real_root: str | None = None
+) -> list:
+    """Every CAD file under ``root_path``, in walk order.
+
+    ``real_root`` is the caller's already-resolved real path of ``root_path``.
+    It is passed only for a plain (non-link) subdirectory on POSIX, where it is
+    exactly ``realpath(parent)/name``; everywhere else (the root, a symlink,
+    Windows with its junctions) the path is resolved here.
+    """
+    if depth > SCAN_MAX_DEPTH:
+        return result
+    if real_root is None:
+        try:
+            real_root = os.path.realpath(root_path, strict=True)
+        except (OSError, ValueError):
+            return result
+    if visited is None:
+        visited = set()
+    if real_root in visited:
+        # An earlier-sorted alias of a directory therefore HIDES the real one.
+        # That is the flip side of the loop guard, not a separate rule.
+        return result
+    visited.add(real_root)
+    rows = _listing_rows(root_path)
+    if rows is None:
+        return result
+    for name, kind in rows:
+        entry_path = os.path.join(root_path, name)
+        if kind == _ROW_DIRECTORY:
+            _collect_cad_source_files(
+                entry_path, result, visited, depth + 1,
+                real_root=os.path.join(real_root, name) if os.name != "nt" else None,
+            )
+            continue
+        if kind == _ROW_FILE:
+            result.append(entry_path)
+            continue
+        try:
+            target = os.stat(entry_path)
+        except (OSError, ValueError):
+            continue  # broken link
+        if stat_module.S_ISDIR(target.st_mode):
             if not _should_skip_directory(name):
                 _collect_cad_source_files(entry_path, result, visited, depth + 1)
             continue
-        if not is_file:
-            continue
-        if is_hidden_name(name):
-            continue
-        if extension_of(name) in SOURCE_EXTENSIONS:
+        if stat_module.S_ISREG(target.st_mode) and extension_of(name) in SOURCE_EXTENSIONS:
             result.append(entry_path)
     return result
 

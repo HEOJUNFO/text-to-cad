@@ -320,6 +320,18 @@ class LocalAssetBackend:
             return None
         return catalog
 
+    def warm_listings(self) -> None:
+        """Walk the served tree once, so the scanner's directory listings are warm.
+
+        Discovery only — no hashing, no store reads — so it costs one cold walk
+        and nothing else. Best-effort: it runs on a background thread at launch
+        and must never take the server down.
+        """
+        try:
+            scan_cad_directory(self.root_path, defer_unpreferred=True)
+        except Exception:  # noqa: BLE001 - a warm-up that fails leaves a cold cache
+            pass
+
     def read_catalog(self, preferred_file=None) -> dict:
         discovery = scan_cad_directory(self.root_path, defer_unpreferred=True)
         current = self._current_catalog_snapshot(discovery)
