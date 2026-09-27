@@ -4,9 +4,9 @@ import type { ExplorerRoot } from "@shared/types";
 
 /** Borrow only requests for this active document; acknowledgement owns consumption. */
 export function createDesktopCadCommands(projectId: string, root: ExplorerRoot, tabId: string): ViewerCommandSource & {
-  acknowledge(kind: "selectReference" | "captureRequest" | "openAnnotation", key: string | number): void;
+  acknowledge(kind: "selectReference" | "captureRequest", key: string | number): void;
 } {
-  let snapshot: ViewerCommands = { selectReference: null, captureRequest: null, openAnnotation: null };
+  let snapshot: ViewerCommands = { selectReference: null, captureRequest: null };
   return {
     subscribe: listener => useExplorer.subscribe(listener),
     getSnapshot() {
@@ -17,12 +17,9 @@ export function createDesktopCadCommands(projectId: string, root: ExplorerRoot, 
         && command.root === root && tab?.kind === "file" && tab.root === root && tab.path === command.path;
       const selection = matches(state.cadSelection) ? state.cadSelection : null;
       const capture = matches(state.cadCapture) ? state.cadCapture : null;
-      const annotation = matches(state.cadAnnotation) ? state.cadAnnotation : null;
-      if (snapshot.selectReference?.key !== selection?.nonce || snapshot.captureRequest?.key !== capture?.nonce
-        || snapshot.openAnnotation?.key !== annotation?.nonce) {
+      if (snapshot.selectReference?.key !== selection?.nonce || snapshot.captureRequest?.key !== capture?.nonce) {
         snapshot = { selectReference: selection ? { selector: selection.selector, key: selection.nonce } : null,
-          captureRequest: capture ? { key: capture.nonce } : null,
-          openAnnotation: annotation ? { id: annotation.id, key: annotation.nonce } : null };
+          captureRequest: capture ? { key: capture.nonce } : null };
       }
       return snapshot;
     },

@@ -41,10 +41,6 @@ import { dataUrlOf, rememberFiles } from "./composer/attachments";
 import { AttachmentImagePreview } from "./composer/AttachmentImagePreview";
 import { ComposerEditor, type ComposerEditorHandle } from "./composer/ComposerEditor";
 import { ReferenceScopeContext } from "./composer/ReferenceScope";
-import { AnnotationsChip, withAnnotations } from "./composer/AnnotationsChip";
-import type { DraftAnnotation } from "@renderer/state/composer";
-
-const NO_ANNOTATIONS: DraftAnnotation[] = [];
 
 /**
  * The composer (plan §2): "Do anything", the `+` menu, the chips the caller
@@ -148,14 +144,10 @@ export function Composer({
   }, [autoFocus, draftKey]);
 
   const slash = useSlashCommands(text, commands);
-  const annotations = useComposer((state) => state.annotations[draftKey] ?? NO_ANNOTATIONS);
-  const removeAnnotations = useComposer((state) => state.removeAnnotations);
 
   const handleSubmit = useCallback(
     async (message: PromptInputMessage) => {
-      // Annotations added from the viewer go out with the prompt, after what was typed.
-      const pending = useComposer.getState().annotations[draftKey] ?? NO_ANNOTATIONS;
-      const trimmed = withAnnotations(message.text.trim(), pending);
+      const trimmed = message.text.trim();
       if (!trimmed && message.files.length === 0) {
         return;
       }
@@ -164,10 +156,9 @@ export function Composer({
         return;
       }
       setText("");
-      if (pending.length) removeAnnotations(draftKey);
       await onSubmit(trimmed, content);
     },
-    [onSubmit, setText, removeAnnotations, draftKey],
+    [onSubmit, setText],
   );
 
   return (
@@ -236,10 +227,7 @@ export function Composer({
           onError={(error) => toast.error(error.message)}
           onSubmit={handleSubmit}
         >
-          <AttachmentStrip
-            annotations={<AnnotationsChip annotations={annotations} onRemove={() => removeAnnotations(draftKey)} scope={referenceScope} />}
-            hasAnnotations={annotations.length > 0}
-          />
+          <AttachmentStrip />
           <AttachmentSink draftKey={draftKey} />
           <AttachmentBridge targetRef={attachmentsRef} />
           {/*
@@ -446,19 +434,15 @@ function AttachButton({
   );
 }
 
-/**
- * What waits to go with the next prompt, above the textarea: the viewer's annotations, as one
- * chip, then the files.
- */
-function AttachmentStrip({ annotations, hasAnnotations }: { annotations: React.ReactNode; hasAnnotations: boolean }) {
+/** The files waiting to go with the next prompt, above the textarea. */
+function AttachmentStrip() {
   const attachments = usePromptInputAttachments();
-  if (attachments.files.length === 0 && !hasAnnotations) {
+  if (attachments.files.length === 0) {
     return null;
   }
   return (
     <PromptInputHeader className="px-2 pt-2">
       <Attachments variant="inline">
-        {annotations}
         {attachments.files.map((file) => {
           const isImage = file.mediaType?.startsWith("image/");
           return (
