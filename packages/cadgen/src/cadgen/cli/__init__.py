@@ -62,6 +62,12 @@ _COMMANDS: dict[str, tuple[str, str]] = {
     "sdf validate": ("cadgen.cli.sdf_validate", "validate an SDF world or model"),
     "sdf snapshot": ("cadgen.cli.sdf_snapshot", "render an SDF to an image"),
     "srdf validate": ("cadgen.cli.srdf_validate", "validate an SRDF against its URDF"),
+    # Implicit parts (signed distance fields). A part's script writes its mesh
+    # and a tape; `build` re-meshes a tape, `measure` reports volume, area,
+    # walls and point probes taken on the field.
+    "implicit build": ("cadgen.cli.implicit_build", "re-mesh a saved implicit part from its tape"),
+    "implicit measure": ("cadgen.cli.implicit_measure", "measure a saved implicit part: volume, area, walls, probes"),
+    "implicit step": ("cadgen.cli.implicit_step", "write a saved implicit part's exact subset as STEP"),
     # Generic / services
     "doctor": ("cadgen.cli.doctor", "print installed cadgen and verify a skill's pin"),
     # The store. `store why <model>` is the debugging surface STORE.md describes.

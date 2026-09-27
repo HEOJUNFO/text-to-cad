@@ -19,6 +19,10 @@ from pathlib import Path
 __all__ = [
     "BuildResult",
     "CompileResult",
+    "ImplicitBuildResult",
+    "ImplicitMeasureResult",
+    "ImplicitOutput",
+    "ImplicitStepResult",
     "MeshExportFile",
     "MeshExportResult",
     "SnapshotFile",
@@ -317,4 +321,124 @@ class ValidationResult:
         else:
             blocking = sum(1 for issue in self.issues if issue.severity == "error")
             lines.append(f"FAILED {_display(self.path)}: {blocking or len(self.issues)} blocking finding(s)")
+        return lines
+
+
+@dataclass(frozen=True)
+class ImplicitOutput:
+    """One mesh an implicit part wrote."""
+
+    path: Path
+    fmt: str
+
+
+@dataclass(frozen=True)
+class ImplicitBuildResult:
+    """The outcome of building an implicit part (a script run, or ``cadgen implicit build``).
+
+    ``leaves`` is the part's leaf table -- one entry per primitive in the
+    author's code, in author order -- and the id each GLB node carries, so a
+    reader can map a face back to the line that made it.
+    """
+
+    ok: bool
+    name: str
+    outputs: tuple[ImplicitOutput, ...] = ()
+    tape: Path | None = None
+    resolution: float = 0.0
+    grid: tuple[int, int, int] = (0, 0, 0)
+    triangles: int = 0
+    vertices: int = 0
+    leaves: tuple[dict, ...] = ()
+    bounds: dict = field(default_factory=dict)
+    timings: dict = field(default_factory=dict)
+    warnings: tuple[str, ...] = ()
+
+    def human_lines(self) -> list[str]:
+        lines = [
+            f"wrote {out.fmt.upper()}: {_display(out.path)}"
+            + (f" ({self.triangles} triangles, {self.resolution:g} cells, {len(self.leaves)} leaves)" if out.fmt != "step" else " (the B-rep)")
+            for out in self.outputs
+        ]
+        if self.tape is not None:
+            lines.append(f"tape: {_display(self.tape)}")
+        lines += [f"warning: {warning}" for warning in self.warnings]
+        return lines
+
+
+@dataclass(frozen=True)
+class ImplicitMeasureResult:
+    """The outcome of ``cadgen implicit measure``: sampled facts about a saved part.
+
+    Every number is exact only to ``resolution`` (the grid the answer was
+    taken on); ``probes`` are the distance, owning leaf and normal at each
+    point asked for.
+    """
+
+    ok: bool
+    tape: Path
+    name: str
+    resolution: float
+    bounds: dict = field(default_factory=dict)
+    volume: float = 0.0
+    surface_area: float = 0.0
+    centroid: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    leaves: tuple[dict, ...] = ()
+    thickness: dict = field(default_factory=dict)
+    probes: tuple[dict, ...] = ()
+
+    def human_lines(self) -> list[str]:
+        b = self.bounds
+        size = b.get("size", [0, 0, 0])
+        lines = [
+            f"{self.name} ({_display(self.tape)}) at {self.resolution:g} cells:",
+            f"  size {size[0]:.3g} x {size[1]:.3g} x {size[2]:.3g}, min {tuple(round(x, 3) for x in b.get('min', []))}, "
+            f"max {tuple(round(x, 3) for x in b.get('max', []))}",
+            f"  volume {self.volume:.6g}, surface area {self.surface_area:.6g}, centroid "
+            f"({self.centroid[0]:.3f}, {self.centroid[1]:.3f}, {self.centroid[2]:.3f})",
+        ]
+        if self.thickness:
+            t = self.thickness
+            lines.append(
+                f"  wall thickness: min {t.get('min_thickness', 0):.4g} at {t.get('min_at')}, "
+                f"5th percentile {t.get('p05_thickness', 0):.4g}, median {t.get('median_thickness', 0):.4g}, "
+                f"max {t.get('max_thickness', 0):.4g} at {t.get('max_at')}"
+            )
+        for leaf in self.leaves:
+            label = leaf.get("label") or leaf.get("kind")
+            site = f" ({leaf['site']})" if leaf.get("site") else ""
+            lines.append(f"  leaf {leaf['id']}: {label}{site}, surface {leaf.get('surface_area', 0):.5g}")
+        for probe in self.probes:
+            p = probe["point"]
+            lines.append(
+                f"  probe ({p[0]:g}, {p[1]:g}, {p[2]:g}): distance {probe['distance']:.5g} "
+                f"({'inside' if probe['inside'] else 'outside'}), leaf {probe['leaf']}"
+            )
+        return lines
+
+
+@dataclass(frozen=True)
+class ImplicitStepResult:
+    """The outcome of ``cadgen implicit step``: the B-rep of a saved part's exact subset, as STEP.
+
+    ``filleted_blends`` names the booleans whose round/chamfer became an OCC
+    fillet; ``dropped_blends`` those left sharp, where the STEP differs from
+    the mesh.
+    """
+
+    ok: bool
+    tape: Path
+    name: str
+    step: Path
+    solids: int = 0
+    volume: float = 0.0
+    filleted_blends: tuple[str, ...] = ()
+    dropped_blends: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
+
+    def human_lines(self) -> list[str]:
+        lines = [f"wrote STEP: {_display(self.step)} ({self.solids} solid{'s' if self.solids != 1 else ''}, volume {self.volume:.6g})"]
+        lines += [f"blend filleted at {where}" for where in self.filleted_blends]
+        lines += [f"blend left sharp at {where}" for where in self.dropped_blends]
+        lines += [f"warning: {warning}" for warning in self.warnings]
         return lines
