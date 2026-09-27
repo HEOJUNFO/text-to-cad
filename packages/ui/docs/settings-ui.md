@@ -40,10 +40,10 @@ none.
   row is the file tree's alone.
 - **Toolbar** at top-left, 8px in — the gap between it and the stack under it.
   At top-right, 8px in and level with it, a bar of small transparent icon
-  buttons: **Display settings** (the camera's projection: the perspective or
-  the orthographic cube, as the view is) then **Preview** (a play circle). In
-  preview the same bar, in the same place, reads **Playback settings**
-  (sliders), **Display settings**, then an X where Preview was.
+  buttons: **Display settings** (sliders) then **Preview** (a play icon). In
+  preview the same bar, in the same place, reads **Display settings**, then an
+  X where Preview was; **Playback settings** is the cog at the playbar's right
+  end, and its menu opens upward.
 - **Tool stack** beneath the toolbar: the panels of the tool in hand and of the
   effects a person keeps (see [The tool stack](#the-tool-stack)).
 - **View cube** at bottom-right: enlarged face/edge/corner hit areas, neutral
@@ -278,8 +278,9 @@ heading's 28px, the box 20px tall and close to the row's walls. The host's file
 tree keeps 28px rows. An assembly row's actions, shown on hover and kept while they
 are on, are **Isolate** then the **Hide/Reveal** eye; a part file has no
 Isolate. They float over the row's right end rather than taking width from it:
-the name runs the row's full width, and while an action shows, a blurred backing
-in the row's own colour, faded in from the left, keeps it legible over the name.
+the name runs the row's full width and, while an action shows, fades out half a
+rem before them (a mask, `ROW_NAME_UNDER_ACTIONS`), so nothing is drawn behind the
+buttons and the row keeps its own colour.
 Model and link filters share `TreeFilterInput`.
 
 **Mobile** is below 720px of FileViewer width — the one viewer breakpoint
@@ -300,8 +301,7 @@ minimum closes the column, and the keyboard never does. The next open starts at
 
 ## Display settings and section primitives
 
-Display is not a tool. Its button — the projection icon (perspective or
-orthographic, as the view is), "Display settings" — sits in the viewport's
+Display is not a tool. Its button — the sliders icon, "Display settings" — sits in the viewport's
 top-right bar beside Preview, in the same place in the tools view and in
 preview, and opens an ordinary popover end-aligned under it (`kit/shell/DisplayPopover.jsx`), 256px wide and
 never taller than the viewer. Opening it leaves the tool in hand as it is: a
@@ -426,17 +426,17 @@ STEP context-menu items; the live `resetCamera` command takes the same fit path.
 
 **Preview** is available for every 3D file, animated or not, and is the shell's
 own state (`previewing`); hosts neither start nor observe it. Its button is the
-play circle in the top-right bar ("Preview"). It fills the viewer below the
+play icon in the top-right bar ("Preview"). It fills the viewer below the
 host's nav row, which stays, and beside the host's column, which stays as it was
 and can still be opened and shut; the toolbar, the tool stack and its resize
 handles, joint handles, cube, bottom action and context menu are gone. It starts
 orbiting. Its top-right bar is the tools view's bar in the same place:
-**Playback settings** (sliders; `PlaybackMenu`), **Display settings**, and an X
-("Exit preview") where Preview was. Playback settings holds, for a file with
-routines, **Animation** — the Routine (with more than one), Speed, Loop and
+**Display settings** and an X ("Exit preview") where Preview was. **Playback
+settings** (a cog; `PlaybackMenu`) ends the playbar under the model and opens
+upward. It holds, for a file with routines, **Animation** — the Routine (with more than one), Speed, Loop and
 Autoplay — then **Orbit**: on or off, and its speed. Under the model, an
-animated file shows its playbar (play/pause and the scrubber); a static one an
-orbit play/pause. These controls share one one-second idle deadline and a 150ms
+animated file shows its playbar (play/pause, the scrubber, then the cog); a
+static one an orbit play/pause and the cog. These controls share one one-second idle deadline and a 150ms
 fade: movement wakes them, and hovering their area, an open menu or the Display
 popover holds them.
 

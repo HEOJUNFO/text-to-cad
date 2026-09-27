@@ -8,18 +8,15 @@ export function useEditingPreview(file, { enabled, catalogEntry, client } = {}) 
   const [snapshot, setSnapshot] = useState(() => ({ file: "", state: initialEditingPreview() }));
   useEffect(() => {
     if (!enabled || !file) return undefined;
-    return observeEditingPreview(file, next => {
-      setSnapshot(previous => {
-        const before = previous.file === file ? previous.state : initialEditingPreview();
-        const state = reduceEditingPreview(before, next);
-        return previous.file === file && JSON.stringify(before) === JSON.stringify(state)
-          ? previous : { file, state };
-      });
-    }, error => {
-      setSnapshot(previous => ({ file, state: reduceEditingPreview(
-        previous.file === file ? previous.state : initialEditingPreview(), { error: error.message },
-      ) }));
-    }, { client });
+    // A poll that changes nothing, a failed one included, keeps the snapshot: the surface re-renders
+    // only for news, not once per poll while the feed is down.
+    const apply = next => setSnapshot(previous => {
+      const before = previous.file === file ? previous.state : initialEditingPreview();
+      const state = reduceEditingPreview(before, next);
+      return previous.file === file && JSON.stringify(before) === JSON.stringify(state)
+        ? previous : { file, state };
+    });
+    return observeEditingPreview(file, apply, error => apply({ error: error.message }), { client });
   }, [file, enabled, client]);
   const state = useMemo(() => enabled && snapshot.file === file
     ? snapshot.state : initialEditingPreview(), [enabled, file, snapshot]);

@@ -52,6 +52,16 @@ and viewport refinement keeps that boundary.
   geometry's attributes, arrays, versions, groups, draw range and live
   ownership; the last geometry release cancels queued or active work.
 - Deformation runs before the bounds test.
+- The merged edge-pick `LineSegments` (`edgePickRaycast.js`) keeps its one
+  buffer and gains a table of boxes over contiguous 32-segment runs (and
+  1,024-segment groups), built on the first edge ray (O(segments), a tenth of
+  the index buffer) and keyed by the proxy's position array. A ray runs
+  three's own segment test over only the segments whose boxes (group, run,
+  then the segment's own) it passes within the pick threshold of, widened by
+  1e-4 of the ray's reach, far above three's rounding, so the hits and their
+  order are the full scan's. A sync whose proxy only grew (every earlier
+  index and position bit-identical) keeps the built boxes and boxes only the
+  appended segments; any other change builds afresh on the next edge ray.
 
 ## 3. Reuse without changing geometry
 

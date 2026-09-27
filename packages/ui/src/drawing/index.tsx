@@ -85,15 +85,30 @@ function drawingStrokeWidth(tool: string, width = DEFAULT_DRAWING_STROKE_WIDTH) 
   return tool === 'freedraw' ? width * FREEDRAW_WEIGHT : ['line', 'arrow', 'rectangle', 'ellipse'].includes(tool) ? width : undefined;
 }
 
+/** Takes a toolbar tool up at the weight in hand; the pen and the shapes take theirs from it. */
+function activateTool(api: ExcalidrawImperativeAPI, tool: DrawingTool, width: number) {
+  const next = drawingStrokeWidth(tool, width);
+  if (next != null) api.updateScene({ appState: { currentItemStrokeWidth: next }, captureUpdate: CaptureUpdateAction.NEVER });
+  api.setActiveTool(tool === 'fill' ? { type: 'custom', customType: 'fill', locked: true } : { type: tool, locked: true });
+}
+
 /** An editor only: no app detection, persistence, network, file dialogs or prompt routing. */
-export function DrawingEditor({ initialScene, name = 'Drawing', mode = 'canvas', toolbar = true, initialTool = 'selection', initialColor, initialStrokeWidth = DEFAULT_DRAWING_STROKE_WIDTH, platform, onReady, onContentChange, onHistoryChange, onToolChange, onColorChange, onViewportChange }: DrawingEditorProps) {
+export function DrawingEditor({ initialScene, name = 'Drawing', mode = 'canvas', toolbar = true, initialTool: initialToolProp = 'selection', initialColor: initialColorProp, initialStrokeWidth: initialStrokeWidthProp = DEFAULT_DRAWING_STROKE_WIDTH, platform, onReady, onContentChange, onHistoryChange, onToolChange, onColorChange, onViewportChange }: DrawingEditorProps) {
+  // Read once, when the editor mounts. A host that passes its live session's tool, colour and
+  // weight (the CAD overlay does, so a new sketch opens on the last ones) changes them with every
+  // choice; followed, they would rebuild the session below and hand the host a fresh, empty-history
+  // controller mid-sketch (Undo stayed disabled after a fill, which follows choosing Fill).
+  const [{ initialTool, initialColor, initialStrokeWidth }] = useState(() => ({
+    initialTool: initialToolProp, initialColor: initialColorProp, initialStrokeWidth: initialStrokeWidthProp }));
   const [initialData] = useState(() => {
     const document = initialScene ? parseDrawingScene(initialScene) : emptyDrawingDocument();
     // Ink over someone else's picture cannot assume a light background.
     const overlayInk = mode === 'overlay' ? { currentItemStrokeColor: initialColor ?? DEFAULT_OVERLAY_DRAWING_COLOR, currentItemStrokeWidth: initialStrokeWidth } : {};
     // Locked: a tool stays chosen after each shape, as the pen always has, rather
     // than handing every new line back to selection.
-    const tool = { activeTool: { type: DRAWING_TOOLS.includes(initialTool) ? initialTool : 'selection', customType: null, locked: true, lastActiveTool: null } };
+    // Fill is this editor's own tool: the SDK knows it only as a custom one.
+    const tool = { activeTool: initialTool === 'fill' ? { type: 'custom', customType: 'fill', locked: true, lastActiveTool: null }
+      : { type: DRAWING_TOOLS.includes(initialTool) ? initialTool : 'selection', customType: null, locked: true, lastActiveTool: null } };
     return { ...document, appState: { currentItemFontFamily: 5, ...overlayInk, ...document.appState, ...tool,
       ...(drawingStrokeWidth(initialTool, initialStrokeWidth) != null ? { currentItemStrokeWidth: drawingStrokeWidth(initialTool, initialStrokeWidth) } : {}),
       viewBackgroundColor: mode === 'overlay' ? 'transparent' : '#ffffff',
@@ -140,6 +155,16 @@ export function DrawingEditor({ initialScene, name = 'Drawing', mode = 'canvas',
   // The SDK paints its default white page until the scene it was given is in
   // place; over a viewport that is a white flash, so the surface waits for it.
   const [initialized, setInitialized] = useState(false);
+  // The SDK loads some tools it offers (the eraser) as selection; open on the one asked for.
+  const opened = useRef(false);
+  useEffect(() => {
+    if (!api || !initialized || opened.current) return;
+    opened.current = true;
+    const active = api.getAppState().activeTool;
+    if (DRAWING_TOOLS.includes(initialTool) && (active.type === 'custom' ? active.customType : active.type) !== initialTool) {
+      activateTool(api, initialTool, strokeWidth.current);
+    }
+  }, [api, initialized, initialTool]);
   // Fill is this editor's tool, not the SDK's: a press with it active fills the area under the pointer.
   // A press outside any closed area fills nothing; the editor shows no notifications (settings-ui.md).
   useEffect(() => api?.onPointerDown((activeTool, pointer) => {
@@ -181,10 +206,7 @@ export function DrawingEditor({ initialScene, name = 'Drawing', mode = 'canvas',
         return exportToBlob({ elements, files, appState, mimeType: 'image/png', exportPadding: 24, maxWidthOrHeight: 2048 });
       },
       setTool(tool) {
-        if (!DRAWING_TOOLS.includes(tool)) return;
-        const width = drawingStrokeWidth(tool, strokeWidth.current);
-        if (width != null) api.updateScene({ appState: { currentItemStrokeWidth: width }, captureUpdate: CaptureUpdateAction.NEVER });
-        api.setActiveTool(tool === 'fill' ? { type: 'custom', customType: 'fill', locked: true } : { type: tool, locked: true });
+        if (DRAWING_TOOLS.includes(tool)) activateTool(api, tool, strokeWidth.current);
       },
       setColor(color) { api.updateScene({ appState: { currentItemStrokeColor: color }, captureUpdate: CaptureUpdateAction.NEVER }); },
       setStrokeWidth(width) {

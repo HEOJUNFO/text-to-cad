@@ -18,8 +18,10 @@ const BAR_POSITION = Object.freeze({ top: `${VIEWPORT_INSET_PX}px`, right: `${VI
  *
  * @param {{ active: boolean, surface?: Element | null, hold?: boolean,
  *   actions?: (onMenuOpenChange: (open: boolean) => void) => import("react").ReactNode,
- *   playbar?: import("react").ReactNode, children?: import("react").ReactNode }} props
- *   `actions` is given the setter a menu in the bar reports its open state to.
+ *   playbar?: import("react").ReactNode | ((onMenuOpenChange: (open: boolean) => void) => import("react").ReactNode),
+ *   children?: import("react").ReactNode }} props
+ *   `actions`, and `playbar` when it is a function, are given the setter a menu in them reports its
+ *   open state to (Playback settings sits at the playbar's right end).
  */
 export default function PreviewChrome({ active, surface, hold = false, actions, playbar, children }) {
   const [visible, setVisible] = useState(true);
@@ -75,7 +77,7 @@ export default function PreviewChrome({ active, surface, hold = false, actions, 
         className="pointer-events-auto absolute flex items-center justify-end gap-0.5">
         {actions?.(setMenuOpen)}
       </div>
-      {active ? playbar : null}
+      {active ? (typeof playbar === "function" ? playbar(setMenuOpen) : playbar) : null}
     </div></ToolbarTooltipScope>
   </>;
 }

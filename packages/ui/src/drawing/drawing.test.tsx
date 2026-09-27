@@ -11,7 +11,10 @@ vi.mock('@excalidraw/excalidraw', async () => {
     componentDidMount() {
       sdk.props = this.props;
       const elements = [{ id: 'rectangle', type: 'rectangle', x: 0, y: 0, width: 20, height: 20 }];
-      const appState = { scrollX: 11, scrollY: 22, zoom: { value: 1 }, viewBackgroundColor: '#fff', activeTool: { type: 'selection' }, currentItemStrokeColor: '#1e1e1e' };
+      // As the SDK restores a scene's tool: those it allows are kept (a custom one included), the eraser is not.
+      const given = this.props.initialData?.appState?.activeTool;
+      const activeTool = given && given.type !== 'eraser' ? given : { type: 'selection' };
+      const appState = { scrollX: 11, scrollY: 22, zoom: { value: 1 }, viewBackgroundColor: '#fff', activeTool, currentItemStrokeColor: '#1e1e1e' };
       sdk.api = { getSceneElements: () => elements, getAppState: () => appState, getFiles: () => ({}),
         addFiles: vi.fn(), updateScene: vi.fn(), setActiveTool: vi.fn(),
         onScrollChange: (listener: any) => { sdk.scroll = listener; return () => { sdk.scroll = null; }; },
@@ -173,12 +176,12 @@ describe('drawing editor', () => {
     expect(sdk.api.updateScene).toHaveBeenLastCalledWith({ appState: { currentItemStrokeWidth: 4 }, captureUpdate: 'NEVER' });
 
     // The SDK reports every tool and color change, whoever made it.
-    expect(onToolChange).toHaveBeenLastCalledWith('selection');
+    expect(onToolChange).toHaveBeenLastCalledWith('freedraw');
     expect(onColorChange).toHaveBeenLastCalledWith('#1e1e1e');
     const next = { ...sdk.api.getAppState(), activeTool: { type: 'arrow' }, currentItemStrokeColor: '#39ff14' };
     sdk.props.onChange(sdk.api.getSceneElements(), next, {});
     sdk.props.onChange(sdk.api.getSceneElements(), next, {});
-    expect(onToolChange.mock.calls).toEqual([['selection'], ['arrow']]);
+    expect(onToolChange.mock.calls).toEqual([['freedraw'], ['arrow']]);
     expect(onColorChange.mock.calls).toEqual([['#1e1e1e'], ['#39ff14']]);
 
     sdk.scroll(40, -12, { value: 1.5 });
@@ -209,6 +212,41 @@ describe('drawing editor', () => {
     expect(controller!.inkCanvas()).toBe(ink);
     view.unmount();
     expect(sdk.scroll).toBeNull();
+  });
+  it('opens on the tool, colour and weight it is given, and keeps its controller and history while the host\'s change', async () => {
+    const onReady = vi.fn(), onHistoryChange = vi.fn();
+    const overlay = (tool: any, color: string, width: number) => <DrawingEditor mode="overlay" toolbar={false} initialTool={tool}
+      initialColor={color} initialStrokeWidth={width} onReady={onReady} onHistoryChange={onHistoryChange} />;
+    const view = render(overlay('fill', '#39ff14', 4));
+    await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
+    // Fill is the editor's tool, which the SDK knows only as a custom one; opened as a plain type it would be lost.
+    expect(sdk.props.initialData.appState).toMatchObject({ activeTool: { type: 'custom', customType: 'fill', locked: true },
+      currentItemStrokeColor: '#39ff14', currentItemStrokeWidth: 4 });
+    expect(sdk.api.setActiveTool).not.toHaveBeenCalled();
+    const controller = onReady.mock.calls[0][0];
+    // The SDK's own history buttons, which the editor mirrors: a fill has just made an undo step.
+    const undo = document.createElement('button');
+    undo.dataset.testid = 'button-undo';
+    view.container.firstChild!.appendChild(undo);
+    await waitFor(() => expect(onHistoryChange).toHaveBeenLastCalledWith({ canUndo: true, canRedo: false }));
+    const reports = onHistoryChange.mock.calls.length;
+    // A host passing its live session reports every later choice back as these props: they were
+    // only the opening ones. Following them rebuilt the controller, and the host's history with it.
+    view.rerender(overlay('rectangle', '#ff2d55', 1));
+    view.rerender(overlay('eraser', '#ffffff', 2));
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(onReady.mock.calls).toEqual([[controller]]);
+    expect(onHistoryChange).toHaveBeenCalledTimes(reports);
+    expect(sdk.api.setActiveTool).not.toHaveBeenCalled();
+    view.unmount();
+    expect(onReady).toHaveBeenLastCalledWith(null);
+  });
+  it('opens on a tool the SDK does not restore, once its scene is in place', async () => {
+    const onReady = vi.fn();
+    const view = render(<DrawingEditor mode="overlay" toolbar={false} initialTool="eraser" onReady={onReady} />);
+    await waitFor(() => expect(sdk.api.setActiveTool).toHaveBeenCalledWith({ type: 'eraser', locked: true }));
+    expect(sdk.api.setActiveTool).toHaveBeenCalledTimes(1);
+    view.unmount();
   });
   it('the standalone editor carries the same toolbar, driving itself', async () => {
     const view = render(<DrawingEditor onReady={() => {}} />);

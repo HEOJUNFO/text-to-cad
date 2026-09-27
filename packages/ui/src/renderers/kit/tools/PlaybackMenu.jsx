@@ -1,4 +1,4 @@
-import { SlidersHorizontal } from "lucide-react";
+import { Settings } from "lucide-react";
 import {
   DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator,
   DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger
@@ -28,8 +28,8 @@ function SpeedSubmenu({ label, name = label, value, values, onChange }) {
 }
 
 /**
- * Preview mode's Playback settings: the sliders button in the viewport's top-right bar, before
- * Display settings, and its dropdown. For a file with routines, **Animation** — the Routine (with
+ * Preview mode's Playback settings: the cog at the right end of the playbar under the model, and
+ * its dropdown, which opens upward. For a file with routines, **Animation** — the Routine (with
  * more than one), its Speed, Loop and Autoplay (whether entering preview starts it, the person's
  * across files) — then, for every file, **Orbit**: on or off, and its Speed. Ticking a checkbox
  * leaves the menu open. Play, pause and the scrubber are the playbar under the model.
@@ -42,8 +42,8 @@ export default function PlaybackMenu({ animation = null, autoplay, onAutoplayCha
   onOrbitSpeedChange, onOpenChange }) {
   const clips = animation?.clips || [];
   const keepOpen = event => event.preventDefault();
-  return <ToolPopover allowInactive align="end" onOpenChange={onOpenChange} label="Playback settings" className="w-44"
-    trigger={<ToolbarButton label="Playback settings" className="size-6"><SlidersHorizontal className="size-3.5" strokeWidth={1.5} aria-hidden="true" /></ToolbarButton>}>
+  return <ToolPopover allowInactive side="top" align="end" onOpenChange={onOpenChange} label="Playback settings" className="w-44"
+    trigger={<ToolbarButton tooltip={false} label="Playback settings" className="size-6"><Settings className="size-3.5" strokeWidth={1.5} aria-hidden="true" /></ToolbarButton>}>
     {clips.length ? <>
       <DropdownMenuLabel className="text-muted-foreground">Animation</DropdownMenuLabel>
       {clips.length > 1 ? <DropdownMenuSub>
