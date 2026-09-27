@@ -279,6 +279,7 @@ createRoot(document.getElementById('root')).render(<App/>);
   // renders the tree, but not one row.
   await frames();
   const before = await page.evaluate(() => ({ ...window.__renders }));
+  assert.ok(before.ModelingRow > 0 && before.ModelingTree > 0, `the counts see the rows and the tree: ${JSON.stringify(before)}`);
   await page.evaluate(() => window.treeTest.refresh()); await frames();
   const same = await page.evaluate(() => ({ ...window.__renders }));
   assert.deepEqual([same.ModelingTree - before.ModelingTree, same.ModelingRow - before.ModelingRow], [0, 0], 'unchanged props: no tree or row render');

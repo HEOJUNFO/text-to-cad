@@ -82,7 +82,7 @@ function Disclosure({ node, open, locked, toggle }) {
 // One row of the tree, the rows under it drawn after it by the list (`visibleRows`). Its props
 // are the row's own facts — its selection and joins as booleans, callbacks that never change —
 // so a tree re-rendered for anything else leaves it alone.
-const ModelingRow = memo(function ModelingRow({ node, depth, open, branch, locked, disabled, selected, joinAbove, joinBelow, hiddenByOwner, unavailable, partControls, feature, toggle, choose }) {
+function ModelingRow({ node, depth, open, branch, locked, disabled, selected, joinAbove, joinBelow, hiddenByOwner, unavailable, partControls, feature, toggle, choose }) {
   const Icon = icons[node.kind] || Box;
   // An assembly outside the isolate/picking frontier cannot select itself, but
   // its descendants can. Only a hidden owner blocks its entire subtree.
@@ -100,11 +100,14 @@ const ModelingRow = memo(function ModelingRow({ node, depth, open, branch, locke
       {node.selectionId && <ModelPartActions node={node} controls={partControls} disabled={disabled}/>}
     </TreeRowSurface>
   </ModelPartMenu>;
-});
+}
+
+// Named so a profiler (and the render counts in the specs) can tell the rows apart.
+const MemoModelingRow = memo(ModelingRow);
 
 // A search hit is the tree row without its place in the tree: the same menu, eye
 // and availability, with the owners it would sit under named instead of drawn.
-const ModelingSearchRow = memo(function ModelingSearchRow({ match, index, availability, selected, joinAbove, joinBelow, cursor, choose, disabled, partControls, feature }) {
+function ModelingSearchRow({ match, index, availability, selected, joinAbove, joinBelow, cursor, choose, disabled, partControls, feature }) {
   const {entry,indices}=match,{node}=entry;
   const Icon = icons[node.kind] || Box;
   const {hiddenByOwner,unavailable}=modelTreeSearchChain(index,match.at).reduce(
@@ -125,7 +128,9 @@ const ModelingSearchRow = memo(function ModelingSearchRow({ match, index, availa
       {node.selectionId && <ModelPartActions node={node} controls={partControls} disabled={disabled}/>}
     </TreeRowSurface>
   </ModelPartMenu>;
-});
+}
+
+const MemoModelingSearchRow = memo(ModelingSearchRow);
 
 /**
  * Read-only geometry inference; assembly instances share recognition, never selection IDs.
@@ -363,14 +368,14 @@ function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, l
   const searchPinned=useMemo(()=>cursorIndex < 0 ? EMPTY : [cursorIndex],[cursorIndex]);
   const renderTreeRow=at=>{
     const row=rows[at],on=highlighted.has(row.node.id);
-    return <ModelingRow node={row.node} depth={row.depth} open={row.open} branch={row.branch} locked={locked} disabled={disabled}
+    return <MemoModelingRow node={row.node} depth={row.depth} open={row.open} branch={row.branch} locked={locked} disabled={disabled}
       selected={on} joinAbove={on && at > 0 && highlighted.has(rows[at-1].node.id)} joinBelow={on && at < rows.length-1 && highlighted.has(rows[at+1].node.id)}
       hiddenByOwner={row.hiddenByOwner} unavailable={row.unavailable} partControls={partControls}
       feature={row.node.selectionId ? null : feature} toggle={toggle} choose={choose}/>;
   };
   const renderSearchRow=at=>{
     const match=matches[at],on=highlighted.has(match.entry.node.id);
-    return <ModelingSearchRow match={match} index={searchIndex} availability={availability} cursor={match.entry.node.id === cursorId}
+    return <MemoModelingSearchRow match={match} index={searchIndex} availability={availability} cursor={match.entry.node.id === cursorId}
       selected={on} joinAbove={on && at > 0 && highlighted.has(matches[at-1].entry.node.id)} joinBelow={on && at < matches.length-1 && highlighted.has(matches[at+1].entry.node.id)}
       choose={choose} disabled={disabled} partControls={partControls} feature={match.entry.node.selectionId ? null : feature}/>;
   };
