@@ -267,7 +267,7 @@ function StepSurfaceBody({ view, data }) {
   // `{ partId, clientX, clientY, pointerType, multiSelect }`, replayed once they can be picked.
   const [pendingTopologyPick, setPendingTopologyPick] = useState(null);
   const [selectedPartIds, setSelectedPartIds, selectedPartIdsRef] = useSyncedState([]);
-  const [selectedRenderPartIdByAssemblyPartId, setSelectedRenderPartIdByAssemblyPartId] = useState({});
+  const [selectedRenderPartIdByAssemblyPartId, setSelectedRenderPartIdByAssemblyPartId, selectedRenderPartIdByAssemblyPartIdRef] = useSyncedState({});
   const [expandedStepTreeNodeIds, setExpandedStepTreeNodeIds] = useState([]);
   const [activeTreeNodeScrollKey, setActiveTreeNodeScrollKey] = useState("");
   const [hiddenPartIds, setHiddenPartIds] = useState([]);
@@ -2507,10 +2507,32 @@ function StepSurfaceBody({ view, data }) {
     edgeChainActive ? [...effectiveActiveReferenceMap.values()] : EMPTY_LIST
   ), [edgeChainActive, effectiveActiveReferenceMap]);
 
+  // The selection as the last activation found it. A click acts at once (`useStepPicking`), so
+  // the first click of a double-click has already changed the selection by the time the dblclick
+  // arrives; the double-click puts that selection back — through the same setters every pick
+  // goes through, so the Reference panel, the tree's highlight and the viewport's follow — and
+  // then isolates, leaves isolation or copies as if that click had never happened.
+  const selectionBeforeActivationRef = useRef(null);
+  const restoreSelectionBeforeActivation = useCallback(() => {
+    const before = selectionBeforeActivationRef.current;
+    if (!before) return;
+    selectionBeforeActivationRef.current = null;
+    // A press that asked for a part's faces and is waiting to pick again is that click's too.
+    setPendingTopologyPick(null);
+    setSelectedPartIds(before.partIds);
+    setSelectedRenderPartIdByAssemblyPartId(before.renderPartIdByAssemblyPartId);
+    setSelectedReferenceIds(before.referenceIds);
+  }, []);
+
   const handleModelReferenceActivate = useCallback((referenceId, { multiSelect = false, clientX, clientY, pointerType = "" } = {}) => {
     if (stepInteractionBlocked) {
       return;
     }
+    selectionBeforeActivationRef.current = {
+      partIds: selectedPartIdsRef.current,
+      renderPartIdByAssemblyPartId: selectedRenderPartIdByAssemblyPartIdRef.current,
+      referenceIds: selectedReferenceIdsRef.current
+    };
     // Every press settles a pick still waiting for its part's faces: the newest one wins.
     setPendingTopologyPick(null);
     const nextReferenceId = String(referenceId || "").trim();
@@ -2605,8 +2627,11 @@ function StepSurfaceBody({ view, data }) {
   useEffect(() => { setPendingTopologyPick(null); }, [selectionFilter, tabToolMode, selectedKey]);
 
   const doubleCopyReference = useRef(null);
-  const handleModelReferenceDoubleActivate = useCallback((referenceId, { multiSelect = false } = {}) => {
+  // `activated`: the gesture's first click activated (its second never does), so the selection
+  // that click found comes back first; the double-click then acts on it as it always has.
+  const handleModelReferenceDoubleActivate = useCallback((referenceId, { multiSelect = false, activated = false } = {}) => {
     if (stepInteractionBlocked) return;
+    if (activated) restoreSelectionBeforeActivation();
     if (!referenceId) {
       handleExitIsolate();
       return;
@@ -2614,9 +2639,8 @@ function StepSurfaceBody({ view, data }) {
     const reference = effectiveActiveReferenceMap.get(referenceId);
     const topology = reference && isViewerTopologyReference(reference);
     if (topology && selectionFilter !== "parts") {
-      // A double-click copies the face or edge AND leaves it selected. The two clicks it is made
-      // of each toggle it (or, close enough together, cancel each other's activation), so it is
-      // selected here if they left it otherwise — the way a single click would select it.
+      // A double-click copies the face or edge AND leaves it selected: selected here if the
+      // selection it found lacks it — the way a single click would select it.
       if (!selectedReferenceIdsRef.current.includes(referenceId)) handleModelReferenceActivate(referenceId, { multiSelect });
       doubleCopyReference.current?.(referenceId);
       return;
@@ -2626,7 +2650,7 @@ function StepSurfaceBody({ view, data }) {
       focusStepTreeNode(resolvePickedAssemblyPartId(partId), { reveal: false });
     }
   }, [stepInteractionBlocked, effectiveActiveReferenceMap, selectionFilter, isAssemblyView, handleModelReferenceActivate,
-    referencePartId, focusStepTreeNode, handleExitIsolate, resolvePickedAssemblyPartId]);
+    restoreSelectionBeforeActivation, referencePartId, focusStepTreeNode, handleExitIsolate, resolvePickedAssemblyPartId]);
 
   const handleViewportContextMenuOpenChange = useCallback((open) => {
     if (!open) setViewerContextMenu(null);
@@ -3203,6 +3227,9 @@ function StepSurfaceBody({ view, data }) {
     onHoverReferenceChange: !previewing ? handleModelHoverChange : null,
     onActivateReference: !previewing ? handleModelReferenceActivate : null,
     onDoubleActivateReference: !previewing ? handleModelReferenceDoubleActivate : null,
+    // Under another tool a pick takes up Select (`ensureSelectTool`): it waits the double-click
+    // window first, so a double-click there isolates and leaves the tool as it was.
+    deferActivation: !selectionToolActive,
     onMeasurePick: !previewing ? measure.onPick : null,
     onMeasureHoverPoint: !previewing ? measure.onHoverPoint : null,
     pickAtRef

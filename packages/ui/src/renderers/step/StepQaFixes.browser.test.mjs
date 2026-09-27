@@ -56,8 +56,8 @@ async function open(server) {
 }
 const pressed = async view => (await view.tools()).filter(tool => tool.endsWith(':true')).map(tool => tool.split(':')[0]);
 const selection = async view => { const { selectedPartIds, selectedReferenceIds } = await view.state(); return { selectedPartIds, selectedReferenceIds }; };
-// A single press is held for the double-click window before it acts; wait it out, and a frame.
-const afterPress = async page => { await page.waitForTimeout(600); await settle(page); };
+// A press acts at once; a frame lets what it changed reach the screen.
+const afterPress = async page => { await settle(page); };
 
 test('opening Display leaves the tool and the selection as they are; a press on the model closes it, and the camera still orbits', async () => {
   const view = await open(harness);
@@ -136,5 +136,43 @@ test('a single-part STEP names a picked face after its part, never after the XCA
   assert.ok(options.every(option => /^hinge_base · face \d+$/.test(option.trim())), `the picker's entries: ${options}`);
   await page.keyboard.press('Escape');
   assert.doesNotMatch(await pane.innerText(), /=>\[|0:1:1:2/, 'the raw label is nowhere on screen');
+  assert.deepEqual(errors, []);
+});
+
+test('a single-part STEP: a click selects at once, and a double-click on empty space, with no isolation to leave, keeps the selection its first click found', async () => {
+  const view = await open(lone);
+  const { page, at, errors } = view;
+  const empty = [view.box.x + 30, view.box.y + view.box.height - 30];
+  await page.evaluate(() => { window.__clipboardWrites = []; window.cadHarness.a.host.clipboard.writeText = async text => { window.__clipboardWrites.push(text); }; });
+  // Under All the one part's faces are what a press picks (Parts is an assembly's mode), and the
+  // face is picked by the next frame.
+  await page.mouse.click(...at([6, 6, 5]));
+  await settle(page);
+  const picked = await selection(view);
+  assert.equal(picked.selectedReferenceIds.length, 1, `a face is picked by the next frame: ${JSON.stringify(picked)}`);
+  // A double-click on empty space: its first click cleared the selection, its second is not a
+  // click of its own, and the double-click — with no isolation to leave — puts the pick back.
+  await page.mouse.dblclick(...empty);
+  await settle(page);
+  assert.deepEqual(await selection(view), picked, 'the selection is what it was before the double-click');
+  await page.keyboard.down('Shift');
+  await page.mouse.dblclick(...empty);
+  await page.keyboard.up('Shift');
+  await settle(page);
+  assert.deepEqual(await selection(view), picked, 'with Shift held too');
+  assert.equal(await page.evaluate(() => window.__clipboardWrites.length), 0, 'an empty-space double-click copies nothing');
+  // A click on empty space clears at once.
+  await page.mouse.click(...empty);
+  await settle(page);
+  assert.deepEqual(await selection(view), { selectedPartIds: [], selectedReferenceIds: [] });
+  // A double-click on the face copies it and leaves it selected, whether or not it was.
+  await page.mouse.dblclick(...at([6, 6, 5]));
+  await page.waitForFunction(() => window.__clipboardWrites.length === 1);
+  await settle(page);
+  assert.deepEqual(await selection(view), picked, 'the double-clicked face is the selection');
+  await page.mouse.dblclick(...at([6, 6, 5]));
+  await page.waitForFunction(() => window.__clipboardWrites.length === 2);
+  await settle(page);
+  assert.deepEqual(await selection(view), picked, 'and stays it');
   assert.deepEqual(errors, []);
 });

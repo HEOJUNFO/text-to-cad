@@ -1962,7 +1962,7 @@ test('reference CTA, double clicks and copy shortcut deliver references silently
   const face = await page.evaluate(() => window.__clipboardWrites[2]);
   assert.match(face, /^hinge_block\.step#o1\.1\.f\d+$/, 'a double-click copies what the Copy Reference button would');
   // ...and leaves the face it copied selected: the two clicks it is made of do not toggle it off.
-  await page.waitForTimeout(350);
+  await settle(page);
   const faceId = (await view.state()).selectedReferenceIds;
   assert.equal(faceId.length, 1, `the double-clicked face is the selection: ${JSON.stringify(faceId)}`);
   await pane.getByRole('button', { name: /^Copy Reference\b/ }).click();
@@ -1971,10 +1971,9 @@ test('reference CTA, double clicks and copy shortcut deliver references silently
   // A second double-click on the now-selected face copies again and still leaves it selected.
   await page.mouse.dblclick(...at([6,6,5]));
   await page.waitForFunction(() => window.__clipboardWrites.length === 5);
-  await page.waitForTimeout(350);
+  await settle(page);
   assert.deepEqual((await view.state()).selectedReferenceIds, faceId);
   await page.evaluate(() => { window.__clipboardWrites.splice(3); });
-  await page.waitForTimeout(350);
   await view.tool('Select').click();
   await view.chooseSelectMode('Edges');
   await page.mouse.dblclick(...at([10,6,5]));
@@ -1997,7 +1996,7 @@ test('reference CTA, double clicks and copy shortcut deliver references silently
   await view.chooseSelectMode('Faces');
   await page.mouse.click(...at([6, 6, 5]));
   await page.waitForFunction(() => window.cadHarness.a.controller.readState().selectedReferenceIds.length === 1);
-  await page.waitForTimeout(350);
+  await settle(page);
   await page.keyboard.down('Shift');
   await page.mouse.click(...at([15, 0, 4]));
   await page.keyboard.up('Shift');
@@ -2701,4 +2700,187 @@ test('freehand ink has the visual weight of a rectangle drawn at the same stroke
   assert.ok(Math.abs(pen - rectangle) <= 1, `the pen reads as heavy as a rectangle's edge: ${pen}px vs ${rectangle}px`);
   assert.ok(bold > pen, `Bold is heavier than Medium: ${bold}px vs ${pen}px`);
   assert.deepEqual(view.errors, []);
+});
+
+test('a click selects at once, and a double-click ends where it did when a click waited: the part isolated, isolation left, or the face copied and kept, on the selection its first click found', async () => {
+  const view = await open();
+  const { page, box, at, errors } = view;
+  const selection = () => page.evaluate(() => { const state = window.cadHarness.a.controller.readState();
+    return { parts: state.selectedPartIds, refs: state.selectedReferenceIds, isolated: state.isolatedPartIds }; });
+  const cleared = () => page.waitForFunction(() => { const state = window.cadHarness.a.controller.readState();
+    return state.selectedPartIds.length + state.selectedReferenceIds.length === 0; });
+  const copies = () => page.evaluate(() => window.__clipboardWrites.length);
+  const empty = [box.x + 30, box.y + box.height - 30];
+  await page.evaluate(() => {
+    window.__clipboardWrites = [];
+    window.cadHarness.a.host.clipboard.writeText = async text => { window.__clipboardWrites.push(text); };
+    window.__pressAt = 0;
+    document.addEventListener('pointerup', () => { window.__pressAt = performance.now(); }, true);
+  });
+  // A click's selection is there by the next frame: nothing waits to tell it from a double-click.
+  await page.mouse.click(...at([15, 0, 4]));
+  const delay = await page.evaluate(() => new Promise(resolve => { const tick = () => {
+    const state = window.cadHarness.a.controller.readState();
+    if (state.selectedPartIds.length) resolve(performance.now() - window.__pressAt);
+    else if (performance.now() - window.__pressAt > 3000) resolve(Infinity);
+    else requestAnimationFrame(tick);
+  }; tick(); }));
+  assert.ok(delay < 220, `the arm is selected ${delay.toFixed(0)}ms after the press`);
+  assert.deepEqual(await selection(), { parts: ['o1.2'], refs: [], isolated: [] });
+
+  // A double-click on the base isolates it. Its first click picked the base; the double-click
+  // put the arm back before isolating — and isolating clears the selection, as it always has.
+  await page.mouse.dblclick(...at([6, 6, 5]));
+  await page.waitForFunction(() => window.cadHarness.a.controller.readState().isolatedPartIds.join() === 'o1.1');
+  await settle(page);
+  assert.deepEqual(await selection(), { parts: [], refs: [], isolated: ['o1.1'] });
+  assert.equal(await copies(), 0, 'a part double-click copies nothing');
+  // Inside the isolation, the base picked (under Parts: the isolated part is open, so under All a
+  // press there picks a face, which leaving isolation folds away): a double-click on empty space
+  // leaves isolation with the base still selected. Its first click cleared the selection; the
+  // double-click brought it back.
+  await view.chooseSelectMode('Parts');
+  await page.mouse.click(...at([6, 6, 5]));
+  await page.waitForFunction(() => window.cadHarness.a.controller.readState().selectedPartIds.join() === 'o1.1');
+  await page.mouse.dblclick(...empty);
+  await page.waitForFunction(() => window.cadHarness.a.controller.readState().isolatedPartIds.length === 0);
+  await settle(page);
+  assert.deepEqual(await selection(), { parts: ['o1.1'], refs: [], isolated: [] }, 'leaving isolation keeps the part picked inside it');
+  // Shift held through the double-click: a shift-click on empty space never clears, and the
+  // double-click still leaves isolation with the selection as it was.
+  await page.mouse.dblclick(...at([6, 6, 5]));
+  await page.waitForFunction(() => window.cadHarness.a.controller.readState().isolatedPartIds.join() === 'o1.1');
+  await page.mouse.click(...at([6, 6, 5]));
+  await page.waitForFunction(() => window.cadHarness.a.controller.readState().selectedPartIds.join() === 'o1.1');
+  await page.keyboard.down('Shift');
+  await page.mouse.dblclick(...empty);
+  await page.keyboard.up('Shift');
+  await page.waitForFunction(() => window.cadHarness.a.controller.readState().isolatedPartIds.length === 0);
+  await settle(page);
+  assert.deepEqual(await selection(), { parts: ['o1.1'], refs: [], isolated: [] });
+
+  // Under Faces, with both parts' faces loaded (a press on each loads its part's faces and picks
+  // one), a double-click copies the face and leaves it selected...
+  await view.chooseSelectMode('Faces');
+  for (const [point, part] of [[[15, 0, 4], 'o1.2'], [[6, 6, 5], 'o1.1']]) {
+    await page.mouse.click(...at(point));
+    await page.waitForFunction(id => new RegExp(`\\|${id.replace('.', '\\.')}\\.f\\d+$`).test(window.cadHarness.a.controller.readState().selectedReferenceIds.join()), part);
+  }
+  await page.keyboard.press('Escape');
+  await cleared();
+  await page.mouse.dblclick(...at([15, 0, 4]));
+  await page.waitForFunction(() => window.__clipboardWrites.length === 1);
+  await settle(page);
+  const armFace = (await selection()).refs;
+  assert.equal(armFace.length, 1, `the double-clicked face is the selection: ${JSON.stringify(armFace)}`);
+  assert.match(armFace[0], /\|o1\.2\.f\d+$/);
+  assert.match(await page.evaluate(() => window.__clipboardWrites[0]), /^hinge_block\.step#o1\.2\.f\d+$/);
+  // ...also when it was selected already: the two clicks it is made of do not toggle it off.
+  await page.mouse.dblclick(...at([15, 0, 4]));
+  await page.waitForFunction(() => window.__clipboardWrites.length === 2);
+  await settle(page);
+  assert.deepEqual((await selection()).refs, armFace, 'a second double-click keeps the face selected');
+  // With Shift, the double-clicked face joins the selection; a second shift double-click keeps it.
+  await page.keyboard.down('Shift');
+  await page.mouse.dblclick(...at([6, 6, 5]));
+  await page.keyboard.up('Shift');
+  await page.waitForFunction(() => window.__clipboardWrites.length === 3);
+  await settle(page);
+  const both = (await selection()).refs;
+  assert.equal(both.length, 2, `shift adds the double-clicked face: ${JSON.stringify(both)}`);
+  assert.equal(both[0], armFace[0]);
+  assert.match(both[1], /\|o1\.1\.f\d+$/);
+  await page.keyboard.down('Shift');
+  await page.mouse.dblclick(...at([6, 6, 5]));
+  await page.keyboard.up('Shift');
+  await page.waitForFunction(() => window.__clipboardWrites.length === 4);
+  await settle(page);
+  assert.deepEqual((await selection()).refs, both, 'a shift double-click on a selected face keeps it');
+  assert.deepEqual((await selection()).isolated, [], 'a topology double-click never isolates');
+
+  // Hover is untouched: under Faces the face under the pointer lights, under Edges the edge does.
+  await page.keyboard.press('Escape');
+  await cleared();
+  await page.mouse.move(...empty);
+  await page.waitForTimeout(300);
+  const faces = await view.frame();
+  await page.mouse.move(...at([6, 6, 5]));
+  await frameWhen(view, shot => differing(faces, shot) > 200, 'lit the hovered face');
+  await page.mouse.move(...empty);
+  await frameWhen(view, shot => differing(faces, shot) === 0, 'let go of the hovered face');
+  await view.chooseSelectMode('Edges');
+  await page.mouse.move(...empty);
+  await page.waitForTimeout(300);
+  const edges = await view.frame();
+  await page.mouse.move(...at([10, 6, 5]));
+  await frameWhen(view, shot => differing(edges, shot) > 10, 'lit the hovered edge');
+  await page.mouse.move(...empty);
+  await frameWhen(view, shot => differing(edges, shot) === 0, 'let go of the hovered edge');
+
+  // A drag orbits and selects nothing; a right-click opens the menu and selects nothing.
+  await view.chooseSelectMode('All');
+  await page.mouse.click(...at([15, 0, 4]));
+  await page.waitForFunction(() => window.cadHarness.a.controller.readState().selectedPartIds.join() === 'o1.2');
+  const before = await selection();
+  const camera = await page.evaluate(() => window.__cadCamera().position);
+  const [x, y] = at([6, 6, 5]);
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 120, y + 40, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForFunction(previous => window.__cadCamera().position.some((value, index) => Math.abs(value - previous[index]) > 1e-3), camera);
+  await settle(page);
+  assert.deepEqual(await selection(), before, 'a drag is not a click');
+  await page.mouse.click(x + 120, y + 40, { button: 'right' });
+  await page.getByRole('menu').waitFor();
+  await settle(page);
+  assert.deepEqual(await selection(), before, 'a right-click is not a click');
+  await page.keyboard.press('Escape');
+  await page.getByRole('menu').waitFor({ state: 'detached' });
+  assert.deepEqual(errors, []);
+});
+
+test('under Explode, where a pick takes up Select, a click still waits the double-click window: a double-click isolates and stays in Explode, a lone click selects and switches to Select after the wait', async () => {
+  const view = await open();
+  const { page, box, at, errors } = view;
+  const pressed = async () => (await view.tools()).filter(tool => tool.endsWith(':true')).map(tool => tool.split(':')[0]);
+  const selection = () => page.evaluate(() => { const state = window.cadHarness.a.controller.readState();
+    return { parts: state.selectedPartIds, refs: state.selectedReferenceIds, isolated: state.isolatedPartIds }; });
+  const empty = [box.x + 30, box.y + box.height - 30];
+  await page.evaluate(() => { window.__pressAt = 0; document.addEventListener('pointerup', () => { window.__pressAt = performance.now(); }, true); });
+  await view.tool('Explode').click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="one"] [data-cad-toolbar] [aria-label="Explode"]')?.getAttribute('aria-pressed') === 'true');
+  assert.deepEqual(await pressed(), ['Explode']);
+  // A double-click on the base isolates it, and Explode is still the tool: its first click never
+  // took up Select, because under Explode a click waits for the double-click that cancels it.
+  await page.mouse.dblclick(...at([6, 6, 5]));
+  await page.waitForFunction(() => window.cadHarness.a.controller.readState().isolatedPartIds.join() === 'o1.1');
+  await page.waitForTimeout(400);
+  await settle(page);
+  assert.deepEqual(await pressed(), ['Explode'], 'the tool stays');
+  assert.deepEqual(await selection(), { parts: [], refs: [], isolated: ['o1.1'] });
+  // The same on empty space: isolation left, Explode kept.
+  await page.mouse.dblclick(...empty);
+  await page.waitForFunction(() => window.cadHarness.a.controller.readState().isolatedPartIds.length === 0);
+  await page.waitForTimeout(400);
+  await settle(page);
+  assert.deepEqual(await pressed(), ['Explode'], 'leaving isolation keeps the tool too');
+  assert.deepEqual(await selection(), { parts: [], refs: [], isolated: [] });
+  // A lone click: nothing a frame after the press; then, the window passed, the arm is selected
+  // and Select is the tool.
+  await page.mouse.click(...at([15, 0, 4]));
+  await settle(page);
+  assert.deepEqual(await pressed(), ['Explode'], 'a frame after the press the tool is still Explode');
+  assert.deepEqual((await selection()).parts, [], 'and nothing is selected yet');
+  const delay = await page.evaluate(() => new Promise(resolve => { const tick = () => {
+    const state = window.cadHarness.a.controller.readState();
+    if (state.selectedPartIds.length) resolve(performance.now() - window.__pressAt);
+    else if (performance.now() - window.__pressAt > 3000) resolve(Infinity);
+    else requestAnimationFrame(tick);
+  }; tick(); }));
+  assert.ok(delay >= 200 && delay < 1500, `the arm is selected once the window has passed: ${delay.toFixed(0)}ms after the press`);
+  await page.waitForFunction(() => document.querySelector('[data-testid="one"] [data-cad-toolbar] [aria-label="Select"]')?.getAttribute('aria-pressed') === 'true');
+  assert.deepEqual(await pressed(), ['Select'], 'the pick took up Select');
+  assert.deepEqual((await selection()).parts, ['o1.2']);
+  assert.deepEqual(errors, []);
 });
