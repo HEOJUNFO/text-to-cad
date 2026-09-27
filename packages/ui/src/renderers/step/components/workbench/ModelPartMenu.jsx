@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { createContext, useContext, useEffect } from 'react';
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from '@hardcore/ui/primitives/context-menu';
 import { useHostReference } from '../../file-view/hostReference.js';
 import { AssemblyPartMenuItems } from './AssemblyContextMenuItems.js';
@@ -12,6 +12,12 @@ import { AssemblyPartMenuItems } from './AssemblyContextMenuItems.js';
 // Every other selectable row — a feature, a group, a body — stands for faces and edges,
 // and its menu is the viewport's menu over that topology (`controls.menuForReferences`):
 // never its owning part's, whose Hide or Select would act on more than the row names.
+
+/**
+ * The tree's references, for the one feature menu that is open: `feature` reads them as they are
+ * when called, and an open menu re-renders when they change (its faces arriving) without its row.
+ */
+export const FeatureReferencesContext = createContext(null);
 
 /** Built only once the menu is actually open, so a tree of rows never pays for it. */
 function TreeNodeMenuItems({ menu, actions, disabled }) {
@@ -29,6 +35,7 @@ function PartMenuItems({ id, controls, disabled }) {
 // `feature` is the row's own reach into the tree: the reference ids its topology resolves to
 // (none while that topology is loading), how to load it, and the row's own click.
 function FeatureMenuItems({ node, controls, feature, disabled }) {
+  useContext(FeatureReferencesContext);
   const referenceIds = feature.referenceIds(node);
   const waiting = referenceIds.length === 0;
   // A row whose faces are not loaded yet asks for them the moment its menu opens, as its click

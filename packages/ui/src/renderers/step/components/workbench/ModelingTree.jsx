@@ -5,7 +5,7 @@ import { Button } from '@hardcore/ui/primitives/button';
 import { TREE_ROW_DENSE_HEIGHT, TREE_ROW_DENSE_ICON_CLASS, TreeRowSurface, TreeRowChevron, TreeRowLabel } from '@hardcore/ui/primitives/tree-row';
 import { TreeFilterHighlight, TreeFilterInput } from '@hardcore/ui/primitives/tree-filter';
 import { cn } from '@hardcore/ui/utils';
-import ModelPartMenu from './ModelPartMenu.jsx';
+import ModelPartMenu, { FeatureReferencesContext } from './ModelPartMenu.jsx';
 import ModelPartActions, { ROW_NAME_UNDER_ACTIONS, rowActionsLayout } from './ModelPartActions.jsx';
 import { modelingSelectionPaths } from '../../workbench/modelingSelection.js';
 import ToolPanel, { ToolPanelCollapse } from '../../../kit/tools/ToolPanel.jsx';
@@ -355,7 +355,11 @@ function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, l
   const clearSelection=()=>{setSelected(null);setPending(null);onClearSelection?.();};
   // What a feature row's menu needs of the tree: the row's faces as reference ids, how to load
   // them, and the row's own click, so its Select is the click rather than a second opinion.
-  const feature=useMemo(()=>({referenceIds:node=>modelingReferenceIds(node,node.occurrenceId,references),loadTopology:onLoadTopology,choose}),[references,onLoadTopology,choose]);
+  // One object for the life of the tree: it reads the references as they are when a menu asks,
+  // and the open menu follows them through `FeatureReferencesContext`, so loading faces re-renders
+  // no row.
+  const feature=useMemo(()=>({referenceIds:node=>modelingReferenceIds(node,node.occurrenceId,latest.current.references),
+    loadTopology:ids=>latest.current.onLoadTopology?.(ids),choose}),[choose]);
   const highlighted=useMemo(()=>{
     const ids=new Set(showDetails ? [selected.id] : paths.map(path=>path.at(-1).id));
     // Its members are not rendered while it is collapsed, so the row itself carries
@@ -422,7 +426,7 @@ function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, l
           {modeMenu}
           <ToolPanelCollapse/>
         </>}/>}>
-      <div className="flex flex-col text-tiny" aria-label="Modeling tree">
+      <FeatureReferencesContext.Provider value={references}><div className="flex flex-col text-tiny" aria-label="Modeling tree">
         {(error || failed>0) && <p role="alert" className="px-3 pb-2 text-micro text-muted-foreground">{error || `${failed} ${failed===1?'component is':'components are'} unavailable.`} <button type="button" className="underline" onClick={retryFailed}>Retry</button></p>}
         <div ref={listRef} className="px-1 py-1" aria-label="Model tree area"
           onClick={event=>{if(!disabled && !event.target.closest('li,button,input,[role="menu"]'))clearSelection();}}>
@@ -442,7 +446,7 @@ function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, l
             rowKey={at=>rows[at].key} rowProps={at=>({className:'min-w-0','aria-level':rows[at].depth+1,'data-tree-part':rows[at].node.kind === 'part' ? rows[at].node.id : undefined})}
             renderRow={renderTreeRow} registerRow={registerRow} onVisibleRange={onVisibleRows}/>}
         </div>
-      </div>
+      </div></FeatureReferencesContext.Provider>
     </ToolPanel>
     {/* What is picked, as its own panel under the tree: it comes with a selection and goes with it. */}
     {/* Not folded away: its X clears the selection, and its Copy (the heading's action) copies the reference on show. */}

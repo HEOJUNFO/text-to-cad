@@ -197,16 +197,17 @@ const modeling = {descriptor,results:{},error:'',retryFailed(){}};
 const events = {selected:[],topology:[]};
 window.treeTest = {events, order:groups.flatMap(g=>['Group '+g.id.slice(1), ...g.children.map(p=>p.displayName)])};
 function App(){
-  const [selected,setSelected]=useState([]),[reveal,setReveal]=useState(0),[mode,setMode]=useState('all'),[tick,setTick]=useState(0),[details,setDetails]=useState(0);
+  const [selected,setSelected]=useState([]),[reveal,setReveal]=useState(0),[mode,setMode]=useState('all'),[tick,setTick]=useState(0),[details,setDetails]=useState(0),[references,setReferences]=useState([]);
   const expanded=useMemo(()=>groups.map(g=>g.id),[]);
   const partControls=useMemo(()=>({isAssemblyView:true,expandedTreeNodeIds:expanded,onToggleTreeNode(){},hiddenPartIds:[],focusedNodeIds:[],selectableNodeIds:null,
     onSelectTreeNode:id=>{events.selected.push(id);setSelected([id]);},menuForNode:id=>({nodeId:id,copyText:id,zoomSelectionAvailable:false})}),[expanded]);
   const onLoadTopology=useMemo(()=>ids=>{events.topology.push(...ids);},[]);
-  Object.assign(window.treeTest,{refresh:()=>setTick(n=>n+1),details:()=>setDetails(n=>n+1),select:id=>{setSelected([id]);setReveal(n=>n+1);},setMode});
+  Object.assign(window.treeTest,{refresh:()=>setTick(n=>n+1),details:()=>setDetails(n=>n+1),select:id=>{setSelected([id]);setReveal(n=>n+1);},setMode,
+    loadFaces:id=>setReferences(current=>[...current,{id:id+'.f1',selectorType:'face',occurrenceId:id,normalizedSelector:id+'.f1'}])});
   const selectionDetails=useMemo(()=>details?{title:'Ref',content:<p>Details {details}</p>}:null,[details]);
   return <section data-testid="model" data-tick={tick} style={{height:420,width:320,display:'flex',flexDirection:'column',gap:8,padding:16}}>
     <ModelingTree active disabled={false} mode={mode} modeling={modeling} stepRoot={root} selectedPartIds={selected}
-      activeTreeNodeScrollKey={reveal} onLoadTopology={onLoadTopology} partControls={partControls} selectionDetails={selectionDetails}/>
+      activeTreeNodeScrollKey={reveal} onLoadTopology={onLoadTopology} references={references} partControls={partControls} selectionDetails={selectionDetails}/>
   </section>;
 }
 createRoot(document.getElementById('root')).render(<App/>);
@@ -288,6 +289,11 @@ createRoot(document.getElementById('root')).render(<App/>);
   const detailed = await page.evaluate(() => ({ ...window.__renders }));
   assert.ok(detailed.ModelingTree > same.ModelingTree, 'the tree rendered for its details');
   assert.equal(detailed.ModelingRow - same.ModelingRow, 0, 'and no row did');
+  // Nor does a part's topology arriving.
+  await page.evaluate(() => window.treeTest.loadFaces('o0_2')); await frames();
+  const loaded = await page.evaluate(() => ({ ...window.__renders }));
+  assert.ok(loaded.ModelingTree > detailed.ModelingTree);
+  assert.equal(loaded.ModelingRow - detailed.ModelingRow, 0, 'faces loading re-render no row');
 
   // A row holding focus, and a row holding its menu open, stay mounted while the list scrolls
   // far away from them.
