@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { buildPositionSection } from './MotionControlsSection.js';
 import { STEP_MODEL_ROOT_ID } from '@hardcore/core/lib/step/stepTree.js';
 import { buildIssuesSection } from './FileStatusSection.js';
@@ -8,6 +8,18 @@ import ToolPanel from '../../../kit/tools/ToolPanel.jsx';
 import { useStepModeling } from '../../workbench/useStepModeling.js';
 import { stepGeometryMeasurements } from '../../workbench/stepGeometryMeasurements.js';
 const EMPTY = [];
+
+/**
+ * `fn` behind one identity for the life of the panels, calling whatever `fn` is now: the tree's
+ * rows are memoized, so a host callback rebuilt on every render must not re-render them. Absent
+ * stays absent (a row reads whether an action is offered from whether its callback exists).
+ */
+function useLatestCallback(fn) {
+  const latest = useRef(fn);
+  latest.current = fn;
+  const stable = useCallback((...args) => latest.current?.(...args), []);
+  return typeof fn === 'function' ? stable : fn;
+}
 
 /**
  * A STEP's panels in the tool stack, top to bottom: while Select is the tool, **Features** (the
@@ -61,7 +73,24 @@ export function useStepPanels({
     return names;
   }, [stepTreeRoot]);
   const partName = useCallback(id => partNames.get(String(id || '')) || '', [partNames]);
-  const reference = useStepReference({ references: selectedReferences, meshData: selectedMeshData, sourceAppearance: selectedSourceAppearance, measurements, partName, onCopy: onCopyReference });
+  const copyReference = useLatestCallback(onCopyReference);
+  const reference = useStepReference({ references: selectedReferences, meshData: selectedMeshData, sourceAppearance: selectedSourceAppearance, measurements, partName, onCopy: copyReference });
+  // What every tree row is handed, the same object until something in it changes: the host's
+  // actions behind stable identities, its menus and state as they are.
+  const toggleTreeNode = useLatestCallback(onToggleTreeNode), selectTreeNode = useLatestCallback(onSelectTreeNode);
+  const focusTreeNode = useLatestCallback(onFocusTreeNode), unfocusTreeNode = useLatestCallback(onUnfocusTreeNode);
+  const exitAllIsolate = useLatestCallback(onExitAllIsolate), togglePartVisibility = useLatestCallback(onTogglePartVisibility);
+  const showAll = useLatestCallback(showAllHiddenParts), copySelection = useLatestCallback(onCopySelection);
+  const hoverTreeNode = useLatestCallback(onHoverTreeNode);
+  const partControls = useMemo(() => ({ isAssemblyView, hiddenPartIds, focusedNodeIds, selectableNodeIds, expandedTreeNodeIds,
+    onToggleTreeNode: toggleTreeNode, onSelectTreeNode: selectTreeNode, onFocusTreeNode: focusTreeNode, onUnfocusTreeNode: unfocusTreeNode,
+    onExitAllIsolate: exitAllIsolate, onTogglePartVisibility: togglePartVisibility, showAllHiddenParts: showAll, onCopySelection: copySelection,
+    onHoverTreeNode: hoverTreeNode, menuForNode, menuForReferences, partMenuActions }), [isAssemblyView, hiddenPartIds, focusedNodeIds,
+    selectableNodeIds, expandedTreeNodeIds, toggleTreeNode, selectTreeNode, focusTreeNode, unfocusTreeNode, exitAllIsolate,
+    togglePartVisibility, showAll, copySelection, hoverTreeNode, menuForNode, menuForReferences, partMenuActions]);
+  const loadTopology = useLatestCallback(geometryInspection?.onLoadTopology);
+  const selectReferenceGroup = useLatestCallback(onSelectReferenceGroup), clearSelection = useLatestCallback(onClearSelection);
+  const closePosition = useLatestCallback(onClosePosition);
   if (!selectedEntry) return null;
   const selectionDetails = selectedReferences.length || measuredSelection.partIds.length ? reference : null;
   const position = buildPositionSection({ poseRuntime: positionRuntime });
@@ -75,16 +104,13 @@ export function useStepPanels({
       references={modelReferences} selectedReferences={selectedReferences}
       selectedReferenceIds={selectedReferenceIds} selectedPartIds={selectedPartIds}
       selectionDetails={selectionDetails} activeTreeNodeScrollKey={activeTreeNodeScrollKey}
-      onLoadTopology={geometryInspection?.onLoadTopology} onSelect={onSelectReferenceGroup} onClearSelection={onClearSelection}
-      partControls={{isAssemblyView, hiddenPartIds, focusedNodeIds, selectableNodeIds, expandedTreeNodeIds, onToggleTreeNode,
-        onSelectTreeNode, onFocusTreeNode, onUnfocusTreeNode, onExitAllIsolate,
-        onTogglePartVisibility, showAllHiddenParts, onCopySelection, onHoverTreeNode,
-        menuForNode, menuForReferences, partMenuActions}}
+      onLoadTopology={loadTopology} onSelect={selectReferenceGroup} onClearSelection={clearSelection}
+      partControls={partControls}
     />
     {issues ? <ToolPanel id="issues" title={issues.title} label="Issues" fit="details" hidden={!selectActive}>{issues.content}</ToolPanel> : null}
     {/* Headed "Position" with its Reset; sized like the tree: its content's height, up to half the stack. */}
     {/* Its X puts Position down, back to Select; the values stay. */}
     {position ? <ToolPanel id="position" title={position.title} actions={position.actions} label="Position controls" fit="details" sizable
-      collapsible={false} onClose={onClosePosition} closeLabel="Close position" hidden={!positionActive}>{position.content}</ToolPanel> : null}
+      collapsible={false} onClose={closePosition} closeLabel="Close position" hidden={!positionActive}>{position.content}</ToolPanel> : null}
   </>;
 }

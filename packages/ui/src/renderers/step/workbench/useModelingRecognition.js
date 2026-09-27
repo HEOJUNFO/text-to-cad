@@ -1,10 +1,12 @@
 import { cadResourceCacheKey } from "@hardcore/core/client";
 import { resolveSurfaceComponents } from "./surfaceResolution.js";
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { loadPackageDescriptor } from '../components/workbench/hooks/packageDescriptorCache.js';
 import { completedPackages, completedPackageRevision } from '../render/completedPackageCache.js';
 import { completedModelingRecognition, modelingRecognitionKey } from './modelingRecognitionCache.js';
 const EMPTY_RESULTS = {};
+// A frame, or this long when frames are not running (a hidden page): results never wait on one.
+const FLUSH_FALLBACK_MS = 100;
 
 /** Expanded occurrences request recognition; repeated instances share completed component metadata. */
 export function useModelingRecognition(meshUrl, enabled, { client, entry, requestedOccurrenceIds = [] } = {}) {
@@ -13,6 +15,23 @@ export function useModelingRecognition(meshUrl, enabled, { client, entry, reques
   const [document,setDocument]=useState(null),[results,setResults]=useState({}),[error,setError]=useState('');
   const [retry,setRetry]=useState(0);
   const cache=useRef(new Map());
+  // Results land here and reach the tree at most once a frame: each one re-presents the tree.
+  const buffer=useRef(null),flushTimer=useRef(null);
+  const cancelFlush=useCallback(()=>{
+    const timer=flushTimer.current;flushTimer.current=null;
+    if(timer){if(timer.frame !== undefined)cancelAnimationFrame(timer.frame);clearTimeout(timer.timeout);}
+  },[]);
+  const flush=useCallback(()=>{
+    cancelFlush();
+    const batch=buffer.current;buffer.current=null;
+    if(batch)setResults(current=>({...current,...batch}));
+  },[cancelFlush]);
+  const deliver=useCallback((id,result)=>{
+    (buffer.current ||= {})[id]=result;
+    if(flushTimer.current)return;
+    flushTimer.current={frame:typeof requestAnimationFrame === 'function' ? requestAnimationFrame(flush) : undefined,timeout:setTimeout(flush,FLUSH_FALLBACK_MS)};
+  },[flush]);
+  useEffect(()=>cancelFlush,[cancelFlush]);
   const recognition=useRef(null);
   const entryRef=useRef(entry);entryRef.current=entry;
   const entryRevision=completedPackageRevision(entry);
@@ -22,8 +41,8 @@ export function useModelingRecognition(meshUrl, enabled, { client, entry, reques
   // Stable across presentation renders; an empty frontier loads only the descriptor.
   const requestedKey=JSON.stringify([...new Set(requestedOccurrenceIds)].sort());
   useEffect(()=>{
-    cache.current.clear();setResults({});setDocument(null);setError('');
-  },[documentKey]);
+    cache.current.clear();buffer.current=null;cancelFlush();setResults({});setDocument(null);setError('');
+  },[documentKey,cancelFlush]);
   useEffect(()=>{
     if(!enabled || !meshUrl || descriptor)return;
     const controller=new AbortController();setError('');
@@ -38,21 +57,28 @@ export function useModelingRecognition(meshUrl, enabled, { client, entry, reques
   },[enabled,meshUrl,documentKey,descriptor,retry,resources]);
   useEffect(()=>{
     if(!enabled || !descriptor)return;
-    // This scope survives expansion changes. Only its current component owns
-    // a worker; changing the requested set updates the remaining queue.
-    let disposed=false,active=null,pending=[],accepted=null;
-    const stop=job=>{job.worker?.terminate();job.worker=null;clearTimeout(job.timer);};
+    // This scope survives expansion changes. Its one worker recognizes one component at a time
+    // and is kept for the next; a component no longer wanted takes the worker down with it, since
+    // its work cannot be recalled. Changing the requested set updates the remaining queue.
+    let disposed=false,active=null,pending=[],accepted=null,worker=null;
+    const retire=()=>{worker?.terminate();worker=null;};
+    const stop=job=>{
+      clearTimeout(job.timer);
+      if(job.worker){job.worker.onmessage=null;job.worker.onerror=null;job.worker=null;}
+    };
     const cancelActive=()=>{
       if(!active)return;
       const job=active;active=null;
+      const busy=job.posted;
       job.controller.abort();job.finish?.(null);stop(job);
+      if(busy)retire();
     };
-    const dispose=()=>{disposed=true;cancelActive();};
+    const dispose=()=>{disposed=true;cancelActive();retire();};
     async function recognize() {
       if(disposed || active)return;
       const id=pending.pop();
       if(id===undefined)return;
-      const job={id,controller:new AbortController(),worker:null,timer:null,finish:null};
+      const job={id,controller:new AbortController(),worker:null,timer:null,finish:null,posted:false};
       active=job;
       const signal=job.controller.signal;
       try {
@@ -71,31 +97,33 @@ export function useModelingRecognition(meshUrl, enabled, { client, entry, reques
         if(!result) {
           result=await new Promise(resolve=>{
             let settled=false;
-            const finish=value=>{if(settled)return;settled=true;job.finish=null;stop(job);resolve(value);};
+            // A worker that timed out or failed is not trusted with the next component.
+            const finish=(value,broken=false)=>{if(settled)return;settled=true;job.finish=null;stop(job);if(broken)retire();resolve(value);};
             job.finish=finish;
             if(!surf){finish({error:'Exact geometry is unavailable for this part.'});return;}
             try {
-              const worker=new Worker(new URL('./modelingTree.worker.js',import.meta.url),{type:'module'});
-              job.worker=worker;
-              job.timer=setTimeout(()=>finish({error:'Recognition timed out for this part.'}),10000);
-              worker.onmessage=event=>finish(event.data);
-              worker.onerror=()=>finish({error:'Could not recognize this part.'});
+              worker ||= new Worker(new URL('./modelingTree.worker.js',import.meta.url),{type:'module'});
+              const current=worker;
+              job.worker=current;
+              job.timer=setTimeout(()=>finish({error:'Recognition timed out for this part.'},true),10000);
+              current.onmessage=event=>finish(event.data);
+              current.onerror=()=>finish({error:'Could not recognize this part.'},true);
               resources.workerTicket(surf,{signal,maxBytes:16*1024*1024}).then(resource=>{
-                if(signal.aborted || job.worker!==worker)return;
-                try { worker.postMessage({resource},resource.kind==='bytes' ? [resource.bytes] : []); }
+                if(signal.aborted || job.worker!==current)return;
+                try { current.postMessage({resource},resource.kind==='bytes' ? [resource.bytes] : []);job.posted=true; }
                 catch(error) { finish({error:error.message}); }
               },error=>finish({error:error.message}));
-            }catch{finish({error:'Could not start recognition.'});}
+            }catch{finish({error:'Could not start recognition.'},true);}
           });
           if(signal.aborted || disposed)return;
           completedModelingRecognition.set(key,result);
         }
         cache.current.set(id,result);
-        setResults(current=>({...current,[id]:result}));
+        deliver(id,result);
       }catch(error){
         if(!signal.aborted && !disposed){
           const result={error:error.message};
-          cache.current.set(id,result);setResults(current=>({...current,[id]:result}));
+          cache.current.set(id,result);deliver(id,result);
         }
       }finally{
         stop(job);job.controller.abort();
@@ -120,15 +148,19 @@ export function useModelingRecognition(meshUrl, enabled, { client, entry, reques
       resourceSignal?.removeEventListener('abort',dispose);dispose();
       if(recognition.current===scope)recognition.current=null;
     };
-  },[enabled,descriptor,meshUrl,entryRevision,client,resources,resourceScope]);
+  },[enabled,descriptor,meshUrl,entryRevision,client,resources,resourceScope,deliver]);
   // Run after scope setup even when its document changes with the same frontier.
   // Expansion and retry update demand without disposing still-requested work.
   useEffect(()=>{
     recognition.current?.update(requestedKey);
   },[enabled,descriptor,meshUrl,entryRevision,client,resources,resourceScope,requestedKey,retry]);
-  const retryFailed=()=>{
+  const retryFailed=useCallback(()=>{
     for(const [id,result] of cache.current)if(result.error)cache.current.delete(id);
+    // What is still buffered is in the cache too: the snapshot carries it, failures excepted.
+    buffer.current=null;cancelFlush();
     setResults(Object.fromEntries(cache.current));setRetry(n=>n+1);
-  };
-  return {descriptor,results:descriptor ? results : EMPTY_RESULTS,error,retryFailed};
+  },[cancelFlush]);
+  const shown=descriptor ? results : EMPTY_RESULTS;
+  // One object while nothing in it changes, so the Features panel can skip a render.
+  return useMemo(()=>({descriptor,results:shown,error,retryFailed}),[descriptor,shown,error,retryFailed]);
 }

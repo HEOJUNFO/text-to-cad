@@ -12,13 +12,15 @@ function ModelingTree(props:any) {
  return <ModelingTreeView {...props} modeling={modeling}/>;
 }
 Object.assign(globalThis,{React});
-afterEach(()=>{cleanup();client?.dispose();vi.unstubAllGlobals();WorkerStub.instances=[];});
+afterEach(()=>{cleanup();client?.dispose();vi.unstubAllGlobals();WorkerStub.instances=[];WorkerStub.jobs=[];});
 const feature={id:'cut:1-2',kind:'cut',label:'Cut extrude 1',faces:[1,2],edges:[],measurements:[['Depth',2,'mm']],children:[]};
 const tree=[{id:'body:1',kind:'body',label:'Body 1',faces:[1,2],edges:[],complete:true,children:[feature]}];
 const refs=(o='o1')=>[1,2].map(n=>({id:`${o}.f${n}`,selectorType:'face',occurrenceId:o,normalizedSelector:`${o}.f${n}`}));
 class WorkerStub {
  static instances:WorkerStub[]=[];
- terminate=vi.fn();postMessage=vi.fn();onmessage:((event:any)=>void)|null=null;
+ // Every component handed to a worker, in order: one worker recognizes one component after another.
+ static jobs:{worker:WorkerStub,message:any}[]=[];
+ terminate=vi.fn();postMessage=vi.fn((message:any)=>{WorkerStub.jobs.push({worker:this,message});});onmessage:((event:any)=>void)|null=null;
  constructor(){WorkerStub.instances.push(this);}
 }
 const entry={file:'case.step',kind:'part',url:'http://localhost/__cad/asset?file=/cache/case&v=one'};
@@ -32,16 +34,24 @@ function setup(value=descriptor){
  vi.stubGlobal('Worker',WorkerStub);
  const fetch=vi.fn().mockResolvedValue({ok:true,json:async()=>value});vi.stubGlobal('fetch',fetch);client=createCadClient();return fetch;
 }
-async function respond(data:any,index=0){
- await waitFor(()=>expect(WorkerStub.instances.length).toBeGreaterThan(index));
- await act(async()=>WorkerStub.instances[index].onmessage?.({data}));
+// Answer the `job`th component handed to a worker; results reach the tree at most once a frame.
+async function respond(data:any,job=0){
+ await waitFor(()=>expect(WorkerStub.jobs.length).toBeGreaterThan(job));
+ await act(async()=>WorkerStub.jobs[job].worker.onmessage?.({data}));
+ await act(()=>new Promise<void>(resolve=>{requestAnimationFrame(()=>resolve());}));
+}
+// The rows are one flat list in tree order: the `child` row drawn under `owner`'s row.
+function rowUnder(owner:string,child:string){
+ const rows=screen.getAllByRole('button',{name:/^Select /});
+ const at=rows.findIndex(row=>row.getAttribute('aria-label')===`Select ${owner}`);
+ return rows.slice(at+1).find(row=>row.getAttribute('aria-label')===`Select ${child}`)!;
 }
 it('renders previously requested recognition when the inspector opens',async()=>{
  const fetch=setup(),onSelect=vi.fn();
  const props={entry,references:refs(),selectedReferenceIds:[],onSelect};
  const {rerender}=render(<ModelingTree {...props} active={false}/>);
  await respond({tree});expandIfCollapsed('Body 1');
- expect(fetch).toHaveBeenCalledTimes(1);expect(WorkerStub.instances[0].terminate).toHaveBeenCalled();
+ expect(fetch).toHaveBeenCalledTimes(1);expect(WorkerStub.instances[0].terminate).not.toHaveBeenCalled();
  rerender(<ModelingTree {...props} active/>);
  fireEvent.click(await screen.findByRole('button',{name:'Select Cut extrude 1'}));
  expect(onSelect).toHaveBeenCalledWith(['o1.f1','o1.f2']);expect(WorkerStub.instances).toHaveLength(1);
@@ -66,8 +76,7 @@ it('recognizes repeated parts once and scopes their selections to the correct oc
  expect(WorkerStub.instances).toHaveLength(1);
  expect(screen.getByRole('button',{name:'Expand Left'})).toBeTruthy();
  fireEvent.click(screen.getByRole('button',{name:'Expand Right'}));
- const part=screen.getByRole('button',{name:'Select Right'}).closest('li')!;
- fireEvent.click(within(part).getByRole('button',{name:'Select Cut extrude 1'}));
+ fireEvent.click(rowUnder('Right','Cut extrude 1'));
  expect(onSelect).toHaveBeenLastCalledWith(['o2.f1','o2.f2']);
 });
 it('keeps both unsupported and recognized parts collapsed until explicitly expanded',async()=>{
@@ -91,8 +100,9 @@ it('retries failed components without rerunning successful ones',async()=>{
  render(<ModelingTree active entry={entry}/>);
  await respond({tree});expandIfCollapsed('Body 1');await respond({error:'Unavailable'},1);
  fireEvent.click(await screen.findByRole('button',{name:'Retry'}));
- await waitFor(()=>expect(WorkerStub.instances).toHaveLength(3));
- expect(WorkerStub.instances[2].postMessage).toHaveBeenCalledWith({resource:{kind:'url',url:expect.stringContaining('d.surf'),maxBytes:16*1024*1024}},[]);
+ await waitFor(()=>expect(WorkerStub.jobs).toHaveLength(3));
+ expect(WorkerStub.instances).toHaveLength(1);
+ expect(WorkerStub.jobs[2].message).toEqual({resource:{kind:'url',url:expect.stringContaining('d.surf'),maxBytes:16*1024*1024}});
  await respond({tree},2);expect(screen.queryByRole('alert')).toBeNull();
 });
 it('shows annotation-only data as empty instead of waiting for impossible selection',async()=>{
@@ -107,8 +117,7 @@ it('reveals a part selected in Geometry without opening its topology or resettin
  expect(screen.getByRole('button',{name:'Expand Right'})).toBeTruthy();
  fireEvent.click(screen.getByRole('button',{name:'Expand Right'}));
  expect(onSelect).not.toHaveBeenCalled();
- const part=screen.getByRole('button',{name:'Select Right'}).closest('li')!;
- fireEvent.click(within(part).getByRole('button',{name:'Select Cut extrude 1'}));
+ fireEvent.click(rowUnder('Right','Cut extrude 1'));
  expect(onSelect).toHaveBeenCalledWith(['o2.f1','o2.f2']);
 });
 

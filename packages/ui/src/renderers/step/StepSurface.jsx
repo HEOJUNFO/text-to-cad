@@ -3198,9 +3198,11 @@ function StepSurfaceBody({ view, data }) {
     // Select's mode and options: a menu in the Features filter row, beside its fold chevron.
     onCopyReference: copyReference,
     onClosePosition: () => handleSelectTabToolMode(TAB_TOOL_MODE.REFERENCES),
-    selectModeMenu: <SelectModeMenu mode={selectionFilter} assembly={isAssemblyView} disabled={selectDisabled}
+    // One element until the mode or its options change: the Features panel is memoized.
+    selectModeMenu: useMemo(() => <SelectModeMenu mode={selectionFilter} assembly={isAssemblyView} disabled={selectDisabled}
       onModeChange={value => { changeSelectMode(value); handleSelectTabToolMode(TAB_TOOL_MODE.REFERENCES); }}
       connected={connectedSelection} onConnectedChange={(id, checked) => setConnectedSelection(current => ({ ...current, [id]: checked }))} />,
+    [selectionFilter, isAssemblyView, selectDisabled, connectedSelection, changeSelectMode, handleSelectTabToolMode]),
     selectActive: selectionToolActive && !previewing,
     positionActive: poseToolActive,
     selectMode: selectionFilter,

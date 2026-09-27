@@ -173,3 +173,178 @@ createRoot(document.getElementById('root')).render(<App/>);
 
   assert.deepEqual(errors, []);
 });
+
+// A large assembly, every row open: the tree mounts only the rows in view (and a margin), yet
+// lays out exactly as the whole tree would — the same total height, every row where it would
+// sit — and a pick, a search cursor and the parts on screen under Faces all work through it.
+test('a tree of thousands of rows mounts only the rows in view, laid out as the whole tree, and reveal, search, re-renders and topology requests hold', async t => {
+  const GROUPS = 30, PARTS = 100;
+  const { outputFiles } = await build({ stdin: {
+    resolveDir: fileURLToPath(new URL('.', import.meta.url)), loader: 'jsx', contents: `
+import React, { useMemo, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import ModelingTree from '../../../dist/renderers/step/components/workbench/ModelingTree.js';
+const groups = Array.from({length:${GROUPS}}, (_, g) => {
+  const parts = Array.from({length:${PARTS}}, (_, i) => ({id:'o'+g+'_'+i,nodeType:'part',displayName:'Part '+g+'-'+i,leafPartIds:['o'+g+'_'+i],children:[]}));
+  return {id:'g'+g,nodeType:'assembly',displayName:'Group '+g,leafPartIds:parts.map(p=>p.id),children:parts};
+});
+const leaves = groups.flatMap(g=>g.children);
+const root = {id:'__step_model__',nodeType:'assembly',displayName:'Document',leafPartIds:leaves.map(n=>n.id),children:groups};
+// Every part its own component, so no repeat folds rows away.
+const descriptor = {components:Object.fromEntries(leaves.map(n=>['c'+n.id,{}])),occurrences:leaves.map(n=>({id:n.id,component:'c'+n.id,name:n.displayName}))};
+const modeling = {descriptor,results:{},error:'',retryFailed(){}};
+const events = {selected:[],topology:[]};
+window.treeTest = {events, order:groups.flatMap(g=>['Group '+g.id.slice(1), ...g.children.map(p=>p.displayName)])};
+function App(){
+  const [selected,setSelected]=useState([]),[reveal,setReveal]=useState(0),[mode,setMode]=useState('all'),[tick,setTick]=useState(0),[details,setDetails]=useState(0);
+  const expanded=useMemo(()=>groups.map(g=>g.id),[]);
+  const partControls=useMemo(()=>({isAssemblyView:true,expandedTreeNodeIds:expanded,onToggleTreeNode(){},hiddenPartIds:[],focusedNodeIds:[],selectableNodeIds:null,
+    onSelectTreeNode:id=>{events.selected.push(id);setSelected([id]);}}),[expanded]);
+  const onLoadTopology=useMemo(()=>ids=>{events.topology.push(...ids);},[]);
+  Object.assign(window.treeTest,{refresh:()=>setTick(n=>n+1),details:()=>setDetails(n=>n+1),select:id=>{setSelected([id]);setReveal(n=>n+1);},setMode});
+  const selectionDetails=useMemo(()=>details?{title:'Ref',content:<p>Details {details}</p>}:null,[details]);
+  return <section data-testid="model" data-tick={tick} style={{height:420,width:320,display:'flex',flexDirection:'column',gap:8,padding:16}}>
+    <ModelingTree active disabled={false} mode={mode} modeling={modeling} stepRoot={root} selectedPartIds={selected}
+      activeTreeNodeScrollKey={reveal} onLoadTopology={onLoadTopology} partControls={partControls} selectionDetails={selectionDetails}/>
+  </section>;
+}
+createRoot(document.getElementById('root')).render(<App/>);
+` }, bundle: true, write: false, format: 'esm', platform: 'browser', jsx: 'automatic' });
+  const css = await readFile(new URL('../../../dist/styles.css', import.meta.url));
+  // Counts the renders of every row component, through React's own devtools hook.
+  const hook = `<script>(() => {
+    const counts = { ModelingRow: 0, ModelingSearchRow: 0, ModelingTree: 0 };
+    window.__renders = counts;
+    const nameOf = f => (f.type && (f.type.displayName || f.type.name)) || '';
+    window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = { supportsFiber: true, renderers: new Map(), inject() { return 1; }, checkDCE() {}, onScheduleFiberRoot() {},
+      onCommitFiberUnmount() {}, onPostCommitFiberRoot() {}, setStrictMode() {},
+      onCommitFiberRoot(_id, root) { const stack = [root.current];
+        while (stack.length) { const f = stack.pop(); if (typeof f.type === 'function') { const n = nameOf(f);
+          if (n in counts && (!f.alternate || f.alternate.memoizedProps !== f.memoizedProps)) counts[n]++; }
+          if (f.child) stack.push(f.child); if (f.sibling) stack.push(f.sibling); } } };
+  })();</script>`;
+  const server = createServer((request, response) => {
+    if (request.url === '/app.js') { response.setHeader('content-type', 'text/javascript'); response.end(outputFiles[0].contents); }
+    else if (request.url === '/styles.css') { response.setHeader('content-type', 'text/css'); response.end(css); }
+    else { response.setHeader('content-type', 'text/html'); response.end(`<!doctype html><link rel="stylesheet" href="/styles.css">${hook}<div id="root"></div><script type="module" src="/app.js"></script>`); }
+  });
+  let browser;
+  t.after(async () => { await browser?.close(); await new Promise(resolve => server.close(resolve)); });
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+  browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 800, height: 700 } });
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto(`http://127.0.0.1:${server.address().port}`);
+  const model = page.getByTestId('model');
+  await model.getByRole('button', { name: 'Select Part 0-0', exact: true }).waitFor();
+  const frames = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const order = await page.evaluate(() => window.treeTest.order);
+  assert.equal(order.length, GROUPS * (PARTS + 1));
+  // Where every mounted row is, against where the whole tree would put it: its place in the
+  // tree order times the row height, and at that row's indent.
+  const layout = () => page.evaluate(() => {
+    const list = document.querySelector('[aria-label="Model"]'), scroller = list.closest('[data-tool-panel-body]');
+    const top = list.getBoundingClientRect().top;
+    return { listHeight: list.getBoundingClientRect().height, scrollHeight: scroller.scrollHeight, clientHeight: scroller.clientHeight, scrollTop: scroller.scrollTop,
+      rows: [...list.querySelectorAll(':scope > li')].map(li => ({ label: li.querySelector('button[aria-pressed]').getAttribute('aria-label').replace(/^Select /, ''),
+        top: li.getBoundingClientRect().top - top, height: li.getBoundingClientRect().height, level: li.getAttribute('aria-level') })) };
+  });
+  const check = (state, where) => {
+    assert.equal(state.listHeight, order.length * 24, `${where}: the list is every row tall`);
+    // The panel body holds the list and its 4px padding above and below: nothing else.
+    assert.equal(state.scrollHeight, order.length * 24 + 8, `${where}: the scroll range is the whole tree's`);
+    assert.ok(state.rows.length > 0 && state.rows.length <= 60, `${where}: ${state.rows.length} rows mounted`);
+    for (const row of state.rows) {
+      const at = order.indexOf(row.label);
+      assert.equal(row.top, at * 24, `${where}: ${row.label} sits where the whole tree puts it`);
+      assert.equal(row.height, 24);
+      assert.equal(row.level, row.label.startsWith('Group') ? '1' : '2');
+    }
+    // What is on screen is mounted, contiguously.
+    const first = Math.floor(state.scrollTop / 24), last = Math.min(order.length - 1, Math.floor((state.scrollTop + state.clientHeight) / 24));
+    const mounted = new Set(state.rows.map(row => row.label));
+    for (let at = first; at <= last; at += 1) assert.ok(mounted.has(order[at]), `${where}: ${order[at]} is on screen and mounted`);
+  };
+  check(await layout(), 'top');
+  const indent = await model.getByRole('button', { name: 'Select Part 0-1', exact: true }).evaluate(node => node.parentElement.style.paddingLeft);
+  assert.equal(indent, '12px', 'a part under its group is indented one level');
+  for (const fraction of [0.37, 0.5, 0.999, 0.02]) {
+    await page.evaluate(fraction => { const scroller = document.querySelector('[aria-label="Model"]').closest('[data-tool-panel-body]'); scroller.scrollTop = (scroller.scrollHeight - scroller.clientHeight) * fraction; }, fraction);
+    await frames();
+    check(await layout(), `scrolled to ${fraction}`);
+  }
+
+  // A parent re-rendered with the same props renders nothing; one that changes only the details
+  // renders the tree, but not one row.
+  await frames();
+  const before = await page.evaluate(() => ({ ...window.__renders }));
+  await page.evaluate(() => window.treeTest.refresh()); await frames();
+  const same = await page.evaluate(() => ({ ...window.__renders }));
+  assert.deepEqual([same.ModelingTree - before.ModelingTree, same.ModelingRow - before.ModelingRow], [0, 0], 'unchanged props: no tree or row render');
+  await page.evaluate(() => window.treeTest.details()); await frames();
+  const detailed = await page.evaluate(() => ({ ...window.__renders }));
+  assert.ok(detailed.ModelingTree > same.ModelingTree, 'the tree rendered for its details');
+  assert.equal(detailed.ModelingRow - same.ModelingRow, 0, 'and no row did');
+
+  // A pick far down the tree scrolls its row into view.
+  await page.evaluate(() => { document.querySelector('[aria-label="Model"]').closest('[data-tool-panel-body]').scrollTop = 0; });
+  await frames();
+  await page.evaluate(() => window.treeTest.select('o27_93'));
+  await page.waitForFunction(() => {
+    const row = document.querySelector('[aria-label="Select Part 27-93"]'), scroller = document.querySelector('[aria-label="Model"]')?.closest('[data-tool-panel-body]');
+    if (!row || !scroller) return false;
+    const box = row.getBoundingClientRect(), view = scroller.getBoundingClientRect();
+    return box.top >= view.top - 1 && box.bottom <= view.bottom + 1;
+  });
+  assert.equal(await model.getByRole('button', { name: 'Select Part 27-93', exact: true }).getAttribute('aria-pressed'), 'true');
+  await frames();
+  check(await layout(), 'revealed');
+
+  // Search: two hundred ranked hits in the same rows; the cursor walks them from the keyboard,
+  // each step in view, and Enter selects the hit under it.
+  const search = model.getByRole('textbox', { name: 'Filter model' });
+  await search.fill('part 1');
+  const results = model.locator('[aria-label="Model search results"]');
+  await results.waitFor();
+  const hits = await results.evaluate(list => ({ height: list.getBoundingClientRect().height, mounted: list.querySelectorAll(':scope > li').length }));
+  assert.equal(hits.height, 200 * 24, 'every hit is a row of the list');
+  assert.ok(hits.mounted <= 60, `${hits.mounted} hits mounted`);
+  await search.focus();
+  for (let step = 0; step < 45; step += 1) await page.keyboard.press('ArrowDown');
+  await frames();
+  const cursor = await results.evaluate(list => {
+    const rows = [...list.querySelectorAll(':scope > li')];
+    const row = rows.find(li => li.firstElementChild?.classList.contains('bg-accent/30'));
+    const scroller = list.closest('[data-tool-panel-body]'), box = row.getBoundingClientRect(), view = scroller.getBoundingClientRect();
+    return { id: row.dataset.searchRow, top: box.top - list.getBoundingClientRect().top, visible: box.top >= view.top - 1 && box.bottom <= view.bottom + 1 };
+  });
+  assert.equal(cursor.top, 45 * 24, 'the cursor is the 46th hit');
+  assert.ok(cursor.visible, 'and it is in view');
+  await page.keyboard.press('Enter');
+  assert.equal(`model:${(await page.evaluate(() => window.treeTest.events.selected)).at(-1)}`, cursor.id, 'Enter selects the hit under the cursor');
+  await search.fill('');
+  await model.locator('[aria-label="Model"]').waitFor();
+
+  // Under Faces, the parts whose rows are on screen ask for their topology, once each, and a
+  // scroll asks for the parts it brings on screen.
+  await page.evaluate(() => { document.querySelector('[aria-label="Model"]').closest('[data-tool-panel-body]').scrollTop = 0; window.treeTest.events.topology.length = 0; window.treeTest.setMode('faces'); });
+  await page.waitForFunction(() => window.treeTest.events.topology.length > 0);
+  await frames();
+  const onScreen = async () => page.evaluate(() => {
+    const scroller = document.querySelector('[aria-label="Model"]').closest('[data-tool-panel-body]'), view = scroller.getBoundingClientRect();
+    return [...document.querySelectorAll('[aria-label="Model"] > li[data-tree-part]')].filter(li => { const box = li.getBoundingClientRect(); return box.bottom > view.top && box.top < view.bottom; })
+      .map(li => li.dataset.treePart.replace(/^model:/, ''));
+  });
+  const firstScreen = await onScreen();
+  assert.deepEqual([...(await page.evaluate(() => window.treeTest.events.topology))].sort(), [...firstScreen].sort(), 'the parts on screen, and only those');
+  await page.evaluate(() => { const scroller = document.querySelector('[aria-label="Model"]').closest('[data-tool-panel-body]'); scroller.scrollTop = scroller.scrollHeight / 2; });
+  await frames(); await frames();
+  const secondScreen = await onScreen();
+  const requested = await page.evaluate(() => window.treeTest.events.topology);
+  assert.equal(new Set(requested).size, requested.length, 'no part is asked for twice');
+  assert.deepEqual([...requested].sort(), [...new Set([...firstScreen, ...secondScreen])].sort(), 'the scroll asked for what it brought on screen');
+  await page.evaluate(() => window.treeTest.refresh()); await frames();
+  assert.equal((await page.evaluate(() => window.treeTest.events.topology)).length, requested.length, 'a re-render asks for nothing');
+  assert.deepEqual(errors, []);
+});
