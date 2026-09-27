@@ -633,11 +633,14 @@ test('the Features tree searches as a second view: typing ranks matches and expa
   assert.equal(await pane.locator('[aria-label="Modeling tree"]').isVisible(), false);
   await search.focus();
   await page.keyboard.type('ba');
+  // The search's results follow the box (a deferred query, over an index that may still be
+  // building: "0 matches" can come first), so the base's row is waited for, not read once.
   await page.waitForFunction(() => document.querySelector('[data-testid="one"] [aria-label="Features"]').innerText.includes('match'));
   assert.equal(await search.inputValue(), 'ba', 'no keystroke lost');
   assert.equal(await features.getAttribute('data-collapsed'), null, 'the panel opened');
   assert.equal(await pane.locator('[aria-label="Modeling tree"]').isVisible(), true);
-  assert.ok((await view.rows()).includes('Select base'), `the search shows the base: ${await view.rows()}`);
+  await pane.locator('[aria-label="Model search results"]').getByRole('button', { name: 'Select base', exact: true }).waitFor({ timeout: 5000 })
+    .catch(async () => assert.fail(`the search shows the base: ${await view.rows()}`));
   // While the box has focus its trailing buttons step aside; blurred, they are back.
   assert.equal(await pane.getByRole('button', { name: /^Select mode: / }).isVisible(), false, 'the mode menu yields while typing');
   await search.fill('');
