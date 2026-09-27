@@ -1,11 +1,11 @@
 import { TooltipHint } from "@hardcore/ui/primitives/tooltip";
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Boxes, Circle, CornerUpRight, Focus, Layers, RotateCw, Shapes, Spline, SquareDashed } from 'lucide-react';
 import { Button } from '@hardcore/ui/primitives/button';
-import { TREE_ROW_DENSE_ICON_CLASS, TreeRowSurface, TreeRowChevron, TreeRowLabel } from '@hardcore/ui/primitives/tree-row';
+import { TREE_ROW_DENSE_HEIGHT, TREE_ROW_DENSE_ICON_CLASS, TreeRowSurface, TreeRowChevron, TreeRowLabel } from '@hardcore/ui/primitives/tree-row';
 import { TreeFilterHighlight, TreeFilterInput } from '@hardcore/ui/primitives/tree-filter';
 import { cn } from '@hardcore/ui/utils';
-import ModelPartMenu from './ModelPartMenu.jsx';
+import ModelPartMenu, { FeatureReferencesContext } from './ModelPartMenu.jsx';
 import ModelPartActions, { ROW_NAME_UNDER_ACTIONS, rowActionsLayout } from './ModelPartActions.jsx';
 import { modelingSelectionPaths } from '../../workbench/modelingSelection.js';
 import ToolPanel, { ToolPanelCollapse } from '../../../kit/tools/ToolPanel.jsx';
@@ -13,47 +13,63 @@ import { useViewerMobile } from '../../../../file-viewer/responsive.js';
 import { modelingReferenceIds } from '../../workbench/modelingTree.js';
 import { implicitModelingRoots, presentModelingAssembly } from '../../workbench/modelingPresentation.js';
 import { modelTreeSearchChain, useTreeSearch } from '../../../kit/inspector/modelTreeSearch.js';
+import VirtualRows from '../../../kit/inspector/VirtualRows.jsx';
 
 const EMPTY = [];
+const NO_CONTROLS = {};
+/**
+ * Above this many rows — the fully expanded tree's assemblies and parts, not the features
+ * recognition adds under a part later, so the tree never changes shape under the person — Faces
+ * and Edges open a tree with its parts closed, each with its face or edge count, instead of
+ * opening every part. Each part opens by its own disclosure, a pick inside it, or the menu.
+ */
+export const LARGE_TREE_ROWS = 300;
+/** How long the pointer rests on a part in the viewport before its topology is asked for. */
+export const TOPOLOGY_DWELL_MS = 150;
+const countLabel = (count, mode) => `${count.toLocaleString()} ${mode === 'edges' ? count === 1 ? 'edge' : 'edges' : count === 1 ? 'face' : 'faces'}`;
 const icons = {part:Box,assembly:Boxes,group:Boxes,boss:Layers,pocket:Shapes,hole:Circle,body:Box,extrude:Layers,loft:Layers,cut:Shapes,revolve:RotateCw,round:CornerUpRight,profile:SquareDashed,curve:Spline,remainder:Box};
 const number = n => n.toLocaleString(undefined,{maximumFractionDigits:3});
 
-function nodeAvailability(node, controls, inheritedHidden=false, inheritedUnavailable=false) {
-  const hidden = node.leafPartIds?.length > 0 && node.leafPartIds.every(id => controls.hiddenPartIds?.includes(id));
+// What hides a row or puts it out of reach, as sets: `availabilityOf(partControls)`.
+function availabilityOf(hiddenPartIds, selectableNodeIds) {
+  return { hidden: new Set(hiddenPartIds || EMPTY), selectable: selectableNodeIds ? new Set(selectableNodeIds) : null };
+}
+function nodeAvailability(node, availability, inheritedHidden=false, inheritedUnavailable=false) {
+  const hidden = node.leafPartIds?.length > 0 && node.leafPartIds.every(id => availability.hidden.has(id));
   const hiddenByOwner = inheritedHidden || hidden;
   const outsideFrontier = node.selectionId
-    ? controls.selectableNodeIds && !controls.selectableNodeIds.includes(node.selectionId)
+    ? Boolean(availability.selectable) && !availability.selectable.has(node.selectionId)
     : inheritedUnavailable;
   return {hiddenByOwner,outsideFrontier,unavailable:hiddenByOwner || outsideFrontier};
 }
 
 // Selected rows that touch read as ONE block: a run of consecutive visible selected rows is
 // rounded only at its top and bottom, so a multi-select is a unit rather than a stack of pills.
-const NO_JOINS = new Map();
-function joinedCorners(join) {
-  if (!join) return undefined;
+function joinedCorners(above, below) {
+  if (!above && !below) return undefined;
   return {
-    ...(join.above ? { borderTopLeftRadius: 0, borderTopRightRadius: 0 } : {}),
-    ...(join.below ? { borderBottomLeftRadius: 0, borderBottomRightRadius: 0 } : {}),
+    ...(above ? { borderTopLeftRadius: 0, borderTopRightRadius: 0 } : {}),
+    ...(below ? { borderBottomLeftRadius: 0, borderBottomRightRadius: 0 } : {}),
   };
 }
-function selectionJoins(orderedIds, highlighted) {
-  const joins = new Map();
-  orderedIds.forEach((id, index) => {
-    if (!highlighted.has(id)) return;
-    const above = index > 0 && highlighted.has(orderedIds[index - 1]);
-    const below = index < orderedIds.length - 1 && highlighted.has(orderedIds[index + 1]);
-    if (above || below) joins.set(id, { above, below });
-  });
-  return joins;
-}
-function visibleRowOrder(nodes, expanded, out = []) {
-  for (const node of nodes) {
-    out.push(node.id);
-    const children = (node.children || []).filter(child => child.kind !== 'curve');
-    if (children.length && expanded.has(node.id)) visibleRowOrder(children, expanded, out);
-  }
-  return out;
+// The tree as the rows it draws, top to bottom: each open branch's children follow it, one
+// level deeper. Curves are never rows. A row carries what it inherits from its owners.
+function visibleRows(roots, expanded, availability, owner) {
+  const rows = [], keys = new Set();
+  const visit = (nodes, depth, inheritedHidden, inheritedUnavailable) => {
+    for (const node of nodes) {
+      const children = (node.children || EMPTY).filter(child => child.kind !== 'curve');
+      const open = expanded.has(node.id);
+      const branch = children.length > 0 || Boolean(node.recognitionPending);
+      const {hiddenByOwner,outsideFrontier,unavailable}=nodeAvailability(node,availability,inheritedHidden,inheritedUnavailable);
+      const key = keys.has(node.id) ? `${node.id}#${rows.length}` : node.id;
+      keys.add(node.id);
+      rows.push({node,key,depth,open,branch,hiddenByOwner,unavailable,children});
+      if (branch && open) visit(children, depth + 1, hiddenByOwner, outsideFrontier);
+    }
+  };
+  visit(roots, 0, owner.hiddenByOwner, owner.outsideFrontier);
+  return rows;
 }
 function findNodeLabel(nodes, selectionId) {
   for (const node of nodes || []) {
@@ -73,64 +89,64 @@ function Disclosure({ node, open, locked, toggle }) {
     onClick={()=>toggle(node)}><TreeRowChevron expanded={open} dense/></button>;
 }
 
-function ModelingRow({ node, depth=0, selected, joins=NO_JOINS, expanded, locked=false, toggle, choose, disabled, partControls, feature, rowRefs, inheritedHidden=false, inheritedUnavailable=false }) {
+// One row of the tree, the rows under it drawn after it by the list (`visibleRows`). Its props
+// are the row's own facts — its selection and joins as booleans, callbacks that never change —
+// so a tree re-rendered for anything else leaves it alone.
+function ModelingRow({ node, depth, open, branch, locked, disabled, selected, joinAbove, joinBelow, hiddenByOwner, unavailable, actionsShown, actionsWidth, count, partControls, feature, toggle, choose }) {
   const Icon = icons[node.kind] || Box;
-  const open = expanded.has(node.id);
-  const children = (node.children || []).filter(child => child.kind !== 'curve');
-  const branch = children.length > 0 || node.recognitionPending;
   // An assembly outside the isolate/picking frontier cannot select itself, but
   // its descendants can. Only a hidden owner blocks its entire subtree.
-  const {hiddenByOwner,outsideFrontier,unavailable}=nodeAvailability(node,partControls,inheritedHidden,inheritedUnavailable);
-  const actions = node.selectionId ? rowActionsLayout(node, partControls) : null;
-  const underActions = actions && (actions.shown ? ROW_NAME_UNDER_ACTIONS.shown : ROW_NAME_UNDER_ACTIONS.hover);
-  return <li className="min-w-0" data-tree-part={node.kind === 'part' ? node.id : undefined}
-    ref={element => { if (element) rowRefs.current.set(node.id, element); else rowRefs.current.delete(node.id); }}>
-    <ModelPartMenu node={node} controls={partControls} feature={feature} disabled={disabled}>
-      <TreeRowSurface dense active={selected.has(node.id)} className={cn('group/row relative gap-0 pr-0', hiddenByOwner && 'opacity-50')}
-        onMouseEnter={() => partControls.onHoverTreeNode?.(node.selectionId || node.occurrenceId || '')}
-        onMouseLeave={() => partControls.onHoverTreeNode?.('')} style={{paddingLeft:depth*12, ...joinedCorners(joins.get(node.id)), ...(actions && {'--row-actions':actions.width})}}>
-        {branch ? <Disclosure node={node} open={open} locked={locked} toggle={toggle}/> : <span className="w-4 shrink-0"/>}
-        <TooltipHint content={node.label} overflowOnly><button type="button" aria-label={`Select ${node.label}`} aria-pressed={selected.has(node.id)}
-          disabled={disabled || unavailable || !(node.selectionId || node.memberSelectionIds?.length || node.faces?.length || node.edges?.length)}
-          onClick={event=>{if(event.detail < 2)choose(node,event);}} onDoubleClick={event=>choose(node,event)}
-          className={cn('flex h-full min-w-0 flex-1 items-center gap-1 rounded pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40', underActions)}>
-          <Icon className={TREE_ROW_DENSE_ICON_CLASS}/><TreeRowLabel className="flex-1">{node.label}</TreeRowLabel>
-        </button></TooltipHint>
-        {node.selectionId && <ModelPartActions node={node} controls={partControls} disabled={disabled}/>}
-      </TreeRowSurface>
-    </ModelPartMenu>
-    {branch && open && <ul>{children.map(child=><ModelingRow key={child.id} {...{node:child,depth:depth+1,inheritedHidden:hiddenByOwner,inheritedUnavailable:outsideFrontier,selected,joins,expanded,locked,toggle,choose,disabled,partControls,feature,rowRefs}}/>)}</ul>}
-  </li>;
+  // The name fades out under its actions (`ROW_NAME_UNDER_ACTIONS`): always while one is on
+  // (`actionsShown`), otherwise on hover. `actionsWidth` is the room they take.
+  const underActions = actionsWidth && (actionsShown ? ROW_NAME_UNDER_ACTIONS.shown : ROW_NAME_UNDER_ACTIONS.hover);
+  return <ModelPartMenu node={node} controls={partControls} feature={feature} disabled={disabled}>
+    <TreeRowSurface dense active={selected} className={cn('group/row relative gap-0 pr-0', hiddenByOwner && 'opacity-50')}
+      onMouseEnter={() => partControls.onHoverTreeNode?.(node.selectionId || node.occurrenceId || '')}
+      onMouseLeave={() => partControls.onHoverTreeNode?.('')} style={{paddingLeft:depth*12, ...joinedCorners(joinAbove, joinBelow), ...(actionsWidth && {'--row-actions':actionsWidth})}}>
+      {branch ? <Disclosure node={node} open={open} locked={locked} toggle={toggle}/> : <span className="w-4 shrink-0"/>}
+      <TooltipHint content={node.label} overflowOnly><button type="button" aria-label={`Select ${node.label}`} aria-pressed={selected}
+        disabled={disabled || unavailable || !(node.selectionId || node.memberSelectionIds?.length || node.faces?.length || node.edges?.length)}
+        onClick={event=>{if(event.detail < 2)choose(node,event);}} onDoubleClick={event=>choose(node,event)}
+        className={cn('flex h-full min-w-0 flex-1 items-center gap-1 rounded pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40', underActions)}>
+        <Icon className={TREE_ROW_DENSE_ICON_CLASS}/><TreeRowLabel className="flex-1">{node.label}</TreeRowLabel>
+        {/* A large tree's part, under Faces or Edges: how many of them it has, when that is known. */}
+        {count && <span className="shrink-0 pl-1 text-tiny text-muted-foreground tabular-nums" data-part-count="">{count}</span>}
+      </button></TooltipHint>
+      {node.selectionId && <ModelPartActions node={node} controls={partControls} disabled={disabled}/>}
+    </TreeRowSurface>
+  </ModelPartMenu>;
 }
+
+// Named so a profiler (and the render counts in the specs) can tell the rows apart.
+const MemoModelingRow = memo(ModelingRow);
 
 // A search hit is the tree row without its place in the tree: the same menu, eye
 // and availability, with the owners it would sit under named instead of drawn.
-function ModelingSearchRow({ match, index, selected, joins=NO_JOINS, cursor, choose, disabled, partControls, feature }) {
+function ModelingSearchRow({ match, index, availability, selected, joinAbove, joinBelow, actionsShown, actionsWidth, cursor, choose, disabled, partControls, feature }) {
   const {entry,indices}=match,{node}=entry;
   const Icon = icons[node.kind] || Box;
   const {hiddenByOwner,unavailable}=modelTreeSearchChain(index,match.at).reduce(
-    (owner,step)=>nodeAvailability(step,partControls,owner.hiddenByOwner,owner.outsideFrontier),{hiddenByOwner:false,outsideFrontier:false});
-  const actions = node.selectionId ? rowActionsLayout(node, partControls) : null;
-  const underActions = actions && (actions.shown ? ROW_NAME_UNDER_ACTIONS.shown : ROW_NAME_UNDER_ACTIONS.hover);
-  return <li className="min-w-0" data-search-row={node.id}>
-    <ModelPartMenu node={node} controls={partControls} feature={feature} disabled={disabled}>
-      <TreeRowSurface dense active={selected.has(node.id)} cursor={cursor} className={cn('group/row relative gap-0 pr-0', hiddenByOwner && 'opacity-50')}
-        onMouseEnter={() => partControls.onHoverTreeNode?.(node.selectionId || node.occurrenceId || '')}
-        onMouseLeave={() => partControls.onHoverTreeNode?.('')} style={{...joinedCorners(joins.get(node.id)), ...(actions && {'--row-actions':actions.width})}}>
-        <TooltipHint content={`${entry.prefix}${node.label}`} overflowOnly><button type="button" aria-label={`Select ${node.label}`} aria-pressed={selected.has(node.id)}
-          disabled={disabled || unavailable || !(node.selectionId || node.faces?.length || node.edges?.length)}
-          onClick={event=>{if(event.detail < 2)choose(node,event);}} onDoubleClick={event=>choose(node,event)}
-          className={cn('flex h-full min-w-0 flex-1 items-center gap-1.5 rounded pl-2 pr-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40', underActions)}>
-          <Icon className={TREE_ROW_DENSE_ICON_CLASS}/>
-          {/* Name first: in a narrow panel a deep owner path takes the truncation, never the name. */}
-          <TreeRowLabel className="max-w-full shrink-0"><TreeFilterHighlight indices={indices} text={entry.label}/></TreeRowLabel>
-          {entry.prefix && <TreeRowLabel className="flex-1 text-micro text-muted-foreground">{entry.prefix.slice(0,-1)}</TreeRowLabel>}
-        </button></TooltipHint>
-        {node.selectionId && <ModelPartActions node={node} controls={partControls} disabled={disabled}/>}
-      </TreeRowSurface>
-    </ModelPartMenu>
-  </li>;
+    (owner,step)=>nodeAvailability(step,availability,owner.hiddenByOwner,owner.outsideFrontier),{hiddenByOwner:false,outsideFrontier:false});
+  const underActions = actionsWidth && (actionsShown ? ROW_NAME_UNDER_ACTIONS.shown : ROW_NAME_UNDER_ACTIONS.hover);
+  return <ModelPartMenu node={node} controls={partControls} feature={feature} disabled={disabled}>
+    <TreeRowSurface dense active={selected} cursor={cursor} className={cn('group/row relative gap-0 pr-0', hiddenByOwner && 'opacity-50')}
+      onMouseEnter={() => partControls.onHoverTreeNode?.(node.selectionId || node.occurrenceId || '')}
+      onMouseLeave={() => partControls.onHoverTreeNode?.('')} style={{...joinedCorners(joinAbove, joinBelow), ...(actionsWidth && {'--row-actions':actionsWidth})}}>
+      <TooltipHint content={`${entry.prefix}${node.label}`} overflowOnly><button type="button" aria-label={`Select ${node.label}`} aria-pressed={selected}
+        disabled={disabled || unavailable || !(node.selectionId || node.faces?.length || node.edges?.length)}
+        onClick={event=>{if(event.detail < 2)choose(node,event);}} onDoubleClick={event=>choose(node,event)}
+        className={cn('flex h-full min-w-0 flex-1 items-center gap-1.5 rounded pl-2 pr-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40', underActions)}>
+        <Icon className={TREE_ROW_DENSE_ICON_CLASS}/>
+        {/* Name first: in a narrow panel a deep owner path takes the truncation, never the name. */}
+        <TreeRowLabel className="max-w-full shrink-0"><TreeFilterHighlight indices={indices} text={entry.label}/></TreeRowLabel>
+        {entry.prefix && <TreeRowLabel className="flex-1 text-micro text-muted-foreground">{entry.prefix.slice(0,-1)}</TreeRowLabel>}
+      </button></TooltipHint>
+      {node.selectionId && <ModelPartActions node={node} controls={partControls} disabled={disabled}/>}
+    </TreeRowSurface>
+  </ModelPartMenu>;
 }
+
+const MemoModelingSearchRow = memo(ModelingSearchRow);
 
 /**
  * Read-only geometry inference; assembly instances share recognition, never selection IDs.
@@ -145,7 +161,7 @@ function ModelingSearchRow({ match, index, selected, joins=NO_JOINS, cursor, cho
  * edges are picked. Outside All the disclosure is locked. A part's topology is asked for as its
  * row comes on screen, never for a whole large assembly at once.
  */
-export default function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, loading=false, references=EMPTY, selectedReferenceIds=EMPTY, selectedPartIds=EMPTY, onLoadTopology, onRequestRecognition, onSelect, onClearSelection, stepRoot, selectedReferences, selectionDetails, activeTreeNodeScrollKey, partControls={} }) {
+function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, loading=false, references=EMPTY, selectedReferenceIds=EMPTY, selectedPartIds=EMPTY, onLoadTopology, onRequestRecognition, onSelect, onClearSelection, stepRoot, selectedReferences, selectionDetails, activeTreeNodeScrollKey, partControls=NO_CONTROLS, hoverStore=null }) {
   const mobile = useViewerMobile();
   const {descriptor,results,error,retryFailed}=modeling;
   const [selected,setSelected]=useState(null),[pending,setPending]=useState(null),[localExpanded,setLocalExpanded]=useState(new Set());
@@ -183,17 +199,38 @@ export default function ModelingTree({ modeling, active, disabled, mode='all', m
     return rows;
   },[tree]);
   const visibleRoots=implicitRoots.length ? implicitRoots.at(-1).children || EMPTY : tree;
-  const implicitOwner=implicitRoots.reduce((owner,node)=>nodeAvailability(node,partControls,owner.hiddenByOwner,owner.outsideFrontier),{hiddenByOwner:false,outsideFrontier:false});
+  const availability=useMemo(()=>availabilityOf(partControls.hiddenPartIds,partControls.selectableNodeIds),[partControls.hiddenPartIds,partControls.selectableNodeIds]);
+  const implicitOwner=useMemo(()=>implicitRoots.reduce((owner,node)=>nodeAvailability(node,availability,owner.hiddenByOwner,owner.outsideFrontier),{hiddenByOwner:false,outsideFrontier:false}),[implicitRoots,availability]);
   const componentIds=useMemo(()=>[...new Set(descriptor?.occurrences.map(o=>o.component)||[])],[descriptor]);
-  const expanded=useMemo(()=>lockedExpansion ? new Set([...lockedExpansion,...implicitRoots.map(node=>node.id)])
-    : new Set([...localExpanded,...implicitRoots.map(node=>node.id),...(partControls.expandedTreeNodeIds || EMPTY).map(id=>`model:${id}`)]),
-  [lockedExpansion,localExpanded,implicitRoots,partControls.expandedTreeNodeIds]);
+  // A large tree under Faces or Edges (`LARGE_TREE_ROWS`): its parts start closed and open one by
+  // one, each by its own disclosure; the mode still holds every assembly open.
+  const structuralRows=useMemo(()=>{
+    let count=0;
+    const visit=nodes=>{for(const node of nodes){if(node.kind === 'curve')continue;count+=1;if(node.kind !== 'part')visit(node.children || EMPTY);}};
+    visit(visibleRoots);
+    return count;
+  },[visibleRoots]);
+  const largeTopology=topologyMode && structuralRows > LARGE_TREE_ROWS;
+  const [openParts,setOpenParts]=useState(()=>new Set());
+  // Opening a part (its disclosure, its Expand, a pick inside it) asks for its topology and
+  // recognition at once, on screen or not; Expand all leaves that to the rows as they show.
+  const seeParts=useCallback(ids=>setSeenParts(current=>ids.every(id=>current.has(id)) ? current : new Set([...current,...ids])),[]);
+  useEffect(()=>{if(!topologyMode)setOpenParts(current=>current.size ? new Set() : current);},[topologyMode]);
+  const expanded=useMemo(()=>{
+    if(lockedExpansion){
+      const ids=new Set(lockedExpansion);
+      if(largeTopology)for(const id of partNodes.keys())if(!openParts.has(id))ids.delete(id);
+      for(const node of implicitRoots)ids.add(node.id);
+      return ids;
+    }
+    return new Set([...localExpanded,...implicitRoots.map(node=>node.id),...(partControls.expandedTreeNodeIds || EMPTY).map(id=>`model:${id}`)]);
+  },[lockedExpansion,largeTopology,partNodes,openParts,localExpanded,implicitRoots,partControls.expandedTreeNodeIds]);
   const openedRoots=useRef(new Set());
   useEffect(()=>{
     if(!active || disabled)return;
     let owner={hiddenByOwner:false,outsideFrontier:false};
     for(const node of implicitRoots){
-      owner=nodeAvailability(node,partControls,owner.hiddenByOwner,owner.outsideFrontier);
+      owner=nodeAvailability(node,availability,owner.hiddenByOwner,owner.outsideFrontier);
       const key=node.occurrenceId ? `occurrence:${node.occurrenceId}` : node.id;
       if(openedRoots.current.has(key) || owner.hiddenByOwner || (node.occurrenceId && owner.unavailable))continue;
       // Loading a part also expands its canonical owner in the host. That keeps
@@ -205,24 +242,25 @@ export default function ModelingTree({ modeling, active, disabled, mode='all', m
         openedRoots.current.add(key);
       }
     }
-  },[active,disabled,implicitRoots,onLoadTopology,partControls.expandedTreeNodeIds,partControls.onToggleTreeNode,partControls.hiddenPartIds,partControls.selectableNodeIds]);
-  const rowRefs=useRef(new Map());
+  },[active,disabled,implicitRoots,onLoadTopology,partControls.expandedTreeNodeIds,partControls.onToggleTreeNode,availability]);
+  // The tree as the rows the list draws: what is open, under the Select mode's lock or the person's.
+  const rows=useMemo(()=>visibleRows(visibleRoots,expanded,availability,implicitOwner),[visibleRoots,expanded,availability,implicitOwner]);
+  const rowIndex=useMemo(()=>{const index=new Map();rows.forEach((row,at)=>{if(!index.has(row.node.id))index.set(row.node.id,at);});return index;},[rows]);
+  // The mounted rows, by key: the reveal scrolls the selection's row, which the list keeps mounted.
+  const rowElements=useRef(new Map());
+  const registerRow=useCallback((key,element)=>{if(element)rowElements.current.set(key,element);else rowElements.current.delete(key);},[]);
   // Search is a second view of the same tree. Typing never touches expansion,
   // which is also the picking frontier and the topology request; the rows
   // unmount so a large open tree is not re-rendered per keystroke.
   const {query,searching,deferredQuery,index:searchIndex,found,cursorId,listRef,changeQuery,onKeyDown:onSearchKeyDown}=useTreeSearch(tree);
-  useEffect(()=>{
-    if(!topologyMode || !active || disabled || searching || !listRef.current)return undefined;
-    const rows=[...listRef.current.querySelectorAll('[data-tree-part]')];
-    const mark=ids=>setSeenParts(current=>ids.every(id=>current.has(id)) ? current : new Set([...current,...ids]));
-    if(typeof IntersectionObserver === 'undefined'){mark(rows.map(row=>row.dataset.treePart));return undefined;}
-    const observer=new IntersectionObserver(entries=>{
-      const ids=entries.filter(entry=>entry.isIntersecting).map(entry=>entry.target.dataset.treePart);
-      if(ids.length)mark(ids);
-    },{root:listRef.current.closest('[data-tool-panel-body]')});
-    for(const row of rows)observer.observe(row);
-    return ()=>observer.disconnect();
-  },[topologyMode,active,disabled,searching,tree,listRef]);
+  // Under Faces or Edges, the part rows the list has on screen (never its margin) are seen, and
+  // only those ask for topology and recognition. The tree's list is not drawn during a search.
+  // In a large tree a closed part is not seen for being on screen: opening it is what asks.
+  const onVisibleRows=useMemo(()=>topologyMode && active && !disabled ? (first,last)=>{
+    const ids=[];
+    for(let at=first;at<=last;at+=1){const row=rows[at];if(row?.node.kind === 'part' && (!largeTopology || row.open))ids.push(row.node.id);}
+    if(ids.length)setSeenParts(current=>ids.every(id=>current.has(id)) ? current : new Set([...current,...ids]));
+  } : null,[topologyMode,active,disabled,rows,largeTopology]);
   useEffect(()=>{
     if(!topologyMode || !active || disabled || !onLoadTopology)return;
     const ids=[...seenParts].filter(id=>!loadedParts.current.has(id));
@@ -272,7 +310,15 @@ export default function ModelingTree({ modeling, active, disabled, mode='all', m
     if(waitingForFeature)ancestors.push(target);
     const missing=ancestors.filter(node=>!expanded.has(node.id));
     // A locked tree does not open for a pick: what the mode shows is what there is to scroll to.
-    if(missing.length && locked){reveal.current.complete=true;return;}
+    // In a large tree under Faces or Edges a closed part is the one thing that opens for it.
+    if(missing.length && locked){
+      if(largeTopology && missing.every(node=>node.kind === 'part' && partNodes.has(node.id))){
+        setOpenParts(current=>missing.every(node=>current.has(node.id)) ? current : new Set([...current,...missing.map(node=>node.id)]));
+        seeParts(missing.map(node=>node.id));
+        return;
+      }
+      reveal.current.complete=true;return;
+    }
     if(missing.length){
       const local=[];
       for(const node of new Map(missing.map(node=>[node.id,node])).values()){
@@ -285,27 +331,26 @@ export default function ModelingTree({ modeling, active, disabled, mode='all', m
     // A search hit's owners open at once, so the selection is always a row the
     // tree holds; the one scroll waits for the tree to be back on screen.
     if(waitingForFeature || searching)return;
-    const row=rowRefs.current.get(target.id);
+    const row=rowElements.current.get(target.id);
     if(row){row.scrollIntoView?.({block:'nearest'});reveal.current.complete=true;}
-  },[active,revealKey,paths,expanded,locked,picked,partControls.onToggleTreeNode,searching]);
+  },[active,revealKey,paths,expanded,locked,largeTopology,partNodes,seeParts,picked,partControls.onToggleTreeNode,searching]);
 
   const requestedOccurrences=useMemo(()=>{
     if(!active || disabled)return EMPTY;
     const requested=[];
     const visit=(nodes,inheritedHidden=false,inheritedUnavailable=false)=>{for(const node of nodes){
       if(!expanded.has(node.id))continue;
-      const {hiddenByOwner,outsideFrontier,unavailable}=nodeAvailability(node,partControls,inheritedHidden,inheritedUnavailable);
+      const {hiddenByOwner,outsideFrontier,unavailable}=nodeAvailability(node,availability,inheritedHidden,inheritedUnavailable);
       if(node.kind === 'part' && node.occurrenceId && !unavailable && (!topologyMode || seenParts.has(node.id)))requested.push(node.occurrenceId);
       visit(node.children || EMPTY,hiddenByOwner,outsideFrontier);
     }};
     visit(tree);
     return [...new Set(requested)].sort();
-  },[active,disabled,tree,expanded,topologyMode,seenParts,partControls.hiddenPartIds,partControls.selectableNodeIds]);
+  },[active,disabled,tree,expanded,topologyMode,seenParts,availability]);
   const requestKey=JSON.stringify(requestedOccurrences);
   useEffect(()=>{onRequestRecognition?.(JSON.parse(requestKey));},[requestKey,onRequestRecognition]);
 
-  const done=componentIds.filter(id=>results[id]).length;
-  const failed=componentIds.filter(id=>results[id]?.error).length;
+  const {done,failed}=useMemo(()=>({done:componentIds.filter(id=>results[id]).length,failed:componentIds.filter(id=>results[id]?.error).length}),[componentIds,results]);
   useEffect(()=>{if(!active || disabled)setPending(null);},[active,disabled]);
   useEffect(()=>{
     if(!pending || !active || disabled)return;
@@ -313,7 +358,11 @@ export default function ModelingTree({ modeling, active, disabled, mode='all', m
     const ids=modelingReferenceIds(pending,pending.occurrenceId,references);
     if(ids.length){onSelect?.(ids);setPending(null);}
   },[pending,active,disabled,references,onSelect,selectionKey]);
-  const choose=(node,event)=>{
+  const latest=useRef(null);
+  latest.current={references,partControls,selectionKey,onSelect,onLoadTopology,largeTopology,openParts,partNodes};
+  // The rows' callbacks never change; each reads the tree as it is when pressed.
+  const choose=useCallback((node,event)=>{
+    const {references,partControls,selectionKey,onSelect,onLoadTopology}=latest.current;
     if (event?.type === 'dblclick') {
       const components = node.memberSelectionIds?.length ? node.memberSelectionIds : node.selectionId;
       if (components) {
@@ -338,22 +387,123 @@ export default function ModelingTree({ modeling, active, disabled, mode='all', m
     const ids=modelingReferenceIds(node,node.occurrenceId,references);
     if(ids.length)onSelect?.(ids);
     else if(node.faces?.length || node.edges?.length){setPending({...node,selectionKey});onLoadTopology?.([node.occurrenceId]);}
-  };
-  const toggle=node=>{
+  },[]);
+  const toggle=useCallback(node=>{
+    const {partControls,largeTopology}=latest.current;
+    if(largeTopology && node.kind === 'part'){
+      if(!latest.current.openParts.has(node.id))seeParts([node.id]);
+      setOpenParts(current=>{const next=new Set(current);if(next.has(node.id))next.delete(node.id);else next.add(node.id);return next;});
+      return;
+    }
     if(node.selectionId && partControls.onToggleTreeNode){partControls.onToggleTreeNode(node.selectionId);return;}
     setLocalExpanded(current=>{const next=new Set(current);if(next.has(node.id))next.delete(node.id);else next.add(node.id);return next;});
-  };
+  },[seeParts]);
   const clearSelection=()=>{setSelected(null);setPending(null);onClearSelection?.();};
   // What a feature row's menu needs of the tree: the row's faces as reference ids, how to load
   // them, and the row's own click, so its Select is the click rather than a second opinion.
-  const feature={referenceIds:node=>modelingReferenceIds(node,node.occurrenceId,references),loadTopology:onLoadTopology,choose};
-  const highlighted=new Set(showDetails ? [selected.id] : paths.map(path=>path.at(-1).id));
-  // Its members are not rendered while it is collapsed, so the row itself carries
-  // their selection; anything less and selecting a folded row looks like a no-op.
-  for(const node of foldedRows)if(node.memberSelectionIds.every(id=>selectedPartIds.includes(id)))highlighted.add(node.id);
-  const joins=selectionJoins(visibleRowOrder(visibleRoots,expanded),highlighted);
-  const searchJoins=searching?selectionJoins(found.matches.map(match=>match.entry.node.id),highlighted):NO_JOINS;
-  const isolatedLabels=(partControls.focusedNodeIds||[]).map(id=>findNodeLabel(visibleRoots,id)||id);
+  // One object for the life of the tree: it reads the references as they are when a menu asks,
+  // and the open menu follows them through `FeatureReferencesContext`, so loading faces re-renders
+  // no row.
+  const feature=useMemo(()=>({referenceIds:node=>modelingReferenceIds(node,node.occurrenceId,latest.current.references),
+    loadTopology:ids=>latest.current.onLoadTopology?.(ids),choose}),[choose]);
+  const highlighted=useMemo(()=>{
+    const ids=new Set(showDetails ? [selected.id] : paths.map(path=>path.at(-1).id));
+    // Its members are not rendered while it is collapsed, so the row itself carries
+    // their selection; anything less and selecting a folded row looks like a no-op.
+    for(const node of foldedRows)if(node.memberSelectionIds.every(id=>selectedPartIds.includes(id)))ids.add(node.id);
+    return ids;
+  },[showDetails,selected,paths,foldedRows,selectedPartIds]);
+  const isolatedLabels=useMemo(()=>(partControls.focusedNodeIds||EMPTY).map(id=>findNodeLabel(visibleRoots,id)||id),[partControls.focusedNodeIds,visibleRoots]);
+  // The list draws the rows in view; the selection's row and the search cursor stay mounted.
+  const revealIndex=paths.length ? rowIndex.get(paths.at(-1).at(-1).id) : undefined;
+  const treePinned=useMemo(()=>revealIndex === undefined ? EMPTY : [revealIndex],[revealIndex]);
+  const matches=found.matches;
+  const cursorIndex=searching ? matches.findIndex(match=>match.entry.node.id === cursorId) : -1;
+  const searchPinned=useMemo(()=>cursorIndex < 0 ? EMPTY : [cursorIndex],[cursorIndex]);
+  // What a row reads of the host's controls (its menu, its actions, its hover), and nothing else:
+  // expanding the tree, which the host does as parts load, re-renders no row for it.
+  const {isAssemblyView,hiddenPartIds,focusedNodeIds,onHoverTreeNode,onFocusTreeNode,onUnfocusTreeNode,onTogglePartVisibility,menuForNode,menuForReferences,partMenuActions}=partControls;
+  // In a large tree under Faces or Edges, the viewport asks for a part's topology when the pointer
+  // rests on it (`TOPOLOGY_DWELL_MS`) or presses it: hover is read from the viewport's store,
+  // never React state, and each part is asked for once.
+  const treeRef=useRef(null),dwelled=useRef(new Set());
+  useEffect(()=>{if(!topologyMode)dwelled.current=new Set();},[topologyMode]);
+  useEffect(()=>{
+    if(!largeTopology || !active || disabled || !hoverStore)return undefined;
+    const request=id=>{if(!id || dwelled.current.has(id))return;dwelled.current.add(id);latest.current.onLoadTopology?.([id]);};
+    let timer=null,resting='';
+    const follow=()=>{
+      const id=hoverStore.getSnapshot().modelPartId || '';
+      if(id === resting)return;
+      resting=id;clearTimeout(timer);timer=null;
+      if(id)timer=setTimeout(()=>request(id),TOPOLOGY_DWELL_MS);
+    };
+    const unsubscribe=hoverStore.subscribe(follow);
+    follow();
+    const surface=treeRef.current?.closest('[data-cad-surface]');
+    const press=event=>{if(event.target instanceof Element && event.target.closest('canvas'))request(hoverStore.getSnapshot().modelPartId);};
+    surface?.addEventListener('pointerdown',press,true);
+    return ()=>{unsubscribe();clearTimeout(timer);surface?.removeEventListener('pointerdown',press,true);};
+  },[largeTopology,active,disabled,hoverStore]);
+  // In a large tree under Faces or Edges the menu's Expand and Collapse (a part row's) and Expand
+  // all and Collapse all (every row's) open and close the parts, read as they are when it opens.
+  const partBySelection=useMemo(()=>new Map([...partNodes.values()].filter(node=>node.selectionId).map(node=>[node.selectionId,node.id])),[partNodes]);
+  const rowControls=useMemo(()=>{
+    const controls={isAssemblyView,hiddenPartIds,focusedNodeIds,onHoverTreeNode,onFocusTreeNode,onUnfocusTreeNode,onTogglePartVisibility,menuForNode,menuForReferences,partMenuActions};
+    if(!largeTopology)return controls;
+    const setPart=(selectionId,open)=>{const id=partBySelection.get(selectionId);if(id && open)seeParts([id]);if(id)setOpenParts(current=>current.has(id) === open ? current : (next=>{if(open)next.add(id);else next.delete(id);return next;})(new Set(current)));};
+    return {...controls,
+      menuForNode:menuForNode && (id=>{
+        const menu=menuForNode(id);
+        if(!menu)return menu;
+        const {openParts,partNodes}=latest.current,part=partBySelection.get(id);
+        return {...menu,showExpandCollapse:true,expandSelectedDisabled:!part || openParts.has(part),collapseSelectedDisabled:!part || !openParts.has(part),
+          expandAllDisabled:openParts.size >= partNodes.size,collapseAllDisabled:openParts.size === 0};
+      }),
+      partMenuActions:{...partMenuActions,
+        onExpandSelected:menu=>setPart(menu?.nodeId,true),onCollapseSelected:menu=>setPart(menu?.nodeId,false),
+        onExpandAll:()=>setOpenParts(new Set(latest.current.partNodes.keys())),onCollapseAll:()=>setOpenParts(current=>current.size ? new Set() : current)}};
+  },[isAssemblyView,hiddenPartIds,focusedNodeIds,onHoverTreeNode,onFocusTreeNode,onUnfocusTreeNode,onTogglePartVisibility,menuForNode,menuForReferences,partMenuActions,largeTopology,partBySelection,seeParts]);
+  // A part's count: from its topology once loaded, else from its recognition; nothing until one is.
+  const topologyCounts=useMemo(()=>{
+    const counts=new Map();
+    if(!largeTopology)return counts;
+    for(const ref of references){
+      if(!ref?.occurrenceId || (ref.selectorType !== 'face' && ref.selectorType !== 'edge'))continue;
+      const count=counts.get(ref.occurrenceId) || {faces:0,edges:0};
+      if(ref.selectorType === 'face')count.faces+=1;else count.edges+=1;
+      counts.set(ref.occurrenceId,count);
+    }
+    return counts;
+  },[largeTopology,references]);
+  const componentOf=useMemo(()=>new Map((descriptor?.occurrences || EMPTY).map(o=>[o.id,o.component])),[descriptor]);
+  const partCount=node=>{
+    if(!largeTopology || node.kind !== 'part')return undefined;
+    const loaded=topologyCounts.get(node.occurrenceId || node.selectionId);
+    if(loaded)return countLabel(mode === 'edges' ? loaded.edges : loaded.faces,mode);
+    const result=results[node.component ?? componentOf.get(node.occurrenceId)];
+    if(!result || result.error || !Array.isArray(result.tree))return undefined;
+    if(mode === 'edges')return result.edgeFaces ? countLabel(Object.keys(result.edgeFaces).length,mode) : undefined;
+    return countLabel(new Set(result.tree.flatMap(body=>body.faces || EMPTY)).size,mode);
+  };
+  // A row's actions as primitives (`rowActionsLayout`): whether one is on, and the room they take.
+  const actionsOf=node=>node.selectionId ? rowActionsLayout(node,partControls) : null;
+  const renderTreeRow=at=>{
+    const row=rows[at],on=highlighted.has(row.node.id),actions=actionsOf(row.node);
+    return <MemoModelingRow node={row.node} depth={row.depth} open={row.open} branch={row.branch} disabled={disabled}
+      locked={locked && !(largeTopology && row.node.kind === 'part')} count={partCount(row.node)}
+      actionsShown={Boolean(actions?.shown)} actionsWidth={actions?.width}
+      selected={on} joinAbove={on && at > 0 && highlighted.has(rows[at-1].node.id)} joinBelow={on && at < rows.length-1 && highlighted.has(rows[at+1].node.id)}
+      hiddenByOwner={row.hiddenByOwner} unavailable={row.unavailable} partControls={rowControls}
+      feature={row.node.selectionId ? null : feature} toggle={toggle} choose={choose}/>;
+  };
+  const renderSearchRow=at=>{
+    const match=matches[at],on=highlighted.has(match.entry.node.id),actions=actionsOf(match.entry.node);
+    return <MemoModelingSearchRow match={match} index={searchIndex} availability={availability} cursor={match.entry.node.id === cursorId}
+      actionsShown={Boolean(actions?.shown)} actionsWidth={actions?.width}
+      selected={on} joinAbove={on && at > 0 && highlighted.has(matches[at-1].entry.node.id)} joinBelow={on && at < matches.length-1 && highlighted.has(matches[at+1].entry.node.id)}
+      choose={choose} disabled={disabled} partControls={rowControls} feature={match.entry.node.selectionId ? null : feature}/>;
+  };
   const selectedNode=showDetails ? selected : paths.length === 1 ? paths[0].at(-1) : null;
   const nodeDetails=selectedNode && (selectedNode.summary || selectedNode.note || selectedNode.measurements?.length);
   // The Reference panel's heading is the reference being read (`useStepReference`: its name and
@@ -384,7 +534,7 @@ export default function ModelingTree({ modeling, active, disabled, mode='all', m
           {modeMenu}
           <ToolPanelCollapse/>
         </>}/>}>
-      <div className="flex flex-col text-tiny" aria-label="Modeling tree">
+      <FeatureReferencesContext.Provider value={references}><div ref={treeRef} className="flex flex-col text-tiny" aria-label="Modeling tree">
         {(error || failed>0) && <p role="alert" className="px-3 pb-2 text-micro text-muted-foreground">{error || `${failed} ${failed===1?'component is':'components are'} unavailable.`} <button type="button" className="underline" onClick={retryFailed}>Retry</button></p>}
         <div ref={listRef} className="px-1 py-1" aria-label="Model tree area"
           onClick={event=>{if(!disabled && !event.target.closest('li,button,input,[role="menu"]'))clearSelection();}}>
@@ -395,13 +545,16 @@ export default function ModelingTree({ modeling, active, disabled, mode='all', m
           </div>}
           {searching && <p role="status" className="px-2 py-1 text-micro text-muted-foreground">{found.total > found.matches.length ? `First ${found.matches.length} of ${found.total.toLocaleString()} matches` : `${found.total} ${found.total === 1 ? 'match' : 'matches'}`}</p>}
           {searching ? found.matches.length
-            ? <ul aria-label="Model search results">{found.matches.map(match=><ModelingSearchRow key={match.entry.node.id} {...{match,index:searchIndex,selected:highlighted,joins:searchJoins,cursor:match.entry.node.id === cursorId,choose,disabled,partControls,feature}}/>)}</ul>
+            ? <VirtualRows key="search" aria-label="Model search results" count={matches.length} rowHeight={TREE_ROW_DENSE_HEIGHT} pinned={searchPinned}
+              rowKey={at=>matches[at].entry.node.id} rowProps={at=>({className:'min-w-0','data-search-row':matches[at].entry.node.id})} renderRow={renderSearchRow}/>
             : deferredQuery.trim() && <p className="px-3 py-6 text-center text-tiny text-muted-foreground">{`No part or feature matches “${deferredQuery.trim()}”`}</p>
           : empty && !stepRoot ? <p role="status" className="p-2 leading-relaxed text-muted-foreground">This component has no faces to inspect.</p>
           : !visibleRoots.length && implicitRoots.at(-1)?.recognitionPending ? <p role="status" className="p-2 text-tiny text-muted-foreground">Loading features…</p>
-          : <ul aria-label="Model">{visibleRoots.map(node=><ModelingRow key={node.id} {...{node,selected:highlighted,joins,expanded,locked,choose,disabled,partControls,feature,rowRefs,toggle,inheritedHidden:implicitOwner.hiddenByOwner,inheritedUnavailable:implicitOwner.outsideFrontier}}/>)}</ul>}
+          : <VirtualRows key="tree" aria-label="Model" count={rows.length} rowHeight={TREE_ROW_DENSE_HEIGHT} pinned={treePinned}
+            rowKey={at=>rows[at].key} rowProps={at=>({className:'min-w-0','aria-level':rows[at].depth+1,'data-tree-part':rows[at].node.kind === 'part' ? rows[at].node.id : undefined})}
+            renderRow={renderTreeRow} registerRow={registerRow} onVisibleRange={onVisibleRows}/>}
         </div>
-      </div>
+      </div></FeatureReferencesContext.Provider>
     </ToolPanel>
     {/* What is picked, as its own panel under the tree: it comes with a selection and goes with it. */}
     {/* Not folded away: its X clears the selection, and its Copy (the heading's action) copies the reference on show. */}
@@ -411,3 +564,5 @@ export default function ModelingTree({ modeling, active, disabled, mode='all', m
     </ToolPanel> : null}
   </>;
 }
+
+export default memo(ModelingTree);

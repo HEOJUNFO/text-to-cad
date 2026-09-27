@@ -35,7 +35,7 @@ the reverse.
 | `look/` | `stageEffects` (lighting rig scaled to the model, floor, glow and shadow catcher, grid and origin axes), the Render studio boundary (`renderStudioChunk`, `studioEnvironmentCache` and its worker). `chromeBackdrop` and `useChromeBackdropColor` (the frame colour around a scene). The surface LOOK is data the viewport resolves and a scene applies to its own materials: `@hardcore/core/lib/viewer/surfaceLook.js` (`createSurfaceLook(THREE, root).apply(look)`) does it for any authored material tree. The viewport resolves it with core's `resolveSceneSurfaceLook` (`common/sceneSettings.js`), the resolver the snapshot CLI dresses the same scenes with. |
 | `view-settings/` | The settings model and store (`viewSettingsStore`, `useViewSettings`, `viewerDisplaySettings`, `renderState`), applying a change to a viewport (`useAppliedViewSettings`, `viewUpdateCoordinator`, `viewUpdateGate`, `viewUpdatePlan`), and the Display tool's content (`DisplaySettingsSection`, `DisplayModeOptions`; the shell draws it as a stack panel while Display is the tool). |
 | `tools/` | `FloatingToolBar` (the dumb strip), `toolModes` (the tool-mode state machine), `ToolModeMenu` (a tool's exclusive modes: one button in its panel's header row and its dropdown), `ToolPopover` (an ordinary dropdown from its button, on a `side` and `align`ed start or end: preview's Playback settings, upward from the playbar), `ToolStack` (the bounded, resizable column under the strip, which scrolls only when what cannot give way still does not fit), `ToolPanel` (one panel of it: `fit` says how it gives way when the viewer is short, `sizable` gives it a cap with a height handle, and every panel but Drawing folds to its first row; `ToolPanelCollapse` is the chevron for a panel whose first row is its content's), `toolStackLayout` (the width, the panels' caps and the folded panels: defaults, bounds and their stored record), `floatingSurface` (the two surfaces, defined together: the strip's and every menu's over the viewport, and the stack panels' more transparent one), and the format-blind tools: `draw/` (overlay, view lock, `useDrawingViewLock`), `PreviewChrome` (the top-right bar in both modes, and preview's controls and their visibility), `PlaybackMenu` (preview's Playback settings: Animation — Routine, Speed, Loop, Autoplay — then Orbit and its speed), `preview/` (orbit preferences), `playbar/` (`ViewportAnimationBar`, `animationClock`, `usePlaybackFrames`, `animationPreferences`: Autoplay), `pose/` (the handle overlay, canvas, drag mathematics), `select/` (`usePointerPick`: taps and hover through a scene's own `pick`). Screenshot capture is `@hardcore/core/lib/viewer/screenshotCapture.js`. |
-| `inspector/` | `FileSheet` and its row and section primitives, `modelTreeSearch` (`useTreeSearch`, the ranked flat search every tree shares), `referenceRows` (`InfoRow`, `MonoValue`, `CoordValue`), `kinematicsControls` (the `Pose` row that heads every Position section, with its Reset). The tree row and filter box are `primitives/tree-row` and `primitives/tree-filter`. |
+| `inspector/` | `FileSheet` and its row and section primitives, `modelTreeSearch` (`useTreeSearch`, the ranked flat search every tree shares), `VirtualRows` (a long tree's rows, windowed), `referenceRows` (`InfoRow`, `MonoValue`, `CoordValue`), `kinematicsControls` (the `Pose` row that heads every Position section, with its Reset). The tree row and filter box are `primitives/tree-row` and `primitives/tree-filter`. |
 | `status/` | `LoadingIndicator` and `ViewerLoadingOverlay`, `ViewerAlertCard` (the card over the viewport, and `viewportAlert`, which alert it shows), `MissingFileAlert`, `ViewUpdateStatus`, `loadingState` (`viewerLoadingState`), `loadAlerts` (`failureAlert`, `noGeometryAlert`). |
 | `shell/` | The host glue every renderer needs that is not about its scene: see [Shell](#shell). |
 
@@ -931,19 +931,35 @@ change sets the tree's expansion (`changeSelectMode`): leaving All saves the per
 expansion and coming back restores it (with the owners of selected topology kept open);
 Parts opens every assembly (`collectStepTreeAssemblyNodeIds`) and shuts every part;
 Faces and Edges open every assembly and leave each part to the tree, which asks for a
-part's topology (`onLoadTopology`) and recognition as its row comes on screen (an
-`IntersectionObserver` over the Features panel's body). Those requests, and every other
+part's topology (`onLoadTopology`) and recognition as its row comes on screen (the rows
+the tree's list reports in view, below). Those requests, and every other
 (`loadInspectionTopology`), cost a lookup for a part already requested; new parts expand
 together at most every 150 ms. The loader behind them (`useCadAssets`'
 `loadReferencesForEntry`) unions requests for the file revision it serves, never aborts its
 own work for them, and loads in batches of at most 64 new parts, newest request first, each
-composed incrementally (only the new parts are built). While more loads, what is loaded stays
+composed incrementally (only the new parts are built); a part requested while a batch is in
+flight loads beside it rather than after it. While more loads, what is loaded stays
 pickable: a composition serves the request while every part it holds is still requested
 (`topologyCompositionServes`), and Select is "Preparing selection" only with nothing usable yet.
 A new file revision still invalidates everything loaded. Outside All the tree's
 disclosure is locked (`data-disclosure-locked`) and the part menus drop Expand/Collapse.
 The one-press load for a part not yet loaded stays in the pick path; the Features filter
 row shows `Loading…` while it waits.
+
+**A large tree under Faces and Edges.** Above `LARGE_TREE_ROWS` (300, in `ModelingTree.jsx`) rows
+of assemblies and parts — the fully expanded tree less the features recognition adds under a
+part later, so the tree never changes shape under the person — Faces and Edges keep every
+assembly open and locked but start every part closed: its disclosure is its own (the lock is
+lifted for part rows alone), and it shows its count at its right (`data-part-count`, "412 faces"
+or "96 edges" by the mode, under the row actions' fade), from the part's loaded topology, else
+from its recognition (`tree` faces, `edgeFaces`); the package descriptor carries no per-component
+counts, and nothing is shown until one is known. A part opens by its disclosure, by a pick inside
+it (the reveal opens it and scrolls to the picked row) or by its row menu's Expand; Expand all and
+Collapse all open and close every part. A closed part on screen asks for nothing; opening one asks
+for its topology and recognition at once (Expand all leaves that to the rows as they come on screen),
+and the viewport asks for the part under a pointer that rests on it for `TOPOLOGY_DWELL_MS` (150) or
+presses it, read from the viewport's hover store (`workbench/hoverStore.js`), each part once.
+Below the threshold, and under All and Parts, nothing of this applies.
 
 Explode and Clip follow Measure on the strip; Explode only with two or more parts
 (hidden, never disabled, once the mesh is known). Their panels
@@ -963,6 +979,23 @@ enables joint handles. Robot viewers use the same shell, the shared `Pose` row a
 heading's Reset (`kit/inspector/kinematicsControls.jsx`). Animation belongs to preview.
 Display is not a tool: opening its popover leaves the tool in hand, and the
 selection, as they are.
+
+**The tree's rows are a window.** A large assembly opens onto thousands of rows, so the
+tree (and a search's hits) is one flat list of its visible rows — each open branch's children
+after it, a level deeper — drawn by `kit/inspector/VirtualRows.jsx`: only the rows in the
+panel body's view and a margin either side are mounted, each at the place the whole list
+would give it, in a list as tall as every row, so the scroll range, the rows' positions and
+what is drawn are those of the whole tree. The window follows a scroll before the frame that
+shows it. The selection's row, the search cursor, a focused row and the row whose context menu
+was opened stay mounted wherever they are, so a reveal, Enter, keyboard focus and an open menu
+always have their row; a row carries its level
+(`aria-level`) in place of the nesting it no longer has. Under Faces and Edges the rows the list
+reports on screen (never its margin) are the parts whose topology is asked for, each once (in a
+large tree, only the open ones).
+Rows are memoized on their own facts (their selection and joins as booleans, stable callbacks,
+the one `partControls` object `useStepPanels` keeps), so a re-render of the viewer that changes
+nothing in a row renders no row. Recognition (`useModelingRecognition`) runs one component at a
+time in one worker kept for the next, and its results reach the tree at most once a frame.
 
 The Features rows share the file tree's row primitive and 28px height, inset 4px from
 the panel, with a 20px disclosure column and 12px per level. The disclosure

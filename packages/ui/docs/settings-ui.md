@@ -135,7 +135,15 @@ faces and edges are picked. Outside All the disclosure is locked (chevrons
 shown, not pressable) and Expand/Collapse leave the row menus. Under Faces or Edges
 a part's topology is asked for as its row comes on screen in the tree, never for
 a whole large assembly at once; a viewport press on a part not yet loaded loads
-that part and picks, and the Features filter row says "Loading…" meanwhile.
+that part and picks, and the Features filter row says "Loading…" meanwhile. A large
+assembly (more than 300 rows of assemblies and parts, `LARGE_TREE_ROWS`) opens
+under Faces or Edges with its assemblies open and locked but its parts closed, each
+with a disclosure of its own and, at its right in muted text, its face or edge
+count ("412 faces", "96 edges") once that is known. A part opens by its
+disclosure, by a pick inside it (which scrolls to the picked row) or by the
+row menu's Expand and Expand all; Collapse and Collapse all close parts. A
+closed part's topology is not asked for when its row shows: opening it asks, and
+so does the pointer resting on the part in the viewport (150ms) or pressing it.
 
 **Draw.** Its **Drawing** panel leads the stack while Draw is up, headed "Draw"
 with its X: the tools, then Color, Stroke width (Thin, Medium, Bold — a shape's
