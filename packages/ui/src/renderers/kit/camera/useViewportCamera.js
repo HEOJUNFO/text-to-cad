@@ -7,7 +7,7 @@ import { DEFAULT_VIEW_DIRECTION, VIEW_CUBE_DRAG_RAD_PER_PX, VIEW_PLANE_FACE_BY_I
 /**
  * The camera of a mounted viewport, as React sees it: the perspective a session
  * stores (emitted when it really changed, never while a presentation camera is
- * showing), the initial/stored view, the fullscreen camera swap and its exact
+ * showing), the initial/stored view, the preview camera swap and its exact
  * restore, the reset, and the view cube's face presets. The refs and setters are
  * the mounting component's; this hook owns the behaviour between them and the
  * runtime (`runtimeCamera.js`).
@@ -19,7 +19,7 @@ import { DEFAULT_VIEW_DIRECTION, VIEW_CUBE_DRAG_RAD_PER_PX, VIEW_PLANE_FACE_BY_I
 export function useViewportCamera({
   coordinateSystemFor,
   activeViewPlaneFaceRef,
-  fullscreenCameraRef,
+  previewCameraRef,
   lastEmittedPerspectiveRef,
   cameraMovedRef,
   modelBounds,
@@ -53,7 +53,7 @@ export function useViewportCamera({
     if (!nextPerspective) {
       return;
     }
-    if (previewModeRef.current || fullscreenCameraRef.current) {
+    if (previewModeRef.current || previewCameraRef.current) {
       // LOD still follows the presentation camera, but session persistence does not.
       cameraMovedRef.current?.();
       return;
@@ -91,11 +91,11 @@ export function useViewportCamera({
     }
     return runWithoutPerspectiveEvents(() => applyPerspectiveSnapshot(runtime, nextPerspective, { scheduleIdle: false }));
   }, [perspectiveRef]);
-  const syncFullscreenCamera = (runtime = runtimeRef.current) => {
+  const syncPreviewCamera = (runtime = runtimeRef.current) => {
     if (!runtimeModelKeyMatches(runtime, modelKeyRef.current) || !runtimeFramingBounds(runtime)) return;
-    let saved = fullscreenCameraRef.current;
+    let saved = previewCameraRef.current;
     if (saved && saved.modelKey !== modelKeyRef.current) {
-      fullscreenCameraRef.current = null;
+      previewCameraRef.current = null;
       saved = null;
     }
     const entering = previewModeRef.current;
@@ -114,7 +114,7 @@ export function useViewportCamera({
           interactiveFraming: runtime.interactiveFraming,
           viewportFitScale: runtime.viewportFitScale,
           userMovedCamera: runtime.userMovedCamera };
-        fullscreenCameraRef.current = saved;
+        previewCameraRef.current = saved;
       }
       controls.update();
       if (entering) {
@@ -130,7 +130,7 @@ export function useViewportCamera({
         runtime.viewportFitScale = saved.viewportFitScale;
         runtime.userMovedCamera = saved.userMovedCamera;
         syncRuntimeViewportFraming(runtime);
-        fullscreenCameraRef.current = null;
+        previewCameraRef.current = null;
       }
       controls.enableDamping = true;
       controls.autoRotate = entering && previewOrbitSpeed > 0;
@@ -141,7 +141,7 @@ export function useViewportCamera({
   };
   useLayoutEffect(() => {
     previewModeRef.current = previewMode;
-    syncFullscreenCamera();
+    syncPreviewCamera();
     // Entry/exit must precede ResizeObserver and the next presented frame.
   }, [previewMode, modelKey, viewerReadyTick]);
   // The authored bounds a reset frames, read at the moment of the reset: it is a
@@ -220,7 +220,7 @@ export function useViewportCamera({
     applyInitialPerspective,
     emitPerspectiveChange,
     resetZoomAndPan,
-    syncFullscreenCamera,
+    syncPreviewCamera,
     syncViewPlaneOrientation
   };
 }

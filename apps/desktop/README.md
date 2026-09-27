@@ -31,10 +31,10 @@ registers and so live beside it in `features/explorer/renderers/` rather than in
 file-tab interface is shared with web. Projects, sessions, browser/terminal/
 review tabs, agent integrations and native services remain in this app.
 Neither shared package imports app source, and desktop imports no web source.
-The host keeps the fullscreen orbit preference in one window-wide store, built
-with the shared `createStoredCadPreferences` over `localStorage` (key
-`cad-viewer:orbit:v1`; `adapters/cadPersistence.ts`). Active and newly opened
-roots share that preference; renderer records and the open panel belong to the
+The host keeps preview's orbit speed and Autoplay in one window-wide store, built
+with the shared `createStoredCadPreferences` over `localStorage` (keys
+`cad-viewer:orbit:v1` and `cad-viewer:animation:v1`; `adapters/cadPersistence.ts`).
+Active and newly opened roots share those preferences; renderer records and the open panel belong to the
 tab. The renderer records live in `hardcore.fileViewer.v1`, keyed
 `[sourceId, tabId]`, merged with the shared `mergeChangedRecords`, and forgotten
 when their tab closes for good (`adapters/viewStateStore.ts`).
@@ -1139,23 +1139,23 @@ panel choices read as `null`.
 
 CAD controls are shared with web, and the shared
 [viewer design system](../../packages/ui/docs/settings-ui.md) is their contract;
-what follows is what a desktop tab shows. Every 3D file has a toolbar at the
-top left, ending in **Display**
+what follows is what a desktop tab shows. STEP and robot files have a toolbar at
+the top left
 ([tools and lifecycle](../../packages/ui/docs/settings-ui.md#tools-and-lifecycle)).
 A STEP's is Select, Draw, Measure, Explode, Clip, then Position where the
-sidecar declares kinematics and Animate where it declares routines.
+sidecar declares kinematics.
 No tool has a menu on the strip: what a tool can be set to (Select's modes,
-Measure's snapping, Animate's routine, speed and loop) is its panel beneath the
+Measure's snapping, Position's joints) is its panel beneath the
 toolbar while it is up; Explode and Clip are toggles whose panels sit there too. A robot description's is Select (which picks
 whole links; Shift, Ctrl or Cmd adds one), Position where it has movable joints,
 and it opens in Select. An agent's select command on a robot fails
 with a sentence saying so; its clearSelection clears the link selection. Draw is
 a STEP tool and appears nowhere else. A GLB, an STL and a 3MF have nothing to
-select: they have no toolbar, save Animate for a GLB with clips, and an
-agent's select command on one fails with a sentence saying so. The playbar
-shows while Animate is active and in fullscreen. Buttons wrap inside the
+select: they have no toolbar, and an
+agent's select command on one fails with a sentence saying so. Routines and
+clips play only in preview, whose playbar sits under the model. Buttons wrap inside the
 toolbar in a narrow pane. Display is not a tool: its settings are a popover
-from the button beside Fullscreen, and opening it leaves the tool in hand.
+from the button beside Preview, and opening it leaves the tool in hand.
 
 The file navbar's snapshot action (the camera) attaches the viewport PNG and
 the selected references to this tab's owning session draft through the
@@ -1164,23 +1164,25 @@ anywhere: no percentage readout, no menu behind one, no zoom toolbar. A STEP's
 viewport context menu ends in Zoom to fit and Zoom to selection (off without a
 selection), offered over a part, over the backdrop and on every Features tree
 row. The view cube sits at the bottom right, hidden below the 720px breakpoint
-and in fullscreen: its faces turn the camera to the six plane views and its
+and in preview: its faces turn the camera to the six plane views and its
 corners to the isometric views, keeping the zoom. Neither touches the model, its
 motion or its display settings. The camera is never stored, so reopening a file
 frames it afresh.
 
-**Fullscreen** is the shared shell's own button, a small two-arrow icon at the
-top right of the viewport
-([camera, animation and fullscreen](../../packages/ui/docs/settings-ui.md#camera-animation-and-fullscreen)).
-It keeps this app's navbar, hides the toolbar and suspends the sidebar, orbits
-by default, and offers an Orbit menu and, for a file with animations, a Play
-menu; Escape or its X exits and puts the camera back. The host passes nothing
-for it.
+**Preview** is the shared shell's own button, a play circle in the viewport's
+top-right bar beside Display settings
+([camera, animation and preview](../../packages/ui/docs/settings-ui.md#camera-animation-and-preview)).
+It keeps this app's navbar and file tree column, hides the toolbar and tool
+stack, orbits by default, and offers Playback settings (for a file with
+routines its Routine, Speed, Loop and Autoplay, then Orbit) beside the same
+Display settings; the routine plays on entry only with Autoplay on. Escape or
+its X ("Exit preview") exits, stops the routine and puts the tools view's
+camera back. The host passes nothing for it.
 
 A STEP's Settings holds Features, then Issues when there are any, and Position
 when the sidecar declares kinematics (a `Pose` choice with its Reset, then the
 joint sliders); with Position present, Features and Position are separate tabs.
-Animate's playback and Position's pose retain independent runtimes, enable state
+Preview's playback and Position's pose retain independent runtimes, enable state
 and actions; every pose write (a value, a named pose, a Position-tool knob,
 Reset) is an instant jump, and Reset also stops any playing routine and hands
 the pose back to Position. A robot's Settings holds Links (the link tree, an

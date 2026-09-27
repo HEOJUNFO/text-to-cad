@@ -748,7 +748,7 @@ async function canvasMenuItems(page, canvas) {
 
 async function formatGate() {
   // Desktop7f6 groups navigation under View controls and capture under Capture.
-  // Its Orbit action provides the immersive preview (main called it Fullscreen).
+  // Its Orbit action provides the immersive preview (the viewer's Preview mode).
   // Require each action through that preserved layout, not one standalone button.
   const tools = ["Select", "Draw", "View controls", "Capture"];
   // Framing lives in STEP's viewport menu and nowhere else: no other renderer opens a

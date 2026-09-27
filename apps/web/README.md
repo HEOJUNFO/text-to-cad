@@ -202,7 +202,7 @@ The shared [viewer design system](../../packages/ui/docs/settings-ui.md) is the
 authoritative contract for the [toolbar](../../packages/ui/docs/settings-ui.md#tools-and-lifecycle),
 [tool stack and mobile layout](../../packages/ui/docs/settings-ui.md#the-tool-stack),
 settings controls, selection and
-[fullscreen](../../packages/ui/docs/settings-ui.md#camera-animation-and-fullscreen).
+[preview](../../packages/ui/docs/settings-ui.md#camera-animation-and-preview).
 Keep those rules there rather than maintaining a separate web layout
 specification.
 
@@ -211,17 +211,17 @@ and native service adapters. Shared renderers own all model interaction. STEP an
 robots open in Select, whose Features (Links for a robot) panel hangs under the
 toolbar with the rest of the tool stack; Position's panel replaces it while Position
 is the tool. The nav row has no panel of the file's: Show files is its one toggle.
-Every 3D file has a
-top-left toolbar ending in Display, static GLB files included; Animate appears
-only for files with routines or clips. DXF is a 2D canvas with pan, zoom and
+STEP and robot files have a
+top-left toolbar; GLB, STL and 3MF have none. Every 3D file has Display settings
+and Preview in the top-right bar. DXF is a 2D canvas with pan, zoom and
 snapshot, without a 3D toolbar or tool stack.
 
 Below 720px of FileViewer width, the file tree becomes a floating sheet over the
 viewer, the crumbs collapse to the current file, the view cube is hidden and the
-tree panel of the tool stack starts folded. Fullscreen is the shared shell's
-top-right button: it keeps the navbar and the file tree column, hides the tool
-stack, orbits by default and
-offers separate Orbit and animation menus; the host passes no fullscreen props.
+tree panel of the tool stack starts folded. Preview is the shared shell's
+top-right button: it keeps the navbar and the file tree column, hides the toolbar
+and tool stack, orbits by default, plays routines (on entry only with Autoplay on)
+and offers Playback and Display settings; the host passes no preview props.
 The camera is never stored, so a refresh frames the file anew; Display settings,
 pose and explode are kept per file through the shared state contract (see
 [storage](docs/storage.md)).

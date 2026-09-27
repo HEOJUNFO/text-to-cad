@@ -1,23 +1,21 @@
 import { createPortal } from "react-dom";
-import { VIEWPORT_BOTTOM_CENTER, VIEWPORT_INSET_PX, VIEWPORT_TOP_BAR_PX } from "./viewportLayout.js";
-import { useEffect, useMemo, useState } from "react";
-import { CirclePlay, Play, Pause, Maximize2 } from "lucide-react";
+import { VIEWPORT_BOTTOM_CENTER, VIEWPORT_INSET_PX } from "./viewportLayout.js";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { CirclePlay, Play, Pause, X } from "lucide-react";
 import { ToolbarButton } from "@hardcore/ui/primitives/toolbar-button";
 import PreviewChrome from "../tools/PreviewChrome.jsx";
 import { useViewerMobile } from "../../../file-viewer/responsive.js";
 import ViewerAlertCard from "../status/ViewerAlertCard.jsx";
 import { ViewUpdateStatus } from "../status/ViewUpdateStatus.jsx";
 import ViewerLoadingOverlay from "../status/ViewerLoadingOverlay.js";
-import { presentationDisplaySettings } from "../view-settings/viewerDisplaySettings.js";
+import { VIEWER_RENDER_PROFILE, renderProfileKeepsPixelRatio, sceneForRenderProfile } from "../viewport/renderProfile.js";
 import DisplayPopover from "./DisplayPopover.jsx";
 import { DrawingToolbar } from "../../../drawing/toolbar.jsx";
 import ToolPanel from "../tools/ToolPanel.jsx";
-import PlayMenu from "../tools/PlayMenu.jsx";
-import { AnimateControls, AnimateSettingsMenu } from "../tools/AnimateControls.jsx";
-import OrbitMenu from "../tools/OrbitMenu.jsx";
+import PlaybackMenu from "../tools/PlaybackMenu.jsx";
 import FloatingToolBar from "../tools/FloatingToolBar.js";
 import ToolStack from "../tools/ToolStack.jsx";
-import { ViewportAnimationBar } from "../tools/playbar/ViewportAnimationBar.js";
+import { ViewportAnimationBar, animationControlsHaveContent } from "../tools/playbar/ViewportAnimationBar.js";
 import ShellViewport from "./ShellViewport.jsx";
 import ViewportBottomAction, { drawingCaptureAction } from "./ViewportBottomAction.jsx";
 import ViewportContextMenu from "./ViewportContextMenu.jsx";
@@ -26,15 +24,17 @@ import ViewportContextMenu from "./ViewportContextMenu.jsx";
 // bottom edges: the column is exactly the height the stack may take, so however many panels
 // are up, it never runs past the viewer (`ToolPanel.jsx` decides which of them gives way).
 const INSET = `${VIEWPORT_INSET_PX}px`;
-// The strip and its stack stop short of the top-right bar (Display settings, Fullscreen).
+// The strip and its stack stop short of the top-right bar (Display settings, Preview).
 const TOOLBAR_POSITION = Object.freeze({ top: INSET, left: INSET, bottom: INSET, maxWidth: "calc(100% - 76px)" });
 const MODEL_UPDATE_STATUS = Object.freeze({ pending: true, label: "Updating model…" });
+// The top-right bar's buttons are transparent over the model.
+const BAR_BUTTON_CLASS = "size-6 bg-transparent hover:bg-transparent dark:hover:bg-transparent";
 
 /**
  * The frame every file-family renderer draws itself in: the viewport box with
  * the tool strip at its corner and the tool stack under it, the active tool's bottom
- * action, the loading, update and alert overlays, fullscreen's controls, and the Display
- * panel. The same structure, classes and data attributes for every renderer:
+ * action, the loading, update and alert overlays, the top-right bar (Display settings and
+ * Preview), and preview mode's controls. The same structure, classes and data attributes for every renderer:
  * hosts, stylesheets and tests key on them. A file's controls are never a sidebar: they are
  * panels in the tool stack, shown by the tool they belong to.
  *
@@ -56,7 +56,9 @@ const MODEL_UPDATE_STATUS = Object.freeze({ pending: true, label: "Updating mode
  *   `toolPanels`: the tool stack's panels, top to bottom — each a `ToolPanel`
  *   (`kit/tools/ToolPanel.jsx`), shown or `hidden` by the renderer as its tools say: what
  *   the tool in hand shows (Select's tree and Reference, Position's joints), then the
- *   effects a person keeps. The stack is one column the viewer's height, gone in fullscreen.
+ *   effects a person keeps. The stack is one column the viewer's height, gone in preview.
+ *   `playback`: the playbar runtime, when the renderer hands the shell one of its own rather
+ *   than through `useRendererShell`'s `animation`. Routines play in preview alone.
  *   `bottomAction`
  *   replaces Draw's (copy the view with its ink) while the renderer's own tool is active.
  *   `contextMenuItems`: what THIS renderer offers on a secondary tap over the canvas; the
@@ -84,48 +86,42 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
   const mobile = useViewerMobile();
   const { view, resolvedScene, viewerLoading, scene } = frame;
   // The one presentation state: every gate — the viewport's, the renderer's — reads it.
-  const { presenting, setPresenting } = shell;
+  const { previewing, setPreviewing } = shell;
   const animation = playback || frame.animation;
-  const hasAnimation = Boolean(animation?.clips?.length);
-  const animationTool = tools.find(tool => tool.id === "animate");
+  const hasAnimation = animationControlsHaveContent(animation);
+  // Preview orbits the model from the moment it starts; its Playback settings turn that off.
   const [orbitPlaying, setOrbitPlaying] = useState(true);
-  const [localAnimationActive, setLocalAnimationActive] = useState(false);
-  // Display's settings: a popover from its button beside Fullscreen, not a tool — opening it
+  // Display's settings: a popover from its button in the top-right bar, not a tool — opening it
   // leaves the tool in hand as it is. Another file starts with it shut.
   const [displayOpen, setDisplayOpen] = useState(false);
-  useEffect(() => { setPresenting(false); setLocalAnimationActive(false); setDisplayOpen(false); }, [frame.modelKey, setPresenting]);
-  // A file whose only tool would be the shell's Animate (a mesh scene with clips) has no strip at all: its
-  // Animate panel is simply there, top-left, with nothing to leave it for and so no X.
-  const onlyAnimate = hasAnimation && !animationTool && tools.length === 0;
-  const animationActive = onlyAnimate || (animationTool ? animationTool.active : localAnimationActive || animation?.enabled);
-  const previewDisplay = useMemo(() => presenting ? presentationDisplaySettings(resolvedScene.display) : resolvedScene.display, [presenting, resolvedScene.display]);
-  const leaveFullscreen = () => setPresenting(false);
-  // A renderer's own Animate tool is drawn as it is handed over; a renderer without one gets
-  // the shell's. Its routine, speed and loop are the Animate panel.
-  const animateTool = !hasAnimation ? null : animationTool ? animationTool : {
-    id: "animate", label: "Animate", icon: <CirclePlay className="size-3" aria-hidden="true" />,
-    active: Boolean(animationActive), disabled: shell.idle,
-    // Taken up, it plays when Autoplay is on; a second press, as on any tool that is up, does nothing.
-    onSelect: () => {
-      if (animationActive) return;
-      shell.selectTool("animate"); setLocalAnimationActive(true); if (shell.autoplay && !animation.playing) animation.onPlayToggle();
-    },
+  useEffect(() => { setPreviewing(false); setDisplayOpen(false); }, [frame.modelKey, setPreviewing]);
+  // One viewport, two render profiles over the same Display settings (`renderProfile.js`): the
+  // tools view is drawn for working on the model, preview for looking at it.
+  const renderProfile = previewing ? VIEWER_RENDER_PROFILE.PREVIEW : VIEWER_RENDER_PROFILE.TOOLS;
+  const drawnScene = useMemo(() => sceneForRenderProfile(resolvedScene, renderProfile), [resolvedScene, renderProfile]);
+  // Preview is the one place routines play: entering it starts one when Autoplay is on, and
+  // leaving it puts the model back at rest (its Routine, Speed and Loop stay for the next time).
+  const enterPreview = () => {
+    setOrbitPlaying(true); setDisplayOpen(false); setPreviewing(true);
+    if (hasAnimation && shell.autoplay && !animation.playing) animation.onPlayToggle();
   };
-  const viewerTools = onlyAnimate ? [] : [...tools.filter(tool => tool !== animationTool), ...(animateTool ? [animateTool] : [])];
+  const leavePreview = () => { setDisplayOpen(false); setPreviewing(false); };
+  const releaseRef = useRef(null);
+  releaseRef.current = animation?.onRelease || null;
+  const wasPreviewing = useRef(previewing);
+  useEffect(() => {
+    if (wasPreviewing.current && !previewing) releaseRef.current?.();
+    wasPreviewing.current = previewing;
+  }, [previewing]);
   // Every tool's panel but Select's has an X that puts the tool down, back to Select (the default
   // tool, which cannot be put down: its panels fold instead).
-  const leaveTool = () => { setLocalAnimationActive(false); shell.selectDefaultTool(); };
-  // The shell's own tools' panels lead the stack while their tool is up: Draw's tools, color and
-  // history, and Animate's routine, speed and loop. The renderer's follow.
+  const leaveTool = () => shell.selectDefaultTool();
+  // The shell's own tool's panel leads the stack while its tool is up: Draw's tools, color and
+  // history. The renderer's follow.
   const shellPanels = <>
     {/* Headed "Draw", with its X; the buttons under it wrap as they are. */}
     {frame.drawToolActive ? <ToolPanel id="drawing" title="Draw" label="Drawing controls" collapsible={false} onClose={leaveTool} closeLabel="Close draw">
       <DrawingToolbar drawing={frame.drawing} layout="panel" className="p-1" />
-    </ToolPanel> : null}
-    {hasAnimation && animationActive && !presenting ? <ToolPanel id="animate" title="Animate" label="Animate controls" fit="details"
-      collapsible={false} onClose={onlyAnimate ? null : leaveTool} closeLabel="Close animate"
-      actions={<AnimateSettingsMenu animation={animation} autoplay={shell.autoplay} onAutoplayChange={shell.setAutoplay} />}>
-      <AnimateControls animation={animation} disabled={viewerLoading || !scene} />
     </ToolPanel> : null}
   </>;
 
@@ -134,14 +130,14 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
     ? drawingCaptureAction({ disabled: viewerLoading || !hasContent, onInvoke: frame.copyDrawing })
     : null);
   frame.copyActionRef.current = () => {
-    if (presenting) return false;
+    if (previewing) return false;
     if (frame.drawToolActive && frame.drawing.hasContent) { frame.copyDrawing(); return true; }
     if (bottomAction?.onInvoke && !bottomAction.disabled) { bottomAction.onInvoke(); return true; }
     return false;
   };
   // The renderer's overlay and the shell's own layers share one viewport context.
   const overlay = viewport => <>
-    {presenting || !contextMenuItems ? null : <ViewportContextMenu viewport={viewport} items={contextMenuItems} onOpenChange={onContextMenuOpenChange} />}
+    {previewing || !contextMenuItems ? null : <ViewportContextMenu viewport={viewport} items={contextMenuItems} onOpenChange={onContextMenuOpenChange} />}
     {typeof viewportOverlay === "function" ? viewportOverlay(viewport) : viewportOverlay}
   </>;
   const body = (
@@ -183,15 +179,14 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
                     projection={resolvedScene.camera.projection}
                     focalLength={resolvedScene.camera.focalLength}
                     themeSettings={resolvedScene.theme}
-                    displaySettings={previewDisplay}
+                    displaySettings={drawnScene.display}
                     appearance={resolvedScene.appearance}
                     receiveShadows={resolvedScene.view.lighting.enabled}
                     renderMode={resolvedScene.render.enabled}
                     renderConfiguration={resolvedScene.render.configuration}
-                    quality={resolvedScene.quality}
-                    orbitPreview={presenting && orbitPlaying}
-                    controlsHidden={presenting}
-                    previewMode={presenting}
+                    quality={drawnScene.quality}
+                    orbitPreview={previewing && orbitPlaying}
+                    previewMode={previewing}
                     previewOrbitSpeed={frame.previewOrbitSpeed ?? 1}
                     isLoading={viewerLoading}
                     viewUpdate={frame.viewUpdate}
@@ -202,43 +197,47 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
                     onPresentationChange={frame.handlePresentationChange}
                     onViewerAlertChange={frame.setRuntimeAlert}
                     onCameraSettled={frame.onCameraSettled}
-                    preserveInteractionPixelRatio={frame.preserveInteractionPixelRatio}
+                    preserveInteractionPixelRatio={frame.preserveInteractionPixelRatio || renderProfileKeepsPixelRatio(renderProfile)}
                     runtimeLifecycle={frame.runtimeLifecycle}
                   >{overlay}</ShellViewport>
-                  {!presenting ? <ViewerAlertCard key={frame.modelKey} alert={frame.viewerAlert} hasContent={hasContent} onReload={view.reload} /> : null}
-                  {!presenting && action ? <ViewportBottomAction shortcut={frame.copyShortcut} {...action} /> : null}
+                  {!previewing ? <ViewerAlertCard key={frame.modelKey} alert={frame.viewerAlert} hasContent={hasContent} onReload={view.reload} /> : null}
+                  {!previewing && action ? <ViewportBottomAction shortcut={frame.copyShortcut} {...action} /> : null}
                 </div>
               </div>
 
-              <PreviewChrome active={presenting} surface={frame.hostElement} onExit={leaveFullscreen}
-                settings={onOpenChange => <>
-                  {hasAnimation && <PlayMenu onOpenChange={onOpenChange} allowInactive
-                    trigger={<ToolbarButton label="Animation settings"><Play className="size-3.5" strokeWidth={1.5} aria-hidden="true" /></ToolbarButton>}
-                    animation={animation} />}
-                  <OrbitMenu enabled={orbitPlaying} onEnabledChange={setOrbitPlaying}
-                    speed={frame.previewOrbitSpeed || 1} onSpeedChange={frame.setPreviewOrbitSpeed} onOpenChange={onOpenChange} />
+              {/* Preview: the tools put away and the model orbiting, its routines playing. The
+                  top-right bar stays where it is — Display settings in the same place — with
+                  Playback settings before it and an X for Preview; under the model, the playbar
+                  (a static file's, the orbit's play and pause). */}
+              <PreviewChrome active={previewing} surface={frame.hostElement} hold={displayOpen}
+                actions={onMenuOpenChange => <>
+                  {previewing ? <PlaybackMenu animation={hasAnimation ? animation : null} onOpenChange={onMenuOpenChange}
+                    autoplay={shell.autoplay} onAutoplayChange={shell.setAutoplay}
+                    orbit={orbitPlaying} onOrbitChange={setOrbitPlaying}
+                    orbitSpeed={frame.previewOrbitSpeed || 1} onOrbitSpeedChange={frame.setPreviewOrbitSpeed} /> : null}
+                  <DisplayPopover open={displayOpen} onOpenChange={setDisplayOpen} disabled={shell.idle}
+                    projection={resolvedScene.camera.projection}>{frame.display}</DisplayPopover>
+                  {previewing
+                    ? <ToolbarButton key="exit" tooltip={false} label="Exit preview" className={BAR_BUTTON_CLASS} onClick={leavePreview}>
+                      <X className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
+                    </ToolbarButton>
+                    : <ToolbarButton key="preview" label="Preview" className={BAR_BUTTON_CLASS} disabled={shell.idle} onClick={enterPreview}>
+                      <CirclePlay className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
+                    </ToolbarButton>}
                 </>}
-                // The Animate panel carries the playbar in the regular view; fullscreen draws it under the model.
-                playbar={hasAnimation && presenting ? <ViewportAnimationBar key={frame.modelKey} runtime={animation}
-                  avoidViewControl={!presenting} className="pointer-events-auto" disabled={viewerLoading || !scene} /> : presenting ?
+                playbar={hasAnimation ? <ViewportAnimationBar key={frame.modelKey} runtime={animation}
+                  className="pointer-events-auto" disabled={viewerLoading || !scene} /> :
                   <div role="toolbar" aria-label="Orbit playback" data-preview-hover-hold="" style={{ bottom: VIEWPORT_BOTTOM_CENTER }}
                     className="pointer-events-auto absolute left-1/2 -translate-x-1/2 translate-y-1/2 px-6 py-4">
                     <ToolbarButton tooltip={false} label={orbitPlaying ? "Pause orbit" : "Play orbit"} onClick={() => setOrbitPlaying(value => !value)}>
                       {orbitPlaying ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
                     </ToolbarButton>
-                  </div> : null}>
+                  </div>}>
 
               <div className="group/tool-stack pointer-events-none absolute z-20 flex flex-col items-start gap-2" style={TOOLBAR_POSITION}
                 data-mobile={mobile ? "" : undefined} data-cad-tool-groups="">
-                <FloatingToolBar tools={viewerTools} />
-                <ToolStack hidden={presenting} mobile={mobile} layout={frame.toolStack} onLayoutChange={frame.changeToolStack}>{shellPanels}{toolPanels}</ToolStack>
-              </div>
-              <div className="pointer-events-auto absolute flex items-center justify-end gap-0.5" style={{ top: INSET, right: INSET, height: VIEWPORT_TOP_BAR_PX }}>
-                <DisplayPopover open={displayOpen} onOpenChange={setDisplayOpen} disabled={shell.idle}>{frame.display}</DisplayPopover>
-                <ToolbarButton tooltip={false} label="Fullscreen" className="size-6 bg-transparent hover:bg-transparent dark:hover:bg-transparent"
-                  disabled={shell.idle} onClick={() => { setOrbitPlaying(true); setPresenting(true); }}>
-                  <Maximize2 className="size-3" strokeWidth={1.5} aria-hidden="true" />
-                </ToolbarButton>
+                <FloatingToolBar tools={tools} />
+                <ToolStack hidden={previewing} mobile={mobile} layout={frame.toolStack} onLayoutChange={frame.changeToolStack}>{shellPanels}{toolPanels}</ToolStack>
               </div>
 
               </PreviewChrome>

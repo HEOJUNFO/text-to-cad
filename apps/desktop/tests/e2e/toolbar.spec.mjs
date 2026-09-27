@@ -141,10 +141,10 @@ test('CAD tools stay within the scene, with direct snapshot and Select filters',
       await expect(page.getByRole('button', { name: 'Take snapshot', exact: true })).toBeVisible();
       await expect(toolbar.getByRole('group', { name: 'View and actions' })).toHaveCount(0);
       for (const name of ['Select', 'Measure', 'Draw']) await expect(tools.getByRole('button', { name, exact: true })).toBeVisible();
-      // Fullscreen is the viewer's own corner button, never a tool; Display is the toolbar's
+      // Preview is the viewer's own corner button, never a tool; Display is the toolbar's
       // last button, a popover.
-      await expect(tools.getByRole('button', { name: 'Fullscreen', exact: true })).toHaveCount(0);
-      await expect(page.getByRole('button', { name: 'Fullscreen', exact: true })).toHaveCount(1);
+      await expect(tools.getByRole('button', { name: 'Preview', exact: true })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Preview', exact: true })).toHaveCount(1);
       await expect(toolbar.getByRole('button', { name: 'Display', exact: true })).toBeVisible();
       assert.equal((await toolbar.getByRole('button').evaluateAll(els => els.map(el => el.getAttribute('aria-label')))).at(-1), 'Display');
       await expect(toolbar.getByRole('button', { name: /^Viewing mode:/ })).toHaveCount(0);

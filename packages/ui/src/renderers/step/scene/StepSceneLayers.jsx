@@ -254,7 +254,7 @@ export default function StepSceneLayers({ viewport, stepScene, policy, props, ap
     onMeasurePick: handleMeasurePick,
     onMeasureHoverPoint: handleMeasureHoverPoint,
     viewerReadyTick,
-    // Nothing under the pointer is picked or hovered while a routine plays, under Animate or Position.
+    // Nothing under the pointer is picked or hovered while a routine plays, in preview or under Position.
     suppressTopologyPicking: animateMode || Array.isArray(jointHandles) || stepAnimationPlaying
   });
 

@@ -66,7 +66,7 @@ export default function ViewportContextMenu({ viewport, items, onOpenChange = nu
     reportedOpenRef.current = isOpen;
     openChangeRef.current?.(isOpen);
   }, [isOpen]);
-  // Unmounting with a menu up (fullscreen, a tool change that withdraws the items) is a close too.
+  // Unmounting with a menu up (preview, a tool change that withdraws the items) is a close too.
   useEffect(() => () => {
     if (reportedOpenRef.current) { reportedOpenRef.current = false; openChangeRef.current?.(false); }
   }, []);

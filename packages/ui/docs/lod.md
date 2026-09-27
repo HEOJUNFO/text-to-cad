@@ -37,7 +37,9 @@ complete estimate.
 Coarse geometry is a temporary preview: visible components automatically reach
 at least the standard level, preserving its angular smoothness even when
 projected chord error alone would permit a coarser mesh. Close inspection can
-request finer detail. The chrome does not report detail levels: the STEP renderer
+request finer detail, and so does preview, which the STEP renderer draws one
+scene-quality tier up (`kit/viewport/renderProfile.js`) without changing the Display
+setting. The chrome does not report detail levels: the STEP renderer
 records first geometry and standard detail for benchmark harnesses only
 (`window.__cadViewerQuality`, `useViewportQualityStatus`), and background file
 writing stays quiet.
@@ -133,7 +135,7 @@ scene — so a progressive open or a detail swap never re-dresses every material
 re-adopts anything. The scene is `complete: false` until the last component is
 in, which is what frames the model on its first publish and once more when it is
 whole. The camera sample that drives all of this is taken when the viewport says
-the camera settled (`onCameraSettled`: a move, a fullscreen orbit, or a resize,
+the camera settled (`onCameraSettled`: a move, a preview orbit, or a resize,
 which can expose a part without moving the camera) and when the selection changes.
 
 A static component publication can reuse the main adoption's completed reset

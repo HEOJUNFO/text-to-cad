@@ -2,7 +2,7 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import PlayMenu from '../../../../../dist/renderers/kit/tools/PlayMenu.js';
+import PlaybackMenu from '../../../../../dist/renderers/kit/tools/PlaybackMenu.js';
 import { ViewportAnimationBar, animationControlsHaveContent } from '../../../../../dist/renderers/kit/tools/playbar/ViewportAnimationBar.js';
 import { createAnimationClock } from '../../../../../dist/renderers/kit/tools/playbar/animationClock.js';
 
@@ -36,18 +36,24 @@ it('keeps routine, speed and loop out of the transport even with several clips',
   expect(screen.getByRole('slider', { name: 'Animation time' })).toBeTruthy();
 });
 
-it('has a player\'s settings menu: Speed opens the list of speeds, Loop toggles in place', async () => {
+it('has one Playback settings menu: the routine\'s Speed, Loop and Autoplay, then the orbit', async () => {
   const user = userEvent.setup();
-  const onMenuOpenChange = vi.fn(), runtime = routine({ speed: 1.25 });
-  render(<PlayMenu allowInactive trigger={<button>Playback settings</button>} animation={runtime} onOpenChange={onMenuOpenChange} />);
+  const onMenuOpenChange = vi.fn(), onAutoplayChange = vi.fn(), onOrbitChange = vi.fn(), onOrbitSpeedChange = vi.fn();
+  const runtime = routine({ speed: 1.25 });
+  render(<PlaybackMenu animation={runtime} autoplay={false} onAutoplayChange={onAutoplayChange} orbit onOrbitChange={onOrbitChange}
+    orbitSpeed={1} onOrbitSpeedChange={onOrbitSpeedChange} onOpenChange={onMenuOpenChange} />);
   await user.click(screen.getByRole('button', { name: 'Playback settings' }));
-  // Fullscreen holds its chrome open while the shared menu is open.
+  // Preview holds its chrome open while the menu is open.
   expect(onMenuOpenChange).toHaveBeenLastCalledWith(true);
-  const speed = await screen.findByRole('menuitem', { name: /Speed/ });
-  expect(speed.textContent).toContain('1.25×');
+  const speed = await screen.findByRole('menuitem', { name: 'Animation speed: 1.25×' });
   await user.click(screen.getByRole('menuitemcheckbox', { name: 'Loop' }));
   expect(runtime.onLoopToggle).toHaveBeenLastCalledWith(false);
-  expect(screen.getByRole('menuitemcheckbox', { name: 'Loop' })).toBeTruthy();
+  // Ticking a checkbox leaves the menu open.
+  await user.click(screen.getByRole('menuitemcheckbox', { name: 'Autoplay' }));
+  expect(onAutoplayChange).toHaveBeenLastCalledWith(true);
+  await user.click(screen.getByRole('menuitemcheckbox', { name: 'Orbit' }));
+  expect(onOrbitChange).toHaveBeenLastCalledWith(false);
+  expect(screen.getByRole('menuitem', { name: 'Orbit speed: 1×' })).toBeTruthy();
   await user.click(speed);
   const speeds = (await screen.findAllByRole('menuitemradio')).map(item => item.textContent);
   // An authored speed the presets lack is listed, so the menu never shows nothing checked.
@@ -56,6 +62,21 @@ it('has a player\'s settings menu: Speed opens the list of speeds, Loop toggles 
   screen.getByRole('menuitemradio', { name: '2×' }).focus();
   await user.keyboard('{Enter}');
   expect(runtime.onSpeedChange).toHaveBeenLastCalledWith(2);
+});
+
+it('offers a static file\'s orbit alone, and a routine picker only with several routines', async () => {
+  const user = userEvent.setup();
+  const view = render(<PlaybackMenu animation={null} autoplay={false} onAutoplayChange={vi.fn()} orbit={false} onOrbitChange={vi.fn()}
+    orbitSpeed={0.5} onOrbitSpeedChange={vi.fn()} />);
+  await user.click(screen.getByRole('button', { name: 'Playback settings' }));
+  expect((await screen.findAllByRole('menuitemcheckbox')).map(item => item.textContent)).toEqual(['Orbit']);
+  expect(screen.queryByRole('menuitem', { name: /Routine/ })).toBeNull();
+  expect(screen.getByRole('menuitem', { name: 'Orbit speed: 0.5×' })).toBeTruthy();
+  view.unmount();
+  render(<PlaybackMenu animation={routine({ clips: [{ id: 'turn', label: 'Turn', duration: 8 }, { id: 'open', label: 'Open', duration: 3 }] })}
+    autoplay onAutoplayChange={vi.fn()} orbit onOrbitChange={vi.fn()} orbitSpeed={1} onOrbitSpeedChange={vi.fn()} />);
+  await user.click(screen.getByRole('button', { name: 'Playback settings' }));
+  expect((await screen.findByRole('menuitem', { name: /Routine/ })).textContent).toContain('Turn');
 });
 
 it('does not exist for a file without routines, loading or failed', () => {

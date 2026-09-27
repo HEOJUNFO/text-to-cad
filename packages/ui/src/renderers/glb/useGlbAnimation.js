@@ -69,6 +69,12 @@ export function useGlbAnimation(document, requestRender) {
     clock.resetAnimationClock();
     update({ enabled: true, playing: false, elapsedSec: 0 });
   }, [clock, update]);
+  // Leaving preview: stopped, rewound and at rest, the mixer gone; the routine, speed and loop stay.
+  const onRelease = useCallback(() => {
+    if (!stateRef.current.enabled && !stateRef.current.playing) return;
+    clock.resetAnimationClock();
+    update({ enabled: false, playing: false, elapsedSec: 0 });
+  }, [clock, update]);
   const onScrub = useCallback((value) => {
     if (!activeClip) return;
     const elapsedSec = clampAnimationElapsed(value, activeClip.duration);
@@ -125,8 +131,8 @@ export function useGlbAnimation(document, requestRender) {
     clips, activeClipId: activeClip?.id || "", enabled: state.enabled, playing: state.playing,
     elapsedSec: state.elapsedSec, speed: state.speed, loopEnabled: state.loopEnabled,
     clock, showRestart: false,
-    onClipSelect, onPlayToggle, onRestart, onScrub,
+    onClipSelect, onPlayToggle, onRestart, onScrub, onRelease,
     onSpeedChange: (speed) => update({ speed: clampAnimationSpeed(speed) }),
     onLoopToggle: (loopEnabled) => update({ loopEnabled: loopEnabled !== false })
-  } : null), [clips, activeClip, state, clock, onClipSelect, onPlayToggle, onRestart, onScrub, update]);
+  } : null), [clips, activeClip, state, clock, onClipSelect, onPlayToggle, onRestart, onScrub, onRelease, update]);
 }

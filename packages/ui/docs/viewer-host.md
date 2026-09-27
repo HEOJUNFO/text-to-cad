@@ -62,16 +62,17 @@ caps a person dragged the tree, Position and Reference panels to, and the folded
 is one viewer preference the host stores with `createStoredCadPreferences` (key
 `cad-viewer:tool-stack:v1`), beside the orbit speed.
 
-## Fullscreen and renderer navigation actions
+## Preview and renderer navigation actions
 
-Fullscreen is the shared shell's own presentation state; there is no host prop
-for it and a host cannot start or observe it. It expands the scene below the
-host's navbar and panel column, which both stay as they are (the column can
-still be opened and shut). It never uses the browser Fullscreen API. The shell saves the regular camera, fits a presentation camera and restores
-the regular camera on exit; nothing of the presentation is persisted. Orbit
-starts by default, with its speed from `CadPreferences.orbit` (the app's
+Preview is the shared shell's own state (`previewing`); there is no host prop
+for it and a host cannot start or observe it. It fills the scene below the
+host's navbar and beside its panel column, which both stay as they are (the column can
+still be opened and shut). It never uses the browser Fullscreen API. The shell saves the tools view's camera, fits a preview camera and restores
+the tools view's exact pose on exit; nothing of preview is persisted. Orbit
+starts by default, with its speed from `CadPreferences.orbit`, and a file's routine
+plays on entry only when `CadPreferences.animation.autoplay` is on (both the app's
 preference store). The rules are in
-[settings-ui.md](settings-ui.md#camera-animation-and-fullscreen).
+[settings-ui.md](settings-ui.md#camera-animation-and-preview).
 
 A renderer can publish `FileNavigationAction[]` through
 `RendererViewProps.onNavigationActionsChange`. The shared navbar shows these
@@ -280,7 +281,7 @@ permit its compilation in CSP without enabling JavaScript eval.
 host controls before renderer navigation actions (such as Snapshot), and
 `displayActions` passes host-owned appearance controls into the Display section beside Projection via
 `RendererViewProps`. The shell handles placement and hides the toolbar in
-fullscreen; the host owns callbacks and preferences. These slots do not imply platform detection
+preview; the host owns callbacks and preferences. These slots do not imply platform detection
 or move application-specific release/network behavior into shared UI.
 
 For snapshot actions, clipboard destinations receive the viewport PNG directly

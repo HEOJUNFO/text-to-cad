@@ -46,7 +46,7 @@ export function cameraForViewSettings(camera, display, options) {
 }
 
 /** Presentation suspends model effects without changing the per-file settings. */
-export function presentationDisplaySettings(display) {
+export function previewDisplaySettings(display) {
   return { ...display, clip: { ...display.clip, enabled: false },
     exploded: { ...display.exploded, enabled: false, amount: 0 } };
 }

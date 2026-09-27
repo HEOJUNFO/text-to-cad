@@ -88,7 +88,7 @@ test('a shell renderer resolves deferred files, reuses warm assets, restores iso
   // The nav row's panel toggles, in order, each with whether its panel is the open one.
   const panels = pane => pane.locator('[data-file-panel]')
     .evaluateAll(buttons => buttons.map(button => `${button.getAttribute('aria-label')}:${button.getAttribute('aria-pressed')}`));
-  // Display's settings are a popover from the button beside Fullscreen (`DisplayPopover.jsx`),
+  // Display's settings are a popover from the button beside Preview (`DisplayPopover.jsx`),
   // portaled out of the pane: a file never opens with it, and it is not a tool.
   const displayButton = pane => pane.getByRole('button', { name: 'Display settings', exact: true });
   const display = page.locator('[data-display-popover]');
@@ -152,7 +152,7 @@ test('a shell renderer resolves deferred files, reuses warm assets, restores iso
   // the button in the top-right bar.
   assert.equal(await first.getByRole('group', { name: 'Interaction tools' }).count(), 0, 'no tools, so no strip');
   assert.equal(await first.locator('[data-cad-toolbar]').getByRole('button', { name: /^Display/ }).count(), 0, 'Display is never on the strip');
-  for (const name of ['Orbit', 'Draw', 'Select', 'Measure', 'Position', 'Animate']) {
+  for (const name of ['Orbit', 'Draw', 'Select', 'Measure', 'Position', 'Animate', 'Playback settings']) {
     assert.equal(await first.getByRole('button', { name, exact: true }).count(), 0, name);
   }
   // Nor a menu of its own on a secondary press — and the browser's own is still
@@ -589,11 +589,11 @@ test('a file opens framed at 100% of its own ruler: the open fit is the fit, wha
   assert.deepEqual(errors, []);
 });
 
-// Draw is the one tool the shell itself owns, and fullscreen the one presentation it
+// Draw is the one tool the shell itself owns, and preview the one mode it
 // owns. Both are driven here through a harness-only renderer over one triangle
-// (`renderers/shell-harness`), which declares fullscreen the way a STEP does: a renderer
+// (`renderers/shell-harness`), which declares preview the way a STEP does: a renderer
 // that does not is never handed the host's (the mesh, GLB, robot and DXF tests hold that).
-test('the shell keeps its Draw session across fullscreen, and fullscreen drags are the camera\'s', async (t) => {
+test('the shell keeps its Draw session across preview, and preview drags are the camera\'s alone', async (t) => {
   const temporary = await mkdtemp(join(tmpdir(), 'hardcore-shell-draw-'));
   let server, browser;
   t.after(async () => { await browser?.close(); if (server) await new Promise(resolve => server.close(resolve)); await rm(temporary, { recursive: true, force: true }); });
@@ -640,17 +640,21 @@ test('the shell keeps its Draw session across fullscreen, and fullscreen drags a
   await page.waitForTimeout(250);
   const regularCamera = await camera();
 
-  // Fullscreen is the viewer's own: it keeps the host's nav row, hides the tools, and neither
-  // remounts the scene nor loses the tool.
-  await page.evaluate(() => { window.beforeFullscreenCanvas = document.querySelector('[data-testid="one"] [aria-busy] > div > canvas'); });
-  await pane.getByRole('button', { name: 'Fullscreen', exact: true }).click();
-  await pane.getByRole('button', { name: 'Exit fullscreen', exact: true }).waitFor();
-  assert.equal(await pane.locator('[data-file-panel]').first().isVisible(), true, 'fullscreen retains navbar actions');
+  // Preview is the viewer's own: it keeps the host's nav row, hides the tools, and neither
+  // remounts the scene nor loses the tool. Display settings stay, in the same place.
+  const displayButton = pane.getByRole('button', { name: 'Display settings', exact: true });
+  const displayBefore = await displayButton.boundingBox();
+  await page.evaluate(() => { window.beforePreviewCanvas = document.querySelector('[data-testid="one"] [aria-busy] > div > canvas'); });
+  await pane.getByRole('button', { name: 'Preview', exact: true }).click();
+  await pane.getByRole('button', { name: 'Exit preview', exact: true }).waitFor();
+  assert.equal(await pane.locator('[data-file-panel]').first().isVisible(), true, 'preview retains navbar actions');
+  assert.deepEqual(await displayButton.boundingBox(), displayBefore, 'Display settings keep their place in preview');
+  assert.equal(await pane.getByRole('button', { name: 'Preview', exact: true }).count(), 0, 'Preview becomes its X');
   assert.equal(await pane.getByRole('group', { name: 'Interaction tools' }).count(), 0);
   assert.equal(await pane.getByRole('button', { name: 'Zoom controls' }).count(), 0);
-  const defaultFullscreenCamera = await camera();
-  assert.notDeepEqual(defaultFullscreenCamera.position, regularCamera.position, 'fullscreen starts from the default camera');
-  assert.equal(defaultFullscreenCamera.zoom, 1);
+  const defaultPreviewCamera = await camera();
+  assert.notDeepEqual(defaultPreviewCamera.position, regularCamera.position, 'preview starts from the default camera');
+  assert.equal(defaultPreviewCamera.zoom, 1);
   await page.evaluate(async () => {
     const controller = window.cadHarness.a.controller;
     await controller.setCamera({ ...controller.readState().camera, position: [80, 30, 35], target: [4, 6, 1], zoom: 1.8, projection: 'perspective' });
@@ -659,16 +663,18 @@ test('the shell keeps its Draw session across fullscreen, and fullscreen drags a
   const viewport = await pane.locator('[aria-busy] > div > canvas').first().boundingBox();
   await page.mouse.move(viewport.x + viewport.width / 2, viewport.y + viewport.height / 2);
   await page.mouse.down(); await page.mouse.move(viewport.x + viewport.width / 2 + 80, viewport.y + viewport.height / 2 + 30, { steps: 5 }); await page.mouse.up();
-  assert.notDeepEqual((await camera()).position, beforeDrag.position, 'Draw cannot capture fullscreen camera drags');
-  assert.equal(await page.evaluate(() => window.beforeFullscreenCanvas === document.querySelector('[data-testid="one"] [aria-busy] > div > canvas')), true);
+  assert.notDeepEqual((await camera()).position, beforeDrag.position, 'Draw cannot capture preview camera drags');
+  assert.equal(await page.evaluate(() => window.beforePreviewCanvas === document.querySelector('[data-testid="one"] [aria-busy] > div > canvas')), true);
   // Exercise actual hit testing above the pointer-transparent viewport overlay,
   // and the exit callback across FileViewer -> renderer -> toolbar.
   assert.equal(await pane.getByRole('toolbar', { name: 'Animation playback' }).count(), 0);
-  await pane.getByRole('button', { name: 'Orbit settings', exact: true }).click();
+  await pane.getByRole('button', { name: 'Playback settings', exact: true }).click();
+  // A static file's playback is its orbit alone.
+  assert.deepEqual(await page.getByRole('menuitemcheckbox').allTextContents(), ['Orbit']);
   await page.getByRole('menuitemcheckbox', { name: 'Orbit', exact: true }).click();
   assert.equal(await page.getByRole('menuitemcheckbox', { name: 'Orbit', exact: true }).getAttribute('aria-checked'), 'false');
   await page.keyboard.press('Escape');
-  await pane.getByRole('button', { name: 'Exit fullscreen', exact: true }).click();
+  await pane.getByRole('button', { name: 'Exit preview', exact: true }).click();
   await pane.getByRole('button', { name: 'Draw', exact: true }).waitFor();
   const restoredCamera = await camera();
   for (const key of ['position', 'target', 'up']) {
@@ -676,17 +682,29 @@ test('the shell keeps its Draw session across fullscreen, and fullscreen drags a
   }
   assert.equal(restoredCamera.projection, regularCamera.projection);
   assert.equal(restoredCamera.zoom, regularCamera.zoom);
-  // Presentation state is discarded each time, never resumed from the last orbit.
-  await pane.getByRole('button', { name: 'Fullscreen', exact: true }).click();
-  await pane.getByRole('button', { name: 'Exit fullscreen', exact: true }).waitFor();
-  const secondFullscreenCamera = await camera();
+  // Preview's pose is discarded each time, never resumed from the last orbit.
+  await pane.getByRole('button', { name: 'Preview', exact: true }).click();
+  await pane.getByRole('button', { name: 'Exit preview', exact: true }).waitFor();
+  const secondPreviewCamera = await camera();
   for (const key of ['position', 'target', 'up']) {
-    defaultFullscreenCamera[key].forEach((value, index) => assert.ok(Math.abs(value - secondFullscreenCamera[key][index]) < 1e-6, `fresh fullscreen ${key}[${index}]`));
+    defaultPreviewCamera[key].forEach((value, index) => assert.ok(Math.abs(value - secondPreviewCamera[key][index]) < 1e-6, `fresh preview ${key}[${index}]`));
   }
-  await pane.getByRole('button', { name: 'Exit fullscreen', exact: true }).click();
+  // A Display setting changed in preview is the tools view's too: the pose comes back in the new projection.
+  await pane.getByRole('button', { name: 'Display settings', exact: true }).click();
+  await page.evaluate(() => window.cadHarness.a.controller.setDisplaySettings({ camera: { projection: 'orthographic' } }));
+  await page.keyboard.press('Escape');
+  await pane.getByRole('button', { name: 'Exit preview', exact: true }).click();
   await pane.getByRole('button', { name: 'Draw', exact: true }).waitFor();
+  const orthographicCamera = await camera();
+  assert.equal(orthographicCamera.projection, 'orthographic');
+  for (const key of ['position', 'target', 'up']) {
+    regularCamera[key].forEach((value, index) => assert.ok(Math.abs(value - orthographicCamera[key][index]) < 1e-6, `restored pose ${key}[${index}]`));
+  }
+  assert.equal(await pane.getByRole('button', { name: 'Display settings', exact: true }).getAttribute('data-projection'), 'orthographic',
+    'the Display settings button is the view\'s projection');
+  await page.evaluate(() => window.cadHarness.a.controller.setDisplaySettings({ camera: { projection: 'perspective' } }));
   assert.equal(await pane.getByRole('button', { name: 'Draw', exact: true }).getAttribute('aria-pressed'), 'true',
-    'the session the sketch is in survives a trip through fullscreen');
+    'the session the sketch is in survives a trip through preview');
   // Its tools, color, stroke width and history are a panel in the tool stack for as long as Draw is
   // the tool, headed "Draw": it does not fold, and its X, like a second press on its button, puts
   // Draw down, panel and all.
@@ -984,8 +1002,8 @@ test('a renderer supplies the viewport menu, a bottom action that falls back to 
   assert.notDeepEqual(await page.evaluate(() => window.cadHarness.a.controller.readState().camera.target), beforeDrag,
     'and still pans the camera');
 
-  // THE CAMERA SETTLED. The pan above was reported; so is a presentation camera
-  // that moves in fullscreen (which records no perspective at all), and so is a
+  // THE CAMERA SETTLED. The pan above was reported; so is a preview camera
+  // that moves (which records no perspective at all), and so is a
   // viewport RESIZE, which can change what is on screen without moving the camera.
   const afterPan = Number(await settles());
   assert.ok(afterPan > 0, `a camera that moved was reported (${afterPan})`);
@@ -999,15 +1017,15 @@ test('a renderer supplies the viewport menu, a bottom action that falls back to 
   await page.waitForFunction(count => Number(document.querySelector('[data-harness-camera-settles]').textContent) > count, beforeWidthChange);
   const afterResize = Number(await settles());
   await page.evaluate(() => window.cadHarness.preferences.update({ orbit: { speed: 0 } }));
-  await pane.getByRole('button', { name: 'Fullscreen', exact: true }).click();
-  await pane.getByRole('button', { name: 'Exit fullscreen', exact: true }).waitFor();
-  const fullscreenCanvas = await pane.locator('[aria-busy] > div > canvas').first().boundingBox();
-  await page.mouse.move(fullscreenCanvas.x + fullscreenCanvas.width / 2, fullscreenCanvas.y + fullscreenCanvas.height / 2);
+  await pane.getByRole('button', { name: 'Preview', exact: true }).click();
+  await pane.getByRole('button', { name: 'Exit preview', exact: true }).waitFor();
+  const previewCanvas = await pane.locator('[aria-busy] > div > canvas').first().boundingBox();
+  await page.mouse.move(previewCanvas.x + previewCanvas.width / 2, previewCanvas.y + previewCanvas.height / 2);
   await page.mouse.down();
-  await page.mouse.move(fullscreenCanvas.x + fullscreenCanvas.width / 2 + 80, fullscreenCanvas.y + fullscreenCanvas.height / 2 + 30, { steps: 5 });
+  await page.mouse.move(previewCanvas.x + previewCanvas.width / 2 + 80, previewCanvas.y + previewCanvas.height / 2 + 30, { steps: 5 });
   await page.mouse.up();
   await page.waitForFunction(count => Number(document.querySelector('[data-harness-camera-settles]').textContent) > count, afterResize);
-  await pane.getByRole('button', { name: 'Exit fullscreen', exact: true }).click();
+  await pane.getByRole('button', { name: 'Exit preview', exact: true }).click();
   await pane.getByRole('button', { name: 'Draw', exact: true }).waitFor();
 
   // THE BOTTOM ACTION. What it SAYS is measured, not guessed from the string: a
@@ -1225,13 +1243,13 @@ test('the tool stack: one width, bounded by the viewer, resizable by edge, foot 
   const strip = one.locator('[data-cad-toolbar] [role=group]');
 
   // THE CHROME'S INSET: the strip sits 8px in from the viewer's top and left, and the top-right
-  // bar (Display settings, then Fullscreen) 8px in from its top and right.
+  // bar (Display settings, then Preview) 8px in from its top and right.
   const [stripBox, backdrop] = [await strip.boundingBox(), await viewer()];
   assert.ok(Math.abs(stripBox.x - backdrop.x - 8) <= 1 && Math.abs(stripBox.y - backdrop.y - 8) <= 1, `the strip is inset 8px: ${JSON.stringify(stripBox)}`);
-  const [displayBox, fullscreenBox] = [await one.getByRole('button', { name: 'Display settings', exact: true }).boundingBox(),
-    await one.getByRole('button', { name: 'Fullscreen', exact: true }).boundingBox()];
-  assert.ok(displayBox.x + displayBox.width <= fullscreenBox.x + 1 && Math.abs(displayBox.y - fullscreenBox.y) <= 1, 'Display settings sits left of Fullscreen, level with it');
-  assert.ok(Math.abs(backdrop.x + backdrop.width - (fullscreenBox.x + fullscreenBox.width) - 8) <= 1, 'the bar is inset 8px from the right');
+  const [displayBox, previewBox] = [await one.getByRole('button', { name: 'Display settings', exact: true }).boundingBox(),
+    await one.getByRole('button', { name: 'Preview', exact: true }).boundingBox()];
+  assert.ok(displayBox.x + displayBox.width <= previewBox.x + 1 && Math.abs(displayBox.y - previewBox.y) <= 1, 'Display settings sits left of Preview, level with it');
+  assert.ok(Math.abs(backdrop.x + backdrop.width - (previewBox.x + previewBox.width) - 8) <= 1, 'the bar is inset 8px from the right');
   // The stack's default width is a five-tool strip's (138px), whatever tools this file's strip has
   // (two here): nothing is stored until a person drags it.
   assert.equal((await layout())?.width, undefined, 'no width is stored until one is dragged');

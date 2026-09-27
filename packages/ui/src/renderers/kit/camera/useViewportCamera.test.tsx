@@ -15,7 +15,7 @@ for (const orthographic of [true, false]) {
     const { result } = renderHook(() => useViewportCamera({
       runtimeRef, modelBounds: original, modelKey: 'fixture', modelKeyRef: ref('fixture'),
       coordinateSystemFor: () => 'cad-z-up-v1', activeViewPlaneFaceRef: ref(''),
-      fullscreenCameraRef: ref(), lastEmittedPerspectiveRef: ref(), cameraMovedRef: ref(),
+      previewCameraRef: ref(), lastEmittedPerspectiveRef: ref(), cameraMovedRef: ref(),
       modelTransformRef: ref({ offset: [0, 0, 0] }), perspectiveChangeRef: ref(), perspectivePropRef: ref(),
       perspectiveRef: ref(), previewMode: false, previewModeRef: ref(false), previewOrbitSpeed: 0,
       runWithoutPerspectiveEvents: (callback: () => unknown) => callback(), sceneScaleModeRef: ref('cad'),

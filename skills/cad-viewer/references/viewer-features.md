@@ -4,8 +4,8 @@ Load this only when a task needs Viewer file-support details or UI control guida
 
 ## Supported Files
 
-- `.step`, `.stp`: STEP/STP review through the document's tree in the store (compiled from the file's bytes on open when missing); supports assembly trees, part hide/show, inspect/focus, face/edge/part selection, copied `#...` CAD references, display modes, clip planes, and a live Position section (named poses and joint sliders) when the model's sidecar declares kinematics, plus animation clips through the Animate tool when it declares animation.
-- `.stl`, `.3mf`, `.glb`: mesh viewing with orbit/pan/zoom, screenshots, and the Display settings' shading modes. Measure is not offered — it is a STEP-only tool that snaps to B-rep topology, which a mesh has none of. A plain GLB's `COLOR_0` vertex colors render as source colors, exactly like authored material colors; a GLB carrying embedded animation plays it through the Animate tool, not a tab of its own, and looks the same at rest and while animating: a GLB is always drawn as its own glTF scene, wearing the viewer's surface finish outside Render mode (keeping its colors, maps and opacity) and its authored finish in Render mode.
+- `.step`, `.stp`: STEP/STP review through the document's tree in the store (compiled from the file's bytes on open when missing); supports assembly trees, part hide/show, inspect/focus, face/edge/part selection, copied `#...` CAD references, display modes, clip planes, and a live Position section (named poses and joint sliders) when the model's sidecar declares kinematics, plus routines that play in preview when it declares animation.
+- `.stl`, `.3mf`, `.glb`: mesh viewing with orbit/pan/zoom, screenshots, and the Display settings' shading modes. Measure is not offered — it is a STEP-only tool that snaps to B-rep topology, which a mesh has none of. A plain GLB's `COLOR_0` vertex colors render as source colors, exactly like authored material colors; a GLB carrying embedded animation plays it in preview, not a tool or tab of its own, and looks the same at rest and while animating: a GLB is always drawn as its own glTF scene, wearing the viewer's surface finish outside Render mode (keeping its colors, maps and opacity) and its authored finish in Render mode.
 - `.dxf`: read-only 2D drawing viewing — a straight render of the sheet, with no 3D view and no flat pattern. The server flattens the drawing to 2D primitives per request (text outlined, dimensions exploded, hatches filled, blocks placed) and the viewer paints them; no render artifact exists for a `.dxf`, so generated and imported drawings alike render straight from their own bytes.
 - `.urdf`: robot link/mesh viewing with movable joint sliders, and reset pose.
 - `.srdf`: paired-URDF viewing with planning groups, group-state presets, and joint controls.
@@ -15,23 +15,23 @@ Load this only when a task needs Viewer file-support details or UI control guida
 
 - Orbit by dragging; right-drag or Shift-drag pans. Wheel, pinch or middle-drag
   zooms, two fingers pan, and Arrow/WASD keys orbit the viewer that has focus or
-  the pointer. The bottom-right cube (hidden below 720px and in fullscreen)
+  the pointer. The bottom-right cube (hidden below 720px and in preview)
   changes direction without resetting zoom. Opening or reloading a file fits the
   model; the camera is never saved.
 - The top-left toolbar shows only the tools the file supports (an unavailable
   tool is absent, not greyed). STEP starts in Select and offers Draw, Measure,
-  Explode (two or more parts), Clip, Position when it has kinematics, Animate when
-  it has routines, and Display. Robots start in Select and may offer Position.
-  Meshes offer Display; animated GLBs also offer Animate. DXF uses a 2D canvas:
+  Explode (two or more parts), Clip, and Position when it has kinematics.
+  Robots start in Select and may offer Position. GLB, STL and 3MF have no
+  toolbar. Every 3D file has Display settings and Preview at the top right; there
+  is no Animate tool. DXF uses a 2D canvas:
   drag to pan, wheel/pinch to zoom, double-click to fit.
 - No tool opens a menu from the toolbar: a press takes the tool up (and, for a
   toggle, puts it down again). What a tool can be set to is its panel under the
   toolbar while it is up: Select's modes, Measure's snapping (the panel is there,
-  empty, as soon as Measure is picked), Draw's tools, Position's joints, Animate's
-  Routine and play/pause. A tool's modes or settings are one small sliders button
-  in its panel's header row, beside the fold chevron or X, that opens a dropdown —
-  Select's in the Features filter row, Measure's (All, Points, Edges, Faces) and
-  Animate's (Speed, Loop) in their headings.
+  empty, as soon as Measure is picked), Draw's tools, Position's joints. A tool's
+  modes or settings are one small sliders button in its panel's header row, beside
+  the fold chevron or X, that opens a dropdown — Select's in the Features filter
+  row, Measure's (All, Points, Edges, Faces) in its heading.
 - STEP Select modes: All (pointer icon), Parts (assemblies only), Faces, Edges,
   in the Features filter row's mode menu, each row the mode's glyph (a cube, a
   filled face, a heavy edge); the Select button shows the pointer
@@ -44,9 +44,9 @@ Load this only when a task needs Viewer file-support details or UI control guida
   topology as its row scrolls into view. Outside All the tree cannot be expanded
   or collapsed.
 - One tool owns picking. Leaving Select clears selection; leaving Draw clears
-  drawings. Position edits persist. Animate sets Position values aside while it
-  plays; leaving it stops playback and gives them back. Animate's Routine, Speed
-  and Loop survive leaving it and Position edits. Completed measurements
+  drawings. Position edits persist. A routine playing in preview sets Position
+  values aside; leaving preview stops playback and gives them back. The Routine,
+  Speed and Loop survive leaving preview and Position edits. Completed measurements
   remain until their panel's X or main tool button clears them; unfinished picks
   are canceled when leaving Measure.
 - Explode and Clip open neutral panels in the tool stack. Editing applies the
@@ -76,7 +76,7 @@ panels in the tool stack under the toolbar, shown by their tool, and no pick or
 tool opens, closes or switches the explorer. Under Select: Features (STEP) or
 Links (robots) — the filter box is its top row — then, with a selection, the
 Reference, then STEP Issues or SDF metadata. Under Position: the Position panel.
-Under Draw or Animate: that tool's panel, first. Kept Measure results,
+Under Draw: its panel, first. Kept Measure results,
 Explode and Clip follow. All panels share one width (138px default, 128px
 minimum, up to half the viewer; drag or arrow-key the
 handle on the stack's right edge, or drag its bottom-right corner, which also
@@ -103,8 +103,9 @@ survive tool changes. Reset restores authored defaults, including SRDF home.
 Filters match model/link names; link filters also match joint names. File names
 retain their on-disk suffixes.
 
-Display settings are a popover from the button beside Fullscreen at the viewport's
-top right (not a tool: the tool in hand stays): Mode, Appearance and
+Display settings are a popover from the projection button beside Preview at the
+viewport's top right, the same settings in the tools view and in preview (not a
+tool: the tool in hand stays): Mode, Appearance and
 Projection; Surfaces; then optional Edges, Grid / Axes, Lighting, Background and
 Floor. Plus enables a section with defaults; minus disables it. There is no
 extra Enabled checkbox. Color and choice popups close before the popover does;
@@ -114,19 +115,24 @@ Render defaults to perspective; other presets to orthographic. Meshes and robots
 offer Solid/Render without STEP topology effects. Manual changes show Custom.
 Reset restores the selected preset and clears Clip/Explode, without reframing
 and preserving pose and app appearance. Preset changes preserve applied model
-effects. Pressing Display again or Escape returns to the default tool; clicking
-the model does not close it.
+effects. Pressing Display settings again or Escape closes it; clicking the model
+does not.
 
-## Fullscreen and host actions
+## Preview and host actions
 
-Fullscreen is a transparent top-right scene button, separate from Animate. It
-fills the area below the navbar, hides the file explorer, tool stack, cube and
-editor tools, and
-starts orbit. Pointer movement reveals Exit, a separate Orbit menu, animation
-settings when clips exist, and a playbar (or an orbit play/pause). Controls share
-one idle timeout. Picks, Draw, Measure, Position and Explode/Clip are suspended,
-not discarded. Escape closes menus first, then exits. Exit restores the regular
-camera, explorer and tool panels.
+Preview is the play-circle button at the viewport's top right, beside Display
+settings. It fills the viewer below the navbar (the file explorer stays as it
+was), hides the toolbar, tool stack, cube, context menu and editor tools, draws the
+model one quality tier up, and starts orbit. Its top-right bar reads Playback
+settings (for a file with routines: Routine, Speed, Loop, Autoplay; then Orbit and
+its speed), Display settings and an X ("Exit preview"); under the model is the
+playbar, or an orbit play/pause for a static file. Pointer movement reveals them;
+they share one idle timeout. Routines play only in preview: entering starts one
+when Autoplay is on (off by default, kept across files); leaving stops it and
+returns the model to rest, keeping Routine, Speed and Loop. Picks, Draw, Measure,
+Position and Explode/Clip are suspended, not discarded. Escape closes menus first,
+then exits. Exit restores the tools view's exact camera and tool panels; preview's
+own camera always starts fresh.
 
 The navbar's camera action captures the viewport. The web viewer's local backend
 can write a PNG to its machine's clipboard; desktop delivers to its composer.
