@@ -328,7 +328,11 @@ jobs:
           [ "${#wheels[@]}" -eq 1 ] || { echo "Expected one verified wheel" >&2; exit 1; }
           scripts/test/test-installed.sh --wheel "${wheels[0]}"
 
-  # Electron/native integration follows only its actual dependencies.
+  # Electron/native integration follows only its actual dependencies. Budget: ten
+  # minutes. Everything before the e2e restores what an earlier green run already
+  # produced from the same inputs -- the checkout venv, typecheck and lint state, the
+  # built app -- because this runner is small (3 cores, 7 GB) and the renderer build
+  # alone is minutes on it.
   desktop:
     name: Desktop (macOS)
     needs: changes
@@ -340,34 +344,96 @@ jobs:
         uses: actions/checkout@v7
 
       # ui-browser: the unit tests include the PDF renderer's Chromium suite
-      # (apps/desktop/tests/browser); the Electron e2e needs no Playwright browser.
-      - name: Set up desktop and CAD dependencies
+      # (apps/desktop/tests/browser), which launches headless, so the headless shell
+      # is all it needs; the Electron e2e needs no Playwright browser. Python is the
+      # checkout venv below, not requirements-dev.txt in the runner's interpreter.
+      - name: Set up desktop dependencies
         uses: ./.github/actions/setup-deps
         with:
           npm: packages/core packages/ui apps/desktop
-          playwright: "false"
-          ui-browser: "true"
+          python: "false"
+          ui-browser: shell
 
-      # The app's renderer supplies the UI. CAD tests need only the source
-      # Python service and Node/browser assets, not a packaged SPA or downloaded
-      # multiarchitecture runtime. CadRuntime discovers this private checkout venv.
-      - name: Prepare the checkout CAD runtime and native modules
+      - name: Set up Python
+        id: python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # CadRuntime runs the checkout's .venv. Installing requirements-dev.txt is ~30 s
+      # of unpacking wheels (OCP, scipy) on every run, so the venv is cached on what
+      # decides it: the interpreter it links to and the two files pip reads. Its
+      # editable cadgen follows the source; unpinned dependencies stay at what the
+      # cached install resolved until one of those files changes.
+      - name: Restore the checkout venv
+        id: venv
+        uses: actions/cache@v5
+        with:
+          path: .venv
+          key: desktop-venv-${{ runner.os }}-${{ runner.arch }}-py${{ steps.python.outputs.python-version }}-${{ hashFiles('requirements-dev.txt', 'packages/cadgen/pyproject.toml') }}
+
+      - name: Create the checkout venv
+        if: steps.venv.outputs.cache-hit != 'true'
         run: |
-          python -m venv --system-site-packages .venv
-          .venv/bin/python -m pip install --no-deps --ignore-installed -e ./packages/cadgen
+          python -m venv .venv
+          .venv/bin/python -m pip install -r requirements-dev.txt
+
+      # The app's renderer supplies the UI. CAD tests need only cadgen's Node and
+      # browser assets (from core, which setup already built) and the native modules
+      # rebuilt against Electron's ABI.
+      - name: Prepare the CAD runtime and native modules
+        env:
+          CADGEN_RUNTIME_PACKAGES_BUILT: "1"
+        run: |
           scripts/bundle/cadgen-runtime.sh --node --browser
           npm run native:rebuild -w @text-to-cad/desktop
+
+      # Both resume from the last green run: tsc's buildinfo (the projects are
+      # composite) re-checks what changed and what depends on it, and ESLint's
+      # content-keyed cache re-lints changed files -- no rule here is type-aware, so a
+      # file's lint result depends on that file and the config alone.
+      - name: Restore typecheck and lint state
+        uses: actions/cache@v5
+        with:
+          path: |
+            apps/desktop/node_modules/.tmp
+            apps/desktop/node_modules/.cache/eslint
+          key: desktop-checks-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
+          restore-keys: desktop-checks-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
 
       - name: Typecheck
         run: npm --prefix apps/desktop run typecheck
 
       - name: Lint
-        run: npm --prefix apps/desktop run lint
+        run: npm --prefix apps/desktop run lint -- --cache --cache-strategy content --cache-location node_modules/.cache/eslint/
 
       - name: Run unit tests
         run: npm --prefix apps/desktop test
 
+      # The same inputs build the same out/, so a commit whose build inputs a green run
+      # already built -- a cadgen- or CI-only change, a re-run -- restores it instead.
+      # The key is git's own hashes of every committed input: the app less its tests,
+      # test configs and prose; the two workspaces it bundles; the skills it composes;
+      # the library builder; the lockfile; VERSION.
+      - name: Hash the build inputs
+        id: build-inputs
+        run: |
+          {
+            git ls-tree HEAD apps/desktop/ | grep -Ev $'\t''apps/desktop/(tests|docs|README\.md|AGENTS\.md|playwright\.config\.ts|vitest\.config\.ts|eslint\.config\.mjs)$'
+            git ls-tree HEAD packages/core packages/ui skills scripts/build package-lock.json VERSION
+          } | git hash-object --stdin | sed 's/^/hash=/' >> "$GITHUB_OUTPUT"
+
+      - name: Restore the build
+        id: build
+        uses: actions/cache@v5
+        with:
+          path: |
+            apps/desktop/out
+            apps/desktop/resources/skills
+          key: desktop-build-${{ runner.os }}-${{ runner.arch }}-${{ steps.build-inputs.outputs.hash }}
+
       - name: Build
+        if: steps.build.outputs.cache-hit != 'true'
         run: npm --prefix apps/desktop run build
 
       - name: Run the Electron integration suite
