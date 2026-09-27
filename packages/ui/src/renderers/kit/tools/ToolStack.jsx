@@ -96,7 +96,9 @@ export default function ToolStack({ layout: stored, onLayoutChange, mobile = fal
     {/* The panels give way first (`ToolPanel.jsx`), in a column exactly the stack's height; if
         what cannot give way still does not fit, the column scrolls rather than being cut. The
         right and bottom insets leave a panel's handles room past its edges. */}
-    <ScrollArea className="max-h-full" viewportProps={{ "data-tool-stack-scroller": "" }}>
+    {/* No visible bar of its own: it would stand outside the panels on every hover. A panel's
+        own bar, inside it, is unaffected. */}
+    <ScrollArea className="max-h-full" scrollbar={false} viewportProps={{ "data-tool-stack-scroller": "" }}>
       <div className="flex min-h-0 flex-col items-start gap-2 pb-1 pr-1" style={{ maxHeight: measured.stack || undefined }}>
         <ToolStackContext.Provider value={panels}>{children}</ToolStackContext.Provider>
       </div>

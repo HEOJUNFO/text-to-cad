@@ -19,7 +19,7 @@ export function rowActionsLayout(node, controls) {
   const focused = focusedNodeIds.includes(node.selectionId);
   const hidden = node.leafPartIds?.length > 0 && node.leafPartIds.every(id => controls.hiddenPartIds?.includes(id));
   const canIsolate = isAssemblyView && typeof onFocusTreeNode === 'function';
-  return { shown: Boolean(node.selectionId) && (focused || hidden), width: canIsolate ? '3rem' : '1.75rem' };
+  return { shown: Boolean(node.selectionId) && (focused || hidden), width: canIsolate ? '2.5rem' : '1.5rem' };
 }
 
 // The name's fade under the actions: full strength up to half a rem before them, gone where they
@@ -41,15 +41,15 @@ export default function ModelPartActions({ node, controls, disabled }) {
   // the buttons, so the row reads in its own (hover) colour throughout.
   const persistent = focused || hidden;
   return <div data-row-actions="" className={cn(
-    "absolute inset-y-0 right-0 flex items-center gap-0.5 pl-0.5 pr-1 transition-opacity",
+    "absolute inset-y-0 right-0 flex items-center pl-0.5 pr-1 transition-opacity",
     persistent ? "opacity-100" : "opacity-0 group-hover/row:opacity-100 focus-within:opacity-100")}>
     {canIsolate && <TooltipHint content={focused ? "Exit isolate" : "Isolate"}><Button variant="ghost" size="icon-xs" disabled={disabled || hidden} aria-label={isolateLabel} aria-pressed={focused}
-      className={cn('size-5', focused ? 'text-foreground' : cn('text-muted-foreground', REVEAL_ON_HOVER))}
+      className={cn('h-5 w-4', focused ? 'text-foreground' : cn('text-muted-foreground', REVEAL_ON_HOVER))}
       onClick={() => focused ? onUnfocusTreeNode?.(node.selectionId) : onFocusTreeNode(node.selectionId)}>
       <Focus className="size-3"/>
     </Button></TooltipHint>}
     <TooltipHint content={hidden ? "Reveal" : "Hide"}><Button variant="ghost" size="icon-xs" disabled={disabled || focused} aria-label={`${hidden ? 'Reveal' : 'Hide'} ${node.label}`}
-      className={cn('size-5 text-muted-foreground', !hidden && REVEAL_ON_HOVER)}
+      className={cn('h-5 w-4 text-muted-foreground', !hidden && REVEAL_ON_HOVER)}
       onClick={() => onTogglePartVisibility?.(node.selectionId)}>
       {hidden ? <EyeOff className="size-3"/> : <Eye className="size-3"/>}
     </Button></TooltipHint>

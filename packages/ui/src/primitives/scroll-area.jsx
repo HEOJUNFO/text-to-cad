@@ -12,8 +12,8 @@ import { cn } from "@hardcore/ui/utils"
  * growing past it. `viewportRef` and `viewportProps` reach the element that actually scrolls, for
  * code that reads or sets its scroll position, focuses it or gives it a role. `orientation`:
  * `"vertical"` (the default) lays content out at the region's width, so rows truncate;
- * `"both"` lets wide content scroll sideways too. `scrollbar={false}`: no visible bar, for a small
- * floating panel whose edge a bar would sit on; the wheel, a trackpad and the keyboard still scroll.
+ * `"both"` lets wide content scroll sideways too. `scrollbar={false}`: no visible bar, for a region
+ * whose bar would stand outside what it holds (the tool stack's column); the wheel, a trackpad and the keyboard still scroll.
  * The bar stays mounted, hidden: the primitive lets its viewport scroll on an axis only while that
  * axis has a bar, and clips it otherwise.
  */

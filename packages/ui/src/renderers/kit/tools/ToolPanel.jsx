@@ -229,7 +229,7 @@ export default function ToolPanel({ id, title = null, name = "", label, summary 
       {/* A panel that gives way scrolls in the chrome's one scroll region; a fixed one never scrolls. */}
       {fit === "fixed" ? <div ref={body} hidden={collapsed} data-tool-panel-body="" className="min-w-0 overflow-x-clip rounded-b-md">
         <div ref={content} className="flow-root">{children}</div>
-      </div> : <ScrollArea hidden={collapsed} scrollbar={false} className="min-w-0 flex-1 rounded-b-md" viewportRef={body} viewportProps={{ "data-tool-panel-body": "" }}>
+      </div> : <ScrollArea hidden={collapsed} className="min-w-0 flex-1 rounded-b-md" viewportRef={body} viewportProps={{ "data-tool-panel-body": "" }}>
         <div ref={content} className="flow-root">{children}</div>
       </ScrollArea>}
     </ToolPanelContext.Provider>

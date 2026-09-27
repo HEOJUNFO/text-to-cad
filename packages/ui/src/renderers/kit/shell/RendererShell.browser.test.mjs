@@ -1308,6 +1308,12 @@ test('the tool stack: every panel one width, the tree and Position each the pers
   assert.ok(Math.abs(panels[0].height - 128) <= 1, `the tree holds its floor: ${panels[0].height}`);
   assert.equal(panels[1].scrolls, true, 'then the Reference gives way');
   assert.equal(panels[2].height, keptHeight, 'a small panel keeps its height');
+  // Hovered, the stack shows no scroll bar of its own beside the panels; a panel's bar is inside it.
+  await one.locator('[data-tool-panel]').first().hover();
+  await page.mouse.wheel(0, 40);
+  await page.waitForTimeout(150);
+  assert.equal(await one.locator('[data-cad-tool-stack] [data-slot=scroll-area-scrollbar]').evaluateAll(bars => bars.filter(bar => !bar.closest('[data-tool-panel]') && getComputedStyle(bar).visibility !== 'hidden').length), 0,
+    'no visible scroll bar outside the panels');
   await one.evaluate(element => { element.parentElement.style.height = '720px'; });
   await page.waitForTimeout(200);
 
