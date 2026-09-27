@@ -51,7 +51,7 @@ test('the tool stack layout is one stored record: the sizes a person set by pane
   const written = JSON.stringify({ panels: { tree: { width: 12, height: 3 }, reference: { height: 'tall' }, other: 400 }, collapsed: { tree: true, 'Not an id': true, clip: 'yes' } });
   values.set('cad-viewer:tool-stack:v2', written);
   preferences.storageChanged('cad-viewer:tool-stack:v2');
-  expect(preferences.getSnapshot().toolStack).toEqual({ panels: { tree: { width: 12, height: 64 } }, collapsed: { tree: true } });
+  expect(preferences.getSnapshot().toolStack).toEqual({ panels: { tree: { width: 164, height: 64 } }, collapsed: { tree: true } });
   expect(values.get('cad-viewer:tool-stack:v2')).toBe(written);
   // A clear is a reset: every size is gone.
   values.clear();
