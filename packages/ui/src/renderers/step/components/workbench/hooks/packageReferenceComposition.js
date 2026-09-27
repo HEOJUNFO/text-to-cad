@@ -12,36 +12,106 @@
 // the swapped level's bundle (swapCompositionBundle), and a topology load
 // that lands after a swap composes from the swapped bundle, not the level-0
 // cache.
-import { buildSelectorRuntime, composeSelectorRuntimes } from "@hardcore/core/lib/selectors/runtime.js";
+import {
+  buildSelectorCompositionPart,
+  buildSelectorRuntime,
+  composeSelectorRuntimes,
+  createSelectorRuntimeComposer
+} from "@hardcore/core/lib/selectors/runtime.js";
 
-// Per-occurrence selector runtimes, one bundle per component cid. Shared by
-// the initial topology composition and the LOD re-composition so both build
-// picking runtimes IDENTICALLY — the options here (partId namespacing,
-// transform placement, remapOccurrenceId) are what keep picks aligned with
-// the composed mesh's sourcePartRanges.
+// The options one occurrence's selector runtime is built with. Shared by the initial topology
+// composition, the LOD re-composition and the incremental composer so all of them build picking
+// runtimes IDENTICALLY — the options here (partId namespacing, transform placement,
+// remapOccurrenceId) are what keep picks aligned with the composed mesh's sourcePartRanges.
+function occurrenceRuntimeOptions(entry, occurrence, { singleComponentPart } = {}) {
+  const occurrenceId = String(occurrence?.id || "").trim();
+  return {
+    // The SUFP, not the full path: a copied ref should be compact.
+    copyCadPath: String(entry?.fileRefPrefix || ""),
+    partId: singleComponentPart ? "" : occurrenceId,
+    transform: occurrence?.transform || null,
+    remapOccurrenceId: occurrenceId
+  };
+}
+
+function occurrenceBundle(occurrence, bundleByCid) {
+  return bundleByCid?.[String(occurrence?.component || "").trim()] || null;
+}
+
+// Per-occurrence selector runtimes, one bundle per component cid.
 export function buildPackageOccurrenceRuntimes(entry, occurrencesToLoad, bundleByCid, { singleComponentPart } = {}) {
   return (Array.isArray(occurrencesToLoad) ? occurrencesToLoad : [])
     .map((occurrence) => {
-      const bundle = bundleByCid?.[String(occurrence?.component || "").trim()];
-      if (!bundle) {
-        return null;
-      }
-      const occurrenceId = String(occurrence?.id || "").trim();
-      return buildSelectorRuntime(bundle, {
-        // The SUFP, not the full path: a copied ref should be compact.
-        copyCadPath: String(entry?.fileRefPrefix || ""),
-        partId: singleComponentPart ? "" : occurrenceId,
-        transform: occurrence?.transform || null,
-        remapOccurrenceId: occurrenceId
-      });
+      const bundle = occurrenceBundle(occurrence, bundleByCid);
+      return bundle ? buildSelectorRuntime(bundle, occurrenceRuntimeOptions(entry, occurrence, { singleComponentPart })) : null;
     })
     .filter(Boolean);
 }
 
-export function composePackageSelectorRuntime(entry, occurrencesToLoad, bundleByCid, { singleComponentPart } = {}) {
+// With `composer` (createPackageReferenceComposer), occurrences composed before are not rebuilt;
+// the result is the same either way.
+export function composePackageSelectorRuntime(entry, occurrencesToLoad, bundleByCid, { singleComponentPart, composer = null } = {}) {
+  if (composer) {
+    return composer.compose(entry, occurrencesToLoad, bundleByCid, { singleComponentPart });
+  }
   return composeSelectorRuntimes(
     buildPackageOccurrenceRuntimes(entry, occurrencesToLoad, bundleByCid, { singleComponentPart })
   );
+}
+
+// A transform's exact values: -0 and 0 place a point differently in the last bit of a sign.
+function transformKey(transform) {
+  if (!Array.isArray(transform)) return JSON.stringify(transform ?? null);
+  return transform.map((value) => (typeof value === "number" ? (Object.is(value, -0) ? "-0" : String(value)) : JSON.stringify(value))).join(",");
+}
+
+// Incremental composition for one viewer: each placed occurrence is built into a composition part
+// once — keyed by its component bundle (the exact tessellation, so an LOD level or a new file
+// revision is a different part), its occurrence, placement and copy prefix — and composed by one
+// `createSelectorRuntimeComposer`, which re-places only what moved and extends the previous result
+// when the new composition begins with it. Adding N occurrences builds N parts, whatever is already
+// loaded. Parts not composed in the last `retainCompositions` compositions are dropped, so what a
+// collapsed part held is released as it is today.
+export function createPackageReferenceComposer({ retainCompositions = 4 } = {}) {
+  const composer = createSelectorRuntimeComposer();
+  const bundleIds = new WeakMap();
+  let nextBundleId = 1;
+  const parts = new Map();
+  let compositions = 0;
+  const bundleId = (bundle) => {
+    if (!bundleIds.has(bundle)) bundleIds.set(bundle, nextBundleId++);
+    return bundleIds.get(bundle);
+  };
+  return {
+    compose(entry, occurrencesToLoad, bundleByCid, { singleComponentPart } = {}) {
+      compositions += 1;
+      const list = [];
+      for (const occurrence of Array.isArray(occurrencesToLoad) ? occurrencesToLoad : []) {
+        const bundle = occurrenceBundle(occurrence, bundleByCid);
+        if (!bundle) continue;
+        const options = occurrenceRuntimeOptions(entry, occurrence, { singleComponentPart });
+        const key = [bundleId(bundle), options.copyCadPath, options.partId, options.remapOccurrenceId, transformKey(options.transform)].join("\u0000");
+        let cached = parts.get(key);
+        if (!cached) {
+          cached = { part: buildSelectorCompositionPart(bundle, options), used: compositions };
+          parts.set(key, cached);
+        }
+        cached.used = compositions;
+        list.push(cached.part);
+      }
+      for (const [key, cached] of parts) {
+        if (compositions - cached.used >= retainCompositions) parts.delete(key);
+      }
+      return composer.compose(list);
+    },
+    get size() {
+      return parts.size;
+    },
+    reset() {
+      parts.clear();
+      composer.reset();
+    }
+  };
 }
 
 // Whether a remembered composition includes any occurrence of `cid` — i.e.

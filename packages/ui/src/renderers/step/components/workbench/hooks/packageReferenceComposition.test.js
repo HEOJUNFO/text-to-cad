@@ -17,6 +17,8 @@ import { tessellateComponent } from "@hardcore/core/lib/surf/tessellate.js";
 import { buildMeshDataFromSurf } from "@hardcore/core/lib/surf/surfMeshData.js";
 import { buildSelectorBundleFromSurf } from "@hardcore/core/lib/surf/surfSelectorBundle.js";
 import { buildGlbFaceIdsForPart, TOPOLOGY_FACE_ID_NONE } from "@hardcore/core/lib/viewer/selectorPickGroups.js";
+import { buildEdgeChainGraph } from "../../../workbench/edgeChainSelection.js";
+import { buildTangentFaceGraph } from "../../../workbench/tangentFaceSelection.js";
 
 import {
   baseLodReferenceComposition,
@@ -24,6 +26,7 @@ import {
   buildPackageOccurrenceRuntimes,
   composePackageSelectorRuntime,
   compositionUsesComponent,
+  createPackageReferenceComposer,
   reconcileLivePackageSelectorBundles,
   swapCompositionBundle
 } from "./packageReferenceComposition.js";
@@ -266,4 +269,113 @@ test("a mixed-level batch restores every changed selector bundle while keeping l
   assert.equal(base.bundleByCid.c0, lowA); assert.equal(base.bundleByCid.b, lowB); assert.equal(base.bundleByCid.late, other);
   assert.equal(candidate.bundleByCid.c0, highA); assert.equal(candidate.bundleByCid.b, highB);
   assert.throws(() => baseLodReferenceComposition(candidate, { items: [{ cid: "c0" }, { cid: "b" }] }, { c0: lowA }), /Previous detail/);
+});
+
+// ---- incremental composition: the same runtime as composing everything again ----------------
+
+function placedOccurrence(index, component = "c0") {
+  const angle = 0.5 * index;
+  return {
+    id: `o1.${Math.floor(index / 4) + 1}.${(index % 4) + 1}`,
+    component,
+    transform: [Math.cos(angle), -Math.sin(angle), 0, 40 * index, Math.sin(angle), Math.cos(angle), 0, -7 * index, 0, 0, 1, 3.5 * index, 0, 0, 0, 1]
+  };
+}
+
+test("the package composer composes exactly what recomposing every occurrence does", () => {
+  const level0 = loadLevel(0).bundle;
+  const level1 = loadLevel(0.02).bundle;
+  const revised = loadLevel(0).bundle; // the same geometry from a new file revision: a new bundle
+  const occurrences = Array.from({ length: 10 }, (_, index) => placedOccurrence(index, index % 3 ? "c0" : "c1"));
+  const composer = createPackageReferenceComposer();
+  const steps = [
+    ["nothing loaded", ENTRY, [], { c0: level0, c1: level0 }],
+    ["one part", ENTRY, occurrences.slice(0, 1), { c0: level0, c1: level0 }],
+    ["parts appended as they scroll on", ENTRY, occurrences.slice(0, 4), { c0: level0, c1: level0 }],
+    ["more appended", ENTRY, occurrences.slice(0, 8), { c0: level0, c1: level0 }],
+    ["one unloaded from the middle", ENTRY, [...occurrences.slice(0, 3), ...occurrences.slice(4, 8)], { c0: level0, c1: level0 }],
+    ["it comes back", ENTRY, occurrences.slice(0, 8), { c0: level0, c1: level0 }],
+    ["a component swapped to a finer LOD level", ENTRY, occurrences.slice(0, 8), { c0: level1, c1: level0 }],
+    ["appended at the finer level", ENTRY, occurrences, { c0: level1, c1: level0 }],
+    ["the swap restored", ENTRY, occurrences, { c0: level0, c1: level0 }],
+    ["a changed file revision", { ...ENTRY, fileRefPrefix: "sun_gear_v2.step" }, occurrences.slice(0, 5), { c0: revised, c1: revised }],
+    ["a single-component part", { ...ENTRY, kind: "part" }, occurrences.slice(0, 1), { c0: level0 }],
+  ];
+  for (const [label, entry, loaded, bundleByCid] of steps) {
+    const singleComponentPart = entry.kind === "part";
+    const incremental = composePackageSelectorRuntime(entry, loaded, bundleByCid, { singleComponentPart, composer });
+    const recomposed = composePackageSelectorRuntime(entry, loaded, bundleByCid, { singleComponentPart });
+    // Every reference, lookup, proxy array and edge-chain endpoint (Group edges' input).
+    assert.deepStrictEqual(incremental, recomposed, label);
+    // And what Group edges and Group faces make of them.
+    const references = (runtime) => [...(runtime?.referenceMap?.values() || [])];
+    assert.deepStrictEqual(buildEdgeChainGraph(references(incremental)), buildEdgeChainGraph(references(recomposed)), label);
+    assert.deepStrictEqual(buildTangentFaceGraph(references(incremental)), buildTangentFaceGraph(references(recomposed)), label);
+  }
+});
+
+test("the package composer keeps the LOD picking invariant", () => {
+  const level1 = loadLevel(0.02);
+  const composer = createPackageReferenceComposer();
+  const runtime = composePackageSelectorRuntime(ENTRY, OCCURRENCES, { c0: level1.bundle }, { composer });
+  assert.ok(faceIdInvariant(level1.meshData, runtime).ok);
+});
+
+test("the package composer builds each occurrence once and releases what stops being composed", () => {
+  const { bundle } = loadLevel(0);
+  const occurrences = Array.from({ length: 6 }, (_, index) => placedOccurrence(index));
+  const composer = createPackageReferenceComposer({ retainCompositions: 2 });
+  const first = composePackageSelectorRuntime(ENTRY, occurrences.slice(0, 3), { c0: bundle }, { composer });
+  const second = composePackageSelectorRuntime(ENTRY, occurrences, { c0: bundle }, { composer });
+  assert.equal(composer.size, 6);
+  // The first three occurrences were not rebuilt: their references are the same objects.
+  assert.ok(first.references.every((reference, index) => second.references[index] === reference));
+  composePackageSelectorRuntime(ENTRY, occurrences.slice(3), { c0: bundle }, { composer });
+  composePackageSelectorRuntime(ENTRY, occurrences.slice(3), { c0: bundle }, { composer });
+  assert.equal(composer.size, 3);
+  composer.reset();
+  assert.equal(composer.size, 0);
+});
+
+test("Group edges and Group faces group the same references through the package composer", () => {
+  // One square face bounded by four line edges that meet at shared corners, one tangent edge
+  // between two faces: chains and tangent groups both exist.
+  const bundle = {
+    manifest: {
+      tables: {
+        occurrenceColumns: ["id"],
+        shapeColumns: ["id", "occurrenceId", "ordinal", "kind"],
+        faceColumns: ["id", "occurrenceId", "shapeId", "ordinal", "surfaceType", "edgeStart", "edgeCount"],
+        edgeColumns: ["id", "occurrenceId", "shapeId", "ordinal", "curveType", "faceStart", "faceCount", "segmentStart", "segmentCount", "visibilityClass"],
+      },
+      occurrences: [["o1"]],
+      shapes: [["o1.s1", "o1", 1, "solid"]],
+      faces: [["o1.f1", "o1", "o1.s1", 1, "plane", 0, 4], ["o1.f2", "o1", "o1.s1", 2, "cylinder", 0, 1]],
+      edges: [
+        ["o1.e1", "o1", "o1.s1", 1, "line", 0, 2, 0, 1, "tangent"],
+        ["o1.e2", "o1", "o1.s1", 2, "line", 0, 1, 1, 1, "feature"],
+        ["o1.e3", "o1", "o1.s1", 3, "line", 0, 1, 2, 2, "feature"],
+        ["o1.e4", "o1", "o1.s1", 4, "line", 0, 1, 4, 1, "feature"],
+      ],
+      relations: { faceEdgeRows: [0, 1, 2, 3, 0], edgeFaceRows: [0, 1, 0, 0, 0] },
+    },
+    buffers: {
+      edgePositions: new Float32Array([0.1, 0.2, 0.3, 10.1, 0.2, 0.3, 10.1, 10.2, 0.3, 5.1, 10.2, 0.3, 0.1, 10.2, 0.3]),
+      edgeIndices: new Uint32Array([0, 1, 1, 2, 2, 3, 3, 4, 4, 0]),
+      edgeIds: new Uint32Array([0, 1, 2, 2, 3]),
+    },
+  };
+  const occurrences = Array.from({ length: 5 }, (_, index) => placedOccurrence(index));
+  const composer = createPackageReferenceComposer();
+  let linked = 0;
+  for (const loaded of [occurrences.slice(0, 2), occurrences, [occurrences[0], ...occurrences.slice(2)]]) {
+    const incremental = composePackageSelectorRuntime(ENTRY, loaded, { c0: bundle }, { composer });
+    const recomposed = composePackageSelectorRuntime(ENTRY, loaded, { c0: bundle });
+    assert.deepStrictEqual(incremental, recomposed);
+    const edges = buildEdgeChainGraph([...incremental.referenceMap.values()]);
+    assert.deepStrictEqual(edges, buildEdgeChainGraph([...recomposed.referenceMap.values()]));
+    assert.deepStrictEqual(buildTangentFaceGraph([...incremental.referenceMap.values()]), buildTangentFaceGraph([...recomposed.referenceMap.values()]));
+    linked += [...edges.values()].filter((neighbours) => neighbours.size).length;
+  }
+  assert.ok(linked > 0, "the fixture forms edge chains");
 });

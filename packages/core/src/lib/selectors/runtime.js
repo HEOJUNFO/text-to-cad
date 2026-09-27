@@ -190,13 +190,71 @@ function transformPositions(values, transform) {
   return next;
 }
 
+// An edge's chain endpoints are computed on first read (only Group edges reads them), and
+// every copy of its pickData shares that one computation. `chainEndpoints` is an
+// enumerable accessor, so it reads, compares and serializes as the value it stands for;
+// copies go through `copyPickData`, which carries the accessor instead of reading it —
+// an object spread would compute every edge's endpoints just to copy them.
+const CHAIN_ENDPOINTS = "chainEndpoints";
+
+function defineLazyProperty(target, key, compute) {
+  let computed = false;
+  let value;
+  Object.defineProperty(target, key, {
+    configurable: true,
+    enumerable: true,
+    get() {
+      if (!computed) {
+        value = compute();
+        computed = true;
+      }
+      return value;
+    },
+    set(next) {
+      Object.defineProperty(this, key, { value: next, writable: true, configurable: true, enumerable: true });
+    },
+  });
+}
+
+function lazyChainEndpoints(pickData) {
+  return isObject(pickData) ? Object.getOwnPropertyDescriptor(pickData, CHAIN_ENDPOINTS)?.get || null : null;
+}
+
+// `{ ...pickData }` that never reads a lazy `chainEndpoints`: `accessor` carries it over
+// (in its place), otherwise the key is left out for the caller to set.
+function pickDataWithoutReadingChain(pickData, { accessor = null } = {}) {
+  const next = {};
+  for (const key of Object.keys(pickData)) {
+    if (key !== CHAIN_ENDPOINTS) {
+      next[key] = pickData[key];
+    } else if (accessor) {
+      Object.defineProperty(next, key, accessor);
+    }
+  }
+  return next;
+}
+
+// `{ ...pickData, ...overrides }`, with a lazy `chainEndpoints` carried rather than read.
+function copyPickData(pickData, overrides) {
+  const accessor = Object.getOwnPropertyDescriptor(pickData, CHAIN_ENDPOINTS);
+  if (!accessor?.get) {
+    return { ...pickData, ...overrides };
+  }
+  return Object.assign(pickDataWithoutReadingChain(pickData, { accessor }), overrides);
+}
+
+function transformChainEndpoints(chainEndpoints, transform) {
+  return chainEndpoints?.map(({ point, direction }) => ({ point: transformPoint(transform, point), direction: transformVector(transform, direction) }));
+}
+
 function transformPickData(pickData, transform) {
   if (!isObject(pickData) || !Array.isArray(transform) || transform.length < 16) {
     return pickData;
   }
-  return {
-    ...pickData,
-    chainEndpoints: pickData.chainEndpoints?.map(({ point, direction }) => ({ point: transformPoint(transform, point), direction: transformVector(transform, direction) })),
+  const lazyChain = lazyChainEndpoints(pickData);
+  const next = {
+    ...(lazyChain ? pickDataWithoutReadingChain(pickData) : pickData),
+    chainEndpoints: lazyChain ? undefined : transformChainEndpoints(pickData.chainEndpoints, transform),
     bbox: pickData.bbox ? transformBBox(transform, pickData.bbox) : pickData.bbox,
     center: Array.isArray(pickData.center) ? transformPoint(transform, pickData.center) : pickData.center,
     normal: Array.isArray(pickData.normal) ? transformVector(transform, pickData.normal) : pickData.normal,
@@ -209,6 +267,10 @@ function transformPickData(pickData, transform) {
     centroid: Array.isArray(pickData.centroid) ? transformPoint(transform, pickData.centroid) : pickData.centroid,
     transform,
   };
+  if (lazyChain) {
+    defineLazyProperty(next, CHAIN_ENDPOINTS, () => transformChainEndpoints(pickData.chainEndpoints, transform));
+  }
+  return next;
 }
 
 function referenceIdForRow(displaySelector, selectorType, partId) {
@@ -441,19 +503,31 @@ function buildReference({
 
 // Use each edge's own tessellation endpoints. Closed or branched edge proxies
 // have no unique pair and must not be guessed into an open chain.
-function edgeChainEndpoints(reference, proxy) {
-  const { segmentStart: start, segmentCount: count, curveType, params } = reference.pickData;
-  const points = proxy.edgePositions, indices = proxy.edgeIndices;
+//
+// Reads the bundle's own (unplaced) edge positions and places each endpoint it
+// needs through `transform`, rounded to Float32 exactly as `transformPositions`
+// stores it, so the result is the one the placed proxy would give — without
+// holding a placed copy of every position for a value most edges never need.
+// Two points are one vertex when every coordinate is equal (the key is the
+// coordinates' own decimal text, as it always was).
+function edgeChainEndpoints({ segmentStart: start, segmentCount: count, curveType, params }, { positions, indices, transform }) {
   if (!Number.isInteger(start) || !Number.isInteger(count) || count < 1 || (start + count) * 2 > indices.length) return [];
+  const placed = positions instanceof Float32Array && Array.isArray(transform) && transform.length >= 16;
+  const pointAt = (index) => {
+    const offset = index * 3;
+    if (!placed || offset + 3 > positions.length) return Array.from(positions.slice(offset, offset + 3));
+    const point = transformPoint(transform, [positions[offset], positions[offset + 1], positions[offset + 2]]);
+    return [Math.fround(point[0]), Math.fround(point[1]), Math.fround(point[2])];
+  };
   const vertices = new Map();
   for (let i = start * 2; i < (start + count) * 2; i += 2) {
-    const pair = [indices[i], indices[i + 1]].map(index => Array.from(points.slice(index * 3, index * 3 + 3)));
+    const pair = [pointAt(indices[i]), pointAt(indices[i + 1])];
     if (pair.some(point => point.length !== 3 || !point.every(Number.isFinite))) return [];
-    if (JSON.stringify(pair[0]) === JSON.stringify(pair[1])) continue;
+    const keys = pair.map(point => `${point[0]},${point[1]},${point[2]}`);
+    if (keys[0] === keys[1]) continue;
     for (let j = 0; j < 2; j++) {
-      const key = JSON.stringify(pair[j]);
-      const vertex = vertices.get(key) || { point: pair[j], neighbor: pair[1-j], count: 0 };
-      vertex.count++; vertices.set(key, vertex);
+      const vertex = vertices.get(keys[j]) || { point: pair[j], neighbor: pair[1-j], count: 0 };
+      vertex.count++; vertices.set(keys[j], vertex);
     }
   }
   if ([...vertices.values()].some(vertex => vertex.count > 2)) return [];
@@ -471,6 +545,15 @@ function edgeChainEndpoints(reference, proxy) {
     const length = Math.hypot(...direction);
     return { point, direction: length ? direction.map(value => value / length) : [0, 0, 0] };
   });
+}
+
+function defineEdgeChainEndpoints(references, source) {
+  for (const reference of references) {
+    if (reference.selectorType !== 'edge') continue;
+    const { segmentStart, segmentCount, curveType, params } = reference.pickData;
+    const edge = { segmentStart, segmentCount, curveType, params };
+    defineLazyProperty(reference.pickData, CHAIN_ENDPOINTS, () => edgeChainEndpoints(edge, source));
+  }
 }
 
 function buildLeafOccurrenceIds(shapes) {
@@ -523,13 +606,16 @@ function applySequentialRelationStarts(rows, relationSpecs) {
   });
 }
 
-export function buildSelectorRuntime(bundle, {
+// The tables and references of one bundle placed by one occurrence: what a runtime and a
+// composition part share. `selectorBuffers` holds the placed proxy positions only when
+// `placeProxy` asks (a composition part copies them straight into its composition).
+function buildSelectorTables(bundle, {
   copyCadPath = "",
   partId = "",
   transform = null,
   remapOccurrenceId = "",
   remapOccurrencePrefix = null,
-} = {}) {
+} = {}, { placeProxy = true } = {}) {
   const manifest = bundle?.manifest || {};
   const buffers = bundle?.buffers || {};
   const faceRelations = relationArray(manifest, buffers, "faceEdgeRows", "faceEdgeRowsView");
@@ -547,12 +633,12 @@ export function buildSelectorRuntime(bundle, {
   const leafOccurrenceIds = buildLeafOccurrenceIds(shapes);
   const singleOccurrenceId = leafOccurrenceIds.length === 1 ? leafOccurrenceIds[0] : "";
   const selectorBuffers = {
-    facePositions: transformPositions(buffers.facePositions, transform),
+    facePositions: placeProxy ? transformPositions(buffers.facePositions, transform) : buffers.facePositions,
     faceIndices: buffers.faceIndices || new Uint32Array(0),
     faceIds: buffers.faceIds || new Uint32Array(0),
     faceRuns: typedBufferView(manifest, buffers, "faceProxy", "runsView"),
     faceRunColumns: Array.isArray(manifest?.faceProxy?.runColumns) ? manifest.faceProxy.runColumns : [],
-    edgePositions: transformPositions(buffers.edgePositions, transform),
+    edgePositions: placeProxy ? transformPositions(buffers.edgePositions, transform) : buffers.edgePositions,
     edgeIndices: buffers.edgeIndices || new Uint32Array(0),
     edgeIds: buffers.edgeIds || new Uint32Array(0),
     faceEdgeRows: faceRelations,
@@ -616,10 +702,42 @@ export function buildSelectorRuntime(bundle, {
     remapOccurrencePrefix,
     targetSelectorType: "face",
   })));
-  for (const reference of references) {
-    if (reference.selectorType === 'edge') reference.pickData.chainEndpoints = edgeChainEndpoints(reference, selectorBuffers);
-  }
+  defineEdgeChainEndpoints(references, { positions: buffers.edgePositions, indices: selectorBuffers.edgeIndices, transform });
   const visibleReferences = references.filter((reference) => String(reference?.normalizedSelector || "").trim());
+  const occurrenceIdByRowIndex = new Map(
+    occurrences.map((row, rowIndex) => [
+      rowIndex,
+      selectorForRow("occurrence", row, rowIndex, singleOccurrenceId, remapOccurrenceId, remapOccurrencePrefix) || String(row?.id || "").trim()
+    ])
+  );
+  return {
+    manifest,
+    occurrences,
+    shapes,
+    faces,
+    edges,
+    singleOccurrenceId,
+    selectorBuffers,
+    visibleReferences,
+    occurrenceIdByRowIndex,
+    bbox: transform ? transformBBox(transform, manifest.bbox || {}) : manifest.bbox,
+  };
+}
+
+export function buildSelectorRuntime(bundle, options = {}) {
+  const {
+    manifest,
+    occurrences,
+    shapes,
+    faces,
+    edges,
+    singleOccurrenceId,
+    selectorBuffers,
+    visibleReferences,
+    occurrenceIdByRowIndex,
+    bbox,
+  } = buildSelectorTables(bundle, options);
+  const copyCadPath = options?.copyCadPath || "";
   const referenceMap = new Map(visibleReferences.map((reference) => [reference.id, reference]));
   const referenceByNormalizedSelector = new Map(
     visibleReferences.map((reference) => [reference.normalizedSelector, reference])
@@ -637,19 +755,13 @@ export function buildSelectorRuntime(bundle, {
       .filter((reference) => reference.selectorType === "edge")
       .map((reference) => [reference.rowIndex, reference])
   );
-  const occurrenceIdByRowIndex = new Map(
-    occurrences.map((row, rowIndex) => [
-      rowIndex,
-      selectorForRow("occurrence", row, rowIndex, singleOccurrenceId, remapOccurrenceId, remapOccurrencePrefix) || String(row?.id || "").trim()
-    ])
-  );
   return {
     schemaVersion: Number(manifest.schemaVersion || 1),
     surfaceEdgeRendering: Boolean(manifest?.capabilities?.surfaceEdgeRendering),
     capabilities: manifest.capabilities || null,
     cadPath: copyCadPath || String(manifest.cadRef || "").trim(),
     stepHash: String(manifest.stepHash || ""),
-    bbox: transform ? transformBBox(transform, manifest.bbox || {}) : manifest.bbox,
+    bbox,
     occurrences,
     shapes,
     faces,
@@ -947,6 +1059,28 @@ export function buildTransformedSelectorRuntime(selectorRuntime, transformByPart
   };
 }
 
+// A component reference moved into a composition: its rowIndex offset into the composed table
+// of its kind, and its proxy start (segmentStart/triangleStart) offset into the composed proxy.
+// Offsets add, so a reference placed at A moves to B by placing it again at B - A.
+function placeReference(reference, offsets) {
+  const type = reference?.selectorType;
+  const offset = type === "face" ? offsets.face
+    : type === "edge" ? offsets.edge
+      : type === "occurrence" ? offsets.occurrence
+        : type === "shape" ? offsets.shape : 0;
+  const rowIndex = Number(reference?.rowIndex);
+  let next = Number.isFinite(rowIndex) ? { ...reference, rowIndex: rowIndex + offset } : { ...reference };
+  const pickData = reference?.pickData;
+  if (pickData && typeof pickData === "object") {
+    if (type === "edge" && Number.isFinite(Number(pickData.segmentStart))) {
+      next = { ...next, pickData: copyPickData(pickData, { segmentStart: Number(pickData.segmentStart) + offsets.segment }) };
+    } else if (type === "face" && Number.isFinite(Number(pickData.triangleStart))) {
+      next = { ...next, pickData: copyPickData(pickData, { triangleStart: Number(pickData.triangleStart) + offsets.triangle }) };
+    }
+  }
+  return next;
+}
+
 // Merge per-component selector runtimes (each already world-placed via its occurrence transform
 // and namespaced via remapOccurrenceId) into one assembly runtime. A component-GLB package has no
 // whole-assembly selector topology, so this composes the leaf runtimes: it concatenates the
@@ -1011,23 +1145,9 @@ export function composeSelectorRuntimes(runtimes) {
     for (const row of (runtime.shapes || [])) shapes.push(row);
     for (const row of (runtime.faces || [])) faces.push(row);
     for (const row of (runtime.edges || [])) edges.push(row);
+    const offsets = { face: fOff, edge: eOff, occurrence: oOff, shape: sOff, triangle: faceTriOff, segment: edgeSegOff };
     for (const reference of (runtime.references || [])) {
-      const type = reference?.selectorType;
-      const offset = type === "face" ? fOff
-        : type === "edge" ? eOff
-          : type === "occurrence" ? oOff
-            : type === "shape" ? sOff : 0;
-      const rowIndex = Number(reference?.rowIndex);
-      let next = Number.isFinite(rowIndex) ? { ...reference, rowIndex: rowIndex + offset } : { ...reference };
-      const pickData = reference?.pickData;
-      if (pickData && typeof pickData === "object") {
-        if (type === "edge" && Number.isFinite(Number(pickData.segmentStart))) {
-          next = { ...next, pickData: { ...pickData, segmentStart: Number(pickData.segmentStart) + edgeSegOff } };
-        } else if (type === "face" && Number.isFinite(Number(pickData.triangleStart))) {
-          next = { ...next, pickData: { ...pickData, triangleStart: Number(pickData.triangleStart) + faceTriOff } };
-        }
-      }
-      references.push(next);
+      references.push(placeReference(reference, offsets));
     }
     for (const [key, value] of (runtime.occurrenceIdByRowIndex || new Map())) {
       occurrenceIdByRowIndex.set(Number(key) + oOff, value);
@@ -1125,6 +1245,325 @@ export function composeSelectorRuntimes(runtimes) {
       edgePositions,
       edgeIndices,
       edgeIds,
+    },
+  };
+}
+
+// ---- incremental composition ------------------------------------------------------------------
+//
+// `composeSelectorRuntimes` rebuilds a composition from whole runtimes; a caller that composes the
+// same components again and again (an assembly loading topology part by part) instead keeps one
+// PART per placed component (`buildSelectorCompositionPart`) and one composer
+// (`createSelectorRuntimeComposer`). A part holds only what composition reads: its rows (shared
+// with every composition it joins), its references as last placed, and the bundle's own proxy
+// buffers with the placement transform — never a placed copy of the proxy, never lookup maps.
+// The composer's result is value-for-value what `composeSelectorRuntimes` returns for the same
+// components in the same order (runtime.test.js holds the two paths equal), but:
+//   - a part's references are re-placed only when its offsets in the composition change;
+//   - a composition that extends the previous one (the same parts first, in order) copies the
+//     previous result's arrays, maps and proxy prefix instead of rebuilding them.
+// A composition of one part is that part's own runtime, exactly as `composeSelectorRuntimes`
+// returns its single runtime unchanged.
+
+const RUNTIME_BASE_KEYS = [
+  "schemaVersion", "surfaceEdgeRendering", "capabilities", "cadPath", "stepHash", "bbox", "occurrences", "shapes",
+  "faces", "edges", "vertices", "references", "referenceMap", "referenceByNormalizedSelector",
+  "referenceByDisplaySelector", "faceReferenceByRowIndex", "edgeReferenceByRowIndex", "vertexReferenceByRowIndex",
+  "occurrenceIdByRowIndex", "faceReferenceMap", "edgeReferenceMap", "vertexReferenceMap", "singleOccurrenceId", "proxy",
+];
+
+export function buildSelectorCompositionPart(bundle, options = {}) {
+  const tables = buildSelectorTables(bundle, options, { placeProxy: false });
+  const { manifest, selectorBuffers } = tables;
+  const copyCadPath = options?.copyCadPath || "";
+  // The runtime this part would be, in its key order: a composition spreads its first
+  // component's runtime and overrides everything but these scalars and empty vertex maps.
+  const base = Object.fromEntries(RUNTIME_BASE_KEYS.map((key) => [key, null]));
+  Object.assign(base, {
+    schemaVersion: Number(manifest.schemaVersion || 1),
+    surfaceEdgeRendering: Boolean(manifest?.capabilities?.surfaceEdgeRendering),
+    capabilities: manifest.capabilities || null,
+    cadPath: copyCadPath || String(manifest.cadRef || "").trim(),
+    stepHash: String(manifest.stepHash || ""),
+    vertices: [],
+    vertexReferenceByRowIndex: new Map(),
+    vertexReferenceMap: new Map(),
+  });
+  return {
+    bundle,
+    options,
+    base,
+    bbox: tables.bbox,
+    occurrences: tables.occurrences,
+    shapes: tables.shapes,
+    faces: tables.faces,
+    edges: tables.edges,
+    occurrenceIdByRowIndex: tables.occurrenceIdByRowIndex,
+    // `selectorBuffers` with UNPLACED positions; `transform` places them as they are copied.
+    proxy: selectorBuffers,
+    transform: options?.transform || null,
+    // The references as last placed (initially unplaced) and where: see placePartReferences.
+    placement: { key: "", offsets: null, references: tables.visibleReferences },
+  };
+}
+
+function offsetsKey(offsets) {
+  return `${offsets.face},${offsets.edge},${offsets.occurrence},${offsets.shape},${offsets.triangle},${offsets.segment}`;
+}
+
+function placePartReferences(part, offsets) {
+  const placement = part.placement;
+  const key = offsetsKey(offsets);
+  if (placement.key !== key) {
+    // Offsets add: from the last placement, move by the difference (from none, by the offsets).
+    const from = placement.offsets;
+    const delta = from
+      ? {
+        face: offsets.face - from.face,
+        edge: offsets.edge - from.edge,
+        occurrence: offsets.occurrence - from.occurrence,
+        shape: offsets.shape - from.shape,
+        triangle: offsets.triangle - from.triangle,
+        segment: offsets.segment - from.segment,
+      }
+      : offsets;
+    part.placement = { key, offsets, references: placement.references.map((reference) => placeReference(reference, delta)) };
+  }
+  return part.placement.references;
+}
+
+// A part's positions as `transformPositions` would place them, written straight into `target`
+// at `cursor`, value for value (the same arithmetic, stored as Float32).
+function writePlacedPositions(target, cursor, positions, transform) {
+  if (!(Array.isArray(transform) && transform.length >= 16)) {
+    target.set(positions, cursor);
+    return;
+  }
+  const length = positions.length;
+  for (let index = 0; index < length; index += 3) {
+    const x = Number(positions[index]);
+    const y = Number(positions[index + 1]);
+    const z = Number(positions[index + 2]);
+    target[cursor + index] = (transform[0] * x) + (transform[1] * y) + (transform[2] * z) + transform[3];
+    if (index + 1 < length) target[cursor + index + 1] = (transform[4] * x) + (transform[5] * y) + (transform[6] * z) + transform[7];
+    if (index + 2 < length) target[cursor + index + 2] = (transform[8] * x) + (transform[9] * y) + (transform[10] * z) + transform[11];
+  }
+}
+
+function emptyCompositionState() {
+  return {
+    faceRowOffset: 0, edgeRowOffset: 0, occRowOffset: 0, shapeRowOffset: 0,
+    facePosCursor: 0, faceIdxCursor: 0, faceIdCursor: 0, faceVtxOffset: 0, faceRunCursor: 0,
+    edgePosCursor: 0, edgeIdxCursor: 0, edgeIdCursor: 0, edgeVtxOffset: 0,
+    faceTriOffset: 0, edgeSegOffset: 0,
+    totalFacePos: 0, totalFaceIdx: 0, totalFaceIds: 0, totalFaceRuns: 0,
+    totalEdgePos: 0, totalEdgeIdx: 0, totalEdgeIds: 0,
+  };
+}
+
+export function createSelectorRuntimeComposer() {
+  // The last multi-part composition: its parts in order, its result and its end state.
+  let last = null;
+
+  function compose(parts) {
+    const valid = (Array.isArray(parts) ? parts : []).filter(Boolean);
+    if (!valid.length) {
+      last = null;
+      return null;
+    }
+    if (valid.length === 1) {
+      last = null;
+      return buildSelectorRuntime(valid[0].bundle, valid[0].options);
+    }
+
+    // The previous composition is this one's prefix when its parts lead this list, in order: its
+    // result is then exactly this composition's first part, placed at the same offsets.
+    const prefix = last
+      && last.parts.length <= valid.length
+      && last.parts.every((part, index) => valid[index] === part)
+      ? last : null;
+
+    const state = prefix ? { ...prefix.state } : emptyCompositionState();
+    for (let index = prefix ? prefix.parts.length : 0; index < valid.length; index += 1) {
+      const proxy = valid[index].proxy || {};
+      state.totalFacePos += proxy.facePositions?.length || 0;
+      state.totalFaceIdx += proxy.faceIndices?.length || 0;
+      state.totalFaceIds += proxy.faceIds?.length || 0;
+      state.totalFaceRuns += proxy.faceRuns?.length || 0;
+      state.totalEdgePos += proxy.edgePositions?.length || 0;
+      state.totalEdgeIdx += proxy.edgeIndices?.length || 0;
+      state.totalEdgeIds += proxy.edgeIds?.length || 0;
+    }
+    const facePositions = new Float32Array(state.totalFacePos);
+    const faceIndices = new Uint32Array(state.totalFaceIdx);
+    const faceIds = new Uint32Array(state.totalFaceIds);
+    const edgePositions = new Float32Array(state.totalEdgePos);
+    const edgeIndices = new Uint32Array(state.totalEdgeIdx);
+    const edgeIds = new Uint32Array(state.totalEdgeIds);
+    const faceRunColumns = (Array.isArray(valid[0]?.proxy?.faceRunColumns) && valid[0].proxy.faceRunColumns.length)
+      ? valid[0].proxy.faceRunColumns
+      : ["occurrenceRow", "primitiveIndex", "triangleStart", "triangleCount", "faceRow"];
+    const faceRunStride = faceRunColumns.length;
+    const faceRunOccCol = Math.max(0, faceRunColumns.indexOf("occurrenceRow"));
+    const faceRunFaceCol = Math.max(0, faceRunColumns.indexOf("faceRow"));
+    const faceRuns = new Uint32Array(state.totalFaceRuns);
+
+    let occurrences, shapes, faces, edges, references, occurrenceIdByRowIndex;
+    let referenceMap, referenceByNormalizedSelector, referenceByDisplaySelector;
+    let faceReferenceByRowIndex, edgeReferenceByRowIndex, faceReferenceMap, edgeReferenceMap;
+    if (prefix) {
+      const previous = prefix.result;
+      const previousProxy = previous.proxy;
+      facePositions.set(previousProxy.facePositions.subarray(0, prefix.state.facePosCursor));
+      faceIndices.set(previousProxy.faceIndices.subarray(0, prefix.state.faceIdxCursor));
+      faceIds.set(previousProxy.faceIds.subarray(0, prefix.state.faceIdCursor));
+      faceRuns.set(previousProxy.faceRuns.subarray(0, Math.min(prefix.state.faceRunCursor, previousProxy.faceRuns.length)));
+      edgePositions.set(previousProxy.edgePositions.subarray(0, prefix.state.edgePosCursor));
+      edgeIndices.set(previousProxy.edgeIndices.subarray(0, prefix.state.edgeIdxCursor));
+      edgeIds.set(previousProxy.edgeIds.subarray(0, prefix.state.edgeIdCursor));
+      occurrences = previous.occurrences.slice();
+      shapes = previous.shapes.slice();
+      faces = previous.faces.slice();
+      edges = previous.edges.slice();
+      references = previous.references.slice();
+      occurrenceIdByRowIndex = new Map(previous.occurrenceIdByRowIndex);
+      referenceMap = new Map(previous.referenceMap);
+      referenceByNormalizedSelector = new Map(previous.referenceByNormalizedSelector);
+      referenceByDisplaySelector = new Map(previous.referenceByDisplaySelector);
+      faceReferenceByRowIndex = new Map(previous.faceReferenceByRowIndex);
+      edgeReferenceByRowIndex = new Map(previous.edgeReferenceByRowIndex);
+      faceReferenceMap = new Map(previous.faceReferenceMap);
+      edgeReferenceMap = new Map(previous.edgeReferenceMap);
+    } else {
+      occurrences = []; shapes = []; faces = []; edges = []; references = [];
+      occurrenceIdByRowIndex = new Map();
+      referenceMap = new Map(); referenceByNormalizedSelector = new Map(); referenceByDisplaySelector = new Map();
+      faceReferenceByRowIndex = new Map(); edgeReferenceByRowIndex = new Map();
+      faceReferenceMap = new Map(); edgeReferenceMap = new Map();
+    }
+
+    for (let index = prefix ? prefix.parts.length : 0; index < valid.length; index += 1) {
+      const part = valid[index];
+      const fOff = state.faceRowOffset, eOff = state.edgeRowOffset, oOff = state.occRowOffset, sOff = state.shapeRowOffset;
+      for (const row of (part.occurrences || [])) occurrences.push(row);
+      for (const row of (part.shapes || [])) shapes.push(row);
+      for (const row of (part.faces || [])) faces.push(row);
+      for (const row of (part.edges || [])) edges.push(row);
+      const placed = placePartReferences(part, {
+        face: fOff, edge: eOff, occurrence: oOff, shape: sOff, triangle: state.faceTriOffset, segment: state.edgeSegOffset,
+      });
+      for (const reference of placed) {
+        // Exactly the composed lookups: visible references only, later entries winning.
+        if (!String(reference?.normalizedSelector || "").trim()) continue;
+        references.push(reference);
+        referenceMap.set(reference.id, reference);
+        referenceByNormalizedSelector.set(reference.normalizedSelector, reference);
+        referenceByDisplaySelector.set(reference.displaySelector, reference);
+        if (reference.selectorType === "face") {
+          faceReferenceByRowIndex.set(reference.rowIndex, reference);
+          faceReferenceMap.set(reference.id, reference);
+        } else if (reference.selectorType === "edge") {
+          edgeReferenceByRowIndex.set(reference.rowIndex, reference);
+          edgeReferenceMap.set(reference.id, reference);
+        }
+      }
+      for (const [key, value] of (part.occurrenceIdByRowIndex || new Map())) {
+        occurrenceIdByRowIndex.set(Number(key) + oOff, value);
+      }
+
+      const proxy = part.proxy || {};
+      if (proxy.facePositions instanceof Float32Array) {
+        writePlacedPositions(facePositions, state.facePosCursor, proxy.facePositions, part.transform);
+        state.facePosCursor += proxy.facePositions.length;
+      }
+      if (proxy.faceIndices instanceof Uint32Array) {
+        for (let i = 0; i < proxy.faceIndices.length; i += 1) {
+          faceIndices[state.faceIdxCursor + i] = proxy.faceIndices[i] + state.faceVtxOffset;
+        }
+        state.faceIdxCursor += proxy.faceIndices.length;
+      }
+      if (proxy.faceIds instanceof Uint32Array) {
+        for (let i = 0; i < proxy.faceIds.length; i += 1) {
+          faceIds[state.faceIdCursor + i] = proxy.faceIds[i] + fOff;
+        }
+        state.faceIdCursor += proxy.faceIds.length;
+      }
+      state.faceVtxOffset += Math.floor((proxy.facePositions?.length || 0) / 3);
+      state.faceTriOffset += Math.floor((proxy.faceIndices?.length || 0) / 3);
+      if (proxy.faceRuns instanceof Uint32Array && proxy.faceRuns.length) {
+        for (let i = 0; i + faceRunStride <= proxy.faceRuns.length; i += faceRunStride) {
+          for (let c = 0; c < faceRunStride; c += 1) {
+            faceRuns[state.faceRunCursor + i + c] = proxy.faceRuns[i + c];
+          }
+          faceRuns[state.faceRunCursor + i + faceRunOccCol] = proxy.faceRuns[i + faceRunOccCol] + oOff;
+          faceRuns[state.faceRunCursor + i + faceRunFaceCol] = proxy.faceRuns[i + faceRunFaceCol] + fOff;
+        }
+        state.faceRunCursor += proxy.faceRuns.length;
+      }
+      if (proxy.edgePositions instanceof Float32Array) {
+        writePlacedPositions(edgePositions, state.edgePosCursor, proxy.edgePositions, part.transform);
+        state.edgePosCursor += proxy.edgePositions.length;
+      }
+      if (proxy.edgeIndices instanceof Uint32Array) {
+        for (let i = 0; i < proxy.edgeIndices.length; i += 1) {
+          edgeIndices[state.edgeIdxCursor + i] = proxy.edgeIndices[i] + state.edgeVtxOffset;
+        }
+        state.edgeIdxCursor += proxy.edgeIndices.length;
+      }
+      if (proxy.edgeIds instanceof Uint32Array) {
+        for (let i = 0; i < proxy.edgeIds.length; i += 1) {
+          edgeIds[state.edgeIdCursor + i] = proxy.edgeIds[i] + eOff;
+        }
+        state.edgeIdCursor += proxy.edgeIds.length;
+      }
+      state.edgeVtxOffset += Math.floor((proxy.edgePositions?.length || 0) / 3);
+      state.edgeSegOffset += Math.floor((proxy.edgeIndices?.length || 0) / 2);
+
+      state.faceRowOffset += (part.faces || []).length;
+      state.edgeRowOffset += (part.edges || []).length;
+      state.occRowOffset += (part.occurrences || []).length;
+      state.shapeRowOffset += (part.shapes || []).length;
+    }
+
+    const base = valid[0].base;
+    const result = {
+      ...base,
+      bbox: mergeBounds(valid.map((part) => part.bbox)) || base.bbox,
+      occurrences,
+      shapes,
+      faces,
+      edges,
+      vertices: [],
+      references,
+      referenceMap,
+      referenceByNormalizedSelector,
+      referenceByDisplaySelector,
+      faceReferenceByRowIndex,
+      edgeReferenceByRowIndex,
+      faceReferenceMap,
+      edgeReferenceMap,
+      occurrenceIdByRowIndex,
+      singleOccurrenceId: "",
+      proxy: {
+        ...(valid[0].proxy || {}),
+        facePositions,
+        faceIndices,
+        faceIds,
+        faceRuns,
+        faceRunColumns,
+        edgePositions,
+        edgeIndices,
+        edgeIds,
+      },
+    };
+    last = { parts: valid, result, state };
+    return result;
+  }
+
+  return {
+    compose,
+    reset() {
+      last = null;
     },
   };
 }

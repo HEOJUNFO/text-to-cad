@@ -14,26 +14,42 @@ export function buildReferenceCacheKey(entry) {
   return fileRef && referenceHash ? `${fileRef}:${referenceHash}` : "";
 }
 
+function normalizeReference(reference) {
+  return {
+    ...reference,
+    id: String(reference.id || "").trim(),
+    label: String(reference.label || reference.id || "Reference").trim() || "Reference",
+    summary: String(reference.summary || reference.shortSummary || "").trim(),
+    shortSummary: String(reference.shortSummary || reference.summary || "").trim(),
+    copyText: String(reference.copyText || "").trim(),
+    partId: String(reference.partId || "").trim(),
+    entityType: String(reference.entityType || "").trim(),
+    selectorType: String(reference.selectorType || "").trim(),
+    normalizedSelector: String(reference.normalizedSelector || "").trim(),
+    displaySelector: String(reference.displaySelector || "").trim()
+  };
+}
+
+// Selector references are immutable, and an assembly's composition keeps the SAME reference
+// objects for every part that did not move (selectors/runtime.js, the incremental composer), so
+// each is normalized once rather than once per composition.
+const normalizedReferences = new WeakMap();
+
 export function normalizeReferenceList(value) {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value
-    .filter((reference) => reference && typeof reference === "object")
-    .map((reference) => ({
-      ...reference,
-      id: String(reference.id || "").trim(),
-      label: String(reference.label || reference.id || "Reference").trim() || "Reference",
-      summary: String(reference.summary || reference.shortSummary || "").trim(),
-      shortSummary: String(reference.shortSummary || reference.summary || "").trim(),
-      copyText: String(reference.copyText || "").trim(),
-      partId: String(reference.partId || "").trim(),
-      entityType: String(reference.entityType || "").trim(),
-      selectorType: String(reference.selectorType || "").trim(),
-      normalizedSelector: String(reference.normalizedSelector || "").trim(),
-      displaySelector: String(reference.displaySelector || "").trim()
-    }))
-    .filter((reference) => reference.id);
+  const references = [];
+  for (const reference of value) {
+    if (!reference || typeof reference !== "object") continue;
+    let normalized = normalizedReferences.get(reference);
+    if (!normalized) {
+      normalized = normalizeReference(reference);
+      normalizedReferences.set(reference, normalized);
+    }
+    if (normalized.id) references.push(normalized);
+  }
+  return references;
 }
 
 export function buildNormalizedReferenceState(entry, referencePayload = null, {
