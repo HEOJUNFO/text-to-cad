@@ -12,8 +12,9 @@ afterEach(() => cleanup());
 // viewport held that back with a comparison of its own, which hid the churn upstream and left
 // a memo load-bearing for how much work happens rather than for how fast it is.
 //
-// What the caller owns (the selected and hovered ids) is React state and keeps its identity
-// on its own; what this hook derives is what these tests are about.
+// What the caller owns (the selected ids) is React state and keeps its identity on its own;
+// what this hook derives is what these tests are about. Hover is not an input: it lives in the
+// surface's hover store (`workbench/hoverStore.js`), read by the viewport's layers alone.
 
 const EMPTY: never[] = [];
 const reference = (id: string, selectorType = 'face') => ({ id, selectorType, displaySelector: id, normalizedSelector: id });
@@ -25,9 +26,6 @@ const inputs = (overrides: Record<string, unknown> = {}) => ({
   assemblyPartMap: undefined,
   selectedReferenceIds: EMPTY,
   selectedPartIds: EMPTY,
-  hoveredModelReferenceId: '',
-  hoveredListPartId: '',
-  hoveredModelPartId: '',
   ...overrides
 });
 const NAMES = ['currentReferences', 'activeReferenceMap', 'selectedReferences', 'selectedParts'];
@@ -46,9 +44,6 @@ it('a file with no topology loaded re-renders without changing one identity', ()
   // A fresh props OBJECT is what a parent render produces; its contents have not changed.
   rerender(inputs());
   held(result.current, before, 'survives a render that changed nothing');
-  // Nor does a change that has nothing to do with these lists.
-  rerender(inputs({ hoveredModelPartId: 'o1.1' }));
-  held(result.current, before, 'survives a hover');
 });
 
 it('references that arrive change the lists once, and hold their identity after', () => {
@@ -73,8 +68,7 @@ it('a selection resolves against the loaded references and keeps its identity wh
   const selected = inputs({ selectedReferencesMatch: true, referenceState: { references }, selectedReferenceIds: ['o1.1:f2'] });
   const { result, rerender } = renderHook(props => useCadWorkspaceSelectors(props), { initialProps: selected });
   expect(result.current.selectedReferences.map((item: any) => item.id)).toEqual(['o1.1:f2']);
-  expect(result.current.hoveredReferenceId).toBe('');
   const resolved = result.current.selectedReferences;
-  rerender({ ...selected, hoveredModelPartId: 'o1.1' });
+  rerender({ ...selected, selectedPartIds: ['o1.1'] });
   expect(result.current.selectedReferences).toBe(resolved);
 });

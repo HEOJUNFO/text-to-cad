@@ -796,6 +796,16 @@ The optional `@hardcore/ui/file-viewer/empty` entry exports `EmptyCadBackdrop` f
   only then are the pick proxies, the linework and the highlights laid over where
   they ended up.
 
+  **Hover is not React state.** What the pointer is over — the reference or part under
+  it in the viewport, the Features row under it — lives in the surface's hover store
+  (`workbench/hoverStore.js`: `getSnapshot`, `subscribe`, `update` and React-shaped
+  setters). The surface writes it and never reads it; the layers subscribe to it and
+  resolve it through the surface's `resolveHover` (the part ids to light, the reference
+  to outline, the viewport menu's marked part, nothing in preview). So a hover
+  re-renders the layers and nothing else — not the surface, its tool stack or the
+  Features tree, which on a large assembly cost about a second a hover —
+  and `StepHover.browser.test.mjs` counts the renders to keep it so.
+
   | module | what it owns |
   | --- | --- |
   | `useStepViewPolicy.js` | Everything DERIVED from the settings and the selection, touching no scene: the normalized display state, which linework is drawn, the edge styling a mode forces, what is pickable once hidden and isolated parts are out. |
@@ -803,7 +813,7 @@ The optional `@hardcore/ui/file-viewer/empty` entry exports `EmptyCadBackdrop` f
   | `useStepDisplay.js` | `useStepPartVisualState` (hidden, isolated, hovered, selected parts) and `useStepLinework` (pick proxies, B-rep edges, a highlighted part's brighter edges). |
   | `useStepPose.js` | The sidecar module's setup and the ONE pose/animation pass (below). It refreshes core's placed bounds and calls `syncSceneBounds()` before drawing, so the near plane and shadows track moving parts. |
   | `useStepExplode.js` | The exploded view: a radial layout eased over a second, snapped by the slider, re-applied to fresh records. |
-  | `useStepHighlights.js` | The reference highlight: boundary lines and fills of selected and hovered faces, edges and vertices. |
+  | `useStepHighlights.js` | The reference highlight: boundary lines and fills of selected and hovered faces, edges and vertices, in two layers — the selection's, rebuilt when the selection is, and the hover's, rebuilt with each hover — that draw what one pass did: a reference both selected and hovered is drawn once, as hovered. A face's fill is read off the display meshes through a per-mesh index of their face runs (`faceRunIndex` in core's `referenceGeometry.js`), not a walk over every triangle on screen. |
   | `useStepMeasureOverlay.js` | The measure canvas: rulers and the snap indicator. |
   | `useStepPicking.js` | The pointer: hover, tap, double-click (the surface copies a face or edge, isolates a part, or leaves isolation on empty space) and measure picks, with all of the topology raycasting. The viewport menu is NOT here: it asks this hook what is under a press (`pickAtRef`). |
 

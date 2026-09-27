@@ -270,9 +270,10 @@ export async function serveStepHarness(t, { onRequest, progressive = false, sing
   /**
    * One page over the fixture. `deviceScaleFactor: 1` keeps a screenshot's pixels the viewport's.
    * `state` opens the page as a previous session left this file: the viewer state a test read
-   * off `window.cadHarness.state` earlier, seeded before any of the app runs.
+   * off `window.cadHarness.state` earlier, seeded before any of the app runs; `init` is a
+   * function run in the page before the app, as `page.addInitScript` runs it.
    */
-  const open = async ({ timeout = 30000, state = null, hasTouch = false } = {}) => {
+  const open = async ({ timeout = 30000, state = null, hasTouch = false, init = null } = {}) => {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, hasTouch });
     t.after(() => page.close().catch(() => {}));
     page.setDefaultTimeout(timeout);
@@ -282,6 +283,9 @@ export async function serveStepHarness(t, { onRequest, progressive = false, sing
     // what `renderAssetClient` does for a host without one.
     await page.addInitScript(() => { window.Worker = undefined; });
     if (state) await page.addInitScript(stored => { window.__cadViewerState = stored; }, state);
+    // A script of the test's own that must run before the app does (a render counter on
+    // React's devtools hook, say).
+    if (init) await page.addInitScript(init);
     await page.goto(`http://127.0.0.1:${server.address().port}/?file=${fixture.file}`);
     return { page, errors, pane: page.getByTestId('one') };
   };
