@@ -17,8 +17,8 @@ if TYPE_CHECKING:
 
 __all__ = [
     "GeometryError", "GeometryIssue", "ClosestPoints", "MassProperties",
-    "closest_points", "overlap_volume", "topology_errors", "boundary_edges",
-    "self_intersections", "mass_properties",
+    "closest_points", "overlap_volume", "is_valid", "is_sound", "topology_errors",
+    "boundary_edges", "self_intersections", "mass_properties",
 ]
 
 Matrix3 = tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]
@@ -224,7 +224,9 @@ def overlap_volume(a: Solid, b: Solid) -> float:
 # geometry, placement and orientation. The op memo's value tier already keys
 # exactly that identity -- the location-stripped BREP digest and the location
 # matrix, bound to the loaded build123d/OCP runtime -- in its RAM and disk
-# tiers, so an identical shape gets the stored verdict instead of a rerun. A
+# tiers, so an identical shape gets the stored verdict instead of a rerun.
+# ``is_valid`` and ``is_sound`` store a bare boolean (``op_memo.memoized_check``,
+# the tier ``Shape.is_valid`` itself answers from). The diagnostics store more: a
 # verdict holds only issue codes and, per affected entity, its index in the
 # checked copy's ``TopExp.MapShapes`` order and its orientation; never native
 # geometry. A hit decodes it against a fresh private copy of the caller's
@@ -280,7 +282,7 @@ def _reused(op_name: str, wrapped, run, decode):
 
     try:
         # CADGEN_OP_MEMO=0 skips the key: its digest serializes the whole shape.
-        key = (*op_memo.placed_shape_key(wrapped), int(wrapped.Orientation())) if op_memo._enabled() else None
+        key = op_memo.oriented_shape_key(wrapped) if op_memo._enabled() else None
     except Exception:  # noqa: BLE001 - an unkeyable shape is still checkable
         key = None
     if key is None:
@@ -293,6 +295,67 @@ def _reused(op_name: str, wrapped, run, decode):
         compute()
         return live[0][1]
     return decode(_copy(wrapped), encoded) if encoded else ()
+
+
+def is_valid(shape: Shape) -> bool:
+    """``BRepCheck_Analyzer``'s verdict on the shape: the same answer as
+    build123d's ``Shape.is_valid``, which the op memo answers from the same
+    stored verdict. An identical shape (geometry, placement, orientation)
+    reuses it; a kernel failure raises and stores nothing. What is invalid,
+    and where, is ``topology_errors``'s question.
+    """
+    from cadgen._internal import op_memo
+    from OCP.BRepCheck import BRepCheck_Analyzer
+
+    wrapped = _wrapped(shape)
+
+    def check() -> bool:
+        analyzer = BRepCheck_Analyzer(wrapped)
+        analyzer.SetParallel(True)
+        return bool(analyzer.IsValid())
+
+    try:
+        return op_memo.memoized_check(op_memo.IS_VALID_OP, wrapped, check)
+    except GeometryError:
+        raise
+    except Exception as exc:
+        raise GeometryError(f"validity check failed: {exc}") from exc
+
+
+def is_sound(shape: Shape) -> bool:
+    """The boolean kernel's argument check (``BRepAlgoAPI_Check``) passes the
+    shape: BRepCheck-valid, no self-intersections, no too-small edges, and an
+    argument type a boolean accepts. This is what a fuse or cut demands of an
+    operand, and it can be expensive. An identical shape (geometry, placement,
+    orientation) reuses the stored verdict; a check the kernel could not
+    complete raises ``GeometryError`` and stores nothing. Closure, solid
+    count and signed volume are separate questions; the faulty entities are
+    ``self_intersections``'s.
+    """
+    from cadgen._internal import op_memo
+    from OCP.BOPAlgo import BOPAlgo_CheckStatus
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Check
+
+    wrapped = _wrapped(shape)
+    inconclusive = (BOPAlgo_CheckStatus.BOPAlgo_CheckUnknown, BOPAlgo_CheckStatus.BOPAlgo_OperationAborted)
+
+    def check() -> bool:
+        # The constructor performs the check (self-intersections and small
+        # edges both on, the kernel's defaults); Perform() would run it again.
+        checker = BRepAlgoAPI_Check(wrapped)
+        if checker.HasErrors():
+            raise GeometryError("boolean argument checker failed")
+        for result in _items(checker.Result()):
+            if result.GetCheckStatus() in inconclusive:
+                raise GeometryError(f"boolean argument check was inconclusive: {result.GetCheckStatus().name}")
+        return bool(checker.IsValid())
+
+    try:
+        return op_memo.memoized_check("geometry.is_sound.v1", wrapped, check)
+    except GeometryError:
+        raise
+    except Exception as exc:
+        raise GeometryError(f"soundness check failed: {exc}") from exc
 
 
 def topology_errors(shape: Shape) -> tuple[GeometryIssue, ...]:

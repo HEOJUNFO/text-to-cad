@@ -14,7 +14,10 @@ Scope and placement:
   fillet/chamfer, ``Face``/``Solid``/``Wire`` factory classmethods) — pure
   shape-in/shape-out functions. The ``operations_*`` wrappers (``extrude()``,
   ``fillet()``…) mutate builder context and are deliberately NOT patched; their
-  inner topology calls are the memo points.
+  inner topology calls are the memo points. ``Shape.is_valid`` is patched the
+  same way, as a VALUE: the check's verdict is stored under the shape's full
+  key (``memoized_check``), so a stale re-execution that replays every op
+  from the cache does not repay the validity gates a model wrote around them.
 - The cache lives in this module, which survives the generation runner's
   first-party module eviction (cadgen and site-packages are never evicted), so
   a warm daemon worker keeps its cache across requests.
@@ -473,6 +476,37 @@ def placed_shape_key(wrapped) -> tuple:
     digest plus the location matrix -- the same two an op patch keys a shape
     input by, minus orientation, which no measurement depends on."""
     return (_tshape_digest(wrapped), _location_key(wrapped))
+
+
+def oriented_shape_key(wrapped) -> tuple:
+    """``placed_shape_key`` plus orientation: the full triple an op patch keys
+    a shape input by, for a verdict that must not alias a reversed shape."""
+    return (*placed_shape_key(wrapped), int(wrapped.Orientation()))
+
+
+# A check's verdict is a value over the same tiers, keyed by the checked
+# shape's full identity. The op name names the check and its version: what
+# a check computes is what its name promises, so a check that changes what
+# it computes changes its name.
+IS_VALID_OP = "shape.is_valid.v1"
+
+
+def memoized_check(op_name: str, wrapped, compute):
+    """``compute()``, a pure verdict on the placed, oriented ``wrapped``.
+
+    A check that raises stores nothing, so a failed or inconclusive check is
+    run again next time. ``CADGEN_OP_MEMO=0`` skips even the key: its digest
+    serializes the whole shape. A shape the memo cannot key is checked
+    directly, exactly as an unkeyable op runs uncached.
+    """
+    if not _enabled():
+        return compute()
+    try:
+        key = oriented_shape_key(wrapped)
+    except Exception:  # noqa: BLE001 - an unkeyable shape is still checkable
+        _stats["unkeyable"] += 1
+        return compute()
+    return memoized_value(op_name, (key,), compute)
 
 
 def memoized_value(op_name: str, key_args: tuple, compute):
@@ -1299,6 +1333,42 @@ def _identity(attr: str, original):
 _IDENTITY_TARGETS = ("is_same", "__eq__", "__hash__")
 
 
+# --- validity ----------------------------------------------------------------
+#
+# ``Shape.is_valid`` is the one kernel check build123d itself exposes on the
+# topology layer, and the verdict of ``BRepCheck_Analyzer`` is a pure function
+# of the shape it is handed. A stale re-execution replays every memoized op
+# from the cache, then repays every validity gate the model wrote around them
+# -- so the property is patched like an op: the verdict is stored as a value
+# under the shape's full key and answered from the RAM or disk tier next time.
+# The kernel's checkers that build123d does NOT wrap (``BRepAlgoAPI_Check``)
+# are reached through ``cadgen.geometry.is_sound``; interposing on a pybind
+# class would replace what the class IS for every consumer in the process and
+# could not reproduce its eager-construction semantics on a hit.
+
+
+class _MemoProperty(property):
+    """A patched property, marked so install/uninstall recognize it."""
+
+    __op_memo__ = True
+
+    def __init__(self, original: property):
+        super().__init__(self._fget(original.fget), original.fset, original.fdel, original.__doc__)
+        self.__wrapped__ = original
+
+    @staticmethod
+    def _fget(original):
+        def is_valid(self):
+            if not _enabled() or self._wrapped is None:
+                return original(self)
+            return memoized_check(IS_VALID_OP, self.wrapped, lambda: original(self))
+
+        return is_valid
+
+
+_CHECK_TARGETS = (("Shape", "is_valid"),)
+
+
 def install() -> bool:
     """Idempotently patch the build123d choke points. Returns installed-now."""
     global _installed
@@ -1335,6 +1405,13 @@ def install() -> bool:
                 continue
             setattr(topology.Shape, attr, _identity(attr, fn))
 
+        for cls_name, attr in _CHECK_TARGETS:
+            cls = getattr(topology, cls_name, None)
+            prop = None if cls is None else inspect.getattr_static(cls, attr, None)
+            if not isinstance(prop, property) or getattr(prop, "__op_memo__", False):
+                continue
+            setattr(cls, attr, _MemoProperty(prop))
+
         _installed = True
         return True
 
@@ -1363,6 +1440,12 @@ def uninstall() -> bool:
             fn = inspect.getattr_static(topology.Shape, attr, None)
             if fn is not None and getattr(fn, "__op_memo__", False):
                 setattr(topology.Shape, attr, fn.__wrapped__)
+
+        for cls_name, attr in _CHECK_TARGETS:
+            cls = getattr(topology, cls_name, None)
+            prop = None if cls is None else inspect.getattr_static(cls, attr, None)
+            if isinstance(prop, _MemoProperty):
+                setattr(cls, attr, prop.__wrapped__)
 
         _installed = False
         return True

@@ -190,8 +190,10 @@ path or motion checks need an explicit sampling or swept-volume strategy.
 ## Geometry diagnostics
 
 ```python
-from cadgen.geometry import topology_errors, boundary_edges, self_intersections
+from cadgen.geometry import is_valid, is_sound, topology_errors, boundary_edges, self_intersections
 
+ok = is_valid(shape)                      # bool: BRepCheck passes (== shape.is_valid)
+clean = is_sound(shape)                   # bool: the boolean kernel's argument check passes, expensive
 issues = topology_errors(shape)            # tuple[GeometryIssue, ...]
 free = boundary_edges(shell)              # tuple[Edge, ...]
 crossings = self_intersections(shape)     # tuple[GeometryIssue, ...], expensive
@@ -201,9 +203,19 @@ crossings = self_intersections(shape)     # tuple[GeometryIssue, ...], expensive
 Topology codes are OCCT `BRepCheck_*` statuses; self-intersection codes are
 `BOPAlgo_SelfIntersect`. Failed/inconclusive checks raise `GeometryError`,
 never an empty success result. None of these functions repairs geometry.
-`topology_errors` and `self_intersections` reuse the stored verdict for an
-identical shape in the same placement, so rerunning a check script over
-unchanged geometry skips the kernel work; `CADGEN_OP_MEMO=0` recomputes.
+
+`is_sound` is `BRepAlgoAPI_Check`'s verdict: BRepCheck-valid, no
+self-intersections, no too-small edges, an argument type a boolean accepts.
+It is the gate a fuse or cut demands of an operand. Closure, solid count and
+signed volume stay the script's own checks. Every one of these verdicts is
+stored and reused for an identical shape in the same placement: a rerun over
+unchanged geometry, including a stale model whose ops the op memo replays,
+skips the kernel work. A gate in a model body must use `is_valid` (or
+build123d's `shape.is_valid`, which answers from the same stored verdict) and
+`is_sound`, never a raw `BRepAlgoAPI_Check(...)` or `BRepCheck_Analyzer(...)`
+call: raw kernel checks are recomputed on every run, and on a model that
+gates every stage they cost more than the geometry. `CADGEN_OP_MEMO=0`
+recomputes everything.
 
 Choose checks appropriate to the artifact. For an intended closed solid,
 check topology, free shell edges and each solid's signed volume. A reversed

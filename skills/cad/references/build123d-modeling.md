@@ -197,10 +197,15 @@ surfaces were requested.
 
 Use `cadgen.geometry.topology_errors`, `boundary_edges` and, when relevant,
 `self_intersections` on saved geometry. During a failing construction, check
-intermediates around the suspect operation. `BRepAlgoAPI_Check` can additionally
-identify Boolean-suitability issues such as tiny edges; there is no need to run
-an expensive diagnostic after every simple operation. Any repair must preserve
-the dimensions being checked. See [inspection](inspection-and-validation.md).
+intermediates around the suspect operation. A validity gate inside a model
+body — a retry ladder that accepts a fillet only when the result is sound, a
+stage check on a casting — uses `cadgen.geometry.is_valid` and `is_sound`
+(the `BRepAlgoAPI_Check` verdict, which also identifies Boolean-suitability
+issues such as tiny edges), never a raw kernel checker: their verdicts are
+stored, so a stale re-execution that replays its ops from the op memo does not
+repay every gate. There is no need to run an expensive diagnostic after every
+simple operation. Any repair must preserve the dimensions being checked. See
+[inspection](inspection-and-validation.md).
 
 A periodic cylinder or revolved face has a seam edge that may appear in CAD
 linework. Use shaded display or another camera to distinguish a display seam

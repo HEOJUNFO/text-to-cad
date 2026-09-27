@@ -153,10 +153,15 @@ tessellated as stored. One name, one validator, no synonyms.
 Geometry queries are a Python library surface, separate from document-format
 verbs. `read_step(path)` returns build123d geometry; `read_scene(path)` returns
 revision-scoped occurrence/selector views with caller-owned world geometry.
-`cadgen.geometry` provides `closest_points`, `overlap_volume`,
-`topology_errors`, `boundary_edges`, `self_intersections` and `mass_properties`.
-These operations accept native geometry and return facts; selection, units,
-thresholds, exclusions and verdicts belong to the caller's script. The inspect
+`cadgen.geometry` provides `closest_points`, `overlap_volume`, `is_valid`,
+`is_sound`, `topology_errors`, `boundary_edges`, `self_intersections` and
+`mass_properties`. These operations accept native geometry and return facts;
+selection, units, thresholds, exclusions and verdicts belong to the caller's
+script. The kernel checks (`is_valid`, `is_sound`, `topology_errors`,
+`self_intersections`) are pure functions of the shape, so their verdicts are
+stored and reused for an identical shape — through the op memo's value tier,
+which build123d's own `Shape.is_valid` answers from too ([`STORE.md`](STORE.md)
+§2, [`MEMO.md`](MEMO.md)). The inspect
 CLI and `step.inspect` are removed, with an immediate migration error.
 The contracts live in [`step_scene.py`](src/cadgen/step_scene.py) and
 [`geometry.py`](src/cadgen/geometry.py). They import no kernel at namespace
