@@ -11,14 +11,22 @@
  * changed before it isolates, leaves isolation or copies — the gesture ends as it did when
  * every click waited.
  *
- * `tap(clickCount, referenceId, options)`: a press released within the tap slop; `miss(clickCount)`:
- * a press that was not one (a drag, a cancel, a chord), which for a fresh gesture (count 1)
- * forgets any earlier click; `double()`: the dblclick; `cancel()`: drop a held second click.
+ * The one tap that still waits is a tap under a tool a pick would leave (Explode, Clip: a pick
+ * there takes up Select). It is held for the double-click window (`tap(..., { wait: true })`),
+ * so a double-click under such a tool isolates and stays in the tool, the tool never having
+ * changed hands; a lone click switches to Select once the window has passed, as it always has.
+ *
+ * `tap(clickCount, referenceId, options, { wait })`: a press released within the tap slop;
+ * `miss(clickCount)`: a press that was not one (a drag, a cancel, a chord), which for a fresh
+ * gesture (count 1) forgets any earlier click; `double()`: the dblclick; `cancel()`: drop a
+ * held tap.
  */
+export const VIEWER_DOUBLE_CLICK_ACTIVATION_DELAY_MS = 220;
+
 export function createClickActivation({
   commit,
   doubleClick = true,
-  defer = (fn) => window.setTimeout(fn, 0),
+  defer = (fn, ms) => window.setTimeout(fn, ms),
   cancel = (id) => window.clearTimeout(id)
 }) {
   let heldId = 0;
@@ -31,19 +39,32 @@ export function createClickActivation({
     heldId = 0;
   }
 
+  function hold(referenceId, options, ms) {
+    heldId = defer(() => {
+      heldId = 0;
+      activated = true;
+      commit(referenceId, options);
+    }, ms);
+  }
+
   return {
-    tap(clickCount, referenceId, options) {
+    tap(clickCount, referenceId, options, { wait = false } = {}) {
       drop();
-      if (!doubleClick || !(clickCount >= 2)) {
+      if (!doubleClick) {
         activated = true;
         commit(referenceId, options);
         return;
       }
-      heldId = defer(() => {
-        heldId = 0;
+      if (wait) {
+        hold(referenceId, options, VIEWER_DOUBLE_CLICK_ACTIVATION_DELAY_MS);
+        return;
+      }
+      if (!(clickCount >= 2)) {
         activated = true;
         commit(referenceId, options);
-      });
+        return;
+      }
+      hold(referenceId, options, 0);
     },
     miss(clickCount) {
       drop();

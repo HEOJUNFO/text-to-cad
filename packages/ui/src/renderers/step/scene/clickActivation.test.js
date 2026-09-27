@@ -1,18 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createClickActivation } from "./clickActivation.js";
+import { VIEWER_DOUBLE_CLICK_ACTIVATION_DELAY_MS, createClickActivation } from "./clickActivation.js";
 
-/** A gesture over a fake deferral: `run()` fires what was deferred, as the task queue would. */
+/**
+ * A gesture over a fake deferral: `run()` fires what was deferred, as the task queue would;
+ * `deferred` keeps each entry's delay.
+ */
 function gesture({ doubleClick = true } = {}) {
   const commits = [];
   const deferred = [];
   const activation = createClickActivation({
     commit: (referenceId, options) => commits.push([referenceId, options]),
     doubleClick,
-    defer: (fn) => { deferred.push(fn); return deferred.length; },
+    defer: (fn, ms) => { deferred.push({ fn, ms }); return deferred.length; },
     cancel: (id) => { deferred[id - 1] = null; }
   });
-  const run = () => { for (const fn of deferred.splice(0)) fn?.(); };
+  const run = () => { for (const entry of deferred.splice(0)) entry?.fn(); };
   return { activation, commits, deferred, run };
 }
 
@@ -95,5 +98,40 @@ test("without double-click (a coarse pointer) every tap commits at once", () => 
   activation.tap(2, "o1.1", {});
   activation.tap(3, "o1.1", {});
   assert.equal(commits.length, 3);
+  assert.deepEqual(deferred, []);
+});
+
+test("a tap under a tool a pick would leave waits the double-click window, as every click once did", () => {
+  const { activation, commits, deferred, run } = gesture();
+  activation.tap(1, "o1.1", { multiSelect: false }, { wait: true });
+  assert.deepEqual(commits, [], "nothing until the window has passed");
+  assert.deepEqual(deferred.map((entry) => entry?.ms), [VIEWER_DOUBLE_CLICK_ACTIVATION_DELAY_MS]);
+  run();
+  assert.deepEqual(commits, [["o1.1", { multiSelect: false }]], "a lone click commits after it");
+  assert.equal(activation.double(), true);
+});
+
+test("a double-click under such a tool cancels the waiting click: nothing activated, nothing to undo", () => {
+  const { activation, commits, run } = gesture();
+  activation.tap(1, "o1.1", {}, { wait: true });
+  activation.tap(2, "o1.1", {}, { wait: true });
+  assert.equal(activation.double(), false, "no click of this gesture activated");
+  run();
+  assert.deepEqual(commits, [], "neither click commits: the tool never changed hands");
+});
+
+test("a right tap or a second finger drops a waiting click", () => {
+  const { activation, commits, run } = gesture();
+  activation.tap(1, "o1.1", {}, { wait: true });
+  activation.cancel();
+  run();
+  assert.deepEqual(commits, []);
+  assert.equal(activation.double(), false);
+});
+
+test("without double-click (a coarse pointer) a tap that would wait commits at once", () => {
+  const { activation, commits, deferred } = gesture({ doubleClick: false });
+  activation.tap(1, "o1.1", {}, { wait: true });
+  assert.equal(commits.length, 1);
   assert.deepEqual(deferred, []);
 });

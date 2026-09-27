@@ -2839,3 +2839,48 @@ test('a click selects at once, and a double-click ends where it did when a click
   await page.getByRole('menu').waitFor({ state: 'detached' });
   assert.deepEqual(errors, []);
 });
+
+test('under Explode, where a pick takes up Select, a click still waits the double-click window: a double-click isolates and stays in Explode, a lone click selects and switches to Select after the wait', async () => {
+  const view = await open();
+  const { page, box, at, errors } = view;
+  const pressed = async () => (await view.tools()).filter(tool => tool.endsWith(':true')).map(tool => tool.split(':')[0]);
+  const selection = () => page.evaluate(() => { const state = window.cadHarness.a.controller.readState();
+    return { parts: state.selectedPartIds, refs: state.selectedReferenceIds, isolated: state.isolatedPartIds }; });
+  const empty = [box.x + 30, box.y + box.height - 30];
+  await page.evaluate(() => { window.__pressAt = 0; document.addEventListener('pointerup', () => { window.__pressAt = performance.now(); }, true); });
+  await view.tool('Explode').click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="one"] [data-cad-toolbar] [aria-label="Explode"]')?.getAttribute('aria-pressed') === 'true');
+  assert.deepEqual(await pressed(), ['Explode']);
+  // A double-click on the base isolates it, and Explode is still the tool: its first click never
+  // took up Select, because under Explode a click waits for the double-click that cancels it.
+  await page.mouse.dblclick(...at([6, 6, 5]));
+  await page.waitForFunction(() => window.cadHarness.a.controller.readState().isolatedPartIds.join() === 'o1.1');
+  await page.waitForTimeout(400);
+  await settle(page);
+  assert.deepEqual(await pressed(), ['Explode'], 'the tool stays');
+  assert.deepEqual(await selection(), { parts: [], refs: [], isolated: ['o1.1'] });
+  // The same on empty space: isolation left, Explode kept.
+  await page.mouse.dblclick(...empty);
+  await page.waitForFunction(() => window.cadHarness.a.controller.readState().isolatedPartIds.length === 0);
+  await page.waitForTimeout(400);
+  await settle(page);
+  assert.deepEqual(await pressed(), ['Explode'], 'leaving isolation keeps the tool too');
+  assert.deepEqual(await selection(), { parts: [], refs: [], isolated: [] });
+  // A lone click: nothing a frame after the press; then, the window passed, the arm is selected
+  // and Select is the tool.
+  await page.mouse.click(...at([15, 0, 4]));
+  await settle(page);
+  assert.deepEqual(await pressed(), ['Explode'], 'a frame after the press the tool is still Explode');
+  assert.deepEqual((await selection()).parts, [], 'and nothing is selected yet');
+  const delay = await page.evaluate(() => new Promise(resolve => { const tick = () => {
+    const state = window.cadHarness.a.controller.readState();
+    if (state.selectedPartIds.length) resolve(performance.now() - window.__pressAt);
+    else if (performance.now() - window.__pressAt > 3000) resolve(Infinity);
+    else requestAnimationFrame(tick);
+  }; tick(); }));
+  assert.ok(delay >= 200 && delay < 1500, `the arm is selected once the window has passed: ${delay.toFixed(0)}ms after the press`);
+  await page.waitForFunction(() => document.querySelector('[data-testid="one"] [data-cad-toolbar] [aria-label="Select"]')?.getAttribute('aria-pressed') === 'true');
+  assert.deepEqual(await pressed(), ['Select'], 'the pick took up Select');
+  assert.deepEqual((await selection()).parts, ['o1.2']);
+  assert.deepEqual(errors, []);
+});

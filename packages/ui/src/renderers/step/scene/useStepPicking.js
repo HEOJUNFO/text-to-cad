@@ -232,6 +232,9 @@ export function useStepPicking({
   // The browser's dblclick: (referenceId, { multiSelect, activated }), where `activated` says
   // the gesture's first click activated (`clickActivation.js`) — what the surface puts back.
   onDoubleActivateReference,
+  // A tap under a tool a pick would leave (Explode, Clip: the pick takes up Select) waits the
+  // double-click window before it activates, so a double-click there never changes the tool.
+  deferActivation = false,
   // What is under a point of the screen right now, for the viewport menu: set while the
   // listeners are bound, null otherwise. (clientX, clientY, pointerType) -> reference id or "".
   pickAtRef = null,
@@ -252,6 +255,7 @@ export function useStepPicking({
   const onHoverReferenceChangeRef = useRef(onHoverReferenceChange);
   const onActivateReferenceRef = useRef(onActivateReference);
   const onDoubleActivateReferenceRef = useRef(onDoubleActivateReference);
+  const deferActivationRef = useRef(deferActivation);
   const onMeasurePickRef = useRef(onMeasurePick);
   const onMeasureHoverPointRef = useRef(onMeasureHoverPoint);
 
@@ -262,6 +266,7 @@ export function useStepPicking({
   onHoverReferenceChangeRef.current = onHoverReferenceChange;
   onActivateReferenceRef.current = onActivateReference;
   onDoubleActivateReferenceRef.current = onDoubleActivateReference;
+  deferActivationRef.current = deferActivation;
   onMeasurePickRef.current = onMeasurePick;
   onMeasureHoverPointRef.current = onMeasureHoverPoint;
   // The id sets a pick is checked against, built when their lists change rather than on every
@@ -1073,7 +1078,8 @@ export function useStepPicking({
       const referenceId = pointerDownReferenceId || pickActivationReference(event.clientX, event.clientY, event.pointerType || "");
       // The press point goes with the activation, so a pick that has to wait (a part whose faces
       // are still loading) can be asked again at the same place.
-      activation.tap(clickCount, referenceId || "", { multiSelect: !!event.shiftKey, ...press });
+      activation.tap(clickCount, referenceId || "", { multiSelect: !!event.shiftKey, ...press },
+        { wait: !!deferActivationRef.current });
     }
 
     function handlePointerCancel(event) {

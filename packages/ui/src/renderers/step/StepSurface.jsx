@@ -3145,6 +3145,9 @@ function StepSurfaceBody({ view, data }) {
     onHoverReferenceChange: !previewing ? handleModelHoverChange : null,
     onActivateReference: !previewing ? handleModelReferenceActivate : null,
     onDoubleActivateReference: !previewing ? handleModelReferenceDoubleActivate : null,
+    // Under another tool a pick takes up Select (`ensureSelectTool`): it waits the double-click
+    // window first, so a double-click there isolates and leaves the tool as it was.
+    deferActivation: !selectionToolActive,
     onMeasurePick: !previewing ? measure.onPick : null,
     onMeasureHoverPoint: !previewing ? measure.onHoverPoint : null,
     pickAtRef

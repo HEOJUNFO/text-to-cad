@@ -869,6 +869,10 @@ counts it, `clickActivation.js` holds it for the `dblclick` that owns the gestur
 and the double-click begins by putting the selection back the way its first click
 found it — through the same setters every pick goes through, so the Reference panel,
 the tree and the viewport follow — before it isolates, leaves isolation or copies.
+The one click that still waits is one under a tool a pick would leave (Explode, Clip:
+a pick there takes up Select): it is held for the double-click window
+(`deferActivation`), so a double-click there isolates and stays in the tool, and a
+lone click selects and switches to Select once the window has passed.
 Every copied reference — the
 bottom action, ⌘C, both menus, the double-click — carries the file's prefix through
 one `copyTextLines`. Escape clears the
