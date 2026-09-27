@@ -42,6 +42,17 @@ export async function runDrawScenario({ page, pane, errors }) {
     }
     return { ...counts, left: left * canvas.getBoundingClientRect().width / canvas.width };
   });
+  // History is mirrored from the SDK asynchronously: wait for a control to settle rather than read it once.
+  const settles = (name, enabled) => page.waitForFunction(([name, enabled]) => {
+    const button = document.querySelector(`[data-testid="one"] [data-tool-panel][aria-label="Drawing controls"] button[aria-label="${name}"]`);
+    return Boolean(button) && button.disabled === !enabled;
+  }, [name, enabled], { timeout: 5000 });
+  const translucentInk = () => page.evaluate(() => {
+    const canvas = document.querySelector('[data-testid="one"] [data-cad-drawing-overlay] canvas.excalidraw__canvas.static');
+    const { data } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+    let translucent = 0; for (let index = 3; index < data.length; index += 4) if (data[index] > 30 && data[index] <= 200) translucent += 1;
+    return translucent;
+  });
   const drag = async (from, to) => { await page.mouse.move(...from); await page.mouse.down(); await page.mouse.move(...to, { steps: 8 }); await page.mouse.up(); };
 
   const draw = pane.getByRole('button', { name: 'Draw', exact: true });
@@ -75,6 +86,7 @@ export async function runDrawScenario({ page, pane, errors }) {
   assert.deepEqual([afterStroke.zoom, afterStroke.projection], [locked.zoom, locked.projection]);
   const stroke = await ink();
   assert.ok(stroke.red > 50, `neon red ink: ${JSON.stringify(stroke)}`);
+  await settles('Undo', true);
 
   // Pan belongs to the editor; the camera follows along its own plane.
   await page.mouse.move(...at(200, 300));
@@ -104,31 +116,50 @@ export async function runDrawScenario({ page, pane, errors }) {
   await choose('Rectangle');
   await drag(at(120, 220), at(300, 360));
   assert.equal(await draw.locator('[data-drawing-tool]').getAttribute('data-drawing-tool'), 'rectangle');
-  // Color is for what comes next; the red ink stays red.
+  // Color and weight are for what comes next; the red ink stays red. Choosing them never
+  // costs the sketch its history (each choice used to hand the panel a fresh, empty one).
   await choose('Color');
   await menu.getByRole('radio', { name: 'Neon green', exact: true }).click();
+  await choose('Stroke width');
+  await menu.getByRole('radio', { name: 'Bold', exact: true }).click();
+  await settles('Undo', true);
   await drag(at(330, 220), at(400, 300));
   const colored = await ink();
   assert.ok(colored.green > 50 && colored.red >= stroke.red, JSON.stringify(colored));
+  await settles('Undo', true);
 
   // Fill: a translucent area inside the first rectangle, and nothing opaque added.
+  const fillsInside = async () => {
+    await page.mouse.click(...at(210, 290));
+    await page.waitForFunction(() => {
+      const canvas = document.querySelector('[data-testid="one"] [data-cad-drawing-overlay] canvas.excalidraw__canvas.static');
+      const { data } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+      let translucent = 0; for (let index = 3; index < data.length; index += 4) if (data[index] > 30 && data[index] <= 200) translucent += 1;
+      return translucent > 5000;
+    });
+    // A fill is an undo step like any ink (Undo stayed disabled after one while choosing Fill reset the panel's history).
+    await settles('Undo', true);
+    // One Undo, one fill; and Redo brings it back.
+    await choose('Undo');
+    await page.waitForFunction(() => {
+      const canvas = document.querySelector('[data-testid="one"] [data-cad-drawing-overlay] canvas.excalidraw__canvas.static');
+      const { data } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+      let translucent = 0; for (let index = 3; index < data.length; index += 4) if (data[index] > 30 && data[index] <= 200) translucent += 1;
+      return translucent < 5000;
+    });
+    await settles('Redo', true);
+    await choose('Redo');
+    await page.waitForFunction(() => {
+      const canvas = document.querySelector('[data-testid="one"] [data-cad-drawing-overlay] canvas.excalidraw__canvas.static');
+      const { data } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+      let translucent = 0; for (let index = 3; index < data.length; index += 4) if (data[index] > 30 && data[index] <= 200) translucent += 1;
+      return translucent > 5000;
+    });
+    await settles('Redo', false);
+  };
   await choose('Fill area');
-  await page.mouse.click(...at(210, 290));
-  await page.waitForFunction(() => {
-    const canvas = document.querySelector('[data-testid="one"] [data-cad-drawing-overlay] canvas.excalidraw__canvas.static');
-    const { data } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
-    let translucent = 0; for (let index = 3; index < data.length; index += 4) if (data[index] > 30 && data[index] <= 200) translucent += 1;
-    return translucent > 5000;
-  });
+  await fillsInside();
   assert.equal(await draw.locator('[data-drawing-tool]').getAttribute('data-drawing-tool'), 'fill');
-  // One Undo, one fill.
-  await choose('Undo');
-  await page.waitForFunction(() => {
-    const canvas = document.querySelector('[data-testid="one"] [data-cad-drawing-overlay] canvas.excalidraw__canvas.static');
-    const { data } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
-    let translucent = 0; for (let index = 3; index < data.length; index += 4) if (data[index] > 30 && data[index] <= 200) translucent += 1;
-    return translucent < 5000;
-  });
 
   // The bottom action copies the view with its ink to the host's clipboard, as a PNG.
   await page.evaluate(() => {
@@ -150,9 +181,26 @@ export async function runDrawScenario({ page, pane, errors }) {
   await page.waitForFunction(() => document.querySelector('[data-testid="one"] [data-drawing-ready]'));
   assert.equal((await ink()).ink, 0, 'a new session starts empty');
   await menu.waitFor();
+  // Its history too: nothing to undo, redo or clear.
+  for (const name of ['Undo', 'Redo', 'Clear drawing']) assert.equal(await tool(name).isDisabled(), true, `${name} starts disabled`);
   assert.equal(await tool('Fill area').getAttribute('aria-pressed'), 'true', 'with the tool it was left on');
+  assert.equal(await draw.locator('[data-drawing-tool]').getAttribute('data-drawing-tool'), 'fill');
   await choose('Color');
   assert.equal(await menu.getByRole('radio', { name: 'Neon green', exact: true }).getAttribute('aria-checked'), 'true', 'and its colour');
   await choose('Color');
+  await choose('Stroke width');
+  assert.equal(await menu.getByRole('radio', { name: 'Bold', exact: true }).getAttribute('aria-checked'), 'true', 'and its stroke width');
+  await choose('Stroke width');
+  // The tool it reopened on works, and the new sketch keeps a history of its own.
+  await page.mouse.click(...at(210, 290));
+  assert.equal((await ink()).ink, 0, 'a fill with no ink around it adds nothing');
+  await choose('Rectangle');
+  await drag(at(120, 220), at(300, 360));
+  const reopened = await ink();
+  assert.ok(reopened.green > 50 && reopened.red === 0, `drawn in the colour kept: ${JSON.stringify(reopened)}`);
+  await settles('Undo', true);
+  await choose('Fill area');
+  await fillsInside();
+  assert.ok(await translucentInk() > 5000);
   assert.deepEqual(errors, []);
 }

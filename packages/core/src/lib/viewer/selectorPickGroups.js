@@ -1,4 +1,5 @@
 import { ensureFacePickBvh } from "./raycastBvh.js";
+import { adoptEdgePickTable, attachEdgePickRaycast } from "./edgePickRaycast.js";
 
 export const TOPOLOGY_FACE_ID_NONE = 0xffffffff;
 
@@ -208,6 +209,9 @@ export function buildEdgePickLines(THREE, selectorRuntime) {
   const lines = new THREE.LineSegments(geometry, material);
   lines.userData.edgeIds = proxy.edgeIds || new Uint32Array(0);
   lines.frustumCulled = false;
+  // Rays test only the segment runs whose bounds they pass near, through
+  // three's own per-segment test: the hits are the full scan's, in its order.
+  attachEdgePickRaycast(lines);
   return lines;
 }
 
@@ -228,6 +232,7 @@ export function syncSelectorPickGroups(runtime, selectorRuntime, modelOffset = n
     return;
   }
 
+  const previousEdgePickGeometry = runtime.edgePickLines?.geometry || null;
   clearPickGroup(runtime.facePickGroup, clearSceneGroup);
   clearPickGroup(runtime.edgePickGroup, clearSceneGroup);
   runtime.facePickMesh = null;
@@ -245,6 +250,10 @@ export function syncSelectorPickGroups(runtime, selectorRuntime, modelOffset = n
     runtime.edgePickLines = edgePickLines;
     runtime.edgePickGroup.add(edgePickLines);
     runtime.edgePickObjects = [edgePickLines];
+    // Keep the edge culling boxes of a proxy that only grew (topology appended).
+    if (previousEdgePickGeometry) {
+      adoptEdgePickTable(edgePickLines.geometry, previousEdgePickGeometry);
+    }
   }
 
   if (modelOffset) {

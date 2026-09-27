@@ -80,6 +80,64 @@ export function buildFaceFillGeometryFromProxy(runtime, THREE, selectorRuntime, 
   return geometry;
 }
 
+/**
+ * A display mesh's face ids as runs, sorted by face row: `rows[i]` covers triangles
+ * `starts[i]` to `ends[i]`. Built once per `faceIds` array (the scene sync replaces the array
+ * whenever the ids change, and never writes into one it has published) and kept beside it, so
+ * the fill of one face is a binary search per record rather than a walk over every triangle
+ * on screen -- which, for each highlighted face on every hover, was the cost of a highlight.
+ */
+const faceRunIndexByFaceIds = new WeakMap();
+
+export function faceRunIndex(faceIds) {
+  const cached = faceRunIndexByFaceIds.get(faceIds);
+  if (cached) {
+    return cached;
+  }
+  const count = faceIds.length;
+  let runCount = 0;
+  for (let index = 0; index < count; index += 1) {
+    if (index === 0 || faceIds[index] !== faceIds[index - 1]) runCount += 1;
+  }
+  const runRows = new Uint32Array(runCount);
+  const runStarts = new Uint32Array(runCount);
+  const runEnds = new Uint32Array(runCount);
+  let run = -1;
+  for (let index = 0; index < count; index += 1) {
+    if (index === 0 || faceIds[index] !== faceIds[index - 1]) {
+      run += 1;
+      runRows[run] = faceIds[index];
+      runStarts[run] = index;
+    }
+    runEnds[run] = index + 1;
+  }
+  // By row, and by position within a row: a face split into several runs keeps its order.
+  const order = Array.from({ length: runCount }, (_, index) => index)
+    .sort((left, right) => (runRows[left] - runRows[right]) || (runStarts[left] - runStarts[right]));
+  const index = {
+    rows: Uint32Array.from(order, (position) => runRows[position]),
+    starts: Uint32Array.from(order, (position) => runStarts[position]),
+    ends: Uint32Array.from(order, (position) => runEnds[position])
+  };
+  faceRunIndexByFaceIds.set(faceIds, index);
+  return index;
+}
+
+function firstRunOfRow(index, rowIndex) {
+  let low = 0;
+  let high = index.rows.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (index.rows[middle] < rowIndex) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+/**
+ * The fill of one face, read off the display meshes on screen: every triangle whose face id is
+ * the face's row, in record order and triangle order, through each mesh's live matrix.
+ */
 export function buildFaceFillGeometryFromDisplayMeshes(runtime, THREE, reference) {
   const rowIndex = Number(reference?.rowIndex);
   if (!Number.isInteger(rowIndex) || !Array.isArray(runtime?.displayRecords)) {
@@ -88,25 +146,28 @@ export function buildFaceFillGeometryFromDisplayMeshes(runtime, THREE, reference
   const offset = faceFillOffset(runtime, reference);
   const vertex = new THREE.Vector3();
   const fillPositions = [];
+  // A row outside what a Uint32Array holds is on no triangle.
+  const searchable = rowIndex >= 0 && rowIndex <= 0xffffffff;
   for (const record of runtime.displayRecords) {
     const mesh = record?.mesh;
     const geometry = mesh?.geometry;
     const faceIds = mesh?.userData?.faceIds;
     const positions = geometry?.getAttribute?.("position");
     const indices = geometry?.getIndex?.();
-    if (!(faceIds instanceof Uint32Array) || !positions || !indices || !indices.count) {
+    if (!(faceIds instanceof Uint32Array) || !positions || !indices || !indices.count || !searchable) {
       continue;
     }
     const triangleCount = Math.min(faceIds.length, Math.floor(indices.count / 3));
-    for (let triangleIndex = 0; triangleIndex < triangleCount; triangleIndex += 1) {
-      if (Number(faceIds[triangleIndex]) !== rowIndex) {
-        continue;
-      }
-      for (let corner = 0; corner < 3; corner += 1) {
-        const sourceIndex = indices.getX((triangleIndex * 3) + corner);
-        vertex.set(positions.getX(sourceIndex), positions.getY(sourceIndex), positions.getZ(sourceIndex));
-        vertex.applyMatrix4(mesh.matrix);
-        fillPositions.push(vertex.x + offset[0], vertex.y + offset[1], vertex.z + offset[2]);
+    const runs = faceRunIndex(faceIds);
+    for (let run = firstRunOfRow(runs, rowIndex); run < runs.rows.length && runs.rows[run] === rowIndex; run += 1) {
+      const end = Math.min(runs.ends[run], triangleCount);
+      for (let triangleIndex = runs.starts[run]; triangleIndex < end; triangleIndex += 1) {
+        for (let corner = 0; corner < 3; corner += 1) {
+          const sourceIndex = indices.getX((triangleIndex * 3) + corner);
+          vertex.set(positions.getX(sourceIndex), positions.getY(sourceIndex), positions.getZ(sourceIndex));
+          vertex.applyMatrix4(mesh.matrix);
+          fillPositions.push(vertex.x + offset[0], vertex.y + offset[1], vertex.z + offset[2]);
+        }
       }
     }
   }

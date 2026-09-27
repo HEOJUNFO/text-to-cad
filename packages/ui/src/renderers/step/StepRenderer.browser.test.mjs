@@ -633,11 +633,14 @@ test('the Features tree searches as a second view: typing ranks matches and expa
   assert.equal(await pane.locator('[aria-label="Modeling tree"]').isVisible(), false);
   await search.focus();
   await page.keyboard.type('ba');
+  // The search's results follow the box (a deferred query, over an index that may still be
+  // building: "0 matches" can come first), so the base's row is waited for, not read once.
   await page.waitForFunction(() => document.querySelector('[data-testid="one"] [aria-label="Features"]').innerText.includes('match'));
   assert.equal(await search.inputValue(), 'ba', 'no keystroke lost');
   assert.equal(await features.getAttribute('data-collapsed'), null, 'the panel opened');
   assert.equal(await pane.locator('[aria-label="Modeling tree"]').isVisible(), true);
-  assert.ok((await view.rows()).includes('Select base'), `the search shows the base: ${await view.rows()}`);
+  await pane.locator('[aria-label="Model search results"]').getByRole('button', { name: 'Select base', exact: true }).waitFor({ timeout: 5000 })
+    .catch(async () => assert.fail(`the search shows the base: ${await view.rows()}`));
   // While the box has focus its trailing buttons step aside; blurred, they are back.
   assert.equal(await pane.getByRole('button', { name: /^Select mode: / }).isVisible(), false, 'the mode menu yields while typing');
   await search.fill('');
@@ -1235,7 +1238,8 @@ test('preview opens paused, its playbar plays and pauses the routine, and leavin
   await page.waitForTimeout(300);
   assert.deepEqual((await translations(page))['o1.2'], restArm, 'nothing plays until its play button is pressed');
   const rest = await view.frame();
-  assert.deepEqual(await bar.getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), ['Play animation']);
+  // The transport, then Playback settings: the cog at the playbar's right end.
+  assert.deepEqual(await bar.getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), ['Play animation', 'Playback settings']);
   assert.equal(await bar.getByRole('slider', { name: 'Animation time', exact: true }).count(), 1);
 
   await bar.getByRole('button', { name: 'Play animation' }).click();
@@ -1765,16 +1769,19 @@ test('preview\'s Playback settings: the routine, its speed, Loop and Autoplay, t
   const time = bar.getByRole('slider', { name: 'Animation time', exact: true });
   await play.waitFor();
   assert.equal(await pane.locator('[data-cad-tool-stack]').isVisible(), false, 'no panel of the routine\'s: the tools are put away');
-  // Its settings are Playback settings, in the top-right bar before Display settings and the X.
+  // Its settings are Playback settings, the cog at the playbar's right end; the top-right bar is
+  // Display settings and the X.
   assert.deepEqual(await pane.locator('[data-viewport-actions]').getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))),
-    ['Playback settings', 'Display settings', 'Exit preview']);
-  const settingsButton = pane.getByRole('button', { name: 'Playback settings', exact: true });
+    ['Display settings', 'Exit preview']);
+  const settingsButton = pane.getByRole('toolbar', { name: 'Animation playback' }).getByRole('button', { name: 'Playback settings', exact: true });
   const settings = page.getByRole('menu', { name: 'Playback settings', exact: true });
   const openSettings = async () => { await settingsButton.click(); await settings.waitFor(); };
   const checks = () => settings.getByRole('menuitemcheckbox').evaluateAll(items => items.map(item => `${item.textContent}:${item.getAttribute('aria-checked')}`));
   const routineItem = () => settings.getByRole('menuitem', { name: /^Routine/ });
   const speedItem = () => settings.getByRole('menuitem', { name: /^Animation speed/ });
   await openSettings();
+  const [menuBox, cogBox] = [await settings.boundingBox(), await settingsButton.boundingBox()];
+  assert.ok(menuBox.y + menuBox.height <= cogBox.y + 1, `the menu opens upward from the playbar: ${JSON.stringify({ menuBox, cogBox })}`);
   assert.equal(await speedItem().getAttribute('aria-label'), 'Animation speed: 1×');
   assert.deepEqual(await checks(), ['Loop:true', 'Autoplay:false', 'Orbit:true']);
   assert.equal(await settings.getByRole('menuitem', { name: /^Orbit speed/ }).count(), 1, 'the orbit\'s speed follows its own');

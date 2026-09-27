@@ -13,6 +13,7 @@ import {
   createReferenceFaceFillGeometry,
   displayRecordForReference,
   faceFillOffset,
+  faceRunIndex,
   referenceExplodedViewMatrix,
   REFERENCE_CORNER_COLOR,
   REFERENCE_HIGHLIGHT_WIDTH_MULTIPLIER,
@@ -362,4 +363,81 @@ test("the exploded offset is the record's own matrix, NOT its composed effect ma
   };
   const matrix = referenceExplodedViewMatrix(explodeRuntime([record]), { occurrenceId: "o1.1" });
   assert.equal(matrix.elements[12], 3);
+});
+
+/** The fill as it was read before the run index: every triangle of every record, compared. */
+function bruteForceFaceFill(runtime, reference) {
+  const rowIndex = Number(reference?.rowIndex);
+  const offset = faceFillOffset(runtime, reference);
+  const vertex = new THREE.Vector3();
+  const out = [];
+  for (const record of runtime.displayRecords) {
+    const mesh = record?.mesh;
+    const faceIds = mesh?.userData?.faceIds;
+    const positions = mesh?.geometry?.getAttribute?.("position");
+    const indices = mesh?.geometry?.getIndex?.();
+    if (!(faceIds instanceof Uint32Array) || !positions || !indices || !indices.count) continue;
+    const triangleCount = Math.min(faceIds.length, Math.floor(indices.count / 3));
+    for (let triangle = 0; triangle < triangleCount; triangle += 1) {
+      if (Number(faceIds[triangle]) !== rowIndex) continue;
+      for (let corner = 0; corner < 3; corner += 1) {
+        const source = indices.getX(triangle * 3 + corner);
+        vertex.set(positions.getX(source), positions.getY(source), positions.getZ(source)).applyMatrix4(mesh.matrix);
+        out.push(vertex.x + offset[0], vertex.y + offset[1], vertex.z + offset[2]);
+      }
+    }
+  }
+  return out;
+}
+
+function randomFaceMesh(random, { triangles, rows, faceIdsLength = triangles, x = 0 }) {
+  const positions = Float32Array.from({ length: triangles * 9 }, () => Math.round(random() * 1000) / 10);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.setIndex(Array.from({ length: triangles * 3 }, (_, index) => index));
+  const mesh = new THREE.Mesh(geometry);
+  mesh.position.set(x, 0, 0);
+  mesh.updateMatrix();
+  // Runs of one row, some rows split across several runs and across records, and gaps.
+  const faceIds = new Uint32Array(faceIdsLength);
+  for (let index = 0; index < faceIdsLength;) {
+    const row = random() < 0.1 ? 0xffffffff : rows[Math.floor(random() * rows.length)];
+    const length = 1 + Math.floor(random() * 6);
+    faceIds.fill(row, index, Math.min(faceIdsLength, index + length));
+    index += length;
+  }
+  mesh.userData.faceIds = faceIds;
+  return mesh;
+}
+
+test("a face fill reads exactly the triangles a walk over every record would, through the run index", () => {
+  let seed = 7;
+  const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const rows = [0, 3, 4, 9, 12, 40];
+  const records = [
+    { mesh: randomFaceMesh(random, { triangles: 60, rows }) },
+    { mesh: randomFaceMesh(random, { triangles: 45, rows, x: 3 }) },
+    // More ids than the geometry has triangles: the extra ids name nothing drawn.
+    { mesh: randomFaceMesh(random, { triangles: 20, rows, faceIdsLength: 32, x: -2 }) },
+    { mesh: null },
+    { mesh: new THREE.Mesh(new THREE.BufferGeometry()) }
+  ];
+  const runtime = createRuntime({ displayRecords: records });
+  for (const rowIndex of [...rows, 1, 0xffffffff, -1, 99]) {
+    const reference = { rowIndex, pickData: { center: [0, 0, 0], normal: [0, 0, 1] } };
+    const expected = bruteForceFaceFill(runtime, reference);
+    const fill = buildFaceFillGeometryFromDisplayMeshes(runtime, THREE, reference);
+    if (!expected.length) {
+      assert.equal(fill, null, `row ${rowIndex} lights nothing`);
+      continue;
+    }
+    assert.deepEqual(geometryPositions(fill), [...Float32Array.from(expected)], `row ${rowIndex}`);
+  }
+  // A scene sync that replaces a record's face ids is read afresh, never through the old index.
+  const replaced = records[0].mesh.userData.faceIds.slice().fill(3);
+  records[0].mesh.userData.faceIds = replaced;
+  const reference = { rowIndex: 3, pickData: { center: [0, 0, 0], normal: [0, 0, 1] } };
+  assert.deepEqual(geometryPositions(buildFaceFillGeometryFromDisplayMeshes(runtime, THREE, reference)),
+    [...Float32Array.from(bruteForceFaceFill(runtime, reference))]);
+  assert.equal(faceRunIndex(replaced).rows.length, 1, "one run: the whole mesh is face 3");
 });

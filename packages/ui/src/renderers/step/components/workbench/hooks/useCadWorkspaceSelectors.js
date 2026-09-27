@@ -16,10 +16,7 @@ export function useCadWorkspaceSelectors({
   assemblyParts,
   assemblyPartMap,
   selectedReferenceIds,
-  selectedPartIds,
-  hoveredModelReferenceId,
-  hoveredListPartId,
-  hoveredModelPartId
+  selectedPartIds
 }) {
   const loadedReferences = referenceState?.references;
   const currentReferences = useMemo(
@@ -49,8 +46,6 @@ export function useCadWorkspaceSelectors({
     currentReferences,
     activeReferenceMap,
     selectedReferences,
-    selectedParts,
-    hoveredReferenceId: hoveredModelReferenceId || "",
-    hoveredPartId: hoveredListPartId || hoveredModelPartId || ""
+    selectedParts
   };
 }

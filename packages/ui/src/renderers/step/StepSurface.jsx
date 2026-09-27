@@ -6,6 +6,7 @@ import { NO_CONNECTED_SELECTION, connectedSelectionApplies } from "./workbench/s
 import { PositionToolIcon, positionValuesAreDefault } from "../kit/inspector/kinematicsControls.jsx";
 import { filterSelectionReferences, toggleReferenceGroupSelection, connectedReferenceIds } from "./workbench/selectionFilter.js";
 import { buildTangentFaceGraph } from "./workbench/tangentFaceSelection.js";
+import { createHoverStore } from "./workbench/hoverStore.js";
 
 import * as THREE from "three";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -247,7 +248,14 @@ function StepSurfaceBody({ view, data }) {
   const selectedCatalogPending = liveEntry?.catalogPending === true;
   const [selectedReferenceIds, setSelectedReferenceIds, selectedReferenceIdsRef] = useSyncedState([]);
   const [largeFileState, setLargeFileState] = useState(() => normalizeLargeFileState(DEFAULT_LARGE_FILE_STATE));
-  const [hoveredModelReferenceId, setHoveredModelReferenceId] = useState("");
+  // Hover lives in a store, not in this component's state: a hover change re-renders the
+  // viewport's layers, which draw it, and nothing else (`workbench/hoverStore.js`).
+  const [hoverStore] = useState(createHoverStore);
+  const {
+    setModelReferenceId: setHoveredModelReferenceId,
+    setModelPartId: setHoveredModelPartId,
+    setListPartId: setHoveredListPartId
+  } = hoverStore;
   // The Select tool's mode (`workbench/selectionFilter.js`: All, Parts, Faces or Edges), and how a
   // face or edge pick grows (Group faces, Group edges), which is independent of it.
   const [selectionFilter, setSelectionFilter] = useState("all");
@@ -285,8 +293,6 @@ function StepSurfaceBody({ view, data }) {
   // The scene as this mode's render profile draws it: preview raises the LOD's detail with the rest.
   const resolvedScene = useMemo(() => sceneForRenderProfile(viewUpdate.scene,
     previewing ? VIEWER_RENDER_PROFILE.PREVIEW : VIEWER_RENDER_PROFILE.TOOLS), [viewUpdate.scene, previewing]);
-  const [hoveredListPartId, setHoveredListPartId] = useState("");
-  const [hoveredModelPartId, setHoveredModelPartId] = useState("");
   const [stepUpdateInProgress, setStepUpdateInProgress] = useState(false);
   // The viewport's own alert, kept HERE: this renderer folds it into an alert of its own
   // (`viewerAlert` below) and hands the shell the composed result.
@@ -1134,9 +1140,7 @@ function StepSurfaceBody({ view, data }) {
     currentReferences,
     activeReferenceMap,
     selectedReferences,
-    selectedParts,
-    hoveredReferenceId,
-    hoveredPartId
+    selectedParts
   } = useCadWorkspaceSelectors({
     selectedReferencesMatch,
     referenceState,
@@ -1144,10 +1148,7 @@ function StepSurfaceBody({ view, data }) {
     assemblyParts,
     assemblyPartMap,
     selectedReferenceIds,
-    selectedPartIds,
-    hoveredModelReferenceId,
-    hoveredListPartId,
-    hoveredModelPartId
+    selectedPartIds
   });
 
   // The Reference pane shows every selected element: topology references
@@ -1598,10 +1599,6 @@ function StepSurfaceBody({ view, data }) {
     renderPartIdsForWholeTopologyReference,
     selectedReferenceIds
   ]);
-  const hoveredWholeTopologyReferencePartIds = useMemo(
-    () => uniqueStringList(renderPartIdsForWholeTopologyReference(hoveredModelReferenceId)),
-    [hoveredModelReferenceId, renderPartIdsForWholeTopologyReference]
-  );
   const viewerSelectedPartIds = useMemo(() => {
     if (!isAssemblyView) {
       return uniqueStringList([
@@ -1629,39 +1626,54 @@ function StepSurfaceBody({ view, data }) {
     selectedRenderPartIdByAssemblyPartId,
     selectedWholeTopologyReferencePartIds
   ]);
-  const viewerHoveredPartIds = useMemo(() => {
-    const contextMenuNodeId = String(viewerContextMenu?.nodeId || "").trim();
-    if (isAssemblyView && contextMenuNodeId) {
-      const contextRenderPartId = String(viewerContextMenu?.renderPartId || "").trim();
-      const highlightedPartIds = renderPartIdsForAssemblySelection(contextMenuNodeId, contextRenderPartId);
-      return highlightedPartIds.length ? highlightedPartIds : contextMenuNodeId;
-    }
-    if (hoveredWholeTopologyReferencePartIds.length) {
-      return hoveredWholeTopologyReferencePartIds;
-    }
-    if (!isAssemblyView || !hoveredPartId) {
-      return hoveredPartId;
-    }
-    const normalizedTreeHoveredPartId = String(hoveredListPartId || "").trim();
-    if (normalizedTreeHoveredPartId) {
-      const highlightedPartIds = renderPartIdsForAssemblySelection(normalizedTreeHoveredPartId);
-      return highlightedPartIds.length ? highlightedPartIds : normalizedTreeHoveredPartId;
-    }
-    const normalizedHoveredPartId = String(hoveredModelPartId || hoveredPartId || "").trim();
-    const hoveredSelectionId = resolvePickedAssemblyPartId(normalizedHoveredPartId);
-    const highlightedPartIds = renderPartIdsForAssemblySelection(hoveredSelectionId, normalizedHoveredPartId);
-    return highlightedPartIds.length ? highlightedPartIds : hoveredPartId;
+  // What the viewport draws as hovered, from the hover store's snapshot: the parts to light
+  // and the reference to outline. The viewport's layers call it with each hover change
+  // (`scene/StepSceneLayers.jsx`); it changes identity only with what it resolves THROUGH —
+  // the menu that marks a part while it is up, the assembly's part mapping, preview.
+  const resolveViewerHover = useCallback((hover) => {
+    const hoveredModelReferenceId = hover.modelReferenceId;
+    const hoveredListPartId = hover.listPartId;
+    const hoveredModelPartId = hover.modelPartId;
+    const hoveredReferenceId = hoveredModelReferenceId || "";
+    const hoveredPartId = hoveredListPartId || hoveredModelPartId || "";
+    const hoveredWholeTopologyReferencePartIds = uniqueStringList(renderPartIdsForWholeTopologyReference(hoveredModelReferenceId));
+    const viewerHoveredPartIds = (() => {
+      const contextMenuNodeId = String(viewerContextMenu?.nodeId || "").trim();
+      if (isAssemblyView && contextMenuNodeId) {
+        const contextRenderPartId = String(viewerContextMenu?.renderPartId || "").trim();
+        const highlightedPartIds = renderPartIdsForAssemblySelection(contextMenuNodeId, contextRenderPartId);
+        return highlightedPartIds.length ? highlightedPartIds : contextMenuNodeId;
+      }
+      if (hoveredWholeTopologyReferencePartIds.length) {
+        return hoveredWholeTopologyReferencePartIds;
+      }
+      if (!isAssemblyView || !hoveredPartId) {
+        return hoveredPartId;
+      }
+      const normalizedTreeHoveredPartId = String(hoveredListPartId || "").trim();
+      if (normalizedTreeHoveredPartId) {
+        const highlightedPartIds = renderPartIdsForAssemblySelection(normalizedTreeHoveredPartId);
+        return highlightedPartIds.length ? highlightedPartIds : normalizedTreeHoveredPartId;
+      }
+      const normalizedHoveredPartId = String(hoveredModelPartId || hoveredPartId || "").trim();
+      const hoveredSelectionId = resolvePickedAssemblyPartId(normalizedHoveredPartId);
+      const highlightedPartIds = renderPartIdsForAssemblySelection(hoveredSelectionId, normalizedHoveredPartId);
+      return highlightedPartIds.length ? highlightedPartIds : hoveredPartId;
+    })();
+    const effectiveHoveredReferenceId = String(viewerContextMenu?.referenceId || "").trim() || hoveredReferenceId;
+    return {
+      hoveredPartId: !previewing ? viewerHoveredPartIds : "",
+      hoveredReferenceId: !previewing && !retainingPreviousStepMesh ? effectiveHoveredReferenceId : ""
+    };
   }, [
-    hoveredPartId,
-    hoveredListPartId,
-    hoveredModelPartId,
-    hoveredWholeTopologyReferencePartIds,
     isAssemblyView,
+    previewing,
     renderPartIdsForAssemblySelection,
+    renderPartIdsForWholeTopologyReference,
     resolvePickedAssemblyPartId,
+    retainingPreviousStepMesh,
     viewerContextMenu
   ]);
-  const effectiveHoveredReferenceId = String(viewerContextMenu?.referenceId || "").trim() || hoveredReferenceId;
   const viewerAssemblyRenderParts = useMemo(() => {
     if (!isAssemblyView || !selectedAssemblyInteractionReady) {
       return EMPTY_LIST;
@@ -3089,8 +3101,9 @@ function StepSurfaceBody({ view, data }) {
     pickableParts: !retainingPreviousStepMesh ? viewerAssemblyRenderParts : EMPTY_LIST,
     hiddenPartIds: viewerHiddenPartIdsForRenderPane({ inspectionEnabled: true, hasParts: true, hiddenPartIds: hiddenPartIds }),
     selectedPartIds: previewing ? EMPTY_LIST : viewerSelectedPartIdsForRenderPane({ hasParts: true, selectedPartIds: viewerSelectedPartIds }),
-    hoveredPartId: !previewing ? viewerHoveredPartIds : "",
-    hoveredReferenceId: !previewing && !retainingPreviousStepMesh ? effectiveHoveredReferenceId : "",
+    // Hover is not a prop: the layers subscribe to it and resolve it through the surface.
+    hoverStore,
+    resolveHover: resolveViewerHover,
     selectedReferenceIds: !previewing && !retainingPreviousStepMesh ? selectedReferenceIds : EMPTY_LIST,
     selectorRuntime: viewerSelectorRuntimeForRenderPane({ hasTopology: true,
       retainingPreviousStepMesh: retainingPreviousStepMesh, selectorRuntime: effectiveSelectorRuntime }),
