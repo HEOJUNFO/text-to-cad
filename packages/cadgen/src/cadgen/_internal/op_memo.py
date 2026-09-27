@@ -432,6 +432,8 @@ def _disk_get(key: tuple):
             if (raised.get("cls") not in _REPLAYABLE_FAILURES or not isinstance(args, list)
                     or not all(isinstance(arg, str) for arg in args)):
                 return None
+            # A replayed failure is a hit like any other: it keeps its entry warm.
+            touch_entry("op", index_key, entry)
             return _StoredFailure(raised["cls"], tuple(args))
         digest = str(entry.get("object") or "")
         if not digest or not has_object(digest):
