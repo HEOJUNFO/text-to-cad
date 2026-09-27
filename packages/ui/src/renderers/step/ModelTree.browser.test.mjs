@@ -89,11 +89,19 @@ createRoot(document.getElementById('root')).render(<App/>);
   for (const [name, scroller] of [['model', model.locator('[aria-label="Model"]')], ['files', page.getByTestId('files').getByRole('tree')]]) {
     assert.equal(await scroller.evaluate(node => Boolean(node.closest('[data-slot=scroll-area]'))), true, `the ${name} tree scrolls in a ScrollArea`);
   }
-  // A tool panel draws no scroll bar, even hovered while it overflows: the bar would sit on the
+  // A tool panel shows no scroll bar, even hovered while it overflows: the bar would sit on the
   // panel's edge. The wheel still scrolls it.
   await part.hover();
   await page.waitForTimeout(150);
-  assert.equal(await model.locator('[data-slot=scroll-area-scrollbar]').count(), 0, 'no bar on a tool panel');
+  assert.equal(await model.locator('[data-slot=scroll-area-scrollbar]').evaluateAll(bars => bars.filter(bar => getComputedStyle(bar).visibility !== 'hidden').length), 0, 'no visible bar on a tool panel');
+  const viewport = model.locator('[aria-label="Model"]').locator('xpath=ancestor::*[@data-slot="scroll-area-viewport"][1]');
+  assert.equal(await viewport.evaluate(node => getComputedStyle(node).overflowY), 'scroll', 'yet it scrolls');
+  const scrollBefore = await viewport.evaluate(node => node.scrollTop);
+  await page.mouse.wheel(0, 120);
+  await page.waitForFunction(([before]) => {
+    const node = document.querySelector('[aria-label="Model"]').closest('[data-slot="scroll-area-viewport"]');
+    return node.scrollTop > before || node.scrollHeight <= node.clientHeight;
+  }, [scrollBefore]);
   assert.deepEqual(await fileInsets(), modelInsets, 'selected file rows must share the model tree horizontal inset');
   await page.getByTestId('files').getByRole('textbox', {name:'Filter files'}).fill('part');
   await page.getByTestId('files').getByRole('option').waitFor();
