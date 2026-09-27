@@ -3280,6 +3280,12 @@ function StepSurfaceBody({ view, data }) {
       // Its modes and options are a menu in the Features panel's filter row.
       onSelect: () => handleSelectTabToolMode(TAB_TOOL_MODE.REFERENCES),
     }),
+    // Position comes straight after Select; only files with movable joints offer it.
+    poseAvailable ? shell.tools.own({ id: TAB_TOOL_MODE.POSE, label: "Position",
+      icon: <PositionToolIcon custom={!positionValuesAreDefault(motion.positionControls?.parameterValues, motion.positionControls?.definition?.defaultParameterValues)} />,
+      active: poseToolActive, disabled: toolIdle,
+      // Its panel is in the tool stack for as long as it is the tool.
+      onSelect: () => { if (!poseToolActive) handleSelectTabToolMode(TAB_TOOL_MODE.POSE); } }) : null,
     { ...shell.tools.draw, disabled: toolIdle },
     shell.tools.own({ id: TAB_TOOL_MODE.MEASURE, label: "Measure",
       // Like Select's, the button shows the snapping mode in hand.
@@ -3290,12 +3296,6 @@ function StepSurfaceBody({ view, data }) {
       onSelect: () => tabToolMode === TAB_TOOL_MODE.MEASURE || measureMeasurements.length
         ? removeMeasurements() : handleSelectTabToolMode(TAB_TOOL_MODE.MEASURE) }),
     ...modelEffects.tools,
-    // Position follows the model effects; only files with movable joints offer it.
-    poseAvailable ? shell.tools.own({ id: TAB_TOOL_MODE.POSE, label: "Position",
-      icon: <PositionToolIcon custom={!positionValuesAreDefault(motion.positionControls?.parameterValues, motion.positionControls?.definition?.defaultParameterValues)} />,
-      active: poseToolActive, disabled: toolIdle,
-      // Its panel is in the tool stack for as long as it is the tool.
-      onSelect: () => { if (!poseToolActive) handleSelectTabToolMode(TAB_TOOL_MODE.POSE); } }) : null,
   ].filter(Boolean);
 
   // ---- the bottom action ----------------------------------------------------------------------

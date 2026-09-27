@@ -59,7 +59,7 @@ none.
 
 | File | Toolbar, left to right |
 | --- | --- |
-| STEP | Select, Draw, Measure, Explode (two or more parts), Clip, Position (movable joints only) |
+| STEP | Select, Position (movable joints only), Draw, Measure, Explode (two or more parts), Clip |
 | URDF / SRDF / SDF | Select, Position (posable joints only) |
 | GLB / STL / 3MF | none |
 | DXF | none: a 2D canvas with the snapshot action only |

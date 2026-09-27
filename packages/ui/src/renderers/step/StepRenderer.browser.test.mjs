@@ -185,7 +185,7 @@ async function open(options) {
 test('a STEP opens in Select with the tools its sidecar earns and Display last, its Features in the tool stack, and paints both authored colours', async () => {
   const view = await open();
   const { page, pane, errors } = view;
-  assert.deepEqual(await view.tools(), ['Select:true', 'Draw:false', 'Measure:false', 'Explode:false', 'Clip:false', 'Position:false'],
+  assert.deepEqual(await view.tools(), ['Select:true', 'Position:false', 'Draw:false', 'Measure:false', 'Explode:false', 'Clip:false'],
     'Position because the sidecar bound; no Animate: its routine plays in preview. Display is a settings popover, not a tool');
   // The nav row has no panel of the file's: its controls are the tool stack's. The file tree's
   // toggle is the only one, and a file opened directly opens with nothing beside it.
@@ -727,14 +727,14 @@ test('hiding a part takes it off the screen, and the viewport menus offer what t
   }
   // The tree is Select's: under another tool it is off screen, and Select brings it back to act
   // from — Isolate, which has no selection of its own to make.
-  assert.deepEqual(await view.tools(), ['Select:false', 'Draw:true', 'Measure:false', 'Explode:false', 'Clip:false', 'Position:false']);
+  assert.deepEqual(await view.tools(), ['Select:false', 'Position:false', 'Draw:true', 'Measure:false', 'Explode:false', 'Clip:false']);
   assert.equal(await pane.getByRole('button', { name: 'Select arm', exact: true }).isVisible(), false);
   await view.tool('Select').click();
   await pane.getByRole('button', { name: 'Select arm', exact: true }).click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Isolate', exact: true }).click();
   await page.getByRole('menu').waitFor({ state: 'detached' });
   await page.waitForFunction(() => window.cadHarness.a.controller.readState().isolatedPartIds.join() === 'o1.2');
-  assert.deepEqual(await view.tools(), ['Select:true', 'Draw:false', 'Measure:false', 'Explode:false', 'Clip:false', 'Position:false']);
+  assert.deepEqual(await view.tools(), ['Select:true', 'Position:false', 'Draw:false', 'Measure:false', 'Explode:false', 'Clip:false']);
   await page.keyboard.press('Escape');
   assert.deepEqual(errors, []);
 });
@@ -809,7 +809,7 @@ test('every Display control reaches the drawn frame: the five modes, edges, the 
   await panel.waitFor();
   await panel.evaluate(node => Promise.all(node.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => {}))));
   assert.deepEqual(await view.stack(), ['Features'], 'the stack is as it was');
-  assert.deepEqual(await view.tools(), ['Select:true', 'Draw:false', 'Measure:false', 'Explode:false', 'Clip:false', 'Position:false']);
+  assert.deepEqual(await view.tools(), ['Select:true', 'Position:false', 'Draw:false', 'Measure:false', 'Explode:false', 'Clip:false']);
   const [displayBox, button, backdrop] = await Promise.all([panel.boundingBox(), view.tool('Display').boundingBox(),
     pane.locator('[data-cad-scene-backdrop]').boundingBox()]);
   assert.ok(displayBox.y >= button.y + button.height && displayBox.x + displayBox.width <= backdrop.x + backdrop.width,
@@ -1068,6 +1068,9 @@ test('a short viewer: the stack never runs past it — the capped panels give wa
 test('Position drives the mate and repaints, a named pose jumps, the Position knob is never the camera, and the grid keeps the size the rest pose gave it', async () => {
   const view = await open();
   const { page, pane, errors } = view;
+  // A file with movable joints has Position straight after Select on the strip.
+  assert.deepEqual((await pane.getByRole('group', { name: 'Interaction tools' }).locator('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')))).slice(0, 3),
+    ['Select', 'Position', 'Draw']);
   // Position shows its panel in the tool stack, in place of Select's, and enables the joint handles.
   await view.tool('Position').click();
   const panel = pane.getByRole('region', { name: 'Position controls', exact: true });
@@ -2494,7 +2497,7 @@ test('navigation, tools and the top-right bar share short tooltips without nativ
   // Tabbing IS navigation: the control a Tab lands on names itself.
   await view.tool('Select').focus();
   await page.keyboard.press('Tab');
-  await page.getByRole('tooltip', { name: 'Draw', exact: true }).waitFor();
+  await page.getByRole('tooltip', { name: 'Position', exact: true }).waitFor();
   await pane.getByRole('button', { name: 'File actions', exact: true }).click();
   await page.getByRole('menu', { name: 'File actions', exact: true }).waitFor();
   await page.keyboard.press('Escape');
