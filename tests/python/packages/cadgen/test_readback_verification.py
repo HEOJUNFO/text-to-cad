@@ -14,6 +14,7 @@ verification), leaving no document behind.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -25,6 +26,23 @@ from tests.python.support.paths import add_repo_path
 from tests.python.support.tmp_root import generated_cad_directory
 
 CADGEN_SRC = add_repo_path("packages/cadgen/src")
+
+
+_VOLUMES = re.compile(r"volume ([0-9.eE+-]+) mm³ written, ([0-9.eE+-]+) mm³ read back")
+
+
+def assert_grossly_lossy(case: unittest.TestCase, message: str) -> None:
+    """The message carries both volumes, and the read-back is a sliver of what was written.
+
+    The digits of the read-back volume differ between OCCT builds (0.354915 on
+    macOS, 0.354923 on Linux), so this pins the failure itself -- the ~42 mm³
+    cap coming back as its ~0.35 mm³ complement -- rather than a formatting.
+    """
+    match = _VOLUMES.search(message)
+    case.assertIsNotNone(match, f"no 'volume … written, … read back' in: {message}")
+    written, read = (float(group) for group in match.groups())
+    case.assertAlmostEqual(written, 42.3353, places=3)
+    case.assertLess(read, 0.05 * written, message)
 
 
 def _rot_cap():
@@ -101,7 +119,7 @@ class VerifyReadbackComponent(unittest.TestCase):
         message = str(caught.exception)
         self.assertIn("rot.step: occurrence o1 (cap)", message)
         self.assertIn("different geometry", message)
-        self.assertIn("volume 42.3353 mm³ written, 0.354915 mm³ read back", message)
+        assert_grossly_lossy(self, message)
 
     def test_a_reversed_solid_passes_on_magnitude(self) -> None:
         # STEP carries no solid orientation: a Reversed solid (signed volume
@@ -217,7 +235,7 @@ class ReadbackVerificationFailsTheBuild(unittest.TestCase):
         completed = self._run("rot_cap.py")
         self.assertNotEqual(completed.returncode, 0, completed.stdout + completed.stderr)
         self.assertIn("rot_cap.step: occurrence o1 (seat_cap", completed.stderr)
-        self.assertIn("volume 42.3353 mm³ written, 0.354915 mm³ read back", completed.stderr)
+        assert_grossly_lossy(self, completed.stderr)
         self.assertFalse((self.project / "rot_cap.step").exists(), "a failed build must leave no document")
         self.assertEqual([p.name for p in self.project.iterdir() if p.name.startswith(".rot_cap")], [],
                          "the staging directory is cleaned up")
