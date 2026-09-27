@@ -476,11 +476,12 @@ function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, l
     }
     return counts;
   },[largeTopology,references]);
+  const componentOf=useMemo(()=>new Map((descriptor?.occurrences || EMPTY).map(o=>[o.id,o.component])),[descriptor]);
   const partCount=node=>{
     if(!largeTopology || node.kind !== 'part')return undefined;
     const loaded=topologyCounts.get(node.occurrenceId || node.selectionId);
     if(loaded)return countLabel(mode === 'edges' ? loaded.edges : loaded.faces,mode);
-    const result=results[node.component];
+    const result=results[node.component ?? componentOf.get(node.occurrenceId)];
     if(!result || result.error || !Array.isArray(result.tree))return undefined;
     if(mode === 'edges')return result.edgeFaces ? countLabel(Object.keys(result.edgeFaces).length,mode) : undefined;
     return countLabel(new Set(result.tree.flatMap(body=>body.faces || EMPTY)).size,mode);
