@@ -116,6 +116,7 @@ if _UNSUPPORTED_PYTHON:
     raise SystemExit(1)
 
 from cadgen import assets  # noqa: E402
+from cadgen._internal.atomic_replace import replace_atomic  # noqa: E402
 
 from . import registry  # noqa: E402
 from . import reload as dev_reload  # noqa: E402
@@ -664,11 +665,18 @@ def launch_detached(argv: list[str], *, as_json: bool, prog: str = DEFAULT_PROG)
         if _announcement(line) is None:
             say(f"{line}\n")
     if announced.get("action") == "started":
-        log_file = registry.log_path(child.pid)
-        try:
-            os.replace(launch_log, log_file)
-        except OSError:
-            log_file = launch_log  # Windows: the running server holds it open
+        log_file = launch_log
+        # The running server holds this file open as its stdout. POSIX renames
+        # an open file freely; Windows refuses (the child's handle lacks
+        # FILE_SHARE_DELETE), and a copy-then-rename would hand the user a
+        # frozen snapshot while the server kept writing the original — so on
+        # Windows the log stays where the child is writing it.
+        if not sys.platform.startswith("win"):
+            try:
+                replace_atomic(launch_log, registry.log_path(child.pid))
+                log_file = registry.log_path(child.pid)
+            except OSError:
+                pass  # e.g. the launch log fell back to a temp dir on another volume
         say(
             f"Running in the background (pid {child.pid}); its output goes to {log_file}. "
             f"Stop it with `{prog} stop --port {announced['port']}`.\n"
