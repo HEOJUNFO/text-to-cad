@@ -1161,8 +1161,8 @@ function panels(target: Page) {
 /**
  * The file's controls are the viewer's tool stack: the Features panel hangs
  * under the toolbar at its left edge, inside the surface and over the model,
- * at the stack's stored width (190px by default, 160px at least), and it
- * never runs past the surface's foot.
+ * at every panel's width (164px, a six-tool strip's) unless the person has
+ * widened it, and it never runs past the surface's foot.
  */
 async function expectToolStackOnModel() {
   const surface = page.locator("[data-cad-surface]");
