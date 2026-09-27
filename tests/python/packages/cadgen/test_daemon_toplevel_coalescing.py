@@ -253,12 +253,19 @@ class TopLevelCoalescing(unittest.TestCase):
         second = self._start("bad")
         self._wait_coalesced(before, second)
         self._release("bad")
-        code_a, _out_a, err_a = self._finish(first)
-        code_b, _out_b, err_b = self._finish(second)
+        code_a, out_a, err_a = self._finish(first)
+        code_b, out_b, err_b = self._finish(second)
         self.assertNotEqual(code_a, 0)
         self.assertEqual(code_b, code_a, "the joiner's exit is the producer's")
-        self.assertIn("deliberate failure after the barrier", err_a)
-        self.assertIn("deliberate failure after the barrier", err_b, "the joiner never saw why")
+        # Under --json a failure is the result envelope on stdout,
+        # {"ok": false, "error": ...}; the joiner's stdout is the producer's.
+        for label, out, err in (("producer", out_a, err_a), ("joiner", out_b, err_b)):
+            lines = out.strip().splitlines()
+            self.assertTrue(lines, f"the {label} printed no result: {err}")
+            result = json.loads(lines[-1])
+            self.assertIs(result.get("ok"), False, f"{label}: {out}")
+            self.assertIn("deliberate failure after the barrier", result.get("error", ""),
+                          f"the {label} never saw why: {out}{err}")
         self.assertEqual(self._runs("bad"), 1)
 
     def test_a_source_changed_between_the_requests_does_not_coalesce(self):
