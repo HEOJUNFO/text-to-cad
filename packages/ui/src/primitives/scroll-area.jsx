@@ -12,7 +12,8 @@ import { cn } from "@hardcore/ui/utils"
  * growing past it. `viewportRef` and `viewportProps` reach the element that actually scrolls, for
  * code that reads or sets its scroll position, focuses it or gives it a role. `orientation`:
  * `"vertical"` (the default) lays content out at the region's width, so rows truncate;
- * `"both"` lets wide content scroll sideways too.
+ * `"both"` lets wide content scroll sideways too. `scrollbar={false}`: no bar at all, for a small
+ * floating panel whose edge a bar would sit on; the wheel, a trackpad and the keyboard still scroll.
  */
 const ScrollArea = React.forwardRef(function ScrollArea({
   className,
@@ -20,6 +21,7 @@ const ScrollArea = React.forwardRef(function ScrollArea({
   viewportRef,
   viewportProps,
   orientation = "vertical",
+  scrollbar = true,
   children,
   ...props
 }, ref) {
@@ -46,8 +48,8 @@ const ScrollArea = React.forwardRef(function ScrollArea({
       >
         {children}
       </ScrollAreaPrimitive.Viewport>
-      {orientation !== "horizontal" ? <ScrollBar /> : null}
-      {orientation !== "vertical" ? <ScrollBar orientation="horizontal" /> : null}
+      {scrollbar && orientation !== "horizontal" ? <ScrollBar /> : null}
+      {scrollbar && orientation !== "vertical" ? <ScrollBar orientation="horizontal" /> : null}
       <ScrollAreaPrimitive.Corner />
     </ScrollAreaPrimitive.Root>
   )

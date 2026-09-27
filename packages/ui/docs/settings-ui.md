@@ -145,11 +145,12 @@ row menu's Expand and Expand all; Collapse and Collapse all close parts. A
 closed part's topology is not asked for when its row shows: opening it asks, and
 so does the pointer resting on the part in the viewport (150ms) or pressing it.
 
-**Draw.** Its **Drawing** panel leads the stack while Draw is up, headed "Draw"
-with its X: the tools, then Color, Stroke width (Thin, Medium, Bold — a shape's
-1, 2 or 4px, the pen drawn to look the same weight), Undo, Redo and Clear, in one
-grid of 24px columns spread across the stack's width — so they wrap into even
-columns at any width — with no rule, no menu and no inset beyond the panel's own.
+**Draw.** Its **Drawing** panel leads the stack while Draw is up, with no heading
+and no X: choosing another tool, or pressing Draw again, puts it down. It holds
+the tools, then a rule across the panel, then a row of Color, Stroke width (Thin,
+Medium, Bold — a shape's 1, 2 or 4px, the pen drawn to look the same weight),
+Undo, Redo and Clear; both are grids of 24px columns spread across the panel's
+width, their columns lined up, with no menu and no inset beyond the panel's own.
 Leaving Draw forgets the sketch, but not the tool, colour and weight in hand,
 which the next time opens with. Choosing a drawing tool changes the toolbar
 icon. Undo and Redo are disabled when their history is empty. The select tool uses lucide's

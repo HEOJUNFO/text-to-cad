@@ -705,17 +705,16 @@ test('the shell keeps its Draw session across preview, and preview drags are the
   assert.equal(await pane.getByRole('button', { name: 'Draw', exact: true }).getAttribute('aria-pressed'), 'true',
     'the session the sketch is in survives a trip through preview');
   // Its tools, color, stroke width and history are a panel in the tool stack for as long as Draw is
-  // the tool, headed "Draw": it does not fold, and its X, like a second press on its button, puts
-  // Draw down, panel and all.
+  // the tool, with no heading and no X: it does not fold, and a second press on its button (or
+  // another tool) puts Draw down, panel and all.
   const draw = pane.getByRole('button', { name: 'Draw', exact: true });
   const drawPanel = pane.locator('[data-tool-panel][aria-label="Drawing controls"]');
   await drawPanel.waitFor();
-  const drawHeading = drawPanel.locator('[data-tool-panel-heading]');
-  assert.equal((await drawHeading.getByRole('heading').innerText()).trim(), 'Draw');
-  assert.deepEqual(await drawHeading.getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), ['Close draw']);
-  // Its buttons are laid in a grid of 24px columns spread across the panel, with no separator.
-  assert.equal(await drawPanel.locator('[data-drawing-controls]').evaluate(node => getComputedStyle(node).display), 'grid');
-  assert.equal(await drawPanel.getByRole('separator').count(), 0);
+  assert.equal(await drawPanel.locator('[data-tool-panel-heading]').count(), 0, 'no heading');
+  assert.equal(await drawPanel.getByRole('button', { name: 'Close draw' }).count(), 0, 'no X');
+  // Its tools, then one rule, then its settings, each a grid of 24px columns spread across the panel.
+  assert.deepEqual(await drawPanel.locator('[data-drawing-controls] > [role=group]').evaluateAll(groups => groups.map(group => getComputedStyle(group).display)), ['grid', 'grid']);
+  assert.equal(await drawPanel.getByRole('separator').count(), 1);
   // The weight is a button beside Color: a radiogroup of three.
   const drawSettings = drawPanel.getByRole('group', { name: 'Drawing settings', exact: true });
   assert.deepEqual((await drawSettings.getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')))).slice(0, 2), ['Color', 'Stroke width']);
@@ -739,9 +738,9 @@ test('the shell keeps its Draw session across preview, and preview drags are the
     return { tool: await drawPanel.getByRole('group', { name: 'Drawing tools', exact: true }).locator('[aria-pressed="true"]').getAttribute('aria-label'), weight, color };
   };
   assert.deepEqual(await chosen(), { tool: 'Line', weight: 'Bold', color: 'Neon cyan' });
-  await drawHeading.getByRole('button', { name: 'Close draw', exact: true }).click();
+  await draw.click();
   await drawPanel.waitFor({ state: 'detached' });
-  assert.equal(await draw.getAttribute('aria-pressed'), 'false', 'the X puts Draw down');
+  assert.equal(await draw.getAttribute('aria-pressed'), 'false', 'a second press puts Draw down');
   await draw.click();
   await pane.locator('[data-drawing-ready]').waitFor();
   await drawPanel.waitFor();

@@ -89,11 +89,11 @@ createRoot(document.getElementById('root')).render(<App/>);
   for (const [name, scroller] of [['model', model.locator('[aria-label="Model"]')], ['files', page.getByTestId('files').getByRole('tree')]]) {
     assert.equal(await scroller.evaluate(node => Boolean(node.closest('[data-slot=scroll-area]'))), true, `the ${name} tree scrolls in a ScrollArea`);
   }
-  // Its bar is the thin overlay one, shown while the pointer is over a region that overflows.
+  // A tool panel draws no scroll bar, even hovered while it overflows: the bar would sit on the
+  // panel's edge. The wheel still scrolls it.
   await part.hover();
-  const bar = model.locator('[data-slot=scroll-area-scrollbar][data-orientation=vertical]');
-  await bar.waitFor();
-  assert.ok((await bar.boundingBox()).width <= 8, 'a thin bar');
+  await page.waitForTimeout(150);
+  assert.equal(await model.locator('[data-slot=scroll-area-scrollbar]').count(), 0, 'no bar on a tool panel');
   assert.deepEqual(await fileInsets(), modelInsets, 'selected file rows must share the model tree horizontal inset');
   await page.getByTestId('files').getByRole('textbox', {name:'Filter files'}).fill('part');
   await page.getByTestId('files').getByRole('option').waitFor();
