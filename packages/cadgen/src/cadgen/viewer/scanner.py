@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import io
 import json
 import os
 import re
@@ -44,6 +45,7 @@ import stat as stat_module
 import threading
 import time
 
+from cadgen._internal.shared_read import open_shared_for_read
 
 from .content_types import extension_of
 from .encoding import encode_uri_component, encode_url_path, file_version
@@ -233,6 +235,12 @@ _STEP_ENTRY_CACHE_LOCK = threading.Lock()
 
 
 def _sha256_file(file_path, stat_result=None) -> str:
+    """The file's sha256, or ``""`` when it vanished (or became unreadable) mid-scan.
+
+    Opened with delete sharing: this runs on the catalog's background refresh,
+    and a user deleting the model meanwhile must win, on Windows too. A file gone by the time it is opened simply has no hash this scan; the
+    next request no longer lists it.
+    """
     st = stat_result if stat_result is not None else _file_stats(file_path)
     key = (str(file_path), st.st_size, st.st_mtime_ns) if st is not None else None
     if key is not None:
@@ -241,9 +249,12 @@ def _sha256_file(file_path, stat_result=None) -> str:
         if cached is not None:
             return cached
     digest = hashlib.sha256()
-    with open(file_path, "rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
+    try:
+        with open_shared_for_read(file_path) as handle:
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(chunk)
+    except OSError:
+        return ""
     hexdigest = digest.hexdigest()
     if key is not None:
         with _HASH_CACHE_LOCK:
@@ -507,7 +518,9 @@ def _xml_root_name(file_path, expected_tag: str = "robot") -> str | None:
     URDF carrying the same mojibake still pair.
     """
     try:
-        with open(file_path, "r", encoding="utf-8", errors="replace") as handle:
+        with io.TextIOWrapper(
+            open_shared_for_read(file_path), encoding="utf-8", errors="replace"
+        ) as handle:
             text = handle.read()
     except (OSError, ValueError):
         return None
@@ -626,7 +639,9 @@ def step_kind_from_topology(topology) -> str:
 def _read_json(file_path):
     """``JSON.parse(readFileSync(...))`` with every failure folded to ``None``."""
     try:
-        with open(file_path, "r", encoding="utf-8", errors="replace") as handle:
+        with io.TextIOWrapper(
+            open_shared_for_read(file_path), encoding="utf-8", errors="replace"
+        ) as handle:
             return json.load(handle)
     except (OSError, ValueError):
         return None

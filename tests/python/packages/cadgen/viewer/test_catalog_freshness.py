@@ -15,11 +15,14 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
 from unittest import mock
 
+from cadgen import catalog
+from cadgen._internal.shared_read import open_shared_for_read
 from cadgen.viewer import scanner
 from cadgen.viewer.backend import LocalAssetBackend
 from cadgen.viewer.scanner import scan_cad_directory
@@ -104,6 +107,24 @@ class WarmWalks(FreshnessFixture):
         self.assertEqual(self.listed(), [fresh], "a still-settling directory must be re-listed every walk")
 
 
+def join_catalog_refreshes() -> None:
+    """Wait out the background refresh a stale ``read_catalog`` starts.
+
+    That thread hashes every model while the test goes on mutating the tree.
+    Those reads no longer block a delete (``ReadsNeverBlockDeletion`` pins it),
+    but NTFS still refuses a rename onto a file any handle has open, and without
+    POSIX delete semantics a file deleted under an open handle stays listed
+    until it closes, so a mutation raced against the refresh would make the
+    next request's answer depend on thread timing. Joining first keeps each
+    request's expected answer exact.
+    """
+    for thread in threading.enumerate():
+        if thread.name == "cadgen-viewer-catalog":
+            thread.join(timeout=60)
+            if thread.is_alive():
+                raise AssertionError("the catalog refresh did not finish within 60s")
+
+
 class CatalogFreshness(FreshnessFixture):
     def catalog_files(self, backend: LocalAssetBackend) -> list[str]:
         return [entry["rootRelativeFile"] for entry in backend.read_catalog()["entries"]]
@@ -120,6 +141,7 @@ class CatalogFreshness(FreshnessFixture):
         self.settle()  # its listing is now trusted and cached
         self.assertIn("gripper/tmp/renders/r7/probe.stl", self.catalog_files(backend))
 
+        join_catalog_refreshes()
         os.unlink(new_model)
         self.assertNotIn("gripper/tmp/renders/r7/probe.stl", self.catalog_files(backend))
 
@@ -127,6 +149,7 @@ class CatalogFreshness(FreshnessFixture):
         self.write("gripper/tmp/renders/r7/deeper/part.step", "ISO-10303-21;\n")
         self.assertIn("gripper/tmp/renders/r7/deeper/part.step", self.catalog_files(backend))
         self.settle()
+        join_catalog_refreshes()
         os.replace(
             os.path.join(self.root, "gripper", "finger.stl"),
             os.path.join(self.root, "gripper", "thumb.stl"),
@@ -157,6 +180,57 @@ class CatalogFreshness(FreshnessFixture):
         files = self.files()
         self.assertIn("library/nut.stl", files)
         self.assertNotIn("library/bolt.stl", files)
+
+
+class ReadsNeverBlockDeletion(FreshnessFixture):
+    """A catalog read that has a model open must not stop the user deleting it.
+
+    The catalog hashes every model, on a background thread, while the user is
+    free to delete any of them. POSIX never lets a reader's handle
+    refuse an unlink; Windows does, unless the reader asked for delete sharing,
+    and a plain ``open()`` does not. On Windows these fail with ``WinError 32``
+    the moment a hash goes back to a plain ``open``; off Windows they pin the
+    scan's tolerance of a file that vanishes mid-read.
+    """
+
+    def delete_while_open(self, target, *, before_open: bool = False):
+        """An opener that deletes ``target`` while (or just before) it is read."""
+        def opener(path):
+            if os.path.realpath(path) != os.path.realpath(target):
+                return open_shared_for_read(path)
+            if before_open:
+                os.unlink(path)
+                return open_shared_for_read(path)
+            handle = open_shared_for_read(path)
+            os.unlink(path)
+            self.deleted.append(path)
+            return handle
+        self.deleted = []
+        return opener
+
+    def test_a_model_deleted_while_the_scan_hashes_it_is_deleted(self) -> None:
+        model = self.write("gripper/probe.stl", "solid probe\nendsolid probe\n")
+        with mock.patch.object(scanner, "open_shared_for_read", self.delete_while_open(model)):
+            scan_cad_directory(self.root)
+        self.assertEqual(self.deleted, [model])
+        self.assertFalse(os.path.exists(model))
+        self.assertNotIn("gripper/probe.stl", self.files())
+
+    def test_a_model_gone_before_the_scan_opens_it_leaves_the_scan_standing(self) -> None:
+        model = self.write("gripper/probe.stl", "solid probe\nendsolid probe\n")
+        opener = self.delete_while_open(model, before_open=True)
+        with mock.patch.object(scanner, "open_shared_for_read", opener):
+            entries = scan_cad_directory(self.root)["entries"]
+        probe = next(entry for entry in entries if entry["file"] == "gripper/probe.stl")
+        self.assertEqual(probe["hash"], "")
+        self.assertNotIn("gripper/probe.stl", self.files())
+
+    def test_a_step_deleted_while_its_digest_is_read_is_deleted(self) -> None:
+        document = self.write("gripper/part.step", "ISO-10303-21;\nEND-ISO-10303-21;\n")
+        with mock.patch.object(catalog, "open_shared_for_read", self.delete_while_open(document)):
+            catalog.artifact_file_hash(Path(document))
+        self.assertEqual(len(self.deleted), 1)
+        self.assertFalse(os.path.exists(document))
 
 
 if __name__ == "__main__":

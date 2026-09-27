@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 from .metadata import GeneratorMetadata, normalize_mesh_numeric, parse_generator_metadata
 
 from ._internal.doors import STEP_SUFFIXES
+from ._internal.shared_read import open_shared_for_read
 
 # Discovery skips EVERY dot-directory (matching the CAD Viewer's catalog scan),
 # plus these well-known build/dependency dirs. An enumerated dot-list rotted
@@ -280,7 +281,9 @@ def artifact_file_hash(entry_path: Path) -> str | None:
     """sha256 of the artifact file's bytes, memoized; None when unreadable.
 
     Streamed in 1 MiB chunks: a status poll must not materialize a
-    multi-hundred-MB STEP in memory to learn its key."""
+    multi-hundred-MB STEP in memory to learn its key. Opened with delete
+    sharing, so a poll hashing the file never blocks the user deleting it
+    on Windows."""
     import hashlib
 
     try:
@@ -295,7 +298,7 @@ def artifact_file_hash(entry_path: Path) -> str | None:
         return cached[2]
     digest = hashlib.sha256()
     try:
-        with open(resolved, "rb") as handle:
+        with open_shared_for_read(resolved) as handle:
             for chunk in iter(lambda: handle.read(1 << 20), b""):
                 digest.update(chunk)
     except OSError:
