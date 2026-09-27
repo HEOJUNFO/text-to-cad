@@ -408,19 +408,24 @@ def _disk_get(key: tuple):
     if not _disk_enabled():
         return None
     try:
-        from cadgen.store.index import read_entry
+        from cadgen.store.index import read_entry, touch_entry
         from cadgen.store.objects import has_object, read_object
 
-        entry = read_entry("op", _op_index_key(key))
+        index_key = _op_index_key(key)
+        entry = read_entry("op", index_key)
         if not entry:
             return None
         digest = str(entry.get("object") or "")
         if not digest or not has_object(digest):
+            # An evicted or half-swept entry is a miss, never an error: the op
+            # runs and its result repairs the entry.
             return None
         # Resolve the class now so a foreign entry fails here (falls back to
         # executing the op) rather than at thaw.
         _resolve_shape_class(entry["cls"])
-        return _StoredShape(entry["cls"], read_object(digest), entry["recipe"])
+        stored = _StoredShape(entry["cls"], read_object(digest), entry["recipe"])
+        touch_entry("op", index_key, entry)
+        return stored
     except Exception:
         _stats["errors"] += 1
         return None
@@ -506,11 +511,13 @@ def _value_disk_get(key: tuple):
     if not _disk_enabled():
         return None
     try:
-        from cadgen.store.index import read_entry
+        from cadgen.store.index import read_entry, touch_entry
 
-        entry = read_entry("op", _op_index_key(key))
+        index_key = _op_index_key(key)
+        entry = read_entry("op", index_key)
         if not entry or "value" not in entry:
             return None
+        touch_entry("op", index_key, entry)
         return (entry["value"],)
     except Exception:  # noqa: BLE001
         _stats["errors"] += 1

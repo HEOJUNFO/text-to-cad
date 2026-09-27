@@ -91,11 +91,14 @@ that information is in the wrong place.
 
 **The store is what the sources imply; the sidecar is what the author meant.**
 
-There is no automatic GC: `cadgen store gc` is the only sweeper, and every
-object is immutable and idempotently written, so deletion never needs
-coordination — a racing reader re-misses and rebuilds. Store correctness needs
-no lock protocol: atomic writes, pins and the publish rule (`STORE.md` §5, §7)
-decide concurrent outcomes. Saved-file readers never wait for a source model
+The store is size-capped (`CADGEN_STORE_MAX`, default 20 GB): over the cap,
+the daemon evicts least recently used recomputable entries — op-memo, mesh,
+surface, component — when idle, never mid-build, and never a record or a
+document index (`STORE.md` §8). `cadgen store gc` is the only sweeper of
+objects, and every object is immutable and idempotently written, so deletion
+never needs coordination — a racing reader re-misses and rebuilds. Store
+correctness needs no lock protocol: atomic writes, pins and the publish rule
+(`STORE.md` §5, §7) decide concurrent outcomes. Saved-file readers never wait for a source model
 to finish; missing derived artifacts are resolved through the build pool.
 
 ### 3. One sidecar per artifact, and it belongs to that artifact alone

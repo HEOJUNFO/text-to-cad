@@ -100,7 +100,11 @@ and drawing jobs consume only immutable artifact inputs. `index/drawing` is a
 2D document's flattened render payload: its key hashes the extraction scheme
 (payload shape × the drawing library's release) together with the document's
 content hash, so the same bytes are never flattened twice and an upgrade lands
-on a new key instead of invalidating an old one in place. `index/document` is the document lookup: `sha256(file bytes)` → the
+on a new key instead of invalidating an old one in place. Of these, `index/op`,
+`index/component`, `index/surface` and `index/mesh` are the four **evictable
+tiers** (§8): each entry carries a `lastUsed` stamp that size-capped eviction
+orders by, and a reader that validates an entry's field set strips the stamp
+first; `index/drawing` carries no stamp and the cap never drops it. `index/document` is the document lookup: `sha256(file bytes)` → the
 tree describing those bytes (plus a mesh ledger keyed by format × tolerances
 × pose × appearance — the bare mesh doors read and write it, and a script run notes its
 declared meshes there too, so the two front doors never redo each other's work).
@@ -739,17 +743,61 @@ or source to recover an artifact.
 
 ## 8. GC
 
-`cadgen store gc [--dry-run] [--grace-hours H]` — mark and sweep. Reachable =
-every object referenced (transitively, through links) from a record's result
-and document trees or a current-schema document index, plus the
-objects component/op/mesh entries point at, plus anything modified within the
+`cadgen store gc [--dry-run] [--grace-hours H] [--max-size [SIZE]]` — two
+phases. The second is the only thing that deletes an object.
+
+**Phase 1, eviction (only with a cap).** The store has a size cap:
+`CADGEN_STORE_MAX`, default 20 GB (`0` disables it); `cadgen store info` shows
+the size against it. Over the cap, eviction drops entries of the four
+**evictable tiers** — `index/op` (shapes, cached values, cached failures),
+`index/mesh`, `index/surface` and `index/component` — least recently used
+first, until the projected size fits under the low watermark (80% of the
+cap). Every evictable entry carries `lastUsed`, the wall-clock second it was
+written or last hit; a hit refreshes it at most once an hour per entry, so a
+warm build that hits an entry ten thousand times rewrites it once, and
+filesystem atime is never consulted. An entry without a stamp is ordered by
+its file's mtime, the moment it was written. Sizing is by the deduplicated
+reachable set, never by summed entry sizes: objects are shared between tiers
+(an op result can be the very component a current document pins), so dropping
+an entry frees an object only when nothing protected or leased still reaches
+it.
+
+Never evicted, the **protected tiers**: records and their result and document
+trees, current-schema document indexes, output entries, and every object they
+reach. A record has exactly one tree — there is no revision history in the
+record model, so a model's earlier results are already the unreferenced
+objects phase 2 sweeps. **Leased**: an entry used within the grace window plus
+the touch throttle (by default, anything hit in the last hour, however
+throttled its stamp), and, when a daemon answers, anything used since the
+oldest job it is running against this store started. The daemon knows every
+job (§9); the grace window is the backstop when none answers.
+
+**Phase 2, mark and sweep.** Reachable = every object referenced
+(transitively, through links) from a record's result and document trees or a
+current-schema document index, plus the objects the remaining
+component/surface/op/mesh entries and every drawing entry point at, plus
+anything modified within the
 grace period (default 1 h — the window in which a build may still hold a pin
 to a child's previous tree). A saved document retains its geometry even after
 model/output records are forgotten. Its mesh ledger records hashes of external
-output files; those hashes do not root store objects. No age sweeps, no per-tier rules. GC does not
-consult the daemon: the grace period is the whole protection for a build in
-flight, so do not sweep with `--grace-hours 0` while anything is building.
-Nothing runs GC automatically.
+output files; those hashes do not root store objects. No age sweeps; the one
+per-tier rule is which tiers phase 1 may touch.
+
+**Safety.** An entry goes before its objects, and objects go only in phase 2,
+only when nothing reaches them — single unlinks, no protocol. Every reader
+treats a missing entry or object as a miss: the op runs, the mesh is cut, the
+surface is derived, the component is re-extracted — never an error, never a
+different answer — so an interruption at any point leaves at worst orphaned
+objects for the next sweep.
+
+**When it runs.** By hand: `cadgen store gc --max-size [SIZE]` (a bare
+`--max-size` takes the configured cap; `--dry-run` reports what would go and
+deletes nothing). By the daemon: after 30 s idle, at most every 10 min per
+store it has served, only while that store is over the cap the requesting
+client had in force (forwarded with its environment), and never mid-build —
+it starts only with no job in flight and stops between entries the moment one
+arrives (§9). Do not sweep by hand with `--grace-hours 0` while anything is
+building. Without a daemon (`CADGEN_DAEMON=0`) nothing runs GC automatically.
 
 ## 9. The daemon
 
@@ -855,6 +903,16 @@ CPU scheduling and reuse remain independent of memory admission:
    idle that long returns to the spare set (spares beyond K exit); its model's
    next build rebinds a spare — no import repaid — with a cold RAM op-memo tier.
    Purely RAM: idle workers hold no slot and never block a new model.
+4. **Idle eviction** (`cadgen.daemon.housekeeping`). The supervisor's one
+   housekeeping job: with no request thread alive and no slot held for 30 s,
+   at most every 10 min per store it has served, it sizes that store and, over
+   the cap the requesting client had in force (`CADGEN_STORE_MAX` travels with
+   the forwarded environment), runs §8 against that root by name — a
+   thread-local root, never the process environment its workers inherit. It
+   polls for a job between entries and between objects and stops at the first
+   one. Stdlib and the store modules only; the supervisor still never imports
+   the kernel. The daemon holds no store state for this: which roots it has
+   seen and when it last looked.
 
 **Memory admission.** The daemon sums worker RSS including extraction
 descendants, pending spawn reservations, and retiring workers until they exit.
@@ -1151,8 +1209,10 @@ Explicit model saves still obey every child/output/publication requirement.
   isolated and returns a newly parsed flattened view to every caller.
   Components carry `brep`, `codec` and `faceColors`; display SURF resolves
   separately through `store.surfaces` and `index/surface`.
-- `cadgen store info` sizes the store. `cadgen store gc --dry-run` lists what
-  a sweep would remove.
+- `cadgen store info` sizes the store against its cap and names directories
+  under the root that are not the store (an older layout's leftovers, safe to
+  delete). `cadgen store gc --dry-run` lists what a sweep would remove; with
+  `--max-size`, what eviction would drop first (§8).
 - **Resets, smallest first.** `python model.py --force` rebuilds one model
   now. `cadgen store forget <model.py>` drops that model's record (the next
   run rebuilds it; children untouched, parents see the moved pin then);
@@ -1182,9 +1242,11 @@ Explicit model saves still obey every child/output/publication requirement.
   `index/document` → objects.
 - Make a reader refuse, or a door rebuild from source: a missing tree is a
   compile job from the file's bytes; "behind its script" is `store why`'s.
-- Run automatic persistent-store GC or use process/display eviction as a
-  reason to mutate exact geometry. Disposable memory budgets and worker
-  reclamation follow §9 and never determine saved-artifact freshness.
+- Evict a protected tier, run store eviction mid-build, or use process/display
+  eviction as a reason to mutate exact geometry. The daemon's idle sweep (§8)
+  drops recomputable entries only, when nothing is in flight; disposable
+  memory budgets and worker reclamation follow §9 and never determine
+  saved-artifact freshness.
 - Let a decorator argument change the geometry a model produces: arguments
   place files, tune how they are written, and declare kinematics; the tree
   is the return value as returned (README law 16).

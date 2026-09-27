@@ -69,6 +69,8 @@ FORWARDED_ENV_VARS = (
     "PYTHONPATH",
     "CADGEN_FFMPEG",
     "CADGEN_MEMO_CACHE",
+    # The store cap the daemon evicts this client's store to when idle.
+    "CADGEN_STORE_MAX",
 )
 
 # The client's own ffmpeg, looked up once per process. Resolved HERE rather than

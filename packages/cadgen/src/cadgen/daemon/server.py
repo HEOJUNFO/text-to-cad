@@ -40,6 +40,7 @@ import time
 import traceback
 
 from cadgen.daemon import transport
+from cadgen.daemon.housekeeping import Housekeeper
 from cadgen.daemon.jobs import JobLedger, failure_message
 from cadgen.daemon.client import (
     compute_version_token,
@@ -339,6 +340,7 @@ def _handle_request(conn: transport.Channel, request: dict) -> None:
             return
         request = {**request, "artifact": artifact, "store_root": root}
 
+    _HOUSEKEEPER.note_request(request.get("store_root"), request.get("env"))
     cwd = str(request.get("cwd") or "")
     model = "" if is_artifact else _script_path(argv, cwd)
     # What in-flight coalescing keys on: the model, or for a compile job the imported
@@ -495,6 +497,12 @@ def _handle_request(conn: transport.Channel, request: dict) -> None:
 
 _INFLIGHT: set[threading.Thread] = set()
 _JOBS = JobLedger()
+# Idle-time store eviction (STORE.md §8). "Active" is any request thread alive
+# or any broker slot held; eviction never starts or continues past that.
+_HOUSEKEEPER = Housekeeper(
+    active=lambda: bool(_active_requests()) or _BROKER.snapshot()["running"] > 0,
+    log=lambda message: _log(message),
+)
 _STARTED_AT = time.time()
 _REQUESTS_SERVED = [0]
 
@@ -506,6 +514,7 @@ def _serve_connection(conn, request) -> None:
         _log("unhandled error serving a job:\n" + traceback.format_exc())
     finally:
         _INFLIGHT.discard(threading.current_thread())
+        _HOUSEKEEPER.note_activity()
         with contextlib.suppress(OSError):
             conn.close()
 
@@ -592,7 +601,9 @@ def serve() -> int:
             active = _active_requests()
             if active:
                 state["last_activity"] = time.monotonic()  # a long build is not idleness
+                _HOUSEKEEPER.note_activity()
                 continue
+            _HOUSEKEEPER.tick()
             if state["draining"]:
                 server.close()
                 return
