@@ -27,7 +27,12 @@ their session index entries to be deleted.
 Every explorer tab has both a required `sessionId` and the directory identity
 `projectId`. A new session starts with an empty strip. Switching sessions
 restores that session's own tabs, selection and pane state. A new-session
-draft has no explorer until a session exists.
+draft has no explorer until a session exists — which is why opening a part
+from the new-session screen (`features/session/OpenPart.tsx`) creates the
+session first and then opens the file in that session's strip, with the file
+tree open beside it (`features/session/open-part.ts`). The row it offers is
+the folder's CAD files, read through `explorer.paths`; the chooser accepts only
+a file already under the folder. Nothing is stored for it.
 
 Persisted tabs are keyed by `session_id`, with a foreign key to sessions.
 `explorer.loadTabs` and `saveTabs` name that session; saving checks every tab's

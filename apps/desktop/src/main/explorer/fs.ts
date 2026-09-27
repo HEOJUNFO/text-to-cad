@@ -260,14 +260,38 @@ export function looksBinary(sample: Uint8Array): boolean {
 
 const COLLATOR = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
 
-/** Directories first, then case-insensitive natural order — Finder's order. */
+/**
+ * Names that are never what a person opened the folder for: dotfiles and
+ * dot-directories (`.git`, `.venv`, `.claude`, `.DS_Store`) and the caches
+ * the watcher already skips. They stay in the listing — nothing is hidden —
+ * but they sort last, so a CAD project's tree does not open on `.claude`
+ * and `.venv` above the parts.
+ */
+function isClutterName(name: string): boolean {
+  return name.startsWith(".") || WATCH_IGNORED_NAMES.has(name);
+}
+
+/**
+ * The order a CAD workbench's tree reads in: folders, then the parts, then
+ * the rest, then the clutter — each tier in case-insensitive natural order
+ * (Finder's, so `file2` precedes `file10`).
+ *
+ *   0  directories that are not clutter
+ *   1  CAD files — the nine extensions the viewer renders (`detectType`)
+ *   2  every other file
+ *   3  clutter, directories before files: dotfiles and the ignored caches
+ *
+ * Nothing is filtered: a `.gitignore` is still one click away, at the
+ * bottom. Folders stay above files because a tree that interleaved them
+ * would hide where the parts came from.
+ */
 export function sortEntries(entries: DirEntry[]): DirEntry[] {
-  return entries.sort((left, right) => {
-    if (left.kind !== right.kind) {
-      return left.kind === "directory" ? -1 : 1;
-    }
-    return COLLATOR.compare(left.name, right.name);
-  });
+  const tier = (entry: DirEntry): number => {
+    if (isClutterName(entry.name)) return entry.kind === "directory" ? 3 : 4;
+    if (entry.kind === "directory") return 0;
+    return detectType(entry.name).kind === "cad" ? 1 : 2;
+  };
+  return entries.sort((left, right) => tier(left) - tier(right) || COLLATOR.compare(left.name, right.name));
 }
 
 /**

@@ -91,6 +91,7 @@ Object.defineProperty(window, "hardcore", {
     explorer: {
       list: vi.fn(async () => []),
       paths: vi.fn(async () => ({ paths: [], truncated: false })),
+      exists: vi.fn(async () => ({})),
       stat: vi.fn(),
       readText: vi.fn(),
       writeText: vi.fn(),
