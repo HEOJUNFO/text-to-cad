@@ -116,7 +116,7 @@ export const DISPLAY_RENDER_BACKDROP_KEYS = Object.freeze(["color", "transparent
 
 export const DISPLAY_EDGE_SETTINGS_KEYS = Object.freeze(["enabled", "silhouette", "visibility", "color"]);
 export const DISPLAY_GUIDE_SETTINGS_KEYS = Object.freeze(["grid", "axis"]);
-export const DISPLAY_GRID_GUIDE_SETTINGS_KEYS = Object.freeze(["enabled", "color", "opacity"]);
+export const DISPLAY_GRID_GUIDE_SETTINGS_KEYS = Object.freeze(["enabled", "color", "opacity", "density"]);
 export const DISPLAY_AXIS_GUIDE_SETTINGS_KEYS = Object.freeze(["enabled", "color", "opacity"]);
 export const DISPLAY_PART_COLOR_SETTINGS_KEYS = Object.freeze(["mode", "color", "colors"]);
 export const DISPLAY_EXPLODED_SETTINGS_KEYS = Object.freeze(["enabled", "amount"]);
@@ -289,6 +289,8 @@ export function validateDisplaySettings(value) {
       validatePresent(grid, ["color"], validateStrictColor, "display.guides.grid");
       validatePresent(grid, ["opacity"],
         (entry, fieldName) => validateStrictNumber(entry, fieldName, 0, 1), "display.guides.grid");
+      validatePresent(grid, ["density"],
+        (entry, fieldName) => validateStrictNumber(entry, fieldName, 0.25, 4), "display.guides.grid");
     }
     if (Object.prototype.hasOwnProperty.call(guides, "axis")) {
       const axis = validateStrictObject(guides.axis, "display.guides.axis");
@@ -361,7 +363,9 @@ export function normalizeDisplayGuideSettings(value = null, fallback = DEFAULT_D
       ...(grid.color != null || fallback.grid.color != null
         ? { color: normalizeColor(grid.color, fallback.grid.color) } : {}),
       ...(grid.opacity != null || fallback.grid.opacity != null
-        ? { opacity: normalizeNumber(grid.opacity, fallback.grid.opacity, 0, 1) } : {})
+        ? { opacity: normalizeNumber(grid.opacity, fallback.grid.opacity, 0, 1) } : {}),
+      ...(grid.density != null || fallback.grid.density != null
+        ? { density: normalizeNumber(grid.density, fallback.grid.density ?? 1, 0.25, 4) } : {})
     },
     axis: {
       enabled: normalizeBoolean(axis.enabled, fallback.axis.enabled),

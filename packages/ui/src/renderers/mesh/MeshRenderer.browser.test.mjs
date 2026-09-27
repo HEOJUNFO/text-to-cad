@@ -178,7 +178,7 @@ test('an STL opens as one mesh with no tools: display settings, orbit, host comm
     await page.locator('[data-slot=select-content]').waitFor({ state: 'detached' });
     return texts;
   };
-  assert.deepEqual(await options('Mode'), ['Solid', 'Render']);
+  assert.deepEqual(await options('Mode'), ['Solid', 'Render', 'Grid']);
   assert.deepEqual(await options('Surface style'), ['Shaded', 'Flat']);
   assert.deepEqual(await options('Parts'), ['Original', 'Single color', 'Color by part']);
   for (const section of ['Edges', 'Cross-section', 'Explode']) assert.equal(await displayMenu.getByRole('heading', { name: section, exact: true }).count(), 0, section);

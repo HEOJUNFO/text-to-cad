@@ -1067,6 +1067,8 @@ test('a short viewer: the stack never runs past it — the capped panels give wa
 test('Position drives the mate and repaints, a named pose jumps, the Position knob is never the camera, and the grid keeps the size the rest pose gave it', async () => {
   const view = await open();
   const { page, pane, errors } = view;
+  // The grid is only the Grid preset's by default; this compares its lines, so it is turned on.
+  await view.display({ grid: { enabled: true } });
   // A file with movable joints has Position straight after Select on the strip.
   assert.deepEqual((await pane.getByRole('group', { name: 'Interaction tools' }).locator('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')))).slice(0, 3),
     ['Select', 'Position', 'Draw']);
@@ -1675,6 +1677,9 @@ test('the Display popover keeps controls together, resets optional sections, sta
   assert.equal(await exposure.count(), 0);
   await sheet.getByRole('button', { name: 'Enable Lighting', exact: true }).click();
   assert.equal(await exposure.inputValue(), '0.0 EV', 'reopening resets to defaults');
+  // Solid draws no grid: its colour is there once Grid / Axes is turned on.
+  assert.equal(await sheet.getByRole('button', { name: 'Grid color', exact: true }).count(), 0);
+  await sheet.getByRole('button', { name: 'Enable Grid / Axes', exact: true }).click();
   await sheet.getByRole('button', { name: 'Grid color', exact: true }).click();
   await page.getByRole('spinbutton', { name: 'Color opacity' }).fill('40');
   await page.getByRole('spinbutton', { name: 'Color opacity' }).press('Tab');

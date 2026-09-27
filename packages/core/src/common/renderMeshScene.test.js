@@ -266,7 +266,13 @@ test("snapshot scene policy composes display Render quality with technical quali
   assert.equal(normal.sceneSettings.render.enabled, false);
   assert.equal(normal.quality.id, "interactive");
   assert.equal(normal.sharedRenderOptions.renderScale, 1);
-  assert.equal(normal.displaySettings.guides.grid.enabled, true, "snapshot inherits the Solid preset");
+  assert.equal(normal.displaySettings.guides.grid.enabled, false, "snapshot inherits the Solid preset, which draws no grid");
+  assert.equal(normal.displaySettings.guides.axis.enabled, false, "and no axes");
+  assert.equal(normal.sceneSettings.appearance, "light", "in light, the CLI's default");
+  const gridded = renderJobContext(twoPartMeshData(), { display: { mode: "grid" } });
+  assert.equal(gridded.displaySettings.guides.grid.enabled, true, "the Grid preset draws one");
+  assert.equal(gridded.displaySettings.guides.grid.density, 2, "twice as fine");
+  assert.equal(gridded.displaySettings.guides.axis.enabled, true, "with the axes");
 
   const rendered = renderJobContext(twoPartMeshData(), { display: { mode: "render" } });
   assert.equal(rendered.sceneSettings.render.enabled, true);

@@ -549,7 +549,8 @@ test('posing a joint far past the rest box never resizes the grid or the studio 
   const { page } = robot;
   await robot.openPosition();
   await page.waitForFunction(() => window.__cadJointHandles?.().length === 1);
-  await page.evaluate(() => window.cadHarness.a.controller.setDisplaySettings({ axes: { enabled: false } }));
+  // The grid is only the Grid preset's by default; this compares its lines, so it is turned on.
+  await page.evaluate(() => window.cadHarness.a.controller.setDisplaySettings({ grid: { enabled: true }, axes: { enabled: false } }));
   await page.waitForTimeout(400);
   const framed = await robot.camera();
   const rest = await robot.capture();
@@ -678,7 +679,7 @@ test('an SDF is the same robot with a section of its own; a snapshot depicts the
   const displayMenu = pane.page().locator('[data-display-popover]');
   for (const absent of ['Edges', 'Cross-section', 'Explode']) assert.equal(await displayMenu.getByRole('heading', { name: absent, exact: true }).count(), 0, absent);
   await displayMenu.getByRole('combobox', { name: 'Mode', exact: true }).click();
-  assert.deepEqual(await page.getByRole('option').allInnerTexts(), ['Solid', 'Render']);
+  assert.deepEqual(await page.getByRole('option').allInnerTexts(), ['Solid', 'Render', 'Grid']);
   await page.keyboard.press('Escape');
   await displayMenu.getByRole('combobox', { name: 'Projection', exact: true }).click();
   assert.deepEqual(await page.getByRole('option').allInnerTexts(), ['Orthographic', 'Perspective']);

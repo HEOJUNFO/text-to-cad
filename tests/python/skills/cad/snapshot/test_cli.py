@@ -263,7 +263,7 @@ class SnapshotCliTests(unittest.TestCase):
 
     def test_display_shortcut_accepts_cad_display_modes(self) -> None:
         for raw_mode in (
-            "solid", "render", "xray", "hidden-line", "wireframe",
+            "solid", "render", "xray", "hidden-line", "wireframe", "grid",
         ):
             job = job_from_argv(
                 [

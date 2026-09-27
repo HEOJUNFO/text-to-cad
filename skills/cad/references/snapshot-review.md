@@ -76,8 +76,9 @@ anything else is refused with this list:
 with a whole number of pixels from 1 to 8192; a larger request is refused rather
 than clamped. With `--job` they size every output in the packet.
 
-`--display` accepts a preset name, inline JSON, or a JSON file path. The five
-presets are `solid` (default), `render`, `xray`, `hidden-line`, and `wireframe`.
+`--display` accepts a preset name, inline JSON, or a JSON file path. The six
+presets are `solid` (default), `render`, `xray`, `hidden-line`, `wireframe`, and
+`grid`. Only `grid` draws the grid: Solid on a finer, plainer measuring grid.
 Render starts with perspective projection and photographic lighting; the other
 presets start with orthographic projection. `appearance` is `light` (the CLI
 default) or `dark`. The Viewer and CLI accept the same grouped display object:
@@ -243,6 +244,7 @@ Add views only when the brief or a failure mode calls for them:
 - `display.mode: "xray"`: translucent surfaces with hidden/occluded edges visible
 - `display.mode: "hidden-line"`: line-focused review with occluded edges suppressed
 - `display.mode: "wireframe"`: edge-only review for internal overlap or interference
+- `display.mode: "grid"`: Solid on a fine measuring grid, for reading size and placement at a glance
 - labeled or annotated review: use supported CAD Viewer refs, selections, screenshots, or GUI review links
 
 Exploded or labeled review is an intent, not a render mode. Satisfy it through supported CAD Viewer mechanisms, supported JSON job settings, or the GUI link.

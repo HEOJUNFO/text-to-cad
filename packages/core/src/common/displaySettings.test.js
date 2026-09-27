@@ -55,9 +55,12 @@ test("internal display settings keep edge color and visibility while widths stay
   for (const key of ["thickness", "classes", "highlightColor", "highlightOpacity", "highlightThickness", "silhouetteScale", "depthTest"]) {
     assert.throws(() => validateDisplaySettings({ edges: { [key]: 1 } }), /Unsupported display.edges fields/);
   }
-  for (const key of ["centerColor", "cellColor", "density"]) {
+  for (const key of ["centerColor", "cellColor"]) {
     assert.throws(() => validateDisplaySettings({ guides: { grid: { [key]: 1 } } }), /Unsupported display.guides.grid fields/);
   }
+  // Density is a grid setting (the Grid preset's finer grid), bounded like the scene's own.
+  assert.doesNotThrow(() => validateDisplaySettings({ guides: { grid: { enabled: true, density: 2 } } }));
+  assert.throws(() => validateDisplaySettings({ guides: { grid: { enabled: true, density: 10 } } }), /density/);
 });
 
 test("display settings normalize exploded view, guides, and part colors", () => {

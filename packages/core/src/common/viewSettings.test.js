@@ -196,3 +196,25 @@ test("light Render separates a white background from the gray floor", () => {
   assert.equal(scene.render.configuration.backdrop.groundColor, "#e7e7e5");
   assert.equal(resolveViewSettings({ mode: "render", background: { color: "#abc123" } }).background.color, "#abc123");
 });
+
+test("only the Grid preset draws the grid and axes: Solid's surfaces on a finer, plainer grid, listed last", () => {
+  assert.equal(VIEW_PRESET_VALUES.at(-1), "grid");
+  for (const mode of VIEW_PRESET_VALUES.filter(mode => mode !== "grid")) {
+    for (const appearance of ["light", "dark"]) {
+      const view = resolveViewSettings({ mode }, { appearance });
+      assert.deepEqual([view.grid.enabled, view.axes.enabled], [false, false], `${mode} (${appearance}) draws no grid and no axes`);
+    }
+  }
+  for (const appearance of ["light", "dark"]) {
+    const grid = resolveViewSettings({ mode: "grid" }, { appearance });
+    const solid = resolveViewSettings({ mode: "solid" }, { appearance });
+    assert.equal(grid.grid.enabled, true);
+    assert.equal(grid.axes.enabled, true);
+    assert.equal(grid.grid.density, 2);
+    assert.ok(grid.grid.opacity > solid.grid.opacity, "plainer to see than the quiet grid");
+    assert.deepEqual({ ...grid, mode: "solid", grid: solid.grid, axes: solid.axes }, solid, "otherwise exactly Solid");
+  }
+  // Turned on by hand in another preset, the grid is the quiet one; the Grid preset counts as itself.
+  assert.equal(resolveViewSettings({ mode: "solid", grid: { enabled: true } }).grid.density, 1);
+  assert.equal(viewSettingsAreCustom({ mode: "grid" }), false);
+});

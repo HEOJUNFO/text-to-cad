@@ -37,6 +37,6 @@ export function resolveCadGridSettings(value = null, { colorMode = "light" } = {
     centerColor: value?.color ?? (dark ? "#697786" : "#6b7280"),
     cellColor: value?.color ?? (dark ? "#495665" : "#cbd5e1"),
     opacity: value?.opacity ?? 0.16,
-    density: 1
+    density: value?.density ?? 1
   };
 }

@@ -1,7 +1,7 @@
 import { DEFAULT_PART_COLOR_SETTINGS, normalizeExplodedViewSettings, validateDisplaySettings } from "./displaySettings.js";
 import { DEFAULT_STEP_CLIP_SETTINGS, normalizeStepClipSettings } from "../lib/viewer/clipPlane.js";
 
-/** @typedef {"solid" | "render" | "xray" | "hidden-line" | "wireframe"} ViewPreset */
+/** @typedef {"solid" | "render" | "xray" | "hidden-line" | "wireframe" | "grid"} ViewPreset */
 /** @typedef {{enabled: boolean, projection: "orthographic" | "perspective", focalLength: number}} ViewCamera */
 /** @typedef {{enabled: boolean, style: "shaded" | "flat" | "hidden" | "off", colorMode: "original" | "single" | "by-part", color: string, colors: string[], opacity: number}} ViewSurfaces */
 /** @typedef {{enabled: boolean, visibility: "visible" | "all", color: string}} ViewEdges */
@@ -44,13 +44,14 @@ import { DEFAULT_STEP_CLIP_SETTINGS, normalizeStepClipSettings } from "../lib/vi
 
 // This is the public Viewer / snapshot vocabulary. The renderer's historical
 // display modes remain an implementation detail behind resolveViewSceneSettings.
-export const VIEW_PRESET_VALUES = Object.freeze(["solid", "render", "xray", "hidden-line", "wireframe"]);
+export const VIEW_PRESET_VALUES = Object.freeze(["solid", "render", "xray", "hidden-line", "wireframe", "grid"]);
 export const VIEW_PRESETS = Object.freeze([
   Object.freeze({ id: "solid", label: "Solid" }),
   Object.freeze({ id: "render", label: "Render" }),
   Object.freeze({ id: "xray", label: "X-ray" }),
   Object.freeze({ id: "hidden-line", label: "Hidden line" }),
-  Object.freeze({ id: "wireframe", label: "Wireframe" })
+  Object.freeze({ id: "wireframe", label: "Wireframe" }),
+  Object.freeze({ id: "grid", label: "Grid" })
 ]);
 export const VIEW_SETTINGS_KEYS = Object.freeze(["mode", "appearance", "camera", "surfaces", "edges", "lighting", "background", "floor", "grid", "axes", "clip", "exploded"]);
 export const VIEW_CAMERA_KEYS = Object.freeze(["enabled", "projection", "focalLength"]);
@@ -59,7 +60,7 @@ export const VIEW_EDGES_KEYS = Object.freeze(["enabled", "visibility", "color"])
 export const VIEW_LIGHTING_KEYS = Object.freeze(["enabled", "quality", "exposure", "rotation", "size", "fill"]);
 export const VIEW_BACKGROUND_KEYS = Object.freeze(["enabled", "color", "opacity"]);
 export const VIEW_FLOOR_KEYS = Object.freeze(["enabled", "placement", "color", "opacity"]);
-export const VIEW_GRID_KEYS = Object.freeze(["enabled", "color", "opacity"]);
+export const VIEW_GRID_KEYS = Object.freeze(["enabled", "color", "opacity", "density"]);
 export const VIEW_AXES_KEYS = Object.freeze(["enabled", "color", "opacity"]);
 export const VIEW_SURFACE_STYLE_VALUES = Object.freeze(["shaded", "flat", "hidden", "off"]);
 export const VIEW_COLOR_MODE_VALUES = Object.freeze(["original", "single", "by-part"]);
@@ -111,6 +112,7 @@ function normalizeGroup(value, name) {
     else if (key === "exposure") result[key] = number(entry, -5, 5, field);
     else if (key === "rotation") result[key] = number(entry, -180, 180, field);
     else if (key === "size") result[key] = number(entry, 0.25, 3, field);
+    else if (key === "density") result[key] = number(entry, 0.25, 4, field);
     else result[key] = choice(entry, {
       projection: ["orthographic", "perspective"], style: VIEW_SURFACE_STYLE_VALUES,
       colorMode: VIEW_COLOR_MODE_VALUES, visibility: VIEW_EDGE_VISIBILITY_VALUES,
@@ -152,8 +154,9 @@ function defaults(appearance, lightingQuality) {
     lighting: { enabled: false, quality: lightingQuality, exposure: 0, rotation: 0, size: 1, fill: 0.25 },
     background: { enabled: false, color: dark ? "#121315" : "#ffffff", opacity: 1 },
     floor: { enabled: false, placement: "origin", color: dark ? "#121315" : "#e7e7e5", opacity: 0.6 },
-    grid: { enabled: true, color: dark ? "#495665" : "#cbd5e1", opacity: 0.16 },
-    axes: { enabled: true, color: dark ? "#495665" : "#cbd5e1", opacity: 0.28 }
+    // No preset but Grid draws the grid or the axes; turned on by hand they are the quiet ones.
+    grid: { enabled: false, color: dark ? "#495665" : "#cbd5e1", opacity: 0.16, density: 1 },
+    axes: { enabled: false, color: dark ? "#495665" : "#cbd5e1", opacity: 0.28 }
   };
 }
 
@@ -183,7 +186,7 @@ export const ALL_VIEW_FEATURES = Object.freeze({
 /** @type {ViewFeatures} */
 export const EDGELESS_VIEW_FEATURES = Object.freeze({
   sections: Object.freeze(VIEW_SECTION_IDS.filter(id => !["edges", "clip", "exploded"].includes(id))),
-  modes: Object.freeze(["solid", "render"]),
+  modes: Object.freeze(["solid", "render", "grid"]),
   surfaceStyles: Object.freeze(["shaded", "flat"])
 });
 
@@ -225,6 +228,12 @@ export function resolveViewSettings(input = {}, { appearance = "light", lighting
   } else if (source.mode === "wireframe") {
     result.surfaces.style = "off";
     result.edges.visibility = "all";
+  } else if (source.mode === "grid") {
+    // Solid on a measuring grid: twice as fine as the quiet one, and plain to see without
+    // competing with the model's edges.
+    const dark = resolvedAppearance === "dark";
+    result.grid = { enabled: true, color: dark ? "#64768a" : "#94a3b8", opacity: dark ? 0.42 : 0.38, density: 2 };
+    result.axes = { ...result.axes, enabled: true };
   }
   for (const name of VIEW_GROUP_KEYS) {
     if (!Object.hasOwn(source, name)) continue;

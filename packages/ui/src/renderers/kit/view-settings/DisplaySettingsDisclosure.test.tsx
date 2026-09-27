@@ -197,8 +197,9 @@ it('disables and restores Grid / Axes together while keeping colors independent'
   expect(screen.queryByRole('button', { name: 'Grid color' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Axis color' })).toBeNull();
   await user.click(screen.getByRole('button', { name: 'Enable Grid / Axes' }));
-  expect(resolveViewSettings(current).grid).toEqual(resolveViewSettings({ mode: 'solid' }).grid);
-  expect(resolveViewSettings(current).axes).toEqual(resolveViewSettings({ mode: 'solid' }).axes);
+  // Solid draws neither; turned on by hand they are the quiet grid and axes.
+  expect(resolveViewSettings(current).grid).toEqual({ ...resolveViewSettings({ mode: 'solid' }).grid, enabled: true });
+  expect(resolveViewSettings(current).axes).toEqual({ ...resolveViewSettings({ mode: 'solid' }).axes, enabled: true });
 });
 
 it('enabling Background does not expose or enable Lighting or Floor', () => {

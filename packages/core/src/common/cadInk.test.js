@@ -35,7 +35,8 @@ test("edge color is configurable while widths stay fixed and grid adapts to appe
   for (const colorMode of ["light", "dark"]) {
     const grid = resolveCadGridSettings({ enabled: true, density: 4, centerColor: "#ff0000" }, { colorMode });
     assert.equal(grid.enabled, true);
-    assert.equal(grid.density, 1);
+    assert.equal(grid.density, 4, "a view's grid density reaches the grid (the Grid preset's finer grid)");
+    assert.equal(resolveCadGridSettings({ enabled: true }, { colorMode }).density, 1, "and is 1 unless a view sets it");
     assert.equal(grid.opacity, 0.16);
     assert.notEqual(grid.centerColor, "#ff0000");
   }

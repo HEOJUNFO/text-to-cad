@@ -283,6 +283,8 @@ test('a shell renderer resolves deferred files, reuses warm assets, restores iso
     }
     return window.__viewerSurfaceLooks.count;
   });
+  // No preset but Grid draws the grid, so it is turned on before its colour is edited.
+  await page.evaluate(() => window.cadHarness.a.controller.setDisplaySettings({ grid: { enabled: true } }));
   const syncsBeforeGrid = await settledSceneSyncs();
   await openSection('Grid / Axes');
   await display.getByRole('button', { name: 'Grid color', exact: true }).click();
@@ -348,7 +350,7 @@ test('a shell renderer resolves deferred files, reuses warm assets, restores iso
   ]) {
     await openSection('Mode');
     // The fixture is a mesh: the presets made of CAD edges (X-ray, Hidden line, Wireframe) are not offered.
-    assert.deepEqual(await page.getByRole('option').allTextContents(), ['Solid', 'Render']);
+    assert.deepEqual(await page.getByRole('option').allTextContents(), ['Solid', 'Render', 'Grid']);
     await page.getByRole('option', { name: label, exact: true }).click();
     await page.waitForFunction(({ mode, projection }) => {
       const state = window.cadHarness.a.controller.readState();

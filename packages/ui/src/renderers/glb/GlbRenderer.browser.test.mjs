@@ -220,7 +220,7 @@ test('a static GLB opens on its native scene with no tools: display settings, or
   assert.equal(await displayMenu.getByRole('tab').count(), 0, 'the popover has no tabs inside it');
   assert.deepEqual(await displayMenu.getByRole('combobox', { name: 'Mode', exact: true }).innerText(), 'Solid');
   await displayMenu.getByRole('combobox', { name: 'Mode', exact: true }).click();
-  assert.deepEqual(await page.getByRole('option').allInnerTexts(), ['Solid', 'Render'], 'a GLB has no edges to draw: Solid and Render only');
+  assert.deepEqual(await page.getByRole('option').allInnerTexts(), ['Solid', 'Render', 'Grid'], 'a GLB has no edges to draw: Solid and Render only');
   await page.keyboard.press('Escape');
   assert.equal(await displayMenu.getByRole('heading', { name: 'Surfaces', exact: true }).count(), 1);
   for (const section of ['Edges', 'Cross-section', 'Explode']) assert.equal(await displayMenu.getByRole('heading', { name: section, exact: true }).count(), 0, section);
