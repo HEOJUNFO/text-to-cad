@@ -328,6 +328,10 @@ function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, l
       if(local.length)setLocalExpanded(current=>new Set([...current,...local]));
       return;
     }
+    // A face or edge picked on a part not yet recognized waits for its feature row, so it asks for
+    // that part's recognition itself: under Faces or Edges only parts seen on screen are asked
+    // for, and a pick far down the tree is not one of them.
+    if(waitingForFeature)seeParts([target.id]);
     // A search hit's owners open at once, so the selection is always a row the
     // tree holds; the one scroll waits for the tree to be back on screen.
     if(waitingForFeature || searching)return;

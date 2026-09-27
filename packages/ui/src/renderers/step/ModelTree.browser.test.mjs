@@ -202,18 +202,21 @@ const recognition = {tree:[{id:'body',kind:'body',label:'Body',faces:[1,2,3],edg
   {id:'boss',kind:'extrude',label:'Boss',faces:[1,2],edges:[1],children:[]},{id:'pocket',kind:'cut',label:'Pocket',faces:[3],edges:[2],children:[]}]}],
   hasFaces:true,edgeFaces:{1:[1,2],2:[2,3]}};
 const recognized = [...groups[0].children, ...(groups[GROUPS - 3]?.children.slice(5, 6) || [])];
-const modeling = {descriptor,results:Object.fromEntries(recognized.map(n=>['c'+n.id,recognition])),error:'',retryFailed(){}};
-const events = {selected:[],topology:[]};
+const initialResults = Object.fromEntries(recognized.map(n=>['c'+n.id,recognition]));
+const events = {selected:[],topology:[],recognition:[]};
 const hoverStore = createHoverStore();
 window.treeTest = {events, hoverStore, order:groups.flatMap(g=>['Group '+g.id.slice(1), ...g.children.map(p=>p.displayName)])};
 const face = (id, n) => ({id:id+'.f'+n,selectorType:'face',occurrenceId:id,normalizedSelector:id+'.f'+n});
 function App(){
-  const [selected,setSelected]=useState([]),[reveal,setReveal]=useState(0),[mode,setMode]=useState('all'),[tick,setTick]=useState(0),[details,setDetails]=useState(0),[references,setReferences]=useState([]),[picked,setPicked]=useState(null);
+  const [selected,setSelected]=useState([]),[reveal,setReveal]=useState(0),[mode,setMode]=useState('all'),[tick,setTick]=useState(0),[details,setDetails]=useState(0),[references,setReferences]=useState([]),[picked,setPicked]=useState(null),[results,setResults]=useState(initialResults);
+  const modeling=useMemo(()=>({descriptor,results,error:'',retryFailed(){}}),[results]);
+  const onRequestRecognition=useMemo(()=>ids=>{events.recognition=ids;},[]);
   const expanded=useMemo(()=>groups.map(g=>g.id),[]);
   const partControls=useMemo(()=>({isAssemblyView:true,expandedTreeNodeIds:expanded,onToggleTreeNode(){},hiddenPartIds:[],focusedNodeIds:[],selectableNodeIds:null,
     onSelectTreeNode:id=>{events.selected.push(id);setSelected([id]);},menuForNode:id=>({nodeId:id,copyText:id,zoomSelectionAvailable:false})}),[expanded]);
   const onLoadTopology=useMemo(()=>ids=>{events.topology.push(...ids);},[]);
-  Object.assign(window.treeTest,{refresh:()=>setTick(n=>n+1),details:()=>setDetails(n=>n+1),select:id=>{setSelected([id]);setReveal(n=>n+1);},setMode,
+  Object.assign(window.treeTest,{refresh:()=>setTick(n=>n+1),details:()=>setDetails(n=>n+1),select:id=>{setPicked(null);setSelected([id]);setReveal(n=>n+1);},setMode,
+    recognize:id=>setResults(current=>({...current,['c'+id]:recognition})),
     loadFaces:(id,count=1)=>setReferences(current=>[...current,...Array.from({length:count},(_, n)=>face(id,n+1))]),
     // What a face picked in the viewport hands the tree: that face, as the selected reference.
     pickFace:(id,n)=>{const ref=face(id,n);setReferences(current=>current.some(r=>r.id===ref.id)?current:[...current,ref]);setPicked([ref]);setReveal(k=>k+1);}});
@@ -225,7 +228,7 @@ function App(){
     <section data-testid="model" data-tick={tick} style={{height:420,width:320,display:'flex',flexDirection:'column',gap:8,padding:16}}>
       <ModelingTree active disabled={false} mode={mode} modeling={modeling} stepRoot={root} selectedPartIds={selected}
         selectedReferences={picked || undefined} selectedReferenceIds={selectedReferenceIds}
-        activeTreeNodeScrollKey={reveal} onLoadTopology={onLoadTopology} references={references} partControls={partControls} selectionDetails={selectionDetails} hoverStore={hoverStore}/>
+        activeTreeNodeScrollKey={reveal} onLoadTopology={onLoadTopology} onRequestRecognition={onRequestRecognition} references={references} partControls={partControls} selectionDetails={selectionDetails} hoverStore={hoverStore}/>
     </section>
   </div>;
 }
@@ -474,5 +477,29 @@ createRoot(document.getElementById('root')).render(<App/>);
   // Hover asks for nothing in a small tree: its parts load as their rows show.
   await page.evaluate(() => window.treeTest.hoverStore.setModelPartId('o4_40')); await page.waitForTimeout(400);
   assert.equal((await topology()).includes('o4_40'), false);
+  await page.evaluate(() => window.treeTest.hoverStore.setModelPartId(''));
+  // A pick in the viewport scrolls the tree to its row, however far down: under Faces a face of a
+  // part not yet recognized asks for that part's recognition and then reveals its feature row;
+  // under Parts and under All, the part's row.
+  const inView = (label, owner = null) => page.waitForFunction(({ label, owner }) => {
+    const rows = [...document.querySelectorAll('[aria-label="Model"] > li')];
+    const from = owner ? rows.findIndex(li => li.querySelector(`[aria-label="Select ${owner}"]`)) : -1;
+    if (owner && from < 0) return false;
+    const row = rows.slice(from + 1).find(li => li.querySelector(`[aria-label="Select ${label}"]`));
+    if (!row?.querySelector('[aria-pressed="true"]')) return false;
+    const box = row.getBoundingClientRect(), view = row.closest('[data-tool-panel-body]').getBoundingClientRect();
+    return box.top >= view.top - 1 && box.bottom <= view.bottom + 1;
+  }, { label, owner });
+  await scrollTo(0); await frames();
+  await page.evaluate(() => window.treeTest.pickFace('o4_40', 3));
+  await page.waitForFunction(() => window.treeTest.events.recognition.includes('o4_40'));
+  await page.evaluate(() => window.treeTest.recognize('o4_40'));
+  await inView('Pocket', 'Part 4-40');
+  await page.evaluate(() => window.treeTest.setMode('parts')); await scrollTo(0); await frames();
+  await page.evaluate(() => window.treeTest.select('o4_45'));
+  await inView('Part 4-45');
+  await page.evaluate(() => window.treeTest.setMode('all')); await scrollTo(0); await frames();
+  await page.evaluate(() => window.treeTest.select('o4_30'));
+  await inView('Part 4-30');
   assert.deepEqual(errors, []);
 });

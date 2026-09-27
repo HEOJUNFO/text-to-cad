@@ -981,8 +981,10 @@ shows it. The selection's row, the search cursor, a focused row and the row whos
 was opened stay mounted wherever they are, so a reveal, Enter, keyboard focus and an open menu
 always have their row; a row carries its level
 (`aria-level`) in place of the nesting it no longer has. Under Faces and Edges the rows the list
-reports on screen (never its margin) are the parts whose topology is asked for, each once (in a
-large tree, only the open ones).
+reports on screen (never its margin), once layout has settled a frame later, are the parts
+whose topology is asked for, each once (in a large tree, only the open ones). A face or edge
+picked on a part not yet recognized asks for that part's recognition itself, so its feature row
+arrives and is revealed wherever the part sits in the tree.
 Rows are memoized on their own facts (their selection and joins as booleans, stable callbacks,
 the one `partControls` object `useStepPanels` keeps), so a re-render of the viewer that changes
 nothing in a row renders no row. Recognition (`useModelingRecognition`) runs one component at a

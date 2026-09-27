@@ -46,11 +46,11 @@ export default function VirtualRows({ count, rowHeight, rowKey, rowProps = null,
   const [focusedKey, setFocusedKey] = useState(null), [menuKey, setMenuKey] = useState(null);
   const latest = useRef(null);
   latest.current = { count, rowHeight, overscan, onVisibleRange };
-  const reported = useRef(null);
+  const reported = useRef(null), pendingReport = useRef(null);
 
   // Where the list is in view: the rows on screen, then the rows to mount around them. The
   // mounted window moves only once the view nears its edge, so a scroll re-renders every few rows.
-  const measure = useCallback((sync = false, report = false) => {
+  const measure = useCallback((sync = false, force = false) => {
     const element = list.current;
     const { count, rowHeight, overscan, onVisibleRange } = latest.current;
     if (!element) return;
@@ -80,11 +80,47 @@ export default function VirtualRows({ count, rowHeight, rowKey, rowProps = null,
       return { first: Math.max(0, first - overscan), last: Math.min(count - 1, last + overscan) };
     };
     if (sync) flushSync(() => setRange(update)); else setRange(update);
+    if (onVisibleRange) scheduleReport(force);
+  }, []);
+
+  // What is on screen is told once layout has settled, a frame later (or sooner when frames are
+  // not running): a panel measures and bounds itself in its own layout pass, and until it has, a
+  // list on mount can read every row as in view.
+  const scheduleReport = useCallback(force => {
+    if (pendingReport.current) { pendingReport.current.force ||= force; return; }
+    const pending = { force };
+    const run = () => {
+      if (pendingReport.current !== pending) return;
+      pendingReport.current = null;
+      if (pending.frame !== undefined) cancelAnimationFrame(pending.frame);
+      clearTimeout(pending.timeout);
+      report(pending.force);
+    };
+    pending.frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(run) : undefined;
+    pending.timeout = setTimeout(run, 100);
+    pendingReport.current = pending;
+  }, []);
+  const report = force => {
+    const element = list.current;
+    const { count, rowHeight, onVisibleRange } = latest.current;
+    if (!element || !onVisibleRange) return;
+    const scroller = scrollerOf(element);
+    if (!(element.getClientRects().length > 0 && (scroller ? scroller.clientHeight > 0 : window.innerHeight > 0))) return;
+    const box = element.getBoundingClientRect();
+    const viewTop = scroller ? scroller.getBoundingClientRect().top + scroller.clientTop : 0;
+    const viewHeight = scroller ? scroller.clientHeight : window.innerHeight;
+    const top = viewTop - box.top;
+    const first = Math.max(0, Math.floor(top / rowHeight)), last = Math.min(count - 1, Math.ceil((top + viewHeight) / rowHeight) - 1);
     const key = last >= first ? `${first}:${last}` : '';
-    if (onVisibleRange && key && (report || reported.current?.key !== key || reported.current?.callback !== onVisibleRange)) {
+    if (key && (force || reported.current?.key !== key || reported.current?.callback !== onVisibleRange)) {
       reported.current = { key, callback: onVisibleRange };
       onVisibleRange(first, last);
     }
+  };
+  useLayoutEffect(() => () => {
+    const pending = pendingReport.current;
+    pendingReport.current = null;
+    if (pending) { if (pending.frame !== undefined) cancelAnimationFrame(pending.frame); clearTimeout(pending.timeout); }
   }, []);
 
   // Before paint whenever the rows or the report change; on scroll and resize before the frame
