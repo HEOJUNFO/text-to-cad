@@ -10,6 +10,7 @@ import { pointVisibleByClipPlane } from "@hardcore/core/lib/viewer/clipPlane.js"
 import { screenLimitedPickThreshold } from "@hardcore/core/lib/viewer/pickingThresholds.js";
 import { PERF_MEASURE_NAMES, perfMeasure, perfStart } from "@hardcore/core/lib/viewer/perfMarks.js";
 import { partIdFromIntersection, shouldRaycastRecordForPick } from "./partPicking.js";
+import { createClickActivation } from "./clickActivation.js";
 import { prefersCoarsePointer } from "../../kit/viewport/dom.js";
 
 const AUTO_EDGE_PICK_THRESHOLD_FACTOR = 1;
@@ -26,7 +27,6 @@ const EDGE_HOVER_PRIORITY_WITH_FACE_PX = EDGE_HOVER_MAX_SCREEN_DISTANCE_WITH_FAC
 const HOVER_PICK_MIN_MOVE_PX = 2;
 const FINE_POINTER_TAP_SLOP_PX = 4;
 const COARSE_POINTER_TAP_SLOP_PX = 12;
-export const VIEWER_DOUBLE_CLICK_ACTIVATION_DELAY_MS = 220;
 
 /**
  * What a pick at one point resolves to under the pick mode, from ONE raycast of the model:
@@ -227,7 +227,10 @@ export function useStepPicking({
   hiddenPartIds,
   focusedPartId,
   onHoverReferenceChange,
+  // A tap's pick: (referenceId, { multiSelect, clientX, clientY, pointerType }), at once.
   onActivateReference,
+  // The browser's dblclick: (referenceId, { multiSelect, activated }), where `activated` says
+  // the gesture's first click activated (`clickActivation.js`) — what the surface puts back.
   onDoubleActivateReference,
   // What is under a point of the screen right now, for the viewport menu: set while the
   // listeners are bound, null otherwise. (clientX, clientY, pointerType) -> reference id or "".
@@ -300,7 +303,10 @@ export function useStepPicking({
       x: 0,
       y: 0,
       pointerType: "",
-      referenceId: ""
+      referenceId: "",
+      // The browser's count of this press in its click sequence (`detail`: 2 for the second
+      // click of a double-click), read off the pointer event and the mouse event behind it.
+      clickCount: 0
     };
     const primaryPointer = {
       active: false,
@@ -327,7 +333,11 @@ export function useStepPicking({
       measureTickEmitted: false
     };
     const doubleClickEnabled = !defaultToCoarsePointer;
-    let activationTimerId = 0;
+    // A click acts at once; only a second click is held for the dblclick that may own it.
+    const activation = createClickActivation({
+      commit: (referenceId, options) => onActivateReferenceRef.current?.(referenceId || "", options),
+      doubleClick: doubleClickEnabled
+    });
 
     function pointerButtons(event) {
       const buttons = Number(event?.buttons);
@@ -777,27 +787,11 @@ export function useStepPicking({
     }
 
     function clearPendingActivation() {
-      if (!activationTimerId) {
-        return;
-      }
-      window.clearTimeout(activationTimerId);
-      activationTimerId = 0;
+      activation.cancel();
     }
 
-    function commitActivation(referenceId, options = {}) {
-      onActivateReferenceRef.current?.(referenceId || "", options);
-    }
-
-    function scheduleActivation(referenceId, options = {}) {
-      clearPendingActivation();
-      if (!doubleClickEnabled) {
-        commitActivation(referenceId, options);
-        return;
-      }
-      activationTimerId = window.setTimeout(() => {
-        activationTimerId = 0;
-        commitActivation(referenceId, options);
-      }, VIEWER_DOUBLE_CLICK_ACTIVATION_DELAY_MS);
+    function recordClickCount(event) {
+      pointerDown.clickCount = Math.max(pointerDown.clickCount, Number(event?.detail) || 0);
     }
 
     function flushHoverPick() {
@@ -911,6 +905,7 @@ export function useStepPicking({
         return;
       }
       if (event.button === 0) {
+        if (pointerDown.active) recordClickCount(event);
         if (contextPointer.active || contextButtonHeld(event) || chordButtonsHeld(event)) {
           suppressContextMenuFromPanChord();
         } else {
@@ -994,6 +989,7 @@ export function useStepPicking({
       if (pointerDown.active || primaryPointer.active || contextPointer.active) {
         suppressContextMenuFromPanChord();
       }
+      if (pointerDown.active) activation.miss(pointerDown.clickCount);
       pointerDown.active = false;
       pointerDown.pointerType = "";
       pointerDown.referenceId = "";
@@ -1026,6 +1022,8 @@ export function useStepPicking({
       pointerDown.x = event.clientX;
       pointerDown.y = event.clientY;
       pointerDown.pointerType = event.pointerType || "";
+      pointerDown.clickCount = 0;
+      recordClickCount(event);
       // OrbitControls may clear hover before pointer-up; retain the fresh
       // pointer-down raycast rather than the earlier hover frame.
       pointerDown.referenceId = pickActivationReference(
@@ -1048,10 +1046,12 @@ export function useStepPicking({
       }
       const tapSlop = tapSlopForPointer(pointerDown.pointerType || event.pointerType);
       const moved = Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y);
+      const clickCount = pointerDown.clickCount;
       if (!pointerDown.active || moved > tapSlop) {
         pointerDown.active = false;
         pointerDown.pointerType = "";
         pointerDown.referenceId = "";
+        activation.miss(clickCount);
         return;
       }
       const pointerDownReferenceId = String(pointerDown.referenceId || "").trim();
@@ -1060,9 +1060,11 @@ export function useStepPicking({
       pointerDown.pointerType = "";
       pointerDown.referenceId = "";
       if (suppressTopologyPicking) {
+        activation.miss(clickCount);
         return;
       }
       if (pickModeRef.current === VIEWER_PICK_MODE.MEASURE) {
+        activation.miss(clickCount);
         onMeasurePickRef.current?.(measureReferenceFromPosition(pointerDown.x, pointerDown.y, {
           bypassTopology: !!event.shiftKey
         }).pick);
@@ -1071,11 +1073,12 @@ export function useStepPicking({
       const referenceId = pointerDownReferenceId || pickActivationReference(event.clientX, event.clientY, event.pointerType || "");
       // The press point goes with the activation, so a pick that has to wait (a part whose faces
       // are still loading) can be asked again at the same place.
-      scheduleActivation(referenceId || "", { multiSelect: !!event.shiftKey, ...press });
+      activation.tap(clickCount, referenceId || "", { multiSelect: !!event.shiftKey, ...press });
     }
 
     function handlePointerCancel(event) {
       touches.delete(event.pointerId);
+      if (pointerDown.active) activation.miss(pointerDown.clickCount);
       pointerDown.active = false;
       pointerDown.referenceId = "";
       resetPrimaryPointer();
@@ -1086,12 +1089,13 @@ export function useStepPicking({
       if (!isSceneInteractionTarget(event.target)) {
         return;
       }
-      clearPendingActivation();
+      // Whether the first click of this gesture activated — what the surface puts back first.
+      const activated = activation.double();
       if (suppressTopologyPicking) {
         return;
       }
       const referenceId = pickActivationReference(event.clientX, event.clientY, event.pointerType || "");
-      onDoubleActivateReferenceRef.current?.(referenceId || "", { multiSelect: !!event.shiftKey });
+      onDoubleActivateReferenceRef.current?.(referenceId || "", { multiSelect: !!event.shiftKey, activated });
     }
 
     function handleContextMenu(event) {
