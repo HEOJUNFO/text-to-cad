@@ -65,7 +65,7 @@ import {
   reconcileLivePackageSelectorBundles
 } from "./packageReferenceComposition.js";
 import { selectRequestedAssemblyComponents } from "../../../workbench/referenceSelection.js";
-import { chooseTopologyBatch, sameTopologyIds, topologyIdsWithin } from "./topologyRequests.js";
+import { createTopologyRequestSession } from "./topologyRequests.js";
 import { viewerMemoryPolicy } from "../../../render/viewerMemoryPolicy.js";
 import { syncSurfWorkerMemory } from "../../../render/surfWorkerMemoryPolicy.js";
 import { componentMemoryAccounting } from "../../../render/renderMemoryAccounting.js";
@@ -92,6 +92,9 @@ const COMPONENT_SURFACE_LOAD_CONCURRENCY = 8;
 // REFERENCE_BATCH_NEW_PARTS parts not yet loaded, newest request first.
 const REFERENCE_BATCH_INTERVAL_MS = 150;
 const REFERENCE_BATCH_NEW_PARTS = 64;
+// While a batch is in flight, parts requested after it started (one opened, pressed or rested on)
+// do not wait for it: a second, small batch of at most this many loads beside it.
+const REFERENCE_PRIORITY_NEW_PARTS = 8;
 
 const GPU_BUFFER_ESTIMATE_MULTIPLIER = 1.15;
 const SURF_WORKER_TEMP_ESTIMATE_MULTIPLIER = 2;
@@ -663,8 +666,6 @@ export function useCadAssets({
   const cancelReferenceLoad = useCallback(() => {
     referenceRequestIdRef.current += 1;
     abortLoad(referenceAbortControllerRef);
-    const session = referenceSessionRef.current;
-    if (session?.timer) clearTimeout(session.timer);
     referenceSessionRef.current = null;
     setReferenceLoadStage("");
   }, [resources]);
@@ -1381,9 +1382,10 @@ export function useCadAssets({
           }),
         });
         if (!referencePublication) return "stale";
-        // A batch publishes only what is still requested: a part let go of while it loaded
-        // would make the published topology unusable until the next batch.
-        if (!topologyIdsWithin(requestedOccurrenceIds, session.desired)) return "skipped";
+        // A batch publishes only what is still requested (a part let go of while it loaded would
+        // make the published topology unusable until the next batch), and never takes back a part
+        // another batch published meanwhile: the next batch composes both.
+        if (!session.accepts(requestedOccurrenceIds)) return "skipped";
         componentBundleByCid = referencePublication.bundles;
         // A single-component part renders as a topology tree (not an assembly structure), so its
         // topology must graft onto the synthetic part root via fallbackPartId — i.e. carry NO
@@ -1431,8 +1433,7 @@ export function useCadAssets({
         setReferenceState(nextReferenceState);
         syncAssetCacheMemory();
         const previouslyPublished = new Set(session.published?.ids || []);
-        session.published = { ids: [...requestedOccurrenceIds], state: nextReferenceState };
-        session.batches += 1;
+        session.publish(requestedOccurrenceIds, nextReferenceState);
         perfMeasure(PERF_MEASURE_NAMES.topologyBatch, batchStart, {
           parts: requestedOccurrenceIds.length,
           added: requestedOccurrenceIds.filter((id) => !previouslyPublished.has(id)).length,
@@ -1453,7 +1454,7 @@ export function useCadAssets({
       setReferenceState(nextReferenceState);
       syncAssetCacheMemory();
       // One whole-document bundle answers every request.
-      session.published = { ids: [...session.desired], state: nextReferenceState, whole: true };
+      session.publish(session.desired, nextReferenceState, { whole: true });
       return "published";
     } finally {
       // A first pick can be the last consumer of the tessellation pool.
@@ -1463,59 +1464,21 @@ export function useCadAssets({
     }
   }, [buildNormalizedReferenceState, getAssemblyMeshHash, resources]);
 
-  // Batches until what is published is what is requested. One loop per session at a time; a
-  // request arriving meanwhile only changes `session.desired`, which the loop reads before each
-  // batch. The status is LOADING until the loop settles on the request.
-  const runReferenceSession = useCallback(async (session) => {
-    const isCurrent = () => session.requestId === referenceRequestIdRef.current && !session.controller.signal.aborted;
-    // `active` is set and cleared synchronously with the loop's own decisions, so a request
-    // either lands while the loop will still read it, or starts the next loop.
-    session.active = true;
-    session.batches = 0;
-    const loopStart = perfStart();
-    try {
-      while (isCurrent()) {
-        if (session.published && (session.published.whole || sameTopologyIds(session.published.ids, session.desired))) break;
-        const wait = session.lastStart + REFERENCE_BATCH_INTERVAL_MS - Date.now();
-        if (wait > 0) {
-          await new Promise((resolve) => {
-            session.timer = setTimeout(resolve, wait);
-            session.controller.signal.addEventListener("abort", resolve, { once: true });
-          });
-          session.timer = 0;
-          continue;
-        }
-        session.lastStart = Date.now();
-        const batch = chooseTopologyBatch(session.desired, session.published?.ids, {
-          budget: REFERENCE_BATCH_NEW_PARTS,
-          requestOrder: session.requestOrder
-        });
-        if ((await loadReferenceBatch(session, batch)) === "stale") return;
-      }
-      if (!isCurrent()) return;
-      const state = session.published?.state;
-      setReferenceStatus(state?.disabledReason ? REFERENCE_STATUS.DISABLED : REFERENCE_STATUS.READY);
-      setReferenceError(state?.disabledReason || "");
-      setReferenceLoadStage("");
-      perfMeasure(PERF_MEASURE_NAMES.topologySettled, loopStart, { parts: session.desired.length, batches: session.batches });
-    } catch (err) {
-      if (!isCurrent() || isAbortError(err)) {
-        return;
-      }
-      if (err instanceof SurfaceResolutionError && err.replacementView) {
-        await surfaceViewReplacementRef.current?.(
-          session.entry, entryAssetUrl(session.entry, "glb"), err.replacementView,
-        );
-        return;
-      }
-      session.failed = true;
-      setReferenceStatus(REFERENCE_STATUS.ERROR);
-      setReferenceError(err instanceof Error ? err.message : String(err));
-      setReferenceLoadStage("");
-    } finally {
-      session.active = false;
+  const failReferenceSession = useCallback(async (session, err) => {
+    if (session.requestId !== referenceRequestIdRef.current || session.controller.signal.aborted || isAbortError(err)) {
+      return;
     }
-  }, [loadReferenceBatch]);
+    if (err instanceof SurfaceResolutionError && err.replacementView) {
+      await surfaceViewReplacementRef.current?.(
+        session.entry, entryAssetUrl(session.entry, "glb"), err.replacementView,
+      );
+      return;
+    }
+    session.failed = true;
+    setReferenceStatus(REFERENCE_STATUS.ERROR);
+    setReferenceError(err instanceof Error ? err.message : String(err));
+    setReferenceLoadStage("");
+  }, [resources]);
 
   // Ask for the topology of `requestedOccurrenceIds` (an assembly's parts; a part file's is
   // all of it). Idempotent and cheap to repeat: requests for the same file revision union into
@@ -1556,51 +1519,53 @@ export function useCadAssets({
       const carried = live && live.file === entry.file && live.meshHash === getAssemblyMeshHash(entry)
         && Array.isArray(live.loadedTopologyIds) && referenceStateRef.current?.loadedTopologyKey === live.loadedTopologyKey
         ? { ids: [...live.loadedTopologyIds], state: referenceStateRef.current } : null;
-      session = {
-        key,
-        loader: loadReferenceBatch,
-        requestId: referenceRequestIdRef.current,
-        controller: new AbortController(),
-        entry,
-        desired: [],
-        requestOrder: new Map(),
-        requestCount: 0,
+      const requestId = referenceRequestIdRef.current;
+      const controller = new AbortController();
+      const isCurrent = () => requestId === referenceRequestIdRef.current && !controller.signal.aborted;
+      let loopStart = 0;
+      session = createTopologyRequestSession({
         published: carried,
-        running: null,
-        active: false,
-        timer: 0,
-        lastStart: -Infinity,
-        failed: false
-      };
-      referenceAbortControllerRef.current = session.controller;
+        intervalMs: REFERENCE_BATCH_INTERVAL_MS,
+        budget: REFERENCE_BATCH_NEW_PARTS,
+        priorityBudget: REFERENCE_PRIORITY_NEW_PARTS,
+        isCurrent,
+        loadBatch: (ids) => loadReferenceBatch(session, ids),
+        // An interval wait ends early when the session is cancelled.
+        wait: (ms) => new Promise((resolve) => {
+          const timer = setTimeout(resolve, ms);
+          controller.signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+        }),
+        onLoading: () => {
+          loopStart = perfStart();
+          setReferenceStatus(REFERENCE_STATUS.LOADING);
+          setReferenceError("");
+          setReferenceLoadStage("loading topology");
+        },
+        onSettled: (state) => {
+          setReferenceStatus(state?.disabledReason ? REFERENCE_STATUS.DISABLED : REFERENCE_STATUS.READY);
+          setReferenceError(state?.disabledReason || "");
+          setReferenceLoadStage("");
+          perfMeasure(PERF_MEASURE_NAMES.topologySettled, loopStart, { parts: session.desired.length, batches: session.batches });
+        },
+        onFailed: (err) => failReferenceSession(session, err)
+      });
+      Object.assign(session, { key, loader: loadReferenceBatch, requestId, controller, entry });
+      referenceAbortControllerRef.current = controller;
       referenceSessionRef.current = session;
     }
     session.entry = entry;
-    const desired = new Set();
-    for (const rawId of Array.isArray(requestedOccurrenceIds) ? requestedOccurrenceIds : []) {
-      const id = String(rawId || "").trim();
-      if (!id || desired.has(id)) continue;
-      desired.add(id);
-      if (!session.requestOrder.has(id)) session.requestOrder.set(id, ++session.requestCount);
-    }
-    session.desired = [...desired];
-    // A running loop reads the new request before its next batch.
-    if (session.active) return session.running;
-    if (session.published && (session.published.whole || sameTopologyIds(session.published.ids, session.desired))) {
+    const request = session.request(requestedOccurrenceIds);
+    if (request.settled) {
       // Already published (a request settling back, or a revision's topology carried into a new
       // session): the status says so, whatever an interrupted load left it at.
-      const state = session.published.state;
+      const state = session.published?.state;
       setReferenceStatus(state?.disabledReason ? REFERENCE_STATUS.DISABLED : REFERENCE_STATUS.READY);
       setReferenceError(state?.disabledReason || "");
       setReferenceLoadStage("");
-      return Promise.resolve();
     }
-    setReferenceStatus(REFERENCE_STATUS.LOADING);
-    setReferenceError("");
-    setReferenceLoadStage("loading topology");
-    session.running = runReferenceSession(session);
-    return session.running;
-  }, [cancelReferenceLoad, entryHasReferences, getAssemblyMeshHash, getCachedReferenceState, loadReferenceBatch, runReferenceSession, resources]);
+    return request.promise || Promise.resolve();
+  }, [cancelReferenceLoad, entryHasReferences, failReferenceSession, getAssemblyMeshHash, getCachedReferenceState,
+    loadReferenceBatch, resources]);
 
   useEffect(() => () => {
     abortLoad(meshAbortControllerRef);
