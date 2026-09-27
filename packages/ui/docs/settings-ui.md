@@ -302,10 +302,10 @@ hint are hidden. Touch works for every tool: one finger orbits, two pan and
 zoom, a tap picks; a pinch, a cancelled pointer or a camera drag is never a
 pick.
 
-**The file tree's column** (the host's) is 280px by default, 200px at least and
+**The file tree's column** (the host's) is 220px by default, 140px at least and
 480px at most. A drag past the minimum stops at it; only a drag below half the
 minimum closes the column, and the keyboard never does. The next open starts at
-280px.
+220px.
 
 ## Display settings and section primitives
 

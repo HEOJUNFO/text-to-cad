@@ -26,13 +26,16 @@ import { hasOpenPopup } from "../../lib/popups.js";
  * FileViewer clamps every width it stores and draws to these, in both apps, so
  * a panel is never a different size in one of them, and the
  * `aria-valuemin`/`max` on the handle below are the real numbers rather than a
- * second opinion. The mobile sheet is the default width.
+ * second opinion. The mobile sheet has its own width.
  */
-// Fits the file tree's filter and a few levels of nesting without scrolling sideways; a name
-// truncates before the column gives way.
-export const PANEL_MIN_WIDTH = 200;
+// Narrow by default: the model is the page. At the minimum a name truncates early; the column
+// gives way before the viewer does.
+export const PANEL_MIN_WIDTH = 140;
 export const PANEL_MAX_WIDTH = 480;
-export const PANEL_DEFAULT_WIDTH = 280;
+export const PANEL_DEFAULT_WIDTH = 220;
+// The mobile sheet floats over the viewer rather than taking width from it, so it keeps room for
+// a few levels of nesting.
+const PANEL_SHEET_WIDTH = 280;
 // A drag has to go well below the minimum — past half of it — before the column closes: one that
 // merely overshoots stops at the minimum. The keyboard never closes it; the toggle does.
 const PANEL_COLLAPSE_WIDTH = PANEL_MIN_WIDTH / 2;
@@ -102,7 +105,7 @@ export function FilePanelColumn({ id, label, width, onWidthChange, onCollapse, c
   if (mobile) return <Sheet open={!hidden} onOpenChange={open => { if (!open) onDismiss?.(); }} modal={false}>
     <SheetContent ref={content} portalContainer={portalContainer} showCloseButton={false} aria-describedby={undefined}
       className="absolute inset-y-2 right-2 h-auto w-[min(var(--file-panel-sheet-width),calc(100%-32px))] max-w-none gap-0 overflow-hidden rounded-lg border shadow-lg data-[state=open]:animate-none data-[state=closed]:animate-none"
-      style={{ "--file-panel-sheet-width": `${PANEL_DEFAULT_WIDTH}px` }}
+      style={{ "--file-panel-sheet-width": `${PANEL_SHEET_WIDTH}px` }}
       data-file-panel-container={id} data-mobile-panel="" onOpenAutoFocus={event => event.preventDefault()}
       onCloseAutoFocus={event => event.preventDefault()}
       // A press outside, Escape or the X dismisses the sheet; focus moving elsewhere does not. The
