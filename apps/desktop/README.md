@@ -9,6 +9,12 @@ Sessions own their explorer tabs and agent tools. Project headings are derived
 directory groups, with no separate project lifecycle. See
 [session workspaces and persistence](docs/session-workspaces.md) for ownership,
 title updates, profile locations and the database migration/backup contract.
+The new-session screen has two doors: a prompt, and a part — the folder's
+CAD files under the composer, plus `Open file…` for one of them by path.
+Either one creates the session; a part opens as its first explorer tab with
+the tree beside it. The tree sorts for a CAD folder: folders, then parts,
+then other files, then dotfiles and caches (`sortEntries` in
+`src/main/explorer/fs.ts`).
 
 Electron 40 · electron-vite · React 19 · TypeScript · Tailwind v4 ·
 shadcn/ui (stock neutral) · Vercel AI Elements · `@agentclientprotocol/sdk` ·
