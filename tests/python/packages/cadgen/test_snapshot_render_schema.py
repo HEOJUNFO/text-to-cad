@@ -38,7 +38,7 @@ def normalize(**settings: object) -> dict[str, object]:
 
 class RenderDisplaySchemaTest(unittest.TestCase):
     def test_presets_and_appearance_are_closed(self):
-        self.assertEqual({"solid", "render", "xray", "hidden-line", "wireframe"}, set(DISPLAY_MODES))
+        self.assertEqual({"solid", "render", "xray", "hidden-line", "wireframe", "grid"}, set(DISPLAY_MODES))
         self.assertEqual({"light", "dark"}, set(DISPLAY_APPEARANCES))
         self.assertEqual({"preview", "final"}, set(RENDER_QUALITY_IDS))
         for mode in DISPLAY_MODES:

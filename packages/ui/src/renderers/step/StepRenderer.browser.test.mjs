@@ -1073,6 +1073,8 @@ test('a short viewer: the stack never runs past it — the capped panels give wa
 test('Position drives the mate and repaints, a named pose jumps, the Position knob is never the camera, and the grid keeps the size the rest pose gave it', async () => {
   const view = await open();
   const { page, pane, errors } = view;
+  // The grid is only the Grid preset's by default; this compares its lines, so it is turned on.
+  await view.display({ grid: { enabled: true } });
   // A file with movable joints has Position straight after Select on the strip.
   assert.deepEqual((await pane.getByRole('group', { name: 'Interaction tools' }).locator('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label')))).slice(0, 3),
     ['Select', 'Position', 'Draw']);
@@ -1391,28 +1393,37 @@ test('Measure reads a distance between two picks; Draw lays ink over a STEP; and
   await page.waitForFunction(() => document.querySelector('[data-testid="one"] [data-drawing-ready]'));
   // Its tools are a panel in the stack while Draw is up; choosing one keeps it there.
   const drawingPanel = pane.locator('[data-tool-panel][aria-label="Drawing controls"]');
-  // One grid of controls, 24px columns spread across the stack's width: the tools, then the colour,
-  // the stroke width, undo, redo and clear, with no rule between them and no inset beyond the other
-  // panels' rows.
+  // The tools, then a rule across the panel, then the colour, the stroke width, undo, redo and clear
+  // on a row of their own: two grids of 24px columns spread across the panel's width, their
+  // columns lined up, with no inset beyond the other panels' rows.
   await drawingPanel.waitFor();
-  assert.equal(await drawingPanel.locator('hr, [role=separator], [data-slot=dropdown-menu-separator]').count(), 0, 'no rule in the panel');
-  assert.equal(await drawingPanel.locator('.border-t').count(), 0);
+  assert.equal(await drawingPanel.locator('[data-tool-panel-heading]').count(), 0, 'no heading');
+  assert.equal(await drawingPanel.getByRole('separator').count(), 1, 'one rule');
   const controls = drawingPanel.locator('[data-drawing-controls]');
   assert.deepEqual(await controls.locator('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))),
     ['Select and move drawings', 'Pan view', 'Pen', 'Line', 'Arrow', 'Rectangle', 'Ellipse', 'Text', 'Fill area', 'Eraser', 'Color', 'Stroke width', 'Undo', 'Redo', 'Clear drawing'],
     'every control in one container');
   const flow = await controls.evaluate(node => {
     const panelLeft = node.closest('[data-tool-panel]').getBoundingClientRect().left;
-    const own = node.getBoundingClientRect();
+    const [tools, settings] = [...node.querySelectorAll(':scope > [role=group]')];
+    const rule = node.querySelector(':scope > [role=separator]').getBoundingClientRect();
     const boxes = [...node.querySelectorAll('button')].map(button => button.getBoundingClientRect());
+    const toolBoxes = [...tools.querySelectorAll('button')].map(button => button.getBoundingClientRect());
+    const settingBoxes = [...settings.querySelectorAll('button')].map(button => button.getBoundingClientRect());
     const lines = [...new Set(boxes.map(box => Math.round(box.top)))];
-    return { display: getComputedStyle(node).display, justify: getComputedStyle(node).justifyContent, lines: lines.length,
-      size: [...new Set(boxes.map(box => `${box.width}x${box.height}`))], rightGap: own.right - Math.max(...boxes.map(box => box.right)),
+    return { display: [tools, settings].map(group => getComputedStyle(group).display), justify: getComputedStyle(tools).justifyContent,
+      toolLines: new Set(toolBoxes.map(box => Math.round(box.top))).size, settingLines: new Set(settingBoxes.map(box => Math.round(box.top))).size,
+      ruleBetween: rule.top >= Math.max(...toolBoxes.map(box => box.bottom)) && rule.bottom <= Math.min(...settingBoxes.map(box => box.top)),
+      columnsAlign: settingBoxes.every((box, index) => Math.abs(box.left - toolBoxes[index].left) <= 0.5),
+      size: [...new Set(boxes.map(box => `${box.width}x${box.height}`))], rightGap: tools.getBoundingClientRect().right - Math.max(...toolBoxes.map(box => box.right)),
       starts: lines.map(top => Math.min(...boxes.filter(box => Math.round(box.top) === top).map(box => box.left)) - panelLeft) };
   });
-  assert.deepEqual([flow.display, flow.justify], ['grid', 'space-between']);
-  assert.ok(flow.lines >= 2, `the grid wraps to the stack's width: ${JSON.stringify(flow)}`);
-  assert.ok(flow.rightGap <= 1, `its columns spread to the panel's right edge: ${JSON.stringify(flow)}`);
+  assert.deepEqual([flow.display, flow.justify], [['grid', 'grid'], 'space-between']);
+  assert.ok(flow.toolLines >= 2, `the tools wrap to the panel's width: ${JSON.stringify(flow)}`);
+  assert.equal(flow.settingLines, 1, 'the settings are one row of their own');
+  assert.equal(flow.ruleBetween, true, `the rule sits between the two: ${JSON.stringify(flow)}`);
+  assert.equal(flow.columnsAlign, true, `the settings line up with the tools' columns: ${JSON.stringify(flow)}`);
+  assert.ok(flow.rightGap <= 1, `the tools' columns spread to the panel's right edge: ${JSON.stringify(flow)}`);
   assert.deepEqual(flow.size, ['24x24'], 'the buttons keep their size');
   assert.deepEqual(new Set(flow.starts), new Set([filterInset]), `every line starts at the Features filter row's inset: ${JSON.stringify(flow.starts)} vs ${filterInset}`);
   await drawingPanel.getByRole('button', { name: 'Line', exact: true }).click();
@@ -1678,6 +1689,9 @@ test('the Display popover keeps controls together, resets optional sections, sta
   assert.equal(await exposure.count(), 0);
   await sheet.getByRole('button', { name: 'Enable Lighting', exact: true }).click();
   assert.equal(await exposure.inputValue(), '0.0 EV', 'reopening resets to defaults');
+  // Solid draws no grid: its colour is there once Grid / Axes is turned on.
+  assert.equal(await sheet.getByRole('button', { name: 'Grid color', exact: true }).count(), 0);
+  await sheet.getByRole('button', { name: 'Enable Grid / Axes', exact: true }).click();
   await sheet.getByRole('button', { name: 'Grid color', exact: true }).click();
   await page.getByRole('spinbutton', { name: 'Color opacity' }).fill('40');
   await page.getByRole('spinbutton', { name: 'Color opacity' }).press('Tab');
@@ -2354,11 +2368,9 @@ test('Draw history buttons track the SDK stacks, including empty canvas and disc
   await view.tool('Draw').click();
   await page.waitForFunction(() => document.querySelector('[data-testid="one"] [data-drawing-ready]'));
   await history(false, false);
-  // Headed "Draw", it does not fold; its X puts Draw down and hands back to Select.
-  const heading = panel.locator('[data-tool-panel-heading]');
-  assert.equal((await heading.getByRole('heading').innerText()).trim(), 'Draw');
-  assert.deepEqual(await heading.getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), ['Close draw']);
-  await heading.getByRole('button', { name: 'Close draw', exact: true }).click();
+  // It has no heading and no X, and does not fold; choosing another tool puts Draw down.
+  assert.equal(await panel.locator('[data-tool-panel-heading]').count(), 0);
+  await view.tool('Select').click();
   await panel.waitFor({ state: 'detached' });
   assert.equal(await view.tool('Select').getAttribute('aria-pressed'), 'true');
   assert.deepEqual(await view.stack(), ['Features']);

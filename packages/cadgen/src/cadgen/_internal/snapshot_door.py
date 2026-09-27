@@ -226,7 +226,7 @@ def step_snapshot_verb(door: str):
             orthographicHalfHeight preserves an orthographic view's scale.
             Projection and focalLength (20..200 mm) belong in display.camera.
         display: a preset name, grouped display JSON, or JSON file path. Presets
-            are solid (default), render, xray, hidden-line and wireframe.
+            are solid (default), render, xray, hidden-line, wireframe and grid.
             Omitted groups inherit the preset; group objects imply enabled unless
             explicitly false. appearance is light (default) or dark.
         kinematics: pose values — a declared preset name or {dof: value}
@@ -613,7 +613,7 @@ def polymorphic_snapshot_verb():
             orthographicHalfHeight preserves an orthographic view's scale.
             Projection and focalLength (20..200 mm) belong in display.camera.
             A DXF is drawn flat and head on, and refuses a camera.
-        display: solid (default), render, xray, hidden-line or wireframe, grouped
+        display: solid (default), render, xray, hidden-line, wireframe or grid, grouped
             display JSON, or a JSON file path. appearance defaults to light.
             Omitted groups inherit the preset. edges, clip, exploded, the xray,
             hidden-line and wireframe modes and the hidden/off surface styles

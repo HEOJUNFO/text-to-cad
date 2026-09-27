@@ -1,5 +1,6 @@
 import {
   Eye,
+  Grid3x3,
   Spline,
   SquareDashed
 } from "lucide-react";
@@ -23,5 +24,6 @@ export const DISPLAY_MODE_OPTIONS = Object.freeze([
   Object.freeze({ value: "render", label: "Render", title: "Photographic materials, lighting and backdrop", Icon: RenderModeIcon }),
   Object.freeze({ value: "xray", label: "X-ray", title: "Transparent surfaces with visible and hidden CAD edges", Icon: Eye }),
   Object.freeze({ value: "hidden-line", label: "Hidden line", title: "Visible contours with obscured edges removed", Icon: SquareDashed }),
-  Object.freeze({ value: "wireframe", label: "Wireframe", title: "All CAD edges through the model", Icon: Spline })
+  Object.freeze({ value: "wireframe", label: "Wireframe", title: "All CAD edges through the model", Icon: Spline }),
+  Object.freeze({ value: "grid", label: "Grid", title: "Solid surfaces on a fine measuring grid", Icon: Grid3x3 })
 ]);

@@ -10,7 +10,7 @@ import {
 test('the viewer offers the canonical presets in their intended order', () => {
   assert.deepEqual(DISPLAY_MODE_OPTIONS.map(({ value, label }) => [value, label]), [
     ['solid', 'Solid'], ['render', 'Render'], ['xray', 'X-ray'],
-    ['hidden-line', 'Hidden line'], ['wireframe', 'Wireframe']
+    ['hidden-line', 'Hidden line'], ['wireframe', 'Wireframe'], ['grid', 'Grid']
   ]);
 });
 
@@ -38,7 +38,7 @@ test('preset selection retains tools while Reset clears all View overrides', () 
 test('preset camera changes retain the actual camera position, target and zoom', () => {
   const camera = { position: [30, 40, 50], target: [3, 4, 5], up: [0, 0, 1], zoom: 1.4,
     projection: 'orthographic', focalLength: 120, orthographicHalfHeight: 24 };
-  for (const mode of ['solid', 'render', 'xray', 'hidden-line', 'wireframe']) {
+  for (const mode of ['solid', 'render', 'xray', 'hidden-line', 'wireframe', 'grid']) {
     const next = cameraForViewSettings(camera, { mode });
     const expected = resolveViewSettings({ mode }).camera;
     assert.deepEqual(next, { ...camera, projection: expected.projection, focalLength: expected.focalLength });

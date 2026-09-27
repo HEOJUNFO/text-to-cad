@@ -172,7 +172,7 @@ export default function LinksSection({ description = null, components = EMPTY, p
         </div>
       </div>
     </ToolPanel>
-    {details ? <ToolPanel id="reference" title={referenceTitle} label="Reference details" closeLabel="Clear selection" fit="details" maxHeight={TOOL_PANEL_REFERENCE_HEIGHT} hidden={!active} onClose={clearSelection}>
+    {details ? <ToolPanel id="reference" title={referenceTitle} label="Reference details" closeLabel="Clear selection" fit="details" widthFrom="tree" maxHeight={TOOL_PANEL_REFERENCE_HEIGHT} hidden={!active} onClose={clearSelection}>
       <div className="px-2 pb-1.5">{details}</div>
     </ToolPanel> : null}
   </>;

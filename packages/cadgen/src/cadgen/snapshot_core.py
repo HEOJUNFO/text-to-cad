@@ -176,7 +176,7 @@ DISPLAY_OPTION_KEYS = frozenset({
     "mode", "appearance", "camera", "surfaces", "edges", "lighting",
     "background", "floor", "grid", "axes", "clip", "exploded",
 })
-DISPLAY_MODES = frozenset({"solid", "render", "xray", "hidden-line", "wireframe"})
+DISPLAY_MODES = frozenset({"solid", "render", "xray", "hidden-line", "wireframe", "grid"})
 DISPLAY_SURFACE_STYLES = frozenset({"shaded", "flat", "hidden", "off"})
 PART_COLOR_MODES = frozenset({"original", "single", "by-part"})
 DISPLAY_CAMERA_KEYS = frozenset({"enabled", "projection", "focalLength"})

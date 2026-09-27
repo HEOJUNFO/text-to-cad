@@ -22,7 +22,7 @@ const controls = tree => sections(tree).length ? sections(tree).flatMap(section 
 const labelled = (tree, label) => controls(tree).find(node => node.props.label === label);
 
 test("View has the same feature groups for every preset, with Render second", () => {
-  assert.deepEqual(DISPLAY_MODE_OPTIONS.map(option => option.value), ["solid", "render", "xray", "hidden-line", "wireframe"]);
+  assert.deepEqual(DISPLAY_MODE_OPTIONS.map(option => option.value), ["solid", "render", "xray", "hidden-line", "wireframe", "grid"]);
   for (const mode of DISPLAY_MODE_OPTIONS.map(option => option.value)) {
     const view = panel({ mode });
     assert.deepEqual(sections(view.tree).filter(section => section.onEnabledChange).map(section => section.title),
@@ -86,7 +86,7 @@ test("a file that is not a CAD model has no Edges section and only the presets n
     ["Grid / Axes", "Lighting", "Background", "Floor"]);
   assert.equal(elements(view.tree).some(node => node.type?.name === "ClipSettings"), false);
   const mode = labelled(view.tree, "Mode");
-  assert.deepEqual(mode.props.options.map(option => option.value), ["solid", "render"]);
+  assert.deepEqual(mode.props.options.map(option => option.value), ["solid", "render", "grid"]);
   // Hidden and Off leave a STEP model its edges; here they would leave nothing.
   assert.deepEqual(labelled(view.tree, "Surface style").props.options.map(option => option.value), ["shaded", "flat"]);
   assert.equal(elements(view.tree).some(node => node.props?.label === "Edge visibility" || node.props?.label === "Edge color"), false);

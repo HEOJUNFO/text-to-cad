@@ -201,16 +201,16 @@ class CrossKindOptionsAreRefusedByName(_Workspace):
         """S12: `--display Wireframe` on an STL used to list all five presets."""
         code, said = run_door(stl_door, [self.stl, self.out, "--display", "Wireframe"])
         self.assertEqual(1, code)
-        self.assertIn("Supported modes: render, solid", said)
+        self.assertIn("Supported modes: grid, render, solid", said)
         for step_only in ("xray", "hidden-line", "wireframe"):
             self.assertNotIn(step_only, said)
         with self.assertRaises(SnapshotError) as caught:
             self.resolve(self.stl_job(display={"mode": "Wireframe"}))
-        self.assertIn("display.mode must be one of: render, solid;", str(caught.exception))
+        self.assertIn("display.mode must be one of: grid, render, solid;", str(caught.exception))
         # A STEP door still offers every preset.
         step = self.write("part.step", "ISO-10303-21;\nEND-ISO-10303-21;\n")
         code, said = run_door(step_door, [step, self.out, "--display", "Wireframe"])
-        self.assertIn("hidden-line, render, solid, wireframe, xray", said)
+        self.assertIn("grid, hidden-line, render, solid, wireframe, xray", said)
 
 
 class SrdfPairingTests(_Workspace):

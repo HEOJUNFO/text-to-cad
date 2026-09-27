@@ -3,7 +3,8 @@
 ## Display presets
 
 `--display` accepts `solid` (the default), `render`, `xray`, `hidden-line`,
-`wireframe`, a JSON object, or a JSON file path. The CLI defaults to
+`wireframe`, `grid`, a JSON object, or a JSON file path. Only `grid` draws the
+grid: Solid on a finer, plainer measuring grid. The CLI defaults to
 `appearance: "light"`; use `"dark"` to request dark appearance. Presets supply
 all group defaults. An omitted group inherits its preset; a supplied group
 merges its parameters and implies `enabled: true` unless explicitly false.

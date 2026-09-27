@@ -68,9 +68,9 @@ const SURFACE = 'pointer-events-auto flex w-[calc(7*1.5rem+6*0.125rem+0.5rem+2px
 const swatch = color => ({ backgroundColor: color, boxShadow: 'inset 0 0 0 1px color-mix(in oklab, currentColor 35%, transparent)' });
 
 /**
- * `layout="panel"`: the controls of a panel as wide as its column — the tools, then the colour,
- * undo, redo and clear, in one row that wraps to the width it is given, with nothing between the
- * two groups and no inset of its own beyond the panel's.
+ * `layout="panel"`: the controls of a panel as wide as its column — the tools, wrapping to the
+ * width they are given, then a rule, then the settings on a row of their own: colour, stroke width,
+ * undo, redo and clear. Both rows share one column grid, so their buttons line up.
  * @param {{ drawing: import('./session.js').DrawingSession, className?: string, layout?: 'toolbar' | 'panel' }} props
  */
 export function DrawingToolbar({ drawing, className = '', layout = 'toolbar' }) {
@@ -110,16 +110,18 @@ export function DrawingToolbar({ drawing, className = '', layout = 'toolbar' }) 
       {strokeGlyph(value)}
     </ToolbarButton>)}
   </div> : null;
-  if (panel) return <div className={`hardcore-drawing-toolbar ${className}`}>
-    {/* One wrapping row: the two groups are only names for assistive technology. A grid of 24px
-        columns spread across the width, so however wide the stack is, the buttons wrap into even
-        columns (at the strip's own width, two rows of seven under the strip's seven). */}
-    <div className="grid min-w-0 grid-cols-[repeat(auto-fill,1.5rem)] justify-between gap-0.5" data-drawing-controls="">
-      <div role="group" aria-label="Drawing tools" className="contents">{DRAWING_TOOLBAR_TOOLS.map(toolButton)}</div>
-      <div role="group" aria-label="Drawing settings" className="contents">{settings}</div>
-    </div>
-    {palette}
-  </div>;
+  if (panel) {
+    // A grid of 24px columns spread across the width, so however wide the panel is the buttons
+    // wrap into even columns, the same columns in both rows.
+    const grid = "grid min-w-0 grid-cols-[repeat(auto-fill,1.5rem)] justify-between gap-0.5";
+    return <div className={`hardcore-drawing-toolbar ${className}`} data-drawing-controls="">
+      <div role="group" aria-label="Drawing tools" className={grid}>{DRAWING_TOOLBAR_TOOLS.map(toolButton)}</div>
+      {/* The rule runs the panel's full width, through its inset. */}
+      <div role="separator" aria-orientation="horizontal" className="-mx-1 my-1 h-px bg-border" data-drawing-rule="" />
+      <div role="group" aria-label="Drawing settings" className={grid}>{settings}</div>
+      {palette}
+    </div>;
+  }
   return <div className={`hardcore-drawing-toolbar flex max-w-full flex-col items-end gap-1 ${className}`}>
     <div role="group" aria-label="Drawing tools" className={SURFACE}>
       {DRAWING_TOOLBAR_TOOLS.map(toolButton)}

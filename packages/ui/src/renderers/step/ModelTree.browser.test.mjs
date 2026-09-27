@@ -89,11 +89,24 @@ createRoot(document.getElementById('root')).render(<App/>);
   for (const [name, scroller] of [['model', model.locator('[aria-label="Model"]')], ['files', page.getByTestId('files').getByRole('tree')]]) {
     assert.equal(await scroller.evaluate(node => Boolean(node.closest('[data-slot=scroll-area]'))), true, `the ${name} tree scrolls in a ScrollArea`);
   }
-  // Its bar is the thin overlay one, shown while the pointer is over a region that overflows.
+  // Its bar is the thin overlay one, inside the panel, shown while the pointer is over a tree that
+  // overflows; the stack around the panels shows none of its own.
   await part.hover();
   const bar = model.locator('[data-slot=scroll-area-scrollbar][data-orientation=vertical]');
   await bar.waitFor();
   assert.ok((await bar.boundingBox()).width <= 8, 'a thin bar');
+  assert.equal(await bar.evaluate(node => getComputedStyle(node).visibility), 'visible');
+  const [barBox, panelBox] = [await bar.boundingBox(), await model.locator('[aria-label="Model"]').locator('xpath=ancestor::*[@data-tool-panel][1]').boundingBox()];
+  assert.ok(barBox.x + barBox.width <= panelBox.x + panelBox.width + 0.5, `the bar is inside the panel: ${JSON.stringify({ barBox, panelBox })}`);
+  assert.equal(await page.locator('[data-slot=scroll-area-scrollbar]').evaluateAll(bars => bars.filter(bar => !bar.closest('[data-tool-panel]') && bar.closest('[data-cad-tool-stack]') && getComputedStyle(bar).visibility !== 'hidden').length), 0, 'no visible bar outside the panels');
+  const viewport = model.locator('[aria-label="Model"]').locator('xpath=ancestor::*[@data-slot="scroll-area-viewport"][1]');
+  assert.equal(await viewport.evaluate(node => getComputedStyle(node).overflowY), 'scroll', 'yet it scrolls');
+  const scrollBefore = await viewport.evaluate(node => node.scrollTop);
+  await page.mouse.wheel(0, 120);
+  await page.waitForFunction(([before]) => {
+    const node = document.querySelector('[aria-label="Model"]').closest('[data-slot="scroll-area-viewport"]');
+    return node.scrollTop > before || node.scrollHeight <= node.clientHeight;
+  }, [scrollBefore]);
   assert.deepEqual(await fileInsets(), modelInsets, 'selected file rows must share the model tree horizontal inset');
   await page.getByTestId('files').getByRole('textbox', {name:'Filter files'}).fill('part');
   await page.getByTestId('files').getByRole('option').waitFor();

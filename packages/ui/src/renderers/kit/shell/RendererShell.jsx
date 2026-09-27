@@ -132,12 +132,11 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
   }, [previewing]);
   // Every tool's panel but Select's has an X that puts the tool down, back to Select (the default
   // tool, which cannot be put down: its panels fold instead).
-  const leaveTool = () => shell.selectDefaultTool();
   // The shell's own tool's panel leads the stack while its tool is up: Draw's tools, color and
   // history. The renderer's follow.
   const shellPanels = <>
     {/* Headed "Draw", with its X; the buttons under it wrap as they are. */}
-    {frame.drawToolActive ? <ToolPanel id="drawing" title="Draw" label="Drawing controls" collapsible={false} onClose={leaveTool} closeLabel="Close draw">
+    {frame.drawToolActive ? <ToolPanel id="drawing" label="Drawing controls" collapsible={false}>
       <DrawingToolbar drawing={frame.drawing} layout="panel" className="p-1" />
     </ToolPanel> : null}
   </>;

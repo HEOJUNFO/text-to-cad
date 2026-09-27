@@ -144,11 +144,12 @@ row menu's Expand and Expand all; Collapse and Collapse all close parts. A
 closed part's topology is not asked for when its row shows: opening it asks, and
 so does the pointer resting on the part in the viewport (150ms) or pressing it.
 
-**Draw.** Its **Drawing** panel leads the stack while Draw is up, headed "Draw"
-with its X: the tools, then Color, Stroke width (Thin, Medium, Bold — a shape's
-1, 2 or 4px, the pen drawn to look the same weight), Undo, Redo and Clear, in one
-grid of 24px columns spread across the stack's width — so they wrap into even
-columns at any width — with no rule, no menu and no inset beyond the panel's own.
+**Draw.** Its **Drawing** panel leads the stack while Draw is up, with no heading
+and no X: choosing another tool, or pressing Draw again, puts it down. It holds
+the tools, then a rule across the panel, then a row of Color, Stroke width (Thin,
+Medium, Bold — a shape's 1, 2 or 4px, the pen drawn to look the same weight),
+Undo, Redo and Clear; both are grids of 24px columns spread across the panel's
+width, their columns lined up, with no menu and no inset beyond the panel's own.
 Leaving Draw forgets the sketch, but not the tool, colour and weight in hand,
 which the next time opens with. Choosing a drawing tool changes the toolbar
 icon. Undo and Redo are disabled when their history is empty. The select tool uses lucide's
@@ -201,8 +202,10 @@ stack.
 - **Two kinds of panel.** The tree (Features, Links) and **Position** are
   *resizable*: the person's to size, each on its own. Every other panel —
   Drawing, Measurements, Explode, Clip, the Reference, Issues, SDF — is *fixed*:
-  one width, its content's height, and no handle. A renderer opts a panel in
-  with `resizable`; nothing else about it changes.
+  one width, its content's height, and no handle. The Reference is the one
+  exception to the width: it sits under the tree and takes the tree's width
+  (`widthFrom="tree"`), following a drag live, while its height stays fixed. A
+  renderer opts a panel in with `resizable`; nothing else about it changes.
 - **One width.** Every panel opens at `TOOL_PANEL_WIDTH`: 164px, a strip of
   six tools (six 24px buttons, 2px gaps, 4px padding and a 1px border),
   whatever tools the file's own strip has — a file with three tools has the
