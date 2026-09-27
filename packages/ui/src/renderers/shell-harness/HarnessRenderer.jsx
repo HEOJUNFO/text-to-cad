@@ -181,7 +181,7 @@ function HarnessSurface({ view, data }) {
     {withPanel ? <>
       <ToolPanel id="tree" label="Harness tree" fit="tree" resizable
         header={<p className="flex h-9 items-center border-b px-2"><span className="flex-1">Filter</span><ToolPanelCollapse /></p>}>{rows(treeRows, "Row")}</ToolPanel>
-      <ToolPanel id="reference" title="Reference" label="Harness reference" fit="details" maxHeight={TOOL_PANEL_REFERENCE_HEIGHT} onClose={() => {}}>{rows(referenceRows, "Fact")}</ToolPanel>
+      <ToolPanel id="reference" title="Reference" label="Harness reference" fit="details" widthFrom="tree" maxHeight={TOOL_PANEL_REFERENCE_HEIGHT} onClose={() => {}}>{rows(referenceRows, "Fact")}</ToolPanel>
       {posing ? <ToolPanel id="position" title="Position" label="Harness position" fit="details" resizable collapsible={false} onClose={() => setPosing(false)}>{rows(30, "Joint")}</ToolPanel> : null}
     </> : null}
     {kept ? <ToolPanel id="kept" title="Kept" label="Kept controls" onClose={() => setKept(false)}><div className="h-16 px-2">Kept</div></ToolPanel> : null}

@@ -203,8 +203,10 @@ stack.
 - **Two kinds of panel.** The tree (Features, Links) and **Position** are
   *resizable*: the person's to size, each on its own. Every other panel —
   Drawing, Measurements, Explode, Clip, the Reference, Issues, SDF — is *fixed*:
-  one width, its content's height, and no handle. A renderer opts a panel in
-  with `resizable`; nothing else about it changes.
+  one width, its content's height, and no handle. The Reference is the one
+  exception to the width: it sits under the tree and takes the tree's width
+  (`widthFrom="tree"`), following a drag live, while its height stays fixed. A
+  renderer opts a panel in with `resizable`; nothing else about it changes.
 - **One width.** Every panel opens at `TOOL_PANEL_WIDTH`: 164px, a strip of
   six tools (six 24px buttons, 2px gaps, 4px padding and a 1px border),
   whatever tools the file's own strip has — a file with three tools has the

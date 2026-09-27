@@ -1283,7 +1283,8 @@ test('the tool stack: every panel one width, the tree and Position each the pers
 
   // TWO KINDS OF PANEL. The tree is the person's to size: a handle on its right edge (width), one
   // on its bottom edge (height) and one on the corner between them (both). The Reference and a
-  // kept effect are fixed: the one width, their content's height, and no handle at all.
+  // kept effect are fixed, with their content's height and no handle at all: a kept effect at the
+  // one width, the Reference at the tree's width, which it sits under.
   await keep.click();
   await kept.waitFor();
   panels = await withinViewer();
@@ -1325,13 +1326,14 @@ test('the tool stack: every panel one width, the tree and Position each the pers
   await page.mouse.down();
   await page.mouse.move(handleBox.x + handleBox.width / 2 + 100, handleBox.y + 40, { steps: 5 });
   assert.ok(Math.abs((await tree.boundingBox()).width - (width + 100)) <= 2, 'the tree follows the pointer');
+  assert.ok(Math.abs((await widths())['Harness reference'] - (width + 100)) <= 2, 'and the Reference follows the tree, mid-drag');
   assert.equal(await writes(), 0, 'nothing is written while the pointer moves');
   await page.mouse.up();
   await page.waitForFunction(() => window.cadHarness.preferences.getSnapshot().toolStack?.panels?.tree?.width !== undefined);
   assert.equal(await writes(), 1, 'the width is written back once, on release');
   const widened = (await layout()).panels.tree.width;
   assert.ok(Math.abs(widened - (width + 100)) <= 2, `the width it was dragged to: ${widened}`);
-  assert.deepEqual(await widths(), { 'Harness tree': widened, 'Harness reference': width, 'Kept controls': width }, 'the fixed panels stay at the one width');
+  assert.deepEqual(await widths(), { 'Harness tree': widened, 'Harness reference': widened, 'Kept controls': width }, 'the Reference takes the tree\'s width; a kept effect stays at the one width');
   await treeWidthHandle.focus();
   await page.keyboard.press('ArrowLeft');
   await page.waitForFunction(wanted => window.cadHarness.preferences.getSnapshot().toolStack?.panels?.tree?.width === wanted, widened - 16);
@@ -1407,7 +1409,7 @@ test('the tool stack: every panel one width, the tree and Position each the pers
   assert.ok(Math.abs(cornered.position.width - (positionBox.width + 60)) <= 2 && Math.abs(cornered.position.height - (positionBox.height - 50)) <= 2, `the size it was dragged to: ${JSON.stringify(cornered)}`);
   assert.equal(cornered.tree, undefined, 'the tree is untouched');
   assert.deepEqual([(await tree.boundingBox()).width, (await tree.boundingBox()).height], [treeBefore.width, treeBefore.height]);
-  assert.deepEqual((await widths())['Harness reference'], width, 'and so is the Reference');
+  assert.deepEqual((await widths())['Harness reference'], treeBefore.width, 'and so is the Reference, at the tree\'s width');
   // The tree's own corner, from the keyboard: arrows move it one axis at a time, and Position stays.
   const treeCorner = one.getByRole('separator', { name: 'Resize harness tree', exact: true });
   await treeCorner.focus();

@@ -87,14 +87,16 @@ export function ToolPanelCollapse({ className }) {
  * @param {{ id: string, title?: import("react").ReactNode, name?: string, label: string, summary?: import("react").ReactNode,
  *   actions?: import("react").ReactNode,
  *   header?: import("react").ReactNode, collapsible?: boolean, onClose?: (() => void) | null, closeLabel?: string,
- *   fit?: "fixed" | "tree" | "details", resizable?: boolean, maxHeight?: number | null, hidden?: boolean, defaultCollapsed?: boolean,
+ *   fit?: "fixed" | "tree" | "details", resizable?: boolean, widthFrom?: string | null, maxHeight?: number | null, hidden?: boolean, defaultCollapsed?: boolean,
  *   children?: import("react").ReactNode }} props
  *   `label` names the panel for assistive technology ("Clip controls"), with a heading or
  *   without; the chevron, the X and the handles take their names from it, unless the X says
- *   what it does itself (`closeLabel`, "Clear selection").
+ *   what it does itself (`closeLabel`, "Clear selection"). `widthFrom`: a fixed panel that takes
+ *   the width of the resizable panel with that id, live while it is dragged ("tree": Reference
+ *   sits under the tree at its width), keeping its own height rules.
  */
 export default function ToolPanel({ id, title = null, name = "", label, summary = null, actions = null, header = null, collapsible = true, onClose = null, closeLabel = "",
-  fit = "fixed", resizable = false, maxHeight = null, hidden = false, defaultCollapsed = false, children }) {
+  fit = "fixed", resizable = false, widthFrom = null, maxHeight = null, hidden = false, defaultCollapsed = false, children }) {
   const stack = useContext(ToolStackContext);
   const kept = Boolean(stack && id);
   // Folded: the person's, kept by the stack across files; a panel drawn alone keeps its own.
@@ -116,11 +118,13 @@ export default function ToolPanel({ id, title = null, name = "", label, summary 
   const size = sized ? { ...(kept ? stack.size(id) : ownSize), ...draft } : {};
   const clampWidth = value => clampToolPanelWidth(value, stack?.viewerWidth || window.innerWidth);
   const clampHeight = value => clampToolPanelHeight(value, stack?.room() || Infinity);
-  const width = size.width ? clampWidth(size.width) : TOOL_PANEL_WIDTH;
+  const borrowed = !sized && widthFrom ? stack?.widthOf(widthFrom) : undefined;
+  const width = size.width ? clampWidth(size.width) : borrowed ? clampWidth(borrowed) : TOOL_PANEL_WIDTH;
   const cap = sized ? size.height ?? stack?.defaultHeight(id) ?? null : maxHeight;
   // One gesture's outcome, written once: a width, a cap, or both.
   const settle = change => {
     setDraft(null);
+    if (kept) stack.draft(id, null);
     if (!Object.keys(change).length) return;
     if (kept) stack.settle(id, change); else setOwnSize(current => ({ ...current, ...change }));
   };
@@ -146,6 +150,7 @@ export default function ToolPanel({ id, title = null, name = "", label, summary 
       ...(current.axes.y ? { height: clampHeight(current.from.height + event.clientY - current.y) } : {}),
     };
     setDraft(current.next);
+    if (kept) stack.draft(id, current.next);
   };
   const stopDrag = event => {
     const current = drag.current;
