@@ -21,6 +21,15 @@ function useLatestCallback(fn) {
   return typeof fn === 'function' ? stable : fn;
 }
 
+/** An object of callbacks (`partMenuActions`) the same way: one object while its names stay the same. */
+function useLatestActions(actions) {
+  const latest = useRef(actions);
+  latest.current = actions;
+  const names = actions ? Object.keys(actions).filter(name => typeof actions[name] === 'function').sort().join('\n') : null;
+  return useMemo(() => names === null ? actions : Object.fromEntries(names.split('\n').filter(Boolean)
+    .map(name => [name, (...args) => latest.current?.[name]?.(...args)])), [names]);
+}
+
 /**
  * A STEP's panels in the tool stack, top to bottom: while Select is the tool, **Features** (the
  * filter and the model tree), the **Reference** for what is selected, and **Issues** when there
@@ -82,12 +91,15 @@ export function useStepPanels({
   const exitAllIsolate = useLatestCallback(onExitAllIsolate), togglePartVisibility = useLatestCallback(onTogglePartVisibility);
   const showAll = useLatestCallback(showAllHiddenParts), copySelection = useLatestCallback(onCopySelection);
   const hoverTreeNode = useLatestCallback(onHoverTreeNode);
+  // A row's menu is built when it opens, from the host's descriptors as they are then.
+  const nodeMenu = useLatestCallback(menuForNode), referencesMenu = useLatestCallback(menuForReferences);
+  const menuActions = useLatestActions(partMenuActions);
   const partControls = useMemo(() => ({ isAssemblyView, hiddenPartIds, focusedNodeIds, selectableNodeIds, expandedTreeNodeIds,
     onToggleTreeNode: toggleTreeNode, onSelectTreeNode: selectTreeNode, onFocusTreeNode: focusTreeNode, onUnfocusTreeNode: unfocusTreeNode,
     onExitAllIsolate: exitAllIsolate, onTogglePartVisibility: togglePartVisibility, showAllHiddenParts: showAll, onCopySelection: copySelection,
-    onHoverTreeNode: hoverTreeNode, menuForNode, menuForReferences, partMenuActions }), [isAssemblyView, hiddenPartIds, focusedNodeIds,
-    selectableNodeIds, expandedTreeNodeIds, toggleTreeNode, selectTreeNode, focusTreeNode, unfocusTreeNode, exitAllIsolate,
-    togglePartVisibility, showAll, copySelection, hoverTreeNode, menuForNode, menuForReferences, partMenuActions]);
+    onHoverTreeNode: hoverTreeNode, menuForNode: nodeMenu, menuForReferences: referencesMenu, partMenuActions: menuActions }), [isAssemblyView,
+    hiddenPartIds, focusedNodeIds, selectableNodeIds, expandedTreeNodeIds, toggleTreeNode, selectTreeNode, focusTreeNode, unfocusTreeNode,
+    exitAllIsolate, togglePartVisibility, showAll, copySelection, hoverTreeNode, nodeMenu, referencesMenu, menuActions]);
   const loadTopology = useLatestCallback(geometryInspection?.onLoadTopology);
   const selectReferenceGroup = useLatestCallback(onSelectReferenceGroup), clearSelection = useLatestCallback(onClearSelection);
   const closePosition = useLatestCallback(onClosePosition);

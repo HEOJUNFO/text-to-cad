@@ -370,6 +370,11 @@ function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, l
   const matches=found.matches;
   const cursorIndex=searching ? matches.findIndex(match=>match.entry.node.id === cursorId) : -1;
   const searchPinned=useMemo(()=>cursorIndex < 0 ? EMPTY : [cursorIndex],[cursorIndex]);
+  // What a row reads of the host's controls (its menu, its actions, its hover), and nothing else:
+  // expanding the tree, which the host does as parts load, re-renders no row for it.
+  const {isAssemblyView,hiddenPartIds,focusedNodeIds,onHoverTreeNode,onFocusTreeNode,onUnfocusTreeNode,onTogglePartVisibility,menuForNode,menuForReferences,partMenuActions}=partControls;
+  const rowControls=useMemo(()=>({isAssemblyView,hiddenPartIds,focusedNodeIds,onHoverTreeNode,onFocusTreeNode,onUnfocusTreeNode,onTogglePartVisibility,menuForNode,menuForReferences,partMenuActions}),
+    [isAssemblyView,hiddenPartIds,focusedNodeIds,onHoverTreeNode,onFocusTreeNode,onUnfocusTreeNode,onTogglePartVisibility,menuForNode,menuForReferences,partMenuActions]);
   // A row's actions as primitives (`rowActionsLayout`): whether one is on, and the room they take.
   const actionsOf=node=>node.selectionId ? rowActionsLayout(node,partControls) : null;
   const renderTreeRow=at=>{
@@ -377,7 +382,7 @@ function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, l
     return <MemoModelingRow node={row.node} depth={row.depth} open={row.open} branch={row.branch} locked={locked} disabled={disabled}
       actionsShown={Boolean(actions?.shown)} actionsWidth={actions?.width}
       selected={on} joinAbove={on && at > 0 && highlighted.has(rows[at-1].node.id)} joinBelow={on && at < rows.length-1 && highlighted.has(rows[at+1].node.id)}
-      hiddenByOwner={row.hiddenByOwner} unavailable={row.unavailable} partControls={partControls}
+      hiddenByOwner={row.hiddenByOwner} unavailable={row.unavailable} partControls={rowControls}
       feature={row.node.selectionId ? null : feature} toggle={toggle} choose={choose}/>;
   };
   const renderSearchRow=at=>{
@@ -385,7 +390,7 @@ function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, l
     return <MemoModelingSearchRow match={match} index={searchIndex} availability={availability} cursor={match.entry.node.id === cursorId}
       actionsShown={Boolean(actions?.shown)} actionsWidth={actions?.width}
       selected={on} joinAbove={on && at > 0 && highlighted.has(matches[at-1].entry.node.id)} joinBelow={on && at < matches.length-1 && highlighted.has(matches[at+1].entry.node.id)}
-      choose={choose} disabled={disabled} partControls={partControls} feature={match.entry.node.selectionId ? null : feature}/>;
+      choose={choose} disabled={disabled} partControls={rowControls} feature={match.entry.node.selectionId ? null : feature}/>;
   };
   const selectedNode=showDetails ? selected : paths.length === 1 ? paths[0].at(-1) : null;
   const nodeDetails=selectedNode && (selectedNode.summary || selectedNode.note || selectedNode.measurements?.length);
