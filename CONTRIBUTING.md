@@ -240,7 +240,7 @@ requested separately. A manual dispatch runs every job.
 | skills | skills or runtime/host contracts | repo policy; skill CLI suites only for skills, cadgen, core or infrastructure |
 | docs | docs, skills, cadgen, core, infrastructure | static asset contract, lint, Next build, icon verification |
 | packaging | cadgen, core, UI, web, infrastructure | clean bundle, wheel contents, installed CLI behavior |
-| Desktop (macOS) | desktop, UI, core, cadgen, infrastructure | native dependencies, typecheck, lint, unit tests, build, Electron tests |
+| Desktop (macOS) | desktop, UI, core, cadgen, infrastructure | native dependencies, typecheck, lint, unit tests, build (restored when its inputs are unchanged), Electron tests |
 
 Here `cadgen`, `core` and `UI` mean their package directories and tests;
 `web`, `docs` and `desktop` mean their app directories. Infrastructure includes
