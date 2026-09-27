@@ -815,7 +815,7 @@ The optional `@hardcore/ui/file-viewer/empty` entry exports `EmptyCadBackdrop` f
   | `useStepExplode.js` | The exploded view: a radial layout eased over a second, snapped by the slider, re-applied to fresh records. |
   | `useStepHighlights.js` | The reference highlight: boundary lines and fills of selected and hovered faces, edges and vertices, in two layers — the selection's, rebuilt when the selection is, and the hover's, rebuilt with each hover — that draw what one pass did: a reference both selected and hovered is drawn once, as hovered. A face's fill is read off the display meshes through a per-mesh index of their face runs (`faceRunIndex` in core's `referenceGeometry.js`), not a walk over every triangle on screen. |
   | `useStepMeasureOverlay.js` | The measure canvas: rulers and the snap indicator. |
-  | `useStepPicking.js` | The pointer: hover, tap, double-click (the surface copies a face or edge, isolates a part, or leaves isolation on empty space) and measure picks, with all of the topology raycasting. The viewport menu is NOT here: it asks this hook what is under a press (`pickAtRef`). |
+  | `useStepPicking.js` | The pointer: hover, tap, double-click (the surface copies a face or edge, isolates a part, or leaves isolation on empty space) and measure picks, with all of the topology raycasting. A tap activates at once; which tap of a click sequence activates, and when, is `clickActivation.js`. The viewport menu is NOT here: it asks this hook what is under a press (`pickAtRef`). |
 
 - **One owner of the frame after a pose.** A pose or animation write is drawn because
   the pose pass asks for a frame, once, as its last act, and nothing else on that
@@ -862,7 +862,18 @@ Opening a STEP starts with render geometry; activating Select or Measure request
 exact inspection topology when it is needed.
 Shift-click adds/removes entities. A double-click on a face or edge (outside the
 Parts filter) copies it and leaves it selected; on a component or subassembly it
-isolates it, and on empty space it leaves isolation. Every copied reference — the
+isolates it, and on empty space it leaves isolation. A click acts at once: nothing
+waits to tell it from a double-click. The first click of a double-click therefore
+selects, briefly, whatever it hit; the second is not a click of its own (the browser
+counts it, `clickActivation.js` holds it for the `dblclick` that owns the gesture),
+and the double-click begins by putting the selection back the way its first click
+found it — through the same setters every pick goes through, so the Reference panel,
+the tree and the viewport follow — before it isolates, leaves isolation or copies.
+The one click that still waits is one under a tool a pick would leave (Explode, Clip:
+a pick there takes up Select): it is held for the double-click window
+(`deferActivation`), so a double-click there isolates and stays in the tool, and a
+lone click selects and switches to Select once the window has passed.
+Every copied reference — the
 bottom action, ⌘C, both menus, the double-click — carries the file's prefix through
 one `copyTextLines`. Escape clears the
 selection after any open menu has been dismissed. Input fields
@@ -1391,8 +1402,8 @@ Shift/Ctrl/Cmd on a row add); the Reference then names them by what they are
 (`Links`, `Mesh objects`) and lists them. A link with no geometry selects its row
 and details only. As for STEP, a robot selection exists only while Select is the
 tool: a pick under another tool returns to Select, leaving Select clears it, and
-Escape clears it. A click acts at once: a
-robot has no double-click to wait for.
+Escape clears it. A click acts at once, as a STEP's does; a
+robot has no double-click at all.
 
 The Reference panel, headed by the link's name, reads back what the description says
 about the link, in sections: its SRDF planning groups (`srdfGroupNamesByLink`) and end effectors;

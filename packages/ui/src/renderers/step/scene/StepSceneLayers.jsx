@@ -51,7 +51,7 @@ export default function StepSceneLayers({ viewport, stepScene, policy, props: su
     hoveredPartId, selectorRuntime, stepParameterRuntime, stepAnimationRuntime, animateMode,
     jointHandles, measureState, activeMeasurementId, measureModeActive,
     onLodCameraChange, onMeshSourceAdoption, onViewerAlertChange,
-    onHoverReferenceChange, onActivateReference, onDoubleActivateReference, onMeasurePick, onMeasureHoverPoint
+    onHoverReferenceChange, onActivateReference, onDoubleActivateReference, deferActivation, onMeasurePick, onMeasureHoverPoint
   } = props;
   const stepAnimationPlaying = Boolean(stepAnimationRuntime?.playing);
 
@@ -257,6 +257,7 @@ export default function StepSceneLayers({ viewport, stepScene, policy, props: su
     onHoverReferenceChange,
     onActivateReference,
     onDoubleActivateReference,
+    deferActivation,
     pickAtRef: props.pickAtRef,
     onMeasurePick: handleMeasurePick,
     onMeasureHoverPoint: handleMeasureHoverPoint,
