@@ -145,13 +145,26 @@ def _parse_cpu_time(text: str) -> float:
     return seconds + (int(days) * 86400 if days else 0)
 
 
+_WINDOWS_STILL_ACTIVE = 259  # GetExitCodeProcess's answer for a process that has not exited
+
+
 def _windows_cpu_seconds(pid: int) -> float | None:
+    """GetProcessTimes for a LIVE process; ``None`` once it has exited.
+
+    ``OpenProcess`` succeeds on an exited process for as long as anyone still
+    holds a handle to it -- its parent's ``Popen`` does -- and GetProcessTimes
+    then reports the dead process's final times. That is a frozen clock, which
+    is exactly what a live-but-starved heartbeat check must not see, so an
+    exited process reads as "no clock", as it does from /proc and ``ps``.
+    """
     import ctypes
     from ctypes import wintypes
 
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
     kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
     kernel32.GetProcessTimes.argtypes = (wintypes.HANDLE, *(ctypes.POINTER(wintypes.FILETIME),) * 4)
     kernel32.GetProcessTimes.restype = wintypes.BOOL
     kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
@@ -159,6 +172,12 @@ def _windows_cpu_seconds(pid: int) -> float | None:
     if not handle:
         return None
     try:
+        exit_code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return None
+        # A process that itself exits with 259 reads as live here; no worker does.
+        if exit_code.value != _WINDOWS_STILL_ACTIVE:
+            return None
         created, exited, kernel, user = (wintypes.FILETIME() for _ in range(4))
         if not kernel32.GetProcessTimes(handle, ctypes.byref(created), ctypes.byref(exited),
                                         ctypes.byref(kernel), ctypes.byref(user)):
