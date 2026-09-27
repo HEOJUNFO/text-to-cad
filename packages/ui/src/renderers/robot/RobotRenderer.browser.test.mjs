@@ -272,11 +272,21 @@ test('a robot can enter Position with sidebar controls: knobs drag joints, the c
   assert.ok(poseLabel.x + poseLabel.width <= poseBox.x, 'the label is beside its dropdown');
   assert.ok(Math.abs((poseLabel.y + poseLabel.height / 2) - (poseBox.y + poseBox.height / 2)) <= 2, 'on one line');
   assert.ok(panelBody.x + panelBody.width - (poseBox.x + poseBox.width) <= 12, 'and the dropdown runs to the row\'s end');
-  // Compact joint rows: a small value field beside each slider, rows close together.
-  const fields = await position.locator('[data-position-control] input').evaluateAll(inputs => inputs.map(input => input.getBoundingClientRect()));
-  assert.ok(fields.length >= 3 && fields.every(field => field.height <= 24 && field.width <= 60), `small value fields: ${JSON.stringify(fields.map(field => [field.width, field.height]))}`);
+  // Compact joint rows: a small value field beside each slider, as wide as its text needs (a
+  // length "0 m" as a turn "0°"), never clipping it; rows 6px apart.
+  const fields = await position.locator('[data-position-control] input').evaluateAll(inputs => inputs.map(input => {
+    const box = input.getBoundingClientRect();
+    return { value: input.value, width: box.width, height: box.height, fits: input.scrollWidth <= input.clientWidth };
+  }));
+  assert.ok(fields.length >= 3 && fields.every(field => field.height <= 24 && field.width <= 80), `small value fields: ${JSON.stringify(fields)}`);
+  assert.ok(fields.every(field => field.fits), `every value fits its field: ${JSON.stringify(fields)}`);
   const rowTops = await position.locator('[data-position-control]').evaluateAll(rows => rows.map(row => row.getBoundingClientRect()));
-  assert.ok(rowTops.slice(1).every((row, index) => row.top - rowTops[index].bottom <= 4), 'rows 4px apart at most');
+  assert.ok(rowTops.slice(1).every((row, index) => Math.abs(row.top - rowTops[index].bottom - 6) <= 0.5),
+    `rows 6px apart: ${JSON.stringify(rowTops.slice(1).map((row, index) => row.top - rowTops[index].bottom))}`);
+  // A longer value widens its field rather than being cut.
+  await robot.type('lift', 0.25, 'm');
+  assert.equal(await robot.jointField('lift', 'm').evaluate(input => [input.value, input.scrollWidth <= input.clientWidth].join()), '0.25 m,true');
+  await robot.type('lift', 0, 'm');
   for (const heading of ['Pose', 'Joints', 'Kinematics']) {
     assert.equal(await position.getByRole('heading', { name: heading, exact: true }).count(), 0, `no ${heading} heading inside Position`);
   }

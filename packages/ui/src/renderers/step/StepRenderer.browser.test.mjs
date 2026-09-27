@@ -2333,6 +2333,8 @@ test('Position is headed with its Reset and its X, offers Default beside a named
   await preset.click();
   await page.getByRole('option', { name: 'open', exact: true }).click();
   assert.equal(await value.inputValue(), '90.0°');
+  // The value field is as wide as its text needs, never clipping it.
+  assert.equal(await value.evaluate(input => input.scrollWidth <= input.clientWidth), true, 'the value fits its field');
   await preset.click();
   await page.getByRole('option', { name: 'Default', exact: true }).click();
   assert.equal(await value.inputValue(), '0.00°');
