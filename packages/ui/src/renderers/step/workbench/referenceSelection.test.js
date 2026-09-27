@@ -17,6 +17,7 @@ import {
   parseAssemblyPartReferenceSelectionId,
   selectRequestedAssemblyComponents,
   topologyCompositionKeyMatches,
+  topologyCompositionServes,
   uniqueStringList,
   withFileRefPrefix
 } from "./referenceSelection.js";
@@ -204,6 +205,19 @@ test("empty lazy topology composition remains a valid exact assembly key", () =>
   assert.equal(topologyCompositionKeyMatches(undefined, "*"), true);
   assert.equal(topologyCompositionKeyMatches("o1.3", "o1.3"), true);
   assert.equal(topologyCompositionKeyMatches("", "*"), false);
+});
+
+test("a composition serves a request that holds every part it loaded", () => {
+  const state = { loadedTopologyKey: "o1.1|o1.2", loadedTopologyIds: ["o1.1", "o1.2"] };
+  // Exactly its parts, or more of them on the way.
+  assert.equal(topologyCompositionServes(state, "o1.1|o1.2", ["o1.2", "o1.1"]), true);
+  assert.equal(topologyCompositionServes(state, "o1.1|o1.2|o1.3", ["o1.1", "o1.2", "o1.3"]), true);
+  // A part it holds is no longer requested: not until it is composed again without it.
+  assert.equal(topologyCompositionServes(state, "o1.1", ["o1.1"]), false);
+  // A part file (and a state without loaded ids) serves only its exact key.
+  assert.equal(topologyCompositionServes({ loadedTopologyKey: "*", loadedTopologyIds: null }, "*", []), true);
+  assert.equal(topologyCompositionServes({ loadedTopologyKey: "o1.1", loadedTopologyIds: null }, "o1.1|o1.2", ["o1.1", "o1.2"]), false);
+  assert.equal(topologyCompositionServes(null, "", []), false);
 });
 
 test("copy text carries the entry's shortest unique path suffix", () => {

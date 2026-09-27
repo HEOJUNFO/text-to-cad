@@ -210,7 +210,9 @@ metadata use their normal loading path, without a promise to retain the
 previous pose. Snapshot source isolation is unchanged.
 
 **Overlapping loads.** Geometry and reference loads own their cancellation
-independently; a superseded request cannot cancel its replacement.
+independently; a superseded request cannot cancel its replacement. Topology
+requests for one file revision union rather than supersede: a batch in flight
+finishes, and one no longer wanted is simply not published.
 
 **After a save.** Source files hold the authored changes; there is no hidden
 durable preview document, and every explicit model run still waits for its

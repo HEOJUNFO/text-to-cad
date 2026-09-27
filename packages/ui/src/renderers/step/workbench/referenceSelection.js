@@ -59,7 +59,8 @@ export function buildNormalizedReferenceState(entry, referencePayload = null, {
   remapOccurrenceId = "",
   remapOccurrencePrefix = null,
   selectorRuntime: prebuiltSelectorRuntime = null,
-  loadedTopologyKey = ""
+  loadedTopologyKey = "",
+  loadedTopologyIds = null
 } = {}) {
   // A component-GLB package has no whole-assembly selector bundle; the caller composes the
   // per-component runtimes and passes the result here instead of a single bundle to parse.
@@ -89,6 +90,8 @@ export function buildNormalizedReferenceState(entry, referencePayload = null, {
     selectorRuntime,
     references,
     loadedTopologyKey,
+    // The part ids an assembly composition holds (its key's members); null for a whole document.
+    loadedTopologyIds: Array.isArray(loadedTopologyIds) ? loadedTopologyIds : null,
     disabledReason: ""
   };
 }
@@ -129,6 +132,19 @@ export function selectRequestedAssemblyComponents(
 // occurrences. Only an absent key belongs to the single-part fallback contract.
 export function topologyCompositionKeyMatches(loadedTopologyKey, requestedTopologyKey) {
   return (loadedTopologyKey ?? "*") === requestedTopologyKey;
+}
+
+// Whether a composition can serve the parts requested now: it was composed for exactly them, or
+// (an assembly, while more of it loads) every part it holds is still requested. A requested part
+// it lacks is simply not pickable yet; a part it holds that is no longer requested makes it
+// unusable, as does any other file or revision (checked by the caller).
+export function topologyCompositionServes(referenceState, requestedTopologyKey, requestedTopologyIds) {
+  if (!referenceState) return false;
+  if (topologyCompositionKeyMatches(referenceState.loadedTopologyKey, requestedTopologyKey)) return true;
+  const loaded = referenceState.loadedTopologyIds;
+  if (requestedTopologyKey === "*" || !Array.isArray(loaded)) return false;
+  const requested = requestedTopologyIds instanceof Set ? requestedTopologyIds : new Set(requestedTopologyIds || []);
+  return loaded.every((id) => requested.has(id));
 }
 
 export function parseAssemblyPartReferenceSelectionId(referenceId) {

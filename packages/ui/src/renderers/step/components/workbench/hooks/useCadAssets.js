@@ -48,20 +48,24 @@ import { ASSET_STATUS, REFERENCE_STATUS } from "../../../workbench/constants.js"
 import {
   entryAssetUrl,
   entryMeshAssetSignature,
+  entryReferenceAssetSignature,
   entrySelectorTopologyAssetUrl,
   entrySourceSidecarUrl,
   entryTopologyAssetUrl
 } from "@hardcore/core/lib/entryAssets.js";
 import { reclaimIdleSurfWorkers } from "@hardcore/core/lib/renderAssetClient.js";
 import { estimateMeshRenderCost } from "@hardcore/core/lib/render/meshCost.js";
+import { PERF_MEASURE_NAMES, perfMeasure, perfStart } from "@hardcore/core/lib/viewer/perfMarks.js";
 import {
   composePackageSelectorRuntime,
   compositionUsesComponent,
+  createPackageReferenceComposer,
   baseLodReferenceComposition,
   reconcileLodReferencePublication,
   reconcileLivePackageSelectorBundles
 } from "./packageReferenceComposition.js";
 import { selectRequestedAssemblyComponents } from "../../../workbench/referenceSelection.js";
+import { chooseTopologyBatch, sameTopologyIds, topologyIdsWithin } from "./topologyRequests.js";
 import { viewerMemoryPolicy } from "../../../render/viewerMemoryPolicy.js";
 import { syncSurfWorkerMemory } from "../../../render/surfWorkerMemoryPolicy.js";
 import { componentMemoryAccounting } from "../../../render/renderMemoryAccounting.js";
@@ -81,6 +85,13 @@ import {
 // A package's first-level surfaces are fetched and decoded off the main thread, so the
 // cap only bounds sockets and the worker's queue.
 const COMPONENT_SURFACE_LOAD_CONCURRENCY = 8;
+
+// Topology requests (loadReferencesForEntry) union into one session per file revision: a request
+// never aborts the work in flight for the same revision, batches start at most every
+// REFERENCE_BATCH_INTERVAL_MS (the first at once), and each adds at most
+// REFERENCE_BATCH_NEW_PARTS parts not yet loaded, newest request first.
+const REFERENCE_BATCH_INTERVAL_MS = 150;
+const REFERENCE_BATCH_NEW_PARTS = 64;
 
 const GPU_BUFFER_ESTIMATE_MULTIPLIER = 1.15;
 const SURF_WORKER_TEMP_ESTIMATE_MULTIPLIER = 2;
@@ -278,6 +289,11 @@ export function useCadAssets({
   const referenceRequestIdRef = useRef(0);
   const meshAbortControllerRef = useRef(null);
   const referenceAbortControllerRef = useRef(null);
+  // The topology request session (see loadReferencesForEntry) and the composer whose parts
+  // (one per loaded occurrence) make adding topology cost what is added, not what is loaded.
+  const referenceSessionRef = useRef(null);
+  const referenceComposerRef = useRef(null);
+  if (!referenceComposerRef.current) referenceComposerRef.current = { key: "", composer: createPackageReferenceComposer() };
 
   // --- viewport LOD (design/unified-tessellation.md Phase 5) -----------------
   // The composed package's ingredients, kept so a level swap can re-compose ONE
@@ -582,9 +598,10 @@ export function useCadAssets({
         nextComposition.entry,
         nextComposition.occurrencesToLoad,
         nextComposition.bundleByCid,
-        { singleComponentPart: nextComposition.isSingleComponentPart }
+        { singleComponentPart: nextComposition.isSingleComponentPart, composer: referenceComposerRef.current.composer }
       ),
-      loadedTopologyKey: nextComposition.loadedTopologyKey
+      loadedTopologyKey: nextComposition.loadedTopologyKey,
+      loadedTopologyIds: nextComposition.loadedTopologyIds
     });
     return { composition: nextComposition, state: nextReferenceState };
   }, [buildNormalizedReferenceState, resources]);
@@ -646,6 +663,9 @@ export function useCadAssets({
   const cancelReferenceLoad = useCallback(() => {
     referenceRequestIdRef.current += 1;
     abortLoad(referenceAbortControllerRef);
+    const session = referenceSessionRef.current;
+    if (session?.timer) clearTimeout(session.timer);
+    referenceSessionRef.current = null;
     setReferenceLoadStage("");
   }, [resources]);
 
@@ -1185,32 +1205,13 @@ export function useCadAssets({
     return task;
   };
 
-  const loadReferencesForEntry = useCallback(async (entry, requestedOccurrenceIds = []) => {
-    cancelReferenceLoad();
-    const requestId = referenceRequestIdRef.current;
-
-    if (!entryHasReferences(entry)) {
-      referenceCompositionRef.current = null;
-      setReferenceState(null);
-      setReferenceStatus(REFERENCE_STATUS.DISABLED);
-      setReferenceError("");
-      return;
-    }
-
-    const cachedReferenceState = getCachedReferenceState(entry);
-    if (cachedReferenceState) {
-      setReferenceState(cachedReferenceState);
-      setReferenceStatus(cachedReferenceState.disabledReason ? REFERENCE_STATUS.DISABLED : REFERENCE_STATUS.READY);
-      setReferenceError(cachedReferenceState.disabledReason || "");
-      return;
-    }
-
-    const controller = new AbortController();
-    referenceAbortControllerRef.current = controller;
-    setReferenceStatus(REFERENCE_STATUS.LOADING);
-    setReferenceError("");
-    setReferenceLoadStage("loading topology");
-
+  // One topology batch: compose `requestedOccurrenceIds` (every part of the batch, loaded before
+  // or not) and publish it, unless the session moved on. Resolves "published", "skipped" (no
+  // longer wanted) or "stale" (the session was cancelled or superseded).
+  const loadReferenceBatch = useCallback(async (session, requestedOccurrenceIds) => {
+    const { entry, controller } = session;
+    const isCurrent = () => session.requestId === referenceRequestIdRef.current && !controller.signal.aborted;
+    const batchStart = perfStart();
     try {
       // Component-GLB package: there is no whole-assembly selector bundle. Compose the
       // per-component selector runtimes (each placed by its occurrence transform and namespaced
@@ -1219,6 +1220,7 @@ export function useCadAssets({
       const packageDescriptor = glbUrl
         ? await loadPackageDescriptor(glbUrl, { resources, signal: controller.signal })
         : null;
+      if (!isCurrent()) return "stale";
       if (packageDescriptor && packageDescriptor.kind === "assembly-package") {
         // Lazy topology: an assembly loads selector topology only for the occurrences the user has
         // expanded in the tree (requestedOccurrenceIds), not every component. Loading all of them up
@@ -1232,6 +1234,7 @@ export function useCadAssets({
           requestedOccurrenceIds,
           { singleComponentPart: isSingleComponentPart }
         );
+        const loadedTopologyIds = isSingleComponentPart ? null : [...requestedOccurrenceIds];
         const lodCtx = publishedLodContext(lodPackageRef.current);
         const lodBundleByCid = (lodCtx && lodCtx.file === entry.file && lodCtx.componentLodBundleByCid) || {};
         const lodLevelByCid = (lodCtx && lodCtx.file === entry.file && lodCtx.componentLodLevelByCid) || {};
@@ -1309,8 +1312,8 @@ export function useCadAssets({
             ).catch(() => null);
           }
         );
-        if (requestId !== referenceRequestIdRef.current) {
-          return;
+        if (!isCurrent()) {
+          return "stale";
         }
         const referencePublication = await reconcileLodReferencePublication({
           pendingForContext: () => lodPackageRef.current?.file === entry.file ? lodPackageRef.current.lodPending : null,
@@ -1333,7 +1336,7 @@ export function useCadAssets({
             }
             return bundles;
           },
-          isCurrent: () => requestId === referenceRequestIdRef.current && !controller.signal.aborted,
+          isCurrent,
           reconcile: () => reconcileLivePackageSelectorBundles({
           cids: neededCids,
           initialBundleByCid: componentBundleByCid,
@@ -1374,24 +1377,29 @@ export function useCadAssets({
               identity: componentIdentityByCid[cid]
             }
           ).catch(() => null),
-          isCurrent: () => (
-            requestId === referenceRequestIdRef.current && !controller.signal.aborted
-          )
+          isCurrent
           }),
         });
-        if (!referencePublication) return;
+        if (!referencePublication) return "stale";
+        // A batch publishes only what is still requested: a part let go of while it loaded
+        // would make the published topology unusable until the next batch.
+        if (!topologyIdsWithin(requestedOccurrenceIds, session.desired)) return "skipped";
         componentBundleByCid = referencePublication.bundles;
         // A single-component part renders as a topology tree (not an assembly structure), so its
         // topology must graft onto the synthetic part root via fallbackPartId — i.e. carry NO
         // partId (an occurrence-namespaced partId would orphan it). Multi-occurrence assemblies
         // DO namespace by occurrence so each leaf part owns its faces/edges. Both keep
         // remapOccurrenceId so picks align with the composed mesh's sourcePartRanges occurrence.
+        const composer = referenceComposerRef.current.composer;
+        const composeStart = perfStart();
         const composedRuntime = composePackageSelectorRuntime(entry, occurrencesToLoad, componentBundleByCid, {
-          singleComponentPart: isSingleComponentPart
+          singleComponentPart: isSingleComponentPart,
+          composer
         });
         const nextReferenceState = buildNormalizedReferenceState(entry, null, {
           selectorRuntime: composedRuntime,
-          loadedTopologyKey
+          loadedTopologyKey,
+          loadedTopologyIds
         });
         // Remembered so an LOD swap can re-compose this exact occurrence subset
         // with one component's bundle replaced (see prepareReferenceStateForLod).
@@ -1402,6 +1410,7 @@ export function useCadAssets({
           occurrencesToLoad,
           bundleByCid: componentBundleByCid,
           loadedTopologyKey,
+          loadedTopologyIds,
           isSingleComponentPart
         };
         const livePending = referencePublication.pending;
@@ -1411,8 +1420,9 @@ export function useCadAssets({
           livePending.baseReferenceState = baseComposition === nextComposition ? nextReferenceState
             : buildNormalizedReferenceState(entry, null, {
               selectorRuntime: composePackageSelectorRuntime(entry, baseComposition.occurrencesToLoad,
-                baseComposition.bundleByCid, { singleComponentPart: baseComposition.isSingleComponentPart }),
+                baseComposition.bundleByCid, { singleComponentPart: baseComposition.isSingleComponentPart, composer }),
               loadedTopologyKey: baseComposition.loadedTopologyKey,
+              loadedTopologyIds: baseComposition.loadedTopologyIds,
             });
           if (livePending.phase !== "restoring") livePending.referenceComposition = nextComposition;
         } else referenceCompositionRef.current = nextComposition;
@@ -1420,48 +1430,177 @@ export function useCadAssets({
         if (!livePending && displayed?.meshHash === nextComposition.meshHash) displayedReferenceCompositionRef.current = nextComposition;
         setReferenceState(nextReferenceState);
         syncAssetCacheMemory();
-        setReferenceStatus(nextReferenceState.disabledReason ? REFERENCE_STATUS.DISABLED : REFERENCE_STATUS.READY);
-        setReferenceError(nextReferenceState.disabledReason || "");
-        return;
+        const previouslyPublished = new Set(session.published?.ids || []);
+        session.published = { ids: [...requestedOccurrenceIds], state: nextReferenceState };
+        session.batches += 1;
+        perfMeasure(PERF_MEASURE_NAMES.topologyBatch, batchStart, {
+          parts: requestedOccurrenceIds.length,
+          added: requestedOccurrenceIds.filter((id) => !previouslyPublished.has(id)).length,
+          requested: session.desired.length,
+          composeMs: composeStart ? performance.now() - composeStart : 0
+        });
+        return "published";
       }
 
       const bundle = await loadRenderSelectorBundle(
         entrySelectorTopologyAssetUrl(entry),
         { resources, signal: controller.signal }
       );
-      if (requestId !== referenceRequestIdRef.current) {
-        return;
+      if (!isCurrent()) {
+        return "stale";
       }
       const nextReferenceState = buildNormalizedReferenceState(entry, bundle);
       setReferenceState(nextReferenceState);
       syncAssetCacheMemory();
-      setReferenceStatus(nextReferenceState.disabledReason ? REFERENCE_STATUS.DISABLED : REFERENCE_STATUS.READY);
-      setReferenceError(nextReferenceState.disabledReason || "");
-    } catch (err) {
-      if (requestId !== referenceRequestIdRef.current || isAbortError(err) || controller.signal.aborted) {
-        return;
-      }
-      if (err instanceof SurfaceResolutionError && err.replacementView) {
-        await surfaceViewReplacementRef.current?.(
-          entry, entryAssetUrl(entry, "glb"), err.replacementView,
-        );
-        return;
-      }
-      setReferenceStatus(REFERENCE_STATUS.ERROR);
-      setReferenceError(err instanceof Error ? err.message : String(err));
+      // One whole-document bundle answers every request.
+      session.published = { ids: [...session.desired], state: nextReferenceState, whole: true };
+      return "published";
     } finally {
-      if (referenceAbortControllerRef.current === controller) {
-        referenceAbortControllerRef.current = null;
-      }
       // A first pick can be the last consumer of the tessellation pool.
       // Reclaim its isolates after all sibling loads drain, just like initial
       // display and LOD; a topology-only interaction must not pin eight heaps.
       releaseSurfWorkers().then(syncSurfWorkerMemory, syncSurfWorkerMemory);
-      if (requestId === referenceRequestIdRef.current) {
-        setReferenceLoadStage("");
-      }
     }
-  }, [buildNormalizedReferenceState, cancelReferenceLoad, entryHasReferences, getAssemblyMeshHash, getCachedReferenceState, resources]);
+  }, [buildNormalizedReferenceState, getAssemblyMeshHash, resources]);
+
+  // Batches until what is published is what is requested. One loop per session at a time; a
+  // request arriving meanwhile only changes `session.desired`, which the loop reads before each
+  // batch. The status is LOADING until the loop settles on the request.
+  const runReferenceSession = useCallback(async (session) => {
+    const isCurrent = () => session.requestId === referenceRequestIdRef.current && !session.controller.signal.aborted;
+    // `active` is set and cleared synchronously with the loop's own decisions, so a request
+    // either lands while the loop will still read it, or starts the next loop.
+    session.active = true;
+    session.batches = 0;
+    const loopStart = perfStart();
+    try {
+      while (isCurrent()) {
+        if (session.published && (session.published.whole || sameTopologyIds(session.published.ids, session.desired))) break;
+        const wait = session.lastStart + REFERENCE_BATCH_INTERVAL_MS - Date.now();
+        if (wait > 0) {
+          await new Promise((resolve) => {
+            session.timer = setTimeout(resolve, wait);
+            session.controller.signal.addEventListener("abort", resolve, { once: true });
+          });
+          session.timer = 0;
+          continue;
+        }
+        session.lastStart = Date.now();
+        const batch = chooseTopologyBatch(session.desired, session.published?.ids, {
+          budget: REFERENCE_BATCH_NEW_PARTS,
+          requestOrder: session.requestOrder
+        });
+        if ((await loadReferenceBatch(session, batch)) === "stale") return;
+      }
+      if (!isCurrent()) return;
+      const state = session.published?.state;
+      setReferenceStatus(state?.disabledReason ? REFERENCE_STATUS.DISABLED : REFERENCE_STATUS.READY);
+      setReferenceError(state?.disabledReason || "");
+      setReferenceLoadStage("");
+      perfMeasure(PERF_MEASURE_NAMES.topologySettled, loopStart, { parts: session.desired.length, batches: session.batches });
+    } catch (err) {
+      if (!isCurrent() || isAbortError(err)) {
+        return;
+      }
+      if (err instanceof SurfaceResolutionError && err.replacementView) {
+        await surfaceViewReplacementRef.current?.(
+          session.entry, entryAssetUrl(session.entry, "glb"), err.replacementView,
+        );
+        return;
+      }
+      session.failed = true;
+      setReferenceStatus(REFERENCE_STATUS.ERROR);
+      setReferenceError(err instanceof Error ? err.message : String(err));
+      setReferenceLoadStage("");
+    } finally {
+      session.active = false;
+    }
+  }, [loadReferenceBatch]);
+
+  // Ask for the topology of `requestedOccurrenceIds` (an assembly's parts; a part file's is
+  // all of it). Idempotent and cheap to repeat: requests for the same file revision union into
+  // one session that never aborts work in flight — only a different file or revision, or
+  // cancelReferenceLoad, starts over. Already-loaded parts stay published while more load, and a
+  // request that is already what is published changes nothing.
+  const loadReferencesForEntry = useCallback((entry, requestedOccurrenceIds = []) => {
+    if (!entryHasReferences(entry)) {
+      cancelReferenceLoad();
+      referenceCompositionRef.current = null;
+      setReferenceState(null);
+      setReferenceStatus(REFERENCE_STATUS.DISABLED);
+      setReferenceError("");
+      return Promise.resolve();
+    }
+
+    const key = `${String(entry?.file || "")}\u0000${entryReferenceAssetSignature(entry) || ""}\u0000${getAssemblyMeshHash(entry) || ""}\u0000${String(entry?.fileRefPrefix || "")}\u0000${String(entry?.kind || "")}`;
+    let session = referenceSessionRef.current;
+    const sessionCurrent = Boolean(session && session.key === key && session.loader === loadReferenceBatch && !session.failed
+      && session.requestId === referenceRequestIdRef.current && !session.controller.signal.aborted);
+    if (!sessionCurrent) {
+      const cachedReferenceState = getCachedReferenceState(entry);
+      if (cachedReferenceState) {
+        cancelReferenceLoad();
+        setReferenceState(cachedReferenceState);
+        setReferenceStatus(cachedReferenceState.disabledReason ? REFERENCE_STATUS.DISABLED : REFERENCE_STATUS.READY);
+        setReferenceError(cachedReferenceState.disabledReason || "");
+        return Promise.resolve();
+      }
+      cancelReferenceLoad();
+      if (referenceComposerRef.current.key !== key) {
+        referenceComposerRef.current.composer.reset();
+        referenceComposerRef.current.key = key;
+      }
+      // What this revision already has on screen carries over: a new session adds to it.
+      const ctx = lodPackageRef.current;
+      const live = (ctx?.file === entry.file && ctx?.lodPending?.referenceComposition) || referenceCompositionRef.current;
+      const carried = live && live.file === entry.file && live.meshHash === getAssemblyMeshHash(entry)
+        && Array.isArray(live.loadedTopologyIds) && referenceStateRef.current?.loadedTopologyKey === live.loadedTopologyKey
+        ? { ids: [...live.loadedTopologyIds], state: referenceStateRef.current } : null;
+      session = {
+        key,
+        loader: loadReferenceBatch,
+        requestId: referenceRequestIdRef.current,
+        controller: new AbortController(),
+        entry,
+        desired: [],
+        requestOrder: new Map(),
+        requestCount: 0,
+        published: carried,
+        running: null,
+        active: false,
+        timer: 0,
+        lastStart: -Infinity,
+        failed: false
+      };
+      referenceAbortControllerRef.current = session.controller;
+      referenceSessionRef.current = session;
+    }
+    session.entry = entry;
+    const desired = new Set();
+    for (const rawId of Array.isArray(requestedOccurrenceIds) ? requestedOccurrenceIds : []) {
+      const id = String(rawId || "").trim();
+      if (!id || desired.has(id)) continue;
+      desired.add(id);
+      if (!session.requestOrder.has(id)) session.requestOrder.set(id, ++session.requestCount);
+    }
+    session.desired = [...desired];
+    // A running loop reads the new request before its next batch.
+    if (session.active) return session.running;
+    if (session.published && (session.published.whole || sameTopologyIds(session.published.ids, session.desired))) {
+      // Already published (a request settling back, or a revision's topology carried into a new
+      // session): the status says so, whatever an interrupted load left it at.
+      const state = session.published.state;
+      setReferenceStatus(state?.disabledReason ? REFERENCE_STATUS.DISABLED : REFERENCE_STATUS.READY);
+      setReferenceError(state?.disabledReason || "");
+      setReferenceLoadStage("");
+      return Promise.resolve();
+    }
+    setReferenceStatus(REFERENCE_STATUS.LOADING);
+    setReferenceError("");
+    setReferenceLoadStage("loading topology");
+    session.running = runReferenceSession(session);
+    return session.running;
+  }, [cancelReferenceLoad, entryHasReferences, getAssemblyMeshHash, getCachedReferenceState, loadReferenceBatch, runReferenceSession, resources]);
 
   useEffect(() => () => {
     abortLoad(meshAbortControllerRef);

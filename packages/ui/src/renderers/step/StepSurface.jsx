@@ -64,6 +64,7 @@ import {
   orderedStringListEqual,
   parseAssemblyPartReferenceSelectionId,
   topologyCompositionKeyMatches,
+  topologyCompositionServes,
   uniqueStringList
 } from "./workbench/referenceSelection.js";
 import {
@@ -133,6 +134,8 @@ import { applySourceAppearanceToMeshData, sourceAppearanceGeometry } from "@hard
 // The selection filters that pick faces or edges, never the part.
 const TOPOLOGY_FILTERS = new Set(["faces", "edges"]);
 const EMPTY_MATERIAL_OVERRIDES = Object.freeze({});
+const EMPTY_ID_SET = new Set();
+const TOPOLOGY_EXPANSION_INTERVAL_MS = 150;
 // --- zoom to selection -------------------------------------------------------
 // What a selection occupies NOW: the boxes of its references, from the selector runtime as
 // posed, merged with the boxes of its parts, from the records on screen (explosion included).
@@ -1011,20 +1014,39 @@ function StepSurfaceBody({ view, data }) {
   ]);
 
   // Stable key over the expanded tree nodes whose topology should be loaded. An assembly's
-  // reference state is only a match if it was composed for exactly this expanded set, so expanding
-  // a new node re-triggers a load (which fetches only the newly-needed component). A single part
-  // has no tree; its loaded key is "*".
-  const requestedTopologyKey = isAssemblyView
+  // reference state is COMPLETE when it was composed for exactly this expanded set; until it is,
+  // the loader keeps loading (only the newly-needed components). A single part has no tree; its
+  // loaded key is "*".
+  const requestedTopologyKey = useMemo(() => (isAssemblyView
     ? requestedStepTreeTopologyNodeIds.slice().sort().join("|")
-    : "*";
-  const selectedReferencesMatch =
+    : "*"), [isAssemblyView, requestedStepTreeTopologyNodeIds]);
+  const requestedTopologyIdSet = useMemo(() => new Set(requestedStepTreeTopologyNodeIds), [requestedStepTreeTopologyNodeIds]);
+  // Never another file or revision: a new hash invalidates what is loaded.
+  const selectedReferencesCurrent =
     !!referenceState &&
     !!selectedEntry &&
     selectedEntryHasReferences &&
     referenceState.fileRef === fileKey(selectedEntry) &&
-    referenceState.referenceHash === buildReferenceCacheKey(selectedEntry) &&
+    referenceState.referenceHash === buildReferenceCacheKey(selectedEntry);
+  const selectedReferencesComplete = selectedReferencesCurrent &&
     topologyCompositionKeyMatches(referenceState.loadedTopologyKey, requestedTopologyKey);
+  // What is loaded stays pickable while more loads: an assembly composition serves the request
+  // while every part it holds is still requested (`topologyCompositionServes`), and the bigger
+  // composition replaces it when it lands.
+  const selectedReferencesMatch = selectedReferencesCurrent &&
+    topologyCompositionServes(referenceState, requestedTopologyKey, requestedTopologyIdSet);
   const selectedSelectorRuntime = selectedReferencesMatch ? referenceState?.selectorRuntime || null : null;
+  // The parts whose faces and edges the live composition holds.
+  const selectedTopologyLoadedIdSet = useMemo(() => (
+    selectedReferencesMatch && Array.isArray(referenceState?.loadedTopologyIds)
+      ? new Set(referenceState.loadedTopologyIds)
+      : selectedReferencesMatch ? requestedTopologyIdSet : EMPTY_ID_SET
+  ), [selectedReferencesMatch, referenceState, requestedTopologyIdSet]);
+  // A step module resolves its selectors only once all of its own parts are in.
+  const selectedStepModuleSelectorRuntime = selectedReferencesComplete || (
+    isAssemblyView && stepModuleTopologyOccurrenceIds(selectedStepModuleDefinition)
+      .every((id) => !requestedTopologyIdSet.has(id) || selectedTopologyLoadedIdSet.has(id))
+  ) ? selectedSelectorRuntime : null;
   const artifactRevision = buildReferenceCacheKey(selectedEntry);
 
   useEffect(() => {
@@ -1033,20 +1055,20 @@ function StepSurfaceBody({ view, data }) {
   const selectedStepParameterRuntime = useMemo(() => {
     if (
       !selectedStepModuleDefinition ||
-      (selectedStepModuleTopologyRequired && !selectedSelectorRuntime)
+      (selectedStepModuleTopologyRequired && !selectedStepModuleSelectorRuntime)
     ) {
       return null;
     }
     return {
       definition: selectedStepModuleDefinition,
       parameterValues: normalizeStepModuleParameterValues(selectedStepModuleDefinition, stepModuleParameterValues),
-      selectorRuntime: selectedSelectorRuntime,
+      selectorRuntime: selectedStepModuleSelectorRuntime,
       cadPath: selectedStepModuleDefinition.cadPath || stepMotionSources(selectedEntry).cadPath,
       sourceUrl: selectedStepModuleUrl
     };
   }, [
     selectedEntry,
-    selectedSelectorRuntime,
+    selectedStepModuleSelectorRuntime,
     selectedStepModuleDefinition,
     selectedStepModuleTopologyRequired,
     selectedStepModuleUrl,
@@ -1111,7 +1133,10 @@ function StepSurfaceBody({ view, data }) {
       setReferenceError("");
       return;
     }
-    if (selectedReferencesMatch) {
+    // Complete: nothing to load — but an assembly's loader still hears the request, so a batch
+    // in flight for parts no longer wanted is not published over it. The loader unions requests
+    // and never cancels its own work for them (useCadAssets' loadReferencesForEntry).
+    if (selectedReferencesComplete && !isAssemblyView) {
       return;
     }
     loadReferencesForEntry(selectedEntry, requestedStepTreeTopologyNodeIds).catch((err) => {
@@ -1127,7 +1152,7 @@ function StepSurfaceBody({ view, data }) {
     requestedStepTreeTopologyNodeIds,
     selectedEntry,
     selectedEntryHasReferences,
-    selectedReferencesMatch
+    selectedReferencesComplete
   ]);
 
   const {
@@ -1448,7 +1473,8 @@ function StepSurfaceBody({ view, data }) {
     (
       stepInteractionBlocked ||
       referenceStatus === REFERENCE_STATUS.IDLE ||
-      referenceStatus === REFERENCE_STATUS.LOADING ||
+      // Loading more of an assembly leaves what is loaded selectable: only a missing runtime waits
+      // (a load with nothing usable yet has none).
       !effectiveSelectorRuntime
     )
   );
@@ -1800,11 +1826,67 @@ function StepSurfaceBody({ view, data }) {
     const references = referencesForHost(text);
     if (references.length) return deliverPrompt(createCadPromptContext({ resource: promptResource, references }));
   }, [promptResource, deliverPrompt, promptAvailable, referencesForHost, stepInteractionBlocked]);
+  // Every request for a part's topology ends here, `onLoadTopology` included: the tree asks for
+  // the parts on screen, as often as every scroll frame. A part already expanded and requested
+  // costs a lookup; new parts are expanded (which is what requests them) together, at most every
+  // TOPOLOGY_EXPANSION_INTERVAL_MS and the first at once. The loader behind the request unions and
+  // batches the rest (useCadAssets' loadReferencesForEntry). The callback is stable.
+  const expandedStepTreeNodeIdSet = useMemo(() => new Set(expandedStepTreeNodeIds), [expandedStepTreeNodeIds]);
+  const topologyExpansionRef = useRef({ ids: new Set(), timer: 0, last: -Infinity });
+  const topologyRequestStateRef = useRef(null);
+  topologyRequestStateRef.current = {
+    isAssemblyView,
+    loadable: loadableStepTreeTopologyNodeIdSet,
+    requested: requestedTopologyIdSet,
+    expanded: expandedStepTreeNodeIdSet,
+    root: displayStepTreeRoot || stepTreeRoot,
+    expandStepTreeAroundNode
+  };
+  const flushTopologyExpansion = useCallback(() => {
+    const queue = topologyExpansionRef.current;
+    clearTimeout(queue.timer);
+    queue.timer = 0;
+    queue.last = Date.now();
+    const { loadable, root } = topologyRequestStateRef.current;
+    const ids = [...queue.ids].filter(id => loadable.has(id));
+    queue.ids.clear();
+    if (!ids.length || !root) return;
+    // As expandStepTreeAroundNode(id, { expandSelf: true }) for each, in one update.
+    const idsToExpand = uniqueStringList(ids.flatMap(id => collectStepTreeRevealExpansionIds(root, id, {
+      expandSelf: true,
+      includeVisualOnlyAncestors: true
+    })));
+    if (!idsToExpand.length) return;
+    setExpandedStepTreeNodeIds(current => {
+      const expanded = new Set(current);
+      return idsToExpand.every(id => expanded.has(id)) ? current : uniqueStringList([...current, ...idsToExpand]);
+    });
+  }, []);
+  useEffect(() => () => {
+    const queue = topologyExpansionRef.current;
+    clearTimeout(queue.timer);
+    queue.timer = 0;
+    queue.ids.clear();
+  }, [selectedKey]);
   const loadInspectionTopology = useCallback((partIds = []) => {
-    const ids = isAssemblyView ? partIds.filter(id => loadableStepTreeTopologyNodeIdSet.has(id)) : [STEP_MODEL_ROOT_ID];
-    for (const id of ids) expandStepTreeAroundNode(id, { expandSelf: true });
-    if (!isAssemblyView) setLargeFileState(current => current.selectableTopologyEnabled ? current : ({ ...current, selectableTopologyEnabled: true }));
-  }, [isAssemblyView, loadableStepTreeTopologyNodeIdSet, expandStepTreeAroundNode]);
+    const request = topologyRequestStateRef.current;
+    if (!request.isAssemblyView) {
+      request.expandStepTreeAroundNode(STEP_MODEL_ROOT_ID, { expandSelf: true });
+      setLargeFileState(current => current.selectableTopologyEnabled ? current : ({ ...current, selectableTopologyEnabled: true }));
+      return;
+    }
+    const queue = topologyExpansionRef.current;
+    let added = false;
+    for (const id of Array.isArray(partIds) ? partIds : []) {
+      if (!request.loadable.has(id) || queue.ids.has(id) || (request.requested.has(id) && request.expanded.has(id))) continue;
+      queue.ids.add(id);
+      added = true;
+    }
+    if (!added || queue.timer) return;
+    const wait = queue.last + TOPOLOGY_EXPANSION_INTERVAL_MS - Date.now();
+    if (wait <= 0) flushTopologyExpansion();
+    else queue.timer = setTimeout(flushTopologyExpansion, wait);
+  }, [flushTopologyExpansion]);
   const loadFilterTopology = useCallback((target) => {
     if (target) loadInspectionTopology([target.id]);
   }, [loadInspectionTopology]);
@@ -2498,14 +2580,14 @@ function StepSurfaceBody({ view, data }) {
     const pending = pendingTopologyPick;
     if (!pending) return;
     if (referenceStatus === REFERENCE_STATUS.ERROR) { setPendingTopologyPick(null); return; }
-    if (stepInteractionBlocked || !selectedReferencesMatch || !requestedStepTreeTopologyNodeIds.includes(pending.partId)) return;
+    if (stepInteractionBlocked || !selectedReferencesMatch || !selectedTopologyLoadedIdSet.has(pending.partId)) return;
     setPendingTopologyPick(null);
     const referenceId = pickAtRef.current?.(pending.clientX, pending.clientY, pending.pointerType) || "";
     const reference = effectiveActiveReferenceMap.get(referenceId);
     if (reference && isViewerTopologyReference(reference)) {
       handleModelReferenceActivate(referenceId, { multiSelect: pending.multiSelect });
     }
-  }, [pendingTopologyPick, referenceStatus, stepInteractionBlocked, selectedReferencesMatch, requestedStepTreeTopologyNodeIds,
+  }, [pendingTopologyPick, referenceStatus, stepInteractionBlocked, selectedReferencesMatch, selectedTopologyLoadedIdSet,
     effectiveActiveReferenceMap, isViewerTopologyReference, handleModelReferenceActivate]);
   // A waiting press belongs to the filter, tool and file it was made under.
   useEffect(() => { setPendingTopologyPick(null); }, [selectionFilter, tabToolMode, selectedKey]);

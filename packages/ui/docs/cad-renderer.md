@@ -922,7 +922,15 @@ expansion and coming back restores it (with the owners of selected topology kept
 Parts opens every assembly (`collectStepTreeAssemblyNodeIds`) and shuts every part;
 Faces and Edges open every assembly and leave each part to the tree, which asks for a
 part's topology (`onLoadTopology`) and recognition as its row comes on screen (an
-`IntersectionObserver` over the Features panel's body). Outside All the tree's
+`IntersectionObserver` over the Features panel's body). Those requests, and every other
+(`loadInspectionTopology`), cost a lookup for a part already requested; new parts expand
+together at most every 150 ms. The loader behind them (`useCadAssets`'
+`loadReferencesForEntry`) unions requests for the file revision it serves, never aborts its
+own work for them, and loads in batches of at most 64 new parts, newest request first, each
+composed incrementally (only the new parts are built). While more loads, what is loaded stays
+pickable: a composition serves the request while every part it holds is still requested
+(`topologyCompositionServes`), and Select is "Preparing selection" only with nothing usable yet.
+A new file revision still invalidates everything loaded. Outside All the tree's
 disclosure is locked (`data-disclosure-locked`) and the part menus drop Expand/Collapse.
 The one-press load for a part not yet loaded stays in the pick path; the Features filter
 row shows `Loading…` while it waits.

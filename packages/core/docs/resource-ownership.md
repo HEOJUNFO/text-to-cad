@@ -71,6 +71,21 @@ pose, animation or clip. Changed components update their own records, while
 unchanged occurrence geometry and selectors retain their owners. Arbitrary
 mutable caller meshes keep normal reconciliation.
 
+### Selector composition
+
+An assembly's selector runtime is composed from one part per placed occurrence
+(`buildSelectorCompositionPart`, `createSelectorRuntimeComposer` in
+`lib/selectors/runtime.js`). A part keeps its rows, its references as last
+placed and the bundle's own proxy buffers with the placement transform — never
+a placed copy of the proxy or lookup maps. The composer re-places a part's
+references only when its offsets move, and a composition that begins with the
+previous one extends that result instead of rebuilding it. The result is value
+for value the whole-runtime `composeSelectorRuntimes` result for the same
+components in the same order (`runtimeComposer.test.js`). An edge's chain
+endpoints are read lazily from the bundle's unplaced positions, placed and
+rounded as the placed proxy stores them; copies of a reference carry the
+accessor rather than reading it.
+
 ### Instancing and culling
 
 Repeated compatible opaque surfaces share instanced draws and retain
