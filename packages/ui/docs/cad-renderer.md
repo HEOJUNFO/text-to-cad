@@ -952,8 +952,9 @@ after it, a level deeper — drawn by `kit/inspector/VirtualRows.jsx`: only the 
 panel body's view and a margin either side are mounted, each at the place the whole list
 would give it, in a list as tall as every row, so the scroll range, the rows' positions and
 what is drawn are those of the whole tree. The window follows a scroll before the frame that
-shows it. The selection's row, the search cursor and a focused row stay mounted wherever they
-are, so a reveal, Enter and keyboard focus always have their row; a row carries its level
+shows it. The selection's row, the search cursor, a focused row and the row whose context menu
+was opened stay mounted wherever they are, so a reveal, Enter, keyboard focus and an open menu
+always have their row; a row carries its level
 (`aria-level`) in place of the nesting it no longer has. Under Faces and Edges the rows the list
 reports on screen (never its margin) are the parts whose topology is asked for, each once.
 Rows are memoized on their own facts (their selection and joins as booleans, stable callbacks,

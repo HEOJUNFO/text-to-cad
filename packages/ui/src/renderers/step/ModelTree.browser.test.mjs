@@ -200,7 +200,7 @@ function App(){
   const [selected,setSelected]=useState([]),[reveal,setReveal]=useState(0),[mode,setMode]=useState('all'),[tick,setTick]=useState(0),[details,setDetails]=useState(0);
   const expanded=useMemo(()=>groups.map(g=>g.id),[]);
   const partControls=useMemo(()=>({isAssemblyView:true,expandedTreeNodeIds:expanded,onToggleTreeNode(){},hiddenPartIds:[],focusedNodeIds:[],selectableNodeIds:null,
-    onSelectTreeNode:id=>{events.selected.push(id);setSelected([id]);}}),[expanded]);
+    onSelectTreeNode:id=>{events.selected.push(id);setSelected([id]);},menuForNode:id=>({nodeId:id,copyText:id,zoomSelectionAvailable:false})}),[expanded]);
   const onLoadTopology=useMemo(()=>ids=>{events.topology.push(...ids);},[]);
   Object.assign(window.treeTest,{refresh:()=>setTick(n=>n+1),details:()=>setDetails(n=>n+1),select:id=>{setSelected([id]);setReveal(n=>n+1);},setMode});
   const selectionDetails=useMemo(()=>details?{title:'Ref',content:<p>Details {details}</p>}:null,[details]);
@@ -288,6 +288,25 @@ createRoot(document.getElementById('root')).render(<App/>);
   const detailed = await page.evaluate(() => ({ ...window.__renders }));
   assert.ok(detailed.ModelingTree > same.ModelingTree, 'the tree rendered for its details');
   assert.equal(detailed.ModelingRow - same.ModelingRow, 0, 'and no row did');
+
+  // A row holding focus, and a row holding its menu open, stay mounted while the list scrolls
+  // far away from them.
+  const scrollTo = fraction => page.evaluate(fraction => { const scroller = document.querySelector('[aria-label="Model"]').closest('[data-tool-panel-body]'); scroller.scrollTop = (scroller.scrollHeight - scroller.clientHeight) * fraction; }, fraction);
+  await scrollTo(0); await frames();
+  await model.getByRole('button', { name: 'Select Part 0-5', exact: true }).focus();
+  await scrollTo(1); await frames();
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Select Part 0-5', 'focus stays on its row');
+  assert.equal(await page.evaluate(() => document.activeElement?.isConnected), true);
+  await scrollTo(0); await frames();
+  await model.getByRole('button', { name: 'Select Part 0-3', exact: true }).click({ button: 'right' });
+  const menu = page.getByRole('menu');
+  await menu.waitFor();
+  await scrollTo(1); await frames();
+  assert.equal(await model.locator('li[data-virtual-row="model:o0_3"]').count(), 1, 'the row whose menu is open stays mounted');
+  assert.equal(await menu.isVisible(), true, 'and its menu open');
+  await page.keyboard.press('Escape');
+  await menu.waitFor({ state: 'detached' });
+  check(await layout(), 'after the menu');
 
   // A pick far down the tree scrolls its row into view.
   await page.evaluate(() => { document.querySelector('[aria-label="Model"]').closest('[data-tool-panel-body]').scrollTop = 0; });

@@ -27,8 +27,8 @@ function scrollerOf(element) {
  * with no layout (a folded or hidden panel) keeps the rows it had.
  *
  * `pinned` rows stay mounted wherever they are (the selection's row, a search cursor), and so
- * does a focused row, so a row being revealed, pressed from the keyboard or holding focus is
- * always there. `onVisibleRange(first, last)` is told which rows are on screen, without the
+ * do a focused row and the row whose context menu was last opened, so a row being revealed,
+ * pressed from the keyboard, holding focus or holding its menu open is always there. `onVisibleRange(first, last)` is told which rows are on screen, without the
  * margin, whenever that changes (and again when the callback itself changes); nothing is
  * reported while the list has no layout.
  *
@@ -41,7 +41,9 @@ export default function VirtualRows({ count, rowHeight, rowKey, rowProps = null,
   overscan = VIRTUAL_ROWS_OVERSCAN, onVisibleRange = null, registerRow = null, style, ...props }) {
   const list = useRef(null);
   const [range, setRange] = useState(() => ({ first: 0, last: Math.min(count, INITIAL_ROWS) - 1 }));
-  const [focusedKey, setFocusedKey] = useState(null);
+  // Rows in use off the window's edge: the one holding focus, and the last one whose context menu
+  // was opened (its menu stays open while the tree changes around it).
+  const [focusedKey, setFocusedKey] = useState(null), [menuKey, setMenuKey] = useState(null);
   const latest = useRef(null);
   latest.current = { count, rowHeight, overscan, onVisibleRange };
   const reported = useRef(null);
@@ -120,8 +122,11 @@ export default function VirtualRows({ count, rowHeight, rowKey, rowProps = null,
   const indices = [];
   for (let index = first; index <= last; index += 1) indices.push(index);
   const extra = new Set(pinned.filter(index => Number.isInteger(index) && index >= 0 && index < count && (index < first || index > last)));
-  if (focusedKey !== null) {
-    for (let index = 0; index < count; index += 1) if (rowKey(index) === focusedKey) { if (index < first || index > last) extra.add(index); break; }
+  if (focusedKey !== null || menuKey !== null) {
+    for (let index = 0; index < count; index += 1) {
+      const key = rowKey(index);
+      if ((key === focusedKey || key === menuKey) && (index < first || index > last)) extra.add(index);
+    }
   }
   if (extra.size) { indices.push(...extra); indices.sort((a, b) => a - b); }
 
@@ -130,6 +135,11 @@ export default function VirtualRows({ count, rowHeight, rowKey, rowProps = null,
       const row = event.target.closest?.('[data-virtual-row]');
       if (row && list.current?.contains(row)) setFocusedKey(row.dataset.virtualRow);
       props.onFocus?.(event);
+    }}
+    onContextMenu={event => {
+      const row = event.target.closest?.('[data-virtual-row]');
+      if (row && list.current?.contains(row)) setMenuKey(row.dataset.virtualRow);
+      props.onContextMenu?.(event);
     }}
     onBlur={event => {
       if (!event.relatedTarget || !list.current?.contains(event.relatedTarget)) setFocusedKey(null);
