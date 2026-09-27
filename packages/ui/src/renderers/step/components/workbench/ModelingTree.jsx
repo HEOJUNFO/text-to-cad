@@ -20,13 +20,12 @@ const NO_CONTROLS = {};
 /**
  * Above this many rows — the fully expanded tree's assemblies and parts, not the features
  * recognition adds under a part later, so the tree never changes shape under the person — Faces
- * and Edges open a tree with its parts closed, each with its face or edge count, instead of
+ * and Edges open a tree with its parts closed instead of
  * opening every part. Each part opens by its own disclosure, a pick inside it, or the menu.
  */
 export const LARGE_TREE_ROWS = 300;
 /** How long the pointer rests on a part in the viewport before its topology is asked for. */
 export const TOPOLOGY_DWELL_MS = 150;
-const countLabel = (count, mode) => `${count.toLocaleString()} ${mode === 'edges' ? count === 1 ? 'edge' : 'edges' : count === 1 ? 'face' : 'faces'}`;
 const icons = {part:Box,assembly:Boxes,group:Boxes,boss:Layers,pocket:Shapes,hole:Circle,body:Box,extrude:Layers,loft:Layers,cut:Shapes,revolve:RotateCw,round:CornerUpRight,profile:SquareDashed,curve:Spline,remainder:Box};
 const number = n => n.toLocaleString(undefined,{maximumFractionDigits:3});
 
@@ -92,7 +91,7 @@ function Disclosure({ node, open, locked, toggle }) {
 // One row of the tree, the rows under it drawn after it by the list (`visibleRows`). Its props
 // are the row's own facts — its selection and joins as booleans, callbacks that never change —
 // so a tree re-rendered for anything else leaves it alone.
-function ModelingRow({ node, depth, open, branch, locked, disabled, selected, joinAbove, joinBelow, hiddenByOwner, unavailable, actionsShown, actionsWidth, count, partControls, feature, toggle, choose }) {
+function ModelingRow({ node, depth, open, branch, locked, disabled, selected, joinAbove, joinBelow, hiddenByOwner, unavailable, actionsShown, actionsWidth, partControls, feature, toggle, choose }) {
   const Icon = icons[node.kind] || Box;
   // An assembly outside the isolate/picking frontier cannot select itself, but
   // its descendants can. Only a hidden owner blocks its entire subtree.
@@ -109,8 +108,6 @@ function ModelingRow({ node, depth, open, branch, locked, disabled, selected, jo
         onClick={event=>{if(event.detail < 2)choose(node,event);}} onDoubleClick={event=>choose(node,event)}
         className={cn('flex h-full min-w-0 flex-1 items-center gap-1 rounded pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40', underActions)}>
         <Icon className={TREE_ROW_DENSE_ICON_CLASS}/><TreeRowLabel className="flex-1">{node.label}</TreeRowLabel>
-        {/* A large tree's part, under Faces or Edges: how many of them it has, when that is known. */}
-        {count && <span className="shrink-0 pl-1 text-tiny text-muted-foreground tabular-nums" data-part-count="">{count}</span>}
       </button></TooltipHint>
       {node.selectionId && <ModelPartActions node={node} controls={partControls} disabled={disabled}/>}
     </TreeRowSurface>
@@ -468,34 +465,12 @@ function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, l
         onExpandSelected:menu=>setPart(menu?.nodeId,true),onCollapseSelected:menu=>setPart(menu?.nodeId,false),
         onExpandAll:()=>setOpenParts(new Set(latest.current.partNodes.keys())),onCollapseAll:()=>setOpenParts(current=>current.size ? new Set() : current)}};
   },[isAssemblyView,hiddenPartIds,focusedNodeIds,onHoverTreeNode,onFocusTreeNode,onUnfocusTreeNode,onTogglePartVisibility,menuForNode,menuForReferences,partMenuActions,largeTopology,partBySelection,seeParts]);
-  // A part's count: from its topology once loaded, else from its recognition; nothing until one is.
-  const topologyCounts=useMemo(()=>{
-    const counts=new Map();
-    if(!largeTopology)return counts;
-    for(const ref of references){
-      if(!ref?.occurrenceId || (ref.selectorType !== 'face' && ref.selectorType !== 'edge'))continue;
-      const count=counts.get(ref.occurrenceId) || {faces:0,edges:0};
-      if(ref.selectorType === 'face')count.faces+=1;else count.edges+=1;
-      counts.set(ref.occurrenceId,count);
-    }
-    return counts;
-  },[largeTopology,references]);
-  const componentOf=useMemo(()=>new Map((descriptor?.occurrences || EMPTY).map(o=>[o.id,o.component])),[descriptor]);
-  const partCount=node=>{
-    if(!largeTopology || node.kind !== 'part')return undefined;
-    const loaded=topologyCounts.get(node.occurrenceId || node.selectionId);
-    if(loaded)return countLabel(mode === 'edges' ? loaded.edges : loaded.faces,mode);
-    const result=results[node.component ?? componentOf.get(node.occurrenceId)];
-    if(!result || result.error || !Array.isArray(result.tree))return undefined;
-    if(mode === 'edges')return result.edgeFaces ? countLabel(Object.keys(result.edgeFaces).length,mode) : undefined;
-    return countLabel(new Set(result.tree.flatMap(body=>body.faces || EMPTY)).size,mode);
-  };
   // A row's actions as primitives (`rowActionsLayout`): whether one is on, and the room they take.
   const actionsOf=node=>node.selectionId ? rowActionsLayout(node,partControls) : null;
   const renderTreeRow=at=>{
     const row=rows[at],on=highlighted.has(row.node.id),actions=actionsOf(row.node);
     return <MemoModelingRow node={row.node} depth={row.depth} open={row.open} branch={row.branch} disabled={disabled}
-      locked={locked && !(largeTopology && row.node.kind === 'part')} count={partCount(row.node)}
+      locked={locked && !(largeTopology && row.node.kind === 'part')}
       actionsShown={Boolean(actions?.shown)} actionsWidth={actions?.width}
       selected={on} joinAbove={on && at > 0 && highlighted.has(rows[at-1].node.id)} joinBelow={on && at < rows.length-1 && highlighted.has(rows[at+1].node.id)}
       hiddenByOwner={row.hiddenByOwner} unavailable={row.unavailable} partControls={rowControls}
