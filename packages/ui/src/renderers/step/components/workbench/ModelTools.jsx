@@ -3,7 +3,7 @@ import ToolPanel from "../../../kit/tools/ToolPanel.jsx";
 import { CrossSectionControls, ExplodeControls, clipSummary } from "./ModelViewControls.js";
 import { explodablePartCount } from "../../workbench/explodableParts.js";
 
-/** Separated assembly layers, distinct from a fullscreen/expand affordance. */
+/** Separated assembly layers, distinct from an expand affordance. */
 function ExplodeIcon(props) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" {...props}>
     <path d="m12 2 8 4-8 4-8-4Z M4 11l8 4 8-4 M4 17l8 4 8-4" />

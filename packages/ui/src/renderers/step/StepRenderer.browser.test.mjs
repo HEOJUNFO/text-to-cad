@@ -131,7 +131,18 @@ async function open(options) {
     at: projector(await page.evaluate(() => window.__cadCamera()), box),
     state: () => page.evaluate(() => window.cadHarness.a.controller.readState()),
     display: patch => page.evaluate(next => window.cadHarness.a.controller.setDisplaySettings(next), patch),
-    // Display is not a tool: its settings button sits beside Fullscreen at the viewport's top right.
+    // Preview: its button, the play circle beside Display settings; its X back. A still camera
+    // (no orbit), unless a test asks for one, so what moves in a frame is the model.
+    enterPreview: async ({ orbit = false } = {}) => {
+      if (!orbit) await page.evaluate(() => window.cadHarness.preferences.update({ orbit: { speed: 0 } }));
+      await pane.getByRole('button', { name: 'Preview', exact: true }).click();
+      await pane.getByRole('button', { name: 'Exit preview', exact: true }).waitFor();
+    },
+    exitPreview: async () => {
+      await pane.getByRole('button', { name: 'Exit preview', exact: true }).click();
+      await pane.getByRole('button', { name: 'Preview', exact: true }).waitFor();
+    },
+    // Display is not a tool: its settings button sits beside Preview at the viewport's top right.
     tool: name => name === 'Display' ? pane.getByRole('button', { name: 'Display settings', exact: true })
       : pane.locator(name === 'Reset' ? '[data-cad-camera-controls]' : '[data-cad-toolbar]').getByRole('button', { name, exact: true }),
     tools: () => pane.locator('[data-cad-toolbar]').getByRole('button')
@@ -174,8 +185,8 @@ async function open(options) {
 test('a STEP opens in Select with the tools its sidecar earns and Display last, its Features in the tool stack, and paints both authored colours', async () => {
   const view = await open();
   const { page, pane, errors } = view;
-  assert.deepEqual(await view.tools(), ['Select:true', 'Draw:false', 'Measure:false', 'Explode:false', 'Clip:false', 'Position:false', 'Animate:false'],
-    'Position and Animate because the sidecar bound; Display, an independent settings popover, is the last button');
+  assert.deepEqual(await view.tools(), ['Select:true', 'Draw:false', 'Measure:false', 'Explode:false', 'Clip:false', 'Position:false'],
+    'Position because the sidecar bound; no Animate: its routine plays in preview. Display is a settings popover, not a tool');
   // The nav row has no panel of the file's: its controls are the tool stack's. The file tree's
   // toggle is the only one, and a file opened directly opens with nothing beside it.
   assert.deepEqual(await view.panels(), ['Show files:false']);
@@ -684,7 +695,7 @@ test('hiding a part takes it off the screen, and the viewport menus offer what t
   await page.keyboard.press('Escape');
   await page.getByRole('menu').waitFor({ state: 'detached' });
   await away();
-  for (const tool of ['Measure', 'Position', 'Animate', 'Draw']) {
+  for (const tool of ['Measure', 'Position', 'Draw']) {
     await view.tool(tool).click();
     await page.mouse.click(...at([6, 6, 5]), { button: 'right' });
     await page.waitForTimeout(150);
@@ -713,14 +724,14 @@ test('hiding a part takes it off the screen, and the viewport menus offer what t
   }
   // The tree is Select's: under another tool it is off screen, and Select brings it back to act
   // from — Isolate, which has no selection of its own to make.
-  assert.deepEqual(await view.tools(), ['Select:false', 'Draw:true', 'Measure:false', 'Explode:false', 'Clip:false', 'Position:false', 'Animate:false']);
+  assert.deepEqual(await view.tools(), ['Select:false', 'Draw:true', 'Measure:false', 'Explode:false', 'Clip:false', 'Position:false']);
   assert.equal(await pane.getByRole('button', { name: 'Select arm', exact: true }).isVisible(), false);
   await view.tool('Select').click();
   await pane.getByRole('button', { name: 'Select arm', exact: true }).click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Isolate', exact: true }).click();
   await page.getByRole('menu').waitFor({ state: 'detached' });
   await page.waitForFunction(() => window.cadHarness.a.controller.readState().isolatedPartIds.join() === 'o1.2');
-  assert.deepEqual(await view.tools(), ['Select:true', 'Draw:false', 'Measure:false', 'Explode:false', 'Clip:false', 'Position:false', 'Animate:false']);
+  assert.deepEqual(await view.tools(), ['Select:true', 'Draw:false', 'Measure:false', 'Explode:false', 'Clip:false', 'Position:false']);
   await page.keyboard.press('Escape');
   assert.deepEqual(errors, []);
 });
@@ -795,7 +806,7 @@ test('every Display control reaches the drawn frame: the five modes, edges, the 
   await panel.waitFor();
   await panel.evaluate(node => Promise.all(node.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => {}))));
   assert.deepEqual(await view.stack(), ['Features'], 'the stack is as it was');
-  assert.deepEqual(await view.tools(), ['Select:true', 'Draw:false', 'Measure:false', 'Explode:false', 'Clip:false', 'Position:false', 'Animate:false']);
+  assert.deepEqual(await view.tools(), ['Select:true', 'Draw:false', 'Measure:false', 'Explode:false', 'Clip:false', 'Position:false']);
   const [displayBox, button, backdrop] = await Promise.all([panel.boundingBox(), view.tool('Display').boundingBox(),
     pane.locator('[data-cad-scene-backdrop]').boundingBox()]);
   assert.ok(displayBox.y >= button.y + button.height && displayBox.x + displayBox.width <= backdrop.x + backdrop.width,
@@ -1162,7 +1173,7 @@ test('Position drives the mate and repaints, a named pose jumps, the Position kn
   assert.deepEqual(errors, []);
 });
 
-test('Position persists across tools, its tool shows its panel, and Animate can take over', async () => {
+test('Position persists across tools, its tool shows its panel, and a routine in preview can take over', async () => {
   const view = await open();
   const { page, pane, errors } = view;
   const rest = await translations(page);
@@ -1188,67 +1199,60 @@ test('Position persists across tools, its tool shows its panel, and Animate can 
   await settle(page);
   assert.deepEqual(await translations(page), posed, 'tree selection keeps the pose');
   await setPose();
-  await view.tool('Animate').click();
-  assert.equal(await view.tool('Animate').getAttribute('aria-pressed'), 'true');
+  await view.enterPreview();
+  await pane.getByRole('button', { name: 'Play animation', exact: true }).click();
   await page.waitForFunction(y => Math.abs(window.__cadDisplayRecords().find(record => record.partId === 'o1.2').matrix[13] - y) > 1, rest['o1.2'][1]);
-  // Leaving Animate hands the pose back to Position as Position left it: the routine played
+  // Leaving preview hands the pose back to Position as Position left it: the routine played
   // from the model at rest, and never threw the joint value away.
-  await view.tool('Select').click();
+  await view.exitPreview();
   await page.waitForFunction(([x, y, z]) => {
     const [px, py, pz] = window.__cadDisplayRecords().find(record => record.partId === 'o1.2').matrix.slice(12, 15);
     return Math.hypot(px - x, py - y, pz - z) < 1e-3;
   }, posed['o1.2']);
+  assert.equal(await view.tool('Position').getAttribute('aria-pressed'), 'true', 'and Position is the tool again');
   await position.getByLabel('hinge slider value', { exact: true }).waitFor({ state: 'attached' });
   assert.equal(await position.getByLabel('hinge slider value', { exact: true }).inputValue(), '60.0°');
   assert.deepEqual(errors, []);
 });
 
-test('Animate takes up paused, its panel\'s transport plays and pauses the routine, and leaving restores the pose', async () => {
+test('preview opens paused, its playbar plays and pauses the routine, and leaving restores the pose', async () => {
   const view = await open();
   const { page, pane, errors } = view;
   await page.mouse.move(view.box.x + 20, view.box.y + view.box.height - 20);
   await page.waitForTimeout(300);
-  const rest = await view.frame();
+  const toolsRest = await view.frame();
   const restArm = (await translations(page))['o1.2'];
-  await view.tool('Animate').click();
-  const panel = pane.getByRole('region', { name: 'Animate controls', exact: true });
-  await panel.waitFor();
-  assert.deepEqual(await view.tools(), ['Select:false', 'Draw:false', 'Measure:false', 'Explode:false', 'Clip:false', 'Position:false', 'Animate:true']);
-  // Autoplay is off by default: taken up, the routine waits, at rest.
-  await panel.getByRole('button', { name: 'Play animation', exact: true }).waitFor();
+  // The tools view carries nothing of the routine's: no Animate tool, no transport.
+  assert.equal(await view.tool('Animate').count(), 0);
+  assert.equal(await pane.locator('[data-animation-transport]').count(), 0);
+  await view.enterPreview();
+  // The tools are put away, and the playbar is under the model.
+  assert.equal(await pane.getByRole('group', { name: 'Interaction tools' }).isVisible(), false);
+  const bar = pane.getByRole('toolbar', { name: 'Animation playback' });
+  await bar.waitFor();
+  // Autoplay is off by default: entered, the routine waits, at rest.
+  await bar.getByRole('button', { name: 'Play animation', exact: true }).waitFor();
   await page.waitForTimeout(300);
   assert.deepEqual((await translations(page))['o1.2'], restArm, 'nothing plays until its play button is pressed');
-  // The transport is the panel's: no playbar under the model outside fullscreen. One routine:
-  // the panel's body is the play button and the time slider, with no Routine row.
-  assert.equal(await pane.getByRole('toolbar', { name: 'Animation playback' }).count(), 0);
-  assert.deepEqual(await panel.locator('[data-tool-panel-body]').getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))),
-    ['Play animation']);
-  assert.equal(await panel.getByRole('slider', { name: 'Animation time', exact: true }).count(), 1);
-  assert.equal(await panel.getByRole('combobox', { name: 'Routine', exact: true }).count(), 0);
+  const rest = await view.frame();
+  assert.deepEqual(await bar.getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), ['Play animation']);
+  assert.equal(await bar.getByRole('slider', { name: 'Animation time', exact: true }).count(), 1);
 
-  await panel.getByRole('button', { name: 'Play animation' }).click();
+  await bar.getByRole('button', { name: 'Play animation' }).click();
   await page.waitForFunction(() => window.__cadDisplayRecords().find(record => record.partId === 'o1.2').matrix[1] > 0.2);
   await frameWhen(view, shot => differing(rest, shot) > 20_000, 'showed the playing routine');
-  await panel.getByRole('button', { name: 'Pause animation' }).click();
-  assert.equal(await panel.getByRole('button', { name: 'Play animation', exact: true }).isVisible(), true);
-  // A second press on the tool in hand changes nothing: it neither plays nor puts Animate down.
-  const paused = (await translations(page))['o1.2'];
-  await view.tool('Animate').click();
-  await page.waitForTimeout(300);
-  assert.equal(await panel.getByRole('button', { name: 'Play animation', exact: true }).isVisible(), true, 'still paused');
-  assert.deepEqual((await translations(page))['o1.2'], paused);
-  assert.equal(await view.tool('Animate').getAttribute('aria-pressed'), 'true');
-  await panel.getByRole('button', { name: 'Play animation' }).click();
-  assert.equal(await panel.getByRole('button', { name: 'Pause animation', exact: true }).isVisible(), true);
-  await panel.getByRole('button', { name: 'Pause animation' }).click();
+  await bar.getByRole('button', { name: 'Pause animation' }).click();
+  assert.equal(await bar.getByRole('button', { name: 'Play animation', exact: true }).isVisible(), true);
+  await bar.getByRole('button', { name: 'Play animation' }).click();
+  assert.equal(await bar.getByRole('button', { name: 'Pause animation', exact: true }).isVisible(), true);
 
-  // Leaving Animate releases the routine: the model goes back to the pose it
-  // was in, to the pixel.
-  await view.tool('Select').click();
-  await panel.waitFor({ state: 'detached' });
+  // Leaving preview releases the routine, playing or not: the model goes back to the pose it
+  // was in, in the tools view's own camera, to the pixel.
+  await view.exitPreview();
+  await bar.waitFor({ state: 'detached' });
   await page.waitForTimeout(600);
   assert.deepEqual((await translations(page))['o1.2'], restArm);
-  await frameWhen(view, shot => differing(rest, shot) === 0, 'came back to the rest pose exactly');
+  await frameWhen(view, shot => differing(toolsRest, shot) === 0, 'came back to the rest pose exactly');
 
   assert.deepEqual(errors, []);
 });
@@ -1618,11 +1622,11 @@ test('the Display popover keeps controls together, resets optional sections, sta
   const headingSize = await sheet.getByRole('heading', { name: 'Display', exact: true }).locator('button').evaluate(el => getComputedStyle(el).fontSize);
   const controlSize = await sheet.getByRole('combobox', { name: 'Mode', exact: true }).evaluate(el => getComputedStyle(el).fontSize);
   assert.equal(headingSize, controlSize, 'Display headings match control text');
-  // Its button is not on the strip: it sits in the top-right bar, left of Fullscreen.
+  // Its button is not on the strip: it sits in the top-right bar, left of Preview.
   assert.equal((await view.tools()).some(tool => tool.startsWith('Display')), false, 'Display is not a tool');
-  const [displayButton, fullscreenButton] = await Promise.all([view.tool('Display').boundingBox(),
-    pane.getByRole('button', { name: 'Fullscreen', exact: true }).boundingBox()]);
-  assert.ok(displayButton.x + displayButton.width <= fullscreenButton.x + 1 && Math.abs(displayButton.y - fullscreenButton.y) <= 1, 'left of Fullscreen, level with it');
+  const [displayButton, previewButton] = await Promise.all([view.tool('Display').boundingBox(),
+    pane.getByRole('button', { name: 'Preview', exact: true }).boundingBox()]);
+  assert.ok(displayButton.x + displayButton.width <= previewButton.x + 1 && Math.abs(displayButton.y - previewButton.y) <= 1, 'left of Preview, level with it');
   const initial = await sheet.boundingBox();
   const surface = await pane.locator('[data-cad-surface]').boundingBox();
   assert.ok(initial.width <= 280 && initial.height <= 520);
@@ -1744,7 +1748,7 @@ test('neutral model tools leave with another tool; applied effects persist until
 });
 
 
-test('Animate shows its panel — the routine, then play and pause; speed, Autoplay and loop in its settings — the choices outlast leaving the tool, and Autoplay starts the routine', async () => {
+test('preview\'s Playback settings: the routine, its speed, Loop and Autoplay, then the orbit — the choices outlast leaving preview, and Autoplay starts the routine', async () => {
   const animation = harness.entry.sourceSidecar.animation;
   const original = animation.source;
   let view;
@@ -1753,88 +1757,74 @@ test('Animate shows its panel — the routine, then play and pause; speed, Autop
     view = await open();
   } finally { animation.source = original; }
   const { page, pane, errors } = view;
-  const tool = view.tool('Animate');
-  await tool.click();
-  // Its panel leads the stack while it is the tool, headed "Animate", its settings button and the
-  // chevron in the heading; the routine waits, Autoplay being off.
-  const panel = pane.getByRole('region', { name: 'Animate controls', exact: true });
-  await panel.waitFor();
-  assert.deepEqual(await view.stack(), ['Animate controls']);
-  const heading = panel.locator('[data-tool-panel-heading]');
-  assert.equal((await heading.locator('h3').innerText()).trim(), 'Animate');
-  assert.equal(await heading.locator('h3').evaluate(node => getComputedStyle(node).fontSize), '11px');
-  // It does not fold: its X puts Animate down, back to Select.
-  assert.deepEqual(await heading.getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))),
-    ['Animation settings', 'Close animate']);
-  assert.equal(await page.getByRole('menu').count(), 0);
-  const play = panel.getByRole('button', { name: 'Play animation', exact: true });
-  const pause = panel.getByRole('button', { name: 'Pause animation', exact: true });
+  await view.enterPreview();
+  // Under the model, the playbar; the routine waits, Autoplay being off.
+  const bar = pane.getByRole('toolbar', { name: 'Animation playback' });
+  const play = bar.getByRole('button', { name: 'Play animation', exact: true });
+  const pause = bar.getByRole('button', { name: 'Pause animation', exact: true });
+  const time = bar.getByRole('slider', { name: 'Animation time', exact: true });
   await play.waitFor();
-  assert.equal(await pane.getByRole('toolbar', { name: 'Animation playback' }).count(), 0, 'the playbar under the model is fullscreen\'s');
-  // Two routines: the Routine dropdown alone across its row (it says what it is: no label), then
-  // the transport row, the play button left of the time slider.
-  const routine = panel.getByRole('combobox', { name: 'Routine', exact: true });
-  const time = panel.getByRole('slider', { name: 'Animation time', exact: true });
-  const [bodyBox, routineBox, playBox, timeBox] = await Promise.all([panel.locator('[data-tool-panel-body]').boundingBox(),
-    routine.boundingBox(), play.boundingBox(), time.boundingBox()]);
-  assert.equal(await panel.locator('[data-tool-panel-body]').getByText('Routine', { exact: true }).count(), 0, 'no label beside it');
-  assert.ok(routineBox.width >= bodyBox.width - 16 - 1, `the dropdown takes its row: ${routineBox.width} of ${bodyBox.width}`);
-  assert.ok(routineBox.height <= 24 + 1, 'a compact dropdown');
-  assert.ok(playBox.y >= routineBox.y + routineBox.height - 1 && playBox.x + playBox.width <= timeBox.x, 'the transport follows: play, then the time slider');
-  // Its settings: a Speed submenu (the speed in hand beside it), then Autoplay and Loop. Ticking a
-  // checkbox leaves the menu open.
-  const settingsButton = heading.getByRole('button', { name: 'Animation settings', exact: true });
-  const settings = page.getByRole('menu', { name: 'Animation settings', exact: true });
+  assert.equal(await pane.locator('[data-cad-tool-stack]').isVisible(), false, 'no panel of the routine\'s: the tools are put away');
+  // Its settings are Playback settings, in the top-right bar before Display settings and the X.
+  assert.deepEqual(await pane.locator('[data-viewport-actions]').getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))),
+    ['Playback settings', 'Display settings', 'Exit preview']);
+  const settingsButton = pane.getByRole('button', { name: 'Playback settings', exact: true });
+  const settings = page.getByRole('menu', { name: 'Playback settings', exact: true });
   const openSettings = async () => { await settingsButton.click(); await settings.waitFor(); };
   const checks = () => settings.getByRole('menuitemcheckbox').evaluateAll(items => items.map(item => `${item.textContent}:${item.getAttribute('aria-checked')}`));
-  const speedItem = () => settings.getByRole('menuitem', { name: /^Speed/ });
+  const routineItem = () => settings.getByRole('menuitem', { name: /^Routine/ });
+  const speedItem = () => settings.getByRole('menuitem', { name: /^Animation speed/ });
   await openSettings();
-  assert.equal((await speedItem().innerText()).replace(/\s+/g, ''), 'Speed1×');
-  assert.deepEqual(await checks(), ['Autoplay:false', 'Loop:true']);
+  assert.equal(await speedItem().getAttribute('aria-label'), 'Animation speed: 1×');
+  assert.deepEqual(await checks(), ['Loop:true', 'Autoplay:false', 'Orbit:true']);
+  assert.equal(await settings.getByRole('menuitem', { name: /^Orbit speed/ }).count(), 1, 'the orbit\'s speed follows its own');
   await settings.getByRole('menuitemcheckbox', { name: 'Loop', exact: true }).click();
-  assert.deepEqual(await checks(), ['Autoplay:false', 'Loop:false'], 'the menu stays open');
+  assert.deepEqual(await checks(), ['Loop:false', 'Autoplay:false', 'Orbit:true'], 'the menu stays open');
   await speedItem().hover();
-  const speeds = page.locator('[role=menu][aria-label="Speed"]');
-  await speeds.getByRole('menuitemradio', { name: '2×', exact: true }).click();
+  await page.locator('[role=menu][aria-label="Animation speed"]').getByRole('menuitemradio', { name: '2×', exact: true }).click();
   await settings.waitFor({ state: 'detached' });
-  await routine.click();
-  await page.getByRole('option', { name: 'Short swing', exact: true }).click();
+  await openSettings();
+  await routineItem().hover();
+  // The submenu opens to the left of a menu at the viewer's right edge; an instant pointer jump
+  // across to it defeats the submenu's pointer grace area, so the choice is made by keyboard.
+  await page.locator('[role=menu][aria-label="Routine"]').getByRole('menuitemradio', { name: 'Short swing', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await settings.waitFor({ state: 'detached' });
   assert.equal(await time.getAttribute('aria-valuemax'), '2');
-  // The panel's play and pause drive the playback.
+  // The playbar's play and pause drive the playback.
   await play.click();
   await pause.waitFor();
   await pause.click();
   await play.waitFor();
-  assert.equal(await tool.getAttribute('aria-pressed'), 'true');
   // The new routine brought its own loop; turn it off again, and turn Autoplay on, before leaving.
   await openSettings();
-  assert.equal((await speedItem().innerText()).replace(/\s+/g, ''), 'Speed2×');
+  assert.equal(await speedItem().getAttribute('aria-label'), 'Animation speed: 2×');
   if ((await checks()).includes('Loop:true')) await settings.getByRole('menuitemcheckbox', { name: 'Loop', exact: true }).click();
   await settings.getByRole('menuitemcheckbox', { name: 'Autoplay', exact: true }).click();
-  assert.deepEqual(await checks(), ['Autoplay:true', 'Loop:false']);
+  assert.deepEqual(await checks(), ['Loop:false', 'Autoplay:true', 'Orbit:true']);
   assert.deepEqual(await page.evaluate(() => window.cadHarness.preferences.getSnapshot().animation), { autoplay: true }, 'Autoplay is a viewer preference');
   await page.keyboard.press('Escape');
   await settings.waitFor({ state: 'detached' });
-  await heading.getByRole('button', { name: 'Close animate', exact: true }).click();
-  await panel.waitFor({ state: 'detached' });
-  assert.deepEqual(await view.stack(), ['Features'], 'the X hands back to Select');
-  assert.equal(await view.tool('Select').getAttribute('aria-pressed'), 'true');
-  // Leaving Animate keeps what its panel chose; with Autoplay on, taking it up again plays that
-  // routine, at that speed, without the loop.
-  await tool.click();
+  await view.exitPreview();
+  await bar.waitFor({ state: 'detached' });
+  assert.deepEqual(await view.stack(), ['Features'], 'the tools view comes back as it was');
+  // Leaving preview keeps what Playback settings chose; with Autoplay on, entering it again plays
+  // that routine, at that speed, without the loop.
+  await view.enterPreview();
   await pause.waitFor();
   assert.equal(await time.getAttribute('aria-valuemax'), '2', 'the routine is the one chosen');
-  assert.equal((await routine.innerText()).trim(), 'Short swing');
   await openSettings();
-  assert.equal((await speedItem().innerText()).replace(/\s+/g, ''), 'Speed2×');
-  assert.deepEqual(await checks(), ['Autoplay:true', 'Loop:false']);
+  assert.match(await routineItem().innerText(), /Short swing/);
+  assert.equal(await speedItem().getAttribute('aria-label'), 'Animation speed: 2×');
+  assert.deepEqual(await checks(), ['Loop:false', 'Autoplay:true', 'Orbit:true']);
   await page.keyboard.press('Escape');
   await page.evaluate(() => window.cadHarness.preferences.update({ animation: { autoplay: false } }));
+  await view.exitPreview();
   assert.deepEqual(errors, []);
 });
 
 
-test('fullscreen works without animations, retains the navbar and restores the tool stack', async t => {
+test('preview works without animations, retains the navbar and restores the tool stack', async t => {
   const original = harness.entry.sourceSidecar.animation;
   t.after(() => { harness.entry.sourceSidecar.animation = original; });
   let view;
@@ -1842,23 +1832,25 @@ test('fullscreen works without animations, retains the navbar and restores the t
   finally { harness.entry.sourceSidecar.animation = original; }
   const { page, pane, errors } = view;
   assert.equal(await view.tool('Animate').count(), 0);
-  await pane.getByRole('button', { name: 'Fullscreen', exact: true }).click();
+  await view.enterPreview({ orbit: true });
   const bar = pane.getByRole('toolbar', { name: 'Orbit playback' });
   await bar.getByRole('button', { name: 'Pause orbit' }).click();
   assert.equal(await bar.getByRole('button', { name: 'Play orbit' }).isVisible(), true);
   assert.equal(await pane.locator('[data-file-panel="tree"]').isVisible(), true, 'navbar stays visible');
   assert.equal(await pane.locator('[data-cad-tool-stack]').isVisible(), false, 'the tool stack goes with the toolbar');
   assert.equal(await pane.getByRole('img', { name: 'View cube' }).count(), 0);
-  await pane.getByRole('button', { name: 'Orbit settings', exact: true }).click();
+  await pane.getByRole('button', { name: 'Playback settings', exact: true }).click();
+  // No routines: its playback is the orbit alone.
+  assert.deepEqual(await page.getByRole('menuitemcheckbox').allTextContents(), ['Orbit']);
   assert.equal(await page.getByRole('menuitemcheckbox', { name: 'Orbit', exact: true }).getAttribute('aria-checked'), 'false');
   await page.keyboard.press('Escape');
-  await pane.getByRole('button', { name: 'Exit fullscreen', exact: true }).click();
+  await view.exitPreview();
   await bar.waitFor({ state: 'detached' });
   assert.deepEqual(await view.stack(), ['Features'], 'and comes back as it was');
   assert.deepEqual(errors, []);
 });
 
-test('fullscreen restores camera and retained tools without changing saved effects', async () => {
+test('preview restores camera and retained tools without changing saved effects', async () => {
   const view = await open();
   const { page, pane, errors } = view;
   await view.tool('Clip').click();
@@ -1870,11 +1862,15 @@ test('fullscreen restores camera and retained tools without changing saved effec
   await page.evaluate(() => window.cadHarness.a.controller.setCamera({ ...window.cadHarness.a.controller.readState().camera, zoom: 1.6, target: [4, 5, 2] }));
   const saved = await view.state();
   const stack = await pane.getByRole('region', { name: 'Explode controls', exact: true }).boundingBox();
-  await pane.getByRole('button', { name: 'Fullscreen', exact: true }).click();
+  await view.enterPreview({ orbit: true });
   assert.equal(await view.tool('Clip').count(), 0);
   assert.equal(await page.getByRole('region', { name: 'Clip controls', exact: true }).count(), 0);
   assert.deepEqual((await view.state()).display.clip, saved.display.clip);
-  await pane.getByRole('button', { name: 'Exit fullscreen', exact: true }).click();
+  // Dragging in preview moves preview's camera alone.
+  const canvas = await pane.locator('[aria-busy] > div > canvas').first().boundingBox();
+  await page.mouse.move(canvas.x + canvas.width / 2, canvas.y + canvas.height / 2);
+  await page.mouse.down(); await page.mouse.move(canvas.x + canvas.width / 2 + 90, canvas.y + canvas.height / 2 + 20, { steps: 5 }); await page.mouse.up();
+  await view.exitPreview();
   await pane.getByRole('slider', { name: 'Clip amount', exact: true }).waitFor();
   assert.deepEqual((await view.state()).display.clip, saved.display.clip);
   assert.deepEqual((await view.state()).display.exploded, saved.display.exploded);
@@ -2065,12 +2061,11 @@ test('toolbar tooltips wait for deliberate hover and never stick after selection
   await page.mouse.move(view.box.x + 20, view.box.y + 150);
   await page.waitForTimeout(500);
   assert.equal(await tips.count(), 0, 'deselection never resurrects a previously open tooltip');
-  // Display settings, like Fullscreen beside it, carries no tooltip; opening its popover by click
-  // pins none either.
+  // Display settings, like Preview beside it, is hinted by its name; opening its popover by click
+  // pins no hint.
   const display = view.tool('Display');
   await display.hover();
-  await page.waitForTimeout(700);
-  assert.equal(await tips.count(), 0, 'the Display settings button has no tooltip');
+  await page.getByRole('tooltip', { name: 'Display settings', exact: true }).waitFor();
   await display.click();
   await view.displayPanel().waitFor();
   await page.waitForTimeout(500);
@@ -2078,8 +2073,9 @@ test('toolbar tooltips wait for deliberate hover and never stick after selection
   await display.click();
   await view.displayPanel().waitFor({ state: 'detached' });
   await page.mouse.move(view.box.x + 20, view.box.y + 150);
-  await view.pane.getByRole('button', { name: 'Fullscreen', exact: true }).click();
-  assert.equal(await tips.count(), 0, 'fullscreen hides editor tooltips');
+  await view.pane.getByRole('button', { name: 'Preview', exact: true }).click();
+  await page.waitForTimeout(500);
+  assert.equal(await tips.count(), 0, 'preview hides editor tooltips');
   assert.deepEqual(view.errors, []);
 });
 
@@ -2095,12 +2091,15 @@ test('animated Render bounds follow moving geometry without moving the camera or
   const { page, pane } = view;
   await page.evaluate(() => { void window.cadHarness.a.controller.setRenderMode(true); });
   await page.waitForFunction(() => window.__cadStage()?.studioGround, null, { timeout: 10000 });
+  // Routines play in preview, which draws Render at its own quality: the stage as it is there, at rest.
+  await view.enterPreview();
+  await page.waitForFunction(() => window.__cadStage()?.studioGround, null, { timeout: 10000 });
+  await settle(page);
   const before = await page.evaluate(() => ({ camera: window.__cadCamera(), stage: window.__cadStage() }));
-  await view.tool('Animate').click();
-  // Autoplay is off: the panel's play button starts the routine.
-  await pane.getByRole('region', { name: 'Animate controls', exact: true }).getByRole('button', { name: 'Play animation', exact: true }).click();
+  // Autoplay is off: the playbar's play button starts the routine.
+  await pane.getByRole('toolbar', { name: 'Animation playback' }).getByRole('button', { name: 'Play animation', exact: true }).click();
   await page.waitForFunction(() => window.__cadStage().bounds.max[0] > 35, null, { timeout: 10000 });
-  await page.mouse.move(view.box.x + 20, view.box.y + 100);
+  // The pointer stayed on the playbar, which holds preview's controls up: pause there.
   await pane.getByRole('button', { name: 'Pause animation', exact: true }).click();
   await settle(page);
   const after = await page.evaluate(() => ({ camera: window.__cadCamera(), stage: window.__cadStage(), records: window.__cadDisplayRecords() }));
@@ -2125,10 +2124,10 @@ test('animated Render bounds follow moving geometry without moving the camera or
   assert.deepEqual(view.errors, []);
 });
 
-test('Fullscreen fills the viewer below the navbar, leaves the host\'s file tree as it is, and restores the tool stack from its exit control', async () => {
+test('Preview fills the viewer below the navbar, leaves the host\'s file tree as it is, and restores the tool stack from its X', async () => {
   const view = await open();
   const { page, pane, errors } = view;
-  // The host's column is the file tree here: fullscreen is the viewer's, and leaves it open and its
+  // The host's column is the file tree here: preview is the viewer's, and leaves it open and its
   // toggle live.
   await view.toggle('tree').click();
   const sheet = pane.locator('[data-file-panel-container="tree"]');
@@ -2138,8 +2137,7 @@ test('Fullscreen fills the viewer below the navbar, leaves the host\'s file tree
   const viewportBefore = await pane.locator('[data-cad-surface] canvas').first().boundingBox();
   const toolbar = await pane.locator('[data-cad-tool-groups]').boundingBox();
   assert.ok(Math.abs(toolbar.x - viewportBefore.x - 8) < 2, 'toolbar is inset 8px from the viewport left');
-  await pane.getByRole('button', { name: 'Fullscreen', exact: true }).click();
-  await pane.getByRole('button', { name: 'Exit fullscreen', exact: true }).waitFor();
+  await view.enterPreview({ orbit: true });
   assert.equal(await sheet.isVisible(), true, 'the file tree stays open');
   assert.deepEqual(await sheet.boundingBox(), before);
   assert.equal(await pane.locator('[data-file-panel]').evaluateAll(nodes => nodes.every(node => !node.disabled)), true, 'and its toggle stays live');
@@ -2149,22 +2147,22 @@ test('Fullscreen fills the viewer below the navbar, leaves the host\'s file tree
   assert.equal(await pane.locator('header [data-file-navigation-status]').count(), 1);
   assert.equal(await pane.locator('header').isVisible(), true);
   assert.equal(await pane.locator('[data-cad-toolbar]').isVisible(), false);
-  assert.equal(await pane.getByLabel('View cube', { exact: true }).isVisible(), false);
+  assert.equal(await pane.getByLabel('View cube', { exact: true }).count(), 0, 'no cube in preview');
+  assert.equal(await pane.locator('[data-cad-joint-handles]').count(), 0, 'no joint handles');
   await page.mouse.move(viewportDuring.x + viewportDuring.width - 20, viewportDuring.y + 20);
-  await pane.getByRole('button', { name: 'Exit fullscreen', exact: true }).click();
-  await pane.getByRole('button', { name: 'Fullscreen', exact: true }).waitFor();
+  await view.exitPreview();
   assert.equal((await sheet.boundingBox()).width, before.width);
   assert.deepEqual(await view.stack(), ['Position controls'], 'the tool in hand shows its panel again');
   assert.equal(await pane.locator('[data-file-panel]').evaluateAll(nodes => nodes.every(node => !node.disabled)), true);
   assert.deepEqual(errors, []);
 });
 
-test('Fullscreen settings and playback share visibility while editor controls stay hidden; Escape preserves the tool stack', async () => {
+test('Preview\'s settings and playback share visibility while editor controls stay hidden; Escape preserves the tool stack', async () => {
   const view = await open();
   const { page, pane, errors } = view;
   const sheet = pane.locator('[data-cad-tool-stack]');
   await view.tool('Position').click();
-  await pane.getByRole('button', { name: 'Fullscreen', exact: true }).click();
+  await view.enterPreview({ orbit: true });
   await sheet.waitFor({ state: 'hidden' });
   const bar = pane.getByRole('toolbar', { name: 'Animation playback' });
   await bar.getByRole('button', { name: 'Play animation', exact: true }).click();
@@ -2172,7 +2170,7 @@ test('Fullscreen settings and playback share visibility while editor controls st
   await bar.hover();
   await page.waitForTimeout(1200);
   assert.equal(await pane.locator('[data-preview-controls]').getAttribute('data-visible'), 'true');
-  await pane.getByRole('button', { name: 'Animation settings', exact: true }).click();
+  await pane.getByRole('button', { name: 'Playback settings', exact: true }).click();
   await page.getByRole('menu').waitFor();
   await page.waitForTimeout(1200);
   assert.equal(await pane.locator('[data-preview-controls]').getAttribute('data-visible'), 'true', 'open settings stay available');
@@ -2189,7 +2187,7 @@ test('Fullscreen settings and playback share visibility while editor controls st
   await page.keyboard.press('Escape');
   await sheet.waitFor({ state: 'visible' });
   assert.deepEqual(await view.stack(), ['Position controls']);
-  assert.equal(await pane.getByRole('button', { name: 'Fullscreen', exact: true }).isVisible(), true);
+  assert.equal(await pane.getByRole('button', { name: 'Preview', exact: true }).isVisible(), true);
   assert.deepEqual(errors, []);
 });
 
@@ -2359,14 +2357,14 @@ test('mobile: the tool stack and the file tree sheet overlay the scene, the tree
     const scene = pane.locator('[data-cad-scene-backdrop]');
     const before = await scene.boundingBox();
     const toolbar = await pane.getByRole('group', { name: 'Interaction tools' }).boundingBox();
-    const fullscreen = await pane.getByRole('button', { name: 'Fullscreen', exact: true }).boundingBox();
+    const preview = await pane.getByRole('button', { name: 'Preview', exact: true }).boundingBox();
     const displayButton = await view.tool('Display').boundingBox();
-    assert.ok(toolbar.x + toolbar.width <= displayButton.x && displayButton.x + displayButton.width <= fullscreen.x + 1,
-      'toolbar leaves room for Display settings and Fullscreen, in that order');
-    assert.ok(Math.abs(toolbar.y + toolbar.height / 2 - fullscreen.y - fullscreen.height / 2) < 1, 'fullscreen aligns with the toolbar');
-    assert.ok(Math.abs(displayButton.y + displayButton.height / 2 - fullscreen.y - fullscreen.height / 2) < 1, 'and so does Display settings');
+    assert.ok(toolbar.x + toolbar.width <= displayButton.x && displayButton.x + displayButton.width <= preview.x + 1,
+      'toolbar leaves room for Display settings and Preview, in that order');
+    assert.ok(Math.abs(toolbar.y + toolbar.height / 2 - preview.y - preview.height / 2) < 1, 'Preview aligns with the toolbar');
+    assert.ok(Math.abs(displayButton.y + displayButton.height / 2 - preview.y - preview.height / 2) < 1, 'and so does Display settings');
     const buttons = await pane.getByRole('group', { name: 'Interaction tools' }).locator('button').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().y));
-    assert.equal(new Set(buttons).size, 1, `all seven tools fit one row at ${width}px`);
+    assert.equal(new Set(buttons).size, 1, `all six tools fit one row at ${width}px`);
     assert.equal(await pane.getByRole('img', { name: 'View cube' }).count(), 0, 'no cube on mobile');
     await page.evaluate(() => {
       window.__panelLayoutFrames = [];
@@ -2456,7 +2454,7 @@ test('reopening ignores a saved camera and fits the model at the default perspec
   assert.deepEqual(reopened.errors, []);
 });
 
-test('navigation and tools share short tooltips without native titles or fullscreen hints', async () => {
+test('navigation, tools and the top-right bar share short tooltips without native titles', async () => {
   const view = await open();
   const { page, pane, errors } = view;
   await view.toggle('tree').hover();
@@ -2466,13 +2464,11 @@ test('navigation and tools share short tooltips without native titles or fullscr
   await page.getByRole('tooltip', { name: 'Draw', exact: true }).waitFor();
   const toolbarStyle = await page.locator('[data-slot="tooltip-content"]').first().getAttribute('class');
   assert.equal(toolbarStyle, navigationStyle);
-  await pane.getByRole('button', { name: 'Fullscreen', exact: true }).hover();
-  await page.waitForTimeout(500);
-  assert.equal(await page.getByRole('tooltip').count(), 0);
-  // Display settings is Fullscreen's neighbour, and like it carries no hint.
+  // Preview and Display settings beside it are named by their hints: their icons are not words.
+  await pane.getByRole('button', { name: 'Preview', exact: true }).hover();
+  await page.getByRole('tooltip', { name: 'Preview', exact: true }).waitFor();
   await view.tool('Display').hover();
-  await page.waitForTimeout(500);
-  assert.equal(await page.getByRole('tooltip').count(), 0);
+  await page.getByRole('tooltip', { name: 'Display settings', exact: true }).waitFor();
   await view.tool('Draw').hover();
   await page.getByRole('tooltip', { name: 'Draw', exact: true }).waitFor();
   await view.tool('Display').click();
@@ -2484,9 +2480,9 @@ test('navigation and tools share short tooltips without native titles or fullscr
   await page.waitForTimeout(500);
   assert.equal(await page.getByRole('tooltip').count(), 0, 'menu focus restoration does not resurrect a hint');
   // Tabbing IS navigation: the control a Tab lands on names itself.
-  await view.tool('Position').focus();
+  await view.tool('Select').focus();
   await page.keyboard.press('Tab');
-  await page.getByRole('tooltip', { name: 'Animate', exact: true }).waitFor();
+  await page.getByRole('tooltip', { name: 'Draw', exact: true }).waitFor();
   await pane.getByRole('button', { name: 'File actions', exact: true }).click();
   await page.getByRole('menu', { name: 'File actions', exact: true }).waitFor();
   await page.keyboard.press('Escape');
@@ -2635,22 +2631,22 @@ test('mobile touch operates every STEP tool without hover or accidental pinch se
   await view.tool('Display').tap();
   await settings.waitFor({ state: 'hidden' });
 
-  await view.tool('Animate').tap();
-  const animatePanel = pane.getByRole('region', { name: 'Animate controls', exact: true });
-  await animatePanel.getByRole('button', { name: 'Play animation', exact: true }).tap();
-  await animatePanel.getByRole('button', { name: 'Pause animation', exact: true }).waitFor();
-  // Its Speed is in the Animate panel's settings, by touch like everything else.
-  await animatePanel.getByRole('button', { name: 'Animation settings', exact: true }).tap();
-  await page.getByRole('menu', { name: 'Animation settings', exact: true }).getByRole('menuitem', { name: /^Speed/ }).tap();
-  await page.locator('[role=menu][aria-label="Speed"]').getByRole('menuitemradio', { name: '2×', exact: true }).tap();
-  await page.getByRole('menu', { name: 'Animation settings', exact: true }).waitFor({ state: 'detached' });
-  await animatePanel.getByRole('button', { name: 'Pause animation', exact: true }).tap();
-  await animatePanel.getByRole('button', { name: 'Play animation', exact: true }).waitFor();
-  await pane.getByRole('button', { name: 'Fullscreen', exact: true }).tap();
-  await page.getByRole('button', { name: 'Orbit settings', exact: true }).tap();
+  // Preview, by touch like everything else: its playbar plays, and its Playback settings set the
+  // routine's speed and the orbit.
+  await pane.getByRole('button', { name: 'Preview', exact: true }).tap();
+  const playbar = pane.getByRole('toolbar', { name: 'Animation playback' });
+  await playbar.getByRole('button', { name: 'Play animation', exact: true }).tap();
+  await playbar.getByRole('button', { name: 'Pause animation', exact: true }).waitFor();
+  await pane.getByRole('button', { name: 'Playback settings', exact: true }).tap();
+  await page.getByRole('menu', { name: 'Playback settings', exact: true }).getByRole('menuitem', { name: /^Animation speed/ }).tap();
+  await page.locator('[role=menu][aria-label="Animation speed"]').getByRole('menuitemradio', { name: '2×', exact: true }).tap();
+  await page.getByRole('menu', { name: 'Playback settings', exact: true }).waitFor({ state: 'detached' });
+  await playbar.getByRole('button', { name: 'Pause animation', exact: true }).tap();
+  await playbar.getByRole('button', { name: 'Play animation', exact: true }).waitFor();
+  await pane.getByRole('button', { name: 'Playback settings', exact: true }).tap();
   await page.getByRole('menuitemcheckbox', { name: 'Orbit', exact: true }).tap();
   await page.touchscreen.tap(30, 700);
-  await page.getByRole('button', { name: 'Exit fullscreen' }).tap();
+  await page.getByRole('button', { name: 'Exit preview' }).tap();
   assert.deepEqual(errors, []);
 });
 

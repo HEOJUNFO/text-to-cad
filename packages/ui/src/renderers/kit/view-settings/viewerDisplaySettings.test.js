@@ -3,7 +3,7 @@ import test from 'node:test';
 import { normalizeViewSettings, resetViewSettings, resolveViewSettings, viewSettingsAreCustom } from '@hardcore/core/common/viewSettings.js';
 import { DISPLAY_MODE_OPTIONS } from './DisplayModeOptions.js';
 import {
-  cameraForViewSettings, mergeViewerDisplaySettings, presentationDisplaySettings,
+  cameraForViewSettings, mergeViewerDisplaySettings, previewDisplaySettings,
   viewerDisplaySettingsForCamera, viewerDisplaySettingsForMode
 } from './viewerDisplaySettings.js';
 
@@ -87,7 +87,7 @@ test('live clip scalar patches replace the active offset and retain the other ax
 test('presentation suspends model effects without mutating the saved settings', () => {
   const display = { mode: 'render', clip: { enabled: true, axis: 'y', offsets: { y: .4 } }, exploded: { enabled: true, amount: .7 } };
   const before = structuredClone(display);
-  const preview = presentationDisplaySettings(display);
+  const preview = previewDisplaySettings(display);
   assert.equal(preview.clip.enabled, false);
   assert.equal(preview.exploded.enabled, false);
   assert.equal(preview.exploded.amount, 0);

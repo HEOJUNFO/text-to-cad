@@ -10,7 +10,7 @@ import { sceneBackdropEdgeColor } from "../look/chromeBackdrop.js";
 import { useChromeBackdropColor } from "../look/useChromeBackdropColor.js";
 import { prefetchRenderStudio } from "../look/renderStudioChunk.js";
 import { CAD_DRAWING_DEFAULTS } from "../tools/draw/DrawingOverlay.jsx";
-import { normalizeOrbit } from "../tools/fullscreen/orbitPreferences.js";
+import { normalizeOrbit } from "../tools/preview/orbitPreferences.js";
 import { normalizeToolStack } from "../tools/toolStackLayout.js";
 import { normalizeAnimationPreferences } from "../tools/playbar/animationPreferences.js";
 import { DisplaySettingsSection } from "../view-settings/DisplaySettingsSection.js";
@@ -24,17 +24,18 @@ import { readShellState, scopeShellCamera, shellPresentationKey, shellStatesEqua
 import { useViewerShortcuts } from "./useViewerShortcuts.js";
 
 /**
- * Fullscreen presentation's one state. The shell holds it unless the renderer passes it in
- * (`useRendererShell`'s `presentation`).
- * @returns {{ presenting: boolean, set: (presenting: boolean) => void }}
+ * Preview mode's one state: the viewer with its tools put away, orbiting the model and
+ * playing its routines. The shell holds it unless the renderer passes it in
+ * (`useRendererShell`'s `preview`).
+ * @returns {{ previewing: boolean, set: (previewing: boolean) => void }}
  */
-export function usePresentationState() {
-  const [presenting, set] = useState(false);
-  return useMemo(() => ({ presenting, set }), [presenting]);
+export function usePreviewState() {
+  const [previewing, set] = useState(false);
+  return useMemo(() => ({ previewing, set }), [previewing]);
 }
 
 /**
- * What the viewport reports it is presenting (`ShellViewport`'s `onPresentationChange`): the file, the
+ * What the viewport reports it is previewing (`ShellViewport`'s `onPresentationChange`): the file, the
  * presentation key, the render mode, and whether it is still preparing or covering a transition. Held once;
  * the shell holds it unless the renderer passes it in (`useRendererShell`'s `presentationReport`).
  * @returns {{ state: { file: string, key: string, renderMode: boolean, covering: boolean, preparing: boolean } | null,
@@ -71,7 +72,7 @@ const EMPTY = Object.freeze({});
  *  - tools: the mode state machine and Draw's session, or none at all for a
  *    renderer whose viewport is the camera's alone;
  *  - the host contract: navbar actions, prompt snapshots, clipboard screenshots,
- *    fullscreen, alerts, shortcuts (a file's controls are tool-stack panels the renderer
+ *    preview, alerts, shortcuts (a file's controls are tool-stack panels the renderer
  *    shows with its tools, never a host panel);
  *  - the live command surface, with the renderer's added and declined commands.
  *
@@ -93,10 +94,10 @@ const EMPTY = Object.freeze({});
  *   the renderer made it itself (see `viewSettings.applied`).
  * @param {ReturnType<typeof import("../tools/toolModes.js").createToolModes> | null} [options.toolModes]  Omitted
  *   by a renderer with no tools: the shell then has no active tool and a saved tab records none.
- * @param {{ presenting: boolean, set: (presenting: boolean) => void }} [options.presentation]  Fullscreen
- *   presentation (`usePresentationState`), when the renderer holds that state itself: a renderer whose own gates
+ * @param {{ previewing: boolean, set: (previewing: boolean) => void }} [options.preview]  Preview mode
+ *   (`usePreviewState`), when the renderer holds that state itself: a renderer whose own gates
  *   (picking, recognition, tool effects) run before this hook cannot wait for it. Every gate reads this one
- *   state; the fullscreen button, Escape and the exit control write it. Omitted: the shell holds it.
+ *   state; the Preview button, Escape and its X write it. Omitted: the shell holds it.
  * @param {{ mode: string, set: (update: (current: string) => string) => void }} [options.tool]  The tool in
  *   hand, when the renderer holds that state itself: a renderer whose LOAD, or what Escape means in it,
  *   turns on which tool is up cannot wait for this hook to hand it back. The rules stay the shell's —
@@ -107,8 +108,8 @@ const EMPTY = Object.freeze({});
  *   renderer's document load. `busy`: nothing to show yet. `updating`: a newer revision is loading behind the scene on
  *   screen. The rest are for a renderer whose document is more than a download — see `loadReport.js`.
  * @param {object | null} [options.animation]  A playbar runtime (with its own `clock`), when the file has
- *   routines. The shell then offers Animate (unless the renderer hands over its own) and shows the
- *   playbar while Animate is up and in fullscreen.
+ *   routines. Routines play in preview alone: the shell then puts them in its Playback settings and the
+ *   playbar under the model, and leaving preview hands the runtime's `onRelease` the model back at rest.
  * @param {{ commands?: Record<string, (...args: any[]) => void>, declined?: Record<string, string>,
  *   state?: () => object, resource?: () => object }} [options.live]  Live commands this renderer adds (by name) or
  *   declines (name to the error its caller reads), and extra fields for the live state. Every name in
@@ -133,7 +134,7 @@ const EMPTY = Object.freeze({});
  *   (`toolModes.restore`): `opensIn` is the tool a file with nothing recorded opens in, while the tool modes'
  *   default stays what a session falls back to; `never` lists recorded tools this file does not come back in.
  * @param {() => void} [options.onCameraSettled]  The camera came to rest on a new view: it moved and was
- *   recorded, a presentation camera moved (fullscreen, which records nothing), or the viewport's size
+ *   recorded, a preview camera moved (preview mode, which records nothing), or the viewport's size
  *   changed — which can expose part of a scene without changing position, target or zoom at all. For a
  *   renderer that samples the camera to decide what detail its scene needs. It is called often; debounce
  *   it if that matters.
@@ -147,13 +148,13 @@ const EMPTY = Object.freeze({});
  *   itself and hands the composed result back as `load.alert`; the shell then holds none of its own.
  *   Omitted: the shell keeps it and folds it into the report.
  * @param {ReturnType<typeof usePresentationReport>} [options.presentationReport]  What the viewport is
- *   presenting, when the renderer holds that state itself: a renderer that must answer "is what is on screen
+ *   previewing, when the renderer holds that state itself: a renderer that must answer "is what is on screen
  *   the document I asked for" before this hook runs — a live preview deciding whether its own result has
  *   landed (`presentationIsPending` with `shellPresentationKey(modelKey, revisionKey)`). Omitted: the shell holds it.
  * @param {string} [options.sceneScaleMode]
  */
 export function useRendererShell({
-  view, services, resource, modelKey, revisionKey = "", features, toolModes = null, tool = null, presentation = null, scene, load,
+  view, services, resource, modelKey, revisionKey = "", features, toolModes = null, tool = null, preview = null, scene, load,
   viewSettings = null, viewerRef: providedViewerRef = null,
   animation = null, live = EMPTY, promptReferences = null, promptContext = createViewPromptContext,
   escape = EMPTY, rendererState = EMPTY, toolRestore = EMPTY,
@@ -168,8 +169,8 @@ export function useRendererShell({
   const composer = destination.kind === "composer";
   const { onNavigationActionsChange, onStateChange, appearance } = view;
   const colorScheme = appearance?.colorScheme === "dark" ? "dark" : "light";
-  const ownPresentation = usePresentationState();
-  const { presenting, set: setPresenting } = presentation || ownPresentation;
+  const ownPreview = usePreviewState();
+  const { previewing, set: setPreviewing } = preview || ownPreview;
 
   // ---- per-file state -------------------------------------------------------
   const [restored] = useState(() => readShellState(view.state));
@@ -237,11 +238,11 @@ export function useRendererShell({
   const handlePerspectiveChange = useCallback((nextPerspective) => {
     // A camera that moved is a camera that settled, whether or not the file records it.
     cameraSettledRef.current?.();
-    if (presenting) return;
+    if (previewing) return;
     const snapshot = clonePerspectiveSnapshot(nextPerspective);
     if (!snapshot) return;
     activePerspectiveRef.current = snapshot;
-  }, [presenting]);
+  }, [previewing]);
 
   // ---- host chrome ----------------------------------------------------------
   const chromeBackdropColor = useChromeBackdropColor(colorScheme === "dark");
@@ -266,7 +267,7 @@ export function useRendererShell({
     toolStackRef.current = next;
     services.onPreferenceChange({ toolStack: next });
   }, [services.onPreferenceChange]);
-  // Whether taking up Animate starts the routine: the person's, across files, kept with the orbit.
+  // Whether entering preview starts the routine: the person's, across files, kept with the orbit.
   const autoplay = normalizeAnimationPreferences(services.preferences?.animation).autoplay;
   const setAutoplay = useCallback(value => services.onPreferenceChange({ animation: normalizeAnimationPreferences({ autoplay: value }) }),
     [services.onPreferenceChange]);
@@ -303,7 +304,7 @@ export function useRendererShell({
 
   // ---- tools ----------------------------------------------------------------
   const idle = viewerLoading || !scene;
-  const drawToolActive = !presenting && toolMode === SHELL_TOOL.DRAW;
+  const drawToolActive = !previewing && toolMode === SHELL_TOOL.DRAW;
   const selectTool = useCallback((mode) => setToolMode(current => (toolModes ? toolModes.next(current, mode) : mode)), [toolModes, setToolMode]);
   // A tool panel's X: back to the file's default tool (Select, where there is one), from any tool.
   const selectDefaultTool = useCallback(() => setToolMode(toolModes ? toolModes.defaultMode : ""), [toolModes, setToolMode]);
@@ -372,12 +373,12 @@ export function useRendererShell({
   useViewerShortcuts({
     viewerElement,
     onCopy: () => copyActionRef.current?.() || false,
-    escapeActive: Boolean(escape.active || presenting),
+    escapeActive: Boolean(escape.active || previewing),
     onEscape(event) {
       // A popup opened in THIS viewer (a menu, a Select, the Display popover) owns Escape before
-      // fullscreen; another viewer's popup is not this one's business.
+      // preview; another viewer's popup is not this one's business.
       if (hasOpenPopup(viewerElement.current)) return;
-      if (presenting) { setPresenting(false); return; }
+      if (previewing) { setPreviewing(false); return; }
       // Draw's surface spends its own Escape (its editor deselects, or drops the stroke in hand).
       if (drawToolActive && event.target instanceof Element && event.target.closest("[data-cad-drawing-overlay]")) return;
       escapeRef.current?.();
@@ -412,7 +413,7 @@ export function useRendererShell({
       }
       const nextDisplay = viewerDisplaySettingsForCamera(viewSettingsStore.getSnapshot().display, camera);
       const requested = clonePerspectiveSnapshot(camera);
-      if (presenting) {
+      if (previewing) {
         if (!viewerRef.current?.setPerspective?.(requested)) throw new Error("The viewer could not apply this camera.");
         return;
       }
@@ -455,7 +456,7 @@ export function useRendererShell({
     onGroupEnabledChange={viewSettingsStore.setEnabled} onModeChange={viewSettingsStore.selectPreset}
     onViewReset={viewSettingsStore.reset} />;
   const stripTool = ({ id, label, icon, ...rest }) => ({
-    id, label, icon, active: !presenting && toolMode === id, disabled: idle, onSelect: () => selectTool(id), ...rest
+    id, label, icon, active: !previewing && toolMode === id, disabled: idle, onSelect: () => selectTool(id), ...rest
   });
   const DrawIcon = DRAWING_TOOLBAR_TOOLS.find(item => item.id === drawing.tool)?.Icon || Pencil;
   const tools = {
@@ -470,8 +471,8 @@ export function useRendererShell({
 
   return {
     // Renderer-facing.
-    toolMode, selectTool, selectDefaultTool, tools, idle, presenting, setPresenting,
-    // Whether taking up Animate plays (its settings menu's Autoplay).
+    toolMode, selectTool, selectDefaultTool, tools, idle, previewing, setPreviewing,
+    // Whether entering preview plays the routine (its Playback settings' Autoplay).
     autoplay, setAutoplay,
     // Deliver a prompt context through the host, reporting a failure as the viewport's alert.
     reportActionError, deliverPrompt, requestRender: () => viewerRef.current?.requestRender?.(),

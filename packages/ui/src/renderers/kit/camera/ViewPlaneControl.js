@@ -109,7 +109,6 @@ function activateOnKey(event, activate) {
 
 function ViewPlaneControl({
   showViewPlane,
-  previewMode,
   isLoading,
   meshData,
   viewPlaneOffsetRight,
@@ -141,7 +140,7 @@ function ViewPlaneControl({
     setHoveredId("");
   }, [disabled]);
 
-  const showSelector = showViewPlane && !previewMode;
+  const showSelector = showViewPlane;
   if (isLoading || !meshData || (!showSelector && !viewPlaneHeader)) {
     return null;
   }

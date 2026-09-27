@@ -242,10 +242,10 @@ test('a robot can enter Position with sidebar controls: knobs drag joints, the c
   await page.waitForFunction(() => window.__cadJointHandles?.().length > 0);
   assert.deepEqual(await robot.toolNames(), ['Select:false', 'Position:true']);
   assert.equal(await robot.tool('Draw').count(), 0, 'Draw is a STEP tool; a robot description has none');
-  assert.equal(await robot.tool('Fullscreen').count(), 0, 'Fullscreen is no toolbar tool');
-  assert.equal(await pane.getByRole('button', { name: 'Fullscreen', exact: true }).count(), 1, 'it is the viewer’s corner button, for a robot as for any 3D file');
+  assert.equal(await robot.tool('Preview').count(), 0, 'Preview is no toolbar tool');
+  assert.equal(await pane.getByRole('button', { name: 'Preview', exact: true }).count(), 1, 'it is the viewer’s corner button, for a robot as for any 3D file');
   // The nav row has the file tree's toggle alone: a robot declares no panel of its own. Display
-  // is the settings button beside Fullscreen.
+  // is the settings button beside Preview.
   assert.deepEqual(await robot.panels(), ['Show files:false']);
   assert.equal(await pane.page().locator('[data-display-popover]').count(), 0, 'Display is never where a file opens');
   assert.equal(await pane.getByRole('tab').count(), 0, 'no tabs');

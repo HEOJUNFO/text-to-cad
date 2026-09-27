@@ -4,9 +4,10 @@ import { cn } from "@hardcore/ui/utils";
 import { FLOATING_SURFACE_CLASS } from "./floatingSurface.js";
 
 /**
- * A settings popover under its own button: an ordinary dropdown, start-aligned — fullscreen's
- * orbit and animation settings (`OrbitMenu.jsx`, `PlayMenu.jsx`). It is always temporary. No
- * tool on the strip has one: a tool's settings are its panel in the tool stack.
+ * A settings popover under its own button: an ordinary dropdown, start-aligned unless `align`
+ * says otherwise — preview mode's Playback settings (`PlaybackMenu.jsx`, end-aligned under the
+ * viewport's top-right bar). It is always temporary. No tool on the strip has one: a tool's
+ * settings are its panel in the tool stack.
  *
  * It closes with no exit animation. A menu on its way out is still mounted, and its outside-
  * press layer still listens: a tap on the tool while the last menu was fading reopened the menu
@@ -14,7 +15,7 @@ import { FLOATING_SURFACE_CLASS } from "./floatingSurface.js";
  * only to take the stale menu away. Unmounting at once leaves no layer to hear that tap. The
  * primitive's `animate-out` is not a class `cn` knows to replace, so the override is important.
  */
-export default function ToolPopover({ trigger, label, className, onOpenChange, allowInactive = false, children }) {
+export default function ToolPopover({ trigger, label, className, onOpenChange, allowInactive = false, align = "start", children }) {
   const [open, setLocalOpen] = useState(false);
   const setOpen = value => {
     setLocalOpen(value);
@@ -24,7 +25,7 @@ export default function ToolPopover({ trigger, label, className, onOpenChange, a
   useEffect(() => { if (!active) setOpen(false); }, [active]);
   return <DropdownMenu open={open && active} onOpenChange={setOpen} modal={false}>
     <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-    <DropdownMenuContent align="start" sideOffset={8} collisionPadding={8} aria-label={label}
+    <DropdownMenuContent align={align} sideOffset={8} collisionPadding={8} aria-label={label}
       className={cn(FLOATING_SURFACE_CLASS, "w-40 max-w-[calc(100vw-16px)] max-h-[min(24rem,var(--radix-popper-available-height))] data-[state=closed]:animate-none!", className)}
       onEscapeKeyDown={event => { event.stopPropagation(); setOpen(false); }}>
       {children}

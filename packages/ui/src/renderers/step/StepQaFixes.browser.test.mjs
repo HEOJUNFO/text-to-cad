@@ -47,7 +47,7 @@ async function open(server) {
     at: projector(await page.evaluate(() => window.__cadCamera()), box),
     state: () => page.evaluate(() => window.cadHarness.a.controller.readState()),
     tool: name => pane.locator('[data-cad-toolbar]').getByRole('button', { name, exact: true }),
-    // Display is not a tool: its settings are a popover from the button beside Fullscreen.
+    // Display is not a tool: its settings are a popover from the button beside Preview.
     displayButton: () => pane.getByRole('button', { name: 'Display settings', exact: true }),
     tools: () => pane.locator('[data-cad-toolbar]').getByRole('button')
       .evaluateAll(buttons => buttons.map(button => `${button.getAttribute('aria-label')}:${button.getAttribute('aria-pressed')}`)),

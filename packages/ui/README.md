@@ -79,7 +79,7 @@ src/
     navigation/     breadcrumbs, file tree, entry menus and panel frame
   renderers/
     kit/            the frame every viewer file shares: viewport, tools, panels, Display settings, status
-    step/           STEP: Features tree, Position, Animate, feature recognition
+    step/           STEP: Features tree, Position, routines, feature recognition
     robot/          URDF, SRDF and SDF: Position and Links
     glb/, mesh/     GLB, and STL/3MF triangle meshes
     dxf/            2D drawings
@@ -253,10 +253,10 @@ tree asks for the tree, so the tree stays up while a person walks it; any other 
 gets nothing. No panel is saved in a file's record.
 The binding [viewer design system](docs/settings-ui.md) defines tool lifecycle,
 the tool stack, mobile layout, section density, keyboard scope, tooltips
-and fullscreen. RendererShell owns the top-left toolbar and bottom-right cube;
-Display is the last toolbar item and Animate is conditional on clips.
-Fullscreen is a separate top-right action, the shell's own, and preserves the
-parent navbar. Keep app-specific effects in the
+and preview. RendererShell owns the top-left toolbar, the bottom-right cube and
+the top-right bar: Display settings, then Preview. Preview is the shell's own
+mode, where routines play and the model orbits, and preserves the parent
+navbar. Keep app-specific effects in the
 [host contract](docs/viewer-host.md), not in renderer components.
 
 One per-file settings store serves controls, live commands and persistence.

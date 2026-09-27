@@ -26,7 +26,7 @@ describe("viewer renderer registrations", () => {
     // A DXF is a straight render: it declares no panels, so the navbar offers no toggle
     // but the file tree's, which is the only panel a drawing tab can open.
     expect("panels" in dxf).toBe(false);
-    // Fullscreen is each viewer's own presentation, never a flag a registration offers a host.
-    expect("fullscreen" in dxf || "fullscreen" in step).toBe(false);
+    // Preview is each viewer's own mode, never a flag a registration offers a host.
+    expect(["fullscreen", "preview", "previewing"].some(key => key in dxf || key in step)).toBe(false);
   });
 });
