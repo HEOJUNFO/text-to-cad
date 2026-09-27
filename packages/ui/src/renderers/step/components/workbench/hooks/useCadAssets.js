@@ -1298,6 +1298,14 @@ export function useCadAssets({
               componentBundleByCid[cid] = lodBundleByCid[cid];
               return;
             }
+            // A bundle this session already loaded for the same concrete tessellation (the
+            // key names the surf, level and identity) is the one the cache would return: reuse
+            // it, so a batch fetches only its new components, not every one it composes.
+            const held = session.bundleByCid.get(cid);
+            if (held && held.key === componentBundleKeyByCid[cid]) {
+              componentBundleByCid[cid] = held.bundle;
+              return;
+            }
             // Exact-surface topology (design/surface-rendering.md R3): the
             // selector bundle is synthesized client-side from the .surf.
             componentBundleByCid[cid] = await loadRenderSurfSelectorBundle(
@@ -1311,6 +1319,7 @@ export function useCadAssets({
                 identity
               }
             ).catch(() => null);
+            if (componentBundleByCid[cid]) session.bundleByCid.set(cid, { key: componentBundleKeyByCid[cid], bundle: componentBundleByCid[cid] });
           }
         );
         if (!isCurrent()) {
@@ -1549,7 +1558,7 @@ export function useCadAssets({
         },
         onFailed: (err) => failReferenceSession(session, err)
       });
-      Object.assign(session, { key, loader: loadReferenceBatch, requestId, controller, entry });
+      Object.assign(session, { key, loader: loadReferenceBatch, requestId, controller, entry, bundleByCid: new Map() });
       referenceAbortControllerRef.current = controller;
       referenceSessionRef.current = session;
     }
