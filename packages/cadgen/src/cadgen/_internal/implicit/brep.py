@@ -205,6 +205,8 @@ def to_brep(root: F.Field, *, blends: str = "fillet", drop_blends: bool | None =
         if isinstance(node, F.Revolve):
             face = bd.Plane.XZ * profile(node.profile)
             return bd.revolve(face, axis=bd.Axis.Z)
+        if isinstance(node, F.Brep):
+            return node.shape  # the way in kept the B-rep: the way out uses it exactly
         if isinstance(node, F.Custom):
             raise Unrepresentable(node, "a custom field is a Python function with no B-rep")
         if isinstance(node, F._Boolean):

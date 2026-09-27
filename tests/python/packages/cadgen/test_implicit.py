@@ -231,6 +231,56 @@ class Questions(unittest.TestCase):
         self.assertEqual(corner["leaf"], 0)
 
 
+class BrepLeaves(unittest.TestCase):
+    """A B-rep enters the field as a leaf, and leaves exactly."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from cadgen import build123d as bd
+
+        cls.tmp = tempfile.TemporaryDirectory()
+        body = bd.Box(30, 20, 10) - bd.Cylinder(4, 20)
+        cls.step = Path(cls.tmp.name) / "plate.step"
+        bd.export_step(body, str(cls.step))
+        cls.volume = float(body.volume)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.tmp.cleanup()
+
+    def test_a_step_is_a_field_with_exact_distances(self) -> None:
+        plate = im.from_step(self.step, label="plate")
+        plate.prepare(0.25)
+        d = plate.distance([(0, 0, 0), (16, 0, 0), (4.5, 0, 0), (0, 0, 6), (14, 9, 4), (0, 12, 0)])
+        np.testing.assert_allclose(d, [4.0, 1.0, -0.5, math.sqrt(17), -1.0, 2.0], atol=0.02)  # (0,0,0) is in the bore; (0,0,6) is above the hole
+        self.assertEqual(engine.leaves(plate)[0].label, "plate")
+        self.assertAlmostEqual(im.contour(plate, resolution=0.3).volume(), self.volume, delta=0.01 * self.volume)
+
+    def test_an_operation_in_the_field_leaves_as_an_exact_step(self) -> None:
+        slotted = im.from_step(self.step) - im.box((40, 4, 6)).translate(0, 0, 5).named("slot")
+        mesh_volume = im.contour(slotted, resolution=0.25).volume()
+        shape = im.to_brep(slotted)
+        self.assertAlmostEqual(shape.volume, mesh_volume, delta=0.01 * mesh_volume)
+        self.assertGreater(len(shape.faces()), 6, "the original faces survive, plus the slot's")
+        shelled = im.from_step(self.step).shell(1.5)
+        self.assertGreater(im.contour(shelled, resolution=0.25).triangle_count, 0, "the field shells what it is given")
+
+    def test_a_brep_leaf_is_taped_as_its_step(self) -> None:
+        part = im.from_step(self.step, label="plate") | im.sphere(3).translate(0, 0, 6)
+        tape = Path(self.tmp.name) / "part.implicit.json"
+        write_tape(part, tape, name="part", resolution=0.3)
+        back, header = read_tape(tape)
+        self.assertEqual(header["leaves"][0]["kind"], "brep")
+        pts = np.random.default_rng(5).uniform(-20, 20, (500, 3))
+        back.prepare(0.3)
+        part.prepare(0.3)
+        np.testing.assert_allclose(back.distance(pts), part.distance(pts), atol=1e-6)
+        from cadgen import build123d as bd
+
+        with self.assertRaisesRegex(ValueError, "no file|not tapeable|custom"):
+            write_tape(im.from_shape(bd.Box(1, 1, 1)), Path(self.tmp.name) / "x.implicit.json", name="x", resolution=0.5)
+
+
 class Tape(unittest.TestCase):
     def test_a_tree_round_trips_through_its_tape(self) -> None:
         part = (

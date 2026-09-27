@@ -21,6 +21,8 @@ distances (the value *is* the distance to the surface).
 | `im.extrude(profile, height)` | a 2D profile along Z |
 | `im.revolve(profile)` | a 2D profile drawn in the (radius, z) half-plane, turned about Z |
 | `im.custom(fn, bounds)` | your own `fn(points (N,3)) -> (N,)` with declared bounds; cannot be saved to a tape |
+| `im.from_step(path)` | an existing STEP as a leaf: the way a B-rep enters the field. Its B-rep is kept, so sharp booleans with it leave as an exact STEP; the tape records the file relative to itself |
+| `im.from_shape(shape)` | a build123d shape (a `$cad` model's result) as a leaf; not tapeable |
 
 2D profiles for extrude and revolve: `im.circle(r)`, `im.rect(w, h, radius=0)`,
 `im.polygon([(x, y), ...])` (any simple polygon, either winding),
@@ -120,6 +122,26 @@ from housing import housing        # another script's @im.part
 def assembly():
     return housing() | im.sphere(4).translate(0, 0, 14).named("cap")
 ```
+
+## Starting from a B-rep
+
+Any STEP can enter the field, be operated on there, and leave as a STEP:
+
+```python
+base = im.from_step("STEP/bracket.step").named("bracket")
+ribbed = im.union(base, im.box((40, 3, 12)).translate(0, 0, 8).named("rib"), round=2)
+hollow = ribbed.shell(1.6) - im.half_space((0, 0, -1), (0, 0, 0.2)).named("opening")
+return hollow - im.cylinder(1.7, 30).translate(15, 0, 0).mirror("x").named("holes")
+```
+
+Use this when a B-rep operation keeps failing (a shell, a blend between
+bodies), when a lattice or organic feature must be added to a machined
+part, or when the question is metric (clearance of two STEPs: `im.clearance(a, b)`).
+The distance of a B-rep leaf comes from its surface and is exact to a small
+fraction of the grid cell; contouring costs more than a primitive (a few
+seconds for a part like the housing at 0.4 mm). A sharp boolean with a
+B-rep leaf leaves through `cadgen implicit step` with the original faces
+intact; a shell or blend leaves only if OpenCascade agrees, as for any tree.
 
 ## Limits to state in the report
 

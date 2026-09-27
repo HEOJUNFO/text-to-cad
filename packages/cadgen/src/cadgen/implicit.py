@@ -127,6 +127,27 @@ def custom(fn, bounds, *, label: str | None = None) -> Field:
     return Custom(fn, bounds, label=label)
 
 
+def from_step(path, *, label: str | None = None) -> Field:
+    """A STEP (or STP) as a leaf: the way an existing part enters the field.
+
+    Its distance is evaluated from the B-rep's surface, exact to a small
+    fraction of the grid cell; the B-rep itself is kept, so a sharp boolean
+    with it leaves as an exact STEP through ``step``/``to_brep``. The tape
+    records the file, relative to itself, so keep them together.
+    """
+    from cadgen import build123d as bd
+    from cadgen._internal.implicit.field import Brep
+
+    return Brep(bd.import_step(str(path)), source=str(path), label=label)
+
+
+def from_shape(shape, *, label: str | None = None) -> Field:
+    """A build123d shape as a leaf (a ``$cad`` model's result, say). Not tapeable: it has no file."""
+    from cadgen._internal.implicit.field import Brep
+
+    return Brep(shape, label=label)
+
+
 def circle(radius: float) -> Profile:
     from cadgen._internal.implicit.field import Circle
 

@@ -183,6 +183,7 @@ def contour(
     h = float(resolution) if resolution else box.diagonal / 120.0
     origin, shape, h = grid_for(box, h)
     all_leaves = leaves(field)
+    field.prepare(h)
 
     values = sample(field, origin, shape, h)
     timings["sample_s"] = time.perf_counter() - t0

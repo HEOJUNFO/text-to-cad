@@ -145,6 +145,54 @@ Drawbacks of the implicit path, honestly:
 - **No parameter derivatives** (cadjoint's territory), and the UI selects
   leaves, not faces.
 
+## Combining B-reps and fields: the translator both ways
+
+Amy's ask: build a translator between the two, run every operation through
+the field, and export a B-rep. The branch now does that.
+
+**The way in** (`_internal/implicit/brep_field.py`, `im.from_step`,
+`im.from_shape`): a build123d shape becomes a leaf that answers the distance
+question. The shape is tessellated once at a chord tolerance well under the
+grid cell, every triangle is covered with samples at the cell spacing, a k-d
+tree over the samples (scipy, already a build123d dependency) finds the
+nearest sample, and the distance is the exact point-to-triangle distance to
+that sample's triangle, signed by the angle-weighted pseudonormal at the
+closest point (a face normal alone mis-signs points above a convex rim,
+which put phantom geometry over the housing's hole edges until the
+tessellation's vertices were welded and edge and vertex pseudonormals
+computed). The leaf keeps the shape and rebuilds its sampler only when a
+finer grid asks.
+
+**The way out** (`brep.py`): a B-rep leaf returns its own shape, so every
+boolean, transform, mirror and repeat applied to it in the field is rebuilt
+with the original faces. Blends become fillets and shells become offsets as
+for any tree, with the same fallbacks.
+
+Measured on the housing STEP (34 faces):
+
+| Step | Result |
+| --- | --- |
+| field accuracy at 11 probe points | within 0.02 mm of OpenCascade's exact distance (0.001 on planes and cylinders) |
+| contour at 0.3 mm | volume 14903.8 vs exact 14892.8 (0.07 %), 6.8 s (a primitive tree of that size is 0.3 s; the k-d tree queries over 1.8M samples are the cost) |
+| slot cut in the field, then `to_brep` | mesh 14284.7, B-rep 14285.2, 47 faces: the original 34 plus the slot's |
+| shell 1.5 mm in the field | 289k triangles in 10.8 s, no kernel involved |
+
+A hybrid demo (`tmp/hybrid/src/housing_lid.py`, ignored): the housing STEP
+enters the field, two ribs are unioned on with a 1.5 mm blend, a slot is cut,
+and the part leaves as GLB and STEP in 14 s. OpenCascade refused the rib
+fillets, so the STEP has that join sharp and the build says so; the mesh has
+the blend.
+
+![The hybrid result opened as a STEP in Hardcore](images/implicit/hardcore-hybrid-step.png)
+
+The tape records a B-rep leaf as the STEP it was read from, relative to the
+tape, so a saved part stays rebuildable as long as the two stay together.
+
+What this gives Jake's concern about selection: the model is edited in the
+field, where nothing fails, and inspected on the exported STEP, where faces
+and edges exist. The field view's leaf selection is for pointing the agent at
+code; the STEP view is for pointing at geometry.
+
 ## Design decisions, and why
 
 **numpy only, no new runtime dependency.** The packaged desktop runtime

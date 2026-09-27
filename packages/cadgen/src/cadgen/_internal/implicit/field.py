@@ -45,6 +45,7 @@ __all__ = [
     "Extrude",
     "Revolve",
     "Custom",
+    "Brep",
     "Union",
     "Intersection",
     "Subtraction",
@@ -232,6 +233,11 @@ class Field:
     @property
     def bounds(self) -> Bounds:
         return self._bounds()
+
+    def prepare(self, resolution: float) -> None:
+        """Tell every leaf the grid spacing it is about to be sampled at (a B-rep leaf builds its sampler)."""
+        for child in self.children():
+            child.prepare(resolution)
 
     # -- naming ---------------------------------------------------------------
     def named(self, label: str) -> Field:
@@ -749,6 +755,51 @@ class Custom(_Leaf):
         return {"bounds": self._declared.to_dict()}
 
 
+class Brep(_Leaf):
+    """A build123d shape as a leaf: the way a STEP enters the field.
+
+    The distance comes from the shape's tessellation (``brep_field.py``), exact
+    to a small fraction of the grid cell it is sampled at; the shape itself is
+    kept, so ``to_brep`` returns it unchanged and a boolean with a primitive
+    leaves as an exact STEP. ``source`` is the STEP the shape was read from,
+    which is what a tape records; a shape with no source is, like a custom
+    field, not tapeable.
+    """
+
+    kind = "brep"
+
+    def __init__(self, shape: Any, source: str | os.PathLike | None = None, **kw) -> None:
+        super().__init__(**kw)
+        self.shape = shape
+        # Kept absolute; a tape writes it relative to itself (tape.py).
+        self.source = os.path.abspath(os.fspath(source)) if source is not None else None
+        self._sampler = None
+        from cadgen._internal.implicit.brep_field import shape_bounds
+
+        lo, hi = shape_bounds(shape)
+        self._box = Bounds(lo, hi)
+
+    def prepare(self, resolution: float) -> None:
+        from cadgen._internal.implicit.brep_field import BrepSampler
+
+        spacing = max(float(resolution), 1e-6)
+        if self._sampler is None or self._sampler.spacing > spacing * 1.001:
+            self._sampler = BrepSampler(self.shape, spacing)
+
+    def _distance(self, p):
+        if self._sampler is None:
+            self.prepare(self._box.diagonal / 300.0)
+        return self._sampler.distance(p)
+
+    def _bounds(self):
+        return self._box
+
+    def _params(self):
+        if self.source is None:
+            return {"bounds": self._box.to_dict()}
+        return {"source": self.source}
+
+
 # --------------------------------------------------------------------------- #
 # Booleans
 # --------------------------------------------------------------------------- #
@@ -1085,11 +1136,25 @@ class Shell(_Unary):
 _LEAVES: dict[str, type[Field]] = {c.kind: c for c in (Sphere, Box, Cylinder, Capsule, Cone, Torus, HalfSpace)}
 
 
-def from_dict(d: dict) -> Field:
-    """Rebuild a tree from ``Field.to_dict``. A ``custom`` node cannot come back."""
+def from_dict(d: dict, *, base_dir: str | os.PathLike | None = None) -> Field:
+    """Rebuild a tree from ``Field.to_dict``. A ``custom`` node cannot come back.
+
+    base_dir: where a ``brep`` node's relative ``source`` STEP is looked up (the tape's folder).
+    """
     kind = d.get("kind")
     label, site = d.get("label"), d.get("site")
     kw = {"label": label, "site": site}
+    if kind == "brep":
+        source = d.get("source")
+        if not source:
+            raise ValueError("a brep leaf with no source STEP cannot be rebuilt from a tape")
+        path = source if os.path.isabs(source) or base_dir is None else os.path.join(os.fspath(base_dir), source)
+        if not os.path.exists(path):
+            raise ValueError(f"the tape's brep leaf reads {source}, which is not beside it ({path})")
+        from cadgen import build123d as bd
+
+        return Brep(bd.import_step(path), source=source, **kw)
+    child = lambda key: from_dict(d[key], base_dir=base_dir)  # noqa: E731
     if kind in _LEAVES:
         params = {k: v for k, v in d.items() if k not in ("kind", "label", "site")}
         return _LEAVES[kind](**params, **kw)
@@ -1100,26 +1165,26 @@ def from_dict(d: dict) -> Field:
     if kind == "custom":
         raise ValueError("a custom field is a Python function and cannot be rebuilt from a tape")
     if kind in ("union", "intersection"):
-        ops = [from_dict(o) for o in d["operands"]]
+        ops = [from_dict(o, base_dir=base_dir) for o in d["operands"]]
         cls = Union if kind == "union" else Intersection
         return cls(ops, round=d.get("round", 0.0), chamfer=d.get("chamfer", 0.0), **kw)
     if kind == "subtraction":
-        ops = [from_dict(o) for o in d["operands"]]
+        ops = [from_dict(o, base_dir=base_dir) for o in d["operands"]]
         return Subtraction(*ops, round=d.get("round", 0.0), chamfer=d.get("chamfer", 0.0), **kw)
     if kind == "translate":
-        return Translate(from_dict(d["child"]), d["offset"], **kw)
+        return Translate(child("child"), d["offset"], **kw)
     if kind == "rotate":
-        return Rotate(from_dict(d["child"]), d["angle_deg"], d["axis"], **kw)
+        return Rotate(child("child"), d["angle_deg"], d["axis"], **kw)
     if kind == "scale":
-        return Scale(from_dict(d["child"]), d["factor"], **kw)
+        return Scale(child("child"), d["factor"], **kw)
     if kind == "mirror":
-        return Mirror(from_dict(d["child"]), d["axis"], **kw)
+        return Mirror(child("child"), d["axis"], **kw)
     if kind == "repeat":
-        return Repeat(from_dict(d["child"]), d["spacing"], d["count"], **kw)
+        return Repeat(child("child"), d["spacing"], d["count"], **kw)
     if kind == "elongate":
-        return Elongate(from_dict(d["child"]), d["lengths"], **kw)
+        return Elongate(child("child"), d["lengths"], **kw)
     if kind == "offset":
-        return Offset(from_dict(d["child"]), d["r"], **kw)
+        return Offset(child("child"), d["r"], **kw)
     if kind == "shell":
-        return Shell(from_dict(d["child"]), d["thickness"], **kw)
+        return Shell(child("child"), d["thickness"], **kw)
     raise ValueError(f"unknown field kind {kind!r}")

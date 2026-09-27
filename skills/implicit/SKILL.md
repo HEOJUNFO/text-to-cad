@@ -27,6 +27,7 @@ user picks in the viewer maps back to your code.
 | Task | First action | Reference |
 | --- | --- | --- |
 | **Create or edit a part** | Write or edit the decorated script below; run `python <part>.py`. | [Modeling](references/modeling.md) |
+| **Start from an existing STEP** | `im.from_step(path)` makes it a leaf; operate on it in the field (shell, blend, cut, pattern) and leave as STEP. | [Starting from a B-rep](references/modeling.md#starting-from-a-b-rep) |
 | **Measure walls, clearance, interference** | Ask the field in Python, or run `cadgen implicit measure` on the saved tape. | [Questions](references/questions.md) |
 | **Re-mesh finer or coarser, or as STL** | `cadgen implicit build <tape> [OUT] --resolution R` — no source needed. | [Meshing](references/meshing.md) |
 | **Review the result** | Snapshot the GLB; hand it to `$cad-viewer`. | [Meshing](references/meshing.md#reviewing) |
