@@ -17,6 +17,16 @@ import VirtualRows from '../../../kit/inspector/VirtualRows.jsx';
 
 const EMPTY = [];
 const NO_CONTROLS = {};
+/**
+ * Above this many rows — the fully expanded tree's assemblies and parts, not the features
+ * recognition adds under a part later, so the tree never changes shape under the person — Faces
+ * and Edges open a tree with its parts closed, each with its face or edge count, instead of
+ * opening every part. Each part opens by its own disclosure, a pick inside it, or the menu.
+ */
+export const LARGE_TREE_ROWS = 300;
+/** How long the pointer rests on a part in the viewport before its topology is asked for. */
+export const TOPOLOGY_DWELL_MS = 150;
+const countLabel = (count, mode) => `${count.toLocaleString()} ${mode === 'edges' ? count === 1 ? 'edge' : 'edges' : count === 1 ? 'face' : 'faces'}`;
 const icons = {part:Box,assembly:Boxes,group:Boxes,boss:Layers,pocket:Shapes,hole:Circle,body:Box,extrude:Layers,loft:Layers,cut:Shapes,revolve:RotateCw,round:CornerUpRight,profile:SquareDashed,curve:Spline,remainder:Box};
 const number = n => n.toLocaleString(undefined,{maximumFractionDigits:3});
 
@@ -82,7 +92,7 @@ function Disclosure({ node, open, locked, toggle }) {
 // One row of the tree, the rows under it drawn after it by the list (`visibleRows`). Its props
 // are the row's own facts — its selection and joins as booleans, callbacks that never change —
 // so a tree re-rendered for anything else leaves it alone.
-function ModelingRow({ node, depth, open, branch, locked, disabled, selected, joinAbove, joinBelow, hiddenByOwner, unavailable, actionsShown, actionsWidth, partControls, feature, toggle, choose }) {
+function ModelingRow({ node, depth, open, branch, locked, disabled, selected, joinAbove, joinBelow, hiddenByOwner, unavailable, actionsShown, actionsWidth, count, partControls, feature, toggle, choose }) {
   const Icon = icons[node.kind] || Box;
   // An assembly outside the isolate/picking frontier cannot select itself, but
   // its descendants can. Only a hidden owner blocks its entire subtree.
@@ -99,6 +109,8 @@ function ModelingRow({ node, depth, open, branch, locked, disabled, selected, jo
         onClick={event=>{if(event.detail < 2)choose(node,event);}} onDoubleClick={event=>choose(node,event)}
         className={cn('flex h-full min-w-0 flex-1 items-center gap-1 rounded pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40', underActions)}>
         <Icon className={TREE_ROW_DENSE_ICON_CLASS}/><TreeRowLabel className="flex-1">{node.label}</TreeRowLabel>
+        {/* A large tree's part, under Faces or Edges: how many of them it has, when that is known. */}
+        {count && <span className="shrink-0 pl-1 text-tiny text-muted-foreground tabular-nums" data-part-count="">{count}</span>}
       </button></TooltipHint>
       {node.selectionId && <ModelPartActions node={node} controls={partControls} disabled={disabled}/>}
     </TreeRowSurface>
@@ -149,7 +161,7 @@ const MemoModelingSearchRow = memo(ModelingSearchRow);
  * edges are picked. Outside All the disclosure is locked. A part's topology is asked for as its
  * row comes on screen, never for a whole large assembly at once.
  */
-function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, loading=false, references=EMPTY, selectedReferenceIds=EMPTY, selectedPartIds=EMPTY, onLoadTopology, onRequestRecognition, onSelect, onClearSelection, stepRoot, selectedReferences, selectionDetails, activeTreeNodeScrollKey, partControls=NO_CONTROLS }) {
+function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, loading=false, references=EMPTY, selectedReferenceIds=EMPTY, selectedPartIds=EMPTY, onLoadTopology, onRequestRecognition, onSelect, onClearSelection, stepRoot, selectedReferences, selectionDetails, activeTreeNodeScrollKey, partControls=NO_CONTROLS, hoverStore=null }) {
   const mobile = useViewerMobile();
   const {descriptor,results,error,retryFailed}=modeling;
   const [selected,setSelected]=useState(null),[pending,setPending]=useState(null),[localExpanded,setLocalExpanded]=useState(new Set());
@@ -190,9 +202,29 @@ function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, l
   const availability=useMemo(()=>availabilityOf(partControls.hiddenPartIds,partControls.selectableNodeIds),[partControls.hiddenPartIds,partControls.selectableNodeIds]);
   const implicitOwner=useMemo(()=>implicitRoots.reduce((owner,node)=>nodeAvailability(node,availability,owner.hiddenByOwner,owner.outsideFrontier),{hiddenByOwner:false,outsideFrontier:false}),[implicitRoots,availability]);
   const componentIds=useMemo(()=>[...new Set(descriptor?.occurrences.map(o=>o.component)||[])],[descriptor]);
-  const expanded=useMemo(()=>lockedExpansion ? new Set([...lockedExpansion,...implicitRoots.map(node=>node.id)])
-    : new Set([...localExpanded,...implicitRoots.map(node=>node.id),...(partControls.expandedTreeNodeIds || EMPTY).map(id=>`model:${id}`)]),
-  [lockedExpansion,localExpanded,implicitRoots,partControls.expandedTreeNodeIds]);
+  // A large tree under Faces or Edges (`LARGE_TREE_ROWS`): its parts start closed and open one by
+  // one, each by its own disclosure; the mode still holds every assembly open.
+  const structuralRows=useMemo(()=>{
+    let count=0;
+    const visit=nodes=>{for(const node of nodes){if(node.kind === 'curve')continue;count+=1;if(node.kind !== 'part')visit(node.children || EMPTY);}};
+    visit(visibleRoots);
+    return count;
+  },[visibleRoots]);
+  const largeTopology=topologyMode && structuralRows > LARGE_TREE_ROWS;
+  const [openParts,setOpenParts]=useState(()=>new Set());
+  // Opening a part (its disclosure, its Expand, a pick inside it) asks for its topology and
+  // recognition at once, on screen or not; Expand all leaves that to the rows as they show.
+  const seeParts=useCallback(ids=>setSeenParts(current=>ids.every(id=>current.has(id)) ? current : new Set([...current,...ids])),[]);
+  useEffect(()=>{if(!topologyMode)setOpenParts(current=>current.size ? new Set() : current);},[topologyMode]);
+  const expanded=useMemo(()=>{
+    if(lockedExpansion){
+      const ids=new Set(lockedExpansion);
+      if(largeTopology)for(const id of partNodes.keys())if(!openParts.has(id))ids.delete(id);
+      for(const node of implicitRoots)ids.add(node.id);
+      return ids;
+    }
+    return new Set([...localExpanded,...implicitRoots.map(node=>node.id),...(partControls.expandedTreeNodeIds || EMPTY).map(id=>`model:${id}`)]);
+  },[lockedExpansion,largeTopology,partNodes,openParts,localExpanded,implicitRoots,partControls.expandedTreeNodeIds]);
   const openedRoots=useRef(new Set());
   useEffect(()=>{
     if(!active || disabled)return;
@@ -223,11 +255,12 @@ function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, l
   const {query,searching,deferredQuery,index:searchIndex,found,cursorId,listRef,changeQuery,onKeyDown:onSearchKeyDown}=useTreeSearch(tree);
   // Under Faces or Edges, the part rows the list has on screen (never its margin) are seen, and
   // only those ask for topology and recognition. The tree's list is not drawn during a search.
+  // In a large tree a closed part is not seen for being on screen: opening it is what asks.
   const onVisibleRows=useMemo(()=>topologyMode && active && !disabled ? (first,last)=>{
     const ids=[];
-    for(let at=first;at<=last;at+=1){const node=rows[at]?.node;if(node?.kind === 'part')ids.push(node.id);}
+    for(let at=first;at<=last;at+=1){const row=rows[at];if(row?.node.kind === 'part' && (!largeTopology || row.open))ids.push(row.node.id);}
     if(ids.length)setSeenParts(current=>ids.every(id=>current.has(id)) ? current : new Set([...current,...ids]));
-  } : null,[topologyMode,active,disabled,rows]);
+  } : null,[topologyMode,active,disabled,rows,largeTopology]);
   useEffect(()=>{
     if(!topologyMode || !active || disabled || !onLoadTopology)return;
     const ids=[...seenParts].filter(id=>!loadedParts.current.has(id));
@@ -277,7 +310,15 @@ function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, l
     if(waitingForFeature)ancestors.push(target);
     const missing=ancestors.filter(node=>!expanded.has(node.id));
     // A locked tree does not open for a pick: what the mode shows is what there is to scroll to.
-    if(missing.length && locked){reveal.current.complete=true;return;}
+    // In a large tree under Faces or Edges a closed part is the one thing that opens for it.
+    if(missing.length && locked){
+      if(largeTopology && missing.every(node=>node.kind === 'part' && partNodes.has(node.id))){
+        setOpenParts(current=>missing.every(node=>current.has(node.id)) ? current : new Set([...current,...missing.map(node=>node.id)]));
+        seeParts(missing.map(node=>node.id));
+        return;
+      }
+      reveal.current.complete=true;return;
+    }
     if(missing.length){
       const local=[];
       for(const node of new Map(missing.map(node=>[node.id,node])).values()){
@@ -292,7 +333,7 @@ function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, l
     if(waitingForFeature || searching)return;
     const row=rowElements.current.get(target.id);
     if(row){row.scrollIntoView?.({block:'nearest'});reveal.current.complete=true;}
-  },[active,revealKey,paths,expanded,locked,picked,partControls.onToggleTreeNode,searching]);
+  },[active,revealKey,paths,expanded,locked,largeTopology,partNodes,seeParts,picked,partControls.onToggleTreeNode,searching]);
 
   const requestedOccurrences=useMemo(()=>{
     if(!active || disabled)return EMPTY;
@@ -318,7 +359,7 @@ function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, l
     if(ids.length){onSelect?.(ids);setPending(null);}
   },[pending,active,disabled,references,onSelect,selectionKey]);
   const latest=useRef(null);
-  latest.current={references,partControls,selectionKey,onSelect,onLoadTopology};
+  latest.current={references,partControls,selectionKey,onSelect,onLoadTopology,largeTopology,openParts,partNodes};
   // The rows' callbacks never change; each reads the tree as it is when pressed.
   const choose=useCallback((node,event)=>{
     const {references,partControls,selectionKey,onSelect,onLoadTopology}=latest.current;
@@ -348,10 +389,15 @@ function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, l
     else if(node.faces?.length || node.edges?.length){setPending({...node,selectionKey});onLoadTopology?.([node.occurrenceId]);}
   },[]);
   const toggle=useCallback(node=>{
-    const {partControls}=latest.current;
+    const {partControls,largeTopology}=latest.current;
+    if(largeTopology && node.kind === 'part'){
+      if(!latest.current.openParts.has(node.id))seeParts([node.id]);
+      setOpenParts(current=>{const next=new Set(current);if(next.has(node.id))next.delete(node.id);else next.add(node.id);return next;});
+      return;
+    }
     if(node.selectionId && partControls.onToggleTreeNode){partControls.onToggleTreeNode(node.selectionId);return;}
     setLocalExpanded(current=>{const next=new Set(current);if(next.has(node.id))next.delete(node.id);else next.add(node.id);return next;});
-  },[]);
+  },[seeParts]);
   const clearSelection=()=>{setSelected(null);setPending(null);onClearSelection?.();};
   // What a feature row's menu needs of the tree: the row's faces as reference ids, how to load
   // them, and the row's own click, so its Select is the click rather than a second opinion.
@@ -377,13 +423,74 @@ function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, l
   // What a row reads of the host's controls (its menu, its actions, its hover), and nothing else:
   // expanding the tree, which the host does as parts load, re-renders no row for it.
   const {isAssemblyView,hiddenPartIds,focusedNodeIds,onHoverTreeNode,onFocusTreeNode,onUnfocusTreeNode,onTogglePartVisibility,menuForNode,menuForReferences,partMenuActions}=partControls;
-  const rowControls=useMemo(()=>({isAssemblyView,hiddenPartIds,focusedNodeIds,onHoverTreeNode,onFocusTreeNode,onUnfocusTreeNode,onTogglePartVisibility,menuForNode,menuForReferences,partMenuActions}),
-    [isAssemblyView,hiddenPartIds,focusedNodeIds,onHoverTreeNode,onFocusTreeNode,onUnfocusTreeNode,onTogglePartVisibility,menuForNode,menuForReferences,partMenuActions]);
+  // In a large tree under Faces or Edges, the viewport asks for a part's topology when the pointer
+  // rests on it (`TOPOLOGY_DWELL_MS`) or presses it: hover is read from the viewport's store,
+  // never React state, and each part is asked for once.
+  const treeRef=useRef(null),dwelled=useRef(new Set());
+  useEffect(()=>{if(!topologyMode)dwelled.current=new Set();},[topologyMode]);
+  useEffect(()=>{
+    if(!largeTopology || !active || disabled || !hoverStore)return undefined;
+    const request=id=>{if(!id || dwelled.current.has(id))return;dwelled.current.add(id);latest.current.onLoadTopology?.([id]);};
+    let timer=null,resting='';
+    const follow=()=>{
+      const id=hoverStore.getSnapshot().modelPartId || '';
+      if(id === resting)return;
+      resting=id;clearTimeout(timer);timer=null;
+      if(id)timer=setTimeout(()=>request(id),TOPOLOGY_DWELL_MS);
+    };
+    const unsubscribe=hoverStore.subscribe(follow);
+    follow();
+    const surface=treeRef.current?.closest('[data-cad-surface]');
+    const press=event=>{if(event.target instanceof Element && event.target.closest('canvas'))request(hoverStore.getSnapshot().modelPartId);};
+    surface?.addEventListener('pointerdown',press,true);
+    return ()=>{unsubscribe();clearTimeout(timer);surface?.removeEventListener('pointerdown',press,true);};
+  },[largeTopology,active,disabled,hoverStore]);
+  // In a large tree under Faces or Edges the menu's Expand and Collapse (a part row's) and Expand
+  // all and Collapse all (every row's) open and close the parts, read as they are when it opens.
+  const partBySelection=useMemo(()=>new Map([...partNodes.values()].filter(node=>node.selectionId).map(node=>[node.selectionId,node.id])),[partNodes]);
+  const rowControls=useMemo(()=>{
+    const controls={isAssemblyView,hiddenPartIds,focusedNodeIds,onHoverTreeNode,onFocusTreeNode,onUnfocusTreeNode,onTogglePartVisibility,menuForNode,menuForReferences,partMenuActions};
+    if(!largeTopology)return controls;
+    const setPart=(selectionId,open)=>{const id=partBySelection.get(selectionId);if(id && open)seeParts([id]);if(id)setOpenParts(current=>current.has(id) === open ? current : (next=>{if(open)next.add(id);else next.delete(id);return next;})(new Set(current)));};
+    return {...controls,
+      menuForNode:menuForNode && (id=>{
+        const menu=menuForNode(id);
+        if(!menu)return menu;
+        const {openParts,partNodes}=latest.current,part=partBySelection.get(id);
+        return {...menu,showExpandCollapse:true,expandSelectedDisabled:!part || openParts.has(part),collapseSelectedDisabled:!part || !openParts.has(part),
+          expandAllDisabled:openParts.size >= partNodes.size,collapseAllDisabled:openParts.size === 0};
+      }),
+      partMenuActions:{...partMenuActions,
+        onExpandSelected:menu=>setPart(menu?.nodeId,true),onCollapseSelected:menu=>setPart(menu?.nodeId,false),
+        onExpandAll:()=>setOpenParts(new Set(latest.current.partNodes.keys())),onCollapseAll:()=>setOpenParts(current=>current.size ? new Set() : current)}};
+  },[isAssemblyView,hiddenPartIds,focusedNodeIds,onHoverTreeNode,onFocusTreeNode,onUnfocusTreeNode,onTogglePartVisibility,menuForNode,menuForReferences,partMenuActions,largeTopology,partBySelection,seeParts]);
+  // A part's count: from its topology once loaded, else from its recognition; nothing until one is.
+  const topologyCounts=useMemo(()=>{
+    const counts=new Map();
+    if(!largeTopology)return counts;
+    for(const ref of references){
+      if(!ref?.occurrenceId || (ref.selectorType !== 'face' && ref.selectorType !== 'edge'))continue;
+      const count=counts.get(ref.occurrenceId) || {faces:0,edges:0};
+      if(ref.selectorType === 'face')count.faces+=1;else count.edges+=1;
+      counts.set(ref.occurrenceId,count);
+    }
+    return counts;
+  },[largeTopology,references]);
+  const partCount=node=>{
+    if(!largeTopology || node.kind !== 'part')return undefined;
+    const loaded=topologyCounts.get(node.occurrenceId || node.selectionId);
+    if(loaded)return countLabel(mode === 'edges' ? loaded.edges : loaded.faces,mode);
+    const result=results[node.component];
+    if(!result || result.error || !Array.isArray(result.tree))return undefined;
+    if(mode === 'edges')return result.edgeFaces ? countLabel(Object.keys(result.edgeFaces).length,mode) : undefined;
+    return countLabel(new Set(result.tree.flatMap(body=>body.faces || EMPTY)).size,mode);
+  };
   // A row's actions as primitives (`rowActionsLayout`): whether one is on, and the room they take.
   const actionsOf=node=>node.selectionId ? rowActionsLayout(node,partControls) : null;
   const renderTreeRow=at=>{
     const row=rows[at],on=highlighted.has(row.node.id),actions=actionsOf(row.node);
-    return <MemoModelingRow node={row.node} depth={row.depth} open={row.open} branch={row.branch} locked={locked} disabled={disabled}
+    return <MemoModelingRow node={row.node} depth={row.depth} open={row.open} branch={row.branch} disabled={disabled}
+      locked={locked && !(largeTopology && row.node.kind === 'part')} count={partCount(row.node)}
       actionsShown={Boolean(actions?.shown)} actionsWidth={actions?.width}
       selected={on} joinAbove={on && at > 0 && highlighted.has(rows[at-1].node.id)} joinBelow={on && at < rows.length-1 && highlighted.has(rows[at+1].node.id)}
       hiddenByOwner={row.hiddenByOwner} unavailable={row.unavailable} partControls={rowControls}
@@ -426,7 +533,7 @@ function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, l
           {modeMenu}
           <ToolPanelCollapse/>
         </>}/>}>
-      <FeatureReferencesContext.Provider value={references}><div className="flex flex-col text-tiny" aria-label="Modeling tree">
+      <FeatureReferencesContext.Provider value={references}><div ref={treeRef} className="flex flex-col text-tiny" aria-label="Modeling tree">
         {(error || failed>0) && <p role="alert" className="px-3 pb-2 text-micro text-muted-foreground">{error || `${failed} ${failed===1?'component is':'components are'} unavailable.`} <button type="button" className="underline" onClick={retryFailed}>Retry</button></p>}
         <div ref={listRef} className="px-1 py-1" aria-label="Model tree area"
           onClick={event=>{if(!disabled && !event.target.closest('li,button,input,[role="menu"]'))clearSelection();}}>

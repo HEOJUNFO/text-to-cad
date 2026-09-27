@@ -3251,6 +3251,7 @@ function StepSurfaceBody({ view, data }) {
     onToggleTreeNode: toggleStepTreeNode,
     onClearSelection: clearAssemblySelection,
     onHoverTreeNode: setHoveredListPartId,
+    hoverStore,
     onTogglePartVisibility: togglePartVisibility,
     treeSelectionDisabled: stepInteractionBlocked,
     menuForNode: assemblyNodeMenu,

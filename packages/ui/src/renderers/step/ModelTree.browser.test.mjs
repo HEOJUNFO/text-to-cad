@@ -178,37 +178,56 @@ createRoot(document.getElementById('root')).render(<App/>);
 // A large assembly, every row open: the tree mounts only the rows in view (and a margin), yet
 // lays out exactly as the whole tree would — the same total height, every row where it would
 // sit — and a pick, a search cursor and the parts on screen under Faces all work through it.
-test('a tree of thousands of rows mounts only the rows in view, laid out as the whole tree, and reveal, search, re-renders and topology requests hold', async t => {
+test('a tree of thousands of rows mounts only the rows in view, laid out as the whole tree; reveal, search, re-renders and topology requests hold; and under Faces or Edges a large tree opens its parts one by one', async t => {
   const GROUPS = 30, PARTS = 100;
   const { outputFiles } = await build({ stdin: {
     resolveDir: fileURLToPath(new URL('.', import.meta.url)), loader: 'jsx', contents: `
 import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import ModelingTree from '../../../dist/renderers/step/components/workbench/ModelingTree.js';
-const groups = Array.from({length:${GROUPS}}, (_, g) => {
-  const parts = Array.from({length:${PARTS}}, (_, i) => ({id:'o'+g+'_'+i,nodeType:'part',displayName:'Part '+g+'-'+i,leafPartIds:['o'+g+'_'+i],children:[]}));
+import { createHoverStore } from '../../../dist/renderers/step/workbench/hoverStore.js';
+// ?groups=&parts= size the assembly; the default is ${GROUPS} groups of ${PARTS} parts.
+const query = new URLSearchParams(location.search);
+const GROUPS = +query.get('groups') || ${GROUPS}, PARTS = +query.get('parts') || ${PARTS};
+const groups = Array.from({length:GROUPS}, (_, g) => {
+  const parts = Array.from({length:PARTS}, (_, i) => ({id:'o'+g+'_'+i,nodeType:'part',displayName:'Part '+g+'-'+i,leafPartIds:['o'+g+'_'+i],children:[]}));
   return {id:'g'+g,nodeType:'assembly',displayName:'Group '+g,leafPartIds:parts.map(p=>p.id),children:parts};
 });
 const leaves = groups.flatMap(g=>g.children);
 const root = {id:'__step_model__',nodeType:'assembly',displayName:'Document',leafPartIds:leaves.map(n=>n.id),children:groups};
 // Every part its own component, so no repeat folds rows away.
 const descriptor = {components:Object.fromEntries(leaves.map(n=>['c'+n.id,{}])),occurrences:leaves.map(n=>({id:n.id,component:'c'+n.id,name:n.displayName}))};
-const modeling = {descriptor,results:{},error:'',retryFailed(){}};
+// Parts of the first group, and one far down, are recognized: a body of three faces, two features, two edges.
+const recognition = {tree:[{id:'body',kind:'body',label:'Body',faces:[1,2,3],edges:[],children:[
+  {id:'boss',kind:'extrude',label:'Boss',faces:[1,2],edges:[1],children:[]},{id:'pocket',kind:'cut',label:'Pocket',faces:[3],edges:[2],children:[]}]}],
+  hasFaces:true,edgeFaces:{1:[1,2],2:[2,3]}};
+const recognized = [...groups[0].children, ...(groups[GROUPS - 3]?.children.slice(5, 6) || [])];
+const modeling = {descriptor,results:Object.fromEntries(recognized.map(n=>['c'+n.id,recognition])),error:'',retryFailed(){}};
 const events = {selected:[],topology:[]};
-window.treeTest = {events, order:groups.flatMap(g=>['Group '+g.id.slice(1), ...g.children.map(p=>p.displayName)])};
+const hoverStore = createHoverStore();
+window.treeTest = {events, hoverStore, order:groups.flatMap(g=>['Group '+g.id.slice(1), ...g.children.map(p=>p.displayName)])};
+const face = (id, n) => ({id:id+'.f'+n,selectorType:'face',occurrenceId:id,normalizedSelector:id+'.f'+n});
 function App(){
-  const [selected,setSelected]=useState([]),[reveal,setReveal]=useState(0),[mode,setMode]=useState('all'),[tick,setTick]=useState(0),[details,setDetails]=useState(0),[references,setReferences]=useState([]);
+  const [selected,setSelected]=useState([]),[reveal,setReveal]=useState(0),[mode,setMode]=useState('all'),[tick,setTick]=useState(0),[details,setDetails]=useState(0),[references,setReferences]=useState([]),[picked,setPicked]=useState(null);
   const expanded=useMemo(()=>groups.map(g=>g.id),[]);
   const partControls=useMemo(()=>({isAssemblyView:true,expandedTreeNodeIds:expanded,onToggleTreeNode(){},hiddenPartIds:[],focusedNodeIds:[],selectableNodeIds:null,
     onSelectTreeNode:id=>{events.selected.push(id);setSelected([id]);},menuForNode:id=>({nodeId:id,copyText:id,zoomSelectionAvailable:false})}),[expanded]);
   const onLoadTopology=useMemo(()=>ids=>{events.topology.push(...ids);},[]);
   Object.assign(window.treeTest,{refresh:()=>setTick(n=>n+1),details:()=>setDetails(n=>n+1),select:id=>{setSelected([id]);setReveal(n=>n+1);},setMode,
-    loadFaces:id=>setReferences(current=>[...current,{id:id+'.f1',selectorType:'face',occurrenceId:id,normalizedSelector:id+'.f1'}])});
+    loadFaces:(id,count=1)=>setReferences(current=>[...current,...Array.from({length:count},(_, n)=>face(id,n+1))]),
+    // What a face picked in the viewport hands the tree: that face, as the selected reference.
+    pickFace:(id,n)=>{const ref=face(id,n);setReferences(current=>current.some(r=>r.id===ref.id)?current:[...current,ref]);setPicked([ref]);setReveal(k=>k+1);}});
   const selectionDetails=useMemo(()=>details?{title:'Ref',content:<p>Details {details}</p>}:null,[details]);
-  return <section data-testid="model" data-tick={tick} style={{height:420,width:320,display:'flex',flexDirection:'column',gap:8,padding:16}}>
-    <ModelingTree active disabled={false} mode={mode} modeling={modeling} stepRoot={root} selectedPartIds={selected}
-      activeTreeNodeScrollKey={reveal} onLoadTopology={onLoadTopology} references={references} partControls={partControls} selectionDetails={selectionDetails}/>
-  </section>;
+  const selectedReferenceIds=useMemo(()=>picked?picked.map(ref=>ref.id):[],[picked]);
+  // As the viewer holds it: the tool stack beside the viewport's canvas, in one surface.
+  return <div data-cad-surface="" style={{display:'flex'}}>
+    <canvas data-testid="viewport" width="200" height="200" style={{width:200,height:200}}/>
+    <section data-testid="model" data-tick={tick} style={{height:420,width:320,display:'flex',flexDirection:'column',gap:8,padding:16}}>
+      <ModelingTree active disabled={false} mode={mode} modeling={modeling} stepRoot={root} selectedPartIds={selected}
+        selectedReferences={picked || undefined} selectedReferenceIds={selectedReferenceIds}
+        activeTreeNodeScrollKey={reveal} onLoadTopology={onLoadTopology} references={references} partControls={partControls} selectionDetails={selectionDetails} hoverStore={hoverStore}/>
+    </section>
+  </div>;
 }
 createRoot(document.getElementById('root')).render(<App/>);
 ` }, bundle: true, write: false, format: 'esm', platform: 'browser', jsx: 'automatic' });
@@ -353,25 +372,107 @@ createRoot(document.getElementById('root')).render(<App/>);
   await search.fill('');
   await model.locator('[aria-label="Model"]').waitFor();
 
-  // Under Faces, the parts whose rows are on screen ask for their topology, once each, and a
-  // scroll asks for the parts it brings on screen.
-  await page.evaluate(() => { document.querySelector('[aria-label="Model"]').closest('[data-tool-panel-body]').scrollTop = 0; window.treeTest.events.topology.length = 0; window.treeTest.setMode('faces'); });
+  // A large tree (more than LARGE_TREE_ROWS rows of assemblies and parts) under Faces: its
+  // assemblies stay open and locked, its parts start closed with a disclosure of their own and
+  // their face count where one is known, and nothing asks for topology for being on screen.
+  const topology = () => page.evaluate(() => [...window.treeTest.events.topology]);
+  const count = label => model.getByRole('button', { name: `Select ${label}`, exact: true }).locator('[data-part-count]');
+  await scrollTo(0);
+  await page.evaluate(() => { window.treeTest.events.topology.length = 0; window.treeTest.setMode('faces'); });
+  await model.getByRole('button', { name: 'Expand Part 0-0', exact: true }).waitFor();
+  await frames();
+  assert.equal(await model.locator('[aria-label="Model"]').evaluate(list => list.getBoundingClientRect().height), order.length * 24, 'every part closed: the rows are the assemblies and parts');
+  assert.deepEqual(await model.locator('[data-disclosure-locked]').evaluateAll(marks => [...new Set(marks.map(mark => mark.dataset.disclosureLocked))]), ['open'], 'only the assemblies are locked, open');
+  assert.equal(await count('Part 0-0').innerText(), '3 faces', 'a recognized part counts its faces');
+  assert.equal(await count('Part 0-0').evaluate(node => [getComputedStyle(node).fontSize, node.classList.contains('text-muted-foreground')].join()), '11px,true');
+  assert.equal(await count('Part 1-0').count(), 0, 'an unknown count shows nothing');
+  await page.evaluate(() => window.treeTest.loadFaces('o0_1', 5)); await frames();
+  assert.equal(await count('Part 0-1').innerText(), '5 faces', 'loaded topology counts first');
+  await scrollTo(0.5); await frames(); await scrollTo(0); await frames();
+  assert.deepEqual(await topology(), [], 'closed parts on screen ask for nothing');
+  // Edges counts edges.
+  await page.evaluate(() => window.treeTest.setMode('edges')); await frames();
+  assert.equal(await count('Part 0-0').innerText(), '2 edges');
+  await page.evaluate(() => window.treeTest.setMode('faces')); await frames();
+  // Its disclosure opens a part onto its features, and asks for its topology, once.
+  await model.getByRole('button', { name: 'Expand Part 0-0', exact: true }).click();
+  await model.getByRole('button', { name: 'Collapse Part 0-0', exact: true }).waitFor();
+  const opened = await layout();
+  assert.deepEqual(opened.rows.slice(1, 4).map(row => row.label), ['Part 0-0', 'Boss', 'Pocket']);
+  assert.deepEqual(await topology(), ['o0_0']);
+  assert.equal(await count('Part 0-0').innerText(), '3 faces', 'and keeps its count');
+  // A face picked in the viewport opens its part, far down the tree, and scrolls to its row.
+  await page.evaluate(() => window.treeTest.pickFace('o27_5', 3));
+  await page.waitForFunction(() => {
+    const part = [...document.querySelectorAll('[aria-label="Model"] > li')].findIndex(li => li.querySelector('[aria-label="Select Part 27-5"]'));
+    const rows = [...document.querySelectorAll('[aria-label="Model"] > li')];
+    const pocket = rows.slice(part + 1).find(li => li.querySelector('[aria-label="Select Pocket"]'));
+    if (part < 0 || !pocket) return false;
+    const box = pocket.getBoundingClientRect(), view = pocket.closest('[data-tool-panel-body]').getBoundingClientRect();
+    return pocket.querySelector('[aria-pressed="true"]') && box.top >= view.top - 1 && box.bottom <= view.bottom + 1;
+  });
+  assert.equal(await model.getByRole('button', { name: 'Collapse Part 27-5', exact: true }).count(), 1, 'the picked face opened its part');
+  // The viewport asks for the part the pointer rests on, after the dwell; a pass does not.
+  const hover = id => page.evaluate(id => window.treeTest.hoverStore.setModelPartId(id), id);
+  await hover('o12_8'); await page.waitForTimeout(40); await hover(''); await page.waitForTimeout(300);
+  assert.equal((await topology()).includes('o12_8'), false, 'passing over a part asks for nothing');
+  await hover('o12_7'); await page.waitForTimeout(40);
+  assert.equal((await topology()).includes('o12_7'), false, 'not before the dwell');
+  await page.waitForFunction(() => window.treeTest.events.topology.includes('o12_7'));
+  // A press on a part asks at once.
+  await hover('o13_1');
+  await page.getByTestId('viewport').dispatchEvent('pointerdown');
+  assert.equal((await topology()).includes('o13_1'), true, 'a press on a part asks at once');
+  await hover('');
+  const requestedBefore = (await topology()).length;
+  // The menu's Expand all opens every part, asking only for those that come on screen, and
+  // Collapse all closes them again.
+  await scrollTo(0); await frames();
+  await model.getByRole('button', { name: 'Select Part 0-3', exact: true }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Expand all', exact: true }).click();
+  await model.getByRole('button', { name: 'Collapse Part 0-3', exact: true }).waitFor();
+  await frames();
+  assert.equal(await model.locator('[aria-label="Model"]').evaluate(list => list.getBoundingClientRect().height), (order.length + 2 * (PARTS + 1)) * 24, 'every part open, the recognized ones onto their features');
+  assert.ok((await topology()).length - requestedBefore < 60, 'Expand all asks for what is on screen, not every part');
+  await model.getByRole('button', { name: 'Select Part 0-3', exact: true }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Collapse all', exact: true }).click();
+  await model.getByRole('button', { name: 'Expand Part 0-3', exact: true }).waitFor();
+  assert.equal(await model.locator('[aria-label="Model"]').evaluate(list => list.getBoundingClientRect().height), order.length * 24);
+  // All and Parts are as they were: the person's own tree, and parts locked shut, with no counts.
+  await page.evaluate(() => window.treeTest.setMode('all')); await frames();
+  assert.equal(await model.locator('[data-part-count]').count(), 0);
+  assert.equal(await model.locator('[data-disclosure-locked]').count(), 0);
+  await page.evaluate(() => window.treeTest.setMode('parts')); await frames();
+  assert.equal(await model.locator('[data-part-count]').count(), 0);
+  assert.equal(await model.getByRole('button', { name: /^Expand Part / }).count(), 0, 'no part opens under Parts');
+  assert.deepEqual(await model.locator('[data-disclosure-locked]').evaluateAll(marks => [...new Set(marks.map(mark => mark.dataset.disclosureLocked))]).then(states => states.sort()), ['open', 'shut']);
+
+  // A small tree (5 groups of 50 parts: 255 rows) under Faces is today's: every part open and
+  // locked, no counts, and the parts on screen ask for their topology, once each, as a scroll
+  // brings them on screen.
+  await page.goto(`http://127.0.0.1:${server.address().port}/?groups=5&parts=50`);
+  await model.getByRole('button', { name: 'Select Part 0-0', exact: true }).waitFor();
+  await page.evaluate(() => { window.treeTest.events.topology.length = 0; window.treeTest.setMode('faces'); });
   await page.waitForFunction(() => window.treeTest.events.topology.length > 0);
   await frames();
+  assert.equal(await model.getByRole('button', { name: /^(Expand|Collapse) Part / }).count(), 0, 'no part has a disclosure to press');
+  assert.equal(await model.locator('[data-part-count]').count(), 0, 'and none shows a count');
   const onScreen = async () => page.evaluate(() => {
     const scroller = document.querySelector('[aria-label="Model"]').closest('[data-tool-panel-body]'), view = scroller.getBoundingClientRect();
     return [...document.querySelectorAll('[aria-label="Model"] > li[data-tree-part]')].filter(li => { const box = li.getBoundingClientRect(); return box.bottom > view.top && box.top < view.bottom; })
       .map(li => li.dataset.treePart.replace(/^model:/, ''));
   });
   const firstScreen = await onScreen();
-  assert.deepEqual([...(await page.evaluate(() => window.treeTest.events.topology))].sort(), [...firstScreen].sort(), 'the parts on screen, and only those');
-  await page.evaluate(() => { const scroller = document.querySelector('[aria-label="Model"]').closest('[data-tool-panel-body]'); scroller.scrollTop = scroller.scrollHeight / 2; });
-  await frames(); await frames();
+  assert.deepEqual((await topology()).sort(), [...firstScreen].sort(), 'the parts on screen, and only those');
+  await scrollTo(0.5); await frames(); await frames();
   const secondScreen = await onScreen();
-  const requested = await page.evaluate(() => window.treeTest.events.topology);
+  const requested = await topology();
   assert.equal(new Set(requested).size, requested.length, 'no part is asked for twice');
   assert.deepEqual([...requested].sort(), [...new Set([...firstScreen, ...secondScreen])].sort(), 'the scroll asked for what it brought on screen');
   await page.evaluate(() => window.treeTest.refresh()); await frames();
-  assert.equal((await page.evaluate(() => window.treeTest.events.topology)).length, requested.length, 'a re-render asks for nothing');
+  assert.equal((await topology()).length, requested.length, 'a re-render asks for nothing');
+  // Hover asks for nothing in a small tree: its parts load as their rows show.
+  await page.evaluate(() => window.treeTest.hoverStore.setModelPartId('o4_40')); await page.waitForTimeout(400);
+  assert.equal((await topology()).includes('o4_40'), false);
   assert.deepEqual(errors, []);
 });

@@ -937,6 +937,21 @@ disclosure is locked (`data-disclosure-locked`) and the part menus drop Expand/C
 The one-press load for a part not yet loaded stays in the pick path; the Features filter
 row shows `Loading…` while it waits.
 
+**A large tree under Faces and Edges.** Above `LARGE_TREE_ROWS` (300, in `ModelingTree.jsx`) rows
+of assemblies and parts — the fully expanded tree less the features recognition adds under a
+part later, so the tree never changes shape under the person — Faces and Edges keep every
+assembly open and locked but start every part closed: its disclosure is its own (the lock is
+lifted for part rows alone), and it shows its count at its right (`data-part-count`, "412 faces"
+or "96 edges" by the mode, under the row actions' fade), from the part's loaded topology, else
+from its recognition (`tree` faces, `edgeFaces`); the package descriptor carries no per-component
+counts, and nothing is shown until one is known. A part opens by its disclosure, by a pick inside
+it (the reveal opens it and scrolls to the picked row) or by its row menu's Expand; Expand all and
+Collapse all open and close every part. A closed part on screen asks for nothing; opening one asks
+for its topology and recognition at once (Expand all leaves that to the rows as they come on screen),
+and the viewport asks for the part under a pointer that rests on it for `TOPOLOGY_DWELL_MS` (150) or
+presses it, read from the viewport's hover store (`workbench/hoverStore.js`), each part once.
+Below the threshold, and under All and Parts, nothing of this applies.
+
 Explode and Clip follow Measure on the strip; Explode only with two or more parts
 (hidden, never disabled, once the mesh is known). Their panels
 (`components/workbench/ModelTools.jsx`), with Measure's results panel, follow the tool's
@@ -966,7 +981,8 @@ shows it. The selection's row, the search cursor, a focused row and the row whos
 was opened stay mounted wherever they are, so a reveal, Enter, keyboard focus and an open menu
 always have their row; a row carries its level
 (`aria-level`) in place of the nesting it no longer has. Under Faces and Edges the rows the list
-reports on screen (never its margin) are the parts whose topology is asked for, each once.
+reports on screen (never its margin) are the parts whose topology is asked for, each once (in a
+large tree, only the open ones).
 Rows are memoized on their own facts (their selection and joins as booleans, stable callbacks,
 the one `partControls` object `useStepPanels` keeps), so a re-render of the viewer that changes
 nothing in a row renders no row. Recognition (`useModelingRecognition`) runs one component at a

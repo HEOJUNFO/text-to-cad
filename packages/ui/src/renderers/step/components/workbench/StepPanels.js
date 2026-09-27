@@ -55,6 +55,9 @@ export function useStepPanels({
   menuForNode = null, menuForReferences = null, partMenuActions = null,
   treeSelectionDisabled = false, selectMode = 'all', loadingGeometry = false,
   statusItems = EMPTY, positionRuntime = null, selectModeMenu = null, onCopyReference = null, onClosePosition = null,
+  // The viewport's hover (`workbench/hoverStore.js`): a large tree under Faces or Edges asks for the
+  // topology of the part the pointer rests on.
+  hoverStore = null,
 }) {
   const recognitionKey = `${selectedEntry?.file}:${geometryInspection?.revision}`;
   const [recognitionRequest, setRecognitionRequest] = useState({ key: recognitionKey, ids: EMPTY });
@@ -117,7 +120,7 @@ export function useStepPanels({
       selectedReferenceIds={selectedReferenceIds} selectedPartIds={selectedPartIds}
       selectionDetails={selectionDetails} activeTreeNodeScrollKey={activeTreeNodeScrollKey}
       onLoadTopology={loadTopology} onSelect={selectReferenceGroup} onClearSelection={clearSelection}
-      partControls={partControls}
+      partControls={partControls} hoverStore={hoverStore}
     />
     {issues ? <ToolPanel id="issues" title={issues.title} label="Issues" fit="details" hidden={!selectActive}>{issues.content}</ToolPanel> : null}
     {/* Headed "Position" with its Reset; sized like the tree: its content's height, up to half the stack. */}
