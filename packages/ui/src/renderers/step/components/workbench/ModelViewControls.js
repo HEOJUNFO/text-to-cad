@@ -1,9 +1,8 @@
 import { normalizeExplodedViewSettings } from "@hardcore/core/lib/displaySettings.js";
 import { normalizeViewSettings } from "@hardcore/core/common/viewSettings.js";
 import { clipAxisBounds, normalizeStepClipSettings } from "@hardcore/core/lib/viewer/clipPlane.js";
-import { ToggleGroup, ToggleGroupItem } from "@hardcore/ui/primitives/toggle-group";
 import { Slider } from "@hardcore/ui/primitives/slider";
-import { FILE_SHEET_PRECISION_SLIDER_CLASSES } from "../../../kit/inspector/FileSheet.js";
+import { FILE_SHEET_PRECISION_SLIDER_CLASSES, FileSheetSelectRow } from "../../../kit/inspector/FileSheet.js";
 
 const AXES = Object.freeze(["x", "y", "z"]);
 
@@ -28,18 +27,18 @@ export function clipSummary(viewSettings) {
   return `${formatNumber(clipState(viewSettings, null).amount, 0)}%`;
 }
 
-/** Clip's axis, left of its slider: X, Y or Z. */
-function ClipAxisToggle({ viewSettings, onViewSettingsPatch }) {
+const AXIS_OPTIONS = Object.freeze(AXES.map(value => ({ value, label: value.toUpperCase() })));
+
+/** Clip's axis, left of its slider: a compact X / Y / Z dropdown, the size of Pose's. */
+function ClipAxisSelect({ viewSettings, onViewSettingsPatch }) {
   const { clip, neutral } = clipState(viewSettings, null);
-  return <ToggleGroup type="single" value={clip.axis} aria-label="Clip axis" className="rounded-sm bg-muted p-0.5"
+  return <FileSheetSelectRow hideLabel className="w-auto shrink-0 px-0" triggerClassName="!h-6 w-auto gap-1 !px-1.5 text-tiny"
+    value={clip.axis} ariaLabel="Clip axis" options={AXIS_OPTIONS}
     onValueChange={nextAxis => {
-      if (!nextAxis) return;
+      if (!nextAxis || nextAxis === clip.axis) return;
       const nextOffset = clip.enabled ? clip.offsets[nextAxis] : neutral;
       onViewSettingsPatch({ clip: { axis: nextAxis, offsets: { [nextAxis]: nextOffset }, enabled: Math.abs(nextOffset - neutral) > 1e-6 } });
-    }}>
-    {AXES.map(value => <ToggleGroupItem key={value} value={value} aria-label={`Clip ${value.toUpperCase()} axis`}
-      className="h-4 min-w-0 w-5 rounded-sm px-1 text-micro data-[state=on]:bg-background data-[state=on]:shadow-xs">{value.toUpperCase()}</ToggleGroupItem>)}
-  </ToggleGroup>;
+    }} />;
 }
 
 // The Clip panel's body: its axis, then one slider, which applies the cut as it leaves zero and
@@ -50,7 +49,7 @@ export function CrossSectionControls({ viewSettings, onViewSettingsPatch, bounds
     offsets: { [clip.axis]: nextOffset }, enabled: Math.abs(nextOffset - neutral) > 1e-6
   } });
   return <div className="flex min-w-0 items-center gap-2 px-2 py-1">
-    <ClipAxisToggle viewSettings={viewSettings} onViewSettingsPatch={onViewSettingsPatch} />
+    <ClipAxisSelect viewSettings={viewSettings} onViewSettingsPatch={onViewSettingsPatch} />
     <Slider thumbProps={{ "aria-label": "Clip amount" }} value={[amount]} min={0} max={100}
       step={0.1} disabled={!range}
       onValueChange={([value]) => changeOffset(clip.invert ? value / 100 : 1 - value / 100)}

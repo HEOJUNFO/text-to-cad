@@ -176,7 +176,7 @@ with one (it clears the results or removes the effect, and puts the tool down).
 
 **Explode and Clip** are toggles with no enabled checkbox, drawn alike: the
 amount in the heading beside the title, one row for a body — Explode's a
-slider, Clip's its X/Y/Z axis toggle and then its slider. Explode opens at 0%,
+slider, Clip's its axis (a compact X / Y / Z dropdown) and then its slider. Explode opens at 0%,
 Clip at no cut; an edit applies the effect and the panel is then kept. A panel
 still at its neutral value goes when another tool is chosen, or when the pointer
 is released after a drag that ended at neutral — never mid-drag. Pressing the

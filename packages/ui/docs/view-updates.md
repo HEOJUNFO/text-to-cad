@@ -34,9 +34,9 @@ The Clip and Explode tool buttons add neutral control panels. Editing a slider o
 number enables the effect; X or pressing the tool again resets and removes it.
 Clip uses original model bounds for its slider and the rendered plane, independent
 of pose and Explode. Its neutral endpoint is the maximum coordinate (minimum when
-flipped). It has one active axis and plane, exposed with X/Y/Z buttons, a single
-cut-amount slider and percentage input with Flip. The slider starts neutral on
-the left and advances from maximum to minimum coordinate; Flip reverses that direction. CLI coordinates, including zero, remain supported. Clip and Explode stay outside mode presets.
+flipped). It has one active axis and plane, exposed in its panel as a compact X/Y/Z
+dropdown and a single cut-amount slider. The slider starts neutral on the left and
+advances from maximum to minimum coordinate; a flipped cut (`invert`) reverses that direction. CLI coordinates, including zero, remain supported. Clip and Explode stay outside mode presets.
 
 ## Renderer and resources
 

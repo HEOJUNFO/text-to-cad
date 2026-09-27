@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { resolveViewSettings } from '@hardcore/core/common/viewSettings.js';
@@ -154,7 +154,7 @@ it('Explode turns on at half, its slider sets the amount, zero removes it, and i
   expect(amount().getAttribute('aria-valuenow')).toBe('50');
 });
 
-it('Cross-section turns on at an X centre cut; its body is the axis toggle and one slider: the slider sets the amount, zero removes it, the toggle moves the cut', async () => {
+it('Cross-section turns on at an X centre cut; its body is the axis dropdown and one slider: the slider sets the amount, zero removes it, the dropdown moves the cut', async () => {
   const user = userEvent.setup();
   render(<Tools />);
   await user.click(screen.getByRole('button', { name: 'Cross-section' }));
@@ -164,18 +164,24 @@ it('Cross-section turns on at an X centre cut; its body is the axis toggle and o
   expect(screen.queryByRole('checkbox', { name: 'Flip' })).toBeNull();
   const amount = () => screen.getByRole('slider', { name: 'Clip amount' });
   expect(amount().getAttribute('aria-valuenow')).toBe('50');
-  // The axis sits left of the slider, in the one row of the body.
-  const axis = screen.getByRole('radiogroup', { name: 'Clip axis' });
-  expect(axis.parentElement).toBe(amount().closest('[data-slot="slider"]')!.parentElement);
+  // The axis is a compact dropdown left of the slider, in the one row of the body.
+  const axis = screen.getByRole('combobox', { name: 'Clip axis' });
+  expect(axis.textContent).toBe('X');
+  expect(axis.closest('[data-slot="slider"]')).toBeNull();
+  expect(amount().closest('[data-slot="slider"]')!.parentElement!.contains(axis)).toBe(true);
   expect(axis.compareDocumentPosition(amount()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(screen.getByRole('status', { name: 'Clip summary' }).textContent).toBe('50%');
   amount().focus();
   await user.keyboard('{End}');
   expect(resolveViewSettings(current).clip.offsets.x).toBe(0);
   expect(screen.getByRole('status', { name: 'Clip summary' }).textContent).toBe('100%');
-  await user.click(screen.getByRole('radio', { name: 'Clip Y axis' }));
+  fireEvent.keyDown(axis, { key: 'ArrowDown' });
+  fireEvent.click(screen.getByRole('option', { name: 'Y', exact: true }));
   expect(resolveViewSettings(current).clip.axis).toBe('y');
   expect(resolveViewSettings(current).clip.offsets.y).toBe(0);
+  // The dropdown hands focus back to its trigger as it closes; take it to the slider after that.
+  await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
+  await act(async () => {});
   amount().focus();
   await user.keyboard('{Home}');
   expect(resolveViewSettings(current).clip.enabled).toBe(false);

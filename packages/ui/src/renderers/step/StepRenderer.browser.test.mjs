@@ -876,7 +876,8 @@ test('every Display control reaches the drawn frame: the five modes, edges, the 
   await page.waitForFunction(() => window.cadHarness.a.controller.readState().display.clip?.enabled === true);
   assert.ok(Math.abs(Number(await clipSlider.getAttribute('aria-valuenow')) - 50) <= 3, 'about half');
   const cut = await frameWhen(view, shot => partBoxes(shot).base.count < whole.base.count * 0.75, 'cut the model down');
-  await pane.getByRole('radio', { name: 'Clip Y axis', exact: true }).click();
+  await pane.getByRole('combobox', { name: 'Clip axis', exact: true }).click();
+  await page.getByRole('option', { name: 'Y', exact: true }).click();
   await page.waitForFunction(() => window.cadHarness.a.controller.readState().display.clip?.axis === 'y');
   await cutHalf();
   await page.waitForFunction(() => window.cadHarness.a.controller.readState().display.clip?.enabled === true);
@@ -953,7 +954,9 @@ test('persistent tools open neutral, stack beneath the toolbar, and toggle off w
   assert.equal((await view.state()).display.clip.enabled, false);
   const slider = clipPanel.getByRole('slider', { name: 'Clip amount' });
   for (const axis of ['X', 'Y', 'Z']) {
-    await clipPanel.getByRole('radio', { name: `Clip ${axis} axis` }).click();
+    await clipPanel.getByRole('combobox', { name: 'Clip axis' }).click();
+    await page.getByRole('option', { name: axis, exact: true }).click();
+    assert.equal(await clipPanel.getByRole('combobox', { name: 'Clip axis' }).innerText(), axis);
     assert.equal(Number(await slider.getAttribute('aria-valuemin')), 0);
     assert.equal(Number(await slider.getAttribute('aria-valuemax')), 100);
     assert.equal(Number(await slider.getAttribute('aria-valuenow')), 0);
@@ -963,7 +966,8 @@ test('persistent tools open neutral, stack beneath the toolbar, and toggle off w
   assert.equal((await view.state()).display.clip.enabled, true, 'moving the slider enables clipping');
   await slider.press('Home');
   assert.equal((await view.state()).display.clip.enabled, false, 'the neutral boundary removes clipping');
-  await clipPanel.getByRole('radio', { name: 'Clip X axis' }).click();
+  await clipPanel.getByRole('combobox', { name: 'Clip axis' }).click();
+  await page.getByRole('option', { name: 'X', exact: true }).click();
   // The body is the axis and ONE slider: no typed value, no Flip. A press mid-track sets half.
   assert.equal(await clipPanel.getByLabel('Clip amount value').count(), 0);
   assert.equal(await clipPanel.getByRole('checkbox', { name: 'Flip' }).count(), 0);
@@ -987,7 +991,7 @@ test('persistent tools open neutral, stack beneath the toolbar, and toggle off w
   assert.ok(strip.width > first.width);
   assert.ok(Math.abs(first.x - canvas.x - 8) < 2 && Math.abs(first.y - strip.y - strip.height - 8) < 2, 'under the strip, 8px in from the viewer');
   assert.ok(second.y >= first.y + first.height && second.x === first.x);
-  const [axisBox, sliderBox] = await Promise.all([clipPanel.getByRole('radiogroup', { name: 'Clip axis' }).boundingBox(), clipPanel.locator('[data-slot=slider]').boundingBox()]);
+  const [axisBox, sliderBox] = await Promise.all([clipPanel.getByRole('combobox', { name: 'Clip axis' }).boundingBox(), clipPanel.locator('[data-slot=slider]').boundingBox()]);
   assert.ok(axisBox.x + axisBox.width <= sliderBox.x && Math.abs(axisBox.y + axisBox.height / 2 - (sliderBox.y + sliderBox.height / 2)) <= 2,
     'the axis sits left of the slider, on one row');
   assert.ok(second.height < 70, `Clip is a heading and one row: ${second.height}`);
@@ -2571,7 +2575,8 @@ test('mobile touch operates every STEP tool without hover or accidental pinch se
   await view.tool('Clip').tap();
   await slide(page.getByRole('slider', { name: 'Clip amount' }));
   await page.waitForFunction(() => window.cadHarness.a.controller.readState().display.clip.enabled);
-  await page.getByLabel('Clip Y axis', { exact: true }).tap();
+  await page.getByRole('combobox', { name: 'Clip axis', exact: true }).tap();
+  await page.getByRole('option', { name: 'Y', exact: true }).tap();
   assert.equal((await view.state()).display.clip.axis, 'y');
   await page.getByRole('button', { name: 'Close clip controls' }).tap();
 
