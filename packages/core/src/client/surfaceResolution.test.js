@@ -169,3 +169,38 @@ test("independent renderer clients bind surface tickets to their own backend ori
     assert.equal(calls[i].body.viewId, VIEW);
   }
 });
+
+test("a request for more components than one POST may name is sent in chunks of at most 64", async (t) => {
+  const original = globalThis.fetch;
+  t.after(() => { globalThis.fetch = original; });
+  const bodies = [];
+  globalThis.fetch = async (url, options) => {
+    const body = JSON.parse(options.body);
+    bodies.push(body);
+    if (body.components.length < 1 || body.components.length > 64) {
+      return json({ error: "surface request must name between 1 and 64 components" }, 400);
+    }
+    return json({ viewId: VIEW, components: Object.fromEntries(body.components.map(({ cid }) => [cid, {
+      surfaceInput: D, state: "ready", surfaceObject: O,
+      url: `/__cad/store?tree=${TREE}&surfaceInput=${D}&object=${O}`, byteLength: 10,
+    }])) });
+  };
+  const requests = Array.from({ length: 150 }, (_, index) => ({ cid: `part${index}`, surfaceInput: D, surfaceObject: O }));
+  const result = await resolveSurfaceComponents(descriptor, requests);
+  assert.deepEqual(bodies.map((body) => body.components.length), [64, 64, 22]);
+  assert.deepEqual([...result.keys()], requests.map(({ cid }) => cid));
+  assert.deepEqual(bodies.flatMap((body) => body.components.map(({ cid }) => cid)), requests.map(({ cid }) => cid));
+});
+
+test("a failing chunk fails the whole request with its own error", async (t) => {
+  const original = globalThis.fetch;
+  t.after(() => { globalThis.fetch = original; });
+  globalThis.fetch = async (url, options) => {
+    const body = JSON.parse(options.body);
+    return json({ viewId: VIEW, components: Object.fromEntries(body.components.map(({ cid }) => [cid, cid === "part70"
+      ? { surfaceInput: D, state: "failed", error: "bad face", code: "extract" }
+      : { surfaceInput: D, state: "ready", surfaceObject: O, url: `/__cad/store?tree=${TREE}&surfaceInput=${D}&object=${O}`, byteLength: 10 }])) });
+  };
+  const requests = Array.from({ length: 100 }, (_, index) => ({ cid: `part${index}`, surfaceInput: D, surfaceObject: O }));
+  await assert.rejects(resolveSurfaceComponents(descriptor, requests), (error) => error instanceof SurfaceResolutionError && error.cid === "part70");
+});

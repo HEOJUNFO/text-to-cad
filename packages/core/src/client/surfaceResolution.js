@@ -2,6 +2,9 @@ import { viewerOriginUrl } from "./origin.js";
 const DIGEST_RE = /^[0-9a-f]{64}$/;
 const INITIAL_POLL_MS = 80;
 const MAX_POLL_MS = 640;
+// The most components one POST /__cad/surfaces may name (cadgen/viewer/surfaces.py's
+// MAX_COMPONENTS); a larger request is sent as several.
+export const SURFACE_REQUEST_MAX_COMPONENTS = 64;
 
 function abortError() {
   if (typeof DOMException === "function") {
@@ -94,6 +97,38 @@ export class SurfaceResolutionError extends Error {
  */
 export async function resolveSurfaceComponents(descriptor, requested, { signal, client } = {}) {
   if (!client) throw new TypeError("Surface resolution requires a CAD workspace service");
+  const list = Array.isArray(requested) ? requested : [];
+  if (list.length <= SURFACE_REQUEST_MAX_COMPONENTS) {
+    return resolveSurfaceRequest(descriptor, list, { signal, client });
+  }
+  // Every chunk is its own request (and subscriber job); one failing stops the others.
+  const controller = new AbortController();
+  const forward = () => controller.abort();
+  if (signal?.aborted) controller.abort();
+  signal?.addEventListener("abort", forward);
+  try {
+    const chunks = [];
+    for (let start = 0; start < list.length; start += SURFACE_REQUEST_MAX_COMPONENTS) {
+      chunks.push(list.slice(start, start + SURFACE_REQUEST_MAX_COMPONENTS));
+    }
+    const results = await Promise.all(chunks.map((chunk) => (
+      resolveSurfaceRequest(descriptor, chunk, { signal: controller.signal, client }).catch((error) => {
+        controller.abort();
+        throw error;
+      })
+    )));
+    const ready = new Map();
+    for (const result of results) for (const [cid, ticket] of result) ready.set(cid, ticket);
+    return ready;
+  } catch (error) {
+    // A sibling aborted by another chunk's failure reports that failure, not its abort.
+    throw signal?.aborted ? abortError() : error;
+  } finally {
+    signal?.removeEventListener("abort", forward);
+  }
+}
+
+async function resolveSurfaceRequest(descriptor, requested, { signal, client }) {
   const tree = digest(descriptor?.tree, "surface tree");
   const viewId = digest(descriptor?.viewId, "surface viewId");
   const producer = descriptor?.surfaceProducer;
