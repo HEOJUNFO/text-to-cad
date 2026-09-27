@@ -269,12 +269,16 @@ class ReferenceSceneTests(Fixture):
 
         for name, geometry in (("box", "bd.Solid.make_box(2, 3, 4)"), ("curve", "bd.Solid.make_torus(7, 1)")):
             (self.root / f"{name}.py").write_text(
-                f"from cadgen import step, build123d as bd\n@step\ndef {name}():\n    return {geometry}\n")
+                f"from cadgen import step, build123d as bd\n@step\ndef {name}():\n    return {geometry}\n",
+                encoding="utf-8",
+            )
         parent = self.root / "parent.py"
         parent.write_text(
             "from cadgen import step, build123d as bd\nfrom box import box\nfrom curve import curve\n"
             "@step\ndef parent():\n"
-            "    return bd.Compound(children=[bd.Pos(5, 0, 0) * box(), bd.Pos(-5, 0, 0) * curve()], label='assembly')\n")
+            "    return bd.Compound(children=[bd.Pos(5, 0, 0) * box(), bd.Pos(-5, 0, 0) * curve()], label='assembly')\n",
+            encoding="utf-8",
+        )
         output = io.StringIO()
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
             for name in ("box", "curve"):
