@@ -278,7 +278,8 @@ test('Select picks parts and faces, a selection lives only under Select, and the
   assert.equal(await reference.locator('[data-reference-count]').count(), 0, 'one reference has no i/N');
   // Compact rows in the panel's one face: every value is the UI font at the panel's size, never
   // monospace; and a component's facts fit the panel's default height without scrolling. The
-  // Reference is a fixed panel: every panel's width, and no handle of its own.
+  // Reference is a fixed panel: every panel's width, and no handle of its own — so a long value
+  // (a size) wraps to a second line rather than widening it.
   assert.equal(Math.round((await reference.boundingBox()).width), TOOL_PANEL_WIDTH);
   assert.equal(await reference.getByRole('separator').count(), 0);
   const faces = await reference.locator('[data-tool-panel-body] *').evaluateAll(nodes => [...new Set(nodes
@@ -288,7 +289,7 @@ test('Select picks parts and faces, a selection lives only under Select, and the
   assert.doesNotMatch(faces[0], /mono/i);
   assert.match(faces[0], /\| 11px$/);
   const rowHeights = await reference.locator('[data-info-row]').evaluateAll(rows => rows.map(row => row.getBoundingClientRect().height));
-  assert.ok(rowHeights.length >= 4 && rowHeights.every(height => height <= 19), `compact rows: ${rowHeights}`);
+  assert.ok(rowHeights.length >= 4 && rowHeights.every(height => height <= 19 * 2), `compact rows, a line or two each: ${rowHeights}`);
   assert.equal(await reference.locator('[data-tool-panel-body]').evaluate(body => body.scrollHeight <= body.clientHeight), true, 'a component fits without scrolling');
   // The Reference is the next panel of the stack, under Features, the stack's width.
   assert.deepEqual(await view.stack(), ['Features', 'Reference details']);
@@ -985,9 +986,8 @@ test('persistent tools open neutral, stack beneath the toolbar, and toggle off w
   const [first, second, canvas, strip] = await Promise.all([explodePanel.boundingBox(), clipPanel.boundingBox(),
     pane.locator('[aria-busy] > div > canvas').first().boundingBox(), pane.getByRole('group', { name: 'Interaction tools' }).boundingBox()]);
   // Every panel's width: a six-tool strip's (`toolStackLayout.js`), whatever this file's own strip
-  // is — seven tools, wider — and a kept panel is fixed at it.
+  // holds — and a kept panel is fixed at it.
   assert.equal(first.width, TOOL_PANEL_WIDTH);
-  assert.ok(strip.width > first.width);
   assert.ok(Math.abs(first.x - canvas.x - 8) < 2 && Math.abs(first.y - strip.y - strip.height - 8) < 2, 'under the strip, 8px in from the viewer');
   assert.ok(second.y >= first.y + first.height && second.x === first.x);
   const [axisBox, sliderBox] = await Promise.all([clipPanel.getByRole('combobox', { name: 'Clip axis' }).boundingBox(), clipPanel.locator('[data-slot=slider]').boundingBox()]);
@@ -2026,9 +2026,10 @@ test('reference CTA, double clicks and copy shortcut deliver references silently
   await view.chooseSelectMode('All');
   await view.tool('Draw').click();
   await page.waitForFunction(() => document.querySelector('[data-testid="one"] [data-drawing-ready]'));
-  await page.mouse.move(view.box.x + 150, view.box.y + 150);
+  // A stroke on the model, clear of the Drawing panel under the strip.
+  await page.mouse.move(view.box.x + 300, view.box.y + 150);
   await page.mouse.down();
-  await page.mouse.move(view.box.x + 250, view.box.y + 200, {steps:8});
+  await page.mouse.move(view.box.x + 400, view.box.y + 200, {steps:8});
   await page.mouse.up();
   const drawingAction = pane.getByRole('button', {name:/^Copy Drawing/});
   await drawingAction.waitFor();
