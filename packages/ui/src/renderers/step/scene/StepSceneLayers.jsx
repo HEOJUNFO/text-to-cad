@@ -11,6 +11,7 @@ import { useStepMeasureOverlay } from "./useStepMeasureOverlay.js";
 import { useStepPicking } from "./useStepPicking.js";
 import { useStepPose } from "./useStepPose.js";
 import { releaseStepRuntime, useStepSceneSync } from "./useStepSceneSync.js";
+import { useHover } from "../workbench/hoverStore.js";
 import ViewportError from "../../kit/status/ViewportError.jsx";
 
 /**
@@ -36,9 +37,15 @@ import ViewportError from "../../kit/status/ViewportError.jsx";
  * | measure rulers and the snap indicator | `useStepMeasureOverlay.js` |
  * | pointer: hover, tap, double-click, measure picks | `useStepPicking.js` |
  * | Pose knobs | the kit's `JointHandleOverlay` |
+ *
+ * Hover is the one input that is not a prop. The layers subscribe to the surface's hover store
+ * and resolve it through the surface (`surfaceProps.resolveHover`), so a hover change re-renders
+ * this component and no other: not the surface, its tool stack or the Features tree.
  */
-export default function StepSceneLayers({ viewport, stepScene, policy, props, api }) {
+export default function StepSceneLayers({ viewport, stepScene, policy, props: surfaceProps, api }) {
   const { runtimeRef, hostRef, mountRef, viewerReadyTick } = viewport;
+  const hover = useViewerHover(surfaceProps.hoverStore, surfaceProps.resolveHover);
+  const props = { ...surfaceProps, hoveredPartId: hover.hoveredPartId, hoveredReferenceId: hover.hoveredReferenceId };
   const {
     meshData, modelKey, isLoading, renderMode, previewMode, pickMode, hiddenPartIds, selectedPartIds,
     hoveredPartId, selectorRuntime, stepParameterRuntime, stepAnimationRuntime, animateMode,
@@ -316,6 +323,32 @@ export default function StepSceneLayers({ viewport, stepScene, policy, props, ap
       <ViewportError message={error} />
     </>
   );
+}
+
+/**
+ * The hover the layers draw: `{ hoveredPartId, hoveredReferenceId }`, re-read on each hover
+ * change. A part list that resolves to the same parts keeps the identity it had, so the layers
+ * keyed on it (part state, the pose pass, the part highlight) do not redo identical work.
+ */
+function useViewerHover(hoverStore, resolveHover) {
+  const snapshot = useHover(hoverStore);
+  const previousRef = useRef(null);
+  const resolved = useMemo(() => resolveHover(snapshot), [resolveHover, snapshot]);
+  const previous = previousRef.current;
+  const hoveredPartId = previous && samePartIds(previous.hoveredPartId, resolved.hoveredPartId)
+    ? previous.hoveredPartId
+    : resolved.hoveredPartId;
+  const next = previous && previous.hoveredPartId === hoveredPartId && previous.hoveredReferenceId === resolved.hoveredReferenceId
+    ? previous
+    : { hoveredPartId, hoveredReferenceId: resolved.hoveredReferenceId };
+  useLayoutEffect(() => { previousRef.current = next; });
+  return next;
+}
+
+function samePartIds(left, right) {
+  if (left === right) return true;
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+  return left.every((id, index) => id === right[index]);
 }
 
 export { releaseStepRuntime };
