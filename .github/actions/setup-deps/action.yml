@@ -11,8 +11,8 @@ inputs:
   ui-browser:
     description: >-
       Install the npm Playwright Chromium used by the shared UI, web and desktop browser
-      tests: "true" for the full browser, "shell" for only the headless shell (a suite
-      that launches headless and nothing else needs no more), "false" for none.
+      tests: "true" for the full browser, "shell" for only the headless shell (enough
+      when every browser test the job runs launches headless), "false" for none.
     default: "false"
   npm:
     description: Space-separated root workspace paths, or "none". Include shared dependencies used by the job.
