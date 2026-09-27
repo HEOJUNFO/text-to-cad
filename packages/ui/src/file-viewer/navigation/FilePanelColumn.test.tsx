@@ -5,7 +5,7 @@ import { FilePanelColumn, PANEL_MIN_WIDTH, PANEL_MAX_WIDTH, filePanelName } from
 
 afterEach(cleanup);
 it('resizes any panel down to the minimum by keyboard and stops there: the keyboard never closes it', () => {
-  expect(PANEL_MIN_WIDTH).toBe(200);
+  expect(PANEL_MIN_WIDTH).toBe(140);
   for (const id of ['tree', 'source']) {
     const resize = vi.fn(), collapse = vi.fn();
     render(<FilePanelColumn id={id} label={id} width={PANEL_MIN_WIDTH} onWidthChange={resize} onCollapse={collapse}>Content</FilePanelColumn>);

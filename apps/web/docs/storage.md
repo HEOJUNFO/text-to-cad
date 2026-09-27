@@ -70,7 +70,7 @@ comes from the model and its sidecar, never session storage. Reuse the record's
 slices when adding a control instead of adding a separate storage key.
 
 The panel column's width comes from `@hardcore/ui/navigation`: `PANEL_DEFAULT_WIDTH`
-(280px) when nothing is stored, and `clampPanelWidth` (200–480px) for a stored width. Storage
+(220px) when nothing is stored, and `clampPanelWidth` (140–480px) for a stored width. Storage
 access is explicit in the host; constructing or importing a renderer never
 chooses a browser storage backend.
 

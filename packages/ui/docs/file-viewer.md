@@ -82,7 +82,7 @@ while the stored `panel` and
 `panelWidth` stay as the wide layout left them; the breadcrumbs collapse to the
 current file. The width is a breakpoint boolean, never a pixel value, so a panel
 drag or a resize within one layout does not re-render the renderer. The column is
-280px by default, 200px at least and 480px at most (`FilePanelColumn.jsx`); a drag
+220px by default, 140px at least and 480px at most (`FilePanelColumn.jsx`); a drag
 past the minimum stops at it, and only one below half the minimum closes the column.
 
 A renderer is handed, besides its document: `navigationStatusSlot`, the nav-row

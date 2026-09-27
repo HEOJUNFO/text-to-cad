@@ -26,7 +26,7 @@ test('a page load opens with the file’s default panel at the shared column wid
   for (const width of [480, 800, 1280]) {
     viewport(width);
     assert.equal(readViewState('root', storage()).panel, null);
-    assert.equal(readViewState('root', storage()).panelWidth, 280);
+    assert.equal(readViewState('root', storage()).panelWidth, 220);
   }
 });
 
@@ -35,7 +35,7 @@ test('restoration keeps the width and the expanded folders, never the open panel
   const session = storage();
   writeViewState('a', { panel: 'tree', panelWidth: 900, expandedDirectories: ['a'] }, session);
   assert.deepEqual(readViewState('a', session), { panel: null, panelWidth: 480, expandedDirectories: ['a'], renderers: {} });
-  assert.equal(readViewState('b', session).panelWidth, 280);
+  assert.equal(readViewState('b', session).panelWidth, 220);
 });
 
 test('a stale web view merges its renderer changes without reverting another view', () => {
