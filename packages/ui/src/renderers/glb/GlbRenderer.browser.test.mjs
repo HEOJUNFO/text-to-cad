@@ -112,7 +112,7 @@ test('preview orbits every GLB, and an animated one plays its routines there alo
   await pane.getByRole('button', { name: 'Preview', exact: true }).click();
   await pane.getByRole('toolbar', { name: 'Animation playback' }).waitFor();
   assert.equal(await playing(), false, 'Autoplay is off: the routine waits for its play button');
-  await pane.getByRole('button', { name: 'Playback settings', exact: true }).click();
+  await pane.getByRole('toolbar', { name: 'Animation playback' }).getByRole('button', { name: 'Playback settings', exact: true }).click();
   const settings = page.getByRole('menu', { name: 'Playback settings', exact: true });
   await settings.waitFor();
   assert.deepEqual(await settings.getByRole('menuitem').evaluateAll(items => items.map(item => item.getAttribute('aria-label'))),

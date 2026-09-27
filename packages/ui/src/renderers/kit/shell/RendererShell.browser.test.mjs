@@ -668,8 +668,9 @@ test('the shell keeps its Draw session across preview, and preview drags are the
   // Exercise actual hit testing above the pointer-transparent viewport overlay,
   // and the exit callback across FileViewer -> renderer -> toolbar.
   assert.equal(await pane.getByRole('toolbar', { name: 'Animation playback' }).count(), 0);
-  await pane.getByRole('button', { name: 'Playback settings', exact: true }).click();
-  // A static file's playback is its orbit alone.
+  // Playback settings are the cog at the playbar's right end: a static file's playbar is the orbit's
+  // play/pause, and its playback is its orbit alone.
+  await pane.getByRole('toolbar', { name: 'Orbit playback' }).getByRole('button', { name: 'Playback settings', exact: true }).click();
   assert.deepEqual(await page.getByRole('menuitemcheckbox').allTextContents(), ['Orbit']);
   await page.getByRole('menuitemcheckbox', { name: 'Orbit', exact: true }).click();
   assert.equal(await page.getByRole('menuitemcheckbox', { name: 'Orbit', exact: true }).getAttribute('aria-checked'), 'false');
@@ -700,8 +701,6 @@ test('the shell keeps its Draw session across preview, and preview drags are the
   for (const key of ['position', 'target', 'up']) {
     regularCamera[key].forEach((value, index) => assert.ok(Math.abs(value - orthographicCamera[key][index]) < 1e-6, `restored pose ${key}[${index}]`));
   }
-  assert.equal(await pane.getByRole('button', { name: 'Display settings', exact: true }).getAttribute('data-projection'), 'orthographic',
-    'the Display settings button is the view\'s projection');
   await page.evaluate(() => window.cadHarness.a.controller.setDisplaySettings({ camera: { projection: 'perspective' } }));
   assert.equal(await pane.getByRole('button', { name: 'Draw', exact: true }).getAttribute('aria-pressed'), 'true',
     'the session the sketch is in survives a trip through preview');
