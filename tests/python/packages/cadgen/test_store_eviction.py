@@ -155,6 +155,35 @@ class EvictionCase(unittest.TestCase):
         self.assertIsNotNone(found)
         self.assertNotIn(LAST_USED, found)
 
+    def test_every_evictable_reader_tolerates_the_stamp(self):
+        """Every field-set validator over an evictable tier strips the stamp; the
+        component fast path (the one exact-match reader) is pinned here so a
+        stamped entry keeps matching -- and, as a hit, refreshes it."""
+        from cadgen._internal import component_package
+        from cadgen.store.index import LAST_USED, _write_entry_raw, entry_path, read_entry
+        from cadgen.store.trees import get_tree
+
+        tree = self.seed_document()
+        cid, entry = next(iter(get_tree(tree)["components"].items()))
+        then = time.time() - 5 * HOUR
+        _write_entry_raw("component", cid, {"schemaVersion": 1, **entry, LAST_USED: then})
+        os.utime(entry_path("component", cid), (then, then))
+        published = {**read_entry("component", cid)}
+        self.assertIn(LAST_USED, published)
+        # The comparison the fast path makes, on the stamped entry it reads.
+        seen = {key: value for key, value in published.items() if key not in ("schemaVersion", "color", LAST_USED)}
+        self.assertEqual(component_package.canonical_json_bytes(seen), component_package.canonical_json_bytes(entry))
+        with mock.patch.object(component_package, "_shape_brep_bytes", return_value=b"x"), \
+                mock.patch.object(component_package, "effective_face_colors", return_value=entry["faceColors"]), \
+                mock.patch.object(component_package, "geometry_component_hash", return_value=entry["contentHash"]), \
+                mock.patch.object(component_package, "_build123d_shape_from_topods", return_value=mock.Mock()), \
+                mock.patch.object(component_package, "prepare_geometry_component", side_effect=AssertionError("slow path")), \
+                mock.patch.object(component_package.hashlib, "sha256") as sha:
+            sha.return_value.hexdigest.return_value = entry["brep"]
+            prepared = component_package.prepare_published_component(mock.Mock(wrapped=object(), cad_face_ordinal_colors=None))
+        self.assertEqual(prepared["entry"]["contentHash"], entry["contentHash"])
+        self.assertAlmostEqual(read_entry("component", cid)[LAST_USED], time.time(), delta=5, msg="a component hit refreshes the stamp")
+
     # --- the plan -------------------------------------------------------------------
 
     def test_lru_order_is_respected(self):
