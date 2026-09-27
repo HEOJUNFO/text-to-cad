@@ -131,7 +131,7 @@ async function open(options) {
     at: projector(await page.evaluate(() => window.__cadCamera()), box),
     state: () => page.evaluate(() => window.cadHarness.a.controller.readState()),
     display: patch => page.evaluate(next => window.cadHarness.a.controller.setDisplaySettings(next), patch),
-    // Preview: its button, the play circle beside Display settings; its X back. A still camera
+    // Preview: its button, the play icon beside Display settings; its X back. A still camera
     // (no orbit), unless a test asks for one, so what moves in a frame is the model.
     enterPreview: async ({ orbit = false } = {}) => {
       if (!orbit) await page.evaluate(() => window.cadHarness.preferences.update({ orbit: { speed: 0 } }));

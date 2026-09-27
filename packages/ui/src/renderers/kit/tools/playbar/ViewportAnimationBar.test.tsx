@@ -36,6 +36,11 @@ it('keeps routine, speed and loop out of the transport even with several clips',
   expect(screen.getByRole('slider', { name: 'Animation time' })).toBeTruthy();
 });
 
+it('ends with what it is handed after the transport: preview\'s Playback settings', () => {
+  render(bar(clocks(), routine(), { trailing: <button type="button" aria-label="Playback settings" /> }));
+  expect(screen.getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual(['Play animation', 'Playback settings']);
+});
+
 it('has one Playback settings menu: the routine\'s Speed, Loop and Autoplay, then the orbit', async () => {
   const user = userEvent.setup();
   const onMenuOpenChange = vi.fn(), onAutoplayChange = vi.fn(), onOrbitChange = vi.fn(), onOrbitSpeedChange = vi.fn();

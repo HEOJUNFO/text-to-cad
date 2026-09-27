@@ -15,7 +15,7 @@ import { FLOATING_SURFACE_CLASS } from "./floatingSurface.js";
  * only to take the stale menu away. Unmounting at once leaves no layer to hear that tap. The
  * primitive's `animate-out` is not a class `cn` knows to replace, so the override is important.
  */
-export default function ToolPopover({ trigger, label, className, onOpenChange, allowInactive = false, align = "start", children }) {
+export default function ToolPopover({ trigger, label, className, onOpenChange, allowInactive = false, align = "start", side = "bottom", children }) {
   const [open, setLocalOpen] = useState(false);
   const setOpen = value => {
     setLocalOpen(value);
@@ -25,7 +25,7 @@ export default function ToolPopover({ trigger, label, className, onOpenChange, a
   useEffect(() => { if (!active) setOpen(false); }, [active]);
   return <DropdownMenu open={open && active} onOpenChange={setOpen} modal={false}>
     <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-    <DropdownMenuContent align={align} sideOffset={8} collisionPadding={8} aria-label={label}
+    <DropdownMenuContent side={side} align={align} sideOffset={8} collisionPadding={8} aria-label={label}
       className={cn(FLOATING_SURFACE_CLASS, "w-40 max-w-[calc(100vw-16px)] max-h-[min(24rem,var(--radix-popper-available-height))] data-[state=closed]:animate-none!", className)}
       onEscapeKeyDown={event => { event.stopPropagation(); setOpen(false); }}>
       {children}

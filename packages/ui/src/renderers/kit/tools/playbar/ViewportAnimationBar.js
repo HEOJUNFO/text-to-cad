@@ -66,9 +66,10 @@ function AnimationTransport({ runtime, disabled = false }) {
 
 /**
  * The playbar: transport in one transparent row under the model, centered: preview's animation
- * control. Preview has no cube to make room for.
+ * control, with `trailing` (Playback settings' cog) at its right end. Preview has no cube to make
+ * room for.
  */
-export function ViewportAnimationBar({ runtime, disabled = false, className }) {
+export function ViewportAnimationBar({ runtime, disabled = false, className, trailing = null }) {
 
   if (!animationControlsHaveContent(runtime)) return null;
   return <div role="toolbar" aria-label="Animation playback" data-preview-hover-hold="" style={{ "--viewport-bottom-inset": VIEWPORT_BOTTOM_CENTER }} className={cn(
@@ -76,6 +77,7 @@ export function ViewportAnimationBar({ runtime, disabled = false, className }) {
     className,
   )}>
     <AnimationTransport runtime={runtime} disabled={disabled}/>
+    {trailing}
   </div>;
 }
 
