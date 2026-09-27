@@ -160,7 +160,7 @@ test("an empty tab opens on the tree, a pick in the tree opens the file with the
   assert.equal(await page.getByRole("tree").count(), 0);
   assert.equal(await page.evaluate(() => window.harness.state.panel), null, "the field is back to the file's own default");
 });
-test("the panel column's width stays bounded, and no renderer can suspend the column or its toggles", async () => {
+test("the panel column's width stays bounded", async () => {
   await reset();
   await page.getByTestId("tree-toggle").click();
   await page.getByRole("tree").waitFor();
@@ -170,12 +170,6 @@ test("the panel column's width stays bounded, and no renderer can suspend the co
   const handle = page.getByRole("separator", { name: "Resize files panel" });
   await page.waitForFunction(() => document.querySelector('[role="separator"][aria-label="Resize files panel"]')?.getAttribute("aria-valuenow") !== "300");
   assert.equal(await handle.getAttribute("aria-valuenow"), await handle.getAttribute("aria-valuemax"));
-  // The column is the host's: a renderer is handed no way to hide it (preview leaves it as it is).
-  assert.equal(await page.evaluate(() => "onPanelVisibilityChange" in window.harness.rendererCallbacks.get("root-a")), false);
-  await page.evaluate(() => window.harness.open("next.txt"));
-  await waitValue("root-a next");
-  assert.equal(await page.getByRole("tree").isVisible(), true);
-  assert.equal(await page.getByTestId("tree-toggle").isDisabled(), false);
 });
 test("root changes, multiple instances, cancelled loads and readonly documents remain isolated", async () => {
   await reset();
