@@ -102,41 +102,6 @@ describe("listing a directory", () => {
     ]);
   });
 
-  it("puts parts above other files and the dotfiles and caches last", () => {
-    const rows = sortEntries([
-      row(".venv", "directory"),
-      row("README.md", "file"),
-      row(".gitignore", "file"),
-      row("housing.stl", "file"),
-      row("node_modules", "directory"),
-      row("src", "directory"),
-      row("Bracket.STEP", "file"),
-      row(".claude", "directory"),
-      row("out", "directory"),
-      row("gen.py", "file"),
-      row("__pycache__", "directory"),
-      row(".DS_Store", "file"),
-    ]);
-    expect(rows.map((entry) => entry.name)).toEqual([
-      // folders
-      "out",
-      "src",
-      // parts
-      "Bracket.STEP",
-      "housing.stl",
-      // the rest
-      "gen.py",
-      "README.md",
-      // clutter: directories, then files (the collator ignores punctuation)
-      "__pycache__",
-      ".claude",
-      ".venv",
-      "node_modules",
-      ".DS_Store",
-      ".gitignore",
-    ]);
-  });
-
   it("reports paths relative to the root, POSIX-separated", async () => {
     const entries = await listDirectory(root, "src");
     expect(entries.map((entry) => entry.path)).toContain("src/index.ts");

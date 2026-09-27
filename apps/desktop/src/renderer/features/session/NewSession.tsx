@@ -21,23 +21,17 @@ import type { GitMode, Project } from "@shared/types";
 import { AuthPrompt } from "./AuthPrompt";
 import { Composer } from "./Composer";
 import { EffortChip, GitModeChip, ModeChip, ModelChip, ProjectChip } from "./ComposerChips";
-import { OpenPart } from "./OpenPart";
-import { openPartIn, type Part } from "./open-part";
 import { errorMessage, isAuthError } from "./view";
 
 /**
  * The new-session state (plan §2): "What should we build in <project>?",
  * a line saying what a session is, the context strip — project · git mode —
  * and an empty composer with `+`, the mode, the model and the effort in the
- * row under its box, and under that one row of the folder's parts with
- * `Open file…` (`OpenPart`). Nothing else: a grid of canned prompts under
- * the box is four guesses at what somebody came here to do, whereas the
- * parts row is what is actually in the folder. Sending creates the session
- * — `sessions.create` spawns the agent — selects it, and sends the first
- * prompt; the transcript takes over from there. Opening a part creates the
- * session the same way and opens the file in its explorer instead of
- * sending anything: a draft has no explorer to open it in
- * (`docs/session-workspaces.md`), so the session comes first.
+ * row under its box. Nothing
+ * else: a grid of canned prompts under the box is four guesses at what
+ * somebody came here to do. Sending creates the session — `sessions.create`
+ * spawns the agent — selects it, and sends the first prompt; the transcript
+ * takes over from there.
  *
  * **The model chip is the agent chip.** Picking `Opus` picks Claude Code and
  * picking `GPT-6-Astra` picks Codex, because that is the decision somebody
@@ -166,23 +160,21 @@ export function NewSession({ project }: { project: Project }) {
     void setAgentDefaults(pickedProvider.agentId, { mode: modeId });
   };
 
-  // The one way a session is made from this screen, whichever door was
-  // used: the composer's send and the parts row both come here. Null when
-  // it could not be, with the failure already on screen; the caller puts
-  // back whatever it was holding (the prompt's text, nothing for a part).
-  const createSession = async (): Promise<string | null> => {
+  const start = async (text: string, content: PromptBlock[]) => {
     if (!startingAgentId) {
+      setDraft(draftKey, text);
       setFailure({ message: "Install an agent first — Settings › Agents lists what Hardcore can run.", auth: false });
-      return null;
+      return;
     }
     setBusy(true);
     setFailure(null);
+    let sessionId: string;
     try {
       // The model, the effort and the mode are not passed: they are this
       // agent's stored defaults, and main applies them to the session it
       // just created — in that order, because the model decides which
       // efforts exist.
-      return await create({
+      sessionId = await create({
         projectId: project.id,
         agentId: startingAgentId,
         ...(draftRoot ? { cwd: draftRoot } : {}),
@@ -192,56 +184,15 @@ export function NewSession({ project }: { project: Project }) {
       const message = errorMessage(error);
       // Main has already dropped the row: nothing to resume, nothing to list.
       setFailure({ message, auth: isAuthError(message) || agent?.auth === "unauthenticated" });
-      if (draftRoot) useComposer.getState().setDraftRoot(draftKey, draftRoot);
-      return null;
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const start = async (text: string, content: PromptBlock[]) => {
-    const sessionId = await createSession();
-    if (!sessionId) {
       setDraft(draftKey, text);
+      if (draftRoot) useComposer.getState().setDraftRoot(draftKey, draftRoot);
+      setBusy(false);
       return;
     }
     setDraft(draftKey, "");
     setActiveSession(sessionId);
+    setBusy(false);
     void submitPrompt(sessionId, text, content);
-  };
-
-  // A part from the row: the session, then the file in its explorer. The
-  // draft's text is kept — the person may well have been describing the
-  // change they want to make to the part they are now opening — and the
-  // session's composer starts with it, because the draft key is the
-  // project's and `Composer` reads it for the new session too.
-  const openPart = async (part: Part) => {
-    const sessionId = await createSession();
-    if (!sessionId) return;
-    setActiveSession(sessionId);
-    // Listed from the project folder, so opened from the project folder —
-    // `null` root — even when the session was created in a worktree.
-    if (!(await openPartIn(sessionId, part.path, null))) {
-      setFailure({ message: `Could not open ${part.name} in the new session.`, auth: false });
-    }
-  };
-
-  // A file from the chooser, which has to be one of the folder's: the
-  // explorer opens nothing outside a root, and this screen adds no way to
-  // bring one in — a file that lives elsewhere is moved into the folder in
-  // Finder, the way any other file gets there. Checked through the existing
-  // `exists` call rather than by string prefix alone, so an alias of the
-  // folder or a deleted file is refused with the same sentence.
-  const pickPart = async (source: string) => {
-    const relative = relativeToFolder(project.path, source);
-    const kinds = relative
-      ? await window.hardcore.explorer.exists({ projectId: project.id, paths: [relative] }).catch(() => ({}) as Record<string, "file" | "directory" | null>)
-      : {};
-    if (!relative || kinds[relative] !== "file") {
-      setFailure({ message: `Choose a file inside ${project.name} — Hardcore opens the folder's own files. Move it there first.`, auth: false });
-      return;
-    }
-    await openPart({ path: relative, name: relative.split("/").pop() ?? relative });
   };
 
   // What the session will be, as a strip above the box: where it runs, how
@@ -312,7 +263,6 @@ export function NewSession({ project }: { project: Project }) {
             status={busy ? "submitted" : "ready"}
             trailing={trailing}
           />
-          <OpenPart disabled={busy} onOpen={openPart} onPick={pickPart} project={project} />
         </div>
       </div>
     </div>
@@ -325,17 +275,4 @@ function Dot() {
       ·
     </span>
   );
-}
-
-/**
- * A chooser's absolute path as the folder-relative, POSIX-separated path the
- * explorer speaks, or null when it is not under the folder. Prefix only —
- * `explorer.exists` is what says whether the file is really there.
- */
-export function relativeToFolder(folder: string, absolute: string): string | null {
-  const base = folder.replace(/[\\/]+$/, "");
-  const separator = base.includes("\\") ? "\\" : "/";
-  if (!absolute.startsWith(base + separator)) return null;
-  const rest = absolute.slice(base.length + 1).split(/[\\/]+/).filter(Boolean);
-  return rest.length > 0 ? rest.join("/") : null;
 }
