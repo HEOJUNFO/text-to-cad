@@ -70,9 +70,10 @@ for it and a host cannot start or observe it. It fills the scene below the
 host's navbar and beside its panel column, which both stay as they are (the column can
 still be opened and shut). It never uses the browser Fullscreen API. The shell saves the tools view's camera, fits a preview camera and restores
 the tools view's exact pose on exit; nothing of preview is persisted. Orbit
-starts by default, with its speed from the tab's `settings.orbit`, and a file's routine
-plays on entry only when the tab's `settings.playback.autoplay` is on (both the tab
-store's, read as `CadPreferences`). The rules are in
+starts by default, with its speed, unless the file's Playback settings say otherwise:
+they are the file's view's `playback` — orbit on or off and its speed, Autoplay, the
+routine's chosen speed and loop — kept between previews and across a reload, and a
+file's routine plays on entry only when its Autoplay is on. The rules are in
 [settings-ui.md](settings-ui.md#camera-animation-and-preview).
 
 A renderer can publish `FileNavigationAction[]` through
@@ -228,15 +229,17 @@ files }`, thrown out with the tab and kept across a reload. The host supplies wh
 lives through one adapter, `TabRecordStorage` — a synchronous read and write of the
 whole record: the web over `sessionStorage`, the desktop over its per-tab store — and
 the package owns the record's shape, version and normalization. `settings` is
-tab-wide (the file tree's width and expansion, the tool stack's layout, the orbit
-speed, playback, the appearance) and is what every renderer reads as its preferences;
+tab-wide (the file tree's width and expansion, the tool stack's layout, the
+appearance) and is what every renderer reads as its preferences;
 `files` holds each opened file's view under `[root, path, renderer]`, the fifty most
-recently written. A view is `{ camera, display, renderer }` (`kit/shell/fileView.js`):
+recently written. A view is `{ camera, display, playback, renderer }` (`kit/shell/fileView.js`):
 the camera is restored in place of the open-time fit, the display settings with their
-Clip and Explode, and the renderer's own slices each behind the signature it was
-written against — a slice that no longer fits the file on screen is dropped, the
-camera and the display never. Not in it, and started afresh on every open: the tool
-in hand, the selection, measurements, ink, preview and a routine's time. Apps merge
+Clip and Explode, preview's Playback settings (orbit on or off and its speed, Autoplay,
+the routine's chosen speed and loop), and the renderer's own slices each behind the
+signature it was written against — a slice that no longer fits the file on screen is
+dropped, the camera, the display and the playback never. Not in it, and started afresh
+on every open: the tool in hand, the selection, measurements, ink, preview and a
+routine's time. Apps merge
 what a view changed into the store (`files.merge`); a stale view must not overwrite
 another view's entries. Material appearance is source-owned and read-only. Live
 selection and scene ownership belong to the mounted view.

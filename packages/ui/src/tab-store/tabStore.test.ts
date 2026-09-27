@@ -8,7 +8,7 @@ const view = (camera: unknown) => ({ version: 2, camera, display: null, renderer
 test('the record normalizes: every setting to its bounds, the files to well-keyed plain objects, and another version to the defaults', () => {
   expect(readTabRecord(undefined)).toEqual(defaultTabRecord());
   expect(defaultTabRecord()).toEqual({ version: TAB_RECORD_VERSION, settings: {
-    fileTree: { width: 220, expanded: {} }, toolStack: { panels: {}, collapsed: {} }, orbit: { speed: 1 }, playback: { autoplay: false }, appearance: 'system',
+    fileTree: { width: 220, expanded: {} }, toolStack: { panels: {}, collapsed: {} }, appearance: 'system',
   }, files: {} });
   for (const raw of [null, 'x', [], { version: 0, settings: { appearance: 'dark' } }, { version: 2, settings: { appearance: 'dark' } }]) {
     expect(readTabRecord(raw), JSON.stringify(raw)).toEqual(defaultTabRecord());
@@ -16,12 +16,13 @@ test('the record normalizes: every setting to its bounds, the files to well-keye
   const record = readTabRecord({ version: TAB_RECORD_VERSION, settings: {
     fileTree: { width: 9999, expanded: { root: ['a', 'a', 7, 'b'], other: 'x' } },
     toolStack: { panels: { tree: { width: 12 } }, collapsed: { tree: true, 'Not an id': true } },
-    orbit: { speed: 99 }, playback: { autoplay: 'yes', speed: 2, loop: false }, appearance: 'cinematic',
+    orbit: { speed: 99 }, playback: { autoplay: true }, appearance: 'cinematic',
   }, files: { [tabFileKey('root', 'a.step', 'step')]: view(1), '["root","b.step"]': view(2), 'junk': view(3), [tabFileKey('root', 'c.step', 'step')]: 'not a view' } });
   expect(record.settings).toEqual({
     fileTree: { width: 480, expanded: { root: ['a', 'b'] } }, toolStack: { panels: { tree: { width: 164 } }, collapsed: { tree: true } },
-    orbit: { speed: 5 }, playback: { autoplay: false, speed: 2, loop: false }, appearance: 'system',
+    appearance: 'system',
   });
+  expect('orbit' in record.settings || 'playback' in record.settings).toBe(false, 'playback is a file view\'s, never a setting');
   expect(Object.keys(record.files)).toEqual([tabFileKey('root', 'a.step', 'step')]);
 });
 
@@ -49,14 +50,14 @@ test('the files are the fifty most recently written: a write puts a file last, a
 
 test('the store reads its storage once, writes every change through whole, and publishes a new snapshot per change', () => {
   const writes: unknown[] = [];
-  const storage = { reads: 0, read() { this.reads += 1; return { version: TAB_RECORD_VERSION, settings: { orbit: { speed: 2 } }, files: {} }; }, write(record: unknown) { writes.push(JSON.parse(JSON.stringify(record))); } };
+  const storage = { reads: 0, read() { this.reads += 1; return { version: TAB_RECORD_VERSION, settings: { fileTree: { width: 300 } }, files: {} }; }, write(record: unknown) { writes.push(JSON.parse(JSON.stringify(record))); } };
   const store = createTabStore(storage);
   expect(storage.reads).toBe(1);
   const first = store.getSnapshot();
-  expect(first.settings.orbit).toEqual({ speed: 2 });
+  expect(first.settings.fileTree).toEqual({ width: 300, expanded: {} });
   const heard: unknown[] = [];
   store.subscribe(() => heard.push(store.getSnapshot()));
-  store.settings.update({ orbit: { speed: 2 } });
+  store.settings.update({ fileTree: { width: 300, expanded: {} } });
   expect(writes).toHaveLength(0);
   expect(heard).toHaveLength(0);
   expect(store.getSnapshot()).toBe(first);
@@ -79,12 +80,12 @@ test('the store reads its storage once, writes every change through whole, and p
 test('the preferences a renderer reads are the settings: patched by key, normalized, and shared by every file of the tab', () => {
   const store = createTabStore(memoryTabRecord());
   const preferences = store.settings;
-  preferences.update({ playback: { autoplay: true, speed: 2 } });
-  preferences.update({ toolStack: { panels: { tree: { width: 240 } }, collapsed: {} } });
-  expect(preferences.getSnapshot().playback).toEqual({ autoplay: true, speed: 2 });
-  expect(preferences.getSnapshot().toolStack).toEqual({ panels: { tree: { width: 240 } }, collapsed: {} });
-  preferences.update({ playback: { autoplay: true, speed: 2, loop: false } });
-  expect(preferences.getSnapshot().playback).toEqual({ autoplay: true, speed: 2, loop: false });
+  preferences.update({ appearance: 'dark' });
+  preferences.update({ toolStack: { panels: { tree: { width: 240, height: 12 } }, collapsed: { sdf: false } } });
+  expect(preferences.getSnapshot().appearance).toBe('dark');
+  expect(preferences.getSnapshot().toolStack).toEqual({ panels: { tree: { width: 240, height: 64 } }, collapsed: { sdf: false } });
+  preferences.update({ toolStack: { panels: {}, collapsed: {} } });
+  expect(preferences.getSnapshot().toolStack).toEqual({ panels: {}, collapsed: {} });
   expect(preferences.getSnapshot()).toBe(store.getSnapshot().settings);
 });
 

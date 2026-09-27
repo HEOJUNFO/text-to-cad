@@ -1,14 +1,17 @@
 import { normalizeViewSettings } from "@hardcore/core/common/viewSettings.js";
 import { annotatePerspectiveSnapshot, clonePerspectiveSnapshot } from "@hardcore/core/lib/perspective.js";
+import { normalizePlayback } from "../tools/playbar/playbackPreferences.js";
 
 // A file's view: the one record the host keeps for a file in its tab, under
 // `[root, file path, renderer id]` (`@hardcore/ui/tab-store`). One flat, versioned object:
 //
-//   { version: 2, camera, display, renderer }
+//   { version: 2, camera, display, playback, renderer }
 //
 //   camera    the renderer's own camera value, opaque here: a perspective snapshot for a scene
 //             (`readShellCamera`), a plane transform for a drawing. Null is "fit the model".
 //   display   the Display settings, every section of them.
+//   playback  preview's Playback settings (`tools/playbar/playbackPreferences.js`): orbit on or
+//             off and its speed, Autoplay, and the speed and loop chosen for the routine.
 //   renderer  the renderer's own slices of view state, each `{ signature, value }`: what the
 //             slice was written against. A slice comes back only while its signature still
 //             matches the one the renderer declares for the file on screen — a rebuilt model
@@ -62,7 +65,7 @@ export function plainShellCamera(camera) {
  * @param {Record<string, string>} [signatures]  Per renderer slice, what it must have been
  *   written against to come back; a slice declared without one comes back when it was
  *   written without one.
- * @returns {{ version: number, camera: unknown, display: object, renderer: Record<string, unknown> }}
+ * @returns {{ version: number, camera: unknown, display: object, playback: object, renderer: Record<string, unknown> }}
  */
 export function readFileView(raw, signatures = {}) {
   const record = plainObject(raw) && raw.version === FILE_VIEW_VERSION ? raw : {};
@@ -75,6 +78,7 @@ export function readFileView(raw, signatures = {}) {
     version: FILE_VIEW_VERSION,
     camera: plainObject(record.camera) ? structuredClone(record.camera) : null,
     display: readDisplay(record.display),
+    playback: normalizePlayback(record.playback),
     renderer
   };
 }
@@ -98,9 +102,10 @@ export function readFileViewSlices(raw) {
 
 /**
  * The record for the view as it is now.
- * @param {{ camera?: unknown, display?: object, renderer?: Record<string, unknown>, signatures?: Record<string, string> }} view
+ * @param {{ camera?: unknown, display?: object, playback?: object, renderer?: Record<string, unknown>,
+ *   signatures?: Record<string, string> }} view
  */
-export function writeFileView({ camera = null, display = null, renderer = {}, signatures = {} } = {}) {
+export function writeFileView({ camera = null, display = null, playback = null, renderer = {}, signatures = {} } = {}) {
   const slices = {};
   for (const [slice, value] of Object.entries(plainObject(renderer) ? renderer : {})) {
     if (value === undefined) continue;
@@ -110,6 +115,7 @@ export function writeFileView({ camera = null, display = null, renderer = {}, si
     version: FILE_VIEW_VERSION,
     camera: plainObject(camera) ? structuredClone(camera) : null,
     display: plainObject(display) ? structuredClone(display) : null,
+    playback: normalizePlayback(playback),
     renderer: slices
   };
 }

@@ -21,6 +21,13 @@ before(async () => { harness = await serveStepHarness({ after: cleanup => cleanu
 after(async () => { for (const cleanup of cleanups.reverse()) await cleanup(); });
 
 const settle = page => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+// The camera at rest: orbit coasts for a moment after it is turned off.
+const stillCamera = page => page.waitForFunction(() => {
+  const position = JSON.stringify(window.__cadCamera().position);
+  const still = window.__lastStillPosition === position;
+  window.__lastStillPosition = position;
+  return still;
+}, null, { polling: 250 });
 /** The last thing the viewport actually DREW. */
 const frame = async (pane) => { await settle(pane.page()); return PNG.sync.read(await pane.locator('[aria-busy] > div > canvas').first().screenshot({ style: '[data-slot=popover-content], [data-slot=dropdown-menu-content], [data-slot=dropdown-menu-sub-content], [data-cad-tool-groups] { visibility: hidden !important; }' })); };
 // A canvas screenshot also catches what is drawn OVER the canvas: the tool strip
@@ -112,8 +119,13 @@ async function frameWhen(view, reached, what) {
   throw new assert.AssertionError({ message: `the drawn frame never ${what}`, actual: false, expected: true, operator: '==' });
 }
 
-async function open(options) {
-  const view = await harness.open(options);
+// A page over the fixture. Unless a test seeds a record of its own, or keeps the tab in
+// sessionStorage, the file's view is seeded with Orbit off in its Playback settings — a still
+// preview camera, so what moves in a frame is the model — as a previous session would have left it.
+async function open(options = {}) {
+  const seeded = options.record === undefined && options.store !== 'session'
+    ? { record: { version: 1, settings: {}, files: { [JSON.stringify(['one', harness.fixture.file, 'step'])]: { version: 2, playback: { orbit: false } } } } } : {};
+  const view = await harness.open({ ...options, ...seeded });
   const { page, pane } = view;
   const ready = async () => {
     await pane.locator('[aria-busy="false"] > div > canvas').first().waitFor();
@@ -136,12 +148,19 @@ async function open(options) {
     reload: async () => { await page.reload(); Object.assign(opened, await ready()); },
     state: () => page.evaluate(() => window.cadHarness.a.controller.readState()),
     display: patch => page.evaluate(next => window.cadHarness.a.controller.setDisplaySettings(next), patch),
-    // Preview: its button, the play icon beside Display settings; its X back. A still camera
-    // (no orbit), unless a test asks for one, so what moves in a frame is the model.
+    // Preview: its button, the play icon beside Display settings; its X back. The file's view was
+    // seeded with Orbit off (a still camera, so what moves in a frame is the model); a test that
+    // asks for the orbit turns it on in Playback settings, which the file then keeps.
     enterPreview: async ({ orbit = false } = {}) => {
-      if (!orbit) await page.evaluate(() => window.cadHarness.preferences.update({ orbit: { speed: 0 } }));
       await pane.getByRole('button', { name: 'Preview', exact: true }).click();
       await pane.getByRole('button', { name: 'Exit preview', exact: true }).waitFor();
+      if (!orbit) return;
+      const orbitItem = page.getByRole('menuitemcheckbox', { name: 'Orbit', exact: true });
+      await pane.getByRole('toolbar').getByRole('button', { name: 'Playback settings', exact: true }).click();
+      await orbitItem.waitFor();
+      if (await orbitItem.getAttribute('aria-checked') !== 'true') await orbitItem.click();
+      await page.keyboard.press('Escape');
+      await page.getByRole('menu').waitFor({ state: 'detached' });
     },
     exitPreview: async () => {
       await pane.getByRole('button', { name: 'Exit preview', exact: true }).click();
@@ -1793,7 +1812,7 @@ test('preview\'s Playback settings: the routine, its speed, Loop and Autoplay, t
     view = await open();
   } finally { animation.source = original; }
   const { page, pane, errors } = view;
-  await view.enterPreview();
+  await view.enterPreview({ orbit: true });
   // Under the model, the playbar; the routine waits, Autoplay being off.
   const bar = pane.getByRole('toolbar', { name: 'Animation playback' });
   const play = bar.getByRole('button', { name: 'Play animation', exact: true });
@@ -1841,8 +1860,9 @@ test('preview\'s Playback settings: the routine, its speed, Loop and Autoplay, t
   if ((await checks()).includes('Loop:true')) await settings.getByRole('menuitemcheckbox', { name: 'Loop', exact: true }).click();
   await settings.getByRole('menuitemcheckbox', { name: 'Autoplay', exact: true }).click();
   assert.deepEqual(await checks(), ['Loop:false', 'Autoplay:true', 'Orbit:true']);
-  assert.deepEqual(await page.evaluate(() => window.cadHarness.preferences.getSnapshot().playback), { autoplay: true, speed: 2, loop: false },
-    'Autoplay, and the Speed and Loop chosen, are the tab\'s playback settings');
+  await page.waitForFunction(() => Object.values(window.cadHarness.state.renderers || {})[0]?.playback?.autoplay === true);
+  assert.deepEqual(await page.evaluate(() => Object.values(window.cadHarness.state.renderers)[0].playback), { orbit: true, orbitSpeed: 1, autoplay: true, speed: 2, loop: false },
+    'Autoplay, and the Speed and Loop chosen, are the file\'s Playback settings');
   await page.keyboard.press('Escape');
   await settings.waitFor({ state: 'detached' });
   await view.exitPreview();
@@ -1850,7 +1870,7 @@ test('preview\'s Playback settings: the routine, its speed, Loop and Autoplay, t
   assert.deepEqual(await view.stack(), ['Features'], 'the tools view comes back as it was');
   // Leaving preview keeps what Playback settings chose; with Autoplay on, entering it again plays
   // that routine, at that speed, without the loop.
-  await view.enterPreview();
+  await view.enterPreview({ orbit: true });
   await pause.waitFor();
   assert.equal(await time.getAttribute('aria-valuemax'), '2', 'the routine is the one chosen');
   await openSettings();
@@ -1858,7 +1878,6 @@ test('preview\'s Playback settings: the routine, its speed, Loop and Autoplay, t
   assert.equal(await speedItem().getAttribute('aria-label'), 'Animation speed: 2×');
   assert.deepEqual(await checks(), ['Loop:false', 'Autoplay:true', 'Orbit:true']);
   await page.keyboard.press('Escape');
-  await page.evaluate(() => window.cadHarness.preferences.update({ playback: { autoplay: false } }));
   await view.exitPreview();
   assert.deepEqual(errors, []);
 });
@@ -3005,11 +3024,10 @@ test('a new tab starts at the defaults and two tabs never meet: the tool stack, 
     await view.toggle('tree').click();
     return width;
   };
-  // Tab one: the tree panel widened, the tree column widened, the orbit slowed, Autoplay on, and
-  // the file in wireframe — through the host's own store, as its controls write it.
+  // Tab one: the tree panel widened, the tree column widened, the appearance chosen, and the
+  // file in wireframe — through the host's own store, as its controls write it.
   await one.page.evaluate(() => window.cadHarness.preferences.update({
-    orbit: { speed: 2 }, playback: { autoplay: true }, toolStack: { panels: { tree: { width: 240 } }, collapsed: {} },
-    fileTree: { width: 300, expanded: {} } }));
+    appearance: 'dark', toolStack: { panels: { tree: { width: 240 } }, collapsed: {} }, fileTree: { width: 300, expanded: {} } }));
   await one.display({ mode: 'wireframe' });
   await one.page.waitForFunction(() => Object.values(window.cadHarness.state.renderers || {})[0]?.display?.mode === 'wireframe');
   assert.equal(await featuresWidth(one), 240);
@@ -3017,33 +3035,89 @@ test('a new tab starts at the defaults and two tabs never meet: the tool stack, 
   // Tab two, in the same browser: none of it.
   const { page: two } = await open({ store: 'session' });
   assert.deepEqual(await two.evaluate(() => window.cadHarness.preferences.getSnapshot()),
-    { fileTree: { width: 220, expanded: {} }, toolStack: { panels: {}, collapsed: {} }, orbit: { speed: 1 }, playback: { autoplay: false }, appearance: 'system' },
+    { fileTree: { width: 220, expanded: {} }, toolStack: { panels: {}, collapsed: {} }, appearance: 'system' },
     'a new tab starts at the defaults');
   assert.equal(await two.evaluate(() => window.cadHarness.a.controller.readState().display.mode), 'solid');
   assert.equal(Math.round((await two.getByTestId('one').getByRole('region', { name: 'Features', exact: true }).boundingBox()).width), TOOL_PANEL_WIDTH);
-  await two.evaluate(() => window.cadHarness.preferences.update({ orbit: { speed: 3 } }));
+  await two.evaluate(() => window.cadHarness.preferences.update({ appearance: 'light' }));
 
   // Tab one reloaded: its own settings and view, untouched by tab two.
   await one.reload();
   const settings = await settingsOf(one);
-  assert.deepEqual([settings.orbit, settings.playback, settings.toolStack.panels, settings.fileTree.width], [{ speed: 2 }, { autoplay: true }, { tree: { width: 240 } }, 300]);
+  assert.deepEqual([settings.appearance, settings.toolStack.panels, settings.fileTree.width], ['dark', { tree: { width: 240 } }, 300]);
   assert.equal((await one.state()).display.mode, 'wireframe');
   assert.equal(await featuresWidth(one), 240, 'the tool stack comes back sized');
   assert.equal(await columnWidth(one), 300, 'the tree column comes back sized');
-  await one.enterPreview({ orbit: true });
-  const cog = one.pane.getByRole('toolbar', { name: 'Animation playback' }).getByRole('button', { name: 'Playback settings', exact: true });
-  await cog.click();
-  const menu = one.page.getByRole('menu', { name: 'Playback settings', exact: true });
-  await menu.waitFor();
-  assert.equal(await menu.getByRole('menuitem', { name: /^Orbit speed/ }).getAttribute('aria-label'), 'Orbit speed: 2×');
-  assert.ok((await menu.getByRole('menuitemcheckbox').evaluateAll(items => items.map(item => `${item.textContent}:${item.getAttribute('aria-checked')}`))).includes('Autoplay:true'));
-  await one.page.keyboard.press('Escape');
-  await one.exitPreview();
   // Tab two reloaded: its own.
   await two.reload();
   await two.getByTestId('one').locator('[aria-busy="false"] > div > canvas').first().waitFor();
-  assert.deepEqual(await two.evaluate(() => window.cadHarness.preferences.getSnapshot().orbit), { speed: 3 });
+  assert.equal(await two.evaluate(() => window.cadHarness.preferences.getSnapshot().appearance), 'light');
   assert.equal(await two.evaluate(() => window.cadHarness.a.controller.readState().display.mode), 'solid');
   await two.close();
   assert.deepEqual(one.errors, []);
+});
+
+test("preview's Playback settings are the file's: Orbit off, its speed, Loop off and Autoplay on are kept between previews and across a reload, and another file has its own defaults", async () => {
+  const view = await open({ store: 'session' });
+  const { page, pane, errors } = view;
+  const cog = () => pane.getByRole('toolbar', { name: 'Animation playback' }).getByRole('button', { name: 'Playback settings', exact: true });
+  const settings = page.getByRole('menu', { name: 'Playback settings', exact: true });
+  // Preview as a person enters it: nothing of its settings touched.
+  const enter = async () => {
+    await pane.getByRole('button', { name: 'Preview', exact: true }).click();
+    await pane.getByRole('button', { name: 'Exit preview', exact: true }).waitFor();
+  };
+  const openSettings = async () => { await cog().click(); await settings.waitFor(); };
+  const closeSettings = async () => { await page.keyboard.press('Escape'); await settings.waitFor({ state: 'detached' }); };
+  const checks = () => settings.getByRole('menuitemcheckbox').evaluateAll(items => items.map(item => `${item.textContent}:${item.getAttribute('aria-checked')}`));
+  const orbitSpeed = () => settings.getByRole('menuitem', { name: /^Orbit speed/ }).getAttribute('aria-label');
+  const expectChoices = async (where) => {
+    await openSettings();
+    assert.deepEqual(await checks(), ['Loop:false', 'Autoplay:true', 'Orbit:false'], where);
+    assert.equal(await orbitSpeed(), 'Orbit speed: 2×', where);
+    await closeSettings();
+  };
+
+  // A fresh file: orbit on at 1×, the routine's own loop, Autoplay off.
+  await enter();
+  await openSettings();
+  assert.deepEqual(await checks(), ['Loop:true', 'Autoplay:false', 'Orbit:true']);
+  assert.equal(await orbitSpeed(), 'Orbit speed: 1×');
+  // Orbit off, its speed 2×, Loop off, Autoplay on.
+  await settings.getByRole('menuitemcheckbox', { name: 'Orbit', exact: true }).click();
+  await settings.getByRole('menuitemcheckbox', { name: 'Loop', exact: true }).click();
+  await settings.getByRole('menuitemcheckbox', { name: 'Autoplay', exact: true }).click();
+  await settings.getByRole('menuitem', { name: /^Orbit speed/ }).hover();
+  await page.locator('[role=menu][aria-label="Orbit speed"]').getByRole('menuitemradio', { name: '2×', exact: true }).click();
+  await settings.waitFor({ state: 'detached' });
+  await page.waitForFunction(() => Object.values(window.cadHarness.state.renderers || {})[0]?.playback?.orbitSpeed === 2);
+  assert.deepEqual(await page.evaluate(() => Object.values(window.cadHarness.state.renderers)[0].playback), { orbit: false, orbitSpeed: 2, autoplay: true, loop: false },
+    "the file's view holds every choice; the routine's speed stays its own until chosen");
+  // Leaving and re-entering keeps every choice, and with Autoplay on the routine plays on entry.
+  await view.exitPreview();
+  await enter();
+  await pane.getByRole('button', { name: 'Pause animation', exact: true }).waitFor();
+  await expectChoices('after leaving and re-entering preview');
+  await view.exitPreview();
+
+  // A reload of the tab keeps them too.
+  await view.reload();
+  await enter();
+  await pane.getByRole('button', { name: 'Pause animation', exact: true }).waitFor();
+  await expectChoices('after a reload');
+  await view.exitPreview();
+
+  // Another file (the same one under another root: another view) has its own defaults.
+  await page.evaluate(() => window.cadHarness.second(true));
+  const other = page.getByTestId('two');
+  await other.locator('[aria-busy="false"] > div > canvas').first().waitFor();
+  await page.waitForFunction(() => window.cadHarness.b.controller?.readState().loading === false);
+  await other.getByRole('button', { name: 'Preview', exact: true }).click();
+  await other.getByRole('button', { name: 'Play animation', exact: true }).waitFor();
+  await other.getByRole('toolbar', { name: 'Animation playback' }).getByRole('button', { name: 'Playback settings', exact: true }).click();
+  await settings.waitFor();
+  assert.deepEqual(await checks(), ['Loop:true', 'Autoplay:false', 'Orbit:true'], 'another file starts at the defaults');
+  assert.equal(await orbitSpeed(), 'Orbit speed: 1×');
+  await closeSettings();
+  assert.deepEqual(errors, []);
 });

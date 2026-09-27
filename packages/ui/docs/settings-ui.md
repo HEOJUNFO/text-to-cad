@@ -24,7 +24,7 @@ closes or turns it.
 
 | The host (web, desktop) supplies | The shared UI decides |
 | --- | --- |
-| Where the tab record lives (`TabRecordStorage`: the web's sessionStorage, the desktop's per-tab store) | The record: its settings (the tree, the tool stack's layout, the orbit speed, playback, the appearance) and each file's view, what is written when, and what is never stored (`@hardcore/ui/tab-store`, `kit/shell/fileView.js`) |
+| Where the tab record lives (`TabRecordStorage`: the web's sessionStorage, the desktop's per-tab store) | The record: its settings (the tree, the tool stack's layout, the appearance) and each file's view (its camera, Display settings, Playback settings and renderer slices), what is written when, and what is never stored (`@hardcore/ui/tab-store`, `kit/shell/fileView.js`) |
 | `leading`, `navigationActions` and `displayActions` (an appearance control) | The nav row's order, the snapshot action and the panel toggles |
 | `host.files`, `fileActions`, `navigation`, `clipboard`, `promptContext` | When a copy, capture or open happens and what it carries |
 | `host.environment`: color scheme, keyboard `platform`, `reducedMotion` | How the chrome honours them |
@@ -268,7 +268,7 @@ stack.
 - **The layout is the person's.** The sizes and the folded panels are one of the
   tab's settings, across its files (`CadPreferences.toolStack`:
   `{ panels: { [panel id]: { width?, height? } }, collapsed: { [panel id]: boolean } }`,
-  kept beside the orbit speed). `panels` holds only what a person set, by
+  kept beside the appearance). `panels` holds only what a person set, by
   resizable panel; `collapsed` only what differs from a panel's start (the SDF
   panel starts folded). A new tab (a cleared record) puts every
   panel back at the one width and its default cap. Every size is written back
@@ -450,7 +450,7 @@ play icon in the top-right bar ("Preview"). It fills the viewer below the
 host's nav row, which stays, and beside the host's column, which stays as it was
 and can still be opened and shut; the toolbar, the tool stack and its resize
 handles, joint handles, cube, bottom action and context menu are gone. It starts
-orbiting. Its top-right bar is the tools view's bar in the same place:
+orbiting, unless the file's Playback settings turned its orbit off. Its top-right bar is the tools view's bar in the same place:
 **Display settings** and an X ("Exit preview") where Preview was. **Playback
 settings** (a cog; `PlaybackMenu`) ends the playbar under the model and opens
 upward. It holds, for a file with routines, **Animation** — the Routine (with more than one), Speed, Loop and
@@ -461,12 +461,14 @@ fade: movement wakes them, and hovering their area, an open menu or the Display
 popover holds them.
 
 Routines play in preview alone: there is no Animate tool. Entering preview
-starts the routine when Autoplay is on (off by default, the tab's across its
-files); leaving it stops the routine and puts the model back at rest, keeping
-the Routine, Speed and Loop for the next time while the file is open. A Speed or
-Loop chosen here is the tab's: every routine of every file plays with it from then
-on; until one is chosen, each routine's own apply. Nothing of the routine — which
-one, its time, whether it plays — is saved. Orbit is not an animation setting.
+starts the routine when Autoplay is on (off by default); leaving it stops the
+routine and puts the model back at rest, keeping the Routine for the next time
+while the file is open. Everything in Playback settings is the file's own and is
+remembered between leaving and re-entering preview and across a reload of the tab:
+Orbit on or off (on by default) and its speed (1×), Autoplay, and a Speed or Loop
+once chosen — until one is chosen, the routine's own apply. Another file has its
+own. Nothing of the routine — which one, its time, whether it plays — is saved.
+Orbit is not an animation setting.
 
 Previewing turns off picks, hover, selection highlights, recognition, Draw,
 Measure, joint handles and Position as tools, and Explode and Clip, without

@@ -291,7 +291,7 @@ const ShellViewport = forwardRef(function ShellViewport({
     coordinateSystemFor, activeViewPlaneFaceRef, previewCameraRef,
     lastEmittedPerspectiveRef, cameraMovedRef, modelBounds: scene?.restBounds || scene?.bounds || null, modelKey, modelKeyRef,
     modelTransformRef, perspectiveChangeRef, perspectivePropRef, perspectiveRef, previewMode,
-    previewModeRef, previewOrbitSpeed, runWithoutPerspectiveEvents, runtimeRef, sceneScaleModeRef, setActiveViewPlaneFace,
+    previewModeRef, previewOrbit: orbitPreview, previewOrbitSpeed, runWithoutPerspectiveEvents, runtimeRef, sceneScaleModeRef, setActiveViewPlaneFace,
     setViewPlaneOrientation, suppressPerspectiveEventsRef, viewerReadyTick
   });
   // The open-time fit is taken under the lens the viewport opens with, and the file's own

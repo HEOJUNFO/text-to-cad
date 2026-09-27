@@ -1,8 +1,6 @@
 import type { JsonValue } from '../file-viewer/types.js';
 import { clampPanelWidth, PANEL_DEFAULT_WIDTH } from '../file-viewer/navigation/panelWidth.js';
 import { normalizeToolStack } from '../renderers/kit/tools/toolStackLayout.js';
-import { normalizeOrbit } from '../renderers/kit/tools/preview/orbitPreferences.js';
-import { normalizePlayback } from '../renderers/kit/tools/playbar/playbackPreferences.js';
 
 /**
  * The tab record: everything the viewer keeps, kept for one tab and thrown out with it.
@@ -10,9 +8,9 @@ import { normalizePlayback } from '../renderers/kit/tools/playbar/playbackPrefer
  *   { version, settings, files }
  *
  * `settings` is tab-wide — the file tree's width and expansion (by root), the tool stack's
- * layout, the orbit speed, playback and the appearance — and replaces every global
- * preference. `files` is each opened file's view (`kit/shell/fileView.js`: its camera, its
- * Display settings, its renderer's own slices) under `[root id, file path, renderer id]`, the
+ * layout and the appearance — and replaces every global preference. `files` is each opened
+ * file's view (`kit/shell/fileView.js`: its camera, its Display settings, its playback, its
+ * renderer's own slices) under `[root id, file path, renderer id]`, the
  * fifty most recently written of them: a write puts a file last, and the first goes once there
  * are more than that.
  *
@@ -32,13 +30,6 @@ export interface TabSettings {
   fileTree: { width: number; expanded: Record<string, string[]> };
   /** The tool stack's layout (`kit/tools/toolStackLayout.js`): the resizable panels' sizes and the folded panels. */
   toolStack: ToolStackLayout;
-  /** Preview's orbit speed. */
-  orbit: { speed: number };
-  /**
-   * Preview's playback: Autoplay, and — once chosen in Playback settings — the speed and loop every
-   * routine plays with. Unset, each routine's own apply (`kit/tools/playbar/playbackPreferences.js`).
-   */
-  playback: { autoplay: boolean; speed?: number; loop?: boolean };
   /** System, Light or Dark; a new tab follows the OS until the person picks. */
   appearance: Appearance;
 }
@@ -73,8 +64,6 @@ export function normalizeTabSettings(value: unknown): TabSettings {
   return {
     fileTree: normalizeFileTree(record.fileTree),
     toolStack: normalizeToolStack(record.toolStack) as ToolStackLayout,
-    orbit: normalizeOrbit(record.orbit) as TabSettings['orbit'],
-    playback: normalizePlayback(record.playback) as TabSettings['playback'],
     appearance: normalizeAppearance(record.appearance),
   };
 }

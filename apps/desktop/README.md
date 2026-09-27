@@ -32,8 +32,8 @@ file-tab interface is shared with web. Projects, sessions, browser/terminal/
 review tabs, agent integrations and native services remain in this app.
 Neither shared package imports app source, and desktop imports no web source.
 Every file tab has its own tab record (`@hardcore/ui/tab-store`): the viewer's
-settings — preview's orbit speed, playback, the tool stack's layout — and each
-file's view (camera, Display settings, the renderer's own slices), one entry per
+settings — the tool stack's layout — and each file's view (camera, Display
+settings, preview's Playback settings, the renderer's own slices), one entry per
 tab in `hardcore.tabs.v1` (localStorage), kept across a window reload and a
 restart and forgotten when the tab closes for good (`adapters/tabStore.ts`;
 `desktopTabStore(tabId)` is what the renderers and the file tab share). Nothing is

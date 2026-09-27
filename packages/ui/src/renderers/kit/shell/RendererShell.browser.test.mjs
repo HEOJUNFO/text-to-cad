@@ -626,14 +626,18 @@ test('the shell keeps its Draw session across preview, and preview drags are the
   page.setDefaultTimeout(15000);
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.addInitScript(() => { window.Worker = undefined; });
+  await page.addInitScript(() => {
+    window.Worker = undefined;
+    // The file's Playback settings, as a previous session left them: Orbit off, so the preview
+    // camera holds still and what a drag moves is the camera alone.
+    window.__cadTabRecord = { version: 1, settings: {}, files: { [JSON.stringify(['one', 'one.harness', 'shell-harness'])]: { version: 2, playback: { orbit: false } } } };
+  });
   await page.goto(`http://127.0.0.1:${server.address().port}/?file=one.harness`);
   const pane = page.getByTestId('one');
   await pane.locator('[aria-busy="false"] > div > canvas').first().waitFor();
   const camera = () => page.evaluate(() => window.cadHarness.a.controller.readState().camera);
 
   await page.evaluate(async () => {
-    window.cadHarness.preferences.update({ orbit: { speed: 0 } });
     const controller = window.cadHarness.a.controller;
     await controller.setCamera({ ...controller.readState().camera, position: [40, -25, 30], target: [2, 3, 0], zoom: 1.4 });
   });
@@ -654,6 +658,14 @@ test('the shell keeps its Draw session across preview, and preview drags are the
   assert.equal(await pane.getByRole('button', { name: 'Preview', exact: true }).count(), 0, 'Preview becomes its X');
   assert.equal(await pane.getByRole('group', { name: 'Interaction tools' }).count(), 0);
   assert.equal(await pane.getByRole('button', { name: 'Zoom controls' }).count(), 0);
+  // Playback settings are the cog at the playbar's right end: a static file's playbar is the orbit's
+  // play/pause, and its playback is its orbit alone — here off, as the file's view was seeded.
+  await pane.getByRole('button', { name: 'Play orbit', exact: true }).waitFor();
+  await pane.getByRole('toolbar', { name: 'Orbit playback' }).getByRole('button', { name: 'Playback settings', exact: true }).click();
+  assert.deepEqual(await page.getByRole('menuitemcheckbox').allTextContents(), ['Orbit']);
+  assert.equal(await page.getByRole('menuitemcheckbox', { name: 'Orbit', exact: true }).getAttribute('aria-checked'), 'false', "the file's choice");
+  await page.keyboard.press('Escape');
+  await page.getByRole('menu').waitFor({ state: 'detached' });
   const defaultPreviewCamera = await camera();
   assert.notDeepEqual(defaultPreviewCamera.position, regularCamera.position, 'preview starts from the default camera');
   assert.equal(defaultPreviewCamera.zoom, 1);
@@ -670,13 +682,6 @@ test('the shell keeps its Draw session across preview, and preview drags are the
   // Exercise actual hit testing above the pointer-transparent viewport overlay,
   // and the exit callback across FileViewer -> renderer -> toolbar.
   assert.equal(await pane.getByRole('toolbar', { name: 'Animation playback' }).count(), 0);
-  // Playback settings are the cog at the playbar's right end: a static file's playbar is the orbit's
-  // play/pause, and its playback is its orbit alone.
-  await pane.getByRole('toolbar', { name: 'Orbit playback' }).getByRole('button', { name: 'Playback settings', exact: true }).click();
-  assert.deepEqual(await page.getByRole('menuitemcheckbox').allTextContents(), ['Orbit']);
-  await page.getByRole('menuitemcheckbox', { name: 'Orbit', exact: true }).click();
-  assert.equal(await page.getByRole('menuitemcheckbox', { name: 'Orbit', exact: true }).getAttribute('aria-checked'), 'false');
-  await page.keyboard.press('Escape');
   await pane.getByRole('button', { name: 'Exit preview', exact: true }).click();
   await pane.getByRole('button', { name: 'Draw', exact: true }).waitFor();
   const restoredCamera = await camera();
@@ -685,12 +690,14 @@ test('the shell keeps its Draw session across preview, and preview drags are the
   }
   assert.equal(restoredCamera.projection, regularCamera.projection);
   assert.equal(restoredCamera.zoom, regularCamera.zoom);
-  // Preview's pose is discarded each time, never resumed from the last orbit.
+  // Preview's pose is discarded each time, never resumed from the last orbit — and the orbit
+  // turned off is remembered, so the second preview holds at its fresh fit.
   await pane.getByRole('button', { name: 'Preview', exact: true }).click();
   await pane.getByRole('button', { name: 'Exit preview', exact: true }).waitFor();
+  await pane.getByRole('button', { name: 'Play orbit', exact: true }).waitFor();
   const secondPreviewCamera = await camera();
   for (const key of ['position', 'target', 'up']) {
-    defaultPreviewCamera[key].forEach((value, index) => assert.ok(Math.abs(value - secondPreviewCamera[key][index]) < 1e-6, `fresh preview ${key}[${index}]`));
+    defaultPreviewCamera[key].forEach((value, index) => assert.ok(Math.abs(value - secondPreviewCamera[key][index]) < 1e-6, `fresh preview ${key}[${index}]: ${JSON.stringify([defaultPreviewCamera, secondPreviewCamera])}`));
   }
   // A Display setting changed in preview is the tools view's too: the pose comes back in the new projection.
   await pane.getByRole('button', { name: 'Display settings', exact: true }).click();
@@ -1016,7 +1023,6 @@ test('a renderer supplies the viewport menu, a bottom action that falls back to 
   await page.setViewportSize({ width: 900, height: 800 });
   await page.waitForFunction(count => Number(document.querySelector('[data-harness-camera-settles]').textContent) > count, beforeWidthChange);
   const afterResize = Number(await settles());
-  await page.evaluate(() => window.cadHarness.preferences.update({ orbit: { speed: 0 } }));
   await pane.getByRole('button', { name: 'Preview', exact: true }).click();
   await pane.getByRole('button', { name: 'Exit preview', exact: true }).waitFor();
   const previewCanvas = await pane.locator('[aria-busy] > div > canvas').first().boundingBox();
@@ -1403,6 +1409,8 @@ test('the tool stack: every panel one width, the tree and Position each the pers
   const [cornerBox, positionBox, treeBefore] = [await positionCorner.boundingBox(), await position.boundingBox(), await tree.boundingBox()];
   assert.ok(Math.abs(cornerBox.x + cornerBox.width / 2 - (positionBox.x + positionBox.width)) <= 1
     && Math.abs(cornerBox.y + cornerBox.height / 2 - (positionBox.y + positionBox.height)) <= 1, 'the corner is centred on the panel\'s bottom-right corner');
+  // A write the tool change scheduled a moment ago lands before the drag, not during it.
+  await page.waitForTimeout(300);
   await countWrites();
   await page.mouse.move(cornerBox.x + cornerBox.width / 2, cornerBox.y + cornerBox.height / 2);
   await page.mouse.down();

@@ -89,8 +89,8 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
   const { previewing, setPreviewing } = shell;
   const animation = playback || frame.animation;
   const hasAnimation = animationControlsHaveContent(animation);
-  // Speed and Loop, once chosen in Playback settings, are the tab's: every routine plays with
-  // them, whatever it authored, until they are chosen again. Unset, each routine's own apply.
+  // Speed and Loop, once chosen in Playback settings, are the file's: its routine plays with
+  // them, whatever it authored, until they are chosen again. Unset, the routine's own apply.
   const { speed: chosenSpeed, loop: chosenLoop } = shell.playback;
   const animationRef = useRef(animation);
   animationRef.current = animation;
@@ -100,14 +100,16 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
     if (chosenSpeed != null && Number(runtime.speed) !== chosenSpeed) runtime.onSpeedChange(chosenSpeed);
     if (chosenLoop != null && (runtime.loopEnabled !== false) !== chosenLoop) runtime.onLoopToggle(chosenLoop);
   }, [hasAnimation, animation?.speed, animation?.loopEnabled, animation?.activeClipId, chosenSpeed, chosenLoop]);
-  // What Playback settings change is chosen for the tab and applied to this routine at once.
+  // What Playback settings change is chosen for the file and applied to its routine at once.
   const playbackMenuRuntime = hasAnimation ? {
     ...animation,
     onSpeedChange: value => { shell.setPlayback({ speed: value }); animation.onSpeedChange(value); },
     onLoopToggle: value => { shell.setPlayback({ loop: value }); animation.onLoopToggle(value); }
   } : null;
-  // Preview orbits the model from the moment it starts; its Playback settings turn that off.
-  const [orbitPlaying, setOrbitPlaying] = useState(true);
+  // Preview orbits the model from the moment it starts, unless the file's Playback settings say
+  // otherwise: orbit on or off is the file's, kept from one preview to the next.
+  const orbitPlaying = shell.playback.orbit;
+  const setOrbitPlaying = value => shell.setPlayback({ orbit: typeof value === "function" ? value(shell.playback.orbit) : value });
   // Display's settings: a popover from its button in the top-right bar, not a tool — opening it
   // leaves the tool in hand as it is. Another file starts with it shut.
   const [displayOpen, setDisplayOpen] = useState(false);
@@ -119,7 +121,7 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
   // Preview is the one place routines play: entering it starts one when Autoplay is on, and
   // leaving it puts the model back at rest (its Routine, Speed and Loop stay for the next time).
   const enterPreview = () => {
-    setOrbitPlaying(true); setDisplayOpen(false); setPreviewing(true);
+    setDisplayOpen(false); setPreviewing(true);
     if (hasAnimation && shell.autoplay && !animation.playing) animation.onPlayToggle();
   };
   const leavePreview = () => { setDisplayOpen(false); setPreviewing(false); };

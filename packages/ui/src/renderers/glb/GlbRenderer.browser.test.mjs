@@ -58,7 +58,8 @@ async function serveHarness(t) {
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   browser = await chromium.launch({ headless: true, args: process.platform === 'darwin'
     ? ['--use-angle=metal'] : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
-  const open = async (file) => {
+  // `record` opens the page as a previous session left its tab (`window.__cadTabRecord`).
+  const open = async (file, { record = null } = {}) => {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
     page.setDefaultTimeout(15000);
     const errors = [];
@@ -69,6 +70,7 @@ async function serveHarness(t) {
         Object.defineProperty(window, name, { get() { throw new Error(`Renderer accessed ${name}`); } });
       }
     });
+    if (record) await page.addInitScript(stored => { window.__cadTabRecord = stored; }, record);
     await page.goto(`http://127.0.0.1:${server.address().port}/?file=${file}`);
     return { page, errors, pane: page.getByTestId('one') };
   };
@@ -329,10 +331,11 @@ test('a static GLB opens on its native scene with no tools: display settings, or
 
 test('an animated GLB opens at rest, plays in preview, and leaving preview puts it back at rest', async (t) => {
   const { open } = await serveHarness(t);
-  const { page, pane, errors } = await open('animated.glb');
+  // The file's Playback settings as a previous session left them: Orbit off, so the preview
+  // camera holds still and what moves in a capture is the model alone.
+  const { page, pane, errors } = await open('animated.glb', { record: { version: 1, settings: {},
+    files: { [JSON.stringify(['one', 'animated.glb', 'glb'])]: { version: 2, playback: { orbit: false } } } } });
   await ready(pane);
-  // A still preview camera, so what moves in a capture is the model alone.
-  await page.evaluate(() => window.cadHarness.preferences.update({ orbit: { speed: 0 } }));
   assert.equal(await pane.getByRole('toolbar', { name: 'Animation playback' }).count(), 0);
   assert.equal(await pane.getByRole('button', { name: 'Animate', exact: true }).count(), 0, 'no Animate tool');
   await page.waitForFunction(() => window.cadHarness.a.controller?.readState().loading === false);

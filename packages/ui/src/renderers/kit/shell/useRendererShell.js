@@ -10,7 +10,6 @@ import { sceneBackdropEdgeColor } from "../look/chromeBackdrop.js";
 import { useChromeBackdropColor } from "../look/useChromeBackdropColor.js";
 import { prefetchRenderStudio } from "../look/renderStudioChunk.js";
 import { CAD_DRAWING_DEFAULTS } from "../tools/draw/DrawingOverlay.jsx";
-import { normalizeOrbit } from "../tools/preview/orbitPreferences.js";
 import { normalizeToolStack } from "../tools/toolStackLayout.js";
 import { normalizePlayback } from "../tools/playbar/playbackPreferences.js";
 import { DisplaySettingsSection } from "../view-settings/DisplaySettingsSection.js";
@@ -65,9 +64,9 @@ const EMPTY = Object.freeze({});
  * the rest and hands back one `shell` object for `<RendererShell>`:
  *
  *  - the file's view through the host (`state` / `onStateChange`, `fileView.js`): the
- *    camera, the Display settings, and the renderer's own slices of view state — written
- *    soon after a change and once more on unmount, and read back before the first paint,
- *    the camera restored in place of the open-time fit;
+ *    camera, the Display settings, preview's playback settings, and the renderer's own
+ *    slices of view state — written soon after a change and once more on unmount, and
+ *    read back before the first paint, the camera restored in place of the open-time fit;
  *  - Display settings: store, resolution against the renderer's FEATURES, the
  *    queued application to the viewport, and the Display panel's content;
  *  - tools: the mode state machine and Draw's session, or none at all for a
@@ -79,8 +78,8 @@ const EMPTY = Object.freeze({});
  *
  * @param {object} options
  * @param {import("../../../file-viewer/types.js").RendererViewProps} options.view  The host's props, unchanged.
- * @param {{ preferences: { orbit: { speed: number }, toolStack: object, playback: { autoplay: boolean, speed?: number, loop?: boolean } },
- *   onPreferenceChange(patch: object): void, live?: object, captureRequest?: { key: string | number } | null,
+ * @param {{ preferences: { toolStack: object }, onPreferenceChange(patch: object): void, live?: object,
+ *   captureRequest?: { key: string | number } | null,
  *   acknowledgeCommand?: (kind: string, key: string | number) => void }} options.services  `preferences` is the
  *   tab's settings (`@hardcore/ui/tab-store`), the person's in every file of the tab.
  * @param {import("@hardcore/core/prompt").ResourceRef} options.resource  The document on screen, for prompt context and live state.
@@ -209,6 +208,10 @@ export function useRendererShell({
   const recordRef = useRef(null);
   const onStateChangeRef = useRef(onStateChange);
   onStateChangeRef.current = onStateChange;
+  // Preview's Playback settings — orbit on or off and its speed, Autoplay, the routine's chosen
+  // speed and loop — are the file's: kept between leaving and re-entering preview, and in its view.
+  const [playback, setPlaybackState] = useState(() => restored.playback);
+  const setPlayback = useCallback(patch => setPlaybackState(current => normalizePlayback({ ...current, ...patch })), []);
   const rendererStateRef = useRef(rendererState);
   rendererStateRef.current = rendererState;
   const latestRecord = useRef(null);
@@ -219,6 +222,7 @@ export function useRendererShell({
     return writeFileView({
       camera: plainShellCamera(activePerspectiveRef.current),
       display: viewSettingsStore.getSnapshot().display,
+      playback,
       renderer: slices ? slices.read() : storedSlices.values,
       signatures: slices ? slices.signatures : storedSlices.signatures
     });
@@ -236,9 +240,9 @@ export function useRendererShell({
     window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(flushSession, SESSION_SAVE_DELAY_MS);
   }, [flushSession]);
-  // The display's every edit is saved soon after; the camera's on every move (below); a renderer's
-  // slices when it says so. The tool in hand is not saved at all.
-  useEffect(() => { scheduleSessionSave(); }, [displaySettings, scheduleSessionSave]);
+  // The display's and playback's every edit is saved soon after; the camera's on every move (below);
+  // a renderer's slices when it says so. The tool in hand is not saved at all.
+  useEffect(() => { scheduleSessionSave(); }, [displaySettings, playback, scheduleSessionSave]);
   useEffect(() => () => flushSession(), [flushSession]);
 
   // Stable across renders: the viewport keeps it in a ref for the life of the runtime.
@@ -274,8 +278,8 @@ export function useRendererShell({
   // The tab's settings (`@hardcore/ui/tab-store`): the person's, in every file of the tab. Read
   // through their own normalizers, so a host that hands over less is still whole here.
   const preferences = services.preferences;
-  const previewOrbitSpeed = useMemo(() => normalizeOrbit(preferences?.orbit).speed, [preferences?.orbit]);
-  const setPreviewOrbitSpeed = useCallback(speed => services.onPreferenceChange({ orbit: { speed } }), [services.onPreferenceChange]);
+  const previewOrbitSpeed = playback.orbitSpeed;
+  const setPreviewOrbitSpeed = useCallback(speed => setPlayback({ orbitSpeed: speed }), [setPlayback]);
   // The tool stack's layout — the sizes of the panels a person can size, the folded panels. A
   // change is a patch over the layout as it last stood (or a function of it), so two panels
   // written back in one turn both land.
@@ -286,16 +290,6 @@ export function useRendererShell({
     const next = normalizeToolStack({ ...toolStackRef.current, ...(typeof patch === "function" ? patch(toolStackRef.current) : patch) });
     toolStackRef.current = next;
     services.onPreferenceChange({ toolStack: next });
-  }, [services.onPreferenceChange]);
-  // Playback: whether entering preview starts the routine, and — once chosen — the speed and the
-  // loop every routine plays with. A patch lands over the playback as it last stood.
-  const playback = useMemo(() => normalizePlayback(preferences?.playback), [preferences?.playback]);
-  const playbackRef = useRef(playback);
-  playbackRef.current = playback;
-  const setPlayback = useCallback(patch => {
-    const next = normalizePlayback({ ...playbackRef.current, ...patch });
-    playbackRef.current = next;
-    services.onPreferenceChange({ playback: next });
   }, [services.onPreferenceChange]);
   const autoplay = playback.autoplay;
   const setAutoplay = useCallback(value => setPlayback({ autoplay: value === true }), [setPlayback]);
@@ -500,7 +494,7 @@ export function useRendererShell({
   return {
     // Renderer-facing.
     toolMode, selectTool, selectDefaultTool, tools, idle, previewing, setPreviewing,
-    // Preview's playback settings: Autoplay, and the speed and loop chosen for every routine.
+    // Preview's Playback settings, the file's own: orbit and its speed, Autoplay, and the routine's chosen speed and loop.
     autoplay, setAutoplay, playback, setPlayback,
     // Deliver a prompt context through the host, reporting a failure as the viewport's alert.
     reportActionError, deliverPrompt, requestRender: () => viewerRef.current?.requestRender?.(),

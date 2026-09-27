@@ -38,11 +38,20 @@ test("the camera and the display are always kept; a slice comes back only under 
   assert.equal(fileViewsEqual(written, writeFileView({ camera, display })), false);
 });
 
-test("a view with no display or no camera writes null for them, and a drawing's camera is whatever the drawing says", () => {
+test("a view with no display or no camera writes null for them, playback at its defaults, and a drawing's camera is whatever the drawing says", () => {
   const drawing = writeFileView({ camera: { scale: 2, offsetX: 1, offsetY: 3 } });
-  assert.deepEqual(drawing, { version: FILE_VIEW_VERSION, camera: { scale: 2, offsetX: 1, offsetY: 3 }, display: null, renderer: {} });
+  assert.deepEqual(drawing, { version: FILE_VIEW_VERSION, camera: { scale: 2, offsetX: 1, offsetY: 3 }, display: null,
+    playback: { orbit: true, orbitSpeed: 1, autoplay: false }, renderer: {} });
   assert.deepEqual(readFileView(drawing).camera, { scale: 2, offsetX: 1, offsetY: 3 });
   assert.equal(writeFileView({ camera: "x" }).camera, null);
+});
+
+test("preview's playback settings are the view's: written whole, read back bounded, and the defaults for a view without them", () => {
+  const written = writeFileView({ playback: { orbit: false, orbitSpeed: 2, autoplay: true, speed: 2, loop: false, junk: 1 } });
+  assert.deepEqual(written.playback, { orbit: false, orbitSpeed: 2, autoplay: true, speed: 2, loop: false });
+  assert.deepEqual(readFileView(JSON.parse(JSON.stringify(written))).playback, { orbit: false, orbitSpeed: 2, autoplay: true, speed: 2, loop: false });
+  assert.deepEqual(readFileView({ version: FILE_VIEW_VERSION, playback: { orbitSpeed: 99, speed: "fast" } }).playback, { orbit: true, orbitSpeed: 5, autoplay: false });
+  assert.deepEqual(readFileView(undefined).playback, { orbit: true, orbitSpeed: 1, autoplay: false });
 });
 
 test("display settings this build cannot read are the defaults, and the stored record is not rewritten", () => {

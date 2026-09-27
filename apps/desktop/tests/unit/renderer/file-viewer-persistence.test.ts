@@ -13,12 +13,12 @@ describe("Desktop tab store", () => {
     const a = desktopTabStore("tab-a");
     expect(desktopTabStore("tab-a")).toBe(a);
     expect(localStorage.getItem(KEY)).toBeNull();
-    a.settings.update({ orbit: { speed: 2 }, playback: { autoplay: true, speed: 2 } });
+    a.settings.update({ toolStack: { panels: { tree: { width: 240 } }, collapsed: {} }, appearance: "dark" });
     a.files.write("root", "a.step", "step", view({ position: [1, 2, 3] }));
     const stored = JSON.parse(localStorage.getItem(KEY)!);
     expect(Object.keys(stored)).toEqual(["tab-a"]);
     expect(stored["tab-a"].version).toBe(TAB_RECORD_VERSION);
-    expect(stored["tab-a"].settings.orbit).toEqual({ speed: 2 });
+    expect(stored["tab-a"].settings.toolStack).toEqual({ panels: { tree: { width: 240 } }, collapsed: {} });
     expect(Object.keys(stored["tab-a"].files)).toEqual([JSON.stringify(["root", "a.step", "step"])]);
     // The window reloads: a fresh store over the same tab reads the same record.
     const reloaded = createTabStore(desktopTabRecord("tab-a"));
@@ -28,9 +28,9 @@ describe("Desktop tab store", () => {
   it("gives every tab its own settings and file views: nothing is global", () => {
     const a = desktopTabStore("tab-a");
     const b = desktopTabStore("tab-b");
-    a.settings.update({ orbit: { speed: 4 }, appearance: "dark" });
+    a.settings.update({ toolStack: { panels: { tree: { width: 300 } }, collapsed: {} }, appearance: "dark" });
     a.files.write("root", "a.step", "step", view("a"));
-    expect(b.settings.getSnapshot().orbit).toEqual({ speed: 1 });
+    expect(b.settings.getSnapshot().toolStack).toEqual({ panels: {}, collapsed: {} });
     expect(b.settings.getSnapshot().appearance).toBe("system");
     expect(b.files.forRoot("root")).toEqual({});
     b.files.write("root", "a.step", "step", view("b"));
@@ -41,12 +41,12 @@ describe("Desktop tab store", () => {
   it("drops a tab's record with the tab, and leaves the other tabs' as they are", () => {
     const a = desktopTabStore("tab-a");
     const b = desktopTabStore("tab-b");
-    a.settings.update({ orbit: { speed: 3 } });
-    b.settings.update({ orbit: { speed: 5 } });
+    a.settings.update({ appearance: "dark" });
+    b.settings.update({ appearance: "light" });
     forgetTabStore("tab-a");
     expect(Object.keys(JSON.parse(localStorage.getItem(KEY)!))).toEqual(["tab-b"]);
     expect(desktopTabStore("tab-a")).not.toBe(a);
-    expect(desktopTabStore("tab-a").settings.getSnapshot().orbit).toEqual({ speed: 1 });
+    expect(desktopTabStore("tab-a").settings.getSnapshot().appearance).toBe("system");
     expect(desktopTabStore("tab-b")).toBe(b);
     expect(() => forgetTabStore("never-opened")).not.toThrow();
   });
@@ -56,10 +56,9 @@ describe("Desktop tab store", () => {
       ["cad-viewer:tool-stack:v2", JSON.stringify({ panels: { tree: { width: 300 } }, collapsed: {} })], ["hardcore.fileViewer.v1", JSON.stringify({ x: 1 })]];
     for (const [key, value] of retired) localStorage.setItem(key, value);
     const a = desktopTabStore("tab-a");
-    expect(a.settings.getSnapshot().orbit).toEqual({ speed: 1 });
-    expect(a.settings.getSnapshot().playback).toEqual({ autoplay: false });
     expect(a.settings.getSnapshot().toolStack).toEqual({ panels: {}, collapsed: {} });
-    a.settings.update({ orbit: { speed: 2 } });
+    expect("orbit" in a.settings.getSnapshot()).toBe(false);
+    a.settings.update({ appearance: "dark" });
     forgetTabStore("tab-a");
     for (const key of ["cad-viewer:orbit:v1", "cad-viewer:animation:v1", "cad-viewer:tool-stack:v2", "hardcore.fileViewer.v1"]) expect(localStorage.getItem(key)).not.toBeNull();
   });

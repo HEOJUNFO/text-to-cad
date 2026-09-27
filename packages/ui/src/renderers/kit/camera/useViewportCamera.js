@@ -31,6 +31,7 @@ export function useViewportCamera({
   perspectiveRef,
   previewMode,
   previewModeRef,
+  previewOrbit = true,
   previewOrbitSpeed,
   runWithoutPerspectiveEvents,
   runtimeRef,
@@ -133,7 +134,9 @@ export function useViewportCamera({
         previewCameraRef.current = null;
       }
       controls.enableDamping = true;
-      controls.autoRotate = entering && previewOrbitSpeed > 0;
+      // Preview orbits only if its Playback settings say so: a preview entered with the orbit
+      // off holds its fresh fit to the frame, not a frame later.
+      controls.autoRotate = entering && previewOrbit && previewOrbitSpeed > 0;
       captureRuntimeViewportFitScale(runtime);
       syncViewPlaneOrientation(runtime);
       runtime.requestRender?.();
