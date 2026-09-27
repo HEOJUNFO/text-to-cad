@@ -18,8 +18,10 @@ function useStepModeling(entry, enabled, options = {}) {
 }
 class RecognitionWorker {
   static instances: RecognitionWorker[] = [];
+  // Every component handed to a worker, in order: one worker takes one component after another.
+  static jobs: { worker: RecognitionWorker, message: any }[] = [];
   terminate = vi.fn();
-  postMessage = vi.fn();
+  postMessage = vi.fn((message: any) => { RecognitionWorker.jobs.push({ worker: this, message }); });
   onmessage: ((event: { data: unknown }) => void) | null = null;
   onerror: (() => void) | null = null;
   constructor() { RecognitionWorker.instances.push(this); }
@@ -45,11 +47,18 @@ function setup() {
   fixtureClient = createCadClient();
   return { urls, fetch };
 }
-async function respond(data: unknown, index: number) {
-  await waitFor(() => expect(RecognitionWorker.instances.length).toBeGreaterThan(index));
-  await act(async () => { RecognitionWorker.instances[index].onmessage?.({ data }); });
+// Results reach the hook's state at most once a frame.
+const frame = () => act(() => new Promise<void>(resolve => { requestAnimationFrame(() => resolve()); }));
+async function answer(worker: RecognitionWorker, data: unknown) {
+  await act(async () => { worker.onmessage?.({ data }); });
+  await frame();
 }
-afterEach(() => { cleanup(); completedPackages.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); RecognitionWorker.instances = []; });
+/** Answer the `job`th component handed to a worker (counting from 0 across workers). */
+async function respond(data: unknown, job: number) {
+  await waitFor(() => expect(RecognitionWorker.jobs.length).toBeGreaterThan(job));
+  await answer(RecognitionWorker.jobs[job].worker, data);
+}
+afterEach(() => { cleanup(); completedPackages.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); RecognitionWorker.instances = []; RecognitionWorker.jobs = []; });
 
 function acceptedPackage(count = 1) {
   const { urls, fetch } = setup();
@@ -188,9 +197,10 @@ it('terminates an aborted worker and rejects its late result instead of caching 
   await waitFor(() => expect(RecognitionWorker.instances).toHaveLength(1));
   first.unmount();
   expect(RecognitionWorker.instances[0].terminate).toHaveBeenCalledTimes(1);
-  await respond({ tree: [{ ...tree[0], label: 'Late' }] }, 0);
+  await answer(RecognitionWorker.instances[0], { tree: [{ ...tree[0], label: 'Late' }] });
   const reopen = renderHook(() => useModelingRecognition(urls.a, true));
-  await respond({ tree }, 1);
+  await waitFor(() => expect(RecognitionWorker.instances[1]?.postMessage).toHaveBeenCalled());
+  await answer(RecognitionWorker.instances[1], { tree });
   expect(reopen.result.current.results.c.tree[0].label).toBe('Base extrude');
 });
 
@@ -265,13 +275,15 @@ it('loads only expanded occurrences, cancels collapsed work and reuses completed
   view.rerender({ requestedOccurrenceIds: ['repeat'] });
   expect(RecognitionWorker.instances).toHaveLength(2);
   view.rerender({ requestedOccurrenceIds: ['other'] });
-  await waitFor(() => expect(RecognitionWorker.instances[2]?.postMessage).toHaveBeenCalled());
-  expect(RecognitionWorker.instances[2].postMessage.mock.calls[0][0].resource.url).toContain('b.surf');
+  // The idle worker takes the next component: no new worker.
+  await waitFor(() => expect(RecognitionWorker.jobs).toHaveLength(3));
+  expect(RecognitionWorker.jobs[2].worker).toBe(RecognitionWorker.instances[1]);
+  expect(RecognitionWorker.jobs[2].message.resource.url).toContain('b.surf');
   await respond({ tree }, 2);
   view.rerender({ requestedOccurrenceIds: [] });
   view.rerender({ requestedOccurrenceIds: ['first', 'repeat', 'other'] });
   expect(Object.keys(view.result.current.results)).toEqual(['a', 'b']);
-  expect(RecognitionWorker.instances).toHaveLength(3);
+  expect(RecognitionWorker.instances).toHaveLength(2);
 });
 
 it('defaults to descriptor-only inspection until a consumer supplies an expansion frontier', async () => {
@@ -303,12 +315,17 @@ it('keeps the active component running when another part is expanded, then proce
   expect(first.terminate).not.toHaveBeenCalled();
   expect(RecognitionWorker.instances).toHaveLength(1);
   await respond({ tree }, 0);
-  await waitFor(() => expect(RecognitionWorker.instances[1]?.postMessage).toHaveBeenCalled());
+  await waitFor(() => expect(RecognitionWorker.jobs).toHaveLength(2));
   expect(view.result.current.results.a.tree).toEqual(tree);
-  expect(RecognitionWorker.instances[1].postMessage.mock.calls[0][0].resource.url).toContain('b.surf');
+  expect(RecognitionWorker.jobs[1].message.resource.url).toContain('b.surf');
   await respond({ tree }, 1);
   expect(Object.keys(view.result.current.results).sort()).toEqual(['a', 'b']);
-  expect(first.postMessage).toHaveBeenCalledTimes(1);
+  // One worker, reused for the next component rather than started again.
+  expect(RecognitionWorker.instances).toHaveLength(1);
+  expect(first.postMessage).toHaveBeenCalledTimes(2);
+  expect(first.terminate).not.toHaveBeenCalled();
+  view.unmount();
+  expect(first.terminate).toHaveBeenCalledTimes(1);
 });
 
 it('keeps pending recognition for a repeated instance and removes collapsed parts from the queue', async () => {
@@ -354,14 +371,14 @@ it('retries a failed component without restarting another component that is stil
   const view = pendingAssembly();
   view.rerender({ requestedOccurrenceIds: ['first', 'other'] });
   await respond({ error: 'Unavailable' }, 0);
-  await waitFor(() => expect(RecognitionWorker.instances[1]?.postMessage).toHaveBeenCalled());
-  const other = RecognitionWorker.instances[1];
+  await waitFor(() => expect(RecognitionWorker.jobs).toHaveLength(2));
+  const other = RecognitionWorker.jobs[1].worker;
   act(() => view.result.current.retryFailed());
   expect(other.terminate).not.toHaveBeenCalled();
-  expect(RecognitionWorker.instances).toHaveLength(2);
+  expect(RecognitionWorker.instances).toHaveLength(1);
   await respond({ tree }, 1);
-  await waitFor(() => expect(RecognitionWorker.instances[2]?.postMessage).toHaveBeenCalled());
-  expect(RecognitionWorker.instances[2].postMessage.mock.calls[0][0].resource.url).toContain('a.surf');
+  await waitFor(() => expect(RecognitionWorker.jobs).toHaveLength(3));
+  expect(RecognitionWorker.jobs[2].message.resource.url).toContain('a.surf');
   await respond({ tree }, 2);
   expect(view.result.current.results.a.tree).toEqual(tree);
   expect(view.result.current.results.b.tree).toEqual(tree);
@@ -375,12 +392,13 @@ it('cancels only the unwanted active part and ignores its late result while proc
   view.rerender({ requestedOccurrenceIds: ['other'] });
   expect(first.terminate).toHaveBeenCalledTimes(1);
   await waitFor(() => expect(RecognitionWorker.instances[1]?.postMessage).toHaveBeenCalled());
-  await respond({ tree: [{ ...tree[0], label: 'Late' }] }, 0);
+  await answer(first, { tree: [{ ...tree[0], label: 'Late' }] });
   expect(view.result.current.results.a).toBeUndefined();
-  await respond({ tree }, 1);
+  await answer(RecognitionWorker.instances[1], { tree });
   expect(Object.keys(view.result.current.results)).toEqual(['b']);
   view.rerender({ requestedOccurrenceIds: ['first', 'other'] });
-  await waitFor(() => expect(RecognitionWorker.instances[2]?.postMessage).toHaveBeenCalled());
+  await waitFor(() => expect(RecognitionWorker.jobs).toHaveLength(3));
+  expect(RecognitionWorker.jobs[2].worker).toBe(RecognitionWorker.instances[1]);
   await respond({ tree }, 2);
   expect(view.result.current.results.a.tree).toEqual(tree);
 });
