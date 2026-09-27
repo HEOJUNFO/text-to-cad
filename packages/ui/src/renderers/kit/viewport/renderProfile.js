@@ -6,7 +6,7 @@ import { previewDisplaySettings } from "../view-settings/viewerDisplaySettings.j
 // are rendered.
 //
 // TOOLS, the regular view, is for working on the model: picking, hover, overlays, handles and
-// the tool effects (Explode, Clip) are live, the scene is drawn at the quality the Display
+// the tool effects are live, the scene is drawn at the quality the Display
 // settings resolve to, and the pixel ratio drops while the camera moves so a gesture stays
 // responsive.
 //

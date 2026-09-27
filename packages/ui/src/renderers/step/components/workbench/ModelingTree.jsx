@@ -6,7 +6,7 @@ import { TREE_ROW_DENSE_HEIGHT, TREE_ROW_DENSE_ICON_CLASS, TreeRowSurface, TreeR
 import { TreeFilterHighlight, TreeFilterInput } from '@hardcore/ui/primitives/tree-filter';
 import { cn } from '@hardcore/ui/utils';
 import ModelPartMenu from './ModelPartMenu.jsx';
-import ModelPartActions from './ModelPartActions.jsx';
+import ModelPartActions, { ROW_NAME_UNDER_ACTIONS, rowActionsLayout } from './ModelPartActions.jsx';
 import { modelingSelectionPaths } from '../../workbench/modelingSelection.js';
 import ToolPanel, { ToolPanelCollapse } from '../../../kit/tools/ToolPanel.jsx';
 import { useViewerMobile } from '../../../../file-viewer/responsive.js';
@@ -82,19 +82,22 @@ function Disclosure({ node, open, locked, toggle }) {
 // One row of the tree, the rows under it drawn after it by the list (`visibleRows`). Its props
 // are the row's own facts — its selection and joins as booleans, callbacks that never change —
 // so a tree re-rendered for anything else leaves it alone.
-function ModelingRow({ node, depth, open, branch, locked, disabled, selected, joinAbove, joinBelow, hiddenByOwner, unavailable, partControls, feature, toggle, choose }) {
+function ModelingRow({ node, depth, open, branch, locked, disabled, selected, joinAbove, joinBelow, hiddenByOwner, unavailable, actionsShown, actionsWidth, partControls, feature, toggle, choose }) {
   const Icon = icons[node.kind] || Box;
   // An assembly outside the isolate/picking frontier cannot select itself, but
   // its descendants can. Only a hidden owner blocks its entire subtree.
+  // The name fades out under its actions (`ROW_NAME_UNDER_ACTIONS`): always while one is on
+  // (`actionsShown`), otherwise on hover. `actionsWidth` is the room they take.
+  const underActions = actionsWidth && (actionsShown ? ROW_NAME_UNDER_ACTIONS.shown : ROW_NAME_UNDER_ACTIONS.hover);
   return <ModelPartMenu node={node} controls={partControls} feature={feature} disabled={disabled}>
     <TreeRowSurface dense active={selected} className={cn('group/row relative gap-0 pr-0', hiddenByOwner && 'opacity-50')}
       onMouseEnter={() => partControls.onHoverTreeNode?.(node.selectionId || node.occurrenceId || '')}
-      onMouseLeave={() => partControls.onHoverTreeNode?.('')} style={{paddingLeft:depth*12, ...joinedCorners(joinAbove, joinBelow)}}>
+      onMouseLeave={() => partControls.onHoverTreeNode?.('')} style={{paddingLeft:depth*12, ...joinedCorners(joinAbove, joinBelow), ...(actionsWidth && {'--row-actions':actionsWidth})}}>
       {branch ? <Disclosure node={node} open={open} locked={locked} toggle={toggle}/> : <span className="w-4 shrink-0"/>}
       <TooltipHint content={node.label} overflowOnly><button type="button" aria-label={`Select ${node.label}`} aria-pressed={selected}
         disabled={disabled || unavailable || !(node.selectionId || node.memberSelectionIds?.length || node.faces?.length || node.edges?.length)}
         onClick={event=>{if(event.detail < 2)choose(node,event);}} onDoubleClick={event=>choose(node,event)}
-        className="flex h-full min-w-0 flex-1 items-center gap-1 rounded pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40">
+        className={cn('flex h-full min-w-0 flex-1 items-center gap-1 rounded pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40', underActions)}>
         <Icon className={TREE_ROW_DENSE_ICON_CLASS}/><TreeRowLabel className="flex-1">{node.label}</TreeRowLabel>
       </button></TooltipHint>
       {node.selectionId && <ModelPartActions node={node} controls={partControls} disabled={disabled}/>}
@@ -107,19 +110,20 @@ const MemoModelingRow = memo(ModelingRow);
 
 // A search hit is the tree row without its place in the tree: the same menu, eye
 // and availability, with the owners it would sit under named instead of drawn.
-function ModelingSearchRow({ match, index, availability, selected, joinAbove, joinBelow, cursor, choose, disabled, partControls, feature }) {
+function ModelingSearchRow({ match, index, availability, selected, joinAbove, joinBelow, actionsShown, actionsWidth, cursor, choose, disabled, partControls, feature }) {
   const {entry,indices}=match,{node}=entry;
   const Icon = icons[node.kind] || Box;
   const {hiddenByOwner,unavailable}=modelTreeSearchChain(index,match.at).reduce(
     (owner,step)=>nodeAvailability(step,availability,owner.hiddenByOwner,owner.outsideFrontier),{hiddenByOwner:false,outsideFrontier:false});
+  const underActions = actionsWidth && (actionsShown ? ROW_NAME_UNDER_ACTIONS.shown : ROW_NAME_UNDER_ACTIONS.hover);
   return <ModelPartMenu node={node} controls={partControls} feature={feature} disabled={disabled}>
     <TreeRowSurface dense active={selected} cursor={cursor} className={cn('group/row relative gap-0 pr-0', hiddenByOwner && 'opacity-50')}
       onMouseEnter={() => partControls.onHoverTreeNode?.(node.selectionId || node.occurrenceId || '')}
-      onMouseLeave={() => partControls.onHoverTreeNode?.('')} style={joinedCorners(joinAbove, joinBelow)}>
+      onMouseLeave={() => partControls.onHoverTreeNode?.('')} style={{...joinedCorners(joinAbove, joinBelow), ...(actionsWidth && {'--row-actions':actionsWidth})}}>
       <TooltipHint content={`${entry.prefix}${node.label}`} overflowOnly><button type="button" aria-label={`Select ${node.label}`} aria-pressed={selected}
         disabled={disabled || unavailable || !(node.selectionId || node.faces?.length || node.edges?.length)}
         onClick={event=>{if(event.detail < 2)choose(node,event);}} onDoubleClick={event=>choose(node,event)}
-        className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded pl-2 pr-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40">
+        className={cn('flex h-full min-w-0 flex-1 items-center gap-1.5 rounded pl-2 pr-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40', underActions)}>
         <Icon className={TREE_ROW_DENSE_ICON_CLASS}/>
         {/* Name first: in a narrow panel a deep owner path takes the truncation, never the name. */}
         <TreeRowLabel className="max-w-full shrink-0"><TreeFilterHighlight indices={indices} text={entry.label}/></TreeRowLabel>
@@ -366,16 +370,20 @@ function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, l
   const matches=found.matches;
   const cursorIndex=searching ? matches.findIndex(match=>match.entry.node.id === cursorId) : -1;
   const searchPinned=useMemo(()=>cursorIndex < 0 ? EMPTY : [cursorIndex],[cursorIndex]);
+  // A row's actions as primitives (`rowActionsLayout`): whether one is on, and the room they take.
+  const actionsOf=node=>node.selectionId ? rowActionsLayout(node,partControls) : null;
   const renderTreeRow=at=>{
-    const row=rows[at],on=highlighted.has(row.node.id);
+    const row=rows[at],on=highlighted.has(row.node.id),actions=actionsOf(row.node);
     return <MemoModelingRow node={row.node} depth={row.depth} open={row.open} branch={row.branch} locked={locked} disabled={disabled}
+      actionsShown={Boolean(actions?.shown)} actionsWidth={actions?.width}
       selected={on} joinAbove={on && at > 0 && highlighted.has(rows[at-1].node.id)} joinBelow={on && at < rows.length-1 && highlighted.has(rows[at+1].node.id)}
       hiddenByOwner={row.hiddenByOwner} unavailable={row.unavailable} partControls={partControls}
       feature={row.node.selectionId ? null : feature} toggle={toggle} choose={choose}/>;
   };
   const renderSearchRow=at=>{
-    const match=matches[at],on=highlighted.has(match.entry.node.id);
+    const match=matches[at],on=highlighted.has(match.entry.node.id),actions=actionsOf(match.entry.node);
     return <MemoModelingSearchRow match={match} index={searchIndex} availability={availability} cursor={match.entry.node.id === cursorId}
+      actionsShown={Boolean(actions?.shown)} actionsWidth={actions?.width}
       selected={on} joinAbove={on && at > 0 && highlighted.has(matches[at-1].entry.node.id)} joinBelow={on && at < matches.length-1 && highlighted.has(matches[at+1].entry.node.id)}
       choose={choose} disabled={disabled} partControls={partControls} feature={match.entry.node.selectionId ? null : feature}/>;
   };

@@ -1,7 +1,7 @@
 import { createPortal } from "react-dom";
 import { VIEWPORT_BOTTOM_CENTER, VIEWPORT_INSET_PX } from "./viewportLayout.js";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CirclePlay, Play, Pause, X } from "lucide-react";
+import { Play, Pause, X } from "lucide-react";
 import { ToolbarButton } from "@hardcore/ui/primitives/toolbar-button";
 import PreviewChrome from "../tools/PreviewChrome.jsx";
 import { useViewerMobile } from "../../../file-viewer/responsive.js";
@@ -206,33 +206,35 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
               </div>
 
               {/* Preview: the tools put away and the model orbiting, its routines playing. The
-                  top-right bar stays where it is — Display settings in the same place — with
-                  Playback settings before it and an X for Preview; under the model, the playbar
-                  (a static file's, the orbit's play and pause). */}
+                  top-right bar stays where it is — Display settings in the same place — with an X
+                  for Preview; under the model, the playbar (a static file's, the orbit's play and
+                  pause), with Playback settings' cog at its right end. */}
               <PreviewChrome active={previewing} surface={frame.hostElement} hold={displayOpen}
-                actions={onMenuOpenChange => <>
-                  {previewing ? <PlaybackMenu animation={hasAnimation ? animation : null} onOpenChange={onMenuOpenChange}
-                    autoplay={shell.autoplay} onAutoplayChange={shell.setAutoplay}
-                    orbit={orbitPlaying} onOrbitChange={setOrbitPlaying}
-                    orbitSpeed={frame.previewOrbitSpeed || 1} onOrbitSpeedChange={frame.setPreviewOrbitSpeed} /> : null}
-                  <DisplayPopover open={displayOpen} onOpenChange={setDisplayOpen} disabled={shell.idle}
-                    projection={resolvedScene.camera.projection}>{frame.display}</DisplayPopover>
+                actions={() => <>
+                  <DisplayPopover open={displayOpen} onOpenChange={setDisplayOpen} disabled={shell.idle}>{frame.display}</DisplayPopover>
                   {previewing
                     ? <ToolbarButton key="exit" tooltip={false} label="Exit preview" className={BAR_BUTTON_CLASS} onClick={leavePreview}>
                       <X className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
                     </ToolbarButton>
                     : <ToolbarButton key="preview" label="Preview" className={BAR_BUTTON_CLASS} disabled={shell.idle} onClick={enterPreview}>
-                      <CirclePlay className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
+                      <Play className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
                     </ToolbarButton>}
                 </>}
-                playbar={hasAnimation ? <ViewportAnimationBar key={frame.modelKey} runtime={animation}
-                  className="pointer-events-auto" disabled={viewerLoading || !scene} /> :
+                playbar={onMenuOpenChange => {
+                  const settings = <PlaybackMenu animation={hasAnimation ? animation : null} onOpenChange={onMenuOpenChange}
+                    autoplay={shell.autoplay} onAutoplayChange={shell.setAutoplay}
+                    orbit={orbitPlaying} onOrbitChange={setOrbitPlaying}
+                    orbitSpeed={frame.previewOrbitSpeed || 1} onOrbitSpeedChange={frame.setPreviewOrbitSpeed} />;
+                  return hasAnimation ? <ViewportAnimationBar key={frame.modelKey} runtime={animation} trailing={settings}
+                    className="pointer-events-auto" disabled={viewerLoading || !scene} /> :
                   <div role="toolbar" aria-label="Orbit playback" data-preview-hover-hold="" style={{ bottom: VIEWPORT_BOTTOM_CENTER }}
-                    className="pointer-events-auto absolute left-1/2 -translate-x-1/2 translate-y-1/2 px-6 py-4">
+                    className="pointer-events-auto absolute left-1/2 flex -translate-x-1/2 translate-y-1/2 items-center gap-1 px-6 py-4">
                     <ToolbarButton tooltip={false} label={orbitPlaying ? "Pause orbit" : "Play orbit"} onClick={() => setOrbitPlaying(value => !value)}>
                       {orbitPlaying ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
                     </ToolbarButton>
-                  </div>}>
+                    {settings}
+                  </div>;
+                }}>
 
               <div className="group/tool-stack pointer-events-none absolute z-20 flex flex-col items-start gap-2" style={TOOLBAR_POSITION}
                 data-mobile={mobile ? "" : undefined} data-cad-tool-groups="">

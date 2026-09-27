@@ -99,17 +99,18 @@ createRoot(document.getElementById('root')).render(<App/>);
   await page.getByTestId('files').getByRole('option').waitFor();
   assert.deepEqual(await fileInsets(), modelInsets, 'filtered rows retain the same horizontal inset');
   await page.getByTestId('files').getByRole('button', {name:'Clear filter'}).click();
-  // A row's actions (Hide, Isolate) float over its right end, blurring the name under them, rather
-  // than taking width from it: the name runs the row's full width.
+  // A row's actions (Hide, Isolate) float over its right end rather than taking width from it: the
+  // name runs the row's full width and fades out under them, with nothing drawn behind the buttons.
   await part.hover();
   const rowLayout = await part.evaluate(node => {
     const row = node.closest('li'), actions = row.querySelector('[data-row-actions]');
     const [name, box, own] = [node.getBoundingClientRect(), actions.getBoundingClientRect(), node.parentElement.getBoundingClientRect()];
-    return { position: getComputedStyle(actions).position, blur: getComputedStyle(actions).backdropFilter, opacity: getComputedStyle(actions).opacity,
+    return { position: getComputedStyle(actions).position, blur: getComputedStyle(actions).backdropFilter, mask: getComputedStyle(node).maskImage, opacity: getComputedStyle(actions).opacity,
       nameRight: name.right, rowRight: own.right, actionsLeft: box.left, actionsRight: box.right };
   });
   assert.equal(rowLayout.position, 'absolute');
-  assert.match(rowLayout.blur, /blur/);
+  assert.equal(rowLayout.blur, 'none', 'no backing behind the actions');
+  assert.match(rowLayout.mask, /linear-gradient/, `the name fades out under the actions: ${JSON.stringify(rowLayout)}`);
   assert.ok(rowLayout.nameRight > rowLayout.actionsLeft, `the name runs under the actions: ${JSON.stringify(rowLayout)}`);
   assert.ok(Math.abs(rowLayout.actionsRight - rowLayout.rowRight) <= 1, `the actions sit at the row's right end: ${JSON.stringify(rowLayout)}`);
   const beforeHide = await part.boundingBox();
