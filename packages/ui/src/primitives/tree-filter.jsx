@@ -10,7 +10,10 @@ import { cn } from '@hardcore/ui/utils';
  * so its buttons sit exactly where a heading's do.
  */
 export function TreeFilterInput({ label, placeholder, value, onChange, onKeyDown, trailing, yieldWhileTyping = false, dense = false, clearLabel = 'Clear filter', className, ...props }) {
-  return <div {...props} data-slot="tree-filter" className={cn('group/filter flex shrink-0 items-center gap-1 border-b', dense ? 'h-7 px-1' : 'h-9 px-2', className)}>
+  return <div {...props} data-slot="tree-filter" className={cn('group/filter flex shrink-0 items-center gap-1',
+    // Dense, the separator is an inset line rather than a border, so the row's full 28px centre its
+    // buttons exactly as a heading's (a border would take a pixel from under them).
+    dense ? 'h-7 px-1 shadow-[inset_0_-1px_0_var(--border)]' : 'h-9 border-b px-2', className)}>
     <div className="relative flex min-w-0 flex-1 items-center">
       <Search className={cn('pointer-events-none absolute text-muted-foreground', dense ? 'left-1.5 size-2.5' : 'left-2 size-3')} />
       <input

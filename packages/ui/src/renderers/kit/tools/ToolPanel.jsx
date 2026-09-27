@@ -176,7 +176,7 @@ export default function ToolPanel({ id, title = null, name = "", label, summary 
     data-collapsed={folded ? "" : undefined}
     // Folded to a filter row, the row's rule under it has nothing under it to divide off.
     className={cn("pointer-events-auto relative flex w-full flex-col rounded-md text-tiny", FLOATING_CHROME_SURFACE_CLASS, folded ? "shrink-0" : FIT[fit],
-      "data-[collapsed]:[&_[data-slot=tree-filter]]:border-transparent")}
+      "data-[collapsed]:[&_[data-slot=tree-filter]]:shadow-none")}
     style={{ maxHeight, minHeight }}>
     <ToolPanelContext.Provider value={panel}>
       {heading}
