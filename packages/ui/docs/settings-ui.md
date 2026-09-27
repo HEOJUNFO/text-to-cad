@@ -199,31 +199,39 @@ whose tool is not up is `hidden`, not unmounted: a tree keeps its expansion,
 filter and scroll across a trip to another tool. Preview hides the whole
 stack.
 
-- **Heights by default.** The tree and Position open capped at half the stack
-  column on desktop, and at the whole column on a phone.
-- **One width.** Every panel is the stack's width: 138px by default, a strip
-  of five tools (five 24px buttons, 2px gaps, 4px padding and a 1px border),
-  whatever tools the file's own strip has. A handle ON the stack's right edge — centred
-  on it, an 8px hit area, nothing drawn: a resize cursor, and a focus ring for
-  the keyboard — widens or narrows every
-  panel together, from 128px up to half the viewer, by pointer or keyboard
-  (ArrowLeft/ArrowRight by 16px, Home, End). Content truncates to fit; it never
-  widens the stack.
+- **Two kinds of panel.** The tree (Features, Links) and **Position** are
+  *resizable*: the person's to size, each on its own. Every other panel —
+  Drawing, Measurements, Explode, Clip, the Reference, Issues, SDF — is *fixed*:
+  one width, its content's height, and no handle. A renderer opts a panel in
+  with `resizable`; nothing else about it changes.
+- **One width.** Every panel opens at `TOOL_PANEL_WIDTH`: 164px, a strip of
+  six tools (six 24px buttons, 2px gaps, 4px padding and a 1px border),
+  whatever tools the file's own strip has — a file with three tools has the
+  same panels as one with seven. A fixed panel is exactly that wide. A
+  resizable panel is only ever made wider, up to half the viewer; widening the
+  tree changes nothing about any other panel. The panels hang left-aligned
+  under the strip, each at its own width. Content truncates to fit; it never
+  widens a panel.
 - **Heights.** A panel is exactly its content's height — never padded to a
-  minimum: a tree of two rows is its filter row and two rows. The tree
-  (Features, Links), **Position** and the **Reference** have a *cap* the content
-  grows up to and then scrolls inside: the tree and Position open capped at half
-  the stack's own height (the area under the strip, not the viewer), the
-  Reference at 288px (its heading and a dozen compact rows: a part's or a face's
-  facts and material fit without scrolling). A handle on each one's bottom edge
-  (centred on it, the panel's width; like every handle, a cursor and nothing
-  drawn) sets its cap by pointer or keyboard (ArrowUp/ArrowDown by 16px, Home to
-  64px, End to the stack's height). A cap is never a floor. While any of them is
-  on screen and open, the stack has two handles of its own: one on its foot
-  ("Resize tool panel heights"; ArrowUp/ArrowDown) and one on its bottom-right
-  corner (pointer only). Either sizes every such panel at once, each in
-  proportion to its height; the corner sets the width as well. One write, when
-  the pointer lets go.
+  minimum: a tree of two rows is its filter row and two rows. A resizable panel
+  has a *cap* the content grows up to and then scrolls inside: the tree and
+  Position open capped at half the stack's own height (the area under the
+  strip, not the viewer) on desktop, and at the whole column on a phone. The
+  Reference has a cap that is not the person's (288px, `maxHeight`: its heading
+  and a dozen compact rows, so a part's or a face's facts and material fit
+  without scrolling). A cap is never a floor. Setting one panel's cap changes
+  no other's.
+- **Handles, on a resizable panel only.** Three, each moving only that panel:
+  one ON its right edge (width), one ON its bottom edge (height) and one on the
+  bottom-right corner between them (both) — each centred on the edge, an 8px
+  hit area (12px for the corner), nothing drawn: a resize cursor, and a focus
+  ring for the keyboard. Named "Resize features width", "Resize features
+  height" and "Resize features". By pointer, or by keyboard: arrows by 16px
+  (Left/Right on the width's, Up/Down on the height's, all four on the corner),
+  Home and End to an edge's bounds (the one width or half the viewer; 64px or
+  the stack's height). One write, when the pointer lets go (or per key), never
+  per pointer move. A folded panel keeps its width handle and has no height
+  handle or corner: there is no height to set.
 - **Never past the viewer.** The column is the viewer's height less the 8px
   insets and the strip. When the panels need more, the tree gives way first and
   scrolls inside itself, down to 128px or its content, whichever is less; then a
@@ -236,9 +244,7 @@ stack.
   by a chevron at that row's trailing end: up while open (fold), down while
   folded (open), with `aria-expanded` and the panel's name ("Collapse
   features"). Folded content stays mounted, so a tree keeps its expansion,
-  selection and scroll. A panel with a height handle keeps it while folded:
-  pulling it down opens the panel at the height it is pulled to, in one gesture
-  and one write; ArrowDown or End on it opens it from the keyboard. Typing into a
+  selection and scroll. Typing into a
   folded tree's filter opens it, since what the filter finds is in its body; a
   folded filter row draws no rule under it.
 - **First rows.** Features and Links have no heading: the filter is their top
@@ -257,12 +263,14 @@ stack.
   reference on show — the one browsed to, with several selected — as Copy
   Reference copies it) and an X that clears the selection; a kept panel's X
   removes the effect.
-- **The layout is the person's.** Width, caps and folded panels are one viewer
-  preference the host keeps across files (`CadPreferences.toolStack`: `{ width,
-  heights: { tree?, position?, reference? }, collapsed: { [panel id]: boolean } }`,
-  stored beside the orbit speed). `collapsed` holds only what differs from a
-  panel's start (the SDF panel starts folded). Every size is written back once,
-  when the pointer lets go (or per key), never per pointer move.
+- **The layout is the person's.** The sizes and the folded panels are one viewer
+  preference the host keeps across files (`CadPreferences.toolStack`:
+  `{ panels: { [panel id]: { width?, height? } }, collapsed: { [panel id]: boolean } }`,
+  stored beside the orbit speed). `panels` holds only what a person set, by
+  resizable panel; `collapsed` only what differs from a panel's start (the SDF
+  panel starts folded). Resetting the preference (a cleared store) puts every
+  panel back at the one width and its default cap. Every size is written back
+  once, when the pointer lets go (or per key), never per pointer move.
 - **Surfaces.** Two, defined once (`floatingSurface.js`), with one border: the
   toolbar and the stack's panels, which stay up beside the model, share
   `FLOATING_CHROME_SURFACE_CLASS` — the background at 35% and barely blurred

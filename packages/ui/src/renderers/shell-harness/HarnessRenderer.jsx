@@ -8,6 +8,7 @@ import RendererShell from "../kit/shell/RendererShell.jsx";
 import { SHELL_TOOL, useRendererShell } from "../kit/shell/useRendererShell.js";
 import { createToolModes } from "../kit/tools/toolModes.js";
 import ToolPanel, { ToolPanelCollapse } from "../kit/tools/ToolPanel.jsx";
+import { TOOL_PANEL_REFERENCE_HEIGHT } from "../kit/tools/toolStackLayout.js";
 
 // TEST SCAFFOLDING. This renderer is never registered in a product: it exists so
 // the shell's own tools can be driven in a real browser under a frame that is
@@ -161,27 +162,32 @@ function HarnessSurface({ view, data }) {
   ]), [picked]);
 
   // `panel*.harness` stands in for a file whose tool stack is full: a tree far taller than any
-  // viewer, the Reference for a selection, and a retained effect — "Keep" keeps a small panel
-  // under them, highlighted, whatever tool is up.
+  // viewer, the Reference for a selection, a retained effect — "Keep" keeps a small panel
+  // under them, highlighted, whatever tool is up — and "Pose", a tool whose panel is the
+  // person's to size like the tree.
   const [kept, setKept] = useState(false);
+  const [posing, setPosing] = useState(false);
   const withPanel = view.file.path.startsWith("panel");
   // `panel-short.harness` turns the heights round: a tree of two rows and a Reference of many.
   const short = view.file.path.startsWith("panel-short");
   const [treeRows, referenceRows] = short ? [2, 40] : [120, 8];
   const keepTool = { id: "keep", label: "Keep", icon: <span aria-hidden="true">K</span>, active: kept, disabled: shell.idle,
     onSelect: () => setKept(value => !value) };
+  const poseTool = { id: "pose", label: "Pose", icon: <span aria-hidden="true">P</span>, active: posing, disabled: shell.idle,
+    onSelect: () => setPosing(value => !value) };
   const rows = (count, name) => <ul className="px-2 py-1">{Array.from({ length: count }, (_, index) =>
     <li key={index} className="flex h-6 items-center">{name} {index + 1}</li>)}</ul>;
   const toolPanels = <>
     {withPanel ? <>
-      <ToolPanel id="tree" label="Harness tree" fit="tree" sizable
+      <ToolPanel id="tree" label="Harness tree" fit="tree" resizable
         header={<p className="flex h-9 items-center border-b px-2"><span className="flex-1">Filter</span><ToolPanelCollapse /></p>}>{rows(treeRows, "Row")}</ToolPanel>
-      <ToolPanel id="reference" title="Reference" label="Harness reference" fit="details" sizable onClose={() => {}}>{rows(referenceRows, "Fact")}</ToolPanel>
+      <ToolPanel id="reference" title="Reference" label="Harness reference" fit="details" maxHeight={TOOL_PANEL_REFERENCE_HEIGHT} onClose={() => {}}>{rows(referenceRows, "Fact")}</ToolPanel>
+      {posing ? <ToolPanel id="position" title="Position" label="Harness position" fit="details" resizable collapsible={false} onClose={() => setPosing(false)}>{rows(30, "Joint")}</ToolPanel> : null}
     </> : null}
     {kept ? <ToolPanel id="kept" title="Kept" label="Kept controls" onClose={() => setKept(false)}><div className="h-16 px-2">Kept</div></ToolPanel> : null}
   </>;
 
-  return <RendererShell shell={shell} tools={withPanel ? [shell.tools.draw, keepTool] : [shell.tools.draw]}
+  return <RendererShell shell={shell} tools={withPanel ? [shell.tools.draw, keepTool, poseTool] : [shell.tools.draw]}
     toolPanels={toolPanels}
     contextMenuItems={contextMenuItems} onContextMenuOpenChange={setMenuUp}
     frameProvider={frame => <HarnessFrameContext.Provider value={`frame:${stage}`}>{frame}</HarnessFrameContext.Provider>}

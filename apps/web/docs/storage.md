@@ -79,9 +79,9 @@ as its localStorage fallback; neither changes the per-file Render recipe.
 
 Preview's orbit speed uses `cad-viewer:orbit:v1`, its Autoplay (whether entering
 preview starts a file's routine; off by default) `cad-viewer:animation:v1`, and the
-tool stack's layout `cad-viewer:tool-stack:v1`: one width for every panel under the viewer's toolbar
-(138px by default, 128px at least), the caps a person dragged the tree, Position and
-Reference panels to, and which panels are folded. The web adapter reads, writes and synchronizes
+tool stack's layout `cad-viewer:tool-stack:v2`: the width and height cap a person dragged
+each resizable panel under the viewer's toolbar (the tree, Position) to — every panel is
+164px wide until then, a six-tool strip's width — and which panels are folded. The web adapter reads, writes and synchronizes
 these keys through `createStoredCadPreferences`; the shared
 renderer discovers no browser storage. All are global across files and
 synchronized across tabs. Preview camera changes are transient and never

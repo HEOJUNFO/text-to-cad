@@ -256,8 +256,8 @@ export function useRendererShell({
   const previewOrbitSpeed = normalizeOrbit(services.preferences?.orbit).speed;
   const setPreviewOrbitSpeed = useCallback(speed => services.onPreferenceChange({ orbit: normalizeOrbit({ speed }) }),
     [services.onPreferenceChange]);
-  // The tool stack's layout — its one width, the panels' caps, the folded panels — is the
-  // person's, across files: the host keeps it with the orbit. A change is a patch over the
+  // The tool stack's layout — the sizes of the panels a person can size, the folded panels — is
+  // the person's, across files: the host keeps it with the orbit. A change is a patch over the
   // layout as it last stood (or a function of it), so two panels written back in one turn both land.
   const toolStack = useMemo(() => normalizeToolStack(services.preferences?.toolStack), [services.preferences?.toolStack]);
   const toolStackRef = useRef(toolStack);

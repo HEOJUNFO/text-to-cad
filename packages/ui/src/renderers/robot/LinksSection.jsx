@@ -3,6 +3,7 @@ import { TreeRowSurface, TreeRowChevron, TreeRowLabel } from "@hardcore/ui/primi
 import { TreeFilterHighlight, TreeFilterInput } from "@hardcore/ui/primitives/tree-filter";
 import { cn } from "@hardcore/ui/utils";
 import ToolPanel, { ToolPanelCollapse } from "../kit/tools/ToolPanel.jsx";
+import { TOOL_PANEL_REFERENCE_HEIGHT } from "../kit/tools/toolStackLayout.js";
 import { useViewerMobile } from "../../file-viewer/responsive.js";
 import RobotComponentDetails, { RobotLinkDetails, RobotLinksSummary } from "./LinkDetails.jsx";
 import { useTreeSearch } from "../kit/inspector/modelTreeSearch.js";
@@ -156,7 +157,7 @@ export default function LinksSection({ description = null, components = EMPTY, p
 
   return <>
     {/* No heading: the filter is the panel's top row, and stays put while the tree scrolls under it. */}
-    <ToolPanel id="tree" label="Links" fit="tree" sizable defaultCollapsed={mobile} hidden={!active}
+    <ToolPanel id="tree" label="Links" fit="tree" resizable defaultCollapsed={mobile} hidden={!active}
       header={<TreeFilterInput dense label="Filter links" placeholder="Filter…" yieldWhileTyping value={query} onChange={changeQuery} onKeyDown={onSearchKeyDown} trailing={<ToolPanelCollapse/>}/>}>
       <div className="flex flex-col text-tiny" aria-label="Robot links">
         <div ref={listRef} className="px-1 py-1" aria-label="Robot tree area"
@@ -171,7 +172,7 @@ export default function LinksSection({ description = null, components = EMPTY, p
         </div>
       </div>
     </ToolPanel>
-    {details ? <ToolPanel id="reference" title={referenceTitle} label="Reference details" closeLabel="Clear selection" fit="details" sizable hidden={!active} onClose={clearSelection}>
+    {details ? <ToolPanel id="reference" title={referenceTitle} label="Reference details" closeLabel="Clear selection" fit="details" maxHeight={TOOL_PANEL_REFERENCE_HEIGHT} hidden={!active} onClose={clearSelection}>
       <div className="px-2 pb-1.5">{details}</div>
     </ToolPanel> : null}
   </>;

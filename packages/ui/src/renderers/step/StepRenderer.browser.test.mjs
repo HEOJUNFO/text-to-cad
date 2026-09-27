@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { PNG } from 'pngjs';
 import { serveStepHarness } from '../harness/stepScenario.mjs';
-import { TOOL_STACK_DEFAULT_WIDTH } from '../../../dist/renderers/kit/tools/toolStackLayout.js';
+import { TOOL_PANEL_WIDTH } from '../../../dist/renderers/kit/tools/toolStackLayout.js';
 
 // The STEP renderer end to end in a real browser, over the committed two-part
 // fixture (`__fixtures__/step`): a coloured base with a bore, a coloured arm, one
@@ -239,18 +239,17 @@ test('a STEP opens in Select with the tools its sidecar earns and Display last, 
   const unfold = featuresPanel.getByRole('button', { name: 'Expand features', exact: true });
   assert.deepEqual([await unfold.getAttribute('aria-expanded'), await unfold.locator('[data-chevron]').getAttribute('data-chevron')], ['false', 'down'],
     'folded: the chevron points down, to open');
-  // Pulling the folded panel's bottom edge down opens it again, at the height it is pulled to.
-  const handle = await pane.getByRole('separator', { name: 'Resize features', exact: true }).boundingBox();
-  assert.ok(Math.abs(handle.y + handle.height / 2 - (foldedBox.y + foldedBox.height)) <= 1, 'the height handle stays on the folded edge');
-  await page.mouse.move(handle.x + 40, handle.y + handle.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(handle.x + 40, handle.y + handle.height / 2 + 200, { steps: 8 });
-  await page.mouse.up();
+  // Folded, Features keeps its width handle — there is a width to set — and loses its height's
+  // and the corner: there is no height to set. Its chevron opens it again, its expansion kept.
+  assert.deepEqual(await featuresPanel.getByRole('separator').evaluateAll(handles => handles.map(handle => handle.getAttribute('aria-label'))), ['Resize features width']);
+  const widthHandle = await pane.getByRole('separator', { name: 'Resize features width', exact: true }).boundingBox();
+  assert.ok(Math.abs(widthHandle.x + widthHandle.width / 2 - (foldedBox.x + foldedBox.width)) <= 1, 'the width handle is centred on the folded panel\'s right edge');
+  await unfold.click();
   await featuresPanel.getByRole('button', { name: 'Collapse features', exact: true }).waitFor();
   assert.deepEqual(await view.rows(), openedRows, 'the tree kept its expansion while folded');
-  assert.ok(Math.abs(await page.evaluate(() => window.cadHarness.preferences.getSnapshot().toolStack.heights.tree) - (foldedBox.height + 200)) <= 1,
-    'and its cap is that height');
-  await page.evaluate(width => window.cadHarness.preferences.update({ toolStack: { width, heights: {}, collapsed: {} } }), TOOL_STACK_DEFAULT_WIDTH);
+  assert.deepEqual(await featuresPanel.getByRole('separator').evaluateAll(handles => handles.map(handle => handle.getAttribute('aria-label'))),
+    ['Resize features width', 'Resize features height', 'Resize features'], 'open: all three handles');
+  assert.deepEqual(await page.evaluate(() => window.cadHarness.preferences.getSnapshot().toolStack), { panels: {}, collapsed: {} }, 'nothing sized, nothing folded: nothing stored');
   assert.deepEqual(errors, []);
 });
 
@@ -278,10 +277,10 @@ test('Select picks parts and faces, a selection lives only under Select, and the
   assert.match((await reference.innerText()).replace(/\s+/g, ' '), /^base .*Type Component.*ID o1\.1.*Size 20 × 20 × 10 mm.*Color #3A6EA5/);
   assert.equal(await reference.locator('[data-reference-count]').count(), 0, 'one reference has no i/N');
   // Compact rows in the panel's one face: every value is the UI font at the panel's size, never
-  // monospace; and a component's facts fit the panel's default height without scrolling. (At the
-  // stack's narrow default width a long value wraps; a person who widens it gets one line a fact.)
-  await page.evaluate(() => window.cadHarness.preferences.update({ toolStack: { width: 240, heights: {}, collapsed: {} } }));
-  await page.waitForFunction(() => document.querySelector('[data-testid="one"] [aria-label="Reference details"]')?.getBoundingClientRect().width === 240);
+  // monospace; and a component's facts fit the panel's default height without scrolling. The
+  // Reference is a fixed panel: every panel's width, and no handle of its own.
+  assert.equal(Math.round((await reference.boundingBox()).width), TOOL_PANEL_WIDTH);
+  assert.equal(await reference.getByRole('separator').count(), 0);
   const faces = await reference.locator('[data-tool-panel-body] *').evaluateAll(nodes => [...new Set(nodes
     .filter(node => !node.childElementCount && node.textContent.trim())
     .map(node => `${getComputedStyle(node).fontFamily} | ${getComputedStyle(node).fontSize}`))]);
@@ -985,9 +984,9 @@ test('persistent tools open neutral, stack beneath the toolbar, and toggle off w
   }
   const [first, second, canvas, strip] = await Promise.all([explodePanel.boundingBox(), clipPanel.boundingBox(),
     pane.locator('[aria-busy] > div > canvas').first().boundingBox(), pane.getByRole('group', { name: 'Interaction tools' }).boundingBox()]);
-  // The stack's one width: a five-tool strip's by default (`toolStackLayout.js`), narrower than this
-  // file's seven-tool strip.
-  assert.equal(first.width, TOOL_STACK_DEFAULT_WIDTH);
+  // Every panel's width: a six-tool strip's (`toolStackLayout.js`), whatever this file's own strip
+  // is — seven tools, wider — and a kept panel is fixed at it.
+  assert.equal(first.width, TOOL_PANEL_WIDTH);
   assert.ok(strip.width > first.width);
   assert.ok(Math.abs(first.x - canvas.x - 8) < 2 && Math.abs(first.y - strip.y - strip.height - 8) < 2, 'under the strip, 8px in from the viewer');
   assert.ok(second.y >= first.y + first.height && second.x === first.x);
@@ -1002,7 +1001,7 @@ test('persistent tools open neutral, stack beneath the toolbar, and toggle off w
   // Select's Features lead the stack, above the kept panels, and every item is one width.
   assert.deepEqual(await view.stack(), ['Features', 'Explode controls', 'Clip controls']);
   assert.deepEqual(new Set(await pane.locator('[data-cad-tool-stack] [data-tool-panel]').evaluateAll(panels => panels
-    .filter(panel => panel.getClientRects().length).map(panel => panel.getBoundingClientRect().width))), new Set([TOOL_STACK_DEFAULT_WIDTH]));
+    .filter(panel => panel.getClientRects().length).map(panel => panel.getBoundingClientRect().width))), new Set([TOOL_PANEL_WIDTH]));
   assert.equal(await amount.getAttribute('aria-valuenow'), '100');
   await clip.click();
   await clipPanel.waitFor({ state: 'detached' });
@@ -2440,7 +2439,7 @@ test('mobile: the tool stack and the file tree sheet overlay the scene, the tree
   assert.equal(await pane.getByRole('region', { name: 'Features', exact: true }).getAttribute('data-collapsed'), null, 'open on desktop');
   assert.equal(await pane.locator('[data-mobile-panel]').count(), 0);
   assert.equal(await pane.locator('[data-file-panel-container]').count(), 0, 'a file opens nothing in the column on desktop either');
-  assert.equal(await pane.getByRole('separator', { name: 'Resize tool panels' }).count(), 1);
+  assert.equal(await pane.getByRole('separator', { name: 'Resize features width', exact: true }).count(), 1);
   assert.equal(await pane.getByRole('button', { name: /^Orbit (left|right|up|down)$/ }).count(), 0);
   assert.equal(await pane.locator('[data-cad-camera-controls]').count(), 0);
   assert.deepEqual(errors, []);

@@ -197,7 +197,7 @@ function RobotSurface({ view, data }) {
     {/* Headed "Position" with its Reset; sized like the tree: its content's height, up to half the stack. */}
     {/* Its X puts Position down, back to Select (a robot's default tool); the pose stays. */}
     {posable && pose ? <ToolPanel id="position" title="Position" actions={<MotionResetButton onReset={pose.reset} />} label="Position controls"
-      fit="details" sizable collapsible={false} onClose={shell.selectDefaultTool} closeLabel="Close position" hidden={!poseActive}>
+      fit="details" resizable collapsible={false} onClose={shell.selectDefaultTool} closeLabel="Close position" hidden={!poseActive}>
       <PositionControls key={robot.revision} pose={pose} />
     </ToolPanel> : null}
   </>;

@@ -6,16 +6,16 @@ import { ANIMATION_STORAGE_KEY, readAnimationPreferences, writeAnimationPreferen
 export interface CadPreferences {
   orbit?: { speed: number };
   /**
-   * The tool stack's layout, in every file (`kit/tools/toolStackLayout.js`): its one width in CSS
-   * pixels, the caps a person dragged the tree and Reference panels to, and which panels are folded.
+   * The tool stack's layout, in every file (`kit/tools/toolStackLayout.js`): the width and height
+   * cap, in CSS pixels, a person dragged each resizable panel (the tree, Position) to, and which
+   * panels are folded.
    */
   toolStack?: ToolStackLayout;
   /** Whether entering preview starts the routine (`kit/tools/playbar/animationPreferences.js`). */
   animation?: { autoplay: boolean };
 }
 export interface ToolStackLayout {
-  width: number;
-  heights: { tree?: number; position?: number; reference?: number };
+  panels: Record<string, { width?: number; height?: number }>;
   collapsed: Record<string, boolean>;
 }
 export interface CadPreferenceSource {

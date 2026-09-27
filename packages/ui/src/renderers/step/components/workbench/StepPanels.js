@@ -125,7 +125,7 @@ export function useStepPanels({
     {issues ? <ToolPanel id="issues" title={issues.title} label="Issues" fit="details" hidden={!selectActive}>{issues.content}</ToolPanel> : null}
     {/* Headed "Position" with its Reset; sized like the tree: its content's height, up to half the stack. */}
     {/* Its X puts Position down, back to Select; the values stay. */}
-    {position ? <ToolPanel id="position" title={position.title} actions={position.actions} label="Position controls" fit="details" sizable
+    {position ? <ToolPanel id="position" title={position.title} actions={position.actions} label="Position controls" fit="details" resizable
       collapsible={false} onClose={closePosition} closeLabel="Close position" hidden={!positionActive}>{position.content}</ToolPanel> : null}
   </>;
 }
