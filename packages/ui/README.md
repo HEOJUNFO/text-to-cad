@@ -127,7 +127,7 @@ const renderers = [createStepRenderer({ client, preferences }), createDxfRendere
   state={state} onStateChange={setState} />;
 ```
 
-Public entry points include `/host`, `/file-viewer`, `/navigation`, `/renderers/step`,
+Public entry points include `/host`, `/file-viewer`, `/tab-store`, `/navigation`, `/renderers/step`,
 `/renderers/dxf`, `/renderers/glb`, `/renderers/mesh`, `/renderers/robot`, `/renderers/workspace`, `/file-viewer/presentation`, `/file-viewer/empty`,
 `/drawing`, `/loading-icon`, `/utils`, `/primitives/*`, `/tokens.css`, and `/styles.css`.
 Declarations are owned here; apps need no ambient shims or aliases into this
@@ -183,12 +183,13 @@ The Features tree can reuse those accepted component identities for completed
 recognition metadata after the runtime descriptor also matches, avoiding surface
 requests on a warm reopen without retaining another copy of the geometry.
 
-The host owns stored state. The web adapter retains browser URL/history and
-session preferences; desktop retains its explorer/project preferences and IPC
-watchers. Both build the viewer's orbit preference with
-`createStoredCadPreferences` and merge renderer records with
-`mergeChangedRecords`. A viewer's per-file record holds its Display settings,
-its tool and its renderer's slice, never a camera. Capabilities determine menus: a read-only web source cannot
+The host owns where state lives; the package owns what it is. Everything the
+viewer keeps is one tab record (`@hardcore/ui/tab-store`: the tab's settings and
+each file's view — its camera, Display settings and the renderer's own slices),
+thrown out with the tab and kept across a reload. The web keeps it in
+`sessionStorage`, the desktop in its per-tab store; both hand `createTabStore` one
+synchronous read/write adapter and take `FileViewer`'s state from it. The tool in
+hand, the selection and measurements are never stored. Capabilities determine menus: a read-only web source cannot
 acquire editing or native operations merely by rendering this component.
 
 ## Development and verification

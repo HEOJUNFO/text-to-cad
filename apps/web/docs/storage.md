@@ -1,8 +1,10 @@
 # Browser Storage
 
 The web host owns browser persistence; shared UI receives state and callbacks.
-Choose the smallest persistence tier that matches the lifetime and sharing
-behavior the user expects. View state is the root-scoped record below.
+There is one rule: **every tab has its own state, thrown out when the tab is
+closed and kept when it is reloaded.** Nothing outlives the tab, nothing is global
+and nothing crosses tabs: a new tab, a duplicated one included, starts from the
+defaults. The one thing outside the rule is a network cache, listed at the end.
 
 This doc covers browser state only. Catalogs, CAD assets, and hidden STEP
 GLB/topology artifacts are backend concerns; use [backend.md](./backend.md) for
@@ -18,71 +20,52 @@ Use query params only for shareable state that should survive copying a URL:
 Do not put dense viewer state, panel state, drawing state, or per-file controls
 in the URL.
 
+## The tab record
+
+Everything the viewer keeps is one record in `sessionStorage`, under
+`hardcore:tab:v1` — sessionStorage is the browser's own tab: it survives a reload
+and goes with the tab. The host's part is the adapter,
+[tabRecord.ts](../src/persistence/tabRecord.ts): a synchronous read and write of
+the whole record, handed to `createTabStore` (`@hardcore/ui/tab-store`), which
+owns the record's shape, its version and its normalization
+([tabRecord.ts](../../../packages/ui/src/tab-store/tabRecord.ts)). `main.tsx`
+builds the one store; `App.tsx` reads `FileViewer`'s state out of it
+(`useTabViewerState`) and hands its `settings` to every renderer as their
+preferences. Renderers never see storage: they hand the shell their view and read
+it back on mount.
+
+The record is `{ version, settings, files }`:
+
+| Kept | Where | What |
+| --- | --- | --- |
+| Tab settings | `settings` | `fileTree` (the panel column's width, and the folders open under each root), `toolStack` (the resizable panels' sizes and the folded panels, `kit/tools/toolStackLayout.js`), `orbit` (preview's orbit speed), `playback` (Autoplay, and — once chosen in Playback settings — the Speed and Loop every routine plays with; unset, each routine's own apply), `appearance` (System, Light or Dark; System until the person picks). |
+| File views | `files[[root id, file path, renderer id]]` | The file's view ([fileView.js](../../../packages/ui/src/renderers/kit/shell/fileView.js)): `camera` (the renderer's own — a scene's pose, lens and projection, restored in place of the open-time fit; a drawing's plane transform), `display` (the Display settings, Clip and Explode included) and `renderer`, the renderer's own slices, each behind the signature it was written against: a STEP's expanded nodes, hidden parts, isolated assemblies, pose and large-file opt-in; a robot's joint values. A slice whose signature no longer matches the file on screen is dropped; the camera and the display are always kept. The fifty most recently written files stay; the oldest goes. |
+
+| Not kept | Every open starts it afresh |
+| --- | --- |
+| The tool in hand | The renderer's default tool (Select) |
+| The selection (a STEP's tree and topology, a robot's links), measurements, Draw's ink | Empty |
+| Preview, its camera and its orbit state | Off |
+| The routine, its time and whether it is playing | At rest |
+| The Select mode filter, hover, menus, the open panel, popovers | The page's own |
+| The open panel of the host's column | `panel: null`: a page load opens a file on its own default |
+
+Appearance applies before the first paint: the inline script in
+[index.html](../index.html) reads the same key and applies `settings.appearance`
+to the document, so a tab left in Dark never paints light and flips. A new tab
+has no record and follows the OS.
+
+Writes are whole and synchronous: the shell writes a file's view a moment after
+each change and once more on unmount (the page's `pagehide` unmounts the app), the
+store writes the record through at once, so what the tab last saw is what a
+reload restores. Storage access is explicit in the host; constructing or
+importing a renderer never chooses a browser storage backend.
+
 ## localStorage
 
-Use `localStorage` sparingly. It is durable across tabs, browser restarts, and
-unrelated CAD Viewer sessions, so it should only hold global preferences.
-
-Current intended use:
-
-- `cad-viewer:color-scheme`: the app's System/Light/Dark appearance preference,
-  used when its cross-port appearance cookie is unavailable.
-- `cad-viewer:orbit:v1`: preview's orbit speed (below).
-- `cad-viewer:animation:v1`: preview's Autoplay (below).
-- `cad-viewer:tool-stack:v1`: the layout of the viewer's tool stack (below).
-
-The host adapter is [cadPreferences.ts](../src/persistence/cadPreferences.ts),
-a thin wrapper over the shared `createStoredCadPreferences`
-(`@hardcore/ui/renderers/workspace`), which owns the key and its format; the
-adapter hands it `localStorage` and forwards `storage` events. Inspect and
-Render own their scene bases; no stored theme overrides either mode.
-
-Avoid adding file-specific state to `localStorage`. If the value depends on the
-selected file, the active root directory, a generated asset hash, or a tab
-interaction, it belongs in per-file state instead.
-
-## Root-scoped FileViewer state
-
-The host's [fileViewer.ts](../src/persistence/fileViewer.ts) reads and writes
-`hardcore:file-viewer:v1:<encoded rootId>` in `sessionStorage`. It holds the
-panel column's width, the tree's expanded directories and renderer state keyed
-by file and renderer. It never holds the open panel: a page load is a file
-opened directly, so it opens with the file's own default (`panel: null`: nothing,
-for a CAD file), whatever the last page had open. `rootId` is the server's normalized
-filesystem-root identity, independent of its port.
-Writes merge changed chrome fields into the latest record, and renderer keys
-through the shared `mergeChangedRecords` (`@hardcore/ui/file-viewer`), so
-independent views cannot overwrite another document's state with a stale snapshot.
-The URL remains the selected-file authority;
-opening the root without a file does not silently select a different artifact.
-
-Per-file state is intentionally tab-local. Do not sync these keys from
-`storage` events; two tabs viewing the same file must be free to keep different
-display and tool settings. Camera position, target and zoom live only in the
-mounted viewer; every reload frames the model fresh. A STEP, GLB, mesh or robot entry is the
-shell's per-file record, `{ version, camera: null, display, tool, renderer }`
-([shellState.js](../../../packages/ui/src/renderers/kit/shell/shellState.js)),
-whose `display` includes Clip and Explode;
-a DXF entry is only the view a person moved it to. A STEP's own `renderer` slot
-keeps its tree selection, expansion and hidden parts, its pose, its animation
-and its large-file opt-in. Material appearance
-comes from the model and its sidecar, never session storage. Reuse the record's
-slices when adding a control instead of adding a separate storage key.
-
-The panel column's width comes from `@hardcore/ui/navigation`: `PANEL_DEFAULT_WIDTH`
-(220px) when nothing is stored, and `clampPanelWidth` (140–480px) for a stored width. Storage
-access is explicit in the host; constructing or importing a renderer never
-chooses a browser storage backend.
-
-Appearance uses a host cookie across viewer ports, with `cad-viewer:color-scheme`
-as its localStorage fallback; neither changes the per-file Render recipe.
-
-Preview's orbit speed uses `cad-viewer:orbit:v1`, its Autoplay (whether entering
-preview starts a file's routine; off by default) `cad-viewer:animation:v1`, and the
-tool stack's layout `cad-viewer:tool-stack:v2`: the width and height cap a person dragged
-each resizable panel under the viewer's toolbar (the tree, Position) to — every panel is
-164px wide until then, a six-tool strip's width — and which panels are folded. The web adapter reads, writes and synchronizes
-these keys through `createStoredCadPreferences`; the shared
-renderer discovers no browser storage. All are global across files and
-synchronized across tabs. Preview camera changes are transient and never
-enter file-session snapshots.
+One key, and it is not viewer state: `cad-viewer:latest-release:v1:<api url>`
+caches the latest-release check ([ViewerLinks.jsx](../src/client/components/workbench/ViewerLinks.jsx))
+so every tab does not ask GitHub again. It is a network cache with a time to
+live, shared by every tab, and it says nothing about what any tab shows. Nothing
+else goes in localStorage: a value that depends on a file, a root, a tab or a
+person's choice belongs in the tab record.

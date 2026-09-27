@@ -12,20 +12,20 @@ const require = createRequire(import.meta.url);
 const temporary = await mkdtemp(join(tmpdir(), 'hardcore-web-app-'));
 const output = join(temporary, 'app.mjs');
 await build({
-  stdin: { contents: `export {default as App} from './App.tsx'; export {act,createElement} from 'react'; export {createRoot} from 'react-dom/client'; export {snapshot} from '@hardcore/ui/file-viewer'; export {autoReloadOptions} from './host/useViewerAutoReload.js';`, resolveDir: fileURLToPath(new URL('.', import.meta.url)) },
-  bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', outfile: output,
+  stdin: { contents: `export {default as App} from './App.tsx'; export {act,createElement} from 'react'; export {createRoot} from 'react-dom/client'; export {snapshot} from '@hardcore/ui/file-viewer'; export {autoReloadOptions} from './host/useViewerAutoReload.js'; export {createTabStore} from '@hardcore/ui/tab-store'; export {sessionTabRecord, TAB_RECORD_KEY} from './persistence/tabRecord.ts';`, resolveDir: fileURLToPath(new URL('.', import.meta.url)) },
+  bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', outfile: output, loader: { '.css': 'empty' },
   banner: { js: `import {createRequire} from 'node:module'; const require=createRequire(import.meta.url);` },
   plugins: [{ name: 'host-boundaries', setup(plugin) {
     plugin.onResolve({ filter: /^react(?:\/|$)|^react-dom(?:\/|$)/ }, args => ({
       path: args.kind.startsWith('require') ? require.resolve(args.path) : pathToFileURL(require.resolve(args.path)).href,
       external: true,
     }));
-    plugin.onResolve({ filter: /^@hardcore\/ui\/file-viewer$|^@hardcore\/ui\/renderers\/(step|dxf|glb|mesh|robot|workspace)$|^@hardcore\/ui\/file-viewer\/(presentation|empty)$|(?:ViewerAppearance|ViewerBrand|ViewerLinks)\.jsx$|useViewerAutoReload\.js$/ }, args => ({ path: args.path, namespace: 'host-test' }));
+    plugin.onResolve({ filter: /^@hardcore\/ui\/file-viewer$|^@hardcore\/ui\/renderers\/(step|dxf|glb|mesh|robot)$|^@hardcore\/ui\/file-viewer\/(presentation|empty)$|(?:ViewerAppearance|ViewerBrand|ViewerLinks)\.jsx$|useViewerAutoReload\.js$/ }, args => ({ path: args.path, namespace: 'host-test' }));
+    // The tab store the host really uses; nothing else of the shared UI renders here.
+    plugin.onResolve({ filter: /^@hardcore\/ui\/tab-store$/ }, () => ({ path: fileURLToPath(new URL('../../../packages/ui/src/tab-store/index.ts', import.meta.url)) }));
     plugin.onLoad({ filter: /.*/, namespace: 'host-test' }, args => {
-      if (args.path.endsWith('/file-viewer')) return { contents: `let current; export function FileViewer(props){current=props; return null;} export const snapshot=()=>current; export {mergeChangedRecords} from ${JSON.stringify(fileURLToPath(new URL('../../../packages/ui/src/file-viewer/statePatch.ts', import.meta.url)))};`, loader: 'js', resolveDir: fileURLToPath(new URL('.', import.meta.url)) };
-      if (args.path.endsWith('/step')) return { contents: `export const createStepRenderer=()=>({id:'step'});`, loader: 'js' };
-      // The preferences the host really uses; everything else the workspace module pulls in is a renderer's.
-      if (args.path.endsWith('/workspace')) return { contents: `export {createCadPreferences, createStoredCadPreferences} from ${JSON.stringify(fileURLToPath(new URL('../../../packages/ui/src/renderers/workspace/preferences.ts', import.meta.url)))};`, loader: 'js', resolveDir: fileURLToPath(new URL('.', import.meta.url)) };
+      if (args.path.endsWith('/file-viewer')) return { contents: `let current; export function FileViewer(props){current=props; return null;} export const snapshot=()=>current;`, loader: 'js' };
+      if (args.path.endsWith('/step')) return { contents: `export const createStepRenderer=({preferences})=>({id:'step', preferences});`, loader: 'js' };
       if (args.path.endsWith('/dxf')) return { contents: `export const createDxfRenderer=()=>({id:'dxf'});`, loader: 'js' };
       if (args.path.endsWith('/glb')) return { contents: `export const createGlbRenderer=()=>({id:'glb'});`, loader: 'js' };
       if (args.path.endsWith('/mesh')) return { contents: `export const createMeshRenderer=()=>({id:'mesh'});`, loader: 'js' };
@@ -37,7 +37,7 @@ await build({
     });
   } }],
 });
-const { App, act, createElement, createRoot, snapshot, autoReloadOptions } = await import(pathToFileURL(output).href);
+const { App, act, createElement, createRoot, snapshot, autoReloadOptions, createTabStore, sessionTabRecord, TAB_RECORD_KEY } = await import(pathToFileURL(output).href);
 after(() => rm(temporary, { recursive: true, force: true }));
 
 test('web host preserves compact navigation, history, root state and focus refresh lifecycle', async () => {
@@ -55,10 +55,12 @@ test('web host preserves compact navigation, history, root state and focus refre
   let catalog = { entries: [], hydrated: false, refreshing: true, error: '', revision: 0, rootId: 'a' };
   const client = { serverInfo: async options => { serverCalls.push(options); return { identityToken: "restarted" }; }, getSnapshot: () => catalog, subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); }, refresh: async options => { calls.push(options); return { entries: catalog.entries }; } };
   const root = createRoot(window.document.getElementById('root'));
+  const tabStore = createTabStore(sessionTabRecord(window.sessionStorage));
   try {
-    await act(() => root.render(createElement(App, { client, server: { rootId: 'a' } })));
-    // One viewer renderer per file family, registered together.
+    await act(() => root.render(createElement(App, { client, server: { rootId: 'a' }, tabStore })));
+    // One viewer renderer per file family, registered together, every one reading the tab's settings.
     assert.deepEqual(snapshot().renderers.map(renderer => renderer.id), ['step', 'dxf', 'glb', 'mesh', 'robot']);
+    assert.equal(snapshot().renderers[0].preferences, tabStore.settings);
     assert.equal(snapshot().displayActions.props.colorSchemePreference, 'system');
     assert.equal(snapshot().displayActions.props.resolvedColorSchemeMode, 'light');
     await act(() => { systemDark = true; for (const listener of appearanceListeners) listener(); });
@@ -67,8 +69,15 @@ test('web host preserves compact navigation, history, root state and focus refre
     await act(() => snapshot().displayActions.props.onColorSchemePreferenceChange('light'));
     assert.equal(snapshot().displayActions.props.colorSchemePreference, 'light');
     assert.equal(snapshot().displayActions.props.resolvedColorSchemeMode, 'light');
+    assert.equal(snapshot().host.environment.colorScheme, 'light');
+    assert.equal(window.document.documentElement.classList.contains('dark'), false);
+    // The appearance is the tab's: in its record, under no key of its own and in no cookie.
+    assert.equal(JSON.parse(window.sessionStorage.getItem(TAB_RECORD_KEY)).settings.appearance, 'light');
+    assert.equal(window.localStorage.length, 0);
+    assert.equal(window.document.cookie, '');
     await act(() => snapshot().displayActions.props.onColorSchemePreferenceChange('system'));
     assert.equal(snapshot().displayActions.props.resolvedColorSchemeMode, 'dark');
+    assert.equal(window.document.documentElement.classList.contains('dark'), true);
     assert.equal(snapshot().file, 'one.step');
     assert.deepEqual(await autoReloadOptions().fetchServerInfo(), { ok: true, identityToken: 'restarted' });
     assert.deepEqual(serverCalls[0], { fresh: true });
@@ -137,13 +146,19 @@ test('web host preserves compact navigation, history, root state and focus refre
     Object.defineProperty(window.document, 'visibilityState', { configurable: true, value: 'visible' });
     await act(() => window.document.dispatchEvent(new window.Event('visibilitychange')));
     assert.equal(calls.length, 2);
-    await act(() => root.render(createElement(App, { client, server: { rootId: 'b' } })));
+    // What the viewer hands back lands in the tab record: the column's width and this root's open
+    // folders in the tab's settings, a file's view under the root, the file and the renderer.
+    await act(() => snapshot().onStateChange({ ...snapshot().state, panelWidth: 300, expandedDirectories: ['folder'], renderers: { ...snapshot().state.renderers, [JSON.stringify(['one.step', 'step'])]: { version: 2, camera: null, display: null, renderer: {} } } }));
+    assert.deepEqual([snapshot().state.panelWidth, snapshot().state.expandedDirectories], [300, ['folder']]);
+    const record = JSON.parse(window.sessionStorage.getItem(TAB_RECORD_KEY));
+    assert.deepEqual(record.settings.fileTree, { width: 300, expanded: { a: ['folder'] } });
+    assert.deepEqual(Object.keys(record.files), [JSON.stringify(['a', 'one.step', 'step'])]);
+    assert.equal('panel' in record, false, 'the open panel is never stored');
+    await act(() => root.render(createElement(App, { client, server: { rootId: 'b' }, tabStore })));
     assert.equal(snapshot().host.files.id, 'b');
+    // Another root, the same tab: the column's width is the tab's, the folders and the views the root's.
     assert.equal(snapshot().state.panel, null);
-    // The open panel is not stored for the next page load: root `a` was left with none open ('')
-    // and still stores the default.
-    assert.equal(JSON.parse(window.sessionStorage.getItem('hardcore:file-viewer:v1:a')).panel, null);
-    assert.equal(JSON.parse(window.sessionStorage.getItem('hardcore:file-viewer:v1:b')).panel, null);
+    assert.deepEqual([snapshot().state.panelWidth, snapshot().state.expandedDirectories, snapshot().state.renderers], [300, [], {}]);
     assert.equal(calls[0].signal.aborted, true);
   } finally {
     await act(() => root.unmount());

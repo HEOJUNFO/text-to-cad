@@ -269,11 +269,13 @@ export async function serveStepHarness(t, { onRequest, progressive = false, sing
 
   /**
    * One page over the fixture. `deviceScaleFactor: 1` keeps a screenshot's pixels the viewport's.
-   * `state` opens the page as a previous session left this file: the viewer state a test read
-   * off `window.cadHarness.state` earlier, seeded before any of the app runs; `init` is a
-   * function run in the page before the app, as `page.addInitScript` runs it.
+   * `record` opens the page as a previous session left its tab: the tab record a test read off
+   * `window.cadHarness.tabStore.getSnapshot()` earlier, seeded before any of the app runs; `store:
+   * 'session'` keeps the tab record in the page's own sessionStorage instead, so a reload of the
+   * page is a reload of the tab and a new page is a new tab; `init` is a function run in the page
+   * before the app, as `page.addInitScript` runs it. Every page is its own browser context: a new tab.
    */
-  const open = async ({ timeout = 30000, state = null, hasTouch = false, init = null } = {}) => {
+  const open = async ({ timeout = 30000, record = null, store = null, hasTouch = false, init = null } = {}) => {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, hasTouch });
     t.after(() => page.close().catch(() => {}));
     page.setDefaultTimeout(timeout);
@@ -282,11 +284,11 @@ export async function serveStepHarness(t, { onRequest, progressive = false, sing
     // No Worker: the surf tessellator falls back to the main thread, which is
     // what `renderAssetClient` does for a host without one.
     await page.addInitScript(() => { window.Worker = undefined; });
-    if (state) await page.addInitScript(stored => { window.__cadViewerState = stored; }, state);
+    if (record) await page.addInitScript(stored => { window.__cadTabRecord = stored; }, record);
     // A script of the test's own that must run before the app does (a render counter on
     // React's devtools hook, say).
     if (init) await page.addInitScript(init);
-    await page.goto(`http://127.0.0.1:${server.address().port}/?file=${fixture.file}`);
+    await page.goto(`http://127.0.0.1:${server.address().port}/?file=${fixture.file}${store === 'session' ? '&store=session' : ''}`);
     return { page, errors, pane: page.getByTestId('one') };
   };
   return { open, requests, fixture, entry, port: () => server.address().port, release: gate => opened[gate]?.(), hold };

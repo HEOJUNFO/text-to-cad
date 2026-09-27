@@ -287,8 +287,8 @@ test('an STL opens as one mesh with no tools: display settings, orbit, host comm
   await ready(pane);
   await page.waitForFunction(() => window.cadHarness.a.controller?.readState().loading === false);
   const reopened = await page.evaluate(() => window.cadHarness.a.controller.readState());
-  assert.notDeepEqual(reopened.camera.position.map(value => Math.round(value * 100)), left.camera.position.map(value => Math.round(value * 100)), "reopening fits the model anew");
-  assert.equal(reopened.camera.zoom, 1);
+  assert.deepEqual(reopened.camera.position.map(value => Math.round(value * 100)), left.camera.position.map(value => Math.round(value * 100)), "reopening restores the camera the file was left at");
+  assert.ok(Math.abs(reopened.camera.zoom - left.camera.zoom) < 1e-6);
   assert.deepEqual([reopened.display.surfaces.colorMode, reopened.display.surfaces.color, reopened.display.grid.enabled, reopened.display.floor.enabled], ['single', '#00c040', true, true]);
   assert.equal(requests.filter(path => path === '/one/part.stl').length, 1, 'reopening a file reuses its decoded mesh without another asset request');
 

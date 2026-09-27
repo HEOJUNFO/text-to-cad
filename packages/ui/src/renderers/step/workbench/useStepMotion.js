@@ -19,7 +19,6 @@ import { useAnimationClockStore } from "./animationClockStore.js";
 import { cadPathForEntry, fileKey as fileKeyOf } from "./entryPaths.js";
 import { restoreMotionAnimation, restoreMotionParameters } from "./motionRestore.js";
 import { buildParameterValuesCopyText, parseParameterValuesPasteText } from "./parameterControls.js";
-import { restoredPoseValues } from "./stepSessionRecord.js";
 import { resolveStepModuleLoad } from "./stepModuleLoad.js";
 import { stepModuleRequiresTopology } from "./topologyCapabilities.js";
 import { useStepMotionControls } from "./useStepMotionControls.js";
@@ -50,13 +49,14 @@ export function stepMotionSources(entry) {
  * with one command boundary over both (`useStepMotionControls`).
  *
  * In: the entry on screen, the model it moves (a partial progressive model plays tolerantly and
- * is not validated), and the stored record to restore from as the module and routines compile.
+ * is not validated), and the stored view to restore the pose from as the sidecar compiles.
  * Out: what the Position panel and the playbar read and call, what the viewport draws a frame
- * from (`animationRuntime`), and `restore`, which the session record calls once before the
- * first paint.
+ * from (`animationRuntime`), and `restore`, which the file's view calls once before the
+ * first paint. A routine is never restored: every open starts at rest, and the speed and
+ * loop it plays with are the tab's (the shell's Playback settings).
  *
  * @param {{ entry: object, fileKey: string, resources: object, meshData: object | null, meshPartial: boolean,
- *   readStored: () => { pose: object | null, animation: object | null }, clipboard: object,
+ *   readStored: () => { pose: object | null }, clipboard: object,
  *   reportError: (message: string) => void }} options
  */
 export function useStepMotion({ entry, fileKey, resources, meshData, meshPartial, readStored, clipboard, reportError }) {
@@ -150,7 +150,8 @@ export function useStepMotion({ entry, fileKey, resources, meshData, meshPartial
       if (cancelled) {
         return;
       }
-      const restoredSessionState = readStoredRef.current();
+      // The stored pose, read against the sidecar as it is now.
+      const restoredPose = readStoredRef.current().pose;
       // A sidecar with no kinematics section resolves to a NULL definition —
       // an animation-only model has a sidecar and lands here — so the ready
       // state is committed from one place that expects that (see
@@ -158,11 +159,10 @@ export function useStepMotion({ entry, fileKey, resources, meshData, meshPartial
       const resolved = resolveStepModuleLoad({
         url: moduleUrl,
         definition,
-        restored: restoredSessionState.pose
+        restored: restoredPose
       });
       setStepModuleLoadState(resolved.loadState);
-      const parameterValues = restoreMotionParameters(definition, resolved.parameterValues,
-        motionRevisionRef.current === loadMotionRevision ? restoredSessionState.animation : animationStateRef.current);
+      const parameterValues = restoreMotionParameters(definition, resolved.parameterValues, animationStateRef.current);
       stepModuleParameterValuesRef.current = parameterValues;
       setStepModuleParameterValues(parameterValues);
       setAppliedStepPoseName("");
@@ -233,9 +233,7 @@ export function useStepMotion({ entry, fileKey, resources, meshData, meshPartial
           error: "",
           clips
         });
-        const restoredSessionState = readStoredRef.current();
-        const nextState = restoreMotionAnimation(
-          motionRevisionRef.current === loadMotionRevision ? restoredSessionState.animation : animationStateRef.current, clips);
+        const nextState = restoreMotionAnimation(animationStateRef.current, clips);
         animationStateRef.current = nextState;
         setAnimationState(nextState);
         setAnimationClock(nextState.elapsedSec);
@@ -341,21 +339,13 @@ export function useStepMotion({ entry, fileKey, resources, meshData, meshPartial
     }
   }, [applyStepModuleParameterValues, clipboard, definition]);
 
-  // The stored record's motion, once, before the first paint (the session record calls it).
-  // Definition normalization happens when the sidecar arrives; the animation slice restores
-  // against the CLIPS this model actually compiled, which is why it is resolved through
-  // restoreMotionAnimation rather than trusted as stored.
+  // The stored pose, once, before the first paint (the file's view calls it). Definition
+  // normalization happens when the sidecar arrives.
   const restore = (restored) => {
-    const values = restoredPoseValues(restored);
+    const values = restored.pose?.parameterValues;
     if (values) {
       stepModuleParameterValuesRef.current = values;
       setStepModuleParameterValues(values);
-    }
-    if (restored.animation) {
-      const next = restoreMotionAnimation(restored.animation, animationLoadState.url === animationKey ? animationLoadState.clips : null);
-      animationStateRef.current = next;
-      setAnimationState(next);
-      setAnimationClock(next.elapsedSec);
     }
   };
 

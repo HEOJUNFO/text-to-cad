@@ -12,7 +12,7 @@ import { prefetchRenderStudio } from "../look/renderStudioChunk.js";
 import { CAD_DRAWING_DEFAULTS } from "../tools/draw/DrawingOverlay.jsx";
 import { normalizeOrbit } from "../tools/preview/orbitPreferences.js";
 import { normalizeToolStack } from "../tools/toolStackLayout.js";
-import { normalizeAnimationPreferences } from "../tools/playbar/animationPreferences.js";
+import { normalizePlayback } from "../tools/playbar/playbackPreferences.js";
 import { DisplaySettingsSection } from "../view-settings/DisplaySettingsSection.js";
 import { useAppliedViewSettings } from "../view-settings/useAppliedViewSettings.js";
 import { useViewSettings } from "../view-settings/useViewSettings.js";
@@ -20,7 +20,7 @@ import { cameraForViewSettings, viewerDisplaySettingsForCamera } from "../view-s
 import { attachLiveBinding } from "./liveBinding.js";
 import { shellLoadReport } from "./loadReport.js";
 import { createViewPromptContext, promptDeliveryError } from "./promptContext.js";
-import { readShellState, scopeShellCamera, shellPresentationKey, shellStatesEqual, writeShellState } from "./shellState.js";
+import { fileViewsEqual, plainShellCamera, readFileView, readFileViewSlices, scopeShellCamera, shellPresentationKey, writeFileView } from "./fileView.js";
 import { useViewerShortcuts } from "./useViewerShortcuts.js";
 
 /**
@@ -64,9 +64,10 @@ const EMPTY = Object.freeze({});
  * scene. The renderer loads its document and builds its scene; this hook owns
  * the rest and hands back one `shell` object for `<RendererShell>`:
  *
- *  - per-file state through the host (`state` / `onStateChange`): Display
- *    settings, the recorded tool, and one `renderer` slot that is the
- *    renderer's own (the camera is never stored);
+ *  - the file's view through the host (`state` / `onStateChange`, `fileView.js`): the
+ *    camera, the Display settings, and the renderer's own slices of view state — written
+ *    soon after a change and once more on unmount, and read back before the first paint,
+ *    the camera restored in place of the open-time fit;
  *  - Display settings: store, resolution against the renderer's FEATURES, the
  *    queued application to the viewport, and the Display panel's content;
  *  - tools: the mode state machine and Draw's session, or none at all for a
@@ -78,9 +79,10 @@ const EMPTY = Object.freeze({});
  *
  * @param {object} options
  * @param {import("../../../file-viewer/types.js").RendererViewProps} options.view  The host's props, unchanged.
- * @param {{ preferences: { orbit?: { speed: number }, toolStack?: object, animation?: { autoplay: boolean } }, onPreferenceChange(patch: object): void,
- *   live?: object, captureRequest?: { key: string | number } | null,
- *   acknowledgeCommand?: (kind: string, key: string | number) => void }} options.services
+ * @param {{ preferences: { orbit: { speed: number }, toolStack: object, playback: { autoplay: boolean, speed?: number, loop?: boolean } },
+ *   onPreferenceChange(patch: object): void, live?: object, captureRequest?: { key: string | number } | null,
+ *   acknowledgeCommand?: (kind: string, key: string | number) => void }} options.services  `preferences` is the
+ *   tab's settings (`@hardcore/ui/tab-store`), the person's in every file of the tab.
  * @param {import("@hardcore/core/prompt").ResourceRef} options.resource  The document on screen, for prompt context and live state.
  * @param {string} options.modelKey  Stable per file: scopes the camera and the presentation.
  * @param {string} [options.revisionKey]  Changes when the file's bytes do.
@@ -126,13 +128,13 @@ const EMPTY = Object.freeze({});
  * @param {{ active?: boolean, handle?: () => boolean }} [options.escape]  Escape, innermost first: `handle` returns
  *   true when it spent the key. After it there is nothing of the viewer's own left to close: the
  *   host's panel column (the file tree) closes only from its own toggle.
- * @param {object | (() => object)} [options.rendererState]  The renderer's own slice of the per-file record. A
- *   FUNCTION is read when the record is written, never at render: state a renderer keeps outside React (a pose
- *   written per frame) is saved as it is at that moment, its last change before unmount included. Such a
- *   renderer calls `shell.scheduleStateSave()` when that state changes.
- * @param {{ opensIn?: string, never?: string[] }} [options.toolRestore]  How this FILE restores its tool
- *   (`toolModes.restore`): `opensIn` is the tool a file with nothing recorded opens in, while the tool modes'
- *   default stays what a session falls back to; `never` lists recorded tools this file does not come back in.
+ * @param {{ signatures?: Record<string, string>, read: () => Record<string, unknown> } | null} [options.rendererState]
+ *   The renderer's own slices of the file's view (`fileView.js`): `read()` is called when the view is written,
+ *   never at render — state a renderer keeps outside React (a pose written per frame) is saved as it is at that
+ *   moment, its last change before unmount included — and `signatures` says, per slice, what it is written
+ *   against; a slice comes back (`readFileView`, which the renderer calls itself on mount) only under the same
+ *   signature. The renderer calls `shell.scheduleStateSave()` when a slice changed. Null, or omitted, keeps
+ *   what is stored as it is: a renderer that has not loaded yet, or one with no slices of its own.
  * @param {() => void} [options.onCameraSettled]  The camera came to rest on a new view: it moved and was
  *   recorded, a preview camera moved (preview mode, which records nothing), or the viewport's size
  *   changed — which can expose part of a scene without changing position, target or zoom at all. For a
@@ -157,7 +159,7 @@ export function useRendererShell({
   view, services, resource, modelKey, revisionKey = "", features, toolModes = null, tool = null, preview = null, scene, load,
   viewSettings = null, viewerRef: providedViewerRef = null,
   animation = null, live = EMPTY, promptReferences = null, promptContext = createViewPromptContext,
-  escape = EMPTY, rendererState = EMPTY, toolRestore = EMPTY,
+  escape = EMPTY, rendererState = null,
   onCameraSettled = null, preserveInteractionPixelRatio = false, runtimeLifecycle = null,
   onRuntimeAlert = null, presentationReport = null,
   sceneScaleMode = VIEWER_SCENE_SCALE.CAD
@@ -172,8 +174,10 @@ export function useRendererShell({
   const ownPreview = usePreviewState();
   const { previewing, set: setPreviewing } = preview || ownPreview;
 
-  // ---- per-file state -------------------------------------------------------
-  const [restored] = useState(() => readShellState(view.state));
+  // ---- the file's view --------------------------------------------------------
+  const [restored] = useState(() => readFileView(view.state));
+  // The renderer's slices as stored, echoed back until the renderer says what they are.
+  const [storedSlices] = useState(() => readFileViewSlices(view.state));
   // A renderer whose own work needs the display settings BEFORE it can hand this hook a scene
   // — one that reads them while it is still deciding what to load — creates them itself and passes
   // them in. It is the same store either way; owning it here is a convenience, not a rule.
@@ -192,28 +196,39 @@ export function useRendererShell({
   const rendering = resolvedScene.render.enabled;
   useEffect(() => { if (rendering) prefetchRenderStudio(); }, [rendering]);
 
-  const activePerspectiveRef = useRef(null);
-  const [viewerPerspective, setViewerPerspective] = useState(null);
-  // "" is a renderer with no tools at all: there is no active tool to be in, and
-  // nothing for a saved tab to record.
-  const [ownToolMode, setOwnToolMode] = useState(() => (toolModes ? toolModes.restore(restored.tool, toolRestore) : ""));
+  // The camera the file was left at, scoped to this model: the viewport applies it in place of
+  // its open-time fit, and fits when there is none (or it is not a camera at all).
+  const [restoredCamera] = useState(() => scopeShellCamera(restored.camera, modelKey, sceneScaleMode));
+  const activePerspectiveRef = useRef(restoredCamera);
+  const [viewerPerspective, setViewerPerspective] = useState(restoredCamera);
+  // "" is a renderer with no tools at all. The tool in hand is never saved: a file opens in its
+  // default tool.
+  const [ownToolMode, setOwnToolMode] = useState(() => (toolModes ? toolModes.defaultMode : ""));
   const toolMode = tool ? tool.mode : ownToolMode;
   const setToolMode = tool ? tool.set : setOwnToolMode;
   const recordRef = useRef(null);
   const onStateChangeRef = useRef(onStateChange);
   onStateChangeRef.current = onStateChange;
+  const rendererStateRef = useRef(rendererState);
+  rendererStateRef.current = rendererState;
   const latestRecord = useRef(null);
-  latestRecord.current = () => writeShellState({
-    display: viewSettingsStore.getSnapshot().display,
-    tool: toolModes ? toolModes.persisted(toolMode) : "",
-    renderer: typeof rendererState === "function" ? rendererState() : rendererState
-  });
+  latestRecord.current = () => {
+    const slices = rendererStateRef.current;
+    // The camera is the last one the viewport reported for the tools view (`handlePerspectiveChange`):
+    // never preview's, and never a runtime that has no model under it yet.
+    return writeFileView({
+      camera: plainShellCamera(activePerspectiveRef.current),
+      display: viewSettingsStore.getSnapshot().display,
+      renderer: slices ? slices.read() : storedSlices.values,
+      signatures: slices ? slices.signatures : storedSlices.signatures
+    });
+  };
   const saveTimer = useRef(0);
   const flushSession = useCallback(() => {
     window.clearTimeout(saveTimer.current);
     saveTimer.current = 0;
     const next = latestRecord.current();
-    if (shellStatesEqual(recordRef.current, next)) return;
+    if (fileViewsEqual(recordRef.current, next)) return;
     recordRef.current = next;
     onStateChangeRef.current?.(next);
   }, []);
@@ -221,7 +236,9 @@ export function useRendererShell({
     window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(flushSession, SESSION_SAVE_DELAY_MS);
   }, [flushSession]);
-  useEffect(() => { scheduleSessionSave(); }, [displaySettings, toolMode, rendererState, scheduleSessionSave]);
+  // The display's every edit is saved soon after; the camera's on every move (below); a renderer's
+  // slices when it says so. The tool in hand is not saved at all.
+  useEffect(() => { scheduleSessionSave(); }, [displaySettings, scheduleSessionSave]);
   useEffect(() => () => flushSession(), [flushSession]);
 
   // Stable across renders: the viewport keeps it in a ref for the life of the runtime.
@@ -242,7 +259,8 @@ export function useRendererShell({
     const snapshot = clonePerspectiveSnapshot(nextPerspective);
     if (!snapshot) return;
     activePerspectiveRef.current = snapshot;
-  }, [previewing]);
+    scheduleSessionSave();
+  }, [previewing, scheduleSessionSave]);
 
   // ---- host chrome ----------------------------------------------------------
   const chromeBackdropColor = useChromeBackdropColor(colorScheme === "dark");
@@ -253,13 +271,15 @@ export function useRendererShell({
         : sceneBackdropEdgeColor(resolvedScene.theme?.background, chromeBackdropColor),
     [chromeBackdropColor, resolvedScene.theme, resolvedScene.view.background]
   );
-  const previewOrbitSpeed = normalizeOrbit(services.preferences?.orbit).speed;
-  const setPreviewOrbitSpeed = useCallback(speed => services.onPreferenceChange({ orbit: normalizeOrbit({ speed }) }),
-    [services.onPreferenceChange]);
-  // The tool stack's layout — the sizes of the panels a person can size, the folded panels — is
-  // the person's, across files: the host keeps it with the orbit. A change is a patch over the
-  // layout as it last stood (or a function of it), so two panels written back in one turn both land.
-  const toolStack = useMemo(() => normalizeToolStack(services.preferences?.toolStack), [services.preferences?.toolStack]);
+  // The tab's settings (`@hardcore/ui/tab-store`): the person's, in every file of the tab. Read
+  // through their own normalizers, so a host that hands over less is still whole here.
+  const preferences = services.preferences;
+  const previewOrbitSpeed = useMemo(() => normalizeOrbit(preferences?.orbit).speed, [preferences?.orbit]);
+  const setPreviewOrbitSpeed = useCallback(speed => services.onPreferenceChange({ orbit: { speed } }), [services.onPreferenceChange]);
+  // The tool stack's layout — the sizes of the panels a person can size, the folded panels. A
+  // change is a patch over the layout as it last stood (or a function of it), so two panels
+  // written back in one turn both land.
+  const toolStack = useMemo(() => normalizeToolStack(preferences?.toolStack), [preferences?.toolStack]);
   const toolStackRef = useRef(toolStack);
   toolStackRef.current = toolStack;
   const changeToolStack = useCallback(patch => {
@@ -267,10 +287,18 @@ export function useRendererShell({
     toolStackRef.current = next;
     services.onPreferenceChange({ toolStack: next });
   }, [services.onPreferenceChange]);
-  // Whether entering preview starts the routine: the person's, across files, kept with the orbit.
-  const autoplay = normalizeAnimationPreferences(services.preferences?.animation).autoplay;
-  const setAutoplay = useCallback(value => services.onPreferenceChange({ animation: normalizeAnimationPreferences({ autoplay: value }) }),
-    [services.onPreferenceChange]);
+  // Playback: whether entering preview starts the routine, and — once chosen — the speed and the
+  // loop every routine plays with. A patch lands over the playback as it last stood.
+  const playback = useMemo(() => normalizePlayback(preferences?.playback), [preferences?.playback]);
+  const playbackRef = useRef(playback);
+  playbackRef.current = playback;
+  const setPlayback = useCallback(patch => {
+    const next = normalizePlayback({ ...playbackRef.current, ...patch });
+    playbackRef.current = next;
+    services.onPreferenceChange({ playback: next });
+  }, [services.onPreferenceChange]);
+  const autoplay = playback.autoplay;
+  const setAutoplay = useCallback(value => setPlayback({ autoplay: value === true }), [setPlayback]);
   const hostRef = useRef(null);
   const [hostElement, setHostElement] = useState(null);
   useEffect(() => { setHostElement(hostRef.current); }, []);
@@ -472,8 +500,8 @@ export function useRendererShell({
   return {
     // Renderer-facing.
     toolMode, selectTool, selectDefaultTool, tools, idle, previewing, setPreviewing,
-    // Whether entering preview plays the routine (its Playback settings' Autoplay).
-    autoplay, setAutoplay,
+    // Preview's playback settings: Autoplay, and the speed and loop chosen for every routine.
+    autoplay, setAutoplay, playback, setPlayback,
     // Deliver a prompt context through the host, reporting a failure as the viewport's alert.
     reportActionError, deliverPrompt, requestRender: () => viewerRef.current?.requestRender?.(),
     // The scene moved its own bounds: lighting, shadows and the floor follow, with no React render.

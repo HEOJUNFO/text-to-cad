@@ -21,9 +21,11 @@ Create sources and registration arrays at their owning workspace or tab
 lifetime. Changing their object identity cancels outstanding document work.
 `source.id` is a stable root identity, independent of a server's temporary port.
 Every path is relative to that source; containment and authorization remain in
-the host service. The host controls navigation and persists `FileViewerState`
-per source identity. Its `renderers` section uses encoded file-path/renderer-ID
-pairs, while `panel`, `panelWidth`, and `expandedDirectories` describe chrome.
+the host service. The host controls navigation and keeps `FileViewerState` in its
+tab store (`@hardcore/ui/tab-store`; `useTabViewerState` derives it for one root). Its
+`renderers` section uses encoded file-path/renderer-ID pairs, each the file's view
+under this root, while `panel`, `panelWidth`, and `expandedDirectories` describe chrome
+— the width and the expansion are the tab's, the open panel the page's own.
 
 The source provides metadata and optional directory, text, asset, and write
 operations. Storage methods and separate native `host.fileActions` capabilities determine

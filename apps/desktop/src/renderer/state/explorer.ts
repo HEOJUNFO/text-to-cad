@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { toast } from "sonner";
 import { hasDirtyDocument, releaseDocumentTab, discardDocumentTab } from "./live-documents";
 import { releaseCadTab } from "./live-cad";
-import { forgetViewState } from "@renderer/features/explorer/adapters/viewStateStore";
+import { forgetTabStore } from "@renderer/features/explorer/adapters/tabStore";
 
 import { reconcileFileTree, movedFilePath } from "@hardcore/ui/file-viewer";
 import { deleteDrawingScene } from "@renderer/state/drawings";
@@ -834,9 +834,9 @@ function disposeTab(tab: ExplorerTab, discard = false, preserveDocuments = false
     if (discard) discardDocumentTab(tab.id); else releaseDocumentTab(tab.id);
   }
   releaseCadTab(tab.id);
-  // A file tab that is gone for good takes its stored view state with it; one retained for a
-  // later restore keeps it.
-  if (tab.kind === "file" && !preserveDocuments) forgetViewState(tab.id);
+  // A file tab that is gone for good takes its tab record — its viewer settings and file views —
+  // with it; one retained for a later restore keeps it.
+  if (tab.kind === "file" && !preserveDocuments) forgetTabStore(tab.id);
   if (tab.kind === "drawing") deleteDrawingScene(tab.id);
   if (tab.kind === "terminal" && tab.ptyId) void window.hardcore.terminal.kill({ id: tab.ptyId }).catch(() => {});
   if (tab.kind === "browser") void window.hardcore.browser.close({ sessionId: tab.sessionId, projectId: tab.projectId, root: tab.root, tabId: tab.id }).catch(() => {});

@@ -28,26 +28,14 @@ import { hasOpenPopup } from "../../lib/popups.js";
  * `aria-valuemin`/`max` on the handle below are the real numbers rather than a
  * second opinion. The mobile sheet has its own width.
  */
-// Narrow by default: the model is the page. At the minimum a name truncates early; the column
-// gives way before the viewer does.
-export const PANEL_MIN_WIDTH = 140;
-export const PANEL_MAX_WIDTH = 480;
-export const PANEL_DEFAULT_WIDTH = 220;
+import { PANEL_DEFAULT_WIDTH, PANEL_MAX_WIDTH, PANEL_MIN_WIDTH, clampPanelWidth } from "./panelWidth.js";
+export { PANEL_DEFAULT_WIDTH, PANEL_MAX_WIDTH, PANEL_MIN_WIDTH, clampPanelWidth };
 // The mobile sheet floats over the viewer rather than taking width from it, so it keeps room for
 // a few levels of nesting.
 const PANEL_SHEET_WIDTH = 280;
 // A drag has to go well below the minimum — past half of it — before the column closes: one that
 // merely overshoots stops at the minimum. The keyboard never closes it; the toggle does.
 const PANEL_COLLAPSE_WIDTH = PANEL_MIN_WIDTH / 2;
-
-/** Whatever a caller has, clamped into the column's range. */
-export function clampPanelWidth(width) {
-  const numeric = Number(width);
-  if (!Number.isFinite(numeric)) {
-    return PANEL_DEFAULT_WIDTH;
-  }
-  return Math.round(Math.max(PANEL_MIN_WIDTH, Math.min(PANEL_MAX_WIDTH, numeric)));
-}
 
 /**
  * The panel's own name, from the toggle's label: "Hide files" and "Show files" both name the

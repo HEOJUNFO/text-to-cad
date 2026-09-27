@@ -115,20 +115,25 @@ async function frameWhen(view, reached, what) {
 async function open(options) {
   const view = await harness.open(options);
   const { page, pane } = view;
-  await pane.locator('[aria-busy="false"] > div > canvas').first().waitFor();
-  await page.waitForFunction(() => window.cadHarness.a.controller?.readState().loading === false);
-  // A STEP opens in Select, so its Features panel is in the tool stack before anything is
-  // located on screen. The stack floats over the viewport: it never narrows it.
-  await pane.getByRole('region', { name: 'Features', exact: true }).waitFor();
-  // The world axes are drawn into the same canvas and the X one is the red the
-  // arm is authored in, so they would answer to a question about the arm's pixels.
-  await page.evaluate(() => window.cadHarness.a.controller.setDisplaySettings({ axes: { enabled: false } }));
-  await page.waitForTimeout(400);
-  await settle(page);
-  const box = await pane.locator('[data-cad-surface] canvas').first().boundingBox();
-  return {
-    ...view, box,
-    at: projector(await page.evaluate(() => window.__cadCamera()), box),
+  const ready = async () => {
+    await pane.locator('[aria-busy="false"] > div > canvas').first().waitFor();
+    await page.waitForFunction(() => window.cadHarness.a.controller?.readState().loading === false);
+    // A STEP opens in Select, so its Features panel is in the tool stack before anything is
+    // located on screen. The stack floats over the viewport: it never narrows it.
+    await pane.getByRole('region', { name: 'Features', exact: true }).waitFor();
+    // The world axes are drawn into the same canvas and the X one is the red the
+    // arm is authored in, so they would answer to a question about the arm's pixels.
+    await page.evaluate(() => window.cadHarness.a.controller.setDisplaySettings({ axes: { enabled: false } }));
+    await page.waitForTimeout(400);
+    await settle(page);
+    const box = await pane.locator('[data-cad-surface] canvas').first().boundingBox();
+    return { box, at: projector(await page.evaluate(() => window.__cadCamera()), box) };
+  };
+  const { box, at } = await ready();
+  const opened = {
+    ...view, box, at,
+    // The page again — the same tab, for a page whose tab record is in sessionStorage.
+    reload: async () => { await page.reload(); Object.assign(opened, await ready()); },
     state: () => page.evaluate(() => window.cadHarness.a.controller.readState()),
     display: patch => page.evaluate(next => window.cadHarness.a.controller.setDisplaySettings(next), patch),
     // Preview: its button, the play icon beside Display settings; its X back. A still camera
@@ -179,6 +184,7 @@ async function open(options) {
     waitCursor: value => page.waitForFunction(wanted => getComputedStyle(
       document.querySelector('[data-testid="one"] [aria-busy] > div > canvas')).cursor === wanted, value),
   };
+  return opened;
 }
 
 
@@ -1457,8 +1463,8 @@ test('Measure reads a distance between two picks; Draw lays ink over a STEP; and
   assert.equal(await pane.getByRole('button', { name: /Copy drawing|Add drawing to prompt/ }).count(), 0, 'leaving Draw clears its drawing');
   await view.tool('Select').click();
 
-  // What the file remembers: the display settings, in its record. Never the camera: a remount
-  // frames the model afresh.
+  // What the file remembers: the display settings and the camera, in its view. Not the tool: a
+  // remount opens in Select, Draw's ink gone with it.
   await view.toggle('cad-display').click();
   await view.displayPanel().waitFor();
   await view.display({ mode: 'wireframe' });
@@ -1466,20 +1472,25 @@ test('Measure reads a distance between two picks; Draw lays ink over a STEP; and
   await page.evaluate(() => window.cadHarness.a.controller.setCamera({ ...window.cadHarness.a.controller.readState().camera, position: [60, -20, 25], target: [4, 1, 0], zoom: 1.3 }));
   await page.waitForTimeout(600);
   const before = await view.state();
+  await view.tool('Draw').click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="one"] [data-drawing-ready]'));
   await page.evaluate(() => window.cadHarness.mounted(false));
   await pane.locator('[data-slot="cad-file-view"]').waitFor({ state: 'detached' });
   const records = await page.evaluate(() => window.cadHarness.state.renderers);
   assert.deepEqual(Object.keys(records), [JSON.stringify(['hinge_block.step', 'step'])], 'one record per file, keyed [path, renderer id]');
-  assert.equal(Object.values(records)[0].camera, null, 'the record keeps no camera');
+  assert.deepEqual(Object.values(records)[0].camera.target, [4, 1, 0], 'the view keeps the camera');
+  assert.equal('tool' in Object.values(records)[0], false, 'and never the tool');
   await page.evaluate(() => window.cadHarness.mounted(true));
   await pane.locator('[aria-busy="false"] > div > canvas').first().waitFor();
   await page.waitForFunction(() => window.cadHarness.a.controller?.readState().loading === false);
   await page.waitForTimeout(600);
   const restored = await view.state();
   assert.equal(restored.display.mode, 'wireframe');
-  assert.ok(Math.hypot(...before.camera.target.map((value, index) => value - restored.camera.target[index])) > 1,
-    `the moved camera is not restored: ${JSON.stringify([before.camera.target, restored.camera.target])}`);
-  assert.equal(restored.camera.zoom, 1, 'the remount fits at its own zoom');
+  assert.ok(Math.hypot(...before.camera.target.map((value, index) => value - restored.camera.target[index])) < 1e-6,
+    `the moved camera is restored in place of the fit: ${JSON.stringify([before.camera.target, restored.camera.target])}`);
+  assert.ok(Math.abs(restored.camera.zoom - 1.3) < 1e-6, 'at the zoom it was left at');
+  assert.equal(await view.tool('Select').getAttribute('aria-pressed'), 'true', 'a remount opens in Select, whatever tool the file was left in');
+  assert.equal(await pane.locator('[data-cad-drawing-overlay]').count(), 0, 'and with no ink');
   assert.equal(await view.displayPanel().count(), 0, 'Display popover is transient across remounts');
   assert.deepEqual(errors, []);
 });
@@ -1558,7 +1569,8 @@ test('a package that arrives in pieces re-sizes its ground, its depth range and 
   assert.ok(framed.base && framed.base.count < after.base.count * 0.8,
     `and it is drawn smaller for it: the base ran off the frame it now sits inside (${after.base.count} -> ${framed.base.count} pixels)`);
 
-  // Reopening starts fresh even if the previous mounted camera was moved.
+  // Reopening restores the camera the person set: the completion fit exists for a camera
+  // nobody set, and a stored one is the person's.
   await page.evaluate(() => window.cadHarness.a.controller.setCamera({
     ...window.cadHarness.a.controller.readState().camera, position: [90, -30, 38], target: [4, 1, 0], zoom: 1.6 }));
   await page.waitForTimeout(600);
@@ -1566,14 +1578,14 @@ test('a package that arrives in pieces re-sizes its ground, its depth range and 
   const chosenFrame = await frame(pane);
   assert.ok(chosen.position.some((value, index) => Math.abs(value - whole.camera.position[index]) > 1),
     'the camera the person set is somewhere the fit never puts it');
-  const stored = await page.evaluate(() => JSON.parse(JSON.stringify(window.cadHarness.state)));
+  const stored = await page.evaluate(() => JSON.parse(JSON.stringify(window.cadHarness.tabStore.getSnapshot())));
 
   // Reopened: a fresh page over the same package, held in pieces again, carrying what the last
   // session left for this file. (A remount would not do: the client still holds every component
   // it downloaded, so the package would arrive whole in ONE publish and never reach completion
   // as a second framing at all.)
   staggered.hold('a'); staggered.hold('b');
-  const reopened = await staggered.open({ timeout: 60000, state: stored });
+  const reopened = await staggered.open({ timeout: 60000, record: stored });
   await reopened.pane.locator('[aria-busy] > div > canvas').first().waitFor();
   await reopened.page.waitForFunction(() => window.__cadMeshCost?.loadedComponents === 8, null, { timeout: 60000 });
   staggered.release('a');
@@ -1586,11 +1598,11 @@ test('a package that arrives in pieces re-sizes its ground, its depth range and 
     [3, true], 'it arrived in three publishes again, so completion really did reframe');
   const kept = await reopened.page.evaluate(() => window.__cadCamera());
   for (const key of ['position', 'target']) {
-    whole.camera[key].forEach((value, index) => assert.ok(Math.abs(value - kept[key][index]) < 1e-6,
-      `${key}[${index}] returns to the fit for the completed model`));
+    chosen[key].forEach((value, index) => assert.ok(Math.abs(value - kept[key][index]) < 1e-6,
+      `${key}[${index}] is the camera the person set, through every publish and the completion`));
   }
   const reopenedFrame = await frame(reopened.pane);
-  assert.ok(differing(chosenFrame, reopenedFrame) > 3000, 'reopening discards the previous camera');
+  assert.ok(differing(chosenFrame, reopenedFrame) < 500, 'reopening shows what the person left on screen');
   assert.deepEqual(reopened.errors, []);
   assert.deepEqual(errors, []);
 });
@@ -1815,7 +1827,8 @@ test('preview\'s Playback settings: the routine, its speed, Loop and Autoplay, t
   if ((await checks()).includes('Loop:true')) await settings.getByRole('menuitemcheckbox', { name: 'Loop', exact: true }).click();
   await settings.getByRole('menuitemcheckbox', { name: 'Autoplay', exact: true }).click();
   assert.deepEqual(await checks(), ['Loop:false', 'Autoplay:true', 'Orbit:true']);
-  assert.deepEqual(await page.evaluate(() => window.cadHarness.preferences.getSnapshot().animation), { autoplay: true }, 'Autoplay is a viewer preference');
+  assert.deepEqual(await page.evaluate(() => window.cadHarness.preferences.getSnapshot().playback), { autoplay: true, speed: 2, loop: false },
+    'Autoplay, and the Speed and Loop chosen, are the tab\'s playback settings');
   await page.keyboard.press('Escape');
   await settings.waitFor({ state: 'detached' });
   await view.exitPreview();
@@ -1831,7 +1844,7 @@ test('preview\'s Playback settings: the routine, its speed, Loop and Autoplay, t
   assert.equal(await speedItem().getAttribute('aria-label'), 'Animation speed: 2×');
   assert.deepEqual(await checks(), ['Loop:false', 'Autoplay:true', 'Orbit:true']);
   await page.keyboard.press('Escape');
-  await page.evaluate(() => window.cadHarness.preferences.update({ animation: { autoplay: false } }));
+  await page.evaluate(() => window.cadHarness.preferences.update({ playback: { autoplay: false } }));
   await view.exitPreview();
   assert.deepEqual(errors, []);
 });
@@ -2449,7 +2462,7 @@ test('mobile: the tool stack and the file tree sheet overlay the scene, the tree
   assert.deepEqual(errors, []);
 });
 
-test('reopening ignores a saved camera and fits the model at the default perspective', async () => {
+test('reopening restores the saved camera in place of the fit, and fits when what is saved is not a camera', async () => {
   const view = await open();
   const initial = (await view.state()).camera;
   await view.page.evaluate(() => {
@@ -2457,16 +2470,26 @@ test('reopening ignores a saved camera and fits the model at the default perspec
     const camera = controller.readState().camera;
     controller.setCamera({ ...camera, position: camera.position.map(value => value * 2), target: [15, 20, 5], zoom: 3 });
   });
-  assert.notDeepEqual((await view.state()).camera.position, initial.position);
-  const stored = await view.page.evaluate(() => window.cadHarness.state);
-  for (const record of Object.values(stored.renderers)) record.camera = { ...initial, target: [15, 20, 5], zoom: 3, position: initial.position.map(value => value * 2) };
-  const reopened = await open({ state: stored });
+  await view.page.waitForFunction(() => Object.values(window.cadHarness.state.renderers || {})[0]?.camera?.zoom === 3);
+  const moved = (await view.state()).camera;
+  assert.notDeepEqual(moved.position, initial.position);
+  const stored = await view.page.evaluate(() => JSON.parse(JSON.stringify(window.cadHarness.tabStore.getSnapshot())));
+  const reopened = await open({ record: stored });
   const actual = (await reopened.state()).camera;
   for (const property of ['position', 'target', 'zoom']) {
-    const a = [actual[property]].flat(), b = [initial[property]].flat();
-    assert.ok(a.every((value, index) => Math.abs(value - b[index]) < 1e-8), `${property} is fitted fresh`);
+    const a = [actual[property]].flat(), b = [moved[property]].flat();
+    assert.ok(a.every((value, index) => Math.abs(value - b[index]) < 1e-6), `${property} is the one saved: ${JSON.stringify([a, b])}`);
   }
   assert.deepEqual(reopened.errors, []);
+  // A camera the record holds that is not one — a broken vector — is ignored: the model is fitted.
+  for (const record of Object.values(stored.files)) record.camera = { ...record.camera, position: [1, 2] };
+  const fitted = await open({ record: stored });
+  const fresh = (await fitted.state()).camera;
+  for (const property of ['position', 'target', 'zoom']) {
+    const a = [fresh[property]].flat(), b = [initial[property]].flat();
+    assert.ok(a.every((value, index) => Math.abs(value - b[index]) < 1e-8), `${property} is fitted fresh`);
+  }
+  assert.deepEqual(fitted.errors, []);
 });
 
 test('navigation, tools and the top-right bar share short tooltips without native titles', async () => {
@@ -2891,4 +2914,124 @@ test('under Explode, where a pick takes up Select, a click still waits the doubl
   assert.deepEqual(await pressed(), ['Select'], 'the pick took up Select');
   assert.deepEqual((await selection()).parts, ['o1.2']);
   assert.deepEqual(errors, []);
+});
+
+// ---- the tab ---------------------------------------------------------------------------------
+// A page whose tab record is in its own sessionStorage (`?store=session`): a reload of the page is
+// a reload of the tab, and a new page is a new tab.
+test('a reload of the tab brings back the view — camera, Display, Clip, Explode, hidden and isolated parts, the tree and the pose — and starts afresh: Select, no selection, no measurement', async () => {
+  const view = await open({ store: 'session' });
+  const { page, pane, at, errors } = view;
+  const rest = await translations(page);
+  // The tree: expanded; the pose: posed, then Select again.
+  await pane.getByRole('button', { name: 'Expand base', exact: true }).click();
+  await view.tool('Position').click();
+  const position = pane.locator('[data-tool-panel][aria-label="Position controls"]');
+  const input = position.getByLabel('hinge slider value', { exact: true });
+  await input.fill('60'); await input.press('Enter');
+  await page.waitForFunction(y => Math.abs(window.__cadDisplayRecords().find(record => record.partId === 'o1.2').matrix[13] - y) > 1, rest['o1.2'][1]);
+  const posed = await translations(page);
+  await view.tool('Select').click();
+  // A measurement, kept under Select; a part selected in the tree.
+  await view.tool('Measure').click();
+  const measurements = page.getByRole('region', { name: 'Measurements' });
+  for (const point of [[0, 0, 5], [15, 0, 4]]) {
+    await page.mouse.move(...at(point)); await page.waitForTimeout(220);
+    await page.mouse.click(...at(point)); await page.waitForTimeout(220);
+  }
+  await measurements.waitFor();
+  await view.tool('Select').click();
+  assert.equal(await measurements.isVisible(), true);
+  await pane.getByRole('button', { name: 'Select base', exact: true }).click();
+  await page.waitForFunction(() => window.cadHarness.a.controller.readState().selectedPartIds.length === 1);
+  // A part hidden, another isolated.
+  await pane.getByRole('button', { name: 'Hide arm', exact: true }).click();
+  await page.waitForFunction(() => window.cadHarness.a.controller.readState().hiddenPartIds.join() === 'o1.2');
+  await pane.getByRole('button', { name: 'Select base', exact: true }).dblclick();
+  await page.waitForFunction(() => window.cadHarness.a.controller.readState().isolatedPartIds.length === 1);
+  // The Display settings, with Clip and Explode; then the camera.
+  await view.display({ mode: 'wireframe', clip: { enabled: true, axis: 'x', offsets: { x: 0.6 } }, exploded: { enabled: true, amount: 0.3 } });
+  await page.waitForFunction(() => window.cadHarness.a.controller.readState().display.exploded.enabled === true);
+  await page.evaluate(() => window.cadHarness.a.controller.setCamera({ ...window.cadHarness.a.controller.readState().camera, position: [60, -20, 25], target: [4, 1, 0], zoom: 1.3 }));
+  await page.waitForFunction(() => Object.values(window.cadHarness.state.renderers || {})[0]?.camera?.zoom === 1.3);
+  const left = await view.state();
+  // The tree as isolation shows it: the base's rows, opened.
+  const rowsLeft = await view.rows();
+  assert.ok(rowsLeft.length > 1, `the tree has the base's rows before the reload: ${rowsLeft.join(', ')}`);
+  assert.deepEqual(await page.evaluate(() => Object.keys(sessionStorage)), ['hardcore:tab:harness'], 'one record, and nothing else in the tab');
+
+  await view.reload();
+  const back = await view.state();
+  for (const property of ['position', 'target', 'zoom']) {
+    const a = [back.camera[property]].flat(), b = [left.camera[property]].flat();
+    assert.ok(a.every((value, index) => Math.abs(value - b[index]) < 1e-6), `the camera comes back: ${property} ${JSON.stringify([a, b])}`);
+  }
+  assert.deepEqual([back.display.mode, back.display.clip.enabled, back.display.clip.axis, back.display.exploded.enabled, back.display.exploded.amount],
+    ['wireframe', true, 'x', true, 0.3], 'the Display settings, Clip and Explode come back');
+  assert.deepEqual([back.hiddenPartIds, back.isolatedPartIds.length], [['o1.2'], 1], 'the hidden and the isolated parts come back');
+  assert.deepEqual(await view.rows(), rowsLeft, 'the tree comes back as it was, expanded');
+  assert.deepEqual([back.selectedPartIds, back.selectedReferenceIds], [[], []], 'the selection does not');
+  assert.equal(await measurements.count(), 0, 'nor the measurement');
+  // The tool in hand is Select, the default; Explode and Clip are pressed only because their
+  // restored effects are applied (an applied effect marks its tool), not because either is in hand.
+  assert.deepEqual((await view.tools()).filter(tool => tool.endsWith(':true')), ['Select:true', 'Explode:true', 'Clip:true'], 'and the tool is the default');
+  await view.tool('Measure').click();
+  assert.equal((await pane.getByRole('region', { name: 'Measure controls', exact: true }).locator('[data-measure-hint]').innerText()).trim(), 'Pick two points to measure');
+  await view.tool('Position').click();
+  await input.waitFor({ state: 'attached' });
+  assert.equal(await input.inputValue(), '60.0°', 'the pose comes back');
+  assert.deepEqual(errors, []);
+});
+
+test('a new tab starts at the defaults and two tabs never meet: the tool stack, the tree column, the orbit speed and Autoplay hold across a reload of their own tab alone', async () => {
+  const one = await open({ store: 'session' });
+  const settingsOf = view => view.page.evaluate(() => window.cadHarness.preferences.getSnapshot());
+  const featuresWidth = async view => Math.round((await view.pane.getByRole('region', { name: 'Features', exact: true }).boundingBox()).width);
+  const columnWidth = async view => {
+    await view.toggle('tree').click();
+    const width = Math.round((await view.pane.locator('[data-file-panel-container]').boundingBox()).width);
+    await view.toggle('tree').click();
+    return width;
+  };
+  // Tab one: the tree panel widened, the tree column widened, the orbit slowed, Autoplay on, and
+  // the file in wireframe — through the host's own store, as its controls write it.
+  await one.page.evaluate(() => window.cadHarness.preferences.update({
+    orbit: { speed: 2 }, playback: { autoplay: true }, toolStack: { panels: { tree: { width: 240 } }, collapsed: {} },
+    fileTree: { width: 300, expanded: {} } }));
+  await one.display({ mode: 'wireframe' });
+  await one.page.waitForFunction(() => Object.values(window.cadHarness.state.renderers || {})[0]?.display?.mode === 'wireframe');
+  assert.equal(await featuresWidth(one), 240);
+
+  // Tab two, in the same browser: none of it.
+  const { page: two } = await open({ store: 'session' });
+  assert.deepEqual(await two.evaluate(() => window.cadHarness.preferences.getSnapshot()),
+    { fileTree: { width: 220, expanded: {} }, toolStack: { panels: {}, collapsed: {} }, orbit: { speed: 1 }, playback: { autoplay: false }, appearance: 'system' },
+    'a new tab starts at the defaults');
+  assert.equal(await two.evaluate(() => window.cadHarness.a.controller.readState().display.mode), 'solid');
+  assert.equal(Math.round((await two.getByTestId('one').getByRole('region', { name: 'Features', exact: true }).boundingBox()).width), TOOL_PANEL_WIDTH);
+  await two.evaluate(() => window.cadHarness.preferences.update({ orbit: { speed: 3 } }));
+
+  // Tab one reloaded: its own settings and view, untouched by tab two.
+  await one.reload();
+  const settings = await settingsOf(one);
+  assert.deepEqual([settings.orbit, settings.playback, settings.toolStack.panels, settings.fileTree.width], [{ speed: 2 }, { autoplay: true }, { tree: { width: 240 } }, 300]);
+  assert.equal((await one.state()).display.mode, 'wireframe');
+  assert.equal(await featuresWidth(one), 240, 'the tool stack comes back sized');
+  assert.equal(await columnWidth(one), 300, 'the tree column comes back sized');
+  await one.enterPreview({ orbit: true });
+  const cog = one.pane.getByRole('toolbar', { name: 'Animation playback' }).getByRole('button', { name: 'Playback settings', exact: true });
+  await cog.click();
+  const menu = one.page.getByRole('menu', { name: 'Playback settings', exact: true });
+  await menu.waitFor();
+  assert.equal(await menu.getByRole('menuitem', { name: /^Orbit speed/ }).getAttribute('aria-label'), 'Orbit speed: 2×');
+  assert.ok((await menu.getByRole('menuitemcheckbox').evaluateAll(items => items.map(item => `${item.textContent}:${item.getAttribute('aria-checked')}`))).includes('Autoplay:true'));
+  await one.page.keyboard.press('Escape');
+  await one.exitPreview();
+  // Tab two reloaded: its own.
+  await two.reload();
+  await two.getByTestId('one').locator('[aria-busy="false"] > div > canvas').first().waitFor();
+  assert.deepEqual(await two.evaluate(() => window.cadHarness.preferences.getSnapshot().orbit), { speed: 3 });
+  assert.equal(await two.evaluate(() => window.cadHarness.a.controller.readState().display.mode), 'solid');
+  await two.close();
+  assert.deepEqual(one.errors, []);
 });

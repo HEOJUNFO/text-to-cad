@@ -28,19 +28,17 @@ export const TAB_TOOL_MODE = {
 
 // This renderer's tool modes for the kit's state machine (`kit/tools/toolModes.js`).
 // Draw toggles off on repeated activation. Measure stays armed; its result-aware
-// toolbar action clears retained measurements explicitly.
-// Pose is offered, never restored into: a file comes back in Select, with its pose intact,
-// rather than with the handles already up over a model the person has not looked at yet.
-export const CAD_TOOL_RESTORE = Object.freeze({ never: [TAB_TOOL_MODE.POSE] });
-
+// toolbar action clears retained measurements explicitly. The tool in hand is never
+// saved: a file opens in Select, with its pose intact, rather than with the handles
+// already up over a model the person has not looked at yet.
 export const CAD_TOOL_MODES = createToolModes({
   defaultMode: TAB_TOOL_MODE.REFERENCES,
   modes: {
-    [TAB_TOOL_MODE.REFERENCES]: { persists: true },
-    [TAB_TOOL_MODE.MEASURE]: { persists: true },
+    [TAB_TOOL_MODE.REFERENCES]: {},
+    [TAB_TOOL_MODE.MEASURE]: {},
     [TAB_TOOL_MODE.EXPLODE]: {},
     [TAB_TOOL_MODE.CLIP]: {},
     [TAB_TOOL_MODE.DRAW]: { toggles: true },
-    [TAB_TOOL_MODE.POSE]: { persists: true }
+    [TAB_TOOL_MODE.POSE]: {}
   }
 });

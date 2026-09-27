@@ -7,7 +7,7 @@ import { createRobotScene } from "@hardcore/core/lib/urdf/robotScene.js";
 import { srdfGroupNamesByLink } from "@hardcore/core/lib/urdf/parseSrdf.js";
 import { VIEWER_SCENE_SCALE } from "@hardcore/core/lib/viewer/sceneScale.js";
 import RendererShell from "../kit/shell/RendererShell.jsx";
-import { readShellState } from "../kit/shell/shellState.js";
+import { readFileView } from "../kit/shell/fileView.js";
 import { useRendererShell } from "../kit/shell/useRendererShell.js";
 import { failureAlert } from "../kit/status/loadAlerts.js";
 import JointHandleOverlay from "../kit/tools/pose/JointHandleOverlay.jsx";
@@ -20,7 +20,7 @@ import LinksSection from "./LinksSection.jsx";
 import SdfSection from "./SdfSection.jsx";
 import { prepareRobotJointHandles, robotJointHandles, robotPosableJoints } from "./jointHandles.js";
 import { createPoseStore } from "./poseStore.js";
-import { ROBOT_DECLINED_LIVE_COMMANDS, ROBOT_TOOL, ROBOT_TOOL_MODES, ROBOT_TOOL_RESTORE } from "./tools.js";
+import { ROBOT_DECLINED_LIVE_COMMANDS, ROBOT_TOOL, ROBOT_TOOL_MODES } from "./tools.js";
 import { useLinkSelection } from "./useLinkSelection.js";
 import { useRobotDocument } from "./useRobotDocument.js";
 
@@ -34,22 +34,24 @@ function RobotSurface({ view, data }) {
   const kind = String(document.entry?.kind || "").toLowerCase();
 
   // ---- pose: outside React ------------------------------------------------------------
-  const [restored] = useState(() => readShellState(view.state).renderer);
+  // This renderer's one slice of the file's view (`kit/shell/fileView.js`): the joint values,
+  // written against the description's revision, so a reopened file takes its pose back only
+  // if it is the same robot. The selection and the tree's disclosure are not in it.
+  const [stored] = useState(() => view.state);
   const poseRef = useRef(null);
   const pose = useMemo(() => {
     if (!robot) return null;
-    // A new revision of the file keeps the pose it was left in (clamped onto the new
-    // description); a reopened file takes its record back only if it is the same robot.
-    const carried = poseRef.current?.getSnapshot().values || (restored.signature === robot.revision ? restored.jointValues : null);
+    // A new revision of the file keeps the pose it was left in (clamped onto the new description).
+    const carried = poseRef.current?.getSnapshot().values || readFileView(stored, { pose: robot.revision }).renderer.pose?.jointValues || null;
     return createPoseStore(robot.description, carried);
-  }, [robot, restored]);
+  }, [robot, stored]);
   poseRef.current = pose;
   const robotRef = useRef(robot);
   robotRef.current = robot;
-  // The record's own slot, read when the record is WRITTEN: the pose lives outside React.
-  // Until the robot has loaded there is nothing to say, and what was stored is kept.
-  const rendererState = useCallback(() => (poseRef.current && robotRef.current
-    ? { jointValues: poseRef.current.getSnapshot().values, signature: robotRef.current.revision } : restored), [restored]);
+  // The slice is read when the view is WRITTEN: the pose lives outside React. Until the robot
+  // has loaded there is nothing to say, and what was stored is kept.
+  const rendererState = useMemo(() => (robot && pose
+    ? { signatures: { pose: robot.revision }, read: () => ({ pose: { jointValues: pose.getSnapshot().values } }) } : null), [robot, pose]);
 
   // ---- scene ----------------------------------------------------------------------------
   const [scene, setScene] = useState(null);
@@ -92,7 +94,7 @@ function RobotSurface({ view, data }) {
 
   const shell = useRendererShell({
     view, services: document.services, resource: document.resource, modelKey: document.modelKey, revisionKey: robot?.revision || "",
-    features: EDGELESS_VIEW_FEATURES, toolModes: ROBOT_TOOL_MODES, toolRestore: ROBOT_TOOL_RESTORE, scene,
+    features: EDGELESS_VIEW_FEATURES, toolModes: ROBOT_TOOL_MODES, scene,
     sceneScaleMode: VIEWER_SCENE_SCALE.URDF,
     load: { busy: (loaded.busy && !scene) || (Boolean(robot) && !scene), updating: loaded.busy && Boolean(scene), progress: loaded.progress, alert: loadAlert },
     live, escape, rendererState

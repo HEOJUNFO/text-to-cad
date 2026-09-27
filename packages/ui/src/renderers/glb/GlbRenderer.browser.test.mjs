@@ -320,8 +320,8 @@ test('a static GLB opens on its native scene with no tools: display settings, or
   await ready(pane);
   await page.waitForFunction(() => window.cadHarness.a.controller?.readState().loading === false);
   const reopened = await page.evaluate(() => window.cadHarness.a.controller.readState());
-  assert.notDeepEqual(reopened.camera.position.map(value => Math.round(value * 100)), left.camera.position.map(value => Math.round(value * 100)), "reopening fits the model anew");
-  assert.equal(reopened.camera.zoom, 1);
+  assert.deepEqual(reopened.camera.position.map(value => Math.round(value * 100)), left.camera.position.map(value => Math.round(value * 100)), "reopening restores the camera the file was left at");
+  assert.ok(Math.abs(reopened.camera.zoom - left.camera.zoom) < 1e-6);
   assert.deepEqual([reopened.display.surfaces.colorMode, reopened.display.surfaces.color, reopened.display.grid.enabled], ['single', '#00c040', false]);
 
   assert.deepEqual(errors, []);

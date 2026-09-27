@@ -1,5 +1,6 @@
-// The tool stack's layout, a viewing preference of the person's rather than of a file: the host
-// keeps it (`CadPreferences.toolStack`) and it holds across files. Two things, and nothing else:
+// The tool stack's layout, a viewing preference of the person's rather than of a file: the tab
+// keeps it (`settings.toolStack` of the tab record) and it holds across files. Two things, and
+// nothing else:
 //
 //   panels     for each panel a person can size (`ToolPanel.jsx`'s `resizable`: the tree and
 //              Position), the width and the height cap they dragged it to, by panel id — only what
@@ -20,7 +21,6 @@ export const TOOL_PANEL_MIN_HEIGHT = 64;
 // The Reference's cap — a heading and a dozen compact rows, which a part's or a face's facts and
 // its material fit without scrolling. It is not the person's: the Reference is a fixed panel.
 export const TOOL_PANEL_REFERENCE_HEIGHT = 288;
-export const TOOL_STACK_STORAGE_KEY = "cad-viewer:tool-stack:v2";
 // A stored size is kept whatever the viewer it was chosen in; what is drawn is bounded by the
 // viewer at hand (`clampToolPanelWidth`, `clampToolPanelHeight`).
 const MAX_STORED_PX = 4000;
@@ -74,14 +74,4 @@ export function toolPanelDefaultHeight(key, stackHeight, mobile = false) {
   const height = Number(stackHeight) || 0;
   if (key === "tree" || key === "position") return Math.round(mobile ? height : height / 2) || TOOL_PANEL_REFERENCE_HEIGHT;
   return TOOL_PANEL_REFERENCE_HEIGHT;
-}
-
-export function readToolStack(storage) {
-  try { return normalizeToolStack(JSON.parse(storage?.getItem(TOOL_STACK_STORAGE_KEY) || "null")); }
-  catch { return normalizeToolStack(null); }
-}
-
-export function writeToolStack(storage, value) {
-  try { storage?.setItem(TOOL_STACK_STORAGE_KEY, JSON.stringify(normalizeToolStack(value))); }
-  catch { /* A blocked preference store must not stop the stack resizing for this session. */ }
 }

@@ -34,7 +34,7 @@ the reverse.
 | `camera/` | `runtimeCamera` (zoom percent against the authored framing, projection and lens sync, perspective snapshots, eased transitions, fit-to-bounds, recentre), `useViewportCamera` (that behaviour bound to a mounted viewport: the perspective kept by a mounted view, the preview camera swap and its restore, the reset that Zoom to fit and the live `resetCamera` share, view-cube presets, which turn the camera and keep its zoom and target), `viewportCameraKit` and `viewportCameraFit`, `orbitControls`, `zoomPivotReanchor`, `zoomSpeeds`, `cameraLens`, `ViewPlaneControl` (view cube). |
 | `look/` | `stageEffects` (lighting rig scaled to the model, floor, glow and shadow catcher, grid and origin axes), the Render studio boundary (`renderStudioChunk`, `studioEnvironmentCache` and its worker). `chromeBackdrop` and `useChromeBackdropColor` (the frame colour around a scene). The surface LOOK is data the viewport resolves and a scene applies to its own materials: `@hardcore/core/lib/viewer/surfaceLook.js` (`createSurfaceLook(THREE, root).apply(look)`) does it for any authored material tree. The viewport resolves it with core's `resolveSceneSurfaceLook` (`common/sceneSettings.js`), the resolver the snapshot CLI dresses the same scenes with. |
 | `view-settings/` | The settings model and store (`viewSettingsStore`, `useViewSettings`, `viewerDisplaySettings`, `renderState`), applying a change to a viewport (`useAppliedViewSettings`, `viewUpdateCoordinator`, `viewUpdateGate`, `viewUpdatePlan`), and the Display tool's content (`DisplaySettingsSection`, `DisplayModeOptions`; the shell draws it as a stack panel while Display is the tool). |
-| `tools/` | `FloatingToolBar` (the dumb strip), `toolModes` (the tool-mode state machine), `ToolModeMenu` (a tool's exclusive modes: one button in its panel's header row and its dropdown), `ToolPopover` (an ordinary dropdown from its button, on a `side` and `align`ed start or end: preview's Playback settings, upward from the playbar), `ToolStack` (the bounded column under the strip, which scrolls only when what cannot give way still does not fit), `ToolPanel` (one panel of it: `fit` says how it gives way when the viewer is short, `resizable` makes it the person's to size — width, height and corner handles, moving only it — and every panel but Drawing folds to its first row; `ToolPanelCollapse` is the chevron for a panel whose first row is its content's), `toolStackLayout` (every panel's width, the resizable panels' sizes and the folded panels: defaults, bounds and their stored record), `floatingSurface` (the two surfaces, defined together: the strip's and every menu's over the viewport, and the stack panels' more transparent one), and the format-blind tools: `draw/` (overlay, view lock, `useDrawingViewLock`), `PreviewChrome` (the top-right bar in both modes, and preview's controls and their visibility), `PlaybackMenu` (preview's Playback settings: Animation — Routine, Speed, Loop, Autoplay — then Orbit and its speed), `preview/` (orbit preferences), `playbar/` (`ViewportAnimationBar`, `animationClock`, `usePlaybackFrames`, `animationPreferences`: Autoplay), `pose/` (the handle overlay, canvas, drag mathematics), `select/` (`usePointerPick`: taps and hover through a scene's own `pick`). Screenshot capture is `@hardcore/core/lib/viewer/screenshotCapture.js`. |
+| `tools/` | `FloatingToolBar` (the dumb strip), `toolModes` (the tool-mode state machine), `ToolModeMenu` (a tool's exclusive modes: one button in its panel's header row and its dropdown), `ToolPopover` (an ordinary dropdown from its button, on a `side` and `align`ed start or end: preview's Playback settings, upward from the playbar), `ToolStack` (the bounded column under the strip, which scrolls only when what cannot give way still does not fit), `ToolPanel` (one panel of it: `fit` says how it gives way when the viewer is short, `resizable` makes it the person's to size — width, height and corner handles, moving only it — and every panel but Drawing folds to its first row; `ToolPanelCollapse` is the chevron for a panel whose first row is its content's), `toolStackLayout` (every panel's width, the resizable panels' sizes and the folded panels: defaults, bounds and their stored record), `floatingSurface` (the two surfaces, defined together: the strip's and every menu's over the viewport, and the stack panels' more transparent one), and the format-blind tools: `draw/` (overlay, view lock, `useDrawingViewLock`), `PreviewChrome` (the top-right bar in both modes, and preview's controls and their visibility), `PlaybackMenu` (preview's Playback settings: Animation — Routine, Speed, Loop, Autoplay — then Orbit and its speed), `preview/` (orbit preferences), `playbar/` (`ViewportAnimationBar`, `animationClock`, `usePlaybackFrames`, `playbackPreferences`: Autoplay, and the Speed and Loop chosen for every routine), `pose/` (the handle overlay, canvas, drag mathematics), `select/` (`usePointerPick`: taps and hover through a scene's own `pick`). Screenshot capture is `@hardcore/core/lib/viewer/screenshotCapture.js`. |
 | `inspector/` | `FileSheet` and its row and section primitives, `modelTreeSearch` (`useTreeSearch`, the ranked flat search every tree shares), `VirtualRows` (a long tree's rows, windowed), `referenceRows` (`InfoRow`, `MonoValue`, `CoordValue`), `kinematicsControls` (the `Pose` row that heads every Position section, with its Reset). The tree row and filter box are `primitives/tree-row` and `primitives/tree-filter`. |
 | `status/` | `LoadingIndicator` and `ViewerLoadingOverlay`, `ViewerAlertCard` (the card over the viewport, and `viewportAlert`, which alert it shows), `MissingFileAlert`, `ViewUpdateStatus`, `loadingState` (`viewerLoadingState`), `loadAlerts` (`failureAlert`, `noGeometryAlert`). |
 | `shell/` | The host glue every renderer needs that is not about its scene: see [Shell](#shell). |
@@ -150,7 +150,7 @@ calls one hook; the shell owns the rest.
 | `useRendererShell.js` | The hook. Per-file state through the host, the Display settings store and the Display panel's content (`shell.display`), tool modes (Draw is the only strip tool the shell itself owns; Display and preview's buttons and Playback settings are the frame's; `toolModes` is omitted altogether by a renderer with no tools of its own), the tool stack's layout (a viewer preference: `services.preferences.toolStack` — the resizable panels' sizes, the folded panels — changed by one patch per gesture, `frame.changeToolStack`), navbar actions, prompt snapshots, the clipboard screenshot, the one preview state (`shell.previewing` / `setPreviewing`, from `usePreviewState`) and preview's Autoplay (`shell.autoplay`, a viewer preference), alerts, shortcuts, and the live command surface. It owns no zoom control: the shell has none. |
 | `RendererShell.jsx` | The frame: viewport box, tool strip (the renderer's tools) at the top-left, the top-right bar (Display settings, whose popover is `DisplayPopover`, and Preview; in preview, Display settings and Exit preview), the tool stack under the strip (`ToolStack`: the Drawing panel while Draw is up, then the renderer's `toolPanels`), bottom action, preview's controls (`PreviewChrome`: the bar, and under the model the playbar or the orbit play/pause, either ending in Playback settings), the render profile (`kit/viewport/renderProfile.js`: preview draws the scene one quality tier up, keeps its pixel ratio while orbiting and suspends the tool effects), stopping the routine (`animation.onRelease`) when preview ends, the loading overlay, the update status portaled into the nav row (`view.navigationStatusSlot`), and the alert card. It draws nothing into the host's panel column. One DOM structure (`data-slot="cad-file-view"`, `data-cad-surface`, `data-cad-scene-backdrop`, `data-cad-toolbar`, `data-cad-tool-stack`, `data-tool-panel`) for every renderer. `frameProvider` wraps the WHOLE frame in the renderer's own context — the tool stack as well as the viewport, because both read it — and `onCanvasPointerDown` is a press that landed on the model, for a renderer with something to put down when the person reaches for it. The frame focuses itself on such a press either way. |
 | `ShellViewport.jsx` | The three.js viewport around ONE kit scene: `useViewerRuntime`, `useViewportCamera`, the look (rig or studio, environment, background, floor, grid, axes), the Draw overlay and view lock, the view cube (bottom-right; not mounted on mobile or in preview, `previewMode`), frame presentation and the queued view-settings handshake. Its children may be a function of the viewport (`{ runtimeRef, hostRef, mountRef, viewerReadyTick, commitScene, syncSceneBounds }`), which is how a renderer mounts its own overlay or pointer pick. A scene that changes IN PLACE (it arrives in pieces, swaps its detail, is rebuilt under one identity) calls `commitScene()` from its own effect: the viewport re-reads what it placed, fits the stage and the depth range and applies the framing rules THEN, because a child's effects run before the viewport's own adoption effect. The one thing a commit never does ahead of the viewport is FRAME under a camera that is about to change: when the same render also changed the lens, the projection or the viewing mode, the stage is adopted at once and the framing follows once the camera has been given those props (a stored camera applied under the old projection and then converted comes out about a sixth smaller). A scene that says `complete: false` is framed on what has arrived and once more when it is whole — unless the camera on screen is the person's rather than that first fit, which is true of one they moved during the current mount; reopening always starts with fresh framing. `preserveInteractionPixelRatio` keeps the idle pixel ratio while the camera moves (a scene drawn with hairlines, and preview's orbit: `renderProfileKeepsPixelRatio`), and `runtimeLifecycle` (`onRelease(runtime, { handoff })` while the WebGL renderer is still alive, `onContextLost()`, `onInitializationError(error)`) is for a renderer that hangs its own objects or in-flight work on the runtime. `syncSceneBounds()` re-fits lighting, shadows and the floor's height to a scene that moved its own bounds, with no React render and no reframe. What is SIZED stays sized from the rest placement, in Inspect and in Render alike: the grid and stage (`sceneRadiusForBounds` on `restBounds`) and the Render studio's floor plane (`applyPhotographicStudio`'s `groundBounds`), so a pose or a playing routine never rescales or slides the ground under the model; `zoomToBounds(bounds)` frames part of the scene. Read-only test seams: `window.__cadCamera()` (the live camera, its depth range included) and `window.__cadStage()` (the ground's radius, the bounds the stage is fitted to, the floor's height, the studio floor's size and centre). |
-| `shellState.js` | The per-file record `{ version, camera, display, tool, renderer }`, read forgivingly and written exactly. `camera` is always null: framing is session-only, and a camera an older record holds is ignored. The host keys it `[file path, renderer id]`. The tool stack's panels follow the tool, and its width is a viewer preference, so the record has no field for either. |
+| `fileView.js` | The file's view `{ version, camera, display, renderer }`, read forgivingly and written exactly: the camera (restored in place of the open-time fit; null fits), the Display settings, and the renderer's own slices, each `{ signature, value }` and restored only under the signature the renderer declares now (`readFileView(raw, signatures)`); the camera and the display are always kept. The host keys it `[file path, renderer id]` under its root, in the tab store. Not in it: the tool in hand, a selection, measurements, ink, preview, a routine's time — every open starts those afresh. |
 | `liveBinding.ts` | `attachLiveBinding`: the live command surface. Base commands (`readState`, `setCamera`, `resetCamera`, `setDisplaySettings`, `setRenderMode`, `capture`) mean the same for every renderer; a renderer ADDS commands by name and DECLINES the known host commands (`HOST_LIVE_COMMANDS`) that make no sense for it with the sentence the caller reads. Binding fails when a renderer does neither. |
 | `promptContext.js` | `createViewPromptContext` (a snapshot and what it depicts) and `promptDeliveryError`. A renderer with a reference vocabulary of its own passes `promptContext` instead, and may then return that vocabulary from `promptReferences`. |
 | `loadReport.js` | `shellLoadReport`: what the shell asks the status kit about one document load, as one pure function, and all it returns is the loading presentation over the viewport. A renderer whose document is a plain download passes `load` and nothing more. One whose document can be EDITED or PREVIEWED while it is open knows more than the shell can: `load.editPending` (queued work of the person's own, with nothing of it on screen), `load.currentPreview` (that work IS what is drawn, so the wait is over even though the write is not) and `load.finding` (the file is not even located yet). An alert is `load.alert`, which the frame draws as the alert card (`ViewerAlertCard`: an error always, a warning only while nothing is on screen); a warning beside a model is the renderer's own to list (STEP's Issues section). |
@@ -172,12 +172,13 @@ const shell = useRendererShell({
   // optional: promptReferences, promptContext, escape, sceneScaleMode, preview, tool,
   //   viewSettings, viewerRef, onCameraSettled, onRuntimeAlert, presentationReport,
   //   preserveInteractionPixelRatio, runtimeLifecycle,
-  //   rendererState   the renderer's slot of the record: an object, or a FUNCTION read when the record is written
-  //   toolRestore     { opensIn, never }: the tool THIS file opens in, while the tool modes' default stays the fallback
+  //   rendererState   { signatures, read }: the renderer's slices of the file's view, read when it is written,
+  //                   each restored (by the renderer, `readFileView(view.state, signatures)`) under the same signature
 });
 // Renderer-facing, beside `tools`, `display`, `toolMode`, `selectTool`, `previewing`, `requestRender`:
 shell.syncSceneBounds();         // the scene moved its bounds (a pose): the stage follows, no render
-shell.scheduleStateSave();       // state kept outside React changed: write the record soon, and on unmount
+shell.scheduleStateSave();       // a slice changed: write the view soon, and on unmount
+shell.playback; shell.setPlayback(patch); // the tab's playback: Autoplay, and the Speed and Loop chosen for every routine
 // The shell adds Display settings, Preview, and preview's Playback settings and playbar.
 const tools = [shell.tools.own({ id, label, icon }), shell.tools.draw].filter(Boolean); // [] for camera-only formats
 // toolPanels: the renderer's ToolPanels, shown or `hidden` by the tool they belong to
@@ -200,7 +201,7 @@ touches the host's column; a pick scrolls its row into view in the tree, which i
 screen whenever Select is.
 
 A renderer whose model moves outside React (a robot's pose) keeps that state in
-its own store: `rendererState` as a function is read at the moment the record is
+its own store: `rendererState.read()` is called at the moment the view is
 written, so the last write before unmount is saved; `shell.scheduleStateSave()`
 says it changed; `shell.syncSceneBounds()` carries the moved bounds to the stage.
 None of them renders a component.
@@ -224,11 +225,11 @@ run under the shell (`kit/tools/draw/Draw.browser.test.mjs`).
 
 The STEP renderer is on the shell end to end: its scene and viewport
 ([STEP scene and viewport](#step-scene-and-viewport)) and its surface, `StepSurface.jsx`,
-whose frame, per-file record and host glue are the shell's. What STEP keeps of its own is
-what only a STEP has — its slice of the per-file record (`workbench/stepSessionRecord.js`,
-read and written by `workbench/useStepSessionRecord.js`: the tree, the pose, the animation,
-the large-file setting, each behind the signature that says whether it still fits the
-file), its prompt context, and the resource its live state reports while a rebuild is held
+whose frame, file view and host glue are the shell's. What STEP keeps of its own is
+what only a STEP has — its slices of the file's view (`workbench/stepViewSlices.js`,
+read and written by `workbench/useStepView.js`: the tree's expansion, hidden parts and
+isolated assemblies, the pose, the large-file setting, each behind the signature that says
+whether it still fits the file), its prompt context, and the resource its live state reports while a rebuild is held
 behind the previous mesh (`live.resource`). The surface composes modules of its own around
 the shell: Measure's session (`workbench/useStepMeasure.js`), the pose and routines
 (`workbench/useStepMotion.js`), the context menus as pure descriptors
@@ -502,11 +503,10 @@ loader asks which it is. The STEP renderer matches none of them.
   selection; `select` is declined with a sentence (a robot description has no
   reference grammar), and a `selectReference` host request is consumed and
   acknowledged without changing the view. Live state adds `selectedLinks` and `selectedPartIds`.
-- **State**: the shell record under `[path, "robot"]`; its own slot is
-  `{ jointValues, signature }`, restored only when `signature`
-  (`entryUrdfAssetHash`) still matches. The tracked named pose, the selection and
-  the tree's disclosure are not stored. Records written under `[path, "cad"]` are
-  not migrated.
+- **State**: the file's view under `[path, "robot"]`; its one slice is
+  `pose: { jointValues }`, written against the description's revision and restored
+  only under it. The tracked named pose, the selection and the tree's disclosure
+  are not stored.
 - **Test seams** (read-only): `window.__cadJointHandles()` (knobs in CSS pixels,
   with values and drawn travel), `window.__robotLinks()` (every link group's frame)
   and `window.__robotPoseStats()` (matrices written per pose, renders of the surface).
@@ -566,46 +566,46 @@ source aliases, JSX transforms for dependency `.js`, or cross-app stylesheet
 paths. A bundler must support the emitted `new URL(..., import.meta.url)` worker
 assets, which remain inside `@hardcore/core`.
 
-## Preferences and per-file state
+## Preferences and the file's view
 
-`CadPreferenceSource` exposes `getSnapshot`, `subscribe` and `update`.
-`createCadPreferences` provides an in-memory implementation and an optional
-host persistence callback; `createStoredCadPreferences(storage)` keeps them in a
-host's `Storage`, owns their format and reads them again on the host's `storage`
-events (both `@hardcore/ui/renderers/workspace`). A host can share one source across its CAD panes.
-It contains preview's global orbit speed and Autoplay, and the tool stack's layout. Which
-panel of the host's is open is the host's (`FileViewerState.panel`): neither a
-preference nor part of a file's record; a stored `cad-file` (the retired Settings
-panel) resolves as nothing open. Shared code never reads browser storage on import or construction.
+Everything the viewer keeps is the tab's: one record, `{ version, settings, files }`,
+thrown out with the tab and kept across a reload (`@hardcore/ui/tab-store`; the host
+side is in [viewer-host.md](viewer-host.md#files-state-and-shutdown)). The host hands
+the store one adapter — a synchronous read and write of the whole record — and the
+package owns the record. Nothing under `renderers/` touches storage, on import,
+construction or ever.
 
-App light/dark appearance selects Inspect's fixed workbench basis, including
-the empty CAD stage. CAD preferences contain no theme choice or custom scene
-settings, and legacy saved themes cannot override either Inspect or Render.
+**Preferences** are the tab's `settings`, read by every renderer as `CadPreferenceSource`
+(`getSnapshot`, `subscribe`, `update`; `createCadPreferences` is the in-memory source a
+renderer built without one gets). They hold preview's orbit speed, playback (Autoplay,
+and the Speed and Loop chosen for every routine; unset, each routine's own), the tool
+stack's layout, and — for the host — the file tree's width and expansion and the
+appearance. Which panel of the host's is open is the host's (`FileViewerState.panel`):
+neither a setting nor part of a file's view. App light/dark appearance selects Inspect's
+fixed workbench basis, including the empty CAD stage; the settings contain no theme
+choice or custom scene settings.
 
-Per-file state belongs to `FileViewerState.renderers`, keyed by
-`[file.path, renderer.id]` within a host's stable source/root state. A STEP
-stores the shell's record (display settings with their clip, and
-the recorded tool) and its own slot in it (`workbench/stepSessionRecord.js`): the
-tree's selection, expansion and hidden parts, the pose, the animation's clip,
-time, speed and loop, and the large-file opt-in. (A robot's joint values are in the robot
-renderer's own record, `[path, "robot"]`; a drawing's view is in the DXF renderer's,
-`[path, "dxf"]`.) Asset signatures retain
-the original invalidation rules. Playback time is saved when stopped or
-unmounted, and opening a file does not resume playback automatically. Camera transforms are
-not persisted: refresh/reopen fits the model; a mounted viewer keeps its camera.
+**A file's view** is `files[[root, path, renderer id]]`, the fifty most recently written
+files, each `{ version, camera, display, renderer }` (`kit/shell/fileView.js`):
 
-| Data | Storage key |
+| Kept | What |
 | --- | --- |
-| Global preview orbit speed | `cad-viewer:orbit:v1` |
-| Global preview Autoplay: `{ autoplay }`, off by default | `cad-viewer:animation:v1` |
-| Tool stack layout: `{ panels: { [panel id]: { width?, height? } }, collapsed: { [panel id]: boolean } }`, CSS pixels (a width 164 minimum — every panel's width, a strip of six tools; a cap 64 minimum), for the resizable panels a person sized | `cad-viewer:tool-stack:v2` |
+| `camera` | The renderer's own: a scene's pose, lens and projection (a perspective snapshot, scoped to the model on read), restored in place of the open-time fit — null, or not a camera, fits; a drawing's plane transform. |
+| `display` | The Display settings, Clip and Explode included. |
+| `renderer` | The renderer's slices, each `{ signature, value }`, restored only while the signature the renderer declares for the file on screen still matches. STEP (`workbench/stepViewSlices.js`): `tree` (expanded nodes, hidden parts, isolated assemblies) and `largeFile` against the geometry, `pose` against the sidecar. Robot: `pose` (joint values) against the description's revision. GLB, mesh: none. DXF: nothing beyond its camera. |
 
-`createStoredCadPreferences` is those keys' one reader and writer; the panel column's
-width and its default are the shared column's (`@hardcore/ui/navigation`).
-`cad-viewer:file-sheet-tab-layout:v5`, `:v6` and `:v7` records, and a stored
-`cad-viewer:pose-transition:v1` preference, are left untouched and ignored: no host
-reads, writes or subscribes to them.
-Origins are transport locations, not persistence namespaces for new state.
+| Not kept | Every open starts it afresh |
+| --- | --- |
+| The tool in hand | The default tool |
+| The selection, measurements, Draw's ink | Empty |
+| Preview and its camera | Off; the tools view's camera is the one kept |
+| The routine, its time and whether it plays | At rest |
+| The Select mode filter, hover, menus, popovers | Closed |
+
+The rule is one generic one in `readFileView(raw, signatures)`: a slice whose stored
+signature is not the declared one is absent; the camera and the display come through
+whatever the signatures say. A renderer hands the shell `rendererState: { signatures,
+read }` and reads its slices back on mount with the same call; it never sees storage.
 
 ## Prompt references, captures and extensions
 
@@ -716,8 +716,8 @@ session cancellation and client-owned writes. The browser integration harness ex
 rendering with two roots, panel switching, PNG captures, host title ownership
 and state round trips through unmount/remount.
 
-The camera is never stored: opening or reopening a file, or reloading the page, fits
-the model, and a mounted viewer keeps its own camera. Presets update projection/lens while retaining viewpoint and
+The camera is the file's: opening, reopening or reloading restores the one the file was
+left at and fits only when there is none. Presets update projection/lens while retaining viewpoint and
 zoom on the same renderer, canvas and controls. Ordinary settings edits never
 restart the viewport. Initial/reset/fit views use the
 projected bounds with 1.1 padding (roughly 91% occupancy in the limiting viewport
@@ -1204,9 +1204,11 @@ opening upward) holds an **Animation** group — Routine (only with two or more 
 Speed (the presets, and an authored speed outside them), Loop and Autoplay — above
 **Orbit**; the transport is the playbar under the model (`ViewportAnimationBar`):
 Play/Pause and the live scrubber. There is no Restart; the scrubber's start is the
-restart. Entering preview plays only when the viewer's Autoplay preference
-(`animation.autoplay`, `kit/tools/playbar/animationPreferences.js`, off by default)
-is on. Nothing under the pointer is pickable in preview.
+restart. Entering preview plays only when the tab's Autoplay
+(`settings.playback.autoplay`, `kit/tools/playbar/playbackPreferences.js`, off by default)
+is on; a Speed or a Loop chosen in Playback settings is the tab's too, applied to every
+routine of every file (`RendererShell.jsx`), while unset each routine's own apply.
+Nothing under the pointer is pickable in preview.
 
 A routine owns the model's pose only inside preview. Leaving it releases the clip —
 the shell calls the runtime's `onRelease` (a GLB's), and STEP's surface
@@ -1214,9 +1216,9 @@ the shell calls the runtime's `onRelease` (a GLB's), and STEP's surface
 so selection, topology and the Position controls never meet an animated model. Of the
 playback only the transport preferences survive leaving — the routine, Speed and
 Loop, kept by a Position edit too (`activatePositionControls` in
-`useStepMotionControls.js`) and saved with the file's record: the next preview plays that
-routine from the start, and a restored session that was mid-routine is released the
-same way. A routine that failed to
+`useStepMotionControls.js`) for as long as the file is mounted: the next preview plays that
+routine from the start. None of it is saved: a reopened file starts at rest, with
+the tab's Speed and Loop if any were chosen. A routine that failed to
 load has no Playback settings to say so in; it is listed in the file panel's Issues as
 `Animation unavailable`.
 
@@ -1448,7 +1450,7 @@ never; and if those still do not fit, the column scrolls. The tree and Position 
 wider (never narrower than the one width, never past half the viewer) and set its cap,
 moving no other panel; every other panel is fixed, with no handle. Every panel folds to
 its first row (Drawing excepted). The resizable panels' sizes and the folded panels are
-one viewer preference (`CadPreferences.toolStack`).
+one of the tab's settings (`CadPreferences.toolStack`).
 The strip and every menu over the viewport share one translucent, blurred surface, and
 the stack's panels a more transparent one with the same blur and border
 (`kit/tools/floatingSurface.js`); every scroll region is the `ScrollArea` primitive. A
@@ -1479,8 +1481,8 @@ panel is always available. Authored materials remain read-only in the Model
 reference section, with no material override or undo state.
 
 The host-supplied render session owns its tessellation cache and worker leases.
-The per-file record's display slice is the sole view-settings authority; the camera
-is the mounted viewport's and is never stored. Surface derivation and preview requests
+The file view's display slice is the sole view-settings authority; the camera is the
+mounted viewport's, saved with the view and restored in place of the fit. Surface derivation and preview requests
 use the file's injected service and abort when the consumer leaves. The Features
 tree resolves exact surfaces on demand through the same client.
 

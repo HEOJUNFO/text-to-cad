@@ -17,7 +17,7 @@ import { runtimeModelKeyMatches, toNumber } from "@hardcore/core/lib/viewer/mode
 import { normalizePartIdList } from "@hardcore/core/lib/viewer/partVisualState.js";
 import RendererShell from "../kit/shell/RendererShell.jsx";
 import { presentationIsPending, usePresentationReport, usePreviewState, useRendererShell } from "../kit/shell/useRendererShell.js";
-import { readShellState, shellPresentationKey } from "../kit/shell/shellState.js";
+import { shellPresentationKey } from "../kit/shell/fileView.js";
 import StepSceneLayers, { releaseStepRuntime } from "./scene/StepSceneLayers.jsx";
 import { displayRecordExplodedViewTranslation } from "./scene/useStepExplode.js";
 import { createStepScene, stepSceneView } from "./scene/stepScene.js";
@@ -48,11 +48,10 @@ import { VIEWER_RENDER_PROFILE, sceneForRenderProfile } from "../kit/viewport/re
 import {
   ASSET_STATUS,
   CAD_TOOL_MODES,
-  CAD_TOOL_RESTORE,
   REFERENCE_STATUS,
   TAB_TOOL_MODE
 } from "./workbench/constants.js";
-import { useStepSessionRecord } from "./workbench/useStepSessionRecord.js";
+import { useStepView } from "./workbench/useStepView.js";
 import {
   buildViewerMeshAlert,
   buildViewerEditAlert
@@ -80,7 +79,7 @@ import {
   isLargeMeshData,
   isLargeStepGlbEntry
 } from "@hardcore/core/lib/render/meshCost.js";
-import { createAnimationClock, AnimationClockProvider, useAnimationClockStore } from "./workbench/animationClockStore.js";
+import { createAnimationClock, AnimationClockProvider } from "./workbench/animationClockStore.js";
 import { measureFilterSnaps } from "./workbench/measureRulerState.js";
 import { useStepMeasure } from "./workbench/useStepMeasure.js";
 import { cadFileParamForEntry, fileKey } from "./workbench/entryPaths.js";
@@ -239,7 +238,6 @@ function StepSurfaceBody({ view, data }) {
   const destination = usePromptDestination();
   const promptAvailable = destination.available;
   const composerDestination = destination.kind === "composer";
-  const { getAnimationClock } = useAnimationClockStore();
   const resolvedColorSchemeMode = colorScheme === "dark" ? "dark" : "light";
   const storeSnapshot = useSyncExternalStore(client.subscribe, client.getSnapshot, client.getSnapshot);
   const selectedKey = fileKey(entry);
@@ -303,7 +301,8 @@ function StepSurfaceBody({ view, data }) {
   const rendering = resolvedScene.render.enabled;
   const resolvedThemeSettings = resolvedScene.theme;
   const resolvedMaterialOverrides = resolvedScene.materialOverrides || EMPTY_MATERIAL_OVERRIDES;
-  const [tabToolMode, setTabToolMode] = useState(() => CAD_TOOL_MODES.restore(readShellState(state).tool));
+  // The tool in hand is never saved: a STEP opens in Select.
+  const [tabToolMode, setTabToolMode] = useState(CAD_TOOL_MODES.defaultMode);
 
   const {
     meshState,
@@ -638,10 +637,13 @@ function StepSurfaceBody({ view, data }) {
     return map;
   }, [stepLeafParts, stepTreeNodes]);
   useEffect(() => {
-    if (!isAssemblyView || !assemblyRoot) {
+    if (!isAssemblyView) {
       setIsolatedAssemblyNodeIds((current) => (current.length ? [] : current));
       return;
     }
+    // An assembly whose root is still on its way keeps what it has: a restored isolation waits
+    // for the root it names, and is reduced against it — or dropped — once it arrives.
+    if (!assemblyRoot) return;
     setIsolatedAssemblyNodeIds((current) => {
       const next = minimalAssemblyIsolationNodeIds(assemblyRoot, current, {
         rootId: assemblyRootNodeId
@@ -901,22 +903,20 @@ function StepSurfaceBody({ view, data }) {
   ]);
 
 
-  // ---- this STEP's own slice of the per-file record --------------------------------------
-  // The record is written soon after anything in it changes. A clip that is PLAYING writes
-  // nothing: the clock moves every frame, and the stored time would be rewritten with it.
-  const motionStateRef = motion.animationStateRef;
-  const scheduleRecordSave = useCallback(() => { if (!motionStateRef.current.playing) shellRef.current?.scheduleStateSave(); }, [motionStateRef]);
-  const session = useStepSessionRecord({
+  // ---- this STEP's own slices of the file's view -------------------------------------------
+  // The view is written soon after anything in them changes. The selection, the tool, the
+  // measurements and the routine are not in it: every open starts those afresh.
+  const scheduleRecordSave = useCallback(() => { shellRef.current?.scheduleStateSave(); }, []);
+  const session = useStepView({
     state: view.state, entry: selectedEntry,
-    tree: { selectedReferenceIds, selectedPartIds, expandedStepTreeNodeIds, hiddenPartIds },
-    parameterValues: stepModuleParameterValues, animationState, clockTime: getAnimationClock, largeFileState,
+    tree: { expandedStepTreeNodeIds, hiddenPartIds, isolatedAssemblyNodeIds },
+    parameterValues: stepModuleParameterValues, largeFileState,
     scheduleSave: scheduleRecordSave,
     // Everything this file was left with, once, before the first paint.
     restore(restored) {
-      setSelectedReferenceIds(restored.tree.selectedReferenceIds);
-      setSelectedPartIds(restored.tree.selectedPartIds);
       setExpandedStepTreeNodeIds(restored.tree.expandedStepTreeNodeIds);
       setHiddenPartIds(restored.tree.hiddenPartIds);
+      setIsolatedAssemblyNodeIds(restored.tree.isolatedAssemblyNodeIds);
       setLargeFileState(normalizeLargeFileState(restored.largeFile));
       motion.restore(restored);
     }
@@ -1199,11 +1199,10 @@ function StepSurfaceBody({ view, data }) {
   });
 
   useEffect(() => {
+    // A tree still on its way keeps what is expanded: a restored expansion waits for the tree it
+    // names, and is reduced to the nodes that tree has — or dropped — once it arrives.
     const rootId = String(stepTreeRoot?.id || "").trim();
-    if (!rootId) {
-      setExpandedStepTreeNodeIds((current) => (current.length ? [] : current));
-      return;
-    }
+    if (!rootId) return;
     const validIds = new Set(validAssemblySelectionIds);
     setExpandedStepTreeNodeIds((current) => {
       const filtered = current.filter((id) => validIds.has(id));
@@ -1600,8 +1599,7 @@ function StepSurfaceBody({ view, data }) {
     promptReferences: () => promptReferencesRef.current(),
     promptContext: createCadPromptContext,
     escape: { active: escapeActive, handle: () => escapeRef.current() },
-    rendererState: session.write,
-    toolRestore: CAD_TOOL_RESTORE,
+    rendererState: session.rendererState,
     onCameraSettled: () => onLodCameraMoved(),
     preserveInteractionPixelRatio: viewPolicy.wireframeMode || viewPolicy.edgesVisible,
     runtimeLifecycle: stepRuntimeLifecycle,

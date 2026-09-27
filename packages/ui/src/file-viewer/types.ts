@@ -62,7 +62,10 @@ export interface FileViewerState {
   panel: string | null;
   panelWidth: number;
   expandedDirectories?: readonly string[];
-  /** Keys encode [file path, renderer ID]; the host persists this state per source.id. */
+  /**
+   * Each file's view under `JSON.stringify([file path, renderer id])`: what the host's tab store
+   * holds for this root (`@hardcore/ui/tab-store`), and where a renderer's `onStateChange` lands.
+   */
   renderers?: Record<string, JsonValue>;
 }
 export interface DocumentSession {

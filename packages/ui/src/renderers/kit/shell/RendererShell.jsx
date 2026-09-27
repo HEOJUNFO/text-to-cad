@@ -89,6 +89,23 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
   const { previewing, setPreviewing } = shell;
   const animation = playback || frame.animation;
   const hasAnimation = animationControlsHaveContent(animation);
+  // Speed and Loop, once chosen in Playback settings, are the tab's: every routine plays with
+  // them, whatever it authored, until they are chosen again. Unset, each routine's own apply.
+  const { speed: chosenSpeed, loop: chosenLoop } = shell.playback;
+  const animationRef = useRef(animation);
+  animationRef.current = animation;
+  useEffect(() => {
+    const runtime = animationRef.current;
+    if (!animationControlsHaveContent(runtime)) return;
+    if (chosenSpeed != null && Number(runtime.speed) !== chosenSpeed) runtime.onSpeedChange(chosenSpeed);
+    if (chosenLoop != null && (runtime.loopEnabled !== false) !== chosenLoop) runtime.onLoopToggle(chosenLoop);
+  }, [hasAnimation, animation?.speed, animation?.loopEnabled, animation?.activeClipId, chosenSpeed, chosenLoop]);
+  // What Playback settings change is chosen for the tab and applied to this routine at once.
+  const playbackMenuRuntime = hasAnimation ? {
+    ...animation,
+    onSpeedChange: value => { shell.setPlayback({ speed: value }); animation.onSpeedChange(value); },
+    onLoopToggle: value => { shell.setPlayback({ loop: value }); animation.onLoopToggle(value); }
+  } : null;
   // Preview orbits the model from the moment it starts; its Playback settings turn that off.
   const [orbitPlaying, setOrbitPlaying] = useState(true);
   // Display's settings: a popover from its button in the top-right bar, not a tool — opening it
@@ -221,7 +238,7 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
                     </ToolbarButton>}
                 </>}
                 playbar={onMenuOpenChange => {
-                  const settings = <PlaybackMenu animation={hasAnimation ? animation : null} onOpenChange={onMenuOpenChange}
+                  const settings = <PlaybackMenu animation={playbackMenuRuntime} onOpenChange={onMenuOpenChange}
                     autoplay={shell.autoplay} onAutoplayChange={shell.setAutoplay}
                     orbit={orbitPlaying} onOrbitChange={setOrbitPlaying}
                     orbitSpeed={frame.previewOrbitSpeed || 1} onOrbitSpeedChange={frame.setPreviewOrbitSpeed} />;

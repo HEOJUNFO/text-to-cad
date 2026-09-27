@@ -193,10 +193,10 @@ test('a shell renderer resolves deferred files, reuses warm assets, restores iso
   await page.evaluate(() => window.cadHarness.mounted(false));
   await display.waitFor({ state: 'detached' });
   await first.locator('[data-slot="cad-file-view"]').waitFor({ state: 'detached' });
-  // Unmount persists display preferences, but never camera framing.
+  // Unmount persists the display settings and the camera, under the file and the renderer.
   const before = await page.evaluate(() => window.cadHarness.state);
   assert.deepEqual(Object.keys(before.renderers), [JSON.stringify(['part.stl', 'mesh'])], 'one record per file, keyed [path, renderer id]');
-  for (const saved of Object.values(before.renderers)) assert.equal(saved.camera, null, 'camera framing is not persisted');
+  for (const saved of Object.values(before.renderers)) assert.ok(Math.abs(saved.camera.zoom - 1.1) < 1e-6, `the camera is persisted: ${JSON.stringify(saved.camera)}`);
   await page.evaluate(() => window.cadHarness.mounted(true));
   // Popover visibility is transient, not file state.
   await displayButton(first).waitFor();
@@ -215,8 +215,8 @@ test('a shell renderer resolves deferred files, reuses warm assets, restores iso
       !pane.querySelector('[data-viewer-transition], [data-viewer-loading]');
   });
   t.diagnostic(`Remount camera readiness: ${JSON.stringify({ ...restoreDiagnostic, presentedZoom: await cameraZoom() })}`);
-  // Each remount opens at its own fit; display settings are durable.
-  await page.waitForFunction(() => Math.abs((window.cadHarness.a.controller.readState().camera?.zoom ?? 0) - 1) < 1e-6);
+  // Each remount opens at the camera it was left at, not a fresh fit; display settings are durable.
+  await page.waitForFunction(() => Math.abs((window.cadHarness.a.controller.readState().camera?.zoom ?? 0) - 1.1) < 1e-6);
   const after = await page.evaluate(() => window.cadHarness.state);
   const previousState = structuredClone(before.renderers);
   const restoredState = structuredClone(after.renderers);
@@ -1267,7 +1267,7 @@ test('the tool stack: every panel one width, the tree and Position each the pers
   const width = TOOL_PANEL_WIDTH;
   assert.equal(width, 164);
   assert.equal(Math.round(stripBox.width), 3 * 24 + 2 * 2 + 2 * 4 + 2 * 1, 'a strip of three tools');
-  assert.equal(await layout(), undefined, 'nothing is stored until a panel is sized');
+  assert.deepEqual(await layout(), { panels: {}, collapsed: {} }, 'nothing is sized and nothing folded until a panel is');
   assert.deepEqual(await widths(), { 'Harness tree': width, 'Harness reference': width }, 'wider than this strip');
 
   // HEIGHTS. A tree opens at half the stack's own height — the viewer's less the strip above it

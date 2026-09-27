@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { FileViewer, type FileViewerState } from '@hardcore/ui/file-viewer';
+import { FileViewer } from '@hardcore/ui/file-viewer';
 import type { ViewerHost } from '@hardcore/ui/host';
 import { EmptyState } from '@hardcore/ui/navigation';
 import { FileText } from 'lucide-react';
@@ -9,6 +9,7 @@ import { createGlbRenderer } from '@hardcore/ui/renderers/glb';
 import { createMeshRenderer } from '@hardcore/ui/renderers/mesh';
 import { createRobotRenderer } from '@hardcore/ui/renderers/robot';
 import { MissingFileAlert, ViewerLoadingOverlay } from '@hardcore/ui/file-viewer/presentation';
+import { useTabViewerState, type Appearance, type TabStore } from '@hardcore/ui/tab-store';
 import { useViewerAutoReload } from './host/useViewerAutoReload.js';
 import { EmptyCadBackdrop } from '@hardcore/ui/file-viewer/empty';
 import type { CadServerInfo } from '@hardcore/core/client';
@@ -16,51 +17,52 @@ import type { CadClient } from './adapters/fileSource';
 import { createWebFileSource, createWebFileActions } from './adapters/fileSource';
 import { browserClipboard, browserClipboardSupportsImages } from './host/clipboard';
 import { createWebPromptContext } from './host/promptContext';
-import { readViewState, writeViewState } from './persistence/fileViewer';
-import { createWebCadPreferences } from './persistence/cadPreferences';
 import ViewerAppearance from './client/components/workbench/ViewerAppearance.jsx';
 import ViewerBrand from './client/components/workbench/ViewerBrand.jsx';
 import ViewerLinks from './client/components/workbench/ViewerLinks.jsx';
 import { cadFileParamForEntry, findEntryByUrlPath, normalizeCadFileQueryParam, readCadParam, readDefaultCadParam, writeCadParam } from './client/workbench/sidebar.js';
-import { applyColorSchemeToDocument, readColorSchemePreference, resolveColorSchemeMode, writeColorSchemePreference } from './client/ui/colorScheme.js';
+import { applyColorSchemeToDocument, resolveColorSchemeMode } from './client/ui/colorScheme.js';
 
 /** The keyboard the page is typed on — ⌘ on Apple devices, Ctrl elsewhere: the host's one platform answer. */
 const keyboardPlatform = () => /Mac|iPhone|iPad/.test(navigator.platform) ? "darwin" : /Win/.test(navigator.platform) ? "win32" : "linux";
+const DARK_QUERY = '(prefers-color-scheme: dark)';
+const subscribeToSystemDark = (onChange: () => void) => {
+  const query = matchMedia(DARK_QUERY);
+  query.addEventListener('change', onChange);
+  return () => query.removeEventListener('change', onChange);
+};
+const systemPrefersDark = () => matchMedia(DARK_QUERY).matches;
 
-export default function App(props: { client: CadClient; server: CadServerInfo }) {
+/** The appearance the tab keeps, resolved against the OS: `light` or `dark`, live. */
+export function useTabAppearance(tabStore: TabStore): { preference: Appearance; colorScheme: 'light' | 'dark' } {
+  const settings = useSyncExternalStore(tabStore.settings.subscribe, tabStore.settings.getSnapshot, tabStore.settings.getSnapshot);
+  const prefersDark = useSyncExternalStore(subscribeToSystemDark, systemPrefersDark, systemPrefersDark);
+  return { preference: settings.appearance, colorScheme: resolveColorSchemeMode(settings.appearance, { prefersDark }) as 'light' | 'dark' };
+}
+
+export default function App(props: { client: CadClient; server: CadServerInfo; tabStore: TabStore }) {
   return <RootView key={props.server.rootId} {...props} />;
 }
 
-/** A root change creates a new session before any view state can be persisted. */
-function RootView({ client, server }: { client: CadClient; server: CadServerInfo }) {
+/** A root change creates a new session; the tab store, and everything in it, is the tab's across roots. */
+function RootView({ client, server, tabStore }: { client: CadClient; server: CadServerInfo; tabStore: TabStore }) {
   useViewerAutoReload(server, { fetchServerInfo: () => client.serverInfo({ fresh: true }).then(info => ({ ok: true, identityToken: String(info.identityToken || '') }), () => ({ ok: false })) });
   const source = useMemo(() => createWebFileSource(client, server), [client, server]);
   const promptContext = useMemo(() => createWebPromptContext(source.id, server.rootPath || '', browserClipboard, browserClipboardSupportsImages()), [source.id, server.rootPath]);
   const fileActions = useMemo(() => createWebFileActions(client, server, { clipboard: browserClipboard }), [client, server]);
-  const preferences = useMemo(createWebCadPreferences, []);
-  useEffect(() => preferences.connect(), [preferences]);
+  // Every renderer reads its preferences from the tab's settings.
+  const preferences = tabStore.settings;
   // One renderer per file family; each lazy-loads only its own code.
   const renderers = useMemo(() => [createStepRenderer({ client, preferences }), createDxfRenderer({ client, preferences }), createGlbRenderer({ client, preferences }), createMeshRenderer({ client, preferences }), createRobotRenderer({ client, preferences })], [client, preferences]);
   const catalog = useSyncExternalStore(client.subscribe, client.getSnapshot, client.getSnapshot);
   const [file, setFile] = useState(() => readCadParam() || readDefaultCadParam() || '');
   const selectedEntry = useMemo(() => findEntryByUrlPath(catalog.entries, file), [catalog.entries, file]);
-  const [state, setState] = useState<FileViewerState>(() => readViewState(source.id));
-  const publishedState = useRef(state);
-  const resolveAppearance = () => ({ colorScheme: resolveColorSchemeMode(readColorSchemePreference(), { prefersDark: matchMedia('(prefers-color-scheme: dark)').matches }) as 'light' | 'dark' });
-  const [appearance, setAppearance] = useState(resolveAppearance);
-  const [colorSchemePreference, setColorSchemePreference] = useState(readColorSchemePreference);
-  const changeColorScheme = useCallback((value: string) => {
-    writeColorSchemePreference(value);
-    setColorSchemePreference(value);
-    setAppearance(resolveAppearance());
-  }, []);
-  useEffect(() => {
-    const query = matchMedia('(prefers-color-scheme: dark)');
-    const update = () => { setColorSchemePreference(readColorSchemePreference()); setAppearance(resolveAppearance()); };
-    query.addEventListener('change', update); window.addEventListener('storage', update);
-    return () => { query.removeEventListener('change', update); window.removeEventListener('storage', update); };
-  }, []);
-  useEffect(() => { applyColorSchemeToDocument(readColorSchemePreference(), document.documentElement, { prefersDark: matchMedia('(prefers-color-scheme: dark)').matches }); }, [appearance]);
+  // The FileViewer's state, from and into the tab store: the panel column's width, this root's open
+  // folders and its file views. The open panel is the page's own and never stored.
+  const { state, onStateChange, setPanel } = useTabViewerState(tabStore, source.id);
+  const appearance = useTabAppearance(tabStore);
+  const changeColorScheme = useCallback((value: string) => tabStore.settings.update({ appearance: value as Appearance }), [tabStore]);
+  useEffect(() => { applyColorSchemeToDocument(appearance.colorScheme, document.documentElement); }, [appearance.colorScheme]);
   useEffect(() => {
     const sync = () => setFile(readCadParam() || readDefaultCadParam() || '');
     window.addEventListener('popstate', sync);
@@ -82,10 +84,6 @@ function RootView({ client, server }: { client: CadClient; server: CadServerInfo
     document.title = selectedEntry ? `text-to-cad | ${selectedEntry.file.split(/[\\/]/).pop()}` : 'text-to-cad';
     if (selectedEntry && !readCadParam()) writeCadParam(file, { history: 'replace' });
   }, [file, selectedEntry]);
-  useEffect(() => {
-    writeViewState(source.id, state, sessionStorage, publishedState.current);
-    publishedState.current = state;
-  }, [state, source.id]);
   const shownFile = useRef(file);
   shownFile.current = file;
   const open = useCallback((path: string, options?: { panel?: string }) => {
@@ -98,20 +96,20 @@ function RootView({ client, server }: { client: CadClient; server: CadServerInfo
     } else if (options?.panel === undefined) return;
     // The file opens with the panel it was opened with (the tree, for one picked there) or with
     // its own default. FileViewer owns mobile visibility and keeps its sheets closed.
-    setState(previous => ({ ...previous, panel: options?.panel ?? null }));
-  }, [client]);
+    setPanel(options?.panel ?? null);
+  }, [client, setPanel]);
   const host = useMemo<ViewerHost>(() => ({
     files: source, fileActions, clipboard: browserClipboard, promptContext,
-    navigation: { openFile: open }, environment: { ...appearance, platform: keyboardPlatform() },
-  }), [source, fileActions, promptContext, open, appearance]);
+    navigation: { openFile: open }, environment: { colorScheme: appearance.colorScheme, platform: keyboardPlatform() },
+  }), [source, fileActions, promptContext, open, appearance.colorScheme]);
   const empty = <div className="pointer-events-auto absolute inset-0 z-10 bg-background"><EmptyState icon={FileText} title="No file open" description="Pick one from the tree on the right, or filter by name." /></div>;
   // Unselected while the catalog resolves the file; once it has, a missing file is named by its own crumbs.
   const navigationPath = selectedEntry ? normalizeCadFileQueryParam(cadFileParamForEntry(selectedEntry)) : catalog.hydrated ? normalizeCadFileQueryParam(file) || null : null;
   return <div className="flex h-svh flex-col overflow-hidden"><div className="min-h-0 flex-1">
-    <FileViewer file={file || null} host={host} renderers={renderers} state={state} onStateChange={setState}
+    <FileViewer file={file || null} host={host} renderers={renderers} state={state} onStateChange={onStateChange}
       // The app names itself wherever no crumbs do: no file, or one still resolving.
       leading={<ViewerBrand title={navigationPath ? "" : "text-to-cad"} />} navigationActions={<ViewerLinks />}
-      displayActions={<ViewerAppearance colorSchemePreference={colorSchemePreference} resolvedColorSchemeMode={appearance.colorScheme} onColorSchemePreferenceChange={changeColorScheme} />}
+      displayActions={<ViewerAppearance colorSchemePreference={appearance.preference} resolvedColorSchemeMode={appearance.colorScheme} onColorSchemePreferenceChange={changeColorScheme} />}
       navigationPath={navigationPath}
       onError={error => console.error(error)} presentation={{
         empty: <div className="relative h-full">{empty}</div>,

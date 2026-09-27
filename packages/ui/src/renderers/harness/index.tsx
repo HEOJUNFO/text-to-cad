@@ -1,9 +1,10 @@
 import { createRoot } from 'react-dom/client';
 import { useState } from 'react';
 import { FileViewer } from '@hardcore/ui/file-viewer';
-import type { FileSource, FileViewerState } from '@hardcore/ui/file-viewer';
+import type { FileSource } from '@hardcore/ui/file-viewer';
 import { createCadClient } from '@hardcore/core/client';
-import { createCadPreferences } from '@hardcore/ui/renderers/workspace';
+import { createTabStore, memoryTabRecord, useTabViewerState } from '@hardcore/ui/tab-store';
+import type { TabRecordStorage } from '@hardcore/ui/tab-store';
 import { createStepRenderer } from '@hardcore/ui/renderers/step';
 import { createDxfRenderer } from '@hardcore/ui/renderers/dxf';
 import { createGlbRenderer } from '@hardcore/ui/renderers/glb';
@@ -19,7 +20,18 @@ const file = new URLSearchParams(location.search).get('file') || 'part.stl';
 const captures: { file: string; size: number; type: string; references: unknown }[] = [];
 // What a renderer asked the host to open (a mesh a robot description names, say).
 const opened: string[] = [];
-const preferences = createCadPreferences();
+// The tab store, as a host builds it: over memory by default (a test seeds it through
+// `window.__cadTabRecord`, so "reopen this file" is a real open against a stored record), or over
+// this page's sessionStorage (`?store=session`), so a reload of the page is a reload of the tab
+// and a new page is a new tab. Nothing under `renderers/` touches either.
+const KEY = 'hardcore:tab:harness';
+const sessionRecord = (): TabRecordStorage => ({
+  read: () => JSON.parse(sessionStorage.getItem(KEY) || 'null'),
+  write: record => sessionStorage.setItem(KEY, JSON.stringify(record)),
+});
+const tabStore = createTabStore(new URLSearchParams(location.search).get('store') === 'session'
+  ? sessionRecord() : memoryTabRecord((window as unknown as { __cadTabRecord?: unknown }).__cadTabRecord));
+const preferences = tabStore.settings;
 // The keyboard the browser under test types on, as a web host reports it: the drawing
 // editor's history keys must be the ones its SDK listens for on this machine.
 const keyboardPlatform = /Mac|iPhone|iPad/.test(navigator.platform) ? 'darwin' : /Win/.test(navigator.platform) ? 'win32' : 'linux';
@@ -66,22 +78,18 @@ const a = workspace('one'), b = workspace('two');
 // return path-only placeholders until the selected file is requested.
 await Promise.all([a.client.refresh(), b.client.refresh()]);
 function App() {
-  // A file is normally REOPENED with what a previous session left for it: the open tab, the
-  // display settings, the camera. `__cadViewerState` is how a test starts a page that way, so
-  // "reopen this file" can be a real open against a stored state rather than a remount over a
-  // live client that still holds everything it has already downloaded.
-  const [state, setState] = useState<FileViewerState>(
-    () => (window as unknown as { __cadViewerState?: FileViewerState }).__cadViewerState || { panel: null, panelWidth: 300 });
-  const [otherState, setOtherState] = useState<FileViewerState>({ panel: null, panelWidth: 300 });
+  // Two panes, two roots, one tab: the settings are the tab's, each root's file views its own.
+  const { state, onStateChange } = useTabViewerState(tabStore, a.source.id);
+  const { state: otherState, onStateChange: onOtherStateChange } = useTabViewerState(tabStore, b.source.id);
   const [second, setSecond] = useState(false);
   const [mounted, setMounted] = useState(true);
-  Object.assign(window, { cadHarness: { a, b, state, otherState, preferences, captures, opened, capture: a.capture, selectReference: a.selectReference, second: setSecond, mounted: setMounted } });
+  Object.assign(window, { cadHarness: { a, b, state, otherState, preferences, tabStore, record: tabStore.getSnapshot(), captures, opened, capture: a.capture, selectReference: a.selectReference, second: setSecond, mounted: setMounted } });
   return <div style={{ display: 'flex', width: '1200px', height: '720px' }}>
     <section data-testid="one" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-      {mounted && <FileViewer file={file} host={a.host} renderers={a.renderers} state={state} onStateChange={setState} />}
+      {mounted && <FileViewer file={file} host={a.host} renderers={a.renderers} state={state} onStateChange={onStateChange} />}
     </section>
     {second && <section data-testid="two" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-      <FileViewer file={file} host={b.host} renderers={b.renderers} state={otherState} onStateChange={setOtherState} />
+      <FileViewer file={file} host={b.host} renderers={b.renderers} state={otherState} onStateChange={onOtherStateChange} />
     </section>}
   </div>;
 }

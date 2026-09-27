@@ -9,7 +9,8 @@ import { createViewPromptContext, promptDeliveryError } from "../kit/shell/promp
 import { useWorkspaceDocument } from "../workspace/useWorkspaceDocument.js";
 import { drawingLoadAlert, useDrawingPayload } from "./useDrawingPayload.js";
 import { useDrawingView } from "./useDrawingView.js";
-import { dxfViewStateRecord, readDxfViewState } from "./viewState.js";
+import { readFileView, writeFileView } from "../kit/shell/fileView.js";
+import { drawingTransformCamera, readDrawingTransform } from "./drawingTransform.js";
 
 /**
  * A `.dxf` is a straight render: the drawing, on a canvas, and nothing else.
@@ -45,15 +46,17 @@ function DxfSurface({ view, data }) {
   const { onReady, onNavigationActionsChange, onStateChange } = view;
 
   // ---- the view this file was left at ---------------------------------------
-  const [restored] = useState(() => readDxfViewState(view.state));
-  const storedRef = useRef(JSON.stringify(dxfViewStateRecord(restored, Boolean(restored))));
+  // The file's view (`kit/shell/fileView.js`) with the drawing's transform as its camera and
+  // nothing else: a drawing has no Display settings and no slices of its own.
+  const [restored] = useState(() => readDrawingTransform(readFileView(view.state).camera));
+  const storedRef = useRef(JSON.stringify(writeFileView({ camera: drawingTransformCamera(restored, Boolean(restored)) })));
   const saveTimer = useRef(0);
   const stateChangeRef = useRef(onStateChange);
   stateChangeRef.current = onStateChange;
   // A view that is still the fit stores nothing — `null` is "fit me", and it is
   // what a drawing dropped back to the fit must write, not a stale transform.
   const rememberView = useCallback((transform) => {
-    const record = dxfViewStateRecord(transform, Boolean(transform));
+    const record = writeFileView({ camera: drawingTransformCamera(transform, Boolean(transform)) });
     const serialized = JSON.stringify(record);
     if (serialized === storedRef.current) return;
     storedRef.current = serialized;

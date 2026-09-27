@@ -255,10 +255,9 @@ describe("the explorer strip", () => {
     const { open } = useExplorer.getState();
     const closing = open("file");
     const staying = open("file");
-    const key = (tabId: string) => JSON.stringify(["src", tabId]);
-    localStorage.setItem("hardcore.fileViewer.v1", JSON.stringify({ [key(closing!.id)]: { a: 1 }, [key(staying!.id)]: { b: 2 } }));
+    localStorage.setItem("hardcore.tabs.v1", JSON.stringify({ [closing!.id]: { a: 1 }, [staying!.id]: { b: 2 } }));
     useExplorer.getState().close(closing!.id);
-    expect(JSON.parse(localStorage.getItem("hardcore.fileViewer.v1")!)).toEqual({ [key(staying!.id)]: { b: 2 } });
+    expect(JSON.parse(localStorage.getItem("hardcore.tabs.v1")!)).toEqual({ [staying!.id]: { b: 2 } });
   });
 
   it("renumbers order after a close so the strip stays contiguous", () => {

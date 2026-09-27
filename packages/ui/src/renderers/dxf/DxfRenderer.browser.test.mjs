@@ -383,10 +383,11 @@ test('the view a person chose comes back when the tab is reopened', async (t) =>
   const chosen = inkBox(await frame(pane));
 
   const key = JSON.stringify(['sample.dxf', 'dxf']);
-  await page.waitForFunction(stateKey => window.cadHarness.state.renderers?.[stateKey]?.kind === 'dxf-view', key);
+  await page.waitForFunction(stateKey => window.cadHarness.state.renderers?.[stateKey]?.camera?.scale > 0, key);
   const record = await page.evaluate(stateKey => window.cadHarness.state.renderers[stateKey], key);
-  assert.equal(record.version, 1);
-  assert.deepEqual(Object.keys(record.transform).sort(), ['offsetX', 'offsetY', 'scale']);
+  assert.equal(record.version, 2);
+  assert.deepEqual(Object.keys(record.camera).sort(), ['offsetX', 'offsetY', 'scale'], 'the drawing\'s transform is its camera');
+  assert.deepEqual([record.display, record.renderer], [null, {}], 'and a drawing has nothing else');
 
   await page.evaluate(() => window.cadHarness.mounted(false));
   await canvasOf(pane).waitFor({ state: 'detached' });

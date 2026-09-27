@@ -146,8 +146,8 @@ async function open(t, file, { panel = true } = {}) {
     async openPosition() {
       await robot.tool('Position').click();
     },
-    // The record is written a moment after a tool change; a test that counts renders waits it out first.
-    savedTool: tool => page.waitForFunction(wanted => Object.values(window.cadHarness.state.renderers || {}).some(record => record?.tool === wanted), tool),
+    // The view is written a moment after a change; a test that counts renders waits it out first.
+    settled: () => page.waitForTimeout(400),
     async type(name, value, unit) { await robot.openPosition(); await robot.jointField(name, unit).fill(String(value)); await robot.jointField(name, unit).press('Enter'); },
     pressedRows: () => pane.locator('[aria-label="Robot tree area"] button[aria-pressed="true"]').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))),
     // A selection is React state: it is on screen a render after whatever changed it.
@@ -309,7 +309,7 @@ test('a robot can enter Position with sidebar controls: knobs drag joints, the c
   };
 
   // Dragging a knob turns its joint and leaves the camera where it was.
-  await robot.savedTool('pose');
+  await robot.settled();
   const framed = await robot.camera();
   const before = await robot.stats();
   const { shoulder } = await robot.handles();
@@ -618,17 +618,18 @@ test('a pose and the open panel survive closing the file, and a pose is dropped 
   await robot.type('lift', 0.2, 'm');
   // The last write lands in the record although it was never rendered: the record reads the pose when it is written.
   await robot.type('nod', 12);
-  // The file closes with its Display settings open: they are not a tool, so the record keeps Position.
+  // The file closes with its Display settings open: they are not a tool, and the tool is not saved either.
   await robot.toggle('cad-display').click();
   await pane.page().locator('[data-display-popover]').waitFor();
   await page.evaluate(() => window.cadHarness.mounted(false));
-  await page.waitForFunction(() => Object.values(window.cadHarness.state.renderers || {}).some(record => record?.renderer?.jointValues?.nod === 12));
+  await page.waitForFunction(() => Object.values(window.cadHarness.state.renderers || {}).some(record => record?.renderer?.pose?.value?.jointValues?.nod === 12));
   const record = await page.evaluate(() => window.cadHarness.state.renderers[JSON.stringify(['arm.urdf', 'robot'])]);
-  assert.deepEqual([record.tool, record.renderer.jointValues.shoulder, record.renderer.jointValues.lift], ['pose', 25, 0.2]);
-  assert.equal('inspectorTab' in record, false, 'the record keeps no open tab: there are none');
-  assert.match(record.renderer.signature, /arm\.urdf-1$/);
+  assert.deepEqual([record.renderer.pose.value.jointValues.shoulder, record.renderer.pose.value.jointValues.lift], [25, 0.2]);
+  assert.deepEqual(Object.keys(record.renderer), ['pose'], 'one slice: the pose, and no selection or tree');
+  assert.equal('tool' in record, false, 'the view keeps no tool');
+  assert.match(record.renderer.pose.signature, /arm\.urdf-1$/);
   await page.evaluate(() => window.cadHarness.mounted(true));
-  // Position is never restored into (`ROBOT_TOOL_RESTORE`): the file reopens in Select, Display shut.
+  // The tool is never saved: the file reopens in Select, Display shut.
   await robot.linksPanel().waitFor();
   assert.deepEqual(await robot.toolNames(), ['Select:true', 'Position:false']);
   assert.equal(await pane.page().locator('[data-display-popover]').count(), 0, 'it reopens with Display shut');
@@ -718,7 +719,7 @@ test('a pose step costs the same on a long chain: one matrix, no component, a fe
   const { page, pane } = robot;
   await robot.openPosition();
   await page.waitForFunction(count => window.__cadJointHandles?.().length === count, CHAIN_LINKS - 1);
-  await robot.savedTool('pose');
+  await robot.settled();
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Performance.enable');
   const script = async () => (await cdp.send('Performance.getMetrics')).metrics.find(metric => metric.name === 'ScriptDuration').value;

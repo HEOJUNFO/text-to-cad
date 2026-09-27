@@ -1,17 +1,21 @@
-import { mergeChangedRecords, type FileViewerState } from "@hardcore/ui/file-viewer";
-import { useCallback, useMemo, useState } from "react";
+import type { FileViewerState } from "@hardcore/ui/file-viewer";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { useExplorer, useTree } from "@renderer/state/explorer";
 import type { ExplorerRoot } from "@shared/types";
-import { readViewState as read, writeViewState as write, viewStateKey } from "./viewStateStore";
+import { desktopTabStore } from "./tabStore";
 
-/** Keep existing panel/width/tree preferences; add one versioned root-scoped renderer record. */
+/**
+ * `FileViewer`'s controlled state for one desktop tab: the explorer's chrome (the open panel from
+ * the tab, the column's width from the window, the root's open folders from the tree) and the
+ * tab's file views from its tab store.
+ */
 export function useDesktopViewState(sourceId: string, tabId: string, root: ExplorerRoot, panel: string | null) {
-  // View choices belong to this persisted tab; immutable geometry caches still share resources.
-  const stateKey = viewStateKey(sourceId, tabId);
+  const store = desktopTabStore(tabId);
+  const record = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const panelWidth = useExplorer((state) => state.panelWidth);
   const { open } = useTree(root);
-  const [stored, setStored] = useState(() => ({ id: stateKey, renderers: read(stateKey) }));
-  const renderers = useMemo(() => stored.id === stateKey ? stored.renderers : read(stateKey), [stateKey, stored]);
+  // View choices belong to this persisted tab; immutable geometry caches still share resources.
+  const renderers = useMemo(() => store.files.forRoot(sourceId), [store, record, sourceId]);
   const state = useMemo<FileViewerState>(() => ({ panel, panelWidth, expandedDirectories: [...open], renderers }), [panel, panelWidth, open, renderers]);
   const onStateChange = useCallback((next: FileViewerState) => {
     const explorer = useExplorer.getState();
@@ -23,10 +27,8 @@ export function useDesktopViewState(sourceId: string, tabId: string, root: Explo
       const expanded = new Set(next.expandedDirectories);
       return previous.size === expanded.size && [...previous].every((directory) => expanded.has(directory)) ? previous : expanded;
     });
-    if (next.renderers !== renderers) {
-      const value = mergeChangedRecords(read(stateKey), renderers, next.renderers ?? {});
-      setStored({ id: stateKey, renderers: value }); write(stateKey, value);
-    }
-  }, [stateKey, root, tabId, renderers, state]);
+    // Only what this view changed lands, so a stale view never overwrites another's entries.
+    if (next.renderers !== renderers) store.files.merge(sourceId, renderers, next.renderers ?? {});
+  }, [store, sourceId, root, tabId, renderers, state]);
   return { state, onStateChange };
 }

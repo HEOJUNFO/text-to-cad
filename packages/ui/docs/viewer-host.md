@@ -34,7 +34,8 @@ are for reading and maintaining the contracts.
 | `PromptContextPort`, bundles, references and delivery receipts | [Prompt types](../../core/src/prompt/types.ts) | `@hardcore/core/prompt` |
 | `CadWorkspaceService`, `CadResourceProvider`, worker tickets | [CAD service types](../../core/src/client/types.ts) | `@hardcore/core/client` |
 | `StepRendererSlots`, selection props, `CadLiveBinding` | [STEP registration](../src/renderers/step/index.ts) | `@hardcore/ui/renderers/step` |
-| `CadPreferenceSource`, `createCadPreferences`, `createStoredCadPreferences` | [Viewer preferences](../src/renderers/workspace/preferences.ts) | `@hardcore/ui/renderers/workspace` |
+| `TabStore`, `TabRecordStorage`, `createTabStore`, `useTabViewerState` (the tab's one store: its settings, its file views, and `FileViewer`'s state from both) | [Tab store](../src/tab-store/tabStore.ts), [the record](../src/tab-store/tabRecord.ts) | `@hardcore/ui/tab-store` |
+| `CadPreferenceSource`, `createCadPreferences` (the tab's settings as renderers read them) | [Viewer preferences](../src/renderers/workspace/preferences.ts) | `@hardcore/ui/renderers/workspace` |
 | `DxfRendererOptions` (2D drawings; declares no panel, and declines every camera, display and selection command) | [DXF registration](../src/renderers/dxf/index.ts) | `@hardcore/ui/renderers/dxf` |
 | `GlbRendererOptions`, `LiveViewBinding`, `LiveViewController` | [GLB registration](../src/renderers/glb/index.ts), [live binding](../src/renderers/kit/shell/liveBinding.ts) | `@hardcore/ui/renderers/glb` |
 | `MeshRendererOptions` (STL, 3MF), `LiveViewBinding`, `LiveViewController` | [Mesh registration](../src/renderers/mesh/index.ts) | `@hardcore/ui/renderers/mesh` |
@@ -57,10 +58,10 @@ its own tool stack over the viewport (`settings-ui.md#the-tool-stack`), and noth
 does opens, closes or turns the host's panel column. FileViewer still hands every
 renderer those props — they are the generic panel contract, which the file tree and
 the desktop markdown's source view use. A host's stored `panel` naming the retired CAD
-Settings panel (`cad-file`) resolves as nothing open. The tool stack's layout — its width, the
-caps a person dragged the tree, Position and Reference panels to, and the folded panels —
-is one viewer preference the host stores with `createStoredCadPreferences` (key
-`cad-viewer:tool-stack:v1`), beside the orbit speed.
+Settings panel (`cad-file`) resolves as nothing open. The tool stack's layout — the
+sizes a person dragged the tree and Position panels to, and the folded panels — is one
+of the tab's settings (`settings.toolStack` of the tab record, `@hardcore/ui/tab-store`),
+beside the orbit speed and playback.
 
 ## Preview and renderer navigation actions
 
@@ -69,9 +70,9 @@ for it and a host cannot start or observe it. It fills the scene below the
 host's navbar and beside its panel column, which both stay as they are (the column can
 still be opened and shut). It never uses the browser Fullscreen API. The shell saves the tools view's camera, fits a preview camera and restores
 the tools view's exact pose on exit; nothing of preview is persisted. Orbit
-starts by default, with its speed from `CadPreferences.orbit`, and a file's routine
-plays on entry only when `CadPreferences.animation.autoplay` is on (both the app's
-preference store). The rules are in
+starts by default, with its speed from the tab's `settings.orbit`, and a file's routine
+plays on entry only when the tab's `settings.playback.autoplay` is on (both the tab
+store's, read as `CadPreferences`). The rules are in
 [settings-ui.md](settings-ui.md#camera-animation-and-preview).
 
 A renderer can publish `FileNavigationAction[]` through
@@ -199,7 +200,8 @@ and zoom. Display Reset restores the selected preset and disables both tools.
 `resetCamera` frames the model again without turning the camera — exactly what
 STEP's context-menu "Zoom to fit" does. Cube shortcuts change only orientation.
 
-A stored file record never holds a camera: fresh mounts fit the model. Live
+A file's view holds its camera: a mount restores it in place of the fit, and fits
+when there is none. Live
 commands reject retired field names rather than maintaining a second display
 authority. Unavailable selectors fail explicitly; topology is not silently
 loaded. Mutations return a view snapshot after the React frame; a mode switch
@@ -220,20 +222,31 @@ add, delete and move notifications have distinct meanings. Desktop reconciles
 all affected tabs; web is a read-only CAD catalog, with no arbitrary filesystem
 access or editing.
 
-State remains controlled through FileViewer props. Apps merge changed chrome
-fields and document/renderer slices into the current root state; a stale view
-must not overwrite another view's independent fields (both apps merge renderer
-records with `mergeChangedRecords`). Versioned pose and display state restores
-through the same schemas; camera transforms are never stored, so reopening or
-refreshing fits the file anew. Material appearance is source-owned and
-read-only. Global preferences belong to the app/window, document snapshots to workspace/path,
-and live selection/scene ownership to the mounted view.
+State remains controlled through FileViewer props, and everything the viewer keeps
+is the tab's (`@hardcore/ui/tab-store`): one record per tab, `{ version, settings,
+files }`, thrown out with the tab and kept across a reload. The host supplies where it
+lives through one adapter, `TabRecordStorage` — a synchronous read and write of the
+whole record: the web over `sessionStorage`, the desktop over its per-tab store — and
+the package owns the record's shape, version and normalization. `settings` is
+tab-wide (the file tree's width and expansion, the tool stack's layout, the orbit
+speed, playback, the appearance) and is what every renderer reads as its preferences;
+`files` holds each opened file's view under `[root, path, renderer]`, the fifty most
+recently written. A view is `{ camera, display, renderer }` (`kit/shell/fileView.js`):
+the camera is restored in place of the open-time fit, the display settings with their
+Clip and Explode, and the renderer's own slices each behind the signature it was
+written against — a slice that no longer fits the file on screen is dropped, the
+camera and the display never. Not in it, and started afresh on every open: the tool
+in hand, the selection, measurements, ink, preview and a routine's time. Apps merge
+what a view changed into the store (`files.merge`); a stale view must not overwrite
+another view's entries. Material appearance is source-owned and read-only. Live
+selection and scene ownership belong to the mounted view.
 
-A mounted view writes its record shortly after each change and once more when it
-unmounts; nothing saves document content or promises an asynchronous operation
-will finish during page exit. Web owns pagehide (which unmounts the app), focus,
-visibility, history and development reload. Desktop owns window/runtime
-lifecycle and IPC.
+A mounted view writes its view shortly after each change (the camera on every move,
+debounced) and once more when it unmounts; the store writes through synchronously, so
+what the tab last saw is what a reload restores. Nothing saves document content or
+promises an asynchronous operation will finish during page exit. Web owns pagehide
+(which unmounts the app), focus, visibility, history and development reload. Desktop
+owns window/runtime lifecycle and IPC.
 
 The dependency checker enforces host boundaries, including worker source. The
 browser harness mounts real renderers with explicit fake hosts; app tests cover

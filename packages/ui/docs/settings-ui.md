@@ -24,8 +24,7 @@ closes or turns it.
 
 | The host (web, desktop) supplies | The shared UI decides |
 | --- | --- |
-| Storage of `FileViewerState`: open panel, width, expanded directories, renderer records | What a record holds, when it is written, what is never stored |
-| Storage of the viewer preferences: orbit speed and the tool stack's layout (its width, the panels' caps, the folded panels) | Their format and bounds (`createStoredCadPreferences`) |
+| Where the tab record lives (`TabRecordStorage`: the web's sessionStorage, the desktop's per-tab store) | The record: its settings (the tree, the tool stack's layout, the orbit speed, playback, the appearance) and each file's view, what is written when, and what is never stored (`@hardcore/ui/tab-store`, `kit/shell/fileView.js`) |
 | `leading`, `navigationActions` and `displayActions` (an appearance control) | The nav row's order, the snapshot action and the panel toggles |
 | `host.files`, `fileActions`, `navigation`, `clipboard`, `promptContext` | When a copy, capture or open happens and what it carries |
 | `host.environment`: color scheme, keyboard `platform`, `reducedMotion` | How the chrome honours them |
@@ -263,12 +262,12 @@ stack.
   reference on show — the one browsed to, with several selected — as Copy
   Reference copies it) and an X that clears the selection; a kept panel's X
   removes the effect.
-- **The layout is the person's.** The sizes and the folded panels are one viewer
-  preference the host keeps across files (`CadPreferences.toolStack`:
+- **The layout is the person's.** The sizes and the folded panels are one of the
+  tab's settings, across its files (`CadPreferences.toolStack`:
   `{ panels: { [panel id]: { width?, height? } }, collapsed: { [panel id]: boolean } }`,
-  stored beside the orbit speed). `panels` holds only what a person set, by
+  kept beside the orbit speed). `panels` holds only what a person set, by
   resizable panel; `collapsed` only what differs from a panel's start (the SDF
-  panel starts folded). Resetting the preference (a cleared store) puts every
+  panel starts folded). A new tab (a cleared record) puts every
   panel back at the one width and its default cap. Every size is written back
   once, when the pointer lets go (or per key), never per pointer move.
 - **Surfaces.** Two, defined once (`floatingSurface.js`), with one border: the
@@ -432,9 +431,11 @@ Clearing the selection or leaving isolation never leaves a stale Copy Reference.
 ## Camera, animation and preview
 
 Cube face, edge and corner clicks turn the view and keep pan and zoom; dragging
-the cube orbits. Opening a file, or reloading the page, fits the model: the
-camera is never persisted. Display settings, the tool, the pose and Explode/Clip
-are, per file.
+the cube orbits. Opening a file, or reloading the page, restores the camera the
+file was left at in the tab, and fits it only when there is none. Display settings,
+Explode/Clip, the pose, hidden and isolated parts and the tree's expansion come back
+with it; the tool, the selection and measurements never do — every open starts in
+the default tool with nothing selected.
 
 Zoom to Fit recenters and frames the whole original model at the current angle;
 Zoom to Selection frames the selection and is unavailable without one. Both are
@@ -457,10 +458,12 @@ fade: movement wakes them, and hovering their area, an open menu or the Display
 popover holds them.
 
 Routines play in preview alone: there is no Animate tool. Entering preview
-starts the routine when Autoplay is on (off by default, the person's across
+starts the routine when Autoplay is on (off by default, the tab's across its
 files); leaving it stops the routine and puts the model back at rest, keeping
-the Routine, Speed and Loop for the next time. Orbit is not an animation
-setting.
+the Routine, Speed and Loop for the next time while the file is open. A Speed or
+Loop chosen here is the tab's: every routine of every file plays with it from then
+on; until one is chosen, each routine's own apply. Nothing of the routine — which
+one, its time, whether it plays — is saved. Orbit is not an animation setting.
 
 Previewing turns off picks, hover, selection highlights, recognition, Draw,
 Measure, joint handles and Position as tools, and Explode and Clip, without

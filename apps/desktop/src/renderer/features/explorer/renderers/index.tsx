@@ -8,7 +8,7 @@ import { createRobotRenderer } from "@hardcore/ui/renderers/robot";
 import type { ExplorerRoot } from "@shared/types";
 import { CadRuntimeError, createDesktopCadConnection, DesktopCadFailure } from "../adapters/cadRuntime";
 import type { DesktopCadConnection } from "../adapters/cadRuntime";
-import { desktopCadPreferences } from "../adapters/cadPersistence";
+import { desktopTabStore } from "../adapters/tabStore";
 import { createDesktopCadCommands } from "../host/cadCommands";
 import { codeRenderer } from "./code";
 import { imageRenderer } from "./image";
@@ -25,11 +25,11 @@ import { unsupportedRenderer } from "./unsupported";
 export function createDesktopRenderers(projectId: string, root: ExplorerRoot, tabId: string, borrowedConnection?: DesktopCadConnection) {
   const ownedConnection = borrowedConnection ? null : createDesktopCadConnection(projectId, root);
   const connection = borrowedConnection ?? ownedConnection!;
-  // Every viewer renderer shares this tab's backend connection, preferences, host commands and live binding:
-  // a tab shows one file, so whichever renderer that file selects is the one that binds them.
+  // Every viewer renderer shares this tab's backend connection, its tab store's settings, host commands and
+  // live binding: a tab shows one file, so whichever renderer that file selects is the one that binds them.
   const services = {
     client: (context: PrepareContext) => connection.acquire(context),
-    preferences: desktopCadPreferences(),
+    preferences: desktopTabStore(tabId).settings,
     commands: createDesktopCadCommands(projectId, root, tabId),
     live: desktopCadLive(tabId, { projectId, root }),
   };

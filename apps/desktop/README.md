@@ -31,13 +31,17 @@ registers and so live beside it in `features/explorer/renderers/` rather than in
 file-tab interface is shared with web. Projects, sessions, browser/terminal/
 review tabs, agent integrations and native services remain in this app.
 Neither shared package imports app source, and desktop imports no web source.
-The host keeps preview's orbit speed and Autoplay in one window-wide store, built
-with the shared `createStoredCadPreferences` over `localStorage` (keys
-`cad-viewer:orbit:v1` and `cad-viewer:animation:v1`; `adapters/cadPersistence.ts`).
-Active and newly opened roots share those preferences; renderer records and the open panel belong to the
-tab. The renderer records live in `hardcore.fileViewer.v1`, keyed
-`[sourceId, tabId]`, merged with the shared `mergeChangedRecords`, and forgotten
-when their tab closes for good (`adapters/viewStateStore.ts`).
+Every file tab has its own tab record (`@hardcore/ui/tab-store`): the viewer's
+settings — preview's orbit speed, playback, the tool stack's layout — and each
+file's view (camera, Display settings, the renderer's own slices), one entry per
+tab in `hardcore.tabs.v1` (localStorage), kept across a window reload and a
+restart and forgotten when the tab closes for good (`adapters/tabStore.ts`;
+`desktopTabStore(tabId)` is what the renderers and the file tab share). Nothing is
+window-wide: a new tab starts from the defaults, and a preference set in one tab
+is that tab's. The explorer's own chrome stays the explorer's — the panel
+column's width (window-wide), each root's open folders, the open panel (with the
+tab in the session strip) and the theme (an app setting in `settings`) — which is
+why the record's `fileTree` and `appearance` go unused here.
 
 ## Dev
 
