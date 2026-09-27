@@ -1,4 +1,4 @@
-// Global viewing preference: whether taking up Animate starts the routine playing. The person's,
+// Global viewing preference: whether entering preview starts the routine playing. The person's,
 // in every file, like the orbit speed; the host supplies storage, and importing this module has
 // no environmental effects.
 export const ANIMATION_STORAGE_KEY = "cad-viewer:animation:v1";

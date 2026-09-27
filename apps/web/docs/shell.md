@@ -8,7 +8,7 @@ second shell from them.
 Web supplies a read-only catalog source, the viewer renderer registrations, URL
 navigation, browser persistence and appearance. It fills FileViewer's slots with
 its own brand (`leading`), release links (`navigationActions`) and appearance
-control (`displayActions`); the nav row, toolbar, sidebars and fullscreen are the
+control (`displayActions`); the nav row, toolbar, sidebars and preview are the
 shared package's. The root workspace builds UI's ESM, declarations, CSS and
 worker assets before building the app; no source alias or JSX loader is needed.
 

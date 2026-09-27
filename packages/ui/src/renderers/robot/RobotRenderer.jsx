@@ -148,8 +148,8 @@ function RobotSurface({ view, data }) {
   // A selection exists only while Select is the tool: leaving it drops the selection.
   const clearSelection = selection.clear;
   useEffect(() => { if (toolMode !== ROBOT_TOOL.SELECT) clearSelection(); }, [toolMode, clearSelection]);
-  const poseActive = !shell.presenting && posable && Boolean(scene) && toolMode === ROBOT_TOOL.POSE;
-  const selectActive = !shell.presenting && Boolean(scene) && toolMode === ROBOT_TOOL.SELECT;
+  const poseActive = !shell.previewing && posable && Boolean(scene) && toolMode === ROBOT_TOOL.POSE;
+  const selectActive = !shell.previewing && Boolean(scene) && toolMode === ROBOT_TOOL.SELECT;
 
   // Choosing a link or an object under another tool returns to Select first; its Links and the
   // Reference for what was chosen are Select's panels, so they are then on screen.
@@ -187,7 +187,7 @@ function RobotSurface({ view, data }) {
       onSelect: () => { if (!poseActive) selectTool(ROBOT_TOOL.POSE); } }) : null
   ].filter(Boolean);
   // The tool stack: Select's Links and Reference (and an SDF's own metadata), then Position's joints.
-  const linksShown = !shell.presenting && toolMode === ROBOT_TOOL.SELECT;
+  const linksShown = !shell.previewing && toolMode === ROBOT_TOOL.SELECT;
   const toolPanels = <>
     <LinksSection key={modelKey} active={linksShown} description={robot?.description || null} components={robot?.components}
       parts={robot?.parts} selection={treeSelection} groupNamesByLink={groupNamesByLink} meshPath={meshPath} onOpenFile={view.onOpenFile} />

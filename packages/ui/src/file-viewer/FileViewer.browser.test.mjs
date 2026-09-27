@@ -170,7 +170,7 @@ test("the panel column's width stays bounded, and no renderer can suspend the co
   const handle = page.getByRole("separator", { name: "Resize files panel" });
   await page.waitForFunction(() => document.querySelector('[role="separator"][aria-label="Resize files panel"]')?.getAttribute("aria-valuenow") !== "300");
   assert.equal(await handle.getAttribute("aria-valuenow"), await handle.getAttribute("aria-valuemax"));
-  // The column is the host's: a renderer is handed no way to hide it (fullscreen leaves it as it is).
+  // The column is the host's: a renderer is handed no way to hide it (preview leaves it as it is).
   assert.equal(await page.evaluate(() => "onPanelVisibilityChange" in window.harness.rendererCallbacks.get("root-a")), false);
   await page.evaluate(() => window.harness.open("next.txt"));
   await waitValue("root-a next");

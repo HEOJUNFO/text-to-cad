@@ -5,7 +5,7 @@
  * scene and a dark one alike.
  *
  * `FLOATING_SURFACE_CLASS`: the popovers and menus opened over the viewport (a mode menu, the
- * viewport's context menu, Display's settings, fullscreen's settings) — small, read while they are
+ * viewport's context menu, Display's settings, preview's Playback settings) — small, read while they are
  * up, and opaque enough that their text never competes with the model.
  * `FLOATING_CHROME_SURFACE_CLASS`: the tool strip and each panel of the tool stack, which stay up
  * beside the model for as long as a file is open: light enough, and barely blurred, that the model

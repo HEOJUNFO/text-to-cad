@@ -319,7 +319,7 @@ test('a pane that is resized re-fits only while the view is still the one it ope
   assert.deepEqual(errors, []);
 });
 
-test('a DXF has no panels of its own, no tools and no fullscreen', async (t) => {
+test('a DXF has no panels of its own, no tools and no preview', async (t) => {
   const { open } = await serveHarness(t);
   const { page, pane, errors } = await open('sample.dxf');
   await drawn(pane);
@@ -331,7 +331,7 @@ test('a DXF has no panels of its own, no tools and no fullscreen', async (t) => 
   assert.deepEqual(await panels(), ['Show files:false'], 'the file tree, one press away, and nothing else');
   assert.equal(await pane.locator('[data-tool-panel]').count(), 0, 'and no tool panel: a drawing has no tools');
   assert.equal(await pane.getByRole('group', { name: 'Interaction tools' }).count(), 0, 'no tool strip');
-  for (const name of ['Orbit', 'Draw', 'Select', 'Measure', 'Position', 'Animate', 'Fullscreen']) {
+  for (const name of ['Orbit', 'Draw', 'Select', 'Measure', 'Position', 'Animate', 'Preview']) {
     assert.equal(await pane.getByRole('button', { name, exact: true }).count(), 0, name);
   }
   for (const name of ['Switch to 2D view', 'Switch to 3D view']) {

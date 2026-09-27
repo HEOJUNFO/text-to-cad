@@ -27,7 +27,7 @@ const COARSE_TAP_SLOP_PX = 12;
  *   element and `commitScene()` belong to a renderer that draws its own layer into the
  *   viewport or publishes a scene that changed in place.
  * @param {import("../../scene.js").KitScene | null} options.scene
- * @param {boolean} options.enabled  The renderer's selecting tool is active (never in fullscreen, never under Draw).
+ * @param {boolean} options.enabled  The renderer's selecting tool is active (never in preview, never under Draw).
  * @param {(hit: object | null, modifiers: { multiSelect: boolean }) => void} options.onPick  A tap. Shift adds.
  * @param {(hit: object | null) => void} [options.onHover]  The pick under a resting fine pointer changed.
  * @param {(left: object | null, right: object | null) => boolean} [options.sameHit]  When two hover hits are

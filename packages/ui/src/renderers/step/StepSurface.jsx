@@ -3,7 +3,6 @@ import { buildEdgeChainGraph } from "./workbench/edgeChainSelection.js";
 
 import { MeasureModeIcon, MeasureModeMenu, SelectModeIcon, SelectModeMenu } from "./components/workbench/SelectionModes.jsx";
 import { NO_CONNECTED_SELECTION, connectedSelectionApplies } from "./workbench/selectionFilter.js";
-import { CirclePlay } from "lucide-react";
 import { PositionToolIcon, positionValuesAreDefault } from "../kit/inspector/kinematicsControls.jsx";
 import { filterSelectionReferences, toggleReferenceGroupSelection, connectedReferenceIds } from "./workbench/selectionFilter.js";
 import { buildTangentFaceGraph } from "./workbench/tangentFaceSelection.js";
@@ -16,7 +15,7 @@ import { VIEWER_PICK_MODE } from "@hardcore/core/lib/viewer/constants.js";
 import { runtimeModelKeyMatches, toNumber } from "@hardcore/core/lib/viewer/modelRuntime.js";
 import { normalizePartIdList } from "@hardcore/core/lib/viewer/partVisualState.js";
 import RendererShell from "../kit/shell/RendererShell.jsx";
-import { presentationIsPending, usePresentationReport, usePresentationState, useRendererShell } from "../kit/shell/useRendererShell.js";
+import { presentationIsPending, usePresentationReport, usePreviewState, useRendererShell } from "../kit/shell/useRendererShell.js";
 import { readShellState, shellPresentationKey } from "../kit/shell/shellState.js";
 import StepSceneLayers, { releaseStepRuntime } from "./scene/StepSceneLayers.jsx";
 import { displayRecordExplodedViewTranslation } from "./scene/useStepExplode.js";
@@ -44,7 +43,7 @@ import { useCadWorkspaceSelection } from "./components/workbench/hooks/useCadWor
 import { useCadWorkspaceSelectors } from "./components/workbench/hooks/useCadWorkspaceSelectors.js";
 import { useAppliedViewSettings } from "../kit/view-settings/useAppliedViewSettings.js";
 import { useViewSettings } from "../kit/view-settings/useViewSettings.js";
-import { presentationDisplaySettings } from "../kit/view-settings/viewerDisplaySettings.js";
+import { VIEWER_RENDER_PROFILE, sceneForRenderProfile } from "../kit/viewport/renderProfile.js";
 import {
   ASSET_STATUS,
   CAD_TOOL_MODES,
@@ -280,10 +279,12 @@ function StepSurfaceBody({ view, data }) {
   // handed a scene, and it runs in this function, above the viewport it mounts.
   const [stepScene] = useState(() => createStepScene(THREE));
   const viewUpdate = useAppliedViewSettings(desiredScene, selectedKey, viewerRef, viewSettingsStore);
-  // Fullscreen, held here because the gates below run before the shell hook; the shell writes it.
-  const presentation = usePresentationState();
-  const presenting = presentation.presenting;
-  const resolvedScene = useMemo(() => presenting ? { ...viewUpdate.scene, display: presentationDisplaySettings(viewUpdate.scene.display) } : viewUpdate.scene, [viewUpdate.scene, presenting]);
+  // Preview, held here because the gates below run before the shell hook; the shell writes it.
+  const preview = usePreviewState();
+  const previewing = preview.previewing;
+  // The scene as this mode's render profile draws it: preview raises the LOD's detail with the rest.
+  const resolvedScene = useMemo(() => sceneForRenderProfile(viewUpdate.scene,
+    previewing ? VIEWER_RENDER_PROFILE.PREVIEW : VIEWER_RENDER_PROFILE.TOOLS), [viewUpdate.scene, previewing]);
   const [hoveredListPartId, setHoveredListPartId] = useState("");
   const [hoveredModelPartId, setHoveredModelPartId] = useState("");
   const [stepUpdateInProgress, setStepUpdateInProgress] = useState(false);
@@ -856,13 +857,13 @@ function StepSurfaceBody({ view, data }) {
     setHoveredModelPartId("");
   }, []);
 
-  // A routine that failed to load has no Animate tool to say so on: it is one of the file's
+  // A routine that failed to load has no playbar to say so on: it is one of the file's
   // Issues instead.
   const annotationAlert = useMemo(() => (selectedAnimationError ? {
     severity: "warning", blocking: false,
     summary: "Animation unavailable",
     title: "Animation unavailable",
-    message: "The geometry is visible, but its animation could not be loaded, so the Animate tool is not offered.",
+    message: "The geometry is visible, but its animation could not be loaded, so preview has no routine to play.",
     details: `File: ${fileKey(selectedEntry)}\n${selectedAnimationError}`,
   } : null), [selectedAnimationError, selectedEntry]);
   const selectedFileStatusItems = useMemo(() => (
@@ -963,7 +964,7 @@ function StepSurfaceBody({ view, data }) {
 
   // A drawing lives in the mounted editor and nowhere else, and a routine belongs
   // to its file, so a file change always ends those sessions: neither Draw nor
-  // Animate carries over onto another file.
+  // preview carries over onto another file.
   useEffect(() => {
     setViewerRuntimeAlert(null);
   }, [selectedKey]);
@@ -1459,12 +1460,11 @@ function StepSurfaceBody({ view, data }) {
   const displayedResourceRef = useRef(promptResource);
   if (!retainingPreviousStepMesh) displayedResourceRef.current = promptResource;
   const viewportAnimation = motion.animationControls;
-  // Animate is one mode with two ways in: the tool, and fullscreen, which is that
-  // tool with the rest of the viewer put away (or no tool, without animation).
+  // Routines play in preview mode alone: the viewer with its tools put away. There is no
+  // Animate tool — the regular view is for editing, preview for watching.
   const animationAvailable = animationControlsHaveContent(viewportAnimation);
-  const animateToolActive = !presenting && animationAvailable && tabToolMode === TAB_TOOL_MODE.ANIMATE;
-  const animateModeActive = animationAvailable && (presenting || animateToolActive);
-  // A routine owns the model's pose only inside the mode. Outside it the clip is
+  const animateModeActive = animationAvailable && previewing;
+  // A routine owns the model's pose only inside preview. Outside it the clip is
   // released — stopped, rewound, the pose back with Position — so selection,
   // topology and Position never meet an animated model and need no special case
   // for one. Of the playback only the routine, speed and loop survive: coming back plays
@@ -1477,7 +1477,7 @@ function StepSurfaceBody({ view, data }) {
   // so sliders, presets, Reset and a handle up the chain all carry them along.
   const stepPoseDefinition = selectedStepParameterRuntime?.definition || null;
   const poseAvailable = stepPosableDofs(stepPoseDefinition).length > 0;
-  const poseToolActive = !presenting && poseAvailable && tabToolMode === TAB_TOOL_MODE.POSE;
+  const poseToolActive = !previewing && poseAvailable && tabToolMode === TAB_TOOL_MODE.POSE;
 
   const shellRef = useRef(null);
   // The two things only a STEP can answer about its viewport. Both read the live runtime's own
@@ -1540,7 +1540,7 @@ function StepSurfaceBody({ view, data }) {
   // and what this renderer's load IS depends on the resolved view above it. Nothing about
   // hook order says otherwise — there is one function, and no early return in it.
   const shell = useRendererShell({
-    presentation,
+    preview,
     view, services, resource: promptResource, modelKey: selectedKey, revisionKey: presentationRevisionKey,
     features: viewFeatures, toolModes: CAD_TOOL_MODES, tool: { mode: tabToolMode, set: setTabToolMode },
     scene: viewportScene,
@@ -1560,8 +1560,8 @@ function StepSurfaceBody({ view, data }) {
       currentPreview: currentPreviewVisible,
       finding: !catalogHydrated || selectedCatalogPending
     },
-    // The playbar belongs to the Animate mode here, not to every file with routines: a STEP
-    // takes Animate UP, and leaving it puts the model back at rest.
+    // The playbar belongs to preview here, not to every file with routines: leaving preview
+    // puts the model back at rest.
     animation: animateModeActive ? viewportAnimation : null,
     live: {
       commands: stepLiveCommands,
@@ -1584,9 +1584,6 @@ function StepSurfaceBody({ view, data }) {
   shellRef.current = shell;
   const reportActionError = shell.reportActionError;
 
-  useEffect(() => {
-    if (!animationAvailable && shellRef.current?.toolMode === TAB_TOOL_MODE.ANIMATE) shellRef.current.selectTool(TAB_TOOL_MODE.REFERENCES);
-  }, [animationAvailable]);
   useEffect(() => {
     if (!poseAvailable && shellRef.current?.toolMode === TAB_TOOL_MODE.POSE) shellRef.current.selectTool(TAB_TOOL_MODE.REFERENCES);
   }, [poseAvailable]);
@@ -2970,7 +2967,7 @@ function StepSurfaceBody({ view, data }) {
   // What Escape means in this renderer, innermost first: a measurement in progress, then
   // the Measure tool, then the selection, then isolation.
   escapeRef.current = () => {
-    if (!presenting && tabToolMode === TAB_TOOL_MODE.MEASURE) {
+    if (!previewing && tabToolMode === TAB_TOOL_MODE.MEASURE) {
       // Escape cancels the measurement in progress and leaves the tool armed, the way it does
       // in a CAD measure tool. Only once there is nothing to cancel does it leave the tool.
       if (measure.drafting) measure.cancelDraft();
@@ -3057,11 +3054,11 @@ function StepSurfaceBody({ view, data }) {
   }, [poseToolActive, stepPoseDefinition, selectedStepParameterRuntime, stepPoseFeatures, motion.onParameterChange]);
 
   // ---- the viewport ---------------------------------------------------------------------------
-  // What the viewport is ALLOWED to show and pick just now: nothing of the model under Pose,
-  // Animate or fullscreen; no topology while a previous mesh is held over an update.
+  // What the viewport is ALLOWED to show and pick just now: nothing of the model under Pose
+  // or in preview; no topology while a previous mesh is held over an update.
   const topologySelectionDeferred = Boolean(selectedTopologyDeferredByCost && selectedMeshData);
-  // Animate, like fullscreen, is watching, and Pose offers its knobs alone.
-  const watching = presenting || animateToolActive || Boolean(jointHandles);
+  // Preview is watching, and Pose offers its knobs alone.
+  const watching = previewing || Boolean(jointHandles);
   const pickMode = watching || retainingPreviousStepMesh ? VIEWER_PICK_MODE.NONE : viewerPickModeForRenderPane({
     selectionFilter,
     topologySelectionPending: referenceSelectionPending,
@@ -3087,32 +3084,32 @@ function StepSurfaceBody({ view, data }) {
     appearance: resolvedScene.appearance,
     materialOverrides: resolvedMaterialOverrides,
     receiveShadows: resolvedScene.view.lighting.enabled,
-    previewMode: presenting,
+    previewMode: previewing,
     pickMode,
     pickableParts: !retainingPreviousStepMesh ? viewerAssemblyRenderParts : EMPTY_LIST,
     hiddenPartIds: viewerHiddenPartIdsForRenderPane({ inspectionEnabled: true, hasParts: true, hiddenPartIds: hiddenPartIds }),
-    selectedPartIds: presenting ? EMPTY_LIST : viewerSelectedPartIdsForRenderPane({ hasParts: true, selectedPartIds: viewerSelectedPartIds }),
-    hoveredPartId: !presenting ? viewerHoveredPartIds : "",
-    hoveredReferenceId: !presenting && !retainingPreviousStepMesh ? effectiveHoveredReferenceId : "",
-    selectedReferenceIds: !presenting && !retainingPreviousStepMesh ? selectedReferenceIds : EMPTY_LIST,
+    selectedPartIds: previewing ? EMPTY_LIST : viewerSelectedPartIdsForRenderPane({ hasParts: true, selectedPartIds: viewerSelectedPartIds }),
+    hoveredPartId: !previewing ? viewerHoveredPartIds : "",
+    hoveredReferenceId: !previewing && !retainingPreviousStepMesh ? effectiveHoveredReferenceId : "",
+    selectedReferenceIds: !previewing && !retainingPreviousStepMesh ? selectedReferenceIds : EMPTY_LIST,
     selectorRuntime: viewerSelectorRuntimeForRenderPane({ hasTopology: true,
       retainingPreviousStepMesh: retainingPreviousStepMesh, selectorRuntime: effectiveSelectorRuntime }),
     stepParameterRuntime: selectedStepParameterRuntime,
     // {clip, elapsedSec, playing} or null. Null means no clip is selected, and the evaluator never runs.
     stepAnimationRuntime: selectedAnimationRuntime,
-    animateMode: presenting || animateToolActive,
-    jointHandles: presenting ? null : jointHandles,
-    measureState: presenting ? null : measure.state,
+    animateMode: previewing,
+    jointHandles: previewing ? null : jointHandles,
+    measureState: previewing ? null : measure.state,
     activeMeasurementId: measure.activeId,
-    measureModeActive: !presenting && measureModeActive,
+    measureModeActive: !previewing && measureModeActive,
     onLodCameraChange: onLodCameraMoved,
     onMeshSourceAdoption: handleDisplayMeshAdoption,
     onViewerAlertChange: handleViewerAlertChange,
-    onHoverReferenceChange: !presenting ? handleModelHoverChange : null,
-    onActivateReference: !presenting ? handleModelReferenceActivate : null,
-    onDoubleActivateReference: !presenting ? handleModelReferenceDoubleActivate : null,
-    onMeasurePick: !presenting ? measure.onPick : null,
-    onMeasureHoverPoint: !presenting ? measure.onHoverPoint : null,
+    onHoverReferenceChange: !previewing ? handleModelHoverChange : null,
+    onActivateReference: !previewing ? handleModelReferenceActivate : null,
+    onDoubleActivateReference: !previewing ? handleModelReferenceDoubleActivate : null,
+    onMeasurePick: !previewing ? measure.onPick : null,
+    onMeasureHoverPoint: !previewing ? measure.onHoverPoint : null,
     pickAtRef
   };
   const viewPolicyResolved = useStepViewPolicy({
@@ -3177,17 +3174,6 @@ function StepSurfaceBody({ view, data }) {
       active: poseToolActive, disabled: toolIdle,
       // Its panel is in the tool stack for as long as it is the tool.
       onSelect: () => { if (!poseToolActive) handleSelectTabToolMode(TAB_TOOL_MODE.POSE); } }) : null,
-    // The shared animation tool uses this action when routines exist.
-    animationAvailable ? shell.tools.own({ id: TAB_TOOL_MODE.ANIMATE, label: "Animate",
-      icon: <CirclePlay className="size-3" aria-hidden="true" />,
-      active: animateToolActive, disabled: toolIdle,
-      // Taken up, it plays when Autoplay is on; a second press, as on any tool that is up, does nothing.
-      onSelect: () => {
-        if (animateToolActive) return;
-        handleSelectTabToolMode(TAB_TOOL_MODE.ANIMATE);
-        if (shell.autoplay && !animationState.playing) motion.onPlayToggle();
-      },
-    }) : null,
   ].filter(Boolean);
 
   // ---- the bottom action ----------------------------------------------------------------------
@@ -3215,7 +3201,7 @@ function StepSurfaceBody({ view, data }) {
     selectModeMenu: <SelectModeMenu mode={selectionFilter} assembly={isAssemblyView} disabled={selectDisabled}
       onModeChange={value => { changeSelectMode(value); handleSelectTabToolMode(TAB_TOOL_MODE.REFERENCES); }}
       connected={connectedSelection} onConnectedChange={(id, checked) => setConnectedSelection(current => ({ ...current, [id]: checked }))} />,
-    selectActive: selectionToolActive && !presenting,
+    selectActive: selectionToolActive && !previewing,
     positionActive: poseToolActive,
     selectMode: selectionFilter,
     // In an assembly, a part's faces and edges load when a press under Faces or Edges first

@@ -27,8 +27,8 @@ it('shows cube faces and isometric corners with keyboard snapping', () => {
   expect(activate).toHaveBeenLastCalledWith('z');
   expect(screen.getByLabelText('View cube').querySelectorAll('polygon').length).toBe(3);
 });
-it('hides the cube in fullscreen and preserves an explicit header slot', () => {
-  cube({ previewMode: true, viewPlaneHeader: <div>Camera header</div> });
+it('hides the selector when asked and preserves an explicit header slot', () => {
+  cube({ showViewPlane: false, viewPlaneHeader: <div>Camera header</div> });
   expect(screen.getByText('Camera header')).toBeTruthy();
   expect(screen.queryByLabelText('View cube')).toBeNull();
 });

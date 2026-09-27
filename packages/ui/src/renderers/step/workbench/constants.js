@@ -21,8 +21,6 @@ export const TAB_TOOL_MODE = {
   MEASURE: "measure",
   EXPLODE: "exploded",
   CLIP: "clip",
-  // A session, like Draw: never persisted or restored (`state.js`).
-  ANIMATE: "animate",
   // Drag a model's joints by their handles. Offered, never restored into (`state.js`).
   POSE: "pose"
 };
@@ -43,7 +41,6 @@ export const CAD_TOOL_MODES = createToolModes({
     [TAB_TOOL_MODE.EXPLODE]: {},
     [TAB_TOOL_MODE.CLIP]: {},
     [TAB_TOOL_MODE.DRAW]: { toggles: true },
-    [TAB_TOOL_MODE.ANIMATE]: {},
     [TAB_TOOL_MODE.POSE]: { persists: true }
   }
 });

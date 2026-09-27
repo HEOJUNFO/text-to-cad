@@ -90,7 +90,6 @@ const ShellViewport = forwardRef(function ShellViewport({
   quality = null,
   previewMode = false,
   orbitPreview = false,
-  controlsHidden = false,
   previewOrbitSpeed = 1,
   isLoading = false,
   viewUpdate = null,
@@ -100,7 +99,7 @@ const ShellViewport = forwardRef(function ShellViewport({
   onPerspectiveChange = null,
   onPresentationChange = null,
   onViewerAlertChange = null,
-  // The camera came to rest on a new view: a presentation camera that moved (fullscreen's
+  // The camera came to rest on a new view: a preview camera that moved (preview's
   // orbit, which persists nothing and so emits no perspective), or a viewport whose size
   // changed. A renderer that samples the camera — to decide what detail the scene needs,
   // say — cannot see either from the stored perspective alone: an aspect change can expose
@@ -186,7 +185,7 @@ const ShellViewport = forwardRef(function ShellViewport({
   const activeViewPlaneFaceRef = useRef("");
   const previewModeRef = useRef(previewMode);
   // The presentation camera never becomes the file's stored camera.
-  const fullscreenCameraRef = useRef(null);
+  const previewCameraRef = useRef(null);
   const perspectivePropRef = useRef(perspective);
   const modelKeyRef = useRef(modelKey);
   const sceneScaleModeRef = useRef(normalizedSceneScaleMode);
@@ -287,9 +286,9 @@ const ShellViewport = forwardRef(function ShellViewport({
   const coordinateSystemFor = useCallback(() => STORED_CAMERA_COORDINATES, []);
   const {
     activateViewPlaneFace, orbitFromViewCube, applyInitialPerspective, emitPerspectiveChange,
-    resetZoomAndPan, syncFullscreenCamera, syncViewPlaneOrientation
+    resetZoomAndPan, syncPreviewCamera, syncViewPlaneOrientation
   } = useViewportCamera({
-    coordinateSystemFor, activeViewPlaneFaceRef, fullscreenCameraRef,
+    coordinateSystemFor, activeViewPlaneFaceRef, previewCameraRef,
     lastEmittedPerspectiveRef, cameraMovedRef, modelBounds: scene?.restBounds || scene?.bounds || null, modelKey, modelKeyRef,
     modelTransformRef, perspectiveChangeRef, perspectivePropRef, perspectiveRef, previewMode,
     previewModeRef, previewOrbitSpeed, runWithoutPerspectiveEvents, runtimeRef, sceneScaleModeRef, setActiveViewPlaneFace,
@@ -728,7 +727,7 @@ const ShellViewport = forwardRef(function ShellViewport({
     scene?.keepsAuthoredFinish, renderMode, studioSceneTick, viewerReadyTick, viewerTheme, normalizedThemeSettings.background
   ]);
 
-  // Fullscreen's orbit.
+  // Preview's orbit.
   useEffect(() => {
     const runtime = runtimeRef.current;
     if (!runtime) return;
@@ -737,10 +736,11 @@ const ShellViewport = forwardRef(function ShellViewport({
       runtime.interactionState.restoreTimerId = 0;
     }
     clearKeyboardOrbitState(runtime.keyboardOrbitState);
-    // Fullscreen installs a presentation camera and leaving restores the file's own: neither
+    // Preview installs a camera of its own and leaving restores the file's own: neither
     // is the open-time fit, so the viewport stops treating the pose as its to re-fit.
     runtime.openFitPending = false;
-    const orbitActive = orbitPreview && !drawingOverlayActive && previewOrbitSpeed > 0;
+    // The orbit is preview's alone, and runs at preview's full pixel ratio (`renderProfile.js`).
+    const orbitActive = previewMode && orbitPreview && previewOrbitSpeed > 0;
     runtime.previewOrbitEnabled = orbitActive;
     runtime.orbitControlsLastTimestamp = 0;
     runtime.controls.autoRotate = orbitActive;
@@ -888,8 +888,8 @@ const ShellViewport = forwardRef(function ShellViewport({
     }
     setError("");
     runtime.requestRender();
-    // Also handles opening fullscreen before the first scene arrives.
-    syncFullscreenCamera(runtime);
+    // Also handles opening preview before the first scene arrives.
+    syncPreviewCamera(runtime);
     markPresentationReady(runtime);
   };
   const adoptSceneRef = useRef(adoptScene);
@@ -988,11 +988,11 @@ const ShellViewport = forwardRef(function ShellViewport({
       ) : null}
       {drawingOverlayActive ? <DrawingOverlay drawing={drawing} onReady={handleDrawingReady} onContentChange={handleDrawingContent} onViewportChange={followDrawingViewport} /> : null}
       {overlay}
-      {!mobile && <div className={`pointer-events-none absolute inset-0 transition-opacity duration-150 motion-reduce:transition-none ${controlsHidden ? "opacity-0" : "opacity-100"}`} hidden={controlsHidden} inert={controlsHidden} aria-hidden={controlsHidden}>
+      {/* The cube is the tools view's: preview has no cube to draw or keep in step with the orbit. */}
+      {!mobile && !previewMode && <div className="pointer-events-none absolute inset-0">
       <ViewPlaneControl
-        showViewPlane={!previewMode}
+        showViewPlane
         disabled={drawingOverlayActive}
-        previewMode={previewMode}
         isLoading={isLoading}
         meshData={scene}
         // Close into the corner: the cube's box is larger than the cube, whose labels overhang it.

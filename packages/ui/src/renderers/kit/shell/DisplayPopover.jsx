@@ -8,7 +8,8 @@ import { TOOL_PANEL_BUTTON_CLASS } from "../tools/ToolPanel.jsx";
 
 /**
  * Display's settings: an ordinary popover from its button in the viewport's top-right bar,
- * beside Fullscreen, end-aligned under it. It is not a tool — opening it leaves the tool in hand
+ * before Preview (in preview, before its X), end-aligned under it. Its button is the sliders
+ * icon: settings. It is not a tool — opening it leaves the tool in hand
  * as it is — and it goes as any popover does: Escape, its button, its X, or a press anywhere
  * outside it, the model included. It is never taller than the viewer: its
  * sections scroll inside it. It closes with no exit animation, so a quick second press always
@@ -20,7 +21,7 @@ import { TOOL_PANEL_BUTTON_CLASS } from "../tools/ToolPanel.jsx";
 export default function DisplayPopover({ open, onOpenChange, disabled = false, children }) {
   return <Popover open={open && !disabled} onOpenChange={onOpenChange} modal={false}>
     <PopoverTrigger asChild>
-      <ToolbarButton tooltip={false} label="Display settings" active={open} aria-pressed={open} disabled={disabled}
+      <ToolbarButton label="Display settings" active={open} aria-pressed={open} disabled={disabled}
         className={cn("size-6", !open && "bg-transparent hover:bg-transparent dark:hover:bg-transparent")}>
         <SlidersHorizontal className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
       </ToolbarButton>

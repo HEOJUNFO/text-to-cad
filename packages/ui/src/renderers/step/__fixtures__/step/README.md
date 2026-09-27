@@ -14,7 +14,7 @@ one revolute mate. Every property is there for a test:
 | the bore | a cylindrical face beside planar ones, so a face pick has something to report a diameter for, and the modeling tree a cut feature to recognise |
 | one revolute mate `hinge` (0…90°) | the panel's Position section, the Position tool and its one knob |
 | one named pose `open` | the named-pose jump |
-| one routine `swing` | the Animate tool and its playbar |
+| one routine `swing` | its playbar in preview |
 
 ## The files, and which request each answers
 
@@ -39,7 +39,7 @@ viewer never fetches it: the catalog names a store view, not the document.
 `read_source_sidecar` refuses a sidecar whose `schemaVersion` is not current or
 whose `documentHash` is not the digest of the STEP bytes being resolved, and the
 catalog entry then carries no `sourceSidecar` — so the file silently has no
-Position section and no Animate tool. This one is bound: `schemaVersion` is 9 and
+Position section and nothing to play in preview. This one is bound: `schemaVersion` is 9 and
 `documentHash` is
 `3c1e7edf8593d6019706ff355445199971b740e2bd0661eda6ade9b961082f58`, the SHA-256
 of the generated `hinge_block.step`, which is also the `documentHash` in

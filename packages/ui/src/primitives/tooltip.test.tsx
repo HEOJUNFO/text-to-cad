@@ -37,8 +37,8 @@ it('shows full text only when a label is actually clipped', () => {
 });
 it('keeps obvious actions accessible without a tooltip', () => {
   vi.useFakeTimers();
-  render(<ToolbarButton tooltip={false} label="Fullscreen">Icon</ToolbarButton>);
-  const button = screen.getByRole('button', { name: 'Fullscreen' });
+  render(<ToolbarButton tooltip={false} label="Exit preview">Icon</ToolbarButton>);
+  const button = screen.getByRole('button', { name: 'Exit preview' });
   hover(button);
   expect(screen.queryByRole('tooltip')).toBeNull();
   expect(button.hasAttribute('title')).toBe(false);

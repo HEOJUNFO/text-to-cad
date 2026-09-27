@@ -6,17 +6,18 @@ import { cn } from "@hardcore/ui/utils";
 import { ToolbarButton } from "@hardcore/ui/primitives/toolbar-button";
 import { FILE_SHEET_PRECISION_SLIDER_CLASSES } from "../../inspector/FileSheet.js";
 
-// The transport owns play/pause and scrubbing; routine, speed and loop are the Animate panel's
-// (and, in fullscreen, PlayMenu's).
+// The transport owns play/pause and scrubbing; routine, speed and loop are preview's Playback
+// settings (`PlaybackMenu.jsx`).
 //
 // Every animation source shares this transport UI. It only edits the clip and clock state of
-// the runtime it is handed; evaluating a clip is its owner's. In the regular view it is a row of
-// the Animate panel (`AnimateControls.jsx`); in fullscreen the playbar under the model is the
-// whole of the animation control.
+// the runtime it is handed; evaluating a clip is its owner's. Routines play in preview alone,
+// where the playbar under the model is the transport.
 //
 // runtime: { clips: [{ id, label, duration }], activeClipId, playing, elapsedSec,
 //   speed, loopEnabled, clock, onClipSelect, onPlayToggle, onScrub, onSpeedChange,
-//   onLoopToggle }. `clock` is the owner's live AnimationClock (`animationClock.js`).
+//   onLoopToggle, onRelease? }. `clock` is the owner's live AnimationClock (`animationClock.js`);
+//   `onRelease`, where the owner needs it, stops, rewinds and puts the model back at rest on
+//   leaving preview.
 
 export const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3];
 
@@ -47,17 +48,16 @@ function AnimationTimeControl({ playing, elapsedSec, duration, onScrub, clock, d
 }
 
 /** Play/Pause and the scrubber over the renderer's live clock. Dragging the scrubber to the start is the restart. */
-export function AnimationTransport({ runtime, disabled = false, responsive = false, compact = false }) {
+function AnimationTransport({ runtime, disabled = false }) {
   const activeClip = runtime?.clips?.find(clip => clip.id === runtime?.activeClipId);
   const duration = Math.max(Number(activeClip?.duration) || 1, 0.001);
   const iconClass = "size-3.5";
-  return <div className={cn("flex min-w-0 flex-1 items-center", compact ? "gap-1.5" : "gap-2", "h-6",
-    responsive && "@max-[8rem]/cad-viewport:h-auto @max-[8rem]/cad-viewport:flex-wrap")} data-animation-transport>
+  return <div className="flex h-6 min-w-0 flex-1 items-center gap-2" data-animation-transport>
     <ToolbarButton tooltip={false} disabled={disabled} tooltipSide="top"
       onClick={() => runtime?.onPlayToggle?.()} label={`${runtime?.playing ? "Pause" : "Play"} animation`}>
       {runtime?.playing ? <Pause className={iconClass} strokeWidth={1.5} aria-hidden="true"/> : <Play className={iconClass} strokeWidth={1.5} aria-hidden="true"/>}
     </ToolbarButton>
-    <div className={cn("min-w-0 flex-1", !compact && "px-1", responsive && "@max-[8rem]/cad-viewport:order-last @max-[8rem]/cad-viewport:basis-full")}>
+    <div className="min-w-0 flex-1 px-1">
       <AnimationTimeControl playing={runtime?.playing === true} elapsedSec={runtime?.elapsedSec}
         duration={duration} onScrub={runtime?.onScrub} clock={runtime?.clock} disabled={disabled}/>
     </div>
@@ -65,25 +65,23 @@ export function AnimationTransport({ runtime, disabled = false, responsive = fal
 }
 
 /**
- * The playbar: transport in one transparent row under the model, fullscreen's animation control
- * (the regular view's is the Animate panel's row). It stays centered until it needs to make room
- * for the XYZ control.
+ * The playbar: transport in one transparent row under the model, centered: preview's animation
+ * control, with `trailing` (Playback settings' cog) at its right end. Preview has no cube to make
+ * room for.
  */
-export function ViewportAnimationBar({ runtime, disabled = false, avoidViewControl = false, className }) {
+export function ViewportAnimationBar({ runtime, disabled = false, className, trailing = null }) {
 
   if (!animationControlsHaveContent(runtime)) return null;
   return <div role="toolbar" aria-label="Animation playback" data-preview-hover-hold="" style={{ "--viewport-bottom-inset": VIEWPORT_BOTTOM_CENTER }} className={cn(
-    'absolute bottom-[var(--viewport-bottom-inset)] translate-y-1/2 z-30 flex items-center gap-2 px-5 py-4',
-    avoidViewControl
-      ? 'left-[max(0.75rem,calc(50%-10rem))] right-[max(7rem,calc(50%-10rem))] @max-[15rem]/cad-viewport:bottom-32 @max-[15rem]/cad-viewport:right-3'
-      : 'left-1/2 w-80 max-w-[calc(100%-24px)] -translate-x-1/2',
+    'absolute bottom-[var(--viewport-bottom-inset)] left-1/2 z-30 flex w-80 max-w-[calc(100%-24px)] -translate-x-1/2 translate-y-1/2 items-center gap-2 px-5 py-4',
     className,
   )}>
-    <AnimationTransport runtime={runtime} disabled={disabled} responsive={avoidViewControl}/>
+    <AnimationTransport runtime={runtime} disabled={disabled}/>
+    {trailing}
   </div>;
 }
 
-/** A file has animation when it has routines to play: no routines, no Animate tool and no playbar. */
+/** A file has animation when it has routines to play: no routines, no playbar and nothing to play in preview. */
 export function animationControlsHaveContent(runtime) {
   return Array.isArray(runtime?.clips) && runtime.clips.length > 0;
 }

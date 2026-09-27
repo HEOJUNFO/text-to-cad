@@ -1,4 +1,4 @@
-import { ORBIT_STORAGE_KEY, readOrbit, writeOrbit } from '../kit/tools/fullscreen/orbitPreferences.js';
+import { ORBIT_STORAGE_KEY, readOrbit, writeOrbit } from '../kit/tools/preview/orbitPreferences.js';
 import { TOOL_STACK_STORAGE_KEY, readToolStack, writeToolStack } from '../kit/tools/toolStackLayout.js';
 import { ANIMATION_STORAGE_KEY, readAnimationPreferences, writeAnimationPreferences } from '../kit/tools/playbar/animationPreferences.js';
 
@@ -10,7 +10,7 @@ export interface CadPreferences {
    * pixels, the caps a person dragged the tree and Reference panels to, and which panels are folded.
    */
   toolStack?: ToolStackLayout;
-  /** Whether taking up Animate starts the routine (`kit/tools/playbar/animationPreferences.js`). */
+  /** Whether entering preview starts the routine (`kit/tools/playbar/animationPreferences.js`). */
   animation?: { autoplay: boolean };
 }
 export interface ToolStackLayout {

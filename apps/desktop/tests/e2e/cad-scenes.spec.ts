@@ -454,9 +454,9 @@ test("embedded STEP animation loads, plays and scrubs under the desktop CSP", as
   test.setTimeout(60_000 + 90_000);
   await openFile("animated.step");
   // A routine and no mates: nothing to pose, so no Position section and no Position tool.
-  // Playback is the Animate tool, whose playbar sits under the model while it is up.
+  // Playback is preview's: its playbar sits under the model while preview is up. There is no Animate tool.
   const tools = page.getByRole("group", { name: "Interaction tools", exact: true });
-  await expect(tools.getByRole("button", { name: "Animate", exact: true })).toBeVisible();
+  await expect(tools.getByRole("button", { name: "Animate", exact: true })).toHaveCount(0);
   await expect(tools.getByRole("button", { name: "Position", exact: true })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Position", exact: true })).toHaveCount(0);
   await expect.poll(async () => page.evaluate(() => window.__cadDisplayRecords?.().length || 0)).toBeGreaterThan(0);
@@ -468,11 +468,13 @@ test("embedded STEP animation loads, plays and scrubs under the desktop CSP", as
     window.__cadDisplayRecords?.().find(record => record.partId === partId)?.matrix || null
   ), rest.partId);
 
-  // Pressing Animate plays the routine; pausing is the playbar's.
-  await tools.getByRole("button", { name: "Animate", exact: true }).click();
+  // Preview plays the routine (at once with Autoplay, otherwise from the playbar); pausing is the playbar's.
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
   const animation = page.getByRole("toolbar", { name: "Animation playback", exact: true });
   const play = animation.getByRole("button", { name: "Play animation", exact: true });
   const pause = animation.getByRole("button", { name: "Pause animation", exact: true });
+  await expect(play.or(pause)).toBeVisible();
+  if (await play.count()) await play.click();
   // The data: module regression renders an error in place of these controls.
   await expect(pause).toBeEnabled();
   const time = animation.getByRole("slider", { name: "Animation time", exact: true });
@@ -495,8 +497,8 @@ test("embedded STEP animation loads, plays and scrubs under the desktop CSP", as
   await page.keyboard.press("Home");
   await expect(time).toHaveAttribute("aria-valuenow", "0");
   await expect.poll(displayMatrix).toEqual(rest.matrix);
-  // Leaving Animate takes the playbar down and leaves the model at rest.
-  await tools.getByRole("button", { name: "Select", exact: true }).click();
+  // Leaving preview takes the playbar down and leaves the model at rest.
+  await page.getByRole("button", { name: "Exit preview", exact: true }).click();
   await expect(animation).toHaveCount(0);
   await expect.poll(displayMatrix).toEqual(rest.matrix);
 
