@@ -376,26 +376,23 @@ createRoot(document.getElementById('root')).render(<App/>);
   await model.locator('[aria-label="Model"]').waitFor();
 
   // A large tree (more than LARGE_TREE_ROWS rows of assemblies and parts) under Faces: its
-  // assemblies stay open and locked, its parts start closed with a disclosure of their own and
-  // their face count where one is known, and nothing asks for topology for being on screen.
+  // assemblies stay open and locked, its parts start closed with a disclosure of their own and no
+  // count, and nothing asks for topology for being on screen.
   const topology = () => page.evaluate(() => [...window.treeTest.events.topology]);
-  const count = label => model.getByRole('button', { name: `Select ${label}`, exact: true }).locator('[data-part-count]');
+  const counts = () => model.locator('[data-part-count]').count();
   await scrollTo(0);
   await page.evaluate(() => { window.treeTest.events.topology.length = 0; window.treeTest.setMode('faces'); });
   await model.getByRole('button', { name: 'Expand Part 0-0', exact: true }).waitFor();
   await frames();
   assert.equal(await model.locator('[aria-label="Model"]').evaluate(list => list.getBoundingClientRect().height), order.length * 24, 'every part closed: the rows are the assemblies and parts');
   assert.deepEqual(await model.locator('[data-disclosure-locked]').evaluateAll(marks => [...new Set(marks.map(mark => mark.dataset.disclosureLocked))]), ['open'], 'only the assemblies are locked, open');
-  assert.equal(await count('Part 0-0').innerText(), '3 faces', 'a recognized part counts its faces');
-  assert.equal(await count('Part 0-0').evaluate(node => [getComputedStyle(node).fontSize, node.classList.contains('text-muted-foreground')].join()), '11px,true');
-  assert.equal(await count('Part 1-0').count(), 0, 'an unknown count shows nothing');
+  // A part shows no count, recognized or with its topology loaded.
   await page.evaluate(() => window.treeTest.loadFaces('o0_1', 5)); await frames();
-  assert.equal(await count('Part 0-1').innerText(), '5 faces', 'loaded topology counts first');
+  assert.equal(await counts(), 0, 'no part row shows a count');
   await scrollTo(0.5); await frames(); await scrollTo(0); await frames();
   assert.deepEqual(await topology(), [], 'closed parts on screen ask for nothing');
-  // Edges counts edges.
   await page.evaluate(() => window.treeTest.setMode('edges')); await frames();
-  assert.equal(await count('Part 0-0').innerText(), '2 edges');
+  assert.equal(await counts(), 0, 'nor under Edges');
   await page.evaluate(() => window.treeTest.setMode('faces')); await frames();
   // Its disclosure opens a part onto its features, and asks for its topology, once.
   await model.getByRole('button', { name: 'Expand Part 0-0', exact: true }).click();
@@ -403,7 +400,7 @@ createRoot(document.getElementById('root')).render(<App/>);
   const opened = await layout();
   assert.deepEqual(opened.rows.slice(1, 4).map(row => row.label), ['Part 0-0', 'Boss', 'Pocket']);
   assert.deepEqual(await topology(), ['o0_0']);
-  assert.equal(await count('Part 0-0').innerText(), '3 faces', 'and keeps its count');
+  assert.equal(await counts(), 0, 'an open part shows no count either');
   // A face picked in the viewport opens its part, far down the tree, and scrolls to its row.
   await page.evaluate(() => window.treeTest.pickFace('o27_5', 3));
   await page.waitForFunction(() => {
@@ -441,7 +438,7 @@ createRoot(document.getElementById('root')).render(<App/>);
   await page.getByRole('menuitem', { name: 'Collapse all', exact: true }).click();
   await model.getByRole('button', { name: 'Expand Part 0-3', exact: true }).waitFor();
   assert.equal(await model.locator('[aria-label="Model"]').evaluate(list => list.getBoundingClientRect().height), order.length * 24);
-  // All and Parts are as they were: the person's own tree, and parts locked shut, with no counts.
+  // All and Parts are as they were: the person's own tree, and parts locked shut.
   await page.evaluate(() => window.treeTest.setMode('all')); await frames();
   assert.equal(await model.locator('[data-part-count]').count(), 0);
   assert.equal(await model.locator('[data-disclosure-locked]').count(), 0);
@@ -451,7 +448,7 @@ createRoot(document.getElementById('root')).render(<App/>);
   assert.deepEqual(await model.locator('[data-disclosure-locked]').evaluateAll(marks => [...new Set(marks.map(mark => mark.dataset.disclosureLocked))]).then(states => states.sort()), ['open', 'shut']);
 
   // A small tree (5 groups of 50 parts: 255 rows) under Faces is today's: every part open and
-  // locked, no counts, and the parts on screen ask for their topology, once each, as a scroll
+  // locked, and the parts on screen ask for their topology, once each, as a scroll
   // brings them on screen.
   await page.goto(`http://127.0.0.1:${server.address().port}/?groups=5&parts=50`);
   await model.getByRole('button', { name: 'Select Part 0-0', exact: true }).waitFor();

@@ -962,10 +962,7 @@ row shows `Loading…` while it waits.
 of assemblies and parts — the fully expanded tree less the features recognition adds under a
 part later, so the tree never changes shape under the person — Faces and Edges keep every
 assembly open and locked but start every part closed: its disclosure is its own (the lock is
-lifted for part rows alone), and it shows its count at its right (`data-part-count`, "412 faces"
-or "96 edges" by the mode, under the row actions' fade), from the part's loaded topology, else
-from its recognition (`tree` faces, `edgeFaces`); the package descriptor carries no per-component
-counts, and nothing is shown until one is known. A part opens by its disclosure, by a pick inside
+lifted for part rows alone). A part row shows no face or edge count. A part opens by its disclosure, by a pick inside
 it (the reveal opens it and scrolls to the picked row) or by its row menu's Expand; Expand all and
 Collapse all open and close every part. A closed part on screen asks for nothing; opening one asks
 for its topology and recognition at once (Expand all leaves that to the rows as they come on screen),
