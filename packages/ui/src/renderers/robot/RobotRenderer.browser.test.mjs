@@ -286,7 +286,8 @@ test('a robot can enter Position with sidebar controls: knobs drag joints, the c
   // A longer value widens its field rather than being cut.
   await robot.type('lift', 0.25, 'm');
   assert.equal(await robot.jointField('lift', 'm').evaluate(input => [input.value, input.scrollWidth <= input.clientWidth].join()), '0.25 m,true');
-  await robot.type('lift', 0, 'm');
+  // Back to the value it opened at (the SRDF's home), so the pose is still the default.
+  await robot.type('lift', 0.1, 'm');
   for (const heading of ['Pose', 'Joints', 'Kinematics']) {
     assert.equal(await position.getByRole('heading', { name: heading, exact: true }).count(), 0, `no ${heading} heading inside Position`);
   }
