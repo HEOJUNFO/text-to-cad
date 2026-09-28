@@ -121,6 +121,21 @@ the same machine (a fresh store):
 | housing (box, bore, boss, 4 holes) | 0.29 s | 6.7 s cold, 5.8 s after one dimension change, 0.4 s no-op rerun | about 2.5 s of the B-rep time is the OpenCascade import |
 | knob (revolve, 8 grips, shell, socket) | 3.7 s at 0.25 mm (277k triangles) | 6.7 s, and the shell FAILED (`offset Error`), so the part shipped solid | the field shells in one line; the B-rep needs a fallback |
 
+The same parts with the STEP-first default (`@im.part` with no options: the
+B-rep, no mesh), three fresh runs each on 27 Sep:
+
+| Part | B-rep only | STEP-first default | Mesh-only iteration |
+| --- | --- | --- | --- |
+| housing | 5.69 s | 2.7 s | 0.27 s |
+| enclosure | 5.80 s | 2.9 s | 0.99 s |
+| knob | 6.39 s, wrong part | 9.9 s, correct mesh, no STEP | 3.5 s |
+
+Producing a STEP means importing the kernel (2.2 s) either way; what the
+field path skips is the store, the Node tessellation and the STEP re-emit.
+A rerun with nothing changed favours the B-rep path (0.4 s, the store skips
+the build) until the implicit export is cached by tape hash. The harness is
+`scripts/bench/implicit-vs-brep/`.
+
 Where the time goes for a field: it scales with the grid, so the knob at
 0.5 mm is under a second and at 0.1 mm would be minutes. The B-rep path's
 time is mostly fixed (kernel import, store, STEP write) and does not grow
