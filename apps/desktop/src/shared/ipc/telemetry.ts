@@ -29,5 +29,10 @@ export const telemetryContract = {
     status: invoke(z.void(), TelemetryStatusSchema),
     /** Every event sent this run, oldest first. */
     log: invoke(z.void(), z.object({ events: z.array(SentEventSchema) })),
+    /**
+     * A file was opened in the explorer. Main keeps the extension and drops the
+     * rest (`file_opened`); the path never leaves the machine.
+     */
+    fileOpened: invoke(z.object({ path: z.string() }), z.void()),
   },
 } as const;

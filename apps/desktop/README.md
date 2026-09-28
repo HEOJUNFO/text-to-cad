@@ -97,6 +97,12 @@ vocabulary — adding a fifth is a change to that type:
 
 Aptabase adds the app version, the OS and a per-install random id. Nothing here
 carries a path, a file name, a project name, a prompt, or an agent's output.
+Where each comes from: `app_launched` in `src/main/index.ts`, `session_created`
+from the session manager once a session exists, `file_opened` through
+`telemetry.fileOpened` from the explorer store's one open path (main keeps the
+extension), `settings_changed` in the settings handler. A release whose secret
+is missing says so in its Desktop job (`::warning`), because a build without the
+key is silent forever.
 
 Three more rules, from how the tools people trust do it (Homebrew, VS Code,
 Next.js, .NET):
