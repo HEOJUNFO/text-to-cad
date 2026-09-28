@@ -38,11 +38,27 @@ export async function DesktopSection() {
     <section id="desktop" aria-labelledby="desktop-title" className="scroll-mt-20 space-y-4 py-6">
       <div className="grid gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-start">
         <div className="space-y-4">
+          {/* The app's own icon leads, as an app page's does: the tile people will see in their dock. */}
+          <div className="flex items-start gap-4">
+            <Image
+              src="/desktop/icon.png"
+              alt=""
+              width={72}
+              height={72}
+              className="size-[72px] shrink-0 rounded-[18px] shadow-lg shadow-black/25"
+              priority
+            />
+            <div className="min-w-0">
+              <h2 id="desktop-title" className="text-heading font-medium tracking-normal text-foreground">
+                DESKTOP APP
+              </h2>
+              <p className="mt-1 text-label uppercase tracking-[1.5px] text-muted-foreground">
+                text-to-cad for macOS, Windows and Linux
+              </p>
+            </div>
+          </div>
           <div>
-            <h2 id="desktop-title" className="text-heading font-medium tracking-normal text-foreground">
-              DESKTOP APP
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            <p className="text-sm leading-6 text-muted-foreground">
               Your folders on the left, the agent in the middle, a CAD viewer on the right. Open a
               STEP, pin a note to a face, sketch a change, and send it. cadgen and every skill ship
               inside, so nothing installs on first launch.
