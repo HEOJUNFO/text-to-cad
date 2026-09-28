@@ -420,39 +420,52 @@ class Authoring(unittest.TestCase):
         run = subprocess.run([sys.executable, "src/bad.py"], cwd=self.root, env=_env(), capture_output=True, text=True)
         self.assertEqual(run.returncode, 1)
         self.assertIn("must return an implicit Field", run.stderr)
-        (self.root / "src" / "worse.py").write_text("from cadgen import implicit as im\n\n@im.part(out='x.step')\ndef worse():\n    return im.sphere(1)\n", encoding="utf-8")
+        (self.root / "src" / "worse.py").write_text("from cadgen import implicit as im\n\n@im.part(out='x.obj')\ndef worse():\n    return im.sphere(1)\n", encoding="utf-8")
         run = subprocess.run([sys.executable, "src/worse.py"], cwd=self.root, env=_env(), capture_output=True, text=True)
         self.assertNotEqual(run.returncode, 0)
-        self.assertIn(".glb or .stl", run.stderr)
+        self.assertIn("an implicit part writes", run.stderr)
 
-    def test_the_exact_subset_leaves_as_step(self) -> None:
+    def test_a_part_writes_a_step_by_default_and_faces_map_back_to_code(self) -> None:
         (self.root / "src" / "sharp.py").write_text(textwrap.dedent('''\
             from cadgen import implicit as im
 
-            @im.part(out="../GLB/sharp.glb", resolution=0.5)
+            @im.part
             def sharp():
                 body = im.box((30, 20, 10), radius=2).named("body")
-                return body - im.cylinder(4, 20).translate(5, 0, 0) - im.extrude(im.regular_polygon(6, 2), 20).translate(-8, 0, 0)
+                return body - im.cylinder(4, 20).translate(5, 0, 0).named("bore") - im.extrude(im.regular_polygon(6, 2), 20).translate(-8, 0, 0).named("socket")
 
             if __name__ == "__main__":
                 sharp()
         '''), encoding="utf-8")
         run = self._run("src/sharp.py", "--json")
-        mesh_volume = None
-        self._run("-m", "cadgen.cli", "implicit", "measure", "GLB/sharp.implicit.json", "--json")
-        facts = json.loads(self._run("-m", "cadgen.cli", "implicit", "measure", "GLB/sharp.implicit.json", "--json").stdout)
-        run = self._run("-m", "cadgen.cli", "implicit", "step", "GLB/sharp.implicit.json", "STEP/sharp.step", "--json")
-        result = json.loads(run.stdout.strip())
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["solids"], 1)
-        self.assertAlmostEqual(result["volume"], facts["volume"], delta=0.01 * facts["volume"])
-        self.assertTrue((self.root / "STEP" / "sharp.step").is_file())
-        self.assertIn("ISO-10303-21", (self.root / "STEP" / "sharp.step").read_text(encoding="utf-8", errors="replace")[:200])
-        # A blend becomes a fillet by default, is refused by name on request, or is left sharp and said so.
+        result = json.loads(run.stdout.strip().splitlines()[-1])
+        self.assertEqual([o["fmt"] for o in result["outputs"]], ["step"], "the default output is the B-rep")
+        step, tape = self.root / "src" / "sharp.step", self.root / "src" / "sharp.implicit.json"
+        self.assertTrue(step.is_file() and tape.is_file())
+        self.assertIn("ISO-10303-21", step.read_text(encoding="utf-8", errors="replace")[:200])
+        # Every face of the STEP names the leaf, and the line, that made it.
+        listed = json.loads(self._run("-m", "cadgen.cli", "implicit", "faces", "src/sharp.step", "--json").stdout)
+        self.assertTrue(listed["ok"])
+        labels = {face["label"] for face in listed["faces"]}
+        self.assertEqual(labels, {"body", "bore", "socket"})
+        bore = next(face for face in listed["faces"] if face["label"] == "bore")
+        self.assertEqual(bore["surface"], "cylinder")
+        self.assertRegex(bore["site"], r"sharp\.py:\d+")
+        one = json.loads(self._run("-m", "cadgen.cli", "implicit", "faces", "src/sharp.step", "--ref", f"sharp.step{bore['ref']}", "--json").stdout)
+        self.assertEqual([f["label"] for f in one["faces"]], ["bore"])
+        # The mesh is still one build away, and its volume agrees with the STEP's.
+        mesh = json.loads(self._run("-m", "cadgen.cli", "implicit", "build", "src/sharp.implicit.json", "src/sharp.glb", "--resolution", "0.3", "--json").stdout)
+        self.assertTrue(mesh["ok"] and (self.root / "src" / "sharp.glb").is_file())
+        facts = json.loads(self._run("-m", "cadgen.cli", "implicit", "measure", "src/sharp.implicit.json", "--resolution", "0.3", "--json").stdout)
+        from cadgen import build123d as bd
+
+        self.assertAlmostEqual(bd.import_step(str(step)).volume, facts["volume"], delta=0.01 * facts["volume"])
+
+    def test_blends_become_fillets_or_are_refused_by_name(self) -> None:
         (self.root / "src" / "blend.py").write_text(textwrap.dedent('''\
             from cadgen import implicit as im
 
-            @im.part(out=["../GLB/blend.glb", "../STEP/blend.step"], resolution=0.5)
+            @im.part(out=["../STEP/blend.step", "../GLB/blend.glb"], resolution=0.5)
             def blend():
                 return im.subtract(im.box((30, 20, 10)).named("plate"), im.cylinder(4, 20).translate(5, 0, 0), round=1)
 
@@ -461,17 +474,36 @@ class Authoring(unittest.TestCase):
         '''), encoding="utf-8")
         run = self._run("src/blend.py", "--json")
         result = json.loads(run.stdout.strip().splitlines()[-1])
-        self.assertEqual([o["fmt"] for o in result["outputs"]], ["glb", "step"], "the part script writes its STEP beside the mesh")
-        self.assertTrue((self.root / "STEP" / "blend.step").is_file())
-        filleted = json.loads(self._run("-m", "cadgen.cli", "implicit", "step", "GLB/blend.implicit.json", "--json").stdout)
-        self.assertEqual(len(filleted["filleted_blends"]), 1)
-        self.assertEqual(filleted["dropped_blends"], [])
-        sharp = json.loads(self._run("-m", "cadgen.cli", "implicit", "step", "GLB/blend.implicit.json", "--blends", "drop", "--json").stdout)
-        self.assertEqual(len(sharp["dropped_blends"]), 1)
-        self.assertLess(filleted["volume"], sharp["volume"], "a fillet on a cut edge removes material")
-        refused = subprocess.run([sys.executable, "-m", "cadgen.cli", "implicit", "step", "GLB/blend.implicit.json", "--blends", "refuse"], cwd=self.root, env=_env(), capture_output=True, text=True)
+        self.assertEqual([o["fmt"] for o in result["outputs"]], ["step", "glb"])
+        self.assertEqual([w for w in result["warnings"] if "sharp" in w], [], "the cut edge was filleted, not dropped")
+        tape = "STEP/blend.implicit.json"
+        filleted = json.loads(self._run("-m", "cadgen.cli", "implicit", "build", tape, "STEP/f.step", "--json").stdout)
+        sharp = json.loads(self._run("-m", "cadgen.cli", "implicit", "build", tape, "STEP/s.step", "--blends", "drop", "--json").stdout)
+        self.assertTrue(any("left sharp" in w for w in sharp["warnings"]))
+        from cadgen import build123d as bd
+
+        self.assertLess(bd.import_step(str(self.root / "STEP" / "f.step")).volume, bd.import_step(str(self.root / "STEP" / "s.step")).volume, "a fillet on a cut edge removes material")
+        refused = subprocess.run([sys.executable, "-m", "cadgen.cli", "implicit", "build", tape, "STEP/r.step", "--blends", "refuse"], cwd=self.root, env=_env(), capture_output=True, text=True)
         self.assertEqual(refused.returncode, 1)
         self.assertIn("round blend has no exact B-rep", refused.stdout + refused.stderr)
+
+    def test_a_tree_the_kernel_cannot_build_falls_back_to_a_mesh(self) -> None:
+        (self.root / "src" / "blob.py").write_text(textwrap.dedent('''\
+            import numpy as np
+            from cadgen import implicit as im
+
+            @im.part(resolution=0.5)
+            def blob():
+                return im.custom(lambda p: np.linalg.norm(p, axis=1) - 3, ((-3, -3, -3), (3, 3, 3)))
+
+            if __name__ == "__main__":
+                blob()
+        '''), encoding="utf-8")
+        run = self._run("src/blob.py", "--json")
+        result = json.loads(run.stdout.strip().splitlines()[-1])
+        self.assertEqual([o["fmt"] for o in result["outputs"]], ["glb"])
+        self.assertTrue(any("no STEP" in w for w in result["warnings"]))
+        self.assertTrue((self.root / "src" / "blob.glb").is_file())
 
     def test_to_brep_bridges_a_field_into_build123d(self) -> None:
         part = im.box(20).shell(2) - im.half_space((0, 0, 1), (0, 0, 9))  # a 2 mm shell with its top cut off

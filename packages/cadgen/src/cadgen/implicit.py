@@ -33,7 +33,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Sequence
 
-from cadgen.results import ImplicitBuildResult, ImplicitMeasureResult, ImplicitStepResult
+from cadgen.results import ImplicitBuildResult, ImplicitFacesResult, ImplicitMeasureResult
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from cadgen._internal.implicit.field import Bounds, Field, Profile
@@ -42,7 +42,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 # (primitives, booleans, questions, the @part decorator) is the library half:
 # reached as `im.box(...)` after `from cadgen import implicit as im`, and kept
 # out of __all__ because a namespace exports exactly its verbs.
-__all__ = ["build", "measure", "step"]
+__all__ = ["build", "faces", "measure"]
 
 
 # --------------------------------------------------------------------------- #
@@ -282,24 +282,28 @@ def build(
     out: Path | None = None,
     *,
     resolution: float | None = None,
+    blends: str = "fillet",
     crease_deg: float = 35.0,
     verbose: bool = False,
 ) -> ImplicitBuildResult:
-    """Re-mesh a saved implicit part from its tape.
+    """Write a saved implicit part from its tape, as STEP, GLB or STL by OUT's suffix.
 
-    tape: the part's ``.implicit.json``, written beside its mesh by the script.
-    out: the mesh to write, ``.glb`` or ``.stl``. Omitted, ``<tape stem>.glb``
-        beside the tape (overwriting what the script wrote).
-    resolution: grid cell size in the part's units. Omitted, the tape's own.
-    crease_deg: the normal angle past which an edge shades sharp.
+    tape: the part's ``.implicit.json``, written beside its output by the script.
+    out: what to write. ``.step`` is the B-rep (the field's blends as OCC
+        fillets); ``.glb`` or ``.stl`` is the contoured mesh. Omitted,
+        ``<tape stem>.step`` beside the tape.
+    resolution: grid cell size for a mesh, in the part's units. Omitted, the
+        tape's own.
+    blends: for a STEP: fillet (round each blended join with OCC, retrying
+        smaller, then per tool, then leaving it sharp with a warning), drop
+        (leave every blend sharp and list them), or refuse (fail naming the node).
+    crease_deg: for a mesh, the normal angle past which an edge shades sharp.
     verbose: show timings on stderr.
     """
     import sys
     import time
 
-    from cadgen._internal.implicit.mesh import contour as _contour
     from cadgen._internal.implicit.tape import TAPE_SUFFIX, read_tape
-    from cadgen._internal.implicit.writers import write_glb, write_stl
     from cadgen.results import ImplicitOutput
 
     tape = Path(tape)
@@ -307,32 +311,52 @@ def build(
         raise ValueError(f"expected a tape ({TAPE_SUFFIX}), got {tape.name}")
     field, header = read_tape(tape)
     name = str(header.get("name") or tape.name[: -len(TAPE_SUFFIX)])
-    if out is None:
-        out = tape.with_name(tape.name[: -len(TAPE_SUFFIX)] + ".glb")
-    out = Path(out)
+    stem = tape.name[: -len(TAPE_SUFFIX)]
+    out = Path(out) if out is not None else tape.with_name(stem + ".step")
     fmt = out.suffix.lower()[1:]
-    if fmt not in ("glb", "stl"):
-        raise ValueError(f"out must be .glb or .stl, got {out.suffix!r}")
-    cell = resolution if resolution is not None else header.get("resolution")
+    if fmt == "stp":
+        fmt = "step"
+    if fmt not in ("step", "glb", "stl"):
+        raise ValueError(f"out must be .step, .glb or .stl, got {out.suffix!r}")
     t0 = time.perf_counter()
+    leaves_table = tuple(header.get("leaves", ()))
+    box = field.bounds
+    if fmt == "step":
+        from cadgen._internal.implicit.brep import BrepReport, solids_of, to_brep as _to_brep
+
+        report = BrepReport()
+        shape = _to_brep(field, blends=blends, report=report)
+        from cadgen import build123d as bd
+
+        shape.label = name
+        out.parent.mkdir(parents=True, exist_ok=True)
+        bd.export_step(shape, str(out))
+        solids = solids_of(shape)
+        warnings = list(report.warnings)
+        warnings += [f"blend left sharp at {where}" for where in report.dropped_blends if blends == "drop"]
+        if not solids:
+            warnings.append("the B-rep has no solid: the tree describes nothing, or its booleans cancel")
+        if verbose:
+            print(f"[cadgen] built the B-rep of {name} ({solids} solids) in {time.perf_counter() - t0:.2f}s", file=sys.stderr)
+        return ImplicitBuildResult(
+            ok=solids > 0, name=name, outputs=(ImplicitOutput(path=out, fmt="step"),), tape=tape,
+            resolution=float(header.get("resolution") or 0.0), leaves=leaves_table,
+            bounds={"min": list(box.min), "max": list(box.max)}, timings={"total_s": time.perf_counter() - t0}, warnings=tuple(warnings),
+        )
+    from cadgen._internal.implicit.mesh import contour as _contour
+    from cadgen._internal.implicit.writers import write_glb, write_stl
+
+    cell = resolution if resolution is not None else header.get("resolution")
     mesh = _contour(field, resolution=cell, crease_deg=crease_deg)
     (write_glb if fmt == "glb" else write_stl)(mesh, out, name=name)
     if verbose:
         print(f"[cadgen] contoured {name} in {mesh.timings.get('total_s', 0):.2f}s on a {mesh.grid} grid", file=sys.stderr)
     warnings = () if mesh.triangle_count else ("the field has no surface inside its bounds: nothing was contoured",)
     return ImplicitBuildResult(
-        ok=mesh.triangle_count > 0,
-        name=name,
-        outputs=(ImplicitOutput(path=out, fmt=fmt),),
-        tape=tape,
-        resolution=mesh.resolution,
-        grid=mesh.grid,
-        triangles=mesh.triangle_count,
-        vertices=mesh.vertex_count,
-        leaves=tuple(header.get("leaves", ())),
+        ok=mesh.triangle_count > 0, name=name, outputs=(ImplicitOutput(path=out, fmt=fmt),), tape=tape,
+        resolution=mesh.resolution, grid=mesh.grid, triangles=mesh.triangle_count, vertices=mesh.vertex_count, leaves=leaves_table,
         bounds={"min": list(mesh.bounds.min), "max": list(mesh.bounds.max)} if mesh.bounds else {},
-        timings={**mesh.timings, "total_s": time.perf_counter() - t0},
-        warnings=warnings,
+        timings={**mesh.timings, "total_s": time.perf_counter() - t0}, warnings=warnings,
     )
 
 
@@ -390,61 +414,60 @@ def measure(
     )
 
 
-def step(
-    tape: Path,
-    out: Path | None = None,
+def faces(
+    document: Path,
     *,
-    blends: str = "fillet",
+    tape: Path | None = None,
+    ref: str | None = None,
     verbose: bool = False,
-) -> ImplicitStepResult:
-    """Write a saved implicit part as STEP: its B-rep, with the field's blends as fillets.
+) -> ImplicitFacesResult:
+    """Map a STEP's faces to the leaves of the tape that made it: which line of code each face comes from.
 
-    Primitives, sharp booleans, rigid transforms, uniform scale, mirror,
-    repeat, offset and shell translate exactly (the STEP's volume matches the
-    mesh's). A boolean's round or chamfer becomes an OCC fillet or chamfer on
-    the edges that boolean made; ``elongate`` and a custom field are refused.
-
-    tape: the part's ``.implicit.json``.
-    out: the ``.step`` to write. Omitted, ``<tape stem>.step`` beside the tape.
-    blends: fillet (round each blended join with OCC, retrying smaller, then
-        per tool, then leaving it sharp with a warning), drop (leave every
-        blend sharp and list them), or refuse (fail naming the node).
+    document: the part's ``.step``.
+    tape: its ``.implicit.json``. Omitted, ``<document stem>.implicit.json`` beside it.
+    ref: one selector to answer (``#o1.f7``, or ``part.step#o1.f7`` as the viewer
+        hands it over). Omitted, every face is listed.
     verbose: show progress on stderr.
     """
     import sys
 
-    from cadgen._internal.implicit.brep import BrepReport, solids_of, to_brep as _to_brep, volume_of
+    import numpy as np
+
     from cadgen._internal.implicit.tape import TAPE_SUFFIX, read_tape
+    from cadgen.results import ImplicitFace
 
-    tape = Path(tape)
+    document = Path(document)
+    tape = Path(tape) if tape is not None else document.with_name(document.stem + TAPE_SUFFIX)
+    if not tape.is_file():
+        raise ValueError(f"no tape beside {document.name}: expected {tape.name} (pass --tape)")
     field, header = read_tape(tape)
-    name = str(header.get("name") or tape.name[: -len(TAPE_SUFFIX)])
-    if out is None:
-        out = tape.with_name(tape.name[: -len(TAPE_SUFFIX)] + ".step")
-    out = Path(out)
-    if out.suffix.lower() not in (".step", ".stp"):
-        raise ValueError(f"out must be .step or .stp, got {out.suffix!r}")
-    report = BrepReport()
-    if verbose:
-        print(f"[cadgen] building the B-rep of {name}", file=sys.stderr)
-    shape = _to_brep(field, blends=blends, report=report)
-    from cadgen import build123d as bd
+    table = {int(leaf["id"]): leaf for leaf in header.get("leaves", ())}
+    from cadgen import read_scene
 
-    shape.label = name
-    out.parent.mkdir(parents=True, exist_ok=True)
-    bd.export_step(shape, str(out))
-    solids = solids_of(shape)
-    warnings = list(report.warnings)
-    if not solids:
-        warnings.append("the B-rep has no solid: the tree describes nothing, or its booleans cancel")
-    return ImplicitStepResult(
-        ok=solids > 0,
-        tape=tape,
-        name=name,
-        step=out,
-        solids=solids,
-        volume=volume_of(shape),
-        filleted_blends=tuple(report.filleted_blends),
-        dropped_blends=tuple(report.dropped_blends),
-        warnings=tuple(warnings),
+    scene = read_scene(document)
+    selections = []
+    if ref:
+        wanted = ref.split("#", 1)[1] if "#" in ref else ref
+        selection = scene.resolve("#" + wanted.lstrip("#"))
+        if selection.kind != "face":
+            raise ValueError(f"{ref} is not a face selector")
+        selections.append(selection)
+    else:
+        for occurrence in scene.leaves():
+            selections.extend(occurrence.entities("face"))
+    if verbose:
+        print(f"[cadgen] mapping {len(selections)} faces of {document.name} through {tape.name}", file=sys.stderr)
+    centers = []
+    rows = []
+    for selection in selections:
+        shape = selection.shape()
+        c = shape.center()
+        centers.append((float(c.X), float(c.Y), float(c.Z)))
+        rows.append((selection.ref, str(getattr(shape.geom_type, "name", shape.geom_type)).lower(), float(shape.area)))
+    owners = field.evaluate(np.asarray(centers).reshape(-1, 3))[1] if centers else []
+    faces_out = tuple(
+        ImplicitFace(ref=row[0], surface=row[1], area_mm2=round(row[2], 4), center_mm=tuple(round(x, 4) for x in center),
+                     leaf=int(owner), label=str(table.get(int(owner), {}).get("label", "")), site=str(table.get(int(owner), {}).get("site", "")))
+        for row, center, owner in zip(rows, centers, owners)
     )
+    return ImplicitFacesResult(ok=True, document=document, tape=tape, faces=faces_out)

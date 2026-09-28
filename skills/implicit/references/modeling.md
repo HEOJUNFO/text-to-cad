@@ -140,15 +140,15 @@ part, or when the question is metric (clearance of two STEPs: `im.clearance(a, b
 The distance of a B-rep leaf comes from its surface and is exact to a small
 fraction of the grid cell; contouring costs more than a primitive (a few
 seconds for a part like the housing at 0.4 mm). A sharp boolean with a
-B-rep leaf leaves through `cadgen implicit step` with the original faces
-intact; a shell or blend leaves only if OpenCascade agrees, as for any tree.
+B-rep leaf leaves in the STEP with the original faces intact; a shell or
+blend leaves only if OpenCascade agrees, as for any tree.
 
 ## Limits to state in the report
 
-- The maintained output is a mesh. A STEP is built on request (a `.step` in
-  `out`, or `cadgen implicit step`) with blends as OCC fillets; a join OCC
-  refuses to fillet is left sharp and named in the warnings, and `elongate`
-  or a custom field has no STEP at all. Say so when the user expects one.
+- The STEP is the kernel's rebuild of the field: a join OpenCascade refuses to
+  fillet is left sharp and named in the warnings, and `elongate` or a custom
+  field has no STEP at all (the part writes a mesh instead). Say so when it
+  happens.
 - Smooth blends (`round`, `chamfer`) make the field a *bound* near the join,
   not an exact distance; offsets through a blend are approximate there.
 - Non-uniform scale is not offered because it breaks the distance property.

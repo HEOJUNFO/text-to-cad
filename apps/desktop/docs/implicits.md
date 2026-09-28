@@ -25,7 +25,7 @@ level of leaves.
 | Questions | `.../_internal/implicit/measure.py` | `probe`, `measure` (bounds, volume, area, centroid, per-leaf surface), `clearance`, `interference`, `thickness` (inward sphere-traced rays: min, 5th percentile, median; plus largest inscribed sphere). |
 | B-rep bridge | `.../_internal/implicit/brep.py` | The tree as a build123d shape: every primitive (box and cylinder rounds become fillets), booleans, translate/rotate/scale/mirror/repeat, offset and shell (OCC's ARC offset, then INTERSECTION as the fallback it suggests). A boolean's `round`/`chamfer` becomes an OCC fillet or chamfer on the edges that boolean created (found geometrically: edges lying on two operands' surfaces); a refused fillet is retried at half, quarter and eighth radius, then per tool, then left sharp with a warning naming the join. `elongate` and `custom` are refused. Twelve exact-subset shapes match their meshes to within 0.4 %. |
 | Authoring | `.../_internal/implicit/authoring.py`, `cadgen/implicit.py` | `@im.part(out=..., resolution=...)`: declares; a top-level call writes the meshes and tape; a call inside another part composes. Script argv takes `--resolution`, `--json`, `--verbose`. The public namespace holds the DSL and two verbs. |
-| CLI | `cadgen/cli/implicit_build.py`, `implicit_measure.py`, `implicit_step.py` | Generated mirrors: `cadgen implicit build TAPE [OUT] --resolution --crease-deg`, `cadgen implicit measure TAPE --walls --at x,y,z --resolution`, `cadgen implicit step TAPE [OUT] --blends fillet|drop|refuse`. `im.to_brep(field)` is the library form, so a `$cad` model can compose an implicit part, and a part script that lists a `.step` in `out` writes its B-rep beside the mesh. |
+| CLI | `cadgen/cli/implicit_build.py`, `implicit_measure.py`, `implicit_faces.py` | Generated mirrors: `cadgen implicit build TAPE [OUT]` (STEP, GLB or STL by suffix; `--blends fillet|drop|refuse`, `--resolution`), `cadgen implicit measure TAPE --walls --at x,y,z`, `cadgen implicit faces STEP --ref part.step#o1.f7`. `im.to_brep(field)` is the library form, so a `$cad` model can compose an implicit part. |
 | Viewer | `packages/core/src/lib/render/glbScene.js`, `packages/ui/src/renderers/glb/` (`tools.js`, `useLeafSelection.js`, `LeafSection.jsx`, `GlbRenderer.jsx`) | A GLB whose nodes carry `implicitLeaf` extras gets a Select tool: the scene lists `leaves`, `pick(ray)` answers with the leaf under the pointer, hover and selection paint as the robot scene's do, a Leaves panel lists the leaves, and the Reference panel's Add to prompt hands the composer the file plus one line per leaf naming its source line. A plain GLB is unchanged (its browser tests still pass). |
 | Skill | `skills/implicit/` | `SKILL.md` plus `references/modeling.md`, `questions.md`, `meshing.md`; `requirements.txt` pins `cadgen[snapshot]==0.6.6`. Discovered by the desktop app's `build-skills.mjs` automatically. |
 | Tests | `tests/python/packages/cadgen/test_implicit.py` (28), `tests/python/skills/implicit/`, `packages/core/src/lib/render/glbScene.test.js` (+3) | Exact distances, boolean arithmetic and leaf ownership, closed outward meshes at known volumes, GLB/STL bytes, tape round trip, decorator and composition, both verbs. |
@@ -144,6 +144,35 @@ Drawbacks of the implicit path, honestly:
   thickness minimum honestly reports knife edges as thin.
 - **No parameter derivatives** (cadjoint's territory), and the UI selects
   leaves, not faces.
+
+## The simplified flow: STEP first
+
+Amy's second reaction: it should feel like STEP, be interactive like STEP,
+and be simpler. So the default changed. A part script with no options now
+writes two files, `part.step` and `part.implicit.json`, and the viewer opens
+the STEP as any STEP: edges, face selection, measure, the feature panel, the
+right-click Add to prompt that hands the agent `part.step#o1.f3`. The field
+stays underneath as the source: `cadgen implicit faces part.step --ref
+part.step#o1.f3` answers that the face is `outer`, written at
+`enclosure.py:30`, by evaluating the face's centre in the tape. The mesh is
+no longer in the everyday path; it is one build away for printing, and the
+fallback when the kernel cannot build the B-rep.
+
+The verbs collapsed to three: `build` (a STEP, GLB or STL from the tape, by
+suffix), `measure`, and `faces`. The `step` verb is gone.
+
+![The enclosure as its STEP in Hardcore: a face picked, its STEP details, and the selector in the composer](images/implicit/hardcore-step-pick.png)
+
+```text
+$ cadgen implicit faces src/enclosure.step --ref enclosure.step#o1.f3
+src/enclosure.step: 1 face mapped through src/enclosure.implicit.json
+  #o1.f3     plane        2400.00 mm^2  at (-0.00, -0.00, 25.00)  leaf 0: outer (enclosure.py:30)
+```
+
+What the user gets: everything the STEP view already does, plus provenance to
+code for every face, plus operations that cannot fail while modelling. What
+they give up: nothing in the viewer. The GLB leaf-selection panel remains for
+the mesh fallback and for parts that declare a mesh.
 
 ## Combining B-reps and fields: the translator both ways
 

@@ -22,7 +22,8 @@ __all__ = [
     "ImplicitBuildResult",
     "ImplicitMeasureResult",
     "ImplicitOutput",
-    "ImplicitStepResult",
+    "ImplicitFace",
+    "ImplicitFacesResult",
     "MeshExportFile",
     "MeshExportResult",
     "SnapshotFile",
@@ -418,27 +419,33 @@ class ImplicitMeasureResult:
 
 
 @dataclass(frozen=True)
-class ImplicitStepResult:
-    """The outcome of ``cadgen implicit step``: the B-rep of a saved part's exact subset, as STEP.
+class ImplicitFace:
+    """One face of an implicit part's STEP, and the leaf (the line of code) that made it."""
 
-    ``filleted_blends`` names the booleans whose round/chamfer became an OCC
-    fillet; ``dropped_blends`` those left sharp, where the STEP differs from
-    the mesh.
-    """
+    #: The viewer's selector (``#o1.f17``): what Add to prompt hands the agent.
+    ref: str
+    surface: str
+    area_mm2: float
+    center_mm: tuple[float, float, float]
+    #: The leaf whose surface this face lies on.
+    leaf: int
+    label: str
+    site: str
+
+
+@dataclass(frozen=True)
+class ImplicitFacesResult:
+    """The outcome of ``cadgen implicit faces``: the STEP's faces mapped to the tape's leaves."""
 
     ok: bool
+    document: Path
     tape: Path
-    name: str
-    step: Path
-    solids: int = 0
-    volume: float = 0.0
-    filleted_blends: tuple[str, ...] = ()
-    dropped_blends: tuple[str, ...] = ()
-    warnings: tuple[str, ...] = ()
+    faces: tuple[ImplicitFace, ...] = ()
 
     def human_lines(self) -> list[str]:
-        lines = [f"wrote STEP: {_display(self.step)} ({self.solids} solid{'s' if self.solids != 1 else ''}, volume {self.volume:.6g})"]
-        lines += [f"blend filleted at {where}" for where in self.filleted_blends]
-        lines += [f"blend left sharp at {where}" for where in self.dropped_blends]
-        lines += [f"warning: {warning}" for warning in self.warnings]
+        lines = [f"{_display(self.document)}: {len(self.faces)} face{'s' if len(self.faces) != 1 else ''} mapped through {_display(self.tape)}"]
+        for face in self.faces:
+            c = face.center_mm
+            where = f" ({face.site})" if face.site else ""
+            lines.append(f"  {face.ref:<10} {face.surface:<9} {face.area_mm2:>10.2f} mm^2  at ({c[0]:.2f}, {c[1]:.2f}, {c[2]:.2f})  leaf {face.leaf}: {face.label or '(unnamed)'}{where}")
         return lines

@@ -41,6 +41,21 @@ line per leaf with its surface share, the thinnest and thickest walls with
 `--walls`, and one line per `--at` probe: distance, inside or outside, and
 which leaf's surface is nearest. `--json` is the same as one object.
 
+## Faces
+
+A face the user picks in the viewer arrives as a selector, `part.step#o1.f7`.
+The tape knows which leaf's surface every face lies on:
+
+```bash
+cadgen implicit faces src/housing.step --ref housing.step#o1.f7
+cadgen implicit faces src/housing.step --json          # every face, with its leaf and source line
+```
+
+Each line is the selector, the surface type and area, the centre, and the
+leaf: its label and the `file:line` that wrote it. Edit that line, rerun the
+script, and the face changes. A face on a fillet belongs to whichever operand
+is nearer at its centre.
+
 ## Reading the numbers
 
 - **Thickness** comes from rays cast into the solid from surface vertices

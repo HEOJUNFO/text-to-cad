@@ -49,7 +49,7 @@ PUBLIC_SURFACE: dict[str, tuple[str, ...]] = {
     "cadgen.sdf": ("snapshot", "validate"),
     # Not a format door: a saved tape (the field as data) goes in, a mesh or
     # measurements come out. The DSL and the @part decorator are library-only.
-    "cadgen.implicit": ("build", "measure", "step"),
+    "cadgen.implicit": ("build", "faces", "measure"),
 }
 
 # The format namespaces that are ALSO their declaration decorator. The robot
@@ -69,7 +69,7 @@ MIRRORS: dict[str, tuple[str, str]] = {
     "srdf validate": ("cadgen.srdf", "validate"),
     "implicit build": ("cadgen.implicit", "build"),
     "implicit measure": ("cadgen.implicit", "measure"),
-    "implicit step": ("cadgen.implicit", "step"),
+    "implicit faces": ("cadgen.implicit", "faces"),
     # Snapshot was the schema's LAST adapter. Its rich options are typed
     # `str | dict | None` — one string CLI-side, a real dict library-side — so
     # there is nothing left to declare: the structural check below is the whole

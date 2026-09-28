@@ -1,4 +1,4 @@
-"""``cadgen implicit step`` — a GENERATED CLI over :func:`cadgen.implicit.step`.
+"""``cadgen implicit faces`` — a GENERATED CLI over :func:`cadgen.implicit.faces`.
 
 No parser here on purpose: everything the command accepts is derived from the
 verb function's signature by :mod:`cadgen._internal.cli_from_function`, so a
@@ -12,8 +12,8 @@ from collections.abc import Sequence
 
 from cadgen._internal.cli_from_function import generated_main, generated_parser
 
-DEFAULT_PROG = "cadgen implicit step"
-VERB = ("cadgen.implicit", "step")
+DEFAULT_PROG = "cadgen implicit faces"
+VERB = ("cadgen.implicit", "faces")
 
 
 def build_parser(prog: str = DEFAULT_PROG) -> argparse.ArgumentParser:
