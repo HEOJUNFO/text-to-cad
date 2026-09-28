@@ -74,6 +74,8 @@ describe("the contract", () => {
       "runtime.repair",
       "onboarding.status",
       "onboarding.createSample",
+      "telemetry.status",
+      "telemetry.log",
       "dialogs.chooseDirectory",
       "dialogs.chooseFile",
       "settings.get",

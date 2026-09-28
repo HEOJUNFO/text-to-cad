@@ -73,6 +73,10 @@ Object.defineProperty(window, "textToCad", {
     skills: {
       info: vi.fn(async () => ({ root: null, skills: [] })),
     },
+    telemetry: {
+      status: vi.fn(async () => ({ available: false, reason: "no-key", variable: null })),
+      log: vi.fn(async () => ({ events: [] })),
+    },
     runtime: {
       status: vi.fn(async () => ({
         state: "missing",
