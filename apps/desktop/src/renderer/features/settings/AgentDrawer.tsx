@@ -184,6 +184,7 @@ function InstallationSection({ agent, platform }: { agent: AgentStatus; platform
           <p className="min-w-0 break-all text-muted-foreground" data-selectable>
             Found at <span className="text-foreground">{agent.binaryPath}</span>
             {agent.version ? ` · v${agent.version}` : ""}
+            {agent.adapter ? ` · adapter ${agent.adapter.version}` : ""}
           </p>
         </div>
         {jobId ? <JobLog output={output} /> : null}

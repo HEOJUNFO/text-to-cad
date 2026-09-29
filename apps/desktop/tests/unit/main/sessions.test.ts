@@ -99,6 +99,7 @@ const fakeProvider: AgentProvider = {
   authMethods: [{ type: "none", label: "none" }],
   authProbe: { files: [], envVars: [], checkArgs: null },
   launch: { command: process.execPath, args: [FAKE_AGENT], env: {} },
+  adapter: null,
   capabilities: { subagents: true, terminals: true, modes: true, configOptions: true, loadSession: true },
   skillRoots: "preamble",
 };
