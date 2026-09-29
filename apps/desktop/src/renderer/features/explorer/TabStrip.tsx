@@ -337,7 +337,9 @@ function TabButton({
     <div
       className={cn(
         "group/tab relative flex h-7 max-w-[190px] shrink-0 cursor-default items-center gap-1.5 rounded-lg border pr-1 pl-2 text-[13px] outline-none transition-colors",
-        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+        // Inset: the strip scrolls (overflow-x-auto), which clips anything drawn outside
+        // the chip, and an offset ring came through as four bracket fragments.
+        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
         active
           ? "border-border bg-accent/80 font-medium text-accent-foreground shadow-xs"
           : "border-transparent text-muted-foreground hover:bg-accent/50 hover:text-foreground",
