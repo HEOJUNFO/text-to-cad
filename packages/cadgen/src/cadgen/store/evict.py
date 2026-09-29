@@ -38,6 +38,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -148,8 +149,9 @@ def foreign_bytes() -> dict[str, int]:
         if child.name in {"objects", "index"} or child.name.startswith("."):
             continue
         total = 0
-        if child.is_file(follow_symlinks=False):
-            total = child.stat().st_size
+        info = child.lstat()
+        if stat.S_ISREG(info.st_mode):
+            total = info.st_size
         else:
             for folder, _dirs, files in os.walk(child):
                 for name in files:

@@ -370,12 +370,14 @@ class _Walk:
     boundaries classified by what the walk TAKES from them (result, value or
     source edge), exactly as before; only non-model files are sliced."""
 
-    def __init__(self, root: Path, *, syntax: _ImportSyntaxMemo, sources: Mapping[str, bytes] | None, descend: bool) -> None:
+    def __init__(self, root: Path, *, syntax: _ImportSyntaxMemo, sources: Mapping[str, bytes] | None,
+                 descend: bool, model_boundaries: bool = True) -> None:
         self.root = root
         self.roots = _search_roots(root)
         self.syntax = syntax
         self.sources = sources or {}
         self.descend = descend
+        self.model_boundaries = model_boundaries
         self.files: dict[Path, _FileState] = {}
         self.model_taken: dict[Path, set[str] | None] = {}
         self.model_source: set[Path] = set()
@@ -409,7 +411,7 @@ class _Walk:
         """A module that executes (its preamble), by import."""
         if path == self.root or not is_first_party_source_file(path):
             return
-        if _model_function_names(str(path)):
+        if self.model_boundaries and _model_function_names(str(path)):
             self.model_taken.setdefault(path, set())
             self._reclassify(path)
             return
@@ -585,7 +587,7 @@ class _Walk:
     def name_edge(self, target: Path, name: str) -> None:
         if target == self.root or not is_first_party_source_file(target):
             return
-        if _model_function_names(str(target)):
+        if self.model_boundaries and _model_function_names(str(target)):
             taken = self.model_taken.setdefault(target, set())
             if taken is not None and name not in taken:
                 taken.add(name)
@@ -599,7 +601,7 @@ class _Walk:
         """A module reachable by any name: tracked whole."""
         if target == self.root or not is_first_party_source_file(target):
             return
-        if _model_function_names(str(target)):
+        if self.model_boundaries and _model_function_names(str(target)):
             if self.model_taken.get(target, set()) is not None:
                 self.model_taken[target] = None
                 self._reclassify(target)
@@ -661,6 +663,26 @@ def static_closure(script: Path, *, _syntax: _ImportSyntaxMemo | None = None, _s
     script = Path(script).resolve()
     walk = _Walk(script, syntax=_syntax if _syntax is not None else _ImportSyntaxMemo(), sources=_sources, descend=True)
     return walk.run()
+
+
+def coalescing_sources(script: Path) -> dict[str, str] | None:
+    """Fresh static source identity, including model/result and constant edges.
+
+    An in-flight build has no result yet: unlike stored freshness, its key
+    cannot stop at model boundaries or rely on a previous record's file list.
+    Dynamic/unreadable modules decline coalescing rather than guessing which
+    files they will execute. Whole-file hashes deliberately over-approximate
+    reach here; a missed join is cheaper than returning an older build.
+    """
+    walk = _Walk(Path(script).resolve(), syntax=_ImportSyntaxMemo(), sources=None,
+                 descend=True, model_boundaries=False)
+    walk.run()
+    sources = {}
+    for path, state in walk.files.items():
+        if state.syntax is None or state.syntax.dynamic is not None:
+            return None
+        sources[str(path)] = state.syntax.whole_hash
+    return sources
 
 
 # --- hash at execution ----------------------------------------------------------

@@ -268,21 +268,34 @@ class TopLevelCoalescing(unittest.TestCase):
                           f"the {label} never saw why: {out}{err}")
         self.assertEqual(self._runs("bad"), 1)
 
-    def test_a_source_changed_between_the_requests_does_not_coalesce(self):
+    def test_a_helper_changed_during_a_cold_build_does_not_coalesce(self):
+        helper = self.src / "dimension.py"
+        helper.write_text("WIDTH = 2\n", encoding="utf-8")
+        script = self.src / "edited.py"
+        script.write_text(
+            "from dimension import WIDTH\n" + MODEL.format(name="edited", after="pass").replace(
+                "bd.Box(5.0, 4.0, 2.0)", "bd.Box(WIDTH, 4.0, 2.0)").replace(
+                '"edited.release"', 'f"edited-{WIDTH}.release"'), encoding="utf-8",
+        )
         before = self._coalesced()
         first = self._start("edited")
         self._wait_runs("edited", 1, first)
-        script = self.src / "edited.py"
-        script.write_text(script.read_text(encoding="utf-8") + "\n# edited while the first build was in flight\n", encoding="utf-8")
+        helper.write_text("WIDTH = 3\n", encoding="utf-8")
         second = self._start("edited")
         # A different closure is its own job: the body runs again, on the second slot.
         self._wait_runs("edited", 2, first, second)
         self.assertEqual(self._coalesced(), before, "an edited source was joined onto the stale build")
-        self._release("edited")
+        # Let the new revision publish first. The old job then loses the
+        # output compare-and-swap rather than overwriting the new document.
+        (self.src / "edited-3.release").touch()
+        code_b, out_b, err_b = self._finish(second)
+        (self.src / "edited-2.release").touch()
         self._finish(first)
-        code_b, _out_b, err_b = self._finish(second)
-        self.assertEqual(code_b, 0, err_b)
+        self.assertEqual(code_b, 0, out_b + err_b)
         self.assertEqual(self._runs("edited"), 2)
+        from build123d import import_step
+
+        self.assertAlmostEqual(import_step(str(self.src / "edited.step")).volume, 24.0)
 
     def test_a_forced_request_never_joins(self):
         before = self._coalesced()
@@ -343,12 +356,11 @@ class CoalescingKey(unittest.TestCase):
             env_before = os.environ.get("CADGEN_CACHE_DIR")
             os.environ["CADGEN_CACHE_DIR"] = str(src / "store")
             try:
-                from cadgen.store.gate import closure_hash, stale
+                from cadgen.store.gate import closure_hash
 
                 sent = daemon_client.source_closure("run", [str(script), "--json"], str(src))
                 self.assertEqual(sent, closure_hash(script))
-                self.assertEqual(sent, stale(script).closure, "a terminal and a child submit must key alike")
-                self.assertEqual(sent, hashlib.sha256(script.read_bytes()).hexdigest(), "no record: the script's own sha")
+                self.assertIsNotNone(sent, "a statically known cold build can still join")
                 self.assertIsNone(daemon_client.source_closure("run", ["missing.py"], str(src)))
                 self.assertIsNone(daemon_client.source_closure("stl-build", ["x.step"], str(src)))
             finally:
@@ -356,6 +368,46 @@ class CoalescingKey(unittest.TestCase):
                     os.environ.pop("CADGEN_CACHE_DIR", None)
                 else:
                     os.environ["CADGEN_CACHE_DIR"] = env_before
+
+    def test_the_key_tracks_current_imports_children_constants_and_declared_data(self):
+        from unittest import mock
+        from cadgen.store.gate import closure_hash
+        from cadgen.store.closure import build_closure
+        from cadgen.store.records import write_record
+
+        with generated_cad_directory(prefix="cadgen-coalesce-inputs-") as tmp:
+            root = Path(tmp)
+            script, child, helper, data = (root / name for name in ("parent.py", "child.py", "helper.py", "data.txt"))
+            script.write_text("from cadgen import step\nfrom child import child, WIDTH\n@step\ndef parent(): return child()\n", encoding="utf-8")
+            child.write_text("from cadgen import step\nfrom helper import size\nWIDTH = 2\n@step\ndef child(): return size()\n", encoding="utf-8")
+            helper.write_text("def size(): return 2\n", encoding="utf-8")
+            data.write_text("first", encoding="utf-8")
+            with mock.patch.dict(os.environ, {"CADGEN_CACHE_DIR": str(root / "store")}):
+                for recorded in (False, True):
+                    if recorded:
+                        closure = build_closure(script, executed={})
+                        write_record(script, {"closure": closure.as_json(), "constants": closure.constants,
+                                              "children": [{"model": str(child), "tree": "old"}], "tree": None})
+                        write_record(child, {"closure": {"files": [child.name, data.name]}, "tree": "old"})
+                    for path in (script, child, helper, *([data] if recorded else [])):
+                        with self.subTest(recorded=recorded, path=path.name):
+                            before = closure_hash(script)
+                            self.assertIsNotNone(before)
+                            source = path.read_text(encoding="utf-8")
+                            path.write_text(source.replace("WIDTH = 2", "WIDTH = 3") if path == child else
+                                            source + ("\nCHANGED = 1\n" if path.suffix == ".py" else " changed"), encoding="utf-8")
+                            self.assertNotEqual(before, closure_hash(script))
+                            path.write_text(source, encoding="utf-8")
+                # A newly reached import is visible even though the record's
+                # old closure never named it.
+                helper.write_text("from added import size\n", encoding="utf-8")
+                added = root / "added.py"
+                added.write_text("def size(): return 3\n", encoding="utf-8")
+                before = closure_hash(script)
+                added.write_text("def size(): return 4\n", encoding="utf-8")
+                self.assertNotEqual(before, closure_hash(script))
+                helper.write_text("def size(): return globals()['WIDTH']\n", encoding="utf-8")
+                self.assertIsNone(closure_hash(script), "dynamic inputs must not guess a join key")
 
     def test_a_compile_door_keys_on_the_documents_bytes(self):
         with generated_cad_directory(prefix="cadgen-coalesce-key-") as tmp:

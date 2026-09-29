@@ -496,6 +496,11 @@ A real one (`link_robot`: a base, two placements of `link_arm`, one of
     hashes whole (`ast1:` against a recorded `slice1:`) and reads stale.
     `cadgen store why` prints a sliced file as `lib/geo.py[plane, cyl_along,
     …]`.
+  - **Lexical scopes decide module reads.** Python's symbol tables distinguish
+    a function's parameters from its defaults and annotations, and separate
+    nested functions, classes and comprehensions. A local binding in one scope
+    cannot hide a module read in another; class-body reads also retain the
+    possible module fallback.
 - `constants` is `{"<model file, relative to the script>": {"<NAME>":
   "<sha256 of the literal's canonical repr>"}}` — every literal the model
   took from a model file by value. Empty for most models. The gate's clause
@@ -600,7 +605,8 @@ Each with the failure it prevents.
 - **Read-back verification.** A written STEP is verified, never trusted.
   Before anything is published under the document's digest, every distinct
   component the re-read carries back (`build_tree_through_step`, one check
-  per cid) is compared with the shape the model returned: solid count, volume
+  per cid, including pinned children with no saved STEP of their own) is
+  compared with the shape the model returned: solid count, volume
   (within 1e-3 relative) and the control-hull bounds (within 0.1 mm + 2 % of
   the extent, a coarse backstop for volume-neutral displacement), plus
   BRepCheck validity — asked of the read-back first, and of the source only
@@ -611,7 +617,10 @@ Each with the failure it prevents.
   Any discrepancy is a build failure naming the file, occurrence, label,
   component and the numbers; the staged document is discarded and no record,
   output mapping or document index entry is written. The check reuses the
-  parsed read-back and costs a small fraction of the re-read itself (under a
+  parsed read-back. Linked components retain their exact pinned BREP bytes
+  before publication callbacks and decode one distinct component at a time
+  for comparison, without retaining another native assembly. Verification
+  costs a small fraction of the re-read itself (under a
   second per heavy casting: the volume integral dominates, BRepCheck runs in
   parallel). Prevents: OCCT's translation silently replacing a solid with
   something else — a sphere-boolean cap read back as its 0.35 mm³ complement,
@@ -1047,10 +1056,16 @@ CPU scheduling and reuse remain independent of memory admission:
    a job: it runs on a spare, holds a slot through its read and emit, coalesces
    on the document's bytes and shows in the tree. The tree shows `queued` when a
    slot did not come at once.
-2. **In-flight coalescing.** Every source request carries its source's closure
-   hash — a child submit the gate's, a top-level `python model.py` the same
-   value computed before it asks (`cadgen.store.gate.closure_hash`), a compile
-   door and the CAD Viewer's compile the document's bytes — and a request for
+2. **In-flight coalescing.** Every source request carries a current-input hash
+   (`cadgen.store.gate.closure_hash`), computed identically for child submits
+   and top-level `python model.py`. It scans current static imports even before
+   the first record, crossing child-model and constant boundaries and hashing
+   whole semantic source files. Existing records add declared data inputs,
+   runtime children and current child pins. This intentionally covers more
+   than the sliced freshness hash: an edited helper, child, constant or newly
+   imported file must not join a producer that consumed its old revision.
+   Dynamic or unreadable source declines coalescing. Compile doors, including
+   the CAD Viewer's, use the document's bytes. A request for
    `(store, model, closure)` matching a job already in flight attaches to that
    job instead of starting another. In flight only, identical source only,
    never a lookup into the past. Two parents needing one stale child build it

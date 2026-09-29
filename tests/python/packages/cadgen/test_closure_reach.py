@@ -184,6 +184,30 @@ class ReachClosure(unittest.TestCase):
         self.edit(self.geo, "def plane(origin, z_dir):", "def plane(origin, z_dir):  # a comment\n")
         self.assert_clause_two(reference, False)
 
+    def test_module_reads_survive_bindings_in_other_lexical_scopes(self):
+        cases = {
+            "default": "def plane(WIDTH=WIDTH):\n    return WIDTH\n",
+            "keyword default": "def plane(*, WIDTH=WIDTH):\n    return WIDTH\n",
+            "annotation": "def plane(WIDTH: WIDTH):\n    return WIDTH\n",
+            "nested parameter": "def plane():\n    def inner(WIDTH): return WIDTH\n    return WIDTH\n",
+            "comprehension": "def plane():\n    values = [WIDTH for WIDTH in range(3)]\n    return WIDTH\n",
+            "comprehension iterable": "def plane():\n    return [WIDTH for WIDTH in range(WIDTH)]\n",
+            "class body": "class plane:\n    WIDTH = WIDTH\n",
+            "class method": "class plane:\n    WIDTH = 9\n    def size(self): return WIDTH\n",
+        }
+        for scope, source in cases.items():
+            with self.subTest(scope=scope):
+                self.write("lib/geo.py", "WIDTH = 2\n" + source)
+                reference, _closure = self.record()
+                self.edit(self.geo, "WIDTH = 2", "WIDTH = 3")
+                self.assert_clause_two(reference, True, "lib/geo.py")
+
+    def test_a_genuinely_local_binding_does_not_reach_the_module_constant(self):
+        self.write("lib/geo.py", "WIDTH = 2\ndef plane(WIDTH):\n    return [WIDTH for WIDTH in range(WIDTH)]\n")
+        reference, _closure = self.record()
+        self.edit(self.geo, "WIDTH = 2", "WIDTH = 3")
+        self.assert_clause_two(reference, False)
+
     def test_module_level_side_effects_are_always_hashed(self):
         self.geo.write_text(self.geo.read_text(encoding="utf-8") + "\n\nREGISTRY = {}\nREGISTRY['k'] = unrelated(1)\n", encoding="utf-8")
         reference, closure = self.record()

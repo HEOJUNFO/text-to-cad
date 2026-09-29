@@ -71,6 +71,18 @@ class EvictionCase(unittest.TestCase):
 
     # --- last use -------------------------------------------------------------------
 
+    def test_info_counts_legacy_files_and_directories(self):
+        from cadgen.cli.store import main
+
+        legacy = self.store / "legacy"
+        legacy.mkdir(parents=True)
+        (legacy / "data").write_bytes(b"123")
+        (self.store / "old-file").write_bytes(b"45")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(main(["info", "--json"]), 0)
+        self.assertEqual(json.loads(out.getvalue())["foreign"], {"legacy": 3, "old-file": 2})
+
     def test_write_stamps_last_used_and_touch_is_throttled(self):
         from cadgen.store.index import LAST_USED, TOUCH_INTERVAL_SECONDS, entry_path, read_entry, touch_entry, write_entry
 

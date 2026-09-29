@@ -36,6 +36,7 @@ from __future__ import annotations
 import ast
 import builtins
 import hashlib
+import symtable
 from dataclasses import dataclass
 from typing import Iterable, Mapping
 
@@ -173,8 +174,32 @@ def _import_aliases(node: ast.AST) -> tuple[list[tuple[str, Alias]], list[Alias]
     return aliases, stars
 
 
-def _reads(node: ast.AST, local: set[str]) -> tuple[list[str], list[tuple[str, tuple[str, ...]]], list[str]]:
+def _module_reads(node: ast.AST) -> set[str]:
+    """Conservatively union module reads across lexical scopes in a statement.
+
+    Python resolves defaults/decorators in the enclosing scope, and gives
+    nested functions and comprehensions their own bindings. A subtree-wide
+    set of locals loses e.g. the outer WIDTH in ``def f(WIDTH=WIDTH)``.
+    Class bodies use LOAD_NAME and may fall back to the module even for a
+    locally bound name, so retain all their reads. Imported locals also stay
+    visible so the closure walker can follow their statement-local aliases.
+    """
+    pending = [symtable.symtable(ast.unparse(node), "<reach>", "exec")]
+    names: set[str] = set()
+    while pending:
+        table = pending.pop()
+        for symbol in table.get_symbols():
+            if symbol.is_declared_global() or symbol.is_imported() or (symbol.is_referenced() and (
+                table.get_type() in ("module", "class") or symbol.is_global()
+            )):
+                names.add(symbol.get_name())
+        pending.extend(table.get_children())
+    return names
+
+
+def _reads(node: ast.AST) -> tuple[list[str], list[tuple[str, tuple[str, ...]]], list[str]]:
     """Bare reads, attribute-chain reads and attribute-stores of module-scope names."""
+    visible = _module_reads(node)
     chained: dict[int, tuple[str, ...]] = {}
     stores: set[str] = set()
     for child in ast.walk(node):
@@ -188,7 +213,7 @@ def _reads(node: ast.AST, local: set[str]) -> tuple[list[str], list[tuple[str, t
         if not isinstance(base, ast.Name):
             continue
         if isinstance(child.ctx, (ast.Store, ast.Del)):
-            if base.id not in local:
+            if base.id in visible:
                 stores.add(base.id)
             continue
         # ast.walk is breadth-first from the outermost node, so the first chain
@@ -201,7 +226,7 @@ def _reads(node: ast.AST, local: set[str]) -> tuple[list[str], list[tuple[str, t
             reads.update(child.names)
         if not (isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load)):
             continue
-        if child.id in local:
+        if child.id not in visible:
             continue
         chain = chained.get(id(child))
         if chain is None:
@@ -399,19 +424,16 @@ def analyze(source: bytes, filename: str = "<module>") -> ModuleSyntax:
             # The definition's own name is module-scope; what it binds inside is
             # local — except names its own imports bind, which stay visible as
             # reads so the walk can follow them through the statement's aliases.
-            local = plain - {node.name}
             binds = [node.name]
         elif definition:
             # A plain assignment: what its comprehensions, lambdas and walruses
             # bind is local to the expression; only the targets are module-scope.
             binds = list(defined)
-            local = (plain | imported) - set(binds)
         else:
             # Preamble binds everything it binds at module scope (a loop
             # variable, a conditional import, a definition inside an ``if``).
-            local = set()
             binds = sorted(plain | imported)
-        reads, chains, stores = _reads(node, local)
+        reads, chains, stores = _reads(node)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in _MODULE_HOOKS:
             dynamic = dynamic or f"module hook {node.name}"
         for name in reads:

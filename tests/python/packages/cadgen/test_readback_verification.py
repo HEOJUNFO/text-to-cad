@@ -121,6 +121,22 @@ class VerifyReadbackComponent(unittest.TestCase):
         self.assertIn("different geometry", message)
         assert_grossly_lossy(self, message)
 
+    def test_a_lossy_linked_child_is_verified_without_a_child_step(self) -> None:
+        import build123d as bd
+        from cadgen.store.build import build_tree_from_compound, build_tree_through_step
+        from cadgen.store.materialize import materialize
+
+        # A mesh-only child's source tree has never passed through STEP.
+        child_hash, _, _ = build_tree_from_compound(_rot_cap(), root_name="cap")
+        for force in (False, True):
+            with self.subTest(force=force):
+                parent = bd.Compound(children=[materialize(child_hash)], label="parent")
+                with self.assertRaises(RuntimeError) as caught:
+                    build_tree_through_step(parent, self.directory / "parent.step", root_name="parent",
+                                            force=force, _internal_source_publication=True)
+                self.assertIn("occurrence", str(caught.exception))
+                assert_grossly_lossy(self, str(caught.exception))
+
     def test_a_reversed_solid_passes_on_magnitude(self) -> None:
         # STEP carries no solid orientation: a Reversed solid (signed volume
         # -V) reads back as +V with the same geometry, and that is not damage.

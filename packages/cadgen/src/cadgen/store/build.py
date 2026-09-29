@@ -1077,20 +1077,21 @@ def build_tree_through_step(
        writing the STEP. Direct callbacks retain complete preparation first.
     3. Re-read the STEP with the scene loader, reusing only a complete verified
        canonical document of the exact emitted bytes unless forced. Map every
-       own occurrence to its
+       flattened occurrence to its
        node by id (``o1.2.3`` is the XCAF path, because the document's product
-       tree mirrors the flattened grouping). Validate own occurrence placement
+       tree mirrors the flattened grouping). Validate occurrence placement
        and face-color survival without modifying the published source tree.
     4. Verify complete authored-to-written correspondence. A privately retained
        canonical readback keeps its exact selected component/tree identities;
        a raw parse goes through the canonical cold-import builder.
 
-    Any own occurrence the re-read does not account for — no node at its id, a
+    Any occurrence the re-read does not account for — no node at its id, a
     member without a shape, a placement that moved — is a hard error (law 10).
     So is a component that reads back as different geometry
     (:func:`verify_readback_component`: solid count, volume, bounds, and
     BRepCheck validity where the returned shape was valid), checked once per
-    distinct cid against the shape the model returned.
+    distinct cid against the shape the model returned, including linked
+    components captured from their exact pinned BREP bytes.
     Source and translated component identities may differ; a saved-file reader
     always resolves the canonical document tree by the file's actual bytes.
     """
@@ -1147,6 +1148,26 @@ def build_tree_through_step(
     appearance = resolve_materials(descriptor, materials, inherited=inherited_appearance)
     if appearance is not None:
         descriptor = apply_appearance(descriptor, appearance)
+    # Capture exact linked inputs before a callback or GC can remove their
+    # objects. Keep encoded bytes, not another assembly of native prototypes;
+    # verification decodes one distinct linked component at a time.
+    from cadgen.store.objects import read_verified_object
+
+    captured = dict(snapshot.objects) if snapshot is not None else {}
+    linked_inputs = {}
+    for cid, entry in descriptor["components"].items():
+        if cid not in walk.shapes:
+            if entry.get("kind") == "eager-only":
+                from cadgen._internal.component_package import NativeUnavailable
+
+                raise NativeUnavailable("eager-only component has no admitted native representation")
+            brep = entry["brep"]
+            if brep not in captured:
+                try:
+                    captured[brep] = read_verified_object(brep)
+                except (OSError, ValueError) as exc:
+                    raise RuntimeError("source result components disappeared before publication") from exc
+            linked_inputs[cid] = (entry, captured[brep])
     document = None
     if snapshot is None:
         with timed("tree: prepare document"):
@@ -1201,9 +1222,17 @@ def build_tree_through_step(
 
     # One verification per distinct component: the first occurrence that places
     # a cid stands for every placement of it (XCAF reads one product back).
-    to_verify: dict[str, tuple[str, Any, Any]] = {}
-    with timed("tree: re-read components"):
-        for occurrence in walk.occurrences:
+    verified: set[str] = set()
+    with timed("tree: verify read-back components"):
+        from OCP.TopLoc import TopLoc_Location
+
+        for occurrence in descriptor["occurrences"]:
+            cid = str(occurrence["component"])
+            own_shape = walk.shapes.get(cid)
+            if own_shape is None:
+                if cid in verified:
+                    continue  # full correspondence still checks every placement
+                own_shape = decode_geometry_component(*linked_inputs[cid])
             occ_id = str(occurrence["id"])
             node = nodes.get(occ_id)
             if node is None:
@@ -1211,8 +1240,6 @@ def build_tree_through_step(
                     f"{step_path.name}: occurrence {occ_id} ({occurrence.get('name')}) has no "
                     "product at that path in the STEP just written"
                 )
-            cid = str(occurrence["component"])
-            own_shape = walk.shapes.get(cid)
             own_wrapped = getattr(own_shape, "wrapped", None)
             prototype, face_colors = _reread_component(
                 scene, node, occurrence, step_path.name, written=own_wrapped
@@ -1222,16 +1249,12 @@ def build_tree_through_step(
                     f"{step_path.name}: occurrence {occ_id} ({occurrence.get('name')}) was "
                     "written with per-face colours the STEP does not carry back"
                 )
-            if own_wrapped is not None and cid not in to_verify:
-                to_verify[cid] = (
-                    f"{step_path.name}: occurrence {occ_id} ({occurrence.get('name')}, component {cid})",
-                    own_wrapped, prototype,
+            if own_wrapped is not None and cid not in verified:
+                label = f"{step_path.name}: occurrence {occ_id} ({occurrence.get('name')}, component {cid})"
+                verify_readback_component(
+                    label, own_wrapped.Located(TopLoc_Location()), prototype,
                 )
-    with timed(f"tree: verify read-back ({len(to_verify)} components)"):
-        from OCP.TopLoc import TopLoc_Location
-
-        for label, own_wrapped, prototype in to_verify.values():
-            verify_readback_component(label, own_wrapped.Located(TopLoc_Location()), prototype)
+                verified.add(cid)
     with timed("tree: canonical document"):
         if readback is not None and readback.tree_hash is not None:
             # Only this internal call owns the verified closure and the scene
