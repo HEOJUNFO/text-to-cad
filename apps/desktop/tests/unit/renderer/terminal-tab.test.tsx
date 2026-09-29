@@ -93,3 +93,12 @@ it("does not send the answer to a query replayed from scrollback, and still answ
   live({ id: "pty-old", data: "\x1b[6n", seq: 2 });
   expect(terminal().write).toHaveBeenCalledWith({ id: "pty-old", sessionId: "session", data: "\x1b[1;1R" });
 });
+
+it("draws in the Code font from Settings, and follows it when it changes", async () => {
+  terminal().attach = vi.fn(async () => ({ info: info(null), scrollback: "", seq: 0 }));
+  document.documentElement.style.setProperty("--font-mono", '"JetBrains Mono", monospace');
+  renderTab();
+  expect(terminals[0]!.options.fontFamily).toBe('"JetBrains Mono", monospace');
+  document.documentElement.style.setProperty("--font-mono", "Menlo, monospace");
+  await waitFor(() => expect(terminals[0]!.options.fontFamily).toBe("Menlo, monospace"));
+});

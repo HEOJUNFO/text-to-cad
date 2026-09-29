@@ -85,6 +85,14 @@ function themeFor(mode: "light" | "dark") {
       };
 }
 
+/** Before Settings has written `--font-mono`, and in a test with no stylesheet. */
+const FALLBACK_FONT = 'ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, "Cascadia Mono", Consolas, monospace';
+
+/** The Code font the person chose, as the rest of the app's code reads it. */
+function codeFont(): string {
+  return getComputedStyle(document.documentElement).getPropertyValue("--font-mono").trim() || FALLBACK_FONT;
+}
+
 export function TerminalTab({
   tabId,
   sessionId,
@@ -154,8 +162,7 @@ export function TerminalTab({
       allowProposedApi: true,
       cursorBlink: !readOnly,
       disableStdin: readOnly,
-      fontFamily:
-        'ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, "Cascadia Mono", Consolas, monospace',
+      fontFamily: codeFont(),
       fontSize: 12,
       lineHeight: 1.35,
       // Main keeps 512 KB for replay; this is what a person can scroll back
@@ -296,6 +303,17 @@ export function TerminalTab({
     // follow the element rather than the window.
     const observer = new ResizeObserver(() => push());
     observer.observe(host);
+    // Settings' Code font is `--font-mono` on <html> (`use-appearance.ts`),
+    // written in an effect that runs after this one; follow it rather than
+    // rebuild the terminal, which would replay the whole scrollback.
+    const fontObserver = new MutationObserver(() => {
+      const family = codeFont();
+      if (term.options.fontFamily !== family) {
+        term.options.fontFamily = family;
+        push();
+      }
+    });
+    fontObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
     push();
     if (!readOnly) {
       term.focus();
@@ -303,6 +321,7 @@ export function TerminalTab({
 
     return () => {
       observer.disconnect();
+      fontObserver.disconnect();
       offData();
       offExit();
       term.dispose();
