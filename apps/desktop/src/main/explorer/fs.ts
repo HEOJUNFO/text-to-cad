@@ -1,6 +1,9 @@
 /**
  * The filesystem behind the explorer's file tab: the tree, the reads and
- * writes, and one watcher per project root.
+ * writes, and the watching — one chokidar watcher per root (skipping
+ * dependency caches and repository internals), plus a direct `fs.watch` on
+ * each directory the tree listed and on each opened file's parent, all
+ * refcounted by the leases each page takes (`src/main/ipc/explorer.ts`).
  *
  * Two rules run through everything here.
  *
@@ -805,7 +808,10 @@ type WatchedRoot = {
 };
 
 /**
- * One chokidar watcher per root, refcounted by the tabs that asked for it.
+ * One chokidar watcher per root, refcounted by the page leases that asked
+ * for it, and beside it a direct `fs.watch` per listed directory and per
+ * opened file's parent (`watchListedDirectory`), so a directory the
+ * background watcher skips stays live while it is on screen.
  *
  * Changes are batched: a `git checkout` or an agent's multi-file edit fires
  * hundreds of events in a few milliseconds, and a tree that re-renders per

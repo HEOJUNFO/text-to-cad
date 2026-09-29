@@ -158,7 +158,7 @@ const ExplorerTabBase = {
  *
  * Null is the project directory. A string is the absolute path of one of the
  * project's own worktrees (plan §9) — a session in `worktree` mode works in
- * `~/.text-to-cad/worktrees/<project>/<slug>`, and the files it writes, the
+ * `~/.text-to-cad/worktrees/<project-slug>-<8hex>/<slug>`, and the files it writes, the
  * tree beside them, the terminal's cwd and the CAD viewer serving them all
  * belong to that directory, not to the checkout. The explorer store carries
  * the *active* root, chosen from the active session; every tab carries the

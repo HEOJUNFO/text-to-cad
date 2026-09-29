@@ -3,7 +3,7 @@ import { create } from "zustand";
 /**
  * The Settings pages, in the order the plan lists them (§10) — minus CAD
  * Runtime: the runtime ships inside the app, and what is left to say about
- * it is a status block on About & Updates.
+ * it is a status block on About and updates.
  */
 export const SETTINGS_SECTIONS = [
   "general",

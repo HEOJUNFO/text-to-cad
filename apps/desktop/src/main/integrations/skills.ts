@@ -18,12 +18,12 @@
  * Agents that ignore additional directories — Gemini, Copilot, OpenCode,
  * Goose, everything but Claude Code and Codex — get the root a second way:
  * `preamble()` names it, and its files in the first prompt of a session,
- * beside the `text-to-cad` MCP server's `list_skills` / `read_skill` tools which
- * read the same directory.
+ * beside the `text-to-cad-workspace` MCP server's `list_skills` / `read_skill`
+ * tools which read the same directory.
  *
  * Everything here is plain `node:fs` over paths passed in, so the materialiser
  * is testable without Electron (tests/unit/main/skills.test.ts). Main wires it
- * in `src/main/cad/index.ts`.
+ * in `src/main/integrations/index.ts` (`materialiseSkills`).
  */
 import { createHash } from "node:crypto";
 import fs from "node:fs";

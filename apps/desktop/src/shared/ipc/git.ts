@@ -110,7 +110,7 @@ export const ProjectGitInfoSchema = z.object({
 });
 export type ProjectGitInfo = z.infer<typeof ProjectGitInfoSchema>;
 
-/** One row of Settings › Git & Worktrees' per-project card. */
+/** One row of Settings › Git and worktrees' per-project card. */
 export const WorktreeSchema = z.object({
   path: z.string(),
   branch: z.string().nullable(),

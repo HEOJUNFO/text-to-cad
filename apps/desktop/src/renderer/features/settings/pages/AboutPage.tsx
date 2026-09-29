@@ -1,5 +1,5 @@
 /**
- * About & Updates (plan §10). The version, where it came from, the one
+ * About and updates (plan §10). The version, where it came from, the one
  * button the updater's current state allows — and the CAD runtime's status,
  * read-only: the runtime ships inside the app (plan §8, as revised), so what
  * used to be a page of its own is a block here that says whether it works,

@@ -78,7 +78,7 @@ export const UiCommandSchema = z.object({
   ]),
   /**
    * `new-session` only: the project to start it in, and the directory to
-   * start it in — Settings › Git & Worktrees' `New session in this worktree`
+   * start it in — Settings › Git and worktrees' `New session in this worktree`
    * (plan §2). Without them, `new-session` means "in whatever project is
    * selected, in the default mode".
    */
@@ -218,7 +218,7 @@ export const ipcEvents = {
   "settings.changed": SettingsSchema,
   /** The menu (or a shortcut) asked the renderer to navigate. */
   "ui.command": UiCommandSchema,
-  /** electron-updater's progress, surfaced on About & Updates. */
+  /** electron-updater's progress, surfaced on About and updates. */
   ...appEvents,
   ...acpEvents,
   ...agentsEvents,

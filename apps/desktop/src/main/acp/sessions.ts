@@ -66,8 +66,9 @@ export type SessionManagerDeps = {
   spawnTerminal: SpawnTerminal;
   broadcast: <C extends IpcEventChannel>(channel: C, payload: IpcEventPayload<C>) => void;
   /**
-   * The MCP servers a session gets: text-to-cad's own, minted per session
-   * (src/main/cad). A probe (`probeOptions`) is minted one too, and revokes
+   * The MCP servers a session gets: text-to-cad's seven domain servers
+   * (`text-to-cad-<integration>`), minted per session by `mcpServersFor` in
+   * src/main/integrations/index.ts. A probe (`probeOptions`) is minted one too, and revokes
    * it when it is done: the adapter is spawned exactly as a real session's
    * would be, or the options it reports are not the options it would have.
    */

@@ -1326,7 +1326,7 @@ async function assertPrefixUsable(root: string, prefix: string): Promise<void> {
     const blocking = segments.slice(0, depth).join("/");
     if (await tryGit(root, ["rev-parse", "--verify", "--quiet", `refs/heads/${blocking}`])) {
       throw new GitError(
-        `The branch prefix "${prefix}" cannot be used here: this repository already has a branch called "${blocking}", and git cannot keep both "${blocking}" and "${blocking}/…". Change the prefix in Settings › Git & Worktrees, or rename that branch.`,
+        `The branch prefix "${prefix}" cannot be used here: this repository already has a branch called "${blocking}", and git cannot keep both "${blocking}" and "${blocking}/…". Change the prefix in Settings › Git and worktrees, or rename that branch.`,
       );
     }
   }
@@ -1503,7 +1503,7 @@ export type PruneOptions = {
 };
 
 /**
- * Sweep the oldest worktrees past the keep limit (Settings › Git & Worktrees).
+ * Sweep the oldest worktrees past the keep limit (Settings › Git and worktrees).
  *
  * Three things are never removed, and each is a separate promise to the user:
  * a worktree text-to-cad did not create (outside `parentDir`), one a session is

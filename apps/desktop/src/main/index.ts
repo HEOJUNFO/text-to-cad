@@ -307,8 +307,9 @@ if (!app.requestSingleInstanceLock()) {
    * Quitting is a budget, not a sequence: two seconds, with a repository
    * watched, a shell, an adapter and the viewer all up (tests/e2e/cad.spec.ts
    * quits in that state and asserts no child is left behind). Everything here is told to stop and nothing is awaited: the viewer,
-   * the adapters and the ptys get their signals, the watcher and the bridge
-   * start closing, the database closes — and then every child this process
+   * the adapters and the ptys get their signals, the bridge starts closing,
+   * the explorer's watchers are left open (chokidar's `close()` blocks, and an
+   * fsevents handle dies with the process), the database closes — and then every child this process
    * still has a pipe to is detached, with the probes killed outright. Electron
    * waits for the Node side, and the Node side waits for its children; a
    * `--version` probe mid-`import cadgen` with a sixty-second timeout is what
