@@ -20,6 +20,7 @@ import path from "node:path";
 import type * as pty from "node-pty";
 
 import { isTerminalReply } from "../../shared/terminal-replies";
+import { stripHostSession } from "../agents/shell-env";
 
 /* -------------------------------------------------------------------------- */
 /* Sessions                                                                    */
@@ -39,6 +40,11 @@ export type TerminalOptions = {
   cols?: number;
   rows?: number;
   env?: Record<string, string>;
+  /**
+   * Directories put in front of `PATH`: the app's runtime launchers, for a
+   * terminal an agent creates, so the `cadgen` its skill promises is there.
+   */
+  pathPrefix?: readonly string[];
 };
 
 export type TerminalInfo = {
@@ -182,13 +188,17 @@ export function shellArgs(shell: string): string[] {
  *
  * Electron's own variables are stripped: a shell that inherits
  * `ELECTRON_RUN_AS_NODE` runs `node` when the user types `electron`, and
- * `NODE_OPTIONS` from the app's own launch leaks into everything spawned.
+ * `NODE_OPTIONS` from the app's own launch leaks into everything spawned. So
+ * are a host Claude Code session's (`stripHostSession`), for the reason the
+ * agents' environment drops them: a `claude` typed here would otherwise
+ * report itself logged out.
  */
 export function terminalEnv(
   base: NodeJS.ProcessEnv = process.env,
   extra: Record<string, string> = {},
+  pathPrefix: readonly string[] = [],
 ): Record<string, string> {
-  const env: Record<string, string> = {};
+  const own: Record<string, string> = {};
   for (const [key, value] of Object.entries(base)) {
     if (value === undefined) {
       continue;
@@ -196,13 +206,21 @@ export function terminalEnv(
     if (key.startsWith("ELECTRON_") || key === "NODE_OPTIONS") {
       continue;
     }
-    env[key] = value;
+    own[key] = value;
   }
+  const env = stripHostSession(own);
   env.TERM = "xterm-256color";
   env.COLORTERM = "truecolor";
   // Tools that ask "am I in a terminal a person is watching?" — this one is.
   env.TERM_PROGRAM = "text-to-cad";
-  return { ...env, ...extra };
+  const merged = { ...env, ...extra };
+  if (pathPrefix.length > 0) {
+    // The PATH key's case varies on Windows; prepend to the one that is there.
+    const key = Object.keys(merged).find((name) => name.toUpperCase() === "PATH") ?? "PATH";
+    const prefix = pathPrefix.join(path.delimiter);
+    merged[key] = merged[key] ? `${prefix}${path.delimiter}${merged[key]}` : prefix;
+  }
+  return merged;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -243,7 +261,7 @@ export class Terminals {
       cwd: options.cwd || os.homedir(),
       cols,
       rows,
-      env: terminalEnv(process.env, options.env ?? {}),
+      env: terminalEnv(process.env, options.env ?? {}, options.pathPrefix),
     });
 
     const session = new Session(id, child, options.cwd, shell, cols, rows, options.projectId, options.sessionId);

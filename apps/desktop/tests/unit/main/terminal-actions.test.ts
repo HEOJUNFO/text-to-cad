@@ -98,3 +98,14 @@ it('kills a terminal that finishes spawning after its session is archived', asyn
   expect(f.process.kill).toHaveBeenCalledOnce();
   expect(f.sent).toEqual([]);
 });
+
+it('puts the session runtime in front of a created terminal\'s PATH, as it is for the agent', async () => {
+  const f = fixture();
+  const actions = createTerminalActions({ sessionRoot: () => ({ directory, root: directory }), send: () => {}, newId: () => 'r' },
+    { request: async () => ({}) } as unknown as RendererCommands, () => f.terminals, () => ['/app/runtime/launchers']);
+  await actions.create_terminal!(f.session, {});
+  const env = spawn.mock.calls[0]![2].env as Record<string, string>;
+  const key = Object.keys(env).find(name => name.toUpperCase() === 'PATH')!;
+  expect(env[key]!.split(path.delimiter)[0]).toBe('/app/runtime/launchers');
+  f.terminals.killAll();
+});

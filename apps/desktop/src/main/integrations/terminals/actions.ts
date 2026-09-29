@@ -5,7 +5,14 @@ import type { Terminals } from "../../explorer/terminal";
 import type { ExplorerTab } from "../../../shared/types";
 import fs from "node:fs/promises";
 
-export function createTerminalActions(deps: ActionDeps, commands: RendererCommands, terminals: () => Terminals): BridgeActions {
+/**
+ * `runtimePath` is the session's runtime launchers (`sessionRuntimePath`), put
+ * in front of a created terminal's PATH as they are in front of the agent's:
+ * the cad-viewer skill promises `cadgen` on PATH, and a terminal the agent
+ * opens is one more place it runs it.
+ */
+export function createTerminalActions(deps: ActionDeps, commands: RendererCommands, terminals: () => Terminals,
+  runtimePath: () => string[] = () => []): BridgeActions {
   async function resolve(session: BridgeSession, params: Record<string, unknown>, signal?: AbortSignal) {
     const scope = deps.sessionRoot(session);
     if (!scope) throw new Error("workspace no longer exists");
@@ -20,7 +27,8 @@ export function createTerminalActions(deps: ActionDeps, commands: RendererComman
       const location = await resolveForSession(deps, session, typeof params.cwd === "string" ? params.cwd : ".");
       if (!(await fs.stat(location.absolute)).isDirectory()) throw new Error("terminal cwd must be a directory");
       signal?.throwIfAborted();
-      const info = await terminals().create({ sessionId: session.sessionId, projectId: session.projectId, cwd: location.absolute });
+      const info = await terminals().create({ sessionId: session.sessionId, projectId: session.projectId, cwd: location.absolute,
+        pathPrefix: runtimePath() });
       try {
         signal?.throwIfAborted();
         if (!deps.sessionRoot(session)) throw new Error("This session is no longer active.");

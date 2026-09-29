@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-import { SCROLLBACK_BYTES, Terminals, type TerminalEvent } from '@main/explorer/terminal';
+import { SCROLLBACK_BYTES, Terminals, terminalEnv, type TerminalEvent } from '@main/explorer/terminal';
 
 const spawn = vi.hoisted(() => vi.fn());
 vi.mock('node-pty', () => ({ spawn }));
@@ -86,4 +86,10 @@ it('passes the widget\'s replies to a program\'s queries through without countin
   // An arrow key is the person, and still counts.
   f.terminals.write(id, '\x1b[A');
   expect(f.terminals.read(id).inputPending).toBe(true);
+});
+it('gives a shell none of a host Claude Code session\'s variables, so a nested claude is not logged out', () => {
+  const env = terminalEnv({ PATH: '/bin', HOME: '/home/me', CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'cli',
+    CLAUDE_CODE_SSE_PORT: '1234', ANTHROPIC_BASE_URL: 'http://127.0.0.1:1', ELECTRON_RUN_AS_NODE: '1' });
+  expect(Object.keys(env).filter(key => /^(CLAUDE|ANTHROPIC_BASE_URL|ELECTRON_)/.test(key))).toEqual([]);
+  expect(env).toMatchObject({ PATH: '/bin', HOME: '/home/me' });
 });
