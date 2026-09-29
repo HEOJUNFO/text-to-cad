@@ -1,7 +1,7 @@
 """Policy checks for the repo-root agent plugin package.
 
-The repository root *is* the plugin: portable `plugin.json` and `mcp.json`
-sit beside the provider compatibility manifests, and the plugin's skills are
+The repository root *is* the plugin: `mcp.json` sits beside the provider
+compatibility manifests, and the plugin's skills are
 the canonical `skills/` directory rather than a generated copy.
 
 Version fields are deliberately not checked here; `scripts/release/sync-version.mjs`
@@ -22,7 +22,6 @@ MARKETPLACE_NAME = "text-to-cad"
 
 CLAUDE_PLUGIN_PATH = REPO_ROOT / ".claude-plugin" / "plugin.json"
 CODEX_PLUGIN_PATH = REPO_ROOT / ".codex-plugin" / "plugin.json"
-PORTABLE_PLUGIN_PATH = REPO_ROOT / "plugin.json"
 MCP_PATH = REPO_ROOT / "mcp.json"
 MARKETPLACE_PATH = REPO_ROOT / ".claude-plugin" / "marketplace.json"
 SKILLS_ROOT = REPO_ROOT / "skills"
@@ -41,15 +40,15 @@ def load_json(path: Path) -> dict:
 
 
 class PluginManifestPolicyTest(unittest.TestCase):
-    def test_portable_and_provider_plugin_manifests_exist_at_the_repo_root(self) -> None:
-        for path in (PORTABLE_PLUGIN_PATH, CLAUDE_PLUGIN_PATH, CODEX_PLUGIN_PATH):
+    def test_provider_plugin_manifests_exist_at_the_repo_root(self) -> None:
+        for path in (CLAUDE_PLUGIN_PATH, CODEX_PLUGIN_PATH):
             self.assertTrue(
                 path.is_file(),
                 f"missing plugin manifest: {path.relative_to(REPO_ROOT)}",
             )
 
     def test_plugin_manifests_name_the_plugin_consistently(self) -> None:
-        for path in (PORTABLE_PLUGIN_PATH, CLAUDE_PLUGIN_PATH, CODEX_PLUGIN_PATH):
+        for path in (CLAUDE_PLUGIN_PATH, CODEX_PLUGIN_PATH):
             manifest = load_json(path)
             self.assertEqual(
                 manifest.get("name"),
@@ -66,15 +65,15 @@ class PluginManifestPolicyTest(unittest.TestCase):
                 f"{path.relative_to(REPO_ROOT)} must point at ./skills/",
             )
 
-        # The portable format discovers the fixed root skills/ directory.
-        portable = load_json(PORTABLE_PLUGIN_PATH)
-        self.assertNotIn("skills", portable)
-        self.assertEqual(
-            portable.get("$schema"),
-            "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+    def test_portable_manifest_does_not_shadow_desktop_mcp_discovery(self) -> None:
+        # Verified with the real Codex 0.159.0 plugin/read loader: a root
+        # portable manifest yields no MCP servers, even with an explicit pointer.
+        self.assertFalse(
+            (REPO_ROOT / "plugin.json").exists(),
+            "Root plugin.json shadows working desktop MCP discovery; verify host support before adding it",
         )
 
-    def test_portable_mcp_server_starts_the_local_cadgen_runtime(self) -> None:
+    def test_mcp_server_starts_the_local_cadgen_runtime(self) -> None:
         config = load_json(MCP_PATH)
         self.assertEqual(
             config.get("$schema"),
@@ -85,11 +84,8 @@ class PluginManifestPolicyTest(unittest.TestCase):
             {"cad_viewer": {"type": "stdio", "command": "cadgen", "args": ["mcp"]}},
         )
         self.assertEqual(load_json(CODEX_PLUGIN_PATH).get("mcpServers"), "./mcp.json")
-        self.assertNotIn("mcpServers", load_json(PORTABLE_PLUGIN_PATH))
 
     def test_openai_plugin_displays_as_cad(self) -> None:
-        portable = load_json(PORTABLE_PLUGIN_PATH)
-        self.assertEqual(portable["extensions"]["com.openai"]["interface"]["displayName"], "CAD")
         self.assertEqual(load_json(CODEX_PLUGIN_PATH)["interface"]["displayName"], "CAD")
 
     def test_marketplace_lists_the_plugin_at_the_repository_root(self) -> None:

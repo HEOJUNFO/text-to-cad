@@ -72,7 +72,6 @@ jobs:
               - '.claude-plugin/**'
               - '.codex-plugin/**'
               - '.agents/plugins/**'
-              - 'plugin.json'
               - 'mcp.json'
               - 'package.json'
               - 'package-lock.json'

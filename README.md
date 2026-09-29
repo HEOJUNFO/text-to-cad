@@ -112,10 +112,10 @@ only skills still present in the checkout.
 Provider-native plugin installs are also available for Codex, Claude Code, and
 Grok Build:
 
-The repository root is the plugin package. Its portable `plugin.json` and
-`mcp.json` expose the canonical `skills/` directory and a local `cadgen mcp`
-server. The Codex and Claude compatibility manifests remain in their provider
-directories. Installing the plugin does not install the CAD runtime: install a
+The repository root is the plugin package. Its `.codex-plugin/plugin.json`
+manifest declares the canonical `skills/` directory and the local `cadgen mcp`
+server in `mcp.json`. The Claude manifest remains in `.claude-plugin/`.
+Installing the plugin does not install the CAD runtime: install a
 `cadgen` build that includes the MCP extra in the same local environment as
 your agent, and ensure its `cadgen` command is on `PATH`. The local MCP server
 uses stdio, so its viewer integration runs where the CAD files and runtime are
@@ -133,6 +133,16 @@ For a source checkout, install `requirements-dev.txt` and use the checkout's
 distribution before using its viewer tools. A browser-only ChatGPT connection
 uses a reachable MCP HTTP endpoint registered in developer mode; this local
 stdio configuration does not provide one.
+
+For desktop testing, restart the app after installing or updating the local
+plugin, then open a STEP/STP, STL, GLB or 3MF file. The viewer is a file handler;
+it does not add a global sidebar entry. Follow the
+[official local installation instructions](https://developers.openai.com/plugins/build/plugins#install-a-local-plugin-manually).
+We use the compatibility manifest layout from OpenAI's
+[Bits & Bolts example](https://github.com/openai/mcp-extensions/tree/main/plugins/bits-and-bolts):
+Codex 0.159.0 loads skills from a portable root `plugin.json` but fails to discover
+its bundled MCP servers. Keep that root manifest absent until desktop discovery
+is verified with a newer host; a successful skills install alone is insufficient.
 
 Codex resolves this repository-root plugin only from 0.142.0 onward. On older
 versions the plugin is skipped silently and never appears in `codex plugin list`;
