@@ -5,23 +5,24 @@ bridge, file handoff, appearance, composer delivery and iframe lifecycle. Geomet
 selection tools, renderers, file updates and reference serialization remain in
 `@text-to-cad/ui` and `@text-to-cad/core`. The MCP server belongs to `cadgen`.
 
-Open CAD from the global sidebar to browse the server's working directory. The
-shared explorer opens immediately with the shared empty state and file search.
-Alternatively, open a STEP/STP, STL, GLB or 3MF file in Codex and choose CAD to
-start with that model. The explorer browses supported files within the served
-directory and its subdirectories. It starts closed for a host-opened file;
-Show files reveals the tree, and selecting another file keeps the tree open. The read-only source reuses
-`createCadFileSource` for listing, search, metadata and update subscriptions,
-filtering file listings and search to STEP/STP, STL, GLB and 3MF. Navigation stays
-within the existing workspace, and references identify the currently viewed file.
-The app has no native picker, URL navigation, release menu or file-manager actions.
+CAD is a per-file viewer. Open a STEP/STP, STL, GLB or 3MF file in the host and
+choose CAD. File opening and switching belong to the host; the extension has no
+explorer, file picker, directory search, breadcrumbs or second filename bar.
+Compact overlay actions retain snapshots and the shared model controls.
+
+The global sidebar opens concise guidance for creating a part through the existing
+composer, opening it with the host, and attaching geometry references to a request.
+It does not list or scan a folder. The source reuses `createCadFileSource` metadata,
+asset access and subscriptions, omitting its listing and search capabilities. File
+subscriptions resolve their current file before starting polling so catalog
+requests remain file-scoped; an empty view starts no catalog subscription.
 Existing skills and the standalone web viewer remain independent.
 
 ## Host protocol
 
 `cad_open` returns `{file, rootId, rootPath}`. `file` is root-relative, or null for
-an empty sidebar view. Opening from the sidebar passes no file and uses the
-server's configured working directory. A native file entrypoint may initially omit its trusted local path;
+an empty sidebar view. Opening from the sidebar passes no file; it does not infer
+the active host workspace from the server's working directory. A native file entrypoint may initially omit its trusted local path;
 after mounting, the app invokes `cad_open` with its original tool input so the
 host can supply that path through trusted metadata. No browser path is trusted.
 
@@ -75,8 +76,8 @@ No shared renderer source is altered for this packaging.
 
 | Standalone web control | Extension behavior |
 | --- | --- |
-| File selection | The sidebar opens the shared explorer; a native file opening starts with the selected model. The explorer switches CAD files in the served directory. No second native picker. |
-| URL navigation and browser history | Files switch in the extension pane, without another URL or history stack. |
+| File selection | The host opens and switches files. The sidebar explains how to create or open a part; it has no explorer or picker. |
+| URL navigation, filename bar and browser history | Omitted; compact overlay actions retain snapshots and shared viewer controls. |
 | Theme selector | Follows the host theme. |
 | Brand, version, release and project links | Omitted from the pane; plugin management owns installation and updates. |
 | Reveal in file manager and server reload | Omitted; these standalone host actions are not exposed through MCP. |

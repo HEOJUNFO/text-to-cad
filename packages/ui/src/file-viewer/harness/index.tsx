@@ -95,16 +95,18 @@ function App() {
   const [file, setFile] = useState("notes.txt");
   const [root, setRoot] = useState(a);
   const [second, setSecond] = useState(false);
+  const [overlay, setOverlay] = useState(false);
   const [navigationPath, setNavigationPath] = useState<string | null | undefined>(undefined);
   const [state, setState] = useState<FileViewerState>({ panel: null, panelWidth: 300, expandedDirectories: [""] });
   const [otherState, setOtherState] = useState<FileViewerState>({ panel: "", panelWidth: 300 });
-  Object.assign(window, { harness: { a, b, events, opened, rendererCallbacks, renders, cleanupWrites, state, open: setFile, navigationPath: setNavigationPath, setRoot: (id: string) => { setRoot(id === "root-b" ? b : a); }, second: setSecond, width: (panelWidth: number) => setState((previous) => ({ ...previous, panelWidth })) } });
+  Object.assign(window, { harness: { a, b, events, opened, rendererCallbacks, renders, cleanupWrites, state, open: setFile, overlay: setOverlay, navigationPath: setNavigationPath, setRoot: (id: string) => { setRoot(id === "root-b" ? b : a); }, second: setSecond, width: (panelWidth: number) => setState((previous) => ({ ...previous, panelWidth })) } });
   // A host is made once for its root, as an app makes it (FileViewer's props are compared by identity).
   const primaryHost = useMemo(() => host(root, (path, options) => { opened.push({ path, options }); setFile(path); setState((previous) => ({ ...previous, panel: options?.panel ?? null })); }), [root]);
+  const presentedHost = useMemo(() => overlay ? { ...primaryHost, files: { ...root.source, list: undefined, paths: undefined } } : primaryHost, [overlay, primaryHost, root]);
   return <div style={{ width: "1000px", height: "650px" }}>
     <section data-testid="primary" style={{ height: "400px", display: "flex", flexDirection: "column" }}>
       {/* A host that shows one file at a time: an open moves this view to the file, with the panel it was opened with, or the file's own default. */}
-      <FileViewer file={file} host={primaryHost} renderers={renderers} state={state} onStateChange={setState} navigationPath={navigationPath} />
+      <FileViewer file={file} host={presentedHost} renderers={renderers} state={state} onStateChange={setState} navigationPath={navigationPath} navigationPresentation={overlay ? "overlay" : "bar"} />
     </section>
     {second ? <section data-testid="secondary" style={{ height: "240px" }}><FileViewer file="notes.txt" host={host(b, () => {})} renderers={renderers} state={otherState} onStateChange={setOtherState} /></section> : null}
   </div>;

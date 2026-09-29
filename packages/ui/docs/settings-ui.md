@@ -14,29 +14,38 @@ belong to apps through the [host contract](viewer-host.md).
 
 ## Ownership and layout
 
-FileViewer owns the nav row, the breadcrumbs, the panel column (the file tree)
-and which panel is open. RendererShell owns the scene's chrome: the toolbar, the
-tool stack under it, the view cube, the bottom action, the playbar and
-preview mode. Renderers supply their tools, their document state and their tool
+FileViewer owns file navigation, the panel column (including the file tree when
+the source can list files) and which panel is open. The default navigation
+presentation is a row with breadcrumbs; `navigationPresentation="overlay"`
+places actions and status over the viewport without a filename or file menu.
+RendererShell owns the scene's chrome: the toolbar, the tool stack under it,
+the view cube, the bottom action, the playbar and preview mode. Renderers
+supply their tools, their document state and their tool
 panels; the shell never inspects a format's parts, joints or topology. A CAD
 file's controls are never a panel of the host's column: no pick or tool opens,
 closes or turns it.
 
-| The host (web, desktop) supplies | The shared UI decides |
+| The host supplies | The shared UI decides |
 | --- | --- |
 | Where the tab record lives (`TabRecordStorage`: the web's sessionStorage, the desktop's per-tab store) | The record: its settings (the tree, the tool stack's layout, the appearance) and each file's view (its camera, Display settings, Playback settings and renderer slices), what is written when, and what is never stored (`@text-to-cad/ui/tab-store`, `kit/shell/fileView.js`) |
-| `leading`, `navigationActions` and `displayActions` (an appearance control) | The nav row's order, the snapshot action and the panel toggles |
+| `leading`, `navigationActions`, `navigationPresentation` and `displayActions` (an appearance control) | The navigation layout and order, the snapshot action and the panel toggles |
 | `host.files`, `fileActions`, `navigation`, `clipboard`, `promptContext` | When a copy, capture or open happens and what it carries |
 | `host.environment`: color scheme, keyboard `platform`, `reducedMotion` | How the chrome honours them |
 | `onError`, for errors the viewer hands up | Preview, tooltips, keyboard scope, the tool stack, the camera |
 
-Hosts pass no preview, chrome-visibility or notification props; there are
-none.
+Hosts cannot start or observe Preview, and there are no notification props.
+`navigationPresentation` changes only FileViewer's navigation layout; it does
+not hide the renderer's toolbar, tools, Display settings or Preview controls.
 
-- **Nav row.** Leading content, breadcrumbs and the loading status, then host
-  actions, the renderer's actions (the snapshot camera) and one toggle per
-  declared panel, **Show files** last. A CAD file declares none: its toggle
-  row is the file tree's alone.
+- **File navigation.** In the default `"bar"` presentation, leading content,
+  breadcrumbs and loading status precede host actions, renderer actions (the
+  snapshot camera) and one toggle per declared panel, **Show files** last when
+  the source offers listing. The `"overlay"` presentation omits the filename,
+  breadcrumbs and file menus. It places actions, status and available panel
+  toggles in a compact toolbar at the top center, clear of the renderer's
+  top-left tool stack and top-right Display and Preview controls. With no
+  actions, status or panels, no empty toolbar appears. A CAD file declares no
+  host panel.
 - **Toolbar** at top-left, 8px in — the gap between it and the stack under it.
   At top-right, 8px in and level with it, a bar of small transparent icon
   buttons: **Display settings** (sliders) then **Preview** (a play icon). In
@@ -51,8 +60,9 @@ none.
 - **Bottom action** and **playbar** sit near bottom-centre, independent of the
   cube. The action is a content-sized button with the platform's copy shortcut
   beside its label; mobile omits the shortcut.
-- **Loading status** sits after the filename in the nav row; on mobile it is a
-  tappable progress icon whose popover names what is loading.
+- **Loading status** sits after the filename in the default row or in the
+  navigation overlay; on mobile it is a tappable progress icon whose popover
+  names what is loading.
 
 ## Tools and lifecycle
 
@@ -447,7 +457,7 @@ STEP context-menu items; the live `resetCamera` command takes the same fit path.
 **Preview** is available for every 3D file, animated or not, and is the shell's
 own state (`previewing`); hosts neither start nor observe it. Its button is the
 play icon in the top-right bar ("Preview"). It fills the viewer below the
-host's nav row, which stays, and beside the host's column, which stays as it was
+host's navigation row, when present, and beside the host's column, which stays as it was
 and can still be opened and shut; the toolbar, the tool stack and its resize
 handles, joint handles, cube, bottom action and context menu are gone. It starts
 orbiting, unless the file's Playback settings turned its orbit off. Its top-right bar is the tools view's bar in the same place:
@@ -523,7 +533,7 @@ pending one. A hint appears on focus only for keyboard navigation (a Tab), never
 when a closing menu hands focus back.
 
 The viewer shows no toasts or notifications: copy, snapshot and prompt actions
-complete silently. Progress stays in the nav row; a failed action is the
+complete silently. Progress stays in file navigation; a failed action is the
 viewport's alert card; errors handed to the host's `onError` are the host's to
 show.
 

@@ -51,9 +51,10 @@ implementations. [Web storage](../../../apps/web/docs/storage.md) documents
 browser lifetimes. Shared component tests can
 use the [explicit fake host](../src/host/testing/host.ts).
 The [MCP App composition](../../../apps/chatgpt/src/App.tsx) uses the same
-FileViewer and CAD source adapter with a host-opened file and a CAD-only
-explorer scoped to its directory. Its transport and composer delivery stay
-under `apps/chatgpt/`.
+FileViewer and CAD source adapter with a host-opened file. It supplies document
+capabilities without listing or path discovery and selects the overlay
+navigation presentation. Its transport and composer delivery stay under
+`apps/chatgpt/`.
 
 ## What a CAD renderer does not use
 
@@ -72,7 +73,7 @@ beside the orbit speed and playback.
 
 Preview is the shared shell's own state (`previewing`); there is no host prop
 for it and a host cannot start or observe it. It fills the scene below the
-host's navbar and beside its panel column, which both stay as they are (the column can
+host's navigation row, when present, and beside its panel column (the column can
 still be opened and shut). It never uses the browser Fullscreen API. The shell saves the tools view's camera, fits a preview camera and restores
 the tools view's exact pose on exit; nothing of preview is persisted. Orbit
 starts by default, with its speed, unless the file's Playback settings say otherwise:
@@ -82,8 +83,10 @@ file's routine plays on entry only when its Autoplay is on. The rules are in
 [settings-ui.md](settings-ui.md#camera-animation-and-preview).
 
 A renderer can publish `FileNavigationAction[]` through
-`RendererViewProps.onNavigationActionsChange`. The shared navbar shows these
-before its panel toggles. Each action declares its icon, accessible label, an
+`RendererViewProps.onNavigationActionsChange`. FileViewer shows these before its
+panel toggles, in the normal navigation row or the compact top-center overlay
+selected by `navigationPresentation`. The overlay omits breadcrumbs and file
+menus, and is absent when there are no actions, status or panels. Each action declares its icon, accessible label, an
 optional shorter hover `hint`, disabled state and invocation callback. Registration belongs to the mounted
 file generation: publish an empty list on cleanup; departing renderers cannot
 replace a new file's actions. Publish only when action metadata changes; stable
@@ -300,6 +303,10 @@ permit its compilation in CSP without enabling JavaScript eval.
 
 `FileViewer.leading` adds host content before breadcrumbs. `navigationActions` adds
 host controls before renderer navigation actions (such as Snapshot), and
+`navigationPresentation="overlay"` hides the breadcrumb row and puts actions,
+status and available panel toggles over the viewport. Its default is `"bar"`.
+File listing remains a separate `FileSource.list` capability: a host that
+opens one document without listing has no tree toggle in either presentation.
 `displayActions` passes host-owned appearance controls into the Display section beside Projection via
 `RendererViewProps`. The shell handles placement and hides the toolbar in
 preview; the host owns callbacks and preferences. These slots do not imply platform detection
@@ -318,4 +325,6 @@ routing. The host supplies `environment.platform` for the ⌘C / Ctrl+C hint;
 the web host derives that field from its browser environment.
 
 Renderer status uses `RendererViewProps.navigationStatusSlot`, a named portal
-slot immediately after the filename. 
+slot immediately after the filename in the navigation row, or inside the
+compact overlay. When status is the only content, the empty slot leaves no
+visible toolbar.

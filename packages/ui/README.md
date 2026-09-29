@@ -5,6 +5,9 @@ its breadcrumb row, menus, content, file tree, one panel column, loading and
 error states, and common edit/save/reload lifecycle. `apps/web` and
 `apps/chatgpt` consume this component through the package's compiled exports;
 a host's own project, session and window layout remains application code.
+`navigationPresentation="overlay"` places only renderer actions, status and
+available panel toggles over the file instead of reserving a breadcrumb row;
+the default `"bar"` presentation keeps the full file navigation.
 
 The viewer's tools, tool stack, settings, tooltips and keyboard follow one
 binding [design system](docs/settings-ui.md) across hosts. A change to
@@ -108,9 +111,9 @@ the host's source returns. A host that exposes arbitrary files registers a
 fallback renderer (`fallback: true`) for the types nothing else matches.
 `createCadFileSource` in `/file-viewer` supplies shared, read-only CAD catalog
 stat, listing and change subscriptions from a `CadWorkspaceService`. The web
-app uses the full catalog; the MCP App limits its explorer to supported CAD
-files within the directory granted by the opened host file. The host applies
-that filter without changing the shared source's storage contract.
+app uses the full catalog. The MCP App exposes only its host-opened document,
+without `list` or `paths`, so FileViewer has no file tree in that composition.
+Both apps use the same source and renderer contracts.
 
 ```tsx
 import { FileViewer } from '@text-to-cad/ui/file-viewer';
@@ -275,7 +278,9 @@ Model reference section shows their properties. There is no Materials editor or
 persisted material override. See [View styles](docs/render-mode.md) and
 [progressive detail](docs/lod.md).
 
-The navbar names the file and carries compact loading/update status. An error
+The default navbar names the file and carries compact loading/update status.
+An overlay presentation keeps renderer actions and status in a compact toolbar
+at the top center, with no filename or breadcrumb menus. An error
 appears as a card over the viewport;
 a failed update the model survives can be dismissed, leaving the previous
 version to inspect. Try again reloads only the selected renderer.

@@ -165,6 +165,8 @@ export interface FileViewerProps {
   leading?: ReactNode;
   /** Host content before renderer actions in the navbar. */
   navigationActions?: ReactNode;
+  /** Place file navigation in its normal row, or show only actions and status over the viewport. */
+  navigationPresentation?: "bar" | "overlay";
   /** Host controls inside the CAD Display popover. */
   displayActions?: ReactNode;
   /** Override the selected path shown by breadcrumbs and tree, e.g. before a catalog resolves. */

@@ -119,8 +119,9 @@ Installing the plugin does not install the CAD runtime: install a
 `cadgen` build that includes the MCP extra in the same local environment as
 your agent, and ensure its `cadgen` command is on `PATH`. The local MCP server
 uses stdio, so its viewer integration runs where the CAD files and runtime are
-available. Opening a supported file in the embedded viewer also exposes a
-collapsible explorer for supported CAD files in that file's directory.
+available. The embedded viewer displays the file supplied by the host; file
+selection and navigation remain in Codex. The standalone web app owns its
+file explorer and directory-browsing workflow.
 
 ```bash
 # Codex (requires Codex 0.142.0 or newer)
@@ -136,7 +137,8 @@ stdio configuration does not provide one.
 
 For desktop testing, restart the app after installing or updating the local
 plugin, then open **CAD** from the sidebar or open a STEP/STP, STL, GLB or 3MF
-file with CAD. The sidebar starts with the shared file explorer. Follow the
+file with CAD. The sidebar explains how to create, open and inspect models;
+it does not select a workspace or browse a directory. Follow the
 [official local installation instructions](https://developers.openai.com/plugins/build/plugins#install-a-local-plugin-manually).
 We use the compatibility manifest layout from OpenAI's
 [Bits & Bolts example](https://github.com/openai/mcp-extensions/tree/main/plugins/bits-and-bolts):

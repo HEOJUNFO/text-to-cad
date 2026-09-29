@@ -20,7 +20,7 @@ class RenderBoundary extends Component<{ children: ReactNode; onError?: (error: 
 }
 
 /** The complete file tab. Its only knowledge of formats comes from registrations. */
-export function FileViewer({ file, host, renderers, state, onStateChange, leading, navigationActions, displayActions, navigationPath, reveal, onError, presentation }: FileViewerProps) {
+export function FileViewer({ file, host, renderers, state, onStateChange, leading, navigationActions, navigationPresentation = "bar", displayActions, navigationPath, reveal, onError, presentation }: FileViewerProps) {
   const source = host.files;
   const onOpenFile = host.navigation.openFile;
   // A renderer opens files in a new view unless it says otherwise.
@@ -108,10 +108,14 @@ export function FileViewer({ file, host, renderers, state, onStateChange, leadin
   else if (loaded.status === "loading") body = presentation?.loading ?? <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground" role="status"><Spinner className="size-3.5" />Opening…</div>;
   else if (loaded.status === "error") body = presentation?.error?.(loaded.message) ?? <EmptyState icon={FileText} title="Could not open that file" description={loaded.message} tone="warn" />;
   else body = rendererBody;
+  const registeredActions = navActions?.key === key && ready ? navActions.actions : [];
+  const actionButtons = <>{navigationActions}{registeredActions.map(({ id, label, hint, icon: Icon, disabled, active, onInvoke }) => <TooltipHint key={id} content={hint ?? label}><Button type="button" variant="ghost" size="icon-xs" className="size-6 text-muted-foreground aria-pressed:bg-accent aria-pressed:text-accent-foreground" aria-label={label} disabled={disabled} aria-pressed={active} onClick={() => { try { void Promise.resolve(onInvoke()).catch(error => onError?.(error)); } catch (error) { onError?.(error instanceof Error ? error : new Error(String(error))); } }}><Icon className="size-3.5" aria-hidden="true" /></Button></TooltipHint>)}{panels.map((panel) => <PanelToggle key={panel.id} id={panel.id} active={panel.id === openId} icon={panel.icon} label={panel.label} onClick={() => setPanel(nextOpenPanel(openId, panel.id))} testId={panel.id === FILE_PANEL_TREE ? "tree-toggle" : undefined} />)}</>;
+  const hasOverlayActions = navigationActions != null || registeredActions.length > 0 || panels.length > 0 || !!document?.dirty;
+  const statusSlot = <div ref={setNavigationStatusSlot} className={navigationPresentation === "overlay" ? hasOverlayActions ? "min-w-0 empty:hidden" : "pointer-events-auto absolute left-1/2 top-2 z-30 max-w-[calc(100%-1rem)] -translate-x-1/2 rounded-md bg-background/95 px-1 py-0.5 text-foreground shadow-sm empty:hidden" : mobile ? "ml-1 shrink-0" : "ml-2 min-w-0 overflow-hidden"} data-file-navigation-status="" />;
+  const dirtyStatus = document?.dirty ? <TooltipHint content="Unsaved changes"><span aria-label="Unsaved changes" className="ml-1 size-1.5 shrink-0 rounded-full bg-foreground/60" /></TooltipHint> : null;
   return <ViewerMobileContext.Provider value={mobile}><ViewerHostContext.Provider value={host}><ViewerElementContext.Provider value={viewerElement}><div className="text-to-cad-file-viewer text-ui font-normal flex h-full min-h-0 min-w-0 flex-col overflow-hidden" ref={bindElement} data-viewer-layout={mobile ? "mobile" : "desktop"} tabIndex={-1}>
-    <FileNavRow activePath={selectedPath} crumbs={crumbs} leading={leading} onOpen={(next) => onOpenFile(next, { target: "current" })} source={navigation.crumbs}
-      status={<>{document?.dirty ? <TooltipHint content="Unsaved changes"><span aria-label="Unsaved changes"  className="ml-1 size-1.5 shrink-0 rounded-full bg-foreground/60" /></TooltipHint> : null}<div ref={setNavigationStatusSlot} className={mobile ? "ml-1 shrink-0" : "ml-2 min-w-0 overflow-hidden"} data-file-navigation-status="" /></>}
-      trailing={<>{navigationActions}{navActions?.key === key && ready ? navActions.actions.map(({ id, label, hint, icon: Icon, disabled, active, onInvoke }) => <TooltipHint key={id} content={hint ?? label}><Button type="button" variant="ghost" size="icon-xs" className="size-6 text-muted-foreground aria-pressed:bg-accent aria-pressed:text-accent-foreground" aria-label={label} disabled={disabled} aria-pressed={active} onClick={() => { try { void Promise.resolve(onInvoke()).catch(error => onError?.(error)); } catch (error) { onError?.(error instanceof Error ? error : new Error(String(error))); } }}><Icon className="size-3.5" aria-hidden="true" /></Button></TooltipHint>) : null}{panels.map((panel) => <PanelToggle key={panel.id} id={panel.id} active={panel.id === openId} icon={panel.icon} label={panel.label} onClick={() => setPanel(nextOpenPanel(openId, panel.id))} testId={panel.id === FILE_PANEL_TREE ? "tree-toggle" : undefined} />)}</>} />
+    {navigationPresentation === "bar" ? <FileNavRow activePath={selectedPath} crumbs={crumbs} leading={leading} onOpen={(next) => onOpenFile(next, { target: "current" })} source={navigation.crumbs}
+      status={<>{dirtyStatus}{statusSlot}</>} trailing={actionButtons} /> : null}
     {document?.stale ? <div className="flex shrink-0 items-center gap-2 border-b bg-amber-500/10 px-3 py-1.5 text-xs text-amber-700 dark:text-amber-400" role="status">
       <RotateCw className="size-3.5 shrink-0" /><span className="flex-1">This file changed on disk since you opened it.</span>
       <Button className="h-6 px-2 text-xs font-normal" onClick={document.reload} size="sm" variant="secondary">Reload</Button>
@@ -121,6 +125,10 @@ export function FileViewer({ file, host, renderers, state, onStateChange, leadin
       <span className="flex-1">Could not save: {document.error}</span><Button className="h-6 px-2 text-xs font-normal" size="sm" variant="secondary" onClick={() => void document.save()}>Try again</Button>
     </div> : null}
     <div ref={setBodyElement} className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+      {navigationPresentation === "overlay" ? hasOverlayActions
+        ? <div className="pointer-events-auto absolute left-1/2 top-2 z-30 flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1 rounded-md border border-border bg-background/95 px-1 py-0.5 text-foreground shadow-sm" role="toolbar" aria-label="File actions" data-file-navigation-overlay="">{dirtyStatus}{statusSlot}{actionButtons}</div>
+        : statusSlot
+      : null}
       <div className="min-w-0 flex-1 overflow-hidden">{body}</div>
       {openPanel && openPanel.content !== "body" ? <FilePanelColumn mobile={mobile} portalContainer={bodyElement} onDismiss={() => setPanel("")} id={openPanel.id} label={openPanel.label} width={panelWidth} onWidthChange={(nextWidth) => changeState((previous) => ({ ...previous, panelWidth: clampPanelWidth(nextWidth) }))} onCollapse={collapsePanel}>
         {openPanel.content === "tree" ? <FileTree key={source.id} source={navigation.tree} activePath={selectedPath} edit={navigation.edit} reveal={reveal} onOpen={(next) => { if (mobile) setMobilePanel(""); onOpenFile(next, { target: "new", panel: FILE_PANEL_TREE }); }} /> : <div className="h-full min-h-0" ref={setPanelSlot} />}

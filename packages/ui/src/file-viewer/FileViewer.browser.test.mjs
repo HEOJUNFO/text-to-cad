@@ -242,6 +242,24 @@ test("navbar actions belong to the active file generation and ignore retired reg
   assert.equal(await page.getByRole('button', { name: 'Inspect next', exact: true }).count(), 1);
 });
 
+test("overlay navigation hides the file row and tree while retaining renderer actions", async () => {
+  await reset();
+  await page.evaluate(() => window.harness.overlay(true));
+  await document().waitFor();
+  assert.equal(await page.getByRole('navigation', { name: 'Breadcrumb' }).count(), 0);
+  assert.equal(await page.getByTestId('tree-toggle').count(), 0);
+  await page.evaluate(() => window.harness.rendererCallbacks.get('root-a').onNavigationActionsChange([
+    { id: 'snapshot', label: 'Take snapshot', icon: 'span', onInvoke: () => window.harness.events.push('snapshot') }
+  ]));
+  await page.getByRole('button', { name: 'Take snapshot' }).click();
+  assert.ok(await page.evaluate(() => window.harness.events.includes('snapshot')));
+  assert.equal(await page.locator('[data-file-navigation-overlay]').count(), 1);
+  await page.evaluate(() => window.harness.open(null));
+  await page.getByText('No file open').waitFor();
+  assert.equal(await page.locator('[data-file-navigation-overlay]').count(), 0);
+  assert.equal(await page.locator('[data-file-navigation-status]').isVisible(), false);
+});
+
 test("a departing renderer flushes its own state on file changes and reloads, but never into another root", async () => {
   await reset();
   await page.evaluate(() => { window.harness.cleanupWrites.set('root-a:notes.txt', { selection: 'last frame' }); window.harness.open('next.txt'); });

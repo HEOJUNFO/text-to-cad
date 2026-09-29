@@ -18,7 +18,7 @@ const run = promisify(execFile);
 const repo = fileURLToPath(new URL('../../../', import.meta.url));
 const appDir = path.join(repo, 'apps/chatgpt');
 
-test('built UI opens a STEP through MCP, attaches a selection, observes saves, and browses related files', { timeout: 120_000 }, async t => {
+test('built UI opens a STEP through MCP, attaches a selection, observes saves, and follows host file switching, and opens a quiet global home', { timeout: 120_000 }, async t => {
   const temporary = await mkdtemp(path.join(tmpdir(), 'cad-mcp-browser-'));
   t.after(() => rm(temporary, { recursive: true, force: true }));
   const localPython = path.join(repo, '.venv/bin/python');
@@ -43,28 +43,41 @@ test('built UI opens a STEP through MCP, attaches a selection, observes saves, a
   const html = resource.contents[0];
   assert.ok('text' in html);
   const calls: string[] = [];
+  const catalogRequests: string[] = [];
+  const homeRequests: unknown[] = [];
+  let hostFile = source;
   const tool = async (params: Record<string, unknown>) => {
     calls.push(String(params.name));
-    return client.callTool({ ...params, _meta: { 'openai/resource': { path: source } } } as Parameters<typeof client.callTool>[0]);
+    const requestPath = (params.arguments as { path?: string })?.path;
+    if (requestPath?.startsWith('/__cad/catalog')) catalogRequests.push(requestPath);
+    return client.callTool({ ...params, _meta: { 'openai/resource': { path: hostFile } } } as Parameters<typeof client.callTool>[0]);
   };
   const opened = await client.callTool({ name: 'cad_open', arguments: { file: { name: 'fixture.step', resourceUri: 'host-resource://fixture' } } });
   assert.notEqual(opened.isError, true, JSON.stringify(opened));
+  const home = await client.callTool({ name: 'cad_open', arguments: {} });
+  assert.notEqual(home.isError, true, JSON.stringify(home));
   const bundle = await build({ stdin: { contents: `
     import { AppBridge, PostMessageTransport } from '@modelcontextprotocol/ext-apps/app-bridge';
     const frame = document.querySelector('iframe');
+    const homeMode = new URLSearchParams(location.search).has('home');
     const bridge = new AppBridge(null, {name:'CAD test host',version:'1.0.0'}, {
       serverTools:{}, updateModelContext:{text:{}, image:{}, structuredContent:{}},
       experimental:{'openai/modelContext':{}}
     });
     window.attachments = [];
+    window.openRelated = async () => {
+      const response = await fetch('/open-related', {method:'POST'});
+      await bridge.sendToolInput({arguments:{file:{name:'related.step',resourceUri:'host-resource://related'}}});
+      await bridge.sendToolResult(await response.json());
+    };
     bridge.oncalltool = async params => {
-      const response = await fetch('/tool', {method:'POST',body:JSON.stringify(params)});
+      const response = await fetch(homeMode ? '/home-tool' : '/tool', {method:'POST',body:JSON.stringify(params)});
       return response.json();
     };
     bridge.onupdatemodelcontext = async params => { window.attachments = params.content || []; return {}; };
     bridge.oninitialized = async () => {
-      await bridge.sendToolInput({arguments:{file:{name:'fixture.step',resourceUri:'host-resource://fixture'}}});
-      await bridge.sendToolResult(${JSON.stringify(opened)});
+      await bridge.sendToolInput({arguments:homeMode ? {} : {file:{name:'fixture.step',resourceUri:'host-resource://fixture'}}});
+      await bridge.sendToolResult(homeMode ? ${JSON.stringify(home)} : ${JSON.stringify(opened)});
     };
     await bridge.connect(new PostMessageTransport(frame.contentWindow, frame.contentWindow));
     bridge.setHostContext({theme:'light', platform:'desktop'});
@@ -78,6 +91,18 @@ test('built UI opens a STEP through MCP, attaches a selection, observes saves, a
         response.end(html.text);
       }
       else if (request.url === '/host.js') { response.setHeader('Content-Type', 'text/javascript'); response.end(bundle.outputFiles[0].text); }
+      else if (request.url === '/open-related' && request.method === 'POST') {
+        hostFile = path.join(temporary, 'related.step');
+        const result = await client.callTool({ name: 'cad_open', arguments: { file: { name: 'related.step', resourceUri: 'host-resource://related' } } });
+        response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(result));
+      }
+      else if (request.url === '/home-tool') {
+        const chunks = []; for await (const chunk of request) chunks.push(chunk);
+        homeRequests.push(JSON.parse(Buffer.concat(chunks).toString()));
+        // Empty home must not request a catalog or scan the server's working directory.
+        response.setHeader('Content-Type', 'application/json');
+        response.end(JSON.stringify({ isError: true, content: [{ type: 'text', text: 'The empty home must not request CAD services.' }] }));
+      }
       else if (request.url === '/tool') {
         const chunks = []; for await (const chunk of request) chunks.push(chunk);
         const result = await tool(JSON.parse(Buffer.concat(chunks).toString()));
@@ -104,7 +129,13 @@ test('built UI opens a STEP through MCP, attaches a selection, observes saves, a
     const attachments = await page.evaluate(() => (window as any).attachments);
     assert.match(JSON.stringify(attachments), /fixture\.step/);
     assert.ok(calls.includes('cad_request'));
-    await expect(viewer.getByRole('button', { name: 'Show files', exact: true })).toBeVisible();
+    assert.equal(await viewer.getByRole('button', { name: /^(Show|Hide) files$/ }).count(), 0);
+    assert.equal(await viewer.getByRole('button', { name: /^Browse / }).count(), 0);
+    assert.equal(await viewer.getByRole('tree').count(), 0);
+    assert.equal(await viewer.locator('input[type="file"]').count(), 0);
+    await expect(viewer.getByRole('button', { name: 'Take snapshot', exact: true })).toBeVisible();
+    await expect(viewer.getByRole('button', { name: 'Display settings', exact: true })).toBeVisible();
+    await expect(viewer.getByRole('button', { name: 'Preview', exact: true })).toBeVisible();
     await save(15);
     const initialRevision = attachments.find((part: any) => part.text?.includes('Document revision:')).text;
     // A new reference must bind the geometry the viewer actually displays, not
@@ -115,19 +146,36 @@ test('built UI opens a STEP through MCP, attaches a selection, observes saves, a
       return page.evaluate(() => (window as any).attachments.filter((part: any) => part.text?.includes('Document revision:')).at(-1)?.text);
     }, { timeout: 30_000 }).not.toBe(initialRevision);
     assert.equal(await page.evaluate(() => (window as any).attachments[0].text), attachments[0].text, 'existing references retain their original revision');
-    await viewer.getByRole('button', { name: 'Show files', exact: true }).click();
-    await viewer.getByRole('treeitem', { name: 'related.step', exact: true }).click();
-    await expect(viewer.getByRole('button', { name: 'Browse related.step', exact: true })).toBeVisible();
-    assert.equal(await viewer.getByRole('treeitem', { name: 'notes.txt', exact: true }).count(), 0);
-    await viewer.getByRole('button', { name: 'Hide files', exact: true }).click();
-    await select.click();
-    await viewer.getByRole('button', { name: 'Add to prompt', exact: true }).click();
-    await page.waitForFunction(() => (window as any).attachments.some((part: any) => part.text?.includes('related.step')));
+    await page.evaluate(() => (window as any).openRelated());
+    await viewer.getByRole('region', { name: 'Features', exact: true }).waitFor();
+    await expect.poll(async () => {
+      await select.click();
+      await viewer.getByRole('button', { name: 'Add to prompt', exact: true }).click();
+      return page.evaluate(() => (window as any).attachments.at(-1)?.text || '');
+    }, { timeout: 30_000 }).toMatch(/related\.step/);
+    assert.ok(catalogRequests.length > 0);
+    assert.ok(catalogRequests.every(request => new URL(request, 'http://cad.local').searchParams.get('file')), 'catalog polling is always scoped to an opened file');
     assert.deepEqual(errors, []);
     if (process.env.CAD_EXTENSION_SCREENSHOT) {
-      await viewer.getByRole('button', { name: 'Show files', exact: true }).click();
       await page.screenshot({ path: process.env.CAD_EXTENSION_SCREENSHOT });
     }
+    // Navigation mounts a fresh bridge/app instance with the global entrypoint result.
+    await page.goto(`http://127.0.0.1:${address.port}/?home`);
+    await expect(viewer.getByRole('heading', { name: 'Create or open a part', exact: true })).toBeVisible();
+    await expect(viewer.getByText('Ask the composer to create or modify a part.', { exact: false })).toBeVisible();
+    await expect(viewer.getByText('Open a STEP, STL, GLB or 3MF file, then choose CAD.', { exact: true })).toBeVisible();
+    await expect(viewer.getByText('Select geometry, then use Add to prompt', { exact: false })).toBeVisible();
+    assert.equal(await viewer.getByRole('button', { name: /^(Show|Hide) files$/ }).count(), 0);
+    assert.equal(await viewer.getByRole('button', { name: /^Browse / }).count(), 0);
+    assert.equal(await viewer.getByRole('tree').count(), 0);
+    assert.equal(await viewer.locator('input[type="file"]').count(), 0);
+    assert.equal(await viewer.getByRole('heading', { name: 'CAD', exact: true }).count(), 0);
+    assert.equal(await viewer.getByRole('navigation').count(), 0);
+    if (process.env.CAD_EXTENSION_HOME_SCREENSHOT) {
+      await page.screenshot({ path: process.env.CAD_EXTENSION_HOME_SCREENSHOT });
+    }
+    assert.deepEqual(homeRequests, [], 'empty global home makes no catalog or other CAD service requests');
+    assert.deepEqual(errors, []);
   } catch (error) {
     throw new Error(`${String(error)}\nBrowser errors: ${errors.join('\n')}\nMCP stderr: ${stderr.slice(-3000)}\n${await page.frameLocator('iframe').locator('body').innerText()}`, { cause: error });
   }

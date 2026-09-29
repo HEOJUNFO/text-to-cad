@@ -35,9 +35,10 @@ viewer contract, not arbitrary filesystem access.
   entrypoint invocation can precede host path injection, so the embedded app
   resolves that input with one `cad_open` call of its own.
   The tool title is **CAD** for both the global sidebar and file entrypoints.
-  Opening CAD from the sidebar passes `{}` and shows the shared explorer in
-  the server's working directory (or explicit `--root`). Models can also call
-  `cad_open` with an existing artifact path.
+  Opening CAD from the sidebar passes `{}` and shows workflow guidance without
+  browsing a directory. The extension is a per-file viewer: the host supplies
+  the file, and the interface exposes no explorer or workspace selector.
+  Models can also call `cad_open` with an existing artifact path.
 - `cad_request` is visible only to the app. It carries `{path, method, body?}`
   to allowlisted viewer routes and returns `{status, headers, body}`. Both
   bodies are base64. It permits document reads, document compilation and
