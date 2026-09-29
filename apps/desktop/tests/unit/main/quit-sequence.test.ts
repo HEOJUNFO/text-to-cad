@@ -58,7 +58,18 @@ vi.mock("electron", async () => {
   class BrowserWindow extends Emitter {
     static getAllWindows = () => h.windows;
     static getFocusedWindow = () => null;
-    webContents = { setWindowOpenHandler: () => undefined, on: () => undefined, getURL: () => "" };
+    // The window's session keeps the permission handlers it is given, so the
+    // test can ask them what they answer.
+    permissions = {} as { request?: (contents: unknown, permission: string, callback: (granted: boolean) => void) => void; check?: (contents: unknown, permission: string) => boolean };
+    webContents = {
+      setWindowOpenHandler: () => undefined,
+      on: () => undefined,
+      getURL: () => "",
+      session: {
+        setPermissionRequestHandler: (handler: never) => { this.permissions.request = handler; },
+        setPermissionCheckHandler: (handler: never) => { this.permissions.check = handler; },
+      },
+    };
     constructor() {
       super();
       h.windows.push(this);
@@ -244,6 +255,19 @@ describe("quit sequence", () => {
     expect(h.ready).toBe(true);
     expect(h.aptabaseInitReady).toEqual([false]);
     const [window] = h.windows;
+
+    // The app's page gets the clipboard and nothing else: Electron grants
+    // whatever a session has no handler for — the camera, notifications.
+    const { permissions } = window as unknown as { permissions: { request: (contents: unknown, permission: string, callback: (granted: boolean) => void) => void; check: (contents: unknown, permission: string) => boolean } };
+    const granted = (permission: string) => {
+      let answer: boolean | undefined;
+      permissions.request(null, permission, (value) => { answer = value; });
+      return answer;
+    };
+    expect(["media", "notifications", "geolocation", "display-capture", "fullscreen", "clipboard-read", "clipboard-sanitized-write"].map(granted))
+      .toEqual([false, false, false, false, false, true, true]);
+    expect(permissions.check(null, "media")).toBe(false);
+    expect(permissions.check(null, "clipboard-read")).toBe(true);
 
     // A resize just before quit leaves a debounced save pending.
     window!.emit("resize");

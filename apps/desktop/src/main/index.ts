@@ -78,6 +78,22 @@ if (!app.commandLine.hasSwitch("user-data-dir")) {
   app.setPath("sessionData", app.getPath("userData"));
 }
 
+/**
+ * What the app's own page may ask Chromium for: the clipboard, which the
+ * terminal pastes from and the sidebar's Copy path writes to. Nothing else —
+ * not the camera or microphone the vendored AI Elements know how to ask for,
+ * not notifications, not the screen — because the app uses none of it, and
+ * Electron grants every request a session has no handler for. Browser pages
+ * are in partitions of their own that refuse everything
+ * (`src/main/browser/service.ts`); this is the app's `defaultSession`.
+ */
+const APP_PERMISSIONS: ReadonlySet<string> = new Set(["clipboard-read", "clipboard-sanitized-write"]);
+
+export function restrictAppPermissions(session: Electron.Session) {
+  session.setPermissionRequestHandler((_contents, permission, callback) => callback(APP_PERMISSIONS.has(permission)));
+  session.setPermissionCheckHandler((_contents, permission) => APP_PERMISSIONS.has(permission));
+}
+
 function createWindow() {
   const state = restoreWindowState();
 
@@ -134,6 +150,7 @@ function createWindow() {
     },
   });
 
+  restrictAppPermissions(window.webContents.session);
   if (state.maximized) {
     window.maximize();
   }
