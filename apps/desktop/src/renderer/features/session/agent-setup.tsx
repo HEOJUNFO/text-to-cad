@@ -11,8 +11,8 @@ import { useUi } from "@renderer/state/ui";
 import type { AgentStatus } from "@shared/agents";
 
 /*
- * Getting an agent running: what the new-session screen shows when nothing
- * is installed, what a session shows when its agent's CLI is gone, and the
+ * Getting an agent running: what the new-session screen shows when no agent
+ * is ready, what a session shows when its agent's CLI is gone, and the
  * rows the welcome's agent step lists.
  */
 
@@ -26,15 +26,29 @@ export function isNotInstalledError(message: string | null | undefined): boolean
   return /\bis not installed\.?$/.test((message ?? "").trim());
 }
 
-/** Installed and signed in (or needing no sign-in): a session can start with it. */
+/**
+ * A session can start with it: it can launch — its CLI is installed, or its
+ * adapter runs without one (`launchWithoutBinary`: Claude Code, Codex) — and
+ * detection found it signed in, or it needs no sign-in. "unknown" is not
+ * ready: detection found no credentials.
+ */
 export function isAgentReady(agent: AgentStatus): boolean {
-  return agent.installed && (agent.auth === "authenticated" || agent.auth === "not-required");
+  return (agent.installed || agent.launchWithoutBinary) && (agent.auth === "authenticated" || agent.auth === "not-required");
+}
+
+/**
+ * Not ready, but one sign-in from it: the CLI is here to run its login
+ * (`loginCommand` in src/main/agents/auth.ts runs the binary, so an
+ * adapter-only agent has to be installed before it can sign in).
+ */
+export function canSignIn(agent: AgentStatus): boolean {
+  return agent.installed && !isAgentReady(agent);
 }
 
 /**
  * One agent with the step that gets it running — Install, then Sign in —
  * and the job's output under it. The welcome's agent step, the new-session
- * screen's "no agent installed" card and a session whose CLI is gone.
+ * screen's "no agent ready" card and a session whose CLI is gone.
  */
 export function AgentRow({ agent }: { agent: AgentStatus }) {
   const install = useAgents((state) => state.install);
@@ -50,7 +64,7 @@ export function AgentRow({ agent }: { agent: AgentStatus }) {
   }, [jobId, running, refresh]);
 
   const ready = isAgentReady(agent);
-  const status = ready ? "Ready" : !agent.installed ? "Not installed" : agent.auth === "unauthenticated" ? "Signed out" : "Installed";
+  const status = ready ? "Ready" : !agent.installed ? "Not installed" : agent.auth === "unauthenticated" ? "Signed out" : "Not signed in";
 
   return (
     <div className="rounded-lg border px-3 py-2.5" data-onboarding-agent={agent.id}>
@@ -84,9 +98,10 @@ export function AgentRow({ agent }: { agent: AgentStatus }) {
 /**
  * "No agent can run this": the agents text-to-cad offers first, each with
  * its Install / Sign in, and the way to the rest in Settings › Agents. The
- * new-session screen shows it before anything is typed when nothing is
- * installed; a session whose agent's CLI is gone shows it in place of a
- * Reconnect that would only fail again.
+ * new-session screen shows it before anything is typed when no agent is
+ * ready; a session whose agent's CLI is gone shows it in place of a
+ * Reconnect that would only fail again. An agent one sign-in away is listed
+ * first, so the first button is that sign-in rather than an install.
  */
 export function AgentSetupCard({
   agents,
@@ -108,7 +123,7 @@ export function AgentSetupCard({
       </div>
       {agents.length > 0 ? (
         <div className="space-y-2">
-          {agents.map((agent) => (
+          {[...agents.filter(canSignIn), ...agents.filter((agent) => !canSignIn(agent))].map((agent) => (
             <AgentRow agent={agent} key={agent.id} />
           ))}
         </div>

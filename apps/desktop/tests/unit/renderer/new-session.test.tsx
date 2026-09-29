@@ -190,24 +190,41 @@ describe("a start that needs a sign-in", () => {
   });
 });
 
-describe("a machine with no agent", () => {
-  it("says so before anything is typed, with the install and Settings › Agents", async () => {
+describe("a machine with no agent ready", () => {
+  // What detection reports on a first run: both offered agents launch
+  // without their CLI (so `useInstalledAgents` counts them), neither is
+  // signed in, and only Codex's CLI is on the machine to sign in with.
+  const claude = { ...AGENT, id: "claude-code", name: "Claude Code", installed: false, launchWithoutBinary: true, auth: "unknown" } as unknown as AgentStatus;
+  const codex = { ...AGENT, id: "codex", name: "Codex", installed: true, launchWithoutBinary: true, auth: "unauthenticated" } as unknown as AgentStatus;
+
+  it("says so before anything is typed, with the sign-in first, the install and Settings › Agents", async () => {
     const user = userEvent.setup();
-    const missing = { ...AGENT, id: "claude-code", installed: false, launchWithoutBinary: false, auth: "unknown", authMethods: [] };
-    useAgents.setState({ agents: [missing as unknown as AgentStatus], ready: true });
+    const login = vi.fn(async () => "job1");
+    useAgents.setState({ agents: [claude, codex], ready: true, login } as never);
     render(<NewSession project={PROJECT} />);
 
-    expect(screen.getByText("No agent installed")).toBeInTheDocument();
+    expect(screen.getByText("No agent ready")).toBeInTheDocument();
+    expect(screen.getByText(/Sign in to Claude Code or Codex, or install one/)).toBeInTheDocument();
+    const rows = [...document.querySelectorAll("[data-agent-setup] [data-onboarding-agent]")].map((row) => row.getAttribute("data-onboarding-agent"));
+    expect(rows, "the agent one sign-in away comes first").toEqual(["codex", "claude-code"]);
     expect(screen.getByRole("button", { name: "Install" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(login).toHaveBeenCalledWith("codex");
     await user.click(screen.getByRole("button", { name: "Settings › Agents" }));
     expect(openSettings).toHaveBeenCalledWith("agents");
     expect(create).not.toHaveBeenCalled();
   });
 
+  it("is not shown once an agent is ready, even one that runs without its CLI", () => {
+    useAgents.setState({ agents: [{ ...claude, auth: "authenticated" } as AgentStatus, codex], ready: true });
+    render(<NewSession project={PROJECT} />);
+    expect(screen.queryByText("No agent ready")).toBeNull();
+  });
+
   it("does not claim it while detection has not answered", () => {
     useAgents.setState({ agents: [], ready: false });
     render(<NewSession project={PROJECT} />);
-    expect(screen.queryByText("No agent installed")).toBeNull();
+    expect(screen.queryByText("No agent ready")).toBeNull();
   });
 
   it("offers Settings › Agents beside Dismiss when the start fails for another reason", async () => {

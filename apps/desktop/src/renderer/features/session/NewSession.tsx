@@ -19,7 +19,7 @@ import { useUi } from "@renderer/state/ui";
 import type { PromptBlock } from "@shared/acp/types";
 import type { GitMode, Project } from "@shared/types";
 
-import { AgentSetupCard, useOfferedAgents } from "./agent-setup";
+import { AgentSetupCard, isAgentReady, useOfferedAgents } from "./agent-setup";
 import { AuthPrompt } from "./AuthPrompt";
 import { Composer } from "./Composer";
 import { EffortChip, GitModeChip, ModeChip, ModelChip, ProjectChip } from "./ComposerChips";
@@ -54,8 +54,9 @@ import { errorMessage, isAuthError } from "./view";
  * Creation can fail before there is a session to show it in: the agent is
  * not signed in, or its adapter would not start. Those land here, above
  * the composer, with the agent's login as the action — or Settings › Agents
- * for anything else. A machine with no agent at all says so before anything
- * is typed, with the install as the action, rather than after a send.
+ * for anything else. A machine with no agent ready says so before anything
+ * is typed, with the sign-in or the install as the action, rather than
+ * after a send.
  */
 export function NewSession({ project }: { project: Project }) {
   const draftKey = newSessionKey(project.id);
@@ -296,8 +297,13 @@ export function NewSession({ project }: { project: Project }) {
       ) : <GitModeChip gitMode={resolvedGitMode} info={gitInfo} onChange={setGitMode} />}
     </div>
   );
-  // Detection has answered and nothing on this machine can run a session.
-  const noAgent = detected && installed.length === 0;
+  // Detection has answered and no agent can start a session: none is both
+  // launchable and signed in. Not "none installed" — Claude Code and Codex
+  // launch without their CLI (`useInstalledAgents` counts them), so a first
+  // run's dead end is a sign-in, not an install.
+  const noAgent = detected && !installed.some(isAgentReady);
+  const offeredNames = offered.map((candidate) => candidate.name);
+  const signInTo = offeredNames.length > 0 ? offeredNames.join(" or ") : "an agent";
   const chips = mode ? (
     <ModeChip currentModeId={mode.currentModeId} modes={mode.modes} onChange={chooseMode} />
   ) : null;
@@ -322,15 +328,7 @@ export function NewSession({ project }: { project: Project }) {
           text-to-cad runs the agent in this folder, with cadgen and the CAD skills already loaded.
         </p>
 
-        {noAgent ? (
-          <div className="mt-4">
-            <AgentSetupCard
-              agents={offered}
-              message="text-to-cad runs a coding agent you already use. Install one to start a session here."
-              title="No agent installed"
-            />
-          </div>
-        ) : failure?.auth ? (
+        {failure?.auth ? (
           <div className="mt-4">
             <AuthPrompt agent={agent} message={failure.message} onRetry={retry} />
           </div>
@@ -353,6 +351,14 @@ export function NewSession({ project }: { project: Project }) {
             <Button className="h-6 px-2 text-[12px]" onClick={() => setFailure(null)} size="sm" variant="outline">
               Dismiss
             </Button>
+          </div>
+        ) : noAgent ? (
+          <div className="mt-4">
+            <AgentSetupCard
+              agents={offered}
+              message={`Sign in to ${signInTo}, or install one. text-to-cad runs a coding agent you already use.`}
+              title="No agent ready"
+            />
           </div>
         ) : null}
 
