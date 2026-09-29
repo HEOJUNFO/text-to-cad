@@ -302,7 +302,9 @@ export function parsePorcelainStatus(output: string): {
     const letter = staged !== " " && staged !== "?" ? staged : unstaged;
     const status = STATUS_LETTERS[letter] ?? "modified";
 
-    if (staged === "R" || staged === "C") {
+    // Either side: `git add -N` on a moved file gives a worktree-side rename,
+    // ` R new\0old\0`, whose old path is a record of its own all the same.
+    if (staged === "R" || staged === "C" || unstaged === "R" || unstaged === "C") {
       // The old path is the next NUL-terminated record.
       const oldPath = records[index + 1];
       index += 1;
