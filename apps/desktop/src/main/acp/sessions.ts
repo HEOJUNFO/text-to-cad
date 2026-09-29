@@ -146,6 +146,13 @@ export type SessionManagerDeps = {
   }) => Promise<SessionWorkspace>;
 
   /**
+   * P7: told once the workspace `workspace` answered is recorded on a session
+   * row — or abandoned by a create that failed. Until then a new worktree
+   * belongs to no session, and main keeps the keep-limit sweep off it.
+   */
+  workspaceSettled?: (workspace: SessionWorkspace) => void;
+
+  /**
    * P7: the commit a directory is at. Recorded when the session is created and
    * again when each turn starts, which is what the review's `This session` and
    * `Last turn` scopes are measured from.
@@ -390,7 +397,11 @@ export class SessionManager {
       turnHead: startHead,
       turnStartedAt: null,
     };
-    this.deps.repo.upsert(session);
+    try {
+      this.deps.repo.upsert(session);
+    } finally {
+      this.deps.workspaceSettled?.(workspace);
+    }
     this.broadcastIndex();
 
     const timer = createTimer();

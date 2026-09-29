@@ -37,7 +37,7 @@ vi.mock("@main/db/repositories", async () => {
   };
 });
 
-import { gitHandlers, pruneProjectWorktrees } from "@main/ipc/git";
+import { gitHandlers, markCreating, pruneProjectWorktrees } from "@main/ipc/git";
 import * as git from "@main/projects/git";
 import { legacyProjectWorktreeDir, projectWorktreeDir } from "@main/projects/workspace";
 
@@ -164,4 +164,31 @@ test("the keep-limit sweep spares a worktree another project's session belongs t
   // Of the two nobody uses, the older was past the limit and went.
   expect(await exists(newest.path)).toBe(true);
   expect(await exists(spare.path)).toBe(false);
+});
+
+test("two creates in flight at keep 1: neither sweep removes the other's worktree before its row exists", async () => {
+  const project = await repository("a", path.join(base, "robot-arm"));
+  state.settings = { autoDeleteWorktrees: true, worktreeKeepLimit: 1 };
+  const parentDir = projectWorktreeDir({ worktreeRoot: state.worktreeRoot }, project);
+  // Create A has its worktree and is waiting to write its row; create B makes
+  // its own and sweeps.
+  const first = await git.createWorktree({ repoPath: project.path, parentDir, name: "first" });
+  const firstDone = markCreating(first.path);
+  const hourAgo = new Date(Date.now() - 3_600_000);
+  await utimes(path.join(first.path, "README.md"), hourAgo, hourAgo);
+  await utimes(first.path, hourAgo, hourAgo);
+  const second = await git.createWorktree({ repoPath: project.path, parentDir, name: "second" });
+  const secondDone = markCreating(second.path);
+
+  await pruneProjectWorktrees(project);
+  expect(await exists(first.path)).toBe(true);
+  expect(await exists(second.path)).toBe(true);
+
+  // Both creates settle without a row (say both failed): each is now just a
+  // worktree, and the older one is past the limit.
+  secondDone();
+  firstDone();
+  await pruneProjectWorktrees(project);
+  expect(await exists(first.path)).toBe(false);
+  expect(await exists(second.path)).toBe(true);
 });

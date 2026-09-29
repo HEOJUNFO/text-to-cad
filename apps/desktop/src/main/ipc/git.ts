@@ -121,6 +121,27 @@ async function worktreesOf(project: Project): Promise<Worktree[]> {
 }
 
 /**
+ * Worktrees made for a session whose row is not written yet. Between
+ * `git worktree add` and `repo.upsert` a new worktree belongs to no session,
+ * so without this the sweep its own creation triggers — or a concurrent
+ * create's — could remove it before its session ever opened.
+ */
+const creating = new Map<string, number>();
+
+/** Mark a worktree as being created; the answer unmarks it once its row exists (or its create failed). */
+export function markCreating(worktreePath: string): () => void {
+  creating.set(worktreePath, (creating.get(worktreePath) ?? 0) + 1);
+  let done = false;
+  return () => {
+    if (done) return;
+    done = true;
+    const left = (creating.get(worktreePath) ?? 1) - 1;
+    if (left > 0) creating.set(worktreePath, left);
+    else creating.delete(worktreePath);
+  };
+}
+
+/**
  * Enforce the keep limit for one project (Settings › Auto-delete).
  *
  * Called after a worktree is created rather than on a timer: the limit is
@@ -140,8 +161,11 @@ export async function pruneProjectWorktrees(project: Project): Promise<void> {
       repoPath: project.path,
       parentDir: projectWorktreeDirs(stored, project),
       keep: stored.worktreeKeepLimit,
-      protectedPaths: sessions.list().flatMap((session) =>
-        [session.cwd, session.projectId, session.worktreePath].filter((root): root is string => Boolean(root))),
+      protectedPaths: [
+        ...sessions.list().flatMap((session) =>
+          [session.cwd, session.projectId, session.worktreePath].filter((root): root is string => Boolean(root))),
+        ...creating.keys(),
+      ],
     })
     .catch(() => undefined);
 }

@@ -709,6 +709,18 @@ describe("SessionManager", () => {
     expect(released).toEqual([]);
   });
 
+  it("says a created workspace is settled only once its row exists", async () => {
+    const seen: (string | undefined)[] = [];
+    const { repo, manager, cwd } = await setup({
+      workspace: async () => ({ cwd, worktreePath: `${cwd}/wt` }),
+      workspaceSettled: (workspace) => {
+        seen.push([...repo.rows.values()].find((row) => row.worktreePath === workspace.worktreePath)?.worktreePath);
+      },
+    });
+    await manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "worktree" });
+    expect(seen).toEqual([`${cwd}/wt`]);
+  });
+
   it("delete removes the row, then runs beforeRelease, then releases the worktree", async () => {
     const order: string[] = [];
     const { repo, manager, cwd } = await setup({
