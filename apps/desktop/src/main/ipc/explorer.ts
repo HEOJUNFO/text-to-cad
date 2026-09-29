@@ -36,9 +36,10 @@ import {
 } from "../explorer/fs";
 import { Terminals } from "../explorer/terminal";
 import * as git from "../projects/git";
-import { projectWorktreeDir, resolveProjectRoot } from "../projects/workspace";
+import { projectWorktreeDir, realDirectory, resolveProjectRoot } from "../projects/workspace";
 import type { ExplorerTab, IpcEventChannel, IpcEventPayload } from "../../shared";
 import type { FileChange, FileMutationResult } from "../../shared/ipc/explorer";
+import { fileExtension, track } from "../telemetry";
 import { IpcError, type IpcContext } from "./register";
 
 /* -------------------------------------------------------------------------- */
@@ -113,9 +114,15 @@ export function rootOf(projectId: string, root?: string | null): string {
   }
   try {
     // Persisted worktrees retain access even if an old project label changed.
-    const recorded = root && sessions.list().find(session => session.projectId === projectId
-      && (git.samePath(session.cwd, root) || (session.worktreePath && git.samePath(session.worktreePath, root))));
-    if (recorded && root) return root;
+    // What is handed on is the recorded directory after realpath — the same
+    // resolution every other root gets — never the caller's spelling of it.
+    if (root) {
+      for (const session of sessions.list()) {
+        if (session.projectId !== projectId) continue;
+        const recorded = [session.cwd, session.worktreePath].find((candidate) => candidate && git.samePath(candidate, root));
+        if (recorded) return realDirectory(recorded);
+      }
+    }
     return resolveProjectRoot(settings.get(), project, root);
   } catch (error) {
     throw new IpcError(error instanceof Error ? error.message : String(error));
@@ -351,6 +358,14 @@ export const explorerHandlers = {
         const root = rootOf(projectId, rootPath);
         const entry = await statFile(root, target);
         await watchers?.watchEntry(root, entry);
+        // `file_opened`: opening a file tab is renderer state, and this is
+        // the one call main sees for every open — the file tab's first read
+        // (`fileSource.ts`) and an agent's `open_file`. It also answers a
+        // tab's reload after an on-disk change, which counts again. Only the
+        // extension leaves: never the path or the name (README, "Telemetry").
+        if (entry.kind === "file") {
+          track({ name: "file_opened", extension: fileExtension(entry.path) });
+        }
         return entry;
       }),
 

@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { runInNewContext } from "node:vm";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { watchdogScript } from "@main/quit-deadline";
 
@@ -22,7 +22,11 @@ const alive = (pid: number) => {
 };
 
 const runWatchdog = (pid: number, deadlineMs: number) =>
-  new Promise<void>((resolve) => spawn(process.execPath, ["-e", watchdogScript(pid, deadlineMs)], { stdio: "ignore" }).once("exit", () => resolve()));
+  new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
+    spawn(process.execPath, ["-e", watchdogScript(pid, deadlineMs)], { stdio: "ignore" }).once("exit", (code, signal) =>
+      resolve({ code, signal }),
+    ),
+  );
 
 describe("the quit deadline's watchdog", () => {
   it("counts teardown and process startup against the original deadline", () => {
@@ -90,6 +94,23 @@ setInterval(() => {}, 1000);
     const target = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
     await new Promise((resolve) => target.once("exit", resolve));
     // The watchdog must not throw at a pid that is gone (or reused).
-    await runWatchdog(target.pid!, 50);
+    await expect(runWatchdog(target.pid!, 50)).resolves.toEqual({ code: 0, signal: null });
+    // And it sends nothing: the liveness probe fails, so no kill and no child scan.
+    const signaled: [number, string][] = [];
+    const scanned = vi.fn(() => "");
+    runInNewContext(watchdogScript(target.pid!, 0, "darwin"), {
+      Date,
+      process: {
+        pid: 321,
+        kill: (pid: number, signal?: string | number) => {
+          if (signal === 0) throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
+          signaled.push([pid, String(signal)]);
+        },
+      },
+      require: () => ({ execFileSync: scanned }),
+      setTimeout: (callback: () => void) => callback(),
+    });
+    expect(signaled).toEqual([]);
+    expect(scanned).not.toHaveBeenCalled();
   });
 });

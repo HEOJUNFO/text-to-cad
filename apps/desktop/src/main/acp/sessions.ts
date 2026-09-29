@@ -36,6 +36,7 @@ import type {
 import type { IpcEventChannel, IpcEventPayload } from "../../shared/ipc";
 import type { Launch } from "../../shared/agents";
 import type { GitMode, Session, SessionStatus } from "../../shared/types";
+import type { Event as TelemetryEvent } from "../telemetry";
 import type { AgentDetector } from "../agents/detect";
 import { agentProvider } from "../agents/registry";
 import { SessionConnection, type SessionConnectionOptions } from "./connection";
@@ -173,6 +174,13 @@ export type SessionManagerDeps = {
    * spare.
    */
   keepAlive?: number;
+
+  /**
+   * P8: anonymous usage events (`../telemetry.ts`). Injected for the same
+   * reason as everything else here; the only thing this file reports is
+   * that a session was created, and with which agent.
+   */
+  track?: (event: TelemetryEvent) => void;
 };
 
 /** A provisional title until the agent supplies one, trimmed to fit a sidebar row. */
@@ -364,6 +372,8 @@ export class SessionManager {
     await this.applyPreferences(session, connection);
     const updated = this.update(session.id, { acpSessionId: connection.acpSessionId, status: "idle" });
     this.deps.broadcast("session.state", { sessionId: session.id, state: connection.state });
+    // The registry id and nothing else — no directory, project or prompt.
+    this.deps.track?.({ name: "session_created", agent: session.agentId });
     return updated;
   }
 

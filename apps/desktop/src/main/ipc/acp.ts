@@ -17,6 +17,7 @@ import { AgentOptionStore } from "../acp/agent-options";
 import { SessionManager } from "../acp/sessions";
 import { forgetSession, mcpServersFor, sessionPreamble, skillsRoot } from "../integrations";
 import { forgetCadSession, sessionRuntimePath } from "../cad";
+import { track } from "../telemetry";
 import {
   agentOptions as agentOptionsRepo,
   projects,
@@ -92,6 +93,7 @@ export const sessionManager: SessionManager = new SessionManager({
   },
   clientVersion: app.isPackaged ? app.getVersion() : __APP_VERSION__,
   newId: () => randomUUID(),
+  track,
   // The transcript on this machine, so a row clicked paints before its agent
   // has said a word (migration 10, `src/main/acp/snapshots.ts`).
   snapshots: sessionStates,

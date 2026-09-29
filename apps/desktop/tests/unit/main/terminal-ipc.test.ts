@@ -13,6 +13,7 @@ const fixture = vi.hoisted(() => ({ root: "" }));
 const spawn = vi.hoisted(() => vi.fn());
 const pty = vi.hoisted(() => ({ write: vi.fn(), kill: vi.fn(), resize: vi.fn(), onData: vi.fn(), onExit: vi.fn() }));
 vi.mock("node-pty", () => ({ spawn }));
+vi.mock("@main/telemetry", () => ({ track: () => {}, fileExtension: () => "none" }));
 vi.mock("electron", () => ({ BrowserWindow: {}, dialog: {}, ipcMain: {}, shell: {} }));
 vi.mock("@main/db/repositories", () => {
   const session = (id: string) => ({ id, projectId: "project", cwd: fixture.root, archived: false });
@@ -26,7 +27,7 @@ vi.mock("@main/db/repositories", () => {
     explorerTabs: {},
   };
 });
-vi.mock("@main/projects/workspace", () => ({ resolveProjectRoot: () => fixture.root, projectWorktreeDir: () => fixture.root }));
+vi.mock("@main/projects/workspace", () => ({ resolveProjectRoot: () => fixture.root, projectWorktreeDir: () => fixture.root, realDirectory: (directory: string) => directory }));
 import { disposeExplorerServices, explorerHandlers, initExplorerServices } from "@main/ipc/explorer";
 
 beforeAll(async () => {

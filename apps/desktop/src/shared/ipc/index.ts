@@ -95,7 +95,7 @@ export const ipcContract = defineIpc({
   /** P5: the skills root every session is handed. */
   ...skillsContract,
 
-  /** P6, stubbed until P5: the managed Python and cadgen runtime. */
+  /** P5: the CAD runtime that ships inside the app — its status and a re-probe. */
   ...runtimeContract,
 
   /** First run: whether onboarding shows, and the sample project. */
@@ -189,8 +189,6 @@ export const ipcEvents = {
        */
       "navigate-back",
       "navigate-forward",
-      /** The files-changed pill: show the session's diff in the explorer's Review tab (P3). */
-      "open-review",
     ]),
     /**
      * `new-session` only: the project to start it in, and the directory to

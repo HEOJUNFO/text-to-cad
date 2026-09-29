@@ -3,7 +3,19 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
 
-const fixture = vi.hoisted(() => ({ root: "" }));
+import type * as Telemetry from "@main/telemetry";
+
+const fixture = vi.hoisted(() => {
+  // Compiled in by electron-vite; the real `fileExtension` is under test, so
+  // the module is loaded with its key blank and Aptabase stubbed.
+  (globalThis as { __APTABASE_KEY__?: string }).__APTABASE_KEY__ = "";
+  return { root: "", track: vi.fn() };
+});
+vi.mock("@aptabase/electron/main", () => ({ initialize: vi.fn(), trackEvent: vi.fn() }));
+vi.mock("@main/telemetry", async (importOriginal) => ({
+  ...(await importOriginal<typeof Telemetry>()),
+  track: fixture.track,
+}));
 vi.mock("electron", () => ({ BrowserWindow: {}, dialog: {}, ipcMain: {}, shell: {} }));
 vi.mock("@main/db/repositories", () => ({
   projects: {
@@ -13,7 +25,7 @@ vi.mock("@main/db/repositories", () => ({
   sessions: { list: () => [{ id: "session", projectId: "project", cwd: fixture.root }] },
   settings: { get: () => ({}) }, explorerTabs: {},
 }));
-vi.mock("@main/projects/workspace", () => ({ resolveProjectRoot: () => fixture.root, projectWorktreeDir: () => fixture.root }));
+vi.mock("@main/projects/workspace", () => ({ resolveProjectRoot: () => fixture.root, projectWorktreeDir: () => fixture.root, realDirectory: (directory: string) => directory }));
 import { explorerHandlers, initExplorerServices, disposeExplorerServices } from "@main/ipc/explorer";
 import { FileMutationResultSchema, TextWriteResultSchema } from "@shared/ipc/explorer";
 
@@ -50,4 +62,14 @@ test("a notification failure cannot turn a committed save or move into failure",
     expect(moved).toMatchObject({ status: "committed", path: "receipt-moved.txt" });
     expect(await fs.readFile(path.join(fixture.root, "receipt-moved.txt"), "utf8")).toBe("committed");
   } finally { disposeExplorerServices(); }
+});
+
+test("opening a file counts its extension and nothing else; a directory or a failed stat counts nothing", async () => {
+  await fs.mkdir(path.join(fixture.root, "Secret Project"), { recursive: true });
+  await fs.writeFile(path.join(fixture.root, "Secret Project", "Gripper.STL"), "solid");
+  fixture.track.mockClear();
+  await explorerHandlers.explorer.stat({ ...at, path: "Secret Project/Gripper.STL" });
+  await explorerHandlers.explorer.stat({ ...at, path: "Secret Project" });
+  await expect(explorerHandlers.explorer.stat({ ...at, path: "missing.step" })).rejects.toThrow();
+  expect(fixture.track.mock.calls).toEqual([[{ name: "file_opened", extension: "stl" }]]);
 });
