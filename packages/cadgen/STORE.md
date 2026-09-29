@@ -389,7 +389,7 @@ A real one (`link_robot`: a base, two placements of `link_arm`, one of
   "sourceKind": "python",
   "tree": "64429167…",
   "documentTree": "b291420a…",
-  "closure": {"hash": "e341ac84…", "files": ["link_robot.py", "lib/frame.py"], "shas": {"link_robot.py": "ast1:…", "lib/frame.py": "slice1:…"}, "names": {"lib/frame.py": ["WIDTH", "bar"]}, "static": false},
+  "closure": {"hash": "e341ac84…", "files": ["link_robot.py", "lib/frame.py"], "shas": {"link_robot.py": "ast1:…", "lib/frame.py": "slice2:…"}, "names": {"lib/frame.py": ["WIDTH", "bar"]}, "static": false},
   "children": [
     {"model": "/abs/models/assemblies/src/link_robot/link_arm.py::link_arm", "tree": "c161092b…"},
     {"model": "/abs/models/assemblies/src/link_robot/link_pin.py::link_pin", "tree": "265aee57…"}
@@ -493,14 +493,18 @@ A real one (`link_robot`: a base, two placements of `link_arm`, one of
     would change what the walk reaches — a reached body calling something
     new, a new binding shadowing a name, an import added or changed — also
     changes a hashed statement or marker. A sliced file that turns dynamic
-    hashes whole (`ast1:` against a recorded `slice1:`) and reads stale.
+    hashes whole (`ast1:` against a recorded `slice2:`) and reads stale.
     `cadgen store why` prints a sliced file as `lib/geo.py[plane, cyl_along,
     …]`.
   - **Lexical scopes decide module reads.** Python's symbol tables distinguish
     a function's parameters from its defaults and annotations, and separate
     nested functions, classes and comprehensions. A local binding in one scope
     cannot hide a module read in another; class-body reads also retain the
-    possible module fallback.
+    possible module fallback. Import aliases retain all candidate bindings
+    across those scopes, so two nested imports named `dims` cannot hide one
+    another. Slice hashes use `slice2:`: records made by the earlier `slice1:`
+    analysis rebuild once to recover any missing cross-module edges. Released
+    whole-file `ast1:` records remain compatible.
 - `constants` is `{"<model file, relative to the script>": {"<NAME>":
   "<sha256 of the literal's canonical repr>"}}` — every literal the model
   took from a model file by value. Empty for most models. The gate's clause
@@ -1064,7 +1068,13 @@ CPU scheduling and reuse remain independent of memory admission:
    runtime children and current child pins. This intentionally covers more
    than the sliced freshness hash: an edited helper, child, constant or newly
    imported file must not join a producer that consumed its old revision.
-   Dynamic or unreadable source declines coalescing. Compile doors, including
+   Dynamic or unreadable source declines coalescing. Source that can use
+   `declare_input`, `read_step` or `read_scene` also runs independently: its
+   data paths are discovered during execution, and an earlier record cannot
+   certify which paths the next run will choose. Renamed imports, reader
+   modules and first-party helper wrappers follow the same rule, even with
+   a prior record. Static geometry-only models can still join cold builds.
+   Compile doors, including
    the CAD Viewer's, use the document's bytes. A request for
    `(store, model, closure)` matching a job already in flight attaches to that
    job instead of starting another. In flight only, identical source only,

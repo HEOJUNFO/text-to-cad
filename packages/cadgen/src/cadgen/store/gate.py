@@ -101,6 +101,8 @@ def closure_hash(model: Path | str) -> str | None:
     runtime children and their current pins. This is intentionally broader
     than clause 2's freshness hash: source that moved behind a child boundary
     must not join a producer that already consumed its previous revision.
+    Sources using runtime data readers decline coalescing even with a record:
+    earlier inputs cannot certify the paths the next execution will choose.
     """
     from cadgen.metadata import model_function_names
     from cadgen.store.closure import coalescing_sources

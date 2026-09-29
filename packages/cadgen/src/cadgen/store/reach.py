@@ -519,10 +519,13 @@ def slice_hash(syntax: ModuleSyntax, names: Iterable[str]) -> str:
     if syntax.dynamic is not None:
         return syntax.whole_hash
     closed = close_names(syntax, names)
-    digest = hashlib.sha256(b"slice1")
+    # v2 invalidates records made before import aliases in separate nested
+    # scopes were all retained. Re-slicing their old name lists cannot recover
+    # a cross-module edge that was never recorded; they must rebuild once.
+    digest = hashlib.sha256(b"slice2")
     for name in sorted(closed):
         digest.update(b"\0" + name.encode("utf-8") + (b"=" if name in syntax.definitions else b"!"))
     for statement in syntax.statements:
         if not statement.definition or any(name in closed for name in statement.binds):
             digest.update(b"\0\0" + statement.dump.encode("utf-8"))
-    return "slice1:" + digest.hexdigest()
+    return "slice2:" + digest.hexdigest()

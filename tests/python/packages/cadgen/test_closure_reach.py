@@ -124,7 +124,7 @@ class ReachClosure(unittest.TestCase):
         self.assertEqual(closure.names["lib/spec.py"], ("BORE",))
         self.assertEqual(closure.names["lib/__init__.py"], ())
         self.assertNotIn("part.py", closure.names, "the script is always whole")
-        self.assertTrue(closure.shas["lib/geo.py"].startswith("slice1:"))
+        self.assertTrue(closure.shas["lib/geo.py"].startswith("slice2:"))
         self.assertTrue(closure.shas["part.py"].startswith("ast1:"))
         self.assertFalse(self.verdict(reference).stale)
 
@@ -207,6 +207,41 @@ class ReachClosure(unittest.TestCase):
         reference, _closure = self.record()
         self.edit(self.geo, "WIDTH = 2", "WIDTH = 3")
         self.assert_clause_two(reference, False)
+
+    def test_nested_imports_with_the_same_alias_keep_both_dependencies(self):
+        self.write("lib/geo.py", """
+            def plane():
+                def first():
+                    from lib import left as dims
+                    return dims.size()
+                def second():
+                    from lib import right as dims
+                    return dims.size()
+                return first() + second()
+        """)
+        left = self.write("lib/left.py", "def size(): return 2")
+        right = self.write("lib/right.py", "def size(): return 3")
+        for path, old, new in ((left, "return 2", "return 4"), (right, "return 3", "return 5")):
+            with self.subTest(module=path.name):
+                reference, closure = self.record()
+                self.assertIn("size", closure.names[f"lib/{path.name}"])
+                self.edit(path, old, new)
+                self.assert_clause_two(reference, True, f"lib/{path.name}")
+
+    def test_legacy_slice_records_rebuild_even_without_a_source_edit(self):
+        from cadgen.store.closure import closure_hash
+        from cadgen.store.records import read_record, write_record
+
+        self.write("lib/geo.py", "def plane(): return 1")
+        reference, _closure = self.record()
+        record = read_record(reference)
+        # Actual v1 digest for the same source/name set. The old reach walk
+        # could have missed another module's names, which re-slicing cannot
+        # rediscover; a version change must invalidate the whole record.
+        record["closure"]["shas"]["lib/geo.py"] = "slice1:31b94ddedb0576c51e25bc94360f750246a8dbd4fde2a3ec9180f83aedbde3ae"
+        record["closure"]["hash"] = closure_hash(record["closure"]["shas"].items())
+        write_record(reference, record)
+        self.assert_clause_two(reference, True, "lib/geo.py")
 
     def test_module_level_side_effects_are_always_hashed(self):
         self.geo.write_text(self.geo.read_text(encoding="utf-8") + "\n\nREGISTRY = {}\nREGISTRY['k'] = unrelated(1)\n", encoding="utf-8")
@@ -415,7 +450,7 @@ class ReachEndToEnd(unittest.TestCase):
         self.assertEqual(self.run_model(), "built")
         record = read_record(self.model)
         self.assertEqual(record["closure"]["names"], {"lib/__init__.py": [], "lib/geo.py": ["SIZE", "size"]})
-        self.assertTrue(record["closure"]["shas"]["lib/geo.py"].startswith("slice1:"))
+        self.assertTrue(record["closure"]["shas"]["lib/geo.py"].startswith("slice2:"))
         self.assertEqual(self.run_model(), "current")
 
         self.edit("return 1", "return 2")
@@ -573,7 +608,7 @@ class ReachAnalysis(unittest.TestCase):
         self.assertNotEqual(before, slice_hash(self.analyze(base.replace("return K", "return K + 1")), ["a"]))
         self.assertNotEqual(before, slice_hash(self.analyze(base.replace("import math", "import math, os")), ["a"]))
         self.assertNotEqual(before, slice_hash(self.analyze(base), ["a", "b"]))
-        self.assertTrue(before.startswith("slice1:"))
+        self.assertTrue(before.startswith("slice2:"))
         self.assertTrue(slice_hash(self.analyze(base + "\nfrom os import *\n"), ["a"]).startswith("ast1:"))
 
 

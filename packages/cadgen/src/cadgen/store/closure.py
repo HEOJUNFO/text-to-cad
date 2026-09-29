@@ -43,7 +43,7 @@ geometry the pre-edit source produced. The reach analysis runs over those same
 captured bytes, so a slice and its hash describe one revision.
 
 Hashes are the semantic (AST) digest for ``.py`` (``ast1:``), the slice digest
-for a sliced file (``slice1:``), and the byte digest otherwise, via
+for a sliced file (``slice2:``), and the byte digest otherwise, via
 ``cadgen._internal.source_hash`` and ``cadgen.store.reach`` — a comment-only
 edit is not a change.
 """
@@ -479,7 +479,12 @@ class _Walk:
             return
         state.reached.add(index)
         statement = state.syntax.statements[index]
-        local = {name: alias for name, alias in statement.aliases}
+        # One statement can contain several lexical scopes. Keep every
+        # candidate binding: a later nested import must not hide an earlier
+        # scope's dependency just because both use the same alias.
+        local: dict[str, list[Alias]] = {}
+        for name, alias in statement.aliases:
+            local.setdefault(name, []).append(alias)
         for _name, alias in statement.aliases:
             self.import_edge(path, alias)
         for alias in statement.stars:
@@ -489,7 +494,7 @@ class _Walk:
         for name, chain in statement.chains:
             self.name_use(path, state.syntax, local, name, chain)
         for name in statement.stores:
-            aliases = ([local[name]] if name in local else []) + list(state.syntax.aliases.get(name, ()))
+            aliases = local.get(name, []) + list(state.syntax.aliases.get(name, ()))
             for alias in aliases:
                 target = self._alias_module(path, alias)
                 if target is not None and target.module is not None:
@@ -552,9 +557,9 @@ class _Walk:
         if whole and target.module is not None:
             self.escape(target.module, f"star-imported by {importer.name}")
 
-    def name_use(self, path: Path, syntax: ModuleSyntax, local: Mapping[str, Alias], name: str, chain: tuple[str, ...]) -> None:
-        if name in local:
-            self.alias_use(path, local[name], chain)
+    def name_use(self, path: Path, syntax: ModuleSyntax, local: Mapping[str, Iterable[Alias]], name: str, chain: tuple[str, ...]) -> None:
+        for alias in local.get(name, ()):
+            self.alias_use(path, alias, chain)
         if name in syntax.definitions:
             self.reach_name(path, name)
         for alias in syntax.aliases.get(name, ()):
@@ -665,13 +670,48 @@ def static_closure(script: Path, *, _syntax: _ImportSyntaxMemo | None = None, _s
     return walk.run()
 
 
+def _uses_data_reader(syntax: ModuleSyntax) -> bool:
+    """Whether this module can use cadgen's runtime-discovered input readers.
+
+    Neither a cold build nor an earlier record tells us every data path the
+    next execution will choose. Follow renamed imports and module attributes;
+    passing a containing module around also makes those readers reachable.
+    This only limits coalescing, not freshness tracking or model execution.
+    """
+    readers = {
+        ("cadgen", "declare_input"), ("cadgen", "inputs", "declare_input"),
+        ("cadgen", "read_step"), ("cadgen", "step_scene", "read_step"),
+        ("cadgen", "read_scene"), ("cadgen", "step_scene", "read_scene"),
+    }
+    for statement in syntax.statements:
+        for name, alias in statement.aliases:
+            if alias.level:
+                continue  # first-party relative imports are walked separately
+            prefix = tuple(alias.module.split(".")) + ((alias.attr,) if alias.attr else ())
+            if prefix in readers:
+                return True
+            if not any(reader[:len(prefix)] == prefix for reader in readers):
+                continue
+            for use in syntax.statements:
+                if name in use.reads or name in use.stores:
+                    return True  # the containing module escapes
+                for base, chain in use.chains:
+                    qualified = prefix + chain
+                    if base == name and any(
+                        qualified[:len(reader)] == reader or reader[:len(qualified)] == qualified
+                        for reader in readers
+                    ):
+                        return True
+    return False
+
+
 def coalescing_sources(script: Path) -> dict[str, str] | None:
     """Fresh static source identity, including model/result and constant edges.
 
     An in-flight build has no result yet: unlike stored freshness, its key
     cannot stop at model boundaries or rely on a previous record's file list.
-    Dynamic/unreadable modules decline coalescing rather than guessing which
-    files they will execute. Whole-file hashes deliberately over-approximate
+    Dynamic/unreadable modules and data readers decline coalescing rather than
+    guessing which files they will read. Whole-file hashes deliberately over-approximate
     reach here; a missed join is cheaper than returning an older build.
     """
     walk = _Walk(Path(script).resolve(), syntax=_ImportSyntaxMemo(), sources=None,
@@ -679,7 +719,7 @@ def coalescing_sources(script: Path) -> dict[str, str] | None:
     walk.run()
     sources = {}
     for path, state in walk.files.items():
-        if state.syntax is None or state.syntax.dynamic is not None:
+        if state.syntax is None or state.syntax.dynamic is not None or _uses_data_reader(state.syntax):
             return None
         sources[str(path)] = state.syntax.whole_hash
     return sources

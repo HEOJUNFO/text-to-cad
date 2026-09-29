@@ -310,6 +310,41 @@ class TopLevelCoalescing(unittest.TestCase):
         self.assertEqual((code_a, code_b), (0, 0), err_a + err_b)
         self.assertEqual(self._runs("forced"), 2)
 
+    def test_declared_data_edit_during_a_cold_build_runs_independently(self):
+        name = "data_edit"
+        data = self.src / "width.txt"
+        data.write_text("2", encoding="utf-8")
+        source = MODEL.format(name=name, after="pass")
+        source = source.replace("    here = Path(__file__).parent", "    here = Path(__file__).parent\n"
+                                "    from cadgen import declare_input\n"
+                                "    width = int(declare_input(here / 'width.txt').read_text(encoding='utf-8'))")
+        source = source.replace(f'"{name}.release"', f'f"{name}-{{width}}.release"')
+        source = source.replace("bd.Box(5.0, 4.0, 2.0)", "bd.Box(width, 4.0, 2.0)")
+        (self.src / f"{name}.py").write_text(source, encoding="utf-8")
+        before = self._coalesced()
+        first = self._start(name)
+        self._wait_runs(name, 1, first)
+        data.write_text("3", encoding="utf-8")
+        second = self._start(name)
+        try:
+            self._wait_runs(name, 2, first, second)
+            self.assertEqual(self._coalesced(), before)
+            # Let the edited result publish first; the old build must never
+            # overwrite it, even though both started without a model record.
+            (self.src / f"{name}-3.release").touch()
+            code, out, err = self._finish(second)
+        finally:
+            (self.src / f"{name}-2.release").touch()
+            (self.src / f"{name}-3.release").touch()
+            self._finish(first)
+            if second.poll() is None:
+                self._finish(second)
+        self.assertEqual(code, 0, out + err)
+        from build123d import import_step
+
+        self.assertAlmostEqual(import_step(str(self.src / f"{name}.step")).volume, 24.0)
+        self.assertEqual(self._runs(name), 2)
+
     def test_an_unforced_request_joins_a_forced_build_in_flight(self):
         before = self._coalesced()
         first = self._start("joined", "--force")
@@ -408,6 +443,40 @@ class CoalescingKey(unittest.TestCase):
                 self.assertNotEqual(before, closure_hash(script))
                 helper.write_text("def size(): return globals()['WIDTH']\n", encoding="utf-8")
                 self.assertIsNone(closure_hash(script), "dynamic inputs must not guess a join key")
+
+    def test_data_readers_decline_joining_with_or_without_prior_inputs(self):
+        from unittest import mock
+        from cadgen.store.gate import closure_hash
+        from cadgen.store.records import remove_record, write_record
+
+        sources = [
+            "from cadgen import declare_input as read\ndef load(): return read('next.csv')\n",
+            "from cadgen.inputs import declare_input as read\ndef load(): return read('next.csv')\n",
+            "from cadgen import read_step as read\ndef load(): return read('next.step')\n",
+            "from cadgen.step_scene import read_scene as read\ndef load(): return read('next.step')\n",
+            "import cadgen as cg\ndef load(): return cg.read_scene('next.step')\n",
+            "import cadgen.inputs as inputs\ndef load(): return inputs.declare_input('next.csv')\n",
+            "import cadgen.step_scene\ndef load(): return cadgen.step_scene.read_step('next.step')\n",
+            "from cadgen import step_scene as scene\ndef load(): return scene.read_step('next.step')\n",
+            "import cadgen\napi = cadgen\ndef load(): return api.declare_input('next.csv')\n",
+        ]
+        with generated_cad_directory(prefix="cadgen-data-join-") as tmp:
+            root = Path(tmp)
+            script, helper = root / "model.py", root / "helper.py"
+            script.write_text("from cadgen import step\nfrom helper import load\n@step\ndef model(): return load()\n", encoding="utf-8")
+            (root / "prior.csv").write_text("2", encoding="utf-8")
+            with mock.patch.dict(os.environ, {"CADGEN_CACHE_DIR": str(root / "store")}):
+                for source in sources:
+                    helper.write_text(source, encoding="utf-8")
+                    remove_record(script)
+                    for recorded in (False, True):
+                        with self.subTest(source=source, recorded=recorded):
+                            if recorded:
+                                write_record(script, {"closure": {"files": [script.name, helper.name, "prior.csv"]}, "tree": "old"})
+                            self.assertIsNone(closure_hash(script))
+                # Access to geometry through a module alias is still static.
+                helper.write_text("import cadgen as cg\ndef load(): return cg.build123d.Box(2, 3, 4)\n", encoding="utf-8")
+                self.assertIsNotNone(closure_hash(script))
 
     def test_a_compile_door_keys_on_the_documents_bytes(self):
         with generated_cad_directory(prefix="cadgen-coalesce-key-") as tmp:
