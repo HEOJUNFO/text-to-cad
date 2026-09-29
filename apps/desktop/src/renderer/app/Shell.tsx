@@ -40,6 +40,11 @@ import { PANE_LIMITS } from "@shared/types";
  * way first and the sidebar second, by collapsing — so the person is left
  * with two toggles rather than a session pushed off the window.
  *
+ * **Landmarks.** The session is the `main`; the sidebar an `aside` and the
+ * explorer a named `section`, which also scopes each pane's own `<header>`
+ * (two unscoped ones were two banners). F6 and Shift+F6 move focus between
+ * the panes on screen (`usePaneCycling`).
+ *
  * **No session, no explorer.** An unsubmitted draft owns no tabs: neither the pane nor its separator is
  * rendered, the session has the window, and the toggle in `SessionHeader`,
  * the palette's command and `Mod+Alt+B` all have nothing to act on.
@@ -50,6 +55,7 @@ export function Shell() {
   const rowRef = useRef<HTMLDivElement | null>(null);
 
   useShellShortcuts();
+  usePaneCycling();
 
   // The explorer belongs to a session, and is closed until something opens
   // it (`state/explorer.ts`). Its width is per session as well.
@@ -126,7 +132,8 @@ export function Shell() {
       <div className="flex h-full w-full" ref={rowRef}>
         {resolved.sidebar === null ? null : (
           <>
-            <div
+            <aside
+              aria-label="Sidebar"
               className="shrink-0 overflow-hidden bg-sidebar text-sidebar-foreground"
               data-panel
               data-testid="sidebar"
@@ -134,7 +141,7 @@ export function Shell() {
               style={{ width: resolved.sidebar }}
             >
               <Sidebar />
-            </div>
+            </aside>
             <PaneSeparator
               max={maxWidthOf("sidebar", { width: rowWidth, other: resolved.explorer })}
               min={PANE_LIMITS.sidebar.min}
@@ -148,7 +155,7 @@ export function Shell() {
           </>
         )}
 
-        <div
+        <main
           className="min-w-0 flex-1 bg-background"
           data-panel
           data-testid="session"
@@ -156,7 +163,7 @@ export function Shell() {
           style={{ minWidth: PANE_LIMITS.session.min }}
         >
           <SessionPane />
-        </div>
+        </main>
 
         {resolved.explorer === null ? null : (
           <>
@@ -170,7 +177,8 @@ export function Shell() {
               pane="explorer"
               width={resolved.explorer}
             />
-            <div
+            <section
+              aria-label="Explorer"
               className="shrink-0 overflow-hidden bg-background"
               data-panel
               data-testid="explorer"
@@ -178,7 +186,7 @@ export function Shell() {
               style={{ width: resolved.explorer }}
             >
               <ExplorerPane />
-            </div>
+            </section>
           </>
         )}
       </div>
@@ -219,5 +227,67 @@ function useShellShortcuts(): void {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+}
+
+/** The panes F6 visits, in order; a collapsed one is not in the document and is skipped. */
+const PANE_IDS = ["sidebar", "session", "explorer"] as const;
+
+/**
+ * Where focus lands in a pane it has not been in yet: the sidebar's current
+ * session, the composer, the explorer's strip tab — each pane's one stop
+ * worth arriving at — else the pane's first control.
+ */
+const PANE_HOMES: Record<(typeof PANE_IDS)[number], string> = {
+  sidebar: "[aria-current=page], [aria-current=true]",
+  session: "[data-composer-input][contenteditable=true], [data-composer-input]:not([disabled])",
+  explorer: '[role=tab][tabindex="0"]',
+};
+
+const TABBABLE = 'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), [contenteditable=true], [tabindex]:not([tabindex="-1"])';
+
+/**
+ * F6 and Shift+F6: the next and the previous pane, the way a browser's F6
+ * moves between its toolbar and the page. Without it the only way from the
+ * explorer back to the sidebar was every Tab stop in between — and none at
+ * all out of a terminal. Focus returns to where it last was in a pane, while
+ * that element is still there, else to the pane's home.
+ *
+ * On the window's capture phase, before an editor or a terminal takes the
+ * key; renderer-only, like Escape (`lib/shortcuts.ts`).
+ */
+function usePaneCycling(): void {
+  const last = useRef<Partial<Record<(typeof PANE_IDS)[number], HTMLElement>>>({});
+  useEffect(() => {
+    const paneOf = (node: EventTarget | null) =>
+      node instanceof Element ? PANE_IDS.find((id) => document.getElementById(id)?.contains(node)) : undefined;
+    const onFocusIn = (event: FocusEvent) => {
+      const pane = paneOf(event.target);
+      if (pane && event.target instanceof HTMLElement) last.current[pane] = event.target;
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "F6" || event.metaKey || event.ctrlKey || event.altKey) return;
+      const panes = PANE_IDS.filter((id) => document.getElementById(id));
+      if (panes.length === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const current = paneOf(document.activeElement);
+      const at = current ? panes.indexOf(current) : -1;
+      const step = event.shiftKey ? -1 : 1;
+      const next = panes[(at + step + panes.length) % panes.length] ?? panes[0]!;
+      const pane = document.getElementById(next)!;
+      const remembered = last.current[next];
+      const target =
+        (remembered?.isConnected && pane.contains(remembered) ? remembered : null) ??
+        pane.querySelector<HTMLElement>(PANE_HOMES[next]) ??
+        pane.querySelector<HTMLElement>(TABBABLE);
+      target?.focus();
+    };
+    document.addEventListener("focusin", onFocusIn);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("focusin", onFocusIn);
+      window.removeEventListener("keydown", onKeyDown, true);
+    };
   }, []);
 }
