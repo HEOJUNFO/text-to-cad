@@ -1144,7 +1144,10 @@ export class SessionManager {
       this.setStatus(session.id, "error", message);
       throw new Error(message);
     }
-    this.retire(session.id);
+    // Quietly: this is a reconnect, not a close. The renderer may not have
+    // asked for it (a prompt into a crashed session reconnects on its own),
+    // and a `closed` would show it Disconnected until `session/connected`.
+    this.retire(session.id, { announce: false });
     this.setStatus(session.id, "connecting");
 
     const owner: { connection?: SessionConnection } = {};
@@ -1190,15 +1193,18 @@ export class SessionManager {
   /**
    * Take a session's connection out of the live set and close it. Out first,
    * so `onEvent` drops what the closing connection says; the one thing of it
-   * the renderer needs — that it is closed — is then said here.
+   * the renderer needs — that it is closed — is then said here, unless
+   * `announce: false` (a reconnect replacing it, `connect`).
    */
-  private retire(id: string): void {
+  private retire(id: string, { announce = true }: { announce?: boolean } = {}): void {
     const connection = this.live.delete(id);
     if (!connection) {
       return;
     }
     connection.close();
-    this.announceClosed(id);
+    if (announce) {
+      this.announceClosed(id);
+    }
   }
 
   /**

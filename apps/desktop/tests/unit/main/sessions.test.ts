@@ -1038,6 +1038,27 @@ describe("SessionManager", () => {
     expect(closedUpdates(second.id)).toHaveLength(1);
   });
 
+  /**
+   * A reconnect main starts on its own — a prompt into a session whose
+   * adapter crashed — replaces the dead connection quietly: the renderer is
+   * not reconnecting, and a `closed` would show it Disconnected until the new
+   * adapter's `session/connected`.
+   */
+  it("replaces a crashed adapter on the next prompt without announcing closed", async () => {
+    const { repo, broadcasts, manager, cwd } = await setup();
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    await expect(manager.prompt(session.id, [{ type: "text", text: "please crash" }])).rejects.toThrow();
+    await until(() => (repo.get(session.id)?.status === "error" ? true : undefined));
+    broadcasts.length = 0;
+
+    expect(await manager.prompt(session.id, [{ type: "text", text: "ok again" }])).toEqual({ stopReason: "end_turn" });
+    const statuses = broadcasts
+      .filter((b) => b.channel === "session.update")
+      .map((b) => (b.payload as { event: { type: string; status?: string } }).event)
+      .filter((event) => event.type === "status");
+    expect(statuses).toEqual([]);
+  });
+
   /** A failed load is an error the person should see, not a `closed` row. */
   it("a failed load leaves the row in error, not closed", async () => {
     const dir = await tempDir("text-to-cad-noload-");
