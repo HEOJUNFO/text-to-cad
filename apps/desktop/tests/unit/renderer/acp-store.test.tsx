@@ -125,3 +125,21 @@ describe("what the acp store lets go of", () => {
     });
   });
 });
+
+describe("Disconnect agent", () => {
+  it("keeps the transcript on screen, marked closed", async () => {
+    const sessionsApi = window.textToCad.sessions as unknown as Record<string, unknown>;
+    sessionsApi.close = vi.fn(async () => undefined);
+    useAcp.setState({ sessions: {}, terminalOutput: {}, loading: {}, reconnecting: {}, loadErrors: {} });
+    useAcp.getState().receiveState("s1", { ...initialSessionState("s1", "codex"), status: "idle" as const });
+    useAcp.getState().receiveEvent("s1", { type: "prompt/start", turnId: "t1", content: [{ type: "text", text: "hi" }], at: 1 });
+    const turns = useAcp.getState().sessions.s1!.turns;
+    expect(turns.length).toBeGreaterThan(0);
+
+    await useAcp.getState().close("s1");
+
+    const held = useAcp.getState().sessions.s1;
+    expect(held?.status).toBe("closed");
+    expect(held?.turns).toBe(turns);
+  });
+});

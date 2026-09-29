@@ -229,7 +229,14 @@ export const useAcp = create<AcpState>((set, get) => ({
 
   close: async (sessionId) => {
     await window.textToCad.sessions.close({ id: sessionId });
-    get().forget(sessionId);
+    // Kept, marked closed: the turns and the plan stay on screen under the Reconnect bar, the way
+    // `ensureLoaded` expects a hand-disconnected session to be held. Leaving it lets it go.
+    set((current) => {
+      const held = current.sessions[sessionId];
+      if (!held || held.status === "closed") return current;
+      const closed = reduce(held, { type: "status", status: "closed", error: null, at: Date.now() });
+      return { sessions: { ...current.sessions, [sessionId]: closed } };
+    });
   },
 }));
 

@@ -52,7 +52,7 @@ describe("a disconnected agent", () => {
     expect(load).toHaveBeenCalledWith("s1");
   });
 
-  it("stays disconnected, not connecting, once Disconnect agent forgets the transcript", () => {
+  it("stays disconnected, not connecting, once a closed transcript is let go of", () => {
     useAcp.setState({ sessions: { s1: { ...initialSessionState("s1", "claude"), status: "closed" } } });
     render(<SessionView session={SESSION} />);
     act(() => useAcp.getState().forget("s1"));

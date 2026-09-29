@@ -93,9 +93,10 @@ export function SessionView({ session }: { session: Session }) {
   // "Disconnect agent" (SessionHeader), or the keep-alive evicting the
   // adapter: nothing is coming back on its own — `ensureLoaded` runs on a
   // session switch, not here — so the way back is a button. A disconnect by
-  // hand also forgets the transcript (`close` in state/acp.ts), so a session
-  // this view was showing that now has no state and a closed row is that,
-  // not a first open still waiting on `ensureLoaded`. What its chips last
+  // hand keeps the transcript, marked closed (`close` in state/acp.ts); a
+  // closed session let go of is one this view was showing that now has no
+  // state and a closed row, not a first open still waiting on
+  // `ensureLoaded`. What its chips last
   // said is kept with it, so the row under the box does not empty out.
   const [shown, setShown] = useState<ShownChips | null>(null);
   if (
