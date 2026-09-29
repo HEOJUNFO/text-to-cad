@@ -697,6 +697,16 @@ full file/selector remains in the tooltip and is still the text sent to the
 agent. Names are optional display metadata scoped to the draft; typed or
 unresolved references keep their file/selector fallback.
 
+A file is sorted the moment it is attached (paperclip, paste or drop), not
+when the prompt is sent. Images and UTF-8 text up to 256 KB
+(`MAX_INLINE_TEXT_BYTES` in `composer/attachments.ts`) attach as before. A
+CAD file the viewer renders (`CAD_EXTENSIONS`) never goes in as bytes: one
+already in the project folder — matched by name and byte size, since Electron
+gives the renderer no path for a picked file — is inserted as its path, the
+same token a typed reference chip sends; one outside the folder is refused
+with a note to copy it in and refer to it by path. Any other binary, and text
+over the cap, is refused with the reason.
+
 Image attachments show a contained thumbnail beside the filename, with an always-visible remove control. Click the thumbnail (or focus it and press Enter) to inspect the full image. Escape, Close or the backdrop dismisses the preview and returns focus to the thumbnail; the draft is unchanged. Explorer tabs use a bordered active state and visible keyboard focus on selection and close controls.
 
 The viewer's Copy Reference(s) button, ⌘C and the copy items in its menus are

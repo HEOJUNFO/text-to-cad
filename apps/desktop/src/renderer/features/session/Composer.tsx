@@ -37,7 +37,7 @@ import { useActiveProject } from "@renderer/state/projects";
 import { useSessions } from "@renderer/state/sessions";
 import type { AvailableCommand, PromptBlock } from "@shared/acp/types";
 
-import { dataUrlOf, rememberFiles } from "./composer/attachments";
+import { attachmentRefusal, dataUrlOf, MAX_INLINE_TEXT_BYTES, rememberFiles, screenAttachments } from "./composer/attachments";
 import { AttachmentImagePreview } from "./composer/AttachmentImagePreview";
 import { ComposerEditor, type ComposerEditorHandle } from "./composer/ComposerEditor";
 import { ReferenceScopeContext } from "./composer/ReferenceScope";
@@ -139,6 +139,22 @@ export function Composer({
 
   // The form's attachments, for the `+` that now sits outside the form.
   const attachmentsRef = useRef<AttachmentsHandle | null>(null);
+  // Every way a file reaches the box — the paperclip, a paste, a drop, the viewer — is sorted here
+  // first (`screenAttachments`): refused files are refused now, with the reason, rather than shown
+  // as attached and dropped at send; a CAD file the project holds goes in as its reference.
+  const admit = useCallback<Admit>(async (files, add) => {
+    const scope = referenceScope ? { projectId: referenceScope.projectId, root: referenceScope.root } : null;
+    const screened = await screenAttachments(files, scope);
+    for (const message of screened.refusals) {
+      toast.error(message);
+    }
+    for (const reference of screened.references) {
+      useComposer.getState().insertReference(draftKey, reference);
+    }
+    if (screened.attach.length > 0) {
+      add(rememberFiles(screened.attach));
+    }
+  }, [referenceScope, draftKey]);
   const queue = useQueue(sessionId);
   const dequeue = useComposer((state) => state.dequeue);
 
@@ -182,7 +198,23 @@ export function Composer({
   );
 
   return (
-    <div className="relative flex flex-col gap-2" data-composer>
+    <div
+      className="relative flex flex-col gap-2"
+      data-composer
+      onDropCapture={(event) => {
+        // Ahead of the vendored form's own drop handler, which would attach the file unchecked.
+        const dropped = [...(event.dataTransfer?.files ?? [])];
+        if (dropped.length === 0) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        const add = attachmentsRef.current?.add;
+        if (add) {
+          void admit(dropped, add);
+        }
+      }}
+    >
       {queue.length > 0 && sessionId ? (
         <Queue className="rounded-xl px-2 pt-1 pb-1">
           <QueueSection defaultOpen>
@@ -254,7 +286,7 @@ export function Composer({
               onRemove={() => removeAnnotations(draftKey)} onRemoveOne={(id) => removeAnnotations(draftKey, [id])} scope={referenceScope} />}
             hasAnnotations={annotations.length > 0}
           />
-          <AttachmentSink draftKey={draftKey} />
+          <AttachmentSink admit={admit} draftKey={draftKey} />
           <AttachmentBridge targetRef={attachmentsRef} />
           {/*
            * No <PromptInputBody>: it renders `display: contents`, which the
@@ -270,6 +302,7 @@ export function Composer({
           <div className="flex w-full min-w-0 items-center gap-1 pr-1.5">
             <ReferenceScopeContext.Provider value={referenceScope}>
               <ComposerEditorField
+                admit={admit}
                 autoFocus={autoFocus}
                 disabled={disabled}
                 handle={textRef}
@@ -322,7 +355,7 @@ export function Composer({
          */}
         <div className="flex h-7 items-center gap-1 px-0.5" data-composer-row>
           <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
-            <AttachButton attachmentsRef={attachmentsRef} disabled={disabled} />
+            <AttachButton admit={admit} attachmentsRef={attachmentsRef} disabled={disabled} />
             {chips}
           </div>
           <div className="flex min-w-0 shrink-0 items-center gap-2">{trailing}</div>
@@ -356,6 +389,8 @@ function AttachmentBridge({ targetRef }: { targetRef: React.RefObject<Attachment
 }
 
 type AttachmentsHandle = ReturnType<typeof usePromptInputAttachments>;
+/** Sort files, then hand what may be attached to the form's `add`. */
+type Admit = (files: readonly File[], add: (files: File[]) => void) => Promise<void>;
 
 /**
  * The editor, with the three things the textarea did for the form: Enter
@@ -365,10 +400,12 @@ type AttachmentsHandle = ReturnType<typeof usePromptInputAttachments>;
  * inside `PromptInput`.
  */
 function ComposerEditorField({
+  admit,
   handle,
   onKeyDown,
   ...props
 }: Omit<React.ComponentProps<typeof ComposerEditor>, "onSubmit" | "onPasteFiles" | "onKeyDown"> & {
+  admit: Admit;
   handle: React.RefObject<ComposerEditorHandle | null>;
   onKeyDown: (event: React.KeyboardEvent) => void;
 }) {
@@ -390,7 +427,7 @@ function ComposerEditorField({
           }
         }
       }}
-      onPasteFiles={(files) => attachments.add(rememberFiles(files))}
+      onPasteFiles={(files) => void admit(files, attachments.add)}
       onSubmit={() => {
         const form = handle.current?.form() ?? null;
         const submit = form?.querySelector('button[type="submit"]') as HTMLButtonElement | null;
@@ -406,15 +443,15 @@ function ComposerEditorField({
  * Files the explorer attached — a capture of the viewer — reach the form's
  * attachments here, the one place inside `PromptInput` that can add them.
  */
-function AttachmentSink({ draftKey }: { draftKey: string }) {
+function AttachmentSink({ admit, draftKey }: { admit: Admit; draftKey: string }) {
   const attachments = usePromptInputAttachments();
   const pending = useComposer((state) => state.pendingFiles[draftKey]);
   const takeFiles = useComposer((state) => state.takeFiles);
   useEffect(() => {
     if (pending && pending.length > 0) {
-      attachments.add(rememberFiles(takeFiles(draftKey)));
+      void admit(takeFiles(draftKey), attachments.add);
     }
-  }, [pending, attachments, takeFiles, draftKey]);
+  }, [pending, attachments, takeFiles, draftKey, admit]);
   return null;
 }
 
@@ -429,9 +466,11 @@ function AttachmentSink({ draftKey }: { draftKey: string }) {
  * through `AttachmentBridge`'s ref rather than through the form's context.
  */
 function AttachButton({
+  admit,
   attachmentsRef,
   disabled,
 }: {
+  admit: Admit;
   attachmentsRef: React.RefObject<AttachmentsHandle | null>;
   disabled?: boolean;
 }) {
@@ -439,8 +478,9 @@ function AttachButton({
   const take = (event: React.ChangeEvent<HTMLInputElement>) => {
     const picked = [...(event.currentTarget.files ?? [])];
     event.currentTarget.value = "";
-    if (picked.length > 0) {
-      attachmentsRef.current?.add(rememberFiles(picked));
+    const add = attachmentsRef.current?.add;
+    if (picked.length > 0 && add) {
+      void admit(picked, add);
     }
   };
   return (
@@ -578,8 +618,10 @@ function SlashPalette({
 /**
  * The composer's files become ACP content blocks: images as `image`
  * (base64), text files embedded as `resource` so the agent has the
- * content whether or not its sandbox can reach the path. Anything else is
- * refused with a toast rather than sent as bytes the agent cannot read.
+ * content whether or not its sandbox can reach the path. What may be attached
+ * is decided when a file is added (`screenAttachments`); the checks here are
+ * the backstop for a file that reached the form another way, and refuse with
+ * the same words rather than send bytes the agent cannot read.
  * The bytes come through `dataUrlOf`: the vendored form's own blob fetch
  * fails on a `file://` renderer (`composer/attachments.ts`).
  */
@@ -602,7 +644,11 @@ export async function toPromptBlocks(text: string, files: FileUIPart[]): Promise
     }
     const decoded = decodeText(parsed.base64);
     if (decoded === null) {
-      toast.error(`${name} is not text or an image, so it was not attached.`);
+      toast.error(attachmentRefusal.notText(name));
+      continue;
+    }
+    if (new TextEncoder().encode(decoded).length > MAX_INLINE_TEXT_BYTES) {
+      toast.error(attachmentRefusal.tooLarge(name));
       continue;
     }
     blocks.push({ type: "resource", uri: `attachment:///${encodeURIComponent(name)}`, text: decoded, mimeType });
