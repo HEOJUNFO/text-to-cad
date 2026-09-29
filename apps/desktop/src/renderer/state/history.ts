@@ -80,6 +80,9 @@ export function findLive(
   return -1;
 }
 
+/** How many places back and forward remember. */
+export const HISTORY_LIMIT = 100;
+
 const same = (a: Location, b: Location) => a.projectId === b.projectId && a.sessionId === b.sessionId;
 
 /** The location the stores are showing, or null with no project bound. */
@@ -123,8 +126,9 @@ export const useHistory = create<HistoryState>((set, get) => ({
     if (at && same(at, location)) {
       return;
     }
-    const kept = entries.slice(0, index + 1);
-    kept.push(location);
+    // Capped, oldest first out: nobody walks back a hundred places, and the stack otherwise grows
+    // for as long as the window is open.
+    const kept = [...entries.slice(0, index + 1), location].slice(-HISTORY_LIMIT);
     set({ entries: kept, index: kept.length - 1 });
   },
 

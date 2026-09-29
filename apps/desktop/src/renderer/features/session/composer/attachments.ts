@@ -2,7 +2,7 @@ import type { FileUIPart } from "@renderer/components/ai-elements/types";
 import { isCadFile, type CadReference } from "@shared/cad-refs";
 
 /**
- * The files behind the composer's attachments, kept until they are sent.
+ * The files behind one composer's attachments, kept while they are in its box.
  *
  * AI Elements' `PromptInput` holds an attachment as a `blob:` URL and, on
  * submit, turns it back into bytes with `fetch(url)`. The renderer is loaded
@@ -10,30 +10,79 @@ import { isCadFile, type CadReference } from "@shared/cad-refs";
  * blob URL from an opaque origin: the fetch throws, the part keeps its blob
  * URL, and `toPromptBlocks` cannot read it — the image is dropped without a
  * word. So every file this app adds — a capture from the viewer, a pasted
- * image, a file from the attach button — is remembered here by name, and
- * `dataUrlOf` reads it with a `FileReader`, which needs no fetch. A drop onto
- * the box goes through the vendored component's own input and is the one
- * path this does not cover.
+ * image, a file from the attach button — is remembered here, and `dataUrlOf`
+ * reads it with a `FileReader`, which needs no fetch. A drop onto the box goes
+ * through the vendored component's own input and is the one path this does
+ * not cover.
+ *
+ * **One per composer, keyed by the attachment, not by the file's name.**
+ * Chromium names every pasted image `image.png`, so a registry keyed by name
+ * sent one session's unsent paste with another's prompt, and a removed
+ * attachment in place of the same-named one added after it. A file added is
+ * `waiting` until its attachment appears in the box (the form mints the blob
+ * URL, in order, when it adds it) and is then `held` under that URL. It is
+ * let go when its attachment leaves the box — removed, or cleared by a send
+ * that succeeded — and all of them when the composer unmounts. A send only
+ * reads (`fileFor`): a rejected one leaves the box, and so the files, for the
+ * retry. `Composer` screens out what the form would refuse (the size cap)
+ * before `remember`, so every file waiting is one the form adds.
  */
-const remembered = new Map<string, File[]>();
+export class AttachmentFiles {
+  private waiting: File[] = [];
+  private held = new Map<string, File>();
 
-export function rememberFiles(files: readonly File[]): File[] {
-  for (const file of files) {
-    const list = remembered.get(file.name) ?? [];
-    list.push(file);
-    remembered.set(file.name, list);
+  /** Called before the files go to the form's `add`. */
+  remember(files: readonly File[]): File[] {
+    this.waiting.push(...files);
+    return [...files];
   }
-  return [...files];
+
+  /** The box's attachments now: bind the new ones to their files, let go of the ones that left. */
+  sync(parts: readonly FileUIPart[]): void {
+    const held = new Map<string, File>();
+    for (const part of parts) {
+      const file = part.url ? this.held.get(part.url) ?? this.claim(part) : null;
+      if (file && part.url) held.set(part.url, file);
+    }
+    this.held = held;
+  }
+
+  /** The file behind an attachment in the box, without letting go of it; null when unknown. */
+  fileFor(part: FileUIPart): File | null {
+    if (!part.url) return null;
+    const file = this.held.get(part.url) ?? this.claim(part);
+    if (file) this.held.set(part.url, file);
+    return file;
+  }
+
+  /** Everything, when the composer goes. */
+  release(): void {
+    this.waiting = [];
+    this.held.clear();
+  }
+
+  /** How many files are kept, waiting or held. */
+  get size(): number {
+    return this.waiting.length + this.held.size;
+  }
+
+  /** The first file waiting that this attachment was made from. */
+  private claim(part: FileUIPart): File | null {
+    const at = this.waiting.findIndex((file) => file.name === (part.filename ?? "") && file.type === (part.mediaType ?? ""));
+    return at < 0 ? null : this.waiting.splice(at, 1)[0] ?? null;
+  }
 }
 
-/** The file for an attachment, taken out of the registry; null when unknown. */
-function takeFile(part: FileUIPart): File | null {
-  const list = remembered.get(part.filename ?? "");
-  const file = list?.shift() ?? null;
-  if (list && list.length === 0) {
-    remembered.delete(part.filename ?? "");
-  }
-  return file;
+/** Every composer's files, for the tests' two helpers below. */
+const mounted = new Set<AttachmentFiles>();
+
+/** A composer's files from mount to unmount; `release` it when it unmounts. */
+export function openAttachmentFiles(files: AttachmentFiles): () => void {
+  mounted.add(files);
+  return () => {
+    files.release();
+    mounted.delete(files);
+  };
 }
 
 function readAsDataUrl(file: File): Promise<string | null> {
@@ -45,18 +94,25 @@ function readAsDataUrl(file: File): Promise<string | null> {
   });
 }
 
-/** An attachment's bytes as a data URL: what it already carries, else the remembered file's. */
-export async function dataUrlOf(part: FileUIPart): Promise<string | null> {
+/** An attachment's bytes as a data URL: what it already carries, else its remembered file's. */
+export async function dataUrlOf(part: FileUIPart, files: AttachmentFiles | null): Promise<string | null> {
   if (part.url?.startsWith("data:")) {
     return part.url;
   }
-  const file = takeFile(part);
+  const file = files?.fileFor(part) ?? null;
   return file ? readAsDataUrl(file) : null;
 }
 
 /** For the tests. */
 export function forgetRememberedFiles(): void {
-  remembered.clear();
+  for (const files of mounted) files.release();
+}
+
+/** For the tests: every file any composer still keeps. */
+export function rememberedFileCount(): number {
+  let count = 0;
+  for (const files of mounted) count += files.size;
+  return count;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -82,7 +138,11 @@ const MTIME_TOLERANCE_MS = 1000;
 /** The project (and worktree) whose folder a picked CAD file is looked for in. */
 export type AttachScope = { projectId: string; root: string | null } | null;
 
+/** The largest file the composer's form takes (`PromptInput`'s `maxFileSize`). */
+export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+
 export const attachmentRefusal = {
+  overLimit: (name: string) => `${name} is larger than ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB, so it was not attached.`,
   notText: (name: string) => `${name} is not text or an image, so it was not attached.`,
   tooLarge: (name: string) =>
     `${name} is larger than ${MAX_INLINE_TEXT_BYTES / 1024} KB, so it was not attached. Put it in the project folder and mention its path instead.`,
@@ -183,7 +243,9 @@ export async function screenAttachments(files: readonly File[], scope: AttachSco
     .catch((): ProjectListing => ({ paths: [], truncated: false, failed: true }));
   for (const file of files) {
     if (file.type.startsWith("image/")) {
-      result.attach.push(file);
+      // Past the form's cap the form drops it without a word; said here instead.
+      if (file.size > MAX_ATTACHMENT_BYTES) result.refusals.push(attachmentRefusal.overLimit(file.name));
+      else result.attach.push(file);
       continue;
     }
     if (isCadFile(file.name)) {

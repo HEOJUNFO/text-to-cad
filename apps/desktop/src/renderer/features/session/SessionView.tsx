@@ -1,6 +1,7 @@
 import LoadingIcon from "@text-to-cad/ui/loading-icon";
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Loader2, RotateCcw, Unplug } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@renderer/components/ui/button";
 import { useAcp } from "@renderer/state/acp";
@@ -9,6 +10,7 @@ import { useComposer } from "@renderer/state/composer";
 import type { TakenDraft } from "@renderer/state/composer";
 import { useSettings } from "@renderer/state/settings";
 import { effortOption, fastOption, modeChoice, modelOption } from "@shared/acp/options";
+import { errorMessage } from "@shared/ipc/errors";
 import type { PromptBlock, SessionState } from "@shared/acp/types";
 import type { AgentStatus } from "@shared/agents";
 import type { Session } from "@shared/types";
@@ -96,7 +98,8 @@ export function SessionView({ session }: { session: Session }) {
     const effort = effortOption(state.configOptions);
     const mode = modeChoice(state);
     const fast = fastOption(state.configOptions);
-    const setOption = (configId: string, value: string | boolean) => void setConfigOption(session.id, configId, value);
+    const setOption = (configId: string, value: string | boolean) =>
+      reportRefusal(setConfigOption(session.id, configId, value), configId === model?.id ? "the model" : configId === mode?.configId ? "the mode" : "that setting");
     // One chip, two calls: `session/set_mode` for an agent that sends
     // `modes`, its `mode` config option for one that sends that instead.
     const chooseMode = (modeId: string) => {
@@ -104,7 +107,7 @@ export function SessionView({ session }: { session: Session }) {
         return;
       }
       if (mode.source === "modes") {
-        void setMode(session.id, modeId);
+        reportRefusal(setMode(session.id, modeId), "the mode");
       } else if (mode.configId) {
         setOption(mode.configId, modeId);
       }
@@ -116,29 +119,37 @@ export function SessionView({ session }: { session: Session }) {
     // and it is set through whichever of the two calls this agent answers
     // to (`modeChoice`). Everything else the agent exposes is the agent's
     // business: the composer is four decisions, not a settings panel.
+    // Main answers these only while the agent is there (`requireLive`): on a painted, reconnecting,
+    // failed or closed session the chips are shown as they were and not offered.
+    // A snapshot painted while the agent reconnects can say `idle`; it is not live until the load lands.
+    const live = !reconnecting && (state.status === "idle" || state.status === "running" || state.status === "waiting");
     return {
       leading: mode ? (
-        <ModeChip currentModeId={mode.currentModeId} modes={mode.modes} onChange={chooseMode} />
+        <LiveOnly live={live}>
+          <ModeChip currentModeId={mode.currentModeId} modes={mode.modes} onChange={chooseMode} />
+        </LiveOnly>
       ) : null,
       trailing: (
         <>
-          {model ? (
-            <ModelChip
-              agentId={session.agentId}
-              fast={fast}
-              onChange={(_agentId, value) => setOption(model.id, value)}
-              onFastChange={setOption}
-              providers={[
-                {
-                  agentId: session.agentId,
-                  agentName: agent?.name ?? session.agentId,
-                  icon: agent?.icon ?? null,
-                  model,
-                },
-              ]}
-            />
-          ) : null}
-          {effort ? <EffortChip effort={effort} onChange={setOption} /> : null}
+          <LiveOnly live={live}>
+            {model ? (
+              <ModelChip
+                agentId={session.agentId}
+                fast={fast}
+                onChange={(_agentId, value) => setOption(model.id, value)}
+                onFastChange={setOption}
+                providers={[
+                  {
+                    agentId: session.agentId,
+                    agentName: agent?.name ?? session.agentId,
+                    icon: agent?.icon ?? null,
+                    model,
+                  },
+                ]}
+              />
+            ) : null}
+            {effort ? <EffortChip effort={effort} onChange={setOption} /> : null}
+          </LiveOnly>
           <ContextMeter
             lastTurnUsage={state.lastTurnUsage}
             rateLimits={state.rateLimits}
@@ -149,7 +160,7 @@ export function SessionView({ session }: { session: Session }) {
         </>
       ),
     };
-  }, [state, session.id, session.agentId, agent?.icon, agent?.name, setMode, setConfigOption]);
+  }, [state, reconnecting, session.id, session.agentId, agent?.icon, agent?.name, setMode, setConfigOption]);
 
   const planTurn =
     state?.turns.findLast((turn) => turn.role === "agent" && turn.parts.some((part) => part.type === "plan")) ?? null;
@@ -256,7 +267,7 @@ export function SessionView({ session }: { session: Session }) {
             }
             commands={state?.availableCommands ?? []}
             disabled={!state || state.status === "connecting" || state.status === "closed"}
-            onStop={() => void cancel(session.id)}
+            onStop={() => reportRefusal(cancel(session.id), "stop the turn", "Could not")}
             onSubmit={onSubmit}
             placeholder={running ? "Send another message — it goes next" : "Do anything"}
             sessionId={session.id}
@@ -266,6 +277,20 @@ export function SessionView({ session }: { session: Session }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/** A call main may refuse, said as a toast rather than dropped as an unhandled rejection. */
+function reportRefusal(call: Promise<void>, what: string, verb = "Could not change"): void {
+  call.catch((error: unknown) => toast.error(`${verb} ${what}: ${errorMessage(error)}`));
+}
+
+/** Chips that only mean something with an agent to answer them: shown either way, usable when live. */
+function LiveOnly({ live, children }: { live: boolean; children: React.ReactNode }) {
+  return (
+    <span aria-disabled={!live || undefined} className={live ? "contents" : "flex min-w-0 items-center gap-2 opacity-50"} inert={!live}>
+      {children}
+    </span>
   );
 }
 
@@ -336,7 +361,8 @@ function AgentMissing({
   );
 }
 
-function lastUserPrompt(state: SessionState | null): PromptBlock[] | null {
+/** The last prompt the person sent, as blocks Retry can send again. */
+export function lastUserPrompt(state: SessionState | null): PromptBlock[] | null {
   const turn = state?.turns.findLast((candidate) => candidate.role === "user");
   if (!turn) {
     return null;
@@ -349,6 +375,8 @@ function lastUserPrompt(state: SessionState | null): PromptBlock[] | null {
       blocks.push({ type: "image", data: part.data, mimeType: part.mimeType, uri: null });
     } else if (part.type === "resource_link") {
       blocks.push({ type: "resource_link", uri: part.uri, name: part.name, mimeType: null, title: null });
+    } else if (part.type === "resource") {
+      blocks.push({ type: "resource", uri: part.uri, text: part.text, mimeType: part.mimeType });
     }
   }
   return blocks.length > 0 ? blocks : null;

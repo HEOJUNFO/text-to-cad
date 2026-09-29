@@ -104,7 +104,13 @@ export const useAcp = create<AcpState>((set, get) => ({
       if (current.reconnecting[sessionId]) {
         return current;
       }
-      return { sessions: { ...current.sessions, [sessionId]: reduce(state, event) } };
+      const next = reduce(state, event);
+      // An adapter that closed behind another session's pane — the keep-alive evicting it — is
+      // let go: its transcript is the snapshot main flushed, and a click repaints it from there.
+      if (next.status === "closed" && !stillWanted(sessionId, current)) {
+        return without(current, sessionId);
+      }
+      return { sessions: { ...current.sessions, [sessionId]: next } };
     }),
 
   receiveTerminalOutput: (sessionId, terminalId, data) =>
@@ -114,16 +120,7 @@ export const useAcp = create<AcpState>((set, get) => ({
       return { terminalOutput: { ...current.terminalOutput, [key]: next } };
     }),
 
-  forget: (sessionId) =>
-    set((current) => {
-      const sessions = { ...current.sessions };
-      delete sessions[sessionId];
-      const loadErrors = { ...current.loadErrors };
-      delete loadErrors[sessionId];
-      const reconnecting = { ...current.reconnecting };
-      delete reconnecting[sessionId];
-      return { sessions, loadErrors, reconnecting };
-    }),
+  forget: (sessionId) => set((current) => without(current, sessionId)),
 
   create: async (input) => {
     const session = await window.textToCad.sessions.create(input);
@@ -216,6 +213,45 @@ export const useAcp = create<AcpState>((set, get) => ({
     get().forget(sessionId);
   },
 }));
+
+/** Everything held for one session, taken out: its state, its load's leftovers, its terminals' tails. */
+function without(current: AcpState, sessionId: string): Partial<AcpState> {
+  const sessions = { ...current.sessions };
+  delete sessions[sessionId];
+  const loadErrors = { ...current.loadErrors };
+  delete loadErrors[sessionId];
+  const reconnecting = { ...current.reconnecting };
+  delete reconnecting[sessionId];
+  const prefix = `${sessionId}/`;
+  const terminalOutput = Object.fromEntries(Object.entries(current.terminalOutput).filter(([key]) => !key.startsWith(prefix)));
+  return { sessions, loadErrors, reconnecting, terminalOutput };
+}
+
+/** Whether a closed session's state is still wanted: it is on screen, or a load is bringing it back. */
+function stillWanted(sessionId: string, current: AcpState): boolean {
+  return useSessions.getState().activeId === sessionId || Boolean(current.loading[sessionId]);
+}
+
+/**
+ * The index decides what is kept here. A row deleted, or newly archived, takes its state and its
+ * terminals' output with it — nothing else ever would, and each holds images, diffs and 64 KB per
+ * terminal. A closed session the person has just left goes too: `ensureLoaded` repaints it from
+ * the snapshot main keeps (flushed when the adapter closed) the next time it is picked, which is
+ * one read of a row rather than a transcript held for every session ever opened.
+ */
+useSessions.subscribe((index, previous) => {
+  const acp = useAcp.getState();
+  const rows = new Map(index.sessions.map((row) => [row.id, row]));
+  for (const row of previous.sessions) {
+    const now = rows.get(row.id);
+    if (!now || (now.archived && !row.archived)) acp.forget(row.id);
+  }
+  const left = previous.activeId;
+  if (left && left !== index.activeId) {
+    const held = useAcp.getState();
+    if (held.sessions[left]?.status === "closed" && !stillWanted(left, held)) acp.forget(left);
+  }
+});
 
 /** One session's live state, or null before it connects. */
 export function useSessionState(sessionId: string | null): SessionState | null {

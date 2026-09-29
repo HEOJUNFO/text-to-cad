@@ -37,7 +37,15 @@ import { useActiveProject } from "@renderer/state/projects";
 import { useSessions } from "@renderer/state/sessions";
 import type { AvailableCommand, PromptBlock } from "@shared/acp/types";
 
-import { attachmentRefusal, dataUrlOf, MAX_INLINE_TEXT_BYTES, rememberFiles, screenAttachments } from "./composer/attachments";
+import {
+  AttachmentFiles,
+  attachmentRefusal,
+  dataUrlOf,
+  MAX_ATTACHMENT_BYTES,
+  MAX_INLINE_TEXT_BYTES,
+  openAttachmentFiles,
+  screenAttachments,
+} from "./composer/attachments";
 import { AttachmentImagePreview } from "./composer/AttachmentImagePreview";
 import { ComposerEditor, type ComposerEditorHandle } from "./composer/ComposerEditor";
 import { ReferenceScopeContext } from "./composer/ReferenceScope";
@@ -150,6 +158,9 @@ export function Composer({
     if (form && !submit?.disabled) form.requestSubmit();
   }, [submitRequest]);
 
+  // The files behind this box's attachments (`composer/attachments.ts`), for as long as it is mounted.
+  const [attachmentFiles] = useState(() => new AttachmentFiles());
+  useEffect(() => openAttachmentFiles(attachmentFiles), [attachmentFiles]);
   // The form's attachments, for the `+` that now sits outside the form.
   const attachmentsRef = useRef<AttachmentsHandle | null>(null);
   // Every way a file reaches the box — the paperclip, a paste, a drop, the viewer — is sorted here
@@ -165,9 +176,9 @@ export function Composer({
       useComposer.getState().insertReference(draftKey, reference);
     }
     if (screened.attach.length > 0) {
-      add(rememberFiles(screened.attach));
+      add(attachmentFiles.remember(screened.attach));
     }
-  }, [referenceScope, draftKey]);
+  }, [referenceScope, draftKey, attachmentFiles]);
   const queue = useQueue(sessionId);
   const dequeue = useComposer((state) => state.dequeue);
   // A failed turn holds the queue until the next turn starts; said here, with a way to go on.
@@ -193,7 +204,7 @@ export function Composer({
         return;
       }
       // A note's sketch goes out with it, after the form's own attachments.
-      const content = await toPromptBlocks(trimmed, [...message.files, ...await annotationImageParts(pending)]);
+      const content = await toPromptBlocks(trimmed, [...message.files, ...await annotationImageParts(pending)], attachmentFiles);
       if (content.length === 0) {
         return;
       }
@@ -209,7 +220,7 @@ export function Composer({
         throw error;
       }
     },
-    [onSubmit, draftKey],
+    [onSubmit, draftKey, attachmentFiles],
   );
 
   return (
@@ -304,7 +315,7 @@ export function Composer({
             "[&>[data-slot=input-group]]:h-auto",
             disabled && "opacity-70",
           )}
-          maxFileSize={20 * 1024 * 1024}
+          maxFileSize={MAX_ATTACHMENT_BYTES}
           multiple
           onError={(error) => toast.error(error.message)}
           onSubmit={handleSubmit}
@@ -316,6 +327,7 @@ export function Composer({
           />
           <AttachmentSink admit={admit} draftKey={draftKey} />
           <AttachmentBridge targetRef={attachmentsRef} />
+          <AttachmentFilesSync files={attachmentFiles} />
           {/*
            * No <PromptInputBody>: it renders `display: contents`, which the
            * InputGroup's direct-child stacking selector does not see, and the
@@ -413,6 +425,13 @@ function AttachmentBridge({ targetRef }: { targetRef: React.RefObject<Attachment
       }
     };
   }, [attachments, targetRef]);
+  return null;
+}
+
+/** The box's attachments, told to its files as they change: a new one is bound, a gone one let go. */
+function AttachmentFilesSync({ files }: { files: AttachmentFiles }) {
+  const attachments = usePromptInputAttachments();
+  useEffect(() => files.sync(attachments.files), [files, attachments.files]);
   return null;
 }
 
@@ -653,13 +672,13 @@ function SlashPalette({
  * The bytes come through `dataUrlOf`: the vendored form's own blob fetch
  * fails on a `file://` renderer (`composer/attachments.ts`).
  */
-export async function toPromptBlocks(text: string, files: FileUIPart[]): Promise<PromptBlock[]> {
+export async function toPromptBlocks(text: string, files: FileUIPart[], remembered: AttachmentFiles | null = null): Promise<PromptBlock[]> {
   const blocks: PromptBlock[] = [];
   if (text) {
     blocks.push({ type: "text", text });
   }
   for (const file of files) {
-    const parsed = parseDataUrl((await dataUrlOf(file)) ?? "");
+    const parsed = parseDataUrl((await dataUrlOf(file, remembered)) ?? "");
     if (!parsed) {
       toast.error(`${file.filename ?? "An attachment"} could not be read, so it was not attached.`);
       continue;

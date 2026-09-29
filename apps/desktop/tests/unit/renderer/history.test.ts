@@ -175,4 +175,17 @@ describe("the top-level history", () => {
     await land(() => useSessions.getState().setActive(null));
     expect(useHistory.getState().entries).toEqual([]);
   });
+  it("keeps the last 100 places and drops the oldest", async () => {
+    await land(() => useProjects.getState().setActive("p1"));
+    for (let turn = 0; turn < 75; turn += 1) {
+      await land(() => useSessions.getState().select("s1"));
+      await land(() => useSessions.getState().select("s2"));
+    }
+    const { entries, index } = useHistory.getState();
+    expect(entries).toHaveLength(100);
+    expect(index).toBe(99);
+    expect(entries.at(-1)).toEqual({ projectId: "p1", sessionId: "s2" });
+    await land(() => useHistory.getState().back());
+    expect(useSessions.getState().activeId).toBe("s1");
+  });
 });
