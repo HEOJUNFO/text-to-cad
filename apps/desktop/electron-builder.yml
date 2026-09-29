@@ -16,10 +16,10 @@ files:
   - package.json
   - "!**/*.map"
 
-# What ships beside the app rather than inside the asar. Every directory here
-# is committed empty (a .gitkeep and a README) and `scripts/package.mjs`
-# recreates them before every build, so a checkout that never ran a build
-# script still has a source for each entry.
+# What ships beside the app rather than inside the asar. Every directory a
+# build fills (runtime, cadgen, skills) is committed empty (a .gitkeep) and
+# `scripts/package.mjs` recreates them before every build, so a checkout that
+# never ran a build script still has a source for each entry.
 #
 # Measured against electron-builder 26.15.3, not assumed: a MISSING source here
 # is tolerated (the build succeeds and copies nothing) and an EMPTY one produces
