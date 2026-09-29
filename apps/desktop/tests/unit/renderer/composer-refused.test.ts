@@ -77,3 +77,18 @@ it("puts a refused queued prompt back in the box and sends on what was queued be
   expect(useComposer.getState().paused[SESSION]).toBeUndefined();
   expect(useAcp.getState().loadErrors[SESSION]).toBeUndefined();
 });
+
+it("hands the box's attachments over with the draft, for a refusal that comes back after the box has gone", async () => {
+  URL.createObjectURL ??= () => "blob:composer-refused";
+  URL.revokeObjectURL ??= () => {};
+  const onSubmit = vi.fn(async () => undefined);
+  const photo = new File(["png"], "bracket.png", { type: "image/png" });
+  const view = render(createElement(Composer, { sessionId: SESSION, chips: null, commands: [], status: "ready", onSubmit }));
+  act(() => useComposer.getState().attachFile(SESSION, photo));
+  await waitFor(() => expect(view.getByText("bracket.png")).toBeInTheDocument());
+  useComposer.getState().setDraft(SESSION, "look at this");
+  act(() => useComposer.getState().requestSubmit(SESSION));
+
+  await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+  expect(onSubmit).toHaveBeenCalledWith("look at this", expect.anything(), expect.objectContaining({ text: "look at this", files: [photo] }));
+});

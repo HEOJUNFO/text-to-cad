@@ -4,7 +4,7 @@ import { AlertCircle, Loader2, Settings2 } from "lucide-react";
 
 import { Button } from "@renderer/components/ui/button";
 import { resolveGitMode, useProjectGitInfo } from "@renderer/lib/git-mode";
-import { useAcp } from "@renderer/state/acp";
+import { PromptRefused, useAcp } from "@renderer/state/acp";
 import {
   useAgentOptions,
   useProviderEffort,
@@ -198,7 +198,7 @@ export function NewSession({ project }: { project: Project }) {
    * `submitFromComposer` rejects. Writing the prompt back into the draft here would write the
    * annotations into the text, as a list, a second time beside their own chip.
    */
-  const start = async (text: string, content: PromptBlock[]): Promise<boolean> => {
+  const start = async (text: string, content: PromptBlock[], draft: TakenDraft): Promise<boolean> => {
     if (!startingAgentId) {
       setFailure({ message: "Install an agent first — Settings › Agents lists what text-to-cad can run.", auth: false });
       return false;
@@ -227,13 +227,18 @@ export function NewSession({ project }: { project: Project }) {
     failedAttempt.current = null;
     setActiveSession(sessionId);
     setBusy(false);
-    void submitPrompt(sessionId, text, content);
+    // The prompt goes to the session just made, whose box is the one on screen from here on. An
+    // agent that refuses it (an image it cannot take) refuses it after this box has gone, so what
+    // was written — attachments included — is put back in that one rather than spent.
+    submitPrompt(sessionId, text, content, draft).catch((error: unknown) => {
+      if (error instanceof PromptRefused) useComposer.getState().restoreDraft(sessionId, draft);
+    });
     return true;
   };
 
   // The composer's send: a start that fails rejects, and the composer puts its draft back.
   const submitFromComposer = async (text: string, content: PromptBlock[], draft: TakenDraft) => {
-    if (!(await start(text, content))) {
+    if (!(await start(text, content, draft))) {
       failedAttempt.current = draft;
       throw new Error("The session did not start");
     }
