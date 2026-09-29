@@ -339,6 +339,14 @@ describe("Sidebar", () => {
     expect(glyph.getAttribute("class")).not.toContain("warning");
   });
 
+  it("marks the session on screen with aria-current, and only it", () => {
+    withProject();
+    useSessions.setState({ sessions: [session({ id: "s1", title: "One" }), session({ id: "s2", title: "Two" })], ready: true, activeId: "s2" });
+    wrap(<Sidebar />);
+    expect(screen.getByRole("button", { name: "Two" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "One" })).not.toHaveAttribute("aria-current");
+  });
+
   it("shows what a thread changed and opens that thread's review from it", async () => {
     const user = userEvent.setup();
     withProject();
