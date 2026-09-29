@@ -424,6 +424,35 @@ describe("following an open file", () => {
     ]);
   });
 
+  it("repeats a re-pointed link's new target under its name, and its old target's no longer", async () => {
+    await fs.mkdir(path.join(root, "versions"));
+    await fs.mkdir(path.join(root, "releases"));
+    await fs.writeFile(path.join(root, "versions", "v3.txt"), "v3\n");
+    await fs.writeFile(path.join(root, "releases", "v4.txt"), "v4\n");
+    await fs.symlink(path.join("versions", "v3.txt"), path.join(root, "current.txt"));
+    await watchers.watch(root);
+    await watchers.watchEntry(root, await statFile(root, "current.txt"));
+    // `ln -sfn releases/v4.txt current.txt`.
+    await fs.unlink(path.join(realRoot, "current.txt"));
+    await fs.symlink(path.join("releases", "v4.txt"), path.join(realRoot, "current.txt"));
+    on("change")("current.txt");
+    elapse();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(1));
+    // The new target's directory is watched now; its writes come from there.
+    expect(driver.direct.mock.calls.map(([directory]) => directory)).toContain(path.join(realRoot, "releases"));
+    await fs.writeFile(path.join(root, "releases", "v4.txt"), "v4, edited\n");
+    on("change")("releases/v4.txt");
+    elapse();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(2));
+    expect(emit.mock.calls[1]![1].map((change) => change.path)).toEqual(["releases/v4.txt", "current.txt"]);
+    // The old target is no longer the link's file.
+    await fs.writeFile(path.join(root, "versions", "v3.txt"), "v3, edited\n");
+    on("change")("versions/v3.txt");
+    elapse();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(3));
+    expect(emit.mock.calls[2]![1].map((change) => change.path)).toEqual(["versions/v3.txt"]);
+  });
+
   it("reads only the changed files a tab has open", async () => {
     const names = Array.from({ length: 40 }, (_, index) => `file-${index}.txt`);
     for (const name of names) await fs.writeFile(path.join(root, name), `${name}\n`);
