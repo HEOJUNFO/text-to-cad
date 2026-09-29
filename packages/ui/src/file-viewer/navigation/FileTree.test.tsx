@@ -120,3 +120,27 @@ it('highlights one row: the open file, not also the row the cursor last sat on o
   fireEvent.keyDown(screen.getByRole('tree'), { key: 'ArrowUp' });
   expect(highlighted()).toEqual(['notes.txt', 'part.step']);
 });
+
+it('keys act only on a row that is drawn: the first arrow lands on the first row, and nothing is renamed, trashed or opened before it', () => {
+  const trash = vi.fn(async () => true);
+  const onOpen = vi.fn();
+  const cursorRow = () => [...document.querySelectorAll<HTMLElement>('[data-path]')]
+    .filter(row => /(^|\s)bg-accent(\/30)?(\s|$)/.test(row.className)).map(row => row.dataset.path);
+  const source = { rootName: 'project', expanded: new Set(), setExpanded() {}, listings: LISTINGS, load: noLoad, revision: 0,
+    paths: async () => [], platform: 'darwin', onAction() {}, trash, rename: async () => null };
+  render(<FileTree source={source as any} activePath={null} onOpen={onOpen} />);
+  const tree = screen.getByRole('tree');
+  const first = rows()[0];
+  // Nothing open, nothing drawn: the keys that act on a row do nothing.
+  fireEvent.keyDown(tree, { key: 'Backspace', metaKey: true });
+  fireEvent.keyDown(tree, { key: 'Enter' });
+  fireEvent.keyDown(tree, { key: 'F2' });
+  expect(trash).not.toHaveBeenCalled();
+  expect(onOpen).not.toHaveBeenCalled();
+  expect(document.querySelectorAll('input')).toHaveLength(1); // the filter; no rename field
+  // The first ArrowDown puts the cursor on the first row, not the second.
+  fireEvent.keyDown(tree, { key: 'ArrowDown' });
+  expect(cursorRow()).toEqual([first]);
+  fireEvent.keyDown(tree, { key: 'Backspace', metaKey: true });
+  expect(trash).toHaveBeenCalledWith({ path: first, kind: 'directory' });
+});

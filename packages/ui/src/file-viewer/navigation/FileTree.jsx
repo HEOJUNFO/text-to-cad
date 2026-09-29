@@ -495,12 +495,23 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
   const placed = cursor && visible.includes(cursor) ? cursor : null;
   const cursorPath = placed ?? (activePath && visible.includes(activePath) ? activePath : (visible[0] ?? null));
   const drawnCursor = filtering ? cursorPath : placed;
+  // The row the keys act on is one the eye can find: the drawn cursor, or the
+  // open file (tinted as open). The undrawn first row is only where the first
+  // arrow lands — ⌘⌫ there trashed a folder nobody had picked.
+  const keyed = drawnCursor ?? (cursorPath === activePath ? cursorPath : null);
 
   const onKeyDown = (event) => {
     if (visible.length === 0) {
       return;
     }
-    const at = cursorPath ? visible.indexOf(cursorPath) : -1;
+    if (!keyed) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        setCursor(cursorPath);
+      }
+      return;
+    }
+    const at = visible.indexOf(keyed);
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setCursor(visible[Math.min(at + 1, visible.length - 1)] ?? null);
@@ -511,10 +522,7 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
       setCursor(visible[Math.max(at - 1, 0)] ?? null);
       return;
     }
-    if (!cursorPath) {
-      return;
-    }
-    const row = rows.find((candidate) => candidate.path === cursorPath);
+    const row = rows.find((candidate) => candidate.path === keyed);
     // The two edits the menu offers, from the keyboard: F2 and ⌘⌫
     // (Ctrl+Delete). Both only where the host offers the menu item too.
     if (row && event.key === "F2" && capabilities.has("rename")) {
@@ -536,20 +544,20 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
     }
     if (event.key === "ArrowRight" && row?.kind === "directory" && !row.expanded) {
       event.preventDefault();
-      toggle(cursorPath);
+      toggle(keyed);
       return;
     }
     if (event.key === "ArrowLeft" && row?.kind === "directory" && row.expanded) {
       event.preventDefault();
-      toggle(cursorPath);
+      toggle(keyed);
       return;
     }
     if (event.key === "Enter") {
       event.preventDefault();
       if (row?.kind === "directory") {
-        toggle(cursorPath);
+        toggle(keyed);
       } else {
-        open(cursorPath);
+        open(keyed);
       }
     }
   };
