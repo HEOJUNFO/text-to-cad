@@ -88,7 +88,8 @@ const MAC_SIGNING = ["CSC_LINK", "CSC_KEY_PASSWORD", "APPLE_ID", "APPLE_APP_SPEC
  * Notarisation needs all three Apple variables. It is requested through
  * `--config.mac.notarize=true` rather than being left on in
  * electron-builder.yml, because a notarize attempt without credentials fails
- * the whole run, and an unsigned build is the normal case today.
+ * the whole run, and an unsigned build is the normal case today. On CI a
+ * signed build that would not be notarised is refused.
  */
 export function signingEnv(targets, source = process.env) {
   const oses = Object.keys(OS_NAMES)
@@ -111,8 +112,18 @@ export function signingEnv(targets, source = process.env) {
     }
   }
   const signed = mac ? has("CSC_LINK") : oses.includes("win") && has("WIN_CSC_LINK");
-  const notarize =
-    mac && signed && has("APPLE_ID") && has("APPLE_APP_SPECIFIC_PASSWORD") && has("APPLE_TEAM_ID");
+  const apple = ["APPLE_ID", "APPLE_APP_SPECIFIC_PASSWORD", "APPLE_TEAM_ID"];
+  const notarize = mac && signed && apple.every(has);
+  // A signed app that is not notarised is one Gatekeeper refuses on first
+  // launch ("cannot be opened because Apple cannot check it"), which is worse
+  // than an unsigned one people know to right-click. On a laptop that is a
+  // rehearsal; on CI it is a release, so it stops here rather than in a log line.
+  if (mac && signed && !notarize && (has("CI") || has("GITHUB_ACTIONS"))) {
+    throw new Error(
+      `CSC_LINK is set but notarisation is off (missing ${apple.filter((name) => !has(name)).join(", ")}): ` +
+        "a CI build signs and notarises, or does neither",
+    );
+  }
 
   if (!signed) {
     env.CSC_IDENTITY_AUTO_DISCOVERY = "false";

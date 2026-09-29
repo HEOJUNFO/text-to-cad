@@ -98,5 +98,18 @@ describe("package.mjs", () => {
       expect(() => signingEnv(["--mac", "--win"], APPLE)).toThrow(/package --mac on its own/);
       expect(signingEnv(["--mac", "--win"], {}).signed).toBe(false);
     });
+
+    it("refuses a signed, un-notarised Mac build on CI and allows it on a laptop", async () => {
+      const { signingEnv } = await import("../../../scripts/package.mjs");
+      const partial = { CSC_LINK: "apple.p12", APPLE_ID: "id@example.invalid" };
+      expect(() => signingEnv(["--mac"], { ...partial, CI: "true" })).toThrow(
+        /notarisation is off \(missing APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID\)/,
+      );
+      expect(() => signingEnv(["--mac"], { ...partial, GITHUB_ACTIONS: "true" })).toThrow(/notarisation is off/);
+      expect(signingEnv(["--mac"], partial)).toMatchObject({ signed: true, notarize: false });
+      // Unsigned on CI (no secrets yet) and fully notarised on CI both go ahead.
+      expect(signingEnv(["--mac"], { CI: "true" })).toMatchObject({ signed: false, notarize: false });
+      expect(signingEnv(["--mac"], { ...APPLE, CI: "true" })).toMatchObject({ signed: true, notarize: true });
+    });
   });
 });
