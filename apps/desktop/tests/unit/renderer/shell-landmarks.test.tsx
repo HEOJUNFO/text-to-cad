@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { Shell } from "@renderer/app/Shell";
@@ -15,7 +15,7 @@ vi.mock("@renderer/features/sidebar/Sidebar", () => ({
   Sidebar: () => <><header>text-to-cad</header><button aria-current="page" type="button">Bracket</button></>,
 }));
 vi.mock("@renderer/features/session/SessionPane", () => ({
-  SessionPane: () => <><header>Bracket</header><div aria-label="Prompt" contentEditable data-composer-input role="textbox" suppressContentEditableWarning tabIndex={0} /></>,
+  SessionPane: () => <><header>Bracket<button aria-label="Toggle sidebar" type="button" /></header><div aria-label="Prompt" contentEditable data-composer-input role="textbox" suppressContentEditableWarning tabIndex={0} /></>,
 }));
 vi.mock("@renderer/features/explorer/ExplorerPane", () => ({
   ExplorerPane: () => <div role="tablist"><div aria-selected data-tab="t1" role="tab" tabIndex={0}>part.step</div></div>,
@@ -72,4 +72,14 @@ it("takes focus into the explorer when Mod+Alt+B opens it", async () => {
   composer.focus();
   fireEvent.keyDown(window, { key: "b", altKey: true, metaKey: true, ctrlKey: true });
   await waitFor(() => expect(screen.getByRole("tab")).toHaveFocus());
+});
+
+it("hands focus to the session's sidebar toggle when Mod+B closes the sidebar it was in", async () => {
+  render(<Shell />);
+  const row = screen.getByRole("button", { name: "Bracket" });
+  row.focus();
+  // What runUiCommand's toggle-sidebar writes.
+  act(() => { void useSettings.setState({ settings: { ...defaultSettings(), layout: { ...defaultSettings().layout, sidebarCollapsed: true } } } as never); });
+  expect(screen.queryByRole("complementary", { name: "Sidebar" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Toggle sidebar" })).toHaveFocus();
 });

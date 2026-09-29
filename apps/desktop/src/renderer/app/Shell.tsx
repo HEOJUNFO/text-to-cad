@@ -117,6 +117,8 @@ export function Shell() {
     }
   });
 
+  useFocusSurvivesCollapse(sidebarCollapsed, hasSession && explorerCollapsed);
+
   // Which pane makes room for the macOS traffic lights (`--titlebar-inset`,
   // globals.css): the sidebar's strip while it is on screen, the session's
   // title bar once it is not. Derived from the one flag, because the flag is
@@ -299,4 +301,39 @@ function usePaneCycling(): void {
       window.removeEventListener("keydown", onKeyDown, true);
     };
   }, []);
+}
+
+/**
+ * A pane that closes with focus in it (Cmd+B, Cmd+Alt+B, its own toggle, a drag past the
+ * minimum) takes that focus out of the document, and it fell to the page. It goes to the pane's
+ * toggle instead — the same control, now in the session's title bar — so the next Cmd+B, or
+ * Enter, brings the pane back from where the person is.
+ */
+function useFocusSurvivesCollapse(sidebarCollapsed: boolean, explorerCollapsed: boolean): void {
+  const lastPane = useRef<string | null>(null);
+  useEffect(() => {
+    const note = (event: Event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      lastPane.current = target ? (PANE_IDS.find((id) => document.getElementById(id)?.contains(target)) ?? null) : null;
+    };
+    document.addEventListener("focusin", note);
+    document.addEventListener("pointerdown", note, true);
+    return () => {
+      document.removeEventListener("focusin", note);
+      document.removeEventListener("pointerdown", note, true);
+    };
+  }, []);
+  useEffect(() => {
+    if (sidebarCollapsed) handToToggle(lastPane.current, "sidebar", "Toggle sidebar");
+  }, [sidebarCollapsed]);
+  useEffect(() => {
+    if (explorerCollapsed) handToToggle(lastPane.current, "explorer", "Toggle explorer");
+  }, [explorerCollapsed]);
+}
+
+/** Focus the session's copy of a pane's toggle, when focus was last in that pane and is lost. */
+function handToToggle(lastPane: string | null, pane: string, toggle: string): void {
+  const lost = !document.activeElement || document.activeElement === document.body;
+  if (lastPane !== pane || !lost) return;
+  document.querySelector<HTMLElement>(`#session [aria-label="${toggle}"]`)?.focus();
 }
