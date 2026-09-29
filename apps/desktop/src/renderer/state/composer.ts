@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 
 import { PromptRefused, useAcp } from "./acp";
+import { useSessions } from "./sessions";
 import { parseSegments } from "../features/session/composer/references";
 import type { PromptBlock } from "@shared/acp/types";
 import { referenceText, type CadReference } from "@shared/cad-refs";
@@ -179,6 +180,8 @@ type ComposerState = {
   attachFile: (key: string, file: File) => void;
   /** The composer takes what was queued for it. */
   takeFiles: (key: string) => File[];
+  /** Everything held for a session whose row is gone: its queue, draft, notes, files and flags. */
+  forget: (sessionId: string) => void;
 };
 
 let sequence = 0;
@@ -436,7 +439,32 @@ export const useComposer = create<ComposerState>((set, get) => ({
     }
     return files;
   },
+
+  forget: (sessionId) => set((state) => ({
+    queues: withoutKey(state.queues, sessionId),
+    drafts: withoutKey(state.drafts, sessionId),
+    referenceLabels: withoutKey(state.referenceLabels, sessionId),
+    annotations: withoutKey(state.annotations, sessionId),
+    pendingFiles: withoutKey(state.pendingFiles, sessionId),
+    draftRoots: withoutKey(state.draftRoots, sessionId),
+    sending: withoutKey(state.sending, sessionId),
+    paused: withoutKey(state.paused, sessionId),
+    acceptedContexts: Object.fromEntries(Object.entries(state.acceptedContexts).filter(([, context]) => context.key !== sessionId)),
+  })),
 }));
+
+/**
+ * The index decides what is kept here, as it does for the acp store: a deleted row takes its queue
+ * (Files and their base64 blocks), draft, notes and their sketches with it — nothing else ever
+ * would. An archived row keeps them: what was typed is not spent by archiving, and it comes back.
+ */
+useSessions.subscribe((index, previous) => {
+  if (index.sessions === previous.sessions) return;
+  const rows = new Set(index.sessions.map((row) => row.id));
+  for (const row of previous.sessions) {
+    if (!rows.has(row.id)) useComposer.getState().forget(row.id);
+  }
+});
 
 /**
  * `prompt` resolves when the turn ends and rejects when the agent refuses
