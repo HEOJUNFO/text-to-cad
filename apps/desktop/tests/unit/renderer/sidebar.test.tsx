@@ -369,6 +369,28 @@ describe("Sidebar", () => {
     expect(open).toHaveBeenCalledWith("review", { scope: "session" });
   });
 
+  it("drops a pending review when the selection moves on before the explorer binds", async () => {
+    const user = userEvent.setup();
+    withProject();
+    useSessions.setState({
+      sessions: [
+        session({ id: "a", title: "Alpha", changedFiles: 1, insertions: 2, deletions: 0 }),
+        session({ id: "b", title: "Beta" }),
+      ],
+      ready: true,
+      activeId: "b",
+    });
+    const open = vi.fn(() => null);
+    useExplorer.setState({ sessionId: "b", ready: true, tabs: [], open } as never);
+    wrap(<Sidebar />);
+    // A's badge, then row B, then row A — all before A's explorer binds.
+    await user.click(screen.getByRole("button", { name: /Review changes/ }));
+    await user.click(screen.getByRole("button", { name: "Beta" }));
+    await user.click(screen.getByRole("button", { name: "Alpha" }));
+    useExplorer.setState({ sessionId: "a", ready: true } as never);
+    expect(open).not.toHaveBeenCalled();
+  });
+
   it("brings an open review forward instead of opening a second one", async () => {
     const user = userEvent.setup();
     withProject();

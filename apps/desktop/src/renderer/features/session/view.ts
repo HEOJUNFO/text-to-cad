@@ -163,10 +163,10 @@ export function activityRow(part: ToolCallPart): ActivityRow {
 
 /**
  * A viewed image is an ACP `read` whose content is an image; a call that
- * starts a subagent is `subagent`; a `delete` or `other` that carries a shell
- * command (`rm -rf build`) is a command, because the row draws the command
- * and a file glyph beside a terminal line says the wrong thing. Everything
- * else is its kind.
+ * starts a subagent is `subagent`; a `delete` that carries a shell command
+ * (`rm -rf build`), or an `other` from a known shell tool, is a command,
+ * because the row draws the command and a file glyph beside a terminal line
+ * says the wrong thing. Everything else is its kind.
  */
 function glyphOf(part: ToolCallPart): Glyph {
   if (part.content.some((content) => content.type === "image")) {
@@ -179,7 +179,7 @@ function glyphOf(part: ToolCallPart): Glyph {
   if (isSubagentCall(part)) {
     return "subagent";
   }
-  if ((part.kind === "delete" || part.kind === "other") && !hasDiff && shellCommandOf(part) !== null) {
+  if (!hasDiff && isShellShaped(part) && shellCommandOf(part) !== null) {
     return "execute";
   }
   return part.kind;
@@ -200,6 +200,21 @@ function isSubagentCall(part: ToolCallPart): boolean {
     /^Task\b/.test(part.title.trim()) ||
     part.children.some((child) => child.type === "tool_call")
   );
+}
+
+/**
+ * Shell tools by the names adapters give them. Claude's `Bash` and Codex's
+ * shell already arrive as `kind: "execute"`; this is for an adapter that
+ * reports one as `other`. Any other `other` with a `command` parameter —
+ * an MCP tool's, say — keeps its own glyph: a parameter name is not a shell.
+ */
+const SHELL_TOOL_NAMES = new Set(["bash", "shell", "local_shell", "exec_command", "run_shell_command", "terminal"]);
+
+function isShellShaped(part: ToolCallPart): boolean {
+  if (part.kind === "delete") {
+    return true;
+  }
+  return part.kind === "other" && part.name !== null && SHELL_TOOL_NAMES.has(part.name.toLowerCase());
 }
 
 /**

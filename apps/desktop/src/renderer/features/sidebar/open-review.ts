@@ -1,4 +1,5 @@
 import { useExplorer } from "@renderer/state/explorer";
+import { useSessions } from "@renderer/state/sessions";
 
 /** How long to wait for the explorer to bind to the session just selected. */
 const BIND_TIMEOUT_MS = 5_000;
@@ -13,6 +14,12 @@ const BIND_TIMEOUT_MS = 5_000;
  * strip is brought forward rather than doubled. If the strip never becomes
  * this session's (an archived row, a bind that failed) nothing is opened:
  * a tab in another session's explorer would be worse than none.
+ *
+ * At most one wait is pending, app-wide, and any change of the selected
+ * session cancels it: click A's badge, then row B, then A again inside the
+ * timeout, and A's review must not open unasked. The caller selects the
+ * session *before* calling, so the selection this sees is already the
+ * target's.
  *
  * Returns a function that cancels the wait.
  */
@@ -35,22 +42,38 @@ export function openSessionReview(sessionId: string): () => void {
     state.open("review", { scope: "session" });
   };
 
+  cancelPendingReview();
   if (ready()) {
     open();
     return () => {};
   }
   let done = false;
   const finish = () => {
+    if (done) return;
     done = true;
-    unsubscribe();
+    unsubscribeExplorer();
+    unsubscribeSelection();
     clearTimeout(timer);
+    if (pending === finish) pending = null;
   };
-  const unsubscribe = useExplorer.subscribe(() => {
+  const unsubscribeExplorer = useExplorer.subscribe(() => {
     if (!done && ready()) {
       finish();
       open();
     }
   });
+  const selected = useSessions.getState().activeId;
+  const unsubscribeSelection = useSessions.subscribe((state) => {
+    if (state.activeId !== selected) finish();
+  });
   const timer = setTimeout(finish, BIND_TIMEOUT_MS);
+  pending = finish;
   return finish;
+}
+
+let pending: (() => void) | null = null;
+
+/** Drop the one pending wait, if any. */
+export function cancelPendingReview(): void {
+  pending?.();
 }

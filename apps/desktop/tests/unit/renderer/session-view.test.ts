@@ -84,6 +84,16 @@ describe("activity rows", () => {
     expect(activityRow(call({ id: "v", kind: "other", title: "view", input: { command: "view" } })).glyph).toBe("other");
   });
 
+  it("does not take any `other` with a `command` parameter for a shell, only a known shell tool", () => {
+    const mcp = activityRow(call({ id: "m", kind: "other", name: "cad_run", title: "cad_run", input: { command: "rebuild" } }));
+    expect(mcp.glyph).toBe("other");
+    expect(mcp.command).toBeNull();
+    expect(activityRow(call({ id: "u", kind: "other", title: "tool", input: { cmd: "ls" } })).glyph).toBe("other");
+    const bash = activityRow(call({ id: "b", kind: "other", name: "Bash", title: "ls -la", input: { command: "ls -la" } }));
+    expect(bash.glyph).toBe("execute");
+    expect(bash.command).toBe("ls -la");
+  });
+
   it("gives a call that starts a subagent its own glyph, apart from a thought", () => {
     const task = activityRow(call({ id: "t", kind: "think", title: "Task: check the docs" }));
     expect(task.glyph).toBe("subagent");
