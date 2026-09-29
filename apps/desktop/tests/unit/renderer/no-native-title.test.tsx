@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 
@@ -12,6 +12,7 @@ import { ActivityRowView } from "@renderer/features/session/parts/ActivityRow";
 import { PermissionCard } from "@renderer/features/session/parts/PermissionCard";
 import { SubagentRow } from "@renderer/features/session/parts/SubagentRow";
 import { SessionHeader } from "@renderer/features/session/SessionHeader";
+import { Sidebar } from "@renderer/features/sidebar/Sidebar";
 import { StatusLine } from "@renderer/features/session/StatusLine";
 import { Transcript } from "@renderer/features/session/Transcript";
 import { activityRow } from "@renderer/features/session/view";
@@ -20,8 +21,9 @@ import { useExplorer } from "@renderer/state/explorer";
 import { usePathLinks } from "@renderer/state/path-links";
 import { useProjects } from "@renderer/state/projects";
 import { useSessions } from "@renderer/state/sessions";
+import { useSettings } from "@renderer/state/settings";
 import { initialSessionState, type SessionState, type ToolCallPart } from "@shared/acp/types";
-import type { Session } from "@shared/types";
+import { defaultSettings, type Session } from "@shared/types";
 
 /**
  * The session's interface hints are the kit's `TooltipHint`, never a native `title`
@@ -117,4 +119,24 @@ it("text the session shows in full elsewhere carries no native title either", ()
   );
   expect(screen.getByText("notes.txt")).toBeInTheDocument();
   expect([...document.querySelectorAll("[title]")].map((element) => element.outerHTML.slice(0, 120))).toEqual([]);
+});
+
+it("no control in the sidebar carries a native title, a row with changes included", async () => {
+  const changed = { ...SESSION, gitMode: "none", pinned: false, changedFiles: 2, insertions: 9, deletions: 1 } as Session;
+  useSettings.setState({ settings: defaultSettings(), ready: true });
+  // One pinned, so its row in Pinned also draws its project's name.
+  useSessions.setState({ sessions: [changed, { ...changed, id: "s2", title: "Hinge", pinned: true }], ready: true, activeId: "s1" });
+  render(
+    <TooltipProvider>
+      <Sidebar />
+    </TooltipProvider>,
+  );
+  expect(screen.getAllByRole("button", { name: /^Review changes: 2 files changed, 9 added, 1 removed/ })).toHaveLength(2);
+  expect(screen.getByRole("button", { name: "Hinge" })).toBeInTheDocument();
+  expect(titled()).toEqual([]);
+
+  // The project's folder the header's title used to give is a hint on its name, open or not.
+  const header = screen.getByRole("button", { name: "Collapse p" });
+  await userEvent.hover(within(header).getByText("p"));
+  expect(await screen.findByRole("tooltip", {}, { timeout: 2000 })).toHaveTextContent("/p");
 });

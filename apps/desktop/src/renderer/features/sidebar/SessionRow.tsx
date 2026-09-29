@@ -142,20 +142,22 @@ export function SessionRow({
               value={draft}
             />
           ) : (
-            <button
-              className="min-w-0 flex-1 truncate text-left text-[13px]"
-              onClick={onSelect}
-              onDoubleClick={startRename}
-              title={projectName ? `${session.title} — ${projectName}` : session.title}
-              type="button"
-            >
-              {session.title}
-              {showBranch && session.branch ? (
-                <span className="ml-1.5 text-[11px] text-muted-foreground" data-session-branch>
-                  {session.branch}
-                </span>
-              ) : null}
-            </button>
+            // The whole title, when the row has cut it short.
+            <TooltipHint content={projectName ? `${session.title} — ${projectName}` : session.title} overflowOnly>
+              <button
+                className="min-w-0 flex-1 truncate text-left text-[13px]"
+                onClick={onSelect}
+                onDoubleClick={startRename}
+                type="button"
+              >
+                {session.title}
+                {showBranch && session.branch ? (
+                  <span className="ml-1.5 text-[11px] text-muted-foreground" data-session-branch>
+                    {session.branch}
+                  </span>
+                ) : null}
+              </button>
+            </TooltipHint>
           )}
           {projectName ? (
             <span
