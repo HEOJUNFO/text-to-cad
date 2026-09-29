@@ -133,13 +133,13 @@ export const sessionManager: SessionManager = new SessionManager({
   head: (cwd) => head(cwd),
   emptyTree: (cwd) => emptyTreeIfUnborn(cwd),
 
-  releaseWorkspace: async (session) => {
+  releaseWorkspace: async (session, options) => {
     const worktree = session.worktreePath;
     if (worktree && sessions.list().some(other => other.id !== session.id &&
         [other.cwd, other.worktreePath].some(root => root && (samePath(root, worktree) || isUnder(worktree, root))))) {
       return { removed: false, reason: "another session still uses it" };
     }
-    return releaseWorkspace(session, settings.get());
+    return releaseWorkspace(session, settings.get(), options);
   },
 });
 

@@ -1317,6 +1317,14 @@ export async function removeWorktree(
   await git(root, ["worktree", "remove", ...(options.force ? ["--force"] : []), worktreePath]);
 }
 
+/**
+ * `git branch -d`: delete a branch only when its commits are reachable from
+ * HEAD, so nothing on it is lost. Answers whether it went.
+ */
+export async function deleteMergedBranch(repoPath: string, branch: string): Promise<boolean> {
+  return (await tryGit(repoPath, ["branch", "-d", "--end-of-options", branch])) !== null;
+}
+
 /** Path comparison that survives a trailing separator and Windows' case rules. */
 export function samePath(left: string, right: string): boolean {
   const normalise = (value: string) => path.normalize(value).replace(/[\\/]+$/, "");

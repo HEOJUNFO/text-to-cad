@@ -681,6 +681,34 @@ describe("SessionManager", () => {
     expect(released).toEqual([`${cwd}/wt`]);
   });
 
+  it("a create that fails after its worktree was made releases that worktree", async () => {
+    const released: { worktreePath: string | undefined; options: unknown }[] = [];
+    const { repo, manager, cwd } = await setup({
+      workspace: async () => ({ cwd: `${cwd}/wt`, worktreePath: `${cwd}/wt` }),
+      releaseWorkspace: async (session, options) => {
+        released.push({ worktreePath: session.worktreePath, options });
+      },
+      // An adapter that is not there: the spawn fails after the worktree exists.
+      launchOverride: () => ({ command: path.join(cwd, "no-such-agent"), args: [], env: {} }),
+    });
+    await expect(manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "worktree" })).rejects.toThrow();
+    expect(repo.rows.size).toBe(0);
+    expect(released).toEqual([{ worktreePath: `${cwd}/wt`, options: { abandoned: true } }]);
+  });
+
+  it("a failed create in a worktree it was given leaves that worktree alone", async () => {
+    const released: string[] = [];
+    const { manager, cwd } = await setup({
+      workspace: async ({ cwd: given }) => ({ cwd: given!, worktreePath: given! }),
+      releaseWorkspace: async (session) => {
+        released.push(session.worktreePath ?? "");
+      },
+      launchOverride: () => ({ command: path.join(cwd, "no-such-agent"), args: [], env: {} }),
+    });
+    await expect(manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "worktree", cwd })).rejects.toThrow();
+    expect(released).toEqual([]);
+  });
+
   it("delete removes the row, then runs beforeRelease, then releases the worktree", async () => {
     const order: string[] = [];
     const { repo, manager, cwd } = await setup({

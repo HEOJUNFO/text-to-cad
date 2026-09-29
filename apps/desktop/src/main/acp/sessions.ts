@@ -162,8 +162,16 @@ export type SessionManagerDeps = {
   /**
    * P7: remove the session's worktree on delete, if the settings allow it.
    * Answers whether it did and, when it kept one, why — which is logged.
+   *
+   * `abandoned` is a create that failed after its worktree was made: nobody
+   * has worked in it and no session will ever open it, so it goes whatever
+   * the setting says — otherwise every failed sign-in leaves `slug`,
+   * `slug-2`, … and their branches behind.
    */
-  releaseWorkspace?: (session: Session) => Promise<{ removed: boolean; reason?: string } | void>;
+  releaseWorkspace?: (
+    session: Session,
+    options?: { abandoned?: boolean },
+  ) => Promise<{ removed: boolean; reason?: string } | void>;
 
   /**
    * Where the painted-on-select snapshot of each session's transcript is
@@ -409,6 +417,11 @@ export class SessionManager {
       this.pendingTitles.delete(session.id);
       this.deps.repo.remove(session.id);
       this.broadcastIndex();
+      // The worktree this create made goes with the row. Not one it was given
+      // (`New session in this worktree`): that directory was there before.
+      if (workspace.worktreePath && !input.cwd) {
+        await this.deps.releaseWorkspace?.(session, { abandoned: true }).catch(() => undefined);
+      }
       throw error;
     }
     // What the person last chose for this agent — the model, the effort and

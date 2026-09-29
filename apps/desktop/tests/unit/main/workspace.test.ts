@@ -276,6 +276,20 @@ describe("releaseWorkspace", () => {
   });
 });
 
+describe("releaseWorkspace for an abandoned create", () => {
+  it("removes the worktree and its unmoved branch even with auto-delete off", async () => {
+    const { project, settings } = await fixture();
+    const made = await resolveWorkspace({ project, settings, gitMode: "worktree", name: "never opened" });
+
+    expect(
+      await releaseWorkspace({ worktreePath: made.cwd, branch: made.branch }, { autoDeleteWorktrees: false }, { abandoned: true }),
+    ).toEqual({ removed: true });
+    await expect(stat(made.cwd)).rejects.toThrow();
+    const branches = await run("git", ["branch", "--list", made.branch!], { cwd: project.path, env: GIT_ENV });
+    expect(branches.stdout.trim()).toBe("");
+  });
+});
+
 /**
  * The explorer's root check (plan §9): a tab, a terminal or an agent may
  * name the project directory or one of its worktrees, and nothing else on
