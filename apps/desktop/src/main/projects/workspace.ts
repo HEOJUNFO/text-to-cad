@@ -16,19 +16,20 @@
  *
  * The layout is the same for every agent (plan §9):
  *
- *     ~/.text-to-cad/worktrees/<project-name>-<hash>/<slug>
+ *     ~/.text-to-cad/worktrees/<project-slug>-<hash>/<slug>
  *
- * `<hash>` is eight hex digits of the project's path: `~/work/robot-arm` and
+ * with the branch `text-to-cad/<slug>` (`projectWorktreeDir`). `<hash>` is
+ * eight hex digits of the project's path: `~/work/robot-arm` and
  * `~/forks/robot-arm` are two projects and get two folders. Builds before the
- * hash used `<project-name>` alone; those folders are still listed and
+ * hash used `<project-slug>` alone; those folders are still listed and
  * accepted, but only for worktrees git says belong to the project's own
  * repository (`legacyProjectWorktreeDir`).
  *
- * with the branch `text-to-cad/<slug>`. Both the root and the prefix are
- * settings. The slug comes from the session's first prompt when there is one,
- * because that is what the sidebar calls the thread — a person looking at
- * `~/.text-to-cad/worktrees/text-to-cad/model-the-wrist` knows which thread it
- * belongs to without opening anything.
+ * Both the root and the prefix are settings. The slug comes from the
+ * session's first prompt when there is one, because that is what the sidebar
+ * calls the thread — a person looking at
+ * `~/.text-to-cad/worktrees/text-to-cad-1a2b3c4d/model-the-wrist` knows which
+ * thread it belongs to without opening anything.
  *
  * The directory is also the *identity* of the session as far as the agent's
  * own store is concerned: both `codex resume` and `claude --resume` key their
@@ -178,8 +179,9 @@ function commonGitDir(repository: string): string | null {
 }
 
 /**
- * A directory as the project list records one. `projects.add` stores REAL paths, so macOS's
- * `/var/...` and `/tmp/...` are kept as `/private/...` — while a renderer or an agent may still
+ * A directory as the project list names one. `projects.add` resolves the chosen folder to its
+ * REAL path (it stores nothing — a project is its sessions' directory), so macOS's `/var/...`
+ * and `/tmp/...` come back as `/private/...` — while a renderer or an agent may still
  * name the directory the way it was chosen. Comparisons resolve the symlinks in the part that
  * exists; the part that does not exist yet (a worktree about to be made) is kept as spelled.
  */

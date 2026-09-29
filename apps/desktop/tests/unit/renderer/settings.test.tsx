@@ -57,7 +57,7 @@ describe("Settings search", () => {
     const user = userEvent.setup();
     wrap(<SettingsRoute />);
 
-    // General is the open page; the branch prefix lives on Git & Worktrees.
+    // General is the open page; the branch prefix lives on Git and worktrees.
     expect(screen.queryByText("Branch prefix")).not.toBeInTheDocument();
 
     await user.type(screen.getByPlaceholderText("Search settings"), "branch prefix");

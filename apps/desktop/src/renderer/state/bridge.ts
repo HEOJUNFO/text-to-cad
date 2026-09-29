@@ -148,7 +148,7 @@ export function subscribeToMain(): () => void {
  * One `ui.command`, whether it came from the app menu or from a button in the
  * renderer.
  *
- * Exported because Settings › Git & Worktrees' `New session in this worktree` is
+ * Exported because Settings › Git and worktrees' `New session in this worktree` is
  * the same command as the menu's New Session, only with a directory attached —
  * and a second implementation of "start a thread and show it" would be a
  * second place for the two to disagree about what happens to Settings, the

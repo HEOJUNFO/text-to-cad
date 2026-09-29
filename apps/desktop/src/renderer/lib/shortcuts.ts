@@ -1,11 +1,16 @@
 /**
- * Every keyboard shortcut the app claims, in one table.
+ * The app's keyboard shortcuts, in one table: every menu accelerator of a
+ * packaged build and the keys the renderer binds to its own commands. A
+ * control's own keys — arrows in a list, Delete on a focused tab — are not in it.
  *
  * The Settings page renders this; the app menu (`src/main/menu.ts`) declares
  * the accelerators that make several of them work when focus is inside a
  * webview. Two declarations of the same key would drift, so this table is the
- * one a person reads and the menu is the one Electron reads — and the test in
- * `tests/unit/renderer/shortcuts.test.ts` holds them to the same glyphs.
+ * one a person reads and the menu is the one Electron reads — and
+ * `tests/unit/main/shortcuts-menu.test.ts` holds them to the same keys: every
+ * menu accelerator is a row here, and every Application row with a modifier
+ * is a menu accelerator. The development build's `Reload App` (Mod+Alt+R) is
+ * the one accelerator left out, because a packaged app does not have it.
  *
  * A binding is written once, in the portable form (`Mod+K`), and rendered per
  * platform: `Mod` is ⌘ on macOS and Ctrl everywhere else, which is the only
@@ -55,6 +60,13 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: "new-terminal-tab", group: "Explorer", label: "New terminal tab", binding: "Ctrl+`" },
   { id: "new-drawing-tab", group: "Explorer", label: "New drawing tab", binding: "Mod+Shift+D" },
   { id: "close-tab", group: "Explorer", label: "Close tab", binding: "Mod+W" },
+  // The menu's `Reload Page`: the focused browser tab's page, never the app.
+  { id: "reload-page", group: "Explorer", label: "Reload the browser page", binding: "Mod+R" },
+  // Code and Markdown files, from their own editors.
+  { id: "save-file", group: "Explorer", label: "Save the file", binding: "Mod+S" },
+  // The file tree's cursor row; Ctrl+Delete works off macOS too.
+  { id: "rename-entry", group: "Explorer", label: "Rename in the file tree", binding: "F2" },
+  { id: "trash-entry", group: "Explorer", label: "Move to Trash in the file tree", binding: "Mod+Backspace" },
   {
     id: "switch-tab",
     group: "Explorer",

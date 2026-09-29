@@ -153,9 +153,10 @@ claim that a different application pasted them.
 
 Desktop captures the compatible draft destination before awaiting attachments,
 validates the complete bundle and rechecks that destination before atomic draft
-acceptance. Switching chats cannot redirect an in-flight capture. Existing text
-and attachments survive; operation IDs prevent duplicate acceptance. Workspace
-mismatch uses the app's explicit Start chat here recovery. Invalid attachments
+acceptance. Switching sessions cannot redirect an in-flight capture. Existing text
+and attachments survive; operation IDs prevent duplicate acceptance. A reference
+or annotation from another workspace fails the delivery with a message ("This
+reference belongs to another workspace.", `host/promptContext.ts`). Invalid attachments
 leave the draft unchanged. Direct capture failure never shows success.
 
 Web supports text/reference serialization and one PNG. A combined clipboard

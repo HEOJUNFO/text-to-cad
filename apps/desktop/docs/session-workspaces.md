@@ -16,8 +16,9 @@ remain stable. Choosing an alias of an existing directory reuses that group.
 descriptors from sessions. `projects.add` (the chooser) and
 `onboarding.createSample` only validate a folder choice and select a transient
 new-session draft. They create no database row; main remembers the choice for
-the run, and `projects.get` answers only for a directory a session records or
-main chose — never for a path the renderer merely names. The e2e suite
+the run, and the repository's `projects.get` (`src/main/db/repositories.ts`,
+not a channel) answers only for a directory a session records or main chose —
+never for a path the renderer merely names. The e2e suite
 chooses folders through a main-side door that only a `NODE_ENV=test` launch of
 a development build installs (`chooseDirectory` in `tests/e2e/launch.ts`), not
 a channel.
@@ -82,13 +83,17 @@ Before upgrading an existing schema, the app writes a consistent SQLite
 backup beside it: `text-to-cad.db.before-v<version>-<timestamp>.bak`. `VACUUM INTO`
 includes committed WAL contents; copying only the main database file would
 not. A backup or migration error aborts the open, never resets the database.
-A database from a newer app schema is rejected rather than modified.
+After an upgrade succeeds only the newest three backups are kept and older
+ones are deleted (`UPGRADE_BACKUPS_KEPT` and `pruneUpgradeBackups` in
+`src/main/db/index.ts`). A database from a newer app schema is rejected rather
+than modified.
 
 Migration 11 removes the projects table and carries every session id, agent
 session id, snapshot, archive/pin flag, working directory and review mark
 forward. Each legacy shared tab is assigned once to the most recent session
 for its root, preferring an unarchived session. Tabs from old directories
-without any session remain recoverable from the pre-upgrade backup. No tabs
+without any session remain recoverable from the pre-upgrade backup while it is
+among the three kept. No tabs
 are copied into sessions subsequently created in the same directory.
 
 Schema migrations are append-only. Validate changes against an existing

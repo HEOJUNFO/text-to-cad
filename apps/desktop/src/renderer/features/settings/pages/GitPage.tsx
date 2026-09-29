@@ -1,5 +1,5 @@
 /**
- * Git & Worktrees (plan §9): where a session's working directory comes from,
+ * Git and worktrees (plan §9): where a session's working directory comes from,
  * and what text-to-cad is allowed to create and remove around it.
  *
  * The rows above the fold are settings — read by `projects/workspace.ts` when

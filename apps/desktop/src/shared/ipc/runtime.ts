@@ -4,7 +4,7 @@
  * `scripts/bundle-runtime.mjs`), or the interpreter standing in for it in
  * development (plan §8, as revised: nothing downloads at first launch).
  *
- * Read by the status block in Settings › About & Updates and by the CAD file
+ * Read by the status block in Settings › About and updates and by the CAD file
  * tab when it has no viewer to show.
  */
 import { z } from "zod";

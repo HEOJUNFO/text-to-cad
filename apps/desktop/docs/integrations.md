@@ -105,8 +105,8 @@ A capture tool returns an image to the agent. An **Add to prompt** action
 prepares a draft through the existing `PromptContextPort`; neither submits a
 prompt. The producer freezes file/revision, selected range or page, and capture
 identity before asynchronous encoding. Desktop binds the tab's owning session
-in the host, independently of the selected chat, and rechecks it before
-accepting bytes. Switching chats cannot redirect a delayed callback or capture.
+in the host, independently of the selected session, and rechecks it before
+accepting bytes. Switching sessions cannot redirect a delayed callback or capture.
 Deleted or archived owners cancel delivery; workspace mismatches fail without
 creating or selecting another session.
 

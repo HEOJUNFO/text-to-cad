@@ -1,10 +1,10 @@
 /**
- * Every IPC handler the app serves, assembled into the shape of the contract.
- *
- * P0 covers projects, sessions (read-only), settings, shell and app info;
- * P3 adds `explorer.*`, `terminal.*`, `git.*` and the `cad.viewerOrigin`
- * stub. Each phase's branch is one file in `src/shared/ipc/` and one object
- * spread in below — `registerIpc` refuses to start if the two disagree.
+ * Every IPC handler the app serves, assembled into the shape of the contract
+ * from one handler object per contract branch: each branch is one file in
+ * `src/shared/ipc/` and one handler object from `src/main/ipc/<branch>.ts`
+ * spread in below, beside the few channels (`app`, `projects`, `settings`,
+ * `shell`, `ui`, `window`) answered here — `registerIpc` refuses to start if
+ * the two disagree.
  */
 import { BrowserWindow, app, dialog, shell } from "electron";
 
