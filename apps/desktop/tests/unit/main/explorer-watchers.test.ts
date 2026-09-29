@@ -67,8 +67,9 @@ describe("visible file watching", () => {
     const notify = driver.direct.mock.calls[0]![2] as (event: string, filename: string) => void;
     await fs.writeFile(path.join(root, "STEP", "new.step"), "ISO-10303-21;\n");
     notify("rename", "new.step");
+    // No tab has it open, so nothing reads it.
     await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(root, [
-      { path: "STEP/new.step", kind: "changed", directory: false, revision: revisionOf("ISO-10303-21;\n") },
+      { path: "STEP/new.step", kind: "changed", directory: false },
     ]));
   });
 
@@ -103,7 +104,7 @@ describe("visible file watching", () => {
     await fs.writeFile(file, Buffer.from([0, 1, 2]));
     notify("rename", "new.unsupported");
     await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(root, [
-      { path: "node_modules/dependency/new.unsupported", kind: "changed", directory: false, revision: revisionOf(Buffer.from([0, 1, 2])) },
+      { path: "node_modules/dependency/new.unsupported", kind: "changed", directory: false },
     ]));
 
     await watchers.unwatch(root);
@@ -320,5 +321,27 @@ describe("following an open file", () => {
     elapse();
     await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(1));
     expect(emit.mock.calls[0]![1]).toEqual([{ kind: "moved", previousPath: "a.txt", path: "c.txt", directory: false }]);
+  });
+
+  it("reads only the changed files a tab has open", async () => {
+    const names = Array.from({ length: 40 }, (_, index) => `file-${index}.txt`);
+    for (const name of names) await fs.writeFile(path.join(root, name), `${name}\n`);
+    await watchers.watch(root);
+    await watchers.watchEntry(root, await statFile(root, "file-7.txt"));
+    const readFile = vi.spyOn(fs, "readFile");
+    try {
+      for (const name of names) on("change")(name);
+      elapse();
+      await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(1));
+      expect(readFile).toHaveBeenCalledTimes(1);
+      expect(readFile.mock.calls[0]![0]).toBe(path.join(realRoot, "file-7.txt"));
+      const changes = emit.mock.calls[0]![1];
+      expect(changes).toHaveLength(40);
+      expect(changes.filter((change) => "revision" in change)).toEqual([
+        { path: "file-7.txt", kind: "changed", directory: false, revision: revisionOf("file-7.txt\n") },
+      ]);
+    } finally {
+      readFile.mockRestore();
+    }
   });
 });

@@ -1137,12 +1137,15 @@ export class FileWatchers {
   }
 
   /**
-   * Stamp each changed file with its content revision. A save's own write
-   * comes back through the watcher a moment later; without a revision the
-   * editor that saved cannot tell it from an agent's edit, and a clean
-   * buffer reloads under the cursor while a dirty one is told the file
-   * changed on disk. A file over the text cap opens read-only and is never
-   * saved from here, so it is not read.
+   * Stamp each changed file a tab has open with its content revision. A
+   * save's own write comes back through the watcher a moment later; without
+   * a revision the editor that saved cannot tell it from an agent's edit,
+   * and a clean buffer reloads under the cursor while a dirty one is told
+   * the file changed on disk. A file no tab holds has no editor to tell, so
+   * it is not read: a checkout that touches five thousand files is five
+   * thousand paths here, not five thousand reads on main's thread. A file
+   * over the text cap opens read-only and is never saved from here, so it
+   * is not read either.
    *
    * An open file that changed under its own name has its inode taken again
    * here: after an atomic save it is a different inode at the same path.
@@ -1150,9 +1153,10 @@ export class FileWatchers {
   private async settle(root: string, changes: FileChange[]): Promise<FileChange[]> {
     const realRoot = await fs.realpath(root).catch(() => path.resolve(root));
     const known = this.identities.get(root);
+    const links = this.aliases.get(root);
     const stamped = await Promise.all(changes.map(async (change) => {
       if ((change.kind !== "changed" && change.kind !== "added") || change.directory) return change;
-      if (change.kind === "added" && !known?.has(change.path)) return change;
+      if (!known?.has(change.path) && !links?.has(change.path)) return change;
       const absolute = path.join(realRoot, change.path);
       const stats = await fs.stat(absolute).catch(() => null);
       if (!stats?.isFile()) return change;
