@@ -137,3 +137,25 @@ it("the watcher's echo of a save is not a change on disk: no reload, and no bann
   await screen.findByText("This file changed on disk since you opened it.");
   await waitFor(() => expect(window.textToCad.explorer.saveTabs).toHaveBeenCalled());
 });
+
+it("a file that opens read-only says why, in the tab rather than in a native title", async () => {
+  for (const [document, reason, words] of [
+    [{ content: "caf�", revision: "r1", readOnly: true }, "encoding", /not UTF-8/],
+    [{ content: "the first 4 MB", revision: "r1", truncated: true }, "truncated", /too large to edit here/],
+  ] as const) {
+    stub("readText", async () => document);
+    const tab = useExplorer.getState().open("file", { path: "notes.txt" })!;
+    const view = render(<FileTab sessionId="file-tab-owner" tabId={tab.id} project={project} root={null} path="notes.txt" panel={null} />);
+    await screen.findByRole("textbox", { name: "Draft" });
+    const notice = await screen.findByText(words);
+    expect(notice.closest("[role=status]")).toHaveAttribute("data-read-only-reason", reason);
+    expect(notice.closest("[title]")).toBeNull();
+    view.unmount();
+  }
+  stub("readText", async () => ({ content: "plain", revision: "r1" }));
+  const tab = useExplorer.getState().open("file", { path: "notes.txt" })!;
+  render(<FileTab sessionId="file-tab-owner" tabId={tab.id} project={project} root={null} path="notes.txt" panel={null} />);
+  await screen.findByRole("textbox", { name: "Draft" });
+  expect(document.querySelector("[data-read-only-reason]")).toBeNull();
+  await waitFor(() => expect(window.textToCad.explorer.saveTabs).toHaveBeenCalled());
+});
