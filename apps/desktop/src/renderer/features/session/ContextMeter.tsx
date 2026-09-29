@@ -71,7 +71,7 @@ export function ContextMeter({
       open={open}
     >
       <PopoverTrigger asChild>
-        <TooltipHint content={`${formatTokens(usage.used)} / ${formatTokens(usage.size)} (${percent}%)`} side="bottom">
+        <TooltipHint content={`${formatTokens(usage.used)} / ${formatTokens(usage.size)} (${percent}%)`} side="left">
           <button
             aria-label={`Context ${percent}% used`}
             className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent data-[state=open]:bg-accent"

@@ -1,10 +1,12 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ModeChip, ProjectChip } from "@renderer/features/session/ComposerChips";
+import { ContextMeter } from "@renderer/features/session/ContextMeter";
+import { EffortChip, ModeChip, ProjectChip } from "@renderer/features/session/ComposerChips";
 import { useProjects } from "@renderer/state/projects";
 import { useSessions } from "@renderer/state/sessions";
+import type { SelectOption } from "@shared/acp/options";
 import type { Project, Session } from "@shared/types";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), dismiss: vi.fn(), info: vi.fn() } }));
@@ -56,6 +58,17 @@ describe("a chip's hint", () => {
   it("opens below a chip in the row under the box, off the send button above it", async () => {
     render(<ModeChip currentModeId="ask" modes={[{ id: "ask", name: "Ask", description: "Asks first", kind: null }]} onChange={vi.fn()} />);
     expect(await hintSide(screen.getByRole("button", { name: "Ask" }))).toBe("bottom");
+  });
+
+  it("opens to the left of the row's right end — the effort chip, the context ring — which sits under send", async () => {
+    // Below has no room in a live session (the row is 16px off the window's edge), and Radix flips a
+    // bottom hint to the top: onto send.
+    const effort: SelectOption = { id: "effort", name: "Effort", description: null, category: null, type: "select", currentValue: "medium", options: [{ value: "medium", name: "Medium", description: null, group: null, kind: null }] };
+    render(<EffortChip effort={effort} onChange={vi.fn()} />);
+    expect(await hintSide(screen.getByRole("button", { name: "Medium" }))).toBe("left");
+    cleanup();
+    render(<ContextMeter lastTurnUsage={null} rateLimits={{}} sessionId="s1" sessionUsage={null} usage={{ used: 50_000, size: 200_000, cost: null, breakdown: null }} />);
+    expect(await hintSide(screen.getByRole("button", { name: "Context 25% used" }))).toBe("left");
   });
 
   it("opens above a chip in the strip over the box, off the sentence", async () => {

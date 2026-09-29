@@ -82,11 +82,12 @@ export function Chip({
    */
   disabledReason?: string;
   /**
-   * Which way the hint opens: away from the box. The row's chips sit under it and open below —
-   * above, the hint lands on the box's right end, which is send. The strip's sit over it and open
-   * above, off the sentence.
+   * Which way the hint opens: away from the box. The row's chips sit under it and open below; the
+   * strip's sit over it and open above, off the sentence. The row's right end (model, effort) opens
+   * to the left: in a live session the row is 16px off the window's edge, a hint below it flips to
+   * the top, and above those chips is send.
    */
-  hintSide?: "top" | "bottom";
+  hintSide?: "top" | "bottom" | "left";
 }) {
   const reasonId = useId();
   // ONE button whether or not the chip can be used, so a keyboard user focused on it while the agent
@@ -403,6 +404,7 @@ export function ModelChip({
       disabledReason={disabledReason}
       icon={<ProviderGlyph icon={current.icon} />}
       label={currentName(current.model)}
+      hintSide="left"
       maxWidth={190}
       menu={
         <>
@@ -491,6 +493,7 @@ export function EffortChip({
       disabledReason={disabledReason}
       icon={<Gauge />}
       label={currentName(effort)}
+      hintSide="left"
       maxWidth={130}
       menu={
         <>
