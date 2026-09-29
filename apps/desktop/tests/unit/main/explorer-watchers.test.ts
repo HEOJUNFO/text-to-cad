@@ -394,6 +394,36 @@ describe("following an open file", () => {
     expect(emit.mock.calls[2]![1].map((change) => change.path)).toEqual(["versions/v3.txt"]);
   });
 
+  it("follows an opened link re-pointed to a new target and then renamed", async () => {
+    await fs.mkdir(path.join(root, "versions"));
+    await fs.writeFile(path.join(root, "versions", "v3.txt"), "v3\n");
+    await fs.writeFile(path.join(root, "versions", "v4.txt"), "v4\n");
+    await fs.symlink(path.join("versions", "v3.txt"), path.join(root, "current.txt"));
+    await watchers.watch(root);
+    await watchers.watchEntry(root, await statFile(root, "current.txt"));
+    // `ln -sfn`: the old link is unlinked and a new one made under the same
+    // name — a new inode, which the watcher reports as the name changed.
+    const before = (await fs.lstat(path.join(realRoot, "current.txt"))).ino;
+    await fs.unlink(path.join(realRoot, "current.txt"));
+    await fs.symlink(path.join("versions", "v4.txt"), path.join(realRoot, "current.txt"));
+    expect((await fs.lstat(path.join(realRoot, "current.txt"))).ino).not.toBe(before);
+    on("change")("current.txt");
+    elapse();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(1));
+    expect(emit.mock.calls[0]![1]).toEqual([
+      { kind: "changed", path: "current.txt", directory: false, revision: revisionOf("v4\n") },
+    ]);
+    // Then the new link itself is renamed.
+    await fs.rename(path.join(realRoot, "current.txt"), path.join(realRoot, "latest.txt"));
+    on("unlink")("current.txt");
+    on("add")("latest.txt");
+    elapse();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(2));
+    expect(emit.mock.calls[1]![1]).toEqual([
+      { kind: "moved", previousPath: "current.txt", path: "latest.txt", directory: false },
+    ]);
+  });
+
   it("reads only the changed files a tab has open", async () => {
     const names = Array.from({ length: 40 }, (_, index) => `file-${index}.txt`);
     for (const name of names) await fs.writeFile(path.join(root, name), `${name}\n`);

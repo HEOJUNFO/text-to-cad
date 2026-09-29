@@ -1203,7 +1203,8 @@ export class FileWatchers {
    * is not read either.
    *
    * An open file that changed under its own name has its inode taken again
-   * here: after an atomic save it is a different inode at the same path.
+   * here: after an atomic save it is a different inode at the same path. An
+   * open link's is the link's own, and its target is still what is read.
    */
   private async settle(root: string, changes: FileChange[]): Promise<FileChange[]> {
     const realRoot = await fs.realpath(root).catch(() => path.resolve(root));
@@ -1213,6 +1214,13 @@ export class FileWatchers {
       if ((change.kind !== "changed" && change.kind !== "added") || change.directory) return change;
       if (!known?.has(change.path) && !links?.has(change.path)) return change;
       const absolute = path.join(realRoot, change.path);
+      // A link's identity is its own inode, taken again when it is still a
+      // link: `ln -sfn` re-points it as a new link under the same name, and
+      // a later rename of that one is its tab's file moved.
+      if (known?.get(change.path)?.link) {
+        const own = await fs.lstat(absolute).catch(() => null);
+        if (own?.isSymbolicLink() && known.get(change.path)?.link) known.set(change.path, { dev: own.dev, ino: own.ino, link: true });
+      }
       const stats = await fs.stat(absolute).catch(() => null);
       if (!stats?.isFile()) return change;
       if (known?.has(change.path) && !known.get(change.path)?.link) known.set(change.path, { dev: stats.dev, ino: stats.ino });
