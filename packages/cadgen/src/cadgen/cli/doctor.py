@@ -341,7 +341,6 @@ def main(argv: list[str] | None = None, prog: str = "cadgen doctor") -> int:
     return 3
 
 
-
 def _main_json(target: str | None) -> int:
     """``--json``: the report as one object on stdout, the text report's exit code."""
     import json
