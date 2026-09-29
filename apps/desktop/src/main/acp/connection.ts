@@ -459,9 +459,37 @@ export class SessionConnection {
     return { additionalDirectories: [root], _meta: { additionalRoots: [root] } };
   }
 
+  /**
+   * The sentence refusing the first block the agent's `promptCapabilities`
+   * do not cover, or null. Text and a resource link are every agent's
+   * baseline (ACP); an image needs `image` and an embedded file's contents
+   * need `embeddedContext`. An agent that answered `initialize` without the
+   * field takes the baseline only.
+   */
+  private unsupportedBlock(content: PromptBlock[]): string | null {
+    const capabilities = this.initializeResponse?.agentCapabilities?.promptCapabilities ?? {};
+    const agent = this.options.agentId;
+    if (!capabilities.image && content.some((block) => block.type === "image")) {
+      return `${agent} cannot take images in a prompt (no image prompt capability)`;
+    }
+    if (!capabilities.embeddedContext && content.some((block) => block.type === "resource")) {
+      return `${agent} cannot take a file's contents in a prompt (no embeddedContext prompt capability)`;
+    }
+    return null;
+  }
+
   /** Send a turn. Resolves with the stop reason; rejects (after dispatching `prompt/error`) on failure. */
   async prompt(content: PromptBlock[], turnId = `turn-${Date.now()}`): Promise<PromptResponse> {
     const acpSessionId = this.requireSession();
+    // Refused before the preamble is spent and before anything is written:
+    // the turn and its reason land in the transcript the way an agent's own
+    // refusal does, and the agent never sees a block it did not say it takes.
+    const unsupported = this.unsupportedBlock(content);
+    if (unsupported) {
+      this.dispatch({ type: "prompt/start", turnId, content, at: Date.now() });
+      this.dispatch({ type: "prompt/error", message: unsupported, at: Date.now() });
+      throw new Error(unsupported);
+    }
     // The transcript shows what the person wrote; the preamble is a block the
     // AGENT gets, once, in front of it.
     const preamble = this.pendingPreamble;

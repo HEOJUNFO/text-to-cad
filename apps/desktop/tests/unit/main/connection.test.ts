@@ -26,12 +26,14 @@ function connect(options: {
   onTerminalOutput?: (terminalId: string, data: string) => void;
   onFilesChanged?: (paths: string[]) => void;
   agentId?: string;
+  /** The adapter's own environment, for the fake agent's switches. */
+  env?: Record<string, string>;
 }) {
   const args = [FAKE_AGENT, ...(options.fixture ? ["--fixture", options.fixture] : [])];
   const connection = new SessionConnection({
     sessionId: "test-session",
     agentId: options.agentId ?? "fake",
-    launch: { command: process.execPath, args, env: {} },
+    launch: { command: process.execPath, args, env: options.env ?? {} },
     env: { PATH: process.env.PATH ?? "" },
     cwd: options.cwd,
     skillsRoot: options.skillsRoot ?? null,
@@ -261,6 +263,39 @@ describe("SessionConnection against the fake agent", () => {
     expect(shown && "message" in shown ? shown.message : "").not.toContain("session/prompt");
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("session/prompt: claude-code exited"));
     warn.mockRestore();
+  });
+
+  /**
+   * `promptCapabilities` is what the agent said it takes beyond text and a
+   * resource link. An image or an embedded file sent to one that did not say
+   * so is a prompt it may choke on or silently drop; it is refused here, in
+   * the transcript, and nothing reaches the agent.
+   */
+  it("refuses an image or a file's contents the agent did not say it takes, before the wire", async () => {
+    const frames: RecordedFrame[] = [];
+    const connection = connect({
+      cwd: await scratch(),
+      env: { FAKE_AGENT_PROMPT_CAPABILITIES: "{}" },
+      record: (frame) => frames.push(frame),
+    });
+    await connection.newSession();
+
+    await expect(
+      connection.prompt([{ type: "text", text: "look" }, { type: "image", data: "AAAA", mimeType: "image/png", uri: null }]),
+    ).rejects.toThrow("fake cannot take images in a prompt (no image prompt capability)");
+    await expect(
+      connection.prompt([{ type: "resource", uri: "file:///a.py", text: "print(1)", mimeType: null }]),
+    ).rejects.toThrow("fake cannot take a file's contents in a prompt (no embeddedContext prompt capability)");
+    expect(frames.some((frame) => (frame.msg as { method?: string }).method === "session/prompt")).toBe(false);
+    const errors = connection.state.turns.flatMap((turn) => turn.parts).filter((part) => part.type === "error");
+    expect(errors.map((part) => part.type === "error" && part.message)).toEqual([
+      "fake cannot take images in a prompt (no image prompt capability)",
+      "fake cannot take a file's contents in a prompt (no embeddedContext prompt capability)",
+    ]);
+
+    // Text and a resource link are every agent's baseline.
+    const response = await connection.prompt([{ type: "text", text: "say ok" }, { type: "resource_link", uri: "file:///a.py", name: "a.py", mimeType: null, title: null }]);
+    expect(response.stopReason).toBe("end_turn");
   });
 
   it("close is idempotent and ends with a closed status", async () => {

@@ -83,6 +83,10 @@
  * `FAKE_AGENT_REFUSE=<configId>` makes `session/set_config_option` throw for
  * that option, the way an adapter refuses a model an account cannot use.
  *
+ * `FAKE_AGENT_PROMPT_CAPABILITIES=<json>` is the `promptCapabilities` it
+ * answers `initialize` with (by default images and embedded context), so a
+ * test can be an agent that takes text and links only.
+ *
  * `FAKE_AGENT_RECORD=<file.jsonl>` appends one JSON line per session/new,
  * session/load and prompt — the params as they arrived, and the adapter's own
  * `PATH` — so a spec can assert what the client sent. Appended, not
@@ -250,7 +254,12 @@ new AgentSideConnection((conn) => ({
     return {
       protocolVersion: PROTOCOL_VERSION,
       agentInfo: { name: "fake-agent", version: "0.0.0" },
-      agentCapabilities: { loadSession: true, promptCapabilities: { image: true, embeddedContext: true } },
+      agentCapabilities: {
+        loadSession: true,
+        promptCapabilities: process.env.FAKE_AGENT_PROMPT_CAPABILITIES
+          ? JSON.parse(process.env.FAKE_AGENT_PROMPT_CAPABILITIES)
+          : { image: true, embeddedContext: true },
+      },
       authMethods: [],
     };
   },
