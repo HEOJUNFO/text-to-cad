@@ -22,10 +22,9 @@ GLOBAL_CONTRACTS = (
     "test_source_text_bytes.py",
 )
 PATTERNS = ("test_documented*.py", "test_skill_structure.py", "test_report_template.py")
-# These existing mixed modules also hold prose contracts. Keep their full coverage
-# until they are split; neither needs a browser or generated runtime.
+# This existing mixed module also holds prose contracts. Keep its full coverage
+# until it is split; it needs no browser or generated runtime.
 EXTRA_CONTRACTS = {
-    "cad-viewer": ("test_packaged_viewer.py",),
     "bambu-labs": ("test_bambu_lan_print.py",),
 }
 

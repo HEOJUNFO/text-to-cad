@@ -110,6 +110,7 @@ class WorkspaceWorkflowSelection(unittest.TestCase):
             "skills/cad/requirements.txt": {"skills"},
             "skills/gcode/scripts/gcode_tool.py": {"skills"},
             "skills/new-skill/template.json": {"skills"},
+            "skills/new-skill/agents/helper.py": {"skills"},
             "tests/python/skills/dxf/test_cli.py": {"skills"},
             "tests/python/global/test_skill_requirements.py": {"skills"},
             ".codex-plugin/plugin.json": {"skills"},
@@ -143,9 +144,30 @@ class WorkspaceWorkflowSelection(unittest.TestCase):
             changed = {name for name, enabled in flags.items() if enabled is True}
             self.assertEqual(evaluate(docs, changed), prose)
             self.assertEqual(evaluate(runtime, changed), not prose)
+        self.assertEqual(selector.select(["skills/urdf/SKILL.md", "scripts/test/skill_doc_contracts.py"])["skill_names"], [])
         self.assertFalse(selector.select(["skills/urdf/SKILL.md"])["skill_examples"])
         self.assertTrue(selector.select(["skills/cad/SKILL.md"])["skill_examples"])
         self.assertTrue(selector.select(["skills/dxf/references/generator-templates.md"])["skill_examples"])
+
+    def test_prose_setup_installs_only_its_contract_dependencies(self):
+        body = JOBS["skills"]
+        python = re.search(r"python: \$\{\{ \((.+)\) && 'true'", body)[1]
+        npm = re.search(r"npm: \$\{\{ \((.+)\) && 'packages/core'", body)[1]
+        browser = re.search(r"playwright: \$\{\{ (.+) \}\}", body)[1]
+        for path, dependencies, chromium in [
+            ("skills/urdf/SKILL.md", False, False),
+            ("skills/step-parts/agents/openai.yaml", False, False),
+            ("skills/cad/SKILL.md", True, False),
+            ("skills/dxf/references/generator-templates.md", True, False),
+            ("skills/cad/requirements.txt", True, True),
+            ("packages/core/src/index.js", True, True),
+        ]:
+            flags = selector.select([path])
+            changed = {name for name, enabled in flags.items() if enabled is True}
+            with self.subTest(path=path):
+                self.assertEqual(evaluate(python, changed), dependencies)
+                self.assertEqual(evaluate(npm, changed), dependencies)
+                self.assertEqual(evaluate(browser, changed), chromium)
 
     def test_shared_inputs_and_unknown_infrastructure_stay_conservative(self):
         every = set(JOBS) - {"changes", "version"}
@@ -174,7 +196,8 @@ class WorkspaceWorkflowSelection(unittest.TestCase):
                 values = dict(line.rstrip().split("=", 1) for line in handle)
             for name in selector.FLAGS:
                 self.assertEqual(values[name], "true")
-            self.assertEqual(json.loads(values["skill_names"]), ["a name"])
+            self.assertEqual(json.loads(values["skill_names"]), [])
+            self.assertEqual(selector.select(["skills/a name/SKILL.md"])["skill_names"], ["a name"])
             self.assertEqual(selected_jobs(*selector.FLAGS), set(JOBS) - {"changes", "version"})
         referenced = set(re.findall(r"needs\.changes\.outputs\.(\w+)", WORKFLOW))
         self.assertEqual(referenced, set(selector.FLAGS) | {"skill_names"})

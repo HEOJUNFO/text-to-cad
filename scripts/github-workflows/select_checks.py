@@ -28,6 +28,7 @@ SCOPED = {
     "scripts/test/test-skill-docs.sh": {"policy", "skill_prose", "skill_examples"},
     "scripts/test/skill_doc_contracts.py": {"policy", "skill_prose", "skill_examples"},
     "scripts/test/test-python.sh": {"cadgen", "skills"},
+    "scripts/utils/list-skills.sh": {"skills", "policy"},
     "scripts/test/unittest_files.py": {"cadgen", "skills"},
     "scripts/test/check-dependencies.mjs": {"core", "ui", "web"},
     "scripts/test/check-dependencies.test.mjs": {"core", "ui", "web"},
@@ -42,14 +43,16 @@ SCOPED = {
 def select(paths: list[str], *, manual: bool = False) -> dict[str, object]:
     flags = set(FLAGS) if manual else set()
     names = set()
+    all_docs = manual
     for path in paths:
         parts = PurePosixPath(path).parts
         if path in SCOPED:
             flags.update(SCOPED[path])
+            all_docs = all_docs or "skill_examples" in SCOPED[path]
         elif path.startswith("skills/"):
             # Only Markdown and agent display metadata are prose. Requirements,
             # scripts, templates, assets and unknown file types remain executable.
-            if path.endswith(".md") or (len(parts) > 2 and parts[2] == "agents"):
+            if path.endswith(".md") or (len(parts) > 2 and parts[2] == "agents" and path.endswith((".yaml", ".yml"))):
                 flags.add("skill_prose")
                 if len(parts) > 2:
                     names.add(parts[1])
@@ -61,7 +64,7 @@ def select(paths: list[str], *, manual: bool = False) -> dict[str, object]:
             flags.add("skills")
         elif path.startswith("tests/python/global/"):
             flags.add("policy")
-        elif path.startswith(("packages/cadgen/", "tests/python/packages/", "tests/python/support/")) or path.startswith("requirements") and path.endswith(".txt"):
+        elif path.startswith(("packages/cadgen/", "tests/python/packages/", "tests/python/support/")) or (path.startswith("requirements") and path.endswith(".txt")):
             flags.add("cadgen")
         elif path.startswith("packages/core/"):
             flags.add("core")
@@ -79,7 +82,7 @@ def select(paths: list[str], *, manual: bool = False) -> dict[str, object]:
             flags.add("infra")
     result = {name: name in flags for name in FLAGS}
     # Empty means all document contracts (manual run or runner changes).
-    result["skill_names"] = sorted(names)
+    result["skill_names"] = [] if all_docs else sorted(names)
     return result
 
 
