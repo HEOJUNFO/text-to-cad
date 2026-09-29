@@ -37,7 +37,7 @@ vi.mock("@main/db/repositories", () => ({
   settings: { get: () => ({ worktreeRoot: fixture.worktrees }) },
   explorerTabs: {},
 }));
-import { revealProjectDirectory, rootOf } from "@main/ipc/explorer";
+import { projectOfRoot, revealProjectDirectory, rootOf } from "@main/ipc/explorer";
 import { projectWorktreeDir } from "@main/projects/workspace";
 
 /** The project's worktree folder: `<root>/demo-<hash of its path>`. */
@@ -120,4 +120,27 @@ test("a root spelled as recorded is matched without touching the disk; another s
   await fs.symlink(real, moved);
   fixture.sessions = [{ projectId: "project", cwd: moved, worktreePath: moved }];
   expect(rootOf("project", real)).toBe(moved);
+});
+
+test("a watched worktree maps to its project from either worktree folder, the pre-hash one only when git links it", async () => {
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.invalid",
+    GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.invalid",
+    GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null",
+  };
+  const git = (...args: string[]) => promisify(execFile)("git", args, { cwd: fixture.project, env });
+  await git("init", "--quiet", "--initial-branch=main");
+  await git("commit", "--quiet", "--allow-empty", "-m", "first");
+  const legacy = path.join(fixture.worktrees, "demo", "old-layout");
+  await git("worktree", "add", "--quiet", "-b", "old-layout", legacy);
+  const stray = path.join(fixture.worktrees, "demo", "stray");
+  await fs.mkdir(stray, { recursive: true });
+
+  expect(projectOfRoot(path.join(worktreeFolder(), "feature"))).toEqual({ project: expect.objectContaining({ id: "project" }), root: path.join(worktreeFolder(), "feature") });
+  expect(projectOfRoot(legacy)).toEqual({ project: expect.objectContaining({ id: "project" }), root: legacy });
+  // A directory in the shared pre-hash folder that is not this repository's worktree is nobody's.
+  expect(projectOfRoot(stray)).toBeNull();
 });

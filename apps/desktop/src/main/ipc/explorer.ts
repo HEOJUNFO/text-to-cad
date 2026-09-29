@@ -37,7 +37,7 @@ import {
 } from "../explorer/fs";
 import { Terminals } from "../explorer/terminal";
 import * as git from "../projects/git";
-import { projectWorktreeDir, realDirectory, resolveProjectRoot } from "../projects/workspace";
+import { projectWorktreeDir, realDirectory, resolveProjectRoot, rootBelongsToProject } from "../projects/workspace";
 import type { ExplorerTab, IpcEventChannel, IpcEventPayload } from "../../shared";
 import type { FileChange, FileMutationResult } from "../../shared/ipc/explorer";
 import { fileExtension, track } from "../telemetry";
@@ -184,7 +184,7 @@ export function revealProjectDirectory(request: {
  * `realpath`, and a project under `/tmp` on macOS is really under
  * `/private/tmp`.
  */
-function projectOfRoot(root: string): { project: { id: string }; root: string | null } | null {
+export function projectOfRoot(root: string): { project: { id: string }; root: string | null } | null {
   const current = settings.get();
   for (const project of projects.list()) {
     if (git.samePath(project.path, root)) {
@@ -197,8 +197,10 @@ function projectOfRoot(root: string): { project: { id: string }; root: string | 
       if (project) return { project, root: git.samePath(project.path, root) ? null : root };
     }
   }
+  // Either worktree folder: the hashed one, or the pre-hash one when git
+  // links the worktree to this project's repository (`rootBelongsToProject`).
   for (const project of projects.list()) {
-    if (git.isUnder(projectWorktreeDir(current, project), root)) {
+    if (!git.samePath(project.path, root) && rootBelongsToProject(current, project, root)) {
       return { project, root };
     }
   }
