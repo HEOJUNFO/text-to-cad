@@ -31,6 +31,16 @@ export function Welcome() {
   const detected = useAgents((state) => state.ready);
   const detecting = step === 1 && !detected;
   const continueLabel = step === 1 && detected && !anyAgentReady ? "Continue without an agent" : "Continue";
+  // A new step takes focus to its heading, which is read out with the step. The button that moved
+  // it can go with the step (Continue is not on the last) or be disabled by it (Continue while
+  // detection runs), and focus on either fell to the page.
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const shownStep = useRef(step);
+  useEffect(() => {
+    if (shownStep.current === step) return;
+    shownStep.current = step;
+    bodyRef.current?.querySelector<HTMLElement>("h1")?.focus();
+  }, [step]);
 
   return (
     <div className="flex h-full flex-col bg-background" data-onboarding>
@@ -44,7 +54,7 @@ export function Welcome() {
       />
       {/* The block's top is pinned, not centred: the steps are different
           heights, and a centred block moved its heading ~70px each step. */}
-      <div className="flex min-h-0 flex-1 justify-center overflow-auto px-6 pt-[22vh] pb-10" data-onboarding-body>
+      <div className="flex min-h-0 flex-1 justify-center overflow-auto px-6 pt-[22vh] pb-10" data-onboarding-body ref={bodyRef}>
         <div className="w-full max-w-md">
           {step === 0 ? <WelcomeStep /> : step === 1 ? <AgentStep /> : <StartStep onDone={finish} />}
 
@@ -77,7 +87,7 @@ function WelcomeStep() {
   return (
     <section aria-labelledby="onboarding-title">
       <img alt="" className="size-12 object-contain" src={textToCadMark} />
-      <h1 className="mt-5 text-2xl font-medium tracking-tight" id="onboarding-title">
+      <h1 className="mt-5 text-2xl font-medium tracking-tight outline-none" id="onboarding-title" tabIndex={-1}>
         Welcome to text-to-cad
       </h1>
       <p className="mt-2 text-sm text-muted-foreground">
@@ -111,7 +121,7 @@ function AgentStep() {
 
   return (
     <section aria-labelledby="onboarding-agent-title">
-      <h1 className="text-2xl font-medium tracking-tight" id="onboarding-agent-title">
+      <h1 className="text-2xl font-medium tracking-tight outline-none" id="onboarding-agent-title" tabIndex={-1}>
         Connect an agent
       </h1>
       <p className="mt-2 text-sm text-muted-foreground">
@@ -193,7 +203,7 @@ function StartStep({ onDone }: { onDone: () => void }) {
 
   return (
     <section aria-labelledby="onboarding-start-title">
-      <h1 className="text-2xl font-medium tracking-tight" id="onboarding-start-title">
+      <h1 className="text-2xl font-medium tracking-tight outline-none" id="onboarding-start-title" tabIndex={-1}>
         Where do you want to start?
       </h1>
       <p className="mt-2 text-sm text-muted-foreground">

@@ -34,6 +34,19 @@ beforeEach(() => {
 });
 
 describe("the welcome", () => {
+  it("moves focus to each new step's heading, not to the page, on Continue", async () => {
+    const user = await toAgentStep();
+    // Continue is disabled while detection runs; focus is on the step's heading.
+    expect(document.activeElement).not.toBe(document.body);
+    expect(screen.getByRole("heading", { name: "Connect an agent" })).toHaveFocus();
+    act(() => useAgents.setState({ ready: true }));
+    await user.click(await screen.findByRole("button", { name: /Continue/ }));
+    // No Continue on the last step: the button went with the step.
+    expect(screen.queryByRole("button", { name: /Continue/ })).toBeNull();
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement?.tagName).toBe("H1");
+  });
+
   it("names the panes as they are and the viewer's Annotate action", () => {
     render(<Welcome />);
     expect(screen.getByText("Session in the middle.")).toBeInTheDocument();
