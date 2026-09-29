@@ -1,5 +1,3 @@
-import type { IDisposable } from "monaco-editor";
-import { DiffEditor } from "@monaco-editor/react";
 import {
   AlertTriangle,
   ChevronDown,
@@ -9,7 +7,7 @@ import {
   GitPullRequest,
   RotateCw,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPromptContext, textPart } from "@text-to-cad/core/prompt";
 import { toast } from "sonner";
 
@@ -22,11 +20,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@renderer/components/ui/dropdown-menu";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@renderer/components/ui/popover";
 import { Spinner } from "@renderer/components/ui/spinner";
 import { Textarea } from "@renderer/components/ui/textarea";
 import { useResolvedTheme } from "@renderer/hooks/use-theme";
@@ -48,12 +41,8 @@ import type { Project } from "@shared/types";
 
 import { EmptyState } from "@text-to-cad/ui/navigation";
 import { FileIcon } from "@text-to-cad/ui/navigation";
-import {
-  SHARED_EDITOR_OPTIONS,
-  languageFor,
-  monacoTheme,
-  setupMonaco,
-} from "@renderer/features/explorer/renderers/code/editor";
+import { setupMonaco } from "@renderer/features/explorer/renderers/code/editor";
+import { ReviewDiff, type ReviewSelection } from "./review-diff";
 import type { ChangedFile, FileDiff, GitStatus } from "./types";
 
 /**
@@ -148,6 +137,12 @@ function ReviewBody({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<Set<string>>(() => new Set());
+  const [committing, setCommitting] = useState(false);
+  const commitTrigger = useRef<HTMLButtonElement | null>(null);
+  const closeCommit = useCallback(() => {
+    setCommitting(false);
+    commitTrigger.current?.focus();
+  }, []);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sections = useRef(new Map<string, HTMLElement>());
   // Reads overlap — the first one, a refresh, every batch of file changes —
@@ -304,22 +299,15 @@ function ReviewBody({
         <div className="flex-1" />
 
         {/*
-          Which thread, then which branch. The title gives up its width first:
-          a thread names itself from its first prompt, which can be a
-          paragraph, and the branch is the shorter and more load-bearing of
-          the two — it says where a commit from this header would land.
+          The branch alone: it says where a commit from this header would
+          land. The thread's title is the session header's, one pane over;
+          repeated here it only ever showed truncated. Its directory — a
+          worktree's is not the project's — is the hover.
         */}
-        {target ? (
-          <span
-            className="max-w-[160px] truncate text-[12px] text-muted-foreground"
-            title={`${target.title} · ${target.cwd}`}
-          >
-            {target.title}
-          </span>
-        ) : null}
-
         {status.branch ? (
-          <span className="shrink-0 text-[12px] text-muted-foreground">{status.branch}</span>
+          <span className="min-w-0 truncate text-[12px] text-muted-foreground" title={target?.cwd}>
+            {status.branch}
+          </span>
         ) : null}
 
         <Button
@@ -332,20 +320,31 @@ function ReviewBody({
           <RotateCw className={cn("size-3.5", loading && "animate-spin")} />
         </Button>
 
-        <CommitPopover
-          canOpenPullRequest={Boolean(info?.hasGh && info.hasRemote)}
+        <CommitTrigger
           canPush={Boolean(info?.hasRemote)}
-          // The popover commits the whole working tree (`git add -A`),
+          // The panel commits the whole working tree (`git add -A`),
           // whatever scope is on screen, so its button follows the working
           // tree: a "Last turn" with nothing in it can sit beside uncommitted
           // work from earlier, and a scope full of committed history beside a
           // clean tree.
           fileCount={status.workingFiles}
+          onToggle={() => setCommitting((current) => !current)}
+          open={committing && status.workingFiles > 0}
+          ref={commitTrigger}
+        />
+      </header>
+
+      {committing && status.workingFiles > 0 ? (
+        <CommitPanel
+          canOpenPullRequest={Boolean(info?.hasGh && info.hasRemote)}
+          canPush={Boolean(info?.hasRemote)}
+          fileCount={status.workingFiles}
+          onClose={closeCommit}
           onDone={refresh}
           request={request}
           session={target}
         />
-      </header>
+      ) : null}
 
       {/* A re-read that failed keeps the last answer on screen, marked stale. */}
       {error ? (
@@ -506,10 +505,8 @@ function FileSection({
   ref: (node: HTMLElement | null) => void;
 }) {
   const [diff, setDiff] = useState<FileDiff | null>(null);
-  const selection = useRef<{ side: string; start: number; end: number; text: string } | null>(null);
-  const listeners = useRef<IDisposable[]>([]);
+  const selection = useRef<ReviewSelection | null>(null);
   const promptContext = useMemo(() => createDesktopPromptContext(request.projectId, root, JSON.stringify(["desktop", request.projectId, root]), request.sessionId), [request.projectId, root, request.sessionId]);
-  useEffect(() => () => { listeners.current.forEach((listener) => listener.dispose()); }, []);
   const requestRevision = () => {
     const selected = selection.current;
     const excerpt = selected ? `\nSelected ${selected.side} lines ${selected.start}–${selected.end}:\n\`\`\`\n${selected.text}\n\`\`\`\n` : "";
@@ -539,13 +536,18 @@ function FileSection({
   }, [open, diff, request, file.path, scope]);
 
   const badge = badgeFor(file.status);
-  const height = useMemo(() => sectionHeight(diff), [diff]);
 
   return (
     <section className="border-b" ref={ref}>
-      <div className="bg-card/60">
+      {/*
+        One row: the toggle takes the name and the counts, and Request
+        revision sits after them at the right — a sibling, since a button
+        cannot hold a button.
+      */}
+      <div className="flex min-w-0 items-center gap-1 bg-card/60 pr-2">
         <button
-          className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-accent/40"
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-3 text-left transition-colors hover:bg-accent/40"
           onClick={onToggle}
           type="button"
         >
@@ -568,11 +570,17 @@ function FileSection({
           </span>
           <Totals deletions={file.deletions} insertions={file.insertions} />
         </button>
-        <div className="flex justify-end px-2 pb-1">
-          <Button aria-label={`Request revision for ${file.path}`} className="h-6 shrink-0 px-2 text-xs" onMouseDown={(event) => event.preventDefault()} onClick={requestRevision} size="sm" variant="ghost">
-            Request revision
-          </Button>
-        </div>
+        <Button
+          aria-label={`Request revision for ${file.path}`}
+          className="h-6 shrink-0 px-2 text-xs text-muted-foreground hover:text-foreground"
+          onClick={requestRevision}
+          // Keeps the editor's selection, which is what the request quotes.
+          onMouseDown={(event) => event.preventDefault()}
+          size="sm"
+          variant="ghost"
+        >
+          Request revision
+        </Button>
       </div>
 
       {open ? (
@@ -581,55 +589,14 @@ function FileSection({
             Binary file — no textual diff.
           </p>
         ) : diff ? (
-          <div style={{ height }}>
-            <DiffEditor
-              // The wrapper disposes both text models and only then the widget, which
-              // monaco 0.56 reports as an uncaught "TextModel got disposed before
-              // DiffEditorWidget model got reset" on every unmount — a scope change, a
-              // commit, a closed section. So the models outlive the wrapper's cleanup and
-              // go when the widget itself has gone.
-              keepCurrentModifiedModel
-              keepCurrentOriginalModel
-              onMount={(editor) => {
-                // The diff widget itself never fires onDidDispose (monaco 0.56's
-                // DelegatingEditor creates the emitter and nothing fires it); its inner
-                // code editors do. Deferred a tick so the widget's own teardown, which
-                // still holds the models, has finished before they go.
-                const models = editor.getModel();
-                editor.getModifiedEditor().onDidDispose(() => {
-                  setTimeout(() => { models?.original.dispose(); models?.modified.dispose(); }, 0);
-                });
-                listeners.current.forEach((listener) => listener.dispose());
-                selection.current = null;
-                listeners.current = ([
-                  ["original", editor.getOriginalEditor()],
-                  ["modified", editor.getModifiedEditor()],
-                ] as const).flatMap(([side, code]) => {
-                  const remember = () => {
-                    const range = code.getSelection();
-                    const text = range && !range.isEmpty() ? code.getModel()?.getValueInRange(range) : "";
-                    selection.current = range && text ? { side, text, start: range.startLineNumber, end: range.endLineNumber } : null;
-                  };
-                  return [code.onDidChangeCursorSelection(remember), code.onDidFocusEditorText(remember)];
-                });
-              }}
-              language={languageFor(file.path)}
-              modified={diff.after ?? ""}
-              options={{
-                ...SHARED_EDITOR_OPTIONS,
-                // Codex's review is a unified diff, and a pane this wide has
-                // no room for two columns.
-                renderSideBySide: false,
-                readOnly: true,
-                renderOverviewRuler: false,
-                scrollBeyondLastLine: false,
-                hideUnchangedRegions: { enabled: true, revealLineCount: 3, minimumLineCount: 3 },
-                scrollbar: { alwaysConsumeMouseWheel: false, verticalScrollbarSize: 10 },
-              }}
-              original={diff.before ?? ""}
-              theme={monacoTheme(theme)}
-            />
-          </div>
+          <ReviewDiff
+            diff={diff}
+            onSelect={(next) => {
+              selection.current = next;
+            }}
+            path={file.path}
+            theme={theme}
+          />
         ) : (
           <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
             <Spinner className="size-3.5" />
@@ -642,7 +609,49 @@ function FileSection({
 }
 
 /**
- * `Commit or push`, and `Create pull request` beside it (plan §9).
+ * The header's commit button: `Commit or push` with a remote to push to,
+ * plain `Commit` without one — a label that offers a push the panel cannot do
+ * is a promise it breaks. Primary, because it is the header's one action.
+ */
+function CommitTrigger({
+  canPush,
+  fileCount,
+  open,
+  onToggle,
+  ref,
+}: {
+  canPush: boolean;
+  fileCount: number;
+  open: boolean;
+  onToggle: () => void;
+  ref: RefObject<HTMLButtonElement | null>;
+}) {
+  return (
+    <Button
+      aria-controls={COMMIT_PANEL_ID}
+      aria-expanded={open}
+      className="h-6 gap-1.5 px-2 text-[12px]"
+      disabled={fileCount === 0}
+      onClick={onToggle}
+      ref={ref}
+      size="sm"
+      variant="default"
+    >
+      <GitCommitHorizontal className="size-3.5" />
+      {canPush ? "Commit or push" : "Commit"}
+    </Button>
+  );
+}
+
+const COMMIT_PANEL_ID = "review-commit-panel";
+
+/**
+ * The commit form, and `Create pull request` beside it (plan §9).
+ *
+ * A strip under the header rather than a floating popover: a popover wide
+ * enough for a commit message hangs over the first file's header — its name,
+ * its `+/−`, its Request revision — and this pushes the files down instead.
+ * Escape closes it and gives focus back to the header's button.
  *
  * The settings' commit instructions are the message box's **placeholder**, not
  * text prepended to what the person writes: they are house style for whoever
@@ -653,12 +662,13 @@ function FileSection({
  * repository has a remote. Everything else it needs — pushing a branch that
  * has no upstream, choosing the base, the draft setting — main does.
  */
-function CommitPopover({
+function CommitPanel({
   request,
   session,
   fileCount,
   canOpenPullRequest,
   canPush,
+  onClose,
   onDone,
 }: {
   request: ReviewRequest;
@@ -668,10 +678,10 @@ function CommitPopover({
   canOpenPullRequest: boolean;
   /** A remote to push to; without one `Commit and push` is not offered. */
   canPush: boolean;
+  onClose: () => void;
   onDone: () => void;
 }) {
   const settings = useSettings((state) => state.settings);
-  const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -685,7 +695,7 @@ function CommitPopover({
     try {
       await work();
       setMessage("");
-      setOpen(false);
+      onClose();
       onDone();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -727,100 +737,81 @@ function CommitPopover({
   };
 
   return (
-    <Popover onOpenChange={setOpen} open={open}>
-      <PopoverTrigger asChild>
-        <Button className="h-6 gap-1.5 px-2 text-[12px]" disabled={fileCount === 0} size="sm" variant="secondary">
-          <GitCommitHorizontal className="size-3.5" />
-          Commit or push
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-96 p-3">
-        <p className="mb-2 text-[12px] font-medium">
-          Commits {fileCount} {fileCount === 1 ? "file" : "files"} (all changes)
+    <section
+      aria-label="Commit changes"
+      className="shrink-0 border-b bg-card/60 px-3 py-2.5"
+      id={COMMIT_PANEL_ID}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.stopPropagation();
+          onClose();
+        }
+      }}
+    >
+      <p className="mb-2 text-[12px] font-medium">
+        Commit {fileCount} {fileCount === 1 ? "file" : "files"}
+      </p>
+      <Textarea
+        aria-label="Commit message"
+        autoFocus
+        className="min-h-16 text-[13px]"
+        onChange={(event) => setMessage(event.target.value)}
+        placeholder={settings?.commitInstructions?.trim() || "Message"}
+        value={message}
+      />
+      {settings?.commitInstructions?.trim() ? (
+        <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+          {settings.commitInstructions.trim()}
         </p>
-        <Textarea
-          aria-label="Commit message"
-          autoFocus
-          className="min-h-20 text-[13px]"
-          onChange={(event) => setMessage(event.target.value)}
-          placeholder={settings?.commitInstructions?.trim() || "Message"}
-          value={message}
-        />
-        {settings?.commitInstructions?.trim() ? (
-          <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
-            {settings.commitInstructions.trim()}
-          </p>
+      ) : null}
+      {error ? <p className="mt-2 text-[11px] text-destructive">{error}</p> : null}
+      <div className="mt-2.5 flex items-center gap-1.5">
+        {canOpenPullRequest ? (
+          <Button
+            className="h-7 gap-1.5 text-xs"
+            disabled={busy || (message.trim() === "" && !session?.title)}
+            onClick={pullRequest}
+            size="sm"
+            variant="ghost"
+          >
+            <GitPullRequest className="size-3.5" />
+            Create pull request
+          </Button>
         ) : null}
-        {error ? <p className="mt-2 text-[11px] text-destructive">{error}</p> : null}
-        <div className="mt-2.5 flex items-center gap-1.5">
-          {canOpenPullRequest ? (
-            <Button
-              className="h-7 gap-1.5 text-xs"
-              disabled={busy || (message.trim() === "" && !session?.title)}
-              onClick={pullRequest}
-              size="sm"
-              variant="ghost"
-            >
-              <GitPullRequest className="size-3.5" />
-              Create pull request
-            </Button>
-          ) : null}
-          <div className="flex-1" />
+        <div className="flex-1" />
+        <Button className="h-7 text-xs" onClick={onClose} size="sm" variant="ghost">
+          Cancel
+        </Button>
+        <Button
+          className="h-7 text-xs"
+          disabled={busy || message.trim() === ""}
+          onClick={() => commit(false)}
+          size="sm"
+          // With no remote this is the panel's one action, so it takes the fill.
+          variant={canPush ? "secondary" : "default"}
+        >
+          {busy && !canPush ? <Spinner className="size-3" /> : null}
+          Commit
+        </Button>
+        {canPush ? (
           <Button
             className="h-7 text-xs"
             disabled={busy || message.trim() === ""}
-            onClick={() => commit(false)}
+            onClick={() => commit(true)}
             size="sm"
-            // With no remote this is the popover's one action, so it takes the fill.
-            variant={canPush ? "secondary" : "default"}
           >
-            {busy && !canPush ? <Spinner className="size-3" /> : null}
-            Commit
+            {busy ? <Spinner className="size-3" /> : null}
+            Commit and push
           </Button>
-          {canPush ? (
-            <Button
-              className="h-7 text-xs"
-              disabled={busy || message.trim() === ""}
-              onClick={() => commit(true)}
-              size="sm"
-            >
-              {busy ? <Spinner className="size-3" /> : null}
-              Commit and push
-            </Button>
-          ) : null}
-        </div>
-        {canOpenPullRequest ? (
-          <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
-            {settings?.pullRequestInstructions?.trim() ||
-              "The first line is the title, the rest the description. Uncommitted work is not included."}
-          </p>
         ) : null}
-      </PopoverContent>
-    </Popover>
+      </div>
+      {canOpenPullRequest ? (
+        <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
+          {settings?.pullRequestInstructions?.trim() ||
+            "The first line is the title, the rest the description. Uncommitted work is not included."}
+        </p>
+      ) : null}
+    </section>
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Helpers                                                                     */
-/* -------------------------------------------------------------------------- */
-
-/**
- * How tall a section needs to be. Monaco has no intrinsic height, so someone
- * has to guess.
- *
- * The guess is the *change*, not the file. `hideUnchangedRegions` collapses
- * everything that did not move into a one-line "407 hidden lines" band, so
- * sizing by the file's length leaves a screen of blank editor under a
- * four-line edit — which is what the first review screenshot showed.
- */
-const LINE_HEIGHT = 20;
-
-function sectionHeight(diff: FileDiff | null): number {
-  if (!diff) {
-    return 120;
-  }
-  // The changed lines, plus the context Monaco keeps around each collapsed
-  // band, plus the band itself.
-  const lines = diff.insertions + diff.deletions + 8;
-  return Math.min(560, Math.max(120, lines * LINE_HEIGHT));
-}
