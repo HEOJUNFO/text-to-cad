@@ -7,7 +7,7 @@ import {
   GitPullRequest,
   RotateCw,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
 import { createPromptContext, textPart } from "@text-to-cad/core/prompt";
 import { toast } from "sonner";
 
@@ -139,6 +139,8 @@ function ReviewBody({
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   const [committing, setCommitting] = useState(false);
   const commitTrigger = useRef<HTMLButtonElement | null>(null);
+  // Per mounted tab: two Review tabs must not share the id aria-controls names.
+  const commitPanelId = useId();
   const closeCommit = useCallback(() => {
     setCommitting(false);
     commitTrigger.current?.focus();
@@ -329,6 +331,7 @@ function ReviewBody({
           // clean tree.
           fileCount={status.workingFiles}
           onToggle={() => setCommitting((current) => !current)}
+          panelId={commitPanelId}
           open={committing && status.workingFiles > 0}
           ref={commitTrigger}
         />
@@ -339,6 +342,7 @@ function ReviewBody({
           canOpenPullRequest={Boolean(info?.hasGh && info.hasRemote)}
           canPush={Boolean(info?.hasRemote)}
           fileCount={status.workingFiles}
+          id={commitPanelId}
           onClose={closeCommit}
           onDone={refresh}
           request={request}
@@ -618,17 +622,20 @@ function CommitTrigger({
   fileCount,
   open,
   onToggle,
+  panelId,
   ref,
 }: {
   canPush: boolean;
   fileCount: number;
   open: boolean;
   onToggle: () => void;
+  /** The panel's id, for aria-controls. */
+  panelId: string;
   ref: RefObject<HTMLButtonElement | null>;
 }) {
   return (
     <Button
-      aria-controls={COMMIT_PANEL_ID}
+      aria-controls={panelId}
       aria-expanded={open}
       className="h-6 gap-1.5 px-2 text-[12px]"
       disabled={fileCount === 0}
@@ -642,8 +649,6 @@ function CommitTrigger({
     </Button>
   );
 }
-
-const COMMIT_PANEL_ID = "review-commit-panel";
 
 /**
  * The commit form, and `Create pull request` beside it (plan §9).
@@ -668,6 +673,7 @@ function CommitPanel({
   fileCount,
   canOpenPullRequest,
   canPush,
+  id,
   onClose,
   onDone,
 }: {
@@ -678,6 +684,7 @@ function CommitPanel({
   canOpenPullRequest: boolean;
   /** A remote to push to; without one `Commit and push` is not offered. */
   canPush: boolean;
+  id: string;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -740,7 +747,7 @@ function CommitPanel({
     <section
       aria-label="Commit changes"
       className="shrink-0 border-b bg-card/60 px-3 py-2.5"
-      id={COMMIT_PANEL_ID}
+      id={id}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.stopPropagation();

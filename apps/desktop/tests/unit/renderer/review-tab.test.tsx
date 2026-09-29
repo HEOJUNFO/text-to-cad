@@ -106,6 +106,7 @@ it("the commit button follows the working tree, not the scope, and says how many
   await user.click(trigger);
   expect(within(screen.getByRole("region", { name: "Commit changes" })).getByText("Commit 2 files")).toBeInTheDocument();
   expect(trigger).toHaveAttribute("aria-expanded", "true");
+  expect(trigger).toHaveAttribute("aria-controls", screen.getByRole("region", { name: "Commit changes" }).id);
 
   // Escape closes the panel and hands focus back to the header's button.
   await user.keyboard("{Escape}");
@@ -222,4 +223,21 @@ it("a diff block is sized to its content, and capped", () => {
   // A four-line edit in a long file is the edit plus its context, not the file.
   const edit = fileDiff({ insertions: 2, deletions: 2, before: "x\n".repeat(400), after: "y\n".repeat(400) });
   expect(estimateHeight(edit)).toBe(12 * 20 + 12);
+});
+
+it("two Review tabs open their commit panels under ids of their own", async () => {
+  const user = userEvent.setup();
+  scoped.mockResolvedValue({ ...repo("main"), workingFiles: 1 });
+  renderReview();
+  render(<ReviewTab project={PROJECT} scope="all" sessionId="s1" tabId="t2" />);
+  await vi.waitFor(() => expect(screen.getAllByRole("button", { name: "Commit" })).toHaveLength(2));
+  const triggers = screen.getAllByRole("button", { name: "Commit" });
+  for (const trigger of triggers) {
+    await vi.waitFor(() => expect(trigger).toBeEnabled());
+    await user.click(trigger);
+  }
+  const panels = screen.getAllByRole("region", { name: "Commit changes" });
+  expect(panels).toHaveLength(2);
+  expect(panels[0]!.id).not.toBe(panels[1]!.id);
+  expect(triggers.map((trigger) => trigger.getAttribute("aria-controls")).sort()).toEqual(panels.map((panel) => panel.id).sort());
 });
