@@ -272,6 +272,15 @@ describe("SessionConnection against the fake agent", () => {
    * nothing reaches the agent — nor the transcript: no turn began, so there
    * is no failed turn to show (the manager keeps the draft and says why).
    */
+  it("names the agent the way the person knows it, and says what to do, when it refuses", async () => {
+    const connection = connect({ cwd: await scratch(), agentId: "claude-code", env: { FAKE_AGENT_PROMPT_CAPABILITIES: "{}" } });
+    await connection.newSession();
+    expect(connection.refusal([{ type: "image", data: "AAAA", mimeType: "image/png", uri: null }]))
+      .toBe("Claude Code cannot take an image in a prompt. Remove the attachment to send.");
+    expect(connection.refusal([{ type: "resource", uri: "file:///a.py", text: "print(1)", mimeType: null }]))
+      .toBe("Claude Code cannot take a file's contents in a prompt. Remove the attachment to send.");
+  });
+
   it("refuses an image or a file's contents the agent did not say it takes, before the wire", async () => {
     const frames: RecordedFrame[] = [];
     const connection = connect({
@@ -283,15 +292,15 @@ describe("SessionConnection against the fake agent", () => {
 
     await expect(
       connection.prompt([{ type: "text", text: "look" }, { type: "image", data: "AAAA", mimeType: "image/png", uri: null }]),
-    ).rejects.toThrow("fake cannot take images in a prompt (no image prompt capability)");
+    ).rejects.toThrow("fake cannot take an image in a prompt. Remove the attachment to send.");
     await expect(
       connection.prompt([{ type: "resource", uri: "file:///a.py", text: "print(1)", mimeType: null }]),
-    ).rejects.toThrow("fake cannot take a file's contents in a prompt (no embeddedContext prompt capability)");
+    ).rejects.toThrow("fake cannot take a file's contents in a prompt. Remove the attachment to send.");
     expect(frames.some((frame) => (frame.msg as { method?: string }).method === "session/prompt")).toBe(false);
     expect(connection.state.turns).toEqual([]);
     expect(connection.state.status).toBe("idle");
     expect(connection.refusal([{ type: "resource", uri: "file:///a.py", text: "print(1)", mimeType: null }]))
-      .toBe("fake cannot take a file's contents in a prompt (no embeddedContext prompt capability)");
+      .toBe("fake cannot take a file's contents in a prompt. Remove the attachment to send.");
 
     // Text and a resource link are every agent's baseline.
     const response = await connection.prompt([{ type: "text", text: "say ok" }, { type: "resource_link", uri: "file:///a.py", name: "a.py", mimeType: null, title: null }]);

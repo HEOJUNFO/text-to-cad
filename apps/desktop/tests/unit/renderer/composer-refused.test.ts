@@ -26,7 +26,7 @@ Range.prototype.getBoundingClientRect ??= () => new DOMRect();
  * person wrote is not spent. The box keeps it and the reason is said, the way `refuseSend` does.
  */
 const SESSION = "s1";
-const REASON = "claude-code cannot take images in a prompt (no image prompt capability)";
+const REASON = "Claude Code cannot take an image in a prompt. Remove the attachment to send.";
 const P: Project = { id: "p", name: "p", path: "/p", createdAt: 0 };
 const bridge = window.textToCad as unknown as Record<string, unknown>;
 const saved = { sessions: bridge.sessions };
