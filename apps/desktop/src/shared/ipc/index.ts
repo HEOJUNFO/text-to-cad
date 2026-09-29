@@ -59,6 +59,33 @@ export * from "./cad";
 export * from "./explorer";
 export * from "./git";
 
+/** The menu (or a shortcut) asked the renderer to navigate. */
+export const UiCommandSchema = z.object({
+  command: z.enum([
+    "open-settings",
+    "close-settings",
+    "toggle-sidebar",
+    "toggle-explorer",
+    "new-session",
+    "command-palette",
+    /**
+     * The top level's history: the project new-session screens and the
+     * threads the session pane has shown (`state/history.ts`). Not the
+     * explorer's tabs.
+     */
+    "navigate-back",
+    "navigate-forward",
+  ]),
+  /**
+   * `new-session` only: the project to start it in, and the directory to
+   * start it in — Settings › Git & Worktrees' `New session in this worktree`
+   * (plan §2). Without them, `new-session` means "in whatever project is
+   * selected, in the default mode".
+   */
+  projectId: z.string().optional(),
+  cwd: z.string().optional(),
+});
+
 /* -------------------------------------------------------------------------- */
 /* Requests                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -121,6 +148,15 @@ export const ipcContract = defineIpc({
     state: invoke(z.void(), WindowStateSchema),
   },
 
+  ui: {
+    /**
+     * The page is listening: answers with the `ui.command`s main held for it
+     * (the menu's New Session or Settings… that opened this window), once.
+     * A push at `did-finish-load` could arrive before the page subscribed.
+     */
+    ready: invoke(z.void(), z.array(UiCommandSchema)),
+  },
+
   shell: {
     /**
      * Opens a URL in the user's browser. Main refuses anything that is not
@@ -175,31 +211,7 @@ export const ipcEvents = {
   /** Settings changed anywhere — including from the app menu. */
   "settings.changed": SettingsSchema,
   /** The menu (or a shortcut) asked the renderer to navigate. */
-  "ui.command": z.object({
-    command: z.enum([
-      "open-settings",
-      "close-settings",
-      "toggle-sidebar",
-      "toggle-explorer",
-      "new-session",
-      "command-palette",
-      /**
-       * The top level's history: the project new-session screens and the
-       * threads the session pane has shown (`state/history.ts`). Not the
-       * explorer's tabs.
-       */
-      "navigate-back",
-      "navigate-forward",
-    ]),
-    /**
-     * `new-session` only: the project to start it in, and the directory to
-     * start it in — Settings › Git & Worktrees' `New session in this worktree`
-     * (plan §2). Without them, `new-session` means "in whatever project is
-     * selected, in the default mode".
-     */
-    projectId: z.string().optional(),
-    cwd: z.string().optional(),
-  }),
+  "ui.command": UiCommandSchema,
   /** electron-updater's progress, surfaced on About & Updates. */
   ...appEvents,
   ...acpEvents,

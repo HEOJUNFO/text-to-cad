@@ -13,6 +13,7 @@ import { projects, settings } from "../db/repositories";
 import { viewers } from "../cad";
 import { changedSettingsKeys, track } from "../telemetry";
 import { applySettingsEffects } from "../settings-effects";
+import { takeQueuedCommands } from "../menu";
 import { acpHandlers } from "./acp";
 import { agentOptionsHandlers } from "./agent-options";
 import { agentsHandlers } from "./agents";
@@ -118,6 +119,10 @@ const handlers = {
 
   window: {
     state: () => settings.windowState(),
+  },
+
+  ui: {
+    ready: (_request: void, ctx: IpcContext) => takeQueuedCommands(ctx.sender),
   },
 
   shell: {

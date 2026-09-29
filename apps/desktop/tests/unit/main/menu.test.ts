@@ -19,7 +19,7 @@ vi.mock("electron", () => ({
 const emit = vi.hoisted(() => vi.fn());
 vi.mock("@main/ipc/register", () => ({ emit }));
 vi.mock("@main/browser/service", () => ({ browserService: { reloadFocused, forwardFromFocused } }));
-import { buildMenu, guardRendererUnload } from "@main/menu";
+import { buildMenu, guardRendererUnload, takeQueuedCommands } from "@main/menu";
 
 beforeEach(() => { vi.clearAllMocks(); });
 const flatten = (items: MenuItemConstructorOptions[]): MenuItemConstructorOptions[] =>
@@ -74,8 +74,10 @@ it("keeps an app reload in development under a chord of its own", () => {
 
 // macOS keeps the app running after its last window closes, and the menu with
 // it: New Session and Settings… there have no window to go to, so they open
-// one and send the command once its page is listening.
-it("opens a window for New Session and Settings when there is none", () => {
+// one and hold the command until its page asks for it. The page subscribes in
+// a passive effect, which can run after `did-finish-load`: a command pushed at
+// load could reach a page with no listener yet.
+it("opens a window for New Session and Settings when there is none, and holds the command until the page is listening", () => {
   const opened = { webContents: new EventEmitter() };
   openWindow.mockReturnValue(opened);
   const none = items(true, null);
@@ -84,9 +86,12 @@ it("opens a window for New Session and Settings when there is none", () => {
     emit.mockClear();
     (none.find(item => item.label === label)!.click as () => void)();
     expect(openWindow).toHaveBeenCalledTimes(1);
-    expect(emit).not.toHaveBeenCalled();
+    // The page has loaded but not subscribed: nothing is pushed at it.
     opened.webContents.emit("did-finish-load");
-    expect(emit).toHaveBeenCalledWith([opened.webContents], "ui.command", { command });
+    expect(emit).not.toHaveBeenCalled();
+    // It subscribes afterwards and asks (`ui.ready`); the command is there, once.
+    expect(takeQueuedCommands(opened.webContents as unknown as Electron.WebContents)).toEqual([{ command }]);
+    expect(takeQueuedCommands(opened.webContents as unknown as Electron.WebContents)).toEqual([]);
   }
   // With a window, the command goes to it and nothing opens.
   openWindow.mockClear();

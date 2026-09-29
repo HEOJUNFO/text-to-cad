@@ -110,6 +110,13 @@ export function subscribeToMain(): () => void {
     }),
     window.textToCad.on("ui.command", (payload) => runUiCommand(payload)),
   ];
+  // Listening now: take what main held for this page before it was — the
+  // menu's New Session or Settings… that opened this window. Run even after
+  // a detach: main hands them out once, and a StrictMode remount's second
+  // ask gets nothing.
+  void window.textToCad.ui.ready().then((held) => {
+    for (const payload of held) runUiCommand(payload);
+  }).catch((error: unknown) => console.error("[ui] held commands", error));
 
   // Session selection is the only authority for which explorer is displayed.
   // A directory may group several sessions, but it never owns their tabs.

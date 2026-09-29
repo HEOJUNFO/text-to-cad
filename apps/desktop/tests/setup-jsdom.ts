@@ -87,6 +87,7 @@ Object.defineProperty(window, "textToCad", {
     dialogs: { chooseDirectory: vi.fn(async () => null), chooseFile: vi.fn(async () => null) },
     settings: { get: vi.fn(), set: vi.fn() },
     window: { state: vi.fn() },
+    ui: { ready: vi.fn(async () => []) },
     shell: { openExternal: vi.fn(), showItemInFolder: vi.fn() },
     explorer: {
       list: vi.fn(async () => []),

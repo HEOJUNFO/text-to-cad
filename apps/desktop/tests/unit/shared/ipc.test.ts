@@ -79,6 +79,7 @@ describe("the contract", () => {
       "settings.get",
       "settings.set",
       "window.state",
+      "ui.ready",
       "shell.openExternal",
       "shell.showItemInFolder",
       "clipboard.writeText",

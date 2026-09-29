@@ -6,7 +6,7 @@
  * menu and the keyboard shortcut and the command palette then all take the
  * same path, and only one of them can be wrong.
  */
-import { Menu, app, dialog, shell, type BrowserWindow, type MenuItemConstructorOptions } from "electron";
+import { Menu, app, dialog, shell, type BrowserWindow, type MenuItemConstructorOptions, type WebContents } from "electron";
 
 import type { IpcEventPayload } from "../shared/ipc";
 import { browserService } from "./browser/service";
@@ -14,6 +14,20 @@ import { emit } from "./ipc/register";
 import { isQuitting, markQuitting } from "./quitting";
 
 type UiCommand = IpcEventPayload<"ui.command">["command"];
+
+/** Commands held for a page that is not listening yet, by the page. */
+const queued = new WeakMap<WebContents, IpcEventPayload<"ui.command">[]>();
+
+function queueCommand(contents: WebContents, payload: IpcEventPayload<"ui.command">) {
+  queued.set(contents, [...(queued.get(contents) ?? []), payload]);
+}
+
+/** What `ui.ready` answers with: the commands held for this page, taken once. */
+export function takeQueuedCommands(contents: WebContents): IpcEventPayload<"ui.command">[] {
+  const commands = queued.get(contents) ?? [];
+  queued.delete(contents);
+  return commands;
+}
 
 const REPOSITORY_URL = "https://github.com/earthtojake/text-to-cad";
 
@@ -30,18 +44,18 @@ export function buildMenu(
   };
   // New Session and Settings… are how a person gets back into the app, and
   // on macOS the menu outlives the last window. With no window they open one
-  // and send the command when its page has loaded — sent before, the page
-  // has no listener yet and it is dropped. A view toggle has nothing to act
-  // on in a window that was not there, so it stays `send`.
+  // and hold the command for it until its page asks (`ui.ready`, once its
+  // listener is attached). Pushed at `did-finish-load` it could be dropped:
+  // the page subscribes in a passive effect, which may run after the load. A
+  // view toggle has nothing to act on in a window that was not there, so it
+  // stays `send`.
   const sendOrOpen = (command: UiCommand) => () => {
     if (focusedWindow()) {
       send(command)();
       return;
     }
     const window = openWindow();
-    window.webContents.once("did-finish-load", () => {
-      emit([window.webContents], "ui.command", { command });
-    });
+    queueCommand(window.webContents, { command });
   };
 
   const isMac = process.platform === "darwin";
