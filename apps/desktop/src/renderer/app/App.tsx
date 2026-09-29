@@ -38,7 +38,10 @@ export function App() {
     <TooltipProvider delayDuration={300}>
       {route === "settings" ? <SettingsRoute /> : showWelcome ? <Welcome /> : <Shell />}
       <CommandPalette />
-      <Toaster position="bottom-right" />
+      {/* Top right, under the title strip: the composer is centred at the
+          bottom, and a toast in the bottom corner sat on its send button and
+          chips — the refusal of a prompt over the very box that kept it. */}
+      <Toaster offset={{ top: "calc(var(--titlebar-height) + 8px)", right: 16 }} position="top-right" />
     </TooltipProvider>
   );
 }
