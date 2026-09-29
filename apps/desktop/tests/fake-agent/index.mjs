@@ -87,6 +87,20 @@
  * answers `initialize` with (by default images and embedded context), so a
  * test can be an agent that takes text and links only.
  *
+ * `FAKE_AGENT_PROFILE=claude-code` answers in the Claude adapter's shape, as
+ * a real Claude Code smoke saw it on 2026-09-29 (no successful Claude
+ * recording exists: `tests/fixtures/acp/` has only the auth failure, and
+ * recording costs a real account's turns). `initialize` names
+ * `@agentclientprotocol/claude-agent-acp` 0.69.0 with `loadSession`, images,
+ * embedded context and the adapter's `sessionCapabilities`; `session/new`
+ * offers its six modes (auto, default, acceptEdits, plan, dontAsk,
+ * bypassPermissions) and four config options — `mode`, `model` (default,
+ * opus[1m], claude-fable-5[1m], sonnet, haiku; on opus[1m]), `effort` (on
+ * xhigh) and a boolean `fast`; an `available_commands_update` of 129
+ * commands follows `session/new` and `session/load` and arrives again
+ * mid-turn at the start of every prompt; and the first turn ends with a
+ * `session_info_update` carrying a title. The prompt script is the same.
+ *
  * `FAKE_AGENT_RECORD=<file.jsonl>` appends one JSON line per session/new,
  * session/load and prompt — the params as they arrived, and the adapter's own
  * `PATH` — so a spec can assert what the client sent. Appended, not
@@ -239,6 +253,103 @@ function configOptions() {
   ];
 }
 
+/* -------------------------------------------------------------------------- */
+/* FAKE_AGENT_PROFILE=claude-code                                              */
+/* -------------------------------------------------------------------------- */
+
+const claudeProfile = process.env.FAKE_AGENT_PROFILE === "claude-code";
+/** What the smoke's session started on: the person's own Opus 1M at xhigh. */
+const claudeChosen = { model: "opus[1m]", effort: "xhigh", fast: false };
+/** The title the first turn announces. */
+const CLAUDE_PROFILE_TITLE = "Reply with ok";
+let claudeTitled = false;
+
+function claudeModes() {
+  return [
+    { id: "auto", name: "Auto", description: "Claude handles permission decisions", _meta: { kind: "auto_review" } },
+    { id: "default", name: "Manual", description: "Always ask before making changes", _meta: { kind: "standard" } },
+    { id: "acceptEdits", name: "Accept edits", description: "Automatically accept all file edits", _meta: { kind: "standard" } },
+    { id: "plan", name: "Plan", description: "Create a plan before making changes", _meta: { kind: "plan" } },
+    { id: "dontAsk", name: "Don't ask", description: "Deny anything not already allowed", _meta: { kind: "standard" } },
+    { id: "bypassPermissions", name: "Bypass permissions", description: "Accepts all permissions", _meta: { kind: "full_access" } },
+  ];
+}
+
+function claudeConfigOptions() {
+  return [
+    {
+      id: "mode",
+      name: "Mode",
+      description: "Session permission mode",
+      category: "mode",
+      type: "select",
+      currentValue: currentModeId,
+      options: claudeModes().map((mode) => ({ value: mode.id, name: mode.name, description: mode.description, _meta: mode._meta })),
+    },
+    {
+      id: "model",
+      name: "Model",
+      description: "AI model to use",
+      category: "model",
+      type: "select",
+      currentValue: claudeChosen.model,
+      options: [
+        { value: "default", name: "Default (recommended)", description: "Opus (1M context)" },
+        { value: "opus[1m]", name: "Opus (1M context)", description: "Opus with 1M context" },
+        { value: "claude-fable-5[1m]", name: "Fable", description: "Fable with 1M context" },
+        { value: "sonnet", name: "Sonnet", description: "Efficient for routine tasks" },
+        { value: "haiku", name: "Haiku", description: "Fastest for quick answers" },
+      ],
+    },
+    {
+      id: "effort",
+      name: "Effort",
+      description: "Available effort levels for this model",
+      category: "thought_level",
+      type: "select",
+      currentValue: claudeChosen.effort,
+      options: [
+        { value: "default", name: "Default" },
+        { value: "low", name: "Low" },
+        { value: "medium", name: "Medium" },
+        { value: "high", name: "High" },
+        { value: "xhigh", name: "Xhigh" },
+        { value: "max", name: "Max" },
+      ],
+    },
+    { id: "fast", name: "Fast mode", description: "Faster output on the same model", type: "boolean", currentValue: claudeChosen.fast },
+  ];
+}
+
+/**
+ * The adapter's command list: its built-ins, the person's skills and every
+ * plugin's, 129 in the smoke. A handful carry an input hint, as some do.
+ */
+function claudeCommands() {
+  const named = [
+    { name: "cad", description: "Create, modify, inspect, and validate parametric CAD parts. (user)", input: null },
+    { name: "debug", description: "Enable debug logging for this session and help diagnose issues", input: { hint: "[issue description]" } },
+    { name: "review", description: "Review a pull request", input: { hint: "[pr]" } },
+    { name: "compact", description: "Clear conversation history but keep a summary in context", input: { hint: "<optional instructions>" } },
+  ];
+  const plugins = Array.from({ length: 129 - named.length }, (_, index) => ({
+    name: `plugin-${String(index + 1).padStart(3, "0")}`,
+    description: `A plugin's command, number ${index + 1}. (plugin)`,
+    input: null,
+  }));
+  return [...named, ...plugins];
+}
+
+/** After the answer, the way the adapter sends it (`setTimeout(…, 0)` after session/new and session/load). */
+function sendClaudeCommandsSoon(conn, sessionId) {
+  setTimeout(() => {
+    void conn.sessionUpdate({
+      sessionId,
+      update: { sessionUpdate: "available_commands_update", availableCommands: claudeCommands() },
+    });
+  }, 0);
+}
+
 let cancelled = false;
 let cancelWaiter = null;
 /** The MCP servers `session/new` named, so a prompt can call one (below). */
@@ -250,6 +361,27 @@ new AgentSideConnection((conn) => ({
   async initialize() {
     if (fixture?.initialize) {
       return { ...fixture.initialize, protocolVersion: PROTOCOL_VERSION };
+    }
+    if (claudeProfile) {
+      return {
+        protocolVersion: PROTOCOL_VERSION,
+        agentInfo: { name: "@agentclientprotocol/claude-agent-acp", title: "Claude Agent", version: "0.69.0" },
+        agentCapabilities: {
+          loadSession: true,
+          promptCapabilities: { image: true, embeddedContext: true },
+          mcpCapabilities: { http: true, sse: true },
+          sessionCapabilities: {
+            additionalDirectories: {},
+            close: {},
+            delete: {},
+            fork: {},
+            list: {},
+            resume: {},
+            subagents: {},
+          },
+        },
+        authMethods: [],
+      };
     }
     return {
       protocolVersion: PROTOCOL_VERSION,
@@ -285,6 +417,14 @@ new AgentSideConnection((conn) => ({
         update: { sessionUpdate: "session_info_update", title: args[args.indexOf("--new-title") + 1] },
       });
     }
+    if (claudeProfile) {
+      sendClaudeCommandsSoon(conn, SESSION_ID);
+      return {
+        sessionId: SESSION_ID,
+        modes: { currentModeId, availableModes: claudeModes() },
+        configOptions: claudeConfigOptions(),
+      };
+    }
     return {
       sessionId: SESSION_ID,
       ...(modeAsOption ? {} : { modes: { currentModeId, availableModes: modeList() } }),
@@ -316,6 +456,10 @@ new AgentSideConnection((conn) => ({
       sessionId: params.sessionId,
       update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "earlier reply" } },
     });
+    if (claudeProfile) {
+      sendClaudeCommandsSoon(conn, params.sessionId);
+      return { modes: { currentModeId, availableModes: claudeModes() }, configOptions: claudeConfigOptions() };
+    }
     return modeAsOption
       ? { configOptions: configOptions() }
       : { modes: { currentModeId, availableModes: modeList() } };
@@ -336,6 +480,18 @@ new AgentSideConnection((conn) => ({
       throw RequestError.invalidParams(`${params.configId} is not available`);
     }
     applied.push(params.configId === "mode" ? `mode:${params.value}` : params.configId);
+    if (claudeProfile) {
+      if (params.configId === "mode") {
+        currentModeId = String(params.value);
+      } else if (params.configId in claudeChosen) {
+        claudeChosen[params.configId] = params.configId === "fast" ? Boolean(params.value) : String(params.value);
+      }
+      await conn.sessionUpdate({
+        sessionId: params.sessionId,
+        update: { sessionUpdate: "config_option_update", configOptions: claudeConfigOptions() },
+      });
+      return { configOptions: claudeConfigOptions() };
+    }
     if (params.configId in chosen) {
       chosen[params.configId] = String(params.value);
     }
@@ -368,6 +524,22 @@ new AgentSideConnection((conn) => ({
       }
       await replay(conn, turn.frames, params.sessionId);
       return turn.response ?? { stopReason: "end_turn" };
+    }
+    if (claudeProfile) {
+      // Mid-turn, before anything else the turn says: the whole list again.
+      await conn.sessionUpdate({
+        sessionId: params.sessionId,
+        update: { sessionUpdate: "available_commands_update", availableCommands: claudeCommands() },
+      });
+      const response = await script(conn, params);
+      if (!claudeTitled) {
+        claudeTitled = true;
+        await conn.sessionUpdate({
+          sessionId: params.sessionId,
+          update: { sessionUpdate: "session_info_update", title: CLAUDE_PROFILE_TITLE },
+        });
+      }
+      return response;
     }
     return script(conn, params);
   },

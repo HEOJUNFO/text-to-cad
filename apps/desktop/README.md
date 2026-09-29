@@ -1673,6 +1673,10 @@ Two things learned from the real adapters that the code now depends on:
   marker. The Claude fixture on this machine is the auth-failure exchange for
   that reason (`claude-code-auth-required.jsonl`); a machine with a signed-in
   `claude` (`claude auth status` → `loggedIn: true`) records a full session.
+  Until one is recorded, `FAKE_AGENT_PROFILE=claude-code` makes
+  `tests/fake-agent` answer in the shape a real Claude session showed —
+  its modes and config options, the 129-command list after `session/new`,
+  mid-turn and after `session/load`, a title sent live only.
 
 ### Opening a session
 
