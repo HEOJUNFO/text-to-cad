@@ -1375,10 +1375,13 @@ the version, the skill names and a SHA-256 of the composed skills' content. The
 root is rebuilt when any of those differ, or when either layout no longer hashes
 to the recorded content (an edited copy), and is idempotent otherwise; a dev
 build, whose version never changes, therefore picks up an edited SKILL.md on the
-next launch. The copies are read-only (files 0444, directories 0555, execute
-bits kept): the root is an additional directory of every session, so an agent,
-or a prompt injected into one, must not be able to rewrite what later sessions
-of every agent load. Symlinks are never shipped. Every `session/new` and `session/load`
+next launch. The root is an additional directory of every session, so an
+agent, or a prompt injected into one, must not be able to change what later
+sessions of every agent load: the copies are read-only files (0444, execute
+bits kept), re-materialised from the hash on every launch. Directories stay
+writable so the app's data can be deleted with a plain recursive `rm`; an
+agent can therefore still unlink and replace a file, and the hash check is what
+undoes that. Symlinks are never shipped. Every `session/new` and `session/load`
 receives the root in both `additionalDirectories` and `_meta.additionalRoots`;
 adapters read whichever spelling they understand. Claude Code and Codex use
 their native skill-root mechanisms. Other adapters retain the concise first

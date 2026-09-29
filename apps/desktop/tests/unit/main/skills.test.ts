@@ -12,14 +12,11 @@ import {
   materialiseSkillsRoot,
   skillFrontmatter,
   skillsPreamble,
-  unlockTree,
 } from "../../../src/main/integrations/skills";
 
 const temps: string[] = [];
 afterEach(() => {
   for (const dir of temps.splice(0)) {
-    // Materialised roots are read-only; removing one needs its directories writable again.
-    unlockTree(dir);
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -133,20 +130,43 @@ describe("the skills root", () => {
 
     if (process.platform !== "win32") {
       expect(fs.statSync(skill).mode & 0o222).toBe(0);
-      expect(fs.statSync(path.join(root, CLAUDE_LAYOUT, "cad")).mode & 0o222).toBe(0);
-      expect(fs.statSync(root).mode & 0o222).toBe(0);
+      expect(fs.statSync(path.join(root, ROOT_MANIFEST)).mode & 0o222).toBe(0);
+      // Directories stay writable, so the app's data can be deleted.
+      expect(fs.statSync(path.join(root, CLAUDE_LAYOUT, "cad")).mode & 0o200).toBe(0o200);
       // Unless the tests run as root, which ignores modes.
       if (process.getuid?.() !== 0) {
         expect(() => fs.appendFileSync(skill, "injected\n")).toThrow(/EACCES|EPERM/);
-        expect(() => fs.writeFileSync(path.join(root, CLAUDE_LAYOUT, "cad", "new.md"), "x")).toThrow(/EACCES|EPERM/);
       }
     }
 
-    // An agent that chmods its way past that is undone on the next launch.
+    // An agent that chmods its way past that, or replaces the file, is undone on the next launch.
     fs.chmodSync(skill, 0o644);
     fs.appendFileSync(skill, "injected\n");
     materialiseSkillsRoot({ source: from, base, version: "1.2.3" });
     expect(fs.readFileSync(skill, "utf8")).not.toContain("injected");
+    fs.rmSync(skill);
+    fs.writeFileSync(skill, "replaced\n");
+    materialiseSkillsRoot({ source: from, base, version: "1.2.3" });
+    expect(fs.readFileSync(skill, "utf8")).toContain("# cad");
+  });
+
+  it("can be deleted with a plain recursive rm (app data removal, test cleanup)", () => {
+    const base = temp("text-to-cad-userdata-");
+    const root = materialiseSkillsRoot({ source: source({ cad: "Make CAD." }), base, version: "1.2.3" }).root!;
+    fs.rmSync(root, { recursive: true });
+    expect(fs.existsSync(root)).toBe(false);
+  });
+
+  it("removes a root an earlier build left with read-only directories", () => {
+    const base = temp("text-to-cad-userdata-");
+    const old = path.join(base, "1.0.0", CLAUDE_LAYOUT, "cad");
+    fs.mkdirSync(old, { recursive: true });
+    fs.writeFileSync(path.join(old, "SKILL.md"), "x", { mode: 0o444 });
+    for (const dir of [old, path.dirname(old), path.join(base, "1.0.0")]) {
+      fs.chmodSync(dir, 0o555);
+    }
+    materialiseSkillsRoot({ source: source({ cad: "Make CAD." }), base, version: "1.2.3" });
+    expect(fs.readdirSync(base)).toEqual(["1.2.3"]);
   });
 
   it("rebuilds when the composed set changed, and when the root is half written", () => {
@@ -165,7 +185,6 @@ describe("the skills root", () => {
     expect(fs.readFileSync(stamp, "utf8")).not.toContain("<!-- stale -->");
 
     // A root whose manifest never got written (the app was killed mid-copy).
-    fs.chmodSync(two.root!, 0o755);
     fs.rmSync(path.join(two.root!, ROOT_MANIFEST));
     fs.chmodSync(stamp, 0o644);
     fs.appendFileSync(stamp, "\n<!-- also stale -->\n");

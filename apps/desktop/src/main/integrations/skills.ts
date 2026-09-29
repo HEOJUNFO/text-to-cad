@@ -163,52 +163,50 @@ function treeHash(dir: string, names: readonly string[]): string | null {
 }
 
 /**
- * Clear the write bits of everything under `dir` (its own included), keeping
- * execute bits. The root is handed to agents as an additional directory; a
- * read-only copy means an agent — or a prompt injected into one — cannot edit
- * a SKILL.md every later session of every agent would load. On Windows only
- * files take the read-only attribute; `treeHash` covers the rest.
+ * Make every FILE under `dir` read-only (0444, execute bits kept), so an
+ * agent's — or an injected prompt's — plain write to a SKILL.md fails.
+ * Directories stay writable (0755): a read-only directory makes a recursive
+ * `rm` of the app's data fail with ENOTEMPTY (the e2e suite's cleanup, CI, a
+ * person deleting their app data). An agent can therefore still unlink and
+ * replace a file; the defence against that is `treeHash`, which rebuilds any
+ * copy that differs from the source on every launch.
  */
-function lockTree(dir: string): void {
-  const stat = fs.lstatSync(dir);
-  if (stat.isDirectory()) {
-    for (const entry of fs.readdirSync(dir)) {
-      lockTree(path.join(dir, entry));
+function lockFiles(dir: string): void {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      lockFiles(full);
+    } else if (entry.isFile()) {
+      fs.chmodSync(full, fs.statSync(full).mode & 0o7555);
     }
-  }
-  if (!stat.isSymbolicLink()) {
-    fs.chmodSync(dir, stat.mode & 0o7555);
   }
 }
 
 /**
- * Give the owner write access back under `dir`, so it can be removed or
- * rebuilt. Best effort: a missing tree is nothing to unlock.
+ * Remove a root. Roots written by an earlier build had 0555 directories,
+ * which `rmSync` cannot empty, so directories are made writable first.
  */
-export function unlockTree(dir: string): void {
-  let stat: fs.Stats;
-  try {
-    stat = fs.lstatSync(dir);
-  } catch {
-    return;
-  }
-  if (stat.isSymbolicLink()) {
-    return;
-  }
-  try {
-    fs.chmodSync(dir, stat.mode | 0o200);
-  } catch {
-    // Not ours to change; the removal will say so.
-  }
-  if (stat.isDirectory()) {
-    for (const entry of fs.readdirSync(dir)) {
-      unlockTree(path.join(dir, entry));
-    }
-  }
-}
-
 function removeTree(dir: string): void {
-  unlockTree(dir);
+  const writable = (current: string): void => {
+    let stat: fs.Stats;
+    try {
+      stat = fs.lstatSync(current);
+    } catch {
+      return;
+    }
+    if (!stat.isDirectory()) {
+      return;
+    }
+    try {
+      fs.chmodSync(current, stat.mode | 0o700);
+    } catch {
+      // Not ours to change; the removal will say so.
+    }
+    for (const entry of fs.readdirSync(current)) {
+      writable(path.join(current, entry));
+    }
+  };
+  writable(dir);
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
@@ -222,7 +220,7 @@ function removeTree(dir: string): void {
  * skill set, changed skill content (dev builds keep one version while
  * SKILL.md files are edited), an edited copy, or a half-written root (the app
  * was killed mid-copy) is rebuilt from scratch. The copy is then made
- * read-only (see `lockTree`).
+ * files are then made read-only (see `lockFiles`).
  */
 export function materialiseSkillsRoot(options: {
   /** `resources/skills` — one directory per skill. */
@@ -265,7 +263,7 @@ export function materialiseSkillsRoot(options: {
       path.join(root, ROOT_MANIFEST),
       `${JSON.stringify({ version, skills: names, hash } satisfies Manifest, null, 2)}\n`,
     );
-    lockTree(root);
+    lockFiles(root);
   }
 
   // Only this app's own versions: `base` is a directory the app owns.
