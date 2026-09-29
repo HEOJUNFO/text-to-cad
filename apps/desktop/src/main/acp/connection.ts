@@ -187,6 +187,29 @@ export function spawnPlan(
   return named ? throughCmd(launch.command) : { command: launch.command, args: launch.args };
 }
 
+/**
+ * The options an adapter is spawned with that it cannot change afterwards —
+ * the agent, its launch, its environment, the skills root, the client version
+ * — as one string two spawns can be compared by. The directory is left out:
+ * the warm pool matches on it separately, and keeps an adapter for another
+ * directory rather than closing it.
+ */
+export function adapterOptionsKey(
+  options: Pick<SessionConnectionOptions, "agentId" | "launch" | "env" | "skillsRoot" | "clientVersion">,
+): string {
+  const sorted = (record: Record<string, string> | undefined) =>
+    Object.entries(record ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return JSON.stringify([
+    options.agentId,
+    options.launch.command,
+    options.launch.args,
+    sorted(options.launch.env),
+    sorted(options.env),
+    options.skillsRoot ?? null,
+    options.clientVersion ?? null,
+  ]);
+}
+
 export class SessionConnection {
   readonly client: AcpClient;
   readonly agent: ClientSideConnection;
@@ -206,6 +229,7 @@ export class SessionConnection {
 
   constructor(private readonly options: SessionConnectionOptions) {
     this.stateValue = initialSessionState(options.sessionId, options.agentId);
+    this.optionsKey = adapterOptionsKey(options);
 
     const env = { ...options.env, ...options.launch.env };
     const plan = spawnPlan(options.launch, env, options.platform);
@@ -296,6 +320,9 @@ export class SessionConnection {
   get cwd(): string {
     return this.options.cwd;
   }
+
+  /** What else it was spawned with (`adapterOptionsKey`); the warm pool matches on that too. */
+  readonly optionsKey: string;
 
   /**
    * Point an idle, already-initialized adapter at a real session (the warm

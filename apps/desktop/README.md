@@ -1659,7 +1659,10 @@ beside `sessions.ts`:
   trip.
   One per agent, handed out once and replaced. An adapter cannot be moved
   between directories, so it is matched on the `cwd` it was spawned in: a
-  worktree session spawns its own. There are no sessions in the index on a
+  worktree session spawns its own. It is matched on the rest of what it was
+  spawned with too — the environment, the runtime on `PATH`, the skills root,
+  the launch — and one spawned before any of those changed is closed rather
+  than adopted. There are no sessions in the index on a
   first launch, so this does nothing until the second — and it is gated the
   way the CAD pre-warm is (`TEXT_TO_CAD_PREWARM=1` under `NODE_ENV=test`).
 

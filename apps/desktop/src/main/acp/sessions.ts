@@ -39,7 +39,7 @@ import type { GitMode, Session, SessionStatus } from "../../shared/types";
 import type { Event as TelemetryEvent } from "../telemetry";
 import type { AgentDetector } from "../agents/detect";
 import { agentProvider } from "../agents/registry";
-import { SessionConnection, type SessionConnectionOptions } from "./connection";
+import { adapterOptionsKey, SessionConnection, type SessionConnectionOptions } from "./connection";
 import { LiveConnections } from "./live";
 import { SessionSnapshotWriter, type SnapshotStore } from "./snapshots";
 import type { SpawnTerminal } from "./terminals";
@@ -1168,7 +1168,10 @@ export class SessionManager {
 
     const owner: { connection?: SessionConnection } = {};
     const sessionOptions = this.sessionOptions(session, hooks.replay ?? {}, owner);
-    const warm = this.warm.take(session.agentId, session.cwd);
+    // Read before the pool is asked: a warm adapter is only this session's if
+    // it was spawned with the options a fresh spawn would get now.
+    const adapterOptions = await this.adapterOptions(session.agentId, session.cwd);
+    const warm = this.warm.take(session.agentId, session.cwd, adapterOptionsKey(adapterOptions));
     if (warm) {
       warm.adopt(sessionOptions);
       owner.connection = warm;
@@ -1176,10 +1179,7 @@ export class SessionManager {
       this.live.set(session.id, warm);
       return warm;
     }
-    const connection = new SessionConnection({
-      ...(await this.adapterOptions(session.agentId, session.cwd)),
-      ...sessionOptions,
-    });
+    const connection = new SessionConnection({ ...adapterOptions, ...sessionOptions });
     owner.connection = connection;
     this.live.set(session.id, connection);
     return connection;

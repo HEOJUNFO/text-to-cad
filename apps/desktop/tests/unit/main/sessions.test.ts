@@ -543,6 +543,32 @@ describe("SessionManager", () => {
     expect(manager.state(session.id)?.live).toBe(true);
   });
 
+  /**
+   * A warm adapter was spawned with the options of its moment: the PATH the
+   * runtime had then, the skills root, the launch. A Python override changed
+   * since, a sign-in that refreshed the shell's environment, a skills root
+   * materialised after the warm — adopting it would give the session the old
+   * ones. It is closed instead, and the session spawns with the options now.
+   */
+  it("does not hand out a warm adapter spawned with options that have since changed", async () => {
+    const file = path.join(await tempDir("text-to-cad-record-"), "frames.jsonl");
+    let runtime = "/a";
+    const { manager, cwd } = await setup({
+      launchOverride: () => ({ ...fakeProvider.launch, env: { FAKE_AGENT_RECORD: file } }),
+      runtimePath: () => [runtime],
+    });
+    const first = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    manager.close(first.id);
+    await manager.warmAgents();
+    await until(() => (manager.warmed("claude-code") ? true : undefined));
+
+    runtime = "/b";
+    await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    const lines = (await readFile(file, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { kind: string; params: Record<string, unknown> });
+    const created = lines.filter((line) => line.kind === "session/new").at(-1)!.params;
+    expect(String(created.PATH).split(path.delimiter)[0]).toBe("/b");
+  });
+
   it("skips warming an agent whose directory is gone", async () => {
     const { manager, repo, cwd } = await setup();
     const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
