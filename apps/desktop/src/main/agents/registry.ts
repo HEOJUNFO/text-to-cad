@@ -41,7 +41,9 @@ export const CLAUDE_ADAPTER = {
   version: "0.84.0",
   bin: "claude-agent-acp",
 } as const;
-export const CODEX_ADAPTER = { package: "@agentclientprotocol/codex-acp", version: "2.0.0", bin: "codex-acp" } as const;
+// The last 1.x: 2.0.0 (2026-09-28) is a major the app has not been run against,
+// while 1.4.0 is what the stale global install had been running all along.
+export const CODEX_ADAPTER = { package: "@agentclientprotocol/codex-acp", version: "1.13.1", bin: "codex-acp" } as const;
 
 /** The launch line for a pinned adapter: fetched once into npx's cache, never a global install. */
 const pinned = (adapter: { package: string; version: string; bin: string }) => ({
