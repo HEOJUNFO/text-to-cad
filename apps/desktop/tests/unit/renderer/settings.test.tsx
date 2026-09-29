@@ -237,6 +237,12 @@ describe("the agent drawer's sign-in", () => {
     expect(disclosure.open).toBe(false);
   });
 
+  it("hints extra arguments without another agent's model in them", async () => {
+    wrap(<AgentDrawer agent={agent("authenticated")} onOpenChange={() => {}} open platform="macos" />);
+    const extra = await screen.findByLabelText("Extra arguments");
+    expect(extra.getAttribute("placeholder")).not.toMatch(/gpt|model/i);
+  });
+
   it("signed out: the method's words beside a primary Sign in", async () => {
     wrap(<AgentDrawer agent={agent("unauthenticated")} onOpenChange={() => {}} open platform="macos" />);
     expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument();

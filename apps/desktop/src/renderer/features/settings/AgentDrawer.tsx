@@ -429,7 +429,9 @@ function AdvancedSection({ agent }: { agent: AgentStatus }) {
         id={`${agent.id}-extra-args`}
         onBlur={() => save(extraArgs, env)}
         onChange={(event) => setExtraArgs(event.target.value)}
-        placeholder="--verbose --model gpt-6"
+        // Neutral: one drawer serves every agent, and a model name in the
+        // hint was one agent's flag shown on all the others.
+        placeholder="--flag value"
         value={extraArgs}
       />
 
