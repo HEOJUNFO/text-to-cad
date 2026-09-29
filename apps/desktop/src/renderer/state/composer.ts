@@ -325,7 +325,9 @@ export const useComposer = create<ComposerState>((set, get) => ({
   resume: async (sessionId) => {
     set((state) => ({ paused: withoutKey(state.paused, sessionId) }));
     const status = useAcp.getState().sessions[sessionId]?.status;
-    if (status === "closed" || status === "connecting" || status === undefined) {
+    // "error" is where Resume is shown: a failed turn leaves the session there, and plain `drain`
+    // waits for idle, so it goes the way an unreachable agent does and the head is sent anyway.
+    if (status === "error" || status === "closed" || status === "connecting" || status === undefined) {
       await reconnectAndDrain(sessionId);
       return;
     }

@@ -236,18 +236,19 @@ export function Composer({
             <QueueSectionTrigger className="px-2 py-1 text-[12px]">
               <QueueSectionLabel count={queue.length} label={queue.length === 1 ? "queued prompt" : "queued prompts"} />
             </QueueSectionTrigger>
-            {queuePaused ? (
-              <div className="flex items-center justify-between gap-2 px-2 py-1 text-[12px] text-muted-foreground" role="status">
-                <span>Paused after an error</span>
+            {/* Always mounted, so the text arriving in it is announced; the button stays outside. */}
+            <div className="flex items-center justify-between gap-2 px-2 text-[12px] text-muted-foreground">
+              <span aria-live="polite" role="status">{queuePaused ? "Paused after an error" : ""}</span>
+              {queuePaused ? (
                 <button
-                  className="rounded-md px-2 py-0.5 font-medium text-foreground hover:bg-muted"
+                  className="my-1 rounded-md px-2 py-0.5 font-medium text-foreground hover:bg-muted"
                   onClick={() => void useComposer.getState().resume(sessionId)}
                   type="button"
                 >
                   Resume
                 </button>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
             <QueueSectionContent>
               <QueueList className="mt-1">
                 {queue.map((item) => (

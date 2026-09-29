@@ -34,9 +34,15 @@ it("a paused queue shows why, and Resume clears the pause and sends the head", a
   useComposer.getState().enqueue(SESSION, "B", block("B"));
   render(createElement(Composer, { sessionId: SESSION, newDraftKey: "__new__:p", chips: null, commands: [], status: "ready", onSubmit: vi.fn() }));
   expect(screen.queryByText("Paused after an error")).toBeNull();
+  expect(screen.getByRole("status", { hidden: true }), "the live region is there before the pause, empty").toBeTruthy();
 
-  act(() => useComposer.getState().turnEvent(SESSION, "prompt/error"));
-  expect(screen.getByText("Paused after an error")).toBeTruthy();
+  // What main does on a failed turn: the turn errors and the session reads "error" until the next.
+  act(() => {
+    useComposer.getState().turnEvent(SESSION, "prompt/error");
+    useAcp.setState({ sessions: { [SESSION]: { ...initialSessionState(SESSION, "claude"), status: "error" } } });
+  });
+  expect(screen.getByRole("status").textContent).toBe("Paused after an error");
+  expect(screen.getByRole("status").contains(screen.getByRole("button", { name: "Resume" })), "the button sits outside the live region").toBe(false);
 
   await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Resume" })); });
   expect(screen.queryByText("Paused after an error")).toBeNull();
