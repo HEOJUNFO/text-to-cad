@@ -102,3 +102,21 @@ it('a pick that did not open never pulls the tree to it later, when its folder i
   expect(rows()).toContain('STEP/bracket.step');
   expect(scrolled).not.toContain('STEP/bracket.step');
 });
+
+it('highlights one row: the open file, not also the row the cursor last sat on or the first row', () => {
+  const highlighted = () => [...document.querySelectorAll<HTMLElement>('[data-path]')]
+    .filter(row => /(^|\s)bg-accent(\/30)?(\s|$)/.test(row.className)).map(row => row.dataset.path);
+  const source = { rootName: 'project', expanded: new Set(), setExpanded() {}, listings: LISTINGS, load: noLoad, revision: 0,
+    paths: async () => [], platform: 'darwin', onAction() {} };
+  const view = render(<FileTree source={source as any} activePath={null} onOpen={() => {}} />);
+  // Nothing open, nobody has moved: nothing tinted.
+  expect(highlighted()).toEqual([]);
+  // notes.txt picked from the tree, then part.step opened from elsewhere (a tab, a link).
+  fireEvent.click(document.querySelector('[data-path="notes.txt"]')!);
+  view.rerender(<FileTree source={source as any} activePath="notes.txt" onOpen={() => {}} />);
+  view.rerender(<FileTree source={source as any} activePath="part.step" onOpen={() => {}} />);
+  expect(highlighted()).toEqual(['part.step']);
+  // The keys start from the open file.
+  fireEvent.keyDown(screen.getByRole('tree'), { key: 'ArrowUp' });
+  expect(highlighted()).toEqual(['notes.txt', 'part.step']);
+});

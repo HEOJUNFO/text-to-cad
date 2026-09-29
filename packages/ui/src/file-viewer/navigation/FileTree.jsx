@@ -478,9 +478,23 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
 
   const visible = filtering ? matches.map((match) => match.path) : rows.map((row) => row.path);
 
+  // The keyboard cursor goes where the open file goes, however it was opened —
+  // from this tree, a tab or a link in the transcript. Left where it was, it
+  // sat on the row picked last (or the first row) as a second highlight beside
+  // the file actually open.
+  const [cursorFollows, setCursorFollows] = useState(activePath);
+  if (activePath !== cursorFollows) {
+    setCursorFollows(activePath);
+    if (activePath) setCursor(activePath);
+  }
   // A cursor that has scrolled out of the list is worse than none: arrow keys
-  // would move a selection nobody can see.
-  const cursorPath = cursor && visible.includes(cursor) ? cursor : (visible[0] ?? null);
+  // would move a selection nobody can see. With none put anywhere the keys
+  // start from the open file, else the first row — but that fallback is not
+  // drawn: a row tinted before anyone moved to it reads as a second selection.
+  // Filtering is the exception, where it is the match Enter opens.
+  const placed = cursor && visible.includes(cursor) ? cursor : null;
+  const cursorPath = placed ?? (activePath && visible.includes(activePath) ? activePath : (visible[0] ?? null));
+  const drawnCursor = filtering ? cursorPath : placed;
 
   const onKeyDown = (event) => {
     if (visible.length === 0) {
@@ -625,7 +639,7 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
                 matches.map((match) => (
                   <FilterRow
                     active={match.path === activePath || match.path === reveal?.path}
-                    cursor={match.path === cursorPath}
+                    cursor={match.path === drawnCursor}
                     indices={match.indices}
                     key={match.path}
                     onOpen={() => open(match.path)}
@@ -644,7 +658,7 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
                   <Fragment key={row.path}>
                     <TreeRow
                       active={row.path === activePath || row.path === reveal?.path}
-                      cursor={row.path === cursorPath}
+                      cursor={row.path === drawnCursor}
                       onRename={
                         editing?.mode === "rename" && editing.entry.path === row.path
                           ? {
