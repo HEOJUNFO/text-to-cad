@@ -700,11 +700,15 @@ async function fileMeta(
   scope: DiffScope,
 ): Promise<Omit<FileDiff, "before" | "after">> {
   const base = (await baseRevision(root, scope)) ?? "HEAD";
+  // A rename is only seen with both sides in the pathspec: limited to the
+  // new path, git sees an added file, and the diff's before side is empty.
+  const oldPath = await renamedFrom(root, base, filePath);
+  const paths = oldPath ? [filePath, oldPath] : [filePath];
   const numstat = parseNumstat(
-    (await tryGit(root, ["diff", "--numstat", "-z", "-M", "--end-of-options", base, "--", filePath])) ?? "",
+    (await tryGit(root, ["diff", "--numstat", "-z", "-M", "--end-of-options", base, "--", ...paths])) ?? "",
   );
   const statuses = parseNameStatus(
-    (await tryGit(root, ["diff", "--name-status", "-z", "-M", "--end-of-options", base, "--", filePath])) ?? "",
+    (await tryGit(root, ["diff", "--name-status", "-z", "-M", "--end-of-options", base, "--", ...paths])) ?? "",
   );
   const counted = numstat.get(filePath);
 
@@ -721,6 +725,34 @@ async function fileMeta(
 
   // Nothing against the base means git has never seen it: it is untracked.
   return { path: filePath, status: "untracked", ...(await countUntracked(root, filePath)) };
+}
+
+/**
+ * Where `filePath` was renamed from since `base`, or undefined. The
+ * candidates are the paths deleted since then — usually none, so this is one
+ * cheap `git diff --diff-filter=D` — and git pairs them up as it would over
+ * the whole tree.
+ */
+async function renamedFrom(root: string, base: string, filePath: string): Promise<string | undefined> {
+  const deleted = ((await tryGit(root, ["diff", "--name-only", "-z", "--no-renames", "--diff-filter=D", "--end-of-options", base])) ?? "")
+    .split("\0")
+    .filter((deletedPath) => deletedPath !== "" && deletedPath !== filePath);
+  if (deleted.length === 0) {
+    return undefined;
+  }
+  const records = ((await tryGit(root, ["diff", "--name-status", "-z", "-M", "--end-of-options", base, "--", filePath, ...deleted])) ?? "").split("\0");
+  for (let index = 0; index < records.length; index += 1) {
+    const code = records[index] ?? "";
+    if (code.startsWith("R")) {
+      if (records[index + 2] === filePath) {
+        return records[index + 1];
+      }
+      index += 2;
+    } else if (code !== "") {
+      index += 1;
+    }
+  }
+  return undefined;
 }
 
 function scopeTip(scope: DiffScope): string {
@@ -750,12 +782,12 @@ export async function unifiedDiff(
   const scope = await unmarkedOrRefuse(root, requested);
   const base = await baseRevision(root, scope);
   const args = ["diff", "-M", "--patch", "--end-of-options"];
-  if (scope.kind === "working-tree") {
-    args.push("HEAD");
-  } else if (base) {
-    args.push(base);
+  const from = scope.kind === "working-tree" ? "HEAD" : base;
+  if (from) {
+    args.push(from);
   }
-  args.push("--", filePath);
+  const oldPath = from ? await renamedFrom(root, from, filePath) : undefined;
+  args.push("--", filePath, ...(oldPath ? [oldPath] : []));
   const patch = await tryGit(root, args);
   if (patch && patch.trim() !== "") {
     return patch;

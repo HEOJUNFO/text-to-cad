@@ -551,6 +551,24 @@ describe("status against a recorded revision", () => {
   });
 });
 
+describe("a renamed file", () => {
+  it("diffs against its old path, not as a new file", async () => {
+    const { root } = await repository();
+    const mark = (await git.head(root))!;
+    await git_(root, "mv", "README.md", "NOTES.md");
+    await writeFile(path.join(root, "NOTES.md"), "one\ntwo\nthree\n");
+
+    for (const scope of [{ kind: "working-tree" as const }, { kind: "range" as const, from: mark }]) {
+      const diff = await git.fileDiff(root, "NOTES.md", scope);
+      expect(diff).toMatchObject({ status: "renamed", oldPath: "README.md", insertions: 1, deletions: 0 });
+      expect(diff.before).toBe("one\ntwo\n");
+      const patch = await git.unifiedDiff(root, "NOTES.md", scope);
+      expect(patch).toContain("rename from README.md");
+      expect(patch).toContain("+three");
+    }
+  });
+});
+
 /** Set a directory's mtime, so the sweep's ordering is deterministic. */
 async function touch(directory: string, at: number): Promise<void> {
   const { utimes } = await import("node:fs/promises");
