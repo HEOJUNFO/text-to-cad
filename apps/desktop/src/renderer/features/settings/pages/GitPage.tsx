@@ -41,10 +41,17 @@ const GIT_MODES: { value: GitMode; label: string }[] = [
   { value: "worktree", label: "New worktree" },
 ];
 
-const KEEP_LIMITS = [3, 5, 10, 20, 50].map((count) => ({
-  value: String(count),
-  label: `Keep ${count}`,
-}));
+const KEEP_PRESETS = [3, 5, 10, 20, 50];
+
+/**
+ * The presets, plus the stored limit when it is none of them (the schema
+ * takes any count from 1): a select whose value matches no option draws
+ * blank, which reads as "no limit" when there is one.
+ */
+function keepLimits(stored: number) {
+  const counts = KEEP_PRESETS.includes(stored) ? KEEP_PRESETS : [...KEEP_PRESETS, stored].sort((a, b) => a - b);
+  return counts.map((count) => ({ value: String(count), label: `Keep ${count}` }));
+}
 
 export function GitPage() {
   const settings = useSettingsValue();
@@ -136,7 +143,7 @@ export function GitPage() {
           disabled={!settings.autoDeleteWorktrees}
           keywords="limit count retain"
           onChange={(value) => patch({ worktreeKeepLimit: Number(value) })}
-          options={KEEP_LIMITS}
+          options={keepLimits(settings.worktreeKeepLimit)}
           title="Keep limit"
           value={String(settings.worktreeKeepLimit)}
           width="w-[140px]"
