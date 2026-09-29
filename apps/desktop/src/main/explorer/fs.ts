@@ -1216,10 +1216,14 @@ export class FileWatchers {
       const absolute = path.join(realRoot, change.path);
       // A link's identity is its own inode, taken again when it is still a
       // link: `ln -sfn` re-points it as a new link under the same name, and
-      // a later rename of that one is its tab's file moved.
+      // a later rename of that one is its tab's file moved. The new link may
+      // name another target, whose changes are then the ones repeated.
       if (known?.get(change.path)?.link) {
         const own = await fs.lstat(absolute).catch(() => null);
-        if (own?.isSymbolicLink() && known.get(change.path)?.link) known.set(change.path, { dev: own.dev, ino: own.ino, link: true });
+        if (own?.isSymbolicLink() && known.get(change.path)?.link) {
+          known.set(change.path, { dev: own.dev, ino: own.ino, link: true });
+          await this.retarget(root, realRoot, change.path);
+        }
       }
       const stats = await fs.stat(absolute).catch(() => null);
       if (!stats?.isFile()) return change;
@@ -1229,6 +1233,24 @@ export class FileWatchers {
       return content ? { ...change, revision: revisionOf(content) } : change;
     }));
     return this.throughLinks(root, await this.pairMoves(root, realRoot, stamped));
+  }
+
+  /**
+   * An opened link's name moved to the target it points at now. Left under
+   * the old one, `ln -sfn` would keep repeating a file the tab no longer
+   * shows and never the one it does. A target outside the root, or none,
+   * is no target: nothing is repeated for it.
+   */
+  private async retarget(root: string, realRoot: string, link: string): Promise<void> {
+    const real = await resolveInRoot(root, link).then((absolute) => toRelative(realRoot, absolute), () => null);
+    if (real !== null && real !== link) await this.watchListedDirectory(root, path.posix.dirname(real));
+    const links = this.aliases.get(root);
+    if (!links || !this.watchers.has(root)) return;
+    for (const [target, names] of links) {
+      if (target === real || !names.delete(link)) continue;
+      if (names.size === 0) links.delete(target);
+    }
+    if (real !== null && real !== link) links.set(real, new Set([...(links.get(real) ?? []), link]));
   }
 
   /** Each change to an opened link's target, repeated under the link's name. */
