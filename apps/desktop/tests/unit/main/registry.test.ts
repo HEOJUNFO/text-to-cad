@@ -49,13 +49,18 @@ describe("the agent registry", () => {
     // an exact version never consults the global tree.
     for (const provider of AGENT_PROVIDERS) {
       expect(provider.launch.args.join(" "), provider.id).not.toMatch(/@latest/);
+      // A pin is served from npx's cache: no manifest round trip in front of a session start.
+      expect(provider.launch.args, provider.id).not.toContain("--prefer-online");
     }
     expect(agentProvider("claude-code")?.launch).toEqual({
       command: "npm",
       args: [
         "exec",
         "--yes",
-        "--prefer-online",
+        "--prefer-offline",
+        "--no-audit",
+        "--no-fund",
+        "--no-update-notifier",
         `--package=@agentclientprotocol/claude-agent-acp@${CLAUDE_ADAPTER.version}`,
         "--",
         "claude-agent-acp",
@@ -67,7 +72,10 @@ describe("the agent registry", () => {
       args: [
         "exec",
         "--yes",
-        "--prefer-online",
+        "--prefer-offline",
+        "--no-audit",
+        "--no-fund",
+        "--no-update-notifier",
         `--package=@agentclientprotocol/codex-acp@${CODEX_ADAPTER.version}`,
         "--",
         "codex-acp",

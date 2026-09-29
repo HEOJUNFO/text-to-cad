@@ -45,10 +45,29 @@ export const CLAUDE_ADAPTER = {
 // while 1.4.0 is what the stale global install had been running all along.
 export const CODEX_ADAPTER = { package: "@agentclientprotocol/codex-acp", version: "1.13.1", bin: "codex-acp" } as const;
 
-/** The launch line for a pinned adapter: fetched once into npx's cache, never a global install. */
+/**
+ * The launch line for a pinned adapter: fetched once into npx's cache, never
+ * a global install, and never the registry again for an exact version.
+ * `--prefer-online` would put a manifest round trip in front of every spawn —
+ * measured: a refused connection (a proxy or VPN down) held the start for 71 s
+ * before npm fell back to its cache, and nothing above this has a spawn
+ * timeout to say so. `--prefer-offline` serves the cached tarball for an exact
+ * pin and only fetches the first time; the audit, funding and update-notifier
+ * requests are noise a session start does not need.
+ */
 const pinned = (adapter: { package: string; version: string; bin: string }) => ({
   command: "npm",
-  args: ["exec", "--yes", "--prefer-online", `--package=${adapter.package}@${adapter.version}`, "--", adapter.bin],
+  args: [
+    "exec",
+    "--yes",
+    "--prefer-offline",
+    "--no-audit",
+    "--no-fund",
+    "--no-update-notifier",
+    `--package=${adapter.package}@${adapter.version}`,
+    "--",
+    adapter.bin,
+  ],
   env: {},
 });
 const adapterOf = (adapter: { package: string; version: string }) => ({
