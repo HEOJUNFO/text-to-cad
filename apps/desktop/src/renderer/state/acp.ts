@@ -141,11 +141,15 @@ export const useAcp = create<AcpState>((set, get) => ({
         loadErrors,
       };
     });
+    const asked = generationOf(sessionId);
     try {
       const state = await window.textToCad.sessions.load({ id: sessionId });
-      get().receiveState(sessionId, state);
+      // Forgotten while it loaded — archived, deleted, disconnected: the answer is for nobody.
+      if (generationOf(sessionId) === asked) get().receiveState(sessionId, state);
     } catch (error) {
-      set((current) => ({ loadErrors: { ...current.loadErrors, [sessionId]: errorMessage(error) } }));
+      if (generationOf(sessionId) === asked) {
+        set((current) => ({ loadErrors: { ...current.loadErrors, [sessionId]: errorMessage(error) } }));
+      }
     } finally {
       set((current) => {
         const loading = { ...current.loading };
@@ -175,8 +179,12 @@ export const useAcp = create<AcpState>((set, get) => ({
       // before the load starts, so the transcript is on screen in a frame
       // rather than in two seconds. `live: true` means main's connection
       // outlived the renderer's copy of it and there is nothing to reconnect.
+      const asked = generationOf(sessionId);
       try {
         const painted = await window.textToCad.sessions.state({ id: sessionId });
+        if (generationOf(sessionId) !== asked) {
+          return;
+        }
         // A load that started while this was in flight owns the session now.
         if (painted && !get().sessions[sessionId] && !get().loading[sessionId]) {
           get().receiveState(sessionId, painted.state);
@@ -214,8 +222,17 @@ export const useAcp = create<AcpState>((set, get) => ({
   },
 }));
 
+/**
+ * How many times each session has been forgotten. An IPC answer that arrives after a forget —
+ * the row archived or deleted while its snapshot or its load was on the way — is dropped rather
+ * than bringing back state nothing will forget again.
+ */
+const forgotten = new Map<string, number>();
+const generationOf = (sessionId: string) => forgotten.get(sessionId) ?? 0;
+
 /** Everything held for one session, taken out: its state, its load's leftovers, its terminals' tails. */
 function without(current: AcpState, sessionId: string): Partial<AcpState> {
+  forgotten.set(sessionId, generationOf(sessionId) + 1);
   const sessions = { ...current.sessions };
   delete sessions[sessionId];
   const loadErrors = { ...current.loadErrors };

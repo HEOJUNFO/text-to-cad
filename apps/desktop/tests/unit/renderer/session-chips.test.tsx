@@ -53,6 +53,10 @@ function state(status: LiveStatus) {
 
 beforeEach(() => {
   vi.mocked(toast.error).mockClear();
+  vi.mocked(toast.info).mockClear();
+  setMode.mockClear();
+  setConfigOption.mockClear();
+  cancel.mockClear();
   useAcp.setState({ sessions: {}, loading: {}, reconnecting: {}, loadErrors: {}, ensureLoaded: vi.fn(async () => undefined), setMode, setConfigOption, cancel } as never);
 });
 
@@ -75,17 +79,31 @@ describe("the composer's chips and Stop", () => {
     ]);
   });
 
-  it.each(["closed", "connecting", "error"] as const)("are not offered on a %s session", (status) => {
-    useAcp.setState({ sessions: { s1: state(status) } } as never);
+  it.each([
+    ["closed", false, "Agent disconnected"],
+    ["error", false, "Agent disconnected"],
+    ["connecting", false, "Connecting…"],
+    ["idle", true, "Reconnecting…"],
+  ] as const)("stay in the tree on a %s session (reconnecting: %s), disabled, with the reason as their description", async (status, reconnecting, reason) => {
+    useAcp.setState({ sessions: { s1: state(status) }, reconnecting: reconnecting ? { s1: true } : {} } as never);
     render(<SessionView session={SESSION} />);
     for (const name of ["Mode", "Model"]) {
-      expect(screen.getByRole("button", { name, hidden: true }).closest("[inert]"), name).not.toBeNull();
+      const chip = screen.getByRole("button", { name });
+      expect(chip, name).toHaveAttribute("aria-disabled", "true");
+      expect(chip, name).toHaveAccessibleDescription(reason);
+      expect(chip, name).not.toHaveAttribute("title");
+      await act(async () => chip.click());
     }
+    expect(setMode).not.toHaveBeenCalled();
+    expect(setConfigOption).not.toHaveBeenCalled();
+    expect(vi.mocked(toast.info).mock.calls).toEqual([[reason], [reason]]);
   });
 
   it("are offered on an idle session", () => {
     useAcp.setState({ sessions: { s1: state("idle") } } as never);
     render(<SessionView session={SESSION} />);
-    expect(screen.getByRole("button", { name: "Mode" }).closest("[inert]")).toBeNull();
+    const chip = screen.getByRole("button", { name: "Mode" });
+    expect(chip).not.toHaveAttribute("aria-disabled");
+    expect(chip).not.toHaveAccessibleDescription();
   });
 });

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useAcp } from "@renderer/state/acp";
 import { useSessions } from "@renderer/state/sessions";
@@ -80,5 +80,48 @@ describe("what the acp store lets go of", () => {
     expect(Object.keys(useAcp.getState().sessions)).toEqual(["s2"]);
     useSessions.getState().setActive("s1");
     expect(useAcp.getState().sessions).toEqual({});
+  });
+
+  describe("a session archived while it loads", () => {
+    const sessionsApi = window.textToCad.sessions as unknown as Record<string, unknown>;
+    const deferred = <T,>() => {
+      let settle!: { resolve: (value: T) => void; reject: (error: Error) => void };
+      const promise = new Promise<T>((resolve, reject) => (settle = { resolve, reject }));
+      return { promise, ...settle };
+    };
+    const archiveS1 = () => useSessions.getState().receive([row("s1", true), row("s2")]);
+
+    beforeEach(() => useAcp.setState({ sessions: {} }));
+
+    it("is not brought back by the load's answer", async () => {
+      const answer = deferred<unknown>();
+      sessionsApi.load = vi.fn(() => answer.promise);
+      const loading = useAcp.getState().load("s1");
+      archiveS1();
+      answer.resolve(live("s1"));
+      await loading;
+      expect(useAcp.getState().sessions).toEqual({});
+    });
+
+    it("is not given the load's failure", async () => {
+      const answer = deferred<unknown>();
+      sessionsApi.load = vi.fn(() => answer.promise);
+      const loading = useAcp.getState().load("s1");
+      archiveS1();
+      answer.reject(new Error("gone"));
+      await loading;
+      expect(useAcp.getState().loadErrors).toEqual({});
+    });
+
+    it("is not painted by the snapshot that was on its way", async () => {
+      const snapshot = deferred<unknown>();
+      sessionsApi.state = vi.fn(() => snapshot.promise);
+      sessionsApi.load = vi.fn(async () => live("s1"));
+      const opening = useAcp.getState().ensureLoaded("s1");
+      archiveS1();
+      snapshot.resolve({ state: live("s1"), live: true });
+      await opening;
+      expect(useAcp.getState().sessions).toEqual({});
+    });
   });
 });
