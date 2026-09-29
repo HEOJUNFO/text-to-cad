@@ -545,6 +545,19 @@ describe("the explorer strip", () => {
       expect(window.textToCad.explorer.watch).not.toHaveBeenCalled();
     });
 
+    it("keeps a background session's open folders when a file changes, and drops only its listings", async () => {
+      useExplorer.getState().open("file", { path: "src/a.py" });
+      useExplorer.getState().setTreeOpen(null, (open) => new Set([...open, "src", "src/deep"]));
+      useExplorer.getState().setTreeListing(null, "src", [{ path: "src/a.py", name: "a.py", kind: "file", size: 1, modifiedAt: 0, symlink: false }]);
+      await useExplorer.getState().bindSession("other-session", PROJECT, null);
+      useExplorer.getState().receiveChanges(PROJECT, null, [{ kind: "changed", path: "src/a.py", directory: false }]);
+      vi.mocked(window.textToCad.explorer.loadTabs).mockClear();
+      await useExplorer.getState().bindSession(PROJECT, PROJECT, null);
+      const tree = useExplorer.getState().trees[""];
+      expect([...tree!.open].sort()).toEqual(["", "src", "src/deep"]);
+      expect(tree!.listings).toEqual({});
+    });
+
     it("drops a reveal when the root changes; a reveal names its root", () => {
       useExplorer.getState().setRoot(null);
       useExplorer.getState().setReveal({ path: "STEP", directory: true, root: null });

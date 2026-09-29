@@ -731,7 +731,12 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
         changed ||= path !== tab.path;
         return path === tab.path ? tab : { ...tab, path };
       });
-      const next = { ...strip, tabs, trees: {} };
+      // The changed root's cached listings are stale and dropped; the folders
+      // the person opened are not (a moved folder stays open under its new name).
+      const key = treeKey(root), tree = strip.trees?.[key];
+      const trees = tree ? { ...strip.trees, [key]: {
+        open: new Set(reconcileFileTree(tree.listings, [...tree.open], changes.map(viewerFileChange)).expanded), listings: {} } } : strip.trees;
+      const next = { ...strip, tabs, trees };
       if (changed) saveStrip(sessionId, next); else retainedStrips.set(sessionId, next);
     }
     if (get().projectId !== projectId) return;
