@@ -2,6 +2,7 @@ import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Boxes, Circle, CornerUpRight, Focus, Layers, RotateCw, Shapes, Spline, SquareDashed } from 'lucide-react';
 import { Button } from '@text-to-cad/ui/primitives/button';
+import { ScrollArea } from '@text-to-cad/ui/primitives/scroll-area';
 import { TREE_ROW_DENSE_HEIGHT, TREE_ROW_DENSE_ICON_CLASS, TreeRowSurface, TreeRowChevron, TreeRowLabel } from '@text-to-cad/ui/primitives/tree-row';
 import { TreeFilterHighlight, TreeFilterInput } from '@text-to-cad/ui/primitives/tree-filter';
 import { cn } from '@text-to-cad/ui/utils';
@@ -521,7 +522,9 @@ function ModelingTree({ modeling, active, disabled, mode='all', modeMenu=null, l
               there is no viewport card to hold it. */}
           {error && modelingErrorText(error) !== String(error).trim() && <details className="mt-1">
             <summary className="w-fit cursor-pointer text-foreground">Details</summary>
-            <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-sm bg-muted p-2 font-mono select-text">{String(error).trim()}</pre>
+            <ScrollArea className="mt-1 max-h-40 rounded-sm bg-muted">
+              <pre className="whitespace-pre-wrap break-words p-2 font-mono select-text">{String(error).trim()}</pre>
+            </ScrollArea>
           </details>}
         </div>}
         <div ref={listRef} className="px-1 py-1" aria-label="Model tree area"

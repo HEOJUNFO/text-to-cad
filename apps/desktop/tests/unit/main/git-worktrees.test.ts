@@ -241,12 +241,15 @@ describe("createWorktree", () => {
   it("with fetch, starts from the fetched upstream rather than local HEAD, and tracks nothing", async () => {
     const { root, worktrees } = await repository();
     const remote = path.join(path.dirname(root), "remote.git");
-    await git_(path.dirname(root), "init", "--quiet", "--bare", remote);
+    // The bare remote's HEAD is git's compiled-in default branch unless said
+    // otherwise (CI has no `init.defaultBranch`); a clone of it would then
+    // sit on an unborn `master` and the push below would have no `main`.
+    await git_(path.dirname(root), "init", "--quiet", "--bare", "--initial-branch=main", remote);
     await git_(root, "remote", "add", "origin", remote);
     await git_(root, "push", "--quiet", "-u", "origin", "main");
     // Someone else pushes a commit the checkout has not seen.
     const other = path.join(path.dirname(root), "other");
-    await git_(path.dirname(root), "clone", "--quiet", remote, other);
+    await git_(path.dirname(root), "clone", "--quiet", "--branch", "main", remote, other);
     await writeFile(path.join(other, "theirs.txt"), "new\n");
     await git_(other, "add", "-A");
     await git_(other, "commit", "--quiet", "-m", "theirs");
