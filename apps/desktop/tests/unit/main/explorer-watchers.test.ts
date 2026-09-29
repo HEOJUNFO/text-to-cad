@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as NodeFs from "node:fs";
 import type { Mock } from "vitest";
-import { FileWatchers, statFile } from "@main/explorer/fs";
+import { FileWatchers, readTextFile, revisionOf, statFile, writeTextFile } from "@main/explorer/fs";
 import type { FileChange } from "@main/explorer/fs";
 
 const driver = vi.hoisted(() => ({ recursive: vi.fn(), direct: vi.fn() }));
@@ -68,7 +68,7 @@ describe("visible file watching", () => {
     await fs.writeFile(path.join(root, "STEP", "new.step"), "ISO-10303-21;\n");
     notify("rename", "new.step");
     await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(root, [
-      { path: "STEP/new.step", kind: "changed", directory: false },
+      { path: "STEP/new.step", kind: "changed", directory: false, revision: revisionOf("ISO-10303-21;\n") },
     ]));
   });
 
@@ -83,7 +83,7 @@ describe("visible file watching", () => {
     await fs.writeFile(path.join(root, "runtime-bundle", "settings.txt"), "after\n");
     notify("change", "settings.txt");
     await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(root, [
-      { path: "runtime-bundle/settings.txt", kind: "changed", directory: false },
+      { path: "runtime-bundle/settings.txt", kind: "changed", directory: false, revision: revisionOf("after\n") },
     ]));
   });
 
@@ -103,7 +103,7 @@ describe("visible file watching", () => {
     await fs.writeFile(file, Buffer.from([0, 1, 2]));
     notify("rename", "new.unsupported");
     await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(root, [
-      { path: "node_modules/dependency/new.unsupported", kind: "changed", directory: false },
+      { path: "node_modules/dependency/new.unsupported", kind: "changed", directory: false, revision: revisionOf(Buffer.from([0, 1, 2])) },
     ]));
 
     await watchers.unwatch(root);
@@ -114,6 +114,21 @@ describe("visible file watching", () => {
     emit.mockClear();
     notify("change", "new.unsupported");
     expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("stamps a changed file with the revision its own save returned", async () => {
+    await fs.writeFile(path.join(root, "notes.txt"), "before\n");
+    await watchers.watch(root);
+    await watchers.watchEntry(root, await statFile(root, "notes.txt"));
+    const notify = driver.direct.mock.calls[0]![2] as (event: string, filename: string) => void;
+    const loaded = await readTextFile(root, "notes.txt");
+    const saved = await writeTextFile(root, "notes.txt", "after\n", loaded.revision);
+    notify("rename", "notes.txt");
+    // The editor that saved holds `saved.revision`; the echo carries the same
+    // one, so it is not reported to that editor as a change on disk.
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(root, [
+      { path: "notes.txt", kind: "changed", directory: false, revision: saved.revision },
+    ]));
   });
 
   it("cancels setup without creating a watcher when the last owner leaves", async () => {

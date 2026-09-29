@@ -736,6 +736,12 @@ export type FileChange = {
   path: string;
   kind: "added" | "changed" | "removed";
   directory: boolean;
+  /**
+   * The changed file's content revision, as `readTextFile` would report it.
+   * An editor compares it with the revision it holds, so the echo of its own
+   * save is not mistaken for someone else's edit.
+   */
+  revision?: string;
 };
 
 type Watcher = {
@@ -762,6 +768,8 @@ export class FileWatchers {
   private readonly listedDirectories = new Map<string, Set<string>>();
   private readonly pending = new Map<string, Map<string, FileChange>>();
   private readonly timers = new Map<string, NodeJS.Timeout>();
+  /** Each root's batches leave in order, however long one takes to settle. */
+  private readonly flushes = new Map<string, Promise<void>>();
 
   constructor(private readonly emit: (root: string, changes: FileChange[]) => void) {}
 
@@ -908,11 +916,40 @@ export class FileWatchers {
         this.timers.delete(root);
         const flushing = this.pending.get(root);
         this.pending.delete(root);
-        if (flushing && flushing.size > 0) {
-          this.emit(root, [...flushing.values()]);
-        }
+        if (!flushing || flushing.size === 0) return;
+        const owner = this.watchers.get(root);
+        const flushed = (this.flushes.get(root) ?? Promise.resolve())
+          .then(() => this.settle(root, [...flushing.values()]))
+          .then((changes) => {
+            if (this.watchers.get(root) === owner) this.emit(root, changes);
+          })
+          .catch((error: unknown) => console.error(`[explorer] watch ${root}`, error))
+          .finally(() => {
+            if (this.flushes.get(root) === flushed) this.flushes.delete(root);
+          });
+        this.flushes.set(root, flushed);
       }, BATCH_MS),
     );
+  }
+
+  /**
+   * Stamp each changed file with its content revision. A save's own write
+   * comes back through the watcher a moment later; without a revision the
+   * editor that saved cannot tell it from an agent's edit, and a clean
+   * buffer reloads under the cursor while a dirty one is told the file
+   * changed on disk. A file over the text cap opens read-only and is never
+   * saved from here, so it is not read.
+   */
+  private async settle(root: string, changes: FileChange[]): Promise<FileChange[]> {
+    const realRoot = await fs.realpath(root).catch(() => path.resolve(root));
+    return Promise.all(changes.map(async (change) => {
+      if (change.kind !== "changed" || change.directory) return change;
+      const absolute = path.join(realRoot, change.path);
+      const stats = await fs.stat(absolute).catch(() => null);
+      if (!stats?.isFile() || stats.size > MAX_TEXT_BYTES) return change;
+      const content = await fs.readFile(absolute).catch(() => null);
+      return content ? { ...change, revision: revisionOf(content) } : change;
+    }));
   }
 
   private clearTimer(root: string) {
