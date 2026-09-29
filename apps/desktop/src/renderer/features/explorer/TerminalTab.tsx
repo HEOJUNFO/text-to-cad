@@ -133,7 +133,7 @@ export function TerminalTab({
       .then((info) => {
         // A shell can finish spawning after the person changes sessions.
         void updateSessionTab(sessionId, tabId, { ptyId: info.id, cwd: info.cwd })
-          .catch(() => window.textToCad.terminal.kill({ id: info.id }));
+          .catch(() => window.textToCad.terminal.kill({ id: info.id, sessionId }));
       })
       .catch((caught: unknown) => {
         setError(caught instanceof Error ? caught.message : String(caught));
@@ -182,7 +182,7 @@ export function TerminalTab({
     const push = () => {
       fit.fit();
       void window.textToCad.terminal
-        .resize({ id: ptyId, cols: term.cols, rows: term.rows })
+        .resize({ id: ptyId, sessionId, cols: term.cols, rows: term.rows })
         .catch(() => {});
     };
 
@@ -214,7 +214,7 @@ export function TerminalTab({
 
     // Attach: whatever the shell wrote while this tab was closed.
     void window.textToCad.terminal
-      .attach({ id: ptyId })
+      .attach({ id: ptyId, sessionId })
       .then((attached) => {
         if (!attached) {
           setError("That shell is no longer running.");
@@ -244,7 +244,7 @@ export function TerminalTab({
 
     if (!readOnly) {
       term.onData((data) => {
-        void window.textToCad.terminal.write({ id: ptyId, data }).catch(() => {});
+        void window.textToCad.terminal.write({ id: ptyId, sessionId, data }).catch(() => {});
       });
     }
 
@@ -268,7 +268,7 @@ export function TerminalTab({
       if (modifier && event.key.toLowerCase() === "v") {
         void navigator.clipboard.readText().then((text) => {
           if (text) {
-            void window.textToCad.terminal.write({ id: ptyId, data: text }).catch(() => {});
+            void window.textToCad.terminal.write({ id: ptyId, sessionId, data: text }).catch(() => {});
           }
         });
         return false;
@@ -292,7 +292,7 @@ export function TerminalTab({
       term.dispose();
       termRef.current = null;
     };
-  }, [ptyId, readOnly, mode]);
+  }, [ptyId, sessionId, readOnly, mode]);
 
   if (error) {
     return (

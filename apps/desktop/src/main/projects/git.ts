@@ -22,6 +22,7 @@ import path from "node:path";
 
 import { execa, type Options } from "execa";
 
+import { diffScopeFor, ReviewScopeSchema } from "../../shared/types";
 import { trackChild, type ChildKind, type Trackable } from "../children";
 
 /* -------------------------------------------------------------------------- */
@@ -327,6 +328,7 @@ export function emptyStatus(): GitStatus {
  * the number matters.
  */
 export async function status(cwd: string, scope: DiffScope = { kind: "working-tree" }): Promise<GitStatus> {
+  assertSafeScope(scope);
   const root = await repositoryRoot(cwd);
   if (!root) {
     return emptyStatus();
@@ -420,8 +422,8 @@ async function rangeFiles(
   if (!base) {
     return [];
   }
-  const numstat = parseNumstat(await git(root, ["diff", "--numstat", "-z", "-M", base]));
-  const nameStatus = await git(root, ["diff", "--name-status", "-z", "-M", base]);
+  const numstat = parseNumstat(await git(root, ["diff", "--numstat", "-z", "-M", "--end-of-options", base]));
+  const nameStatus = await git(root, ["diff", "--name-status", "-z", "-M", "--end-of-options", base]);
   const statuses = parseNameStatus(nameStatus);
 
   const files: ChangedFile[] = [...numstat.entries()].map(([filePath, counted]) => ({
@@ -447,6 +449,32 @@ async function rangeFiles(
   }
 
   return files.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+/**
+ * A scope's revisions are renderer input and become bare git argv, where
+ * `--output=/any/file` is an option, not a revision. The only revisions a
+ * review is taken against are the session's recorded marks — full SHAs from
+ * `rev-parse HEAD` — and the only `since` values are the review header's
+ * presets, so anything else is refused before git starts. `--end-of-options`
+ * at each call site is the second lock on the same door.
+ */
+const REVISION = /^[0-9a-f]{4,64}$/;
+const SINCE_PRESETS: ReadonlySet<string> = new Set(
+  ReviewScopeSchema.options.flatMap((named) => {
+    const scope = diffScopeFor(named);
+    return scope.kind === "since" ? [scope.since] : [];
+  }),
+);
+
+export function assertSafeScope(scope: DiffScope): void {
+  if (scope.kind === "range") {
+    if (!REVISION.test(scope.from) || (scope.to !== undefined && !REVISION.test(scope.to))) {
+      throw new GitError("a review range must be between two commit ids");
+    }
+  } else if (scope.kind === "since" && !SINCE_PRESETS.has(scope.since)) {
+    throw new GitError(`unknown review period: ${scope.since}`);
+  }
 }
 
 /** True when the scope's second side is the working tree rather than a revision. */
@@ -490,7 +518,7 @@ async function baseRevision(root: string, scope: DiffScope): Promise<string | nu
   if (scope.kind === "since") {
     // The newest commit at or before that time; nothing there means the whole
     // history is newer, so the range is the root commit.
-    const revision = await tryGit(root, ["rev-list", "-1", `--before=${scope.since}`, "HEAD"]);
+    const revision = await tryGit(root, ["rev-list", "-1", `--before=${scope.since}`, "--end-of-options", "HEAD"]);
     const trimmed = revision?.trim();
     return trimmed || (await tryGit(root, ["rev-list", "--max-parents=0", "-1", "HEAD"]))?.trim() || null;
   }
@@ -514,6 +542,7 @@ export async function fileDiff(
   filePath: string,
   scope: DiffScope = { kind: "working-tree" },
 ): Promise<FileDiff> {
+  assertSafeScope(scope);
   const root = await repositoryRoot(cwd);
   if (!root) {
     throw new GitError("not a git repository");
@@ -533,7 +562,7 @@ export async function fileDiff(
   const before =
     meta.status === "added" || meta.status === "untracked" || !base
       ? ""
-      : ((await tryGit(root, ["show", `${base.split("..")[0] ?? base}:${beforePath}`])) ?? "");
+      : ((await tryGit(root, ["show", "--end-of-options", `${base.split("..")[0] ?? base}:${beforePath}`])) ?? "");
 
   const after =
     meta.status === "deleted"
@@ -543,7 +572,7 @@ export async function fileDiff(
         // has not committed, which is every edit it just made.
         scope.kind === "working-tree" || openEnded(scope)
         ? await readWorkingCopy(root, filePath)
-        : ((await tryGit(root, ["show", `${scopeTip(scope)}:${filePath}`])) ?? "");
+        : ((await tryGit(root, ["show", "--end-of-options", `${scopeTip(scope)}:${filePath}`])) ?? "");
 
   return { ...meta, before, after };
 }
@@ -556,10 +585,10 @@ async function fileMeta(
 ): Promise<Omit<FileDiff, "before" | "after">> {
   const base = (await baseRevision(root, scope)) ?? "HEAD";
   const numstat = parseNumstat(
-    (await tryGit(root, ["diff", "--numstat", "-z", "-M", base, "--", filePath])) ?? "",
+    (await tryGit(root, ["diff", "--numstat", "-z", "-M", "--end-of-options", base, "--", filePath])) ?? "",
   );
   const statuses = parseNameStatus(
-    (await tryGit(root, ["diff", "--name-status", "-z", "-M", base, "--", filePath])) ?? "",
+    (await tryGit(root, ["diff", "--name-status", "-z", "-M", "--end-of-options", base, "--", filePath])) ?? "",
   );
   const counted = numstat.get(filePath);
 
@@ -596,12 +625,13 @@ export async function unifiedDiff(
   filePath: string,
   scope: DiffScope = { kind: "working-tree" },
 ): Promise<string> {
+  assertSafeScope(scope);
   const root = await repositoryRoot(cwd);
   if (!root) {
     throw new GitError("not a git repository");
   }
   const base = await baseRevision(root, scope);
-  const args = ["diff", "-M", "--patch"];
+  const args = ["diff", "-M", "--patch", "--end-of-options"];
   if (scope.kind === "working-tree") {
     args.push("HEAD");
   } else if (base) {

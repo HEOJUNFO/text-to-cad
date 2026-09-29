@@ -293,7 +293,7 @@ describe("the explorer strip", () => {
     const tab = useExplorer.getState().open("terminal");
     useExplorer.getState().update(tab!.id, { ptyId: "pty-9" });
     useExplorer.getState().close(tab!.id);
-    expect(window.textToCad.terminal.kill).toHaveBeenCalledWith({ id: "pty-9" });
+    expect(window.textToCad.terminal.kill).toHaveBeenCalledWith({ id: "pty-9", sessionId: expect.any(String) });
   });
 
   it("reuses the tab already showing a file", () => {

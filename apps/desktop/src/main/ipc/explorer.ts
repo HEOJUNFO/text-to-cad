@@ -123,6 +123,20 @@ export function rootOf(projectId: string, root?: string | null): string {
 }
 
 /**
+ * `shell.showItemInFolder`: the project, one of its worktrees, or the folder
+ * its worktrees live in — resolved here, never taken as a path.
+ */
+export function revealProjectDirectory(request: {
+  projectId: string;
+  root?: string | null | undefined;
+  worktrees?: true | undefined;
+}): void {
+  const target = rootOf(request.projectId, request.root);
+  const project = projects.get(request.projectId);
+  shell.showItemInFolder(request.worktrees && project ? projectWorktreeDir(settings.get(), project) : target);
+}
+
+/**
  * The project a watched directory belongs to, and the root the renderer
  * knows it by (null for the project directory itself). Roots are compared
  * by real path: the watcher reports the directory it was given after
@@ -450,16 +464,12 @@ export const explorerHandlers = {
       cwd,
       cols,
       rows,
-      shell: shellPath,
-      args,
     }: {
       sessionId: string;
       projectId: string;
       cwd?: string;
       cols?: number;
       rows?: number;
-      shell?: string;
-      args?: string[];
     }) =>
       fsCall(async () => {
         // A worktree is outside the project directory by design (plan §9), so
@@ -477,8 +487,6 @@ export const explorerHandlers = {
           cwd: directory,
           ...(cols === undefined ? {} : { cols }),
           ...(rows === undefined ? {} : { rows }),
-          ...(shellPath === undefined ? {} : { shell: shellPath }),
-          ...(args === undefined ? {} : { args }),
         });
         const current = sessions.get(sessionId);
         if (!current || current.archived || current.cwd !== session.cwd || current.projectId !== projectId) {
@@ -488,21 +496,37 @@ export const explorerHandlers = {
         return info;
       }),
 
-    write: ({ id, data }: { id: string; data: string }) => {
-      services().terminals.write(id, data);
+    write: ({ id, sessionId, data }: OwnedPty & { data: string }) => {
+      ownedTerminals(id, sessionId).write(id, data);
     },
 
-    resize: ({ id, cols, rows }: { id: string; cols: number; rows: number }) => {
-      services().terminals.resize(id, cols, rows);
+    resize: ({ id, sessionId, cols, rows }: OwnedPty & { cols: number; rows: number }) => {
+      ownedTerminals(id, sessionId).resize(id, cols, rows);
     },
 
-    attach: ({ id }: { id: string }) => services().terminals.attach(id),
+    attach: ({ id, sessionId }: OwnedPty) => ownedTerminals(id, sessionId).attach(id),
 
-    kill: ({ id }: { id: string }) => {
-      services().terminals.kill(id);
+    kill: ({ id, sessionId }: OwnedPty) => {
+      ownedTerminals(id, sessionId).kill(id);
     },
   },
 };
+
+type OwnedPty = { id: string; sessionId: string };
+
+/**
+ * The pty registry, once the pty is known to be the asking session's. A pty
+ * id is not a capability: sharing a directory grants no access to another
+ * session's shell. A pty that is already gone is left to the registry, whose
+ * answer for one is a no-op (or `null` for `attach`).
+ */
+function ownedTerminals(id: string, sessionId: string): Terminals {
+  const { terminals } = services();
+  if (terminals.has(id) && !terminals.owns(id, sessionId)) {
+    throw new IpcError("that terminal belongs to another session");
+  }
+  return terminals;
+}
 
 /** The app-owned PTY registry shared by UI and integration tools. */
 export function explorerTerminals(): Terminals { return services().terminals; }

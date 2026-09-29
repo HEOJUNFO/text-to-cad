@@ -853,7 +853,7 @@ function disposeTab(tab: ExplorerTab, discard = false, preserveDocuments = false
   // with it; one retained for a later restore keeps it.
   if (tab.kind === "file" && !preserveDocuments) forgetTabStore(tab.id);
   if (tab.kind === "drawing") deleteDrawingScene(tab.id);
-  if (tab.kind === "terminal" && tab.ptyId) void window.textToCad.terminal.kill({ id: tab.ptyId }).catch(() => {});
+  if (tab.kind === "terminal" && tab.ptyId) void window.textToCad.terminal.kill({ id: tab.ptyId, sessionId: tab.sessionId }).catch(() => {});
   if (tab.kind === "browser") void window.textToCad.browser.close({ sessionId: tab.sessionId, projectId: tab.projectId, root: tab.root, tabId: tab.id }).catch(() => {});
 }
 

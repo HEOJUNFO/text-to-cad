@@ -135,7 +135,7 @@ export function SessionHeader({
                 Copy path
               </DropdownMenuItem>
               <DropdownMenuItem
-                onSelect={() => void window.textToCad.shell.showItemInFolder({ path: session.cwd })}
+                onSelect={() => void window.textToCad.shell.showItemInFolder({ projectId: session.projectId, root: session.cwd })}
               >
                 Reveal in Finder
               </DropdownMenuItem>

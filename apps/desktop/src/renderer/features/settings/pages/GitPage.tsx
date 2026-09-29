@@ -265,7 +265,7 @@ function ProjectWorktreeCard({ project }: { project: Project }) {
           <Button
             className="h-8 gap-1.5"
             onClick={() => {
-              void window.textToCad.shell.showItemInFolder({ path: parentOf(worktrees) });
+              void window.textToCad.shell.showItemInFolder({ projectId: project.id, worktrees: true });
             }}
             size="sm"
             variant="ghost"

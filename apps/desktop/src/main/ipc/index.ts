@@ -22,7 +22,7 @@ import { cadHandlers } from "./cad";
 import { clipboardHandlers } from "./clipboard";
 import { browserHandlers } from "./browser";
 import { dialogsHandlers } from "./dialogs";
-import { explorerHandlers, initExplorerServices } from "./explorer";
+import { explorerHandlers, initExplorerServices, revealProjectDirectory } from "./explorer";
 import { gitHandlers } from "./git";
 import { runtimeHandlers } from "./runtime";
 import { onboardingHandlers } from "./onboarding";
@@ -131,9 +131,7 @@ const handlers = {
       await shell.openExternal(url);
     },
 
-    showItemInFolder: ({ path: target }: { path: string }) => {
-      shell.showItemInFolder(target);
-    },
+    showItemInFolder: revealProjectDirectory,
   },
 
   // A phase's handlers live in their own file and are spread in, exactly as

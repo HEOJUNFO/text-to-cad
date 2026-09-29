@@ -28,7 +28,10 @@ export type TerminalOptions = {
   cwd: string;
   sessionId?: string;
   projectId?: string;
-  /** Override the login shell — tests use this to run something predictable. */
+  /**
+   * Override the login shell — main-side tests use this to run something
+   * predictable. Not on the IPC contract: the renderer never names a binary.
+   */
   shell?: string;
   args?: string[];
   cols?: number;
@@ -271,6 +274,10 @@ export class Terminals {
     const session = this.sessions.get(id);
     if (!session) throw new Error("terminal no longer exists");
     return session.read(after, limit);
+  }
+
+  has(id: string): boolean {
+    return this.sessions.has(id);
   }
 
   owns(id: string, sessionId: string): boolean {

@@ -127,8 +127,20 @@ export const ipcContract = defineIpc({
      * custom-scheme URL.
      */
     openExternal: invoke(z.object({ url: z.string().url() }), z.void()),
-    /** Reveals a path in Finder/Explorer. */
-    showItemInFolder: invoke(z.object({ path: z.string().min(1) }), z.void()),
+    /**
+     * Reveals a project directory in Finder/Explorer: the project itself, one
+     * of its worktrees (`root`), or the folder its worktrees live in
+     * (`worktrees`). Never a bare path — main resolves it like every other
+     * renderer path, and refuses anything that is not the project's.
+     */
+    showItemInFolder: invoke(
+      z.object({
+        projectId: z.string().min(1),
+        root: z.string().nullable().optional(),
+        worktrees: z.literal(true).optional(),
+      }),
+      z.void(),
+    ),
   },
 
   ...clipboardContract,

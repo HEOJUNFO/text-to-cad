@@ -107,6 +107,8 @@ const InProject = z.object({ projectId: z.string().min(1) });
  */
 const InRoot = InProject.extend({ root: z.string().optional() });
 const AtPath = InRoot.extend({ path: z.string() });
+/** A pty, and the session asking for it — see `terminal.write`. */
+const OwnedPty = z.object({ id: z.string().min(1), sessionId: z.string().min(1) });
 
 /** What `explorer.exists` answers per path: what is there, or nothing. */
 export const PathKindSchema = z.enum(["file", "directory"]).nullable();
@@ -193,16 +195,14 @@ export const explorerIpc = {
         cwd: z.string().optional(),
         cols: z.number().int().positive().optional(),
         rows: z.number().int().positive().optional(),
-        /** Tests run one command instead of an interactive shell. */
-        shell: z.string().optional(),
-        args: z.array(z.string()).optional(),
       }),
       TerminalInfoSchema,
     ),
-    write: invoke(z.object({ id: z.string().min(1), data: z.string() }), z.void()),
+    // After `create` a pty is named by its id *and* the session that opened
+    // it; main refuses a request whose session does not own the pty.
+    write: invoke(OwnedPty.extend({ data: z.string() }), z.void()),
     resize: invoke(
-      z.object({
-        id: z.string().min(1),
+      OwnedPty.extend({
         cols: z.number().int().positive(),
         rows: z.number().int().positive(),
       }),
@@ -213,12 +213,12 @@ export const explorerIpc = {
      * the output sequence the snapshot ends at — see `terminal.data`.
      */
     attach: invoke(
-      z.object({ id: z.string().min(1) }),
+      OwnedPty,
       z
         .object({ info: TerminalInfoSchema, scrollback: z.string(), seq: z.number() })
         .nullable(),
     ),
-    kill: invoke(z.object({ id: z.string().min(1) }), z.void()),
+    kill: invoke(OwnedPty, z.void()),
   },
 
   // `git.*` used to live here. It is its own branch now (./git.ts): the
