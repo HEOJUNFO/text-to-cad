@@ -44,7 +44,7 @@ beforeEach(() => {
     })),
   };
   useAcp.setState({ sessions: { [SESSION]: initialSessionState(SESSION, "claude") }, reconnecting: {} });
-  useComposer.setState({ queues: {}, sending: {}, drafts: {}, annotations: {}, referenceLabels: {}, draftRoots: {} });
+  useComposer.setState({ queues: {}, sending: {}, paused: {}, drafts: {}, annotations: {}, referenceLabels: {}, draftRoots: {} });
   detach = subscribeToMain();
 });
 
@@ -133,7 +133,9 @@ it("a queue left behind by a disconnect drains when a reconnect's session.state 
 });
 
 it("a prompt typed behind a queue while the agent is gone waits its turn: the reconnect sends the queue first", async () => {
-  const ensureLoaded = vi.fn(async () => undefined);
+  // The load answers once the reconnect's snapshot is in.
+  let reconnected!: () => void;
+  const ensureLoaded = vi.fn(() => new Promise<void>(resolve => { reconnected = resolve; }));
   const savedEnsure = useAcp.getState().ensureLoaded;
   useAcp.setState({ ensureLoaded });
   try {
@@ -155,6 +157,7 @@ it("a prompt typed behind a queue while the agent is gone waits its turn: the re
     expect(ensureLoaded, "and the agent is asked back").toHaveBeenCalledWith(SESSION);
 
     handlers["session.state"]!({ sessionId: SESSION, state: { ...initialSessionState(SESSION, "claude"), status: "idle" } });
+    reconnected();
     await settle();
     expect(inFlight()).toEqual(["B"]);
     start("B");
@@ -169,7 +172,8 @@ it("a prompt typed behind a queue while the agent is gone waits its turn: the re
 });
 
 it("on a connecting session, or none at all, a prompt behind a queue is queued and the agent asked back", async () => {
-  const ensureLoaded = vi.fn(async () => undefined);
+  // A load still on its way: nothing has answered yet.
+  const ensureLoaded = vi.fn(() => new Promise<void>(() => {}));
   const savedEnsure = useAcp.getState().ensureLoaded;
   useAcp.setState({ ensureLoaded });
   try {
@@ -184,5 +188,83 @@ it("on a connecting session, or none at all, a prompt behind a queue is queued a
     expect(ensureLoaded).toHaveBeenCalledWith(SESSION);
   } finally {
     useAcp.setState({ ensureLoaded: savedEnsure });
+  }
+});
+
+it("a failed turn stays paused through an eviction: the Retry goes first, then the queue in order", async () => {
+  const ensureLoaded = vi.fn(async () => undefined);
+  const savedEnsure = useAcp.getState().ensureLoaded;
+  useAcp.setState({ ensureLoaded });
+  try {
+    const composer = useComposer.getState();
+    void composer.submit(SESSION, "failed", block("failed"));
+    start("failed");
+    void composer.submit(SESSION, "A", block("A"));
+    void composer.submit(SESSION, "B", block("B"));
+    emit({ type: "prompt/error", message: "boom" });
+    replies[0]!.reject(new Error("boom"));
+    await settle();
+    // The keep-alive evicts the failed session, and a reconnect comes back idle.
+    emit({ type: "status", status: "closed", error: null });
+    await settle();
+    handlers["session.state"]!({ sessionId: SESSION, state: { ...initialSessionState(SESSION, "claude"), status: "idle" } });
+    await settle();
+    expect(inFlight(), "the reconnect does not resume a paused queue").toEqual([]);
+    emit({ type: "status", status: "closed", error: null });
+    await settle();
+
+    void composer.submit(SESSION, "failed", block("failed"));
+    await settle();
+    expect(inFlight(), "the Retry goes out ahead of the queue").toEqual(["failed"]);
+    expect(useComposer.getState().queues[SESSION]?.map(item => item.text)).toEqual(["A", "B"]);
+    handlers["session.state"]!({ sessionId: SESSION, state: { ...initialSessionState(SESSION, "claude"), status: "idle" } });
+    start("failed");
+    end();
+    await settle();
+    replies[0]!.resolve();
+    await settle();
+    expect(inFlight()).toEqual(["A"]);
+    start("A");
+    end();
+    await settle();
+    replies[0]!.resolve();
+    await settle();
+    expect(inFlight()).toEqual(["B"]);
+  } finally {
+    useAcp.setState({ ensureLoaded: savedEnsure });
+  }
+});
+
+it("when the agent does not come back, the queue's head is sent so it fails where it can be retried", async () => {
+  const ensureLoaded = vi.fn(async () => undefined);
+  const savedEnsure = useAcp.getState().ensureLoaded;
+  useAcp.setState({ ensureLoaded });
+  try {
+    useComposer.getState().enqueue(SESSION, "A", block("A"));
+    useAcp.setState({ sessions: { [SESSION]: { ...initialSessionState(SESSION, "claude"), status: "closed" } }, loading: {} });
+    void useComposer.getState().submit(SESSION, "C", block("C"));
+    await settle();
+    // The load failed: still closed, nothing loading. A goes out and fails visibly; C waits behind it.
+    expect(ensureLoaded).toHaveBeenCalledWith(SESSION);
+    expect(inFlight()).toEqual(["A"]);
+    expect(useComposer.getState().queues[SESSION]?.map(item => item.text)).toEqual(["C"]);
+  } finally {
+    useAcp.setState({ ensureLoaded: savedEnsure });
+  }
+});
+
+it("while a load is still in flight, the queue waits for its snapshot", async () => {
+  const ensureLoaded = vi.fn(async () => undefined);
+  const savedEnsure = useAcp.getState().ensureLoaded;
+  useAcp.setState({ ensureLoaded });
+  try {
+    useComposer.getState().enqueue(SESSION, "A", block("A"));
+    useAcp.setState({ sessions: { [SESSION]: { ...initialSessionState(SESSION, "claude"), status: "connecting" } }, loading: { [SESSION]: true } });
+    void useComposer.getState().submit(SESSION, "C", block("C"));
+    await settle();
+    expect(inFlight()).toEqual([]);
+    expect(useComposer.getState().queues[SESSION]?.map(item => item.text)).toEqual(["A", "C"]);
+  } finally {
+    useAcp.setState({ ensureLoaded: savedEnsure, loading: {} });
   }
 });

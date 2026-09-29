@@ -33,11 +33,15 @@ import type { PromptReference } from "@text-to-cad/core/prompt";
  * `prompt/end`, so the bridge drains when a snapshot says the session is idle
  * (`drain` is a no-op when a prompt is already in flight). A prompt submitted
  * behind that queue while the agent is gone joins it and asks the agent back
- * (`ensureLoaded`), so the reconnect sends the queue in the order it was typed.
+ * (`ensureLoaded`), so the reconnect sends the queue in the order it was typed;
+ * if the agent does not come back, the queue's head is sent anyway so it fails
+ * in the transcript with a Retry instead of waiting silently.
  *
  * A failed turn pauses the queue. The failure is in the transcript with its
  * Retry, and what the person sends next — that Retry, or a new prompt — goes
  * out at once, ahead of the queue; the queue resumes when that turn ends.
+ * `paused` carries that across an eviction or reconnect, which a session's
+ * status alone (closed, then idle) does not remember.
  * Sending the queue on into an agent that just failed would fail each queued
  * prompt in turn, and a Retry that waited behind the queue would answer the
  * failed prompt out of order.
@@ -137,9 +141,14 @@ type ComposerState = {
   dequeue: (sessionId: string, id: string) => QueuedPrompt | null;
   clearQueue: (sessionId: string) => void;
   /** Send the next queued prompt if the session is idle and nothing is in flight. */
-  drain: (sessionId: string) => Promise<void>;
+  drain: (sessionId: string, options?: { evenIfNotIdle?: boolean }) => Promise<void>;
   /** Sessions with a prompt sent and no `prompt/start` for it yet, by send token. */
   sending: Record<string, number>;
+  /**
+   * Sessions whose last turn failed: the queue holds until the next turn starts, and what is sent
+   * meanwhile — the Retry or a new prompt — goes out first, even after the agent was evicted.
+   */
+  paused: Record<string, true>;
   /** The bridge's hand-off of a turn's lifecycle events: the queue's one driver. */
   turnEvent: (sessionId: string, type: "prompt/start" | "prompt/end" | "prompt/error") => void;
   /** Clear a draft for sending, returning what it held. */
@@ -272,11 +281,18 @@ export const useComposer = create<ComposerState>((set, get) => ({
     // drains the queue in order. Sent now, it would hold `sending` through the reconnect and the
     // prompts queued before it would go out after it.
     const gone = status === "closed" || status === "connecting" || status === undefined;
-    if (busy || (queued && (status === "idle" || gone))) {
+    if (busy || (queued && !(sessionId in get().paused) && (status === "idle" || gone))) {
       get().enqueue(sessionId, text, content, draft);
       if (!busy && gone) {
         // A live connection main still holds sends no fresh snapshot, so drain once this settles too.
         await useAcp.getState().ensureLoaded(sessionId).catch(() => undefined);
+        const acp = useAcp.getState();
+        if (acp.sessions[sessionId]?.status !== "idle" && !acp.loading[sessionId]) {
+          // The agent did not come back (the load failed, the session is gone): the queue's head
+          // goes out anyway, so it fails in the transcript with a Retry rather than waiting silently.
+          await get().drain(sessionId, { evenIfNotIdle: true });
+          return;
+        }
       }
       await get().drain(sessionId);
       return;
@@ -306,10 +322,10 @@ export const useComposer = create<ComposerState>((set, get) => ({
   clearQueue: (sessionId) =>
     set((state) => ({ queues: { ...state.queues, [sessionId]: [] } })),
 
-  drain: async (sessionId) => {
+  drain: async (sessionId, options) => {
     const next = get().queues[sessionId]?.[0];
     const status = useAcp.getState().sessions[sessionId]?.status;
-    if (!next || status !== "idle" || sessionId in get().sending) {
+    if (!next || (status !== "idle" && !options?.evenIfNotIdle) || sessionId in get().sending || sessionId in get().paused) {
       return;
     }
     get().dequeue(sessionId, next.id);
@@ -317,8 +333,16 @@ export const useComposer = create<ComposerState>((set, get) => ({
   },
 
   sending: {},
+  paused: {},
   turnEvent: (sessionId, type) => {
     clearSending(sessionId);
+    if (type === "prompt/error") set((state) => ({ paused: { ...state.paused, [sessionId]: true } }));
+    if (type === "prompt/start" && sessionId in get().paused) {
+      set((state) => {
+        const { [sessionId]: _resumed, ...rest } = state.paused;
+        return { paused: rest };
+      });
+    }
     if (type === "prompt/end") void get().drain(sessionId);
   },
 
