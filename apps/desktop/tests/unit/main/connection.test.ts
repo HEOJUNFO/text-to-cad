@@ -399,4 +399,58 @@ describe("the skills root and the preamble", () => {
 
     expect(allSent(frames, "session/prompt")[0]!.prompt).toEqual([{ type: "text", text: "hello" }]);
   });
+
+  it("dispatches nothing after close, though the SDK rejects the turn that was running", async () => {
+    const events: SessionEvent[] = [];
+    const connection = connect({ cwd: await scratch(), onEvent: (event) => events.push(event) });
+    await connection.newSession();
+    const turn = connection.prompt([{ type: "text", text: "slow" }]).catch((error: unknown) => error);
+    while (connection.state.status !== "running" || lastAgentText(connection.state) !== "working") {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    connection.close();
+    expect(await turn).toBeInstanceOf(Error);
+    expect(events.at(-1)).toMatchObject({ type: "status", status: "closed" });
+    expect(connection.state.status).toBe("closed");
+  });
+
+  /**
+   * stderr arrives in whatever chunks the pipe hands over. A line split
+   * across two of them is still one line — in `onStderr` and in the tail an
+   * unexpected exit shows the person — and a last line with no newline is
+   * kept too.
+   */
+  it("reassembles stderr lines that straddle chunks, and keeps an unterminated last line", async () => {
+    const script = [
+      "process.stderr.write('first half ');",
+      "setTimeout(() => process.stderr.write('second half\\nnext line\\npartial '), 40);",
+      "setTimeout(() => process.stderr.write('tail'), 80);",
+      "setTimeout(() => process.exit(2), 120);",
+    ].join("");
+    const lines: string[] = [];
+    const events: SessionEvent[] = [];
+    const connection = new SessionConnection({
+      sessionId: "test-session",
+      agentId: "fake",
+      launch: { command: process.execPath, args: ["-e", script], env: {} },
+      env: { PATH: process.env.PATH ?? "" },
+      cwd: await scratch(),
+      spawnTerminal: spawnProcessTerminal,
+      onEvent: (event) => events.push(event),
+      onStderr: (line) => lines.push(line),
+    });
+    open.push(connection);
+    await connection.exited;
+    // `onProcessExit` runs on the exit promise's own continuation.
+    while (!events.some((event) => event.type === "status")) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+
+    expect(lines).toEqual(["first half second half", "next line", "partial tail"]);
+    const exit = events.find((event) => event.type === "status");
+    expect(exit).toMatchObject({
+      status: "error",
+      error: "fake exited unexpectedly (code 2):\nfirst half second half\nnext line\npartial tail",
+    });
+  });
 });

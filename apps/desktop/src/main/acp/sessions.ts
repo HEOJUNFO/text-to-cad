@@ -240,9 +240,14 @@ export class SessionManager {
     this.live = new LiveConnections({
       ...(deps.keepAlive === undefined ? {} : { limit: deps.keepAlive }),
       // A turn in flight is never evicted: the work and the reason for it
-      // would both be lost, and the limit comes back down when it ends.
+      // would both be lost, and the limit comes back down when it ends. Nor
+      // is one still connecting — in `session/new` or `session/load`: closing
+      // it rejects the load, and a prompt waiting on that load in
+      // `ensureLive` with it.
       busy: (connection) =>
-        connection.state.status === "running" || connection.state.status === "waiting",
+        connection.state.status === "running" ||
+        connection.state.status === "waiting" ||
+        connection.state.status === "connecting",
       onEvict: (sessionId) => {
         console.info(`[acp] ${sessionId.slice(0, 8)} was closed to keep the adapter count at the limit`);
         // The snapshot, now: the adapter is gone and a click on that row has
@@ -627,9 +632,12 @@ export class SessionManager {
         });
       }
     } catch (error) {
-      this.setStatus(id, "error");
-      connection.close();
+      // Out of the live set before it is closed: its `closed` is then a
+      // detached connection's and dropped (`onEvent`), and the row keeps
+      // the error.
       this.live.delete(id);
+      connection.close();
+      this.setStatus(id, "error");
       throw error;
     } finally {
       replay.onReplayUpdate = undefined;
@@ -710,7 +718,9 @@ export class SessionManager {
       this.persistTally(id);
       return { stopReason: response.stopReason };
     } catch (error) {
-      this.persistTally(id);
+      // A turn cut short by `close` (or an eviction, or a reconnect) is not
+      // activity in the session: its counts are kept, its row does not move.
+      this.persistTally(id, { touch: this.live.get(id) === connection });
       throw error;
     }
   }
@@ -1027,6 +1037,8 @@ export class SessionManager {
     session: Session,
     /** Held by reference: `loadNow` clears its hook when the replay is over. */
     replay: { onReplayUpdate?: () => void } = {},
+    /** The connection these options end up on, set by `connect` once it exists. */
+    owner: { connection?: SessionConnection } = {},
   ): Pick<
     SessionConnectionOptions,
     | "sessionId"
@@ -1045,6 +1057,14 @@ export class SessionManager {
       // themselves (plan §8, as revised).
       preamble: provider?.skillRoots === "preamble" ? (this.deps.skills?.preamble() ?? null) : null,
       onEvent: (event) => {
+        // Only the session's current connection speaks for it. One that was
+        // closed, evicted or replaced still has things to say — the SDK
+        // rejects its pending turn as `prompt/error`, `close` dispatches
+        // `closed` — and none of it is about the row any more: whoever
+        // detached it has already set the status it should have.
+        if (!owner.connection || this.live.get(session.id) !== owner.connection) {
+          return;
+        }
         if (event.type === "session/update") {
           replay.onReplayUpdate?.();
         }
@@ -1113,10 +1133,12 @@ export class SessionManager {
     this.live.delete(session.id)?.close();
     this.setStatus(session.id, "connecting");
 
-    const sessionOptions = this.sessionOptions(session, hooks.replay ?? {});
+    const owner: { connection?: SessionConnection } = {};
+    const sessionOptions = this.sessionOptions(session, hooks.replay ?? {}, owner);
     const warm = this.warm.take(session.agentId, session.cwd);
     if (warm) {
       warm.adopt(sessionOptions);
+      owner.connection = warm;
       hooks.onWarm?.();
       this.live.set(session.id, warm);
       return warm;
@@ -1125,6 +1147,7 @@ export class SessionManager {
       ...(await this.adapterOptions(session.agentId, session.cwd)),
       ...sessionOptions,
     });
+    owner.connection = connection;
     this.live.set(session.id, connection);
     return connection;
   }
@@ -1272,15 +1295,24 @@ export class SessionManager {
     }
   }
 
-  private persistTally(id: string) {
+  /** `touch: false` writes the counts without stamping `updatedAt` (see `setPinned`). */
+  private persistTally(id: string, { touch = true }: { touch?: boolean } = {}) {
     const tally = this.tallies.get(id);
-    if (tally && this.deps.repo.get(id)) {
-      this.update(id, {
-        changedFiles: tally.baseFiles + tally.files.size,
-        insertions: tally.insertions,
-        deletions: tally.deletions,
-      });
+    const session = this.deps.repo.get(id);
+    if (!tally || !session) {
+      return;
     }
+    const counts = {
+      changedFiles: tally.baseFiles + tally.files.size,
+      insertions: tally.insertions,
+      deletions: tally.deletions,
+    };
+    if (touch) {
+      this.update(id, counts);
+      return;
+    }
+    this.deps.repo.upsert({ ...session, ...counts });
+    this.broadcastIndex();
   }
 
   private setStatus(id: string, status: SessionStatus, error: string | null = null) {

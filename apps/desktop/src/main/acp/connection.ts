@@ -127,6 +127,8 @@ export class SessionConnection {
   private closing = false;
   private exit: ProcessExit | null = null;
   private readonly stderrTail: string[] = [];
+  /** The last stderr line so far, until its newline (or the stream's end) arrives. */
+  private stderrPartial = "";
 
   constructor(private readonly options: SessionConnectionOptions) {
     this.stateValue = initialSessionState(options.sessionId, options.agentId);
@@ -141,17 +143,17 @@ export class SessionConnection {
     );
 
     this.process.stderr.setEncoding("utf8");
+    // Chunks are whatever the pipe hands over, not lines: the text after the
+    // last newline waits for the next chunk, so a line split across two is
+    // still one line in `onStderr` and in the tail an exit shows the person.
     this.process.stderr.on("data", (chunk: string) => {
-      for (const line of chunk.split("\n")) {
-        if (line.trim()) {
-          this.stderrTail.push(line);
-          if (this.stderrTail.length > 40) {
-            this.stderrTail.shift();
-          }
-          options.onStderr?.(line);
-        }
+      const lines = (this.stderrPartial + chunk).split("\n");
+      this.stderrPartial = lines.pop() ?? "";
+      for (const line of lines) {
+        this.stderrLine(line);
       }
     });
+    this.process.stderr.on("end", () => this.flushStderr());
 
     this.exited = new Promise((resolve) => {
       this.process.on("exit", (code, signal) => {
@@ -414,7 +416,11 @@ export class SessionConnection {
       return response;
     } catch (error) {
       const described = this.describe(error, "session/prompt");
-      this.dispatch({ type: "prompt/error", message: described.message, at: Date.now() });
+      // After `close` the rejection is the SDK tearing down the turn we
+      // killed, not a failure of it: `closed` was the last word.
+      if (!this.closing) {
+        this.dispatch({ type: "prompt/error", message: described.message, at: Date.now() });
+      }
       throw described;
     }
   }
@@ -485,8 +491,29 @@ export class SessionConnection {
     return id;
   }
 
+  private stderrLine(line: string) {
+    if (!line.trim()) {
+      return;
+    }
+    this.stderrTail.push(line);
+    if (this.stderrTail.length > 40) {
+      this.stderrTail.shift();
+    }
+    this.options.onStderr?.(line);
+  }
+
+  /** The unterminated last line, as a line of its own. */
+  private flushStderr() {
+    const line = this.stderrPartial;
+    this.stderrPartial = "";
+    this.stderrLine(line);
+  }
+
   private onProcessExit(exit: ProcessExit) {
     this.client.dispose();
+    // `exit` can come before stderr's `end`: what is buffered is the last
+    // thing the adapter said, and belongs in the message below.
+    this.flushStderr();
     if (this.closing) {
       return;
     }

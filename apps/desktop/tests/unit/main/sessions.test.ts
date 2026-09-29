@@ -956,6 +956,85 @@ describe("SessionManager", () => {
       ),
     ).toBe(true);
   });
+
+  /**
+   * Closing kills the adapter, and the SDK then rejects the turn that was
+   * running. That rejection is the closed connection's, not the session's:
+   * the row stays `closed` (so the next click reconnects), its place in the
+   * sidebar does not move, and the renderer hears `closed` once.
+   */
+  it("a close during a running turn leaves the row closed, with no prompt/error after it", async () => {
+    const { repo, broadcasts, manager, cwd } = await setup();
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    // Through a load, so the session has a tally the turn's failure would persist.
+    manager.close(session.id);
+    await manager.load(session.id);
+    const turn = manager.prompt(session.id, [{ type: "text", text: "slow" }]);
+    const settled = turn.catch((error: unknown) => error);
+    await until(() => (repo.get(session.id)?.status === "running" ? true : undefined));
+    broadcasts.length = 0;
+
+    manager.close(session.id);
+    // A stamp no write made, so any `update` after the close shows.
+    repo.upsert({ ...repo.get(session.id)!, updatedAt: 1 });
+    expect(await settled).toBeInstanceOf(Error);
+
+    expect(repo.get(session.id)?.status).toBe("closed");
+    expect(repo.get(session.id)?.updatedAt).toBe(1);
+    const events = broadcasts
+      .filter((b) => b.channel === "session.update")
+      .map((b) => (b.payload as { event: { type: string } }).event.type);
+    expect(events).not.toContain("prompt/error");
+    const statuses = broadcasts.filter((b) => b.channel === "session.status").map((b) => b.payload);
+    expect(statuses).toEqual([{ sessionId: session.id, status: "closed", error: null }]);
+  });
+
+  /**
+   * A session still in `session/load` is not a candidate for eviction:
+   * closing it would reject the load, and with it a prompt waiting on that
+   * load in `ensureLive`.
+   */
+  it("never evicts a session whose load is still running", async () => {
+    const { repo, manager, cwd } = await setup({
+      keepAlive: 1,
+      launchOverride: () => ({ ...fakeProvider.launch, args: [FAKE_AGENT, "--load-delay", "600"] }),
+    });
+    const first = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    expect(repo.get(first.id)?.status).toBe("closed");
+
+    const loading = manager.load(first.id).catch((error: unknown) => error);
+    const prompted = manager.prompt(first.id, [{ type: "text", text: "after the load" }]).catch((error: unknown) => error);
+    await until(() => (repo.get(first.id)?.status === "connecting" ? true : undefined));
+    // A third session is created while the first is mid-load: the limit is 1.
+    await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+
+    expect(await loading).toMatchObject({ status: "idle" });
+    expect(await prompted).toEqual({ stopReason: "end_turn" });
+  });
+
+  /** A failed load is an error the person should see, not a `closed` row. */
+  it("a failed load leaves the row in error, not closed", async () => {
+    const dir = await tempDir("text-to-cad-noload-");
+    const fixture = path.join(dir, "no-load.jsonl");
+    await writeFile(
+      fixture,
+      [
+        { dir: "out", msg: { jsonrpc: "2.0", id: 0, method: "initialize", params: {} } },
+        { dir: "in", msg: { jsonrpc: "2.0", id: 0, result: { protocolVersion: 1, agentCapabilities: { loadSession: false }, authMethods: [] } } },
+      ]
+        .map((frame) => JSON.stringify(frame))
+        .join("\n"),
+    );
+    const { repo, manager, cwd } = await setup({
+      launchOverride: () => ({ ...fakeProvider.launch, args: [FAKE_AGENT, "--fixture", fixture] }),
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    manager.close(session.id);
+
+    await expect(manager.load(session.id)).rejects.toThrow(/cannot resume/);
+    expect(repo.get(session.id)?.status).toBe("error");
+  });
 });
 
 /**
