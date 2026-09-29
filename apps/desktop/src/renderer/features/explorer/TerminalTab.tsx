@@ -6,7 +6,7 @@ import { createDesktopPromptContext } from "./host/promptContext";
 import { useSessions } from "@renderer/state/sessions";
 import { toast } from "sonner";
 import { Eraser, SquareTerminal, MessageSquarePlus } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import "@xterm/xterm/css/xterm.css";
 
@@ -18,6 +18,8 @@ import { isTerminalReply } from "@shared/terminal-replies";
 import type { Project } from "@shared/types";
 
 import { EmptyState } from "@text-to-cad/ui/navigation";
+
+import { claimFocus, holdFocusClaim } from "./focus";
 
 /**
  * xterm.js over a pty in main.
@@ -93,6 +95,35 @@ function codeFont(): string {
   return getComputedStyle(document.documentElement).getPropertyValue("--font-mono").trim() || FALLBACK_FONT;
 }
 
+/**
+ * Tab-focus mode, as Monaco's (Ctrl+Shift+M, `lib/shortcuts.ts`): while it is
+ * on, Tab and Shift+Tab move focus out of the terminal instead of reaching the
+ * shell. Off by default — completion is what Tab is for in a shell — and one
+ * switch for every terminal, as Monaco's is one for every editor. Without it a
+ * terminal is a keyboard trap: xterm takes every key, Escape included, which
+ * belongs to whatever runs in it.
+ */
+let tabMovesFocus = false;
+const tabModeListeners = new Set<() => void>();
+function toggleTabMovesFocus() {
+  tabMovesFocus = !tabMovesFocus;
+  for (const listener of tabModeListeners) listener();
+}
+function useTabMovesFocus(): boolean {
+  return useSyncExternalStore(
+    (listener) => {
+      tabModeListeners.add(listener);
+      return () => tabModeListeners.delete(listener);
+    },
+    () => tabMovesFocus,
+  );
+}
+
+/** The chord, as `event` has it: Control and Shift, on every platform, like Monaco's on macOS. */
+export function isTabFocusChord(event: KeyboardEvent): boolean {
+  return event.ctrlKey && event.shiftKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === "m";
+}
+
 export function TerminalTab({
   tabId,
   sessionId,
@@ -115,6 +146,12 @@ export function TerminalTab({
   const [error, setError] = useState<string | null>(null);
   const [selection, setSelection] = useState("");
   const [exited, setExited] = useState<number | null>(null);
+  const tabMoves = useTabMovesFocus();
+  // Focus is taken when the person opened or picked this tab (`./focus`), never
+  // on every mount: a session switch, Back or a theme change remounts it too.
+  useEffect(() => (readOnly ? undefined : holdFocusClaim(tabId)), [tabId, readOnly]);
+  // A rebuild of this same terminal (the theme changed) keeps focus it had.
+  const hadFocus = useRef(false);
 
   const sessions = useSessions(state => state.sessions);
   const promptRoot = useMemo(() => terminalPromptRoot(project, cwd, sessions.filter(session => session.id === sessionId)), [sessionId, cwd, project, sessions]);
@@ -279,6 +316,14 @@ export function TerminalTab({
       if (event.type !== "keydown") {
         return true;
       }
+      if (isTabFocusChord(event)) {
+        toggleTabMovesFocus();
+        return false;
+      }
+      // Not handled, so not prevented: the browser moves focus.
+      if (event.key === "Tab" && tabMovesFocus && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        return false;
+      }
       const modifier = event.metaKey || event.ctrlKey;
       if (modifier && event.key.toLowerCase() === "k") {
         return false;
@@ -315,11 +360,12 @@ export function TerminalTab({
     });
     fontObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
     push();
-    if (!readOnly) {
+    if (!readOnly && (claimFocus(tabId) || hadFocus.current)) {
       term.focus();
     }
 
     return () => {
+      hadFocus.current = host.contains(document.activeElement);
       observer.disconnect();
       fontObserver.disconnect();
       offData();
@@ -327,7 +373,8 @@ export function TerminalTab({
       term.dispose();
       termRef.current = null;
     };
-  }, [ptyId, sessionId, readOnly, mode]);
+    // `tabId` is fixed for the component's life: the body is keyed on it.
+  }, [ptyId, sessionId, readOnly, mode, tabId]);
 
   // A new shell for this tab. The old pty is killed first: main keeps an
   // exited pty's scrollback (up to 512 KB) until its tab lets go of the id,
@@ -368,6 +415,8 @@ export function TerminalTab({
         <span className="truncate">{cwd ?? project.path}</span>
         {readOnly ? <span className="shrink-0 rounded-sm bg-muted px-1">agent</span> : null}
         <span className="flex-1" />
+        {/* Said when it changes, since the key that changes it draws nothing else. */}
+        <span className="shrink-0" role="status">{tabMoves ? "Tab moves focus" : ""}</span>
         <button type="button" className="inline-flex h-5 shrink-0 items-center gap-1 hover:text-foreground"
           onClick={() => { termRef.current?.clear(); termRef.current?.focus(); }}><Eraser className="size-3" />Clear</button>
         <button type="button" className="inline-flex h-5 shrink-0 items-center gap-1 hover:text-foreground disabled:opacity-40"

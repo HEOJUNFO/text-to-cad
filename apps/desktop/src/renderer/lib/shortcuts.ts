@@ -67,6 +67,14 @@ export const SHORTCUTS: readonly Shortcut[] = [
   // The file tree's cursor row; Ctrl+Delete works off macOS too.
   { id: "rename-entry", group: "Explorer", label: "Rename in the file tree", binding: "F2" },
   { id: "trash-entry", group: "Explorer", label: "Move to Trash in the file tree", binding: "Mod+Backspace" },
+  // Monaco's tab-focus mode, and the terminal's: while it is on, Tab leaves the
+  // editor or the shell rather than typing into it. Control on every platform.
+  {
+    id: "tab-focus-mode",
+    group: "Explorer",
+    label: "Toggle Tab moving focus out of an editor or terminal",
+    binding: "Ctrl+Shift+M",
+  },
   {
     id: "switch-tab",
     group: "Explorer",

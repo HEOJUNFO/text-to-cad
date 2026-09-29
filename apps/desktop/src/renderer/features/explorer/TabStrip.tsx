@@ -20,6 +20,8 @@ import type { ExplorerTab, ExplorerTabKind } from "@shared/types";
 
 import { FileIcon } from "@text-to-cad/ui/navigation";
 
+import { EXPLORER_TABPANEL_ID, focusTabBody } from "./focus";
+
 /**
  * The one strip. No bottom panel (plan §3).
  *
@@ -108,9 +110,10 @@ function TabIcon({ tab, className }: { tab: ExplorerTab; className?: string }) {
 
 /**
  * The one body the strip controls. `ExplorerPane` renders it; the ids live here
- * so the tab's `aria-controls` and the panel's `aria-labelledby` are one pair.
+ * (the panel's in `./focus`, which also looks for it) so the tab's `aria-controls`
+ * and the panel's `aria-labelledby` are one pair.
  */
-export const EXPLORER_TABPANEL_ID = "explorer-tabpanel";
+export { EXPLORER_TABPANEL_ID };
 export const explorerTabDomId = (tabId: string) => `explorer-tab-${tabId}`;
 
 /** The `+` menu's rows, so the dropdown does not select a type in render. */
@@ -306,7 +309,12 @@ export function TabStrip() {
               onDragStart={() => setDraggingId(tab.id)}
               onFocus={() => setFocusedId(tab.id)}
               onKeyDown={(event) => onTabKeyDown(event, index)}
-              onSelect={() => setActive(tab.id)}
+              onSelect={() => {
+                setActive(tab.id);
+                // A click is the person picking the tab: its body may take the keyboard.
+                // Enter and Space leave focus on the tab, as a tab list's keys do.
+                focusTabBody(tab.id);
+              }}
               tab={tab}
             />
           ))}
@@ -343,7 +351,10 @@ export function TabStrip() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
               {KINDS.map(({ kind, label, shortcut }) => (
-                <DropdownMenuItem key={kind} onSelect={() => open(kind)}>
+                <DropdownMenuItem key={kind} onSelect={() => {
+                  const opened = open(kind);
+                  if (opened) focusTabBody(opened.id);
+                }}>
                   <KindIcon className="size-3.5" kind={kind} />
                   {label}
                   <DropdownMenuShortcut><ShortcutText keys={bindingOf(shortcut)} /></DropdownMenuShortcut>

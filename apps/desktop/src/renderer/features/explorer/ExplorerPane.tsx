@@ -14,6 +14,7 @@ import { DrawingTab } from "./DrawingTab";
 import { FileTab } from "./FileTab";
 import { ReviewTab } from "./ReviewTab";
 import { EXPLORER_TABPANEL_ID, TabStrip, explorerTabDomId } from "./TabStrip";
+import { focusTabBody } from "./focus";
 import { TerminalTab } from "./TerminalTab";
 import { desktopCadConnectionForTab } from "./adapters/cadRuntime";
 
@@ -135,6 +136,15 @@ function TabBody({ tab, project }: {
  * menu prints beside its rows (`src/renderer/lib/shortcuts.ts` is the table
  * both read).
  */
+/**
+ * Every chord here is the person asking for a tab, so the keyboard follows it
+ * (`./focus`): into the body, or onto the tab. Left where it was, the focus of
+ * a body the chord just unmounted — an editor, a tree row — fell to the page.
+ */
+function focusOpened(tab: ExplorerTab | null) {
+  if (tab) focusTabBody(tab.id);
+}
+
 function useExplorerShortcuts() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -145,7 +155,7 @@ function useExplorerShortcuts() {
       // machine they came from.
       if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key === "`") {
         event.preventDefault();
-        open("terminal");
+        focusOpened(open("terminal"));
         return;
       }
 
@@ -162,13 +172,13 @@ function useExplorerShortcuts() {
         const kind = key === "r" ? "review" : key === "b" ? "browser" : key === "d" ? "drawing" : null;
         if (kind) {
           event.preventDefault();
-          open(kind);
+          focusOpened(open(kind));
         }
         return;
       }
       if (key === "t") {
         event.preventDefault();
-        open("file");
+        focusOpened(open("file"));
         return;
       }
       if (key === "w" && activeId) {
@@ -180,7 +190,9 @@ function useExplorerShortcuts() {
         event.preventDefault();
         // 9 is the last tab, the way browsers do it — otherwise the ninth
         // shortcut is dead in every strip with fewer than nine tabs.
-        selectIndex(event.key === "9" ? tabs.length : Number(event.key));
+        const index = event.key === "9" ? tabs.length : Number(event.key);
+        selectIndex(index);
+        focusOpened(tabs[index - 1] ?? null);
       }
     };
     // Capture: a terminal and Monaco both swallow keys on the bubble phase.
