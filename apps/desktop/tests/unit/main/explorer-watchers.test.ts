@@ -364,6 +364,36 @@ describe("following an open file", () => {
     expect(waiting().map((tick) => tick.ms)).toEqual([80]);
   });
 
+  it("follows an opened link that is renamed, and repeats its target's changes under the new name", async () => {
+    await fs.mkdir(path.join(root, "versions"));
+    await fs.writeFile(path.join(root, "versions", "v3.txt"), "v3\n");
+    await fs.symlink(path.join("versions", "v3.txt"), path.join(root, "current.txt"));
+    // The tree's watch and the tab's.
+    await watchers.watch(root);
+    await watchers.watch(root);
+    await watchers.watchEntry(root, await statFile(root, "current.txt"));
+    // The link itself is renamed; symlinks are not followed, so the events name the link.
+    await fs.rename(path.join(realRoot, "current.txt"), path.join(realRoot, "latest.txt"));
+    on("unlink")("current.txt");
+    on("add")("latest.txt");
+    elapse();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(1));
+    expect(emit.mock.calls[0]![1]).toEqual([
+      { kind: "moved", previousPath: "current.txt", path: "latest.txt", directory: false },
+    ]);
+    await fs.writeFile(path.join(root, "versions", "v3.txt"), "v4\n");
+    on("change")("versions/v3.txt");
+    elapse();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(2));
+    expect(emit.mock.calls[1]![1].map((change) => change.path)).toEqual(["versions/v3.txt", "latest.txt"]);
+    // The tab, now on the new name, closes: nothing is left held for either name.
+    await watchers.unwatch(root, ["latest.txt"]);
+    on("change")("versions/v3.txt");
+    elapse();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(3));
+    expect(emit.mock.calls[2]![1].map((change) => change.path)).toEqual(["versions/v3.txt"]);
+  });
+
   it("reads only the changed files a tab has open", async () => {
     const names = Array.from({ length: 40 }, (_, index) => `file-${index}.txt`);
     for (const name of names) await fs.writeFile(path.join(root, name), `${name}\n`);

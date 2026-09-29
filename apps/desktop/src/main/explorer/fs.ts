@@ -825,7 +825,8 @@ const BATCH_MS = 80;
  */
 const MOVE_WAIT_MS = 250;
 
-type Identity = { dev: number; ino: number };
+/** A file's inode; for an opened link (`link`), the link's own, which its target's writes never change. */
+type Identity = { dev: number; ino: number; link?: true };
 
 /**
  * When a batch leaves: `run` after `ms`, and the function that cancels it.
@@ -972,7 +973,18 @@ export class FileWatchers {
       links.set(real, new Set([...(links.get(real) ?? []), entry.path]));
       this.hold(root, entry.path);
       // The inode is the target's: a move of the target is not a move of
-      // the link, which is left dangling.
+      // the link, which is left dangling. A link itself renamed is its tab's
+      // file moved, though, so the link's own inode is its identity
+      // (`pairMoves`) — a path through a linked directory has none.
+      const own = await fs.lstat(path.join(realRoot, entry.path)).catch(() => null);
+      if (own?.isSymbolicLink() && this.watchers.has(root)) {
+        let known = this.identities.get(root);
+        if (!known) {
+          known = new Map();
+          this.identities.set(root, known);
+        }
+        known.set(entry.path, { dev: own.dev, ino: own.ino, link: true });
+      }
       return;
     }
     const stats = await fs.stat(path.join(realRoot, entry.path)).catch(() => null);
@@ -994,7 +1006,7 @@ export class FileWatchers {
    */
   async refreshEntry(root: string, relative: string): Promise<void> {
     const known = this.identities.get(root);
-    if (!known?.has(relative)) return;
+    if (!known?.has(relative) || known.get(relative)?.link) return;
     const realRoot = await fs.realpath(root).catch(() => path.resolve(root));
     const stats = await fs.stat(path.join(realRoot, relative)).catch(() => null);
     if (stats?.isFile() && known.has(relative)) known.set(relative, { dev: stats.dev, ino: stats.ino });
@@ -1203,7 +1215,7 @@ export class FileWatchers {
       const absolute = path.join(realRoot, change.path);
       const stats = await fs.stat(absolute).catch(() => null);
       if (!stats?.isFile()) return change;
-      if (known?.has(change.path)) known.set(change.path, { dev: stats.dev, ino: stats.ino });
+      if (known?.has(change.path) && !known.get(change.path)?.link) known.set(change.path, { dev: stats.dev, ino: stats.ino });
       if (change.kind !== "changed" || stats.size > MAX_TEXT_BYTES) return change;
       const content = await fs.readFile(absolute).catch(() => null);
       return content ? { ...change, revision: revisionOf(content) } : change;
@@ -1239,12 +1251,14 @@ export class FileWatchers {
     const removed = changes.filter((change) => change.kind === "removed" && !change.directory && known?.has(change.path));
     if (!known || removed.length === 0) return changes;
     const arrivals = changes.filter((change) => (change.kind === "added" || change.kind === "changed") && !change.directory);
-    const stats = await Promise.all(arrivals.map((change) => fs.stat(path.join(realRoot, change.path)).catch(() => null)));
+    // The arrival's own inode: a link that arrives is matched by the link's, not its target's.
+    const stats = await Promise.all(arrivals.map((change) => fs.lstat(path.join(realRoot, change.path)).catch(() => null)));
     const moves = new Map<FileChange, FileChange>();
     const taken = new Set<FileChange>();
     for (const removal of removed) {
       const identity = known.get(removal.path)!;
-      const index = arrivals.findIndex((arrival, at) => !taken.has(arrival) && stats[at]?.isFile()
+      const index = arrivals.findIndex((arrival, at) => !taken.has(arrival)
+        && (identity.link ? stats[at]?.isSymbolicLink() : stats[at]?.isFile())
         && stats[at]!.ino === identity.ino && stats[at]!.dev === identity.dev);
       if (index < 0) {
         known.delete(removal.path);
@@ -1262,6 +1276,10 @@ export class FileWatchers {
       if (held && count > 0) {
         held.delete(removal.path);
         held.set(arrival.path, (held.get(arrival.path) ?? 0) + count);
+      }
+      // A link's target is repeated under the name its tab holds now.
+      for (const names of identity.link ? this.aliases.get(root)?.values() ?? [] : []) {
+        if (names.delete(removal.path)) names.add(arrival.path);
       }
     }
     return changes.filter((change) => !taken.has(change)).map((change) => moves.get(change) ?? change);
