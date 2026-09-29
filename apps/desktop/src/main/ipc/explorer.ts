@@ -14,7 +14,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { BrowserWindow, dialog, shell } from "electron";
+import { BrowserWindow, dialog, shell, type WebContents } from "electron";
 
 import { explorerTabs, projects, sessions, settings } from "../db/repositories";
 import {
@@ -90,6 +90,54 @@ export function disposeExplorerServices() {
   terminals?.killAll();
   terminals = null;
   watchers = null;
+}
+
+/**
+ * The watches each page holds, by root, counted like the watchers' own refs.
+ * A reload (Cmd+R) or a renderer that dies never sends its unwatches: the
+ * new page watches again, and every root the old one watched kept a ref that
+ * nothing would release, and a chokidar watcher over the tree that never
+ * closed. A page's leases are returned for it when it navigates or goes.
+ */
+const leases = new Map<number, Map<string, number>>();
+const leaseHolders = new Set<number>();
+
+function lease(sender: WebContents | undefined, root: string) {
+  if (!sender) return;
+  let held = leases.get(sender.id);
+  if (!held) {
+    held = new Map();
+    leases.set(sender.id, held);
+  }
+  held.set(root, (held.get(root) ?? 0) + 1);
+  if (leaseHolders.has(sender.id)) return;
+  leaseHolders.add(sender.id);
+  const id = sender.id;
+  const release = () => {
+    const roots = leases.get(id);
+    leases.delete(id);
+    for (const [directory, count] of roots ?? []) {
+      for (let index = 0; index < count; index += 1) void watchers?.unwatch(directory).catch(() => {});
+    }
+  };
+  sender.on("did-start-navigation", (details) => {
+    if (details.isMainFrame && !details.isSameDocument) release();
+  });
+  sender.on("render-process-gone", release);
+  sender.once("destroyed", () => {
+    release();
+    leaseHolders.delete(id);
+  });
+}
+
+/** False when this page holds no watch on the root to give back. */
+function returnLease(sender: WebContents, root: string): boolean {
+  const held = leases.get(sender.id);
+  const count = held?.get(root) ?? 0;
+  if (count === 0) return false;
+  if (count === 1) held!.delete(root);
+  else held!.set(root, count - 1);
+  return true;
 }
 
 function services() {
@@ -501,11 +549,20 @@ export const explorerHandlers = {
       return { kind: "removed", path: before.path, directory: before.directory };
     }),
 
-    watch: ({ projectId, root }: { projectId: string; root?: string }) =>
-      fsCall(() => services().watchers.watch(rootOf(projectId, root))),
+    watch: ({ projectId, root }: { projectId: string; root?: string }, ctx?: IpcContext) =>
+      fsCall(async () => {
+        const directory = rootOf(projectId, root);
+        await services().watchers.watch(directory);
+        lease(ctx?.sender, directory);
+      }),
 
-    unwatch: ({ projectId, root }: { projectId: string; root?: string }) =>
-      fsCall(() => services().watchers.unwatch(rootOf(projectId, root))),
+    unwatch: ({ projectId, root }: { projectId: string; root?: string }, ctx?: IpcContext) =>
+      fsCall(async () => {
+        const directory = rootOf(projectId, root);
+        // A page's unwatch after its leases went with a reload is already counted.
+        if (ctx && !returnLease(ctx.sender, directory)) return;
+        await services().watchers.unwatch(directory);
+      }),
 
     loadTabs: ({ sessionId }: { sessionId: string }) => explorerTabs.list(sessionId),
 
