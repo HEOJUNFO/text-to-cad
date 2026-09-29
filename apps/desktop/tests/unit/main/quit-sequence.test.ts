@@ -264,6 +264,10 @@ describe("quit sequence", () => {
     // its `prompt/error` must not try to write a status through it.
     vi.useRealTimers();
     const outcome = await settled;
+    // The kill's own rejection, rethrown untouched: the failed turn reads
+    // and writes nothing on its way out.
+    expect(outcome).toBeInstanceOf(Error);
+    expect(String(outcome)).toMatch(/session\/prompt/);
     expect(String(outcome)).not.toMatch(/closeDb/);
     expect(late).toEqual([]);
 

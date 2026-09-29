@@ -1297,8 +1297,10 @@ export class SessionManager {
 
   /** `touch: false` writes the counts without stamping `updatedAt` (see `setPinned`). */
   private persistTally(id: string, { touch = true }: { touch?: boolean } = {}) {
-    const tally = this.tallies.get(id);
-    const session = this.deps.repo.get(id);
+    // After `closeAll` the database is closing: a turn the quit killed
+    // rejects into here, and must not read or write the row.
+    const tally = this.shuttingDown ? undefined : this.tallies.get(id);
+    const session = tally ? this.deps.repo.get(id) : null;
     if (!tally || !session) {
       return;
     }
