@@ -128,10 +128,17 @@ const EXIT_PHASE: Record<string, string> = {
 /** `cmd.exe`'s metacharacters, escaped with `^` in a command line it parses. */
 const CMD_META = /([()\][%!^"`<>&|;, *?])/g;
 
-/** One argv entry for `cmd /d /s /c "…"`: quoted for the program, then escaped for cmd. */
+/**
+ * One argv entry for `cmd /d /s /c "…"`: quoted for the program, then escaped
+ * for cmd twice. A batch file parses its arguments again when it hands them
+ * on (`%*`, `%1`): npm's global shims (`npx.cmd`, `%AppData%\npm\gemini.cmd`)
+ * as much as the `node_modules\.bin` ones cross-spawn double-escapes for, and
+ * an argument's `"` escaped once flips that second parse's quoting and lets
+ * a later `&` end the command.
+ */
 function cmdArg(arg: string): string {
   const quoted = `"${arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, "$1$1")}"`;
-  return quoted.replace(CMD_META, "^$1");
+  return quoted.replace(CMD_META, "^$1").replace(CMD_META, "^$1");
 }
 
 /**
@@ -139,22 +146,32 @@ function cmdArg(arg: string): string {
  * agent CLIs are `.cmd` shims, which `spawn` without a shell does not find
  * (ENOENT) and, since Node 20.12, refuses to run directly (EINVAL) — while the
  * detector, which honours PATHEXT, reports them installed. So the command is
- * resolved along PATH the same way, and a `.cmd` or `.bat` runs under
- * `cmd.exe` with its argv escaped rather than through `shell: true`, whose
- * line nobody escapes. Elsewhere the launch is spawned as it is.
+ * resolved along PATH the same way, and a `.cmd` or `.bat` — found there, or
+ * named by the launch itself — runs under `cmd.exe` with its argv escaped
+ * rather than through `shell: true`, whose line nobody escapes. Elsewhere the
+ * launch is spawned as it is.
  */
 export function spawnPlan(
   launch: Pick<Launch, "command" | "args">,
   env: Record<string, string>,
   platform: NodeJS.Platform = process.platform,
 ): { command: string; args: string[]; windowsVerbatimArguments?: boolean } {
-  if (platform !== "win32" || path.extname(launch.command)) {
+  const named = path.extname(launch.command);
+  const batch = (file: string) => /\.(cmd|bat)$/i.test(file);
+  if (platform !== "win32" || (named && !batch(named))) {
     return { command: launch.command, args: launch.args };
   }
+  const throughCmd = (file: string) => {
+    // cross-spawn's escaping: the program path escaped for cmd once, each
+    // argument quoted for the program and then escaped for cmd (`cmdArg`).
+    const line = [file.replace(CMD_META, "^$1"), ...launch.args.map(cmdArg)].join(" ");
+    return { command: env.ComSpec ?? env.COMSPEC ?? "cmd.exe", args: ["/d", "/s", "/c", `"${line}"`], windowsVerbatimArguments: true };
+  };
   const key = Object.keys(env).find((name) => name.toUpperCase() === "PATH");
   const dirs = (key ? env[key] ?? "" : "").split(path.delimiter).filter(Boolean);
   const pathextKey = Object.keys(env).find((name) => name.toUpperCase() === "PATHEXT");
-  const extensions = ((pathextKey ? env[pathextKey] : undefined) ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean);
+  // A launch that names its extension is looked for as it is.
+  const extensions = named ? [""] : ((pathextKey ? env[pathextKey] : undefined) ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean);
   const isFile = (file: string) => fs.statSync(file, { throwIfNoEntry: false })?.isFile() ?? false;
   for (const dir of path.isAbsolute(launch.command) ? [""] : dirs) {
     for (const ext of extensions) {
@@ -162,16 +179,12 @@ export function spawnPlan(
       if (!isFile(candidate)) {
         continue;
       }
-      if (/^\.(cmd|bat)$/i.test(ext)) {
-        // cross-spawn's escaping: the program path escaped for cmd, each
-        // argument quoted for the program and then escaped for cmd.
-        const line = [candidate.replace(CMD_META, "^$1"), ...launch.args.map(cmdArg)].join(" ");
-        return { command: env.ComSpec ?? env.COMSPEC ?? "cmd.exe", args: ["/d", "/s", "/c", `"${line}"`], windowsVerbatimArguments: true };
-      }
-      return { command: candidate, args: launch.args };
+      return batch(candidate) ? throughCmd(candidate) : { command: candidate, args: launch.args };
     }
   }
-  return { command: launch.command, args: launch.args };
+  // A named `.cmd` not on PATH still cannot be spawned directly; cmd.exe looks
+  // for it the way it would at a prompt.
+  return named ? throughCmd(launch.command) : { command: launch.command, args: launch.args };
 }
 
 export class SessionConnection {
