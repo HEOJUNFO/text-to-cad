@@ -364,7 +364,7 @@ export async function bundleRuntime({ target, out, cache, wheels, version, pytho
   if (!asset) {
     throw new Error(`no pinned interpreter for ${target}`);
   }
-  const wheel = fs.existsSync(wheels) ? fs.readdirSync(wheels).find((name) => name.startsWith(`cadgen-${version}-`) && name.endsWith(".whl")) : null;
+  const wheel = releaseWheel(wheels, version)?.name;
   const constraints = path.join(wheels, "constraints.txt");
   if (!wheel) {
     throw new Error(`no cadgen-${version} wheel under ${wheels}; run \`npm run cad:resources\` (the release workflow downloads the published wheel there)`);
@@ -444,6 +444,7 @@ export async function bundleRuntime({ target, out, cache, wheels, version, pytho
     release: build.release,
     cadgen: version,
     wheel,
+    wheelSha256: releaseWheel(wheels, version).sha256,
     native,
     host: `${process.platform}-${process.arch}`,
     builtAt: new Date().toISOString(),
@@ -454,8 +455,23 @@ export async function bundleRuntime({ target, out, cache, wheels, version, pytho
   return { ...marker, root, bytes };
 }
 
-/** The marker a complete bundle for this cadgen and this interpreter pin carries, or null. `scripts/package.mjs` refuses to package without one. */
-export function bundledRuntime(out, target, version, build = PYTHON_BUILD) {
+/** The `cadgen-<version>-*.whl` under `wheels` and its sha256, or null when there is none. */
+export function releaseWheel(wheels, version) {
+  const name = fs.existsSync(wheels)
+    ? fs.readdirSync(wheels).find((entry) => entry.startsWith(`cadgen-${version}-`) && entry.endsWith(".whl"))
+    : undefined;
+  if (!name) {
+    return null;
+  }
+  return { name, sha256: createHash("sha256").update(fs.readFileSync(path.join(wheels, name))).digest("hex") };
+}
+
+/**
+ * The marker a complete bundle for this cadgen, this interpreter pin and the
+ * wheel now in `wheels` carries, or null. `scripts/package.mjs` refuses to
+ * package without one.
+ */
+export function bundledRuntime(out, target, version, wheels, build = PYTHON_BUILD) {
   const layout = runtimeLayout(path.join(out, target), target, build.version);
   if (!fs.existsSync(layout.marker) || !fs.existsSync(layout.python) || missingCadgenRuntimeFiles(layout).length > 0) {
     return null;
@@ -463,11 +479,18 @@ export function bundledRuntime(out, target, version, build = PYTHON_BUILD) {
   try {
     const marker = JSON.parse(fs.readFileSync(layout.marker, "utf8"));
     // A bundle built from an older interpreter pin (python-build.json moved
-    // on) is stale however current its cadgen is.
+    // on) is stale however current its cadgen is. So is one installed from a
+    // different wheel of the same version — a rebuilt `cadgen-<v>` from
+    // `npm run cad:resources` after a source change — which only the hash
+    // tells apart: the file name is the same.
+    const wheel = releaseWheel(wheels, version);
     return marker.cadgen === version &&
       marker.target === target &&
       marker.python === build.version &&
-      marker.release === build.release
+      marker.release === build.release &&
+      wheel !== null &&
+      marker.wheel === wheel.name &&
+      marker.wheelSha256 === wheel.sha256
       ? marker
       : null;
   } catch {

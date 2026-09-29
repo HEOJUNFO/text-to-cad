@@ -221,14 +221,14 @@ function main(argv) {
   // first STEP file — which is the report this check exists to make impossible.
   const runtimeOut = path.join(appRoot, "resources", "runtime");
   for (const target of runtimeTargetsFor(targets)) {
-    const bundle = bundledRuntime(runtimeOut, target, version);
+    const bundle = bundledRuntime(runtimeOut, target, version, path.join(appRoot, "resources", "cadgen"));
     if (bundle) {
       console.info(`runtime: ${target} (Python ${bundle.python}, cadgen ${bundle.cadgen}, built ${bundle.builtAt ?? "?"})`);
     } else if (withoutRuntime) {
       console.warn(`runtime: ${target} NOT BUNDLED (--no-runtime): this app will not render CAD`);
     } else {
       console.error(
-        `no bundled CAD runtime for ${target} under resources/runtime/ (or not cadgen ${version} on Python ${PYTHON_BUILD.version}+${PYTHON_BUILD.release}).\n` +
+        `no bundled CAD runtime for ${target} under resources/runtime/ (or not cadgen ${version} on Python ${PYTHON_BUILD.version}+${PYTHON_BUILD.release}, from the wheel now in resources/cadgen).\n` +
           `Run \`npm run bundle:runtime -- --target ${target}\` first (see resources/README.md), or pass --no-runtime to package without one.`,
       );
       process.exit(2);
