@@ -371,12 +371,16 @@ jobs:
       # builder's: tag-release attaches the artifacts to the Release it creates.
       - name: Build and package
         env:
-          # Empty until the secrets exist. See the note above the job.
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Empty until the secrets exist. See the note above the job. The Apple
+          # certificate and credentials reach the macOS leg only: electron-builder
+          # signs Windows with CSC_LINK when WIN_CSC_LINK is unset, which would
+          # Authenticode-sign the installer with the Apple cert (package.mjs's
+          # signingEnv drops them off the Mac too).
+          CSC_LINK: ${{ matrix.name == 'macOS' && secrets.CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.name == 'macOS' && secrets.CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ matrix.name == 'macOS' && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.name == 'macOS' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ matrix.name == 'macOS' && secrets.APPLE_TEAM_ID || '' }}
           TEXT_TO_CAD_APTABASE_KEY: ${{ secrets.TEXT_TO_CAD_APTABASE_KEY }}
           # electron-builder's own GitHub client reads this; `--publish never` means it
           # never uses it, and leaving it unset avoids any ambiguity about that.

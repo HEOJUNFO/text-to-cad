@@ -56,4 +56,47 @@ describe("package.mjs", () => {
     const { builderArgsFor } = await import("../../../scripts/package.mjs");
     expect(builderArgsFor(args)).toEqual(builder);
   });
+
+  describe("signingEnv", () => {
+    const APPLE = {
+      CSC_LINK: "apple.p12",
+      CSC_KEY_PASSWORD: "pw",
+      APPLE_ID: "id@example.invalid",
+      APPLE_APP_SPECIFIC_PASSWORD: "app-pw",
+      APPLE_TEAM_ID: "TEAM",
+    };
+
+    it("signs and notarises the Mac with the Apple credentials", async () => {
+      const { signingEnv } = await import("../../../scripts/package.mjs");
+      const { env, signed, notarize } = signingEnv(["--mac"], { PATH: "/bin", ...APPLE });
+      expect({ signed, notarize }).toEqual({ signed: true, notarize: true });
+      expect(env).toMatchObject(APPLE);
+      expect(env.CSC_IDENTITY_AUTO_DISCOVERY).toBeUndefined();
+    });
+
+    it.each([["--win"], ["--linux"]])("never hands the Apple certificate to %s", async (flag) => {
+      const { signingEnv } = await import("../../../scripts/package.mjs");
+      const { env, signed, notarize } = signingEnv([flag], { PATH: "/bin", ...APPLE });
+      expect({ signed, notarize }).toEqual({ signed: false, notarize: false });
+      for (const name of Object.keys(APPLE)) {
+        expect(env).not.toHaveProperty(name);
+      }
+      expect(env.CSC_IDENTITY_AUTO_DISCOVERY).toBe("false");
+      expect(env.PATH).toBe("/bin");
+    });
+
+    it("signs Windows with its own certificate only", async () => {
+      const { signingEnv } = await import("../../../scripts/package.mjs");
+      const { env, signed } = signingEnv(["--win"], { ...APPLE, WIN_CSC_LINK: "win.pfx", WIN_CSC_KEY_PASSWORD: "wpw" });
+      expect(signed).toBe(true);
+      expect(env).toMatchObject({ WIN_CSC_LINK: "win.pfx", WIN_CSC_KEY_PASSWORD: "wpw" });
+      expect(env).not.toHaveProperty("CSC_LINK");
+    });
+
+    it("refuses to sign the Mac in the same run as another os", async () => {
+      const { signingEnv } = await import("../../../scripts/package.mjs");
+      expect(() => signingEnv(["--mac", "--win"], APPLE)).toThrow(/package --mac on its own/);
+      expect(signingEnv(["--mac", "--win"], {}).signed).toBe(false);
+    });
+  });
 });

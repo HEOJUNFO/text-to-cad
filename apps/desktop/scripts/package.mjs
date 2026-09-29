@@ -73,10 +73,14 @@ export function builderArgsFor(args) {
   return args.flatMap((arg) => (arg in TARGET_NAMES && !args.some((other) => TARGET_NAMES[arg].includes(other)) ? [arg, ...TARGET_NAMES[arg]] : [arg]));
 }
 
+/** The macOS signing and notarisation variables, which no other os's build is handed. */
+const MAC_SIGNING = ["CSC_LINK", "CSC_KEY_PASSWORD", "APPLE_ID", "APPLE_APP_SPECIFIC_PASSWORD", "APPLE_TEAM_ID"];
+
 /**
  * Code-signing is on when, and only when, the credentials exist.
  *
- * `CSC_LINK` (+ `CSC_KEY_PASSWORD`) is the certificate; without it
+ * `CSC_LINK` (+ `CSC_KEY_PASSWORD`) is the macOS certificate and
+ * `WIN_CSC_LINK` (+ `WIN_CSC_KEY_PASSWORD`) the Windows one; without it
  * `CSC_IDENTITY_AUTO_DISCOVERY=false` is set explicitly, because
  * electron-builder's default is to go looking in the keychain — which makes a
  * developer's machine produce a differently-signed artifact from CI's, silently.
@@ -86,13 +90,30 @@ export function builderArgsFor(args) {
  * electron-builder.yml, because a notarize attempt without credentials fails
  * the whole run, and an unsigned build is the normal case today.
  */
-function signingEnv() {
-  const has = (name) => Boolean(process.env[name]);
-  const signed = has("CSC_LINK");
+export function signingEnv(targets, source = process.env) {
+  const oses = Object.keys(OS_NAMES)
+    .filter((flag) => targets.includes(flag))
+    .map((flag) => OS_NAMES[flag]);
+  const has = (name) => Boolean(source[name]);
+  const mac = oses.includes("mac");
+  // CSC_LINK is the Apple certificate. electron-builder falls back to it for
+  // Windows when WIN_CSC_LINK is unset, which would Authenticode-sign the
+  // installer with the Apple cert and bake its subject into app-update.yml as
+  // the publisher every later update is checked against. So off the Mac it is
+  // not passed on at all, and one invocation never mixes the Mac with another os.
+  if (mac && oses.length > 1 && has("CSC_LINK")) {
+    throw new Error("CSC_LINK is the macOS certificate: package --mac on its own when signing, not together with --win or --linux");
+  }
+  const env = { ...source };
+  if (!mac) {
+    for (const name of MAC_SIGNING) {
+      delete env[name];
+    }
+  }
+  const signed = mac ? has("CSC_LINK") : oses.includes("win") && has("WIN_CSC_LINK");
   const notarize =
-    signed && has("APPLE_ID") && has("APPLE_APP_SPECIFIC_PASSWORD") && has("APPLE_TEAM_ID");
+    mac && signed && has("APPLE_ID") && has("APPLE_APP_SPECIFIC_PASSWORD") && has("APPLE_TEAM_ID");
 
-  const env = { ...process.env };
   if (!signed) {
     env.CSC_IDENTITY_AUTO_DISCOVERY = "false";
   }
@@ -134,13 +155,21 @@ function main(argv) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(2);
   }
-  const { env, signed, notarize } = signingEnv();
+  let signing;
+  try {
+    signing = signingEnv(targets);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(2);
+  }
+  const { env, signed, notarize } = signing;
+  const certificate = targets.includes("--mac") ? "CSC_LINK" : "WIN_CSC_LINK";
 
   console.info(`packaging text-to-cad ${version} for ${targets.join(" ")}`);
   console.info(
     signed
-      ? `signing: on (CSC_LINK), notarisation: ${notarize ? "on" : "off (no APPLE_* credentials)"}`
-      : "signing: off (no CSC_LINK) — CSC_IDENTITY_AUTO_DISCOVERY=false",
+      ? `signing: on (${certificate}), notarisation: ${targets.includes("--mac") ? (notarize ? "on" : "off (no APPLE_* credentials)") : "n/a"}`
+      : `signing: off (no ${certificate}) — CSC_IDENTITY_AUTO_DISCOVERY=false`,
   );
 
   for (const directory of EXTRA_RESOURCE_DIRS) {
