@@ -8,6 +8,7 @@ import {
   isAuthError,
   isEffortOption,
   partsView,
+  shellJoin,
   statusLine,
   turnView,
 } from "@renderer/features/session/view";
@@ -96,6 +97,18 @@ describe("activity rows", () => {
     expect(activityRow(call({ id: "k", kind: "other", name: "cad_run", title: "rebuild", input: { command: "rebuild" } })).glyph).toBe("other");
   });
 
+  it("matches an argv command against its shell-quoted join, or the script of a `sh -c` wrapper", () => {
+    const argv = ["grep", "-n", "hello world", "README.md"];
+    const quoted = activityRow(call({ id: "q", kind: "other", name: null, title: "grep -n 'hello world' README.md", input: { command: argv } }));
+    expect(quoted.glyph).toBe("execute");
+    expect(quoted.command).toBe("grep -n 'hello world' README.md");
+    expect(activityRow(call({ id: "w", kind: "other", name: null, title: "ls -la", input: { command: ["bash", "-lc", "ls -la"] } })).glyph).toBe("execute");
+    expect(activityRow(call({ id: "x", kind: "other", name: null, title: "$ ls -la", input: { command: ["/bin/zsh", "-c", "ls -la"] } })).glyph).toBe("execute");
+    // An argv whose join is not the title is not a shell.
+    expect(activityRow(call({ id: "y", kind: "other", name: null, title: "run", input: { command: ["run", "--fast"] } })).glyph).toBe("other");
+    expect(shellJoin(["echo", "it's", ""])).toBe(`echo 'it'"'"'s' ''`);
+  });
+
   it("takes a nameless `other` for a shell when its title is its command line (Codex's exec shape)", () => {
     // The Codex fixture's exec call, reported as `other` by an adapter that sends no name.
     const command = "printf '%s\\n' 'hello from codex' > hello.txt\nls -la";
@@ -104,6 +117,8 @@ describe("activity rows", () => {
     expect(codex.command).toBe(command);
     expect(codex.label).toBe("");
     expect(activityRow(call({ id: "p", kind: "other", name: null, title: "$ make test", input: { command: "make test" } })).glyph).toBe("execute");
+    // A `$ ` prompt counts only in front of the command itself.
+    expect(activityRow(call({ id: "d", kind: "other", name: null, title: "$ make build", input: { command: "rebuild" } })).glyph).toBe("other");
     // Nameless, titled with its tool name: not a shell.
     expect(activityRow(call({ id: "m", kind: "other", name: null, title: "cad_run", input: { command: "rebuild" } })).glyph).toBe("other");
   });

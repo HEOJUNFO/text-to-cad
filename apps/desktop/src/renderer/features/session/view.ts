@@ -223,11 +223,39 @@ function isShellShaped(part: ToolCallPart): boolean {
   // ACP's ToolCall has no name, so most adapters send none (the reducer only
   // keeps a non-standard `name`, and no `_meta` tool name). Then the title
   // decides: a shell call is titled with its own command line, as Codex
-  // titles its exec calls, or with a `$ ` prompt. An MCP tool is titled with
-  // its tool name, which is not its `command` argument.
+  // titles its exec calls, bare or after a `$ ` prompt. The title has to BE
+  // the command — an MCP tool is titled with its tool name, and a `$ ` in
+  // front of anything else is not enough.
+  if (shellCommandOf(part) === null) {
+    return false;
+  }
   const title = part.title.trim();
-  const command = shellCommandOf(part);
-  return command !== null && (title === command || title === `$ ${command}` || /^\$\s/.test(title));
+  const bare = title.startsWith("$ ") ? title.slice(2).trim() : title;
+  return commandForms(part).includes(bare);
+}
+
+/**
+ * Every spelling of the call's command a title could be: the string itself,
+ * or for an argv array its shell-quoted join, its plain join, and the script
+ * of a `sh -c …` / `bash -lc …` wrapper.
+ */
+function commandForms(part: ToolCallPart): string[] {
+  const input = part.input as { command?: unknown; cmd?: unknown } | null | undefined;
+  if (typeof input?.command === "string") return [input.command.trim()];
+  if (typeof input?.cmd === "string") return [input.cmd.trim()];
+  if (!Array.isArray(input?.command)) return [];
+  const argv = input.command.map(String);
+  const forms = [shellJoin(argv), argv.join(" ")];
+  const script = argv.length === 3 && /^-[a-z]*c$/.test(argv[1]!) ? argv[2]! : null;
+  if (script !== null && /(^|\/)(ba|z|da|k)?sh$/.test(argv[0]!)) forms.push(script.trim());
+  return forms;
+}
+
+/** argv as a shell would need it typed: shlex.join's single-quote rule. */
+export function shellJoin(argv: readonly string[]): string {
+  return argv
+    .map((arg) => (arg !== "" && /^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'"'"'`)}'`))
+    .join(" ");
 }
 
 /**
@@ -243,7 +271,7 @@ function shellCommandOf(part: ToolCallPart): string | null {
     typeof input?.command === "string"
       ? input.command
       : Array.isArray(input?.command)
-        ? input.command.map(String).join(" ")
+        ? shellJoin(input.command.map(String))
         : typeof input?.cmd === "string"
           ? input.cmd
           : null;
@@ -266,7 +294,7 @@ function commandOf(part: ToolCallPart): string | null {
     typeof input?.command === "string"
       ? input.command
       : Array.isArray(input?.command)
-        ? input.command.map(String).join(" ")
+        ? shellJoin(input.command.map(String))
         : typeof input?.cmd === "string"
           ? input.cmd
           : part.title;
