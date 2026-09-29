@@ -42,6 +42,12 @@ const fakeCode = () => {
 
 let models: { original: { dispose: () => void }; modified: { dispose: () => void } };
 let shown: { original?: string; modified?: string } = {};
+// The real wrapper mounts after monaco's loader resolves, and the widget's diff
+// arrives from a worker after that; `mountNow` and `diffUpdated` stand for both.
+let deferMount = false;
+let mountNow: () => void = () => undefined;
+let computed: unknown[] | null = null;
+let diffUpdated = listener();
 
 vi.mock("@monaco-editor/react", async () => {
   const { useEffect, useRef } = await import("react");
@@ -58,8 +64,11 @@ vi.mock("@monaco-editor/react", async () => {
         getModifiedEditor: () => modifiedCode.editor,
         // Created and never fired, as in monaco 0.56's DelegatingEditor.
         onDidDispose: listener().on,
+        getLineChanges: () => computed,
+        onDidUpdateDiff: diffUpdated.on,
       };
-      mount.current(widget);
+      mountNow = () => mount.current(widget);
+      if (!deferMount) mountNow();
       // The wrapper's cleanup disposes the widget, which disposes its inner
       // editors; with keepCurrent*Model it leaves the models alone.
       return () => {
@@ -85,6 +94,9 @@ const diff: FileDiff = {
 beforeEach(() => {
   vi.useFakeTimers();
   models = { original: { dispose: vi.fn() }, modified: { dispose: vi.fn() } };
+  deferMount = false;
+  computed = null;
+  diffUpdated = listener();
 });
 
 afterEach(() => {
@@ -117,4 +129,25 @@ it("draws no empty last row for the final newline both sides share", () => {
 it("keeps a final newline that only one side has: that is the change", () => {
   render(<ReviewDiff diff={{ ...diff, before: "a = 1", after: "a = 1\n" }} onSelect={() => undefined} path="part.py" theme="light" />);
   expect(shown).toEqual({ original: "a = 1", modified: "a = 1\n" });
+});
+
+it("is marked ready only once the diff editor has mounted and drawn its first computed diff", () => {
+  deferMount = true;
+  const view = render(<ReviewDiff diff={diff} onSelect={() => undefined} path="part.py" theme="light" />);
+  const block = view.container.querySelector("[data-review-diff=modified]");
+  expect(block?.hasAttribute("data-review-ready")).toBe(false);
+
+  act(() => mountNow());
+  // Mounted with both models, but nothing computed to draw rows from yet.
+  expect(block?.hasAttribute("data-review-ready")).toBe(false);
+
+  computed = [];
+  act(() => diffUpdated.fire());
+  expect(block?.getAttribute("data-review-ready")).toBe("true");
+});
+
+it("is ready at mount when the diff was already computed", () => {
+  computed = [];
+  const view = render(<ReviewDiff diff={diff} onSelect={() => undefined} path="part.py" theme="light" />);
+  expect(view.container.querySelector("[data-review-diff=modified]")?.getAttribute("data-review-ready")).toBe("true");
 });

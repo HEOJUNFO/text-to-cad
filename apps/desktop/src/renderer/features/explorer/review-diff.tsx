@@ -24,6 +24,12 @@ import type { FileDiff } from "./types";
  * empty line), so a diff of `""` against a new file draws a phantom deleted
  * "line 1" above it. Those files show the side that exists, tinted as wholly
  * inserted or removed.
+ *
+ * `data-review-ready` goes on once the block has drawn what it shows: the one
+ * side's editor has mounted, or the diff editor has its models and its first
+ * computed diff (the worker's answer, which the inline rows are drawn from).
+ * Before that the block is an estimate-sized box — a reader, or a test,
+ * waiting on the diff waits on this.
  */
 
 /** The selection "Request revision" quotes, if any. */
@@ -138,6 +144,7 @@ export function ReviewDiff({
   onSelect: (selection: ReviewSelection | null) => void;
 }) {
   const [measured, setMeasured] = useState<number | null>(null);
+  const [ready, setReady] = useState(false);
   const listeners = useRef<IDisposable[]>([]);
   useEffect(
     () => () => {
@@ -175,7 +182,7 @@ export function ReviewDiff({
   if (side) {
     const text = sideText((side === "added" ? diff.after : diff.before) ?? "");
     return (
-      <div data-review-diff={side} style={{ height }}>
+      <div data-review-diff={side} data-review-ready={ready || undefined} style={{ height }}>
         <Editor
           language={languageFor(path)}
           onMount={(code, monaco) => {
@@ -188,6 +195,7 @@ export function ReviewDiff({
               },
             ]);
             track(code, [[side === "added" ? "modified" : "original", code]]);
+            setReady(true);
           }}
           options={{ ...OPTIONS, lineDecorationsWidth: 14 }}
           theme={monacoTheme(theme)}
@@ -199,7 +207,7 @@ export function ReviewDiff({
 
   const texts = diffTexts(diff);
   return (
-    <div data-review-diff="modified" style={{ height }}>
+    <div data-review-diff="modified" data-review-ready={ready || undefined} style={{ height }}>
       <DiffEditor
         // The wrapper disposes both text models and only then the widget, which
         // monaco 0.56 reports as an uncaught "TextModel got disposed before
@@ -228,6 +236,14 @@ export function ReviewDiff({
             ["original", editor.getOriginalEditor()],
             ["modified", editor.getModifiedEditor()],
           ]);
+          // Mounted is not drawn: the wrapper sets both models on mount, and the
+          // rows come from the diff the worker computes after that. Ready is the
+          // first computed diff — already there, or when it lands.
+          const settle = () => {
+            if (editor.getLineChanges() !== null) setReady(true);
+          };
+          listeners.current.push(editor.onDidUpdateDiff(settle));
+          settle();
         }}
         options={{
           ...OPTIONS,
