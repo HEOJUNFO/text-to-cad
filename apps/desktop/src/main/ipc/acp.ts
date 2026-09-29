@@ -214,12 +214,21 @@ const PREWARM_DELAY_MS = 1_500;
  * only `TEXT_TO_CAD_PREWARM=1` asks for it.
  */
 export function prewarmAgents(): void {
+  // Which agents are installed, probed now rather than when the renderer
+  // first asks: the login shell and the `--version` runs overlap the
+  // renderer's load, and a cold `agents.list` waits on this probe
+  // (`COLD_LIST_WAIT_MS`). Not gated: it starts no agent, and every launch's
+  // renderer asks for the table anyway.
+  void detector.settled().catch((error: unknown) => {
+    console.info(`[agents] the launch probe failed: ${String(error)}`);
+  });
   if (process.env.NODE_ENV === "test" && process.env.TEXT_TO_CAD_PREWARM !== "1") {
     return;
   }
   const timer = setTimeout(() => {
+    // The launch probe's table, above, not a second probe.
     void detector
-      .refresh(false)
+      .settled()
       .then(() => sessionManager.warmAgents())
       .catch((error: unknown) => {
         console.info(`[acp] the idle adapters were not warmed: ${String(error)}`);

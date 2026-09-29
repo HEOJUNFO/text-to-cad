@@ -25,7 +25,7 @@
  * `tests/unit/main/explorer-fs.test.ts` can run it.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { statSync, watch as watchDirectory, type FSWatcher, type Stats } from "node:fs";
+import { statSync, watch as watchDirectory, type Dirent, type FSWatcher, type Stats } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import ignore from "ignore";
@@ -363,6 +363,9 @@ export async function listDirectory(
   return sortEntries(entries);
 }
 
+/** Directories `listPaths` reads ahead of the one it is on. */
+const LIST_READ_AHEAD = 16;
+
 /**
  * Every path under `directory`, flat, for the tree's fuzzy filter.
  *
@@ -384,28 +387,49 @@ export async function listPaths(
   const deferred: string[] = [];
   let truncated = false;
 
-  while ((queue.length > 0 || deferred.length > 0) && !truncated) {
-    // Visit project content before dependency caches can consume the cap. Both
-    // queues are searched; no file is excluded because of Git or its renderer.
-    const current = (queue.length > 0 ? queue : deferred).shift() as string;
-    const dirents = await fs.readdir(current, { withFileTypes: true }).catch(() => []);
-    for (const dirent of dirents) {
-      const child = path.join(current, dirent.name);
-      const relative = toRelative(realRoot, child);
-      // Symlinked directories are not descended into: a link back up the tree
-      // is an infinite walk, and the honest fix is not to follow any of them.
-      const isDirectory = dirent.isDirectory();
-      if (isDirectory) {
-        (backgroundWatchIgnores(relative) ? deferred : queue).push(child);
-      } else if (dirent.isFile()) {
-        if (paths.length >= limit) {
-          truncated = true;
-          break;
+  // Breadth-first, and consumed strictly in the order the directories were
+  // found, so a capped walk returns the same paths it did when it read one
+  // directory at a time. What changed is that the next `LIST_READ_AHEAD`
+  // directories are already being read while this one is taken apart: one
+  // `readdir` per await made a 5,000-path project a ~700 ms wait on the disk's
+  // latency, not its throughput. A list is walked by index — `shift()` on a
+  // queue this long is itself quadratic.
+  const drain = async (list: string[]) => {
+    const reads = new Map<number, Promise<Dirent[]>>();
+    for (let next = 0; next < list.length && !truncated; next += 1) {
+      for (let ahead = next; ahead < Math.min(list.length, next + LIST_READ_AHEAD); ahead += 1) {
+        if (!reads.has(ahead)) {
+          reads.set(ahead, fs.readdir(list[ahead] as string, { withFileTypes: true }).catch(() => []));
         }
-        paths.push(relative);
+      }
+      const current = list[next] as string;
+      const dirents = await (reads.get(next) as Promise<Dirent[]>);
+      reads.delete(next);
+      for (const dirent of dirents) {
+        const child = path.join(current, dirent.name);
+        const relative = toRelative(realRoot, child);
+        // Symlinked directories are not descended into: a link back up the tree
+        // is an infinite walk, and the honest fix is not to follow any of them.
+        const isDirectory = dirent.isDirectory();
+        if (isDirectory) {
+          (backgroundWatchIgnores(relative) ? deferred : queue).push(child);
+        } else if (dirent.isFile()) {
+          if (paths.length >= limit) {
+            truncated = true;
+            break;
+          }
+          paths.push(relative);
+        }
       }
     }
-  }
+  };
+
+  // Visit project content before dependency caches can consume the cap. Both
+  // lists are searched; no file is excluded because of Git or its renderer.
+  // Nothing under a deferred directory is ever ordinary again (its path keeps
+  // the ignored segment), so the second pass only grows `deferred`.
+  await drain(queue);
+  await drain(deferred);
 
   paths.sort(COLLATOR.compare);
   return { paths, truncated };

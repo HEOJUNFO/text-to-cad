@@ -1,5 +1,5 @@
 import { PanelsTopLeft, Plus } from "lucide-react";
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 
 import { Button } from "@renderer/components/ui/button";
 import { isMac } from "@renderer/lib/platform";
@@ -12,11 +12,15 @@ import { BrowserTab } from "./BrowserTab";
 import { EmptyState } from "@text-to-cad/ui/navigation";
 import { DrawingTab } from "./DrawingTab";
 import { FileTab } from "./FileTab";
-import { ReviewTab } from "./ReviewTab";
 import { EXPLORER_TABPANEL_ID, TabStrip, explorerTabDomId } from "./TabStrip";
 import { focusTabBody } from "./focus";
-import { TerminalTab } from "./TerminalTab";
 import { desktopCadConnectionForTab } from "./adapters/cadRuntime";
+
+// The review draws with Monaco (~9.6 MB of the window's first chunk when it was
+// imported here) and the terminal with xterm; both load with the first tab of
+// their kind, the way the drawing surface and the file renderers already do.
+const ReviewTab = lazy(() => import("./ReviewTab").then((module) => ({ default: module.ReviewTab })));
+const TerminalTab = lazy(() => import("./TerminalTab").then((module) => ({ default: module.TerminalTab })));
 
 /**
  * The explorer: one tab strip and whatever the selected tab renders.
@@ -98,12 +102,14 @@ function TabBody({ tab, project }: {
       );
     case "review":
       return (
-        <ReviewTab
-          project={project}
-          scope={tab.scope}
-          sessionId={tab.sessionId}
-          tabId={tab.id}
-        />
+        <Suspense fallback={<TabLoading label="Opening review…" />}>
+          <ReviewTab
+            project={project}
+            scope={tab.scope}
+            sessionId={tab.sessionId}
+            tabId={tab.id}
+          />
+        </Suspense>
       );
     case "drawing":
       return <DrawingTab sessionId={tab.sessionId} project={project} root={tab.root} tabId={tab.id} title={tab.title} />;
@@ -111,16 +117,23 @@ function TabBody({ tab, project }: {
       return <BrowserTab sessionId={tab.sessionId} projectId={project.id} root={tab.root} tabId={tab.id} url={tab.url} />;
     case "terminal":
       return (
-        <TerminalTab
-          sessionId={tab.sessionId}
-          cwd={tab.cwd}
-          project={project}
-          ptyId={tab.ptyId}
-          readOnly={tab.readOnly}
-          tabId={tab.id}
-        />
+        <Suspense fallback={<TabLoading label="Opening terminal…" />}>
+          <TerminalTab
+            sessionId={tab.sessionId}
+            cwd={tab.cwd}
+            project={project}
+            ptyId={tab.ptyId}
+            readOnly={tab.readOnly}
+            tabId={tab.id}
+          />
+        </Suspense>
       );
   }
+}
+
+/** A lazy tab's first frame, drawn as the Markdown renderer's "Opening source…" is. */
+function TabLoading({ label }: { label: string }) {
+  return <div className="p-4 text-xs text-muted-foreground">{label}</div>;
 }
 
 /**
