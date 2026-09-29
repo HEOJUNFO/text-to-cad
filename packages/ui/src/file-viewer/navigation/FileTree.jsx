@@ -82,21 +82,22 @@ const ROW_HEIGHT = TREE_ROW_HEIGHT;
 const INDENT = 12;
 
 /**
- * Folders the tree leaves out: a repository's own internals, which are the
- * version control's and never something to open. Other dotfiles and
- * dotfolders (`.gitignore`, `.github`, `.env`) are the project's and stay. A
- * hidden folder still shows while the open or revealed path is inside it.
+ * Entries the tree leaves out: a repository's own internals, which are the
+ * version control's and never something to open — the `.git` folder, or the
+ * `.git` FILE at the root of a worktree. Other dotfiles and dotfolders
+ * (`.gitignore`, `.github`, `.env`) are the project's and stay. A hidden
+ * folder still shows while the open or revealed path is inside it.
  */
-const HIDDEN_DIRECTORY_NAMES = new Set([".git"]);
+const HIDDEN_ENTRY_NAMES = new Set([".git"]);
 
-/** True for a directory entry the tree leaves out. */
-export function isHiddenTreeDirectory(entry) {
-  return entry.kind === "directory" && HIDDEN_DIRECTORY_NAMES.has(entry.name);
+/** True for an entry, file or folder, the tree leaves out. */
+export function isHiddenTreeEntry(entry) {
+  return HIDDEN_ENTRY_NAMES.has(entry.name);
 }
 
-/** True for a path inside a folder the tree leaves out: the filter does not rank it. */
-export function isInsideHiddenTreeDirectory(path) {
-  return path.split("/").slice(0, -1).some((segment) => HIDDEN_DIRECTORY_NAMES.has(segment));
+/** True for a path that is, or is inside, an entry the tree leaves out: the filter does not rank it. */
+export function isInsideHiddenTreeEntry(path) {
+  return path.split("/").some((segment) => HIDDEN_ENTRY_NAMES.has(segment));
 }
 
 /**
@@ -122,6 +123,14 @@ export function isInsideHiddenTreeDirectory(path) {
  */
 export function FileTree({ source, activePath, reveal = null, edit = null, onOpen }) {
   const [query, setQuery] = useState("");
+  /**
+   * Bumped when a file picked from the filter is the one already open: the
+   * reveal below keys on the open path, which did not move, so this asks for
+   * it again.
+   */
+  const [revealAgain, setRevealAgain] = useState(0);
+  /** A file picked from the filter, scrolled to once the tree has its row. */
+  const pendingScroll = useRef(null);
   const [cursor, setCursor] = useState(null);
   /** @type {[TreeEditRequest|null, Function]} */
   const [editing, setEditing] = useState(null);
@@ -152,7 +161,8 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
     const parts = revealTarget.split("/");
     const segments = reveal?.directory && reveal.path === revealTarget ? parts : parts.slice(0, -1);
     return new Set(segments.map((_, index) => segments.slice(0, index + 1).join("/")));
-  }, [revealTarget, reveal]);
+    // `revealAgain` is a request, not an input: a new set re-runs the reveal.
+  }, [revealTarget, reveal, revealAgain]);
 
   const isExpanded = useCallback((directory) => expanded.has(directory), [expanded]);
 
@@ -374,7 +384,7 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
     const out = [];
     const walk = (directory, depth) => {
       for (const entry of children[directory] ?? []) {
-        if (isHiddenTreeDirectory(entry) && !revealed.has(entry.path)) {
+        if (isHiddenTreeEntry(entry) && !revealed.has(entry.path) && entry.path !== revealTarget) {
           continue;
         }
         const open = entry.kind === "directory" && isExpanded(entry.path);
@@ -392,7 +402,23 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
     };
     walk("", 0);
     return out;
-  }, [children, isExpanded, revealed]);
+  }, [children, isExpanded, revealed, revealTarget]);
+
+  /**
+   * The file picked from the filter, once its row is drawn: its folders open
+   * a render or two after the pick (the reveal, then their listings).
+   */
+  useEffect(() => {
+    const target = pendingScroll.current;
+    if (!target || filtering) {
+      return;
+    }
+    const row = listRef.current?.querySelector(`[data-path="${CSS.escape(target)}"]`);
+    if (row) {
+      pendingScroll.current = null;
+      row.scrollIntoView({ block: "nearest" });
+    }
+  }, [rows, filtering]);
 
   /** Where the "new entry" field goes: first among its folder's children. */
   const creatingAt = useMemo(() => {
@@ -411,7 +437,7 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
       : 0;
 
   const matches = useMemo(
-    () => (filtering ? fuzzyFilter((corpus?.paths ?? []).filter((path) => !isInsideHiddenTreeDirectory(path)), query, 200) : []),
+    () => (filtering ? fuzzyFilter((corpus?.paths ?? []).filter((path) => !isInsideHiddenTreeEntry(path)), query, 200) : []),
     [corpus, filtering, query]
   );
 
@@ -424,6 +450,10 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
     if (filtering) {
       setQuery("");
       setCursor(path);
+      pendingScroll.current = path;
+      if (path === activePath) {
+        setRevealAgain((count) => count + 1);
+      }
     }
     onOpen(path);
   };

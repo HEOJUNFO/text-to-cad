@@ -146,11 +146,12 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
   </>;
 
   const hasContent = Boolean(scene) && !viewerLoading;
-  // A failure that leaves no model to look at (`blocking`) puts the tool stack away while its
-  // card is up: the panels would float over the card and its actions, and there is nothing for
-  // them to inspect. They stay mounted, and come back as they were once the model loads.
+  // A failure that leaves no model to look at puts the tool stack away while its card is up: the
+  // panels would float over the card and its actions, and there is nothing for them to inspect.
+  // With a model on screen the stack stays — its panels (Draw's X among them) are still in use.
+  // They stay mounted, and come back as they were once the model loads.
   const failureShown = viewportAlert(frame.viewerAlert, hasContent);
-  const failureCovers = Boolean(failureShown && failureShown.severity === "error" && failureShown.blocking !== false);
+  const failureCovers = failureShown?.severity === "error" && (failureShown.blocking === true || !hasContent);
   // Draw's action: the shell's Copy Drawing (the view with its ink, to the clipboard), unless the
   // renderer supplies a drawing action to take its place. Either way the copy stays on the
   // shortcut (`copyActionRef`, ⌘C).

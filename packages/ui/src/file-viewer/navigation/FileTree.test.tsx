@@ -4,9 +4,11 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { FileTree } from '../../../dist/file-viewer/navigation/FileTree.js';
 
 const scrollIntoView = Element.prototype.scrollIntoView;
+const scrolled: (string | undefined)[] = [];
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
-  Element.prototype.scrollIntoView = () => {};
+  Element.prototype.scrollIntoView = function (this: Element) { scrolled.push((this as HTMLElement).dataset.path); };
+  scrolled.length = 0;
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); Element.prototype.scrollIntoView = scrollIntoView; });
 
@@ -14,25 +16,29 @@ const LISTINGS = {
   '': [
     { path: '.git', name: '.git', kind: 'directory' },
     { path: '.github', name: '.github', kind: 'directory' },
+    { path: 'STEP', name: 'STEP', kind: 'directory' },
     { path: '.gitignore', name: '.gitignore', kind: 'file' },
     { path: 'notes.txt', name: 'notes.txt', kind: 'file' },
     { path: 'part.step', name: 'part.step', kind: 'file' },
   ],
   '.git': [{ path: '.git/config', name: 'config', kind: 'file' }],
+  STEP: [{ path: 'STEP/bracket.step', name: 'bracket.step', kind: 'file' }],
 };
 
-function Tree({ activePath = null as string | null, onOpen = (_: string) => {} }) {
+// Stable, as a host's is: the tree re-reads the reveal whenever `load` changes.
+const noLoad = () => {};
+function Tree({ activePath = null as string | null, onOpen = (_: string) => {}, listings = LISTINGS as Record<string, any[]> }) {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [active, setActive] = useState(activePath);
-  const source = { rootName: 'project', expanded, setExpanded, listings: LISTINGS, load() {}, revision: 0,
-    paths: async () => ['.git/config', '.github/ci.yml', 'notes.txt', 'part.step'], platform: 'darwin', onAction() {} };
+  const source = { rootName: 'project', expanded, setExpanded, listings, load: noLoad, revision: 0,
+    paths: async () => ['.git/config', '.github/ci.yml', 'STEP/bracket.step', 'notes.txt', 'part.step'], platform: 'darwin', onAction() {} };
   return <FileTree source={source as any} activePath={active} onOpen={(path: string) => { setActive(path); onOpen(path); }} />;
 }
 const rows = () => [...document.querySelectorAll<HTMLElement>('[data-path]')].map(row => row.dataset.path);
 
 it('leaves .git out of the tree and the filter, and keeps every other dotfile', async () => {
   render(<Tree />);
-  expect(rows()).toEqual(['.github', '.gitignore', 'notes.txt', 'part.step']);
+  expect(rows()).toEqual(['.github', 'STEP', '.gitignore', 'notes.txt', 'part.step']);
   fireEvent.change(screen.getByRole('textbox', { name: 'Filter files' }), { target: { value: 'c' } });
   await waitFor(() => expect(rows()).toContain('.github/ci.yml'));
   expect(rows()).not.toContain('.git/config');
@@ -52,7 +58,7 @@ it('a file picked from the filter opens and brings the whole tree back', async (
   fireEvent.click(document.querySelector('[data-path="part.step"]')!);
   expect(onOpen).toHaveBeenCalledWith('part.step');
   expect(filter.value).toBe('');
-  expect(rows()).toEqual(['.github', '.gitignore', 'notes.txt', 'part.step']);
+  expect(rows()).toEqual(['.github', 'STEP', '.gitignore', 'notes.txt', 'part.step']);
 
   // From the keyboard too: Enter on the ranked list opens its first match and ends the search.
   fireEvent.change(filter, { target: { value: 'notes' } });
@@ -60,4 +66,24 @@ it('a file picked from the filter opens and brings the whole tree back', async (
   fireEvent.keyDown(filter, { key: 'Enter' });
   expect(onOpen).toHaveBeenLastCalledWith('notes.txt');
   expect(filter.value).toBe('');
+});
+
+it('leaves out the .git file at the root of a worktree too', () => {
+  render(<Tree listings={{ '': [{ path: '.git', name: '.git', kind: 'file' }, { path: 'part.step', name: 'part.step', kind: 'file' }] }} />);
+  expect(rows()).toEqual(['part.step']);
+});
+
+it('picking the file already open, from a folder shut by hand, opens the folder and scrolls to it', async () => {
+  render(<Tree activePath="STEP/bracket.step" />);
+  expect(rows()).toContain('STEP/bracket.step');
+  fireEvent.click(document.querySelector('[data-path="STEP"]')!);
+  expect(rows()).not.toContain('STEP/bracket.step');
+  scrolled.length = 0;
+  const filter = screen.getByRole('textbox', { name: 'Filter files' }) as HTMLInputElement;
+  fireEvent.change(filter, { target: { value: 'bracket' } });
+  await waitFor(() => expect(rows()).toEqual(['STEP/bracket.step']));
+  fireEvent.click(document.querySelector('[data-path="STEP/bracket.step"]')!);
+  expect(filter.value).toBe('');
+  expect(rows()).toContain('STEP/bracket.step');
+  expect(scrolled).toContain('STEP/bracket.step');
 });
