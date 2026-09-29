@@ -107,11 +107,15 @@ it("the commit button follows the working tree, not the scope, and says how many
   expect(within(screen.getByRole("region", { name: "Commit changes" })).getByText("Commit 2 files")).toBeInTheDocument();
   expect(trigger).toHaveAttribute("aria-expanded", "true");
   expect(trigger).toHaveAttribute("aria-controls", screen.getByRole("region", { name: "Commit changes" }).id);
+  // One filled Commit on screen: the panel's. The header's is the toggle that opened it.
+  expect(trigger).toHaveAttribute("data-variant", "outline");
+  expect(within(screen.getByRole("region", { name: "Commit changes" })).getByRole("button", { name: "Commit" })).toHaveAttribute("data-variant", "default");
 
   // Escape closes the panel and hands focus back to the header's button.
   await user.keyboard("{Escape}");
   expect(screen.queryByRole("region", { name: "Commit changes" })).toBeNull();
   expect(trigger).toHaveFocus();
+  expect(trigger).toHaveAttribute("data-variant", "default");
 });
 
 it("a clean working tree disables the commit even when the scope shows committed history", async () => {
@@ -153,7 +157,8 @@ it("a Last turn with no recorded mark says so, instead of showing the working tr
   render(<ReviewTab project={PROJECT} scope="turn" sessionId="s1" tabId="t1" />);
 
   expect(await screen.findByText("No turn recorded yet")).toBeInTheDocument();
-  expect(screen.getByText(/Last turn starts with the next prompt/)).toBeInTheDocument();
+  // Written for the scope, not built around its label: no "Last turn starts…", no "All changes shows…".
+  expect(screen.getByText("A turn is measured from the prompt that starts it, so there is nothing to show until the next one. The working tree's changes are under “All changes”.")).toBeInTheDocument();
   expect(screen.queryByText("No changes")).toBeNull();
   expect(screen.queryByText("a.step")).toBeNull();
 });
@@ -165,10 +170,13 @@ it("a This session with no recorded mark says so too", async () => {
   expect(screen.queryByText("No changes")).toBeNull();
 });
 
-it("in a repository with no commits, Last turn shows the work and says it is measured from the start", async () => {
+it.each([
+  ["turn", "the last turn"],
+  ["session", "this session"],
+] as const)("in a repository with no commits, %s shows the work and says, in a sentence of its own, it is measured from the start", async (scope, subject) => {
   scoped.mockResolvedValue({ ...repo("main"), unborn: true, fromStart: true, files: [changed("a.step")], insertions: 1, workingFiles: 1 });
-  render(<ReviewTab project={PROJECT} scope="turn" sessionId="s1" tabId="t1" />);
-  expect(await screen.findByText(/measured from the repository's start/)).toBeInTheDocument();
+  render(<ReviewTab project={PROJECT} scope={scope} sessionId="s1" tabId="t1" />);
+  expect(await screen.findByText(`This repository has no commits yet, so ${subject} is measured from the repository's start.`)).toBeInTheDocument();
   expect(screen.getAllByText("a.step").length).toBeGreaterThan(0);
   expect(screen.queryByText("No turn recorded yet")).toBeNull();
 });

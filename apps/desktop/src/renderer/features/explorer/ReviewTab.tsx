@@ -365,7 +365,7 @@ function ReviewBody({
       */}
       {status.fromStart ? (
         <p className="shrink-0 border-b px-3 py-1.5 text-[12px] text-muted-foreground">
-          This repository has no commits yet, so {REVIEW_SCOPE_LABELS[scope]} is measured from the repository's start.
+          {fromStartNote(scope)}
         </p>
       ) : null}
 
@@ -433,10 +433,26 @@ function ReviewBody({
 
 // A repository with no commits never lands here: main answers that case from
 // the working tree (`fromStart`).
+// Each sentence is written for its scope rather than built around the menu's label: a label is a
+// name, and "so This session is measured…" reads as one pasted into the middle of a sentence.
 function unmarkedDescription(which: "turn" | "session"): string {
   return which === "turn"
-    ? "Last turn starts with the next prompt. All changes shows the working tree."
-    : "No revision was recorded when this session began, so there is nothing to measure it from. All changes shows the working tree.";
+    ? "A turn is measured from the prompt that starts it, so there is nothing to show until the next one. The working tree's changes are under “All changes”."
+    : "No revision was recorded when this session began, so there is nothing to measure it from. The working tree's changes are under “All changes”.";
+}
+
+function fromStartNote(scope: ReviewScope): string {
+  const prefix = "This repository has no commits yet, so";
+  switch (scope) {
+    case "turn":
+      return `${prefix} the last turn is measured from the repository's start.`;
+    case "session":
+      return `${prefix} this session is measured from the repository's start.`;
+    case "all":
+      return `${prefix} every change is measured from the repository's start.`;
+    default:
+      return `${prefix} this window is measured from the repository's start.`;
+  }
 }
 
 function emptyDescription(scope: ReviewScope): string {
@@ -615,7 +631,10 @@ function FileSection({
 /**
  * The header's commit button: `Commit or push` with a remote to push to,
  * plain `Commit` without one — a label that offers a push the panel cannot do
- * is a promise it breaks. Primary, because it is the header's one action.
+ * is a promise it breaks. Primary, because it is the header's one action —
+ * until the panel is open: then the panel's own Commit is the action, and this
+ * one is the toggle that opened it, drawn as a pressed outline so the header
+ * and the panel do not show two filled Commit buttons one above the other.
  */
 function CommitTrigger({
   canPush,
@@ -642,7 +661,7 @@ function CommitTrigger({
       onClick={onToggle}
       ref={ref}
       size="sm"
-      variant="default"
+      variant={open ? "outline" : "default"}
     >
       <GitCommitHorizontal className="size-3.5" />
       {canPush ? "Commit or push" : "Commit"}
