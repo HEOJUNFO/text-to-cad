@@ -28,8 +28,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { appVersion } from "./app-version.mjs";
-import { bundledRuntime } from "./bundle-runtime.mjs";
+import { releaseVersion } from "./app-version.mjs";
+import { PYTHON_BUILD, bundledRuntime } from "./bundle-runtime.mjs";
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
@@ -109,7 +109,13 @@ function signingEnv() {
   return { env, signed, notarize };
 }
 
-const version = appVersion();
+let version;
+try {
+  version = releaseVersion();
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(2);
+}
 const { env, signed, notarize } = signingEnv();
 
 console.info(`packaging text-to-cad ${version} for ${targets.join(" ")}`);
@@ -135,7 +141,7 @@ for (const target of runtimeTargetsFor(targets)) {
     console.warn(`runtime: ${target} NOT BUNDLED (--no-runtime): this app will not render CAD`);
   } else {
     console.error(
-      `no bundled CAD runtime for ${target} under resources/runtime/ (or not cadgen ${version}).\n` +
+      `no bundled CAD runtime for ${target} under resources/runtime/ (or not cadgen ${version} on Python ${PYTHON_BUILD.version}+${PYTHON_BUILD.release}).\n` +
         `Run \`npm run bundle:runtime -- --target ${target}\` first (see resources/README.md), or pass --no-runtime to package without one.`,
     );
     process.exit(2);

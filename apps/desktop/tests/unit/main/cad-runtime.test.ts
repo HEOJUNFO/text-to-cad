@@ -237,19 +237,29 @@ describe("what a session's PATH gets", () => {
   /**
    * The bundled runtime is a `pip install --target`, and the bundler prunes
    * the console scripts pip wrote there — so `cadgen` has to be written for
-   * it, or a packaged app's session would have `python` and no `cadgen`.
+   * it, or a packaged app's session would have `python` and no `cadgen`. The
+   * bundle's own bin is NOT on the PATH: only launchers for `cadgen`,
+   * `python3` and `python`, so nothing else in the signed bundle (pip, idle,
+   * python3-config) is what an agent's `pip` or `python3-config` means.
    */
-  it("is a launcher the app writes, plus the interpreter's own bin, when there is no cadgen script", () => {
+  it("is only the app's launchers for cadgen, python3 and python with the bundled runtime", () => {
     const fake = machine({ bundle: true });
     const runtime = new CadRuntime(fake.host);
     const bundled = bundledPaths(fake.resources, "darwin", "arm64");
 
     const dirs = runtime.sessionPath();
 
-    expect(dirs).toEqual([path.join(fake.userData, "bin"), path.dirname(bundled.python)]);
-    const launcher = path.join(fake.userData, "bin", "cadgen");
+    const bin = path.join(fake.userData, "bin");
+    expect(dirs).toEqual([bin]);
+    const launcher = path.join(bin, "cadgen");
     expect(fs.readFileSync(launcher, "utf8")).toBe(`#!/bin/sh\nexec "${bundled.python}" -m cadgen.cli "$@"\n`);
     expect(fs.statSync(launcher).mode & 0o111).toBeTruthy();
+    for (const name of ["python3", "python"]) {
+      const shim = path.join(bin, name);
+      expect(fs.readFileSync(shim, "utf8")).toBe(`#!/bin/sh\nexec "${bundled.python}" "$@"\n`);
+      expect(fs.statSync(shim).mode & 0o111).toBeTruthy();
+    }
+    expect(fs.readdirSync(bin).sort()).toEqual(["cadgen", "python", "python3"]);
 
     // Asked again with nothing changed: the same answer, the same file.
     const before = fs.statSync(launcher).mtimeMs;
@@ -257,11 +267,26 @@ describe("what a session's PATH gets", () => {
     expect(fs.statSync(launcher).mtimeMs).toBe(before);
   });
 
-  it("writes a .cmd launcher on Windows", () => {
+  it("writes .cmd launchers on Windows", () => {
     const fake = machine({ bundle: true, platform: "win32", arch: "x64" });
     const dirs = new CadRuntime(fake.host).sessionPath();
-    expect(dirs[0]).toBe(path.join(fake.userData, "bin"));
-    expect(fs.readFileSync(path.join(fake.userData, "bin", "cadgen.cmd"), "utf8")).toContain("-m cadgen.cli %*");
+    const bin = path.join(fake.userData, "bin");
+    expect(dirs).toEqual([bin]);
+    expect(fs.readFileSync(path.join(bin, "cadgen.cmd"), "utf8")).toContain("-m cadgen.cli %*");
+    expect(fs.readFileSync(path.join(bin, "python.cmd"), "utf8")).toMatch(/python\.exe" %\*\r\n$/);
+    expect(fs.existsSync(path.join(bin, "python3.cmd"))).toBe(true);
+  });
+
+  it("keeps an override interpreter's own bin after the cadgen launcher", () => {
+    const fake = machine({ bundle: true, env: {} });
+    // The bundled runtime first, so its python shims exist…
+    new CadRuntime(fake.host).sessionPath();
+    expect(fs.existsSync(path.join(fake.userData, "bin", "python3"))).toBe(true);
+    // …and then an override, whose own python must not be shadowed by them.
+    fake.host.env.CAD_DESKTOP_PYTHON = "/opt/py/bin/python3";
+    expect(new CadRuntime(fake.host).sessionPath()).toEqual([path.join(fake.userData, "bin"), "/opt/py/bin"]);
+    expect(fs.existsSync(path.join(fake.userData, "bin", "python3"))).toBe(false);
+    expect(fs.existsSync(path.join(fake.userData, "bin", "python"))).toBe(false);
   });
 
   it("is empty when there is no runtime at all", () => {

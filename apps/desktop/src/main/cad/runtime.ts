@@ -462,16 +462,25 @@ export class CadRuntime {
 
   /**
    * What goes in front of a session's `PATH` (`src/main/acp/sessions.ts`), so
-   * that `cadgen` and `python` inside an agent's session are the app's own:
-   * the resolved interpreter's bin directory, and — when that directory has no
-   * `cadgen` — a launcher this app writes for it.
+   * that `cadgen` and `python` inside an agent's session are the app's own.
    *
-   * A checkout's `.venv/bin` has the console script pip installed. The bundled
-   * runtime does not: it is a `pip install --target` and
+   * A checkout's `.venv/bin` has the console script pip installed, and is the
+   * developer's own environment: that directory goes on the PATH as it is.
+   *
+   * The bundled runtime does not: it is a `pip install --target` and
    * `scripts/bundle-runtime.mjs` prunes the scripts pip wrote there, because
-   * their shebang names the machine that built the bundle. So the launcher is
-   * written instead — one line that runs the resolved interpreter's
-   * `python -m cadgen.cli`, the same dispatcher the console script runs.
+   * their shebang names the machine that built the bundle. So launchers are
+   * written instead, into `<userData>/bin` — `cadgen` (one line that runs the
+   * resolved interpreter's `python -m cadgen.cli`, the same dispatcher the
+   * console script runs), `python3` and `python` — and that directory is the
+   * ONLY one added. The bundle's own `bin/` is never on a session's PATH:
+   * whatever else is there is not an agent's to run, and the bundle is signed
+   * and read-only (`pip` is refused by its EXTERNALLY-MANAGED marker anyway;
+   * resources/README.md). The skills invoke `cadgen`, `python` and `python3`.
+   *
+   * An override interpreter (`CAD_DESKTOP_PYTHON`, the setting) is the user's
+   * own: its bin follows the `cadgen` launcher, and no python launchers are
+   * written that would shadow it.
    *
    * Resolution only, never a probe: this is asked for on every session
    * connect, and a session that starts is not the place to wait sixty seconds
@@ -487,41 +496,61 @@ export class CadRuntime {
     if (fs.existsSync(path.join(bin, executable))) {
       return [bin];
     }
-    const launcher = this.writeCadgenLauncher(resolved.python);
-    return launcher ? [launcher, bin] : [bin];
+    const bundled = resolved.source === "bundled";
+    const launchers = this.writeLaunchers(resolved.python, bundled);
+    if (!launchers) {
+      return [bin];
+    }
+    return bundled ? [launchers] : [launchers, bin];
   }
 
   /**
-   * `<userData>/bin/cadgen`, pointed at `python`. Rewritten only when its
-   * contents would change — the interpreter moved, or the app was updated —
-   * so a launch that changes nothing writes nothing.
+   * `<userData>/bin/cadgen` — and, for the bundled runtime, `python3` and
+   * `python` — pointed at `python`. Each is rewritten only when its contents
+   * would change (the interpreter moved, or the app was updated), so a launch
+   * that changes nothing writes nothing. Without `interpreter`, python
+   * launchers left by an earlier bundled resolution are removed.
    */
-  private writeCadgenLauncher(python: string): string | null {
+  private writeLaunchers(python: string, interpreter: boolean): string | null {
     const dir = path.join(this.host.userData, "bin");
     const windows = this.host.platform === "win32";
-    const file = path.join(dir, windows ? "cadgen.cmd" : "cadgen");
-    const script = windows
-      ? `@echo off\r\n"${python}" -m cadgen.cli %*\r\n`
-      : `#!/bin/sh\nexec "${python}" -m cadgen.cli "$@"\n`;
-    try {
-      if (fs.readFileSync(file, "utf8") === script) {
-        return dir;
+    const launcher = (args: string) =>
+      windows ? `@echo off\r\n"${python}"${args} %*\r\n` : `#!/bin/sh\nexec "${python}"${args} "$@"\n`;
+    const name = (base: string) => (windows ? `${base}.cmd` : base);
+    const scripts: Array<[string, string]> = [[name("cadgen"), launcher(" -m cadgen.cli")]];
+    for (const base of ["python3", "python"]) {
+      if (interpreter) {
+        scripts.push([name(base), launcher("")]);
+      } else {
+        try {
+          fs.rmSync(path.join(dir, name(base)), { force: true });
+        } catch (error) {
+          void this.log(`[launcher] ${name(base)}: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
-    } catch {
-      /* not written yet, or unreadable: write it below */
     }
-    try {
-      fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(file, script, { mode: 0o755 });
-      // An existing file keeps its old mode through writeFileSync.
-      if (!windows) {
-        fs.chmodSync(file, 0o755);
+    for (const [fileName, script] of scripts) {
+      const file = path.join(dir, fileName);
+      try {
+        if (fs.readFileSync(file, "utf8") === script) {
+          continue;
+        }
+      } catch {
+        /* not written yet, or unreadable: write it below */
       }
-      return dir;
-    } catch (error) {
-      void this.log(`[launcher] ${file}: ${error instanceof Error ? error.message : String(error)}`);
-      return null;
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(file, script, { mode: 0o755 });
+        // An existing file keeps its old mode through writeFileSync.
+        if (!windows) {
+          fs.chmodSync(file, 0o755);
+        }
+      } catch (error) {
+        void this.log(`[launcher] ${file}: ${error instanceof Error ? error.message : String(error)}`);
+        return null;
+      }
     }
+    return dir;
   }
 
   /** The bundled runtime's layout on this machine. */

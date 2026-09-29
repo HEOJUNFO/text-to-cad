@@ -36,7 +36,10 @@ interpreter into `~/.cache/text-to-cad/python` (or `--cache`, or
 runs `pip install --only-binary=:all: --platform <tags> --target
 <site-packages> cadgen==<VERSION> -c constraints.txt`, prunes (`tests/`,
 `__pycache__`, the stdlib's test suite, static libraries, the `bin/` of
-console scripts pip wrote with a build-machine shebang), compiles every module
+console scripts pip wrote with a build-machine shebang, and the interpreter's
+own `pip*`, `idle*`, `wheel*` and `*-config` launchers in `python/bin/` or
+`python/Scripts/`), writes PEP 668's `EXTERNALLY-MANAGED` into the stdlib
+directory, compiles every module
 to `unchecked-hash` pycs — the bundle is read-only once installed, and the app
 runs it with `PYTHONDONTWRITEBYTECODE` — probes it (`import cadgen`,
 `import cadgen.viewer`, the version equals the app's), and writes
@@ -55,9 +58,23 @@ cross (probed under Rosetta when the runner has it), Windows and Linux build
 their own — and never ships a bundle that was not at least resolved on the
 leg that packages it.
 
-`scripts/package.mjs` refuses to package a target whose runtime is missing or
-is not this version (`--no-runtime` overrides, for a build whose purpose is
-not CAD). An app packaged without one says "The CAD runtime did not start" on
+**Agents cannot install into it.** A session's PATH carries `cadgen`,
+`python3` and `python` launchers from `<userData>/bin` that run the bundled
+interpreter (`CadRuntime.sessionPath`), never the bundle's own `bin/`. The
+bundle is inside a signed, read-only app and its packages are the closure
+cadgen was validated with, so `python3 -m pip install -U numpy` from an agent
+is refused by the `EXTERNALLY-MANAGED` marker with a message naming the app
+and the way out — `python3 -m venv --system-site-packages .venv`, which still
+imports the CAD packages — instead of breaking the signature and the pins or
+failing with EACCES. `pip install --target <dir>` is still allowed.
+
+`scripts/package.mjs` refuses to package a target whose runtime is missing,
+is not this version of cadgen, or was built from another interpreter pin
+(`runtime.json`'s `python` and `release` against `scripts/python-build.json`)
+(`--no-runtime` overrides, for a build whose purpose is not CAD). It also
+refuses to run without a real VERSION: `scripts/app-version.mjs` answers
+`0.0.0` when the file is missing, and an installer stamped 0.0.0 would never
+be offered an update. An app packaged without one says "The CAD runtime did not start" on
 its first STEP file, which is the report this refusal exists to prevent.
 
 ### Signing, later

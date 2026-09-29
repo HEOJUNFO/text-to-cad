@@ -8,8 +8,11 @@ import {
   PYTHON_BUILD,
   CADGEN_RUNTIME_FILES,
   TARGETS,
+  EXTERNALLY_MANAGED,
   bundledRuntime,
   hostTarget,
+  markExternallyManaged,
+  prune,
   pythonBuildUrl,
   runtimeLayout,
   runtimePipInstallArgs,
@@ -94,7 +97,24 @@ describe("the layout", () => {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, "built");
     }
+    expect(bundledRuntime(out, "mac-arm64", "9.9.9")).toBeNull();
+    fs.writeFileSync(
+      layout.marker,
+      JSON.stringify({ target: "mac-arm64", cadgen: "9.9.9", python: PYTHON_BUILD.version, release: PYTHON_BUILD.release }),
+    );
     expect(bundledRuntime(out, "mac-arm64", "9.9.9")).toMatchObject({ cadgen: "9.9.9", target: "mac-arm64" });
+
+    // Built from an older interpreter pin: stale, whatever cadgen it carries.
+    fs.writeFileSync(
+      layout.marker,
+      JSON.stringify({ target: "mac-arm64", cadgen: "9.9.9", python: "3.13.1", release: PYTHON_BUILD.release }),
+    );
+    expect(bundledRuntime(out, "mac-arm64", "9.9.9")).toBeNull();
+    fs.writeFileSync(
+      layout.marker,
+      JSON.stringify({ target: "mac-arm64", cadgen: "9.9.9", python: PYTHON_BUILD.version, release: "20200101" }),
+    );
+    expect(bundledRuntime(out, "mac-arm64", "9.9.9")).toBeNull();
   });
 });
 
@@ -115,5 +135,58 @@ describe("the runtime install", () => {
     expect(args).toContain(constraints);
     expect(args).not.toContain("cadgen==9.9.9");
     expect(args).not.toContain("--find-links");
+  });
+});
+
+describe("what an agent cannot do to the bundle", () => {
+  function fakeRuntime(target: string) {
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), "text-to-cad-bundle-"));
+    temps.push(out);
+    const layout = runtimeLayout(path.join(out, target), target);
+    const touch = (file: string) => {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, "");
+    };
+    touch(layout.python);
+    touch(path.join(layout.stdlib, "os.py"));
+    touch(path.join(layout.sitePackages, "pip", "__init__.py"));
+    return { layout, touch };
+  }
+
+  it("removes pip, idle, *-config and wheel launchers, and keeps the interpreter", () => {
+    const { layout, touch } = fakeRuntime("mac-arm64");
+    const bin = path.dirname(layout.python);
+    for (const name of ["pip", "pip3", "pip3.13", "idle3", "idle3.13", "python3-config", "python3.13-config", "wheel", "python3.13", "python"]) {
+      touch(path.join(bin, name));
+    }
+
+    prune(layout);
+
+    expect(fs.readdirSync(bin).sort()).toEqual(["python", "python3", "python3.13"]);
+    // `python -m pip` stays: the build uses it, and the marker below decides what it may do.
+    expect(fs.existsSync(path.join(layout.sitePackages, "pip", "__init__.py"))).toBe(true);
+  });
+
+  it("removes Windows' Scripts launchers", () => {
+    const { layout, touch } = fakeRuntime("win-x64");
+    const scripts = path.join(layout.pythonDir, "Scripts");
+    for (const name of ["pip.exe", "pip3.exe", "pip3.13.exe", "idle.exe", "wheel.exe"]) {
+      touch(path.join(scripts, name));
+    }
+    prune(layout);
+    expect(fs.existsSync(scripts) ? fs.readdirSync(scripts) : []).toEqual([]);
+    expect(fs.existsSync(layout.python)).toBe(true);
+  });
+
+  it("marks the interpreter externally managed (PEP 668), naming the app", () => {
+    for (const target of ["mac-arm64", "win-x64"]) {
+      const { layout } = fakeRuntime(target);
+      markExternallyManaged(layout);
+      const text = fs.readFileSync(path.join(layout.stdlib, "EXTERNALLY-MANAGED"), "utf8");
+      expect(text).toBe(EXTERNALLY_MANAGED);
+      expect(text).toMatch(/^\[externally-managed\]\nError=/);
+      expect(text).toContain("text-to-cad");
+      expect(text).toContain("venv");
+    }
   });
 });

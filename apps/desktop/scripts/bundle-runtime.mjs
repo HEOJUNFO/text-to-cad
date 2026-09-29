@@ -204,8 +204,18 @@ function which(name) {
   return first || null;
 }
 
-/** Directories a runtime never reads, removed after the install. */
-function prune(layout) {
+/**
+ * Launchers in the interpreter's own `bin/` (posix) or `Scripts/` (Windows)
+ * that an app runtime never runs and an agent must not: pip (which would
+ * write into the signed, read-only bundle), IDLE, `python3-config` (build
+ * flags for this build machine's paths) and wheel. `python`, `python3` and
+ * `python3.X` stay. `python -m pip` stays too — the build uses it — and the
+ * EXTERNALLY-MANAGED marker decides what it may do afterwards.
+ */
+const LAUNCHERS_TO_PRUNE = /^(pip|idle|wheel)[\d.]*(\.exe)?$|-config$/i;
+
+/** Directories and files a runtime never reads, removed after the install. */
+export function prune(layout) {
   const removed = [];
   const rm = (target) => {
     if (fs.existsSync(target)) {
@@ -218,6 +228,17 @@ function prune(layout) {
   // Console scripts pip wrote for --target, with the build machine's shebang.
   rm(path.join(layout.sitePackages, "bin"));
   rm(path.join(layout.sitePackages, "Scripts"));
+  // pip, idle, *-config and wheel launchers (LAUNCHERS_TO_PRUNE).
+  for (const dir of [path.dirname(layout.python), path.join(layout.pythonDir, "bin"), path.join(layout.pythonDir, "Scripts")]) {
+    if (!fs.existsSync(dir)) {
+      continue;
+    }
+    for (const name of fs.readdirSync(dir)) {
+      if (LAUNCHERS_TO_PRUNE.test(name)) {
+        rm(path.join(dir, name));
+      }
+    }
+  }
   // Documentation and static libraries.
   rm(path.join(layout.pythonDir, "share"));
   // Every package's tests, and every bytecode cache (recompiled below).
@@ -241,6 +262,36 @@ function prune(layout) {
   };
   walk(layout.pythonDir);
   return removed;
+}
+
+/**
+ * PEP 668's marker, in the stdlib directory (`sysconfig.get_path("stdlib")`):
+ * pip then refuses to install into this interpreter — its own site-packages,
+ * `--user` — with this message. The bundle is inside a signed, read-only app,
+ * and its packages are the pinned closure cadgen was validated with; an
+ * agent's `pip install -U numpy` must fail with an explanation, not break the
+ * signature or the pins, nor die with EACCES. `pip install --target <dir>`
+ * and a venv still work.
+ */
+export const EXTERNALLY_MANAGED = [
+  "[externally-managed]",
+  "Error=This Python is the CAD runtime bundled inside the text-to-cad app. Its",
+  " packages are the pinned set cadgen was validated with, and the app bundle is",
+  " signed and read-only, so nothing can be installed into it.",
+  "",
+  " To use other packages, create a virtual environment that can still import",
+  " the bundled CAD packages:",
+  "",
+  "     python3 -m venv --system-site-packages .venv",
+  "     .venv/bin/python -m pip install <package>",
+  "",
+  " (On Windows: .venv\\Scripts\\python -m pip install <package>.) The runtime",
+  " updates with the app; see the text-to-cad README, \"CAD runtime\".",
+  "",
+].join("\n");
+
+export function markExternallyManaged(layout) {
+  fs.writeFileSync(path.join(layout.stdlib, "EXTERNALLY-MANAGED"), EXTERNALLY_MANAGED);
 }
 
 /** `python -I -c`: what `src/main/cad/runtime.ts` asks an interpreter, so the bundle is checked the way it is used. */
@@ -343,6 +394,7 @@ export async function bundleRuntime({ target, out, cache, wheels, version, pytho
 
   // 3. prune, then bytecode
   const removed = prune(layout);
+  markExternallyManaged(layout);
   console.info(`pruned ${removed.length} paths (${removed.filter((entry) => !entry.endsWith("__pycache__")).slice(0, 6).join(", ")}${removed.length > 6 ? ", …" : ""})`);
   const compiler = native ? layout.python : hostPython(explicitPython, pyMinor);
   if (versionOf(compiler) === pyMinor) {
@@ -392,15 +444,22 @@ export async function bundleRuntime({ target, out, cache, wheels, version, pytho
   return { ...marker, root, bytes };
 }
 
-/** The marker a complete bundle carries, or null. `scripts/package.mjs` refuses to package without one. */
-export function bundledRuntime(out, target, version) {
-  const layout = runtimeLayout(path.join(out, target), target);
+/** The marker a complete bundle for this cadgen and this interpreter pin carries, or null. `scripts/package.mjs` refuses to package without one. */
+export function bundledRuntime(out, target, version, build = PYTHON_BUILD) {
+  const layout = runtimeLayout(path.join(out, target), target, build.version);
   if (!fs.existsSync(layout.marker) || !fs.existsSync(layout.python) || missingCadgenRuntimeFiles(layout).length > 0) {
     return null;
   }
   try {
     const marker = JSON.parse(fs.readFileSync(layout.marker, "utf8"));
-    return marker.cadgen === version && marker.target === target ? marker : null;
+    // A bundle built from an older interpreter pin (python-build.json moved
+    // on) is stale however current its cadgen is.
+    return marker.cadgen === version &&
+      marker.target === target &&
+      marker.python === build.version &&
+      marker.release === build.release
+      ? marker
+      : null;
   } catch {
     return null;
   }

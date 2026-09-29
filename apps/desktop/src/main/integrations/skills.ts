@@ -25,6 +25,7 @@
  * is testable without Electron (tests/unit/main/skills.test.ts). Main wires it
  * in `src/main/cad/index.ts`.
  */
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -112,34 +113,116 @@ export function composedSkills(source: string): SkillSummary[] {
 /* Materialising                                                               */
 /* -------------------------------------------------------------------------- */
 
-type Manifest = { version: string; skills: string[] };
+type Manifest = { version: string; skills: string[]; hash: string };
 
 function readManifest(root: string): Manifest | null {
   try {
     const parsed = JSON.parse(fs.readFileSync(path.join(root, ROOT_MANIFEST), "utf8")) as Partial<Manifest>;
-    return typeof parsed.version === "string" && Array.isArray(parsed.skills)
-      ? { version: parsed.version, skills: parsed.skills.filter((name): name is string => typeof name === "string") }
+    return typeof parsed.version === "string" && Array.isArray(parsed.skills) && typeof parsed.hash === "string"
+      ? {
+          version: parsed.version,
+          skills: parsed.skills.filter((name): name is string => typeof name === "string"),
+          hash: parsed.hash,
+        }
       : null;
   } catch {
     return null;
   }
 }
 
-/** Both layouts hold every named skill, with its SKILL.md. */
-function complete(root: string, names: readonly string[]): boolean {
-  return names.every((name) =>
-    SKILL_LAYOUTS.every((layout) => fs.existsSync(path.join(root, layout, name, "SKILL.md"))),
-  );
+/**
+ * One SHA-256 over every file of the named skills under `dir`: relative path
+ * and bytes, in a fixed order, following links the way the copy does. Taken of
+ * the source and of each layout of the root, so an edited SKILL.md — in the
+ * app's resources (a dev build keeps one version) or in the materialised copy
+ * (an agent that got past the read-only modes) — is a mismatch. The skills are
+ * under a megabyte, so this costs a few milliseconds per launch.
+ */
+function treeHash(dir: string, names: readonly string[]): string | null {
+  const hash = createHash("sha256");
+  const walk = (relative: string): void => {
+    const absolute = path.join(dir, relative);
+    const stat = fs.statSync(absolute);
+    if (stat.isDirectory()) {
+      for (const entry of fs.readdirSync(absolute).sort()) {
+        walk(path.join(relative, entry));
+      }
+    } else if (stat.isFile()) {
+      hash.update(`${relative.split(path.sep).join("/")}\0${stat.size}\0`);
+      hash.update(fs.readFileSync(absolute));
+    }
+  };
+  try {
+    for (const name of names) {
+      walk(name);
+    }
+  } catch {
+    return null;
+  }
+  return hash.digest("hex");
+}
+
+/**
+ * Clear the write bits of everything under `dir` (its own included), keeping
+ * execute bits. The root is handed to agents as an additional directory; a
+ * read-only copy means an agent — or a prompt injected into one — cannot edit
+ * a SKILL.md every later session of every agent would load. On Windows only
+ * files take the read-only attribute; `treeHash` covers the rest.
+ */
+function lockTree(dir: string): void {
+  const stat = fs.lstatSync(dir);
+  if (stat.isDirectory()) {
+    for (const entry of fs.readdirSync(dir)) {
+      lockTree(path.join(dir, entry));
+    }
+  }
+  if (!stat.isSymbolicLink()) {
+    fs.chmodSync(dir, stat.mode & 0o7555);
+  }
+}
+
+/**
+ * Give the owner write access back under `dir`, so it can be removed or
+ * rebuilt. Best effort: a missing tree is nothing to unlock.
+ */
+export function unlockTree(dir: string): void {
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(dir);
+  } catch {
+    return;
+  }
+  if (stat.isSymbolicLink()) {
+    return;
+  }
+  try {
+    fs.chmodSync(dir, stat.mode | 0o200);
+  } catch {
+    // Not ours to change; the removal will say so.
+  }
+  if (stat.isDirectory()) {
+    for (const entry of fs.readdirSync(dir)) {
+      unlockTree(path.join(dir, entry));
+    }
+  }
+}
+
+function removeTree(dir: string): void {
+  unlockTree(dir);
+  fs.rmSync(dir, { recursive: true, force: true });
 }
 
 /**
  * Make `<base>/<version>/` hold the composed skills in both layouts, and
  * remove every other version under `base`.
  *
- * Idempotent: a root whose manifest records this version and this set of
- * skills, and whose files are all there, is left alone — so the common launch
- * copies nothing. A version bump, a changed skill set, or a half-written root
- * (the app was killed mid-copy) is rebuilt from scratch.
+ * Idempotent: a root whose manifest records this version, this set of skills
+ * and the source's content hash, and whose two layouts still hash to it, is
+ * left alone — so the common launch copies nothing. A version bump, a changed
+ * skill set, changed skill content (dev builds keep one version while
+ * SKILL.md files are edited), an edited copy, or a half-written root (the app
+ * was killed mid-copy) is rebuilt from scratch. The copy is then made
+ * read-only (see `lockTree`).
  */
 export function materialiseSkillsRoot(options: {
   /** `resources/skills` — one directory per skill. */
@@ -155,16 +238,21 @@ export function materialiseSkillsRoot(options: {
   }
   const names = skills.map((skill) => skill.name);
   const root = path.join(base, version);
+  const hash = treeHash(source, names);
+  if (!hash) {
+    throw new Error(`could not read the composed skills in ${source}`);
+  }
 
   const manifest = readManifest(root);
   const fresh =
     manifest?.version === version &&
+    manifest.hash === hash &&
     manifest.skills.length === names.length &&
     manifest.skills.every((name, index) => name === names[index]) &&
-    complete(root, names);
+    SKILL_LAYOUTS.every((layout) => treeHash(path.join(root, layout), names) === hash);
 
   if (!fresh) {
-    fs.rmSync(root, { recursive: true, force: true });
+    removeTree(root);
     for (const layout of SKILL_LAYOUTS) {
       const target = path.join(root, layout);
       fs.mkdirSync(target, { recursive: true });
@@ -175,14 +263,15 @@ export function materialiseSkillsRoot(options: {
     // Last, so a root that exists without it is rebuilt rather than trusted.
     fs.writeFileSync(
       path.join(root, ROOT_MANIFEST),
-      `${JSON.stringify({ version, skills: names } satisfies Manifest, null, 2)}\n`,
+      `${JSON.stringify({ version, skills: names, hash } satisfies Manifest, null, 2)}\n`,
     );
+    lockTree(root);
   }
 
   // Only this app's own versions: `base` is a directory the app owns.
   for (const entry of fs.readdirSync(base)) {
     if (entry !== version) {
-      fs.rmSync(path.join(base, entry), { recursive: true, force: true });
+      removeTree(path.join(base, entry));
     }
   }
 

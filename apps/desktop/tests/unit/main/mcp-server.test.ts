@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 // The server the agent talks to, from its source; the packaged app runs the
 // esbuild bundle of the same file (scripts/build-mcp.mjs).
-import { BRIDGE_ENV, createServer, httpBridge } from "../../../resources/text-to-cad-mcp/server.mjs";
+import { BRIDGE_ENV, createServer, httpBridge, isInside } from "../../../resources/text-to-cad-mcp/server.mjs";
 
 type Call = { method: string; params: unknown };
 
@@ -229,9 +229,33 @@ describe("the skills tools", () => {
     const traversal = await client.callTool({ name: "read_skill", arguments: { name: "../..", path: "SKILL.md" } });
     expect(traversal.isError).toBe(true);
 
+    const absolute = await client.callTool({
+      name: "read_skill",
+      arguments: { name: "cad", path: path.join(root, ".claude", "skills", "documents", "SKILL.md") },
+    });
+    expect(absolute.isError).toBe(true);
+
     const bare = await connect(fakeBridge().bridge, { skillsRoot: null });
     const listed = await bare.callTool({ name: "list_skills", arguments: {} });
     expect(JSON.parse((listed.content as Array<{text:string}>)[0]!.text)).toEqual([]);
     expect((await bare.callTool({ name: "read_skill", arguments: { name: "cad" } })).isError).toBe(true);
+  });
+});
+
+describe("containment", () => {
+  it("is a path strictly under the parent, on posix and on Windows", () => {
+    expect(isInside("/r/skills", "/r/skills/cad", path.posix)).toBe(true);
+    expect(isInside("/r/skills", "/r/skills/cad/references/a.md", path.posix)).toBe(true);
+    expect(isInside("/r/skills", "/r/skills", path.posix)).toBe(false);
+    expect(isInside("/r/skills", "/r/other", path.posix)).toBe(false);
+    expect(isInside("/r/skills", "/r/skills-evil/x", path.posix)).toBe(false);
+    expect(isInside("/r/skills", "/r/skills/..foo", path.posix)).toBe(true);
+
+    expect(isInside("C:\\r\\skills", "C:\\r\\skills\\cad", path.win32)).toBe(true);
+    // Another drive: path.relative answers an absolute path, not "..".
+    expect(path.win32.relative("C:\\r\\skills", "D:\\secret")).toBe("D:\\secret");
+    expect(isInside("C:\\r\\skills", "D:\\secret", path.win32)).toBe(false);
+    expect(isInside("C:\\r\\skills", "D:\\r\\skills\\cad", path.win32)).toBe(false);
+    expect(isInside("C:\\r\\skills", "C:\\r\\other", path.win32)).toBe(false);
   });
 });

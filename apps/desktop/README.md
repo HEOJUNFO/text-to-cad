@@ -1370,9 +1370,15 @@ native loader layouts:
 <userData>/skills/<version>/.agents/skills/<skill>/SKILL.md
 ```
 
-This is rebuilt when the app version or composed content changes and is
-idempotent otherwise. `text-to-cad-skills.json` is written last as the completion
-marker. Symlinks are never shipped. Every `session/new` and `session/load`
+`text-to-cad-skills.json` is written last as the completion marker and records
+the version, the skill names and a SHA-256 of the composed skills' content. The
+root is rebuilt when any of those differ, or when either layout no longer hashes
+to the recorded content (an edited copy), and is idempotent otherwise; a dev
+build, whose version never changes, therefore picks up an edited SKILL.md on the
+next launch. The copies are read-only (files 0444, directories 0555, execute
+bits kept): the root is an additional directory of every session, so an agent,
+or a prompt injected into one, must not be able to rewrite what later sessions
+of every agent load. Symlinks are never shipped. Every `session/new` and `session/load`
 receives the root in both `additionalDirectories` and `_meta.additionalRoots`;
 adapters read whichever spelling they understand. Claude Code and Codex use
 their native skill-root mechanisms. Other adapters retain the concise first
@@ -1405,8 +1411,13 @@ Use the app's document and terminal integrations for those live resources.
 Existing disk watchers reconcile changes made by ordinary repository tools.
 
 **Runtime.** `CadRuntime.sessionPath` puts the app's pinned CAD runtime ahead
-of the login-shell PATH. In a packaged runtime, `<userData>/bin/cadgen` invokes
-`python -m cadgen.cli`; it does not depend on a build-machine pip shebang.
+of the login-shell PATH. With the bundled runtime that is `<userData>/bin` and
+nothing else: `cadgen` (invokes `python -m cadgen.cli`, independent of a
+build-machine pip shebang), `python3` and `python` launchers for the bundled
+interpreter. The bundle's own `bin/` is not on the PATH, and the interpreter is
+PEP 668 externally managed, so an agent's `pip install` is refused with a
+pointer to a `--system-site-packages` venv (resources/README.md, "The
+runtime"). A checkout's `.venv/bin` is put on the PATH as it is.
 Python discovery, daemon startup and CAD viewer backend lifetime stay in
 `src/main/cad/`, separate from generic integration plumbing.
 

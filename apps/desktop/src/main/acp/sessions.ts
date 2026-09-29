@@ -966,9 +966,11 @@ export class SessionManager {
 
   /**
    * The environment an adapter is spawned with: the login shell's, with the
-   * bundled CAD runtime's bin directory in front of `PATH`. A session's
-   * `cadgen` and `python` are then the app's own, whatever the person's shell
-   * would have found — and nothing about it is installed on the machine.
+   * app's launcher directory (`cadgen`, `python3`, `python` — not the bundled
+   * runtime's own bin, whose pip is off the PATH) in front of `PATH`. A
+   * session's `cadgen` and `python` are then the app's own, whatever the
+   * person's shell would have found — and nothing about it is installed on
+   * the machine.
    */
   private async environment(): Promise<Record<string, string>> {
     const env = await this.deps.detector.environment();

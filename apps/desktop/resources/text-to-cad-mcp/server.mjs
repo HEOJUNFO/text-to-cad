@@ -98,6 +98,22 @@ export function readSkills(root) {
 }
 
 /**
+ * Whether `child` lies strictly under `parent`. `path.relative` answers an
+ * ABSOLUTE path, not one starting with "..", when the two are on different
+ * Windows drives (C:\… vs D:\…), so both cases are refused. `flavour` is
+ * for the tests, which check Windows paths from any machine.
+ */
+export function isInside(parent, child, flavour = path) {
+  const relative = flavour.relative(flavour.resolve(parent), flavour.resolve(child));
+  return (
+    relative !== "" &&
+    !flavour.isAbsolute(relative) &&
+    relative !== ".." &&
+    !relative.startsWith(`..${flavour.sep}`)
+  );
+}
+
+/**
  * A file inside one skill, refused outside it. `relative` defaults to the
  * SKILL.md; a skill's `references/*.md` is the other thing worth reading.
  */
@@ -107,14 +123,14 @@ export function readSkillFile(root, name, relative = "SKILL.md") {
   }
   const directory = path.resolve(path.join(root, SKILLS_LAYOUT, name));
   const skillRoot = path.resolve(path.join(root, SKILLS_LAYOUT));
-  if (path.relative(skillRoot, directory).split(path.sep)[0] === "..") {
+  if (!isInside(skillRoot, directory)) {
     throw new Error(`${name} is not a skill`);
   }
   if (!fs.existsSync(path.join(directory, "SKILL.md"))) {
     throw new Error(`no skill named ${name}; call list_skills`);
   }
   const target = path.resolve(directory, relative);
-  if (path.relative(directory, target).split(path.sep)[0] === "..") {
+  if (!isInside(directory, target)) {
     throw new Error(`${relative} is outside the ${name} skill`);
   }
   if (!fs.existsSync(target) || !fs.statSync(target).isFile()) {
