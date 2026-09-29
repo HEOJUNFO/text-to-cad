@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 
 import { PromptRefused, useAcp } from "./acp";
+import { useSessions } from "./sessions";
 import { parseSegments } from "../features/session/composer/references";
 import type { PromptBlock } from "@shared/acp/types";
 import { referenceText, type CadReference } from "@shared/cad-refs";
@@ -166,8 +167,12 @@ type ComposerState = {
   turnEvent: (sessionId: string, type: "prompt/start" | "prompt/end" | "prompt/error") => void;
   /** Clear a draft for sending, returning what it held. */
   takeDraft: (key: string) => TakenDraft;
-  /** Put a taken draft back, ahead of anything written into the box since. */
-  restoreDraft: (key: string, draft: TakenDraft) => void;
+  /**
+   * Put a taken draft back, ahead of anything written into the box since — or after it (`behind`),
+   * for a queued prompt refused after those ahead of it were put back, so the box reads in the
+   * order they were queued.
+   */
+  restoreDraft: (key: string, draft: TakenDraft, options?: { behind?: boolean }) => void;
   setDraft: (sessionId: string, text: string) => void;
   /** Append a reference to a draft, as its token, spaced from what is there. */
   insertReference: (key: string, reference: CadReference) => void;
@@ -175,6 +180,8 @@ type ComposerState = {
   attachFile: (key: string, file: File) => void;
   /** The composer takes what was queued for it. */
   takeFiles: (key: string) => File[];
+  /** Everything held for a session whose row is gone: its queue, draft, notes, files and flags. */
+  forget: (sessionId: string) => void;
 };
 
 let sequence = 0;
@@ -303,7 +310,8 @@ export const useComposer = create<ComposerState>((set, get) => ({
       await get().drain(sessionId);
       return;
     }
-    // Only a send with a draft is the composer's, which puts the draft back on a rejection.
+    // Only a send with a draft is the composer's, which puts the draft back on a rejection: a
+    // refusal for what it holds, or main refusing it before any turn (see `send`).
     await send(sessionId, content, undefined, { rethrowRefusal: draft !== undefined });
   },
 
@@ -384,11 +392,12 @@ export const useComposer = create<ComposerState>((set, get) => ({
     return taken;
   },
 
-  restoreDraft: (key, draft) => set((state) => {
+  restoreDraft: (key, draft, options) => set((state) => {
     const current = state.drafts[key] ?? "";
-    const text = !current.trim() ? draft.text : !draft.text.trim() ? current : `${draft.text}\n\n${current}`;
+    const [first, second] = options?.behind ? [current, draft.text] : [draft.text, current];
+    const text = !second.trim() ? first : !first.trim() ? second : `${first}\n\n${second}`;
     const since = (state.annotations[key] ?? []).filter(annotation => !draft.annotations.some(taken => taken.id === annotation.id));
-    const annotations = [...draft.annotations, ...since];
+    const annotations = options?.behind ? [...since, ...draft.annotations] : [...draft.annotations, ...since];
     return {
       drafts: { ...state.drafts, [key]: text },
       ...(annotations.length ? { annotations: { ...state.annotations, [key]: annotations } } : {}),
@@ -430,7 +439,32 @@ export const useComposer = create<ComposerState>((set, get) => ({
     }
     return files;
   },
+
+  forget: (sessionId) => set((state) => ({
+    queues: withoutKey(state.queues, sessionId),
+    drafts: withoutKey(state.drafts, sessionId),
+    referenceLabels: withoutKey(state.referenceLabels, sessionId),
+    annotations: withoutKey(state.annotations, sessionId),
+    pendingFiles: withoutKey(state.pendingFiles, sessionId),
+    draftRoots: withoutKey(state.draftRoots, sessionId),
+    sending: withoutKey(state.sending, sessionId),
+    paused: withoutKey(state.paused, sessionId),
+    acceptedContexts: Object.fromEntries(Object.entries(state.acceptedContexts).filter(([, context]) => context.key !== sessionId)),
+  })),
 }));
+
+/**
+ * The index decides what is kept here, as it does for the acp store: a deleted row takes its queue
+ * (Files and their base64 blocks), draft, notes and their sketches with it — nothing else ever
+ * would. An archived row keeps them: what was typed is not spent by archiving, and it comes back.
+ */
+useSessions.subscribe((index, previous) => {
+  if (index.sessions === previous.sessions) return;
+  const rows = new Set(index.sessions.map((row) => row.id));
+  for (const row of previous.sessions) {
+    if (!rows.has(row.id)) useComposer.getState().forget(row.id);
+  }
+});
 
 /**
  * `prompt` resolves when the turn ends and rejects when the agent refuses
@@ -450,9 +484,10 @@ async function send(sessionId: string, content: PromptBlock[], item?: QueuedProm
     // `prompt/error` part), and that turn event has already cleared `sending`.
     // Still ours means main refused before any turn event — the agent could not
     // be brought back (not installed, signed out, its folder gone) — and the
-    // transcript never saw the prompt. A queued prompt goes back at the head
-    // with the queue paused, and the reason is shown where a failed reconnect
-    // is (`loadErrors`, with its Retry), rather than the prompt vanishing.
+    // transcript never saw the prompt. The reason is shown where a failed
+    // reconnect is (`loadErrors`, with its Retry), and the prompt does not
+    // vanish: a queued one goes back at the head with the queue paused, one
+    // sent from the box rejects so the composer puts the draft back.
     const refusedUnseen = useComposer.getState().sending[sessionId] === token;
     clearSending(sessionId, token);
     // Refused for what it holds — a block the agent did not say it takes — and not because the
@@ -463,17 +498,23 @@ async function send(sessionId: string, content: PromptBlock[], item?: QueuedProm
     if (error instanceof PromptRefused) {
       toast.info(error.message);
       if (options?.rethrowRefusal) throw error;
-      if (item?.draft) useComposer.getState().restoreDraft(sessionId, item.draft);
+      // After any put back before it, in queue order; one queued with no draft (the transcript's
+      // Retry behind a running turn) goes back as the text its row showed.
+      if (item) useComposer.getState().restoreDraft(sessionId, item.draft ?? { text: item.text, annotations: [] }, { behind: true });
       if (item) void useComposer.getState().drain(sessionId);
       return;
     }
-    if (refusedUnseen && item) {
+    if (!refusedUnseen) return;
+    if (item) {
       useComposer.setState((state) => ({
         queues: { ...state.queues, [sessionId]: [item, ...(state.queues[sessionId] ?? [])] },
         paused: { ...state.paused, [sessionId]: true },
       }));
-      useAcp.setState((state) => ({ loadErrors: { ...state.loadErrors, [sessionId]: errorMessage(error) } }));
     }
+    useAcp.setState((state) => ({ loadErrors: { ...state.loadErrors, [sessionId]: errorMessage(error) } }));
+    // Sent straight from the box (nothing queued, the agent closed or failed): no queue holds it,
+    // so the rejection goes back to the composer, which puts the draft back with its attachments.
+    if (!item && options?.rethrowRefusal) throw error;
   }
 }
 

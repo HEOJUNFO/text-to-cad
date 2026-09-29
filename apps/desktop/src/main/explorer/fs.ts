@@ -21,7 +21,7 @@
  * `tests/unit/main/explorer-fs.test.ts` can run it.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { watch as watchDirectory, type FSWatcher, type Stats } from "node:fs";
+import { statSync, watch as watchDirectory, type FSWatcher, type Stats } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import ignore from "ignore";
@@ -825,7 +825,8 @@ const BATCH_MS = 80;
  */
 const MOVE_WAIT_MS = 250;
 
-type Identity = { dev: number; ino: number };
+/** A file's inode; for an opened link (`link`), the link's own, which its target's writes never change. */
+type Identity = { dev: number; ino: number; link?: true };
 
 /**
  * When a batch leaves: `run` after `ms`, and the function that cancels it.
@@ -859,6 +860,15 @@ export class FileWatchers {
   private readonly aliases = new Map<string, Map<string, Set<string>>>();
   /** Per root, how many opens (`watchEntry`) each path has not yet given back. */
   private readonly holds = new Map<string, Map<string, number>>();
+  /**
+   * Per root, the paths a `watch` is still on its way to hold again, and the
+   * releases that arrived for them first. A tab that remounts and closes at
+   * once sends its unwatch behind its watch, but the watch awaits the root
+   * before it holds: a release that found no hold would be dropped, and the
+   * hold taken after it never given back.
+   */
+  private readonly arriving = new Map<string, Map<string, number>>();
+  private readonly owed = new Map<string, Map<string, number>>();
 
   constructor(
     private readonly emit: (root: string, changes: FileChange[]) => void,
@@ -871,9 +881,21 @@ export class FileWatchers {
    * each as its open stat held it.
    */
   async watch(root: string, paths: readonly string[] = []): Promise<void> {
-    await this.watchRoot(root);
+    for (const relative of paths) count(this.arriving, root, relative, 1);
+    try {
+      await this.watchRoot(root);
+    } catch (error) {
+      for (const relative of paths) count(this.arriving, root, relative, -1);
+      throw error;
+    }
     for (const relative of paths) {
       await this.watchEntry(root, { path: relative, kind: "file" }).catch(() => {});
+      count(this.arriving, root, relative, -1);
+      // Released while it was on its way: given back now that it is held.
+      if ((this.owed.get(root)?.get(relative) ?? 0) > 0) {
+        count(this.owed, root, relative, -1);
+        this.release(root, [relative]);
+      }
     }
   }
 
@@ -951,7 +973,18 @@ export class FileWatchers {
       links.set(real, new Set([...(links.get(real) ?? []), entry.path]));
       this.hold(root, entry.path);
       // The inode is the target's: a move of the target is not a move of
-      // the link, which is left dangling.
+      // the link, which is left dangling. A link itself renamed is its tab's
+      // file moved, though, so the link's own inode is its identity
+      // (`pairMoves`) — a path through a linked directory has none.
+      const own = await fs.lstat(path.join(realRoot, entry.path)).catch(() => null);
+      if (own?.isSymbolicLink() && this.watchers.has(root)) {
+        let known = this.identities.get(root);
+        if (!known) {
+          known = new Map();
+          this.identities.set(root, known);
+        }
+        known.set(entry.path, { dev: own.dev, ino: own.ino, link: true });
+      }
       return;
     }
     const stats = await fs.stat(path.join(realRoot, entry.path)).catch(() => null);
@@ -973,7 +1006,7 @@ export class FileWatchers {
    */
   async refreshEntry(root: string, relative: string): Promise<void> {
     const known = this.identities.get(root);
-    if (!known?.has(relative)) return;
+    if (!known?.has(relative) || known.get(relative)?.link) return;
     const realRoot = await fs.realpath(root).catch(() => path.resolve(root));
     const stats = await fs.stat(path.join(realRoot, relative)).catch(() => null);
     if (stats?.isFile() && known.has(relative)) known.set(relative, { dev: stats.dev, ino: stats.ino });
@@ -991,15 +1024,17 @@ export class FileWatchers {
   /** A closed tab's paths: at the last hold, its inode and its link are forgotten. */
   private release(root: string, paths: readonly string[]) {
     const held = this.holds.get(root);
-    if (!held) return;
     for (const relative of paths) {
-      const count = held.get(relative) ?? 0;
-      if (count === 0) continue;
-      if (count > 1) {
-        held.set(relative, count - 1);
+      const holding = held?.get(relative) ?? 0;
+      if (holding === 0) {
+        if ((this.arriving.get(root)?.get(relative) ?? 0) > 0) count(this.owed, root, relative, 1);
         continue;
       }
-      held.delete(relative);
+      if (holding > 1) {
+        held!.set(relative, holding - 1);
+        continue;
+      }
+      held!.delete(relative);
       this.identities.get(root)?.delete(relative);
       const links = this.aliases.get(root);
       for (const [target, names] of links ?? []) {
@@ -1032,15 +1067,27 @@ export class FileWatchers {
       owner.direct.delete(relative);
       direct.close();
     };
+    // Taken without yielding, so a second listing cannot arm the same directory meanwhile.
+    const armed = statSync(absolute, { throwIfNoEntry: false });
     try {
       const direct: FSWatcher = watchDirectory(absolute, { recursive: false }, (_event, filename) => {
         if (this.watchers.get(root) !== owner) return;
         const child = filename ? path.join(absolute, filename.toString()) : absolute;
         void fs.stat(child).catch(() => null).then(async (stats) => {
           if (this.watchers.get(root) !== owner) return;
-          if (!stats && !(await fs.stat(absolute).catch(() => null))) {
-            disarm(direct);
-            return;
+          if (!stats) {
+            // The watch's own directory went (its event names the directory
+            // itself, which no child of it is). Made again already, as with
+            // `rm -rf out && mkdir out`, the name stats but is another inode:
+            // the dead watch is let go all the same, and the directory is
+            // reported changed rather than a child that never was removed —
+            // which lists it again and so arms it again (`queue`).
+            const now = await fs.stat(absolute).catch(() => null);
+            if (!now || (filename?.toString() === path.basename(absolute) && (now.ino !== armed?.ino || now.dev !== armed?.dev))) {
+              disarm(direct);
+              if (now) this.queue(root, { path: relative, kind: "changed", directory: true });
+              return;
+            }
           }
           this.queue(root, {
             path: toRelative(realRoot, child),
@@ -1080,6 +1127,7 @@ export class FileWatchers {
     this.identities.delete(root);
     this.aliases.delete(root);
     this.holds.delete(root);
+    this.owed.delete(root);
     this.clearTimer(root);
     this.pending.delete(root);
     for (const direct of existing.direct.values()) direct.close();
@@ -1099,6 +1147,7 @@ export class FileWatchers {
     this.identities.clear();
     this.aliases.clear();
     this.holds.clear();
+    this.owed.clear();
     this.pending.clear();
   }
 
@@ -1166,7 +1215,7 @@ export class FileWatchers {
       const absolute = path.join(realRoot, change.path);
       const stats = await fs.stat(absolute).catch(() => null);
       if (!stats?.isFile()) return change;
-      if (known?.has(change.path)) known.set(change.path, { dev: stats.dev, ino: stats.ino });
+      if (known?.has(change.path) && !known.get(change.path)?.link) known.set(change.path, { dev: stats.dev, ino: stats.ino });
       if (change.kind !== "changed" || stats.size > MAX_TEXT_BYTES) return change;
       const content = await fs.readFile(absolute).catch(() => null);
       return content ? { ...change, revision: revisionOf(content) } : change;
@@ -1202,12 +1251,14 @@ export class FileWatchers {
     const removed = changes.filter((change) => change.kind === "removed" && !change.directory && known?.has(change.path));
     if (!known || removed.length === 0) return changes;
     const arrivals = changes.filter((change) => (change.kind === "added" || change.kind === "changed") && !change.directory);
-    const stats = await Promise.all(arrivals.map((change) => fs.stat(path.join(realRoot, change.path)).catch(() => null)));
+    // The arrival's own inode: a link that arrives is matched by the link's, not its target's.
+    const stats = await Promise.all(arrivals.map((change) => fs.lstat(path.join(realRoot, change.path)).catch(() => null)));
     const moves = new Map<FileChange, FileChange>();
     const taken = new Set<FileChange>();
     for (const removal of removed) {
       const identity = known.get(removal.path)!;
-      const index = arrivals.findIndex((arrival, at) => !taken.has(arrival) && stats[at]?.isFile()
+      const index = arrivals.findIndex((arrival, at) => !taken.has(arrival)
+        && (identity.link ? stats[at]?.isSymbolicLink() : stats[at]?.isFile())
         && stats[at]!.ino === identity.ino && stats[at]!.dev === identity.dev);
       if (index < 0) {
         known.delete(removal.path);
@@ -1226,6 +1277,10 @@ export class FileWatchers {
         held.delete(removal.path);
         held.set(arrival.path, (held.get(arrival.path) ?? 0) + count);
       }
+      // A link's target is repeated under the name its tab holds now.
+      for (const names of identity.link ? this.aliases.get(root)?.values() ?? [] : []) {
+        if (names.delete(removal.path)) names.add(arrival.path);
+      }
     }
     return changes.filter((change) => !taken.has(change)).map((change) => moves.get(change) ?? change);
   }
@@ -1237,4 +1292,17 @@ export class FileWatchers {
       this.timers.delete(root);
     }
   }
+}
+
+/** Add `by` to a root's count for a path, dropping what reaches zero. */
+function count(counts: Map<string, Map<string, number>>, root: string, relative: string, by: number): void {
+  let paths = counts.get(root);
+  if (!paths) {
+    paths = new Map();
+    counts.set(root, paths);
+  }
+  const next = (paths.get(relative) ?? 0) + by;
+  if (next > 0) paths.set(relative, next);
+  else paths.delete(relative);
+  if (paths.size === 0) counts.delete(root);
 }

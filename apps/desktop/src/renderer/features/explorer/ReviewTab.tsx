@@ -69,12 +69,10 @@ import type { ChangedFile, FileDiff, GitStatus } from "./types";
  * the *name* of the scope and main resolves it, because the marks are its
  * record, not a number the UI is allowed to compute (plan §13, P7).
  *
- * Choosing one of them pins the session onto the tab. That matters because the
- * strip belongs to the **project**: a review that followed whichever thread
- * happened to be selected would change what it was showing every time someone
- * clicked another row in the sidebar. A pinned session also moves the whole
- * read into that session's working directory, which for a thread in `worktree`
- * mode is not the project's checkout at all.
+ * The tab belongs to the session it was opened in (`sessionId`, fixed for
+ * the tab's life), and every scope is read for that session: its marks, and
+ * its working directory, which for a thread in `worktree` mode is not the
+ * project's checkout at all. Choosing a scope changes only the scope.
  */
 
 const SCOPES = ReviewScopeSchema.options;
@@ -105,7 +103,7 @@ export function ReviewTab(props: {
 }) {
   return (
     <ReviewBody
-      key={`${props.project.id}:${props.scope}:${props.sessionId ?? ""}`}
+      key={`${props.project.id}:${props.scope}:${props.sessionId}`}
       {...props}
     />
   );
@@ -127,8 +125,7 @@ function ReviewBody({
   const info = useProjectGitInfo(project.id);
 
   // Review revisions always belong to this tab's immutable session owner.
-  const candidate = sessions.find(session => session.id === sessionId) ?? null;
-  const target = candidate;
+  const session = sessions.find(row => row.id === sessionId) ?? null;
   const request = useMemo(
     () => ({ projectId: project.id, sessionId }),
     [project.id, sessionId],
@@ -189,7 +186,8 @@ function ReviewBody({
             answer: answers.current,
             entries: entries.current,
             stamps: stampsRef.current,
-            written: written.current,
+            // The watcher's paths are the project's (or worktree's); git's are the repository's.
+            written: new Set([...written.current].map((path) => `${next.prefix ?? ""}${path}`)),
             everything: everything.current,
           });
           everything.current = false;
@@ -267,11 +265,7 @@ function ReviewBody({
   }, [read]);
 
   const chooseScope = (next: ReviewScope) => {
-    // Pin the session the moment a scope needs one, so the tab keeps showing
-    // the thread it was opened against rather than following the sidebar.
-    update(tabId, {
-      scope: next,
-    });
+    update(tabId, { scope: next });
   };
 
   const scrollTo = (path: string) => {
@@ -332,7 +326,7 @@ function ReviewBody({
                 // The two session scopes need a thread to measure from; with
                 // none they are shown and disabled rather than hidden, so the
                 // menu does not change shape depending on what is selected.
-                disabled={scopeNeedsSession(option) && !candidate}
+                disabled={scopeNeedsSession(option) && !session}
                 key={option}
                 onSelect={() => chooseScope(option)}
               >
@@ -353,7 +347,7 @@ function ReviewBody({
           worktree's is not the project's — is the hover.
         */}
         {status.branch ? (
-          <span className="min-w-0 truncate text-[12px] text-muted-foreground" title={target?.cwd}>
+          <span className="min-w-0 truncate text-[12px] text-muted-foreground" title={session?.cwd}>
             {status.branch}
           </span>
         ) : null}
@@ -392,7 +386,7 @@ function ReviewBody({
           onClose={closeCommit}
           onDone={refresh}
           request={request}
-          session={target}
+          session={session}
         />
       ) : null}
 
@@ -458,7 +452,7 @@ function ReviewBody({
                 }}
                 request={request}
                 revision={stamps.get(file.path) ?? 0}
-                root={target?.cwd ?? null}
+                root={session?.cwd ?? null}
                 scope={scope}
               />
             ))}
@@ -478,10 +472,6 @@ function ReviewBody({
   );
 }
 
-// A repository with no commits never lands here: main answers that case from
-// the working tree (`fromStart`).
-// Each sentence is written for its scope rather than built around the menu's label: a label is a
-// name, and "so This session is measured…" reads as one pasted into the middle of a sentence.
 /** The shortest gap between two status reads that batches of file changes ask for. */
 const STATUS_GAP_MS = 500;
 
@@ -517,6 +507,10 @@ function fileStamps(
   return next;
 }
 
+// A repository with no commits never lands here: main answers that case from
+// the working tree (`fromStart`).
+// Each sentence is written for its scope rather than built around the menu's label: a label is a
+// name, and "so This session is measured…" reads as one pasted into the middle of a sentence.
 function unmarkedDescription(which: "turn" | "session"): string {
   return which === "turn"
     ? "A turn is measured from the prompt that starts it, so there is nothing to show until the next one. The working tree's changes are under “All changes”."
@@ -554,7 +548,7 @@ function emptyDescription(scope: ReviewScope): string {
 /* Pieces                                                                      */
 /* -------------------------------------------------------------------------- */
 
-/** The project (and optionally session) every read in this tab is answered for. */
+/** The project and the session every read in this tab is answered for. */
 type ReviewRequest = { projectId: string; sessionId: string };
 
 function Totals({ insertions, deletions }: { insertions: number; deletions: number }) {
@@ -632,28 +626,42 @@ function FileSection({
   const theme = useResolvedTheme();
   setupMonaco();
 
+  // One read at a time, and it is never cancelled by a newer stamp: a file
+  // written faster than its diff can be read (every status answer moves the
+  // stamp) would otherwise cancel every read and show "Reading the diff…"
+  // for as long as the writes go on. The read that lands is shown, and the
+  // stamp it is behind asks for the next (`landed`).
+  const reading = useRef(false);
+  const mounted = useRef(true);
+  const [landed, setLanded] = useState(0);
   useEffect(() => {
-    if (!open || current) {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!open || current || reading.current) {
       return;
     }
-    let cancelled = false;
+    reading.current = true;
+    const asked = revision;
     void window.textToCad.git
       .fileDiff({ ...request, path: file.path, scope: diffScopeFor(scope) })
       .then((result) => {
-        if (!cancelled) {
-          setLoaded({ diff: result, revision });
-          setFailure(null);
-        }
+        reading.current = false;
+        if (!mounted.current) return;
+        setLoaded({ diff: result, revision: asked });
+        setFailure(null);
+        setLanded((count) => count + 1);
       })
       .catch((error: unknown) => {
-        if (!cancelled) {
-          setFailure(errorMessage(error));
-        }
+        reading.current = false;
+        // No next read on its own: the failure is shown with its Retry, and
+        // a newer stamp asks again.
+        if (mounted.current) setFailure(errorMessage(error));
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, current, request, file.path, scope, revision, attempt]);
+  }, [open, current, request, file.path, scope, revision, attempt, landed]);
   const retry = () => {
     setFailure(null);
     setAttempt((count) => count + 1);

@@ -4,7 +4,7 @@ import { AlertCircle, Loader2, Settings2 } from "lucide-react";
 
 import { Button } from "@renderer/components/ui/button";
 import { resolveGitMode, useProjectGitInfo } from "@renderer/lib/git-mode";
-import { PromptRefused, useAcp } from "@renderer/state/acp";
+import { useAcp } from "@renderer/state/acp";
 import {
   useAgentOptions,
   useProviderEffort,
@@ -231,10 +231,12 @@ export function NewSession({ project }: { project: Project }) {
     setActiveSession(sessionId);
     setBusy(false);
     // The prompt goes to the session just made, whose box is the one on screen from here on. An
-    // agent that refuses it (an image it cannot take) refuses it after this box has gone, so what
-    // was written — attachments included — is put back in that one rather than spent.
-    submitPrompt(sessionId, text, content, draft).catch((error: unknown) => {
-      if (error instanceof PromptRefused) useComposer.getState().restoreDraft(sessionId, draft);
+    // agent that refuses it (an image it cannot take), or main refusing it before any turn (the
+    // agent would not start), refuses it after this box has gone, so what was written —
+    // attachments included — is put back in that one rather than spent. `submit` rejects for
+    // nothing else: a turn that began and failed is in the transcript with its Retry.
+    submitPrompt(sessionId, text, content, draft).catch(() => {
+      useComposer.getState().restoreDraft(sessionId, draft);
     });
     return true;
   };

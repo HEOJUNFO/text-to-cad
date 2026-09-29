@@ -37,7 +37,6 @@ function session(id: string, projectId: string): Session {
     archived: false,
     sessionHead: null,
     turnHead: null,
-    turnStartedAt: null,
   };
 }
 

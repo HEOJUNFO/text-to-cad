@@ -178,6 +178,33 @@ describe("visible file watching", () => {
     expect(driver.direct.mock.calls[2]![0]).toBe(dependency);
   });
 
+  it("arms a listed directory's watch again when it is removed and made again before its event is read", async () => {
+    const handles: Array<{ on: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> }> = [];
+    driver.direct.mockImplementation(() => {
+      const handle = { on: vi.fn().mockReturnThis(), close: vi.fn() };
+      handles.push(handle);
+      return handle;
+    });
+    await watchers.watch(root);
+    await watchers.watchListedDirectory(root, "node_modules");
+    await watchers.watchListedDirectory(root, "node_modules/dependency");
+    const notifyDependency = driver.direct.mock.calls[1]![2] as (event: string, filename: string) => void;
+    const dependency = path.join(await fs.realpath(root), "node_modules", "dependency");
+
+    // `rm -rf dependency && mkdir dependency`: by the time the dead watch's own event is read the
+    // name stats again, but it is a new directory the old watch hears nothing from.
+    await fs.rm(dependency, { recursive: true });
+    await fs.mkdir(dependency);
+    notifyDependency("rename", "dependency");
+    await vi.waitFor(() => expect(driver.direct).toHaveBeenCalledTimes(3));
+    expect(handles[1]!.close).toHaveBeenCalled();
+    expect(driver.direct.mock.calls[2]![0]).toBe(dependency);
+    await vi.waitFor(() => expect(emit).toHaveBeenCalled());
+    expect(emit.mock.calls.flatMap(([, changes]) => changes)).not.toContainEqual(
+      expect.objectContaining({ path: "node_modules/dependency/dependency" }),
+    );
+  });
+
   it("cancels setup without creating a watcher when the last owner leaves", async () => {
     const pending = watchers.watch(root);
     await watchers.unwatch(root);
@@ -321,6 +348,50 @@ describe("following an open file", () => {
     elapse();
     await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(1));
     expect(emit.mock.calls[0]![1]).toEqual([{ kind: "moved", previousPath: "a.txt", path: "c.txt", directory: false }]);
+  });
+
+  it("gives back a hold whose unwatch overtook the watch that takes it again", async () => {
+    await fs.writeFile(path.join(root, "a.txt"), "a\n");
+    await watchers.watch(root);
+    // A remount: the tab's watch that holds `a.txt` again is still on its way when the tab closes
+    // and its unwatch gives `a.txt` back.
+    const remount = watchers.watch(root, ["a.txt"]);
+    await watchers.unwatch(root, ["a.txt"]);
+    await remount;
+    await fs.rm(path.join(realRoot, "a.txt"));
+    on("unlink")("a.txt");
+    // No tab holds it, so its removal waits for no move.
+    expect(waiting().map((tick) => tick.ms)).toEqual([80]);
+  });
+
+  it("follows an opened link that is renamed, and repeats its target's changes under the new name", async () => {
+    await fs.mkdir(path.join(root, "versions"));
+    await fs.writeFile(path.join(root, "versions", "v3.txt"), "v3\n");
+    await fs.symlink(path.join("versions", "v3.txt"), path.join(root, "current.txt"));
+    // The tree's watch and the tab's.
+    await watchers.watch(root);
+    await watchers.watch(root);
+    await watchers.watchEntry(root, await statFile(root, "current.txt"));
+    // The link itself is renamed; symlinks are not followed, so the events name the link.
+    await fs.rename(path.join(realRoot, "current.txt"), path.join(realRoot, "latest.txt"));
+    on("unlink")("current.txt");
+    on("add")("latest.txt");
+    elapse();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(1));
+    expect(emit.mock.calls[0]![1]).toEqual([
+      { kind: "moved", previousPath: "current.txt", path: "latest.txt", directory: false },
+    ]);
+    await fs.writeFile(path.join(root, "versions", "v3.txt"), "v4\n");
+    on("change")("versions/v3.txt");
+    elapse();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(2));
+    expect(emit.mock.calls[1]![1].map((change) => change.path)).toEqual(["versions/v3.txt", "latest.txt"]);
+    // The tab, now on the new name, closes: nothing is left held for either name.
+    await watchers.unwatch(root, ["latest.txt"]);
+    on("change")("versions/v3.txt");
+    elapse();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(3));
+    expect(emit.mock.calls[2]![1].map((change) => change.path)).toEqual(["versions/v3.txt"]);
   });
 
   it("reads only the changed files a tab has open", async () => {

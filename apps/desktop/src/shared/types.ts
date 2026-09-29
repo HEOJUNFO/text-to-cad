@@ -119,16 +119,15 @@ export const SessionSchema = z.object({
    *
    * The review's `This session` and `Last turn` scopes are `git diff <sha>`
    * against the working tree, so what they need is a revision, recorded at the
-   * moment the scope starts. Timestamps cannot do this job on their own: two
-   * commits can share a second, and `--before=` picks a commit, not a moment.
-   * `turnStartedAt` is kept beside the sha for the header's label and for the
-   * one case a sha cannot cover — a repository with no commits yet.
+   * moment the scope starts. Timestamps cannot do this job: two commits can
+   * share a second, and `--before=` picks a commit, not a moment. A repository
+   * with no commits yet has no revision to record, and main answers its scopes
+   * from the working tree instead (`fromStart`).
    *
    * Null when the session's directory is not a repository, or has no commits.
    */
   sessionHead: z.string().nullable().default(null),
   turnHead: z.string().nullable().default(null),
-  turnStartedAt: z.number().int().nullable().default(null),
 });
 export type Session = z.infer<typeof SessionSchema>;
 

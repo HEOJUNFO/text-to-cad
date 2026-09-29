@@ -62,6 +62,11 @@ export type GitStatus = {
    * button needs no second, full status.
    */
   workingFiles: number;
+  /**
+   * The directory asked about, from the repository's top (`app/`, or empty):
+   * `files` are named from the top, the explorer's watcher from the directory.
+   */
+  prefix?: string;
   /** The session scope that had no recorded revision; `files` is then empty. */
   unmarked?: "turn" | "session";
   /**
@@ -408,6 +413,9 @@ export async function status(cwd: string, scope: DiffScope = { kind: "working-tr
   const porcelain = parsePorcelainStatus(
     await git(root, ["status", "--porcelain=v1", "-z", "--branch", "--untracked-files=all"]),
   );
+  // `--show-toplevel` is a real path; the directory asked about is compared as one too.
+  const inside = path.relative(root, await fsp.realpath(cwd).catch(() => path.resolve(cwd)));
+  const prefix = !inside || inside.startsWith("..") || path.isAbsolute(inside) ? "" : `${inside.split(path.sep).join("/")}/`;
 
   if (scope.kind === "unmarked" && !porcelain.unborn) {
     return {
@@ -420,6 +428,7 @@ export async function status(cwd: string, scope: DiffScope = { kind: "working-tr
       insertions: 0,
       deletions: 0,
       workingFiles: porcelain.files.length,
+      prefix,
       unmarked: scope.scope,
     };
   }
@@ -441,6 +450,7 @@ export async function status(cwd: string, scope: DiffScope = { kind: "working-tr
     insertions: files.reduce((total, file) => total + file.insertions, 0),
     deletions: files.reduce((total, file) => total + file.deletions, 0),
     workingFiles: porcelain.files.length,
+    prefix,
     ...(scope.kind === "unmarked" ? { fromStart: true as const } : {}),
   };
 }

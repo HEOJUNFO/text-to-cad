@@ -340,3 +340,55 @@ it("batches of writes streaming in ask git at most once per gap, and the last ba
     vi.useRealTimers();
   }
 });
+
+it("a file written faster than its diff can be read still shows a diff, and a newer one once it lands", async () => {
+  scoped.mockResolvedValue({ ...repo("main"), files: [changed("hello.py")], workingFiles: 1 });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  try {
+    // Each read of the diff takes 600 ms; the agent rewrites the file every 500 ms, so the status
+    // answer — and the file's stamp — moves before any read has come back.
+    let reads = 0;
+    git.fileDiff = vi.fn(() => {
+      const after = `v${++reads}\n`;
+      return new Promise((resolve) => window.setTimeout(() => resolve(fileDiff({ before: "v0\n", after })), 600));
+    });
+    renderReview();
+    await act(async () => {});
+    for (let batch = 0; batch < 6 && !screen.queryByTestId("review-diff"); batch += 1) {
+      await act(async () => {
+        vi.advanceTimersByTime(500);
+        useExplorer.setState({
+          fsRevision: useExplorer.getState().fsRevision + 1,
+          changedEntries: [{ kind: "changed", path: "hello.py", directory: false }],
+        });
+      });
+    }
+    expect(screen.getByTestId("review-diff")).toHaveTextContent("v1");
+    expect(screen.queryByText("Reading the diff…")).toBeNull();
+    // The writes stop: the last stamp's read lands and replaces the first.
+    await act(async () => { vi.advanceTimersByTime(5_000); });
+    await act(async () => { vi.advanceTimersByTime(5_000); });
+    expect(screen.getByTestId("review-diff")).toHaveTextContent(`v${reads}`);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("a write the watcher reports under a project inside the repository re-reads that file's open diff", async () => {
+  // The repository is /r and the project /r/app: git names the file `app/a.ts`, the watcher —
+  // relative to the project — `a.ts`. The agent rewrites it with the same counts.
+  scoped.mockResolvedValue({ ...repo("main"), files: [changed("app/a.ts")], workingFiles: 1, prefix: "app/" });
+  const read = vi.fn()
+    .mockResolvedValueOnce(fileDiff({ path: "app/a.ts", before: "v0\n", after: "v1\n" }))
+    .mockResolvedValueOnce(fileDiff({ path: "app/a.ts", before: "v0\n", after: "v2\n" }));
+  git.fileDiff = read;
+  renderReview();
+  expect(await screen.findByTestId("review-diff")).toHaveTextContent("v1");
+
+  await act(async () => useExplorer.setState({
+    fsRevision: useExplorer.getState().fsRevision + 1,
+    changedEntries: [{ kind: "changed", path: "a.ts", directory: false }],
+  }));
+  await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+  expect(await screen.findByText("v2")).toBeInTheDocument();
+});
