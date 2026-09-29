@@ -75,6 +75,24 @@ function bindingOf(id: string): string {
 }
 
 /**
+ * The binding as the menu draws it. A backtick is a hairline beside the ⌘ ⇧ ⌃ glyphs and the
+ * capital letters, easy to read as a stray mark or nothing at all, so it is drawn as a keycap of
+ * the letters' height and read out by name.
+ */
+function ShortcutText({ keys }: { keys: string }) {
+  const tick = keys.indexOf("`");
+  if (tick === -1) return <>{keys}</>;
+  return (
+    <>
+      {keys.slice(0, tick)}
+      <kbd aria-hidden className="ml-0.5 inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-[3px] border px-0.5 font-mono text-[11px] leading-none tracking-normal">`</kbd>
+      <span className="sr-only">backtick</span>
+      {keys.slice(tick + 1)}
+    </>
+  );
+}
+
+/**
  * A tab's icon: the file type for a file tab, the kind's glyph otherwise.
  *
  * A component rather than a `const Icon = …` in `TabButton`'s body, for the
@@ -278,7 +296,7 @@ export function TabStrip() {
                 <DropdownMenuItem key={kind} onSelect={() => open(kind)}>
                   <KindIcon className="size-3.5" kind={kind} />
                   {label}
-                  <DropdownMenuShortcut>{bindingOf(shortcut)}</DropdownMenuShortcut>
+                  <DropdownMenuShortcut><ShortcutText keys={bindingOf(shortcut)} /></DropdownMenuShortcut>
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>

@@ -75,3 +75,14 @@ it("closing the last tab on Delete hands focus to New tab, not to the page", asy
   expect(useExplorer.getState().tabs).toEqual([]);
   await waitFor(() => expect(screen.getByRole("button", { name: "New tab" })).toHaveFocus());
 });
+
+it("draws the Terminal shortcut's backtick as a keycap and names it, not as a hairline beside ⌃", async () => {
+  strip();
+  await userEvent.setup().click(screen.getByRole("button", { name: "New tab" }));
+  const terminal = await screen.findByRole("menuitem", { name: /Terminal/ });
+  const tick = [...terminal.querySelectorAll("kbd")].find((key) => key.textContent === "`");
+  expect(tick, "the backtick is its own keycap").toBeDefined();
+  expect(terminal).toHaveTextContent(/backtick/);
+  // The others are glyphs and letters, left as they are.
+  expect((await screen.findByRole("menuitem", { name: /Review/ })).querySelector("kbd")).toBeNull();
+});
