@@ -166,12 +166,29 @@ export function Chip({
         className="max-h-[var(--radix-dropdown-menu-content-available-height)] w-64 overflow-y-auto"
         collisionPadding={12}
         side="top"
+        {...openOnChecked}
       >
         {menu}
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
+
+/**
+ * A menu of choices opens on the one chosen, not on the first row: Enter on the mode chip then
+ * says "Plan, checked" rather than "Ask", and the arrows start from there. DropdownMenu's types
+ * leave out `onOpenAutoFocus`, but it hands the prop to the Menu content underneath, which runs
+ * it before its own entry focus (tests/unit/renderer/session-chips.test.tsx holds it to that).
+ */
+const openOnChecked = {
+  onOpenAutoFocus: (event: Event) => {
+    const content = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+    const checked = content?.querySelector<HTMLElement>("[role=menuitemradio][aria-checked=true]");
+    if (!checked) return;
+    event.preventDefault();
+    checked.focus();
+  },
+} as Record<string, unknown>;
 
 /* -------------------------------------------------------------------------- */
 /* New-session chips                                                           */
