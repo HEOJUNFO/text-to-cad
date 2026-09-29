@@ -181,9 +181,17 @@ export const explorerIpc = {
     /** The OS trash, never `rm`: the one destructive item is the reversible one. */
     trash: invoke(AtPath, FileMutationResultSchema),
 
-    /** Start (or join) the root's watcher. Refcounted in main. */
-    watch: invoke(InRoot, z.void()),
-    unwatch: invoke(InRoot, z.void()),
+    /**
+     * Start (or join) the root's watcher. Refcounted in main. `paths` are
+     * files a tab opened before, handed back on an earlier unwatch and held
+     * again now (`fileSource.ts`).
+     */
+    watch: invoke(InRoot.extend({ paths: z.array(z.string()).max(10_000).optional() }), z.void()),
+    /**
+     * Leave it. `paths` are the files the leaving tab opened, once per open
+     * stat: main forgets what it kept to follow them (`FileWatchers.unwatch`).
+     */
+    unwatch: invoke(InRoot.extend({ paths: z.array(z.string()).max(10_000).optional() }), z.void()),
 
     /** The persisted tab strip for a session (the `explorer_tabs` table). */
     loadTabs: invoke(z.object({ sessionId: z.string().min(1) }), z.array(PersistedExplorerTabSchema)),

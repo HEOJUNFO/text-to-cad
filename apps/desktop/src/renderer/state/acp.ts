@@ -133,8 +133,7 @@ export const useAcp = create<AcpState>((set, get) => ({
 
   create: async (input) => {
     const session = await window.textToCad.sessions.create(input);
-    const index = useSessions.getState();
-    if (!index.sessions.some(row => row.id === session.id)) index.receive([...index.sessions, session]);
+    useSessions.getState().adopt(session);
     return session.id;
   },
 

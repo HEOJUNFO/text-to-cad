@@ -16,6 +16,12 @@ export function createDesktopFileSource({ sessionId, projectId, projectName, roo
   const id = desktopSourceId(projectId, root);
   const listeners = new Set<Parameters<NonNullable<FileSource["subscribe"]>>[0]>();
   let unsubscribe: (() => void) | undefined;
+  // Each open stat of a file, by path: main keeps what it needs to follow
+  // the file through a move until the tab gives these back on its unwatch.
+  // Given back and subscribed again (a remount), they are held again.
+  let opened = new Map<string, number>();
+  let released = new Map<string, number>();
+  const spread = (counts: Map<string, number>) => [...counts].flatMap(([path, count]) => Array<string>(count).fill(path));
   const checked = async <T>(signal: AbortSignal, operation: () => Promise<T>): Promise<T> => {
     signal.throwIfAborted();
     const result = await operation();
@@ -50,7 +56,11 @@ export function createDesktopFileSource({ sessionId, projectId, projectName, roo
     async stat(path, { signal }) {
       // The viewer stats a file as it opens it: this is the one stat that counts as an open
       // (file_opened) and watches the entry. Attachments and integrations stat without it.
-      const stat = await checked(signal, () => window.textToCad.explorer.stat({ ...at, path, intent: "open" }));
+      signal.throwIfAborted();
+      const stat = await window.textToCad.explorer.stat({ ...at, path, intent: "open" });
+      // Counted before the abort check: main counted it when it answered.
+      if (stat.kind === "file") opened.set(stat.path, (opened.get(stat.path) ?? 0) + 1);
+      signal.throwIfAborted();
       return { ...stat, mediaType: stat.fileKind };
     },
     list: (path, { signal }) => checked(signal, () => window.textToCad.explorer.list({ ...at, path })),
@@ -84,9 +94,19 @@ export function createDesktopFileSource({ sessionId, projectId, projectName, roo
     subscribe(listener) {
       listeners.add(listener);
       if (!unsubscribe) {
-        void window.textToCad.explorer.watch(at).catch(() => {});
+        const again = spread(released);
+        for (const [path, count] of released) opened.set(path, (opened.get(path) ?? 0) + count);
+        released = new Map();
+        void window.textToCad.explorer.watch({ ...at, ...(again.length ? { paths: again } : {}) }).catch(() => {});
         unsubscribe = useExplorer.subscribe((next, previous) => {
           if (next.projectId === projectId && next.fsRevision !== previous.fsRevision && next.changedRoot === root) {
+            // Main moves its holds with a moved file; so does this record.
+            for (const entry of next.changedEntries) {
+              const count = entry.kind === "moved" ? opened.get(entry.previousPath) : undefined;
+              if (entry.kind !== "moved" || !count) continue;
+              opened.delete(entry.previousPath);
+              opened.set(entry.path, (opened.get(entry.path) ?? 0) + count);
+            }
             const change = { sourceId: id, changes: next.changedEntries.map(viewerFileChange) };
             for (const subscriber of listeners) subscriber(change);
           }
@@ -96,7 +116,10 @@ export function createDesktopFileSource({ sessionId, projectId, projectName, roo
         listeners.delete(listener);
         if (listeners.size === 0) {
           unsubscribe?.(); unsubscribe = undefined;
-          void window.textToCad.explorer.unwatch(at).catch(() => {});
+          const paths = spread(opened);
+          released = opened;
+          opened = new Map();
+          void window.textToCad.explorer.unwatch({ ...at, ...(paths.length ? { paths } : {}) }).catch(() => {});
         }
       };
     },

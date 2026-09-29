@@ -154,14 +154,14 @@ test("a page that reloads gives back the watches it never unwatched, and only th
     expect(unwatch).toHaveBeenCalledTimes(1);
 
     // Cmd+R: the old page sends no unwatch for the watch it still holds.
-    page.emit("did-start-navigation", { isMainFrame: true, isSameDocument: false });
+    page.emit("did-navigate");
     expect(unwatch).toHaveBeenCalledTimes(2);
     // A late unwatch from the page that left is not counted twice.
     await explorerHandlers.explorer.unwatch(at, ctx);
     expect(unwatch).toHaveBeenCalledTimes(2);
     // The new page's watch is its own lease.
     await explorerHandlers.explorer.watch(at, ctx);
-    page.emit("did-start-navigation", { isMainFrame: true, isSameDocument: true });
+    page.emit("did-navigate-in-page");
     expect(unwatch).toHaveBeenCalledTimes(2);
     page.emit("destroyed");
     expect(unwatch).toHaveBeenCalledTimes(3);

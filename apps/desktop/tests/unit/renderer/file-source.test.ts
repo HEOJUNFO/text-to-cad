@@ -64,6 +64,25 @@ test("write conflict semantics are typed and subscription leases stay balanced",
   expect(watch).toHaveBeenCalledTimes(1); expect(unwatch).toHaveBeenCalledTimes(1);
 });
 
+test("a tab gives back the files it opened when it leaves, follows their moves, and holds them again on a remount", async () => {
+  const files = source();
+  const stat = (path: string) => ({ path, name: path, kind: "file" as const, size: 1, modifiedAt: 0, symlink: false, fileKind: "text" as const, mime: "text/plain", extension: "txt" });
+  vi.mocked(window.textToCad.explorer.stat).mockResolvedValueOnce(stat("a.txt")).mockResolvedValueOnce(stat("b.txt"));
+  await files.stat("a.txt", { signal: signal() });
+  await files.stat("b.txt", { signal: signal() });
+  const watch = vi.mocked(window.textToCad.explorer.watch).mockClear();
+  const unwatch = vi.mocked(window.textToCad.explorer.unwatch).mockClear();
+  const off = files.subscribe!(() => {});
+  expect(watch).toHaveBeenLastCalledWith({ projectId: "p" });
+  useExplorer.getState().receiveChanges("p", null, [{ kind: "moved", previousPath: "b.txt", path: "c.txt", directory: false }]);
+  off();
+  expect(unwatch).toHaveBeenLastCalledWith({ projectId: "p", paths: ["a.txt", "c.txt"] });
+  const again = files.subscribe!(() => {});
+  expect(watch).toHaveBeenLastCalledWith({ projectId: "p", paths: ["a.txt", "c.txt"] });
+  again();
+  expect(unwatch).toHaveBeenLastCalledWith({ projectId: "p", paths: ["a.txt", "c.txt"] });
+});
+
 test("Copy reference preserves clipboard text and uses the injected draft destination", async () => {
   const deliver = vi.fn<PromptContextPort["deliver"]>(async () => ({ status: "added" as const, partIds: ["reference"] }));
   const writeText = vi.fn(async () => {});

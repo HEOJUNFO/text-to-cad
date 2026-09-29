@@ -266,8 +266,59 @@ it("an open diff is read again when a newer status lands, not kept from the firs
   renderReview();
   expect(await screen.findByTestId("review-diff")).toHaveTextContent("v1");
 
-  // The agent writes the file again: the header's counts are re-read, and so is the open diff.
-  await act(async () => useExplorer.setState({ fsRevision: useExplorer.getState().fsRevision + 1 }));
+  // The agent writes the file again: the header's counts are re-read, and so
+  // is the open diff — the counts are the same, the watcher saw the write.
+  await act(async () => useExplorer.setState({
+    fsRevision: useExplorer.getState().fsRevision + 1,
+    changedEntries: [{ kind: "changed", path: "hello.py", directory: false }],
+  }));
   await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
   expect(await screen.findByText("v2")).toBeInTheDocument();
+});
+
+it("a newer status re-reads only the open diffs it says something new about", async () => {
+  scoped
+    .mockResolvedValueOnce({ ...repo("main"), files: [changed("a.py"), changed("b.py")], workingFiles: 2 })
+    .mockResolvedValueOnce({ ...repo("main"), files: [changed("a.py"), { ...changed("b.py"), insertions: 4 }], workingFiles: 2 });
+  const read = vi.fn(async (request: { path: string }) => fileDiff({ path: request.path, before: "", after: request.path }));
+  git.fileDiff = read;
+  renderReview();
+  await vi.waitFor(() => expect(screen.getAllByTestId("review-diff")).toHaveLength(2));
+  expect(read).toHaveBeenCalledTimes(2);
+  read.mockClear();
+
+  // A batch of writes elsewhere in the tree; git's answer changed b.py's counts only.
+  await act(async () => useExplorer.setState({
+    fsRevision: useExplorer.getState().fsRevision + 1,
+    changedEntries: [{ kind: "changed", path: "notes/unrelated.md", directory: false }],
+  }));
+  await vi.waitFor(() => expect(scoped).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+  await act(async () => {});
+  expect(read).toHaveBeenCalledTimes(1);
+  expect(read.mock.calls[0]![0]).toMatchObject({ path: "b.py" });
+});
+
+it("batches of writes streaming in ask git at most once per gap, and the last batch is always answered", async () => {
+  scoped.mockResolvedValue({ ...repo("main"), workingFiles: 0 });
+  renderReview();
+  expect(await screen.findByText("main")).toBeInTheDocument();
+  expect(scoped).toHaveBeenCalledTimes(1);
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  try {
+    const batch = () => act(() => useExplorer.setState({ fsRevision: useExplorer.getState().fsRevision + 1 }));
+    batch();
+    expect(scoped).toHaveBeenCalledTimes(2);
+    for (let index = 0; index < 5; index += 1) {
+      vi.advanceTimersByTime(80);
+      batch();
+    }
+    expect(scoped).toHaveBeenCalledTimes(2);
+    act(() => { vi.advanceTimersByTime(500); });
+    expect(scoped).toHaveBeenCalledTimes(3);
+    act(() => { vi.advanceTimersByTime(5_000); });
+    expect(scoped).toHaveBeenCalledTimes(3);
+  } finally {
+    vi.useRealTimers();
+  }
 });

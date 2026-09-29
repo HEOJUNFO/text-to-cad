@@ -97,37 +97,58 @@ export function disposeExplorerServices() {
  * A reload (Cmd+R) or a renderer that dies never sends its unwatches: the
  * new page watches again, and every root the old one watched kept a ref that
  * nothing would release, and a chokidar watcher over the tree that never
- * closed. A page's leases are returned for it when it navigates or goes.
+ * closed. A page's leases are returned for it when another page commits in
+ * its place or it goes.
+ *
+ * On `did-navigate`, not `did-start-navigation`: a navigation starts before
+ * `will-navigate` is asked, and the window cancels every one of those
+ * (`src/main/index.ts` — a stray `<a href>`, a file dropped on the page), so
+ * a page released at the start would keep living with its watches gone.
  */
 const leases = new Map<number, Map<string, number>>();
-const leaseHolders = new Set<number>();
+/** Per page, how many documents it has shown; a watch is credited to the one that asked. */
+const documents = new Map<number, number>();
 
-function lease(sender: WebContents | undefined, root: string) {
-  if (!sender) return;
+/**
+ * The document asking, taken before a watch's await: a navigation that
+ * commits meanwhile makes the watch the old document's, already released.
+ */
+function documentOf(sender: WebContents | undefined): number | undefined {
+  if (!sender) return undefined;
+  const known = documents.get(sender.id);
+  if (known !== undefined) return known;
+  documents.set(sender.id, 0);
+  const id = sender.id;
+  const release = () => {
+    const roots = leases.get(id);
+    leases.delete(id);
+    documents.set(id, (documents.get(id) ?? 0) + 1);
+    for (const [directory, count] of roots ?? []) {
+      for (let index = 0; index < count; index += 1) void watchers?.unwatch(directory).catch(() => {});
+    }
+  };
+  // `did-navigate` is the main frame's, and a committed cross-document
+  // navigation only (an in-page one is `did-navigate-in-page`).
+  sender.on("did-navigate", release);
+  sender.on("render-process-gone", release);
+  sender.once("destroyed", () => {
+    release();
+    documents.delete(id);
+  });
+  return 0;
+}
+
+/** False when the document that asked is gone: the watch is its own to give back. */
+function lease(sender: WebContents | undefined, root: string, document: number | undefined): boolean {
+  if (!sender) return true;
+  if (documents.get(sender.id) !== document) return false;
   let held = leases.get(sender.id);
   if (!held) {
     held = new Map();
     leases.set(sender.id, held);
   }
   held.set(root, (held.get(root) ?? 0) + 1);
-  if (leaseHolders.has(sender.id)) return;
-  leaseHolders.add(sender.id);
-  const id = sender.id;
-  const release = () => {
-    const roots = leases.get(id);
-    leases.delete(id);
-    for (const [directory, count] of roots ?? []) {
-      for (let index = 0; index < count; index += 1) void watchers?.unwatch(directory).catch(() => {});
-    }
-  };
-  sender.on("did-start-navigation", (details) => {
-    if (details.isMainFrame && !details.isSameDocument) release();
-  });
-  sender.on("render-process-gone", release);
-  sender.once("destroyed", () => {
-    release();
-    leaseHolders.delete(id);
-  });
+  return true;
 }
 
 /** False when this page holds no watch on the root to give back. */
@@ -475,7 +496,11 @@ export const explorerHandlers = {
       expectedRevision?: string;
     }) => (async () => {
       try {
-        const document = await writeTextFile(rootOf(projectId, root), target, content, expectedRevision);
+        const base = rootOf(projectId, root);
+        const document = await writeTextFile(base, target, content, expectedRevision);
+        // The save renamed a new inode into place; a move right after it is
+        // still this file's (`FileWatchers.refreshEntry`).
+        await watchers?.refreshEntry(base, document.path).catch(() => {});
         publishChange({ projectId, root }, { kind: "changed", path: document.path, directory: false, revision: document.revision });
         return { status: "saved" as const, document };
       } catch (error) {
@@ -549,19 +574,22 @@ export const explorerHandlers = {
       return { kind: "removed", path: before.path, directory: before.directory };
     }),
 
-    watch: ({ projectId, root }: { projectId: string; root?: string }, ctx?: IpcContext) =>
+    watch: ({ projectId, root, paths }: { projectId: string; root?: string; paths?: string[] }, ctx?: IpcContext) =>
       fsCall(async () => {
         const directory = rootOf(projectId, root);
-        await services().watchers.watch(directory);
-        lease(ctx?.sender, directory);
+        const document = documentOf(ctx?.sender);
+        const { watchers: service } = services();
+        await service.watch(directory, paths);
+        // The page moved on while the watch was set up: nothing will give it back.
+        if (!lease(ctx?.sender, directory, document)) await service.unwatch(directory, paths);
       }),
 
-    unwatch: ({ projectId, root }: { projectId: string; root?: string }, ctx?: IpcContext) =>
+    unwatch: ({ projectId, root, paths }: { projectId: string; root?: string; paths?: string[] }, ctx?: IpcContext) =>
       fsCall(async () => {
         const directory = rootOf(projectId, root);
         // A page's unwatch after its leases went with a reload is already counted.
         if (ctx && !returnLease(ctx.sender, directory)) return;
-        await services().watchers.unwatch(directory);
+        await services().watchers.unwatch(directory, paths);
       }),
 
     loadTabs: ({ sessionId }: { sessionId: string }) => explorerTabs.list(sessionId),
