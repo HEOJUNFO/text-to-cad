@@ -53,12 +53,11 @@ npm run native:rebuild --workspace @text-to-cad/desktop
 npm run dev:desktop  # electron-vite: main, preload and renderer with HMR
 ```
 
-The repo's `.claude/launch.json` has a `desktop-dev` entry that runs the same
-thing. The Browser pane cannot show an Electron window — visual checks go
+The Browser pane cannot show an Electron window — visual checks go
 through computer-use `app_screenshot` on the text-to-cad window, or through the
 Playwright screenshots below.
 
-Three environment variables matter in development:
+These environment variables matter in development:
 
 | Variable | Effect |
 | --- | --- |
@@ -66,6 +65,10 @@ Three environment variables matter in development:
 | `CAD_DESKTOP_PYTHON` | An interpreter with cadgen installed, used instead of the bundled runtime (see CAD runtime below). A developer's knob; the e2e suite breaks and clears the equivalent setting on purpose. |
 | `TEXT_TO_CAD_PREWARM` | Under `NODE_ENV=test` both pre-warms are off — the project's (viewer child + cadgen daemon on project open) and the agents' (one idle adapter per agent in the index, see "Opening a session"); `1` turns them on, as `tests/e2e/cad.spec.ts` and `tests/e2e/persistence.spec.ts` do. |
 | `TEXT_TO_CAD_FAKE_AGENT` | Launch this stdio ACP agent instead of whatever the registry says, for every provider. The session and git suites point it at `tests/fake-agent/index.mjs`; a session needs an agent to exist at all, and a real one would make the suite a test of somebody's login state. |
+| `TEXT_TO_CAD_FAKE_AGENT_ARGS` | Extra arguments for that fake agent, split on spaces (`src/main/ipc/acp.ts`). `tests/e2e/launch.ts` passes them as `fakeArgs`; `persistence.spec.ts` uses `--load-delay` to hold `session/load`. The flags are listed at the top of `tests/fake-agent/index.mjs`. |
+| `TEXT_TO_CAD_ONBOARDING` | Under `NODE_ENV=test` the first-run welcome and checklist are off, so a fresh test profile opens on the screen it tests; `1` turns them back on (`onboardingEnabled` in `src/main/onboarding.ts`). Outside tests onboarding is always on, and the settings fields decide whether it shows (see Onboarding). |
+| `TEXT_TO_CAD_RUNTIME_CACHE` | Where `npm run bundle:runtime` keeps the downloaded python-build-standalone archives when no `--cache` is given; default `~/.cache/text-to-cad/python` (`defaultCacheDir` in `scripts/bundle-runtime.mjs`). Build-time only; the app never reads it. |
+
 Two more decide whether the window is seen at all:
 
 | Variable | Effect |
@@ -119,6 +122,37 @@ baked image (no additional WebGL context). OS/app reduced motion and hidden
 windows use the still image. Existing progress counts and status words remain
 the source of truth.
 
+## Onboarding
+
+A first run opens on a welcome over the whole window instead of the shell
+(`features/onboarding/Welcome.tsx`, chosen in `app/App.tsx`): three steps —
+what the app is, **Connect an agent** (Claude Code and Codex, with Install and
+Sign in running the same jobs as Settings › Agents, and a link there for the
+rest), and a start step that offers **Try the sample** or **Open a folder…**.
+Finishing or skipping sets `onboardingCompleted`. After it, the sidebar shows a
+**Getting started** checklist (`features/onboarding/GettingStarted.tsx`) whose
+four items tick themselves from what the person has done — an agent installed
+and signed in, a folder open, a session, a CAD file reaching the viewer
+(`markViewerOpened`, called from `adapters/cadRuntime.tsx`). Closing it, or
+pressing Done when it is complete, sets `onboardingChecklistDismissed`.
+
+What the person has done is ordinary settings (`onboardingCompleted`,
+`onboardingChecklistDismissed`, `onboardingViewerOpened` in `SettingsSchema`,
+`src/shared/types.ts`); the renderer's derivations are `state/onboarding.ts`.
+Main answers the two things that are not settings, over `onboarding.*`
+(`src/{shared,main}/ipc/onboarding.ts`, `src/main/onboarding.ts`):
+
+- `onboarding.status` — whether this run shows onboarding at all. It is off
+  under `NODE_ENV=test`, so a fresh test profile opens on the screen it tests,
+  unless `TEXT_TO_CAD_ONBOARDING=1`.
+- `onboarding.createSample` — copies the bundled sample (`resources/sample/`:
+  `l_bracket.py`, the `l_bracket.step` it builds, a README of things to ask)
+  to `~/Documents/text-to-cad Sample` and answers with the path; the renderer
+  then adds it with `projects.addPath`. The sample is copied, never opened in
+  place — a signed bundle must not be written into, and the agent will edit
+  it — and a folder there that already has files in it is reused as it is,
+  not overwritten.
+
 ## Checks
 
 Interaction motion is scoped to activity/thought reveals, composer reference
@@ -151,8 +185,8 @@ private caches beneath their temporary user-data directories. CAD profiles use
 short temporary paths on POSIX so Python's Unix sockets stay within platform
 limits. They disable the shared build daemon (except its explicit prewarm test)
 and discard inherited broker settings, so an interactive
-cache or another running viewer cannot satisfy a cold test. Optional live-agent
-suites remain explicit opt-ins. CI selects this app only for changes to desktop,
+cache or another running viewer cannot satisfy a cold test. No suite runs a
+real agent (see below). CI selects this app only for changes to desktop,
 shared UI/core, cadgen or shared build infrastructure; see the dependency graph
 in the root `CONTRIBUTING.md`.
 
@@ -185,48 +219,35 @@ still shows the window, without taking focus.
 (`test-results/` by default, or `--output`); it never rewrites the committed
 design evidence in `tests/e2e/__screenshots__/`. CI uploads that run's PNGs and,
 on failure, its traces and error context; both artifacts are kept for three days.
-Captures include the shell in both themes,
-Settings, the traffic lights' corner in the two states that own it
-(`titlebar-sidebar`, `titlebar-session`, `titlebar-settings` — the reserved
-rectangle drawn over it), one per explorer surface — `file-markdown-preview`,
-`file-markdown-source`, `file-markdown-editable` (the dirty dot on an edited
-document), `file-markdown-raw-blocks` (raw HTML kept as its own bytes),
-`file-tree-deep`, `file-crumb-menu` (a folder crumb's menu of its
-neighbours, open),
-`file-context-menu` (a tree row's), `file-image`, `file-cad-failed` (the runtime broken on
-purpose), `file-cad` (the explorer at its widest: the sidebar hidden and the
-session at its floor), `file-cad-default` (the file's Settings open beside
-the model) and both again at 1280×800,
-`file-cad-measure`, `file-cad-tree` and `file-cad-files` (the file tree in
-that same column), `file-cad-light-chrome` (Inspect and the app in light
-appearance), `render-view` (Render's photographic scene, with no Materials
-editor), and `robot-kinematics` (a joint edited in the robot's Settings, on its
-Position tab),
-`terminal`,
-`browser-empty`, `browser`, `review`, `strip`, `strip-overflow` (seven tabs in
-a pane at its floor, `+` pinned to the right edge), `panes-sidebar-collapsed`
-(the sidebar closed by a drag past its minimum, with the toggle that brings it
-back) and `panes-history` (the bottom of the back/forward stack, back
-muted) — every one of those
-kinds in light as `*-light` — the sidebar's own five, dark only
-(`sidebar-pinned`, a `Pinned` section above the project sections;
-`sidebar-filters`, the filter menu open under the panel's header;
-`sidebar-header`, a project header hovered with `+` its one control;
-`project-menu`, the composer's project chip open on `Recent` and
-`Open folder…`; `sidebar-waiting`, the amber glyph on
-a thread the agent has stopped to ask about), the `git-*` set for the git modes (the review
-under three scopes, before and after a commit, the sidebar's worktree glyph,
-Settings' per-project worktree card), the session states in both themes with
-the composer at 1280×800 and 1680×1050, `session-new-model-menu` (the model
-menu open on the new-session screen, a group per installed provider),
-`session-new-mode-menu` (the mode menu open on the new-session screen, the
-`Never asks` note under the full-access row),
-`session-attach-menu` (the composer's `+`), `session-context` (the context
-panel open over the composer, its breakdown expanded) and
-`session-context-limits` (the same panel with the account's plan limits in
-it, from the fake agent's `limits` turn) — both with a `-light` — and
-`codex-open-file` from the one
-test that runs a real agent (below). Look at them; they are the cheapest review of
+What the specs capture, and nothing else: `shell-light` and `shell-dark`;
+the traffic lights' corner in the states that own it (`titlebar-sidebar`,
+`titlebar-session`, `titlebar-settings` — the reserved rectangle drawn over
+it); `settings-<page>` for General, Agents, Appearance, Git, Shortcuts and
+About, and `settings-agent-codex` / `settings-agent-claude-code`;
+`strip-overflow` (a pane at its floor with more tabs than fit, `+` pinned to
+the right edge) — all from `shell.spec.ts`. From `explorer.spec.ts`, the
+explorer pane only: `file-markdown-preview`, `file-markdown-source`,
+`file-tree-deep`, `file-image`, `terminal`, `drawing-with-prompt` (a drawing
+attached to the draft) and `browser-app-shell` (a browser tab's page and
+selection added to the prompt). From `cad.spec.ts`: `file-cad-failed` (the
+runtime broken on purpose) and `file-cad`. From `git.spec.ts`:
+`git-review-all`, `git-review-committed`, `worktree-explorer` and
+`git-settings-worktrees` (Settings' per-project worktree card, whole window).
+From `session.spec.ts`: `session-new`, `session-new-model-menu` (a group per
+installed provider), `session-new-mode-menu` (the `Never asks` note under the
+full-access row), `session-streaming`, `session-permission`,
+`session-completed`, `session-expanded`, `session-1280x800` and
+`session-1680x1050`, `session-context` (the context panel, its breakdown
+expanded), `session-context-limits` (the account's plan limits, from the fake
+agent's `limits` turn), `session-cancelled`, `session-error`,
+`session-resumed`, `session-auth`, `activity-collapsed-light`,
+`activity-expanded-light` and `transcript-links`. From
+`transcript-layout.spec.ts`: `transcript-light`, `transcript-dark` and
+`transcript-expanded`; from `browser-service.spec.ts`, `browser-use-native`
+(the native page as Browser Use captured it). The committed
+`tests/e2e/__screenshots__/` (`file-cad-failed`, `file-markdown-editable`,
+`file-markdown-raw-blocks`, `file-tree-deep`) is older evidence no spec
+rewrites. Look at them; they are the cheapest review of
 whether the app still looks like an app, and every defect found in P3's
 explorer — a tree that did not reveal the open file, a `+` that scrolled out
 of reach, a terminal that replayed its scrollback twice — was found by reading
@@ -540,7 +561,13 @@ the sliders used to appear on it on hover; neither was ever about one project
 (the palette searches every thread and the filter settings are global), and a
 control that only exists under the pointer is a control nobody finds.
 The header's right-click menu starts a session, copies the directory path,
-or reveals it in the OS. There are no project rename or delete actions: these
+or reveals it in the OS. Revealing a project directory — here, from a
+session's header menu and from Settings' worktree cards — is
+`shell.showItemInFolder({ projectId, root?, worktrees? })`: the project, one
+of its own worktrees (`root`), or the folder its worktrees live in
+(`worktrees: true`). It never takes a bare path; main resolves the request
+against the project and refuses anything else (`src/main/ipc/explorer.ts`).
+There are no project rename or delete actions: these
 are directory groups derived from sessions, not saved project records. A
 directory with no matching sessions has no sidebar header. Archiving or
 deleting its last active session removes its active group; archived sessions
@@ -980,6 +1007,14 @@ new output or user typing. Closing a terminal releases its process; stopping
 it leaves the output available until close. A provider's own shell tool has
 separate process IDs and does not automatically create a text-to-cad terminal tab.
 
+Over IPC (`terminal.*`, `src/shared/ipc/explorer.ts`), `terminal.create` takes
+the project, the session, an optional `cwd` (checked against the project and
+its worktrees) and the size — never a shell or its arguments: every tab runs the person's login
+shell (`src/main/explorer/terminal.ts`). After that a pty is named by
+`{ id, sessionId }` on `terminal.write`, `resize`, `attach` and `kill`, and
+main refuses a request whose session does not own the pty, so one session's
+renderer state cannot type into another session's shell.
+
 Directory listings show every regular file and directory, including dotfiles,
 Git-ignored outputs, dependency folders and unsupported formats. Renderer
 support determines what opens in the file tab; it never hides a tree row.
@@ -1193,10 +1228,11 @@ while retaining the restrictions on remote scripts, inline scripts and `eval`.
 The shared loader revokes each URL after module evaluation; no adjacent
 JavaScript file is discovered or written.
 
-Neither a display-mode change nor a photographic setting changes the app's appearance. The
-Electron `theme` suite samples the document through these interactions, and
-`cad-scenes` checks Display settings, a robot's Position controls, authored material details
-and the absence of a Materials editor. See the shared [Render modes](../../packages/ui/docs/render-mode.md)
+Neither a display-mode change nor a photographic setting changes the app's appearance.
+`cad.spec.ts` checks that the embedded viewer never writes the document's
+theme (`data-theme`, `data-theme-preference`, `cad-viewer:theme` all stay
+unset); `shell.spec.ts` samples the document's scheme through launch and a
+theme change. See the shared [Render modes](../../packages/ui/docs/render-mode.md)
 playbook for the mode bases and camera behavior.
 
 ## Quitting
@@ -1271,7 +1307,10 @@ person to set anything up.
 `src/main/cad/viewer.ts` runs one `python -m cadgen.viewer --api-only --host
 127.0.0.1 --json` per project root (cwd = the root, the launcher's contract),
 parses its JSON line, keeps the child, restarts it on a crash with backoff,
-stops it when the project is removed and on quit — and never kills an
+stops a worktree's viewer when the last session in that worktree is
+deleted (`forgetCadSession` in `src/main/cad/index.ts`; projects are never
+removed, so a checkout's viewer lives until quit) and stops all of them on
+quit — and never kills an
 instance the launcher reported as `reused`, because that one is somebody
 else's. `cad.viewerOrigin` is how the file tab gets the origin.
 
@@ -1370,12 +1409,19 @@ tsconfig.node.json        main + preload + shared + node-side tests
 tsconfig.web.json         renderer + renderer tests
 src/main/                 the Electron main process: everything with a side effect
   index.ts                window, single-instance lock, lifecycle
-  menu.ts                 app menu; View items send `ui.command` rather than reaching into the UI
+  menu.ts                 app menu; items send `ui.command` rather than reaching into the UI —
+                          settings, sidebar/explorer toggles, new session, palette, back/forward
+                          (the enum in src/shared/ipc/index.ts; there is no review command)
   window-state.ts         persisted geometry, checked against the displays that exist now
   telemetry.ts            Aptabase, inert without a key and off without the setting
   settings-effects.ts     the settings that are instructions to the OS: login item, menu-bar
                           item, macOS vibrancy — applied at boot and on every settings write
   updater.ts              electron-updater against GitHub Releases; a no-op in dev
+  app-paths.ts            appVersion, appRoot, resourcesDir (checkout vs packaged)
+  children.ts             every child process main spawns, tracked so `before-quit` can end them
+  quit-deadline.ts        a watchdog process that ends the app if Chromium's shutdown hangs
+                          past `will-quit` (see Quitting)
+  onboarding.ts           whether this run shows onboarding, and the sample project copy
   db/                     sqlite: migrations.ts (runner + schema), repositories.ts (rows <-> types)
   ipc/                    register.ts (validating registration) + index.ts (the handlers)
   agents/                 registry.ts (the provider table), detect.ts (login-shell PATH, which,
@@ -1391,10 +1437,17 @@ src/main/                 the Electron main process: everything with a side effe
   ipc/dialogs.ts          the native folder and file choosers Settings' path rows use
   ipc/{explorer,cad}.ts   files, terminals; cad.viewerOrigin + cad.warm
   ipc/integrations.ts    scoped integration command/reply relay
+  ipc/browser.ts          browser.*: the embedded browser's pages, scoped to a live session
+  ipc/clipboard.ts        clipboard.*: plain text and validated PNGs to and from the OS
+  ipc/onboarding.ts       onboarding.status and onboarding.createSample
   ipc/git.ts              P7's: the review's reads in a session's directory, the
                           commit, the pull request, and the worktree list
   explorer/               fs.ts (complete listings, read/write, scoped watchers),
                           terminal.ts (node-pty sessions + scrollback)
+  browser/                service.ts (one WebContentsView per browser tab, keyed by session,
+                          project and root), connections.ts + cdp.ts (the scoped CDP endpoint
+                          the Playwright MCP drives), harness.ts + vendor/ (Browser Use's
+                          CDP bindings) — see docs/browser.md
   cad/                    runtime.ts (which Python: override, bundled, checkout), viewer.ts (one viewer per project root),
                           daemon.ts (the warm build daemon, started at project open),
                           index.ts (CAD runtime wiring)
@@ -1421,6 +1474,11 @@ src/shared/               types.ts (domain types as zod schemas)
   ipc/git.ts              git.* — the review's reads plus P7's worktrees
   ipc/cad.ts              cad.viewerOrigin and cad.warm
   ipc/integrations.ts    integrations.command / integrations.reply for domain MCP tools
+  ipc/browser.ts          browser.* — the embedded browser's pages (browser.ts beside ipc/
+                          holds the page and input schemas)
+  ipc/clipboard.ts        clipboard.* — plain text up to 1 MiB, PNGs up to 16 MiB
+  ipc/onboarding.ts       onboarding.* — whether onboarding shows, and the sample project
+  ipc/errors.ts           errorMessage: the handler's own words out of Electron's invoke wrapper
 src/renderer/
   app/                    Shell (three panes in a flex row), App, CommandPalette
     PaneSeparator.tsx     one pane divider: drag, arrow keys, and the overshoot collapse
@@ -1451,6 +1509,8 @@ src/renderer/
                           lists, images, a raw-markdown atom and the source attributes
       image/, pdf/        image fit and zoom; PDF.js pages, text layer and live binding
       unsupported/        the fallback: “Not supported”, and Open externally
+  features/onboarding     Welcome.tsx (the first-run welcome over the window) and
+                          GettingStarted.tsx (the sidebar checklist after it) — see Onboarding
   features/settings       the Settings route, the card-grouped rows, the agent drawer, and
                           pages/ — one module per page; search is done by the rows themselves
   lib/shortcuts.ts        the keyboard-shortcut table the Shortcuts page prints
@@ -1615,6 +1675,14 @@ the *working tree*, so an edit the agent has not committed is in the answer.
 Those two scopes also move the whole read into the session's directory, which
 for a worktree thread is not the project's checkout.
 
+A scope's revisions arrive from the renderer and end up as git argv, so main
+validates them before git starts (`assertSafeScope` in
+`src/main/projects/git.ts`): a range's `from` and `to` must be commit ids, and
+`since` must be one of the review header's presets. Every git call that takes
+a review scope's revision also puts `--end-of-options` in front of it, so a
+value shaped like `--output=…` is a revision git rejects, never an option.
+That flag needs git 2.24 or newer.
+
 ### The explorer's root
 
 A worktree is outside the project directory, so the explorer cannot be
@@ -1693,7 +1761,9 @@ lands in the same place a click would.
 ## Embedded browser
 
 Browser tabs borrow persistent native pages owned by the browser domain. UI and
-agent tools share the same Chromium target, partitioned by project and root.
+agent tools share the same Chromium target, partitioned by session, project
+and root (`browserScopeKey` in `src/main/browser/service.ts`): one session's
+tabs share storage, two sessions in the same directory do not.
 The [browser guide](docs/browser.md) documents the pinned Playwright MCP runtime,
 scoped native CDP adapter, compact responses, supported operations, packaging and
 validation. The upstream package owns browser tools; text-to-cad owns native pages

@@ -26,6 +26,9 @@ phase is not an oversight — it is the seam.
 | P6 | `src/renderer/features/settings` — the pages' contents |
 | P7 (done) | `src/main/projects/{git,workspace}.ts`, `src/shared/ipc/git.ts`, `src/main/ipc/git.ts`, `src/renderer/lib/git-mode.ts`, the review tab's scopes and commit popover, Git & Worktrees' per-project cards, `tests/e2e/git.spec.ts` |
 | P8 (done) | `electron-builder.yml`, `build/`, `resources/`, `scripts/{package,make-icons}.mjs`, `updater.ts`, `telemetry.ts`, `src/{shared,main}/ipc/app.ts`, the CI jobs |
+| Browser | the embedded browser P3's tab kind grew into: `src/main/browser/`, `src/shared/browser.ts`, `src/{shared,main}/ipc/browser.ts`, `features/explorer/BrowserTab.tsx`, `docs/browser.md` |
+| Clipboard | `src/{shared,main}/ipc/clipboard.ts` — the one door to the native clipboard; renderer callers go through `window.textToCad.clipboard` |
+| P9 (onboarding) | `src/main/onboarding.ts`, `src/{shared,main}/ipc/onboarding.ts`, `src/renderer/features/onboarding`, `src/renderer/state/onboarding.ts`, `resources/sample/`, the `onboarding*` settings fields |
 
 Work outside your phase's directories only where the seam requires it — a new
 IPC branch in `src/shared/ipc/<branch>.ts`, spread into `src/shared/ipc/index.ts`,
@@ -63,9 +66,13 @@ not.
   code, image, PDF, unsupported) live in `features/explorer/renderers/`, and
   IPC/native services and app state stay here. Never import web app source.
 
-- **The renderer imports from `src/main` never, and from `src/shared` types
-  only.** Its one way off the page is `window.textToCad`, built from the
-  contract in `src/shared/ipc/index.ts`.
+- **The renderer imports from `src/main` never, and from `src/shared` only
+  types and pure, dependency-free modules** (zod aside) — never anything that
+  touches Node, Electron or the file system. The modules it takes values from
+  today: `types.ts` (the schemas, `PANE_LIMITS`), `acp/options.ts`,
+  `acp/reduce.ts`, `cad-refs.ts`, `titlebar.ts` and `ipc/errors.ts`. A shared
+  module that grows a Node import stops qualifying. Its one way off the page
+  is `window.textToCad`, built from the contract in `src/shared/ipc/index.ts`.
 - **Every IPC channel is declared once**, as a request schema and a response
   schema. `registerIpc` validates both and refuses to start if a channel has no
   handler. Do not add an `ipcMain.handle` outside it. A branch is its own module
@@ -115,7 +122,10 @@ not.
   the canonical release version; `scripts/app-version.mjs` reads it and both
   the build and `scripts/package.mjs` stamp it. Do not hand-edit it.
 - **Exact dependency versions, no ranges.** Everything the later phases need is
-  already installed, so a phase should not have to touch `package.json`.
+  already installed, so a phase should not have to touch `package.json`. The
+  one exception is the workspace links, `"@text-to-cad/core": "*"` and
+  `"@text-to-cad/ui": "*"`: those resolve to the root workspace's packages,
+  not to a registry, and `*` is how npm workspaces spell that.
 - **No symlinks, ever** (repo-wide law: installers disagree about them and one
   drops them silently).
 - **Nothing goes in the traffic lights' corner.** On macOS AppKit paints the

@@ -31,7 +31,8 @@ npm run bundle:runtime -- --target mac-x64  # a foreign target, from this machin
 
 Targets are electron-builder's `<os>-<arch>` names: `mac-arm64`, `mac-x64`,
 `win-x64`, `linux-x64`. Per target the bundler downloads the pinned
-interpreter into `~/.cache/text-to-cad/python` (sha256-checked), unpacks it,
+interpreter into `~/.cache/text-to-cad/python` (or `--cache`, or
+`TEXT_TO_CAD_RUNTIME_CACHE`; sha256-checked), unpacks it,
 runs `pip install --only-binary=:all: --platform <tags> --target
 <site-packages> cadgen==<VERSION> -c constraints.txt`, prunes (`tests/`,
 `__pycache__`, the stdlib's test suite, static libraries, the `bin/` of
