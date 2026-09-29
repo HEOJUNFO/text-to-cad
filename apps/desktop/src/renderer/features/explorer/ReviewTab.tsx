@@ -591,8 +591,14 @@ function FileSection({
               keepCurrentModifiedModel
               keepCurrentOriginalModel
               onMount={(editor) => {
+                // The diff widget itself never fires onDidDispose (monaco 0.56's
+                // DelegatingEditor creates the emitter and nothing fires it); its inner
+                // code editors do. Deferred a tick so the widget's own teardown, which
+                // still holds the models, has finished before they go.
                 const models = editor.getModel();
-                editor.onDidDispose(() => { models?.original.dispose(); models?.modified.dispose(); });
+                editor.getModifiedEditor().onDidDispose(() => {
+                  setTimeout(() => { models?.original.dispose(); models?.modified.dispose(); }, 0);
+                });
                 listeners.current.forEach((listener) => listener.dispose());
                 selection.current = null;
                 listeners.current = ([
