@@ -27,7 +27,7 @@ export type Shortcut = {
 };
 
 export const SHORTCUTS: readonly Shortcut[] = [
-  { id: "new-session", group: "Application", label: "New chat", binding: "Mod+N" },
+  { id: "new-session", group: "Application", label: "New session", binding: "Mod+N" },
   { id: "command-palette", group: "Application", label: "Command palette", binding: "Mod+K" },
   { id: "settings", group: "Application", label: "Settings", binding: "Mod+," },
   { id: "close-settings", group: "Application", label: "Close Settings or the palette", binding: "Escape" },

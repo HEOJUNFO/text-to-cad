@@ -128,7 +128,7 @@ export function subscribeToMain(): () => void {
  * One `ui.command`, whether it came from the app menu or from a button in the
  * renderer.
  *
- * Exported because Settings › Git & Worktrees' `New chat in this worktree` is
+ * Exported because Settings › Git & Worktrees' `New session in this worktree` is
  * the same command as the menu's New Session, only with a directory attached —
  * and a second implementation of "start a thread and show it" would be a
  * second place for the two to disagree about what happens to Settings, the
@@ -166,7 +166,7 @@ export function runUiCommand(payload: IpcEventPayload<"ui.command">): void {
       }
       // Without a directory this is the menu item, which lands on the empty
       // new-session state the session pane shows and lets the composer decide
-      // the mode. With one it is Settings' `New chat in this worktree`, and
+      // the mode. With one it is Settings' `New session in this worktree`, and
       // the thread starts in that worktree straight away.
       if (!projectId || !payload.cwd) {
         useSessions.getState().setActive(null);

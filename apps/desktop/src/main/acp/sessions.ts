@@ -141,7 +141,7 @@ export type SessionManagerDeps = {
     gitMode: GitMode;
     /** The first prompt, when the caller has one: the worktree's slug. */
     name?: string | undefined;
-    /** An explicit directory — Settings' `New chat in this worktree`. */
+    /** An explicit directory — Settings' `New session in this worktree`. */
     cwd?: string | undefined;
   }) => Promise<SessionWorkspace>;
 

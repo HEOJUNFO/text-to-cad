@@ -39,7 +39,7 @@ type SessionsState = {
    *
    * The working directory is main's to decide: this passes the mode, not a
    * path, and main resolves the worktree. `cwd` is the one exception —
-   * Settings' `New chat in this worktree` names a directory that already
+   * Settings' `New session in this worktree` names a directory that already
    * exists, and main checks it belongs to the project.
    */
   start: (input: {

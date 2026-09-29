@@ -170,7 +170,7 @@ describe("resolveWorkspace", () => {
       name: "reuse",
     });
 
-    // Settings' `New chat in this worktree`.
+    // Settings' `New session in this worktree`.
     expect(
       await resolveWorkspace({ project, settings, gitMode: "worktree", cwd: made.cwd }),
     ).toEqual({ cwd: made.cwd, branch: "text-to-cad/reuse", worktreePath: made.cwd });

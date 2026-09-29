@@ -156,7 +156,7 @@ export const acpHandlers = {
     get: ({ id }) => sessionManager.get(id),
     // The mode falls back to the setting here rather than in the composer:
     // Settings › Git & Worktrees' `Default git mode` has to hold for every
-    // caller, including the menu's New Session and Settings' `New chat in
+    // caller, including the menu's New Session and Settings' `New session in
     // this worktree`, not only the one chip that happens to read it.
     create: (input) =>
       surfacing(() =>

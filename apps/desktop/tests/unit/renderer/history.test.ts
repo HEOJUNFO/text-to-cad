@@ -66,7 +66,7 @@ describe("the top-level history", () => {
     await land(() => useProjects.getState().setActive("p1"));
     await land(() => useSessions.getState().select("s1"));
     await land(() => useSessions.getState().select("s2"));
-    // `New chat` — the same selection the sidebar's link makes.
+    // `New session` — the same selection the sidebar's link makes.
     await land(() => useSessions.getState().setActive(null));
 
     expect(useHistory.getState().entries).toEqual([

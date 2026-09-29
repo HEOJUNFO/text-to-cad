@@ -141,7 +141,7 @@ export type ResolveInput = {
   /** The first prompt, when the caller has one: the slug is made from it. */
   name?: string | undefined;
   /**
-   * An explicit directory — Settings' `New chat in this worktree`. It must be
+   * An explicit directory — Settings' `New session in this worktree`. It must be
    * the project itself or one of that project's worktrees; anything else is a
    * renderer asking main to run an agent somewhere it was never shown.
    */
@@ -192,7 +192,7 @@ export async function resolveWorkspace(input: ResolveInput): Promise<Workspace> 
 }
 
 /**
- * `New chat in this worktree`: the directory is given, and it is checked
+ * `New session in this worktree`: the directory is given, and it is checked
  * against the two places it is allowed to be.
  */
 async function explicitWorkspace(cwd: string, input: ResolveInput): Promise<Workspace> {

@@ -26,7 +26,7 @@ export function openAnnotation(scope: ReferenceScope | null, annotation: DraftAn
   const explorer = useExplorer.getState();
   const file = annotation.references[0] ? referencePath(annotation.references[0]) : "";
   if (!scope || !file || explorer.projectId !== scope.projectId || !explorer.ready) {
-    throw new Error("Open this chat’s project to see where the annotation is.");
+    throw new Error("Open this session’s project to see where the annotation is.");
   }
   const tab = explorer.openFile(file, scope.root);
   if (tab) explorer.openCadAnnotation(tab.id, annotation.id);

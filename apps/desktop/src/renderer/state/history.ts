@@ -15,7 +15,7 @@ import { useSessions } from "./sessions";
  * Entries are recorded by watching the selection rather than by every caller
  * remembering to push one. There are half a dozen doors into "show me this
  * thread" — the sidebar's rows, the palette, `Cmd+N`, the app menu, an agent
- * starting a session, Settings' `New chat in this worktree` — and a push at
+ * starting a session, Settings' `New session in this worktree` — and a push at
  * each is a push someone will forget. `sync` pushes only when the location
  * actually changed, which is also why back and forward push nothing: they
  * *set* the selection to the entry they moved to, so by the time `sync` runs

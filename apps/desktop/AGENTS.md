@@ -162,7 +162,7 @@ not.
 - **The renderer never picks a session's working directory.** It sends a git
   mode; main resolves it (`src/main/projects/workspace.ts`), creates the
   worktree, and writes `cwd`, `branch` and `worktreePath` onto the row. The one
-  exception is Settings' `New chat in this worktree`, which names a directory
+  exception is Settings' `New session in this worktree`, which names a directory
   that already exists — and main checks it is the project or one of that
   project's own worktrees before running anything in it.
 - **A review's `Last turn` and `This session` are revisions, not times.** Main

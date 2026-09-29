@@ -103,7 +103,7 @@ export function SessionSection({ section }: { section: SidebarSection }) {
            palette searches every thread and the filters are global — and a
            control that appears on hover is one nobody finds. */
         <Button
-          aria-label={`New chat in ${project.name}`}
+          aria-label={`New session in ${project.name}`}
           className="size-5 shrink-0 text-muted-foreground"
           onClick={newHere}
           size="icon-xs"

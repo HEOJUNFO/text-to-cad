@@ -226,7 +226,7 @@ function ProjectWorktreeCard({ project }: { project: Project }) {
                 size="sm"
                 variant="secondary"
               >
-                New chat in this worktree
+                New session in this worktree
               </Button>
               <Button
                 className="h-8"

@@ -271,10 +271,10 @@ describe("Sidebar", () => {
     expect(screen.queryByText("No sessions to show.")).toBeNull();
   });
 
-  it("starts a thread from `New`, not from `New chat`", () => {
+  it("starts a thread from `New`, not from `New session`", () => {
     wrap(<Sidebar />);
     expect(screen.getByRole("button", { name: "New" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "New chat" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New session" })).not.toBeInTheDocument();
   });
 
   it("does not show an empty directory group", () => {
@@ -421,7 +421,7 @@ describe("Sidebar", () => {
       activeId: "s1",
     });
     wrap(<Sidebar />);
-    await user.click(screen.getByRole("button", { name: "New chat in tom-cad" }));
+    await user.click(screen.getByRole("button", { name: "New session in tom-cad" }));
     expect(useProjects.getState().activeId).toBe("p2");
     expect(useSessions.getState().activeId).toBeNull();
   });

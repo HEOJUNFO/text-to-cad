@@ -28,7 +28,7 @@ export function ProjectMenuItems({
     <>
       <MenuItem
         icon={<MessageSquarePlus />}
-        label="New chat here"
+        label="New session here"
         onSelect={() => {
           setActiveProject(project.id);
           setActiveSession(null);
