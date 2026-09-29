@@ -73,6 +73,25 @@ describe("activity rows", () => {
     expect(row.label).toBe("Viewed shot.png");
   });
 
+  it("draws a delete that is a shell line as a command, with the command on the row", () => {
+    const row = activityRow(call({ id: "rm", kind: "delete", title: "rm -rf build", input: { command: "rm -rf build" } }));
+    expect(row.glyph).toBe("execute");
+    expect(row.command).toBe("rm -rf build");
+    expect(row.label).toBe("");
+    // A delete with no command is still a file deletion, and an editor
+    // tool's `command` verb is not a shell line.
+    expect(activityRow(call({ id: "d", kind: "delete", title: "Delete a.py", locations: [{ path: "a.py", line: null }] })).glyph).toBe("delete");
+    expect(activityRow(call({ id: "v", kind: "other", title: "view", input: { command: "view" } })).glyph).toBe("other");
+  });
+
+  it("gives a call that starts a subagent its own glyph, apart from a thought", () => {
+    const task = activityRow(call({ id: "t", kind: "think", title: "Task: check the docs" }));
+    expect(task.glyph).toBe("subagent");
+    expect(task.label).toBe("Task: check the docs");
+    expect(activityRow(call({ id: "n", kind: "other", name: "Task", title: "Explore" })).glyph).toBe("subagent");
+    expect(activityRow(call({ id: "p", kind: "think", title: "Planning" })).glyph).toBe("think");
+  });
+
   it("keeps the first line of a multi-line command and marks the rest", () => {
     expect(commandLine("printf 'x' > a.txt\nls -la")).toBe("printf 'x' > a.txt …");
     expect(commandLine("x".repeat(200)).length).toBe(120);

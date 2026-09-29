@@ -27,8 +27,12 @@ import type {
 /* Activity rows                                                               */
 /* -------------------------------------------------------------------------- */
 
-/** The leading glyph. ACP's tool kinds plus `image` for a viewed image. */
-export type Glyph = ToolKind | "image";
+/**
+ * The leading glyph. ACP's tool kinds plus `image` for a viewed image and
+ * `subagent` for the call that hands work to one (Claude's `Task`, which the
+ * adapter reports as a `think`).
+ */
+export type Glyph = ToolKind | "image" | "subagent";
 
 export type ActivityRow = {
   id: string;
@@ -157,15 +161,66 @@ export function activityRow(part: ToolCallPart): ActivityRow {
   };
 }
 
-/** A viewed image is an ACP `read` whose content is an image; everything else is its kind. */
+/**
+ * A viewed image is an ACP `read` whose content is an image; a call that
+ * starts a subagent is `subagent`; a `delete` or `other` that carries a shell
+ * command (`rm -rf build`) is a command, because the row draws the command
+ * and a file glyph beside a terminal line says the wrong thing. Everything
+ * else is its kind.
+ */
 function glyphOf(part: ToolCallPart): Glyph {
   if (part.content.some((content) => content.type === "image")) {
     return "image";
   }
-  if (part.kind === "other" && part.content.some((content) => content.type === "diff")) {
+  const hasDiff = part.content.some((content) => content.type === "diff");
+  if (part.kind === "other" && hasDiff) {
     return "edit";
   }
+  if (isSubagentCall(part)) {
+    return "subagent";
+  }
+  if ((part.kind === "delete" || part.kind === "other") && !hasDiff && shellCommandOf(part) !== null) {
+    return "execute";
+  }
   return part.kind;
+}
+
+/**
+ * Claude's `Task`/`Agent` tool: named so by the adapter, titled "Task: …",
+ * or already holding the child's calls (the adapter routes a subagent's
+ * updates into the tool call that started it).
+ */
+function isSubagentCall(part: ToolCallPart): boolean {
+  if (part.kind !== "think" && part.kind !== "other") {
+    return false;
+  }
+  return (
+    part.name === "Task" ||
+    part.name === "Agent" ||
+    /^Task\b/.test(part.title.trim()) ||
+    part.children.some((child) => child.type === "tool_call")
+  );
+}
+
+/**
+ * The editor tools also put a `command` in their input ("view",
+ * "str_replace"); those are verbs, not shell lines.
+ */
+const EDITOR_COMMANDS = new Set(["view", "create", "str_replace", "insert", "undo_edit"]);
+
+/** A shell command in the call's input, when there is one; the title is not consulted. */
+function shellCommandOf(part: ToolCallPart): string | null {
+  const input = part.input as { command?: unknown; cmd?: unknown } | null | undefined;
+  const raw =
+    typeof input?.command === "string"
+      ? input.command
+      : Array.isArray(input?.command)
+        ? input.command.map(String).join(" ")
+        : typeof input?.cmd === "string"
+          ? input.cmd
+          : null;
+  const text = raw?.trim() ?? "";
+  return text === "" || EDITOR_COMMANDS.has(text) ? null : text;
 }
 
 function pathOf(part: ToolCallPart): string | null {
@@ -202,6 +257,7 @@ const VERBS: Record<Glyph, [done: string, doing: string, failed: string]> = {
   fetch: ["Fetched", "Fetching", "Could not fetch"],
   switch_mode: ["Switched mode", "Switching mode", "Could not switch mode"],
   image: ["Viewed", "Viewing", "Could not view"],
+  subagent: ["Delegated", "Delegating", "Subagent failed"],
   other: ["Called", "Calling", "Failed"],
 };
 
@@ -231,6 +287,7 @@ function labelOf(part: ToolCallPart, glyph: Glyph, path: string | null, hasComma
           ? `${verb(glyph, part.status)} ${title}`
           : verb(glyph, part.status);
     case "think":
+    case "subagent":
     case "switch_mode":
     case "other":
       return title || part.name || verb(glyph, part.status);
@@ -286,6 +343,7 @@ const NOUNS: Record<Glyph, [singular: string, plural: string]> = {
   delete: ["file", "files"],
   move: ["file", "files"],
   image: ["image", "images"],
+  subagent: ["task", "tasks"],
   execute: ["command", "commands"],
   search: ["search", "searches"],
   fetch: ["page", "pages"],

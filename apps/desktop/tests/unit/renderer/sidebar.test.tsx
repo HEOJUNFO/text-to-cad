@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
 import { Sidebar } from "@renderer/features/sidebar/Sidebar";
 import { SESSION_GLYPH_LABELS, sessionGlyphFor, sidebarSections } from "@renderer/lib/sidebar";
+import { useExplorer } from "@renderer/state/explorer";
 import { useProjects } from "@renderer/state/projects";
 import { useSessions } from "@renderer/state/sessions";
 import { useSettings } from "@renderer/state/settings";
@@ -230,14 +231,14 @@ describe("Sidebar", () => {
   };
 
   /**
-   * The chooser is `Open folder…` on the project chip's menu now, so the
-   * panel has no `Add project` row — except in this one state, which has no
-   * chip to open it from.
+   * The chooser is `Open folder…` on the project chip's menu, and with no
+   * projects it is the main area's button — the panel says it is empty and
+   * does not repeat that button.
    */
-  it("offers a way in when there are no projects, and no Add project row otherwise", () => {
+  it("says it is empty when there are no projects, without a second chooser", () => {
     wrap(<Sidebar />);
-    expect(screen.getByText("No sessions to show.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Open folder…" })).toBeInTheDocument();
+    expect(screen.getByText("No sessions yet")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open folder…" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add project" })).not.toBeInTheDocument();
 
     withProject();
@@ -254,7 +255,7 @@ describe("Sidebar", () => {
     wrap(<Sidebar />);
 
     expect(screen.getByText("No sessions match these filters")).toBeInTheDocument();
-    expect(screen.queryByText("No sessions to show.")).toBeNull();
+    expect(screen.queryByText("No sessions yet")).toBeNull();
     expect(screen.queryByRole("button", { name: "Open folder…" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Clear filters" }));
@@ -268,7 +269,7 @@ describe("Sidebar", () => {
     wrap(<Sidebar />);
 
     expect(screen.getByText("gearbox — new session")).toBeInTheDocument();
-    expect(screen.queryByText("No sessions to show.")).toBeNull();
+    expect(screen.queryByText("No sessions yet")).toBeNull();
   });
 
   it("starts a thread from `New`, not from `New session`", () => {
@@ -322,6 +323,74 @@ describe("Sidebar", () => {
     expect(screen.getByLabelText("Failed")).toBeInTheDocument();
     expect(screen.getByLabelText(/^Worktree/)).toBeInTheDocument();
     expect(screen.getByLabelText("main")).toBeInTheDocument();
+  });
+
+  it("marks a waiting thread as needing the person, not as a warning", () => {
+    withProject();
+    useSessions.setState({
+      sessions: [session({ id: "b", title: "Asked", status: "waiting" })],
+      ready: true,
+      activeId: null,
+    });
+    wrap(<Sidebar />);
+    const glyph = screen.getByLabelText("Waiting for you");
+    expect(glyph.getAttribute("class")).toContain("text-info");
+    expect(glyph.getAttribute("class")).not.toContain("warning");
+  });
+
+  it("shows what a thread changed and opens that thread's review from it", async () => {
+    const user = userEvent.setup();
+    withProject();
+    useSessions.setState({
+      sessions: [
+        session({ id: "s1", title: "Changed", changedFiles: 2, insertions: 9, deletions: 1 }),
+        session({ id: "s2", title: "Untouched" }),
+      ],
+      ready: true,
+      activeId: "s2",
+    });
+    const open = vi.fn(() => null);
+    // The strip is still s2's: nothing may open in it.
+    useExplorer.setState({ sessionId: "s2", ready: true, tabs: [], open } as never);
+    wrap(<Sidebar />);
+    const pill = screen.getByRole("button", { name: /Review changes: 2 files changed/ });
+    expect(pill).toHaveTextContent("+9−1");
+    expect(document.querySelectorAll("[data-session-changes]")).toHaveLength(1);
+
+    await user.click(pill);
+    expect(useSessions.getState().activeId).toBe("s1");
+    expect(open).not.toHaveBeenCalled();
+    // The bridge binds the explorer to the selected session; then it opens.
+    useExplorer.setState({ sessionId: "s1", ready: true } as never);
+    expect(open).toHaveBeenCalledWith("review", { scope: "session" });
+  });
+
+  it("brings an open review forward instead of opening a second one", async () => {
+    const user = userEvent.setup();
+    withProject();
+    useSessions.setState({
+      sessions: [session({ id: "s1", title: "Changed", changedFiles: 1, insertions: 3, deletions: 0 })],
+      ready: true,
+      activeId: "s1",
+    });
+    const open = vi.fn(() => null);
+    const setActive = vi.fn();
+    const update = vi.fn();
+    const show = vi.fn();
+    useExplorer.setState({
+      sessionId: "s1",
+      ready: true,
+      tabs: [{ id: "r1", kind: "review", scope: "all" }],
+      open,
+      setActive,
+      update,
+      show,
+    } as never);
+    wrap(<Sidebar />);
+    await user.click(screen.getByRole("button", { name: /Review changes/ }));
+    expect(open).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith("r1", { scope: "session" });
+    expect(setActive).toHaveBeenCalledWith("r1");
   });
 
   it("collapses a project into its header and writes it to the settings", async () => {

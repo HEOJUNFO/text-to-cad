@@ -6,7 +6,9 @@ import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
 import { ActivityGroup } from "@renderer/features/session/parts/ActivityRow";
 import { TranscriptScopeContext } from "@renderer/features/session/links/PathLink";
 import { useExplorer } from "@renderer/state/explorer";
-import { PermissionCard } from "@renderer/features/session/parts/PermissionCard";
+import { PermissionCard, verdictLine } from "@renderer/features/session/parts/PermissionCard";
+import { SubagentRow } from "@renderer/features/session/parts/SubagentRow";
+import { ThoughtPart } from "@renderer/features/session/parts/ThoughtPart";
 import { PlanCard } from "@renderer/features/session/PlanCard";
 import { activityRow, foldSummary } from "@renderer/features/session/view";
 import { useAcp } from "@renderer/state/acp";
@@ -113,10 +115,42 @@ describe("PermissionCard", () => {
     expect(respond).toHaveBeenCalledWith({ id: "s1", requestId: "perm-1", optionId: "allow-always" });
   });
 
-  it("folds to the decision once answered", () => {
-    wrap(<PermissionCard part={{ ...part, outcome: { state: "selected", optionId: "reject" } }} sessionId="s1" />);
-    expect(screen.getByText(/Rejected — No/)).toBeInTheDocument();
+  it("folds to the decision once answered, stated rather than asked again", () => {
+    const { unmount } = wrap(<PermissionCard part={{ ...part, outcome: { state: "selected", optionId: "reject" } }} sessionId="s1" />);
+    expect(screen.getByText("Rejected: run ls")).toBeInTheDocument();
+    expect(screen.queryByText(/\?/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    unmount();
+    wrap(
+      <PermissionCard
+        part={{ ...part, title: "Delete the build directory?", outcome: { state: "selected", optionId: "allow-once" } }}
+        sessionId="s1"
+      />,
+    );
+    expect(screen.getByText("Allowed: delete the build directory")).toBeInTheDocument();
+  });
+
+  it("words every outcome", () => {
+    const yes = part.options[1]!;
+    const always = part.options[2]!;
+    const no = part.options[0]!;
+    expect(verdictLine(true, yes, "Delete the build directory?")).toBe("Allowed: delete the build directory");
+    expect(verdictLine(true, always, "Edit README.md?")).toBe("Always allowed: edit README.md");
+    expect(verdictLine(false, no, "README.md edits?")).toBe("Rejected: README.md edits");
+    expect(verdictLine(null, null, "Run ls?")).toBe("Cancelled: run ls");
+    expect(verdictLine(true, yes, null)).toBe("Allowed (Yes)");
+  });
+
+  it("renders backticked commands as inline code, not literal backticks", () => {
+    wrap(
+      <PermissionCard
+        part={{ ...part, title: "Delete the build directory?", description: "Runs `rm -rf build` in the project." }}
+        sessionId="s1"
+      />,
+    );
+    const code = screen.getByText("rm -rf build");
+    expect(code.tagName).toBe("CODE");
+    expect(document.body.textContent).not.toContain("`");
   });
 });
 
@@ -135,6 +169,50 @@ describe("PlanCard", () => {
     );
     expect(screen.getByText("Write the script")).toBeInTheDocument();
     expect(screen.getByText("1 of 3 done")).toBeInTheDocument();
+    // The words sit beside the icon and the toggle comes last.
+    const header = document.querySelector("[data-plan-header]")!;
+    const toggle = screen.getByRole("button", { name: "Toggle plan" });
+    expect(header.lastElementChild!.contains(toggle)).toBe(true);
+    expect(header.children[1]!.textContent).toBe("Write the script1 of 3 done");
+    expect(document.querySelector("[data-plan-complete]")).toBeNull();
+  });
+
+  it("folds a finished plan to one line that still opens to the steps", async () => {
+    const user = userEvent.setup();
+    wrap(
+      <PlanCard
+        entries={[
+          { content: "Read the notes", priority: "medium", status: "completed" },
+          { content: "Run it", priority: "low", status: "completed" },
+        ]}
+        running={false}
+        startedAt={null}
+      />,
+    );
+    const card = document.querySelector("[data-plan-card]")!;
+    expect(card).toHaveAttribute("data-plan-complete");
+    expect(screen.getByText("Plan complete")).toBeInTheDocument();
+    expect(screen.getByText("2 of 2 done")).toBeInTheDocument();
+    expect(screen.queryByText("Run it")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Toggle plan" }));
+    expect(screen.getByText("Run it")).toBeInTheDocument();
+  });
+});
+
+describe("transcript marks", () => {
+  it("puts the thought's chevron first, where the activity group's is", () => {
+    wrap(<ThoughtPart streaming={false} text="Consider the notes." />);
+    const trigger = screen.getByRole("button", { name: /Thought/ });
+    expect(trigger.firstElementChild).toHaveAttribute("data-thought-chevron");
+  });
+
+  it("marks a finished subagent with a check and a running one with its orb", () => {
+    const base = { type: "subagent" as const, sessionId: "c1", name: "Docs checker", task: "confirm the README", parts: [] };
+    const { unmount } = wrap(<SubagentRow part={{ ...base, state: "completed" }} sessionId="s1" />);
+    expect(document.querySelector("[data-subagent-mark=completed]")).not.toBeNull();
+    unmount();
+    wrap(<SubagentRow part={{ ...base, state: "running" }} sessionId="s1" />);
+    expect(document.querySelector("[data-subagent-mark=running]")).not.toBeNull();
   });
 });
 

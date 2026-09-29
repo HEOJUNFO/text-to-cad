@@ -3,6 +3,8 @@ import {
   Archive,
   ArchiveRestore,
   Circle,
+  CircleDot,
+  Copy,
   GitBranch,
   GitFork,
   LoaderCircle,
@@ -27,6 +29,7 @@ import {
   DropdownMenuTrigger,
 } from "@renderer/components/ui/dropdown-menu";
 import { MenuItem, MenuKind, MenuSeparator } from "@renderer/features/sidebar/menu";
+import { openSessionReview } from "@renderer/features/sidebar/open-review";
 import { gitGlyphFor, gitGlyphLabel, useProjectGitInfo } from "@renderer/lib/git-mode";
 import { SESSION_GLYPH_LABELS, sessionGlyphFor } from "@renderer/lib/sidebar";
 import { useSessions } from "@renderer/state/sessions";
@@ -92,6 +95,7 @@ export function SessionRow({
         onSelect={() => void archive(session.id, !session.archived)}
       />
       <MenuItem
+        icon={<Copy />}
         label="Copy path"
         onSelect={() => void navigator.clipboard.writeText(session.cwd)}
       />
@@ -160,6 +164,13 @@ export function SessionRow({
               {projectName}
             </span>
           ) : null}
+          <ChangeCounts
+            onOpen={() => {
+              onSelect();
+              openSessionReview(session.id);
+            }}
+            session={session}
+          />
           <GitGlyph session={session} />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -188,9 +199,9 @@ export function SessionRow({
 /**
  * The state, as the one mark on the row that is always drawn: a hollow circle
  * for a thread with nothing to say, a pulsing dot while a turn streams, an
- * amber triangle when the agent is blocked on the person and a red one when
- * the last turn failed (`lib/sidebar.ts` owns the mapping, and the two
- * triangles differ only in their token).
+ * accent-coloured ringed dot when the agent is blocked on the person ("needs
+ * you" — not a warning; nothing is wrong) and a red triangle when the last
+ * turn failed (`lib/sidebar.ts` owns the mapping).
  */
 function StateGlyph({ status }: { status: SessionStatus }) {
   const glyph = sessionGlyphFor(status);
@@ -212,10 +223,7 @@ function StateGlyph({ status }: { status: SessionStatus }) {
     case "waiting":
       return (
         <span className={box} data-session-glyph="waiting">
-          <TriangleAlert
-            aria-label={label}
-            className="size-3 text-[color:var(--foreground-warning)]"
-          />
+          <CircleDot aria-label={label} className="size-3 text-info" />
         </span>
       );
     case "error":
@@ -237,6 +245,36 @@ function StateGlyph({ status }: { status: SessionStatus }) {
         </span>
       );
   }
+}
+
+/**
+ * What the thread's turns changed, as a compact `+9 −1` after the title —
+ * main tallies the agent's reported diffs onto the row
+ * (`Session.changedFiles/insertions/deletions`). Nothing at all while the
+ * counts are zero. A click opens the Review tab in this session's explorer.
+ */
+function ChangeCounts({ session, onOpen }: { session: Session; onOpen: () => void }) {
+  const { changedFiles, insertions, deletions } = session;
+  if (changedFiles === 0 && insertions === 0 && deletions === 0) {
+    return null;
+  }
+  const files = `${changedFiles} ${changedFiles === 1 ? "file" : "files"} changed`;
+  return (
+    <button
+      aria-label={`Review changes: ${files}, ${insertions} added, ${deletions} removed`}
+      className="flex h-5 shrink-0 items-center gap-1 rounded-sm px-1 font-mono text-[11px] leading-none tabular-nums hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      data-session-changes
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpen();
+      }}
+      title={`${files} — open Review`}
+      type="button"
+    >
+      <span className="text-success">+{insertions}</span>
+      <span className="text-destructive">−{deletions}</span>
+    </button>
+  );
 }
 
 /**

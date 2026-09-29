@@ -1,6 +1,5 @@
-import { Loader2, ChevronDown } from "lucide-react";
+import { ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "cn";
-import { GlyphIcon } from "../glyphs";
 
 import {
   Reasoning,
@@ -14,6 +13,9 @@ import {
  * "Thought for 12s" — that opens to the text. The duration is measured
  * here from when the chunk started streaming to when it stopped; a
  * replayed transcript has no timing, so it says "Thought".
+ *
+ * The disclosure chevron leads, in the slot the activity group's summary
+ * line uses for its own — one side for every fold in the transcript.
  */
 export function ThoughtPart({ text, streaming }: { text: string; streaming: boolean }) {
   return (
@@ -35,11 +37,14 @@ function TriggerBody() {
       : `Thought for ${duration}s`;
   return (
     <>
-      <span aria-hidden className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
-        {isStreaming ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> : <GlyphIcon glyph="think" />}
+      <span aria-hidden className="flex size-4 shrink-0 items-center justify-center text-muted-foreground" data-thought-chevron>
+        {isStreaming ? (
+          <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" />
+        ) : (
+          <ChevronRight className={cn("size-3.5 transition-transform", isOpen && "rotate-90")} />
+        )}
       </span>
       <span className="min-w-0 flex-1 truncate text-left">{message}</span>
-      <ChevronDown className={cn("size-3.5 transition-transform", isOpen ? "rotate-180" : "rotate-0")} />
     </>
   );
 }

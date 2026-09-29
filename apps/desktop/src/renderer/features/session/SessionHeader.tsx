@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Archive, MoreHorizontal, Pencil, Trash2, Unplug } from "lucide-react";
+import { Archive, Copy, FolderOpen, MoreHorizontal, Pencil, Trash2, Unplug } from "lucide-react";
 
 import { ExplorerToggle, HistoryNav, SidebarToggle } from "@renderer/app/PaneToggles";
 import { Button } from "@renderer/components/ui/button";
@@ -132,11 +132,13 @@ export function SessionHeader({
                 Rename
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void navigator.clipboard.writeText(session.cwd)}>
+                <Copy />
                 Copy path
               </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={() => void window.textToCad.shell.showItemInFolder({ projectId: session.projectId, root: session.cwd })}
               >
+                <FolderOpen />
                 Reveal in Finder
               </DropdownMenuItem>
               <DropdownMenuSeparator />

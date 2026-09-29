@@ -30,12 +30,6 @@ export function PermissionCard({ part, sessionId }: { part: PermissionRequestPar
         ? (part.options.find((option) => option.optionId === outcome.optionId) ?? null)
         : null;
     const approved = chosen ? chosen.kind === "allow_once" || chosen.kind === "allow_always" : false;
-    const verdict =
-      outcome.state === "cancelled"
-        ? "Cancelled"
-        : approved
-          ? `Allowed${chosen ? ` — ${chosen.name}` : ""}`
-          : `Rejected${chosen ? ` — ${chosen.name}` : ""}`;
     return (
       <div
         className="not-prose flex items-center gap-2 px-1.5 py-1 text-[13px] leading-5 text-muted-foreground"
@@ -46,8 +40,7 @@ export function PermissionCard({ part, sessionId }: { part: PermissionRequestPar
           {approved ? <Check className="size-3.5" /> : <X className="size-3.5" />}
         </span>
         <span className="min-w-0 flex-1 truncate">
-          {verdict}
-          {part.title ? <span className="text-muted-foreground/70"> · {part.title}</span> : null}
+          <InlineCode text={verdictLine(outcome.state === "cancelled" ? null : approved, chosen, part.title)} />
         </span>
       </div>
     );
@@ -67,9 +60,13 @@ export function PermissionCard({ part, sessionId }: { part: PermissionRequestPar
             <ShieldQuestion className="size-4" />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block font-medium text-foreground">{part.title ?? "Permission requested"}</span>
+            <span className="block font-medium text-foreground">
+              <InlineCode text={part.title ?? "Permission requested"} />
+            </span>
             {part.description ? (
-              <span className="mt-0.5 block text-muted-foreground">{part.description}</span>
+              <span className="mt-0.5 block text-muted-foreground">
+                <InlineCode text={part.description} />
+              </span>
             ) : null}
           </span>
         </ConfirmationRequest>
@@ -88,6 +85,68 @@ export function PermissionCard({ part, sessionId }: { part: PermissionRequestPar
         ))}
       </ConfirmationActions>
     </Confirmation>
+  );
+}
+
+/**
+ * The folded card, as one statement of what was decided about what:
+ * "Allowed: delete the build directory". The question is turned into the
+ * thing it asked about (its `?` dropped, its first letter lowered unless the
+ * word is an acronym or a path), so the line does not repeat a question that
+ * has been answered. `approved` is null for a cancelled request. "Always"
+ * is the one option name worth keeping, because it outlives the turn.
+ */
+export function verdictLine(
+  approved: boolean | null,
+  chosen: PermissionOption | null,
+  title: string | null,
+): string {
+  const verdict =
+    approved === null
+      ? "Cancelled"
+      : approved
+        ? chosen?.kind === "allow_always"
+          ? "Always allowed"
+          : "Allowed"
+        : chosen?.kind === "reject_always"
+          ? "Always rejected"
+          : "Rejected";
+  const subject = title ? subjectOf(title) : "";
+  if (subject) {
+    return `${verdict}: ${subject}`;
+  }
+  return chosen && approved !== null ? `${verdict} (${chosen.name})` : verdict;
+}
+
+function subjectOf(title: string): string {
+  const trimmed = title.trim().replace(/\s*\?+$/, "");
+  // "Delete the build directory" → "delete the build directory", but
+  // "README.md", "`rm -rf`" and "CI" keep their case.
+  return /^[A-Z][a-z]/.test(trimmed) ? trimmed.charAt(0).toLowerCase() + trimmed.slice(1) : trimmed;
+}
+
+/**
+ * The adapter's title and description are Markdown-ish: a command arrives
+ * as `` `rm -rf build` ``. Backtick spans become inline code; everything
+ * else is plain text (no Markdown renderer for one line of a card).
+ */
+function InlineCode({ text }: { text: string }) {
+  const pieces = text.split(/(`[^`\n]+`)/g);
+  return (
+    <>
+      {pieces.map((piece, index) =>
+        piece.length > 2 && piece.startsWith("`") && piece.endsWith("`") ? (
+          <code
+            className="rounded bg-muted px-1 py-px font-mono text-[12px] text-foreground/90"
+            key={index}
+          >
+            {piece.slice(1, -1)}
+          </code>
+        ) : (
+          piece
+        ),
+      )}
+    </>
   );
 }
 
