@@ -430,7 +430,7 @@ describe("symlinks as doors and as rows", () => {
       expect(await fs.readdir(door)).toEqual([]);
     } finally { await fs.unlink(path.join(links, "door")); }
     await expect(writeTextFile(root, "links/out/authorized_keys", "x")).rejects.toBeInstanceOf(FsError);
-    await expect(fs.stat(path.join(outside, "authorized_keys"))).rejects.toThrow();
+    await expect(fs.stat(path.join(outside, "authorized_keys"))).rejects.toMatchObject({ code: "ENOENT" });
     await expect(resolveInRoot(root, "links/out/deeper/still/new.txt")).rejects.toBeInstanceOf(FsError);
     // A new file through a link that stays inside is still fine.
     expect((await writeTextFile(root, "links/vendor/new.txt", "ok")).path).toBe("links/shared/new.txt");

@@ -37,7 +37,7 @@ it('opens only an empty temporary drawing in the authenticated session root', as
   expect(f.sent[0]).toMatchObject({ kind: 'open-drawing', projectId: 'project', root: f.session.cwd, title: 'Sketch' });
   expect(f.sent[0]).not.toHaveProperty('path');
   expect(f.sent[0]).not.toHaveProperty('scene');
-  expect(() => f.actions.open_drawing!(f.session, { path: 'plan.excalidraw' })).toThrow();
+  expect(() => f.actions.open_drawing!(f.session, { path: 'plan.excalidraw' })).toThrow(/path/i);
   expect(f.sent).toHaveLength(1);
 });
 it('reads and captures an identified sketch without exposing an editable scene or destination path', async () => {
