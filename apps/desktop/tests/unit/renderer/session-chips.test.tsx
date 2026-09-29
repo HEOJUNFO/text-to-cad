@@ -1,4 +1,5 @@
 import { act, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { toast } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -14,14 +15,6 @@ import type { Session } from "@shared/types";
  */
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), dismiss: vi.fn(), info: vi.fn() } }));
-// The chips' own menus are their suite's; here each is one button that makes its choice.
-vi.mock("@renderer/features/session/ComposerChips", () => ({
-  ModeChip: ({ onChange }: { onChange: (id: string) => void }) => <button onClick={() => onChange("plan")} type="button">Mode</button>,
-  ModelChip: ({ onChange }: { onChange: (agentId: string, value: string) => void }) => (
-    <button onClick={() => onChange("codex", "gpt")} type="button">Model</button>
-  ),
-  EffortChip: () => null,
-}));
 vi.mock("@renderer/features/session/Composer", () => ({
   Composer: ({ chips, trailing, onStop }: { chips: React.ReactNode; trailing: React.ReactNode; onStop: () => void }) => (
     <div>
@@ -47,7 +40,7 @@ function state(status: LiveStatus) {
     status,
     currentModeId: "ask",
     modes: [{ id: "ask", name: "Ask", description: null }, { id: "plan", name: "Plan", description: null }],
-    configOptions: [{ id: "model", name: "Model", type: "select", category: "model", currentValue: "a", options: [{ value: "a", name: "A" }, { value: "gpt", name: "GPT" }] }],
+    configOptions: [{ id: "model", name: "Model", type: "select", category: "model", currentValue: "a", options: [{ value: "a", name: "Model A" }, { value: "gpt", name: "GPT" }] }],
   } as never;
 }
 
@@ -60,15 +53,23 @@ beforeEach(() => {
   useAcp.setState({ sessions: {}, loading: {}, reconnecting: {}, loadErrors: {}, ensureLoaded: vi.fn(async () => undefined), setMode, setConfigOption, cancel } as never);
 });
 
-const click = (name: string) => act(async () => screen.getByRole("button", { name, hidden: true }).click());
+/** The real chips: the mode chip is labelled with the current mode, the model chip with the model. */
+const CHIPS = { Mode: "Ask", Model: "Model A" } as const;
+const chipNamed = (chip: keyof typeof CHIPS) => screen.getByRole("button", { name: CHIPS[chip] });
+/** Open a chip's menu and pick an item, as a person does. */
+async function choose(chip: keyof typeof CHIPS, item: string) {
+  const user = userEvent.setup();
+  await user.click(chipNamed(chip));
+  await user.click(await screen.findByRole("menuitemradio", { name: item }));
+}
 
 describe("the composer's chips and Stop", () => {
   it("tell the person why main refused, rather than failing unhandled", async () => {
     useAcp.setState({ sessions: { s1: state("running") } } as never);
     render(<SessionView session={SESSION} />);
-    await click("Mode");
-    await click("Model");
-    await click("Stop");
+    await choose("Mode", "Plan");
+    await choose("Model", "GPT");
+    await act(async () => screen.getByRole("button", { name: "Stop" }).click());
     expect(setMode).toHaveBeenCalled();
     expect(setConfigOption).toHaveBeenCalled();
     expect(cancel).toHaveBeenCalled();
@@ -87,12 +88,13 @@ describe("the composer's chips and Stop", () => {
   ] as const)("stay in the tree on a %s session (reconnecting: %s), disabled, with the reason as their description", async (status, reconnecting, reason) => {
     useAcp.setState({ sessions: { s1: state(status) }, reconnecting: reconnecting ? { s1: true } : {} } as never);
     render(<SessionView session={SESSION} />);
-    for (const name of ["Mode", "Model"]) {
-      const chip = screen.getByRole("button", { name });
+    for (const name of ["Mode", "Model"] as const) {
+      const chip = chipNamed(name);
       expect(chip, name).toHaveAttribute("aria-disabled", "true");
       expect(chip, name).toHaveAccessibleDescription(reason);
       expect(chip, name).not.toHaveAttribute("title");
-      await act(async () => chip.click());
+      await userEvent.setup().click(chip);
+      expect(screen.queryByRole("menu"), name).toBeNull();
     }
     expect(setMode).not.toHaveBeenCalled();
     expect(setConfigOption).not.toHaveBeenCalled();
@@ -102,8 +104,9 @@ describe("the composer's chips and Stop", () => {
   it("are offered on an idle session", () => {
     useAcp.setState({ sessions: { s1: state("idle") } } as never);
     render(<SessionView session={SESSION} />);
-    const chip = screen.getByRole("button", { name: "Mode" });
+    const chip = chipNamed("Mode");
     expect(chip).not.toHaveAttribute("aria-disabled");
-    expect(chip).not.toHaveAccessibleDescription();
+    // Its description is its own `title`, not a reason it cannot be used.
+    expect(chip).not.toHaveAccessibleDescription(/disconnected|connecting/i);
   });
 });

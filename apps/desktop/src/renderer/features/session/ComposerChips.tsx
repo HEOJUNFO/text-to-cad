@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import {
   Check,
   Folder,
@@ -10,6 +10,7 @@ import {
   Zap,
 } from "lucide-react";
 import { cn } from "cn";
+import { toast } from "sonner";
 
 import {
   DropdownMenu,
@@ -60,6 +61,7 @@ export function Chip({
   className,
   testId,
   maxWidth = 200,
+  disabledReason,
 }: {
   icon: React.ReactNode;
   maxWidth?: number;
@@ -71,7 +73,34 @@ export function Chip({
   title?: string;
   className?: string;
   testId?: string;
+  /**
+   * Why the chip cannot be used now. It stays focusable and in the accessibility tree
+   * (`aria-disabled`, never `disabled` or `inert`) with this as its description, and a click says
+   * it rather than opening the menu. No native `title`: the reason is the description.
+   */
+  disabledReason?: string;
 }) {
+  const reasonId = useId();
+  if (disabledReason) {
+    return (
+      <>
+        <button
+          aria-describedby={reasonId}
+          aria-disabled="true"
+          className="inline-flex h-7 shrink-0 cursor-not-allowed items-center gap-1.5 rounded-md px-1.5 text-[12px] leading-none text-muted-foreground opacity-50"
+          data-chip={testId}
+          onClick={() => toast.info(disabledReason)}
+          style={{ maxWidth }}
+          type="button"
+        >
+          <span className="[&>svg]:size-3.5">{icon}</span>
+          {label ? <span className="truncate text-foreground/90">{label}</span> : null}
+          {detail ? <span className="truncate">{detail}</span> : null}
+        </button>
+        <span className="sr-only" id={reasonId}>{disabledReason}</span>
+      </>
+    );
+  }
   const body = (
     <button
       className={cn(
@@ -245,14 +274,17 @@ export function ModeChip({
   modes,
   currentModeId,
   onChange,
+  disabledReason,
 }: {
   modes: SessionMode[];
   currentModeId: string | null;
   onChange: (modeId: string) => void;
+  disabledReason?: string;
 }) {
   const current = modes.find((mode) => mode.id === currentModeId) ?? null;
   return (
     <Chip
+      disabledReason={disabledReason}
       icon={<ShieldCheck />}
       label={current?.name ?? "Mode"}
       maxWidth={160}
@@ -316,6 +348,7 @@ export function ModelChip({
   onChange,
   fast,
   onFastChange,
+  disabledReason,
 }: {
   providers: ModelProvider[];
   /** Whose model is showing. */
@@ -323,6 +356,7 @@ export function ModelChip({
   onChange: (agentId: string, value: string) => void;
   fast?: FastSwitch | null;
   onFastChange?: (configId: string, value: string | boolean) => void;
+  disabledReason?: string;
 }) {
   const current = providers.find((provider) => provider.agentId === agentId) ?? providers[0] ?? null;
   if (!current) {
@@ -331,6 +365,7 @@ export function ModelChip({
   const many = providers.length > 1;
   return (
     <Chip
+      disabledReason={disabledReason}
       icon={<ProviderGlyph icon={current.icon} />}
       label={currentName(current.model)}
       maxWidth={190}
@@ -410,12 +445,15 @@ function splitModelValue(value: string): [string | null, string | null] {
 export function EffortChip({
   effort,
   onChange,
+  disabledReason,
 }: {
   effort: SelectOption;
   onChange: (configId: string, value: string) => void;
+  disabledReason?: string;
 }) {
   return (
     <Chip
+      disabledReason={disabledReason}
       icon={<Gauge />}
       label={currentName(effort)}
       maxWidth={130}

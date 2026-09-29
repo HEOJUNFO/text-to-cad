@@ -1,5 +1,5 @@
 import LoadingIcon from "@text-to-cad/ui/loading-icon";
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Loader2, RotateCcw, Unplug } from "lucide-react";
 import { toast } from "sonner";
 
@@ -123,34 +123,31 @@ export function SessionView({ session }: { session: Session }) {
     // failed or closed session the chips are shown as they were and not offered.
     // A snapshot painted while the agent reconnects can say `idle`; it is not live until the load lands.
     const live = !reconnecting && (state.status === "idle" || state.status === "running" || state.status === "waiting");
-    const unavailable = live ? null : reconnecting ? "Reconnecting…" : state.status === "connecting" ? "Connecting…" : "Agent disconnected";
+    const unavailable = live ? undefined : reconnecting ? "Reconnecting…" : state.status === "connecting" ? "Connecting…" : "Agent disconnected";
     return {
       leading: mode ? (
-        <LiveOnly reason={unavailable}>
-          <ModeChip currentModeId={mode.currentModeId} modes={mode.modes} onChange={chooseMode} />
-        </LiveOnly>
+        <ModeChip currentModeId={mode.currentModeId} disabledReason={unavailable} modes={mode.modes} onChange={chooseMode} />
       ) : null,
       trailing: (
         <>
-          <LiveOnly reason={unavailable}>
-            {model ? (
-              <ModelChip
-                agentId={session.agentId}
-                fast={fast}
-                onChange={(_agentId, value) => setOption(model.id, value)}
-                onFastChange={setOption}
-                providers={[
-                  {
-                    agentId: session.agentId,
-                    agentName: agent?.name ?? session.agentId,
-                    icon: agent?.icon ?? null,
-                    model,
-                  },
-                ]}
-              />
-            ) : null}
-            {effort ? <EffortChip effort={effort} onChange={setOption} /> : null}
-          </LiveOnly>
+          {model ? (
+            <ModelChip
+              agentId={session.agentId}
+              disabledReason={unavailable}
+              fast={fast}
+              onChange={(_agentId, value) => setOption(model.id, value)}
+              onFastChange={setOption}
+              providers={[
+                {
+                  agentId: session.agentId,
+                  agentName: agent?.name ?? session.agentId,
+                  icon: agent?.icon ?? null,
+                  model,
+                },
+              ]}
+            />
+          ) : null}
+          {effort ? <EffortChip disabledReason={unavailable} effort={effort} onChange={setOption} /> : null}
           <ContextMeter
             lastTurnUsage={state.lastTurnUsage}
             rateLimits={state.rateLimits}
@@ -284,52 +281,6 @@ export function SessionView({ session }: { session: Session }) {
 /** A call main may refuse, said as a toast rather than dropped as an unhandled rejection. */
 function reportRefusal(call: Promise<void>, what: string, verb = "Could not change"): void {
   call.catch((error: unknown) => toast.error(`${verb} ${what}: ${errorMessage(error)}`));
-}
-
-/**
- * Chips that only mean something with an agent to answer them. Unavailable, they stay where they
- * are, focusable and in the accessibility tree — the kit's `aria-disabled` pattern, not `inert`,
- * which would take them out of both and leave no way to learn why — with the reason as their
- * description, and an attempt to open one says the reason instead of calling main.
- *
- * The chips are `ComposerChips`' triggers, which take no disabled state of their own, so the
- * attributes are put on their buttons from here and activation is stopped in the capture phase,
- * ahead of the menu's own pointer and key handlers.
- */
-function LiveOnly({ reason, children }: { reason: string | null; children: React.ReactNode }) {
-  const reasonId = useId();
-  const box = useRef<HTMLSpanElement | null>(null);
-  useLayoutEffect(() => {
-    for (const button of box.current?.querySelectorAll("button") ?? []) {
-      if (reason) {
-        button.setAttribute("aria-disabled", "true");
-        button.setAttribute("aria-describedby", reasonId);
-      } else if (button.getAttribute("aria-describedby") === reasonId) {
-        button.removeAttribute("aria-disabled");
-        button.removeAttribute("aria-describedby");
-      }
-    }
-  });
-  const refuse = (event: React.SyntheticEvent) => {
-    if (!reason) return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (event.type === "click") toast.info(reason);
-  };
-  return (
-    <span
-      className={reason ? "flex min-w-0 items-center gap-2 [&_button]:cursor-not-allowed [&_button]:opacity-50" : "contents"}
-      onClickCapture={refuse}
-      onKeyDownCapture={(event) => {
-        if (["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) refuse(event);
-      }}
-      onPointerDownCapture={refuse}
-      ref={box}
-    >
-      {children}
-      {reason ? <span className="sr-only" id={reasonId}>{reason}</span> : null}
-    </span>
-  );
 }
 
 /**
