@@ -11,7 +11,7 @@ vi.mock("@renderer/state/live-documents", async (importOriginal) => {
 });
 
 import { toast } from "sonner";
-import { hasDirtyDocument } from "@renderer/state/live-documents";
+import { desktopLiveDocuments, hasDirtyDocument } from "@renderer/state/live-documents";
 import type * as LiveDocuments from "@renderer/state/live-documents";
 
 import { PersistedExplorerTabSchema } from "@shared/types";
@@ -472,6 +472,23 @@ describe("the explorer strip", () => {
     expect(useExplorer.getState().changedRoot).toBe("/wt/slug");
   });
 
+  it("carries an unmounted tab's draft to the file's new name", () => {
+    const tab = useExplorer.getState().open("file", { path: "old.txt" })!;
+    const drafts = desktopLiveDocuments(tab.id, { projectId: PROJECT, root: null }).documents!.drafts;
+    // The id the tab's FileSource carries (adapters/fileSource.ts).
+    const source = JSON.stringify(["desktop", PROJECT, null]);
+    drafts.put(source, "old.txt", { base: { content: "base", revision: "r1" }, value: "unsaved", stale: false });
+
+    // No view is mounted, so only the store sees the rename.
+    useExplorer.getState().receiveChanges(PROJECT, null, [{ kind: "moved", previousPath: "old.txt", path: "new.txt", directory: false }]);
+    expect(useExplorer.getState().tabs.find((candidate) => candidate.id === tab.id)).toMatchObject({ path: "new.txt" });
+    expect(drafts.get(source, "new.txt")).toMatchObject({ value: "unsaved" });
+
+    // The view that mounts under the new name saves, and the tab closes clean.
+    drafts.put(source, "new.txt", null);
+    expect(hasDirtyDocument(tab.id)).toBe(false);
+  });
+
   /**
    * The root (plan §9): where a new file or terminal opens, and which tree the
    * pane lists. It follows the active session — a worktree thread makes it the
@@ -526,6 +543,19 @@ describe("the explorer strip", () => {
       vi.mocked(window.textToCad.explorer.watch).mockClear();
       useExplorer.getState().setRoot(WORKTREE);
       expect(window.textToCad.explorer.watch).not.toHaveBeenCalled();
+    });
+
+    it("keeps a background session's open folders when a file changes, and drops only its listings", async () => {
+      useExplorer.getState().open("file", { path: "src/a.py" });
+      useExplorer.getState().setTreeOpen(null, (open) => new Set([...open, "src", "src/deep"]));
+      useExplorer.getState().setTreeListing(null, "src", [{ path: "src/a.py", name: "a.py", kind: "file", size: 1, modifiedAt: 0, symlink: false }]);
+      await useExplorer.getState().bindSession("other-session", PROJECT, null);
+      useExplorer.getState().receiveChanges(PROJECT, null, [{ kind: "changed", path: "src/a.py", directory: false }]);
+      vi.mocked(window.textToCad.explorer.loadTabs).mockClear();
+      await useExplorer.getState().bindSession(PROJECT, PROJECT, null);
+      const tree = useExplorer.getState().trees[""];
+      expect([...tree!.open].sort()).toEqual(["", "src", "src/deep"]);
+      expect(tree!.listings).toEqual({});
     });
 
     it("drops a reveal when the root changes; a reveal names its root", () => {

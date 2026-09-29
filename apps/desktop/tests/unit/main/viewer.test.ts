@@ -223,6 +223,19 @@ describe("ViewerManager", () => {
     expect(m.viewers.list()).toEqual([]);
   });
 
+  it("a stop during the first launch kills it when it announces, and keeps nothing", async () => {
+    // A session deleted while its viewer is still coming up.
+    const m = manager();
+    const pending = m.viewers.originFor("/proj");
+    await new Promise((resolve) => setImmediate(resolve));
+    m.viewers.stop("/proj");
+    m.children[0]!.child.say('{"url":"http://127.0.0.1:3250/","port":3250,"action":"started"}');
+    expect(await pending).toMatchObject({ origin: null, reason: "viewer-failed" });
+    expect(m.children[0]!.child.killed).toBe(true);
+    expect(m.viewers.list()).toEqual([]);
+    expect(m.children).toHaveLength(1);
+  });
+
   it("stopAll kills every instance it started", async () => {
     const m = manager();
     const a = m.viewers.originFor("/a");

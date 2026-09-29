@@ -6,7 +6,7 @@ import type { GitMode, Session } from "@shared/types";
 
 import { useAgents } from "./agents";
 import { useProjects } from "./projects";
-import { flushSessionTabs, useExplorer } from "./explorer";
+import { flushSessionTabs, pruneSessionStorage, useExplorer } from "./explorer";
 import { useSettings, useSidebarSettings } from "./settings";
 
 /**
@@ -114,6 +114,7 @@ export const useSessions = create<SessionsState>((set, get) => ({
         useExplorer.getState().discardSessionResources(session.id, { preserveTabs: Boolean(current?.archived) });
       }
     }
+    pruneSessionStorage(new Set(byId.keys()));
     const selected = previous.activeId ? byId.get(previous.activeId) : undefined;
     const alreadyArchived = previous.sessions.find(session => session.id === previous.activeId)?.archived;
     // Archiving the open session dismisses it, but a deliberately opened

@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import {
   FsError,
   FsConflictError,
+  MAX_TEXT_BYTES,
   assertEntryName,
   createDirectory,
   createFile,
@@ -29,6 +30,7 @@ import {
   uniqueName,
   writeTextFile,
 } from "@main/explorer/fs";
+import { TextFileSchema } from "@shared/ipc/explorer";
 
 /**
  * A real directory on a real disk. The thing being tested is what the tree
@@ -228,6 +230,43 @@ describe("reading and writing", () => {
 
   it("refuses to hand a binary to the editor", async () => {
     await expect(readTextFile(root, "blob.bin")).rejects.toBeInstanceOf(FsError);
+  });
+
+  it("shows a file that is not UTF-8 read-only, so a save cannot write U+FFFD over its bytes", async () => {
+    // "café" in Latin-1: 0xE9 is not a UTF-8 sequence, and has no NUL.
+    await fs.writeFile(path.join(root, "latin1.txt"), Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]));
+    const file = await readTextFile(root, "latin1.txt");
+    expect(file.readOnly).toBe(true);
+    // Main's answer crosses IPC through the channel's schema.
+    expect(TextFileSchema.parse(file).readOnly).toBe(true);
+    expect((await readTextFile(root, "README.md")).readOnly).toBeUndefined();
+  });
+
+  it("does not take a character split by the text cap for a non-UTF-8 file", async () => {
+    const bytes = Buffer.alloc(MAX_TEXT_BYTES + 3, 0x61);
+    // "é" (0xC3 0xA9) straddles the cap.
+    bytes[MAX_TEXT_BYTES - 1] = 0xc3;
+    bytes[MAX_TEXT_BYTES] = 0xa9;
+    await fs.writeFile(path.join(root, "long.txt"), bytes);
+    const file = await readTextFile(root, "long.txt");
+    expect(file.truncated).toBe(true);
+    expect(file.readOnly).toBeUndefined();
+    await fs.rm(path.join(root, "long.txt"));
+  });
+
+  it("reads a file past 2 GiB as its first 4 MB, truncated, without reading the rest", async () => {
+    const file = path.join(root, "huge.log");
+    const handle = await fs.open(file, "w");
+    try {
+      await handle.write(Buffer.alloc(MAX_TEXT_BYTES + 16, 0x61), 0, MAX_TEXT_BYTES + 16, 0);
+      // Sparse: 3 GiB on paper, a few megabytes on disk.
+      await handle.truncate(3 * 1024 ** 3);
+    } finally { await handle.close(); }
+    try {
+      const text = await readTextFile(root, "huge.log");
+      expect(text).toMatchObject({ truncated: true, size: 3 * 1024 ** 3 });
+      expect(text.content).toHaveLength(MAX_TEXT_BYTES);
+    } finally { await fs.rm(file); }
   });
 
   it("writes and reports the new revision", async () => {

@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as NodeFs from "node:fs";
 import type { Mock } from "vitest";
-import { FileWatchers, statFile } from "@main/explorer/fs";
+import { FileWatchers, readTextFile, revisionOf, statFile, writeTextFile } from "@main/explorer/fs";
 import type { FileChange } from "@main/explorer/fs";
 
 const driver = vi.hoisted(() => ({ recursive: vi.fn(), direct: vi.fn() }));
@@ -68,7 +68,7 @@ describe("visible file watching", () => {
     await fs.writeFile(path.join(root, "STEP", "new.step"), "ISO-10303-21;\n");
     notify("rename", "new.step");
     await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(root, [
-      { path: "STEP/new.step", kind: "changed", directory: false },
+      { path: "STEP/new.step", kind: "changed", directory: false, revision: revisionOf("ISO-10303-21;\n") },
     ]));
   });
 
@@ -83,7 +83,7 @@ describe("visible file watching", () => {
     await fs.writeFile(path.join(root, "runtime-bundle", "settings.txt"), "after\n");
     notify("change", "settings.txt");
     await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(root, [
-      { path: "runtime-bundle/settings.txt", kind: "changed", directory: false },
+      { path: "runtime-bundle/settings.txt", kind: "changed", directory: false, revision: revisionOf("after\n") },
     ]));
   });
 
@@ -103,7 +103,7 @@ describe("visible file watching", () => {
     await fs.writeFile(file, Buffer.from([0, 1, 2]));
     notify("rename", "new.unsupported");
     await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(root, [
-      { path: "node_modules/dependency/new.unsupported", kind: "changed", directory: false },
+      { path: "node_modules/dependency/new.unsupported", kind: "changed", directory: false, revision: revisionOf(Buffer.from([0, 1, 2])) },
     ]));
 
     await watchers.unwatch(root);
@@ -114,6 +114,91 @@ describe("visible file watching", () => {
     emit.mockClear();
     notify("change", "new.unsupported");
     expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("stamps a changed file with the revision its own save returned", async () => {
+    await fs.writeFile(path.join(root, "notes.txt"), "before\n");
+    await watchers.watch(root);
+    await watchers.watchEntry(root, await statFile(root, "notes.txt"));
+    const notify = driver.direct.mock.calls[0]![2] as (event: string, filename: string) => void;
+    const loaded = await readTextFile(root, "notes.txt");
+    const saved = await writeTextFile(root, "notes.txt", "after\n", loaded.revision);
+    notify("rename", "notes.txt");
+    // The editor that saved holds `saved.revision`; the echo carries the same
+    // one, so it is not reported to that editor as a change on disk.
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(root, [
+      { path: "notes.txt", kind: "changed", directory: false, revision: saved.revision },
+    ]));
+  });
+
+  it("reports an open file's rename as a move, even when its add arrives after the batch window", async () => {
+    await fs.writeFile(path.join(root, "notes.txt"), "draft\n");
+    await fs.writeFile(path.join(root, "other.txt"), "other\n");
+    await watchers.watch(root);
+    await watchers.watchEntry(root, await statFile(root, "notes.txt"));
+    const handler = (event: string) => recursive.on.mock.calls.find(([name]) => name === event)![1] as (target: string) => void;
+    const realRoot = await fs.realpath(root);
+    await fs.rename(path.join(realRoot, "notes.txt"), path.join(realRoot, "renamed.txt"));
+    // A file nobody has open is still a plain removal beside it.
+    await fs.rm(path.join(realRoot, "other.txt"));
+    handler("unlink")(path.join(realRoot, "notes.txt"));
+    handler("unlink")(path.join(realRoot, "other.txt"));
+    // chokidar holds the add back until the size has settled (awaitWriteFinish).
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    handler("add")(path.join(realRoot, "renamed.txt"));
+    await vi.waitFor(() => expect(emit).toHaveBeenCalled());
+    expect(emit).toHaveBeenCalledTimes(1);
+    expect(emit.mock.calls[0]![1]).toEqual(expect.arrayContaining([
+      { kind: "moved", previousPath: "notes.txt", path: "renamed.txt", directory: false },
+      { kind: "removed", path: "other.txt", directory: false },
+    ]));
+    expect(emit.mock.calls[0]![1]).toHaveLength(2);
+  });
+
+  it("keeps an opened link's own path and reports its target's changes under it", async () => {
+    await fs.mkdir(path.join(root, "versions"));
+    await fs.writeFile(path.join(root, "versions", "v3.txt"), "v3\n");
+    await fs.symlink(path.join("versions", "v3.txt"), path.join(root, "current.txt"));
+    const entry = await statFile(root, "current.txt");
+    // The tab is the link: its identity is not its target's.
+    expect(entry).toMatchObject({ path: "current.txt", name: "current.txt", kind: "file" });
+    await watchers.watch(root);
+    await watchers.watchEntry(root, entry);
+    const realRoot = await fs.realpath(root);
+    // The target's directory is watched too; that is where its events come from.
+    const targetDirectory = driver.direct.mock.calls.findIndex(([directory]) => directory === path.join(realRoot, "versions"));
+    expect(targetDirectory).toBeGreaterThanOrEqual(0);
+    const notify = driver.direct.mock.calls[targetDirectory]![2] as (event: string, filename: string) => void;
+    await fs.writeFile(path.join(root, "versions", "v3.txt"), "v3, edited\n");
+    notify("change", "v3.txt");
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(root, [
+      { path: "versions/v3.txt", kind: "changed", directory: false, revision: revisionOf("v3, edited\n") },
+      { path: "current.txt", kind: "changed", directory: false, revision: revisionOf("v3, edited\n") },
+    ]));
+  });
+
+  it("arms a listed directory's watch again after it is removed and made again", async () => {
+    const handles: Array<{ on: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> }> = [];
+    driver.direct.mockImplementation(() => {
+      const handle = { on: vi.fn().mockReturnThis(), close: vi.fn() };
+      handles.push(handle);
+      return handle;
+    });
+    await watchers.watch(root);
+    await watchers.watchListedDirectory(root, "node_modules");
+    await watchers.watchListedDirectory(root, "node_modules/dependency");
+    expect(driver.direct).toHaveBeenCalledTimes(2);
+    const notifyParent = driver.direct.mock.calls[0]![2] as (event: string, filename: string) => void;
+    const notifyDependency = driver.direct.mock.calls[1]![2] as (event: string, filename: string) => void;
+    const dependency = path.join(await fs.realpath(root), "node_modules", "dependency");
+
+    await fs.rm(dependency, { recursive: true });
+    notifyDependency("rename", "dependency");
+    await vi.waitFor(() => expect(handles[1]!.close).toHaveBeenCalled());
+    await fs.mkdir(dependency);
+    notifyParent("rename", "dependency");
+    await vi.waitFor(() => expect(driver.direct).toHaveBeenCalledTimes(3));
+    expect(driver.direct.mock.calls[2]![0]).toBe(dependency);
   });
 
   it("cancels setup without creating a watcher when the last owner leaves", async () => {

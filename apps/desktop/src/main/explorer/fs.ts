@@ -411,13 +411,23 @@ export async function listPaths(
 /** Above this a file opens read-only with a notice instead of in the editor. */
 export const MAX_TEXT_BYTES = 4 * 1024 * 1024;
 
+/**
+ * A file as a tab opens it. The path is the one asked for, not its target:
+ * a tab opened on `current.step -> v3.step` is the link, so its crumbs, its
+ * identity and the changes it listens for stay the link's (`FileWatchers`
+ * reports its target's changes under the link's name too). The type, size
+ * and time are the target's.
+ */
 export async function statFile(root: string, target: string): Promise<FileStat> {
   const absolute = await resolveInRoot(root, target);
   const stats = await fs.stat(absolute);
   const { kind, mime, extension } = detectType(absolute);
+  const realRoot = await fs.realpath(root).catch(() => path.resolve(root));
+  const spelled = path.resolve(realRoot, target);
+  const identity = isInside(realRoot, spelled) ? spelled : absolute;
   return {
-    path: toRelative(await fs.realpath(root).catch(() => root), absolute),
-    name: path.basename(absolute),
+    path: toRelative(realRoot, identity),
+    name: path.basename(identity),
     kind: stats.isDirectory() ? "directory" : "file",
     size: stats.size,
     modifiedAt: Math.round(stats.mtimeMs),
@@ -463,6 +473,13 @@ export type TextFile = {
   size: number;
   /** True when the file was cut at MAX_TEXT_BYTES — the editor goes read-only. */
   truncated: boolean;
+  /**
+   * True when the bytes are not UTF-8 (a Latin-1 or Shift-JIS file). They are
+   * shown with U+FFFD where a byte did not decode, and a save would write
+   * those replacement characters over the original bytes — so it is shown,
+   * not edited.
+   */
+  readOnly?: boolean;
 };
 
 /** A revision is the content's hash: cheap, and stable across a copy. */
@@ -472,10 +489,25 @@ export function revisionOf(content: string | Uint8Array): string {
 
 export async function readTextFile(root: string, target: string): Promise<TextFile> {
   const absolute = await resolveInRoot(root, target);
-  const stats = await fs.stat(absolute);
-  const buffer = await fs.readFile(absolute);
-  const truncated = buffer.byteLength > MAX_TEXT_BYTES;
-  const slice = truncated ? buffer.subarray(0, MAX_TEXT_BYTES) : buffer;
+  // Only the cap and one byte more are read: a 50 MB log is not read and
+  // hashed whole to show its first 4 MB, and a file over 2 GiB is not a
+  // readFile error (ERR_FS_FILE_TOO_LARGE) instead of a truncated view.
+  const handle = await fs.open(absolute, "r");
+  let stats: Stats;
+  let slice: Buffer;
+  let truncated: boolean;
+  try {
+    stats = await handle.stat();
+    const buffer = Buffer.alloc(Math.min(stats.size, MAX_TEXT_BYTES) + 1);
+    let filled = 0;
+    while (filled < buffer.byteLength) {
+      const { bytesRead } = await handle.read(buffer, filled, buffer.byteLength - filled, filled);
+      if (bytesRead === 0) break;
+      filled += bytesRead;
+    }
+    truncated = filled > MAX_TEXT_BYTES;
+    slice = buffer.subarray(0, Math.min(filled, MAX_TEXT_BYTES));
+  } finally { await handle.close(); }
   if (looksBinary(slice)) {
     throw new FsError("that file is not text", "unsupported");
   }
@@ -483,11 +515,24 @@ export async function readTextFile(root: string, target: string): Promise<TextFi
   return {
     path: toRelative(await fs.realpath(root).catch(() => root), absolute),
     content,
-    revision: revisionOf(buffer),
+    // A truncated file is read-only and never saved back, so its revision
+    // need not be the whole file's hash — only change when the file does.
+    revision: truncated ? revisionOf(`${revisionOf(slice)}:${stats.size}:${stats.mtimeMs}`) : revisionOf(slice),
     modifiedAt: Math.round(stats.mtimeMs),
     size: stats.size,
     truncated,
+    ...(isUtf8(slice, truncated) ? {} : { readOnly: true }),
   };
+}
+
+/** A cut may split the last character: only bytes before it have to decode. */
+function isUtf8(bytes: Uint8Array, truncated: boolean): boolean {
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes, { stream: truncated });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -733,9 +778,20 @@ export async function duplicateEntry(root: string, target: string): Promise<{ pa
 /* -------------------------------------------------------------------------- */
 
 export type FileChange = {
+  kind: "moved";
+  path: string;
+  previousPath: string;
+  directory: boolean;
+} | {
   path: string;
   kind: "added" | "changed" | "removed";
   directory: boolean;
+  /**
+   * The changed file's content revision, as `readTextFile` would report it.
+   * An editor compares it with the revision it holds, so the echo of its own
+   * save is not mistaken for someone else's edit.
+   */
+  revision?: string;
 };
 
 type Watcher = {
@@ -756,12 +812,30 @@ type WatchedRoot = {
  * event janks for a second. The window is short enough to feel immediate.
  */
 const BATCH_MS = 80;
+/**
+ * How long a batch that removed an open file waits for the name it went to.
+ * A rename is an unlink and an add to chokidar, and the add is held back by
+ * `awaitWriteFinish` until the file's size has settled.
+ */
+const MOVE_WAIT_MS = 250;
+
+type Identity = { dev: number; ino: number };
 
 export class FileWatchers {
   private readonly watchers = new Map<string, WatchedRoot>();
   private readonly listedDirectories = new Map<string, Set<string>>();
   private readonly pending = new Map<string, Map<string, FileChange>>();
   private readonly timers = new Map<string, NodeJS.Timeout>();
+  /** Each root's batches leave in order, however long one takes to settle. */
+  private readonly flushes = new Map<string, Promise<void>>();
+  /**
+   * The inode of each file a tab has open, by root and path. The watcher
+   * reports an agent's `mv` or `git mv` as a removal and an addition; the
+   * inode is what says the two are one file, so a tab can follow it.
+   */
+  private readonly identities = new Map<string, Map<string, Identity>>();
+  /** Per root, each opened link's target and the link paths tabs hold for it. */
+  private readonly aliases = new Map<string, Map<string, Set<string>>>();
 
   constructor(private readonly emit: (root: string, changes: FileChange[]) => void) {}
 
@@ -794,7 +868,7 @@ export class FileWatchers {
       awaitWriteFinish: { stabilityThreshold: 40, pollInterval: 20 },
     });
 
-    const record = (kind: FileChange["kind"], directory: boolean) => (target: string) => {
+    const record = (kind: "added" | "changed" | "removed", directory: boolean) => (target: string) => {
       if (this.watchers.get(root) !== owner) return;
       this.queue(root, {
         path: toRelative(realRoot, target),
@@ -822,6 +896,33 @@ export class FileWatchers {
   /** An opened file stays live even when its parent has never been expanded. */
   async watchEntry(root: string, entry: Pick<FileStat, "path" | "kind">): Promise<void> {
     await this.watchListedDirectory(root, entry.kind === "directory" ? entry.path : path.posix.dirname(entry.path));
+    if (entry.kind !== "file") return;
+    const realRoot = await fs.realpath(root).catch(() => path.resolve(root));
+    const real = toRelative(realRoot, await resolveInRoot(root, entry.path));
+    if (real !== entry.path) {
+      // A link, or a path through a linked directory. Events name the target
+      // (symlinks are not followed), so the target's directory is watched
+      // and its changes are repeated under the name the tab holds.
+      await this.watchListedDirectory(root, path.posix.dirname(real));
+      if (!this.watchers.has(root)) return;
+      let links = this.aliases.get(root);
+      if (!links) {
+        links = new Map();
+        this.aliases.set(root, links);
+      }
+      links.set(real, new Set([...(links.get(real) ?? []), entry.path]));
+      // The inode is the target's: a move of the target is not a move of
+      // the link, which is left dangling.
+      return;
+    }
+    const stats = await fs.stat(path.join(realRoot, entry.path)).catch(() => null);
+    if (!stats || !this.watchers.has(root)) return;
+    let known = this.identities.get(root);
+    if (!known) {
+      known = new Map();
+      this.identities.set(root, known);
+    }
+    known.set(entry.path, { dev: stats.dev, ino: stats.ino });
   }
 
   /** Keep every explicitly browsed directory live without walking its children. */
@@ -838,12 +939,25 @@ export class FileWatchers {
     const owner = this.watchers.get(root);
     if (!owner || owner.direct.has(relative)) return;
 
+    // A watch is on the directory's inode: once `rm -rf` takes the directory
+    // it hears nothing, including the directory made again under its name.
+    // It is closed and forgotten here, and armed afresh when a change names
+    // the directory again (`queue`) or the tree lists it again.
+    const disarm = (direct: FSWatcher) => {
+      if (owner.direct.get(relative) !== direct) return;
+      owner.direct.delete(relative);
+      direct.close();
+    };
     try {
-      const direct = watchDirectory(absolute, { recursive: false }, (_event, filename) => {
+      const direct: FSWatcher = watchDirectory(absolute, { recursive: false }, (_event, filename) => {
         if (this.watchers.get(root) !== owner) return;
         const child = filename ? path.join(absolute, filename.toString()) : absolute;
-        void fs.stat(child).catch(() => null).then((stats) => {
+        void fs.stat(child).catch(() => null).then(async (stats) => {
           if (this.watchers.get(root) !== owner) return;
+          if (!stats && !(await fs.stat(absolute).catch(() => null))) {
+            disarm(direct);
+            return;
+          }
           this.queue(root, {
             path: toRelative(realRoot, child),
             kind: stats ? "changed" : "removed",
@@ -851,7 +965,10 @@ export class FileWatchers {
           });
         });
       });
-      direct.on("error", (error: unknown) => console.error(`[explorer] watch ${absolute}`, error));
+      direct.on("error", (error: unknown) => {
+        console.error(`[explorer] watch ${absolute}`, error);
+        disarm(direct);
+      });
       owner.direct.set(relative, direct);
     } catch (error) {
       // A failed watch must not make the directory disappear from browsing.
@@ -871,6 +988,8 @@ export class FileWatchers {
     }
     this.watchers.delete(root);
     this.listedDirectories.delete(root);
+    this.identities.delete(root);
+    this.aliases.delete(root);
     this.clearTimer(root);
     this.pending.delete(root);
     for (const direct of existing.direct.values()) direct.close();
@@ -887,6 +1006,8 @@ export class FileWatchers {
       await existing?.watcher?.close();
     }
     this.listedDirectories.clear();
+    this.identities.clear();
+    this.aliases.clear();
     this.pending.clear();
   }
 
@@ -899,8 +1020,14 @@ export class FileWatchers {
     // Last write wins per path: an add followed by a change in the same window
     // is one row for the tree either way.
     batch.set(change.path, change);
+    if (change.directory && change.kind !== "removed" && this.listedDirectories.get(root)?.has(change.path)
+      && !this.watchers.get(root)?.direct.has(change.path)) {
+      void this.watchListedDirectory(root, change.path).catch(() => {});
+    }
+    const moving = change.kind === "removed" && !change.directory && this.identities.get(root)?.has(change.path);
     if (this.timers.has(root)) {
-      return;
+      if (!moving) return;
+      this.clearTimer(root);
     }
     this.timers.set(
       root,
@@ -908,11 +1035,89 @@ export class FileWatchers {
         this.timers.delete(root);
         const flushing = this.pending.get(root);
         this.pending.delete(root);
-        if (flushing && flushing.size > 0) {
-          this.emit(root, [...flushing.values()]);
-        }
-      }, BATCH_MS),
+        if (!flushing || flushing.size === 0) return;
+        const owner = this.watchers.get(root);
+        const flushed = (this.flushes.get(root) ?? Promise.resolve())
+          .then(() => this.settle(root, [...flushing.values()]))
+          .then((changes) => {
+            if (this.watchers.get(root) === owner) this.emit(root, changes);
+          })
+          .catch((error: unknown) => console.error(`[explorer] watch ${root}`, error))
+          .finally(() => {
+            if (this.flushes.get(root) === flushed) this.flushes.delete(root);
+          });
+        this.flushes.set(root, flushed);
+      }, moving ? MOVE_WAIT_MS : BATCH_MS),
     );
+  }
+
+  /**
+   * Stamp each changed file with its content revision. A save's own write
+   * comes back through the watcher a moment later; without a revision the
+   * editor that saved cannot tell it from an agent's edit, and a clean
+   * buffer reloads under the cursor while a dirty one is told the file
+   * changed on disk. A file over the text cap opens read-only and is never
+   * saved from here, so it is not read.
+   */
+  private async settle(root: string, changes: FileChange[]): Promise<FileChange[]> {
+    const realRoot = await fs.realpath(root).catch(() => path.resolve(root));
+    const stamped = await Promise.all(changes.map(async (change) => {
+      if (change.kind !== "changed" || change.directory) return change;
+      const absolute = path.join(realRoot, change.path);
+      const stats = await fs.stat(absolute).catch(() => null);
+      if (!stats?.isFile() || stats.size > MAX_TEXT_BYTES) return change;
+      const content = await fs.readFile(absolute).catch(() => null);
+      return content ? { ...change, revision: revisionOf(content) } : change;
+    }));
+    return this.throughLinks(root, await this.pairMoves(root, realRoot, stamped));
+  }
+
+  /** Each change to an opened link's target, repeated under the link's name. */
+  private throughLinks(root: string, changes: FileChange[]): FileChange[] {
+    const links = this.aliases.get(root);
+    if (!links?.size) return changes;
+    const repeated = changes.flatMap((change) => {
+      const target = change.kind === "moved" ? change.previousPath : change.path;
+      const names = links.get(target);
+      if (!names || change.directory) return [];
+      // A target moved away leaves the link dangling: to its tab, a removal.
+      return [...names].map((name): FileChange => change.kind === "moved"
+        ? { kind: "removed", path: name, directory: false }
+        : { ...change, path: name });
+    });
+    return repeated.length ? [...changes, ...repeated] : changes;
+  }
+
+  /**
+   * An open file removed in the same batch as a file that appeared with its
+   * inode was moved, not deleted: one `moved` replaces the pair, so its tab
+   * takes the new name (and a dirty buffer can still be saved) instead of
+   * showing "Could not open that file". A removal with no such partner stays
+   * a removal.
+   */
+  private async pairMoves(root: string, realRoot: string, changes: FileChange[]): Promise<FileChange[]> {
+    const known = this.identities.get(root);
+    const removed = changes.filter((change) => change.kind === "removed" && !change.directory && known?.has(change.path));
+    if (!known || removed.length === 0) return changes;
+    const arrivals = changes.filter((change) => (change.kind === "added" || change.kind === "changed") && !change.directory);
+    const stats = await Promise.all(arrivals.map((change) => fs.stat(path.join(realRoot, change.path)).catch(() => null)));
+    const moves = new Map<FileChange, FileChange>();
+    const taken = new Set<FileChange>();
+    for (const removal of removed) {
+      const identity = known.get(removal.path)!;
+      const index = arrivals.findIndex((arrival, at) => !taken.has(arrival) && stats[at]?.isFile()
+        && stats[at]!.ino === identity.ino && stats[at]!.dev === identity.dev);
+      if (index < 0) {
+        known.delete(removal.path);
+        continue;
+      }
+      const arrival = arrivals[index]!;
+      taken.add(arrival);
+      moves.set(removal, { kind: "moved", previousPath: removal.path, path: arrival.path, directory: false });
+      known.delete(removal.path);
+      known.set(arrival.path, identity);
+    }
+    return changes.filter((change) => !taken.has(change)).map((change) => moves.get(change) ?? change);
   }
 
   private clearTimer(root: string) {

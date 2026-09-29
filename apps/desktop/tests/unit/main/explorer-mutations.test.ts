@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -30,6 +31,7 @@ vi.mock("@main/db/repositories", () => ({
 vi.mock("@main/projects/workspace", async (importOriginal) => ({ ...(await importOriginal<object>()), resolveProjectRoot: () => fixture.root, projectWorktreeDir: () => fixture.root }));
 import { explorerHandlers, initExplorerServices, disposeExplorerServices } from "@main/ipc/explorer";
 import { FileWatchers } from "@main/explorer/fs";
+import type { IpcContext } from "@main/ipc/register";
 import { fileExtension } from "@main/telemetry";
 import { FileMutationResultSchema, TextWriteResultSchema } from "@shared/ipc/explorer";
 
@@ -137,4 +139,32 @@ test("trash, rename and duplicate act on a symlink row itself, and report the li
     expect(copied).toMatchObject({ status: "committed", path: "linked/current copy.step" });
     expect(await fs.readlink(path.join(dir, "current copy.step"))).toBe("v3.step");
   } finally { await fs.rm(outside, { recursive: true, force: true }); }
+});
+
+test("a page that reloads gives back the watches it never unwatched, and only those", async () => {
+  const watch = vi.spyOn(FileWatchers.prototype, "watch").mockResolvedValue();
+  const unwatch = vi.spyOn(FileWatchers.prototype, "unwatch").mockResolvedValue();
+  initExplorerServices(() => {});
+  try {
+    const page = Object.assign(new EventEmitter(), { id: 7 });
+    const ctx = { sender: page, event: {} } as unknown as IpcContext;
+    await explorerHandlers.explorer.watch(at, ctx);
+    await explorerHandlers.explorer.watch(at, ctx);
+    await explorerHandlers.explorer.unwatch(at, ctx);
+    expect(unwatch).toHaveBeenCalledTimes(1);
+
+    // Cmd+R: the old page sends no unwatch for the watch it still holds.
+    page.emit("did-start-navigation", { isMainFrame: true, isSameDocument: false });
+    expect(unwatch).toHaveBeenCalledTimes(2);
+    // A late unwatch from the page that left is not counted twice.
+    await explorerHandlers.explorer.unwatch(at, ctx);
+    expect(unwatch).toHaveBeenCalledTimes(2);
+    // The new page's watch is its own lease.
+    await explorerHandlers.explorer.watch(at, ctx);
+    page.emit("did-start-navigation", { isMainFrame: true, isSameDocument: true });
+    expect(unwatch).toHaveBeenCalledTimes(2);
+    page.emit("destroyed");
+    expect(unwatch).toHaveBeenCalledTimes(3);
+    expect(watch).toHaveBeenCalledTimes(3);
+  } finally { disposeExplorerServices(); watch.mockRestore(); unwatch.mockRestore(); }
 });

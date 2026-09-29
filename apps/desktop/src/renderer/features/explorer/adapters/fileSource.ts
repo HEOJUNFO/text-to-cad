@@ -1,6 +1,7 @@
 import type { FileActions, FileSource, FileMutationResult, ManagedFileAsset } from "@text-to-cad/ui/file-viewer";
 import type { ExternalEntryAction } from "@text-to-cad/ui/file-viewer";
 import { closeSessionTab, readSessionStrip, revealSessionPath, useExplorer } from "@renderer/state/explorer";
+import { desktopSourceId } from "@renderer/state/live-documents";
 import type { FileMutationResult as NativeMutationResult } from "@shared/ipc/explorer";
 import type { ExplorerRoot } from "@shared/types";
 import { platform } from "@renderer/lib/platform";
@@ -12,7 +13,7 @@ import { viewerFileChange } from "../file-changes";
 export function createDesktopFileSource({ sessionId, projectId, projectName, root }: { sessionId: string; projectId: string; projectName: string | (() => string); root: ExplorerRoot }): FileSource {
   const context = { projectId, root };
   const at = requestAt(context);
-  const id = JSON.stringify(["desktop", projectId, root]);
+  const id = desktopSourceId(projectId, root);
   const listeners = new Set<Parameters<NonNullable<FileSource["subscribe"]>>[0]>();
   let unsubscribe: (() => void) | undefined;
   const checked = async <T>(signal: AbortSignal, operation: () => Promise<T>): Promise<T> => {

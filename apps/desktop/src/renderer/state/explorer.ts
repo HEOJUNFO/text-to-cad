@@ -1,9 +1,9 @@
 import { FILE_PANEL_TREE, PANEL_DEFAULT_WIDTH, clampPanelWidth } from "@text-to-cad/ui/navigation";
 import { create } from "zustand";
 import { toast } from "sonner";
-import { hasDirtyDocument, releaseDocumentTab, discardDocumentTab } from "./live-documents";
+import { desktopSourceId, hasDirtyDocument, moveDocuments, releaseDocumentTab, discardDocumentTab } from "./live-documents";
 import { releaseCadTab } from "./live-cad";
-import { forgetTabStore } from "@renderer/features/explorer/adapters/tabStore";
+import { forgetSessionTabStores, forgetTabStore, pruneTabStores, rememberTabOwners } from "@renderer/features/explorer/adapters/tabStore";
 
 import { reconcileFileTree, movedFilePath } from "@text-to-cad/ui/file-viewer";
 import { deleteDrawingScene } from "@renderer/state/drawings";
@@ -79,6 +79,24 @@ function bySession<T>(key: string): Record<string, T> {
       return {};
     }
   });
+}
+
+function forgetPanePreferences(doomed: (sessionId: string) => boolean): void {
+  for (const key of [PANE_COLLAPSED_KEY, PANE_WIDTH_KEY]) {
+    const stored = bySession<unknown>(key);
+    const kept = Object.fromEntries(Object.entries(stored).filter(([sessionId]) => !doomed(sessionId)));
+    if (Object.keys(kept).length !== Object.keys(stored).length) writeLocal(key, JSON.stringify(kept));
+  }
+}
+
+/**
+ * Drop what storage holds for sessions that no longer exist — tab records and
+ * pane preferences — given every session there is, archived ones included. A
+ * session deleted while its strip was never loaded is only caught here.
+ */
+export function pruneSessionStorage(sessions: ReadonlySet<string>): void {
+  pruneTabStores(sessions);
+  forgetPanePreferences((sessionId) => !sessions.has(sessionId));
 }
 
 /**
@@ -319,6 +337,7 @@ function flushTabSave(sessionId: string): void {
   const tabs = pendingSaves.get(sessionId);
   pendingSaves.delete(sessionId);
   if (!tabs || discardedSessions.has(sessionId)) return;
+  rememberTabOwners(sessionId, tabs.filter(tab => tab.kind === "file").map(tab => tab.id));
   const write = async () => {
     if (!discardedSessions.has(sessionId)) await window.textToCad.explorer.saveTabs({ sessionId, tabs });
   };
@@ -463,6 +482,8 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
     if (options?.preserveTabs) archivedDocumentTabs.set(sessionId, [...tabs.values()].filter(tab => tab.kind === "file"));
     else archivedDocumentTabs.delete(sessionId);
     for (const tab of tabs.values()) disposeTab(tab, true, options?.preserveTabs);
+    // Also what a strip never loaded this run left in storage.
+    if (!options?.preserveTabs) { forgetSessionTabStores(sessionId); forgetPanePreferences((id) => id === sessionId); }
     pendingSaves.delete(sessionId);
     clearTimeout(saveTimers.get(sessionId)); saveTimers.delete(sessionId);
     retainedStrips.delete(sessionId); loadingStrips.delete(sessionId); notifySessionTabs();
@@ -720,6 +741,7 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
       return true;
     });
     if (!changes.length) return;
+    for (const change of changes) if (change.kind === "moved") moveDocuments(desktopSourceId(projectId, root), change.previousPath, change.path);
     for (const [sessionId, strip] of retainedStrips) {
       if (sessionId === get().sessionId || !strip.tabs.some(tab => tab.projectId === projectId)) continue;
       let changed = false;
@@ -730,7 +752,12 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
         changed ||= path !== tab.path;
         return path === tab.path ? tab : { ...tab, path };
       });
-      const next = { ...strip, tabs, trees: {} };
+      // The changed root's cached listings are stale and dropped; the folders
+      // the person opened are not (a moved folder stays open under its new name).
+      const key = treeKey(root), tree = strip.trees?.[key];
+      const trees = tree ? { ...strip.trees, [key]: {
+        open: new Set(reconcileFileTree(tree.listings, [...tree.open], changes.map(viewerFileChange)).expanded), listings: {} } } : strip.trees;
+      const next = { ...strip, tabs, trees };
       if (changed) saveStrip(sessionId, next); else retainedStrips.set(sessionId, next);
     }
     if (get().projectId !== projectId) return;
@@ -826,6 +853,7 @@ export async function readSessionStrip(sessionId: string): Promise<Strip> {
       const persisted = await window.textToCad.explorer.loadTabs({ sessionId });
       if (discardedSessions.has(sessionId) || (sessionGenerations.get(sessionId) ?? 0) !== generation) throw new Error("This session is no longer active.");
       const tabs = (persisted as ExplorerTab[]).filter(tab => tab.sessionId === sessionId && tab.kind !== "drawing");
+      rememberTabOwners(sessionId, tabs.filter(tab => tab.kind === "file").map(tab => tab.id));
       const strip = currentStrip(sessionId) ?? { tabs, activeId: tabs[0]?.id ?? null };
       retainedStrips.set(sessionId, strip);
       notifySessionTabs();
