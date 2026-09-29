@@ -68,10 +68,13 @@ describe("db lifecycle", () => {
     expect(fs.existsSync(path.join(env.userData, "unrelated.bak"))).toBe(true);
   });
 
-  it("names the database file in the startup failure message", async () => {
+  it("names the database file in the startup failure message only for a database failure", async () => {
     const database = await load();
-    const message = database.startupFailureMessage(new Error("database schema 9 is newer than this app supports (5)"));
+    const message = database.startupFailureMessage(new Error("database schema 9 is newer than this app supports (5)"), true);
     expect(message).toContain("newer than this app supports");
     expect(message).toContain(path.join(env.userData, "text-to-cad.db"));
+    expect(database.startupFailureMessage(new Error("the MCP bridge could not listen"), false)).toBe(
+      "the MCP bridge could not listen",
+    );
   });
 });

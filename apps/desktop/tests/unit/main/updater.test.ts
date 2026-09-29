@@ -62,6 +62,13 @@ describe("updater", () => {
     const answer = await updater.checkForUpdates();
     expect(answer).toEqual({ state: "downloaded", version: "2.0.0" });
     expect(mocks.check).toHaveBeenCalledTimes(1);
+    const { isQuitting } = await import("@main/quitting");
+    mocks.quitAndInstall.mockImplementation(() => {
+      // Electron closes the windows here, before `before-quit`: the unload
+      // guard has to already know this is a quit.
+      expect(isQuitting()).toBe(true);
+    });
+    expect(isQuitting()).toBe(false);
     updater.installUpdate();
     expect(mocks.quitAndInstall).toHaveBeenCalledWith(false, true);
     updater.stopUpdater();

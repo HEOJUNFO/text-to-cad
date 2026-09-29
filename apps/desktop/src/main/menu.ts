@@ -11,6 +11,7 @@ import { Menu, app, dialog, shell, type BrowserWindow, type MenuItemConstructorO
 import type { IpcEventPayload } from "../shared/ipc";
 import { browserService } from "./browser/service";
 import { emit } from "./ipc/register";
+import { isQuitting, markQuitting } from "./quitting";
 
 type UiCommand = IpcEventPayload<"ui.command">["command"];
 
@@ -167,11 +168,9 @@ export function installMenu(focusedWindow: () => BrowserWindow | null) {
   Menu.setApplicationMenu(buildMenu(focusedWindow));
   // Registered here, before the first window: the menu's reload is what the
   // renderer's unsaved-draft guard exists for.
-  app.on("before-quit", () => { quitting = true; });
+  app.on("before-quit", markQuitting);
   app.on("browser-window-created", (_event, window) => guardRendererUnload(window));
 }
-
-let quitting = false;
 
 /**
  * The renderer refuses to unload while a document has unsaved text
@@ -180,9 +179,9 @@ let quitting = false;
  * (`before-quit` in index.ts), so the unload always proceeds; otherwise the
  * person decides.
  */
-export function guardRendererUnload(window: BrowserWindow, isQuitting = () => quitting) {
+export function guardRendererUnload(window: BrowserWindow, quitting = isQuitting) {
   window.webContents.on("will-prevent-unload", (event) => {
-    if (isQuitting()) {
+    if (quitting()) {
       event.preventDefault();
       return;
     }

@@ -118,11 +118,16 @@ export function pruneUpgradeBackups(file: string, keep = UPGRADE_BACKUPS_KEPT): 
 
 /**
  * What the startup error box says when launch fails before the first window:
- * the reason, and the database file, which is what a newer-schema refusal, a
- * failed migration or a full disk (the pre-upgrade backup) is about.
+ * the reason and, when the failure came from opening the database (a
+ * newer-schema refusal, a failed migration, a pre-upgrade backup on a full
+ * disk), the database file it is about. A CAD runtime or bridge failure has
+ * nothing to do with that file and does not name it.
  */
-export function startupFailureMessage(error: unknown): string {
+export function startupFailureMessage(error: unknown, fromDatabase: boolean): string {
   const reason = error instanceof Error ? error.message : String(error);
+  if (!fromDatabase) {
+    return reason;
+  }
   let file: string;
   try {
     file = databaseFile();

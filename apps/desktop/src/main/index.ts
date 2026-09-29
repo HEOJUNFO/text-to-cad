@@ -211,6 +211,9 @@ if (!app.requestSingleInstanceLock()) {
     console.error("[main] unhandled rejection:", reason);
   });
 
+  // Which step of startup is running, so a failure names the database file
+  // only when the database is what failed.
+  let startupStep: "database" | "services" = "database";
   void app.whenReady().then(async () => {
     if (!app.isPackaged && process.platform === "darwin") {
       // The Dock shows Electron's icon for an unpackaged app; the packaged
@@ -222,6 +225,7 @@ if (!app.requestSingleInstanceLock()) {
     // "my projects are gone" report can be checked against the file that was
     // actually written.
     db();
+    startupStep = "services";
     console.info(`[db] ${databaseFile()}`);
     registerIpcHandlers();
     // The CAD runtime, the skills root, the viewer manager and the MCP
@@ -251,10 +255,29 @@ if (!app.requestSingleInstanceLock()) {
     // window and no word. Say why and where, then leave.
     console.error("[main] startup failed:", error);
     try {
-      dialog.showErrorBox("text-to-cad could not start", startupFailureMessage(error));
-    } finally {
-      app.exit(1);
+      dialog.showErrorBox("text-to-cad could not start", startupFailureMessage(error, startupStep === "database"));
+    } catch (dialogError) {
+      console.error("[main] could not show the startup error:", dialogError);
     }
+    // `app.exit` skips before-quit and will-quit, so their teardown runs
+    // here: what initCad and initIntegrations may already have started (the
+    // runtime probe, a viewer, the bridge) must not outlive this process.
+    // Each step is guarded — one failing must not keep the next from running.
+    const step = (name: string, run: () => unknown) => {
+      try {
+        const result = run();
+        if (result instanceof Promise) {
+          result.catch((stepError: unknown) => console.error(`[main] startup teardown ${name}:`, stepError));
+        }
+      } catch (stepError) {
+        console.error(`[main] startup teardown ${name}:`, stepError);
+      }
+    };
+    step("cad", shutdownCad);
+    step("integrations", shutdownIntegrations);
+    step("database", closeDb);
+    step("children", killTrackedChildren);
+    app.exit(1);
   });
 
   app.on("window-all-closed", () => {

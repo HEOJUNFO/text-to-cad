@@ -23,6 +23,7 @@ import electronUpdater from "electron-updater";
 
 import { broadcast } from "./ipc";
 import { settings } from "./db/repositories";
+import { markQuitting } from "./quitting";
 import type { UpdateStatus } from "../shared/ipc/app";
 
 const { autoUpdater } = electronUpdater;
@@ -195,6 +196,10 @@ export function installUpdate() {
     return;
   }
   stopUpdater();
+  // Before quitAndInstall: it closes the windows before `before-quit` fires,
+  // and a window's unsaved-draft ask must not be able to cancel the restart
+  // (`./quitting.ts`).
+  markQuitting();
   // `isSilent` false, `isForceRunAfter` true: show the installer on Windows,
   // and come back up afterwards on every platform.
   autoUpdater.quitAndInstall(false, true);

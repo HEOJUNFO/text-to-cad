@@ -867,6 +867,10 @@ export class SessionManager {
    * a minute earlier.
    */
   closeAll(): void {
+    // From here the database is about to close: an adapter's late event — the
+    // in-flight prompt's rejection arriving as `prompt/error` after its
+    // process was killed — must not write a status through it.
+    this.shuttingDown = true;
     this.warm.closeAll();
     for (const id of this.live.keys()) {
       this.close(id);
@@ -1144,7 +1148,13 @@ export class SessionManager {
     return connection;
   }
 
+  /** Set by `closeAll` on quit; `onEvent` drops everything after it. */
+  private shuttingDown = false;
+
   private onEvent(id: string, event: SessionEvent) {
+    if (this.shuttingDown) {
+      return;
+    }
     this.deps.broadcast("session.update", { sessionId: id, event });
     // Every state main sees is a state the next click could paint from
     // (`./snapshots.ts`). Debounced there, so a streaming turn is one write
