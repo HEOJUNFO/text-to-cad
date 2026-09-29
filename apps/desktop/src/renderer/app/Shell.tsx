@@ -138,15 +138,10 @@ export function Shell() {
             <PaneSeparator
               max={maxWidthOf("sidebar", { width: rowWidth, other: resolved.explorer })}
               min={PANE_LIMITS.sidebar.min}
-              onCollapse={() => {
-                setDragging(null);
-                void setLayout({ sidebarCollapsed: true });
-              }}
-              onCommit={(width) => {
-                void setLayout({ sidebarWidth: width });
-                setDragging(null);
-              }}
+              onCollapse={() => void setLayout({ sidebarCollapsed: true })}
+              onCommit={(width) => void setLayout({ sidebarWidth: width })}
               onDrag={(width) => setDragging({ pane: "sidebar", width })}
+              onRelease={() => setDragging(null)}
               pane="sidebar"
               width={resolved.sidebar}
             />
@@ -168,15 +163,10 @@ export function Shell() {
             <PaneSeparator
               max={maxWidthOf("explorer", { width: rowWidth, other: resolved.sidebar })}
               min={PANE_LIMITS.explorer.min}
-              onCollapse={() => {
-                setDragging(null);
-                setExplorerCollapsed(true);
-              }}
-              onCommit={(width) => {
-                setExplorerWidth(width);
-                setDragging(null);
-              }}
+              onCollapse={() => setExplorerCollapsed(true)}
+              onCommit={(width) => setExplorerWidth(width)}
               onDrag={(width) => setDragging({ pane: "explorer", width })}
+              onRelease={() => setDragging(null)}
               pane="explorer"
               width={resolved.explorer}
             />

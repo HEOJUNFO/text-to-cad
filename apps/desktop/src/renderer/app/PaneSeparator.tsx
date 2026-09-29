@@ -23,11 +23,14 @@ type Gesture = {
   width: number;
   /** The last width the drag asked for, which is what gets remembered. */
   last: number;
+  /** Whether a move has reported a width yet — a click reports none. */
+  moved: boolean;
   max: number;
   pane: SidePane;
   onDrag: (width: number) => void;
   onCommit: (width: number) => void;
   onCollapse: () => void;
+  onRelease: () => void;
 };
 
 export function PaneSeparator({
@@ -38,6 +41,7 @@ export function PaneSeparator({
   onDrag,
   onCommit,
   onCollapse,
+  onRelease,
 }: {
   pane: SidePane;
   /** The pane's current width, which a drag starts from. */
@@ -46,9 +50,17 @@ export function PaneSeparator({
   max: number;
   /** Live, every pointer move: the width to draw with. */
   onDrag: (width: number) => void;
-  /** The end of a gesture: the width to remember. */
+  /** A width to remember: the end of a drag that moved it, or an arrow key. */
   onCommit: (width: number) => void;
   onCollapse: () => void;
+  /**
+   * The drag is over, however it ended — let go, collapsed, or the separator
+   * unmounted under it: stop drawing `onDrag`'s width. Separate from
+   * `onCommit` because an arrow key commits without a drag, and a drag that
+   * comes back to where it started has nothing to commit but still has to
+   * stop being drawn.
+   */
+  onRelease: () => void;
 }) {
   // The whole gesture, captured at pointerdown, rather than read from props
   // while it runs: the listeners are on the window for the length of the drag
@@ -58,8 +70,12 @@ export function PaneSeparator({
 
   useEffect(() => {
     const end = () => {
+      const drag = gesture.current;
       gesture.current = null;
       document.body.style.removeProperty("user-select");
+      if (drag?.moved) {
+        drag.onRelease();
+      }
     };
     const onMove = (event: PointerEvent) => {
       const drag = gesture.current;
@@ -84,14 +100,15 @@ export function PaneSeparator({
         return;
       }
       drag.last = outcome.width;
+      drag.moved = true;
       drag.onDrag(outcome.width);
     };
     const onUp = () => {
       const drag = gesture.current;
-      end();
       if (drag && drag.last !== drag.width) {
         drag.onCommit(drag.last);
       }
+      end();
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -100,16 +117,21 @@ export function PaneSeparator({
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
+      // Unmounted mid-drag — the session changed, or the window narrowed past
+      // what holds the pane — with no pointerup coming: nothing is committed,
+      // since the width belonged to a pane that is no longer the one drawn.
+      end();
     };
   }, []);
 
+  // A commit and nothing else: both stores write optimistically, so the new
+  // width is drawn at once, and a key is not a drag the shell has to draw.
   const nudge = (by: number) => {
     const next = dragOutcome({ pane, requested: width + by, remembered: width, max });
     if (next.collapsed) {
       onCollapse();
     } else {
       onCommit(next.width);
-      onDrag(next.width);
     }
   };
 
@@ -145,7 +167,18 @@ export function PaneSeparator({
         // it.
         event.preventDefault();
         document.body.style.setProperty("user-select", "none");
-        gesture.current = { x: event.clientX, width, last: width, max, pane, onDrag, onCommit, onCollapse };
+        gesture.current = {
+          x: event.clientX,
+          width,
+          last: width,
+          moved: false,
+          max,
+          pane,
+          onDrag,
+          onCommit,
+          onCollapse,
+          onRelease,
+        };
       }}
       role="separator"
       tabIndex={0}
