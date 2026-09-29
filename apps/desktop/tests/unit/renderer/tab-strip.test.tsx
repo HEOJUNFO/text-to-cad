@@ -99,6 +99,30 @@ it("Cmd+W from inside the tab's body hands focus to the tab selected next, not t
   await waitFor(() => expect(document.querySelector(`[data-tab="${selected}"]`)).toHaveFocus());
 });
 
+it("Cmd+W marks the tab it hands focus to, so the strip draws its ring; a click's close does not", async () => {
+  const user = userEvent.setup();
+  function Body() {
+    const activeId = useExplorer((state) => state.activeId);
+    return activeId ? <input aria-label={`Body of ${activeId}`} key={activeId} /> : null;
+  }
+  render(<TooltipProvider><TabStrip /><div id={EXPLORER_TABPANEL_ID}><Body /></div></TooltipProvider>);
+  // Reached with the mouse, as Monaco or a terminal is: Chromium draws no ring on the tab then.
+  await user.click(screen.getByRole("textbox", { name: "Body of b" }));
+  await user.keyboard("{Meta>}w{/Meta}");
+  act(() => useExplorer.getState().closeActive());
+  const selected = useExplorer.getState().activeId!;
+  const tab = document.querySelector(`[data-tab="${selected}"]`)!;
+  await waitFor(() => expect(tab).toHaveFocus());
+  expect(tab).toHaveAttribute("data-focus-handed");
+  // Gone with the focus: a later focus there by pointer draws no ring of this kind.
+  act(() => (tab as HTMLElement).blur());
+  expect(tab).not.toHaveAttribute("data-focus-handed");
+
+  await user.click(screen.getAllByRole("button", { name: /^Close / })[0]!);
+  await waitFor(() => expect(document.activeElement).not.toBe(document.body));
+  expect(document.querySelector("[data-focus-handed]")).toBeNull();
+});
+
 it("a tab that goes while the person is elsewhere — transcript text clicked, then an agent's close_tab or a session switch — takes no focus", async () => {
   const user = userEvent.setup();
   render(<TooltipProvider><TabStrip /><p>The agent's words</p></TooltipProvider>);

@@ -182,18 +182,28 @@ export function TabStrip() {
   // also leaves focus on the page, and a session switch or an agent's close_tab after it must
   // not pull focus across the window.
   const inside = useRef(false);
+  // Whether the last thing the person did was a key rather than a pointer: a close by Cmd+W hands
+  // focus over by script, and Chromium draws no focus-visible ring for that when what had focus
+  // (Monaco, a terminal) was reached with the mouse — the new tab has focus and nothing shows it.
+  const keyed = useRef(false);
   useEffect(() => {
     const note = (event: Event) => {
+      if (event.type === "pointerdown") keyed.current = false;
       const target = event.target instanceof Node ? event.target : null;
       // A menu is portaled out of the strip; the strip's own menus close tabs too.
       if (!target || (target instanceof Element && target.closest("[role=menu]"))) return;
       inside.current = Boolean(stripRef.current?.contains(target) || document.getElementById(EXPLORER_TABPANEL_ID)?.contains(target));
     };
+    const key = () => {
+      keyed.current = true;
+    };
     document.addEventListener("focusin", note, true);
     document.addEventListener("pointerdown", note, true);
+    document.addEventListener("keydown", key, true);
     return () => {
       document.removeEventListener("focusin", note, true);
       document.removeEventListener("pointerdown", note, true);
+      document.removeEventListener("keydown", key, true);
     };
   }, []);
   const shownIds = useRef(tabs.map((tab) => tab.id));
@@ -203,8 +213,15 @@ export function TabStrip() {
     shownIds.current = ids;
     if (!closed || !inside.current || (document.activeElement && document.activeElement !== document.body)) return;
     // The tab's own onFocus records it as the strip's Tab stop.
-    if (activeId && ids.includes(activeId)) stripRef.current?.querySelector<HTMLElement>(`[data-tab="${CSS.escape(activeId)}"]`)?.focus();
-    else newTabRef.current?.focus();
+    const next =
+      activeId && ids.includes(activeId) ? stripRef.current?.querySelector<HTMLElement>(`[data-tab="${CSS.escape(activeId)}"]`) : newTabRef.current;
+    if (!next) return;
+    next.focus();
+    // After a key, the ring focus-visible would have drawn, drawn by the strip until focus leaves.
+    if (keyed.current) {
+      next.setAttribute("data-focus-handed", "");
+      next.addEventListener("blur", () => next.removeAttribute("data-focus-handed"), { once: true });
+    }
   }, [tabs, activeId]);
 
   const onTabKeyDown = (event: ReactKeyboardEvent<HTMLElement>, index: number) => {
@@ -317,7 +334,7 @@ export function TabStrip() {
                 aria-label="New tab"
                 disabled={!ready}
                 ref={newTabRef}
-                className="size-6 text-muted-foreground"
+                className="size-6 text-muted-foreground data-[focus-handed]:ring-[3px] data-[focus-handed]:ring-ring/50"
                 size="icon-xs"
                 variant="ghost"
               >
@@ -391,6 +408,7 @@ function TabButton({
         // Inset: the strip scrolls (overflow-x-auto), which clips anything drawn outside
         // the chip, and an offset ring came through as four bracket fragments.
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+        "data-[focus-handed]:ring-2 data-[focus-handed]:ring-ring data-[focus-handed]:ring-inset",
         active
           ? "border-border bg-accent/80 font-medium text-accent-foreground shadow-xs"
           : "border-transparent text-muted-foreground hover:bg-accent/50 hover:text-foreground",
