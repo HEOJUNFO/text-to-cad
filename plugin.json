@@ -1,0 +1,45 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "cad",
+  "version": "0.7.2",
+  "description": "CAD, robotics, fabrication, and local review skills with a local CAD Viewer integration.",
+  "author": {
+    "name": "earthtojake",
+    "url": "https://github.com/earthtojake"
+  },
+  "homepage": "https://www.texttocad.dev",
+  "repository": "https://github.com/earthtojake/text-to-cad",
+  "license": "MIT",
+  "keywords": [
+    "cad",
+    "robotics",
+    "fabrication",
+    "skills",
+    "step",
+    "urdf",
+    "sdf",
+    "gcode"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "CAD",
+        "shortDescription": "CAD skills and an interactive local CAD Viewer.",
+        "longDescription": "Create and inspect CAD models, source STEP parts, write robot descriptions, prepare fabrication handoffs, and review local files in an interactive viewer.",
+        "developerName": "earthtojake",
+        "category": "Productivity",
+        "capabilities": [
+          "Write",
+          "Interactive"
+        ],
+        "websiteURL": "https://www.texttocad.dev",
+        "defaultPrompt": [
+          "Create a CAD model and open it in CAD Viewer.",
+          "Open this STEP file and inspect its geometry.",
+          "Generate a URDF and review it locally."
+        ],
+        "brandColor": "#00A676"
+      }
+    }
+  }
+}

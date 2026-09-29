@@ -1,0 +1,6 @@
+html, body, #root { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+body { background: var(--background); color: var(--foreground); }
+#root { height: max(420px, 100dvh); }
+.cad-message { display: grid; place-items: center; height: 100%; padding: 24px; box-sizing: border-box; }
+.cad-context-action { display: grid; gap: 6px; padding-top: 6px; }
+.cad-context-action [role="status"] { font-size: 11px; }

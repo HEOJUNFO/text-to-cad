@@ -24,7 +24,7 @@ await build({
     // The tab store the host really uses; nothing else of the shared UI renders here.
     plugin.onResolve({ filter: /^@text-to-cad\/ui\/tab-store$/ }, () => ({ path: fileURLToPath(new URL('../../../packages/ui/src/tab-store/index.ts', import.meta.url)) }));
     plugin.onLoad({ filter: /.*/, namespace: 'host-test' }, args => {
-      if (args.path.endsWith('/file-viewer')) return { contents: `let current; export function FileViewer(props){current=props; return null;} export const snapshot=()=>current;`, loader: 'js' };
+      if (args.path.endsWith('/file-viewer')) return { contents: `export {createCadFileSource,catalogPath} from ${JSON.stringify(fileURLToPath(new URL('../../../packages/ui/src/file-viewer/cadFileSource.ts', import.meta.url)))}; let current; export function FileViewer(props){current=props; return null;} export const snapshot=()=>current;`, loader: 'js', resolveDir: temporary };
       if (args.path.endsWith('/step')) return { contents: `export const createStepRenderer=({preferences})=>({id:'step', preferences});`, loader: 'js' };
       if (args.path.endsWith('/dxf')) return { contents: `export const createDxfRenderer=()=>({id:'dxf'});`, loader: 'js' };
       if (args.path.endsWith('/glb')) return { contents: `export const createGlbRenderer=()=>({id:'glb'});`, loader: 'js' };

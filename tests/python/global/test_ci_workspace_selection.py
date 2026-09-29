@@ -46,6 +46,7 @@ class WorkspaceWorkflowSelection(unittest.TestCase):
             r"^packages/(core|ui)/(src|scripts)/.*\.test\.[cm]?js$",  # packages/*/scripts/run-tests.mjs
             r"^packages/ui/src/.*\.test\.tsx?$",                        # packages/ui vitest.config.ts
             r"^apps/web/(src|scripts)/.*\.test\.[cm]?js$",              # apps/web/scripts/run-tests.mjs
+            r"^apps/chatgpt/src/[^/]+\.test\.ts$",                       # apps/chatgpt node/tsx runner
             r"^scripts/bench/viewer-memory/[^/]*\.test\.mjs$",          # test-js.sh --select core
             r"^scripts/test/check-(dependencies|kit-boundaries)\.test\.mjs$",  # test-js.sh
             r"^tests/python/packages/cadgen/(.*/)?test_[^/]*\.py$",      # test-python.sh cadgen
@@ -92,6 +93,7 @@ class WorkspaceWorkflowSelection(unittest.TestCase):
         self.assertIn("'packages/core/**'", JOBS["changes"])
         self.assertIn("'packages/ui/**'", JOBS["changes"])
         self.assertIn("'apps/web/**'", JOBS["changes"])
+        self.assertIn("'apps/chatgpt/**'", JOBS["changes"])
 
     def test_required_check_names_are_the_jobs(self):
         # main's branch protection requires exactly these names (CONTRIBUTING.md, Repository settings).

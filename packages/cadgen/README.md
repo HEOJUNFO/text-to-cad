@@ -24,7 +24,7 @@ submits a document's compile as a job to the same build pool every door uses.
 
 ## The rest of the package's documentation
 
-This file holds the LAWS. Three documents beside it hold the mechanisms the
+This file holds the LAWS. The documents beside it hold the mechanisms the
 laws constrain; a law that governs one links to it, and where a mechanism
 document and this one disagree, the mechanism document is right.
 
@@ -33,6 +33,7 @@ document and this one disagree, the mechanism document is right.
 | [`STORE.md`](STORE.md) | The store's contract: layout, the two-sides law, tree/record shapes, the gate, invariants, link-vs-component, concurrency, GC, the daemon, lazy children, editing previews, debugging. Sectioned, with a table of contents | changing anything that writes to or reads from `~/.cache/cadgen`, or any build, door or reader that depends on it |
 | [`MEMO.md`](MEMO.md) | `@memo`: the author's purity contract, what declines reuse, and the three statements about process-wide geometric `Shape` identity while the decorator is installed | adding, using or diagnosing a memoized geometry factory — and before relying on `is_same`, `==` or `hash()` of a shape |
 | [`SNAPSHOTS.md`](SNAPSHOTS.md) | Snapshots: display presets, what a mesh, robot or drawing snapshot draws (the CAD Viewer's own scene for it), requests and OUT, sizes, and `--debug --json` — every measured browser stage, what each one covers, and which durations must not be added together | changing what a snapshot draws or accepts, or reading snapshot timings |
+| [`MCP.md`](MCP.md) | The optional CAD plugin extension: transport, host-authorized files, viewer reuse and interface delivery | changing MCP tools, host integration or extension file access |
 
 ## The design laws
 

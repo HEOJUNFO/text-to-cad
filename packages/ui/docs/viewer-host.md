@@ -11,8 +11,10 @@ The host contains `files`, optional native `fileActions`, `clipboard`,
 bindings `documents` and `pdf`. `environment` carries the resolved `colorScheme`,
 the keyboard `platform` (`darwin` shows ⌘, anything else Ctrl) and the app's own
 `reducedMotion`, honoured beside the system's `prefers-reduced-motion`. CAD is a separate registration supplied with a
-`CadWorkspaceService`; the generic FileViewer does not import CAD. The HTTP CAD
-adapter can serve both apps, while desktop owns native runtime startup/recovery.
+`CadWorkspaceService`; the generic FileViewer does not import CAD. The CAD
+client contract serves the standalone web app and the MCP App. The MCP App
+supplies its own tool transport and file handoff; neither lives in shared UI.
+Desktop owns native runtime startup/recovery.
 See [workspace resources](../../core/docs/workspace-resources.md) for resource
 tickets and cache identity.
 
@@ -31,6 +33,7 @@ are for reading and maintaining the contracts.
 | --- | --- | --- |
 | `ViewerHost`, `ClipboardPort` | [Host types](../src/host/types.ts) | `@text-to-cad/ui/host` |
 | `FileSource`, `FileActions`, mutation receipts, `FileViewerState` | [File viewer types](../src/file-viewer/types.ts) | `@text-to-cad/ui/file-viewer` |
+| `createCadFileSource` (read-only CAD catalog adapter) | [CAD source](../src/file-viewer/cadFileSource.ts) | `@text-to-cad/ui/file-viewer` |
 | `PromptContextPort`, bundles, references and delivery receipts | [Prompt types](../../core/src/prompt/types.ts) | `@text-to-cad/core/prompt` |
 | `CadWorkspaceService`, `CadResourceProvider`, worker tickets | [CAD service types](../../core/src/client/types.ts) | `@text-to-cad/core/client` |
 | `StepRendererSlots`, selection props, `CadLiveBinding` | [STEP registration](../src/renderers/step/index.ts) | `@text-to-cad/ui/renderers/step` |
@@ -47,6 +50,10 @@ Its imports lead to the app-owned `host/`, `adapters/` and persistence
 implementations. [Web storage](../../../apps/web/docs/storage.md) documents
 browser lifetimes. Shared component tests can
 use the [explicit fake host](../src/host/testing/host.ts).
+The [MCP App composition](../../../apps/chatgpt/src/App.tsx) uses the same
+FileViewer and CAD source adapter with a host-opened file and a CAD-only
+explorer scoped to its directory. Its transport and composer delivery stay
+under `apps/chatgpt/`.
 
 ## What a CAD renderer does not use
 

@@ -2,12 +2,12 @@
 
 The shared React interface for text-to-cad. `FileViewer` is the complete file tab:
 its breadcrumb row, menus, content, file tree, one panel column, loading and
-error states, and common edit/save/reload lifecycle. `apps/web` consumes this
-component through the package's compiled exports; a host's own project, session
-and window layout remains application code.
+error states, and common edit/save/reload lifecycle. `apps/web` and
+`apps/chatgpt` consume this component through the package's compiled exports;
+a host's own project, session and window layout remains application code.
 
 The viewer's tools, tool stack, settings, tooltips and keyboard follow one
-binding [design system](docs/settings-ui.md), the same in both apps. A change to
+binding [design system](docs/settings-ui.md) across hosts. A change to
 that chrome changes the design system first. Desktop's surrounding app controls
 remain local where their appearance differs.
 
@@ -66,7 +66,7 @@ scroll sideways: a Position panel's labels truncate to preserve its sliders and
 inputs.
 
 React, ReactDOM, Three.js and Lucide are host-supplied peers. React 18 and 19
-are supported: web and desktop use React 19.3.0. Each
+are supported: web, the MCP App and desktop use React 19.3.0. Each
 host must resolve one copy of each peer in its browser bundle. Web uses Vite
 deduplication so shared imports use its host React and Lucide versions;
 these peers are not bundled into UI.
@@ -106,6 +106,11 @@ that app's own, built on the same public `defineFileRenderer` contract (see
 File listing is independent of renderer matching: the tree shows every entry
 the host's source returns. A host that exposes arbitrary files registers a
 fallback renderer (`fallback: true`) for the types nothing else matches.
+`createCadFileSource` in `/file-viewer` supplies shared, read-only CAD catalog
+stat, listing and change subscriptions from a `CadWorkspaceService`. The web
+app uses the full catalog; the MCP App limits its explorer to supported CAD
+files within the directory granted by the opened host file. The host applies
+that filter without changing the shared source's storage contract.
 
 ```tsx
 import { FileViewer } from '@text-to-cad/ui/file-viewer';

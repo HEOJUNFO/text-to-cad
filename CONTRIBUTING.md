@@ -101,7 +101,8 @@ dist-info by design — it is release-grained, so dev code is always newer than
 its number — and nothing behavioral consults it, but stale metadata makes the
 reported number drift further from the code than it has to.
 
-Install `requirements-dev.txt`, not a skill's `requirements.txt`: the skill
+The editable cadgen install includes its optional MCP SDK for the local plugin
+server. Install `requirements-dev.txt`, not a skill's `requirements.txt`: the skill
 files pin `cadgen==<VERSION>` (the release PR stamps them, and they are what an
 installer resolves from PyPI). The editable install reports that same version,
 so the pin is satisfied in a checkout — but `pip install -r skills/<s>/requirements.txt`
@@ -236,13 +237,13 @@ requested separately. A manual dispatch runs every job.
 | Version Check | every change | canonical version, derived metadata, skill pins |
 | cadgen (Linux/Windows) | cadgen, core, infrastructure | Python engine, daemon, CLI and viewer backend |
 | core-js | core, infrastructure | `@text-to-cad/core` and benchmark helper units |
-| web | web, UI, core, cadgen, infrastructure | UI and web units, the UI browser specs, bundled launch, format/camera browser checks through the backend |
+| web | web or ChatGPT app, UI, core, cadgen, infrastructure | UI, web and ChatGPT app units, the UI browser specs, bundled launch, format/camera browser checks through the backend |
 | skills | skills or runtime/host contracts | repo policy; skill CLI suites only for skills, cadgen, core or infrastructure |
 | docs | docs, skills, cadgen, core, infrastructure | static asset contract, lint, Next build, icon verification |
-| packaging | cadgen, core, UI, web, infrastructure | clean bundle, wheel contents, installed CLI behavior |
+| packaging | cadgen, core, UI, web or ChatGPT app, infrastructure | clean bundle, wheel contents, installed CLI behavior |
 
 Here `cadgen`, `core` and `UI` mean their package directories and tests;
-`web` and `docs` mean their app directories. Infrastructure includes
+`web`, `chatgpt` and `docs` mean their app directories. Infrastructure includes
 `scripts/`, `.github/`, the root lockfile/manifests and version/plugin metadata.
 Root prose, manual model changes and `LICENSE` run only Version Check. Skill
 and package Markdown is test input and follows its owning component.
@@ -353,7 +354,7 @@ imports remain inside its directory.
 
 ## Viewer Development In This Repo
 
-The apps are `docs` and `web`. Framework-independent CAD code lives
+The apps are `docs`, `web` and `chatgpt`. Framework-independent CAD code lives
 in `@text-to-cad/core`; `@text-to-cad/ui` owns the complete FileViewer and injectable
 renderers. Apps consume compiled public exports. Apps never import another app,
 and packages never import apps. `npm run check:boundaries` checks the graph,
@@ -374,6 +375,9 @@ npm run build --workspace @text-to-cad/core
 # Viewer and shared UI work:
 npm ci --workspace @text-to-cad/core --workspace @text-to-cad/ui --workspace @text-to-cad/web
 npm run build:packages
+# Local MCP App interface work:
+npm ci --workspace @text-to-cad/core --workspace @text-to-cad/ui --workspace @text-to-cad/chatgpt
+npm run build:chatgpt
 # Docs work:
 npm ci --workspace @text-to-cad/core --workspace cad-skills-docs
 npm run build:docs
@@ -405,6 +409,14 @@ local web build; `CADGEN_VIEWER_DIST`, `CADGEN_NODE_BUILDERS_DIR` and
 `CADGEN_BROWSER_RUNTIME_DIR` are explicit asset overrides. A wheel resolves its
 own bundled assets without the repository. Run `scripts/bundle/bundle.sh` after
 editing build inputs to refresh all packaged outputs.
+
+The local MCP app's source is `apps/chatgpt/`; `cadgen mcp` serves its bundled
+single-file interface over an MCP UI resource. It uses the same compiled core
+and UI packages as the standalone web app. Run
+`scripts/test/test-js.sh --select chatgpt` for its app tests and
+`scripts/bundle/bundle.sh` to build the self-contained interface for the wheel.
+See [the app guide](apps/chatgpt/README.md) and
+[the cadgen MCP contract](packages/cadgen/MCP.md) before changing that bridge.
 
 The self-contained browser suite creates tiny inputs and owns its project,
 viewer and cache. It never reads the sample-model corpus. Install the npm

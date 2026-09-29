@@ -130,6 +130,34 @@ PY
 step "Every subcommand dispatches from an empty directory"
 cd "$EMPTY"
 "$VENV/bin/cadgen" --help >/dev/null || fail "cadgen --help"
+
+step "The installed MCP server serves its bundled app resource"
+"$VENV/bin/python" - <<'PY' || fail "installed MCP app resource"
+import asyncio
+import pathlib
+
+from mcp.shared.memory import create_connected_server_and_client_session
+
+from cadgen.assets import runtime_root
+from cadgen.mcp.server import UI_MIME_TYPE, UI_URI, create_server
+
+
+async def check():
+    asset = (runtime_root() / "chatgpt" / "index.html").resolve()
+    if "site-packages" not in asset.parts or not asset.is_file():
+        raise AssertionError(f"MCP app HTML is not in the installed wheel: {asset}")
+    async with create_connected_server_and_client_session(create_server(pathlib.Path.cwd())) as client:
+        names = {tool.name for tool in (await client.list_tools()).tools}
+        if {"cad_open", "cad_request"} - names:
+            raise AssertionError(f"installed MCP tools missing: {names}")
+        resource = (await client.read_resource(UI_URI)).contents[0]
+        if resource.mimeType != UI_MIME_TYPE or resource.text != asset.read_text(encoding="utf-8"):
+            raise AssertionError("installed MCP app resource differs from the bundled HTML")
+        print(f"   served {UI_URI} from {asset.parent.name}/index.html")
+
+
+asyncio.run(check())
+PY
 # The list comes from the INSTALLED registry, not from a copy of it here: a
 # hand-written list goes stale silently the first time a command is renamed, and
 # then this step passes while checking commands that no longer exist.

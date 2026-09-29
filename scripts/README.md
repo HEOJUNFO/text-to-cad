@@ -28,11 +28,12 @@ where those files ship, so these scripts are what produces them.
   metadata (which IS committed) rather than writing it. `--clean` removes the
   `_runtime` tree first. Called by `test.yml`, `release-publish.yml`,
   `check-builds.sh`, the pre-commit hook.
-- `cadgen-runtime.sh` — builds the three runtime stages: `--node` (esbuilt Node
+- `cadgen-runtime.sh` — builds four runtime stages: `--node` (esbuilt Node
   builders), `--browser` (snapshot browser bundle), `--viewer` (vite build of
-  `apps/web`). `--print-outputs` lists the two directories a bundle always
-  produces; `--check` skips the viewer stage, which needs the client's
-  `node_modules` and which nothing in a checkout reads. Called by `bundle.sh`,
+  `apps/web`) and `--chatgpt` (self-contained MCP App HTML from `apps/chatgpt`).
+  `--print-outputs` lists the node and browser output directories. `--check`
+  skips both app stages, which need their npm workspaces; full bundle and wheel
+  checks verify those interfaces. Called by `bundle.sh`,
   `check-builds.sh`, `test/test-installed.sh`, and `test/common.sh` when a test
   runner finds the two stages it needs missing; pinned by
   `tests/python/global/test_node_builder_bundles.py` and
@@ -46,8 +47,8 @@ where those files ship, so these scripts are what produces them.
 - `test.sh` — `test-js.sh`, then `test-python.sh`, then `test-global.sh`: the
   whole tree on one machine. Called by `release-publish.yml`; `test.yml` calls
   the focused runners per job instead.
-- `test-js.sh [--select core|ui|web|all]` — builds the required shared exports,
-  checks dependency boundaries and runs the selected shared JS/UI/web suites.
+- `test-js.sh [--select core|ui|web|chatgpt|all]` — builds the required shared
+  exports, checks dependency boundaries and runs the selected package or app suite.
   Core includes the pure `bench/viewer-memory/` helper units.
 - `test-python.sh [--keep-going] [--select GROUP] [--print-weights]`
   — the cadgen package suite, then every skill's suite. Each test FILE runs in
@@ -108,7 +109,7 @@ where those files ship, so these scripts are what produces them.
   lockfile and `pyproject.toml` metadata) from `VERSION`. Called by `bundle.sh`,
   `test.yml`, `release-prepare.yml`.
 - `check-wheel-contents.sh` — builds the wheel and asserts the Python modules and
-  `_runtime/{node,browser,viewer}` are inside it, with bytes identical to the
+  `_runtime/{node,browser,viewer,chatgpt}` are inside it, with bytes identical to the
   bundled source. The only gate on package data, which fails quietly. Called by
   `test.yml` and `release-publish.yml`.
 - `publish-github-release.sh [--target REF] [--dry-run] [--publish]` — creates and

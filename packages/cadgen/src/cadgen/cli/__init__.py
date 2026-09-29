@@ -76,6 +76,7 @@ _COMMANDS: dict[str, tuple[str, str]] = {
     # teaches); the two-word entries are the instance manager, split into their own
     # modules for the same dispatch reason `daemon status` is.
     "viewer": ("cadgen.cli.viewer", "serve the current directory in the CAD Viewer"),
+    "mcp": ("cadgen.cli.mcp", "serve the CAD plugin extension over MCP"),
     "viewer list": ("cadgen.cli.viewer_list", "show running CAD Viewers and what each serves"),
     "viewer stop": ("cadgen.cli.viewer_stop", "terminate a running CAD Viewer"),
 }

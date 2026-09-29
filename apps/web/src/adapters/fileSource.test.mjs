@@ -9,10 +9,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const temporary = await mkdtemp(join(tmpdir(), 'text-to-cad-web-source-'));
 const output = join(temporary, 'host.mjs');
 await build({
-  stdin: { contents: `export * from './adapters/fileSource.ts';`, resolveDir: fileURLToPath(new URL('../', import.meta.url)) },
+  stdin: { contents: `export * from './adapters/fileSource.ts'; export { createCadFileSource } from '@text-to-cad/ui/file-viewer';`, resolveDir: fileURLToPath(new URL('../', import.meta.url)) },
   bundle: true, platform: 'node', conditions: ['production'], format: 'esm', outfile: output, loader: { '.webp': 'dataurl', '.avif': 'dataurl', '.css': 'empty' },
 });
-const { createWebFileSource, createWebFileActions } = await import(pathToFileURL(output).href);
+const { createCadFileSource, createWebFileActions } = await import(pathToFileURL(output).href);
 after(() => rm(temporary, { recursive: true, force: true }));
 test('web source keeps only catalog files, native path capabilities and silent clipboard actions', async () => {
   const copied = [];
@@ -23,7 +23,7 @@ test('web source keeps only catalog files, native path capabilities and silent c
   const server = { rootId: 'a', rootPath: '/models', backend: 'local-fs' };
   const delivered = [];
   const ports = { clipboard: { writeText: async value => copied.push(value) }, promptContext: { deliver: async context => { delivered.push(context); return {status: 'copied', partIds: ['reference']}; } } };
-  const source = createWebFileSource(client, server);
+  const source = createCadFileSource(client, server);
   const actions = createWebFileActions(client, server, ports);
   const options = { signal: new AbortController().signal };
   assert.deepEqual(await source.list('', options), [{ path: 'parts', name: 'parts', kind: 'directory' }, { path: 'flat.stl', name: 'flat.stl', kind: 'file' }]);

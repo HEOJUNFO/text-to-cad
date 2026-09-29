@@ -1,11 +1,8 @@
 """Policy checks for the repo-root agent plugin package.
 
-The repository root *is* the plugin: `.claude-plugin/plugin.json` and
-`.codex-plugin/plugin.json` sit beside `.claude-plugin/marketplace.json`, and
-the plugin's skills are the canonical `skills/` directory rather than a
-generated copy. These checks replace the manifest validation that used to live
-in `scripts/bundle/bundle-plugin.sh` back when the plugin was a subdirectory
-package with its own duplicated `skills/` tree.
+The repository root *is* the plugin: portable `plugin.json` and `mcp.json`
+sit beside the provider compatibility manifests, and the plugin's skills are
+the canonical `skills/` directory rather than a generated copy.
 
 Version fields are deliberately not checked here; `scripts/release/sync-version.mjs`
 owns stamping every derived version from the canonical `VERSION` file, and
@@ -25,6 +22,8 @@ MARKETPLACE_NAME = "text-to-cad"
 
 CLAUDE_PLUGIN_PATH = REPO_ROOT / ".claude-plugin" / "plugin.json"
 CODEX_PLUGIN_PATH = REPO_ROOT / ".codex-plugin" / "plugin.json"
+PORTABLE_PLUGIN_PATH = REPO_ROOT / "plugin.json"
+MCP_PATH = REPO_ROOT / "mcp.json"
 MARKETPLACE_PATH = REPO_ROOT / ".claude-plugin" / "marketplace.json"
 SKILLS_ROOT = REPO_ROOT / "skills"
 
@@ -42,15 +41,15 @@ def load_json(path: Path) -> dict:
 
 
 class PluginManifestPolicyTest(unittest.TestCase):
-    def test_both_provider_plugin_manifests_exist_at_the_repo_root(self) -> None:
-        for path in (CLAUDE_PLUGIN_PATH, CODEX_PLUGIN_PATH):
+    def test_portable_and_provider_plugin_manifests_exist_at_the_repo_root(self) -> None:
+        for path in (PORTABLE_PLUGIN_PATH, CLAUDE_PLUGIN_PATH, CODEX_PLUGIN_PATH):
             self.assertTrue(
                 path.is_file(),
                 f"missing plugin manifest: {path.relative_to(REPO_ROOT)}",
             )
 
     def test_plugin_manifests_name_the_plugin_consistently(self) -> None:
-        for path in (CLAUDE_PLUGIN_PATH, CODEX_PLUGIN_PATH):
+        for path in (PORTABLE_PLUGIN_PATH, CLAUDE_PLUGIN_PATH, CODEX_PLUGIN_PATH):
             manifest = load_json(path)
             self.assertEqual(
                 manifest.get("name"),
@@ -66,6 +65,32 @@ class PluginManifestPolicyTest(unittest.TestCase):
                 VALID_SKILLS_POINTERS,
                 f"{path.relative_to(REPO_ROOT)} must point at ./skills/",
             )
+
+        # The portable format discovers the fixed root skills/ directory.
+        portable = load_json(PORTABLE_PLUGIN_PATH)
+        self.assertNotIn("skills", portable)
+        self.assertEqual(
+            portable.get("$schema"),
+            "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+        )
+
+    def test_portable_mcp_server_starts_the_local_cadgen_runtime(self) -> None:
+        config = load_json(MCP_PATH)
+        self.assertEqual(
+            config.get("$schema"),
+            "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+        )
+        self.assertEqual(
+            config.get("mcpServers"),
+            {"cad_viewer": {"type": "stdio", "command": "cadgen", "args": ["mcp"]}},
+        )
+        self.assertEqual(load_json(CODEX_PLUGIN_PATH).get("mcpServers"), "./mcp.json")
+        self.assertNotIn("mcpServers", load_json(PORTABLE_PLUGIN_PATH))
+
+    def test_openai_plugin_displays_as_cad(self) -> None:
+        portable = load_json(PORTABLE_PLUGIN_PATH)
+        self.assertEqual(portable["extensions"]["com.openai"]["interface"]["displayName"], "CAD")
+        self.assertEqual(load_json(CODEX_PLUGIN_PATH)["interface"]["displayName"], "CAD")
 
     def test_marketplace_lists_the_plugin_at_the_repository_root(self) -> None:
         marketplace = load_json(MARKETPLACE_PATH)

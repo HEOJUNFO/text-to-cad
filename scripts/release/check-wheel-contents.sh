@@ -49,6 +49,10 @@ REQUIRED=(
   "cadgen/cli/__init__.py"
   "cadgen/cli/step_build.py"
   "cadgen/cli/viewer.py"
+  "cadgen/cli/mcp.py"
+  "cadgen/mcp/__init__.py"
+  "cadgen/mcp/backend.py"
+  "cadgen/mcp/server.py"
   "cadgen/viewer/__init__.py"
   "cadgen/viewer/__main__.py"
   "cadgen/viewer/main.py"
@@ -80,6 +84,7 @@ REQUIRED=(
   "cadgen/_runtime/browser/snapshot-render.js"
   "cadgen/_runtime/browser/render.html"
   "cadgen/_runtime/viewer/index.html"
+  "cadgen/_runtime/chatgpt/index.html"
 )
 
 echo "Building cadgen wheel for content check..."

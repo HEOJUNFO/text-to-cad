@@ -3,10 +3,10 @@ set -euo pipefail
 
 # Build cadgen's non-Python runtime INTO THE PACKAGE (packages/cadgen/src/cadgen/_runtime).
 #
-# cadgen executes three things it does not write in Python: Node builders (the mesh
+# cadgen executes several things it does not write in Python: Node builders (the mesh
 # exports are baked by a JS child), a headless browser bundle (the snapshot
 # CLI drives it in a page), and the CAD Viewer's built client (`cadgen viewer` serves
-# it). cadgen.assets resolves all three inside the distribution, so there is one copy
+# it), and the MCP App interface. cadgen.assets resolves these inside the distribution, so there is one copy
 # and one builder of that copy: this script. scripts/bundle/bundle.sh is the entry point
 # that calls it (after stamping derived version metadata); call this directly only when
 # debugging one stage.
@@ -15,6 +15,7 @@ set -euo pipefail
 #   --node      esbuilt builders          -> _runtime/node
 #   --browser   snapshot browser bundle   -> _runtime/browser
 #   --viewer    CAD Viewer client (vite)  -> _runtime/viewer
+#   --chatgpt   MCP App interface (vite)  -> _runtime/chatgpt
 #
 # NOTHING here is committed. The whole _runtime tree is gitignored and built on demand:
 # the wheel is the only place these files ship, and a rebundle of the snapshot renderer
@@ -24,10 +25,9 @@ set -euo pipefail
 # asserts the files each stage owes. scripts/release/check-wheel-contents.sh is the gate
 # that proves the wheel got them.
 #
-# `--check` skips the viewer stage because it is the expensive one (a vite build of
-# apps/web, which needs that app's node_modules) and because a checkout serves
-# apps/web/dist directly -- cadgen.assets prefers it, so nothing in a checkout reads
-# _runtime/viewer. `--print-outputs` lists the two directories a bundle always produces.
+# `--check` skips the web and MCP App stages so core-only checks do not need app
+# dependencies. Full bundling and wheel checks verify both interfaces in CI.
+# `--print-outputs` lists the two directories a bundle always produces.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -42,6 +42,7 @@ NODE_DIR="$RUNTIME_DIR/node"
 BROWSER_DIR="$RUNTIME_DIR/browser"
 VIEWER_DIR="$RUNTIME_DIR/viewer"
 VIEWER_APP_DIR="$REPO_ROOT/apps/web"
+CHATGPT_APP_DIR="$REPO_ROOT/apps/chatgpt"
 VIEWER_PACKAGE_MANAGER="${CAD_VIEWER_PACKAGE_MANAGER:-}"
 
 SNAPSHOT_BUILD_DEPS_DIR="${CADGEN_SNAPSHOT_BUILD_DEPS_DIR:-$REPO_ROOT/tmp/cadgen-snapshot-build}"
@@ -62,6 +63,7 @@ PRINT_OUTPUTS=0
 STAGE_NODE=0
 STAGE_BROWSER=0
 STAGE_VIEWER=0
+STAGE_CHATGPT=0
 ANY_STAGE=0
 
 usage() {
@@ -76,10 +78,11 @@ Stages (default: all):
   --node      esbuilt Node builders     -> _runtime/node
   --browser   snapshot browser bundle   -> _runtime/browser
   --viewer    CAD Viewer client (vite)  -> _runtime/viewer
+  --chatgpt   MCP App interface (vite)  -> _runtime/chatgpt
 
 Options:
   --check          Build, then assert every required output exists. Skips the
-                   viewer stage (a vite build nothing in a checkout reads).
+                   web and MCP App stages (checked by full bundling in CI).
   --clean          Remove the _runtime tree first, so the build starts from nothing.
   --print-outputs  Print the generated output paths (repo-relative), then exit.
   -h, --help       Show this help.
@@ -94,6 +97,7 @@ while [ "$#" -gt 0 ]; do
     --node) STAGE_NODE=1; ANY_STAGE=1 ;;
     --browser) STAGE_BROWSER=1; ANY_STAGE=1 ;;
     --viewer) STAGE_VIEWER=1; ANY_STAGE=1 ;;
+    --chatgpt) STAGE_CHATGPT=1; ANY_STAGE=1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -101,7 +105,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ "$ANY_STAGE" -eq 0 ]; then
-  STAGE_NODE=1; STAGE_BROWSER=1; STAGE_VIEWER=1
+  STAGE_NODE=1; STAGE_BROWSER=1; STAGE_VIEWER=1; STAGE_CHATGPT=1
 fi
 
 if [ "$PRINT_OUTPUTS" -eq 1 ]; then
@@ -187,7 +191,7 @@ build_stage_packages() {
   # Node and browser runtime stages consume only @text-to-cad/core and must remain
   # runnable in Python/core CI jobs that install that workspace alone. The
   # Viewer is the only stage that also needs @text-to-cad/ui.
-  if [ "$STAGE_VIEWER" -eq 1 ] && [ "$MODE" != "check" ]; then
+  if { [ "$STAGE_VIEWER" -eq 1 ] || [ "$STAGE_CHATGPT" -eq 1 ]; } && [ "$MODE" != "check" ]; then
     npm --prefix "$REPO_ROOT" run build:packages
   elif [ "$STAGE_NODE" -eq 1 ] || [ "$STAGE_BROWSER" -eq 1 ]; then
     npm --prefix "$REPO_ROOT" run build -w @text-to-cad/core
@@ -259,6 +263,14 @@ build_all() {
   if [ "$STAGE_VIEWER" -eq 1 ] && [ "$MODE" != "check" ]; then
     build_viewer_client "$root/viewer"
     echo "Bundled ${root#"$REPO_ROOT"/}/viewer"
+  fi
+  if [ "$STAGE_CHATGPT" -eq 1 ] && [ "$MODE" != "check" ]; then
+    npm --prefix "$CHATGPT_APP_DIR" run build
+    [ -s "$CHATGPT_APP_DIR/dist/index.html" ] || { echo "Missing CAD plugin UI bundle" >&2; exit 1; }
+    rm -rf "$root/chatgpt"
+    mkdir -p "$root/chatgpt"
+    rsync -a --delete --exclude "*.map" "$CHATGPT_APP_DIR/dist/" "$root/chatgpt/"
+    echo "Bundled ${root#"$REPO_ROOT"/}/chatgpt"
   fi
 }
 

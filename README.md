@@ -112,11 +112,27 @@ only skills still present in the checkout.
 Provider-native plugin installs are also available for Codex, Claude Code, and
 Grok Build:
 
+The repository root is the plugin package. Its portable `plugin.json` and
+`mcp.json` expose the canonical `skills/` directory and a local `cadgen mcp`
+server. The Codex and Claude compatibility manifests remain in their provider
+directories. Installing the plugin does not install the CAD runtime: install a
+`cadgen` build that includes the MCP extra in the same local environment as
+your agent, and ensure its `cadgen` command is on `PATH`. The local MCP server
+uses stdio, so its viewer integration runs where the CAD files and runtime are
+available. Opening a supported file in the embedded viewer also exposes a
+collapsible explorer for supported CAD files in that file's directory.
+
 ```bash
 # Codex (requires Codex 0.142.0 or newer)
 codex plugin marketplace add earthtojake/text-to-cad
 codex plugin add cad@text-to-cad
 ```
+
+For a source checkout, install `requirements-dev.txt` and use the checkout's
+`cadgen` executable. For a released plugin, install the matching `cadgen[mcp]`
+distribution before using its viewer tools. A browser-only ChatGPT connection
+uses a reachable MCP HTTP endpoint registered in developer mode; this local
+stdio configuration does not provide one.
 
 Codex resolves this repository-root plugin only from 0.142.0 onward. On older
 versions the plugin is skipped silently and never appears in `codex plugin list`;

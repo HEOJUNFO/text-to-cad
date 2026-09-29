@@ -57,6 +57,7 @@ jobs:
               - 'packages/ui/**'
             web:
               - 'apps/web/**'
+              - 'apps/chatgpt/**'
               - 'tests/browser/**'
             skills:
               - 'skills/**'
@@ -70,6 +71,9 @@ jobs:
               - 'VERSION'
               - '.claude-plugin/**'
               - '.codex-plugin/**'
+              - '.agents/plugins/**'
+              - 'plugin.json'
+              - 'mcp.json'
               - 'package.json'
               - 'package-lock.json'
               - '.gitattributes'
@@ -196,7 +200,7 @@ jobs:
       - name: Set up dependencies
         uses: ./.github/actions/setup-deps
         with:
-          npm: packages/core packages/ui apps/web
+          npm: packages/core packages/ui apps/web apps/chatgpt
           ui-browser: "true"
 
       - name: Run shared UI tests
@@ -213,6 +217,9 @@ jobs:
 
       - name: Bundle production outputs
         run: scripts/bundle/bundle.sh
+
+      - name: Run the CAD plugin interface tests
+        run: scripts/test/test-js.sh --select chatgpt
 
       - name: Launch the bundled CAD Viewer through the backend
         run: scripts/test/test-viewer-launch.sh
@@ -295,7 +302,7 @@ jobs:
       - name: Set up dependencies
         uses: ./.github/actions/setup-deps
         with:
-          npm: packages/core packages/ui apps/web
+          npm: packages/core packages/ui apps/web apps/chatgpt
 
       - name: Bundle production outputs from clean
         run: scripts/bundle/bundle.sh --clean
@@ -323,4 +330,3 @@ jobs:
           wheels=("$RUNNER_TEMP/cadgen-wheel-check/"*.whl)
           [ "${#wheels[@]}" -eq 1 ] || { echo "Expected one verified wheel" >&2; exit 1; }
           scripts/test/test-installed.sh --wheel "${wheels[0]}"
-

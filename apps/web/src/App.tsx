@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { FileViewer } from '@text-to-cad/ui/file-viewer';
+import { FileViewer, createCadFileSource } from '@text-to-cad/ui/file-viewer';
 import type { ViewerHost } from '@text-to-cad/ui/host';
 import { EmptyState } from '@text-to-cad/ui/navigation';
 import { FileText } from 'lucide-react';
@@ -14,7 +14,7 @@ import { useViewerAutoReload } from './host/useViewerAutoReload.js';
 import { EmptyCadBackdrop } from '@text-to-cad/ui/file-viewer/empty';
 import type { CadServerInfo } from '@text-to-cad/core/client';
 import type { CadClient } from './adapters/fileSource';
-import { createWebFileSource, createWebFileActions } from './adapters/fileSource';
+import { createWebFileActions } from './adapters/fileSource';
 import { browserClipboard, browserClipboardSupportsImages } from './host/clipboard';
 import { createWebPromptContext } from './host/promptContext';
 import ViewerAppearance from './client/components/workbench/ViewerAppearance.jsx';
@@ -47,7 +47,7 @@ export default function App(props: { client: CadClient; server: CadServerInfo; t
 /** A root change creates a new session; the tab store, and everything in it, is the tab's across roots. */
 function RootView({ client, server, tabStore }: { client: CadClient; server: CadServerInfo; tabStore: TabStore }) {
   useViewerAutoReload(server, { fetchServerInfo: () => client.serverInfo({ fresh: true }).then(info => ({ ok: true, identityToken: String(info.identityToken || '') }), () => ({ ok: false })) });
-  const source = useMemo(() => createWebFileSource(client, server), [client, server]);
+  const source = useMemo(() => createCadFileSource(client, server), [client, server]);
   const promptContext = useMemo(() => createWebPromptContext(source.id, server.rootPath || '', browserClipboard, browserClipboardSupportsImages()), [source.id, server.rootPath]);
   const fileActions = useMemo(() => createWebFileActions(client, server, { clipboard: browserClipboard }), [client, server]);
   // Every renderer reads its preferences from the tab's settings.
