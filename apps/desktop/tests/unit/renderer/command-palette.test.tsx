@@ -51,7 +51,7 @@ describe("the command palette", () => {
       id: "s1", projectId: "/p", agentId: "claude-code", cwd: "/p", gitMode: "none", title: "Bracket",
       titleSource: "prompt", createdAt: 1, updatedAt: 1, status: "idle", acpSessionId: null,
       changedFiles: 0, insertions: 0, deletions: 0, archived: false, pinned: false,
-      sessionHead: null, turnHead: null, turnStartedAt: null,
+      sessionHead: null, turnHead: null,
     } as unknown as Session;
     const patch = vi.fn(async () => undefined);
     useSessions.setState({ sessions: [session], activeId: null });

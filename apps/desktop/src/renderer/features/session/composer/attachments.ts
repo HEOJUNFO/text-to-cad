@@ -10,10 +10,9 @@ import { isCadFile, type CadReference } from "@shared/cad-refs";
  * blob URL from an opaque origin: the fetch throws, the part keeps its blob
  * URL, and `toPromptBlocks` cannot read it — the image is dropped without a
  * word. So every file this app adds — a capture from the viewer, a pasted
- * image, a file from the attach button — is remembered here, and `dataUrlOf`
- * reads it with a `FileReader`, which needs no fetch. A drop onto the box goes
- * through the vendored component's own input and is the one path this does
- * not cover.
+ * image, a file from the attach button, a file dropped on the box (`Composer`
+ * takes the drop ahead of the vendored form's own handler) — is remembered
+ * here, and `dataUrlOf` reads it with a `FileReader`, which needs no fetch.
  *
  * **One per composer, keyed by the attachment, not by the file's name.**
  * Chromium names every pasted image `image.png`, so a registry keyed by name

@@ -121,13 +121,14 @@ type SessionRow = {
   worktree_path: string | null;
   session_head: string | null;
   turn_head: string | null;
-  turn_started_at: number | null;
 };
 
+// `turn_started_at` (migration 5) stays in the table, unread and unwritten: the
+// review's scopes are revisions, and nothing ever showed the time.
 const SESSION_COLUMNS =
   "id, project_id, agent_id, cwd, git_mode, branch, title, created_at, updated_at, status, " +
   "acp_session_id, changed_files, insertions, deletions, archived, pinned, " +
-  "worktree_path, session_head, turn_head, turn_started_at, title_source";
+  "worktree_path, session_head, turn_head, title_source";
 
 const toSession = (row: SessionRow): Session =>
   SessionSchema.parse({
@@ -151,7 +152,6 @@ const toSession = (row: SessionRow): Session =>
     pinned: row.pinned === 1,
     sessionHead: row.session_head,
     turnHead: row.turn_head,
-    turnStartedAt: row.turn_started_at,
   });
 
 export const sessions = {
@@ -183,7 +183,7 @@ export const sessions = {
         `INSERT INTO sessions (${SESSION_COLUMNS})
          VALUES (@id, @projectId, @agentId, @cwd, @gitMode, @branch, @title, @createdAt, @updatedAt, @status,
                  @acpSessionId, @changedFiles, @insertions, @deletions, @archived, @pinned,
-                 @worktreePath, @sessionHead, @turnHead, @turnStartedAt, @titleSource)
+                 @worktreePath, @sessionHead, @turnHead, @titleSource)
          ON CONFLICT(id) DO UPDATE SET
            agent_id = excluded.agent_id,
            cwd = excluded.cwd,
@@ -201,8 +201,7 @@ export const sessions = {
            pinned = excluded.pinned,
            worktree_path = excluded.worktree_path,
            session_head = excluded.session_head,
-           turn_head = excluded.turn_head,
-           turn_started_at = excluded.turn_started_at`,
+           turn_head = excluded.turn_head`,
       )
       .run({
         ...parsed,

@@ -69,12 +69,10 @@ import type { ChangedFile, FileDiff, GitStatus } from "./types";
  * the *name* of the scope and main resolves it, because the marks are its
  * record, not a number the UI is allowed to compute (plan §13, P7).
  *
- * Choosing one of them pins the session onto the tab. That matters because the
- * strip belongs to the **project**: a review that followed whichever thread
- * happened to be selected would change what it was showing every time someone
- * clicked another row in the sidebar. A pinned session also moves the whole
- * read into that session's working directory, which for a thread in `worktree`
- * mode is not the project's checkout at all.
+ * The tab belongs to the session it was opened in (`sessionId`, fixed for
+ * the tab's life), and every scope is read for that session: its marks, and
+ * its working directory, which for a thread in `worktree` mode is not the
+ * project's checkout at all. Choosing a scope changes only the scope.
  */
 
 const SCOPES = ReviewScopeSchema.options;
@@ -105,7 +103,7 @@ export function ReviewTab(props: {
 }) {
   return (
     <ReviewBody
-      key={`${props.project.id}:${props.scope}:${props.sessionId ?? ""}`}
+      key={`${props.project.id}:${props.scope}:${props.sessionId}`}
       {...props}
     />
   );
@@ -127,8 +125,7 @@ function ReviewBody({
   const info = useProjectGitInfo(project.id);
 
   // Review revisions always belong to this tab's immutable session owner.
-  const candidate = sessions.find(session => session.id === sessionId) ?? null;
-  const target = candidate;
+  const session = sessions.find(row => row.id === sessionId) ?? null;
   const request = useMemo(
     () => ({ projectId: project.id, sessionId }),
     [project.id, sessionId],
@@ -268,11 +265,7 @@ function ReviewBody({
   }, [read]);
 
   const chooseScope = (next: ReviewScope) => {
-    // Pin the session the moment a scope needs one, so the tab keeps showing
-    // the thread it was opened against rather than following the sidebar.
-    update(tabId, {
-      scope: next,
-    });
+    update(tabId, { scope: next });
   };
 
   const scrollTo = (path: string) => {
@@ -333,7 +326,7 @@ function ReviewBody({
                 // The two session scopes need a thread to measure from; with
                 // none they are shown and disabled rather than hidden, so the
                 // menu does not change shape depending on what is selected.
-                disabled={scopeNeedsSession(option) && !candidate}
+                disabled={scopeNeedsSession(option) && !session}
                 key={option}
                 onSelect={() => chooseScope(option)}
               >
@@ -354,7 +347,7 @@ function ReviewBody({
           worktree's is not the project's — is the hover.
         */}
         {status.branch ? (
-          <span className="min-w-0 truncate text-[12px] text-muted-foreground" title={target?.cwd}>
+          <span className="min-w-0 truncate text-[12px] text-muted-foreground" title={session?.cwd}>
             {status.branch}
           </span>
         ) : null}
@@ -393,7 +386,7 @@ function ReviewBody({
           onClose={closeCommit}
           onDone={refresh}
           request={request}
-          session={target}
+          session={session}
         />
       ) : null}
 
@@ -459,7 +452,7 @@ function ReviewBody({
                 }}
                 request={request}
                 revision={stamps.get(file.path) ?? 0}
-                root={target?.cwd ?? null}
+                root={session?.cwd ?? null}
                 scope={scope}
               />
             ))}
@@ -479,10 +472,6 @@ function ReviewBody({
   );
 }
 
-// A repository with no commits never lands here: main answers that case from
-// the working tree (`fromStart`).
-// Each sentence is written for its scope rather than built around the menu's label: a label is a
-// name, and "so This session is measured…" reads as one pasted into the middle of a sentence.
 /** The shortest gap between two status reads that batches of file changes ask for. */
 const STATUS_GAP_MS = 500;
 
@@ -518,6 +507,10 @@ function fileStamps(
   return next;
 }
 
+// A repository with no commits never lands here: main answers that case from
+// the working tree (`fromStart`).
+// Each sentence is written for its scope rather than built around the menu's label: a label is a
+// name, and "so This session is measured…" reads as one pasted into the middle of a sentence.
 function unmarkedDescription(which: "turn" | "session"): string {
   return which === "turn"
     ? "A turn is measured from the prompt that starts it, so there is nothing to show until the next one. The working tree's changes are under “All changes”."
@@ -555,7 +548,7 @@ function emptyDescription(scope: ReviewScope): string {
 /* Pieces                                                                      */
 /* -------------------------------------------------------------------------- */
 
-/** The project (and optionally session) every read in this tab is answered for. */
+/** The project and the session every read in this tab is answered for. */
 type ReviewRequest = { projectId: string; sessionId: string };
 
 function Totals({ insertions, deletions }: { insertions: number; deletions: number }) {

@@ -619,7 +619,6 @@ describe("SessionManager", () => {
     expect(plain).toMatchObject({
       sessionHead: "checkout-head",
       turnHead: "checkout-head",
-      turnStartedAt: null,
     });
 
     const checkout = await manager.create({
@@ -663,7 +662,6 @@ describe("SessionManager", () => {
     // The turn's mark moved; the session's did not.
     expect(row.turnHead).toBe("the-turn-starts-here");
     expect(row.sessionHead).toBe("before-the-turn");
-    expect(row.turnStartedAt).toBeGreaterThan(0);
   });
 
   it("refuses a block the agent did not say it takes before the turn is marked, titled or begun", async () => {
@@ -683,7 +681,6 @@ describe("SessionManager", () => {
     // and the refusal is not a failed turn — no error state, no Retry.
     const row = repo.get(session.id)!;
     expect(row.turnHead).toBe("the-session-starts-here");
-    expect(row.turnStartedAt).toBeNull();
     expect(row.title).toBe("New session");
     expect(manager.state(session.id)?.state.status).toBe("idle");
     expect(manager.state(session.id)?.state.turns).toEqual([]);

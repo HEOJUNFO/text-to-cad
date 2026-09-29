@@ -396,7 +396,6 @@ export class SessionManager {
       // the person changed by hand rather than nothing at all.
       sessionHead: startHead,
       turnHead: startHead,
-      turnStartedAt: null,
     };
     try {
       this.deps.repo.upsert(session);
@@ -777,10 +776,7 @@ export class SessionManager {
     // (a lock, a timeout) keeps the previous mark: a wider `Last turn` is
     // still a review, where a null would unmark it altogether.
     const turnHead = await this.headOf(session.cwd);
-    this.update(id, {
-      ...(turnHead === null ? {} : { turnHead }),
-      turnStartedAt: Date.now(),
-    });
+    this.update(id, turnHead === null ? {} : { turnHead });
     try {
       const response = await connection.prompt(content, `${id}:${Date.now()}`);
       this.persistTally(id);
