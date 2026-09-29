@@ -74,6 +74,7 @@ Object.defineProperty(window, "textToCad", {
       info: vi.fn(async () => ({ root: null, skills: [] })),
     },
     runtime: {
+      revealLog: vi.fn(async () => ({ revealed: true })),
       status: vi.fn(async () => ({
         state: "missing",
         python: null,

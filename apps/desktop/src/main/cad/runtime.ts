@@ -36,7 +36,7 @@
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 
 import { trackChild } from "../children";
 
@@ -46,7 +46,20 @@ import type { RuntimeStatus } from "../../shared/ipc/runtime";
 /* The host                                                                    */
 /* -------------------------------------------------------------------------- */
 
-export type ExecResult = { stdout: string; stderr: string; code: number | null };
+/** `timedOut`: the timeout killed it, so `code` is null and the output partial. */
+export type ExecResult = { stdout: string; stderr: string; code: number | null; timedOut?: boolean };
+
+export type ExecOptions = {
+  env: Record<string, string>;
+  cwd?: string;
+  onLine?: (line: string) => void;
+  timeoutMs?: number;
+  /**
+   * Run it as the leader of its own POSIX process group, ended whole when it
+   * exits — so a timeout that kills it takes the children it started too.
+   */
+  processGroup?: boolean;
+};
 
 export type RuntimeHost = {
   platform: NodeJS.Platform;
@@ -64,55 +77,94 @@ export type RuntimeHost = {
   env: Record<string, string | undefined>;
   /** The `cadPythonOverride` setting, read fresh on every resolution. */
   overrideSetting: () => string | null;
-  exec: (
-    file: string,
-    args: string[],
-    options: { env: Record<string, string>; cwd?: string; onLine?: (line: string) => void },
-  ) => Promise<ExecResult>;
+  /** `timeoutMs` defaults to the probe's sixty seconds. */
+  exec: (file: string, args: string[], options: ExecOptions) => Promise<ExecResult>;
 };
 
 const PROBE_TIMEOUT_MS = 60_000;
 
-/** Run a program to completion; the runtime's and the viewer's one exec. */
-export function execCommand(
-  file: string,
-  args: string[],
-  options: { env: Record<string, string>; cwd?: string; onLine?: (line: string) => void; timeoutMs?: number },
-): Promise<ExecResult> {
+const MAX_OUTPUT = 64 * 1024 * 1024;
+
+/**
+ * Run a program to completion; the runtime's and the viewer's one exec.
+ *
+ * `spawn`, not `execFile`: `execFile` does not pass `detached` through, so a
+ * process-group run would share this process's group and a timeout could not
+ * reach the children it started. On a timeout the leader gets SIGTERM — and,
+ * for a process-group run, the whole group SIGKILL, so nothing it started is
+ * left to run out its own clock.
+ */
+export function execCommand(file: string, args: string[], options: ExecOptions): Promise<ExecResult> {
+  const group = Boolean(options.processGroup) && process.platform !== "win32";
   return new Promise((resolve) => {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(file, args, { env: options.env, cwd: options.cwd, windowsHide: true, detached: group });
+    } catch (error) {
+      resolve({ stdout: "", stderr: error instanceof Error ? error.message : String(error), code: null });
+      return;
+    }
     // A probe: the answer is not wanted once the app is quitting, and the
     // process must not wait sixty seconds for `import cadgen` to finish.
-    const child = trackChild(execFile(
-      file,
-      args,
-      {
-        env: options.env,
-        cwd: options.cwd,
-        timeout: options.timeoutMs,
-        maxBuffer: 64 * 1024 * 1024,
-        windowsHide: true,
-      },
-      (error, stdout, stderr) => {
-        const code = error && "code" in error && typeof error.code === "number" ? error.code : error ? null : 0;
-        resolve({ stdout: String(stdout), stderr: String(stderr), code: error ? code : 0 });
-      },
-    ), "probe");
-    if (options.onLine) {
-      const onLine = options.onLine;
-      let buffer = "";
-      const feed = (chunk: Buffer | string) => {
-        buffer += String(chunk);
-        const lines = buffer.split(/\r?\n/);
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          if (line.trim()) {
-            onLine(line);
-          }
+    trackChild(child, "probe", { ownedProcessGroup: group });
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    let settled = false;
+    const append = (current: string, chunk: Buffer | string) =>
+      current.length >= MAX_OUTPUT ? current : current + String(chunk);
+    const onLine = options.onLine;
+    let buffer = "";
+    const feed = (chunk: Buffer | string) => {
+      if (!onLine) {
+        return;
+      }
+      buffer += String(chunk);
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (line.trim()) {
+          onLine(line);
         }
-      };
-      child.stdout?.on("data", feed);
-      child.stderr?.on("data", feed);
-    }
+      }
+    };
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout = append(stdout, chunk);
+      feed(chunk);
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr = append(stderr, chunk);
+      feed(chunk);
+    });
+    const timer = options.timeoutMs
+      ? setTimeout(() => {
+          timedOut = true;
+          if (group && child.pid) {
+            try {
+              process.kill(-child.pid, "SIGKILL");
+            } catch {
+              /* the group is already gone */
+            }
+          }
+          child.kill("SIGTERM");
+        }, options.timeoutMs)
+      : null;
+    const finish = (result: ExecResult) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+      resolve(result);
+    };
+    child.once("error", (error) => {
+      finish({ stdout, stderr: stderr || error.message, code: null });
+    });
+    child.once("close", (code) => {
+      finish({ stdout, stderr, code: timedOut ? null : code, ...(timedOut ? { timedOut } : {}) });
+    });
   });
 }
 
@@ -129,7 +181,8 @@ export function nodeHost(options: {
     env: process.env,
     nodeBinary: process.execPath,
     ...options,
-    exec: (file, args, execOptions) => execCommand(file, args, { ...execOptions, timeoutMs: PROBE_TIMEOUT_MS }),
+    exec: (file, args, execOptions) =>
+      execCommand(file, args, { ...execOptions, timeoutMs: execOptions.timeoutMs ?? PROBE_TIMEOUT_MS }),
   };
 }
 
@@ -277,30 +330,47 @@ export type ResolvedPython = {
 };
 
 /**
- * What the probe learns about an installed cadgen. `kernel` is null when the
- * CAD kernel the build path needs loads, else the interpreter's own words for
- * why it does not.
+ * The kernel as the probe found it, when it is not simply fine: `missing` (no
+ * OCP), `unsupported` (OCP loads but cadgen's kernel check refuses it) or
+ * `failed` (OCP will not load). `message` is the interpreter's words.
  */
-type Probe = { version: string; viewer: boolean; kernel: string | null };
+export type KernelFinding = { state: string; message: string };
+
+/**
+ * What the probe learns about an installed cadgen. `kernel` is null when the
+ * CAD kernel the build path needs is fine.
+ */
+type Probe = { version: string; viewer: boolean; kernel: KernelFinding | null };
 
 /**
  * The probe is cadgen's own report: `python -m cadgen.cli doctor --json`.
  * Its `viewer` says whether `cadgen.viewer` imports (the desktop runs
- * `python -m cadgen.viewer --api-only` per project, so a cadgen without it is
- * not a runtime for this app), and its `kernel` is cadgen's kernel check —
- * the one the STEP path runs, which also refuses an OCP from a distribution
- * cadgen does not build against. What "the kernel" means stays in cadgen; the
- * app reads the verdict. The report's exit code and `pin` are not ours: the
- * pin is a skill's concern, and a mismatch exits 3 with the report intact.
+ * `python -m cadgen.viewer --api-only` per project), and its `kernel` is
+ * cadgen's kernel check — the one the STEP path runs, which also refuses an
+ * OCP from a distribution cadgen does not build against. What "the kernel"
+ * means stays in cadgen; the app reads the verdict. The report's exit code
+ * and `pin` are not ours: the pin is a skill's concern.
  *
- * OCP's import (~2.5 s) is the slow part, paid once per interpreter and
- * usually at project open.
+ * Only a kernel that FAILS to load stops the runtime: it would take every
+ * build down with it. A `missing` or `unsupported` kernel is a warning on a
+ * ready runtime — `cadgen.viewer` never imports the kernel, so GLB, STL and
+ * DXF still open, and an OCP cadgen's check does not recognise may still
+ * build — which About shows and a failed STEP build quotes.
+ *
+ * OCP's import (~2.5 s, far more on a cold disk) is the slow part, paid once
+ * per interpreter and usually at project open. The doctor gets its own
+ * timeout, and tells its kernel child a shorter one, so the child is ended
+ * by the doctor before the doctor is ended by us; the doctor runs as its own
+ * process group, so if it is killed anyway, the child goes with it.
  */
 const DOCTOR_ARGS = ["-m", "cadgen.cli", "doctor", "--json"];
+const DOCTOR_TIMEOUT_MS = 120_000;
+/** Seconds; what `cadgen doctor` allows its fresh kernel interpreter. */
+const DOCTOR_KERNEL_TIMEOUT_S = 90;
 
 /**
- * A cadgen older than `doctor --json` (an override pointing at an older
- * install) is asked the old way, with the kernel imported by name.
+ * A cadgen older than `doctor --json` — or one so old it has no
+ * `cadgen.cli` module entry — is asked the old way, kernel imported by name.
  */
 const FALLBACK_PROBE_SCRIPT = [
   "import json, cadgen",
@@ -322,10 +392,14 @@ function lastJsonObject(stdout: string): Record<string, unknown> | null {
 }
 
 function lastLine(result: ExecResult): string {
-  return result.stderr.trim().split("\n").at(-1) || `python exited ${result.code}`;
+  return result.stderr.trim().split("\n").at(-1) || (result.code === null ? "python was killed" : `python exited ${result.code}`);
 }
 
-/** A probe that ran: cadgen imported, but the kernel its build path needs did not load. */
+function timedOut(what: string): Error {
+  return new Error(`${what} did not answer within ${DOCTOR_TIMEOUT_MS / 1000} s`);
+}
+
+/** A probe that ran: cadgen imported, but the CAD kernel failed to load. */
 class KernelError extends Error {}
 
 /**
@@ -509,8 +583,11 @@ export class CadRuntime {
         }
         const env = this.processEnv(resolved);
         const probe = await this.askDoctor(resolved.python, env);
+        if (probe.kernel?.state === "failed") {
+          throw new KernelError(probe.kernel.message);
+        }
         if (probe.kernel) {
-          throw new KernelError(probe.kernel);
+          void this.log(`[probe] ${resolved.source} ${resolved.python}: CAD kernel ${probe.kernel.state}: ${probe.kernel.message}`);
         }
         return probe;
       })();
@@ -524,27 +601,34 @@ export class CadRuntime {
     return pending;
   }
 
-  /** `cadgen doctor --json`, or the old question for a cadgen without it. */
+  /** `cadgen doctor --json`, or the old question when no report comes back. */
   private async askDoctor(python: string, env: Record<string, string>): Promise<Probe> {
-    const result = await this.host.exec(python, DOCTOR_ARGS, { env });
+    const options = { timeoutMs: DOCTOR_TIMEOUT_MS, processGroup: true };
+    const result = await this.host.exec(python, DOCTOR_ARGS, {
+      env: { ...env, CADGEN_DOCTOR_KERNEL_TIMEOUT: String(DOCTOR_KERNEL_TIMEOUT_S) },
+      ...options,
+    });
+    if (result.timedOut) {
+      throw timedOut("cadgen doctor");
+    }
     const report = lastJsonObject(result.stdout);
     const kernel = report?.kernel;
     if (report && typeof report.version === "string" && kernel && typeof kernel === "object") {
       const { ok, error, state } = kernel as { ok?: unknown; error?: unknown; state?: unknown };
       const viewer = report.viewer as { ok?: unknown } | undefined;
+      const named = typeof state === "string" && state ? state : "failed";
       return {
         version: report.version,
         viewer: Boolean(viewer?.ok),
-        kernel: ok === true ? null : typeof error === "string" && error ? error : `kernel ${String(state ?? "not ok")}`,
+        kernel: ok === true ? null : { state: named, message: typeof error === "string" && error ? error : `kernel ${named}` },
       };
     }
-    // A doctor without `--json` (argparse refuses the flag) or without the
-    // `kernel` field: an older cadgen. Anything else is the interpreter's
-    // failure, in its words.
-    if (!report && !/unrecognized arguments: --json/.test(result.stderr)) {
-      throw new Error(lastLine(result));
+    // No report: a doctor without `--json` or its `kernel`, or a cadgen with
+    // no `cadgen.cli` entry at all. Ask the old way; only its failure is ours.
+    const fallback = await this.host.exec(python, ["-c", FALLBACK_PROBE_SCRIPT], { env, ...options });
+    if (fallback.timedOut) {
+      throw timedOut("python");
     }
-    const fallback = await this.host.exec(python, ["-c", FALLBACK_PROBE_SCRIPT], { env });
     if (fallback.code !== 0) {
       throw new Error(lastLine(fallback));
     }
@@ -552,10 +636,11 @@ export class CadRuntime {
     if (!parsed || typeof parsed.version !== "string") {
       throw new Error("cadgen did not report a version");
     }
+    const words = typeof parsed.kernel === "string" && parsed.kernel ? parsed.kernel : null;
     return {
       version: parsed.version,
       viewer: Boolean(parsed.viewer),
-      kernel: typeof parsed.kernel === "string" && parsed.kernel ? parsed.kernel : null,
+      kernel: words ? { state: words.startsWith("ModuleNotFoundError") ? "missing" : "failed", message: words } : null,
     };
   }
 
@@ -579,13 +664,16 @@ export class CadRuntime {
     try {
       const probe = await this.probe(resolved);
       this.lastError = null;
+      // A kernel warning is written to the log as the probe answers.
+      await this.logQueue;
       return {
         state: "ready",
         python: resolved.python,
         source: resolved.source,
         cadgenVersion: probe.version,
         viewerBuilt: probe.viewer,
-        log,
+        log: fs.existsSync(logFile) ? logFile : log,
+        ...(probe.kernel ? { kernel: probe.kernel } : {}),
       };
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : String(error);
@@ -599,7 +687,7 @@ export class CadRuntime {
         log: fs.existsSync(logFile) ? logFile : null,
         message:
           error instanceof KernelError
-            ? `${SOURCE_NAMES[resolved.source]} (${resolved.python}) imports cadgen but not the CAD kernel it builds with: ${this.lastError}`
+            ? `${SOURCE_NAMES[resolved.source]} (${resolved.python}) imports cadgen, but its CAD kernel fails to load: ${this.lastError}`
             : `${SOURCE_NAMES[resolved.source]} (${resolved.python}) cannot import cadgen: ${this.lastError}`,
       };
     }

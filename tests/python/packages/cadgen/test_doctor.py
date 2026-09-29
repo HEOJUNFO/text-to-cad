@@ -239,6 +239,26 @@ class KernelProbeTest(unittest.TestCase):
         else:
             self.assertTrue(status["error"], status)
 
+    def test_a_caller_bounds_the_kernel_child_and_a_timeout_is_a_failed_kernel(self) -> None:
+        # The desktop runs doctor under its own deadline and hands it a shorter
+        # one, so the child is ended by subprocess.run rather than orphaned.
+        import subprocess
+
+        seen: list[float] = []
+
+        def run(*_args, timeout: float, **_kwargs):
+            seen.append(timeout)
+            raise subprocess.TimeoutExpired(cmd="python", timeout=timeout)
+
+        with mock.patch("subprocess.run", side_effect=run):
+            with mock.patch.dict("os.environ", {"CADGEN_DOCTOR_KERNEL_TIMEOUT": "90"}):
+                state, detail, _ = doctor._run_kernel_probe()
+            with mock.patch.dict("os.environ", {"CADGEN_DOCTOR_KERNEL_TIMEOUT": "nonsense"}):
+                doctor._run_kernel_probe()
+        self.assertEqual(seen, [90.0, 300.0])
+        self.assertEqual(state, doctor.KERNEL_FAILED)
+        self.assertIn("TimeoutExpired", detail)
+
     def test_the_probe_tells_a_missing_kernel_from_a_refused_one(self) -> None:
         # The child interpreter's last stderr line is all the probe has. A
         # ModuleNotFoundError is "not installed" (a --no-deps wheel install, a

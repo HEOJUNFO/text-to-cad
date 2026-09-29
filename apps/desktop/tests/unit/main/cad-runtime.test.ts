@@ -370,12 +370,13 @@ describe("status", () => {
   });
 
   it.skipIf(process.platform === "win32")(
-    "is an error, in cadgen's words, when cadgen imports but the kernel its STEP path needs does not",
+    "is ready with a kernel warning, in cadgen's words, when cadgen's kernel check refuses the OCP it found",
     async () => {
-      // A real interpreter process: cadgen imports and answers its version,
-      // but `cadgen doctor --json` says its kernel check refuses the OCP it
-      // found (one from another distribution). Asked only whether cadgen
-      // imports, this interpreter would pass.
+      // A real interpreter process: cadgen and its viewer import, but
+      // `cadgen doctor --json` says its kernel check refuses the OCP it found
+      // (one from another distribution). The viewer never imports the kernel,
+      // so the runtime is ready — and says, rather than hides, that a STEP
+      // build may fail. Asked only whether cadgen imports, it said plain Ready.
       const kernelError =
         "ValueError: op memo requires the cadquery-ocp-novtk distribution for persistent reuse " +
         "(PackageNotFoundError: No package metadata was found for cadquery-ocp-novtk)";
@@ -384,11 +385,12 @@ describe("status", () => {
         python,
         [
           "#!/bin/sh",
-          'if [ "$3" = doctor ]; then',
+          'if [ "$3" = doctor ] && [ "$CADGEN_DOCTOR_KERNEL_TIMEOUT" = 90 ]; then',
           `  echo '${JSON.stringify(doctorReport({ version: "9.9.9", viewer: true }, { ok: false, state: "unsupported", error: kernelError }))}'`,
           "  exit 0",
           "fi",
-          `echo '${JSON.stringify({ version: "9.9.9", viewer: true, kernel: null })}'`,
+          "echo 'unexpected probe' >&2",
+          "exit 1",
           "",
         ].join("\n"),
         { mode: 0o755 },
@@ -397,36 +399,106 @@ describe("status", () => {
       (m.host as { exec: RuntimeHost["exec"] }).exec = (file, args, options) => execCommand(file, args, options);
       const runtime = new CadRuntime(m.host);
       const status = await runtime.status();
-      expect(status.state).toBe("error");
-      expect(status.source).toBe("override");
-      expect(status.cadgenVersion).toBeNull();
-      expect(status.message).toContain("imports cadgen but not the CAD kernel");
-      expect(status.message).toContain(kernelError);
-      expect(fs.readFileSync(runtimeLogPath(m.userData), "utf8")).toContain("cadquery-ocp-novtk");
-      // The viewer is not started on it either.
-      expect(await runtime.ready()).toBeNull();
+      expect(status).toMatchObject({
+        state: "ready",
+        source: "override",
+        cadgenVersion: "9.9.9",
+        kernel: { state: "unsupported", message: kernelError },
+      });
+      expect(status.log).toBe(runtimeLogPath(m.userData));
+      expect(fs.readFileSync(runtimeLogPath(m.userData), "utf8")).toContain("CAD kernel unsupported");
+      // GLB, STL and DXF still open: the viewer is started on it.
+      expect((await runtime.ready())?.python).toBe(python);
     },
   );
 
-  it("asks a cadgen older than doctor --json the old way, kernel imported by name", async () => {
+  it("is an error when the CAD kernel fails to load, because every build would", async () => {
+    const m = machine({ bundle: true });
+    const refused = "ImportError: DLL load failed while importing OCP: Access is denied.";
+    (m.host as { exec: RuntimeHost["exec"] }).exec = async () => ({
+      stdout: `${JSON.stringify(doctorReport({ version: "9.9.9", viewer: true }, { ok: false, state: "failed", error: refused }))}\n`,
+      stderr: "",
+      code: 4,
+    });
+    const runtime = new CadRuntime(m.host);
+    const status = await runtime.status();
+    expect(status.state).toBe("error");
+    expect(status.message).toContain("its CAD kernel fails to load");
+    expect(status.message).toContain(refused);
+    expect(status.kernel).toBeUndefined();
+    expect(await runtime.ready()).toBeNull();
+  });
+
+  it("gives the doctor its own deadline, a shorter one for its kernel child, and its own process group", async () => {
+    const m = machine({ bundle: true });
+    const seen: Parameters<RuntimeHost["exec"]>[2][] = [];
+    const exec = m.host.exec;
+    (m.host as { exec: RuntimeHost["exec"] }).exec = (file, args, options) => {
+      seen.push(options);
+      return exec(file, args, options);
+    };
+    await new CadRuntime(m.host).status();
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ timeoutMs: 120_000, processGroup: true });
+    expect(Number(seen[0]?.env.CADGEN_DOCTOR_KERNEL_TIMEOUT) * 1000).toBeLessThan(120_000);
+  });
+
+  it("says a doctor that timed out did not answer, and does not ask again the slow way", async () => {
+    const m = machine({ bundle: true });
+    (m.host as { exec: RuntimeHost["exec"] }).exec = async (file, args) => {
+      m.execs.push({ file, args, env: {} });
+      return { stdout: "", stderr: "", code: null, timedOut: true };
+    };
+    const status = await new CadRuntime(m.host).status();
+    expect(status.state).toBe("error");
+    expect(status.message).toContain("cadgen doctor did not answer within 120 s");
+    expect(status.message).not.toContain("exited null");
+    expect(m.execs).toHaveLength(1);
+  });
+
+  it.each([
+    ["a doctor without --json", "usage: cadgen doctor [-h] [requirements]\ncadgen doctor: error: unrecognized arguments: --json", 2],
+    ["a cadgen with no cadgen.cli entry", "/python: No module named cadgen.cli.__main__; 'cadgen.cli' is a package and cannot be directly executed", 1],
+  ])("asks %s the old way, kernel imported by name", async (_name, stderr, code) => {
     const m = machine({ bundle: true });
     const python = bundledPaths(m.resources, "darwin", "arm64").python;
-    let ocp = false;
+    let ocp: "missing" | "refused" | "ok" = "missing";
     (m.host as { exec: RuntimeHost["exec"] }).exec = async (file, args) => {
       m.execs.push({ file, args, env: {} });
       if (args.includes("--json")) {
-        return { stdout: "", stderr: "usage: cadgen doctor [-h] [requirements]\ncadgen doctor: error: unrecognized arguments: --json", code: 2 };
+        return { stdout: "", stderr, code };
       }
-      const kernel = ocp ? null : "ModuleNotFoundError: No module named 'OCP'";
+      const kernel = {
+        missing: "ModuleNotFoundError: No module named 'OCP'",
+        refused: "ImportError: dlopen(OCP.so): Symbol not found",
+        ok: null,
+      }[ocp];
       return { stdout: `${JSON.stringify({ version: "0.4.0", viewer: true, kernel })}\n`, stderr: "", code: 0 };
     };
     const runtime = new CadRuntime(m.host);
-    const broken = await runtime.status();
-    expect(broken.state).toBe("error");
-    expect(broken.message).toContain("No module named 'OCP'");
+    expect(await runtime.status()).toMatchObject({
+      state: "ready",
+      cadgenVersion: "0.4.0",
+      kernel: { state: "missing", message: "ModuleNotFoundError: No module named 'OCP'" },
+    });
     expect(m.execs.map((exec) => exec.args[0])).toEqual(["-m", "-c"]);
-    ocp = true;
-    expect(await runtime.repair()).toMatchObject({ state: "ready", python, cadgenVersion: "0.4.0" });
+    ocp = "refused";
+    expect((await runtime.repair()).state).toBe("error");
+    ocp = "ok";
+    const ready = await runtime.repair();
+    expect(ready).toMatchObject({ state: "ready", python, cadgenVersion: "0.4.0" });
+    expect(ready.kernel).toBeUndefined();
+  });
+
+  it("throws only when the old way fails too, in its words", async () => {
+    const m = machine({ bundle: true });
+    (m.host as { exec: RuntimeHost["exec"] }).exec = async (_file, args) =>
+      args.includes("--json")
+        ? { stdout: "", stderr: "No module named cadgen.cli.__main__", code: 1 }
+        : { stdout: "", stderr: "Traceback (most recent call last):\nModuleNotFoundError: No module named 'cadgen'", code: 1 };
+    const status = await new CadRuntime(m.host).status();
+    expect(status.state).toBe("error");
+    expect(status.message).toContain("No module named 'cadgen'");
   });
 
   it("is an error naming a missing override path", async () => {
@@ -459,4 +531,39 @@ describe("status", () => {
     const none = machine({});
     expect(await new CadRuntime(none.host).ready()).toBeNull();
   });
+});
+
+describe("execCommand", () => {
+  it.skipIf(process.platform === "win32")(
+    "says a timeout is one, and ends the grandchildren of a process-group run with it",
+    async () => {
+      // The doctor's shape: a leader that starts a child and waits on it. A
+      // timeout kills the leader; the group takes the child down with it
+      // instead of leaving it orphaned for its own, longer timeout.
+      const dir = tempDir("text-to-cad-group-");
+      const script = path.join(dir, "leader");
+      const pidFile = path.join(dir, "child.pid");
+      fs.writeFileSync(script, `#!/bin/sh\nsleep 30 &\necho $! > "${pidFile}"\nwait\n`, { mode: 0o755 });
+      const result = await execCommand(script, [], {
+        env: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
+        timeoutMs: 500,
+        processGroup: true,
+      });
+      expect(result.timedOut).toBe(true);
+      expect(result.code).toBeNull();
+      const child = Number(fs.readFileSync(pidFile, "utf8").trim());
+      const alive = () => {
+        try {
+          process.kill(child, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      while (alive()) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(alive()).toBe(false);
+    },
+  );
 });

@@ -224,8 +224,8 @@ function RuntimeCard({ appVersion }: { appVersion: string | null }) {
       <SettingRow
         control={
           <>
-            <StatusLabel tone={status ? STATE_TONE[status.state] : "busy"}>
-              {status ? STATE_LABEL[status.state] : "Checking…"}
+            <StatusLabel tone={status ? (status.kernel ? "warn" : STATE_TONE[status.state]) : "busy"}>
+              {status ? `${STATE_LABEL[status.state]}${status.kernel ? ` — CAD kernel: ${status.kernel.state}` : ""}` : "Checking…"}
             </StatusLabel>
             <Button
               className="h-8 gap-1.5"
@@ -247,7 +247,13 @@ function RuntimeCard({ appVersion }: { appVersion: string | null }) {
         keywords="python cadgen runtime repair interpreter bundled"
         title="Runtime"
       >
-        {status?.log && status.state !== "ready" ? (
+        {status?.kernel ? (
+          // Ready, but a STEP build may fail: cadgen's own words for why.
+          <p className="text-[11px] text-muted-foreground" data-runtime-kernel={status.kernel.state}>
+            CAD kernel: {status.kernel.state}: <span data-selectable>{status.kernel.message}</span>
+          </p>
+        ) : null}
+        {status?.log && (status.state !== "ready" || status.kernel) ? (
           <p className="truncate text-[11px] text-muted-foreground" title={status.log}>
             Log: <span data-selectable>{status.log}</span>
           </p>

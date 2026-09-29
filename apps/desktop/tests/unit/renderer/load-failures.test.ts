@@ -5,6 +5,7 @@ import { createDesktopLoadFailures, loadFailurePrompt } from "@renderer/features
 import { createDesktopPromptContext } from "@renderer/features/explorer/host/promptContext";
 import { useComposer } from "@renderer/state/composer";
 import { useProjects } from "@renderer/state/projects";
+import { useRuntime } from "@renderer/state/runtime";
 import { useSessions } from "@renderer/state/sessions";
 import type { Project, Session } from "@shared/types";
 
@@ -27,6 +28,17 @@ it("a build failure names the CAD runtime, never a terminal or address, and offe
   expect(recovery.message).toBe("The CAD runtime reported an error building “models/bracket.step”.");
   expect(`${recovery.message} ${recovery.recovery}`).not.toMatch(/terminal|address/);
   expect(recovery.actions?.map(action => action.label)).toEqual(["Ask the agent to fix", "Copy details"]);
+});
+
+it("a build failure on a runtime with a CAD kernel warning quotes the warning, in cadgen's words, before the next step", () => {
+  const words = "ValueError: op memo requires the cadquery-ocp-novtk distribution for persistent reuse";
+  useRuntime.setState({ status: { state: "ready", python: "/py", source: "override", cadgenVersion: "9.9.9", viewerBuilt: true, log: null, kernel: { state: "unsupported", message: words } } });
+  try {
+    const recovery = createDesktopLoadFailures(createDesktopPromptContext("car", null, workspaceId, "first"), clipboard()).recover(failure)!;
+    expect(recovery.recovery).toBe(`The CAD runtime's kernel is unsupported, which can stop a STEP build: ${words}. Ask the agent to fix the source, or copy the details.`);
+  } finally {
+    useRuntime.setState({ status: null });
+  }
 });
 
 it("Ask the agent to fix delivers the diagnostic to the session's prompt; Copy details copies it", async () => {

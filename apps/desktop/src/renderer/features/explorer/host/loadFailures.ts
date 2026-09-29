@@ -1,6 +1,7 @@
 import { createPromptContext, textPart } from "@text-to-cad/core/prompt";
 import type { PromptContextPort } from "@text-to-cad/core/prompt";
 import type { ClipboardPort, ViewerHost, ViewerLoadFailure } from "@text-to-cad/ui/host";
+import { runtimeKernelNote } from "../adapters/cadRuntime";
 
 type Class = "build" | "network" | "load" | "empty" | "edit" | "other";
 
@@ -33,6 +34,12 @@ export function loadFailurePrompt(failure: ViewerLoadFailure): string {
   return `${ask}\n\n\`\`\`\n${diagnostic}\n\`\`\``;
 }
 
+/** A build failure's next step; first, when the runtime has one, its CAD kernel warning. */
+function buildRecovery(): string {
+  const note = runtimeKernelNote();
+  return note ? `${note}. Ask the agent to fix the source, or copy the details.` : "Ask the agent to fix the source, or copy the details.";
+}
+
 /**
  * The desktop has no viewer terminal or address to check: the runtime is in the app, and
  * the next step is the session's agent. A build failure says the runtime reported it, with
@@ -48,7 +55,7 @@ export function createDesktopLoadFailures(promptContext: PromptContextPort, clip
       const text = loadFailurePrompt(failure);
       const kind = classOf(failure.kind);
       const words = kind === "build"
-        ? { message: `The CAD runtime reported an error building ${named(failure)}.${kept}`, recovery: "Ask the agent to fix the source, or copy the details." }
+        ? { message: `The CAD runtime reported an error building ${named(failure)}.${kept}`, recovery: buildRecovery() }
         : kind === "network"
           ? { message: `The app lost contact with the CAD runtime while loading ${named(failure)}.${kept}`, recovery: "Try again. If it keeps happening, copy the details." }
           : {};

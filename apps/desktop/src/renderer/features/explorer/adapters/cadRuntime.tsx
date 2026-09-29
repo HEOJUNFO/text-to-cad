@@ -1,13 +1,14 @@
-import { Box, RefreshCw, Settings2 } from "lucide-react";
+import { Box, FolderOpen, RefreshCw, Settings2 } from "lucide-react";
 import { useEffect } from "react";
+import { toast } from "sonner";
 import { createCadClient } from "@text-to-cad/core/client";
 import type { CadClient } from "@text-to-cad/core/client";
 import type { PrepareContext, RendererViewProps } from "@text-to-cad/ui/file-viewer";
 import { EmptyState } from "@text-to-cad/ui/navigation";
-import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { Button } from "@renderer/components/ui/button";
 import { useUi } from "@renderer/state/ui";
 import { subscribeSessionTabs } from "@renderer/state/explorer";
+import { useRuntime } from "@renderer/state/runtime";
 import type { ViewerOrigin } from "@shared/ipc/cad";
 import type { ExplorerRoot, ExplorerTab, FileTab } from "@shared/types";
 import { markViewerOpened } from "@renderer/state/onboarding";
@@ -43,6 +44,10 @@ export function createDesktopCadConnection(projectId: string, root: ExplorerRoot
           connectionOrigin = answer.origin;
           // A CAD file reached the viewer: the Getting started checklist's last item.
           markViewerOpened();
+          // The viewer came up on a runtime whose status may carry a kernel
+          // warning; hold it, so a STEP build that fails can say so. Main's
+          // answer is the probe it already ran.
+          void useRuntime.getState().load().catch(() => {});
           return client;
         })();
       }
@@ -184,6 +189,23 @@ const REASONS: Record<NonNullable<ViewerOrigin["reason"]>, string> = {
   "no-project": "Select a session in this folder to render its files.",
 };
 
+/**
+ * A failed build's recovery line when the runtime is ready with a CAD kernel
+ * warning (`missing`, `unsupported`): the build may have failed for that, in
+ * cadgen's words. Null when the kernel is fine or the status is not known.
+ */
+export function runtimeKernelNote(): string | null {
+  const kernel = useRuntime.getState().status?.kernel;
+  return kernel ? `The CAD runtime's kernel is ${kernel.state}, which can stop a STEP build: ${kernel.message}` : null;
+}
+
+/** The runtime log, shown in the file manager; main names the file. */
+function revealLog() {
+  void window.textToCad.runtime.revealLog()
+    .then(({ revealed }) => { if (!revealed) toast.error("There is no runtime log yet."); })
+    .catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)));
+}
+
 export function DesktopCadFailure({ answer, onReady, reload }: { answer: ViewerOrigin } & Pick<RendererViewProps, "onReady" | "reload">) {
   const openSettings = useUi((state) => state.openSettings);
   useEffect(() => { onReady(false); }, [onReady]);
@@ -194,10 +216,10 @@ export function DesktopCadFailure({ answer, onReady, reload }: { answer: ViewerO
     </div> :
     <div className="flex flex-col items-center gap-2" data-cad-failure={reason}>
       {answer.message ? <pre className="max-h-40 max-w-[420px] overflow-auto rounded-lg border bg-muted/40 px-3 py-2 text-left font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground"><code data-selectable>{answer.message}</code></pre> : null}
-      {answer.log ? <TooltipHint content={answer.log} overflowOnly><p className="max-w-[420px] truncate text-[11px] text-muted-foreground">Log: <span data-selectable>{answer.log}</span></p></TooltipHint> : null}
       <div className="flex items-center gap-2">
         <Button className="h-7 gap-1.5 text-xs" onClick={reload} size="sm" variant="secondary"><RefreshCw className="size-3.5" />Try again</Button>
         <Button className="h-7 gap-1.5 text-xs" onClick={() => openSettings("about")} size="sm" variant="ghost"><Settings2 className="size-3.5" />Runtime status</Button>
+        {answer.log ? <Button className="h-7 gap-1.5 text-xs" onClick={revealLog} size="sm" variant="ghost"><FolderOpen className="size-3.5" />Reveal log</Button> : null}
       </div>
     </div>} />;
 }

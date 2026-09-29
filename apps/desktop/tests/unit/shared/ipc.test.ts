@@ -72,6 +72,7 @@ describe("the contract", () => {
       "skills.info",
       "runtime.status",
       "runtime.repair",
+      "runtime.revealLog",
       "onboarding.status",
       "onboarding.createSample",
       "dialogs.chooseDirectory",

@@ -26,6 +26,8 @@ to read (the desktop app's runtime probe is one): ``version``, ``python``,
 it -- and ``ok`` is true only for ``ok``) and ``pin`` (``{state, file,
 pinned}``; ``state`` is ``none``, ``unpinned``, ``ok`` or ``mismatch``). The
 exit code is the text report's.
+``CADGEN_DOCTOR_KERNEL_TIMEOUT`` (seconds, default 300) bounds the fresh
+kernel interpreter, for a caller that runs doctor under a deadline of its own.
 
 Exit codes: 0 = installed cadgen matches the pin (or nothing claims a pin);
 3 = pin mismatch, the same code the shims used; 4 = the kernel is installed
@@ -50,6 +52,7 @@ stdlib-only on purpose: this must work when the heavy dependency set is broken.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -130,6 +133,22 @@ print(json.dumps({{"path": OCP.__file__, "verify": verify}}))
 """
 
 
+_KERNEL_TIMEOUT_ENV = "CADGEN_DOCTOR_KERNEL_TIMEOUT"
+_KERNEL_TIMEOUT_DEFAULT = 300.0
+
+
+def _kernel_timeout() -> float:
+    """Seconds the fresh kernel interpreter may take: ``CADGEN_DOCTOR_KERNEL_TIMEOUT``
+    when it is a positive number, else 300. A program that runs doctor under
+    its own deadline sets it shorter, so the child is ended here, by
+    ``subprocess.run``, rather than orphaned when that program kills doctor."""
+    try:
+        value = float(os.environ.get(_KERNEL_TIMEOUT_ENV, ""))
+    except ValueError:
+        return _KERNEL_TIMEOUT_DEFAULT
+    return value if value > 0 else _KERNEL_TIMEOUT_DEFAULT
+
+
 def _run_kernel_probe() -> tuple[str, str, str | None]:
     """Import OCP, then run cadgen's kernel check, in a fresh interpreter:
     ``(state, detail, verify)``.
@@ -148,7 +167,7 @@ def _run_kernel_probe() -> tuple[str, str, str | None]:
             [sys.executable, "-c", _KERNEL_PROBE.format(root=root)],
             capture_output=True,
             text=True,
-            timeout=300,
+            timeout=_kernel_timeout(),
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         return KERNEL_FAILED, f"{type(error).__name__}: {error}", None
