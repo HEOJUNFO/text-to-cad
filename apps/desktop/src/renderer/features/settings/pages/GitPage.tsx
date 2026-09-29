@@ -320,6 +320,9 @@ function ProjectWorktreeCard({ project }: { project: Project }) {
 
 /** Why a worktree's Delete is off, or null when it is not. */
 function keptBecause(worktree: Worktree): string | null {
+  if (worktree.dirty === null) {
+    return "Git could not check this worktree for uncommitted changes or ignored files, so it is kept.";
+  }
   if (worktree.dirty) {
     return "This worktree has uncommitted changes or ignored files (like .env) that deleting it would lose.";
   }
@@ -355,6 +358,8 @@ function describe(worktree: Worktree): string {
   }
   if (worktree.dirty) {
     parts.push("uncommitted or ignored files");
+  } else if (worktree.dirty === null) {
+    parts.push("could not check for unsaved files");
   }
   return parts.join(" · ");
 }

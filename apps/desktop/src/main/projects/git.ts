@@ -967,15 +967,20 @@ export async function emptyTreeIfUnborn(cwd: string, run: GitRunner = runGit): P
   return /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(id) ? id : null;
 }
 
-/** Whether anything is uncommitted — the check `removeWorktree` refuses on. */
+/**
+ * Whether anything is uncommitted — the check `removeWorktree` refuses on.
+ *
+ * Throws when git cannot answer (a timeout, a lock, a broken repository):
+ * "could not look" read as "clean" is how a sweep deletes somebody's work.
+ */
 export async function isDirty(cwd: string): Promise<boolean> {
-  const porcelain = await tryGit(cwd, [
+  const porcelain = await git(cwd, [
     "status",
     "--porcelain=v1",
     "-z",
     "--untracked-files=all",
   ]);
-  return (porcelain ?? "").split("\0").some((record) => record !== "");
+  return porcelain.split("\0").some((record) => record !== "");
 }
 
 /**
@@ -1007,17 +1012,18 @@ function disposable(ignoredPath: string): boolean {
 /**
  * Ignored files in `cwd` that removing the worktree would delete, minus the
  * disposable caches above. `--ignored=matching` names an ignored directory
- * once rather than every file in it.
+ * once rather than every file in it. Throws when git cannot answer, as
+ * `isDirty` does.
  */
 export async function ignoredFiles(cwd: string): Promise<string[]> {
-  const porcelain = await tryGit(cwd, [
+  const porcelain = await git(cwd, [
     "status",
     "--porcelain=v1",
     "-z",
     "--ignored=matching",
     "--untracked-files=all",
   ]);
-  return (porcelain ?? "")
+  return porcelain
     .split("\0")
     .filter((record) => record.startsWith("!! "))
     .map((record) => record.slice(3))
@@ -1028,9 +1034,16 @@ export async function ignoredFiles(cwd: string): Promise<string[]> {
  * Anything removing a worktree would lose: uncommitted changes, or ignored
  * files that are not a disposable cache. What the sweep and a non-forced
  * `removeWorktree` refuse on, and what Settings shows as "dirty".
+ *
+ * Null when git could not say — which every caller treats as "keep it",
+ * never as clean.
  */
-export async function hasUnsavedWork(cwd: string): Promise<boolean> {
-  return (await isDirty(cwd)) || (await ignoredFiles(cwd)).length > 0;
+export async function hasUnsavedWork(cwd: string): Promise<boolean | null> {
+  try {
+    return (await isDirty(cwd)) || (await ignoredFiles(cwd)).length > 0;
+  } catch {
+    return null;
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1313,11 +1326,14 @@ export async function removeWorktree(
   if (target.primary) {
     throw new GitError("that is the repository itself, not a worktree");
   }
-  if (!options.force && (await isDirty(worktreePath))) {
+  const unchecked = (error: unknown) => {
+    throw new GitError(`could not check that worktree for unsaved work, so it was kept: ${error instanceof Error ? error.message : String(error)}`);
+  };
+  if (!options.force && (await isDirty(worktreePath).catch(unchecked))) {
     throw new GitError("that worktree has uncommitted changes");
   }
   if (!options.force) {
-    const ignored = await ignoredFiles(worktreePath);
+    const ignored = await ignoredFiles(worktreePath).catch(unchecked);
     if (ignored.length > 0) {
       const named = ignored.slice(0, 3).join(", ") + (ignored.length > 3 ? `, and ${ignored.length - 3} more` : "");
       throw new GitError(`that worktree has ignored files that removing it would delete: ${named}`);
@@ -1390,7 +1406,8 @@ export async function pruneWorktrees(options: PruneOptions): Promise<{ removed: 
   const removed: string[] = [];
   for (const candidate of candidates.slice(Math.max(0, options.keep))) {
     // Ignored files count as work here: `git worktree remove` deletes them.
-    if (await hasUnsavedWork(candidate.path)) {
+    // So does a check that failed: only a proved-clean worktree goes.
+    if ((await hasUnsavedWork(candidate.path)) !== false) {
       continue;
     }
     await removeWorktree(candidate.path).then(

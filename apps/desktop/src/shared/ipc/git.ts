@@ -118,8 +118,11 @@ export const WorktreeSchema = z.object({
   lastUsedAt: z.number().nullable(),
   /** Sessions still pointing at it — never swept, and a warning before Delete. */
   openSessions: z.number().int().nonnegative(),
-  /** Uncommitted work: `Delete` refuses rather than discarding it. */
-  dirty: z.boolean(),
+  /**
+   * Uncommitted work: `Delete` refuses rather than discarding it. Null when
+   * git could not check — shown as unknown, and kept like dirty.
+   */
+  dirty: z.boolean().nullable(),
   locked: z.boolean(),
 });
 export type Worktree = z.infer<typeof WorktreeSchema>;

@@ -469,6 +469,48 @@ describe("pruneWorktrees", () => {
   });
 });
 
+describe("a check git could not answer", () => {
+  /**
+   * A `git` first on PATH that fails the ignored-files read the way a lock or
+   * a timeout would, and passes everything else to the real one.
+   */
+  async function failingIgnoredCheck(): Promise<() => void> {
+    const real = (await run("sh", ["-c", "command -v git"])).stdout.trim();
+    const bin = await scratch("text-to-cad-git-wrapper-");
+    await writeFile(
+      path.join(bin, "git"),
+      `#!/bin/sh\nfor arg in "$@"; do [ "$arg" = "--ignored=matching" ] && { echo "fatal: unable to read index" >&2; exit 128; }; done\nexec "${real}" "$@"\n`,
+      { mode: 0o755 },
+    );
+    const previous = process.env.PATH;
+    process.env.PATH = `${bin}${path.delimiter}${previous ?? ""}`;
+    return () => {
+      process.env.PATH = previous;
+    };
+  }
+
+  it("is unknown, not clean, and nothing is removed on it", async () => {
+    const { root, worktrees } = await repository();
+    await writeFile(path.join(root, ".gitignore"), ".env\n");
+    await git_(root, "add", "-A");
+    await git_(root, "commit", "--quiet", "-m", "ignore");
+    const secrets = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "secrets" });
+    await writeFile(path.join(secrets.path, ".env"), "TOKEN=1\n");
+
+    const restore = await failingIgnoredCheck();
+    try {
+      const { removed } = await git.pruneWorktrees({ repoPath: root, parentDir: worktrees, keep: 0 });
+      expect(removed).toEqual([]);
+      await expect(git.removeWorktree(secrets.path)).rejects.toThrow(/could not check that worktree/);
+      // What Settings is told: not clean, not dirty — unknown.
+      expect(await git.hasUnsavedWork(secrets.path)).toBeNull();
+    } finally {
+      restore();
+    }
+    expect(await readdir(secrets.path)).toContain(".env");
+  });
+});
+
 /* -------------------------------------------------------------------------- */
 /* Scopes                                                                      */
 /* -------------------------------------------------------------------------- */
