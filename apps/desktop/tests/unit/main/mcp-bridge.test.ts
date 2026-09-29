@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -251,5 +252,23 @@ describe("the actions", () => {
     const snapshot = await actions.attach_snapshot!(session, { path: "tmp/review.png" });
     expect(snapshot).toEqual({ path: "tmp/review.png", mimeType: "image/png", base64: Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString("base64") });
     await expect(actions.attach_snapshot!(session, { path: "notes.txt" })).rejects.toThrow("not a PNG");
+  });
+
+  it.skipIf(process.platform === "win32")("refuses a snapshot that is a FIFO rather than blocking on it", { timeout: 2000 }, async () => {
+    const root = tempDir("text-to-cad-proj-");
+    const fifo = path.join(root, "stuck.png");
+    execFileSync("mkfifo", [fifo]);
+    const sessionRoot = () => ({ directory: root, root: null });
+    const actions = createActions({ sessionRoot, send: () => {}, newId: () => "r" }, new RendererCommands({ sessionRoot, send: () => {}, newId: () => "r" }));
+    try {
+      await expect(actions.attach_snapshot!({ sessionId: "s", projectId: "p", cwd: root }, { path: "stuck.png" })).rejects.toThrow(/not a file/);
+    } finally {
+      // Release a reader that did block, so the pool thread it holds comes back.
+      try {
+        fs.closeSync(fs.openSync(fifo, fs.constants.O_WRONLY | fs.constants.O_NONBLOCK));
+      } catch {
+        // No reader waiting: the fix held.
+      }
+    }
   });
 });

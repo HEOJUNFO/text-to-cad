@@ -16,6 +16,7 @@
  * show what the explorer could show anyway, and the command it produces
  * names the root so the explorer opens the file where it is.
  */
+import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 
@@ -149,6 +150,32 @@ export async function resolveForSession(
   return { directory: realDirectory, root, absolute, relative: toRelative(realDirectory, absolute) };
 }
 
+/**
+ * A snapshot's bytes, from one handle. Opened non-blocking and checked with
+ * `fstat` on that handle: a FIFO named `x.png` would otherwise hold a libuv
+ * thread in `open` for good, and a file checked by path and then read by path
+ * can be swapped or grown in between. The read stops one byte past the cap,
+ * so a file that grew after the check is still refused rather than read whole.
+ */
+async function readSnapshot(absolute: string, target: string, signal?: AbortSignal): Promise<Buffer> {
+  const handle = await fsp.open(absolute, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0));
+  try {
+    if (!(await handle.stat()).isFile()) throw new Error(`${target} is not a file`);
+    const buffer = Buffer.allocUnsafe(MAX_SNAPSHOT_BYTES + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      signal?.throwIfAborted();
+      const { bytesRead } = await handle.read(buffer, length, buffer.length - length, length);
+      if (bytesRead === 0) break;
+      length += bytesRead;
+    }
+    if (length > MAX_SNAPSHOT_BYTES) throw new Error("snapshots over 8 MB are not attached");
+    return buffer.subarray(0, length);
+  } finally {
+    await handle.close();
+  }
+}
+
 /** Core file actions plus renderer operations declared by each integration. */
 export function createActions(deps: ActionDeps, commands: RendererCommands): BridgeActions {
   const relay = async (kind: IntegrationCommandKind, session: BridgeSession, params: Record<string, unknown>, signal?: AbortSignal, extra: Partial<IntegrationCommand> = {}) => {
@@ -183,10 +210,7 @@ export function createActions(deps: ActionDeps, commands: RendererCommands): Bri
     const resolved = await resolveForSession(deps, session, target);
     const mimeType = IMAGE_TYPES[path.extname(resolved.absolute).toLowerCase()];
     if (!mimeType) throw new Error(`${target} is not a PNG, JPEG, WebP or GIF`);
-    const stat = await fsp.stat(resolved.absolute);
-    if (stat.size > MAX_SNAPSHOT_BYTES) throw new Error("snapshots over 8 MB are not attached");
-    const bytes = await fsp.readFile(resolved.absolute, { signal });
-    return { path: resolved.relative, mimeType, base64: bytes.toString("base64") };
+    return { path: resolved.relative, mimeType, base64: (await readSnapshot(resolved.absolute, target, signal)).toString("base64") };
   };
   return actions;
 }
