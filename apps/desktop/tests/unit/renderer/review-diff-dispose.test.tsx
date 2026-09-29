@@ -42,6 +42,7 @@ const fakeCode = () => {
 
 let models: { original: { dispose: () => void }; modified: { dispose: () => void } };
 let shown: { original?: string; modified?: string } = {};
+let editorOptions: Record<string, unknown> = {};
 // The real wrapper mounts after monaco's loader resolves, and the widget's diff
 // arrives from a worker after that; `mountNow` and `diffUpdated` stand for both.
 let deferMount = false;
@@ -51,8 +52,9 @@ let diffUpdated = listener();
 
 vi.mock("@monaco-editor/react", async () => {
   const { useEffect, useRef } = await import("react");
-  function DiffEditor({ onMount, original, modified }: { onMount: (editor: unknown) => void; original: string; modified: string }) {
+  function DiffEditor({ onMount, original, modified, options }: { onMount: (editor: unknown) => void; original: string; modified: string; options: Record<string, unknown> }) {
     shown = { original, modified };
+    editorOptions = options;
     // Mounted once, like the real wrapper, whatever the parent re-renders.
     const mount = useRef(onMount);
     useEffect(() => {
@@ -78,7 +80,11 @@ vi.mock("@monaco-editor/react", async () => {
     }, []);
     return <div data-testid="diff-editor" />;
   }
-  return { default: () => <div data-testid="editor" />, DiffEditor };
+  function Editor({ options }: { options: Record<string, unknown> }) {
+    editorOptions = options;
+    return <div data-testid="editor" />;
+  }
+  return { default: Editor, DiffEditor };
 });
 vi.mock("@renderer/features/explorer/renderers/code/editor/setup", () => ({ setupMonaco: vi.fn() }));
 
@@ -150,4 +156,11 @@ it("is ready at mount when the diff was already computed", () => {
   computed = [];
   const view = render(<ReviewDiff diff={diff} onSelect={() => undefined} path="part.py" theme="light" />);
   expect(view.container.querySelector("[data-review-diff=modified]")?.getAttribute("data-review-ready")).toBe("true");
+});
+
+it("names each side's text field for the file, so a screen reader does not hear two unnamed editors", () => {
+  render(<ReviewDiff diff={{ ...diff, path: "parts/part.py" }} onSelect={() => undefined} path="parts/part.py" theme="light" />);
+  expect(editorOptions).toMatchObject({ originalAriaLabel: "part.py, before", modifiedAriaLabel: "part.py, after" });
+  render(<ReviewDiff diff={{ ...diff, status: "added", before: null }} onSelect={() => undefined} path="parts/new.py" theme="light" />);
+  expect(editorOptions).toMatchObject({ ariaLabel: "new.py, added" });
 });

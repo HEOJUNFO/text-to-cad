@@ -39,6 +39,8 @@ import htmlWorker from "monaco-editor/language/html/html.worker?worker";
 import jsonWorker from "monaco-editor/language/json/json.worker?worker";
 import tsWorker from "monaco-editor/language/typescript/ts.worker?worker";
 
+import { isMac } from "@renderer/lib/platform";
+
 import { MONACO_DARK, MONACO_LIGHT, MONACO_TRANSCRIPT_DARK, MONACO_TRANSCRIPT_LIGHT } from "./monaco";
 
 /* -------------------------------------------------------------------------- */
@@ -198,6 +200,16 @@ export function setupMonaco(): void {
   };
 
   loader.config({ monaco });
+  // Tab-focus mode (Tab leaves the editor rather than indenting) is Monaco's
+  // Ctrl+Shift+M on macOS and Ctrl+M elsewhere. The shortcut table and the
+  // terminal say Ctrl+Shift+M on every platform, so it is that here too; the
+  // native Ctrl+M still works.
+  if (!isMac) {
+    monaco.editor.addKeybindingRule({
+      keybinding: monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyM,
+      command: "editor.action.toggleTabFocusMode",
+    });
+  }
   // Every theme the renderer uses, registered here, once, in this order.
   // Monaco themes cannot inherit from each other (`base` is only `vs` or
   // `vs-dark`), so the transcript's are the shell's colours spread, with a
