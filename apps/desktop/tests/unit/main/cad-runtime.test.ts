@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 
 import {
   CadRuntime,
@@ -28,10 +28,62 @@ function tempDir(prefix: string): string {
   temps.push(dir);
   return dir;
 }
-afterEach(() => {
-  for (const dir of temps.splice(0)) {
-    fs.rmSync(dir, { recursive: true, force: true });
+
+/**
+ * Every runtime-log write a test started. The runtime logs without awaiting
+ * (`void this.log(...)`), and `log` creates `userData/` again, so removing
+ * the directories before those writes land leaves `text-to-cad-runtime-*`
+ * behind in the temp directory. Cleanup waits for them first.
+ */
+const logWrites: Promise<void>[] = [];
+const log = CadRuntime.prototype.log;
+CadRuntime.prototype.log = function (this: CadRuntime, line: string) {
+  const write = log.call(this, line);
+  logWrites.push(write);
+  return write;
+};
+
+/** Writable first, so a read-only file (a fake interpreter, a marker) cannot stop the removal. */
+function removeTree(dir: string): void {
+  const stack = [dir];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    let entries: fs.Dirent[];
+    try {
+      fs.chmodSync(current, 0o755);
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(full);
+      } else if (!entry.isSymbolicLink()) {
+        try {
+          fs.chmodSync(full, 0o644);
+        } catch {
+          /* removed below regardless */
+        }
+      }
+    }
   }
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+async function cleanUp(): Promise<void> {
+  // A write can start another (a probe's handler); drain until none is left.
+  while (logWrites.length > 0) {
+    await Promise.allSettled(logWrites.splice(0));
+  }
+  for (const dir of temps.splice(0)) {
+    removeTree(dir);
+  }
+}
+afterEach(cleanUp);
+afterAll(async () => {
+  await cleanUp();
+  CadRuntime.prototype.log = log;
 });
 
 type Machine = {

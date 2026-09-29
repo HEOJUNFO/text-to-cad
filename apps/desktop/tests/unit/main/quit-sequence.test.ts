@@ -28,6 +28,9 @@ const h = vi.hoisted(() => ({
   app: null as unknown as EventEmitter,
   manager: null as { closeAll(): void } | null,
   cadFails: false,
+  ready: false,
+  /** `app.isReady()` at each call of Aptabase's `initialize`. */
+  aptabaseInitReady: [] as boolean[],
   teardown: [] as string[],
   electron: null as unknown as { dialog: { showErrorBox: ReturnType<typeof vi.fn> }; app: { exit: ReturnType<typeof vi.fn> } },
 }));
@@ -40,8 +43,13 @@ vi.mock("electron", async () => {
     setPath: () => undefined,
     getPath: () => "/nonexistent-userdata",
     requestSingleInstanceLock: () => true,
-    whenReady: () => Promise.resolve(),
-    isReady: () => false,
+    // Ready on the first turn of the event loop after whenReady is asked for,
+    // as in Electron: anything chained on it runs with isReady() true.
+    whenReady: () =>
+      Promise.resolve().then(() => {
+        h.ready = true;
+      }),
+    isReady: () => h.ready,
     isPackaged: true,
     quit: () => undefined,
     exit: vi.fn(() => h.teardown.push("exit")),
@@ -133,7 +141,16 @@ vi.mock("@main/ipc/explorer", () => ({ disposeExplorerServices: () => undefined 
 vi.mock("@main/menu", () => ({ installMenu: () => undefined }));
 vi.mock("@main/quit-deadline", () => ({ armQuitDeadline: () => undefined }));
 vi.mock("@main/settings-effects", () => ({ disposeSettingsEffects: () => undefined }));
-vi.mock("@main/telemetry", () => ({ initTelemetry: () => undefined, track: () => undefined }));
+// The real telemetry module over a fake Aptabase: which side of whenReady
+// index.ts initializes it on is the bug this pins (Aptabase disables itself
+// when `initialize` runs after ready).
+vi.stubGlobal("__APTABASE_KEY__", "A-US-0000000000");
+vi.mock("@aptabase/electron/main", () => ({
+  initialize: async () => {
+    h.aptabaseInitReady.push(h.ready);
+  },
+  trackEvent: async () => undefined,
+}));
 vi.mock("@main/updater", () => ({ initUpdater: () => undefined, stopUpdater: () => undefined }));
 
 afterEach(() => {
@@ -221,6 +238,9 @@ describe("quit sequence", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
     await import("@main/index");
     await vi.waitFor(() => expect(h.windows).toHaveLength(1));
+    // index.ts initialized Aptabase once, while the app was not yet ready.
+    expect(h.ready).toBe(true);
+    expect(h.aptabaseInitReady).toEqual([false]);
     const [window] = h.windows;
 
     // A resize just before quit leaves a debounced save pending.
@@ -257,6 +277,7 @@ describe("quit sequence", () => {
     h.windows.length = 0;
     h.teardown.length = 0;
     h.cadFails = true;
+    h.ready = false;
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
     await import("@main/index");
