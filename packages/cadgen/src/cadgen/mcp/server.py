@@ -17,14 +17,7 @@ from .ui_resources import UI_TEMPLATE, UiResources
 from .library import RecentLibrary
 
 UI_MIME_TYPE = "text/html;profile=mcp-app"
-CAD_ICON = Icon(
-    src="data:image/svg+xml;base64," + base64.b64encode(
-        b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" '
-        b'stroke="currentColor" stroke-width="1.33" stroke-linejoin="round">'
-        b'<path d="m10 2 7 4v8l-7 4-7-4V6Zm-7 4 7 4 7-4M10 10v8"/></svg>'
-    ).decode("ascii"),
-    mimeType="image/svg+xml", sizes=["20x20"],
-)
+CAD_TAGLINE = "Give your agent CAD superpowers."
 
 
 class FileInput(BaseModel):
@@ -52,6 +45,10 @@ def _resource_path(ctx: Context) -> str | None:
 
 def create_server(root: str | Path | None = None, *, ui_path: str | Path | None = None,
                   library_path: str | Path | None = None, port: int = 8000) -> FastMCP:
+    icon = Icon(
+        src="data:image/svg+xml;base64," + base64.b64encode(Path(__file__).with_name("logo-c.svg").read_bytes()).decode("ascii"),
+        mimeType="image/svg+xml", sizes=["any"],
+    )
     html_path = Path(ui_path) if ui_path else runtime_root() / "chatgpt" / "index.html"
     if not html_path.is_file():
         raise AssetMissing("CAD extension UI is missing. " + runtime_build_hint(html_path))
@@ -68,7 +65,8 @@ def create_server(root: str | Path | None = None, *, ui_path: str | Path | None 
             roots.close()
 
     server = FastMCP(
-        "CAD", instructions="Use the CAD skills for modeling. This server opens existing CAD artifacts; it never executes model source.",
+        "CAD", icons=[icon],
+        instructions=CAD_TAGLINE + " Use the CAD skills for modeling. This server opens existing CAD artifacts; it never executes model source.",
         lifespan=lifespan, host="127.0.0.1", port=port,
         max_request_body_size=9 * 1024 * 1024,
     )
@@ -84,16 +82,16 @@ def create_server(root: str | Path | None = None, *, ui_path: str | Path | None 
         },
     }
 
-    @server.resource(ui_uri, name="CAD", mime_type=UI_MIME_TYPE, meta=ui_metadata)
+    @server.resource(ui_uri, name="CAD", description=CAD_TAGLINE, icons=[icon], mime_type=UI_MIME_TYPE, meta=ui_metadata)
     def viewer_html() -> str:
         return ui.html
 
-    @server.resource(UI_TEMPLATE, name="CAD interface version", mime_type=UI_MIME_TYPE, meta=ui_metadata)
+    @server.resource(UI_TEMPLATE, name="CAD interface version", icons=[icon], mime_type=UI_MIME_TYPE, meta=ui_metadata)
     def viewer_version(digest: str) -> str:
         return ui.read(digest)
 
     @server.tool(
-        name="cad_open", title="CAD", icons=[CAD_ICON],
+        name="cad_open", title="CAD", icons=[icon],
         description="Open an existing STEP, STL, GLB or 3MF in the CAD viewer. Model paths stay within the working directory or explicit --root; host file entrypoints can authorize their containing directory unless --root restricts them.",
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False),
         meta={

@@ -1,7 +1,8 @@
 # Brand assets
 
 `generate-logos.mjs` is the source for the blue C, CAD and TEXT2CAD SVGs in
-`apps/docs/public/brand/` and the viewer's copy of C. Run it with Node from
+`apps/docs/public/brand/` and the web viewer, extension, plugin manifest and
+packaged MCP server copies of C. Run it with Node from
 any directory. No fonts, raster tracing or runtime dependencies.
 
 All letters are three units wide, four tall, and extruded two units deep.
@@ -53,6 +54,12 @@ color; Soft relief is a rendering treatment.
 The bake creates transparent 512px C, CAD and TEXT2CAD PNG downloads beside
 the vectors, plus matching PNG and multi-resolution ICO favicons for both
 apps. Ordinary builds consume the committed files.
+
+The plugin uses `CAD` and `Give your agent CAD superpowers.`. Its manifest's
+composer and light/dark logo paths use `.codex-plugin/assets/logo-c.svg`;
+the MCP server embeds its own packaged copy in discovery, resource and tool
+icons. The extension inlines its copy so no network asset request is required.
+These are generated copies of the same artwork, not alternate marks.
 
 `render-loading-icon.mjs` remains the independent recipe for the original
 animated loading mark. Changing brand vectors must not replace those assets;

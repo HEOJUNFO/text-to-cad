@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Box, Pin, RefreshCw, Search, X } from 'lucide-react';
+import cadLogo from './assets/logo-c.svg';
 import { filterRecentModels, type RecentLibrary, type RecentModel } from './library';
 function Thumbnail({ item, library }: { item: RecentModel; library: RecentLibrary }) {
   const element = useRef<HTMLDivElement>(null);
@@ -46,7 +47,9 @@ export default function RecentHome({ library, nativeOpenAvailable, onOpen }: {
     </header>
     {(state.error || openError) && <div className="cad-library-error" role="alert"><p>{openError || state.error}</p>{state.error && <button onClick={() => void library.refresh().catch(() => {})}>Try again</button>}</div>}
     {state.loading && !state.items.length ? <p className="cad-library-empty" role="status">Loading recent models…</p> : !items.length ? <section className="cad-library-empty">
+      {!query && <img className="cad-library-logo" src={cadLogo} alt="CAD" width={64} height={64} />}
       <h2>{query ? 'No matching models' : 'Your models will appear here'}</h2>
+      {!query && <p>Give your agent CAD superpowers.</p>}
       <p>{query ? 'Search by filename or folder.' : 'Open a STEP, STL, GLB or 3MF file and choose CAD. Viewed models are remembered here.'}</p>
       {!query && <p>To create a part, ask the composer: “Create an L-bracket with two mounting holes.”</p>}
     </section> : <div className="cad-recent-grid">{items.map(item => <article key={item.id} className="cad-recent-item">

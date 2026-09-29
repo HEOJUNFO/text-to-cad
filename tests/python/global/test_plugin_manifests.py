@@ -86,7 +86,15 @@ class PluginManifestPolicyTest(unittest.TestCase):
         self.assertEqual(load_json(CODEX_PLUGIN_PATH).get("mcpServers"), "./mcp.json")
 
     def test_openai_plugin_displays_as_cad(self) -> None:
-        self.assertEqual(load_json(CODEX_PLUGIN_PATH)["interface"]["displayName"], "CAD")
+        interface = load_json(CODEX_PLUGIN_PATH)["interface"]
+        self.assertEqual(interface["displayName"], "CAD")
+        canonical_logo = (REPO_ROOT / "apps/docs/public/brand/logo-c.svg").read_bytes()
+        for field in ("composerIcon", "logo", "logoDark"):
+            self.assertEqual(
+                (REPO_ROOT / interface[field]).read_bytes(),
+                canonical_logo,
+                f"{field} must resolve to the canonical C logo in the plugin package",
+            )
 
     def test_marketplace_lists_the_plugin_at_the_repository_root(self) -> None:
         marketplace = load_json(MARKETPLACE_PATH)

@@ -190,9 +190,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   for (const [name, text, standalone] of [['logo-c', 'C', true], ['logo-cad', 'CAD', false], ['logo-text2cad', 'TEXT2CAD', false]]) {
     await writeFile(path.join(out, `${name}.svg`), logoSvg(text, { standalone }));
   }
-  await copyFile(path.join(out, 'logo-c.svg'), path.join(root, 'apps/web/src/client/assets/logo-c.svg'));
+  for (const destination of [
+    'apps/web/src/client/assets/logo-c.svg',
+    'apps/chatgpt/src/assets/logo-c.svg',
+    '.codex-plugin/assets/logo-c.svg',
+    'packages/cadgen/src/cadgen/mcp/logo-c.svg',
+  ]) {
+    const target = path.join(root, destination);
+    await mkdir(path.dirname(target), { recursive: true });
+    await copyFile(path.join(out, 'logo-c.svg'), target);
+  }
   const cadSources = path.join(root, 'models/branding/src');
   await mkdir(cadSources, { recursive: true });
   await writeFile(path.join(cadSources, 'profiles.json'), `${JSON.stringify(logoProfiles(), null, 2)}\n`);
-  console.log('Generated C, CAD and TEXT2CAD; synchronized the viewer mark and CAD profiles.');
+  console.log('Generated C, CAD and TEXT2CAD; synchronized viewer, plugin and MCP marks and CAD profiles.');
 }

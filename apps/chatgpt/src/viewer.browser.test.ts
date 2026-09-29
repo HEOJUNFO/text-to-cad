@@ -47,13 +47,19 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
   assert.ok('text' in html);
   const calls: string[] = [];
   const catalogRequests: string[] = [];
+  const catalogStates: unknown[] = [];
   const homeRequests: unknown[] = [];
   let hostFile = source;
   const tool = async (params: Record<string, unknown>) => {
     calls.push(String(params.name));
     const requestPath = (params.arguments as { path?: string })?.path;
     if (requestPath?.startsWith('/__cad/catalog')) catalogRequests.push(requestPath);
-    return client.callTool({ ...params, _meta: { 'openai/resource': { path: hostFile } } } as Parameters<typeof client.callTool>[0]);
+    const result = await client.callTool({ ...params, _meta: { 'openai/resource': { path: hostFile } } } as Parameters<typeof client.callTool>[0]);
+    if (requestPath?.startsWith('/__cad/catalog')) {
+      const body = (result.structuredContent as { body?: string } | undefined)?.body;
+      if (body) { try { catalogStates.push(JSON.parse(Buffer.from(body, 'base64').toString()).entries); } catch {} }
+    }
+    return result;
   };
   const opened = await client.callTool({ name: 'cad_open', arguments: { file: { name: 'fixture.step', resourceUri: 'host-resource://fixture' } } });
   assert.notEqual(opened.isError, true, JSON.stringify(opened));
@@ -128,10 +134,24 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     await page.goto(`http://127.0.0.1:${address.port}/?home`);
     const viewer = page.frameLocator('iframe');
     await expect(viewer.getByRole('heading', { name: 'Your models will appear here' })).toBeVisible();
+    await expect(viewer.getByRole('img', { name: 'CAD', exact: true })).toBeVisible();
+    await expect(viewer.getByText('Give your agent CAD superpowers.', { exact: true })).toBeVisible();
+    await expect(viewer.locator('link[rel=icon]')).toHaveAttribute('href', /^data:image\/svg\+xml/);
+    if (process.env.CAD_EXTENSION_EMPTY_SCREENSHOT) await page.screenshot({ path: process.env.CAD_EXTENSION_EMPTY_SCREENSHOT });
     assert.ok(homeRequests.every((request: any) => request.name === 'cad_library'));
     await page.goto(`http://127.0.0.1:${address.port}`);
     await viewer.getByRole('region', { name: 'Features', exact: true }).waitFor();
     const select = viewer.getByRole('button', { name: 'Select Base extrude', exact: true });
+    // Reloads can replace a selected document between separate Playwright actions.
+    // Take one nonblocking step against the current DOM per poll, so a removed
+    // attachment action cannot consume the poll's entire timeout.
+    const attachCurrentSelection = () => viewer.locator('body').evaluate(body => {
+      const row = body.querySelector<HTMLButtonElement>('button[aria-label="Select Base extrude"]');
+      if (!row || row.disabled) return;
+      if (row.getAttribute('aria-pressed') !== 'true') { row.click(); return; }
+      const add = [...body.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Add to prompt');
+      if (add && !add.disabled) add.click();
+    });
     await select.click();
     await viewer.getByRole('button', { name: 'Add to prompt', exact: true }).click();
     await page.waitForFunction(() => (window as any).attachments.length > 0);
@@ -145,21 +165,20 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     await expect(viewer.getByRole('button', { name: 'Take snapshot', exact: true })).toBeVisible();
     await expect(viewer.getByRole('button', { name: 'Display settings', exact: true })).toBeVisible();
     await expect(viewer.getByRole('button', { name: 'Preview', exact: true })).toBeVisible();
+    await expect(select).toHaveAttribute('aria-pressed', 'true');
     await save(15);
     const initialRevision = attachments.find((part: any) => part.text?.includes('Document revision:')).text;
     // A new reference must bind the geometry the viewer actually displays, not
     // merely observe that the backend catalog noticed a saved file.
     await expect.poll(async () => {
-      await select.click();
-      await viewer.getByRole('button', { name: 'Add to prompt', exact: true }).click();
+      await attachCurrentSelection();
       return page.evaluate(() => (window as any).attachments.filter((part: any) => part.text?.includes('Document revision:')).at(-1)?.text);
     }, { timeout: 30_000 }).not.toBe(initialRevision);
     assert.equal(await page.evaluate(() => (window as any).attachments[0].text), attachments[0].text, 'existing references retain their original revision');
     await page.evaluate(() => (window as any).openRelated());
     await viewer.getByRole('region', { name: 'Features', exact: true }).waitFor();
     await expect.poll(async () => {
-      await select.click();
-      await viewer.getByRole('button', { name: 'Add to prompt', exact: true }).click();
+      await attachCurrentSelection();
       return page.evaluate(() => (window as any).attachments.at(-1)?.text || '');
     }, { timeout: 30_000 }).toMatch(/related\.step/);
     assert.ok(catalogRequests.length > 0);
@@ -203,6 +222,6 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     await expect(viewer.getByRole('heading', { name: 'Recent models', exact: true })).toBeVisible();
     assert.deepEqual(errors, []);
   } catch (error) {
-    throw new Error(`${String(error)}\nBrowser errors: ${errors.join('\n')}\nMCP stderr: ${stderr.slice(-3000)}\n${await page.frameLocator('iframe').locator('body').innerText()}`, { cause: error });
+    throw new Error(`${String(error)}\nBrowser errors: ${errors.join('\n')}\nCatalog states: ${JSON.stringify(catalogStates.slice(-3))}\nMCP stderr: ${stderr.slice(-3000)}\n${await page.frameLocator('iframe').locator('body').innerText()}`, { cause: error });
   }
 });

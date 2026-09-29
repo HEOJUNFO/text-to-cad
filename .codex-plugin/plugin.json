@@ -26,6 +26,9 @@
     "shortDescription": "Give your agent CAD superpowers.",
     "longDescription": "CAD packages local agent workflows for generating CAD, inspecting models, sourcing STEP parts, writing robot description files, slicing mesh files, and preparing fabrication handoffs.",
     "developerName": "earthtojake",
+    "composerIcon": "./.codex-plugin/assets/logo-c.svg",
+    "logo": "./.codex-plugin/assets/logo-c.svg",
+    "logoDark": "./.codex-plugin/assets/logo-c.svg",
     "category": "Productivity",
     "capabilities": [
       "Write",

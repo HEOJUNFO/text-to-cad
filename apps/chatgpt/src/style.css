@@ -30,6 +30,7 @@ body { background: var(--background); color: var(--foreground); }
 .cad-recent-actions button:focus-visible { outline: 2px solid var(--ring); }
 .cad-recent-actions button:disabled { opacity: .45; }
 .cad-library-empty { max-width: 410px; margin: 64px auto; text-align: center; }
+.cad-library-logo { display: block; margin: 0 auto 18px; }
 .cad-library-empty h2 { font-size: 16px; font-weight: 500; }
 .cad-library-empty p { color: var(--muted-foreground); line-height: 1.6; margin-top: 10px; }
 .cad-library-error { margin-bottom: 24px; padding: 12px 0; color: var(--destructive); }

@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createCadClient } from '@text-to-cad/core/client';
 import { FileViewer } from '../../../dist/file-viewer/index.js';
+import { FILE_PANEL_TREE, PanelToggle, treePanel } from '../../../dist/file-viewer/navigation/index.js';
 import { createDxfRenderer } from '../../../dist/renderers/dxf/index.js';
 // Loaded with the file, not inside the first test: the registration imports it lazily.
 import '../../../dist/renderers/dxf/DxfRenderer.js';
@@ -99,7 +100,12 @@ async function openDrawing() {
   };
   function Pane() {
     const [state, setState] = useState<any>({ panel: null, renderers: {} });
-    return <section data-testid="one"><FileViewer file={FILE} host={host as any} renderers={renderers} state={state} onStateChange={setState} /></section>;
+    const tree = treePanel(state.panel === FILE_PANEL_TREE ? FILE_PANEL_TREE : '');
+    return <section data-testid="one">
+      <PanelToggle id={FILE_PANEL_TREE} icon={tree.icon} label={tree.label} active={state.panel === FILE_PANEL_TREE}
+        onClick={() => setState({ ...state, panel: state.panel === FILE_PANEL_TREE ? '' : FILE_PANEL_TREE })} />
+      <FileViewer file={FILE} host={host as any} renderers={renderers} state={state} onStateChange={setState} />
+    </section>;
   }
   render(<Pane />);
   const pane = screen.getByTestId('one');

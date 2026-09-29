@@ -20,6 +20,7 @@ from mcp.client.stdio import stdio_client
 
 from cadgen.mcp.backend import CHUNK_BYTES, ViewerBridge, ViewerRoots
 from cadgen.mcp.library import RecentLibrary
+from cadgen.mcp import server as mcp_server
 from cadgen.assets import AssetMissing
 from cadgen.mcp.server import UI_MIME_TYPE, create_server
 from cadgen.viewer.backend import ForbiddenAssetError
@@ -269,6 +270,11 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
                 async with ClientSession(read, write) as client:
                     initialized = await client.initialize()
                     self.assertEqual(initialized.serverInfo.name, "CAD")
+                    self.assertEqual(
+                        base64.b64decode(initialized.serverInfo.icons[0].src.split(",", 1)[1]),
+                        Path(mcp_server.__file__).with_name("logo-c.svg").read_bytes(),
+                    )
+                    self.assertIn("Give your agent CAD superpowers.", initialized.instructions)
                     opened = await client.call_tool("cad_open", {"path": "part.stl"})
                     self.assertFalse(opened.isError)
                     self.assertEqual(opened.structuredContent["file"], "part.stl")
@@ -332,6 +338,10 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(ui_uri, f"ui://cad/viewer/{hashlib.sha256(ui.read_bytes()).hexdigest()}.html")
                 self.assertEqual(tools["cad_open"].title, "CAD")
                 self.assertEqual(tools["cad_open"].icons[0].mimeType, "image/svg+xml")
+                self.assertEqual(
+                    base64.b64decode(tools["cad_open"].icons[0].src.split(",", 1)[1]),
+                    Path(mcp_server.__file__).with_name("logo-c.svg").read_bytes(),
+                )
                 self.assertEqual(tools["cad_open"].meta["openai/ui"]["entrypoints"], [
                     {"type": "global"},
                     {"type": "file", "extensions": [".step", ".stp", ".stl", ".glb", ".3mf"]},
@@ -350,6 +360,9 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(resource.meta["ui"]["permissions"], {"clipboardWrite": {}})
                 listed_resource = (await client.list_resources()).resources[0]
                 self.assertEqual(str(listed_resource.uri), ui_uri)
+                self.assertEqual(listed_resource.icons, tools["cad_open"].icons)
+                template = (await client.list_resource_templates()).resourceTemplates[0]
+                self.assertEqual(template.icons, tools["cad_open"].icons)
                 self.assertEqual(listed_resource.meta, resource.meta)
                 opened = await client.call_tool("cad_open", {"path": "small.stl"})
                 self.assertFalse(opened.isError)

@@ -93,6 +93,8 @@ cadgen = ["py.typed", "*.pyi", "_runtime/**/*"]
 # The viewer server's catalog ordering is ICU root collation, read from this table at
 # runtime; it ships beside the code that reads it.
 "cadgen.viewer" = ["collation.json"]
+# The extension reads its brand icon beside the MCP server, including in wheels.
+"cadgen.mcp" = ["*.svg"]
 # The Node builder bridge (cadgen/_internal/node_runtime.py) spawns node with
 # `--import node_resolve_register.mjs`; both .mjs files must ship with the package.
 "cadgen._internal" = ["*.mjs"]

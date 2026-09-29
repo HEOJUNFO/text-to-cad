@@ -1,5 +1,7 @@
 # CAD for ChatGPT and Codex
 
+**Give your agent CAD superpowers.**
+
 CAD embeds the shared viewer in an MCP App host. It owns only the host
 bridge, file handoff, appearance, composer delivery and iframe lifecycle. Geometry,
 selection tools, renderers, file updates and reference serialization remain in
@@ -96,7 +98,10 @@ The JavaScript is gzip-compressed at build time and inflated with the browser's
 `DecompressionStream` before importing a blob module. The JSON-framed resource
 must stay below 8 MiB, leaving headroom under the MCP SDK's 10 MiB stdio limit.
 Modules and workers use blob URLs, so the host's resource policy must permit them.
-No shared renderer source is altered for this packaging.
+No shared renderer source is altered for this packaging. The canonical C logo is
+generated into `src/assets/logo-c.svg` by the repository brand generator and
+inlined into the favicon and empty-home illustration; metadata uses the CAD name
+and the same tagline as the plugin.
 
 ## Controls supplied by Codex
 

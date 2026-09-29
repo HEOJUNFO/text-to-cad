@@ -20,7 +20,7 @@ Read only the references needed for the request.
 | **Resolve a reference from a prompt** | Identify its saved STEP/STP document, open it with `read_scene`, and call `scene.resolve(ref)` as shown below. | [Reference syntax and inspection](references/inspection-and-validation.md#reference-syntax) |
 | **Measure or check geometry** | Write a Python check using native build123d geometry and, where useful, `cadgen.geometry`. | [Inspection and validation](references/inspection-and-validation.md) |
 | **Model from an image or drawing** | Extract the specified dimensions and record meaningful assumptions. | [Interpreting the request](references/cad-brief.md) |
-| **Open an existing STEP/STP, STL, 3MF or GLB** | Launch CAD Viewer and return a live link. | [CAD Viewer](#cad-viewer) |
+| **Open an existing STEP/STP, STL, 3MF or GLB** | Open with the CAD extension when available, otherwise return a live Viewer link. | [CAD Viewer](#cad-viewer) |
 | **Review appearance or motion** | Snapshot the saved document; use declared kinematics or animation for poses and clips. | [Snapshots](references/snapshot-review.md), [kinematics](references/kinematics.md) |
 | **Diagnose a failure** | Read the error and check the relevant model, geometry or command contract. | [Repair loop](references/repair-loop.md), [version migration](references/migrations.md) |
 | **A message says to migrate** | Do the migration now; an unmigrated model silently loses kinematics, materials and animation. | [Version migration](references/migrations.md) |
@@ -170,9 +170,21 @@ failure using the cases in the snapshot reference.
 
 ### CAD Viewer
 
-After creating or updating STEP/STP, STL, 3MF or GLB files, **always run the command below
-and return live links**, even if a viewer is already running. Snapshots and
-validation do not replace this step. Use it also to open existing files.
+After creating or updating STEP/STP, STL, 3MF or GLB files, open the saved artifact
+for review. Snapshots and validation do not replace this step. Use the same
+handoff to open an existing file.
+
+When the CAD extension's `cad_open` tool is available, pass the existing artifact
+path in `path` to open it in the host. Paths must be inside the server's working
+directory or configured root; a native file entrypoint can also authorize the
+file's containing directory. For a host-supplied file, retain its trusted input;
+never invent a `resourceUri`. The per-file view provides CAD controls and prompt
+references; the host provides file navigation. Opening with no path shows the
+extension's recent-model home. Do not also launch a standalone viewer unless
+requested or needed after an explicit extension failure.
+
+Otherwise, **run the command below and return live links**, even if a standalone
+viewer is already running.
 
 Run from the directory containing the project’s models, usually `models/`.
 The viewer lists files recursively beneath this directory, so choose it rather

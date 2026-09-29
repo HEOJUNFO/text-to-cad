@@ -292,7 +292,9 @@ end, the version/update dropdown comes first, then the renderer's snapshot actio
 and Show files. The dropdown contains release
 instructions, release notes, GitHub and Discord. Appearance is injected as an icon-bearing dropdown beside Projection in
 the Display panel's Display section, below the full-width Mode selector. The original animated mark remains the shared LoadingIcon for loading states. `ViewerBrand`, `ViewerLinks` and `ViewerAppearance` stay web-owned;
-`FileViewer.leading`, `navigationActions` and `displayActions` provide the shared slots.
+App composes `FileNavRow` around the document viewer, supplies its
+`navigationTargets` for renderer actions and status, and injects appearance
+through the renderer's `displayActions` slot.
 The web logo and favicons are generated alongside the docs brand assets, with no
 runtime dependency between apps. See [the brand recipe](../../scripts/brand/README.md).
 

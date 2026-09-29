@@ -136,12 +136,14 @@ cd "$EMPTY"
 step "The installed MCP server serves its bundled app resource"
 "$VENV/bin/python" - <<'PY' || fail "installed MCP app resource"
 import asyncio
+import base64
 import pathlib
 
 from mcp.shared.memory import create_connected_server_and_client_session
 
 from cadgen.assets import runtime_root
 from cadgen.mcp.server import UI_MIME_TYPE, create_server
+from cadgen.mcp import server as mcp_server
 
 
 async def check():
@@ -152,6 +154,11 @@ async def check():
         tools = {tool.name: tool for tool in (await client.list_tools()).tools}
         if {"cad_open", "cad_request", "cad_library"} - tools.keys():
             raise AssertionError(f"installed MCP tools missing: {tools.keys()}")
+        icon = pathlib.Path(mcp_server.__file__).with_name("logo-c.svg")
+        if "site-packages" not in icon.parts or not icon.is_file():
+            raise AssertionError(f"MCP brand icon is not in the installed wheel: {icon}")
+        if base64.b64decode(tools["cad_open"].icons[0].src.split(",", 1)[1]) != icon.read_bytes():
+            raise AssertionError("MCP tool icon differs from the packaged brand SVG")
         resource_uri = tools["cad_open"].meta["ui"]["resourceUri"]
         resource = (await client.read_resource(resource_uri)).contents[0]
         if resource.mimeType != UI_MIME_TYPE or resource.text != asset.read_text(encoding="utf-8"):
