@@ -869,6 +869,26 @@ export async function head(cwd: string): Promise<string | null> {
   return sha?.trim() || null;
 }
 
+/** How a git run ended: the exit code is undefined when git was killed or never started. */
+export type GitRunResult = { exitCode: number | undefined; stdout: string; stderr: string; timedOut: boolean };
+export type GitRunner = (cwd: string, args: string[], input?: string) => Promise<GitRunResult>;
+
+/**
+ * Run git on the tracked spawn and report how it ended, never throwing — for
+ * the callers that must tell "git said no" (an exit code) from "git could not
+ * say" (a timeout, a spawn error), which `tryGit` folds together.
+ */
+export const runGit: GitRunner = async (cwd, args, input) => {
+  const result = await tracked(execa("git", args, { ...GIT_OPTIONS, cwd, ...(input === undefined ? {} : { input }) })).catch(() => null);
+  if (!result) return { exitCode: undefined, stdout: "", stderr: "", timedOut: false };
+  return {
+    exitCode: typeof result.exitCode === "number" ? result.exitCode : undefined,
+    stdout: typeof result.stdout === "string" ? result.stdout : "",
+    stderr: typeof result.stderr === "string" ? result.stderr : "",
+    timedOut: Boolean(result.timedOut),
+  };
+};
+
 /**
  * The empty tree's id when `cwd` is a repository with no commits yet, and
  * null otherwise — including whenever git cannot answer.
@@ -876,20 +896,25 @@ export async function head(cwd: string): Promise<string | null> {
  * `head()` answers null on any failure (a timeout, a spawn error, a ref
  * mid-update), so its null alone does not mean "unborn": marking the empty
  * tree in a repository that has commits would make `Last turn` the whole
- * repository. Unborn is proved instead: HEAD is a symbolic ref, and the ref it
- * names does not resolve. The id is asked of git (`hash-object` without `-w`
- * writes nothing) so a SHA-256 repository answers in its own format.
+ * repository. Unborn is proved instead, in two steps: `symbolic-ref -q HEAD`
+ * exits 0 (HEAD names a branch), and then `rev-parse --verify -q HEAD` exits
+ * exactly 1 with nothing on stderr — git's quiet "that ref does not resolve".
+ * Any other ending (exit 128, a timeout, a spawn error, exit 1 with a message)
+ * is git failing to answer, and answers null, never the empty tree. The id is
+ * asked of git (`hash-object` without `-w` writes nothing) so a SHA-256
+ * repository answers in its own format.
  */
-export async function emptyTreeIfUnborn(cwd: string): Promise<string | null> {
-  const [symbolic, verified] = await Promise.all([
-    tryGit(cwd, ["symbolic-ref", "-q", "HEAD"]),
-    tryGit(cwd, ["rev-parse", "--verify", "-q", "HEAD"]),
-  ]);
-  if (symbolic === null || verified !== null) {
+export async function emptyTreeIfUnborn(cwd: string, run: GitRunner = runGit): Promise<string | null> {
+  const symbolic = await run(cwd, ["symbolic-ref", "-q", "HEAD"]);
+  if (symbolic.exitCode !== 0 || symbolic.timedOut) {
     return null;
   }
-  const result = await tracked(execa("git", ["hash-object", "-t", "tree", "--stdin"], { ...GIT_OPTIONS, cwd, input: "" })).catch(() => null);
-  const id = result && !result.failed && result.exitCode === 0 && typeof result.stdout === "string" ? result.stdout.trim() : "";
+  const verified = await run(cwd, ["rev-parse", "--verify", "-q", "HEAD"]);
+  if (verified.exitCode !== 1 || verified.timedOut || verified.stderr.trim() !== "") {
+    return null;
+  }
+  const tree = await run(cwd, ["hash-object", "-t", "tree", "--stdin"], "");
+  const id = tree.exitCode === 0 && !tree.timedOut ? tree.stdout.trim() : "";
   return /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(id) ? id : null;
 }
 

@@ -158,3 +158,38 @@ describe("a session scope in a repository with no commits yet", () => {
     expect(await git.unifiedDiff(directory, "part.py", { kind: "unmarked", scope: "session" })).toMatch(/\+two/);
   });
 });
+
+describe("emptyTreeIfUnborn", () => {
+  const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+  /** A runner where HEAD is symbolic and `rev-parse --verify` ends as given. */
+  const runner = (revParse: git.GitRunResult): git.GitRunner => async (cwd, args, input) => {
+    if (args[0] === "symbolic-ref") return { exitCode: 0, stdout: "refs/heads/main\n", stderr: "", timedOut: false };
+    if (args[0] === "rev-parse") return revParse;
+    return git.runGit(cwd, args, input);
+  };
+
+  it("answers the empty tree only when rev-parse exits 1 with nothing on stderr", async () => {
+    const cwd = await unbornRepo();
+    expect(await git.emptyTreeIfUnborn(cwd)).toBe(EMPTY_TREE);
+    expect(await git.emptyTreeIfUnborn(cwd, runner({ exitCode: 1, stdout: "", stderr: "", timedOut: false }))).toBe(EMPTY_TREE);
+  });
+
+  it("answers null when rev-parse failed for any other reason — git could not say", async () => {
+    const cwd = await unbornRepo();
+    // exit 128: a corrupt or locked ref, or not a repository.
+    expect(await git.emptyTreeIfUnborn(cwd, runner({ exitCode: 128, stdout: "", stderr: "fatal: bad object HEAD", timedOut: false }))).toBeNull();
+    // A timeout: killed, no exit code.
+    expect(await git.emptyTreeIfUnborn(cwd, runner({ exitCode: undefined, stdout: "", stderr: "", timedOut: true }))).toBeNull();
+    // A spawn error: no exit code, nothing said.
+    expect(await git.emptyTreeIfUnborn(cwd, runner({ exitCode: undefined, stdout: "", stderr: "", timedOut: false }))).toBeNull();
+    // Exit 1 that said something is not the quiet "does not resolve".
+    expect(await git.emptyTreeIfUnborn(cwd, runner({ exitCode: 1, stdout: "", stderr: "error: unable to read", timedOut: false }))).toBeNull();
+  });
+
+  it("answers null when HEAD is not a symbolic ref", async () => {
+    const cwd = await unbornRepo();
+    const detached: git.GitRunner = async (directory, args, input) =>
+      args[0] === "symbolic-ref" ? { exitCode: 1, stdout: "", stderr: "", timedOut: false } : git.runGit(directory, args, input);
+    expect(await git.emptyTreeIfUnborn(cwd, detached)).toBeNull();
+  });
+});
