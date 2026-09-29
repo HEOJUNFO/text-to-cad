@@ -12,7 +12,7 @@ vi.mock("electron", () => ({ app: { isPackaged: false } }));
 vi.mock("@main/db/repositories", () => ({ projects: { choose } }));
 vi.mock("@main/ipc/register", () => ({ broadcast }));
 
-import { installE2eDoor } from "@main/e2e-door";
+import { installE2eDoor } from "@main/test-door";
 
 const door = () => (globalThis as { __textToCadE2E?: { choose(directory: string): unknown } }).__textToCadE2E;
 

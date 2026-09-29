@@ -413,7 +413,7 @@ async function launchApp(userData, cacheEnv) {
 
 async function addProject(app, page) {
   // No renderer channel takes a path; the folder is chosen from main's side,
-  // through the door `NODE_ENV=test` installs (src/main/e2e-door.ts), as
+  // through the door `NODE_ENV=test` installs (src/main/test-door.ts), as
   // tests/e2e/launch.ts's `chooseDirectory` does.
   await app.evaluate((_electron, root) => globalThis.__textToCadE2E.choose(root), repoRoot);
   // The strip binds to the project asynchronously; `+` does nothing until it has.

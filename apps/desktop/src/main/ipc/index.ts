@@ -28,7 +28,7 @@ import { gitHandlers } from "./git";
 import { refreshRuntimeAfterOverride, runtimeHandlers } from "./runtime";
 import { onboardingHandlers } from "./onboarding";
 import { skillsHandlers } from "./skills";
-import { installE2eDoor } from "../e2e-door";
+import { installE2eDoor } from "../test-door";
 import { IpcError, broadcast, registerIpc, type IpcContext } from "./register";
 
 export { broadcast } from "./register";
