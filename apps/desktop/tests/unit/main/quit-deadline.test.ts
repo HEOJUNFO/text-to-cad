@@ -1,10 +1,19 @@
-import { spawn } from "node:child_process";
+import * as childProcess from "node:child_process";
 import { once } from "node:events";
 import { runInNewContext } from "node:vm";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { watchdogScript } from "@main/quit-deadline";
+import { armQuitDeadline, watchdogScript } from "@main/quit-deadline";
+import { markQuittingForUpdate } from "@main/quitting";
+
+// The real spawn, observable: `armQuitDeadline` is checked by the script it
+// hands the watchdog, and those two calls are answered by a stub.
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof childProcess>();
+  return { ...actual, spawn: vi.fn(actual.spawn) };
+});
+const { spawn } = childProcess;
 
 /**
  * The watchdog is a script handed to `node -e`; the only way to know it does
@@ -112,5 +121,45 @@ setInterval(() => {}, 1000);
     });
     expect(signaled).toEqual([]);
     expect(scanned).not.toHaveBeenCalled();
+  });
+
+  it("after before-quit-for-update, kills only the app, never the installer it spawned", () => {
+    // posix: no `pgrep -P` scan, so the relaunched AppImage (a child) lives.
+    const signaled: number[] = [];
+    const scanned = vi.fn(() => "200\n");
+    runInNewContext(watchdogScript(123, 0, "linux", Date.now(), false), {
+      Date,
+      process: { pid: 321, kill: (pid: number, signal?: string) => { if (signal) { signaled.push(pid); } } },
+      require: () => ({ execFileSync: scanned }),
+      setTimeout: (callback: () => void) => callback(),
+    });
+    expect(scanned).not.toHaveBeenCalled();
+    expect(signaled).toEqual([123]);
+
+    // win32: `taskkill` without `/T`, so the NSIS installer (a child) lives.
+    const taskkill = (tree: boolean) => {
+      const calls: string[][] = [];
+      runInNewContext(watchdogScript(123, 0, "win32", Date.now(), tree), {
+        Date,
+        process: { pid: 321, kill: () => true },
+        require: () => ({ spawnSync: (_file: string, args: string[]) => calls.push(args) }),
+        setTimeout: (callback: () => void) => callback(),
+      });
+      return calls;
+    };
+    expect(taskkill(true)).toEqual([["/PID", "123", "/T", "/F"]]);
+    expect(taskkill(false)).toEqual([["/PID", "123", "/F"]]);
+
+    // And the quit an update starts is what arms that script.
+    const spawned = vi.mocked(spawn);
+    const armed = () => {
+      spawned.mockImplementationOnce((() => ({ unref: () => undefined })) as never);
+      armQuitDeadline(0, 4242, 0);
+      return String(spawned.mock.calls.at(-1)![1]![1]);
+    };
+    const tree = process.platform === "win32" ? '"/T"' : "pgrep";
+    expect(armed()).toContain(tree);
+    markQuittingForUpdate();
+    expect(armed()).not.toContain(tree);
   });
 });

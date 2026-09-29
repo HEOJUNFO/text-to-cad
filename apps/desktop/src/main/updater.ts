@@ -23,7 +23,7 @@ import electronUpdater from "electron-updater";
 
 import { broadcast } from "./ipc";
 import { settings } from "./db/repositories";
-import { markQuitting } from "./quitting";
+import { markQuittingForUpdate } from "./quitting";
 import type { UpdateStatus } from "../shared/ipc/app";
 
 const { autoUpdater } = electronUpdater;
@@ -74,8 +74,9 @@ export function initUpdater() {
   // native updater (macOS Squirrel) and re-emitted by electron-updater's
   // BaseUpdater (Windows, Linux) — only once the quit is really under way: a
   // `quitAndInstall` that returns without quitting (Squirrel still fetching,
-  // a failed install) must leave the ask in place (`./quitting.ts`).
-  nativeUpdater.on("before-quit-for-update", markQuitting);
+  // a failed install) must leave the ask in place (`./quitting.ts`). The
+  // same mark keeps the quit deadline off the installer it has just spawned.
+  nativeUpdater.on("before-quit-for-update", markQuittingForUpdate);
 
   autoUpdater.on("checking-for-update", () => {
     if (!busyWithUpdate()) {
