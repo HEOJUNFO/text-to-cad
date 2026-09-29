@@ -31,7 +31,9 @@ import type { PromptReference } from "@text-to-cad/core/prompt";
  * The one other driver is a reconnect: an agent evicted or disconnected with
  * prompts queued comes back through a `session.state` snapshot, never a
  * `prompt/end`, so the bridge drains when a snapshot says the session is idle
- * (`drain` is a no-op when a prompt is already in flight).
+ * (`drain` is a no-op when a prompt is already in flight). A prompt submitted
+ * behind that queue while the agent is gone joins it and asks the agent back
+ * (`ensureLoaded`), so the reconnect sends the queue in the order it was typed.
  *
  * A failed turn pauses the queue. The failure is in the transcript with its
  * Retry, and what the person sends next — that Retry, or a new prompt — goes
@@ -95,10 +97,14 @@ type ComposerState = {
   focusRequest: { key: string; nonce: number } | null;
   /**
    * A send asked for from outside the composer — the new-session state's Try again — so what goes
-   * out is what the box holds now, attachments included, exactly as Enter would send it.
+   * out is what the box holds now, attachments included, exactly as Enter would send it. The
+   * composer consumes it (`consumeSubmit`) when it acts on it: left in place, a composer for the
+   * same key arriving later (New session for another project and back) would send its box unasked.
    */
   submitRequest: { key: string; nonce: number } | null;
   requestSubmit: (key: string) => void;
+  /** Clear the request if it is still the one handled; a newer request stays. */
+  consumeSubmit: (nonce: number) => void;
   addContext: (key: string, context: DraftContext) => void;
   /** A complete validated bundle is accepted in one store transaction, never submitted. */
   acceptContext: (key: string, operationId: string, parts: readonly DraftPart[], options: { root: string; focus: boolean }) => AcceptedContext;
@@ -155,6 +161,7 @@ export const useComposer = create<ComposerState>((set, get) => ({
   focusRequest: null,
   submitRequest: null,
   requestSubmit: (key) => set({ submitRequest: { key, nonce: ++sequence } }),
+  consumeSubmit: (nonce) => set((state) => state.submitRequest?.nonce === nonce ? { submitRequest: null } : state),
   acceptedContexts: {},
   acceptContext: (key, operationId, parts, options) => {
     const receipts = get().acceptedContexts;
@@ -259,11 +266,18 @@ export const useComposer = create<ComposerState>((set, get) => ({
     const status = useAcp.getState().sessions[sessionId]?.status;
     const queued = (get().queues[sessionId]?.length ?? 0) > 0;
     const busy = status === "running" || status === "waiting" || sessionId in get().sending;
-    // The queue only waits on an idle session that is still draining it. After a failed turn it is
-    // paused and this goes first (see the header); with no live agent — closed, connecting, never
-    // loaded — nothing would ever drain it, so this goes out and the reconnect drains the rest.
-    if (busy || (queued && status === "idle")) {
+    // The queue waits on an idle session that is still draining it. After a failed turn it is
+    // paused and this goes first (see the header). With no live agent — closed, connecting, never
+    // loaded — this joins the queue and the agent is asked back: the reconnect's idle snapshot
+    // drains the queue in order. Sent now, it would hold `sending` through the reconnect and the
+    // prompts queued before it would go out after it.
+    const gone = status === "closed" || status === "connecting" || status === undefined;
+    if (busy || (queued && (status === "idle" || gone))) {
       get().enqueue(sessionId, text, content, draft);
+      if (!busy && gone) {
+        // A live connection main still holds sends no fresh snapshot, so drain once this settles too.
+        await useAcp.getState().ensureLoaded(sessionId).catch(() => undefined);
+      }
       await get().drain(sessionId);
       return;
     }

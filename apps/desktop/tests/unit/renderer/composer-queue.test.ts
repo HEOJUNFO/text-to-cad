@@ -132,21 +132,57 @@ it("a queue left behind by a disconnect drains when a reconnect's session.state 
   expect(useComposer.getState().queues[SESSION]).toEqual([]);
 });
 
-it("with a queue left behind and no live agent, Enter sends rather than queueing behind nothing", async () => {
-  useComposer.getState().enqueue(SESSION, "stranded", block("stranded"));
-  for (const status of ["closed", "connecting"] as const) {
-    useAcp.setState({ sessions: { [SESSION]: { ...initialSessionState(SESSION, "claude"), status } } });
-    useComposer.setState({ sending: {} });
-    replies = [];
-    void useComposer.getState().submit(SESSION, `new-${status}`, block(`new-${status}`));
+it("a prompt typed behind a queue while the agent is gone waits its turn: the reconnect sends the queue first", async () => {
+  const ensureLoaded = vi.fn(async () => undefined);
+  const savedEnsure = useAcp.getState().ensureLoaded;
+  useAcp.setState({ ensureLoaded });
+  try {
+    const composer = useComposer.getState();
+    void composer.submit(SESSION, "A", block("A"));
+    start("A");
+    void composer.submit(SESSION, "B", block("B"));
     await settle();
-    expect(inFlight(), status).toEqual([`new-${status}`]);
+    // Disconnected mid-turn: A's turn never ends, the session reads closed, B is left queued.
+    emit({ type: "status", status: "closed", error: null });
+    replies[0]!.reject(new Error("disconnected"));
+    await settle();
+    expect(useComposer.getState().queues[SESSION]?.map(item => item.text)).toEqual(["B"]);
+
+    void composer.submit(SESSION, "C", block("C"));
+    await settle();
+    expect(inFlight(), "C is not sent past the queue").toEqual([]);
+    expect(useComposer.getState().queues[SESSION]?.map(item => item.text)).toEqual(["B", "C"]);
+    expect(ensureLoaded, "and the agent is asked back").toHaveBeenCalledWith(SESSION);
+
+    handlers["session.state"]!({ sessionId: SESSION, state: { ...initialSessionState(SESSION, "claude"), status: "idle" } });
+    await settle();
+    expect(inFlight()).toEqual(["B"]);
+    start("B");
+    end();
+    await settle();
+    replies[0]!.resolve();
+    await settle();
+    expect(inFlight()).toEqual(["C"]);
+  } finally {
+    useAcp.setState({ ensureLoaded: savedEnsure });
   }
-  useAcp.setState({ sessions: {} });
-  useComposer.setState({ sending: {} });
-  replies = [];
-  void useComposer.getState().submit(SESSION, "new-none", block("new-none"));
-  await settle();
-  expect(inFlight(), "no live state").toEqual(["new-none"]);
-  expect(useComposer.getState().queues[SESSION]?.map(item => item.text)).toEqual(["stranded"]);
+});
+
+it("on a connecting session, or none at all, a prompt behind a queue is queued and the agent asked back", async () => {
+  const ensureLoaded = vi.fn(async () => undefined);
+  const savedEnsure = useAcp.getState().ensureLoaded;
+  useAcp.setState({ ensureLoaded });
+  try {
+    useComposer.getState().enqueue(SESSION, "stranded", block("stranded"));
+    useAcp.setState({ sessions: { [SESSION]: { ...initialSessionState(SESSION, "claude"), status: "connecting" } } });
+    void useComposer.getState().submit(SESSION, "new-connecting", block("new-connecting"));
+    useAcp.setState({ sessions: {} });
+    void useComposer.getState().submit(SESSION, "new-none", block("new-none"));
+    await settle();
+    expect(inFlight()).toEqual([]);
+    expect(useComposer.getState().queues[SESSION]?.map(item => item.text)).toEqual(["stranded", "new-connecting", "new-none"]);
+    expect(ensureLoaded).toHaveBeenCalledWith(SESSION);
+  } finally {
+    useAcp.setState({ ensureLoaded: savedEnsure });
+  }
 });

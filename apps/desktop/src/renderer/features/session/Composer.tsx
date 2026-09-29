@@ -137,10 +137,14 @@ export function Composer({
     if (focusRequest !== null) textRef.current?.focus();
   }, [focusRequest]);
   // A send asked for from outside (the new-session state's Try again) is Enter's send: the form
-  // submits what the box holds now, through `handleSubmit` below.
+  // submits what the box holds now, through `handleSubmit` below. The request is consumed when it
+  // is handled, and one already in the store when this composer mounted is not this composer's to
+  // act on — either way a composer for the same key arriving later never sends its box unasked.
   const submitRequest = useComposer((state) => state.submitRequest?.key === draftKey ? state.submitRequest.nonce : null);
+  const staleSubmitRequest = useRef(useComposer.getState().submitRequest?.nonce ?? null);
   useEffect(() => {
-    if (submitRequest === null) return;
+    if (submitRequest === null || submitRequest === staleSubmitRequest.current) return;
+    useComposer.getState().consumeSubmit(submitRequest);
     const form = textRef.current?.form() ?? null;
     const submit = form?.querySelector('button[type="submit"]') as HTMLButtonElement | null;
     if (form && !submit?.disabled) form.requestSubmit();
