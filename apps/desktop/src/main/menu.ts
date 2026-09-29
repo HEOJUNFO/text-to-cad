@@ -27,6 +27,29 @@ export function buildMenu(focusedWindow: () => BrowserWindow | null, packaged = 
 
   const isMac = process.platform === "darwin";
 
+  // Mod+W closes the explorer's active tab, and the window only when there is
+  // no tab to close: the renderer answers the key first and the menu hears it
+  // only when the renderer let it go. With focus inside an embedded browser
+  // page the renderer never sees the key at all, so `role: "close"` closed
+  // the whole window from a tab's page. The key goes to the app instead.
+  const close: MenuItemConstructorOptions = {
+    label: "Close",
+    accelerator: "CmdOrCtrl+W",
+    click: () => {
+      const window = focusedWindow();
+      if (!window) {
+        return;
+      }
+      const forwarded = browserService.forwardFromFocused(window, {
+        keyCode: "W",
+        modifiers: [isMac ? "meta" : "control"],
+      });
+      if (!forwarded) {
+        window.close();
+      }
+    },
+  };
+
   const appMenu: MenuItemConstructorOptions[] = isMac
     ? [
         {
@@ -56,7 +79,7 @@ export function buildMenu(focusedWindow: () => BrowserWindow | null, packaged = 
         { label: "New Session", accelerator: "CmdOrCtrl+N", click: send("new-session") },
         { type: "separator" },
         ...(isMac
-          ? ([{ role: "close" }] as MenuItemConstructorOptions[])
+          ? [close]
           : ([
               { label: "Settings…", accelerator: "Ctrl+,", click: send("open-settings") },
               { type: "separator" },
@@ -146,7 +169,7 @@ export function buildMenu(focusedWindow: () => BrowserWindow | null, packaged = 
             { type: "separator" },
             { role: "front" },
           ]
-        : [{ role: "minimize" }, { role: "zoom" }, { role: "close" }],
+        : [{ role: "minimize" }, { role: "zoom" }, close],
     },
     {
       role: "help",

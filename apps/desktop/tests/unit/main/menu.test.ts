@@ -1,10 +1,15 @@
-/** Cmd+R reloads the focused embedded page, never the app's renderer in a packaged build; unsaved drafts ask first. */
+/**
+ * Cmd+R reloads the focused embedded page, never the app's renderer in a
+ * packaged build; Cmd+W from a page closes its tab, not the window; unsaved
+ * drafts ask first.
+ */
 import { EventEmitter } from "node:events";
 import type { MenuItemConstructorOptions } from "electron";
 import { beforeEach, expect, it, vi } from "vitest";
 
 const showMessageBoxSync = vi.hoisted(() => vi.fn());
 const reloadFocused = vi.hoisted(() => vi.fn());
+const forwardFromFocused = vi.hoisted(() => vi.fn());
 vi.mock("electron", () => ({
   Menu: { buildFromTemplate: (template: unknown) => template, setApplicationMenu: vi.fn() },
   app: { name: "text-to-cad", isPackaged: false, on: vi.fn() },
@@ -12,13 +17,13 @@ vi.mock("electron", () => ({
   shell: {},
 }));
 vi.mock("@main/ipc/register", () => ({ emit: vi.fn() }));
-vi.mock("@main/browser/service", () => ({ browserService: { reloadFocused } }));
+vi.mock("@main/browser/service", () => ({ browserService: { reloadFocused, forwardFromFocused } }));
 import { buildMenu, guardRendererUnload } from "@main/menu";
 
 beforeEach(() => { vi.clearAllMocks(); });
 const flatten = (items: MenuItemConstructorOptions[]): MenuItemConstructorOptions[] =>
   items.flatMap(item => [item, ...(Array.isArray(item.submenu) ? flatten(item.submenu) : [])]);
-const window = { webContents: Object.assign(new EventEmitter(), { reload: vi.fn() }) };
+const window = { webContents: Object.assign(new EventEmitter(), { reload: vi.fn() }), close: vi.fn() };
 const items = (packaged: boolean) => flatten(buildMenu(() => window as unknown as Electron.BrowserWindow, packaged) as unknown as MenuItemConstructorOptions[]);
 
 it("has no renderer reload in a packaged build; Cmd+R goes to the focused browser page", () => {
@@ -30,6 +35,26 @@ it("has no renderer reload in a packaged build; Cmd+R goes to the focused browse
   expect(reloadFocused).toHaveBeenCalledWith(window);
   expect(window.webContents.reload).not.toHaveBeenCalled();
   expect(packaged.some(item => item.label === "Reload App")).toBe(false);
+});
+
+// The renderer closes the active tab on Mod+W and lets the key go when there
+// is none, which is when the menu hears it. A browser page's key never
+// reaches the renderer, so the menu has to hand it over rather than close.
+it("sends Cmd+W from a focused browser page to the app, and closes the window only otherwise", () => {
+  const all = items(true);
+  expect(all.filter(item => item.role === "close")).toEqual([]);
+  const close = all.filter(item => item.accelerator === "CmdOrCtrl+W");
+  expect(close).toHaveLength(1);
+  const click = close[0]!.click as () => void;
+
+  forwardFromFocused.mockReturnValue(true);
+  click();
+  expect(forwardFromFocused).toHaveBeenCalledWith(window, { keyCode: "W", modifiers: [process.platform === "darwin" ? "meta" : "control"] });
+  expect(window.close).not.toHaveBeenCalled();
+
+  forwardFromFocused.mockReturnValue(false);
+  click();
+  expect(window.close).toHaveBeenCalledTimes(1);
 });
 
 it("keeps an app reload in development under a chord of its own", () => {

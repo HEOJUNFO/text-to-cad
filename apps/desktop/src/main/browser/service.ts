@@ -173,12 +173,30 @@ export class BrowserService {
   }
   /** An agent sent input to this page (CDP `Input.*`, or the app's own input method). */
   noteAutomatedInput(scope: BrowserScope, id: string) { this.get(scope, id).automatedInputAt = Date.now(); }
+  private focusedTarget(owner?: BrowserWindow | null) {
+    return [...this.targets.values()].find(candidate => candidate.visible && (!owner || candidate.owner === owner)
+      && !candidate.view.webContents.isDestroyed() && candidate.view.webContents.isFocused());
+  }
   /** Reload the embedded page that has keyboard focus. False when none has: then the key does nothing. */
   reloadFocused(owner?: BrowserWindow | null) {
-    const target = [...this.targets.values()].find(candidate => candidate.visible && (!owner || candidate.owner === owner)
-      && !candidate.view.webContents.isDestroyed() && candidate.view.webContents.isFocused());
+    const target = this.focusedTarget(owner);
     if (!target) return false;
     target.view.webContents.reload();
+    return true;
+  }
+  /**
+   * Hand an app shortcut pressed inside the focused embedded page to the app's
+   * own renderer, as the key it was: focus moves to the app, and its handlers
+   * answer it the way they would have with the app focused. A page never sees
+   * the app's keys, so without this the menu's accelerator is all that fires.
+   * False when no page in `owner` has focus.
+   */
+  forwardFromFocused(owner: BrowserWindow, key: { keyCode: string; modifiers: Electron.InputEvent["modifiers"] }) {
+    const target = this.focusedTarget(owner);
+    if (!target || owner.isDestroyed()) return false;
+    owner.webContents.focus();
+    owner.webContents.sendInputEvent({ type: "keyDown", ...key });
+    owner.webContents.sendInputEvent({ type: "keyUp", ...key });
     return true;
   }
   private hide(target: Target) {

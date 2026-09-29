@@ -42,7 +42,7 @@ type Contents = InstanceType<typeof electron.FakeContents>;
 const scope = { sessionId: "session-a", projectId: "project", root: "/work" };
 const bounds = { x: 10, y: 20, width: 300, height: 200 };
 function owner() {
-  const webContents = Object.assign(new EventEmitter(), { getZoomFactor: () => 1, focus: vi.fn() });
+  const webContents = Object.assign(new EventEmitter(), { getZoomFactor: () => 1, focus: vi.fn(), sendInputEvent: vi.fn() });
   return Object.assign(new EventEmitter(), { webContents, focused: true, isFocused() { return this.focused; }, isDestroyed: () => false, contentView: { addChildView: vi.fn(), removeChildView: vi.fn() } }) as unknown as Electron.BrowserWindow & { webContents: EventEmitter };
 }
 let service: BrowserService;
@@ -150,4 +150,22 @@ it("reloads only the focused, presented page", async () => {
   contents("r").focused = true;
   expect(service.reloadFocused(window)).toBe(true);
   expect(contents("r").reload).toHaveBeenCalledTimes(1);
+});
+
+it("hands a key from the focused page to its own app window, and only from there", async () => {
+  const window = owner();
+  const other = owner();
+  const key = { keyCode: "W", modifiers: ["meta" as const] };
+  await service.open(scope, { tabId: "w", url: "https://example.com/" });
+  service.present(scope, "w", window, "lease", bounds);
+  expect(service.forwardFromFocused(window, key)).toBe(false);
+  contents("w").focused = true;
+  expect(service.forwardFromFocused(other, key)).toBe(false);
+  expect(service.forwardFromFocused(window, key)).toBe(true);
+  const app = window.webContents as unknown as { focus: ReturnType<typeof vi.fn>; sendInputEvent: ReturnType<typeof vi.fn> };
+  expect(app.focus).toHaveBeenCalledTimes(1);
+  expect(app.sendInputEvent.mock.calls.map(([event]) => event)).toEqual([
+    { type: "keyDown", ...key },
+    { type: "keyUp", ...key },
+  ]);
 });
