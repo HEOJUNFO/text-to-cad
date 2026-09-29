@@ -43,6 +43,35 @@ const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const EXTRA_RESOURCE_DIRS = ["resources/cadgen", "resources/skills", "resources/runtime"];
 
 /**
+ * The extraResources electron-builder copies straight from the checkout (the
+ * runtime is built, never committed, so it is not here). The release workflow
+ * checks out without git-lfs, so an LFS-tracked file among these ships as its
+ * 130-byte pointer — the onboarding sample's STEP did. `lfsPointers` finds one
+ * before electron-builder copies it.
+ */
+export const CHECKED_OUT_RESOURCES = ["src/main/browser/vendor/LICENSE", "resources/cadgen", "resources/skills", "resources/sample"];
+const LFS_POINTER = "version https://git-lfs";
+
+/** The files under `entries` (relative to `root`) that are Git LFS pointers rather than content. */
+export function lfsPointers(root, entries = CHECKED_OUT_RESOURCES) {
+  const found = [];
+  const visit = (full) => {
+    const stat = fs.lstatSync(full, { throwIfNoEntry: false });
+    if (stat?.isDirectory()) {
+      for (const name of fs.readdirSync(full).sort()) {
+        visit(path.join(full, name));
+      }
+    } else if (stat?.isFile() && stat.size < 1024 && fs.readFileSync(full, "latin1").startsWith(LFS_POINTER)) {
+      found.push(path.relative(root, full));
+    }
+  };
+  for (const entry of entries) {
+    visit(path.join(root, entry));
+  }
+  return found;
+}
+
+/**
  * The `<os>-<arch>` runtimes this invocation needs: one per app electron-builder
  * will produce, which is the arch flags on the command line or, without any,
  * the arch list in electron-builder.yml for that os.
@@ -219,6 +248,15 @@ function main(argv) {
   // The same build `npm run build` does: the composed skills, electron-vite,
   // the bundled MCP server (scripts/build.mjs).
   run(process.execPath, [path.join(appRoot, "scripts", "build.mjs")]);
+  // After the build, which recomposes resources/skills.
+  const pointers = lfsPointers(appRoot);
+  if (pointers.length > 0) {
+    console.error(
+      `these resources are Git LFS pointers, not content, and would ship as such:\n${pointers.map((file) => `  ${file}`).join("\n")}\n` +
+        "Take them out of LFS (a .gitattributes beside them, as resources/sample has) or run `git lfs pull`.",
+    );
+    process.exit(2);
+  }
   run(...electronBuilder(targets, { version, notarize }));
 }
 

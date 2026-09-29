@@ -1,4 +1,8 @@
 import type * as ChildProcess from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -110,6 +114,45 @@ describe("package.mjs", () => {
       // Unsigned on CI (no secrets yet) and fully notarised on CI both go ahead.
       expect(signingEnv(["--mac"], { CI: "true" })).toMatchObject({ signed: false, notarize: false });
       expect(signingEnv(["--mac"], { ...APPLE, CI: "true" })).toMatchObject({ signed: true, notarize: true });
+    });
+  });
+
+  describe("lfsPointers", () => {
+    const POINTER = "version https://git-lfs.github.com/spec/v1\noid sha256:3a071fc73a485baeb718c0b2d4b31d2433a6b7035e8fe25e0c4529ad49274184\nsize 89499\n";
+
+    it("finds a pointer among the checked-out resources and nothing else", async () => {
+      const { lfsPointers } = await import("../../../scripts/package.mjs");
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "text-to-cad-lfs-"));
+      try {
+        const write = (file: string, content: string) => {
+          fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+          fs.writeFileSync(path.join(root, file), content);
+        };
+        write("resources/sample/README.md", "# sample\n");
+        write("resources/sample/l_bracket.step", "ISO-10303-21;\nHEADER;\n");
+        write("resources/cadgen/constraints.txt", "numpy==2.3.0\n");
+        expect(lfsPointers(root)).toEqual([]);
+
+        write("resources/sample/l_bracket.step", POINTER);
+        write("resources/skills/cad/assets/demo.gif", POINTER);
+        // Outside what ships: not this check's business.
+        write("resources/runtime/mac-arm64/pointer.bin", POINTER);
+        expect(lfsPointers(root)).toEqual([
+          path.join("resources", "skills", "cad", "assets", "demo.gif"),
+          path.join("resources", "sample", "l_bracket.step"),
+        ]);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it("covers every extraResource electron-builder.yml copies from the checkout", async () => {
+      const { CHECKED_OUT_RESOURCES } = await import("../../../scripts/package.mjs");
+      const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+      // Every `- from:` in the config is an extraResources entry (nothing else there has one).
+      const config = fs.readFileSync(path.join(appRoot, "electron-builder.yml"), "utf8");
+      const copied = [...config.matchAll(/^\s*- from: (\S+)$/gm)].map((match) => match[1]!).filter((from) => !from.startsWith("resources/runtime/"));
+      expect([...CHECKED_OUT_RESOURCES].sort()).toEqual([...copied].sort());
     });
   });
 });
