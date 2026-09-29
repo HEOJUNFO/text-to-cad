@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+from contextlib import closing
 import hashlib
 import io
 import json
@@ -242,7 +243,7 @@ class LibraryTests(unittest.TestCase):
             database = root / "library.sqlite3"
             from cadgen.mcp.library import file_revision
             preview = "data:image/png;base64,cHJldmlldw=="
-            with sqlite3.connect(database) as db:
+            with closing(sqlite3.connect(database)) as db, db:
                 db.execute("""CREATE TABLE recent_models (
                     id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE, root TEXT NOT NULL,
                     opened REAL NOT NULL, pinned INTEGER NOT NULL DEFAULT 0,
@@ -263,9 +264,37 @@ class LibraryTests(unittest.TestCase):
                              {"thumbnail": preview, "revision": item["thumbnailRevision"]})
             library.update("remove", "saved")
             self.assertEqual(RecentLibrary(database).get("saved"), {"id": "saved", "path": str(file)})
-            with sqlite3.connect(database) as db:
-                self.assertIsNone(db.execute("SELECT name FROM sqlite_master WHERE name='model_roots'").fetchone())
+            with closing(sqlite3.connect(database)) as db, db:
+                self.assertIsNotNone(db.execute("SELECT name FROM sqlite_master WHERE name='model_roots'").fetchone())
             self.assertEqual(library.list(), {"items": []})
+
+    def test_repair_preserves_live_old_schema_and_does_not_resurrect_removed_history(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            file = root / "part.stl"
+            file.write_bytes(b"solid original")
+            database = root / "state.sqlite3"
+            # Reproduce the document-registry release's surviving tables.
+            with closing(sqlite3.connect(database)) as db, db:
+                db.executescript("""CREATE TABLE documents(id TEXT PRIMARY KEY,path TEXT NOT NULL UNIQUE);
+                    CREATE TABLE recents(id TEXT PRIMARY KEY,opened REAL,pinned INTEGER,
+                        thumbnail TEXT,thumbnail_revision TEXT,thumbnail_hash TEXT);""")
+                db.execute("INSERT INTO documents VALUES(?,?)", ("old-id", str(file)))
+                db.execute("INSERT INTO recents VALUES(?,?,?,?,?,?)", ("old-id", 1., 1, "preview", "source", "image"))
+            library = RecentLibrary(database)
+            with closing(sqlite3.connect(database)) as old_process, old_process:
+                self.assertEqual(old_process.execute("SELECT pinned,thumbnail FROM recent_models WHERE id='old-id'").fetchone(), (1, "preview"))
+                old_process.execute("UPDATE recent_models SET pinned=0 WHERE id='old-id'")
+                old_process.commit()
+                self.assertFalse(library.list()["items"][0]["pinned"])
+                RecentLibrary(database)
+                old_process.execute("INSERT INTO model_roots VALUES(?,?,?,?)", ("old-id", "old-root", str(root), str(file)))
+                old_process.commit()
+                self.assertEqual(old_process.execute("SELECT root FROM model_roots").fetchone(), (str(root),))
+            library.update("remove", "old-id")
+            self.assertEqual(RecentLibrary(database).list(), {"items": []})
+            self.assertEqual(library.get("old-id")["path"], str(file))
 
     def test_independent_processes_preserve_concurrent_history(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -314,7 +343,15 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
             original = opened.structuredContent["document"]
             self.assertEqual(original["path"], str(files[0]))
             self.assertEqual(set(original), {"id", "path", "name", "revision"})
+        # An already-open API-1 view carries its old database UUID, not a v2 hash.
+        import sqlite3
+        from cadgen.mcp.library import library_path
+        with closing(sqlite3.connect(library_path())) as db, db:
+            db.execute("UPDATE documents SET id='old-view-uuid' WHERE path=?", (original["path"],))
         async with create_connected_server_and_client_session(second) as client:
+            legacy = await client.call_tool("cad_request", {"apiVersion": 1, "documentId": "old-view-uuid", "path": "/__cad/catalog"})
+            self.assertFalse(legacy.isError)
+            self.assertEqual(json.loads(base64.b64decode(legacy.structuredContent["body"]))["scopeId"], "old-view-uuid")
             native = await client.call_tool("cad_open", {"file": {"name": "same.stl", "resourceUri": "file://opaque"}},
                                           meta={"openai/resource": {"path": str(files[1])}})
             self.assertNotEqual(original["id"], native.structuredContent["document"]["id"])
@@ -349,7 +386,7 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
         async with create_connected_server_and_client_session(server) as client:
             tools = {tool.name: tool for tool in (await client.list_tools()).tools}
             self.assertEqual(tools["cad_request"].meta["ui"]["visibility"], ["app"])
-            self.assertEqual(tools["cad_request"].inputSchema["required"], ["documentId", "path"])
+            self.assertEqual(tools["cad_request"].inputSchema["required"], ["path"])
             self.assertTrue(tools["cad_library"].annotations.destructiveHint)
             tool = tools["cad_open"]
             self.assertEqual(tool.title, "CAD")
@@ -358,22 +395,58 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(tool.meta["openai/ui"]["entrypoints"], [{"type": "global"},
                 {"type": "file", "extensions": [".step", ".stp", ".stl", ".glb", ".3mf"]}])
             home = await client.call_tool("cad_open", {})
-            self.assertEqual(home.structuredContent, {"document": None})
+            self.assertEqual(home.structuredContent, {"apiVersion": 2, "document": None})
             opaque = await client.call_tool("cad_open", {"file": {"name": "part.stl", "resourceUri": "file://opaque"}})
-            self.assertEqual(opaque.structuredContent, {"document": None, "resourceUri": "file://opaque"})
+            self.assertEqual(opaque.structuredContent, {"apiVersion": 2, "document": None, "resourceUri": "file://opaque"})
             for path, hint in (("relative.stl", "absolute local"), (str(self.root / "source.py"), "supported format"),
                                (str(self.root / "missing.stl"), "missing or unreadable")):
                 result = await client.call_tool("cad_open", {"path": path})
                 self.assertTrue(result.isError)
                 self.assertIn(hint, result.content[0].text)
             uri = tool.meta["ui"]["resourceUri"]
-            self.assertEqual(uri, f"ui://cad/viewer/{hashlib.sha256(self.ui.read_bytes()).hexdigest()}.html")
+            self.assertEqual(uri, f"ui://cad/viewer/v2/{hashlib.sha256(self.ui.read_bytes()).hexdigest()}.html")
             resource = (await client.read_resource(uri)).contents[0]
             self.assertEqual(resource.text, self.ui.read_text())
             self.assertEqual(resource.mimeType, UI_MIME_TYPE)
             self.assertEqual(resource.meta["ui"]["permissions"], {"clipboardWrite": {}})
             self.assertEqual(resource.meta["ui"]["csp"], {"connectDomains": ["data:", "blob:"], "resourceDomains": ["data:", "blob:"]})
             self.assertEqual((await client.list_resources()).resources[0].icons, tool.icons)
+
+    async def test_v2_document_access_and_handshake_do_not_require_history(self):
+        file = self.root / "part.stl"
+        file.write_bytes(b"solid independent")
+        blocked = self.root / "not-a-directory"
+        blocked.write_bytes(b"block state creation")
+        with mock.patch("cadgen.mcp.server.RecentLibrary", side_effect=AssertionError("startup touched history")):
+            server = create_server(ui_path=self.ui, library_path=blocked / "history.sqlite3")
+            async with create_connected_server_and_client_session(server) as client:
+                handshake = await client.call_tool("cad_handshake", {"apiVersion": 2})
+                self.assertFalse(handshake.isError)
+                self.assertEqual(handshake.structuredContent["documentTransport"], "descriptor")
+                self.assertTrue(handshake.structuredContent["serverVersion"])
+                self.assertEqual(handshake.structuredContent["uiDigest"], hashlib.sha256(self.ui.read_bytes()).hexdigest())
+                home = await client.call_tool("cad_open", {"apiVersion": 2})
+                self.assertIsNone(home.structuredContent["document"])
+        async with create_connected_server_and_client_session(server) as client:
+            opened = await client.call_tool("cad_open", {"apiVersion": 2, "path": str(file)})
+            self.assertFalse(opened.isError)
+            self.assertEqual(opened.structuredContent["warnings"][0]["code"], "HISTORY_UNAVAILABLE")
+            document = opened.structuredContent["document"]
+        # Another process needs neither the original connection nor its database.
+        other = create_server(ui_path=self.ui, library_path=blocked / "different.sqlite3")
+        async with create_connected_server_and_client_session(other) as client:
+            response = await client.call_tool("cad_request", {"apiVersion": 2, "document": document,
+                "path": "/__cad/asset?" + urlencode({"file": str(file)})})
+            self.assertFalse(response.isError)
+            self.assertEqual(base64.b64decode(response.structuredContent["body"]), file.read_bytes())
+            unsupported = await client.call_tool("cad_handshake", {"apiVersion": 99})
+            self.assertEqual(unsupported.structuredContent["error"]["code"], "API_VERSION_UNSUPPORTED")
+            invalid = await client.call_tool("cad_request", {"apiVersion": 2,
+                "document": {**document, "id": "forged"}, "path": "/__cad/catalog"})
+            self.assertTrue(invalid.isError)
+            self.assertEqual(invalid.structuredContent["error"]["code"], "INVALID_DOCUMENT")
+            history = await client.call_tool("cad_library", {"apiVersion": 2})
+            self.assertEqual(history.structuredContent["error"]["code"], "HISTORY_UNAVAILABLE")
 
     async def test_real_stdio_protocol(self):
         params = StdioServerParameters(command=sys.executable, args=["-m", "cadgen.cli.mcp", "--ui", str(self.ui)],
@@ -382,7 +455,7 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
             async with ClientSession(read, write) as client:
                 await client.initialize()
                 home = await client.call_tool("cad_open", {})
-                self.assertEqual(home.structuredContent, {"document": None})
+                self.assertEqual(home.structuredContent, {"apiVersion": 2, "document": None})
 
     async def test_ui_resource_cache_key_tracks_content_and_serves_immutable_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:

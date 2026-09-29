@@ -1,6 +1,38 @@
 /** All CAD bytes travel through the app's MCP connection, including worker resources. */
 export interface ToolBridge {
-  callServerTool(params: { name: string; arguments?: Record<string, unknown> }, options?: { signal?: AbortSignal }): Promise<{ isError?: boolean; structuredContent?: unknown; content?: unknown[] }>;
+  callServerTool(params: { name: string; arguments?: Record<string, unknown> }, options?: { signal?: AbortSignal; timeout?: number }): Promise<ToolResult>;
+}
+export interface ToolResult { isError?: boolean; structuredContent?: unknown; content?: unknown[] }
+export const CAD_API_VERSION = 2;
+export class CadBackendError extends Error {
+  constructor(message: string, readonly code: string, readonly retryable = false) { super(message); this.name = 'CadBackendError'; }
+}
+export function toolData(result: ToolResult): Record<string, unknown> {
+  const data = result.structuredContent;
+  const object = data && typeof data === 'object' && !Array.isArray(data) ? data as Record<string, unknown> : undefined;
+  if (result.isError || object?.error) {
+    const error = object?.error as { message?: unknown; code?: unknown; retryable?: unknown } | undefined;
+    const detail = result.content?.flatMap(block => block && typeof block === 'object' && (block as { type?: string }).type === 'text' ? [(block as { text: string }).text] : []).join('\n');
+    throw new CadBackendError(typeof error?.message === 'string' ? error.message : detail || 'The CAD backend could not complete this request.',
+      typeof error?.code === 'string' ? error.code : 'BACKEND_ERROR', error?.retryable === true);
+  }
+  if (!object) throw new CadBackendError('CAD returned an invalid response. Reopen the extension to reconnect.', 'INVALID_RESPONSE');
+  return object;
+}
+export interface BackendInfo { apiVersion: number; version: string; uiResourceUri: string }
+export async function connectBackend(bridge: ToolBridge, signal?: AbortSignal): Promise<BackendInfo> {
+  let result: ToolResult;
+  try {
+    result = await bridge.callServerTool({ name: 'cad_handshake', arguments: { apiVersion: CAD_API_VERSION } }, { signal, timeout: 15_000 });
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    throw new CadBackendError(`Could not connect to the CAD runtime. Reconnect the CAD plugin or restart Codex, then reopen this view. ${error instanceof Error ? error.message : String(error)}`, 'CONNECTION_FAILED', true);
+  }
+  const data = toolData(result);
+  if (data.apiVersion !== CAD_API_VERSION || data.documentTransport !== 'descriptor') {
+    throw new CadBackendError('The CAD interface and runtime are incompatible. Reconnect the CAD plugin or restart Codex to load the installed version.', 'API_VERSION_UNSUPPORTED');
+  }
+  return { apiVersion: CAD_API_VERSION, version: typeof data.serverVersion === 'string' ? data.serverVersion : 'unknown', uiResourceUri: typeof data.uiResourceUri === 'string' ? data.uiResourceUri : 'unknown' };
 }
 export const CAD_ORIGIN = 'http://cad.local';
 export function encodeBytes(bytes: Uint8Array): string {
@@ -11,24 +43,20 @@ export function encodeBytes(bytes: Uint8Array): string {
 export function decodeBytes(value: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(atob(value), character => character.charCodeAt(0));
 }
-export function createBridgeFetch(bridge: ToolBridge, documentId: string): typeof fetch {
+export function createBridgeFetch(bridge: ToolBridge, document: CadDocument): typeof fetch {
   return async (input, init) => {
     const request = new Request(input instanceof Request ? input : new URL(String(input), CAD_ORIGIN), init);
     const url = new URL(request.url);
     if (url.origin !== CAD_ORIGIN) throw new Error('CAD resources must belong to the opened document.');
     request.signal.throwIfAborted();
     const bytes = request.body ? new Uint8Array(await request.arrayBuffer()) : undefined;
-    const args = { documentId, path: `${url.pathname}${url.search}`, method: request.method, ...(bytes ? { body: encodeBytes(bytes) } : {}) };
+    const args = { apiVersion: CAD_API_VERSION, document, path: `${url.pathname}${url.search}`, method: request.method, ...(bytes ? { body: encodeBytes(bytes) } : {}) };
     async function read(extra: Record<string, unknown> = {}) {
       request.signal.throwIfAborted();
-      const result = await bridge.callServerTool({ name: 'cad_request', arguments: { ...args, ...extra } }, { signal: request.signal });
+      const result = await bridge.callServerTool({ name: 'cad_request', arguments: { ...args, ...extra } }, { signal: request.signal, timeout: 60_000 });
       request.signal.throwIfAborted();
-      if (result.isError) {
-        const detail = result.content?.flatMap(block => block && typeof block === 'object' && (block as { type?: string }).type === 'text' ? [(block as { text: string }).text] : []).join('\n');
-        throw new Error(detail || 'The CAD backend could not complete this request.');
-      }
-      const response = result.structuredContent as Record<string, unknown> | undefined;
-      if (!response || !Number.isInteger(response.status) || typeof response.body !== 'string' || !response.headers || typeof response.headers !== 'object') throw new Error('Invalid CAD transport response.');
+      const response = toolData(result);
+      if (!Number.isInteger(response.status) || (response.status as number) < 200 || (response.status as number) > 599 || typeof response.body !== 'string' || !response.headers || typeof response.headers !== 'object' || Object.values(response.headers).some(value => typeof value !== 'string')) throw new Error('Invalid CAD transport response.');
       return response as { status: number; body: string; headers: Record<string, string>; transfer?: { offset: number; totalBytes: number; revision: string } };
     }
     const response = await read();
@@ -57,7 +85,7 @@ export function createBridgeFetch(bridge: ToolBridge, documentId: string): typeo
 }
 
 export interface CadDocument { id: string; path: string; name: string; revision: string }
-export interface OpenFile { document: CadDocument | null }
+export interface OpenFile { document: CadDocument | null; resourceUri?: string }
 export function isDocumentPath(path: unknown): path is string {
   if (typeof path !== 'string' || path.includes('\0')) return false;
   const prefix = path.match(/^(?:\/|[A-Za-z]:[\\/])/);
@@ -69,9 +97,10 @@ export function isDocumentPath(path: unknown): path is string {
 export function readOpenFile(value: unknown): OpenFile | null {
   if (!value || typeof value !== 'object') return null;
   const item = value as Record<string, unknown>;
-  if (item.document === null) return { document: null };
+  const resource = typeof item.resourceUri === 'string' ? { resourceUri: item.resourceUri } : {};
+  if (item.document === null) return { document: null, ...resource };
   const document = item.document as Record<string, unknown> | undefined;
   if (!document || typeof document.id !== 'string' || !document.id || !isDocumentPath(document.path)
     || typeof document.name !== 'string' || !document.name || typeof document.revision !== 'string' || !document.revision) return null;
-  return { document: document as unknown as CadDocument };
+  return { document: document as unknown as CadDocument, ...resource };
 }

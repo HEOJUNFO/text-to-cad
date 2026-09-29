@@ -240,7 +240,7 @@ requested separately. A manual dispatch runs every job.
 | web | web or ChatGPT app, UI, core, cadgen, infrastructure | UI, web and ChatGPT app units, the UI browser specs, bundled launch, format/camera browser checks through the backend |
 | skills | skills or runtime/host contracts | repo policy; skill CLI suites only for skills, cadgen, core or infrastructure |
 | docs | docs, skills, cadgen, core, infrastructure | static asset contract, lint, Next build, icon verification |
-| packaging | cadgen, core, UI, web or ChatGPT app, infrastructure | clean bundle, wheel contents, installed CLI behavior |
+| packaging | cadgen, core, UI, web or ChatGPT app, skills, infrastructure | clean bundle, wheel contents, installed CLI and plugin behavior |
 
 Here `cadgen`, `core` and `UI` mean their package directories and tests;
 `web`, `chatgpt` and `docs` mean their app directories. Infrastructure includes
@@ -523,11 +523,18 @@ Where the built things live instead:
 - **CI** builds the runtime stages needed by each selected test job and tests
   against that build (`bundle.sh --check` now means "the runtime builds and is
   complete", not a diff against a committed copy).
-- **The wheel** is the release artifact. `Publish Release` bundles, builds the
-  wheel and sdist, asserts the wheel carries `_runtime/`, installs and
-  exercises it, keeps the distribution as a workflow artifact, uploads it to
-  PyPI (the install channel every skill pins against), and attaches that same
-  wheel and sdist to the GitHub Release as the provenance copy of what shipped.
+- **The wheel** carries the entire Python, Node and UI runtime. `Publish Release`
+  bundles, builds the wheel and sdist, asserts the wheel carries `_runtime/`,
+  installs and exercises it, keeps the distribution as a workflow artifact,
+  uploads it to PyPI (the install channel every skill and the local plugin
+  pins against), and attaches that same wheel and sdist to the GitHub Release.
+- **The plugin ZIP** carries the provider manifests, canonical skills and
+  icons. Its stdio launcher uses `uvx --isolated --from cadgen[mcp]==<VERSION>`;
+  the wheel installed from PyPI supplies its UI. A second local-review ZIP
+  contains the exact built wheel. Portable metadata resolves it through
+  `${PLUGIN_ROOT}`; Codex's native config resolves it relative to the installed
+  plugin root. Both configs can be tested before PyPI has that version. Both ZIPs are workflow
+  artifacts; the PyPI-backed ZIP is also a GitHub Release asset.
 - **A checkout** builds its own: run `scripts/bundle/bundle.sh` once after
   cloning (and after pulling changes to `packages/core`); a missing runtime
   fails with a message that says so.
@@ -567,12 +574,16 @@ is involved) and deletes the branch. The merged commit is THE release commit.
    `_runtime/browser` and `_runtime/viewer`.
 3. Install test: the built wheel into a fresh venv — `cadgen --help`, `cadgen
    viewer --help`, `cadgen doctor skills/cad` — then
-   `scripts/test/test-installed.sh --wheel <built-wheel>`; the distribution is uploaded as a workflow
-   artifact (`cadgen-<version>`).
+   `scripts/test/test-installed.sh --wheel <built-wheel>`. From the same wheel,
+   `package-plugin.py` builds both plugin ZIPs and `test-plugin-package.py`
+   extracts and runs the wheel-backed MCP from a temporary directory. The
+   protocol check negotiates API 2, reads the bundled UI and opens a tiny STL.
+   The distribution and plugin ZIPs become separate workflow artifacts.
 4. **On `main` only:** PyPI upload (`skip-existing`, so a rerun is a no-op),
    `Deploy Docs`, then the `v<VERSION>` tag and the GitHub Release, with the
-   wheel and sdist from that same artifact attached as release assets (PyPI
-   stays the install channel; the release page is the provenance copy). Nothing is
+   wheel and sdist from that same artifact plus the PyPI-backed plugin ZIP
+   attached as release assets. PyPI upload comes first so the ZIP's exact
+   `cadgen[mcp]` pin is resolvable when the release is available. Nothing is
    committed or pushed to `main` after the release PR merge: the tag points at
    the source commit, and `git describe` on `main` is meaningful.
 
@@ -629,6 +640,55 @@ temporary package copy and verifies that every bundled runtime file is present
 with identical bytes, with no obsolete assets left in the wheel. It leaves the
 checkout's build scratch untouched. Set `CADGEN_WHEEL_OUT_DIR` and
 `CADGEN_KEEP_WHEEL=1` to retain that checked wheel for an installed smoke test.
+With a verified wheel, build and check the local plugin archives using:
+
+```bash
+python scripts/release/package-plugin.py --wheel tmp/cadgen-wheel-check/cadgen-<version>-py3-none-any.whl --out-dir tmp/plugin-dist
+python scripts/test/test-plugin-package.py --wheel tmp/cadgen-wheel-check/cadgen-<version>-py3-none-any.whl --archives-dir tmp/plugin-dist
+```
+
+The protocol check needs `uvx` on `PATH` and downloads the wheel's declared
+dependencies on first use. It launches from outside the repository and uses
+temporary CAD history/cache paths. The production ZIP remains pinned to PyPI;
+its runtime cannot be tested against an unpublished version. To try unreleased
+plugin code, install the local-review ZIP instead of replacing the installed
+`cadgen` executable on `PATH`.
+
+### Plugin packaging and review
+
+`mcp.json` is the spec-valid portable **local stdio** declaration. The
+`.codex-plugin` manifest points at native `.mcp.json`, which uses the same
+version-pinned launcher and a 300-second startup timeout for a cold `uvx`
+dependency download. The portable schema does not accept that timeout field.
+The root portable `plugin.json` is intentionally absent: Codex
+0.159.0 loaded its skills but failed to discover its MCP server, while the
+documented compatibility manifest works. Verify desktop MCP discovery before
+switching formats. `scripts/release/sync-version.mjs` stamps the uvx requirement
+and provider metadata from `VERSION`, and the policy suite checks this contract.
+
+The release ZIP is for local marketplaces and review of its files; it is not a
+ready **public With MCP** submission. [OpenAI's plugin packaging guide](https://developers.openai.com/plugins/build/plugins)
+supports the compatibility manifest and says a public MCP submission needs a
+public HTTPS endpoint; it directs developers who cannot provide one to their
+OpenAI contact for local MCP support. The [submission guide](https://developers.openai.com/plugins/deploy/submission)
+also requires domain verification for a remote MCP plugin. Do not point a
+public endpoint at users' local CAD files.
+A Skills only upload excludes the MCP configurations and would lose the viewer integration.
+
+For a public review, the publisher must first obtain Apps Management Write
+access and verified individual or business identity. The package/listing must
+then include production HTTPS website, support, privacy policy and terms URLs
+that match that identity, plus a valid primary logo and customer-facing copy.
+This repository has no verified public support, privacy or terms URLs, and the
+manifest does not invent them. A remote MCP submission also
+needs a production endpoint and domain challenge, accurate read-only/open-world/
+destructive annotations with justifications, UI CSP for every fetched domain,
+a reviewer-accessible demo video, five positive and three negative test cases,
+release notes, and any required reviewer credentials entered in the portal
+rather than the ZIP. Confirm all of these against the current
+[submission requirements](https://developers.openai.com/plugins/deploy/submission)
+before requesting review; no workflow in this repository submits or publishes
+a public plugin.
 
 For local release preparation, use the same scripts the workflow calls:
 

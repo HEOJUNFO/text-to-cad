@@ -1,6 +1,7 @@
 """Selected-document resolution: no workspace discovery or directory authority."""
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import struct
@@ -30,6 +31,27 @@ def canonical_document(path: str) -> str:
     if candidate.suffix.lower() not in SUPPORTED_EXTENSIONS:
         raise ValueError("CAD file aliases must resolve to a supported CAD document")
     return str(candidate)
+
+
+def document_id(path: str) -> str:
+    """Identity is portable across MCP processes and independent of history."""
+    return hashlib.sha256(("cad-document-v2\0" + str(Path(path).resolve())).encode("utf-8")).hexdigest()
+
+
+def describe_document(path: str) -> dict:
+    from .library import file_revision
+    canonical = canonical_document(path)
+    return {"id": document_id(canonical), "path": canonical,
+            "name": Path(canonical).name, "revision": file_revision(canonical)}
+
+
+def resolve_document(descriptor: dict) -> dict:
+    document = describe_document(descriptor["path"])
+    if document["path"] != descriptor["path"]:
+        raise ValueError("CAD document path changed; reopen its absolute path")
+    if document["id"] != descriptor["id"]:
+        raise ValueError("CAD document descriptor ID is invalid; reopen its absolute path")
+    return document
 
 
 class DocumentAssetBackend:

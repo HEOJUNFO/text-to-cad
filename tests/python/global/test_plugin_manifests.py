@@ -12,6 +12,7 @@ owns stamping every derived version from the canonical `VERSION` file, and
 from __future__ import annotations
 
 import json
+import struct
 import unittest
 from pathlib import Path
 
@@ -23,7 +24,9 @@ MARKETPLACE_NAME = "text-to-cad"
 CLAUDE_PLUGIN_PATH = REPO_ROOT / ".claude-plugin" / "plugin.json"
 CODEX_PLUGIN_PATH = REPO_ROOT / ".codex-plugin" / "plugin.json"
 MCP_PATH = REPO_ROOT / "mcp.json"
+CODEX_MCP_PATH = REPO_ROOT / ".mcp.json"
 MARKETPLACE_PATH = REPO_ROOT / ".claude-plugin" / "marketplace.json"
+CODEX_MARKETPLACE_PATH = REPO_ROOT / ".agents" / "plugins" / "marketplace.json"
 SKILLS_ROOT = REPO_ROOT / "skills"
 
 # A plugin manifest may point at its skills directory in any of these forms.
@@ -75,22 +78,37 @@ class PluginManifestPolicyTest(unittest.TestCase):
 
     def test_mcp_server_starts_the_local_cadgen_runtime(self) -> None:
         config = load_json(MCP_PATH)
+        version = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
         self.assertEqual(
             config.get("$schema"),
             "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
         )
         self.assertEqual(
             config.get("mcpServers"),
-            {"cad_viewer": {"type": "stdio", "command": "cadgen", "args": ["mcp"]}},
+            {"cad_viewer": {"type": "stdio", "command": "uvx", "args": [
+                "--isolated", "--from", f"cadgen[mcp]=={version}", "cadgen", "mcp"
+            ]}},
         )
-        self.assertEqual(load_json(CODEX_PLUGIN_PATH).get("mcpServers"), "./mcp.json")
+        native_server = load_json(CODEX_MCP_PATH)["mcpServers"]["cad_viewer"]
+        self.assertEqual(native_server, {
+            "command": "uvx",
+            "args": ["--isolated", "--from", f"cadgen[mcp]=={version}", "cadgen", "mcp"],
+            "cwd": ".",
+            "startup_timeout_sec": 300,
+        })
+        self.assertEqual(load_json(CODEX_PLUGIN_PATH).get("mcpServers"), "./.mcp.json")
 
     def test_openai_plugin_displays_as_cad(self) -> None:
         interface = load_json(CODEX_PLUGIN_PATH)["interface"]
         self.assertEqual(interface["displayName"], "CAD")
+        self.assertLessEqual(len(interface["shortDescription"]), 30)
         for field in ("composerIcon", "logo", "logoDark"):
-            artwork = "logo-c.svg" if field == "composerIcon" else "logo-cad.png"
+            artwork = "logo-c.png"
             canonical_logo = (REPO_ROOT / "apps/docs/public/brand" / artwork).read_bytes()
+            self.assertEqual(canonical_logo[:8], b"\x89PNG\r\n\x1a\n")
+            width, height = struct.unpack(">II", canonical_logo[16:24])
+            self.assertEqual(width, height)
+            self.assertGreaterEqual(width, 48)
             self.assertEqual(
                 (REPO_ROOT / interface[field]).read_bytes(),
                 canonical_logo,
@@ -119,6 +137,14 @@ class PluginManifestPolicyTest(unittest.TestCase):
             VALID_ROOT_SOURCES,
             "marketplace entry must source the plugin from the repository root",
         )
+
+    def test_codex_marketplace_installs_this_plugin_from_the_root(self) -> None:
+        marketplace = load_json(CODEX_MARKETPLACE_PATH)
+        self.assertEqual(marketplace["name"], MARKETPLACE_NAME)
+        self.assertEqual(marketplace["interface"]["displayName"], "CAD")
+        matches = [entry for entry in marketplace["plugins"] if entry.get("name") == PLUGIN_NAME]
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["source"], {"source": "local", "path": "./"})
 
     def test_no_stale_plugin_subdirectory_package_remains(self) -> None:
         # The generated `plugins/cad/skills` copy is what the repo-root move

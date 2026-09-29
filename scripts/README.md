@@ -77,6 +77,11 @@ where those files ship, so these scripts are what produces them.
   the exact artifact already built), installs it into a scratch venv and
   exercises cadgen from outside the repo. Called by `test.yml` and
   `release-publish.yml`.
+- `test-plugin-package.py --wheel PATH --archives-dir DIR` — verifies the two
+  complete plugin ZIPs and starts the local-review archive's exact wheel via
+  its native Codex `uvx` launcher from a temporary install, checking API negotiation, embedded UI and
+  file transport. `--validate-only` checks structure without downloading
+  dependencies. Called by `test.yml` and `release-publish.yml`.
 - `test-viewer-launch.sh` — launches `cadgen viewer` against the built client and
   verifies reuse, cold STEP import, display derivation and browser drawing using
   a tiny test-owned STEP. Called by `test.yml`.
@@ -106,8 +111,13 @@ where those files ship, so these scripts are what produces them.
   skill's `requirements.txt`. Called by `release-prepare.yml`; tested by
   `tests/python/global/test_pin_cadgen_requirements.py`.
 - `sync-version.mjs [--check]` — stamps the derived versions (package, plugin,
-  lockfile and `pyproject.toml` metadata) from `VERSION`. Called by `bundle.sh`,
+  exact `cadgen[mcp]` launcher requirement, lockfile and `pyproject.toml`
+  metadata) from `VERSION`. Called by `bundle.sh`,
   `test.yml`, `release-prepare.yml`.
+- `package-plugin.py --wheel PATH --out-dir DIR` — builds reproducible
+  PyPI-backed and wheel-backed local-review plugin ZIPs from the same verified
+  wheel. Uses canonical tracked `skills/` and provider manifests; no checkout
+  runtime files are copied. Called by `test.yml` and `release-publish.yml`.
 - `check-wheel-contents.sh` — builds the wheel and asserts the Python modules and
   `_runtime/{node,browser,viewer,chatgpt}` are inside it, with bytes identical to the
   bundled source. The only gate on package data, which fails quietly. Called by
@@ -155,9 +165,9 @@ manual; their `*.test.mjs` helper units run in `test-js.sh`.
 
 | Workflow | Branches/events | Purpose |
 | -------- | --------------- | ------- |
-| `test.yml` | pushes to `main`; PRs to `main`; manual dispatch | One job per thing that has to work, each conditional on the paths that can break it (`CONTRIBUTING.md` documents the graph): `Version Check` always; the cadgen package suite on Linux and Windows; `core-js` (`@text-to-cad/core`), `web` (shared UI and the web app), skills and docs on Linux; `packaging` bundles from clean (nothing under `_runtime/` is committed, so this is where it comes from), checks the layout, inspects the wheel and runs the installed-mode tests. Superseded PR runs are cancelled. |
+| `test.yml` | pushes to `main`; PRs to `main`; manual dispatch | One job per thing that has to work, each conditional on the paths that can break it (`CONTRIBUTING.md` documents the graph): `Version Check` always; the cadgen package suite on Linux and Windows; `core-js` (`@text-to-cad/core`), `web` (shared UI and the web app), skills and docs on Linux; `packaging` bundles from clean, inspects the wheel, runs installed-mode tests, and builds and exercises complete plugin ZIP artifacts. Superseded PR runs are cancelled. |
 | `release-prepare.yml` (`Prepare Release`) | manual dispatch | The version bump as a PR: bumps `VERSION`, stamps metadata and skill pins, opens `release/X.Y.Z` against `target` (default `main`; `build-test` rehearses) and merges it. The merge is what runs `Publish Release`. |
-| `release-publish.yml` (`Publish Release`) | pushes to `main` and `build-test`; manual dispatch (resume/republish the head) | Gate (VERSION past the latest tag, or untagged), bundle, tests, wheel build, an `unzip -l` assertion that the shipping wheel carries `_runtime`, install test, distribution artifact; then — on `main` only — PyPI upload, docs deploy, `v<VERSION>` tag and GitHub Release carrying the wheel and sdist. On `build-test` it prints what it would have tagged and stops. |
+| `release-publish.yml` (`Publish Release`) | pushes to `main` and `build-test`; manual dispatch (resume/republish the head) | Gate (VERSION past the latest tag, or untagged), bundle, tests, wheel build, an `unzip -l` assertion that the shipping wheel carries `_runtime`, install and plugin ZIP tests, distribution and plugin artifacts; then — on `main` only — PyPI upload, docs deploy, `v<VERSION>` tag and GitHub Release carrying the wheel, sdist and PyPI-backed plugin ZIP. On `build-test` it prints what it would have tagged and stops. |
 | `deploy-docs.yml` (`Deploy Docs`) | manual dispatch; called by `release-publish.yml` | Deploys the docs app to Vercel production from a ref (default `main`): configures Vercel Authentication for preview deployments only, runs `vercel pull/build/deploy --prod`, and verifies the public production URLs. |
 
 `Prepare Release` bumps, `Publish Release` ships, `Deploy Docs`

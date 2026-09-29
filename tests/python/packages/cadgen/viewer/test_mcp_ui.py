@@ -40,6 +40,18 @@ class UiResourceTests(unittest.IsolatedAsyncioTestCase):
                                 self.assertEqual(resource.text, expected)
                                 self.assertFalse(resource.meta["ui"]["prefersBorder"])
 
+    async def test_cache_write_failure_still_discovers_and_serves_current_bundle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            html = Path(directory) / "viewer.html"
+            html.write_text("<!doctype html><title>uncached</title>")
+            with mock.patch.dict(os.environ, {"CADGEN_MCP_UI_CACHE_DIR": str(Path(directory) / "cache"), "CADGEN_STATE_DIR": str(Path(directory) / "state")}), mock.patch("cadgen.mcp.ui_resources.write_bytes_atomic", side_effect=PermissionError("cache is read only")), self.assertLogs("cadgen.mcp.ui_resources", level="WARNING"):
+                server = create_server(ui_path=html)
+            async with create_connected_server_and_client_session(server) as client:
+                handshake = (await client.call_tool("cad_handshake", {"apiVersion": 2})).structuredContent
+                self.assertFalse(handshake["uiCacheAvailable"])
+                resource = (await client.read_resource(handshake["uiResourceUri"])).contents[0]
+                self.assertEqual(resource.text, html.read_text())
+
     def test_unknown_invalid_and_corrupted_bundles_never_return_other_bytes(self):
         with tempfile.TemporaryDirectory() as directory, mock.patch.dict(os.environ, {"CADGEN_MCP_UI_CACHE_DIR": directory}):
             first = UiResources(b"first")
@@ -49,7 +61,7 @@ class UiResourceTests(unittest.IsolatedAsyncioTestCase):
                     first.read(invalid)
             with self.assertRaisesRegex(ValueError, "no longer cached"):
                 first.read("0" * 64)
-            (Path(directory) / f"{second.digest}.html").write_bytes(b"replaced")
+            (second.root / f"{second.digest}.html").write_bytes(b"replaced")
             with self.assertRaisesRegex(ValueError, "content check"):
                 first.read(second.digest)
             # The owning session's immutable in-memory snapshot still works.

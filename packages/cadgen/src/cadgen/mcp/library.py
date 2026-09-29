@@ -12,7 +12,6 @@ import sqlite3
 import struct
 import sys
 import time
-import uuid
 
 
 MAX_THUMBNAIL_BYTES = 256 * 1024
@@ -50,71 +49,83 @@ class RecentLibrary:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
-            db.execute("CREATE TABLE IF NOT EXISTS documents (id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE)")
-            tables = {row["name"] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            if "recent_models" in tables:
-                rows = db.execute("SELECT * FROM recent_models ORDER BY opened DESC").fetchall()
-                db.execute("ALTER TABLE recent_models RENAME TO legacy_recent_models")
-            else:
-                rows = []
-            db.execute("""CREATE TABLE IF NOT EXISTS recents (
-                id TEXT PRIMARY KEY REFERENCES documents(id), opened REAL NOT NULL,
-                pinned INTEGER NOT NULL DEFAULT 0, thumbnail TEXT,
-                thumbnail_revision TEXT, thumbnail_hash TEXT
+            # These tables are still used by installed, long-lived MCP servers.
+            # Never rename/drop them, even when a newer schema is available.
+            db.execute("""CREATE TABLE IF NOT EXISTS recent_models (
+                id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE, root TEXT NOT NULL,
+                opened REAL NOT NULL, pinned INTEGER NOT NULL DEFAULT 0,
+                thumbnail TEXT, thumbnail_revision TEXT, thumbnail_hash TEXT
             )""")
-            for row in rows:
-                canonical = str(Path(row["path"]).resolve())
-                db.execute("INSERT OR IGNORE INTO documents(id,path) VALUES(?,?)", (row["id"], canonical))
-                document = db.execute("SELECT id FROM documents WHERE path=?", (canonical,)).fetchone()
-                image = row["thumbnail"]
-                image_hash = hashlib.sha256(image.encode("ascii")).hexdigest() if image else None
-                db.execute("""INSERT INTO recents VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
-                    pinned=MAX(recents.pinned,excluded.pinned),
-                    thumbnail_revision=CASE WHEN recents.thumbnail IS NULL THEN excluded.thumbnail_revision ELSE recents.thumbnail_revision END,
-                    thumbnail_hash=COALESCE(recents.thumbnail_hash,excluded.thumbnail_hash),
-                    thumbnail=COALESCE(recents.thumbnail,excluded.thumbnail)""",
-                    (document["id"], row["opened"], row["pinned"], image, row["thumbnail_revision"], image_hash))
-            # Older live-view grants can outlive their visible history. Preserve
-            # those document identities too; directories no longer grant access.
-            if "model_roots" in tables:
-                columns = {row["name"] for row in db.execute("PRAGMA table_info(model_roots)")}
-                if "path" in columns:
-                    for row in db.execute("SELECT recent_id,path FROM model_roots WHERE path IS NOT NULL"):
-                        db.execute("INSERT OR IGNORE INTO documents(id,path) VALUES(?,?)",
-                                   (row["recent_id"], str(Path(row["path"]).resolve())))
-                db.execute("DROP TABLE model_roots")
-            if rows or "recent_models" in tables:
-                db.execute("DROP TABLE legacy_recent_models")
+            if "thumbnail_hash" not in {r["name"] for r in db.execute("PRAGMA table_info(recent_models)")}:
+                db.execute("ALTER TABLE recent_models ADD COLUMN thumbnail_hash TEXT")
+            db.execute("""CREATE TABLE IF NOT EXISTS model_roots (
+                recent_id TEXT NOT NULL, root_id TEXT NOT NULL, root TEXT NOT NULL, path TEXT,
+                PRIMARY KEY(recent_id,root_id)
+            )""")
+            db.execute("CREATE TABLE IF NOT EXISTS documents (id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE)")
+            db.execute("CREATE TABLE IF NOT EXISTS mcp_migrations (name TEXT PRIMARY KEY)")
+            migrated = db.execute("SELECT 1 FROM mcp_migrations WHERE name='compatible-history-v2'").fetchone()
+            tables = {r["name"] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if migrated is None:
+                # Repair the short-lived document-registry release that removed
+                # the old tables. Existing old rows always win. Import once so
+                # later deletions cannot be resurrected by another connection.
+                if "recents" in tables:
+                    for row in db.execute("SELECT documents.path,recents.* FROM recents JOIN documents USING(id)"):
+                        db.execute("""INSERT OR IGNORE INTO recent_models
+                            (id,path,root,opened,pinned,thumbnail,thumbnail_revision,thumbnail_hash)
+                            VALUES(?,?,?,?,?,?,?,?)""", (row["id"], row["path"], str(Path(row["path"]).parent),
+                            row["opened"], row["pinned"], row["thumbnail"], row["thumbnail_revision"], row["thumbnail_hash"]))
+                db.execute("INSERT INTO mcp_migrations VALUES('compatible-history-v2')")
+            for row in db.execute("SELECT id,path,thumbnail FROM recent_models"):
+                db.execute("INSERT OR IGNORE INTO documents(id,path) VALUES(?,?)", (row["id"], row["path"]))
+                if row["thumbnail"]:
+                    db.execute("UPDATE recent_models SET thumbnail_hash=? WHERE id=? AND thumbnail_hash IS NULL",
+                               (hashlib.sha256(row["thumbnail"].encode("ascii")).hexdigest(), row["id"]))
 
     def _connect(self):
-        db = sqlite3.connect(self.path, timeout=10)
+        # History is optional UI state; contention must not hold a file open
+        # hostage for seconds. SQLite transactions still serialize all writes.
+        db = sqlite3.connect(self.path, timeout=0.2)
         db.row_factory = sqlite3.Row
+        from .documents import document_id
+        db.create_function("cad_document_id", 1, document_id, deterministic=True)
         return db
 
     def get(self, document_id: str) -> dict:
         with closing(self._connect()) as db:
-            row = db.execute("SELECT * FROM documents WHERE id=?", (document_id,)).fetchone()
+            row = db.execute("SELECT * FROM documents WHERE id=? OR cad_document_id(path)=?",
+                             (document_id, document_id)).fetchone()
+            if row is None:
+                row = db.execute("SELECT id,path FROM recent_models WHERE id=? OR cad_document_id(path)=?",
+                                 (document_id, document_id)).fetchone()
         if row is None:
-            raise ValueError("Unknown CAD documentId; open an absolute CAD file path first")
+            raise ValueError("Unknown CAD documentId; reopen an absolute CAD path to obtain a self-contained document descriptor")
         from .documents import canonical_document
-        if canonical_document(row["path"]) != row["path"]:
+        canonical = canonical_document(row["path"])
+        if canonical != row["path"]:
             raise ValueError("CAD document path now points elsewhere; reopen its absolute path")
         return dict(row)
 
     def record(self, path: str) -> dict:
-        from .documents import canonical_document
-        path = canonical_document(path)
+        from .documents import describe_document
+        document = describe_document(path)
         with closing(self._connect()) as db, db:
-            db.execute("INSERT OR IGNORE INTO documents(id,path) VALUES(?,?)", (uuid.uuid4().hex, path))
-            row = db.execute("SELECT * FROM documents WHERE path=?", (path,)).fetchone()
-            db.execute("""INSERT INTO recents(id,opened) VALUES(?,?)
-                ON CONFLICT(id) DO UPDATE SET opened=excluded.opened""", (row["id"], time.time()))
-        return {"id": row["id"], "path": path, "name": Path(path).name, "revision": file_revision(path)}
+            db.execute("INSERT OR IGNORE INTO documents(id,path) VALUES(?,?)", (document["id"], document["path"]))
+            existing = db.execute("SELECT id FROM recent_models WHERE cad_document_id(path)=?", (document["id"],)).fetchone()
+            if existing is not None:
+                db.execute("UPDATE recent_models SET opened=? WHERE cad_document_id(path)=?", (time.time(), document["id"]))
+            else:
+                db.execute("INSERT INTO recent_models(id,path,root,opened) VALUES(?,?,?,?)",
+                           (document["id"], document["path"], str(Path(document["path"]).parent), time.time()))
+        return document
 
     def _item(self, row) -> dict:
-        revision = file_revision(row["path"])
+        from .documents import document_id
+        canonical = str(Path(row["path"]).resolve())
+        revision = file_revision(canonical)
         return {
-            "id": row["id"], "path": row["path"], "name": Path(row["path"]).name,
+            "id": document_id(canonical), "path": canonical, "name": Path(canonical).name,
             "lastOpened": row["opened"], "pinned": bool(row["pinned"]), "missing": revision is None,
             "revision": revision,
             "thumbnailRevision": row["thumbnail_hash"] if revision and row["thumbnail_revision"] == revision else None,
@@ -122,17 +133,21 @@ class RecentLibrary:
 
     def list(self) -> dict:
         with closing(self._connect()) as db:
-            rows = db.execute("""SELECT documents.path,recents.* FROM recents JOIN documents USING(id)
-                ORDER BY pinned DESC, opened DESC, id LIMIT 100""").fetchall()
-        return {"items": [self._item(row) for row in rows]}
+            rows = db.execute("""SELECT * FROM recent_models ORDER BY pinned DESC, opened DESC, id LIMIT 100""").fetchall()
+        items = {}
+        for row in rows:
+            item = self._item(row)
+            items.setdefault(item["id"], item)
+        return {"items": list(items.values())}
 
     def update(self, action: str, document_id: str, *, pinned: bool | None = None,
                thumbnail: str | None = None, revision: str | None = None) -> dict:
         with closing(self._connect()) as db:
-            row = db.execute("SELECT documents.path,recents.* FROM recents JOIN documents USING(id) WHERE id=?",
-                             (document_id,)).fetchone()
+            row = db.execute("SELECT * FROM recent_models WHERE id=? OR cad_document_id(path)=? ORDER BY pinned DESC,opened DESC LIMIT 1",
+                             (document_id, document_id)).fetchone()
         if row is None:
             raise ValueError("CAD document is not in recent history; open it before updating its library entry")
+        record_id = row["id"]
         if action == "thumbnail":
             current = file_revision(row["path"])
             if thumbnail is None:
@@ -162,16 +177,16 @@ class RecentLibrary:
                 raise ValueError("CAD model changed before thumbnail upload; reopen it")
             thumbnail_hash = hashlib.sha256(thumbnail.encode("ascii")).hexdigest()
             with closing(self._connect()) as db, db:
-                db.execute("UPDATE recents SET thumbnail=?,thumbnail_revision=?,thumbnail_hash=? WHERE id=?",
-                           (thumbnail, revision, thumbnail_hash, document_id))
+                db.execute("UPDATE recent_models SET thumbnail=?,thumbnail_revision=?,thumbnail_hash=? WHERE cad_document_id(path)=cad_document_id(?)",
+                           (thumbnail, revision, thumbnail_hash, row["path"]))
                 if file_revision(row["path"]) != revision:
                     raise ValueError("CAD model changed during thumbnail upload; reopen it")
             return {"thumbnail": thumbnail, "revision": thumbnail_hash}
         with closing(self._connect()) as db, db:
             if action == "pin" and pinned is not None:
-                db.execute("UPDATE recents SET pinned=? WHERE id=?", (int(pinned), document_id))
+                db.execute("UPDATE recent_models SET pinned=? WHERE cad_document_id(path)=cad_document_id(?)", (int(pinned), row["path"]))
             elif action == "remove":
-                db.execute("DELETE FROM recents WHERE id=?", (document_id,))
+                db.execute("DELETE FROM recent_models WHERE id=? OR cad_document_id(path)=cad_document_id(?)", (record_id, row["path"]))
             else:
                 raise ValueError("Library action must be list, pin, remove or thumbnail; pin requires pinned")
         return self.list()

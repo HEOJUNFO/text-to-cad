@@ -1,8 +1,6 @@
 {
-  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
   "mcpServers": {
     "cad_viewer": {
-      "type": "stdio",
       "command": "uvx",
       "args": [
         "--isolated",
@@ -10,7 +8,9 @@
         "cadgen[mcp]==0.7.3",
         "cadgen",
         "mcp"
-      ]
+      ],
+      "cwd": ".",
+      "startup_timeout_sec": 300
     }
   }
 }

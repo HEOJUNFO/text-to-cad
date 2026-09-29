@@ -20,15 +20,15 @@
     "gcode"
   ],
   "skills": "./skills/",
-  "mcpServers": "./mcp.json",
+  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "CAD",
-    "shortDescription": "Give your agent CAD superpowers.",
+    "shortDescription": "CAD superpowers for your agent",
     "longDescription": "CAD packages local agent workflows for generating CAD, inspecting models, sourcing STEP parts, writing robot description files, slicing mesh files, and preparing fabrication handoffs.",
     "developerName": "earthtojake",
-    "composerIcon": "./.codex-plugin/assets/logo-c.svg",
-    "logo": "./.codex-plugin/assets/logo-cad.png",
-    "logoDark": "./.codex-plugin/assets/logo-cad.png",
+    "composerIcon": "./.codex-plugin/assets/logo-c.png",
+    "logo": "./.codex-plugin/assets/logo-c.png",
+    "logoDark": "./.codex-plugin/assets/logo-c.png",
     "category": "Productivity",
     "capabilities": [
       "Write",

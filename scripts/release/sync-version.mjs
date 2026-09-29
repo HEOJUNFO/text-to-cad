@@ -14,6 +14,8 @@ export const jsonTargets = [
   { path: "package-lock.json", fields: [["version"], ["packages", "", "version"], ...["apps/docs", "apps/web", "apps/chatgpt", "packages/core", "packages/ui"].map(name => ["packages", name, "version"])] },
   { path: ".claude-plugin/plugin.json", fields: [["version"]] },
   { path: ".codex-plugin/plugin.json", fields: [["version"]] },
+  { path: "mcp.json", fields: [], mcpRequirement: true },
+  { path: ".mcp.json", fields: [], mcpRequirement: true },
   { path: ".claude-plugin/marketplace.json", fields: [["version"]], pluginEntries: ["cad"] },
 ];
 
@@ -137,6 +139,17 @@ function syncJsonTarget(target, version) {
   for (const pluginName of target.pluginEntries ?? []) {
     syncPluginEntry(data, pluginName, version, staleLabels);
   }
+  if (target.mcpRequirement) {
+    const args = data?.mcpServers?.cad_viewer?.args;
+    const requirement = `cadgen[mcp]==${version}`;
+    if (!Array.isArray(args) || args.length !== 5 || args[0] !== "--isolated" || args[1] !== "--from" || args[3] !== "cadgen" || args[4] !== "mcp") {
+      throw new Error(`${target.path} must launch cadgen mcp through uvx --isolated --from`);
+    }
+    if (args[2] !== requirement) {
+      args[2] = requirement;
+      staleLabels.push("mcpServers.cad_viewer.args[2]");
+    }
+  }
   if (staleLabels.length === 0) {
     return null;
   }
@@ -205,6 +218,9 @@ export function mergeTargetsByRealPath(targets) {
     }
     if (target.pluginEntries?.length) {
       existing.pluginEntries = [...new Set([...(existing.pluginEntries ?? []), ...target.pluginEntries])];
+    }
+    if (target.mcpRequirement) {
+      existing.mcpRequirement = true;
     }
     // One required target makes the file required, however optional its mirrors are.
     if (target.required !== false) {

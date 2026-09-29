@@ -1,4 +1,4 @@
-import { isDocumentPath, type ToolBridge } from './transport';
+import { CAD_API_VERSION, isDocumentPath, toolData, type ToolBridge } from './transport';
 export interface RecentModel {
   id: string; path: string; name: string;
   lastOpened: number; pinned: boolean; missing: boolean; revision: string | null; thumbnailRevision?: string | null;
@@ -22,14 +22,9 @@ export function createRecentLibrary(bridge: ToolBridge) {
   };
   async function call(arguments_: Record<string, unknown>) {
     lifetime.signal.throwIfAborted();
-    const result = await bridge.callServerTool({ name: 'cad_library', arguments: arguments_ }, { signal: lifetime.signal });
+    const result = await bridge.callServerTool({ name: 'cad_library', arguments: { ...arguments_, apiVersion: CAD_API_VERSION } }, { signal: lifetime.signal, timeout: 15_000 });
     lifetime.signal.throwIfAborted();
-    if (result.isError) {
-      const message = result.content?.flatMap(block => block && typeof block === 'object' && (block as { type?: string }).type === 'text' ? [(block as { text: string }).text] : []).join('\n');
-      throw new Error(message || 'Could not update recent models.');
-    }
-    if (!result.structuredContent || typeof result.structuredContent !== 'object') throw new Error('Invalid recent-model response.');
-    return result.structuredContent as Record<string, unknown>;
+    return toolData(result);
   }
   function update(action: 'list' | 'pin' | 'remove', item?: RecentModel) {
     if (disposed) return Promise.reject(new Error('The recent-model home has closed.'));

@@ -158,11 +158,15 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     await expect(viewer.locator('meta[name=description]')).toHaveAttribute('content', 'Give your agent CAD superpowers.');
     await expect(viewer.locator('link[rel=icon]')).toHaveAttribute('href', /^data:image\/svg\+xml/);
     const logoBounds = await viewer.getByRole('img', { name: 'CAD', exact: true }).boundingBox();
-    const headingBounds = await viewer.getByRole('heading', { name: 'Recent models', exact: true }).boundingBox();
+    const headingBounds = await viewer.getByRole('heading', { name: 'Recent', exact: true }).boundingBox();
     assert.ok(logoBounds && headingBounds && logoBounds.x <= 40 && headingBounds.y > logoBounds.y + logoBounds.height);
     await expect(viewer.getByRole('button', { name: 'Refresh recent models', exact: true })).toHaveCount(0);
+    await expect(viewer.getByRole('region', { name: 'Pinned', exact: true })).toHaveCount(0);
+    await expect(viewer.getByRole('link', { name: /^CAD version / })).toHaveAttribute('href', /github.com\/earthtojake\/text-to-cad\/releases\/tag\/v/);
+    await expect(viewer.getByRole('link', { name: 'GitHub', exact: true })).toHaveAttribute('href', 'https://github.com/earthtojake/text-to-cad');
+    await expect(viewer.getByRole('link', { name: 'Discord', exact: true })).toHaveAttribute('href', 'https://discord.gg/5FGB9DwJYU');
     if (process.env.CAD_EXTENSION_EMPTY_SCREENSHOT) await page.screenshot({ path: process.env.CAD_EXTENSION_EMPTY_SCREENSHOT });
-    assert.ok(homeRequests.every((request: any) => request.name === 'cad_library'));
+    assert.ok(homeRequests.every((request: any) => ['cad_handshake', 'cad_library'].includes(request.name)));
     await page.setViewportSize({ width: 1000, height: 760 });
     await page.goto(`http://127.0.0.1:${address.port}`);
     await viewer.getByRole('region', { name: 'Features', exact: true }).waitFor();
@@ -189,7 +193,7 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     const otherDocument = (otherOpen.structuredContent as { document: { id: string; path: string } }).document;
     assert.notEqual(otherDocument.id, initialOpen.document.id);
     assert.equal(otherDocument.path, sameName);
-    const original = await client.callTool({ name: 'cad_request', arguments: { documentId: initialOpen.document.id, path: `/__cad/catalog?file=${encodeURIComponent(source)}`, method: 'GET' }, _meta: { 'openai/resource': { path: sameName } } });
+    const original = await client.callTool({ name: 'cad_request', arguments: { apiVersion: 2, document: initialOpen.document, path: `/__cad/catalog?file=${encodeURIComponent(source)}`, method: 'GET' }, _meta: { 'openai/resource': { path: sameName } } });
     assert.notEqual(original.isError, true, JSON.stringify(original));
     const originalCatalog = JSON.parse(Buffer.from((original.structuredContent as { body: string }).body, 'base64').toString());
     assert.ok(originalCatalog.entries.some((entry: any) => entry.file === source && !entry.catalogPending));
@@ -250,7 +254,7 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     await page.setViewportSize({ width: 1000, height: 760 });
     // Navigation mounts a fresh bridge/app instance with the global entrypoint result.
     await page.goto(`http://127.0.0.1:${address.port}/?home`);
-    await expect(viewer.getByRole('heading', { name: 'Recent models', exact: true })).toBeVisible();
+    await expect(viewer.getByRole('heading', { name: 'Recent', exact: true })).toBeVisible();
     await expect(viewer.getByRole('button', { name: 'Open related.step', exact: true })).toBeVisible();
     await expect(viewer.getByRole('button', { name: 'Open related.step', exact: true }).locator('img')).toBeVisible();
     const previewData = await viewer.getByRole('button', { name: 'Open related.step', exact: true }).locator('img').getAttribute('src');
@@ -262,17 +266,20 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
       if (backdrop.some((channel, index) => Math.abs(channel - preview.data[offset + index]) > 35)) solidPixels++;
     }
     assert.ok(solidPixels / (preview.width * preview.height) > 0.1, 'the saved preview contains shaded model surfaces, not only edges');
-    await viewer.getByRole('searchbox', { name: 'Search recent models' }).fill('related');
+    await viewer.getByRole('searchbox', { name: 'Search models' }).fill('related');
     assert.equal(await viewer.getByRole('button', { name: 'Open fixture.step', exact: true }).count(), 0);
-    await viewer.getByRole('button', { name: 'Pin related.step', exact: true }).click();
-    await expect(viewer.getByRole('button', { name: 'Unpin related.step', exact: true })).toBeVisible();
+    await viewer.getByRole('button', { name: 'Pin related.step', exact: true }).focus();
+    await viewer.getByRole('button', { name: 'Pin related.step', exact: true }).press('Space');
+    await expect(viewer.getByRole('region', { name: 'Pinned', exact: true }).getByRole('button', { name: 'Unpin related.step', exact: true })).toBeVisible();
+    await viewer.getByRole('searchbox', { name: 'Search models' }).fill('');
+    await expect(viewer.getByRole('region', { name: 'Recent', exact: true }).getByRole('button', { name: 'Open related.step', exact: true })).toHaveCount(0);
     await viewer.getByRole('button', { name: 'Open related.step', exact: true }).click();
     await page.waitForFunction(() => (window as any).openedNative?.endsWith('/related.step'));
     assert.equal(await viewer.getByRole('tree').count(), 0);
     assert.equal(await viewer.locator('input[type="file"]').count(), 0);
     assert.equal(await viewer.getByRole('navigation').count(), 0);
-    assert.ok(homeRequests.every((request: any) => request.name === 'cad_library'), 'home reads extension history without requesting a cwd catalog');
-    await viewer.getByRole('searchbox', { name: 'Search recent models' }).fill('');
+    assert.ok(homeRequests.every((request: any) => ['cad_handshake', 'cad_library'].includes(request.name)), 'home reads extension history without requesting a cwd catalog');
+    await viewer.getByRole('searchbox', { name: 'Search models' }).fill('');
     if (process.env.CAD_EXTENSION_HOME_SCREENSHOT) await page.screenshot({ path: process.env.CAD_EXTENSION_HOME_SCREENSHOT });
     await page.evaluate(() => (window as any).setTheme('dark'));
     await expect(viewer.locator('html')).toHaveClass(/dark/);
@@ -291,7 +298,7 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     await viewer.getByRole('region', { name: 'Features', exact: true }).waitFor();
     await expect(viewer.getByRole('button', { name: 'Back to recent models', exact: true })).toBeVisible();
     await viewer.getByRole('button', { name: 'Back to recent models', exact: true }).click();
-    await expect(viewer.getByRole('heading', { name: 'Recent models', exact: true })).toBeVisible();
+    await expect(viewer.getByRole('heading', { name: 'Recent', exact: true })).toBeVisible();
     assert.deepEqual(errors, []);
   } catch (error) {
     throw new Error(`${String(error)}\nBrowser errors: ${errors.join('\n')}\nCatalog states: ${JSON.stringify(catalogStates.slice(-3))}\nMCP stderr: ${stderr.slice(-3000)}\n${await page.frameLocator('iframe').locator('body').innerText()}`, { cause: error });

@@ -1,117 +1,147 @@
 # CAD plugin extension
 
 `cadgen mcp` connects the shared CAD Viewer to an MCP Apps host. The bundled
-web interface reuses the same viewer components as the standalone viewer; the
-Python adapter calls `CadApp` directly, with no second CAD pipeline and no
-browser connection to a localhost viewer server. The CAD skills remain the
-authoring workflow. Opening an artifact never executes its source program.
+interface reuses the viewer components; the Python adapter calls `CadApp`
+directly, without a second geometry pipeline or browser connection to localhost.
+The CAD skills remain the authoring workflow. Opening a document never executes
+its source program.
 
-Install the optional official MCP SDK with `pip install 'cadgen[mcp]'`.
-Launch `cadgen mcp` for stdio, or `cadgen mcp --transport streamable-http
---port 8000` for a loopback-only development endpoint at `/mcp`. HTTP has no
-remote authentication and is not a public hosting configuration.
+Install `cadgen[mcp]`, then run `cadgen mcp` for stdio. Development can use
+`cadgen mcp --transport streamable-http --port 8000` at loopback `/mcp`.
+HTTP has no remote authentication and is not a public hosting configuration.
 
-## Documents and local files
+## Document transport and protocol
 
-CAD opens absolute local file paths anywhere the server process can read.
-It has no workspace, directory catalog or project limit. A document is one
-canonical STEP/STP, STL, GLB or 3MF path with a stable opaque ID. Symlink aliases
-resolve to that same document. Relative paths fail with an instruction to
-resolve the absolute artifact path; `--root` is retired. The standalone HTTP
-viewer's directory-containment contract is unchanged.
+The app starts with `cad_handshake({apiVersion: 2})`. The response includes
+`apiVersion`, `supportedApiVersions`, `documentTransport: "descriptor"`,
+`serverVersion`, `uiDigest`, `uiResourceUri` and `uiCacheAvailable`. Unsupported
+versions return `API_VERSION_UNSUPPORTED` with a reconnect instruction. A host
+connected to an older server without this tool must reconnect to the updated
+server; the app must not silently continue with a guessed protocol.
 
-Native file entrypoints supply `_meta["openai/resource"]["path"]`. This absolute
-host path takes precedence during `cad_open`. An opaque resource URI or filename
-alone never identifies a filesystem location. Once opened, every data request
-uses `documentId`; later host metadata cannot switch an existing view to another
-file. Replacing the registered path with an alias to another file requires
-opening the new canonical document explicitly.
+A document descriptor is `{id, path, name, revision}`. Its path is an absolute,
+canonical local STEP/STP, STL, GLB or 3MF file. Its ID is a deterministic SHA-256
+of the canonical path with the `cad-document-v2` namespace; it is not a database
+key or a secret capability. The process's ordinary filesystem permissions govern
+access. Symlink aliases share an identity. The revision describes the current
+file and is informative: saving new bytes at the same path does not invalidate
+the descriptor. Replacing that path with an alias to another file requires an
+explicit reopen.
 
-The document backend constructs catalog metadata for just that file, using the
-shared viewer metadata builders without directory discovery. Asset requests can
-read the document, its STEP sidecar, and local buffers/images explicitly declared
-by a GLB. Declared relative dependencies resolve from the document's location,
-including `../` references. Network dependencies are not fetched. GLB JSON asset
-declarations are bounded at 16 MiB. The file's parent is an internal relative-path
-origin for compilation, never a directory access grant. Unrelated sibling files
-must be opened as their own documents. Derived store objects retain the existing
-content-addressed viewer contract. No source program executes.
+Every v2 data request carries the descriptor. No history database, previous tool
+call, current working directory or workspace registration is required to resolve
+it. A home opened with no file requires neither history initialization nor a
+filesystem scan. Relative paths fail with a teaching error. `--root` is retired;
+the standalone HTTP viewer's directory-containment behavior is unchanged.
 
-## Tools and interface
+- `cad_open` takes `apiVersion: 2` and one `path`, `document`, or native
+  `{file: {name, resourceUri}}`, or no selection for home. It returns
+  `{apiVersion, document: descriptor | null}` and echoes native `resourceUri`.
+  A native file input resolves only through host-injected
+  `_meta["openai/resource"]["path"]`; an opaque URI or name is not a disk path.
+  An initial unresolved native input returns null so the app can resolve it
+  after connecting. Explicit path/descriptor opens are not rebound by unrelated
+  host metadata. History writes are best effort: failure adds
+  `warnings: [{code: "HISTORY_UNAVAILABLE", message, retryable: true}]` while
+  preserving the successful document result.
+- `cad_request` is app-only. It takes `{apiVersion: 2, document, path, method,
+  body?}` and returns `{apiVersion, status, headers, body}`. Both bodies are
+  base64. Catalogs contain only the selected file, named absolutely, and use
+  `scopeId: document.id`; they expose no workspace fields. The routes allow
+  document reads, compilation from saved bytes and derived display caches.
+  They do not expose native clipboard/reveal operations or source execution.
+  Large file reads add `transfer: {offset, totalBytes, revision}`. Repeat the
+  same GET with `offset` and transfer `revision` to continue; a changed file
+  fails the transfer. Reads use 4 MiB chunks, with no total file-size limit.
+  Non-file messages and writes are capped at 6 MiB decoded for stdio framing.
+- `cad_library` is app-only and optional. `action: "list"` returns up to 100
+  items, pinned first then most recently opened. Fields are `id`, `path`, `name`,
+  `lastOpened` (Unix seconds), `pinned`, `missing`, `revision`, and
+  `thumbnailRevision`. `action: "pin"` takes `documentId` and `pinned`;
+  `action: "remove"` takes `documentId`. Both return the updated list. Removal
+  deletes history, pin and thumbnail, never the document or an open view.
+  `action: "thumbnail"` takes `documentId` and returns `{thumbnail, revision}`.
+  The PNG data URL may be null; this revision identifies image content, matching
+  `thumbnailRevision`. Uploads also pass `thumbnail` and the source-file
+  `revision`. They validate PNG bytes, at most 256 KiB and 2048 pixels per
+  dimension, reject changed files and hide stale previews.
 
-- `cad_open` accepts one absolute `path`, a saved `documentId`, or the host's
-  input `{file: {name, resourceUri}}`. It returns
-  `{document: {id, path, name, revision} | null}`. A successful open records
-  recent history; the document ID survives removing that history. With no file,
-  the global CAD entrypoint shows the recent-model home. Initial native input
-  can precede host path injection; the result also echoes `resourceUri` and the
-  app resolves that input with one `cad_open` call of its own. Null means no
-  selected document. The tool title is **CAD** for global and file entrypoints.
-- `cad_request` is app-only and requires `{documentId, path, method, body?}`.
-  Its allowlisted viewer routes return `{status, headers, body}`; both bodies
-  are base64. Catalog entries name absolute files, and catalogs/server info use
-  `scopeId: documentId` without workspace fields. File-bearing requests are
-  bound to that selected document. Reads, document compilation and derived
-  display caches reuse the existing viewer services; native clipboard/reveal
-  and source execution are unavailable. Large file responses add
-  `transfer: {offset, totalBytes, revision}`. Repeat the same GET with `offset`
-  and `revision` for the next chunk; changed files fail the transfer.
-- `cad_library` is app-only. `action: "list"` returns up to 100 `items`, pinned
-  first then most recently opened. Each has `id`, `path`, `name`, `lastOpened`
-  (Unix seconds), `pinned`, `missing`, `revision` and `thumbnailRevision`.
-  The app searches those records locally. `action: "pin"` takes `documentId`
-  and `pinned`; `action: "remove"` takes `documentId`. Both return the updated
-  list. Removal forgets history, pin and thumbnail without deleting the file
-  or interrupting an open view.
-  `action: "thumbnail"` with `documentId` returns `{thumbnail, revision}`,
-  where the PNG data URL may be null and the revision identifies image content
-  (the same token as `thumbnailRevision`). Replacing a preview changes that
-  token even when the CAD file is unchanged. Add a PNG `thumbnail` and its
-  source-file `revision` to upload a validated preview, at most 256 KiB and
-  2048 pixels per dimension. Changed files reject uploads and hide stale
-  previews. Images load individually to keep library responses small.
-- `ui://cad/viewer/<sha256>.html` serves the self-contained interface from the
-  bundled `_runtime/chatgpt/index.html`. The server snapshots the HTML at
-  startup and hashes its bytes into the URI, which hosts use as their cache
-  key. Every URI serves immutable content; restarting after a changed build
-  advertises a new URI. Clients discover it from `cad_open` tool metadata.
-  Discovery and resource reads can use different MCP processes. A resource
-  template resolves published versions from a shared `cadgen-mcp-ui` directory
-  in the operating system's user cache, verifying the bytes against the URI.
-  Consequently, an already-running connection can serve a newer connection's
-  bundle, and a new connection can still serve an earlier published version.
-  This disposable interface cache is separate from the geometry store and
-  recent-model state; `CADGEN_MCP_UI_CACHE_DIR` overrides it for isolated tests.
-  Unknown or corrupted versions fail explicitly; no URI silently serves a
-  different build. Reconnecting is still required to load changed Python tools.
-  `--ui <html>` is an explicit development override. A missing bundle fails
-  startup with a build or reinstall hint. Resource metadata permits only `data:` and `blob:`
-  for bundled workers, fonts and assets, and requests optional clipboard-write
-permission. It declares no network origins. Hosts may decline permissions.
+Every success identifies `apiVersion: 2`. Tool failures set `isError: true` and
+return `{apiVersion, error: {code, message, retryable}}` as structured content,
+with the same message in text. Codes distinguish `API_VERSION_UNSUPPORTED`,
+`INVALID_DOCUMENT`, `FILE_NOT_FOUND`, `DOCUMENT_CHANGED`, `HISTORY_UNAVAILABLE`,
+and `INTERNAL_ERROR`. Unexpected errors log their traceback to stderr, never
+stdio protocol stdout. Existing viewer-route HTTP responses retain their own
+status and body. Clients may retry explicitly retryable reads; they must not
+blindly repeat writes.
 
-## Persistent library
+API 1 compatibility means the preceding document-ID interface: an omitted
+version or `apiVersion: 1` may use `documentId` for open/data requests. That
+lookup still needs readable historical state and reports its absence. Existing
+API-1 viewers retain their historical ID as catalog/server `scopeId`, so an
+upgrade does not silently replace the identity of their live caches. New apps
+must use descriptors. Earlier workspace-root interfaces are not advertised as
+compatible; cached old apps must reconnect and load the current bundle.
 
-Only documents successfully opened through this extension enter its history.
-The persistent document registry is separate from recent history: its IDs map
-to canonical files across MCP processes and remain valid after history removal.
-Reopening a file reuses its ID. Missing files remain visible as missing until
-removed or restored. Existing library records migrate their IDs, pins and
-thumbnails into this document registry; old directory grants are removed.
+## Selected assets and viewer reuse
 
-Library history, pins and thumbnails are user state, separate from the
-disposable geometry store. SQLite transactions coordinate concurrent MCP
-processes. The database is `extension-library.sqlite3` under
-`~/Library/Application Support/cadgen` on macOS, `%LOCALAPPDATA%/cadgen` on
-Windows, or `$XDG_STATE_HOME/cadgen` (default `~/.local/state/cadgen`) on Linux.
-`CADGEN_STATE_DIR` overrides that directory. Tests can also inject the database
-path through `create_server(..., library_path=...)`.
+The document backend uses the shared single-file catalog builders without
+walking its containing directory. It serves that document, its STEP sidecar,
+and buffers/images explicitly declared by a GLB. Relative declarations resolve
+from the file's location, including `../`; network dependencies are not fetched.
+GLB JSON declarations are bounded at 16 MiB. The parent directory is an internal
+compiler origin, never an access grant to neighboring files. Other CAD files
+must be selected as their own documents. Store and display-cache requests retain
+the shared viewer's content-addressed contracts. Geometry work remains in
+cadgen's build pool; the server imports no CAD kernel.
 
-File reads use 4 MiB chunks with a revision check before and after each read;
-there is no total file-size cap. Non-file messages and writes are capped at
-6 MiB decoded so base64 fits within the standard stdio client's 10 MiB frame
-limit. Oversized messages fail explicitly. Geometry work remains in cadgen's
-existing build pool. The server imports no CAD kernel.
+## Optional history and safe upgrades
 
-Hosts must implement MCP Apps and the OpenAI file-entrypoint and model-context
-extensions for the complete file-to-composer workflow. Protocol tests establish
-our server contract; they do not establish which host release enables a feature.
+History initializes lazily. Discovery, home, handshake and descriptor-based
+asset requests do not open its database. File opens attempt a short transactional
+history write and remain successful if storage is missing, locked, read only or
+corrupt. Library actions report `HISTORY_UNAVAILABLE` so the app can show that
+state independently of its viewer.
+
+History, pins and previews are user state, separate from derived geometry.
+SQLite transactions coordinate MCP processes with a short contention timeout;
+there are no write retries. The database is `extension-library.sqlite3` under
+`~/Library/Application Support/cadgen` on macOS, `%LOCALAPPDATA%/cadgen` on Windows,
+or `$XDG_STATE_HOME/cadgen` (default `~/.local/state/cadgen`) on Linux.
+`CADGEN_STATE_DIR` overrides the directory; tests can inject `library_path`.
+
+Upgrades never rename or drop existing tables. The live history schema remains
+`recent_models`, preserving compatibility with installed older readers and
+writers; `model_roots` is retained for their existing grants. The intermediate
+`documents`/`recents` schema remains intact. Its saved rows, pins and previews
+are copied once into live history, tracked by an additive migration marker so
+later removals are not resurrected. If an earlier destructive migration removed
+`recent_models` or `model_roots`, initialization recreates them and recovers
+available history from surviving state. Deleted historical directory grants
+cannot be reconstructed safely: old views needing those grants must reopen.
+Updating/reconnecting an old destructive-migration binary is still necessary;
+new code cannot stop an old process from dropping tables again. Descriptor-based
+file access remains independent of that failure.
+
+## Interface delivery
+
+`ui://cad/viewer/v2/<sha256>.html` identifies a self-contained snapshot of
+`_runtime/chatgpt/index.html`. The protocol namespace prevents cross-version
+cache reuse; the digest makes each resource immutable. Clients discover the URI
+from `cad_open` metadata and verify compatibility through the handshake before
+using the app. A protocol change needs a new namespace and explicit negotiation,
+not merely a new content hash.
+
+Within v2, different MCP processes can read each other's published bundles from
+the separate `cadgen-mcp-ui/v2` OS cache (`CADGEN_MCP_UI_CACHE_DIR` overrides the
+cache root). Reads verify hashes. Cache publication is best effort: a connection
+always serves its own in-memory bundle, and the handshake reports whether it
+could publish that snapshot. An unknown, corrupt or inaccessible cached version
+fails with a reconnect instruction; it never substitutes another bundle.
+
+`--ui <html>` is a development override. A missing packaged bundle fails startup
+with an explicit build/reinstall hint. Resource metadata permits only `data:`
+and `blob:` for bundled assets and requests optional clipboard-write permission.
+It grants no network origins. Hosts may decline permissions and must implement
+MCP Apps and the OpenAI file-entrypoint/model-context extensions for the complete
+file-to-composer workflow.

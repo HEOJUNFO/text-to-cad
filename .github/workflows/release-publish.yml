@@ -166,6 +166,15 @@ jobs:
           "$RUNNER_TEMP/install-test/bin/cadgen" doctor skills/cad
           scripts/test/test-installed.sh --wheel "$wheel"
 
+      - name: Package and exercise the plugin from the shipping wheel
+        if: steps.gate.outputs.should_publish == 'true'
+        run: |
+          python -m pip install uv==0.11.25
+          wheel="$(find packages/cadgen/dist -name '*.whl' -type f | head -n 1)"
+          [ -n "$wheel" ] || { echo "no shipping wheel" >&2; exit 1; }
+          python scripts/release/package-plugin.py --wheel "$wheel" --out-dir packages/plugin-dist
+          python scripts/test/test-plugin-package.py --wheel "$wheel" --archives-dir packages/plugin-dist
+
       # The distribution is kept whether or not it ships: a rehearsal's artifact is
       # what you inspect instead of a PyPI upload, and a main run's is the record of
       # exactly what was uploaded.
@@ -202,6 +211,14 @@ jobs:
           path: packages/cadgen/dist/*
           if-no-files-found: error
 
+      - name: Upload the plugin packages as a workflow artifact
+        if: steps.gate.outputs.should_publish == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: cad-plugin-${{ steps.gate.outputs.version }}
+          path: packages/plugin-dist/*.zip
+          if-no-files-found: error
+
       # ---- irreversible from here: main only -------------------------------------
 
       # Uploaded BEFORE the tag: the skill pins on main name this version, so a tagged
@@ -223,7 +240,7 @@ jobs:
           # --dry-run computes the tag and the release it would create without
           # pushing anything; the version check inside it runs for real.
           args=(--target HEAD --dry-run --publish)
-          for file in packages/cadgen/dist/*; do args+=(--asset "$file"); done
+          for file in packages/cadgen/dist/* packages/plugin-dist/cad-*-plugin.zip; do args+=(--asset "$file"); done
           scripts/release/publish-github-release.sh "${args[@]}"
 
   # The docs site is built from the release commit itself: main is the source tree,
@@ -276,6 +293,12 @@ jobs:
           name: cadgen-${{ needs.publish.outputs.version }}
           path: packages/cadgen/dist
 
+      - name: Download the plugin package
+        uses: actions/download-artifact@v8
+        with:
+          name: cad-plugin-${{ needs.publish.outputs.version }}
+          path: packages/plugin-dist
+
       # A push-triggered run has no `publish` input: it publishes. Only a manual
       # dispatch can ask for a draft. The wheel and sdist are attached to the
       # release; a resumed run attaches them to the release that already exists.
@@ -289,7 +312,7 @@ jobs:
             args+=(--publish)
           fi
           ls -l packages/cadgen/dist
-          for file in packages/cadgen/dist/*.whl packages/cadgen/dist/*.tar.gz; do
+          for file in packages/cadgen/dist/*.whl packages/cadgen/dist/*.tar.gz packages/plugin-dist/cad-*-plugin.zip; do
             [ -f "$file" ] && args+=(--asset "$file")
           done
           scripts/release/publish-github-release.sh "${args[@]}"

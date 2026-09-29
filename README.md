@@ -113,15 +113,19 @@ Provider-native plugin installs are also available for Codex, Claude Code, and
 Grok Build:
 
 The repository root is the plugin package. Its `.codex-plugin/plugin.json`
-manifest declares the canonical `skills/` directory and the local `cadgen mcp`
-server in `mcp.json`. The Claude manifest remains in `.claude-plugin/`.
-Installing the plugin does not install the CAD runtime: install a
-`cadgen` build that includes the MCP extra in the same local environment as
-your agent, and ensure its `cadgen` command is on `PATH`. The local MCP server
-uses stdio, so its viewer integration runs where the CAD files and runtime are
-available. The embedded viewer displays the file supplied by the host; file
-selection and navigation remain in Codex. The standalone web app owns its
-file explorer and directory-browsing workflow.
+manifest declares the canonical `skills/` directory and the local MCP server
+in `.mcp.json`; portable Agent Plugins metadata remains in `mcp.json`. The
+Codex configuration allows 300 seconds for the first dependency download.
+The Claude manifest remains in `.claude-plugin/`. The desktop
+MCP launcher uses `uvx` to run the exact `cadgen[mcp]` version stamped from
+`VERSION` in an isolated environment. Install [uv](https://docs.astral.sh/uv/getting-started/installation/)
+and ensure `uvx` is on the agent's `PATH`. The first launch downloads the
+published wheel and its dependencies; later launches use uv's cache. The wheel
+includes the embedded CAD UI, so a separate checkout or web server is not
+needed. This local stdio integration runs where the CAD files are available.
+The embedded viewer displays the file supplied by the host; file selection
+and navigation remain in Codex. The standalone web app owns its file explorer
+and directory-browsing workflow.
 
 ```bash
 # Codex (requires Codex 0.142.0 or newer)
@@ -129,11 +133,16 @@ codex plugin marketplace add earthtojake/text-to-cad
 codex plugin add cad@text-to-cad
 ```
 
-For a source checkout, install `requirements-dev.txt` and use the checkout's
-`cadgen` executable. For a released plugin, install the matching `cadgen[mcp]`
-distribution before using its viewer tools. A browser-only ChatGPT connection
-uses a reachable MCP HTTP endpoint registered in developer mode; this local
-stdio configuration does not provide one.
+The plugin launcher always uses its pinned release, including when the plugin
+is installed from a source checkout. For prepublication testing, the packaging
+job also produces `cad-<version>-plugin-local-review.zip`: it includes the exact
+built wheel and points the same MCP launcher at that wheel through the plugin
+root. That archive still downloads third-party dependencies on first use. A
+new release's normal plugin package becomes runnable after its wheel reaches
+PyPI. A browser-only ChatGPT connection uses a reachable MCP HTTP endpoint
+registered in developer mode; this local stdio configuration does not provide
+one. See [CONTRIBUTING.md](CONTRIBUTING.md#plugin-packaging-and-review) for the
+archive checks and public review requirements.
 
 For desktop testing, restart the app after installing or updating the local
 plugin, then open **CAD** from the sidebar or open a STEP/STP, STL, GLB or 3MF

@@ -18,7 +18,10 @@ htmlcov/
 # Local environments and caches
 .venv
 .cache
-.agents/
+/.agents/*
+!/.agents/plugins/
+/.agents/plugins/*
+!/.agents/plugins/marketplace.json
 .vite
 .vercel
 node_modules

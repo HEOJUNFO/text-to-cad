@@ -9,7 +9,12 @@ selection tools, renderers, file updates and reference serialization remain in
 
 The global sidebar shows models previously viewed with this extension, across
 folders: thumbnail previews, filename/folder search, pinning and removal from
-history. It reads the persisted `cad_library`; it never scans the server's current
+history. Pinned models have their own section and are excluded from Recent. The
+full CAD logo, left-aligned search and compact controls follow the viewer design
+system; pin/remove actions retain their space on hover and keyboard focus. The
+footer links to the installed version’s release, GitHub and Discord. Version text
+comes from package metadata stamped from canonical `VERSION` by the bundle.
+Links use the host’s supported external-link action when supplied. It reads the persisted `cad_library`; it never scans the server's current
 working directory or pretends to know the active host workspace. An empty library
 shows one concise instruction to open a CAD file. The host keeps its own composer;
 this gallery does not imitate or duplicate it.
@@ -22,7 +27,7 @@ A recent model requests a native file tab only when the host advertises
 `experimental["openai/files"]`, through `openai/files/open` with its saved absolute
 path. The acknowledgement means the host accepted the request, not that rendering
 finished. Hosts without that capability show an explicit **Preview here** action,
-which reopens saved server authority using `cad_open(documentId)` and offers a return
+which opens the saved absolute path using `cad_open(path)` and offers a return
 to the recent-model home. Failed opens remain visible and retryable.
 
 Opened STEP/STP, STL, GLB and 3MF files use the shared document-only `FileViewer`.
@@ -43,17 +48,24 @@ history; searching or pinning does not count as opening it.
 
 ## Host protocol
 
-`cad_open` returns `{document: {id, path, name, revision} | null}`. The path is
-canonical and absolute; the opaque document ID identifies the same file across
-native tabs, inline previews and server restarts. A null document shows the global
-recent-model home without initializing a CAD client or reading a catalog. A native
-file entrypoint may initially omit its trusted local path; after mounting, the app
-invokes `cad_open` with the original tool input so host metadata can supply that
-path. This also replaces a nonempty result from an earlier invocation. No app
-workspace, relative-path joining or browser-supplied authority is involved.
+After connecting to its host, the app calls `cad_handshake({apiVersion: 2})`.
+It checks the protocol before loading a document or history, and retains the
+runtime version and UI resource identity for diagnostics. An incompatible or
+unreachable runtime produces a visible reconnect instruction. Tool errors and
+malformed results cannot silently leave the interface waiting. Teardown aborts
+pending work; bounded request deadlines do not automatically replay mutations.
+
+`cad_open` returns `{apiVersion: 2, document: {id, path, name, revision} | null}`.
+The path is canonical and absolute, with an ID derived from that path. The whole
+descriptor travels with document requests, so viewing does not depend on history
+storage or a registry created by a different MCP process. A null document shows
+the global recent-model home without initializing a CAD client or reading a
+catalog. Native results echo their `resourceUri`: a matching initial result is
+used directly. Only a missing path or mismatched native result requires a second
+`cad_open` call with the original tool input and trusted host metadata.
 
 All service calls, cache requests and binary resources use the app-only
-`cad_request` tool: `{documentId, path, method, body?: base64}` returns
+`cad_request` tool: `{apiVersion: 2, document, path, method, body?: base64}` returns
 `{status, headers, body: base64}`. Large file reads add `transfer: {offset,
 totalBytes, revision}` and continue with `offset`/`revision` arguments; the adapter
 checks continuity before returning complete bytes. This keeps each response under
@@ -126,8 +138,13 @@ host permission step.
 
 `openai/files/open` accepts a file path. No supported dynamic tab-title or
 host-logo override is available through that request; native chrome uses the tool
-title and supported compact-icon metadata. The full CAD wordmark belongs inside
-this app. The host also owns composer placement and Context chip presentation.
+title and supported compact-icon metadata. The inspected desktop file-extension
+wrapper explicitly disables file navigation in its breadcrumb/Open row. That row
+is host chrome; it is not the standalone viewer's interactive breadcrumb control.
+The global page's outer text heading is also host chrome. The full CAD wordmark
+belongs at the upper-left of this app's content. Setting the iframe document title
+helps browser accessibility but does not rename native Codex tabs. The host also
+owns composer placement and Context chip presentation.
 Use one handoff route: native file opening when available, or the `cad_open` inline
 fallback. Invoking both creates duplicate views. See the official
 [extension guide](https://developers.openai.com/plugins/build/extensions) and
@@ -140,7 +157,7 @@ fallback. Invoking both creates duplicate views. See the official
 | File selection | The recent-model home requests native file tabs when supported, with explicit local preview fallback. Per-file views have no explorer or picker. |
 | URL navigation, filename bar and browser history | Omitted; shared tools stay over the viewport, with one Add To Prompt action below the viewport. |
 | Theme selector | Follows the host theme. |
-| Brand, version, release and project links | Omitted from the pane; plugin management owns installation and updates. |
+| Brand, version and community links | The library shows the full CAD logo plus version, GitHub and Discord links. Per-file views retain only document controls. |
 | Reveal in file manager and server reload | Omitted; these standalone host actions are not exposed through MCP. |
 
 Model controls, geometry selection, measurements, display settings, snapshots and

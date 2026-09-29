@@ -10,7 +10,7 @@ test('library operations serialize persisted updates and search names plus folde
   } });
   await Promise.all([library.refresh(), library.pin(item)]);
   assert.equal(library.getSnapshot().items[0].pinned, true);
-  assert.deepEqual(calls, [{ action: 'list' }, { action: 'pin', documentId: 'known', pinned: true }]);
+  assert.deepEqual(calls, [{ action: 'list', apiVersion: 2 }, { action: 'pin', documentId: 'known', pinned: true, apiVersion: 2 }]);
   assert.equal(filterRecentModels([item], 'PROJECT bracket').length, 1);
   assert.equal(filterRecentModels([item], 'another').length, 0);
   library.dispose();
