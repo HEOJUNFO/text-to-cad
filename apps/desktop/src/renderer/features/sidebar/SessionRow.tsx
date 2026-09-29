@@ -161,7 +161,7 @@ export function SessionRow({
           )}
           {projectName ? (
             <span
-              className="max-w-[40%] shrink-0 truncate text-[11px] text-muted-foreground/70"
+              className="max-w-[40%] shrink-0 truncate text-[11px] text-muted-foreground"
               data-session-project
             >
               {projectName}

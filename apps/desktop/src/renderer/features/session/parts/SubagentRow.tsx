@@ -35,7 +35,7 @@ export function SubagentRow({ part, sessionId }: { part: SubagentPart; sessionId
       </span>
       <span className="min-w-0 flex-1 truncate">
         {label}
-        {part.task ? <span className="text-muted-foreground/70"> · {part.task}</span> : null}
+        {part.task ? <span className="text-muted-foreground"> · {part.task}</span> : null}
       </span>
     </>
   );

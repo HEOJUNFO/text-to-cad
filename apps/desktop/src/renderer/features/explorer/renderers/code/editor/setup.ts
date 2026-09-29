@@ -72,7 +72,7 @@ const SURFACE = {
   muted: "#383838", // --muted / --secondary  oklch(0.34 0 0)
   accent: "#424242", // --accent  oklch(0.38 0 0)
   border: "#ffffff1a", // --border  oklch(1 0 0 / 10%)
-  mutedForeground: "#aeaeae", // --muted-foreground  oklch(0.75 0 0)
+  mutedForeground: "#b4b4b4", // --muted-foreground  oklch(0.77 0 0)
 } as const;
 
 /**
