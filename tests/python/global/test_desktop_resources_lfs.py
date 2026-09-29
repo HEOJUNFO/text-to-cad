@@ -9,8 +9,11 @@ opened failed to load.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 
 from tests.python.support.paths import repo_path
 
@@ -45,6 +48,51 @@ class DesktopResourcesAreNotLfsTests(unittest.TestCase):
                 pointers.append(path)
             offset = header_end + 1 + size + 1
         self.assertEqual(pointers, [])
+
+
+class CheckBuildsRefusesLfsInDesktopResourcesTests(unittest.TestCase):
+    """``check-builds.sh`` over a fake repository: its tree checks, not the bundle."""
+
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory(prefix="check-builds-lfs-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.git("init", "-q", "-b", "main")
+        script = self.root / "scripts" / "github-workflows" / "check-builds.sh"
+        script.parent.mkdir(parents=True)
+        shutil.copy(repo_path("scripts/github-workflows/check-builds.sh"), script)
+        # The bundler's generated-path list, empty: nothing is built here.
+        outputs = self.root / "scripts" / "bundle" / "cadgen-runtime.sh"
+        outputs.parent.mkdir(parents=True)
+        outputs.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+        outputs.chmod(0o755)
+        (self.root / ".gitattributes").write_text("*.step filter=lfs diff=lfs merge=lfs -text\n", encoding="utf-8")
+        sample = self.root / "apps" / "desktop" / "resources" / "sample"
+        sample.mkdir(parents=True)
+        (sample / "l_bracket.step").write_text("ISO-10303-21;\n", encoding="utf-8")
+        self.git("add", ".")
+
+    def git(self, *args: str) -> None:
+        subprocess.run(["git", *args], cwd=self.root, check=True, capture_output=True)
+
+    def check(self) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", str(self.root / "scripts" / "github-workflows" / "check-builds.sh"), "--skip-bundle-check"],
+            cwd=self.root, text=True, capture_output=True, check=False,
+        )
+
+    def test_an_lfs_path_under_desktop_resources_fails_the_check(self) -> None:
+        result = self.check()
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("apps/desktop/resources/sample/l_bracket.step", result.stderr)
+
+    def test_a_path_taken_out_of_lfs_passes(self) -> None:
+        sample = self.root / "apps" / "desktop" / "resources" / "sample"
+        (sample / ".gitattributes").write_text("l_bracket.step !filter !diff !merge text\n", encoding="utf-8")
+        self.git("add", ".")
+        result = self.check()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
