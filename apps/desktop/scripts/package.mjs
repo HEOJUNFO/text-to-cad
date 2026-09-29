@@ -30,6 +30,7 @@ import { fileURLToPath } from "node:url";
 
 import { releaseVersion } from "./app-version.mjs";
 import { PYTHON_BUILD, bundledRuntime } from "./bundle-runtime.mjs";
+import { nodeTool } from "./node-bin.mjs";
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -98,6 +99,22 @@ function signingEnv() {
   return { env, signed, notarize };
 }
 
+/**
+ * electron-builder, run by this Node from the package's own `cli.js` — not
+ * `npx`, whose Windows shim Node refuses to spawn (scripts/node-bin.mjs).
+ */
+export function electronBuilder(targets, { version, notarize }) {
+  return nodeTool("electron-builder", [
+    ...builderArgsFor(targets),
+    `--config.extraMetadata.version=${version}`,
+    ...(notarize ? ["--config.mac.notarize=true"] : []),
+    // Publishing is the release workflow's job, never a local build's: it uploads
+    // the artifacts to the GitHub Release it already tags.
+    "--publish",
+    "never",
+  ]);
+}
+
 function main(argv) {
   // `--no-runtime` is this script's, not electron-builder's: package without
   // the CAD runtime, for a build whose purpose is not CAD (a layout check, a
@@ -159,21 +176,10 @@ function main(argv) {
     }
   };
 
-  const npx = process.platform === "win32" ? "npx.cmd" : "npx";
-
   // The same build `npm run build` does: the composed skills, electron-vite,
   // the bundled MCP server (scripts/build.mjs).
   run(process.execPath, [path.join(appRoot, "scripts", "build.mjs")]);
-  run(npx, [
-    "electron-builder",
-    ...builderArgsFor(targets),
-    `--config.extraMetadata.version=${version}`,
-    ...(notarize ? ["--config.mac.notarize=true"] : []),
-    // Publishing is the release workflow's job, never a local build's: it uploads
-    // the artifacts to the GitHub Release it already tags.
-    "--publish",
-    "never",
-  ]);
+  run(...electronBuilder(targets, { version, notarize }));
 }
 
 // Run only as a script: the tests import the functions above, and an import
