@@ -7,6 +7,7 @@ import { version } from '../package.json';
 import cadLogo from './assets/logo-cad.png';
 import { watchRecentModels } from './autoRefresh';
 import { filterRecentModels, type RecentLibrary, type RecentModel } from './library';
+import { OpenModel } from './OpenModel';
 
 const github = 'https://github.com/earthtojake/text-to-cad';
 const discord = 'https://discord.gg/5FGB9DwJYU';
@@ -27,7 +28,7 @@ function Thumbnail({ item, library }: { item: RecentModel; library: RecentLibrar
   return <span className="cad-recent-thumbnail" ref={element}>{image ? <img src={image} alt="" /> : <Box size={28} strokeWidth={1} aria-hidden="true" />}</span>;
 }
 export default function RecentHome({ library, nativeOpenAvailable, onOpen, onOpenLink }: {
-  library: RecentLibrary; nativeOpenAvailable: boolean; onOpen(item: RecentModel): Promise<void>; onOpenLink?(url: string): Promise<void>;
+  library: RecentLibrary; nativeOpenAvailable: boolean; onOpen(path: string): Promise<void>; onOpenLink?(url: string): Promise<void>;
 }) {
   const state = useSyncExternalStore(library.subscribe, library.getSnapshot, library.getSnapshot);
   const [query, setQuery] = useState('');
@@ -52,7 +53,7 @@ export default function RecentHome({ library, nativeOpenAvailable, onOpen, onOpe
   const open = async (item: RecentModel) => {
     if (opening) return;
     setOpening(item.id); setOpenError('');
-    try { await onOpen(item); }
+    try { await onOpen(item.path); }
     catch (error) { if (alive.current) setOpenError(error instanceof Error ? error.message : String(error)); }
     finally { if (alive.current) setOpening(null); }
   };
@@ -87,7 +88,10 @@ export default function RecentHome({ library, nativeOpenAvailable, onOpen, onOpe
   return <main className="cad-library text-ui" aria-label="CAD model library">
     <header className="cad-library-brand"><img className="cad-library-logo" src={cadLogo} alt="CAD" width={1202} height={512} /></header>
     <div className="cad-library-content">
-      {state.items.length > 0 && <div className="cad-library-search"><Search size={14} aria-hidden="true" /><Input className="h-8" type="search" aria-label="Search models" placeholder="Search models" value={query} onChange={(event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)} /></div>}
+      <div className="cad-library-toolbar">
+        <OpenModel onOpen={onOpen} disabled={Boolean(opening)} />
+        {state.items.length > 0 && <div className="cad-library-search"><Search size={14} aria-hidden="true" /><Input className="h-8" type="search" aria-label="Search models" placeholder="Search models" value={query} onChange={(event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)} /></div>}
+      </div>
       {(state.error || openError) && <div className="cad-library-error" role="alert"><p>{openError || state.error}</p>{state.error && <Button variant="outline" size="sm" onClick={() => void library.refresh().catch(() => {})}>Try again</Button>}</div>}
       {state.loading && !state.hydrated ? <p className="cad-library-empty" role="status">Loading models…</p> : searchQuery && !items.length ? <p className="cad-library-empty" role="status">No matching models.</p> : <>
         {pinned.length > 0 && section('Pinned', pinned)}

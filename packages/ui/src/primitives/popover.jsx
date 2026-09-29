@@ -9,7 +9,10 @@ function Popover({
   return <PopoverPrimitive.Root data-slot="popover" {...props} />
 }
 
-const PopoverTrigger = React.forwardRef(function PopoverTrigger({
+const PopoverTrigger = React.forwardRef(/**
+ * @param {React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Trigger>} props
+ * @param {React.ForwardedRef<HTMLButtonElement>} ref
+ */ function PopoverTrigger({
   ...props
 }, ref) {
   return <PopoverPrimitive.Trigger ref={ref} data-slot="popover-trigger" {...props} />
@@ -23,7 +26,10 @@ const PopoverAnchor = React.forwardRef(function PopoverAnchor({
   return <PopoverPrimitive.Anchor ref={ref} data-slot="popover-anchor" {...props} />
 });
 
-const PopoverContent = React.forwardRef(function PopoverContent({
+const PopoverContent = React.forwardRef(/**
+ * @param {React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content> & { container?: React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Portal>['container'] }} props
+ * @param {React.ForwardedRef<HTMLDivElement>} ref
+ */ function PopoverContent({
   className,
   align = "center",
   sideOffset = 4,
@@ -48,7 +54,10 @@ const PopoverContent = React.forwardRef(function PopoverContent({
 });
 
 // A button inside a popover that closes it (a panel-like popover's X).
-const PopoverClose = React.forwardRef(function PopoverClose({
+const PopoverClose = React.forwardRef(/**
+ * @param {React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Close>} props
+ * @param {React.ForwardedRef<HTMLButtonElement>} ref
+ */ function PopoverClose({
   ...props
 }, ref) {
   return <PopoverPrimitive.Close ref={ref} data-slot="popover-close" {...props} />

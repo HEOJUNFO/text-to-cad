@@ -88,7 +88,10 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     });
     window.attachments = [];
     window.openedNative = null;
-    bridge.setRequestHandler(z.object({method:z.literal('openai/files/open'),params:z.object({path:z.string()})}), async request => { window.openedNative = request.params.path; return {}; });
+    bridge.setRequestHandler(z.object({method:z.literal('openai/files/open'),params:z.object({path:z.string()})}), async request => {
+      if (window.failNativeOpen) throw new Error('File opening unavailable');
+      window.openedNative = request.params.path; return {};
+    });
     window.openRelated = async () => {
       const response = await fetch('/open-related', {method:'POST'});
       await bridge.sendToolInput({arguments:{file:{name:'related.step',resourceUri:'host-resource://related'}}});
@@ -166,6 +169,30 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     await expect(viewer.getByRole('link', { name: 'GitHub', exact: true })).toHaveAttribute('href', 'https://github.com/earthtojake/text-to-cad');
     await expect(viewer.getByRole('link', { name: 'Discord', exact: true })).toHaveAttribute('href', 'https://discord.gg/5FGB9DwJYU');
     if (process.env.CAD_EXTENSION_EMPTY_SCREENSHOT) await page.screenshot({ path: process.env.CAD_EXTENSION_EMPTY_SCREENSHOT });
+    const openModel = viewer.getByRole('button', { name: 'Open Model', exact: true });
+    await openModel.click();
+    const modelPath = viewer.getByRole('textbox', { name: 'Model path', exact: true });
+    await expect(modelPath).toBeFocused();
+    await modelPath.fill('fixture.step');
+    await modelPath.press('Enter');
+    await expect(viewer.getByRole('alert')).toHaveText('Enter the full absolute path to the model.');
+    assert.equal(await page.evaluate(() => (window as any).openedNative), null);
+    await modelPath.fill(path.join(documents, 'notes.txt'));
+    await modelPath.press('Enter');
+    await expect(viewer.getByRole('alert')).toHaveText('Choose a STEP, STL, GLB or 3MF model.');
+    await modelPath.press('Escape');
+    await expect(openModel).toBeFocused();
+    await openModel.click();
+    await modelPath.fill(`"${source}"`);
+    if (process.env.CAD_EXTENSION_OPEN_MODEL_SCREENSHOT) await page.screenshot({ path: process.env.CAD_EXTENSION_OPEN_MODEL_SCREENSHOT });
+    await page.evaluate(() => { (window as any).failNativeOpen = true; });
+    await modelPath.press('Enter');
+    await expect(viewer.getByRole('alert')).toContainText('File opening unavailable');
+    await expect(modelPath).toHaveValue(`"${source}"`);
+    await page.evaluate(() => { (window as any).failNativeOpen = false; });
+    await modelPath.press('Enter');
+    await expect(modelPath).toHaveCount(0);
+    assert.equal(await page.evaluate(() => (window as any).openedNative), source);
     assert.ok(homeRequests.every((request: any) => ['cad_handshake', 'cad_library'].includes(request.name)));
     await page.setViewportSize({ width: 1000, height: 760 });
     await page.goto(`http://127.0.0.1:${address.port}`);
@@ -255,6 +282,7 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     // Navigation mounts a fresh bridge/app instance with the global entrypoint result.
     await page.goto(`http://127.0.0.1:${address.port}/?home`);
     await expect(viewer.getByRole('heading', { name: 'Recent', exact: true })).toBeVisible();
+    await expect(openModel).toBeVisible();
     await expect(viewer.getByRole('button', { name: 'Open related.step', exact: true })).toBeVisible();
     await expect(viewer.getByRole('button', { name: 'Open related.step', exact: true }).locator('img')).toBeVisible();
     const previewData = await viewer.getByRole('button', { name: 'Open related.step', exact: true }).locator('img').getAttribute('src');
@@ -299,6 +327,11 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     await expect(viewer.getByRole('button', { name: 'Back to recent models', exact: true })).toBeVisible();
     await viewer.getByRole('button', { name: 'Back to recent models', exact: true }).click();
     await expect(viewer.getByRole('heading', { name: 'Recent', exact: true })).toBeVisible();
+    await openModel.click();
+    await modelPath.fill(source);
+    await modelPath.press('Enter');
+    await viewer.getByRole('region', { name: 'Features', exact: true }).waitFor();
+    await expect(viewer.getByRole('button', { name: 'Back to recent models', exact: true })).toBeVisible();
     assert.deepEqual(errors, []);
   } catch (error) {
     throw new Error(`${String(error)}\nBrowser errors: ${errors.join('\n')}\nCatalog states: ${JSON.stringify(catalogStates.slice(-3))}\nMCP stderr: ${stderr.slice(-3000)}\n${await page.frameLocator('iframe').locator('body').innerText()}`, { cause: error });

@@ -23,7 +23,13 @@ refreshes when its window regains focus or becomes visible, and polls every five
 seconds while visible so changes from other CAD views appear automatically.
 Requests are coalesced; polling stops when hidden or unmounted.
 
-A recent model requests a native file tab only when the host advertises
+**Open Model** on the home page accepts a full absolute model path, including
+paths copied with surrounding quotes. The host exposes opening a known path,
+not a native file chooser. This home-only control uses the same opening flow
+as a recent model; it does not upload or copy the file. Validation and failed
+requests remain in the form for correction and retry.
+
+A model requests a native file tab only when the host advertises
 `experimental["openai/files"]`, through `openai/files/open` with its saved absolute
 path. The acknowledgement means the host accepted the request, not that rendering
 finished. Hosts without that capability show an explicit **Preview here** action,

@@ -10,7 +10,7 @@ import { CAD_API_VERSION, CAD_ORIGIN, CadBackendError, connectBackend, createBri
 import { Button } from '@text-to-cad/ui/primitives/button';
 import { createComposerContext } from './promptContext';
 import { createFileHandoff } from './handoff';
-import { createRecentLibrary, type RecentModel } from './library';
+import { createRecentLibrary } from './library';
 import { createNativeFiles } from './nativeFiles';
 import RecentHome from './RecentHome';
 
@@ -30,19 +30,19 @@ let composer: ReturnType<typeof createComposerContext> | undefined;
 let opened: OpenFile | undefined;
 let colorScheme: 'light' | 'dark' = 'light';
 let hostContext: Record<string, unknown> = {};
-async function openRecent(item: RecentModel) {
+async function openPath(path: string) {
   const generation = ++navigationGeneration;
-  if (nativeFiles.available()) { await nativeFiles.open(item.path); return; }
-  const result = await app.callServerTool({ name: 'cad_open', arguments: { apiVersion: CAD_API_VERSION, path: item.path } }, { signal: lifetime.signal, timeout: 30_000 });
+  if (nativeFiles.available()) { await nativeFiles.open(path); return; }
+  const result = await app.callServerTool({ name: 'cad_open', arguments: { apiVersion: CAD_API_VERSION, path } }, { signal: lifetime.signal, timeout: 30_000 });
   if (disposed || generation !== navigationGeneration) return;
   const value = readOpenFile(toolData(result));
-  if (!value?.document) throw new Error('Could not open this recent model.');
+  if (!value?.document) throw new Error('Could not open this model.');
   previewHome = opened;
   open(value, true);
 }
 function paint() {
   if (!opened || disposed) return;
-  if (!opened.document) root.render(<RecentHome library={library} nativeOpenAvailable={nativeFiles.available()} onOpen={openRecent} onOpenLink={async url => {
+  if (!opened.document) root.render(<RecentHome library={library} nativeOpenAvailable={nativeFiles.available()} onOpen={openPath} onOpenLink={async url => {
     const result = await app.openLink({ url }, { signal: lifetime.signal, timeout: 15_000 });
     if (result.isError) throw new Error('Codex could not open this link.');
   }} />);
