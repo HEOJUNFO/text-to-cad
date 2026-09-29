@@ -283,6 +283,10 @@ if (!app.requestSingleInstanceLock()) {
     // waiting on a window.
     void shutdownCad();
     void shutdownIntegrations();
+    // Database writes on the way out, in this order and all before closeDb():
+    // the ACP snapshot flush (closeAll → flushAll; each adapter's `closed`
+    // status is dispatched synchronously and its later exit is ignored), then
+    // the window geometry. Nothing after closeDb() may reach for the database.
     shutdownAcp();
     shutdownAgents();
     disposeSettingsEffects();

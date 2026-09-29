@@ -36,21 +36,31 @@ export function trackWindowState(window: BrowserWindow) {
     // getNormalBounds is the un-maximised, un-fullscreened rectangle: the one
     // to restore to when the user un-maximises later.
     const bounds = window.getNormalBounds();
-    settings.setWindowState({
-      x: bounds.x,
-      y: bounds.y,
-      width: bounds.width,
-      height: bounds.height,
-      maximized: window.isMaximized(),
-    });
-  };
-
-  const scheduleSave = () => {
-    clearTimeout(timer);
-    timer = setTimeout(save, SAVE_DEBOUNCE_MS);
+    // Also reached from a timer, where a throw is an uncaught exception: a
+    // save that cannot be written is logged and dropped.
+    try {
+      settings.setWindowState({
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        maximized: window.isMaximized(),
+      });
+    } catch (error) {
+      console.warn("[window-state] not saved:", error instanceof Error ? error.message : error);
+    }
   };
 
   let flushed = false;
+  const scheduleSave = () => {
+    clearTimeout(timer);
+    // After the quit flush the database is closing; a resize or move the
+    // closing window still emits is not saved.
+    if (!flushed) {
+      timer = setTimeout(save, SAVE_DEBOUNCE_MS);
+    }
+  };
+
   const flush = () => {
     clearTimeout(timer);
     if (!flushed) {
@@ -85,11 +95,7 @@ export function trackWindowState(window: BrowserWindow) {
  */
 export function flushWindowStates() {
   for (const flush of flushers) {
-    try {
-      flush();
-    } catch (error) {
-      console.warn("[window-state] save on quit failed:", error);
-    }
+    flush();
   }
   flushers.clear();
 }
