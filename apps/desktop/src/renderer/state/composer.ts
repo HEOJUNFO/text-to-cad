@@ -5,6 +5,7 @@ import { useAcp } from "./acp";
 import { parseSegments } from "../features/session/composer/references";
 import type { PromptBlock } from "@shared/acp/types";
 import { referenceText, type CadReference } from "@shared/cad-refs";
+import { errorMessage } from "@shared/ipc/errors";
 import type { PromptReference } from "@text-to-cad/core/prompt";
 
 /**
@@ -341,7 +342,7 @@ export const useComposer = create<ComposerState>((set, get) => ({
       return;
     }
     get().dequeue(sessionId, next.id);
-    await send(sessionId, next.content);
+    await send(sessionId, next.content, next);
   },
 
   sending: {},
@@ -351,6 +352,10 @@ export const useComposer = create<ComposerState>((set, get) => ({
     if (type === "prompt/error") set((state) => ({ paused: { ...state.paused, [sessionId]: true } }));
     if (type === "prompt/start" && sessionId in get().paused) {
       set((state) => ({ paused: withoutKey(state.paused, sessionId) }));
+    }
+    // A turn that starts is an agent that came back: a refusal `send` showed is over.
+    if (type === "prompt/start" && sessionId in useAcp.getState().loadErrors) {
+      useAcp.setState((state) => ({ loadErrors: withoutKey(state.loadErrors, sessionId) }));
     }
     if (type === "prompt/end") void get().drain(sessionId);
   },
@@ -423,17 +428,30 @@ export const useComposer = create<ComposerState>((set, get) => ({
  * `prompt/error` part), so nothing else needs to see it here. The next queued
  * prompt is not sent from here: `prompt/end` has already done that.
  */
-async function send(sessionId: string, content: PromptBlock[]) {
+async function send(sessionId: string, content: PromptBlock[], item?: QueuedPrompt) {
   const token = ++sequence;
   // Synchronously, before the IPC: until main dispatches `prompt/start` the
   // session's status still reads idle, and this is what says it is not.
   useComposer.setState((state) => ({ sending: { ...state.sending, [sessionId]: token } }));
   try {
     await useAcp.getState().prompt(sessionId, content);
-  } catch {
-    // Reported in the transcript with a Retry. A rejection that came before
-    // main dispatched anything (no `prompt/error`) still frees the session.
+  } catch (error) {
+    // A rejection after the turn began is in the transcript with a Retry (the
+    // `prompt/error` part), and that turn event has already cleared `sending`.
+    // Still ours means main refused before any turn event — the agent could not
+    // be brought back (not installed, signed out, its folder gone) — and the
+    // transcript never saw the prompt. A queued prompt goes back at the head
+    // with the queue paused, and the reason is shown where a failed reconnect
+    // is (`loadErrors`, with its Retry), rather than the prompt vanishing.
+    const refusedUnseen = useComposer.getState().sending[sessionId] === token;
     clearSending(sessionId, token);
+    if (refusedUnseen && item) {
+      useComposer.setState((state) => ({
+        queues: { ...state.queues, [sessionId]: [item, ...(state.queues[sessionId] ?? [])] },
+        paused: { ...state.paused, [sessionId]: true },
+      }));
+      useAcp.setState((state) => ({ loadErrors: { ...state.loadErrors, [sessionId]: errorMessage(error) } }));
+    }
   }
 }
 

@@ -340,3 +340,50 @@ it("while a load is still in flight, the queue waits for its snapshot", async ()
     useAcp.setState({ ensureLoaded: savedEnsure, loading: {} });
   }
 });
+
+it("Resume whose prompt main refuses before any turn begins keeps the queue whole, paused, and says why", async () => {
+  const savedEnsure = useAcp.getState().ensureLoaded;
+  useAcp.setState({ ensureLoaded: vi.fn(async () => undefined), loadErrors: {} });
+  try {
+    const composer = useComposer.getState();
+    composer.enqueue(SESSION, "A", block("A"));
+    composer.enqueue(SESSION, "B", block("B"));
+    useComposer.setState({ paused: { [SESSION]: true } });
+    useAcp.setState({ sessions: { [SESSION]: { ...initialSessionState(SESSION, "claude"), status: "error" } } });
+
+    void composer.resume(SESSION);
+    await settle();
+    expect(inFlight()).toEqual(["A"]);
+    // The reload behind the prompt fails (agent not installed): no prompt/start, no prompt/error.
+    replies[0]!.reject(new Error("The claude agent is not installed"));
+    await settle();
+
+    const state = useComposer.getState();
+    expect(state.queues[SESSION]?.map(item => item.text), "A is back at the head").toEqual(["A", "B"]);
+    expect(state.paused[SESSION]).toBe(true);
+    expect(state.sending[SESSION]).toBeUndefined();
+    expect(useAcp.getState().loadErrors[SESSION], "shown where a failed reconnect is").toMatch(/not installed/);
+
+    // Once the agent is back, Resume sends A and the refusal shown is cleared when its turn starts.
+    useAcp.setState({ sessions: { [SESSION]: { ...initialSessionState(SESSION, "claude"), status: "idle" } } });
+    void composer.resume(SESSION);
+    await settle();
+    expect(inFlight()).toEqual(["A"]);
+    start("A");
+    expect(useAcp.getState().loadErrors[SESSION]).toBeUndefined();
+    expect(useComposer.getState().queues[SESSION]?.map(item => item.text)).toEqual(["B"]);
+  } finally {
+    useAcp.setState({ ensureLoaded: savedEnsure, loadErrors: {} });
+  }
+});
+
+it("a prompt main refuses after its turn began is the transcript's to show, not put back", async () => {
+  useAcp.setState({ loadErrors: {} });
+  void useComposer.getState().submit(SESSION, "C", block("C"));
+  start("C");
+  emit({ type: "prompt/error", message: "boom" });
+  replies[0]!.reject(new Error("boom"));
+  await settle();
+  expect(useComposer.getState().queues[SESSION] ?? []).toEqual([]);
+  expect(useAcp.getState().loadErrors[SESSION]).toBeUndefined();
+});
