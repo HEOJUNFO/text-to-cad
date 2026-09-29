@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   FsError,
@@ -63,6 +63,21 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await fs.rm(root, { recursive: true, force: true });
+});
+
+/**
+ * A directory outside the fixture for a test that aims a link out of the root.
+ * Never the shared temp directory itself: an assertion about what did not
+ * land there must not depend on what an earlier run (or other code) left.
+ */
+const outsideDirectories: string[] = [];
+async function outsideDirectory(): Promise<string> {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "text-to-cad-outside-"));
+  outsideDirectories.push(directory);
+  return directory;
+}
+afterEach(async () => {
+  await Promise.all(outsideDirectories.splice(0).map((directory) => fs.rm(directory, { recursive: true, force: true })));
 });
 
 describe("listing a directory", () => {
@@ -153,8 +168,10 @@ describe("containment", () => {
 
   it("refuses a symlink that points out of the root", async () => {
     const link = path.join(root, "escape");
-    await fs.symlink(os.tmpdir(), link).catch(() => {});
-    await expect(resolveInRoot(root, "escape")).rejects.toBeInstanceOf(FsError);
+    await fs.symlink(await outsideDirectory(), link);
+    try {
+      await expect(resolveInRoot(root, "escape")).rejects.toBeInstanceOf(FsError);
+    } finally { await fs.unlink(link); }
     await fs.rm(link, { force: true });
   });
 
@@ -307,14 +324,20 @@ describe("pathKinds", () => {
  */
 describe("creating, renaming and duplicating", () => {
   let edits: string;
+  let elsewhere: string;
+
+  afterAll(async () => {
+    await fs.rm(elsewhere, { recursive: true, force: true });
+  });
 
   beforeAll(async () => {
     edits = path.join(root, "edits");
     await fs.mkdir(path.join(edits, "nested"), { recursive: true });
     await fs.writeFile(path.join(edits, "part.step"), "ISO-10303-21;\n");
     await fs.writeFile(path.join(edits, "nested", "note.md"), "# note\n");
-    // A door out of the root: a symlink to the machine's temp directory.
-    await fs.symlink(os.tmpdir(), path.join(edits, "escape"));
+    // A door out of the root: a symlink to a directory outside it.
+    elsewhere = await fs.mkdtemp(path.join(os.tmpdir(), "text-to-cad-elsewhere-"));
+    await fs.symlink(elsewhere, path.join(edits, "escape"));
   });
 
   it("creates a file and a folder, answering root-relative paths", async () => {
@@ -334,8 +357,9 @@ describe("creating, renaming and duplicating", () => {
 
   it("refuses a directory outside the root, a symlink out of it included", async () => {
     await expect(createFile(root, "../", "x.txt")).rejects.toBeInstanceOf(FsError);
-    await expect(createFile(root, os.tmpdir(), "x.txt")).rejects.toBeInstanceOf(FsError);
+    await expect(createFile(root, elsewhere, "x.txt")).rejects.toBeInstanceOf(FsError);
     await expect(createDirectory(root, "edits/escape", "x")).rejects.toBeInstanceOf(FsError);
+    expect(await fs.readdir(elsewhere)).toEqual([]);
     await expect(renameEntry(root, "../something", "y")).rejects.toBeInstanceOf(FsError);
     await expect(duplicateEntry(root, "/etc/hosts")).rejects.toBeInstanceOf(FsError);
   });
@@ -399,10 +423,12 @@ describe("symlinks as doors and as rows", () => {
   });
 
   it("refuses to write a new file through a linked directory that leaves the root", async () => {
-    await fs.mkdir(path.join(root, "edits"), { recursive: true });
-    await fs.symlink(os.tmpdir(), path.join(root, "edits", "escape")).catch(() => {});
-    await expect(writeTextFile(root, "edits/escape/new.txt", "x")).rejects.toBeInstanceOf(FsError);
-    await expect(fs.stat(path.join(os.tmpdir(), "new.txt"))).rejects.toThrow();
+    const door = await outsideDirectory();
+    await fs.symlink(door, path.join(links, "door"));
+    try {
+      await expect(writeTextFile(root, "links/door/new.txt", "x")).rejects.toBeInstanceOf(FsError);
+      expect(await fs.readdir(door)).toEqual([]);
+    } finally { await fs.unlink(path.join(links, "door")); }
     await expect(writeTextFile(root, "links/out/authorized_keys", "x")).rejects.toBeInstanceOf(FsError);
     await expect(fs.stat(path.join(outside, "authorized_keys"))).rejects.toThrow();
     await expect(resolveInRoot(root, "links/out/deeper/still/new.txt")).rejects.toBeInstanceOf(FsError);
