@@ -191,8 +191,8 @@ the rule is about.
   `src/main/menu.ts` — and every accelerator is a row
   (`tests/unit/main/shortcuts-menu.test.ts`). Add a key to both or to
   neither.
-- **The docs point at things that exist.** Every backticked `src/…`,
-  `tests/…`, `scripts/…` or `docs/…` path in README.md, AGENTS.md, `docs/` and
+- **The docs point at things that exist.** Every backticked path under src,
+  tests, scripts or docs in README.md, AGENTS.md, `docs/` and
   the headers of the modules `tests/unit/main/doc-paths.test.ts` lists names
   something on disk, and the README's screenshot paragraph and the e2e specs
   name the same shots (`tests/unit/main/readme-screenshots.test.ts`). Rename a file, fix

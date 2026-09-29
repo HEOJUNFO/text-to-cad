@@ -13,15 +13,21 @@ New folder choices resolve symlinks, while existing session directory spellings
 remain stable. Choosing an alias of an existing directory reuses that group.
 
 `projects.list` and the renderer's `projectsFromSessions` derive directory
-descriptors from sessions. `projects.add` (the chooser) and
+descriptors from sessions. `projects.add` (the chooser channel) and
 `onboarding.createSample` only validate a folder choice and select a transient
-new-session draft. They create no database row; main remembers the choice for
-the run, and the repository's `projects.get` (`src/main/db/repositories.ts`,
-not a channel) answers only for a directory a session records or main chose —
-never for a path the renderer merely names. The e2e suite
-chooses folders through a main-side door that only a `NODE_ENV=test` launch of
-a development build installs (`chooseDirectory` in `tests/e2e/launch.ts`), not
-a channel.
+new-session draft. They create no database row: both hand the directory to the
+repository's `projects.choose` (`src/main/db/repositories.ts`, not a channel),
+which resolves it and remembers it in `chosen`, a map for this run that is
+never persisted. Beside it, `projects.get` answers only for a directory a
+session records or one in `chosen` — never for a path the renderer merely
+names, since an id is renderer input.
+
+The e2e suite chooses folders through a door, not a channel:
+`src/main/test-door.ts` (`installE2eDoor`) puts `globalThis.__textToCadE2E`
+on main's global only when `NODE_ENV=test` and the build is not packaged. Its
+`choose(dir)` calls `projects.choose` and broadcasts `ui.directorySelected`,
+as the chooser does; `chooseDirectory` in `tests/e2e/launch.ts` drives it
+through `app.evaluate`.
 The descriptor's name is the directory basename. There is no project rename
 or delete operation. Sidebar groups contain sessions matching the current
 filters; empty groups are omitted. Archiving the last visible session hides
@@ -55,8 +61,15 @@ unmounts the viewport without discarding those caches. Closing the last owner or
 discarding its session releases the client; camera and selection remain per tab.
 
 Archive closes live session resources but retains the session row and its
-persisted tabs. Delete removes that session and its children only. The
-existing explicit worktree cleanup preference still controls worktree removal.
+persisted tabs. Delete removes that session and its children only. A
+session's worktree goes only when Settings' auto-delete is on: deleting the
+session then removes it (never forced), and after each new worktree's row is
+written a keep-limit sweep removes the oldest past the limit — never one a
+session row's `cwd`, `projectId` or `worktreePath` names (archived sessions
+included), a locked one, a create still in flight, or one with unsaved work
+(README, "Git modes and worktrees"). A create that fails is the exception:
+the worktree it made, and its branch while still at its base, go with its row
+whatever the setting.
 
 ## Session names
 
@@ -65,6 +78,11 @@ The first prompt supplies a fallback title until the agent sends an ACP
 session, saves the title, and broadcasts the session index. Notifications
 during creation and replay are handled too. Sidebar and header read the same
 saved title.
+
+A `session/load` replay sends no `session_info_update`, so main starts the
+reloaded state from the title it already knew — the last snapshot's, or the
+row's when the agent named it — and a replayed agent turn is settled as
+`end_turn`, as it was live; replayed user turns keep no stop reason.
 
 `titleSource` records `prompt`, `agent`, or `user`. An explicit user rename
 has priority over later agent notifications, including after restart. Empty

@@ -22,7 +22,10 @@
  *   - Session-level facts (mode, config options, commands, usage, title)
  *     always update the state; a mode change also becomes a part when a
  *     turn is open (the adapters send most of these right after
- *     `session/new`). The commands list never does: it is the composer's.
+ *     `session/new`). The commands list never does: it is the composer's,
+ *     `SessionState.availableCommands`. The `available_commands` part a turn
+ *     used to carry is still in `PartSchema` (a turn's `parts`), only so
+ *     snapshots written before the change parse; nothing produces it.
  *     Only the root session's count: a subagent's plan lands in its own
  *     part, the rest of what it reports about itself is dropped.
  *   - An update under a session id that is neither the root nor a known
