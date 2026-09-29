@@ -7,9 +7,14 @@
  * `dedupe` is what keeps them one.
  *
  * It reads `out/renderer`, so it has something to say only after
- * `npm run build`; without a build, or with one older than the config it
- * checks (a unit run before the build step sees the previous build), it
- * logs why and passes.
+ * `npm run build`. A plain run without a build, or with one older than the
+ * config it checks (a unit run before the build step sees the previous
+ * build), logs why and passes. CI's Desktop job runs its unit tests before
+ * it builds, so it runs this file again after the build with
+ * `TEXT_TO_CAD_BUNDLE_CHECK=1`, under which a missing bundle fails instead:
+ * a check that can always stand aside is a check no job runs. The age guard
+ * is not applied there — a build restored from cache keeps its old times
+ * under a fresh checkout's, and the cache key is the build's inputs.
  */
 import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
@@ -19,25 +24,42 @@ import { expect, it } from "vitest";
 const app = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const assets = path.join(app, "out", "renderer", "assets");
 const config = path.join(app, "electron.vite.config.ts");
+const required = process.env.TEXT_TO_CAD_BUNDLE_CHECK === "1";
 
 /** `abap-B7h4dtBh.js` → `abap.js`: Rollup's eight-character hash dropped. */
 const baseName = (file: string) => file.replace(/-[A-Za-z0-9_-]{8}(\.[a-z0-9]+)$/, "$1");
 
-it("emits no two chunks with one name and one size", () => {
-  if (!existsSync(assets)) {
-    console.info(`renderer-bundle: no ${assets}; run \`npm run build\` to check the bundle`);
-    return;
+/**
+ * The chunks emitted more than once, as `a = b` lines; or `null` when there
+ * is no build to read (or only a stale one) and the run did not require one.
+ */
+function bundleTwins(options: { assets: string; config: string; required: boolean }): string[] | null {
+  if (!existsSync(options.assets)) {
+    if (options.required) throw new Error(`renderer-bundle: no ${options.assets}; the bundle check runs after \`npm run build\``);
+    console.info(`renderer-bundle: no ${options.assets}; run \`npm run build\` to check the bundle`);
+    return null;
   }
-  if (statSync(assets).mtimeMs < statSync(config).mtimeMs) {
-    console.info(`renderer-bundle: ${assets} predates electron.vite.config.ts; run \`npm run build\` to check the bundle`);
-    return;
+  if (!options.required && statSync(options.assets).mtimeMs < statSync(options.config).mtimeMs) {
+    console.info(`renderer-bundle: ${options.assets} predates electron.vite.config.ts; run \`npm run build\` to check the bundle`);
+    return null;
   }
   const seen = new Map<string, string[]>();
-  for (const file of readdirSync(assets)) {
+  for (const file of readdirSync(options.assets)) {
     if (!/\.(js|css|wasm)$/.test(file)) continue;
-    const key = `${baseName(file)} ${statSync(path.join(assets, file)).size}`;
+    const key = `${baseName(file)} ${statSync(path.join(options.assets, file)).size}`;
     seen.set(key, [...(seen.get(key) ?? []), file]);
   }
-  const twins = [...seen.values()].filter((files) => files.length > 1).map((files) => files.join(" = "));
+  return [...seen.values()].filter((files) => files.length > 1).map((files) => files.join(" = "));
+}
+
+it("emits no two chunks with one name and one size", () => {
+  const twins = bundleTwins({ assets, config, required });
+  if (twins === null) return;
   expect(twins, `${twins.length} chunk(s) emitted more than once`).toEqual([]);
+});
+
+it("fails without a bundle when the run requires one, and stands aside when it does not", () => {
+  const missing = path.join(app, "out", "no-such-renderer", "assets");
+  expect(() => bundleTwins({ assets: missing, config, required: true })).toThrow(/no .*no-such-renderer/);
+  expect(bundleTwins({ assets: missing, config, required: false })).toBeNull();
 });
