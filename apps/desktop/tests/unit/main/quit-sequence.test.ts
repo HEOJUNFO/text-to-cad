@@ -90,6 +90,7 @@ vi.mock("better-sqlite3", () => ({
     }
     close() {
       h.order.push("closeDb");
+      h.teardown.push("database");
     }
   },
 }));
@@ -249,13 +250,19 @@ describe("quit sequence", () => {
     expect(() => h.app.emit("before-quit")).not.toThrow();
     expect(h.order).toEqual(["acpSnapshots", "windowState", "closeDb"]);
 
-    // What Electron does next: the window closes (and may still move), the
-    // debounce would have fired, will-quit runs. None of it reopens the file.
+    // What Electron does next: the closing window may still move or resize
+    // with no `close` yet to clear the debounce, the debounce's time passes,
+    // will-quit runs, and only then does the window close. None of it reopens
+    // the file, and no save is attempted (a failed one would warn).
     expect(() => {
       window!.emit("move");
-      window!.emit("close");
+      window!.emit("resize");
       vi.advanceTimersByTime(1_000);
       h.app.emit("will-quit");
+    }).not.toThrow();
+    expect(() => {
+      window!.emit("close");
+      vi.advanceTimersByTime(1_000);
     }).not.toThrow();
     expect(h.order).toEqual(["acpSnapshots", "windowState", "closeDb"]);
     expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("[window-state]"), expect.anything());
@@ -290,9 +297,9 @@ describe("quit sequence", () => {
 
     expect(h.electron.dialog.showErrorBox).toHaveBeenCalledWith("text-to-cad could not start", "the CAD runtime could not start");
     expect(h.electron.app.exit).toHaveBeenCalledWith(1);
-    // app.exit skips before-quit and will-quit: their teardown ran first.
-    expect(h.teardown.indexOf("exit")).toBe(h.teardown.length - 1);
-    expect(h.teardown).toEqual(expect.arrayContaining(["cad", "integrations", "children"]));
+    // app.exit skips before-quit and will-quit: their teardown ran first,
+    // the database connection closed among it (the handle's own close()).
+    expect(h.teardown).toEqual(["cad", "integrations", "database", "children", "exit"]);
     expect(h.windows).toHaveLength(0);
     error.mockRestore();
     info.mockRestore();

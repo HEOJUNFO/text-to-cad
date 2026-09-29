@@ -235,6 +235,15 @@ describe("the skills tools", () => {
     });
     expect(absolute.isError).toBe(true);
 
+    // The skills directory itself is not a skill, even with a SKILL.md in it:
+    // `path.relative` answers "" for it, which a `..` check lets through.
+    fs.writeFileSync(path.join(root, ".claude", "skills", "SKILL.md"), "---\nname: stray\n---\nnot a skill\n");
+    for (const name of [".", "cad/.."]) {
+      const itself = await client.callTool({ name: "read_skill", arguments: { name } });
+      expect(itself.isError).toBe(true);
+      expect((itself.content as Array<{ text: string }>)[0]!.text).toContain(`${name} is not a skill`);
+    }
+
     const bare = await connect(fakeBridge().bridge, { skillsRoot: null });
     const listed = await bare.callTool({ name: "list_skills", arguments: {} });
     expect(JSON.parse((listed.content as Array<{text:string}>)[0]!.text)).toEqual([]);

@@ -41,6 +41,31 @@ describe.skipIf(process.platform === "win32")("capturing the login shell", () =>
     expect(env.HOME).toBe("/home/fake");
   });
 
+  it("gives agents the login shell's PATH through $SHELL even when an rc file prints a banner first", async () => {
+    // What the app calls: `loginEnv`, with the user's $SHELL. The banner has
+    // no trailing newline, so without the sentinels it is glued onto the first
+    // record (PATH) and the capture falls back to the Dock's environment.
+    vi.stubEnv(
+      "SHELL",
+      fakeShell(
+        [
+          "printf 'Welcome to your shell\\nlast login: today'",
+          'env -i PATH=/fake/bin:/usr/bin:/bin HOME=/home/fake /bin/sh -c "$2"',
+          "printf 'bye'",
+        ].join("\n"),
+      ),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const env = await loginEnv({ force: true, timeoutMs: 5_000 });
+      expect(env.PATH).toBe("/fake/bin:/usr/bin:/bin");
+      expect(env.HOME).toBe("/home/fake");
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("falls back to process.env with a warning when the shell is too slow", async () => {
     const shell = fakeShell("sleep 5");
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

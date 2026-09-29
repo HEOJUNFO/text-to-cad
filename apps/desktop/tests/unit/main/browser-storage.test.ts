@@ -1,4 +1,6 @@
 /** A deleted session's browser storage and artifacts go with it; archive keeps them; older builds' partitions migrate; orphans are swept. */
+import fsSync from "node:fs";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -69,22 +71,42 @@ it("never sweeps a partition or artifacts this run opened, even for a session th
 });
 
 it("reads the sessions after listing the directories, so a session created mid-sweep keeps its storage", async () => {
-  const outputs = await artifacts("created-mid-sweep");
-  const partition = await partitionOnDisk("created-mid-sweep");
-  const sessions = vi.fn(live("created-mid-sweep"));
-  await sweepBrowserStorage(sessions, userData);
+  const orphan = await partitionOnDisk("orphan");
+  // The session index is read (a snapshot without the new session), and
+  // right after it the new session's storage lands on disk. Listed after the
+  // read, that storage would look ownerless and be swept.
+  let partition = "", outputs = "";
+  const sessions = vi.fn(() => {
+    const snapshot = live("already-live")();
+    // Synchronously, as the index read is: create the storage before the sweep continues.
+    const name = browserPartitionName(scopeOf("created-mid-sweep")).slice("persist:".length);
+    fsSync.mkdirSync(path.join(partitions(), name), { recursive: true });
+    fsSync.writeFileSync(path.join(partitions(), name, "Cookies"), name);
+    partition = name;
+    outputs = path.join(browserArtifactsRoot(userData), browserSessionKey("created-mid-sweep"));
+    fsSync.mkdirSync(outputs, { recursive: true });
+    return snapshot;
+  });
+  const swept = await sweepBrowserStorage(sessions, userData);
   expect(sessions).toHaveBeenCalledTimes(1);
-  expect(await exists(outputs)).toBe(true);
   expect(await exists(path.join(partitions(), partition))).toBe(true);
+  expect(await exists(outputs)).toBe(true);
+  // The sweep itself still ran: the orphan listed before the read went.
+  expect(swept).toEqual([path.join(partitions(), orphan)]);
 });
 
 it("renames an older build's partition for a live session instead of deleting its logins", async () => {
-  const legacy = await onDisk(legacyPartitionName(scopeOf("migrated")));
+  // The name an older build gave it, spelled out here rather than taken from
+  // the module: `browser-<sha256(JSON [session, project, root])>`.
+  const legacy = await onDisk(`browser-${createHash("sha256").update(JSON.stringify(["migrated", "project", workspace])).digest("hex")}`);
+  expect(legacy).toBe(legacyPartitionName(scopeOf("migrated")));
+  await fs.writeFile(path.join(partitions(), legacy, "Local Storage"), "logged in");
   const orphanLegacy = await onDisk(`browser-${"a".repeat(64)}`);
   await sweepBrowserStorage(live("migrated"), userData);
   const current = browserPartitionName(scopeOf("migrated")).slice("persist:".length);
   expect((await fs.readdir(partitions())).sort()).toEqual([current]);
   expect(await fs.readFile(path.join(partitions(), current, "Cookies"), "utf8")).toBe(legacy);
+  expect(await fs.readFile(path.join(partitions(), current, "Local Storage"), "utf8")).toBe("logged in");
   expect(orphanLegacy).not.toBe(legacy);
 });
 

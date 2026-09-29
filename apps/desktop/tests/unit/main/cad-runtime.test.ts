@@ -17,6 +17,9 @@ import {
   type RuntimeHost,
 } from "@main/cad/runtime";
 
+// Writable first, so a read-only file (a fake interpreter, a marker) cannot stop the removal.
+import { removeTree } from "./temp-dirs";
+
 /**
  * A fake machine: a user-data directory, an optional checkout with a venv,
  * an optional bundled runtime beside the app, and an `exec` that answers the
@@ -42,34 +45,6 @@ CadRuntime.prototype.log = function (this: CadRuntime, line: string) {
   logWrites.push(write);
   return write;
 };
-
-/** Writable first, so a read-only file (a fake interpreter, a marker) cannot stop the removal. */
-function removeTree(dir: string): void {
-  const stack = [dir];
-  while (stack.length > 0) {
-    const current = stack.pop()!;
-    let entries: fs.Dirent[];
-    try {
-      fs.chmodSync(current, 0o755);
-      entries = fs.readdirSync(current, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      const full = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(full);
-      } else if (!entry.isSymbolicLink()) {
-        try {
-          fs.chmodSync(full, 0o644);
-        } catch {
-          /* removed below regardless */
-        }
-      }
-    }
-  }
-  fs.rmSync(dir, { recursive: true, force: true });
-}
 
 async function cleanUp(): Promise<void> {
   // A write can start another (a probe's handler); drain until none is left.
