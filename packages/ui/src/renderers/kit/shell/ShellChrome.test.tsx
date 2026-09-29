@@ -402,3 +402,28 @@ it("a failure card has no view-update spinner beside it: a theme switch under it
     vi.useRealTimers();
   }
 });
+
+it("a failure card hides only the Display change still in progress: one that failed keeps its Retry", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const slot = document.createElement('div');
+    document.body.append(slot);
+    const props = (colorScheme: string) => ({ source: { id: 'one', rootName: 'one' }, file: { path: 'panel.harness', name: 'panel.harness', kind: 'file' }, document: null,
+      openPanel: '', panelSlot: null, navigationStatusSlot: slot, onPanelOpen() {}, onReady() {}, onOpenFile() {}, appearance: { colorScheme }, state: undefined,
+      onStateChange() {}, reload() {}, data: { services: { preferences: tabSettings() } } });
+    const element = (colorScheme: string) => <ViewerHostContext.Provider value={testHost()}><ViewerMobileContext.Provider value={false}>
+      <HarnessRenderer {...(props(colorScheme) as any)} /></ViewerMobileContext.Provider></ViewerHostContext.Provider>;
+    const view = render(element('light'));
+    fireEvent.click(document.querySelector('[data-harness-stage="broken"]')!);
+    view.rerender(element('dark'));
+    await act(async () => { vi.advanceTimersByTime(500); });
+    // The viewport reports the Display change failed.
+    const { viewUpdate } = viewportProps.current;
+    await act(async () => { viewUpdate.binding.complete(viewUpdate.revision, new Error('Render studio unavailable')); });
+    expect(slot.querySelector('[data-view-update-status]')?.textContent).toContain('Couldn’t update view');
+    expect(within(slot).getByRole('button', { name: 'Retry view update' })).toBeTruthy();
+    slot.remove();
+  } finally {
+    vi.useRealTimers();
+  }
+});

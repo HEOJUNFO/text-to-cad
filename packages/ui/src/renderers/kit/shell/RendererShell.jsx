@@ -277,12 +277,13 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
 
               {/* One place says the view is catching up: a newer revision of the file loading behind the
                   model on screen, or a Display change being prepared — the latter's failure first, since
-                  it is the one with something to retry. Under a failure card there is no view to catch
-                  up: a Display change (a theme switch) waits on a frame that is never drawn, and a
-                  spinner beside "Couldn't prepare the model" says busy and failed at once. */}
-              {view.navigationStatusSlot ? createPortal(<ViewUpdateStatus status={failureCovers ? NO_VIEW_UPDATE
-                : frame.loading.updating && !frame.viewUpdate.status.error
-                  ? MODEL_UPDATE_STATUS : frame.viewUpdate.status} onRetry={frame.viewUpdate.retry} />, view.navigationStatusSlot) : null}
+                  it is the one with something to retry. Under a failure card a Display change still in
+                  progress (a theme switch) says nothing: it waits on a frame that is never drawn, and a
+                  spinner beside "Couldn't prepare the model" says busy and failed at once. One that
+                  failed keeps its Retry. */}
+              {view.navigationStatusSlot ? createPortal(<ViewUpdateStatus status={frame.viewUpdate.status.error
+                ? frame.viewUpdate.status : frame.loading.updating ? MODEL_UPDATE_STATUS
+                  : failureCovers ? NO_VIEW_UPDATE : frame.viewUpdate.status} onRetry={frame.viewUpdate.retry} />, view.navigationStatusSlot) : null}
               <ViewerLoadingOverlay
                 loading={frame.presentationState?.file === frame.modelKey && frame.presentationState?.covering ? null : frame.loading}
                 operationKey={frame.modelKey}
