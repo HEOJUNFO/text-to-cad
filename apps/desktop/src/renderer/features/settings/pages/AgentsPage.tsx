@@ -8,10 +8,11 @@
  * is what the first session is for.
  */
 import { useEffect, useMemo, useState } from "react";
-import { BookOpen, Download, RefreshCw, Search } from "lucide-react";
+import { AlertCircle, BookOpen, Download, RefreshCw, Search } from "lucide-react";
 import { cn } from "cn";
 import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 
+import { Alert, AlertDescription, AlertTitle } from "@renderer/components/ui/alert";
 import { Button } from "@renderer/components/ui/button";
 import { Input } from "@renderer/components/ui/input";
 import { AgentDrawer } from "@renderer/features/settings/AgentDrawer";
@@ -104,9 +105,11 @@ export function AgentsPage() {
       </div>
 
       {loadError ? (
-        <p className="mb-3 px-1 text-sm text-destructive" role="alert">
-          Could not read the agent list: {loadError}
-        </p>
+        <Alert className="mb-4" variant="destructive">
+          <AlertCircle />
+          <AlertTitle>Could not read the agent list</AlertTitle>
+          <AlertDescription>{loadError}</AlertDescription>
+        </Alert>
       ) : null}
 
       {!ready && agents.length === 0 ? (

@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 
 import type { AgentJobOutput, AgentStatus } from "@shared/agents";
+import { errorMessage } from "@shared/ipc/errors";
 
 /**
  * The agent table — registry rows with what the detector found — and the
@@ -55,7 +56,8 @@ export const useAgents = create<AgentsState>((set) => ({
       set({ agents, ready: agents.length > 0, loadError: null });
     } catch (error) {
       console.error("[agents] Could not read the agent list (agents.list):", error);
-      set({ ready: true, loadError: error instanceof Error ? error.message : String(error) });
+      // The handler's words, without Electron's "Error invoking remote method …" wrapper.
+      set({ ready: true, loadError: errorMessage(error) });
     }
   },
 

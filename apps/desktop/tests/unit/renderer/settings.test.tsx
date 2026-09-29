@@ -334,3 +334,19 @@ describe("the branch prefix row", () => {
     expect(window.textToCad.settings.set).not.toHaveBeenCalled();
   });
 });
+
+describe("the Agents page when the list cannot be read", () => {
+  it("shows the handler's words in an alert, not Electron's invoke wrapper", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(window.textToCad.agents.list).mockRejectedValue(
+      new Error("Error invoking remote method 'text-to-cad:agents.list': Error: the registry is unreadable"),
+    );
+    useAgents.setState({ agents: [], ready: false, loadError: null });
+    wrap(<AgentsPage />);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveAttribute("data-slot", "alert");
+    expect(alert).toHaveTextContent("the registry is unreadable");
+    expect(alert).not.toHaveTextContent(/invoking remote method/);
+    logged.mockRestore();
+  });
+});
