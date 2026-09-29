@@ -34,7 +34,11 @@ const SHELL_ONLY = new Set(["_", "SHLVL", "PWD", "OLDPWD", "PS1", "PROMPT", "TER
  * a user's own `ANTHROPIC_BASE_URL` (a proxy) is left alone otherwise.
  */
 const HOST_SESSION_MARKER = "CLAUDECODE";
-const HOST_SESSION_PATTERN = /^(CLAUDECODE|CLAUDE_CODE_|CLAUDE_PID$|CLAUDE_EFFORT$|CLAUDE_AGENT_SDK_|CLAUDE_PREVIEW_)/;
+// `CLAUDE_TMPDIR` and `CLAUDE_PLUGIN_DATA` are the host's scratch and plugin
+// directories (seen 2026-09-29); `CLAUDE_CONFIG_DIR` is the person's own
+// choice of config and stays.
+const HOST_SESSION_PATTERN =
+  /^(CLAUDECODE|CLAUDE_CODE_|CLAUDE_PID$|CLAUDE_EFFORT$|CLAUDE_TMPDIR$|CLAUDE_PLUGIN_DATA$|CLAUDE_AGENT_SDK_|CLAUDE_PREVIEW_)/;
 const HOST_SESSION_EXTRA = new Set(["ANTHROPIC_BASE_URL"]);
 
 /** Drop the variables a host Claude Code session injected. Exported for the tests. */

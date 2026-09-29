@@ -5,7 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { AgentDetector, nodeProbes, parseVersion, which, type DetectorProbes } from "@main/agents/detect";
-import { agentProvider } from "@main/agents/registry";
+import { CLAUDE_ADAPTER, CODEX_ADAPTER, agentProvider } from "@main/agents/registry";
 import { parseEnv, stripHostSession } from "@main/agents/shell-env";
 
 /** A fake machine: which files are executable, what each prints, which credential files exist. */
@@ -106,6 +106,17 @@ describe("AgentDetector", () => {
     expect(byId["gemini-cli"]).toMatchObject({ installed: false, binaryPath: null, version: null });
   });
 
+  it("carries the registry's adapter pin onto the status, installed or not", async () => {
+    const detector = new AgentDetector(providers, machine({}));
+    const byId = Object.fromEntries((await detector.refresh()).map((status) => [status.id, status]));
+    expect(byId["claude-code"]?.adapter).toEqual({
+      package: "@agentclientprotocol/claude-agent-acp",
+      version: CLAUDE_ADAPTER.version,
+    });
+    expect(byId.codex?.adapter).toEqual({ package: "@agentclientprotocol/codex-acp", version: CODEX_ADAPTER.version });
+    expect(byId["gemini-cli"]?.adapter).toBeNull();
+  });
+
   it("falls back to the credential file when the auth probe fails for a reason that is not a sign-out", async () => {
     const detector = new AgentDetector(
       [agentProvider("claude-code")!],
@@ -200,5 +211,18 @@ describe("the login shell environment", () => {
     expect(nested).toEqual({ ANTHROPIC_API_KEY: "sk", PATH: "/a" });
     const plain = { ANTHROPIC_BASE_URL: "http://proxy", PATH: "/a" };
     expect(stripHostSession(plain)).toBe(plain);
+  });
+
+  it("strips the host session's scratch and plugin directories too", () => {
+    // Both are set in a host Claude Code session (seen 2026-09-29); a nested
+    // `claude` would write its temp files and plugin data into the host's.
+    const nested = stripHostSession({
+      CLAUDECODE: "1",
+      CLAUDE_TMPDIR: "/private/tmp/claude-501",
+      CLAUDE_PLUGIN_DATA: "/Users/me/.claude/plugins/data/x",
+      CLAUDE_CONFIG_DIR: "/Users/me/.claude-work",
+      PATH: "/a",
+    });
+    expect(nested).toEqual({ CLAUDE_CONFIG_DIR: "/Users/me/.claude-work", PATH: "/a" });
   });
 });

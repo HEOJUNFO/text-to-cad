@@ -304,6 +304,27 @@ describe("the Agents page's rows", () => {
     await user.keyboard("{Enter}");
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
   });
+
+  it("shows a pinned adapter's version beside the CLI's, in the row and the drawer", async () => {
+    const claude = {
+      ...opencode,
+      id: "claude-code",
+      name: "Claude Code",
+      installed: true,
+      binaryPath: "/bin/claude",
+      version: "2.1.261",
+      auth: "authenticated",
+      adapter: { package: "@agentclientprotocol/claude-agent-acp", version: "0.84.0" },
+    } as unknown as AgentStatus;
+    useAgents.setState({ agents: [claude], ready: true, loadError: null });
+    vi.mocked(window.textToCad.agents.list).mockResolvedValue([claude]);
+    const user = userEvent.setup();
+    wrap(<AgentsPage />);
+    const row = await screen.findByRole("button", { name: "Claude Code" });
+    expect(row).toHaveTextContent("v2.1.261 · adapter 0.84.0");
+    await user.click(row);
+    expect(await screen.findByRole("dialog")).toHaveTextContent("Found at /bin/claude · v2.1.261 · adapter 0.84.0");
+  });
 });
 
 describe("a settings text field", () => {

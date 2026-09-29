@@ -99,6 +99,7 @@ const fakeProvider: AgentProvider = {
   authMethods: [{ type: "none", label: "none" }],
   authProbe: { files: [], envVars: [], checkArgs: null },
   launch: { command: process.execPath, args: [FAKE_AGENT], env: {} },
+  adapter: null,
   capabilities: { subagents: true, terminals: true, modes: true, configOptions: true, loadSession: true },
   skillRoots: "preamble",
 };
@@ -213,6 +214,23 @@ describe("SessionManager", () => {
     manager.close(session.id);
     await manager.prompt(session.id, [{ type: "text", text: "Continue this work" }]);
     expect(repo.get(session.id)).toMatchObject({ title: "Resumed agent title", titleSource: "agent" });
+  });
+
+  it("keeps the agent's title in the state across a session/load, and settles the replayed turn", async () => {
+    // The replay carries no `session_info_update`: without the row's title
+    // the reloaded state's `title` was null, and its agent turn had no stop
+    // reason where the live one had `end_turn`.
+    const { manager, cwd } = await setup({
+      launchOverride: () => ({ ...fakeProvider.launch, args: [FAKE_AGENT, "--new-title", "Initial agent title"] }),
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    await manager.prompt(session.id, [{ type: "text", text: "hello there" }]);
+    expect(manager.state(session.id)?.state.title).toBe("Initial agent title");
+    manager.close(session.id);
+
+    const state = await manager.load(session.id);
+    expect(state.title).toBe("Initial agent title");
+    expect(state.turns.map((turn) => `${turn.role}:${turn.stopReason}`)).toEqual(["user:null", "agent:end_turn"]);
   });
 
   it("preserves a user's explicit title through later agent updates and a manager restart", async () => {
@@ -1033,6 +1051,12 @@ describe("SessionManager", () => {
     expect(snapshot.modes.map((mode) => mode.id)).toEqual(["default", "plan", "auto", "full"]);
     expect(repo.list()).toHaveLength(0);
     expect(manager.list()).toHaveLength(0);
+  });
+
+  it("says which agents a probe would run for: an installed CLI, or a launch override", async () => {
+    expect((await setup()).manager.canProbe("claude-code")).toBe(false);
+    expect((await setup({ launchOverride: () => fakeProvider.launch })).manager.canProbe("claude-code")).toBe(true);
+    expect((await setup()).manager.canProbe("no-such-agent")).toBe(false);
   });
 
   it("refuses to probe an agent whose CLI is not on the machine", async () => {

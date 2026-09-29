@@ -185,7 +185,12 @@ function AgentRow({ agent, onOpen }: { agent: AgentStatus; onOpen: () => void })
       : "ok"
     : "idle";
   const detail = agent.installed
-    ? [agent.version ? `v${agent.version}` : null, agent.auth === "unauthenticated" ? "not signed in" : null]
+    ? [
+        agent.version ? `v${agent.version}` : null,
+        // The CLI's version is the person's; the adapter's is the app's pin.
+        agent.adapter ? `adapter ${agent.adapter.version}` : null,
+        agent.auth === "unauthenticated" ? "not signed in" : null,
+      ]
         .filter(Boolean)
         .join(" · ") || "installed"
     : <InlineCode text={agent.description} />;

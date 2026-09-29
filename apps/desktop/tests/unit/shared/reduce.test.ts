@@ -98,6 +98,48 @@ describe("reduce: turns and chunks", () => {
   });
 });
 
+describe("reduce: what a session/load keeps", () => {
+  it("keeps the title it was connected with, and settles every replayed agent turn as ended", () => {
+    // A replay sends no `session_info_update` and no stop reasons: the title
+    // comes from what the app already knew, and a turn in the history has
+    // ended even though nothing says how.
+    let state = reduce(initialSessionState("s1", "fake"), {
+      type: "session/connected",
+      acpSessionId: root,
+      modes: null,
+      configOptions: null,
+      loading: true,
+      title: "Design a gripper",
+      at,
+    });
+    state = update(state, { sessionUpdate: "user_message_chunk", content: { type: "text", text: "earlier" } });
+    state = update(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "reply" } });
+    state = update(state, { sessionUpdate: "user_message_chunk", content: { type: "text", text: "again" } });
+    state = update(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "done" } });
+    state = reduce(state, { type: "session/loaded", at });
+    expect(state.title).toBe("Design a gripper");
+    expect(state.turns.map((turn) => `${turn.role}:${turn.stopReason}`)).toEqual([
+      "user:null",
+      "agent:end_turn",
+      "user:null",
+      "agent:end_turn",
+    ]);
+  });
+
+  it("keeps a title it already had when the connect names none", () => {
+    let state = update(connected(), { sessionUpdate: "session_info_update", title: "Hello" });
+    state = reduce(state, {
+      type: "session/connected",
+      acpSessionId: root,
+      modes: null,
+      configOptions: null,
+      loading: true,
+      at,
+    });
+    expect(state.title).toBe("Hello");
+  });
+});
+
 describe("reduce: tool calls", () => {
   it("upserts by id, replacing the fields an update carries and keeping the rest", () => {
     let state = started(connected());
@@ -245,6 +287,34 @@ describe("reduce: session-level facts", () => {
     ]);
     // No turn was open, so none of it became a part.
     expect(state.turns).toEqual([]);
+  });
+
+  it("keeps a mid-turn commands list on the session, so a live turn's parts are what its replay's are", () => {
+    // The Claude adapter sends `available_commands_update` at session/new
+    // and again mid-turn (129 commands). Folded into the open turn, the whole
+    // list rode on every turn, live and in the snapshot, and disappeared
+    // after a session/load — whose replay carries no such update.
+    const commands = Array.from({ length: 129 }, (_, index) => ({ name: `c${index}`, description: "" }));
+    let live = started(connected());
+    live = update(live, { sessionUpdate: "available_commands_update", availableCommands: commands });
+    live = update(live, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "ok" } });
+    live = reduce(live, { type: "prompt/end", stopReason: "end_turn", usage: null, at });
+
+    let replay = reduce(initialSessionState("s1", "fake"), {
+      type: "session/connected",
+      acpSessionId: root,
+      modes: null,
+      configOptions: null,
+      loading: true,
+      at,
+    });
+    replay = update(replay, { sessionUpdate: "user_message_chunk", content: { type: "text", text: "hi" } });
+    replay = update(replay, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "ok" } });
+    replay = reduce(replay, { type: "session/loaded", at });
+
+    expect(live.turns.map((turn) => turn.parts)).toEqual(replay.turns.map((turn) => turn.parts));
+    expect(live.turns[1]?.parts).toEqual([{ type: "text", text: "ok" }]);
+    expect(live.availableCommands).toHaveLength(129);
   });
 
   it("adds every turn's usage up and keeps the last turn's", () => {
@@ -553,7 +623,7 @@ describe("reduce: recorded adapter transcripts", () => {
     expect(state.availableCommands.length).toBeGreaterThan(0);
     expect(state.contextUsage).toEqual({ used: 0, size: 1_000_000, cost: { amount: 0, currency: "USD" }, breakdown: null });
     const agentTurn = state.turns.find((turn) => turn.role === "agent");
-    expect(agentTurn?.parts.map((part) => part.type)).toEqual(["available_commands", "available_commands", "error"]);
+    expect(agentTurn?.parts.map((part) => part.type)).toEqual(["error"]);
   });
 });
 

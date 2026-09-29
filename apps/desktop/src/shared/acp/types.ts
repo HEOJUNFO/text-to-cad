@@ -332,6 +332,7 @@ export type Part =
       parts: Part[];
     }
   | { type: "mode_change"; modeId: string }
+  /** No longer produced (the list is `SessionState.availableCommands`); kept so older snapshots parse. */
   | { type: "available_commands"; commands: AvailableCommand[] }
   | { type: "error"; message: string }
   | { type: "image"; data: string; mimeType: string }
@@ -544,6 +545,11 @@ export const SessionEventSchema = z.discriminatedUnion("type", [
     configOptions: z.array(ConfigOptionSchema).nullable(),
     /** True for `session/load`: replayed history until `session/loaded`. */
     loading: z.boolean(),
+    /**
+     * The title the app already knew, for a `session/load`: the replay sends
+     * no `session_info_update`, so without it a reloaded state has none.
+     */
+    title: z.string().nullable().optional(),
     at: z.number(),
   }),
   /** `session/load` finished replaying. */

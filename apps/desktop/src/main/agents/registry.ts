@@ -7,8 +7,10 @@
  * https://agentclientprotocol.com/get-started/agents — plus each agent's own
  * install and login docs. Launch lines are the registry's `distribution`
  * where one exists (npx/uvx entries pinned by the registry are launched
- * unpinned here, so the user's installed CLI and the adapter stay in step),
- * and the documented `<cli> acp` / `<cli> --acp` form otherwise.
+ * unpinned here, so the user's installed CLI and the adapter stay in step —
+ * except the Claude Code and Codex adapters, which are pinned exactly, see
+ * `CLAUDE_ADAPTER`), and the documented `<cli> acp` / `<cli> --acp` form
+ * otherwise.
  *
  * Data only. Nothing here runs anything; `detect.ts` probes, `install.ts`
  * and `auth.ts` run, `acp/connection.ts` launches.
@@ -16,6 +18,41 @@
 import { AgentProviderSchema, type AgentProvider, type InstallCommand } from "../../shared/agents";
 
 const NPX = "npx";
+
+/**
+ * The ACP adapters Claude Code and Codex are launched through, pinned to one
+ * exact version each.
+ *
+ * `npx -y <pkg>@latest` is not a pin. Given a package as its command, npx
+ * looks for that command in the global tree before its own cache, and on this
+ * machine it ran a global claude-agent-acp 0.69.0 while the registry's latest
+ * was 0.84.0 — an adapter, and an Agent SDK inside it, that nobody chose.
+ * `npm exec --package=<pkg>@<version> -- <bin>` resolves the package in the
+ * session's directory or npx's cache and never the global tree, and an exact
+ * version means the adapter the app runs is the one it was tested with.
+ *
+ * To bump one: `npm view <package> version`, change `version` here, run
+ * `scripts/acp-harness.mjs` for that agent in a scratch directory (README,
+ * "ACP") and re-record its fixture. Settings › Agents shows the pin beside the
+ * CLI's own version.
+ */
+export const CLAUDE_ADAPTER = {
+  package: "@agentclientprotocol/claude-agent-acp",
+  version: "0.84.0",
+  bin: "claude-agent-acp",
+} as const;
+export const CODEX_ADAPTER = { package: "@agentclientprotocol/codex-acp", version: "2.0.0", bin: "codex-acp" } as const;
+
+/** The launch line for a pinned adapter: fetched once into npx's cache, never a global install. */
+const pinned = (adapter: { package: string; version: string; bin: string }) => ({
+  command: "npm",
+  args: ["exec", "--yes", "--prefer-online", `--package=${adapter.package}@${adapter.version}`, "--", adapter.bin],
+  env: {},
+});
+const adapterOf = (adapter: { package: string; version: string }) => ({
+  package: adapter.package,
+  version: adapter.version,
+});
 
 const npm = (pkg: string): InstallCommand => ({
   label: "npm",
@@ -78,8 +115,8 @@ export const AGENT_PROVIDERS: readonly AgentProvider[] = [
       envVars: ["ANTHROPIC_API_KEY"],
       checkArgs: ["auth", "status"],
     },
-    // An explicit tag prevents npx selecting an older global adapter and its bundled SDK.
-    launch: { command: NPX, args: ["-y", "@agentclientprotocol/claude-agent-acp@latest"], env: {} },
+    launch: pinned(CLAUDE_ADAPTER),
+    adapter: adapterOf(CLAUDE_ADAPTER),
     capabilities: CAPS.full,
     // The adapter reads `additionalDirectories` (or `_meta.additionalRoots`)
     // and passes them to the Agent SDK, which loads
@@ -115,7 +152,8 @@ export const AGENT_PROVIDERS: readonly AgentProvider[] = [
       envVars: ["CODEX_API_KEY", "OPENAI_API_KEY"],
       checkArgs: ["login", "status"],
     },
-    launch: { command: NPX, args: ["-y", "@agentclientprotocol/codex-acp@latest"], env: {} },
+    launch: pinned(CODEX_ADAPTER),
+    adapter: adapterOf(CODEX_ADAPTER),
     capabilities: CAPS.full,
     // codex-acp reads `additionalDirectories`, falls back to
     // `_meta.additionalRoots`, and registers `<root>/.agents/skills` with the

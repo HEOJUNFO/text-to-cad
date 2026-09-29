@@ -317,6 +317,57 @@ describe("SessionConnection against the fake agent", () => {
   });
 });
 
+/**
+ * The Claude adapter's shape, from the fake agent's `claude-code` profile: no
+ * successful Claude recording exists to replay (see tests/fake-agent). What
+ * is checked is what the smoke showed going wrong — the 129-command list sent
+ * after session/new, again mid-turn, and after session/load; the title only
+ * ever sent live.
+ */
+describe("SessionConnection against the Claude adapter's shape", () => {
+  const claude = { FAKE_AGENT_PROFILE: "claude-code" };
+  const waitFor = async (check: () => boolean) => {
+    for (let tries = 0; !check(); tries += 1) {
+      if (tries > 200) throw new Error("timed out");
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  };
+  const partTypes = (connection: SessionConnection) =>
+    connection.state.turns.flatMap((turn) => turn.parts.map((part) => part.type));
+
+  it("keeps the commands on the session and the title across a reload", async () => {
+    const cwd = await scratch();
+    const live = connect({ cwd, env: claude });
+    const init = await live.initialize();
+    expect(init.agentInfo).toMatchObject({ name: "@agentclientprotocol/claude-agent-acp", version: "0.69.0" });
+    expect(init.agentCapabilities?.sessionCapabilities).toBeDefined();
+    await live.newSession();
+    expect(live.state.modes.map((mode) => mode.id)).toEqual([
+      "auto",
+      "default",
+      "acceptEdits",
+      "plan",
+      "dontAsk",
+      "bypassPermissions",
+    ]);
+    expect(live.state.configOptions.map((option) => option.id)).toEqual(["mode", "model", "effort", "fast"]);
+    await waitFor(() => live.state.availableCommands.length === 129);
+
+    await live.prompt([{ type: "text", text: "say ok" }]);
+    expect(live.state.title).toBe("Reply with ok");
+    expect(live.state.turns[1]).toMatchObject({ stopReason: "end_turn", parts: [{ type: "text", text: "ok" }] });
+    expect(partTypes(live)).not.toContain("available_commands");
+
+    const reloaded = connect({ cwd, env: claude });
+    await reloaded.initialize();
+    await reloaded.loadSession("fake-session-1", live.state.title);
+    await waitFor(() => reloaded.state.availableCommands.length === 129);
+    expect(reloaded.state.title).toBe("Reply with ok");
+    expect(reloaded.state.turns.map((turn) => `${turn.role}:${turn.stopReason}`)).toEqual(["user:null", "agent:end_turn"]);
+    expect(partTypes(reloaded)).not.toContain("available_commands");
+  });
+});
+
 describe("SessionConnection replaying a recorded adapter", () => {
   it("reproduces the Codex session from its fixture", async () => {
     const connection = connect({ cwd: await scratch(), fixture: path.join(FIXTURES, "codex-session.jsonl") });

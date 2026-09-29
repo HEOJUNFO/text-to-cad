@@ -63,6 +63,9 @@ export const agentOptions: AgentOptionStore = new AgentOptionStore({
     }
     return sessionManager.probeOptions({ agentId, cwd: project.path, projectId: project.id });
   },
+  // Only an agent whose CLI is here (or any, under the fake agent): the
+  // new-session screen asks for every agent that can launch.
+  probeable: (agentId) => sessionManager.canProbe(agentId),
   onChange: (all) => broadcast("agentOptions.changed", all),
   onProbeFailed: (agentId, error) => {
     // Not installed, not signed in, no adapter: the new-session screen shows
