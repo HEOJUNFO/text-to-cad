@@ -61,8 +61,8 @@ The adapter handles browser discovery and tab lifetime; page-domain calls go to
 the owned `WebContents.debugger`. Create/select/close calls use the same renderer
 commands as the tab strip. Other workspace targets, fabricated sessions and new
 browser contexts are refused. Connection close detaches debugger sessions but
-keeps tabs alive. Deleting a session/project or changing its workspace revokes
-the endpoint and cancels pending app commands. A change already applied to a page
+keeps tabs alive. Deleting, archiving or closing a session, or changing its
+workspace, revokes the endpoint and cancels pending app commands. A change already applied to a page
 cannot be undone by cancellation.
 
 `build-mcp.mjs` bundles the app bridge entry and copies the pinned upstream MCP,
@@ -103,7 +103,7 @@ hides it while app dialogs and popover menus are open so native layers cannot
 cover the app's controls. Presentation is measured at most once per animation
 frame, and the metadata poll carries console lines only while the console panel
 is open; a poll the workspace refuses (session inactive, workspace missing
-or different) — or the tab is gone, or its project closed — stops polling until
+or different) — or the tab is gone — stops polling until
 a navigation or the console wakes it, and a repeated failure publishes no new
 state. When the app window's own document navigates (a reload that got
 past its unsaved-drafts question), fails a main-frame load (a dev server that is
@@ -129,10 +129,10 @@ used by files and drawings. Selection is a `.txt` attachment so native capture
 can finish asynchronously after the port has bound the tab's owner session. Capture
 checks the page URL and navigation generation before and after reading it. The
 generation counts new documents only — a single-page app's pushState or fragment
-change is not one. A changed page fails explicitly. Switching chats during capture cannot redirect
+change is not one. A changed page fails explicitly. Switching sessions during capture cannot redirect
 the attachment, existing draft text is preserved, and nothing is submitted.
 Deleting or archiving the owner cancels delivery. A workspace mismatch fails
-without redirecting context into another chat.
+without redirecting context into another session.
 
 ## Validation
 
@@ -148,4 +148,4 @@ partition isolation and cleanup. `explorer.spec.ts` checks the actual explorer
 and browser IPC share one page across tab/project switches and add context to the
 existing draft. Unit tests cover bridge authentication/cancellation, connection
 lifetimes, presentation leases, owner reload/crash hiding, download refusal,
-partition cleanup and prompt delivery after chat switches.
+partition cleanup and prompt delivery after session switches.

@@ -232,8 +232,8 @@ explorer pane only: `file-markdown-preview`, `file-markdown-source`,
 attached to the draft) and `browser-app-shell` (a browser tab's page and
 selection added to the prompt). From `cad.spec.ts`: `file-cad-failed` (the
 runtime broken on purpose) and `file-cad`. From `git.spec.ts`:
-`git-review-all`, `git-review-committed`, `worktree-explorer` and
-`git-settings-worktrees` (Settings' per-project worktree card, whole window).
+`git-review-all`, `git-review-committed`, `git-commit-panel` (the review
+tab's commit popover), `worktree-explorer` and `git-settings-worktrees` (Settings' per-project worktree card, whole window).
 From `session.spec.ts`: `session-new`, `session-new-model-menu` (a group per
 installed provider), `session-new-mode-menu` (the `Never asks` note under the
 full-access row), `session-streaming`, `session-permission`,
@@ -433,7 +433,7 @@ or resumes that commit's Release with the cadgen wheel and sdist, installers,
 blockmaps and `latest*.yml` feeds as peer assets. None of those build outputs
 is committed. `src/main/updater.ts` checks ten seconds after
 launch and every six hours, with `autoDownload` off: the app says an update
-exists and downloads when asked. Settings › About & Updates is the whole UI.
+exists and downloads when asked. Settings › About and updates is the whole UI.
 Development builds report `unsupported` and check nothing.
 
 ### What is bundled
@@ -542,18 +542,20 @@ so the person is left with two toggles rather than a session pane pushed off
 the right of the window. Growing the window back does not reopen them; the
 toggles do.
 
-**No project, no explorer.** The pane is a view of a directory: with none
-bound, `Shell` renders neither the panel nor its separator, the session has
-the window, and the toggle in the title bar, the palette's `Toggle explorer`
-row and `Mod+Alt+B` are all absent or inert (`toggleCollapsed` refuses a
-preference it has nowhere to file). A project brings the pane back with that
-project's own remembered state.
+**No session, no explorer.** The pane belongs to a session: with none
+selected (the new-session screen), `Shell` renders neither the panel nor its
+separator, the session pane has the window, and the toggle in the title bar,
+the palette's `Toggle explorer` row and `Mod+Alt+B` are all absent or inert
+(`setCollapsed` in `state/explorer.ts` refuses a preference it has nowhere to
+file). Selecting a session brings the pane back with that session's own
+remembered state.
 
 **The sidebar is sections, not a tree** (`features/sidebar`, Claude Code's
-shape). Its header is the app's name with the two controls that act on the
-whole list — search (the command palette) and the sliders that open the
-filter menu — then a nav list of one row, `New`: a plus in an accent ring,
-the active project's new-session screen and the same thing `Cmd+N` does.
+shape). Its header is the app's wordmark alone. Under it is a nav list of
+one row, `New`: a plus in an accent ring, the new-session screen and the same
+thing `Cmd+N` does — and at that row's right the two controls that act on the
+whole list, search (the command palette) and the sliders that open the filter
+menu (`features/sidebar/Sidebar.tsx`).
 Under that, one grey header per project with a flat list of that project's
 threads. The header is the project: its name and a chevron that collapses the
 section (persisted per project in `settings.sidebar`), and on the right `+`,
@@ -603,12 +605,13 @@ the pane's width, and only a person's own toggle or drag writes it: an agent
 opening a file shows the pane without deciding anything for next time.
 
 A CAD file in the explorer is laid out by the shared FileViewer, which measures
-its own width: from 720px up, a file's panels are drawn in the file tab's own
-panel column beside the model (see "The panels a file has"); below it they are
-floating sheets over the model, the crumbs collapse to the file and the view
-cube is hidden. The explorer pane opens at 740px (`PANE_LIMITS.explorer.default`),
-so a fresh pane in the default 1440px window is the wide layout, with room for
-the 280px panel column beside the model; a narrower window or a dragged
+its own width: from 720px up, the file tree — a CAD file's one host panel —
+is drawn in the file tab's own panel column beside the model (see "The panels
+a file has"), and the tool stack hangs under the viewer's toolbar; below it
+the tree is a floating sheet over the model, the crumbs collapse to the file
+and the view cube is hidden. The explorer pane opens at 740px
+(`PANE_LIMITS.explorer.default`), so a fresh pane in the default 1440px window
+is the wide layout, with room for the 220px panel column beside the model; a narrower window or a dragged
 separator takes it below the breakpoint. The app owns light/dark appearance. Inspect uses its
 fixed light (`#f0f4f9`) or dark (`#333333`) canvas; Render starts from the
 matching photographic studio and keeps its model-local backdrop edits.
@@ -706,7 +709,11 @@ already in the project folder — matched by name and byte size, since Electron
 gives the renderer no path for a picked file — is inserted as its path, the
 same token a typed reference chip sends; one outside the folder is refused
 with a note to copy it in and refer to it by path. Any other binary, and text
-over the cap, is refused with the reason.
+over the cap, is refused with the reason. A prompt holding a block the agent's
+`promptCapabilities` say it cannot take — an image, a file's contents — is
+refused by main before any turn starts (`refused` on the `sessions.prompt`
+reply, `src/main/acp/sessions.ts`): the session stays idle, the composer keeps
+the draft, and a toast says why.
 
 Image attachments show a contained thumbnail beside the filename, with an always-visible remove control. Click the thumbnail (or focus it and press Enter) to inspect the full image. Escape, Close or the backdrop dismisses the preview and returns focus to the thumbnail; the draft is unchanged. Explorer tabs use a bordered active state and visible keyboard focus on selection and close controls.
 
@@ -835,14 +842,14 @@ added.** Its menu is `Recent` — the projects in order of when they were last
 worked in, which is the newest `updatedAt` of any of their sessions
 (`lib/projects.ts`, over the index, because a project has no `lastUsedAt` of
 its own and should not grow one) — a check on the one this screen is for,
-then `Open folder…`: the same native chooser the sidebar's `Add project` row
-used to open, followed by that folder's new-session screen
-(`hooks/use-open-folder.ts`). Codex's shape, minus its `No folder` row: a
-session here always belongs to a folder. There is no `Add project` button
-any more, because adding a folder *is* choosing one; the two states with no
-chip to open keep a button of their own (the sidebar's card and the
-"Add a project to get started" screen), and the command palette has the row
-for the keyboard.
+then `Open folder…`: the native folder chooser, followed by that folder's
+new-session screen (`hooks/use-open-folder.ts`). Codex's shape, minus its
+`No folder` row: a session here always belongs to a folder. There is no
+`Add project` button, because adding a folder *is* choosing one. The one
+state with no chip to open — no folder at all — is the "Choose a folder to
+get started" screen, whose own `Open folder…` button is the chooser
+(`features/session/SessionPane.tsx`); the sidebar then says only "No sessions
+yet". The command palette has the row for the keyboard.
 
 There is no options chip. It held whatever else the agent exposed, which in
 practice meant Claude's "main-thread agent persona" — a list of every custom
@@ -1004,7 +1011,13 @@ A file tab keeps its `file` kind and chooses a renderer: CAD, PDF, Markdown,
 code, image or unsupported. The `documents` integration reads the live text
 buffer, including unsaved typing, and requires its revision before replacing
 or saving it. Tab/session switches retain drafts and inactive read snapshots;
-reactivate a text file before editing or saving. Dirty tabs refuse ordinary
+reactivate a text file before editing or saving. A text file over 4 MiB
+(`MAX_TEXT_BYTES` in `src/main/explorer/fs.ts`) opens read-only, cut at the
+cap, and one whose bytes are not UTF-8 opens read-only too — a save would
+write replacement characters over them. A `files.changed` event carries a
+content `revision` only for a changed file a tab has open and that is within
+the cap, so the editor that saved can tell its own write from an agent's;
+nothing else is read. Dirty tabs refuse ordinary
 and agent-driven close; the UI provides explicit discard. These drafts last
 for the app window, not across quitting. PDF tools operate on the same PDF.js
 document as the page on screen. See [workspace integrations](docs/integrations.md)
@@ -1130,35 +1143,32 @@ control that is always there is always in the same place. Opening any panel
 closes whatever was open.
 
 Markdown declares one, the two readings of the same bytes (`View source` /
-`View preview`). A viewer file declares at most one: its **Settings**
-(`cad-file`, the sliders glyph), and only a STEP and a URDF, SRDF or SDF have
-one (`viewerPanels(ready, { file: true })`). Its sections are Features (Links
-for a robot) and Position, shown as two tabs when a file has both. An STL, a
-3MF, a GLB and a DXF declare none; Display is a popover in the viewport's top-right bar, never a panel.
-Code, images and PDFs declare none, leaving the tree as the whole list.
+`View preview`). A CAD file — STEP, robot, GLB, STL, 3MF, DXF — declares none:
+its Features, Links, Reference, Issues and Position are panels of the viewer's
+own tool stack over the viewport
+([the tool stack](../../packages/ui/docs/settings-ui.md#the-tool-stack)), and
+nothing it does opens or turns this column. Display is a popover in the
+viewport's top-right bar, never a panel. Code, images and PDFs declare none, leaving the tree as the whole list.
 
 A declaration identifies where its content belongs: `tree` is the app's file
 tree, `slot` is a box the renderer draws into, and `body` replaces the file
-content, as markdown's source view does. A viewer file's panels use `slot` and
-portal into the file tab's panel column. Every panel shares one border, width,
+content, as markdown's source view does. Every panel shares one border, width,
 resize handle and header treatment.
 
 **The tab owns which panel is open**, as one id in `FileTabSchema.panel`,
-persisted with the tab. `null` is the renderer's default — a viewer file's own
-panel (a STEP's, a robot's), else nothing; the tree is the default only for a
-tab with no file — while `""` preserves a deliberately closed panel. A new tab,
-and a crumb that points this tab at another file, start at `null`. A file picked
-in the tree asks for the tree (`openFile(path, { target: "new", panel: "tree" })`):
+persisted with the tab. `null` is the default: the first declared panel that
+asks to be open, which today is only the tree of a tab with no file — so a file
+opens with nothing open — while `""` preserves a deliberately closed panel. A
+new tab, and a crumb that points this tab at another file, start at `null`. A
+file picked in the tree asks for the tree (`openFile(path, { target: "new", panel: "tree" })`):
 its tab — new, or the one already showing it — opens with the tree up, so the tree
 can be walked file by file; `openSessionTab` applies a requested panel in the same
 strip update that selects the tab, and leaves a tab's panel alone when none is
-asked for. While any panel is open — the tree included — a viewport pick turns
-it to the file's Settings (`onPanelOpen`), and the Position tool opens Settings
-on its Position tab; a pick with nothing open leaves it closed. Below the
-viewer's 720px breakpoint the tab's panel is not consulted: a file opens with
-no sheet, a sheet opens from its toggle, and neither a pick nor a tool opens one. A CAD tab whose runtime
-failed declares no panels, leaving only the files toggle. Saved `cad-theme`
-panel choices read as `null`.
+asked for. Below the viewer's 720px breakpoint the tab's panel is not consulted:
+a file opens with no sheet and a sheet opens from its toggle. A stored panel id
+no panel in the list has — the retired CAD Settings (`cad-file`), or markdown's
+source view on a tab now showing a `.step` — resolves as nothing open
+(`resolveOpenPanel`); saved `cad-theme` and `cad-display` choices read as `null`.
 
 ### Inspect and Render
 
@@ -1204,15 +1214,16 @@ Display settings; the routine plays on entry only with Autoplay on. Escape or
 its X ("Exit preview") exits, stops the routine and puts the tools view's
 camera back. The host passes nothing for it.
 
-A STEP's Settings holds Features, then Issues when there are any, and Position
-when the sidecar declares kinematics (a `Pose` choice with its Reset, then the
-joint sliders); with Position present, Features and Position are separate tabs.
+A STEP's tool stack holds Select's Features, then the Reference while
+something is selected and Issues when there are any; Position's panel (a `Pose`
+choice with its Reset, then the joint sliders) is there while that tool is up,
+when the sidecar declares kinematics.
 Preview's playback and Position's pose retain independent runtimes, enable state
 and actions; every pose write (a value, a named pose, a Position-tool knob,
 Reset) is an instant jump, and Reset also stops any playing routine and hands
-the pose back to Position. A robot's Settings holds Links (the link tree, an
-SDF's metadata after it) and Position for the joints, as two tabs when both are
-there. A DXF drawing has no toolbar and no Settings: it is a straight 2D render
+the pose back to Position. A robot's holds Select's Links (the link tree), the
+Reference, an SDF's metadata panel for a `.sdf`, and Position for the joints.
+A DXF drawing has no toolbar and no tool stack: it is a straight 2D render
 on a canvas — drag to pan, wheel or pinch to zoom about the pointer,
 double-click to fit — and the navbar carries only Take snapshot and the files
 toggle.
@@ -1306,17 +1317,20 @@ also gets `CADGEN_NODE`: cadgen's DXF and mesh-export builders run in Node,
 an app launched from the Finder has no `node` on its PATH, and the one Node
 a packaged app is sure to have is its own Electron binary run as Node.
 
-There is nothing to install and no "installing" state. Settings › About &
-Updates carries a read-only block — the runtime (source and interpreter),
+There is nothing to install and no "installing" state. Settings › About and
+updates carries a read-only block — the runtime (source and interpreter),
 cadgen's version against the app's, the viewer backend, the skills root
 every session is handed — and Repair, which forgets the probe and looks again.
 The probe is cadgen's own report, `python -m cadgen.cli doctor --json`, which
 runs cadgen's kernel check (the one the STEP path runs). A kernel that fails
 to load is *Failed*; one that is missing, that the check refuses, or whose
-check did not finish in time (Repair asks again) is *Ready — CAD kernel:
-<state>* with the check's words beneath and no build daemon warmed on it, because the viewer never
-imports the kernel and GLB, STL and DXF still open — and a STEP build that
-fails then quotes those words in its recovery line.
+check did not finish in time is *Ready — CAD kernel: <state>* with the check's
+words beneath, because the viewer never imports the kernel and GLB, STL and
+DXF still open — and a STEP build that fails then quotes those words in its
+recovery line. Only `missing` and `unsupported` keep the build daemon from
+being warmed on it (`DAEMON_BLOCKING_KERNEL` in `src/main/cad/runtime.ts`); a
+`timeout` says nothing about the kernel, so the daemon is still warmed, and
+that probe is not cached — the next status asks again.
 A CAD tab whose runtime did not start shows the interpreter's words, Try
 again, and Reveal log — `runtime.revealLog` shows the log
 (`userData/cad-runtime.log`: every failed probe, every viewer launch that did
@@ -1445,7 +1459,13 @@ src/main/                 the Electron main process: everything with a side effe
   index.ts                window, single-instance lock, lifecycle
   menu.ts                 app menu; items send `ui.command` rather than reaching into the UI —
                           settings, sidebar/explorer toggles, new session, palette, back/forward
-                          (the enum in src/shared/ipc/index.ts; there is no review command)
+                          (the enum in src/shared/ipc/index.ts; there is no review command).
+                          New Session and Settings… with no window open one and hold the
+                          command until its page calls `ui.ready`, which returns what was held;
+                          Close (Mod+W) from a focused browser page is handed to the app's
+                          renderer as the key (it closes the tab), else closes the window;
+                          Reload Page (Mod+R) reloads the focused browser page and nothing else
+                          (`browserService.forwardFromFocused` / `reloadFocused`)
   window-state.ts         persisted geometry, checked against the displays that exist now
   telemetry.ts            Aptabase, inert without a key and off without the setting
   settings-effects.ts     the settings that are instructions to the OS: login item, menu-bar
@@ -1455,6 +1475,10 @@ src/main/                 the Electron main process: everything with a side effe
   children.ts             every child process main spawns, tracked so `before-quit` can end them
   quit-deadline.ts        a watchdog process that ends the app if Chromium's shutdown hangs
                           past `will-quit` (see Quitting)
+  quitting.ts             whether the app is on its way out (`before-quit`, or earlier for an
+                          update), so the unsaved-draft guard lets the unload through
+  test-door.ts            the e2e suite's folder choice from main's side (`__textToCadE2E`),
+                          installed only under `NODE_ENV=test` in a development build
   onboarding.ts           whether this run shows onboarding, and the sample project copy
   db/                     sqlite: migrations.ts (runner + schema), repositories.ts (rows <-> types)
   ipc/                    register.ts (validating registration) + index.ts (the handlers)
@@ -1488,6 +1512,7 @@ src/main/                 the Electron main process: everything with a side effe
   integrations/           registry.mjs + domain/module.mjs (tools and focused skills),
                           manager.ts, skills.ts, mcp-bridge.ts + actions.ts (generic relay),
                           domain services/actions and lifecycle policy
+  projects/index.ts       re-exports git.ts: the project services main imports
   projects/git.ts         status, per-file diff, commit and push; then repository
                           detection, worktrees, the keep-limit sweep and `gh pr create`
   projects/workspace.ts   a git mode as a directory: the three modes, the worktree
@@ -1531,6 +1556,8 @@ src/renderer/
                           panel behind it: the window, the plan limits, the tokens
   features/explorer       the one tab strip and its five kinds of tab
     drawing/              temporary Excalidraw host and prompt attachment action
+    host/                 the `ViewerHost` ports this app hands FileViewer: prompt delivery
+                          (promptContext.ts), the native clipboard, CAD commands, load failures
     adapters/fileSource.ts  this app's file/navigation service: the listings, read a
                           directory at a time over IPC, and the crumb entry menus
     renderers/            the file-tab renderers: index.tsx composes the shared viewer
@@ -1556,6 +1583,7 @@ src/renderer/
   state/                  one zustand store per domain, plus bridge.ts for main's pushes and
                           integration-commands.ts for an agent's tool calls against the stores
     history.ts            back and forward over the top level, recorded from the selection
+    workspace-root.ts     `explorerRootFor`: the explorer root the selected session names
   styles/globals.css      stock shadcn neutral tokens — the same ones apps/web uses
 tests/unit/               vitest
 tests/e2e/                playwright, against the built app
@@ -1690,20 +1718,35 @@ Worktrees live outside the project, one folder per project, whichever agent
 made them:
 
 ```
-~/.text-to-cad/worktrees/<project>/<slug>       branch text-to-cad/<slug>
+~/.text-to-cad/worktrees/<project-slug>-<8hex>/<slug>       branch text-to-cad/<slug>
 ```
 
+The eight hex digits are a hash of the project's path, so two projects that
+share a basename never share a folder (`projectWorktreeDir` in
+`src/main/projects/workspace.ts`). A bare `<project-slug>` folder is the
+layout of builds before the hash; its worktrees are still listed and accepted,
+but only ones git says belong to this project's repository
+(`legacyProjectWorktreeDir`).
+
 The root and the branch prefix are settings, as are the fetch before creating,
-the auto-delete and its keep limit (Settings › Git & Worktrees, which also
+the auto-delete and its keep limit (Settings › Git and worktrees, which also
 lists what exists per project). The slug comes from the session's first prompt
 when there is one, so a directory can be matched to a thread without opening
 anything. That directory is also the session's *identity* in the agent's own
 store — both `codex resume` and `claude --resume` key their threads by cwd —
 so a text-to-cad worktree session is resumable from a terminal later.
 
-Three things are never deleted automatically: a worktree outside the app's own
-root, one with an open session, and one with uncommitted changes. The branch is
-never deleted at all — a checkout can be recreated, the commits on it cannot.
+Nothing is deleted automatically unless auto-delete is on. With it on,
+deleting a session removes its worktree, never forced (`releaseWorkspace`), and
+the keep-limit sweep runs after each worktree is created (`pruneProjectWorktrees`
+in `src/main/ipc/git.ts`) and never removes a worktree outside the project's
+worktree folders, a locked one, one that holds any session row's `cwd`,
+`projectId` or `worktreePath` — archived sessions included — or a create still
+in flight, or one with uncommitted changes or ignored files that are not a
+disposable cache (`hasUnsavedWork`). The limit counts only the worktrees it
+could remove. A branch is deleted only when a failed create abandons the
+worktree it made, and then only while it still points where it was cut
+(`deleteBranchAtBase`) — a checkout can be recreated, the commits on it cannot.
 
 The review's scopes are the other half of this. Main records HEAD when a
 session is created and again at the start of every turn (`sessions.sessionHead`
@@ -1724,7 +1767,7 @@ That flag needs git 2.24 or newer.
 
 A worktree is outside the project directory, so the explorer cannot be
 rooted at the project alone: a session working in
-`~/.text-to-cad/worktrees/text-to-cad/model-the-wrist` writes its STEP there,
+`~/.text-to-cad/worktrees/text-to-cad-1a2b3c4d/model-the-wrist` writes its STEP there,
 and `open_file` on it has to open *that* file, in a tree that lists *that*
 directory, served by a viewer run from it. The **root** is the concept that
 carries this (`ExplorerRoot` in `src/shared/types.ts`): `null` for the
@@ -1732,7 +1775,7 @@ project directory, else the absolute path of one of the project's own
 worktrees.
 
 - The explorer store has an active root, derived from the active session
-  (`state/bridge.ts`, `explorerRootFor`): a worktree thread's worktree,
+  (`explorerRootFor` in `state/workspace-root.ts`, re-exported by `state/bridge.ts`): a worktree thread's worktree,
   otherwise the project. Selecting another thread restores that session's
   strip and root; a new-session draft has no explorer. Switching starts the new root's
   watcher and keeps each root's tree state (open folders, listings) apart,
@@ -1748,10 +1791,12 @@ worktrees.
   per root — a worktree gets its own, stopped when its last session is
   deleted.
 - Every filesystem `explorer.*` request names `{ projectId, root? }`, and main's
-  `rootOf` (`src/main/ipc/explorer.ts`) resolves the pair with
-  `resolveProjectRoot` (`src/main/projects/workspace.ts`): the project
-  directory, or a directory under the project's worktree folder, and a
-  sentence for anything else. The MCP bridge resolves an agent's paths
+  `rootOf` (`src/main/ipc/explorer.ts`) resolves the pair: first any `cwd` or
+  `worktreePath` a session of the project records (handed on in the recorded
+  spelling), then `resolveProjectRoot` (`src/main/projects/workspace.ts`) —
+  the project directory, a directory under the project's hashed worktree
+  folder, or one under the legacy bare folder whose worktree git lists as the
+  project's — and a sentence for anything else. The MCP bridge resolves an agent's paths
   against the session's root the same way (`src/main/integrations/actions.ts`,
   `sessionRoot`), and the `integrations.command` it produces names the root so the
   renderer opens the file where it is. `files.changed` names the root its
@@ -1787,13 +1832,20 @@ Adding an IPC channel is the shape of most work here:
 2. implement it in `src/main/ipc/<branch>.ts` and spread that into
    `src/main/ipc/index.ts` — `registerIpc` refuses to start if a channel has no
    handler;
-3. call `window.textToCad.<branch>.<name>(...)` from a store in
-   `src/renderer/state/`. Events go through `state/bridge.ts`, never through a
-   listener in a component.
+3. call `window.textToCad.<branch>.<name>(...)` — from a store in
+   `src/renderer/state/` when what comes back is state other components show.
+   Events go through `state/bridge.ts`.
 
-The preload needs no edit: it builds the client from the contract. Components
-read stores, never IPC, so a change pushed from the menu or another window
-lands in the same place a click would.
+The preload needs no edit: it builds the client from the contract. Anything
+shared — sessions, settings, the explorer's tabs and trees — is a store, so a
+change pushed from the menu or another window lands in the same place a click
+would. A component may invoke a channel directly when the answer is its own:
+a one-shot read (`explorer.stat`, `git.status`, `app.info`) or an action whose
+result nothing else keeps (`shell.openExternal`, `explorer.rename`,
+`git.commit`) — about twenty files under `features/` do. The one component
+that subscribes to events itself is `features/explorer/TerminalTab.tsx`
+(`terminal.data`, `terminal.exit`): a terminal's bytes are written straight
+into the xterm that draws them, sequenced against its scrollback snapshot.
 
 ## Embedded browser
 
