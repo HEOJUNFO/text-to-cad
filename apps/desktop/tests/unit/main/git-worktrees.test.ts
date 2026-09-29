@@ -284,6 +284,19 @@ describe("createWorktree", () => {
     expect(third.branch).toBe("text-to-cad/wrist-4");
   });
 
+  it("refuses a prefix a branch is in the way of, naming it, and steps over a branch under a name", async () => {
+    const { root, worktrees } = await repository();
+    await git_(root, "branch", "amy");
+    await expect(
+      git.createWorktree({ repoPath: root, parentDir: worktrees, name: "wrist", branchPrefix: "amy/" }),
+    ).rejects.toThrow('already has a branch called "amy"');
+
+    // `amy-wrist/old` existing makes `amy-wrist` impossible, but `amy-wrist-2` is fine.
+    await git_(root, "branch", "amy-wrist/old");
+    const created = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "wrist", branchPrefix: "amy-" });
+    expect(created.branch).toBe("amy-wrist-2");
+  });
+
   it("steps over a branch name someone else already has on the remote", async () => {
     const { root, worktrees } = await repository();
     const remote = path.join(path.dirname(root), "remote.git");

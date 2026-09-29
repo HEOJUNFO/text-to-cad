@@ -1258,6 +1258,7 @@ export async function createWorktree(options: CreateWorktreeOptions): Promise<Cr
   const stem = slugify(options.name ?? "") || generatedName();
   const base = options.base ?? fetched ?? "HEAD";
 
+  await assertPrefixUsable(root, prefix);
   const { directory, branch } = await uniqueName(root, options.parentDir, prefix, stem);
 
   await fsp.mkdir(options.parentDir, { recursive: true });
@@ -1287,6 +1288,27 @@ async function remoteBase(root: string): Promise<string | null> {
   }
   const remote = await tryGit(root, ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${fallback}^{commit}`]);
   return remote?.trim() || null;
+}
+
+/**
+ * A ref is a file under `.git/refs`, so a branch `amy` and a branch `amy/x`
+ * cannot both exist: with the prefix `amy/` and a branch called `amy`, every
+ * `git worktree add -b amy/…` fails with "cannot lock ref", whatever the
+ * name after it. No suffix helps, so it is refused once, naming the branch in
+ * the way.
+ */
+async function assertPrefixUsable(root: string, prefix: string): Promise<void> {
+  const segments = prefix.split("/").filter((segment) => segment !== "");
+  // `amy/` names a folder of branches; `amy-` (no slash) names none.
+  const folders = prefix.endsWith("/") ? segments.length : segments.length - 1;
+  for (let depth = 1; depth <= folders; depth += 1) {
+    const blocking = segments.slice(0, depth).join("/");
+    if (await tryGit(root, ["rev-parse", "--verify", "--quiet", `refs/heads/${blocking}`])) {
+      throw new GitError(
+        `The branch prefix "${prefix}" cannot be used here: this repository already has a branch called "${blocking}", and git cannot keep both "${blocking}" and "${blocking}/…". Change the prefix in Settings › Git & Worktrees, or rename that branch.`,
+      );
+    }
+  }
 }
 
 /** `session-4f2c`: enough to tell two nameless threads apart, short enough to read. */
@@ -1325,6 +1347,10 @@ async function uniqueName(
       continue;
     }
     if (onRemote(branch) || await tryGit(root, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])) {
+      continue;
+    }
+    // `<branch>/…` existing blocks `<branch>` the same way, from below.
+    if ((await tryGit(root, ["for-each-ref", "--count=1", "--format=%(refname)", `refs/heads/${branch}/`]))?.trim()) {
       continue;
     }
     return { directory, branch };
