@@ -13,6 +13,7 @@ import type { ExplorerRoot, Project } from "@shared/types";
 import { createDesktopFileSource, createDesktopFileActions } from "./adapters/fileSource";
 import { desktopClipboard } from "./host/clipboard";
 import { createDesktopPromptContext } from "./host/promptContext";
+import { createDesktopLoadFailures } from "./host/loadFailures";
 import type { DesktopCadConnection } from "./adapters/cadRuntime";
 import { useDesktopViewState } from "./adapters/persistence";
 import { createDesktopRenderers } from "./renderers";
@@ -41,6 +42,7 @@ export function FileTab({ sessionId, tabId, project, root, path, panel, cadConne
   const reducedMotion = useSettings((state) => state.settings?.reduceMotion ?? false);
   const promptContext = useMemo(() => createDesktopPromptContext(project.id, root, source.id, sessionId), [sessionId, project.id, root, source.id]);
   const fileActions = useMemo(() => createDesktopFileActions({ sessionId, projectId: project.id, root, sourceId: source.id, promptContext, clipboard: desktopClipboard }), [sessionId, project.id, root, source.id, promptContext]);
+  const loadFailures = useMemo(() => createDesktopLoadFailures(promptContext, desktopClipboard), [promptContext]);
   const worktree = useMemo(() => worktreeMark(root), [root]);
   // A file opens with the panel it was opened with — the tree, for one picked there — or with its
   // own default; a tab already showing the file keeps its own unless a panel is asked for.
@@ -60,9 +62,9 @@ export function FileTab({ sessionId, tabId, project, root, path, panel, cadConne
   }, [sessionId, project.id, tabId, root]);
   const liveDocuments = useMemo(() => desktopLiveDocuments(tabId, { projectId: project.id, root }), [tabId, project.id, root]);
   const host = useMemo<ViewerHost>(() => ({
-    ...liveDocuments, files: source, fileActions, clipboard: desktopClipboard, promptContext,
+    ...liveDocuments, files: source, fileActions, clipboard: desktopClipboard, promptContext, loadFailures,
     navigation: { openFile: onOpenFile }, environment: { colorScheme, platform: fileActions.platform, reducedMotion },
-  }), [source, fileActions, promptContext, onOpenFile, colorScheme, reducedMotion, liveDocuments]);
+  }), [source, fileActions, promptContext, loadFailures, onOpenFile, colorScheme, reducedMotion, liveDocuments]);
   return <FileViewer file={path} host={host} renderers={composition.renderers} state={state} onStateChange={onStateChange}
     reveal={reveal?.root === root ? reveal : null}
     onError={(error) => toast.error(error.message)}

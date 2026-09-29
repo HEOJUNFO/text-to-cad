@@ -313,4 +313,18 @@ routing. The host supplies `environment.platform` for the ⌘C / Ctrl+C hint;
 the web host derives that field from its browser environment.
 
 Renderer status uses `RendererViewProps.navigationStatusSlot`, a named portal
-slot immediately after the filename. 
+slot immediately after the filename.
+
+## Load failure recovery
+
+The viewport's alert card offers Try again for a file that failed to load or build.
+Its default next step names the served viewer's terminal output and address, which
+only the web has. The optional `host.loadFailures.recover(failure)` receives the
+failure (`kind`, `file`, `title`, `message`, the interpreter's `reason`, the full
+`details`, and `blocking`) and may return its own `message` and `recovery` and extra
+`actions` shown beside Try again; returning nothing keeps the defaults. An action's
+`run` is called during the click — a prompt delivery binds its destination there —
+and the card shows the string it resolves to, or the error it rejects with. The web
+supplies none. The desktop says the CAD runtime reported the error and offers "Ask
+the agent to fix" (the diagnostic as text through `host.promptContext`, like Add to
+prompt) and "Copy details" (`ClipboardPort`). 

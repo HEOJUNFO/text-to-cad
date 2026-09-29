@@ -27,6 +27,7 @@ export function buildViewerMeshAlert(entry, hasMeshData, loadError, artifact = n
     if (!renderableGlb || !loadError) {
       return {
         severity: renderableGlb ? "warning" : "error",
+        file: fileRef,
         ...(renderableGlb ? { blocking: false } : {}),
         summary,
         title: summary,
