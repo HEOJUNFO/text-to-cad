@@ -254,6 +254,21 @@ describe("reading and writing", () => {
     await fs.rm(path.join(root, "long.txt"));
   });
 
+  it("reads a file past 2 GiB as its first 4 MB, truncated, without reading the rest", async () => {
+    const file = path.join(root, "huge.log");
+    const handle = await fs.open(file, "w");
+    try {
+      await handle.write(Buffer.alloc(MAX_TEXT_BYTES + 16, 0x61), 0, MAX_TEXT_BYTES + 16, 0);
+      // Sparse: 3 GiB on paper, a few megabytes on disk.
+      await handle.truncate(3 * 1024 ** 3);
+    } finally { await handle.close(); }
+    try {
+      const text = await readTextFile(root, "huge.log");
+      expect(text).toMatchObject({ truncated: true, size: 3 * 1024 ** 3 });
+      expect(text.content).toHaveLength(MAX_TEXT_BYTES);
+    } finally { await fs.rm(file); }
+  });
+
   it("writes and reports the new revision", async () => {
     const before = await readTextFile(root, "src/index.ts");
     const after = await writeTextFile(root, "src/index.ts", "export const a = 2;\n", before.revision);

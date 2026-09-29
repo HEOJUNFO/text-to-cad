@@ -489,10 +489,25 @@ export function revisionOf(content: string | Uint8Array): string {
 
 export async function readTextFile(root: string, target: string): Promise<TextFile> {
   const absolute = await resolveInRoot(root, target);
-  const stats = await fs.stat(absolute);
-  const buffer = await fs.readFile(absolute);
-  const truncated = buffer.byteLength > MAX_TEXT_BYTES;
-  const slice = truncated ? buffer.subarray(0, MAX_TEXT_BYTES) : buffer;
+  // Only the cap and one byte more are read: a 50 MB log is not read and
+  // hashed whole to show its first 4 MB, and a file over 2 GiB is not a
+  // readFile error (ERR_FS_FILE_TOO_LARGE) instead of a truncated view.
+  const handle = await fs.open(absolute, "r");
+  let stats: Stats;
+  let slice: Buffer;
+  let truncated: boolean;
+  try {
+    stats = await handle.stat();
+    const buffer = Buffer.alloc(Math.min(stats.size, MAX_TEXT_BYTES) + 1);
+    let filled = 0;
+    while (filled < buffer.byteLength) {
+      const { bytesRead } = await handle.read(buffer, filled, buffer.byteLength - filled, filled);
+      if (bytesRead === 0) break;
+      filled += bytesRead;
+    }
+    truncated = filled > MAX_TEXT_BYTES;
+    slice = buffer.subarray(0, Math.min(filled, MAX_TEXT_BYTES));
+  } finally { await handle.close(); }
   if (looksBinary(slice)) {
     throw new FsError("that file is not text", "unsupported");
   }
@@ -500,7 +515,9 @@ export async function readTextFile(root: string, target: string): Promise<TextFi
   return {
     path: toRelative(await fs.realpath(root).catch(() => root), absolute),
     content,
-    revision: revisionOf(buffer),
+    // A truncated file is read-only and never saved back, so its revision
+    // need not be the whole file's hash — only change when the file does.
+    revision: truncated ? revisionOf(`${revisionOf(slice)}:${stats.size}:${stats.mtimeMs}`) : revisionOf(slice),
     modifiedAt: Math.round(stats.mtimeMs),
     size: stats.size,
     truncated,
