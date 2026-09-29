@@ -118,6 +118,22 @@ describe("Settings", () => {
   });
 });
 
+describe("the branch prefix", () => {
+  it("is refused in a patch when git would refuse the branches it makes", () => {
+    for (const prefix of ["a b/", "a..b/", "a~/", "a^/", "a:/", "a?/", "a*/", "a[/", "a\\b/", "a//b/", "a.lock/", "/a/", "-a/", ".a/", "a/.b", "a@{b/"]) {
+      expect(SettingsPatchSchema.safeParse({ branchPrefix: prefix }).success, prefix).toBe(false);
+    }
+    for (const prefix of ["", "text-to-cad/", "me/", "team.x/", "a.lock", "feature-"]) {
+      expect(SettingsPatchSchema.safeParse({ branchPrefix: prefix }).success, prefix).toBe(true);
+    }
+  });
+
+  it("reads a refused one already stored as the default, rather than failing every read", () => {
+    expect(SettingsSchema.parse({ branchPrefix: "a b/" }).branchPrefix).toBe("text-to-cad/");
+    expect(SettingsSchema.parse({ branchPrefix: "me/" }).branchPrefix).toBe("me/");
+  });
+});
+
 describe("Session", () => {
   const base = {
     id: "s1",

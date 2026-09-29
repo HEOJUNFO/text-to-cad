@@ -319,3 +319,18 @@ describe("a settings text field", () => {
     expect(window.textToCad.settings.set).toHaveBeenCalledWith({ branchPrefix: "me/" });
   });
 });
+
+describe("the branch prefix row", () => {
+  it("says why git would refuse a prefix, and does not write it", async () => {
+    vi.mocked(window.textToCad.settings.set).mockReset();
+    const user = userEvent.setup();
+    wrap(<GitPage />);
+    const box = screen.getByRole("textbox", { name: "Branch prefix" });
+    await user.clear(box);
+    await user.type(box, "a b/{Enter}");
+    expect(screen.getByRole("alert")).toHaveTextContent("Git refuses spaces in a branch name.");
+    expect(box).toHaveAccessibleDescription("Git refuses spaces in a branch name.");
+    await user.tab();
+    expect(window.textToCad.settings.set).not.toHaveBeenCalled();
+  });
+});

@@ -509,6 +509,42 @@ export const SidebarSettingsSchema = z.object({
 export type SidebarSettings = z.infer<typeof SidebarSettingsSchema>;
 
 /**
+ * Why git would refuse a branch prefix, or null when it would not.
+ *
+ * Every worktree session's branch is `<prefix><name>`, made with
+ * `git worktree add -b`, so a prefix git's ref rules (`git check-ref-format`)
+ * refuse fails every one of them — long after the setting was typed. The name
+ * that follows the prefix is the app's own and already valid; these are the
+ * rules the prefix alone can break. An empty prefix is allowed.
+ */
+export function branchPrefixProblem(prefix: string): string | null {
+  // Control characters are refused by git as well; the pattern names them by code.
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/.test(prefix)) return "Git refuses control characters in a branch name.";
+  if (/\s/.test(prefix)) return "Git refuses spaces in a branch name.";
+  const forbidden = prefix.match(/[~^:?*[\\]/);
+  if (forbidden) return `Git refuses “${forbidden[0]}” in a branch name.`;
+  if (prefix.includes("..")) return "Git refuses “..” in a branch name.";
+  if (prefix.includes("//")) return "Git refuses “//” in a branch name.";
+  if (prefix.includes("@{")) return "Git refuses “@{” in a branch name.";
+  if (prefix.startsWith("/")) return "A branch name cannot start with “/”.";
+  if (prefix.startsWith("-")) return "A branch name cannot start with “-”.";
+  // Every part between slashes — the last one too, which the name continues.
+  const parts = prefix.split("/");
+  if (parts.some((part) => part.startsWith("."))) return "No part of a branch name can start with “.”.";
+  // Only a finished part (one a slash closes) can end in .lock or a dot.
+  const finished = parts.slice(0, -1);
+  if (finished.some((part) => part.endsWith(".lock"))) return "No part of a branch name can end in “.lock”.";
+  if (finished.some((part) => part.endsWith("."))) return "No part of a branch name can end in “.”.";
+  return null;
+}
+
+export const BranchPrefixSchema = z.string().superRefine((prefix, context) => {
+  const problem = branchPrefixProblem(prefix);
+  if (problem) context.addIssue({ code: "custom", message: problem });
+});
+
+/**
  * Everything Settings can change. Every field has a default, so a settings row
  * written by an older build parses into a complete object and the app never
  * has to ask "is this undefined because it is off, or because it is new?".
@@ -557,7 +593,12 @@ export const SettingsSchema = z.object({
   defaultGitMode: GitModeSchema.default("checkout"),
   /** Null means `~/.text-to-cad/worktrees` — main expands it, so the row shows the default without storing a home path. */
   worktreeRoot: z.string().nullable().default(null),
-  branchPrefix: z.string().default("text-to-cad/"),
+  /**
+   * Checked against git's ref rules (`branchPrefixProblem`). A stored prefix
+   * git refuses — written before the check existed — reads as the default,
+   * rather than failing every worktree session at `git worktree add -b`.
+   */
+  branchPrefix: BranchPrefixSchema.default("text-to-cad/").catch("text-to-cad/"),
   fetchBeforeCreate: z.boolean().default(true),
   autoDeleteWorktrees: z.boolean().default(false),
   worktreeKeepLimit: z.number().int().min(1).default(10),
@@ -614,10 +655,19 @@ function patchSchemaOf<Shape extends z.ZodRawShape>(
   const shape = Object.fromEntries(
     Object.entries(fields).map(([key, field]) => [
       key,
-      (field instanceof z.ZodDefault ? (field.removeDefault() as z.ZodTypeAny) : field).optional(),
+      withoutDefault(field instanceof z.ZodCatch ? (field.unwrap() as z.ZodTypeAny) : field).optional(),
     ]),
   );
   return z.object(shape) as unknown as z.ZodType<Partial<z.infer<z.ZodObject<Shape>>>>;
+}
+
+/**
+ * A stored row falls back where it has to; a patch is someone asking for a
+ * value, and a value the field would refuse is refused — not swapped for the
+ * fallback behind their back. So both `.catch` and `.default` come off.
+ */
+function withoutDefault(field: z.ZodTypeAny): z.ZodTypeAny {
+  return field instanceof z.ZodDefault ? (field.removeDefault() as z.ZodTypeAny) : field;
 }
 
 /* -------------------------------------------------------------------------- */

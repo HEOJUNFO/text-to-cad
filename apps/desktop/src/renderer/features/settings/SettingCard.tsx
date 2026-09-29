@@ -287,6 +287,7 @@ export function TextRow({
   onChange,
   width = "w-[240px]",
   type = "text",
+  problem,
 }: {
   title: string;
   description?: string;
@@ -296,12 +297,26 @@ export function TextRow({
   onChange: (value: string) => void;
   width?: string;
   type?: "text" | "number";
+  /**
+   * Why a value would be refused, or null. A refused value is shown with its
+   * reason under the row and never written — main would refuse the patch, and
+   * the field would be left showing a value nothing stored.
+   */
+  problem?: (value: string) => string | null;
 }) {
-  const draft = useDraft(value, onChange);
+  const draft = useDraft(value, (next) => {
+    if (!problem?.(next)) {
+      onChange(next);
+    }
+  });
+  const problemId = useId();
+  const refused = problem?.(draft.value) ?? null;
   return (
     <SettingRow
       control={
         <Input
+          aria-describedby={refused ? problemId : undefined}
+          aria-invalid={refused ? true : undefined}
           aria-label={title}
           className={cn("h-8", width)}
           onBlur={draft.onBlur}
@@ -320,7 +335,13 @@ export function TextRow({
       description={description}
       keywords={keywords}
       title={title}
-    />
+    >
+      {refused ? (
+        <p className="text-xs text-destructive" id={problemId} role="alert">
+          {refused}
+        </p>
+      ) : null}
+    </SettingRow>
   );
 }
 

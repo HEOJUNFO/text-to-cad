@@ -29,7 +29,7 @@ import {
 import { runUiCommand } from "@renderer/state/bridge";
 import { useProjects } from "@renderer/state/projects";
 import type { Worktree } from "@shared/ipc/git";
-import type { GitMode, Project } from "@shared/types";
+import { branchPrefixProblem, type GitMode, type Project } from "@shared/types";
 
 /**
  * The two choices the composer offers (`lib/git-mode.ts`). `none` is not one
@@ -68,6 +68,7 @@ export function GitPage() {
           keywords="branch name namespace"
           onChange={(branchPrefix) => patch({ branchPrefix })}
           placeholder="text-to-cad/"
+          problem={branchPrefixProblem}
           title="Branch prefix"
           value={settings.branchPrefix}
           width="w-[200px]"
