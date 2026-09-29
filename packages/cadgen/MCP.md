@@ -46,9 +46,13 @@ viewer contract, not arbitrary filesystem access.
   Large file responses add `transfer: {offset, totalBytes, revision}`. Repeat
   the same GET with `offset` and `revision` to retrieve the next chunk. The
   app assembles all bytes before rendering; a changed revision fails the read.
-- `ui://cad/viewer/v1.html` serves the self-contained interface from the
-  bundled `_runtime/chatgpt/index.html`. `--ui <html>` is an explicit
-  development override. Resource metadata permits only `data:` and `blob:`
+- `ui://cad/viewer/<sha256>.html` serves the self-contained interface from the
+  bundled `_runtime/chatgpt/index.html`. The server snapshots the HTML at
+  startup and hashes its bytes into the URI, which hosts use as their cache
+  key. Every URI serves immutable content; restarting after a changed build
+  advertises a new URI. Clients discover it from `cad_open` tool metadata.
+  `--ui <html>` is an explicit development override. A missing bundle fails
+  startup with a build or reinstall hint. Resource metadata permits only `data:` and `blob:`
   for bundled workers, fonts and assets, and requests optional clipboard-write
   permission. It declares no network origins. Hosts may decline permissions.
 

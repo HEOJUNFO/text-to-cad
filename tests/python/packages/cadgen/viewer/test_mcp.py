@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -17,7 +18,8 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from cadgen.mcp.backend import CHUNK_BYTES, ViewerBridge
-from cadgen.mcp.server import UI_MIME_TYPE, UI_URI, create_server
+from cadgen.assets import AssetMissing
+from cadgen.mcp.server import UI_MIME_TYPE, create_server
 from cadgen.viewer.backend import ForbiddenAssetError
 
 
@@ -153,8 +155,10 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
             granted.write_bytes(b"solid part\nendsolid part\n")
             default_root = root / "default-project"
             default_root.mkdir()
+            ui = root / "viewer.html"
+            ui.write_text("<!doctype html><title>CAD</title>", encoding="utf-8")
             with mock.patch("cadgen.mcp.backend.Path.cwd", return_value=default_root):
-                server = create_server()
+                server = create_server(ui_path=ui)
             meta = {"openai/resource": {"path": str(granted)}}
             args = {"file": {"name": granted.name, "resourceUri": "host-resource://part"}}
             async with create_connected_server_and_client_session(server) as client:
@@ -171,9 +175,11 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             (root / "part.stl").write_bytes(b"solid part\nendsolid part\n")
+            ui = root / "viewer.html"
+            ui.write_text("<!doctype html><title>CAD</title>", encoding="utf-8")
             params = StdioServerParameters(
                 command=sys.executable,
-                args=["-m", "cadgen.cli.mcp", "--root", str(root)],
+                args=["-m", "cadgen.cli.mcp", "--root", str(root), "--ui", str(ui)],
                 env={**os.environ, "CADGEN_CACHE_DIR": str(root / "cache")},
             )
             async with stdio_client(params) as (read, write):
@@ -195,7 +201,8 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
                 listed = (await client.list_tools()).tools
                 tools = {tool.name: tool for tool in listed}
                 self.assertEqual(tools["cad_request"].meta["ui"]["visibility"], ["app"])
-                self.assertEqual(tools["cad_open"].meta["ui"]["resourceUri"], UI_URI)
+                ui_uri = tools["cad_open"].meta["ui"]["resourceUri"]
+                self.assertEqual(ui_uri, f"ui://cad/viewer/{hashlib.sha256(ui.read_bytes()).hexdigest()}.html")
                 self.assertEqual(tools["cad_open"].title, "CAD")
                 self.assertEqual(tools["cad_open"].icons[0].mimeType, "image/svg+xml")
                 self.assertEqual(tools["cad_open"].meta["openai/ui"]["entrypoints"], [
@@ -206,7 +213,7 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(sidebar.isError)
                 self.assertIsNone(sidebar.structuredContent["file"])
                 self.assertEqual(sidebar.structuredContent["rootPath"], str(root))
-                resource = (await client.read_resource(UI_URI)).contents[0]
+                resource = (await client.read_resource(ui_uri)).contents[0]
                 self.assertEqual(resource.mimeType, UI_MIME_TYPE)
                 self.assertEqual(resource.text, ui.read_text(encoding="utf-8"))
                 self.assertEqual(resource.meta["ui"]["csp"], {
@@ -215,6 +222,7 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
                 })
                 self.assertEqual(resource.meta["ui"]["permissions"], {"clipboardWrite": {}})
                 listed_resource = (await client.list_resources()).resources[0]
+                self.assertEqual(str(listed_resource.uri), ui_uri)
                 self.assertEqual(listed_resource.meta, resource.meta)
                 opened = await client.call_tool("cad_open", {"path": "small.stl"})
                 self.assertFalse(opened.isError)
@@ -229,6 +237,41 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
                 data = await client.call_tool("cad_request", {"path": "/__cad/asset?" + urlencode({"file": str(root / "small.stl")})})
                 self.assertFalse(data.isError)
                 self.assertEqual(base64.b64decode(data.structuredContent["body"]), (root / "small.stl").read_bytes())
+
+    async def test_ui_resource_cache_key_tracks_content_and_serves_immutable_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            ui = root / "viewer.html"
+            original = b"<!doctype html>\r\n<title>CAD first</title>"
+            ui.write_bytes(original)
+            first = create_server(root, ui_path=ui)
+            same = create_server(root, ui_path=ui)
+            ui.write_bytes(b"<!doctype html><title>CAD rebuilt</title>")
+            changed = create_server(root, ui_path=ui)
+            uris = []
+            for server, expected in ((first, original), (same, original), (changed, ui.read_bytes())):
+                async with create_connected_server_and_client_session(server) as client:
+                    tool = next(tool for tool in (await client.list_tools()).tools if tool.name == "cad_open")
+                    uri = tool.meta["ui"]["resourceUri"]
+                    uris.append(uri)
+                    resource = (await client.read_resource(uri)).contents[0]
+                    self.assertEqual(resource.text.encode("utf-8"), expected)
+            self.assertEqual(uris[0], uris[1])
+            self.assertNotEqual(uris[0], uris[2])
+
+    def test_missing_ui_fails_startup_with_actionable_hint(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "absent.html"
+            with self.assertRaisesRegex(AssetMissing, "CAD extension UI is missing") as caught:
+                create_server(directory, ui_path=missing)
+            self.assertIn(str(missing), str(caught.exception))
+            cli = subprocess.run(
+                [sys.executable, "-m", "cadgen.cli.mcp", "--root", directory, "--ui", str(missing)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(cli.returncode, 1)
+            self.assertIn("CAD MCP: CAD extension UI is missing", cli.stderr)
+            self.assertNotIn("Traceback", cli.stderr)
 
     def test_cli_help_and_server_import_do_not_load_kernel(self):
         code = (

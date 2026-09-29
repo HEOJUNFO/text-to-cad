@@ -61,8 +61,11 @@ npm --prefix apps/chatgpt run build
 npm --prefix apps/chatgpt test
 ```
 
-The build emits one self-contained `dist/index.html`, served as
-`ui://cad/viewer/v1.html`. It inlines script, CSS, workers and drawing fonts because
+The build emits one self-contained `dist/index.html`. The MCP server advertises
+a content-versioned resource URI through `cad_open` metadata, so changed builds
+cannot reuse a cached interface. Restart the MCP connection after rebuilding to
+publish the new resource; closing and reopening a pane alone may reuse the old
+resource metadata. It inlines script, CSS, workers and drawing fonts because
 an MCP UI resource has no HTTP asset directory. Font discovery, license notices
 and the OFL Liberation replacement reuse the UI package's drawing-assets helpers;
 the same large Xiaolai fallback excluded by the standalone viewer is omitted.

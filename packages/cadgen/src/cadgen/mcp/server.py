@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import base64
 from contextlib import asynccontextmanager
+import hashlib
 from pathlib import Path
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -13,7 +14,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from cadgen.assets import AssetMissing, runtime_build_hint, runtime_root
 from .backend import SUPPORTED_EXTENSIONS, ViewerRoots
 
-UI_URI = "ui://cad/viewer/v1.html"
 UI_MIME_TYPE = "text/html;profile=mcp-app"
 CAD_ICON = Icon(
     src="data:image/svg+xml;base64," + base64.b64encode(
@@ -49,6 +49,14 @@ def _resource_path(ctx: Context) -> str | None:
 
 
 def create_server(root: str | Path | None = None, *, ui_path: str | Path | None = None, port: int = 8000) -> FastMCP:
+    html_path = Path(ui_path) if ui_path else runtime_root() / "chatgpt" / "index.html"
+    if not html_path.is_file():
+        raise AssetMissing("CAD extension UI is missing. " + runtime_build_hint(html_path))
+    html_bytes = html_path.read_bytes()
+    html = html_bytes.decode("utf-8")
+    # Hosts cache by URI. Pin each server's resource to its exact bundle bytes
+    # so rebuilding on disk cannot change an already-advertised resource.
+    ui_uri = f"ui://cad/viewer/{hashlib.sha256(html_bytes).hexdigest()}.html"
     roots = ViewerRoots(root)
 
     @asynccontextmanager
@@ -63,9 +71,7 @@ def create_server(root: str | Path | None = None, *, ui_path: str | Path | None 
         lifespan=lifespan, host="127.0.0.1", port=port,
         max_request_body_size=9 * 1024 * 1024,
     )
-    html_path = Path(ui_path) if ui_path else runtime_root() / "chatgpt" / "index.html"
-
-    @server.resource(UI_URI, name="CAD", mime_type=UI_MIME_TYPE, meta={
+    @server.resource(ui_uri, name="CAD", mime_type=UI_MIME_TYPE, meta={
         "ui": {
             "prefersBorder": False,
             # The single-file bundle creates blob workers and fetches embedded
@@ -77,16 +83,14 @@ def create_server(root: str | Path | None = None, *, ui_path: str | Path | None 
         },
     })
     def viewer_html() -> str:
-        if not html_path.is_file():
-            raise AssetMissing("CAD extension UI is missing. " + runtime_build_hint(html_path))
-        return html_path.read_text(encoding="utf-8")
+        return html
 
     @server.tool(
         name="cad_open", title="CAD", icons=[CAD_ICON],
         description="Open an existing STEP, STL, GLB or 3MF in the CAD viewer. Model paths stay within the working directory or explicit --root; host file entrypoints can authorize their containing directory unless --root restricts them.",
         annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False),
         meta={
-            "ui": {"resourceUri": UI_URI},
+            "ui": {"resourceUri": ui_uri},
             "openai/ui": {"entrypoints": [
                 {"type": "global"},
                 {"type": "file", "extensions": list(SUPPORTED_EXTENSIONS)},

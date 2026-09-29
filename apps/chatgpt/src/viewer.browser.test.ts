@@ -39,7 +39,10 @@ test('built UI opens a STEP through MCP, attaches a selection, observes saves, a
   t.after(() => client.close());
   try { await client.connect(transport); }
   catch (error) { throw new Error(`${String(error)}\nMCP stderr: ${stderr}`, { cause: error }); }
-  const resource = await client.readResource({ uri: 'ui://cad/viewer/v1.html' }).catch(error => { throw new Error(`${String(error)}\nMCP stderr: ${stderr}`, { cause: error }); });
+  const descriptor = (await client.listTools()).tools.find(tool => tool.name === 'cad_open');
+  const resourceUri = (descriptor?._meta?.ui as { resourceUri?: string } | undefined)?.resourceUri;
+  assert.ok(resourceUri, 'CAD advertises its current UI resource');
+  const resource = await client.readResource({ uri: resourceUri }).catch(error => { throw new Error(`${String(error)}\nMCP stderr: ${stderr}`, { cause: error }); });
   const html = resource.contents[0];
   assert.ok('text' in html);
   const calls: string[] = [];

@@ -5,6 +5,8 @@ import argparse
 from pathlib import Path
 import sys
 
+from cadgen.assets import AssetMissing
+
 
 def main(argv=None, *, prog=None) -> int:
     parser = argparse.ArgumentParser(prog=prog, description=__doc__)
@@ -22,7 +24,7 @@ def main(argv=None, *, prog=None) -> int:
     try:
         server = create_server(args.root, ui_path=args.ui, port=args.port)
         server.run(transport=args.transport)
-    except (OSError, ValueError) as error:
+    except (AssetMissing, OSError, ValueError) as error:
         print(f"CAD MCP: {error}", file=sys.stderr)
         return 1
     return 0
