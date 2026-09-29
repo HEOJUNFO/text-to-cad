@@ -20,9 +20,10 @@ partitions and `browser-artifacts/<sha256(session)>`; deleting it clears the
 partitions' storage and cache and removes the artifacts. A partition an older build named `browser-<sha256(scope)>` is
 renamed to the current name on first use, and by the sweep that the first
 renderer browser request of a run starts; that sweep also removes partitions and
-artifact directories whose session no longer exists. Nothing opened this run is
-swept, and an older partition no live session matches is removed only when every
-live session's workspace resolved. Background
+artifact directories whose session no longer exists. Nothing opened this run is swept. An older partition is judged on
+its own: one a live session's scope names (its realpath, or its recorded path when
+the worktree is gone) is migrated, and removed when the current name already
+exists; one no live session names is removed. Background
 browser commands never navigate the user's session selection. A session switch
 keeps its pages alive while hiding their presentation; this costs one Chromium
 page per live tab.
@@ -81,8 +82,11 @@ Node, preload or app IPC and use sandbox/context isolation. Popups navigate thei
 owning tab; permission prompts are denied until a native permission workflow is
 provided. text-to-cad owns pane size and partitions: browser resizing, installing a
 browser, creating contexts and extensions are unsupported. Playwright's download artifact API is not bridged, and both
-`Browser.` and `Page.setDownloadBehavior` are refused. A download the person starts (the page shown and focused in the
-focused window) keeps the native save dialog; any other download (an agent in a
+`Browser.` and `Page.setDownloadBehavior` are refused. A download the person starts keeps the native save dialog: the page
+is shown and focused in the focused window, a real key or mouse press reached it
+within the last two seconds, and no agent sent it input (CDP `Input.*` or the
+app's input method) in that time. CDP input can reach the same input hooks as a
+real press, so a page an agent is driving never passes; any other download (an agent in a
 background session, a page's script while the person works elsewhere) is
 cancelled rather than opening that dialog over their work, and counted as an
 error in the page's console. These
@@ -99,13 +103,23 @@ hides it while app dialogs and popover menus are open so native layers cannot
 cover the app's controls. Presentation is measured at most once per animation
 frame, and the metadata poll carries console lines only while the console panel
 is open; a poll the workspace refuses (session inactive, workspace missing
-or different) stops polling until a navigation or the console wakes it. When the app window's own document navigates (a reload that got
-past its unsaved-drafts question) or its renderer crashes, main hides every page that window
+or different) — or the tab is gone, or its project closed — stops polling until
+a navigation or the console wakes it, and a repeated failure publishes no new
+state. When the app window's own document navigates (a reload that got
+past its unsaved-drafts question), fails a main-frame load (a dev server that is
+down) or its renderer crashes, main hides every page that window
 presented until a remounted tab presents it again. Cmd+R reloads the focused
 browser page and nothing else; the app renderer has no reload accelerator in a
 packaged build, and an unload with unsaved drafts asks first. Presentation leases prevent a stale tab's cleanup from
 hiding its newer presentation. The URL, loading/navigation state and bounded
 console are read from main, including agent and page-initiated navigation.
+
+The address bar treats text with a scheme as a URL, and a dotted name, `localhost`,
+an IP literal or `word:port` as an address; anything else is a search. It adds
+`http://` for localhost, IP literals, `*.local` and any explicit port except 443
+and 8443, and `https://` otherwise. `word:port` is an address because
+docker-compose services, hosts aliases and MagicDNS names are far more common here
+than searches shaped like `note:1`.
 
 ## Adding page context to a prompt
 

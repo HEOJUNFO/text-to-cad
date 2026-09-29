@@ -63,6 +63,13 @@ it("hides every page an app window presented when that window reloads or its ren
   // The remounted tab presents again under a new lease.
   service.present(scope, "two", window, "lease-2", bounds);
   expect(service.metadata(scope, "two").visible).toBe(true);
+  // A subframe failure or an aborted navigation leaves pages shown; a failed main-frame load hides them.
+  window.webContents.emit("did-fail-load", {}, -102, "ERR_CONNECTION_REFUSED", "http://localhost:5173/", false);
+  window.webContents.emit("did-fail-load", {}, -3, "ERR_ABORTED", "http://localhost:5173/", true);
+  expect(service.metadata(scope, "two").visible).toBe(true);
+  window.webContents.emit("did-fail-load", {}, -102, "ERR_CONNECTION_REFUSED", "http://localhost:5173/", true);
+  expect(service.metadata(scope, "two").visible).toBe(false);
+  service.present(scope, "two", window, "lease-2b", bounds);
   window.webContents.emit("render-process-gone", {}, { reason: "crashed" });
   expect(service.metadata(scope, "two").visible).toBe(false);
   // A stale lease's cleanup after the reload cannot hide a newer presentation.
@@ -97,11 +104,33 @@ it("cancels background downloads with an error line, and lets the person's own f
   // Shown but not focused: still not the person's gesture.
   service.present(scope, "dl", window, "lease", bounds);
   expect(download()).toBe(true);
-  // Shown, focused, in the focused window: the native dialog is theirs.
+  // Shown and focused in the focused window, but no recent press: an agent
+  // driving the page the person last clicked into.
   contents("dl").focused = true;
+  expect(download()).toBe(true);
+  // The person's own click, just now: the native dialog is theirs.
+  let now = 1_000_000;
+  const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+  contents("dl").emit("before-mouse-event", {}, { type: "mouseMove" });
+  expect(download()).toBe(true);
+  contents("dl").emit("before-mouse-event", {}, { type: "mouseDown" });
+  now += 500;
+  expect(download()).toBe(false);
+  // Stale after two seconds.
+  now += 2_000;
+  expect(download()).toBe(true);
+  // A key press counts too, unless an agent sent input to the page around it.
+  contents("dl").emit("before-input-event", {}, { type: "keyDown" });
+  expect(download()).toBe(false);
+  service.noteAutomatedInput(scope, "dl");
+  contents("dl").emit("before-input-event", {}, { type: "keyDown" });
+  expect(download()).toBe(true);
+  now += 2_500;
+  contents("dl").emit("before-input-event", {}, { type: "keyDown" });
   expect(download()).toBe(false);
   (window as unknown as { focused: boolean }).focused = false;
   expect(download()).toBe(true);
+  clock.mockRestore();
 });
 
 it("names each partition after its session so a deleted session's storage can be found", async () => {

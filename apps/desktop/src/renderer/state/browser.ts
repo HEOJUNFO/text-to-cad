@@ -33,7 +33,11 @@ export const useBrowser = create<BrowserState>((set, get) => {
       explorer.update(tab.id, { url: target.url });
     }
   };
-  const failed = (tabId: string, error: unknown) => set(state => ({ errors: { ...state.errors, [tabId]: error instanceof Error ? error.message : String(error) } }));
+  const failed = (tabId: string, error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    // The same failure again is not a change: no new state, no re-render.
+    if (get().errors[tabId] !== message) set(state => ({ errors: { ...state.errors, [tabId]: message } }));
+  };
   return {
     targets: {}, errors: {}, consoles: {},
     setConsoleOpen: (tabId, open) => {
@@ -116,8 +120,15 @@ export const useBrowser = create<BrowserState>((set, get) => {
   };
 });
 
-/** The IpcErrors `src/main/ipc/browser.ts` refuses a tab's scope with. */
-const SCOPE_REFUSALS = ["This session is no longer active.", "This session's workspace is missing.", "This browser belongs to a different session workspace."];
+/**
+ * Refusals asking again cannot change: the scope checks in
+ * `src/main/ipc/browser.ts`, `rootOf`'s closed project, and the service's
+ * closed or destroyed tab.
+ */
+const SCOPE_REFUSALS = [
+  "This session is no longer active.", "This session's workspace is missing.", "This browser belongs to a different session workspace.",
+  "that project is no longer open", "This browser tab is not available in this session's workspace.",
+];
 function isScopeRefusal(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return SCOPE_REFUSALS.some(refusal => message.includes(refusal));

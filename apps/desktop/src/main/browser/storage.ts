@@ -91,8 +91,9 @@ export type LiveBrowserSession = { id: string; projectId: string; cwd: string };
  * Migrate, then remove what no session owns:
  * - an older build's `browser-<sha256(scope)>` partition is renamed to its
  *   current name when a live session's scope (its recorded directory, after
- *   realpath) hashes to it, and removed only when every live session's scope
- *   could be computed and none does;
+ *   realpath; the recorded spelling when that directory is gone) hashes to
+ *   it. When the current name already exists Chromium opens only that one,
+ *   so the old one is removed; so is one no live session's scope matches;
  * - a current partition or artifact directory whose session no longer exists
  *   (deleted while the app was not running, or by an older build) is removed.
  * The directories are listed before the sessions are read, so a session
@@ -107,10 +108,12 @@ export async function sweepBrowserStorage(liveSessions: () => Iterable<LiveBrows
   const sessions = [...liveSessions()];
   const live = new Set(sessions.map(session => browserSessionKey(session.id)));
   const legacy = new Map<string, BrowserScope>();
-  let unresolved = false;
   for (const session of sessions) {
+    // A removed worktree still owns the partition its recorded path names:
+    // the worktree may come back, and one such session must not keep every
+    // other ownerless partition alive.
     let root: string;
-    try { root = realpathSync(session.cwd); } catch { unresolved = true; continue; }
+    try { root = realpathSync(session.cwd); } catch { root = path.resolve(session.cwd); }
     const scope = { sessionId: session.id, projectId: session.projectId, root };
     legacy.set(legacyPartitionName(scope), scope);
   }
@@ -122,10 +125,11 @@ export async function sweepBrowserStorage(liveSessions: () => Iterable<LiveBrows
     if (match[2]) { if (!live.has(match[1]!)) doomed.push(path.join(partitions, entry)); continue; }
     const scope = legacy.get(entry);
     if (scope) {
-      // Both names on disk (a race with an open): keep both rather than guess.
-      try { migrateLegacyPartition(partitions, scope); }
-      catch (error) { console.warn(`[browser] could not migrate ${entry}: ${String(error)}`); }
-    } else if (!unresolved) doomed.push(path.join(partitions, entry));
+      try {
+        // Both names on disk: Chromium only ever opens the current one.
+        if (!migrateLegacyPartition(partitions, scope) && existsSync(path.join(partitions, partitionName(scope)))) doomed.push(path.join(partitions, entry));
+      } catch (error) { console.warn(`[browser] could not migrate ${entry}: ${String(error)}`); }
+    } else doomed.push(path.join(partitions, entry));
   }
   const openedSessions = new Set([...opened.keys()].map(browserSessionKey));
   for (const entry of artifactEntries) {

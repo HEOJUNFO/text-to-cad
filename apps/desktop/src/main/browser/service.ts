@@ -9,7 +9,11 @@ export { browserScopeKey, type BrowserScope };
 type Target = {
   scope: BrowserScope; id: string; view: WebContentsView; harness: ReturnType<typeof browserHarness>;
   owner?: BrowserWindow; lease?: string; generation: number; visible: boolean; ready: Promise<void>; logs: BrowserTarget["logs"];
+  /** Last key or mouse press that reached the page, and last one an agent sent over CDP (ms). */
+  userInputAt: number; automatedInputAt: number;
 };
+/** How recent a press must be for a download to count as the person's own. */
+const USER_GESTURE_MS = 2_000;
 export type BrowserBounds = { x: number; y: number; width: number; height: number };
 export function browserURL(value: string) {
   const url = new URL(value);
@@ -59,7 +63,7 @@ export class BrowserService {
       webSecurity: true, backgroundThrottling: false, spellcheck: false,
     } });
     view.setBounds({ x: 0, y: 0, width: 1000, height: 700 });
-    const target: Target = { id, scope: { ...scope }, view, harness: browserHarness(view.webContents), generation: 0, visible: false, ready: Promise.resolve(), logs: [] };
+    const target: Target = { id, scope: { ...scope }, view, harness: browserHarness(view.webContents), generation: 0, visible: false, ready: Promise.resolve(), logs: [], userInputAt: 0, automatedInputAt: 0 };
     this.targets.set(id, target);
     const wc = view.webContents;
     wc.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
@@ -76,6 +80,8 @@ export class BrowserService {
     // A new document, not a pushState or fragment change: a single-page app
     // moving its own history keeps the generation "Add to prompt" captured.
     wc.on("did-start-navigation", details => { if (details.isMainFrame && !details.isSameDocument) target.generation += 1; });
+    wc.on("before-input-event", (_event, input) => { if (input.type === "keyDown" || input.type === "rawKeyDown") target.userInputAt = Date.now(); });
+    wc.on("before-mouse-event", (_event, mouse) => { if (mouse.type === "mouseDown") target.userInputAt = Date.now(); });
     wc.on("will-navigate", guard);
     wc.on("will-redirect", guard);
     wc.on("console-message", (_event, level, message) => { this.log(target, level >= 3 ? "error" : level === 2 ? "warn" : "log", message); });
@@ -133,11 +139,15 @@ export class BrowserService {
       for (const target of this.targets.values()) if (target.owner === owner) { target.lease = undefined; this.hide(target); }
     };
     owner.webContents.on("did-navigate", hideAll);
+    // A reload that failed (a dev server that is down) commits an error page
+    // without `did-navigate`. ERR_ABORTED (-3) is a superseded navigation, not a new page.
+    owner.webContents.on("did-fail-load", (_event, errorCode, _description, _url, isMainFrame) => { if (isMainFrame && errorCode !== -3) hideAll(); });
     owner.webContents.on("render-process-gone", hideAll);
   }
   /**
    * A download the person starts — in the page that is shown, focused, in the
-   * focused app window — keeps the native save dialog. Anything else (an
+   * focused app window, within two seconds of a key or mouse press there that
+   * no agent input accompanied — keeps the native save dialog. Anything else (an
    * agent's click in a background session, a page's own script while the
    * person works elsewhere) would open that dialog over whatever they are
    * doing, so it is cancelled and counted as an error in the page's console.
@@ -154,9 +164,15 @@ export class BrowserService {
   }
   private inForeground(target: Target) {
     const owner = target.owner;
+    const now = Date.now();
     return target.visible && !!owner && !owner.isDestroyed() && owner.isFocused()
-      && !target.view.webContents.isDestroyed() && target.view.webContents.isFocused();
+      && !target.view.webContents.isDestroyed() && target.view.webContents.isFocused()
+      // CDP input may reach the same hooks as a real press, so a page an agent
+      // is driving never counts as the person's gesture.
+      && now - target.userInputAt <= USER_GESTURE_MS && now - target.automatedInputAt > USER_GESTURE_MS;
   }
+  /** An agent sent input to this page (CDP `Input.*`, or the app's own input method). */
+  noteAutomatedInput(scope: BrowserScope, id: string) { this.get(scope, id).automatedInputAt = Date.now(); }
   /** Reload the embedded page that has keyboard focus. False when none has: then the key does nothing. */
   reloadFocused(owner?: BrowserWindow | null) {
     const target = [...this.targets.values()].find(candidate => candidate.visible && (!owner || candidate.owner === owner)
@@ -241,6 +257,7 @@ export class BrowserService {
   clearConsole(scope: BrowserScope, id: string) { this.get(scope, id).logs = []; }
   metadata(scope: BrowserScope, id: string, logs = true) { return this.info(this.get(scope, id), logs); }
   private async input(target: Target, input: BrowserInput) {
+    target.automatedInputAt = Date.now();
     const h = target.harness;
     if (input.action === "click" || input.action === "point") {
       let x: number, y: number;

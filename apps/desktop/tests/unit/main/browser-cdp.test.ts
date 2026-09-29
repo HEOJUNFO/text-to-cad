@@ -18,7 +18,8 @@ const service = {
   metadata: () => ({ tabId: "tab", title: "Page", url: "https://example.com/" }),
   contents: () => contents,
   list: () => [{ tabId: "tab" }],
-} as unknown as BrowserService;
+  noteAutomatedInput: vi.fn(),
+} as unknown as BrowserService & { noteAutomatedInput: ReturnType<typeof vi.fn> };
 const tabs = { open: vi.fn(), show: vi.fn(), close: vi.fn() };
 let endpoint: ScopedBrowserCdp | undefined;
 afterEach(async () => { await endpoint?.dispose(); });
@@ -45,5 +46,9 @@ it("refuses Page.setDownloadBehavior as well as Browser.setDownloadBehavior on a
   // Ordinary page commands still reach the owned page.
   expect((await call("Page.enable", {}, sessionId)).error).toBeUndefined();
   expect(sendCommand).toHaveBeenCalledWith("Page.enable", {}, "native-session");
+  expect(service.noteAutomatedInput).not.toHaveBeenCalled();
+  // Agent input marks the page, so a download it triggers is not the person's gesture.
+  await call("Input.dispatchMouseEvent", { type: "mousePressed", x: 1, y: 1, button: "left", clickCount: 1 }, sessionId);
+  expect(service.noteAutomatedInput).toHaveBeenCalledWith(scope, "tab");
   socket.close();
 });

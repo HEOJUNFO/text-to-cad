@@ -201,12 +201,13 @@ export function resolveAddress(raw: string): string | null {
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
     return value;
   }
-  // `localhost:5273`, `example.com`, `192.168.0.4/status`, `[::1]:3000` — an
-  // address, not a search. A bare word with no dot is a search, port or not
-  // (`note:1`).
+  // `localhost:5273`, `example.com`, `192.168.0.4/status`, `[::1]:3000`,
+  // `web:3000` — an address, not a search. A bare word is a search unless it
+  // has a port: docker-compose services, hosts aliases and MagicDNS names are
+  // far more common here than a search that looks like `word:123`.
   const address = /^(\[[0-9a-f:.]+\]|[\w-]+(?:\.[\w-]+)*)(?::(\d+))?(?=[/?#]|$)/i.exec(value);
   const host = address?.[1]?.toLowerCase();
-  if (address && host && (host.includes(".") || host.startsWith("[") || host === "localhost")) {
+  if (address && host && (host.includes(".") || host.startsWith("[") || host === "localhost" || address[2])) {
     // A dev server or LAN device is almost never serving TLS; a public name
     // is, and so is anything on a TLS port.
     const port = address[2];

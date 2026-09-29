@@ -88,10 +88,24 @@ it("renames an older build's partition for a live session instead of deleting it
   expect(orphanLegacy).not.toBe(legacy);
 });
 
-it("keeps an unmatched older partition while any live session's workspace cannot be resolved", async () => {
-  const legacy = await onDisk(`browser-${"b".repeat(64)}`);
-  await sweepBrowserStorage(() => [{ id: "gone-worktree", projectId: "project", cwd: path.join(userData, "missing") }], userData);
-  expect(await exists(path.join(partitions(), legacy))).toBe(true);
+it("judges each older partition on its own: a gone worktree keeps its own, not everyone's", async () => {
+  const missing = path.join(userData, "missing");
+  const own = await onDisk(legacyPartitionName({ sessionId: "gone-worktree", projectId: "project", root: missing }));
+  const ownerless = await onDisk(`browser-${"b".repeat(64)}`);
+  await sweepBrowserStorage(() => [{ id: "gone-worktree", projectId: "project", cwd: missing }], userData);
+  expect(await exists(path.join(partitions(), ownerless))).toBe(false);
+  expect(await exists(path.join(partitions(), own))).toBe(false);
+  const current = browserPartitionName({ sessionId: "gone-worktree", projectId: "project", root: missing }).slice("persist:".length);
+  expect(await fs.readFile(path.join(partitions(), current, "Cookies"), "utf8")).toBe(own);
+});
+
+it("removes an older partition when its current name already exists", async () => {
+  const legacy = await onDisk(legacyPartitionName(scopeOf("both-names")));
+  const current = await partitionOnDisk("both-names");
+  await sweepBrowserStorage(live("both-names"), userData);
+  expect(await fs.readdir(partitions())).toEqual([current]);
+  expect(await fs.readFile(path.join(partitions(), current, "Cookies"), "utf8")).toBe(current);
+  expect(legacy).not.toBe(current);
 });
 
 it("migrates an older partition on first use, before Chromium creates the new one", async () => {

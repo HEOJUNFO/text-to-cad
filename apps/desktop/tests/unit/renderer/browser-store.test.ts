@@ -114,6 +114,21 @@ describe("browser chrome cost", () => {
     expect(vi.mocked(window.textToCad.browser.metadata).mock.calls.length).toBeGreaterThan(2);
     expect(useBrowser.getState().errors[binding.tabId]).toBeUndefined();
   });
+  it.each(["This browser tab is not available in this session's workspace.", "that project is no longer open"])("stops polling a tab main refuses with %s", async (refusal) => {
+    vi.mocked(window.textToCad.browser.metadata).mockRejectedValue(new Error(`Error invoking remote method 'text-to-cad:browser.metadata': IpcError: ${refusal}`));
+    mount(); await vi.advanceTimersByTimeAsync(3_000);
+    expect(window.textToCad.browser.metadata).toHaveBeenCalledTimes(1);
+  });
+  it("does not publish a new state when the same failure repeats", async () => {
+    vi.mocked(window.textToCad.browser.metadata).mockRejectedValue(new Error("transient"));
+    mount(); await vi.advanceTimersByTimeAsync(501);
+    const changes = vi.fn();
+    const unsubscribe = useBrowser.subscribe(changes);
+    await vi.advanceTimersByTimeAsync(2_000);
+    unsubscribe();
+    expect(vi.mocked(window.textToCad.browser.metadata).mock.calls.length).toBeGreaterThan(2);
+    expect(changes).not.toHaveBeenCalled();
+  });
   it("keeps polling through a failure that is not a refusal", async () => {
     vi.mocked(window.textToCad.browser.metadata).mockRejectedValueOnce(new Error("transient")).mockResolvedValue(target);
     mount(); await vi.advanceTimersByTimeAsync(1_600);

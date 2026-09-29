@@ -30,12 +30,16 @@ describe("the address bar", () => {
     expect(resolveAddress("1.2.3.example.com")).toBe("https://1.2.3.example.com");
   });
 
-  it("keeps https on TLS ports, and a portless word with a colon is still a search", () => {
+  it("keeps https on TLS ports, and treats word:port as a dev host", () => {
     expect(resolveAddress("example.com:443")).toBe("https://example.com:443");
     expect(resolveAddress("example.com:8443/a")).toBe("https://example.com:8443/a");
     expect(resolveAddress("192.168.0.4:443")).toBe("https://192.168.0.4:443");
-    expect(resolveAddress("note:1")).toMatch(/^https:\/\/duckduckgo\.com\/\?q=note%3A1$/);
-    expect(resolveAddress("devbox:8080")).toMatch(/^https:\/\/duckduckgo\.com\//);
+    expect(resolveAddress("devbox:8080")).toBe("http://devbox:8080");
+    expect(resolveAddress("web:3000/api?x=1")).toBe("http://web:3000/api?x=1");
+    // The accepted cost: a `word:digits` search becomes an address.
+    expect(resolveAddress("note:1")).toBe("http://note:1");
+    expect(resolveAddress("note:a")).toMatch(/^https:\/\/duckduckgo\.com\//);
+    expect(resolveAddress("devbox")).toMatch(/^https:\/\/duckduckgo\.com\//);
   });
 
   it("searches for anything that is not an address", () => {
