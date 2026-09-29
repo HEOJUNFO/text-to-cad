@@ -30,9 +30,17 @@ export const WINDOW_MIN = { width: 900, height: 600 } as const;
  * too little of it is on any of them, and never larger than the work area of
  * the display it opens on — a window sized for a 2560px monitor does not fit
  * a laptop — unless that is smaller than the window's minimum.
+ *
+ * Except a window that is never shown (`TEXT_TO_CAD_E2E_HIDDEN=1`, src/main/index.ts):
+ * it is on no display, so there is nothing to fit it to. Fitted anyway, the e2e
+ * suite's window took the size of whatever screen the machine had — a CI
+ * runner's 1024px one — and every layout the suite asserts moved with it.
  */
 export function restoreWindowState(): WindowState {
   const state = settings.windowState();
+  if (process.env.TEXT_TO_CAD_E2E_HIDDEN === "1") {
+    return state;
+  }
   const display = state.x === undefined || state.y === undefined ? undefined : mostOf(state);
   if (!display) {
     // Centred, which Electron does on the primary display.
