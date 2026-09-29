@@ -103,6 +103,27 @@ function services() {
 /* -------------------------------------------------------------------------- */
 
 /**
+ * Session roots' real paths, keyed by the spelling main recorded. rootOf runs
+ * for every stat, list, read and `exists` (the transcript asks one per path
+ * token), and realpathSync blocks main's thread, so a spelling is resolved
+ * once; the cache is dropped whenever the recorded spellings change.
+ */
+const recordedRealpaths = { signature: "", paths: new Map<string, string>() };
+
+function recordedRealpath(spelling: string, signature: string): string {
+  if (recordedRealpaths.signature !== signature) {
+    recordedRealpaths.signature = signature;
+    recordedRealpaths.paths.clear();
+  }
+  let real = recordedRealpaths.paths.get(spelling);
+  if (real === undefined) {
+    real = realDirectory(spelling);
+    recordedRealpaths.paths.set(spelling, real);
+  }
+  return real;
+}
+
+/**
  * The directory a request reads from: the project's, or — when the request
  * names a `root` — one of that project's worktrees (plan §9). Anything else
  * is refused here, before a path is resolved against it.
@@ -114,19 +135,25 @@ export function rootOf(projectId: string, root?: string | null): string {
   }
   try {
     // Persisted worktrees retain access even if an old project label changed.
-    // The match is by real path, so any spelling of the directory finds its
-    // session; what is handed on is the RECORDED spelling — never the
-    // caller's (that let a request key watchers and viewers by a string of
-    // its choosing), and not the realpath either: watchers, `files.changed`
-    // and the CAD viewer are keyed by this root, and the renderer and
-    // `forgetCadSession` know the session by the path main recorded.
+    // Any spelling of the directory finds its session; what is handed on is
+    // the RECORDED spelling — never the caller's (that let a request key
+    // watchers and viewers by a string of its choosing), and not the realpath
+    // either: watchers, `files.changed` and the CAD viewer are keyed by this
+    // root, and the renderer and `forgetCadSession` know the session by the
+    // path main recorded.
     if (root) {
-      const requested = realDirectory(root);
-      for (const session of sessions.list()) {
-        if (session.projectId !== projectId) continue;
-        const recorded = [session.cwd, session.worktreePath].find((candidate) =>
-          candidate && (git.samePath(candidate, root) || git.samePath(realDirectory(candidate), requested)));
-        if (recorded) return recorded;
+      const all = sessions.list();
+      const recorded = all
+        .filter((session) => session.projectId === projectId)
+        .flatMap((session) => [session.cwd, session.worktreePath].filter((candidate): candidate is string => Boolean(candidate)));
+      // The usual caller sends the recorded spelling back: no disk access.
+      const exact = recorded.find((candidate) => git.samePath(candidate, root));
+      if (exact) return exact;
+      if (recorded.length > 0) {
+        const requested = realDirectory(root);
+        const signature = all.map((session) => `${session.cwd}\0${session.worktreePath ?? ""}`).join("\0");
+        const linked = recorded.find((candidate) => git.samePath(recordedRealpath(candidate, signature), requested));
+        if (linked) return linked;
       }
     }
     return resolveProjectRoot(settings.get(), project, root);

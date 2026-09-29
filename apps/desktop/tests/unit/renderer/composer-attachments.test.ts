@@ -140,6 +140,15 @@ it("a CAD file not found in a walk that hit its cap is not called outside the pr
   expect(errors()[0]).toMatch(/^part\.stl could not be confirmed to be in this project.*type its path/i);
 });
 
+it("a CAD file whose project walk failed says the folder could not be read, not that it has too many files", async () => {
+  explorer.paths.mockRejectedValue(new Error("that project is no longer open"));
+  const view = renderComposer();
+  await view.pick(binary("part.stl"));
+  await waitFor(() => expect(errors()).toHaveLength(1));
+  expect(errors()[0]).not.toMatch(/too many files/);
+  expect(errors()[0]).toMatch(/^Could not read the project folder, so part\.stl was not attached/);
+});
+
 it("a same-named, same-sized CAD file with a different modified time is refused with that reason", async () => {
   const stl = binary("part.stl");
   explorer.paths.mockResolvedValue({ paths: ["old/part.stl"], truncated: false });

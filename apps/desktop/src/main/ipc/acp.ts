@@ -25,7 +25,7 @@ import {
   sessionStates,
   settings,
 } from "../db/repositories";
-import { head, isUnder, samePath } from "../projects/git";
+import { emptyTreeIfUnborn, head, isUnder, samePath } from "../projects/git";
 import { releaseWorkspace, resolveWorkspace } from "../projects/workspace";
 import { pruneProjectWorktrees } from "./git";
 import { browserService } from "../browser/service";
@@ -130,6 +130,7 @@ export const sessionManager: SessionManager = new SessionManager({
   },
 
   head: (cwd) => head(cwd),
+  emptyTree: (cwd) => emptyTreeIfUnborn(cwd),
 
   releaseWorkspace: async (session) => {
     const worktree = session.worktreePath;

@@ -20,7 +20,6 @@
  * Dependencies are injected so this file has no Electron import of its own:
  * main wires it to the sqlite repository, node-pty and the IPC broadcaster.
  */
-import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import nodePath from "node:path";
 
@@ -152,6 +151,13 @@ export type SessionManagerDeps = {
    * `Last turn` scopes are measured from.
    */
   head?: (cwd: string) => Promise<string | null>;
+
+  /**
+   * P7: the empty tree's id when `cwd` is a repository with no commits, else
+   * null. Asked only after `head` answered null, and it must prove the
+   * repository unborn — `head`'s null also means "git failed".
+   */
+  emptyTree?: (cwd: string) => Promise<string | null>;
 
   /**
    * P7: remove the session's worktree on delete, if the settings allow it.
@@ -873,7 +879,10 @@ export class SessionManager {
     // beginning: the empty tree. Marking that — rather than nothing — keeps
     // `This session` and `Last turn` a range once the first commit lands
     // mid-session (a null mark would read as "no mark recorded" by then).
-    return head ?? (await emptyTreeIfUnborn(cwd));
+    if (head !== null || !this.deps.emptyTree) {
+      return head;
+    }
+    return this.deps.emptyTree(cwd).catch(() => null);
   }
 
   private require(id: string): Session {
@@ -1247,24 +1256,6 @@ export class SessionManager {
   private broadcastIndex() {
     this.deps.broadcast("sessions.changed", this.deps.repo.list());
   }
-}
-
-/**
- * The empty tree's id when `cwd` is inside a git repository, asked of git so
- * a SHA-256 repository answers in its own format; null outside one, or when
- * git cannot run. Only asked after `rev-parse HEAD` failed.
- */
-function emptyTreeIfUnborn(cwd: string): Promise<string | null> {
-  const run = (args: string[]) =>
-    new Promise<string | null>((resolve) => {
-      const child = execFile("git", args, { cwd, encoding: "utf8", windowsHide: true, timeout: 10_000 }, (error, stdout) => {
-        resolve(error ? null : stdout.trim());
-      });
-      child.stdin?.end();
-    });
-  return run(["rev-parse", "--git-dir"]).then((gitDir) =>
-    gitDir === null ? null : run(["hash-object", "-t", "tree", "--stdin"]).then((id) => (id && /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(id) ? id : null)),
-  );
 }
 
 /** Lines added and removed between two texts, as a multiset difference — a pill, not a diff viewer. */

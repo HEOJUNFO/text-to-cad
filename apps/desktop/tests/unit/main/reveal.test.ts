@@ -2,6 +2,7 @@
  * `shell.showItemInFolder` takes a project, not a path: main resolves the
  * directory and refuses one that is not the project's own.
  */
+import type * as NodeFs from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -14,6 +15,17 @@ const fixture = vi.hoisted(() => ({
   sessions: [] as { projectId: string; cwd: string; worktreePath?: string }[],
 }));
 const showItemInFolder = vi.hoisted(() => vi.fn());
+// realpathSync is synchronous on main's thread and rootOf runs for every
+// stat/list/read/exists: the spy counts how often it reaches the disk.
+const realpaths = vi.hoisted(() => ({ calls: [] as string[] }));
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof NodeFs>();
+  const realpathSync = ((target: string, ...rest: unknown[]) => {
+    realpaths.calls.push(String(target));
+    return (actual.realpathSync as (...args: unknown[]) => string)(target, ...rest);
+  }) as typeof actual.realpathSync;
+  return { ...actual, realpathSync, default: { ...actual, realpathSync } };
+});
 vi.mock("@main/telemetry", () => ({ track: () => {}, fileExtension: () => "none" }));
 vi.mock("electron", () => ({ BrowserWindow: {}, dialog: {}, ipcMain: {}, shell: { showItemInFolder } }));
 vi.mock("@main/db/repositories", () => ({
@@ -25,7 +37,7 @@ vi.mock("@main/db/repositories", () => ({
   settings: { get: () => ({ worktreeRoot: fixture.worktrees }) },
   explorerTabs: {},
 }));
-import { revealProjectDirectory } from "@main/ipc/explorer";
+import { revealProjectDirectory, rootOf } from "@main/ipc/explorer";
 
 beforeAll(async () => {
   fixture.root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "reveal-")));
@@ -73,4 +85,35 @@ test("a session's recorded worktree is handed on as the session recorded it, not
   revealProjectDirectory({ projectId: "project", root: `${linked}/` });
   revealProjectDirectory({ projectId: "project", root: real });
   expect(showItemInFolder.mock.calls.map(([target]) => target)).toEqual([linked, linked, linked]);
+});
+
+test("a root spelled as recorded is matched without touching the disk; another spelling realpaths each session once", async () => {
+  const real = path.join(fixture.root, "cached-worktree");
+  const linked = path.join(fixture.root, "cached-link");
+  await fs.mkdir(real, { recursive: true });
+  await fs.symlink(real, linked);
+  const other = path.join(fixture.root, "other-worktree");
+  await fs.mkdir(other, { recursive: true });
+  fixture.sessions = [
+    { projectId: "project", cwd: other, worktreePath: other },
+    { projectId: "project", cwd: linked, worktreePath: linked },
+  ];
+
+  realpaths.calls = [];
+  expect(rootOf("project", linked)).toBe(linked);
+  expect(rootOf("project", `${linked}/`)).toBe(linked);
+  expect(realpaths.calls).toEqual([]);
+
+  // The symlink case still resolves to the recorded spelling, and the
+  // sessions' realpaths are cached by spelling across calls.
+  expect(rootOf("project", real)).toBe(linked);
+  expect(rootOf("project", real)).toBe(linked);
+  expect(realpaths.calls.filter((call) => call === linked)).toHaveLength(1);
+  expect(realpaths.calls.filter((call) => call === other)).toHaveLength(1);
+
+  // A change to the sessions invalidates: a new recorded spelling is found.
+  const moved = path.join(fixture.root, "moved-link");
+  await fs.symlink(real, moved);
+  fixture.sessions = [{ projectId: "project", cwd: moved, worktreePath: moved }];
+  expect(rootOf("project", real)).toBe(moved);
 });

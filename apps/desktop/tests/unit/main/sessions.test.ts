@@ -286,10 +286,10 @@ describe("SessionManager", () => {
   });
 
   it("marks a repository with no commits at the empty tree, so a first commit mid-session is in This session and Last turn", async () => {
-    const { head, status } = await import("@main/projects/git");
+    const { head, emptyTreeIfUnborn, status } = await import("@main/projects/git");
     const { resolveDiffScope } = await import("@shared/types");
     const { execFileSync } = await import("node:child_process");
-    const { repo, manager, cwd } = await setup({ head });
+    const { repo, manager, cwd } = await setup({ head, emptyTree: emptyTreeIfUnborn });
     const run = (...args: string[]) =>
       execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" }).trim();
     run("init", "-q");
@@ -314,9 +314,41 @@ describe("SessionManager", () => {
     expect(listed.files.map((file) => file.path)).toContain("first.txt");
   });
 
+  it("records no mark when head() fails in a repository that has commits, never the empty tree", async () => {
+    // head() answers null on any failure — a timeout, a spawn error, a ref
+    // mid-update. In a repository with commits that is not "unborn", and the
+    // empty tree would make Last turn show the whole repository.
+    const { emptyTreeIfUnborn } = await import("@main/projects/git");
+    const { execFileSync } = await import("node:child_process");
+    const { repo, manager, cwd } = await setup({ head: async () => null, emptyTree: emptyTreeIfUnborn });
+    const run = (...args: string[]) =>
+      execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" }).trim();
+    run("init", "-q");
+    await writeFile(path.join(cwd, "first.txt"), "one\n");
+    run("add", "first.txt");
+    run("commit", "-q", "-m", "first");
+
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    expect(repo.get(session.id)).toMatchObject({ sessionHead: null, turnHead: null });
+  });
+
+  it("asks for the empty tree only when head() had nothing", async () => {
+    const asked: string[] = [];
+    const { repo, manager, cwd } = await setup({
+      head: async () => "a".repeat(40),
+      emptyTree: async (directory) => {
+        asked.push(directory);
+        return null;
+      },
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    expect(repo.get(session.id)).toMatchObject({ sessionHead: "a".repeat(40) });
+    expect(asked).toEqual([]);
+  });
+
   it("records no mark outside a repository", async () => {
-    const { head } = await import("@main/projects/git");
-    const { repo, manager, cwd } = await setup({ head });
+    const { head, emptyTreeIfUnborn } = await import("@main/projects/git");
+    const { repo, manager, cwd } = await setup({ head, emptyTree: emptyTreeIfUnborn });
     const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
     expect(repo.get(session.id)).toMatchObject({ sessionHead: null, turnHead: null });
   });

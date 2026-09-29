@@ -90,6 +90,8 @@ export const attachmentRefusal = {
     `${name} is a CAD file that is not in this project, so it was not attached. Copy it into the project folder, then refer to it by its path.`,
   cadAmbiguous: (name: string, paths: readonly string[]) =>
     `${name} matches ${paths.length} files in this project (${paths.join(", ")}), so it was not attached. Type the path of the one you mean.`,
+  cadUnreadable: (name: string) =>
+    `Could not read the project folder, so ${name} was not attached. Type its path instead.`,
   cadUnconfirmed: (name: string) =>
     `${name} could not be confirmed to be in this project (it has too many files to search), so it was not attached. Type its path instead.`,
   cadStale: (name: string, paths: readonly string[]) =>
@@ -122,13 +124,15 @@ function readBytes(blob: Blob): Promise<Uint8Array | null> {
 }
 
 /** Every file path in the project (or worktree), walked once per batch of picked files. */
-type ProjectListing = { paths: string[]; truncated: boolean };
+/** A walk of the project, or `failed` when the walk itself did not run (project closed, bad root). */
+type ProjectListing = { paths: string[]; truncated: boolean; failed?: true };
 
 type Found =
   | { kind: "one"; path: string }
   | { kind: "ambiguous"; paths: string[] }
   | { kind: "stale"; paths: string[] }
   | { kind: "unconfirmed" }
+  | { kind: "failed" }
   | { kind: "outside" };
 
 /**
@@ -139,6 +143,7 @@ type Found =
  * the wrong bytes without a word. A walk that hit its cap cannot say a file is not there.
  */
 async function findInProject(file: File, scope: NonNullable<AttachScope>, listing: ProjectListing): Promise<Found> {
+  if (listing.failed) return { kind: "failed" };
   const at = { projectId: scope.projectId, ...(scope.root ? { root: scope.root } : {}) };
   const named = listing.paths.filter((path) => (path.split("/").pop() ?? path) === file.name);
   const stats = await Promise.all(named.slice(0, 20).map(async (path) => {
@@ -171,11 +176,11 @@ export type Screened = { attach: File[]; references: CadReference[]; refusals: s
 export async function screenAttachments(files: readonly File[], scope: AttachScope): Promise<Screened> {
   const result: Screened = { attach: [], references: [], refusals: [] };
   // One walk of the project for the whole batch, and only when a CAD file needs it. A walk that
-  // fails is a walk that found nothing it can vouch for.
+  // fails vouches for nothing, and says so — it is not a project with too many files.
   let listing: Promise<ProjectListing> | null = null;
   const list = (at: NonNullable<AttachScope>) => listing ??= window.textToCad.explorer
     .paths({ projectId: at.projectId, ...(at.root ? { root: at.root } : {}), path: "" })
-    .catch(() => ({ paths: [], truncated: true }));
+    .catch((): ProjectListing => ({ paths: [], truncated: false, failed: true }));
   for (const file of files) {
     if (file.type.startsWith("image/")) {
       result.attach.push(file);
@@ -187,6 +192,7 @@ export async function screenAttachments(files: readonly File[], scope: AttachSco
       else if (found.kind === "ambiguous") result.refusals.push(attachmentRefusal.cadAmbiguous(file.name, found.paths));
       else if (found.kind === "stale") result.refusals.push(attachmentRefusal.cadStale(file.name, found.paths));
       else if (found.kind === "unconfirmed") result.refusals.push(attachmentRefusal.cadUnconfirmed(file.name));
+      else if (found.kind === "failed") result.refusals.push(attachmentRefusal.cadUnreadable(file.name));
       else result.refusals.push(attachmentRefusal.cadOutside(file.name));
       continue;
     }

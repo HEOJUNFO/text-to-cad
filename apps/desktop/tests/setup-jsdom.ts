@@ -143,6 +143,7 @@ Object.defineProperty(window, "textToCad", {
         files: [],
         insertions: 0,
         deletions: 0,
+        workingFiles: 0,
       })),
       fileDiff: vi.fn(async () => null),
       unifiedDiff: vi.fn(async () => ({ patch: "" })),

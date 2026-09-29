@@ -869,6 +869,30 @@ export async function head(cwd: string): Promise<string | null> {
   return sha?.trim() || null;
 }
 
+/**
+ * The empty tree's id when `cwd` is a repository with no commits yet, and
+ * null otherwise — including whenever git cannot answer.
+ *
+ * `head()` answers null on any failure (a timeout, a spawn error, a ref
+ * mid-update), so its null alone does not mean "unborn": marking the empty
+ * tree in a repository that has commits would make `Last turn` the whole
+ * repository. Unborn is proved instead: HEAD is a symbolic ref, and the ref it
+ * names does not resolve. The id is asked of git (`hash-object` without `-w`
+ * writes nothing) so a SHA-256 repository answers in its own format.
+ */
+export async function emptyTreeIfUnborn(cwd: string): Promise<string | null> {
+  const [symbolic, verified] = await Promise.all([
+    tryGit(cwd, ["symbolic-ref", "-q", "HEAD"]),
+    tryGit(cwd, ["rev-parse", "--verify", "-q", "HEAD"]),
+  ]);
+  if (symbolic === null || verified !== null) {
+    return null;
+  }
+  const result = await tracked(execa("git", ["hash-object", "-t", "tree", "--stdin"], { ...GIT_OPTIONS, cwd, input: "" })).catch(() => null);
+  const id = result && !result.failed && result.exitCode === 0 && typeof result.stdout === "string" ? result.stdout.trim() : "";
+  return /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(id) ? id : null;
+}
+
 /** Whether anything is uncommitted — the check `removeWorktree` refuses on. */
 export async function isDirty(cwd: string): Promise<boolean> {
   const porcelain = await tryGit(cwd, [
