@@ -91,12 +91,30 @@ it("Cmd+W from inside the tab's body hands focus to the tab selected next, not t
     const activeId = useExplorer((state) => state.activeId);
     return activeId ? <input aria-label={`Body of ${activeId}`} key={activeId} /> : null;
   }
-  render(<TooltipProvider><TabStrip /><Body /></TooltipProvider>);
+  render(<TooltipProvider><TabStrip /><div id={EXPLORER_TABPANEL_ID}><Body /></div></TooltipProvider>);
   screen.getByRole("textbox", { name: "Body of b" }).focus();
   act(() => useExplorer.getState().closeActive());
   const selected = useExplorer.getState().activeId!;
   expect(selected).not.toBe("b");
   await waitFor(() => expect(document.querySelector(`[data-tab="${selected}"]`)).toHaveFocus());
+});
+
+it("a tab that goes while the person is elsewhere — transcript text clicked, then an agent's close_tab or a session switch — takes no focus", async () => {
+  const user = userEvent.setup();
+  render(<TooltipProvider><TabStrip /><p>The agent's words</p></TooltipProvider>);
+  // The person was in the strip, then clicked the transcript: focus is the page's.
+  screen.getAllByRole("tab")[1]!.focus();
+  await user.click(screen.getByText("The agent's words"));
+  expect(document.activeElement).toBe(document.body);
+
+  act(() => useExplorer.getState().close("a"));
+  expect(useExplorer.getState().tabs.map((candidate) => candidate.id)).toEqual(["b", "c"]);
+  await act(async () => {});
+  expect(document.activeElement).toBe(document.body);
+
+  act(() => useExplorer.setState({ tabs: [tab("d", "d.md", 0)], activeId: "d" }));
+  await act(async () => {});
+  expect(document.activeElement).toBe(document.body);
 });
 
 it("draws the Terminal shortcut's backtick as a keycap and names it, not as a hairline beside ⌃", async () => {

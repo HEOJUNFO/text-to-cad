@@ -177,13 +177,31 @@ export function TabStrip() {
   // However a tab closes — its close button, Cmd+W, Delete — a close that took the focused
   // element with it (the button, or Monaco or a terminal in its body) leaves focus on the page,
   // where no key reaches the strip. It goes to the tab selected next, or to `+` when none is left.
-  // Focus that is anywhere else — the composer — is not taken.
+  // Focus that is anywhere else — the composer — is not taken, and neither is the page's own:
+  // only while the person was last in the strip or the tab's body. A click on transcript text
+  // also leaves focus on the page, and a session switch or an agent's close_tab after it must
+  // not pull focus across the window.
+  const inside = useRef(false);
+  useEffect(() => {
+    const note = (event: Event) => {
+      const target = event.target instanceof Node ? event.target : null;
+      // A menu is portaled out of the strip; the strip's own menus close tabs too.
+      if (!target || (target instanceof Element && target.closest("[role=menu]"))) return;
+      inside.current = Boolean(stripRef.current?.contains(target) || document.getElementById(EXPLORER_TABPANEL_ID)?.contains(target));
+    };
+    document.addEventListener("focusin", note, true);
+    document.addEventListener("pointerdown", note, true);
+    return () => {
+      document.removeEventListener("focusin", note, true);
+      document.removeEventListener("pointerdown", note, true);
+    };
+  }, []);
   const shownIds = useRef(tabs.map((tab) => tab.id));
   useEffect(() => {
     const ids = tabs.map((tab) => tab.id);
     const closed = shownIds.current.some((id) => !ids.includes(id));
     shownIds.current = ids;
-    if (!closed || (document.activeElement && document.activeElement !== document.body)) return;
+    if (!closed || !inside.current || (document.activeElement && document.activeElement !== document.body)) return;
     // The tab's own onFocus records it as the strip's Tab stop.
     if (activeId && ids.includes(activeId)) stripRef.current?.querySelector<HTMLElement>(`[data-tab="${CSS.escape(activeId)}"]`)?.focus();
     else newTabRef.current?.focus();
