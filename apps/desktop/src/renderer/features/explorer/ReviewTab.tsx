@@ -132,10 +132,20 @@ function ReviewBody({
   );
 
   const [status, setStatus] = useState<GitStatus | null>(null);
-  // Counts the answers that landed. An open section's diff was read against
-  // one of them; a newer answer — a batch of file changes, Refresh, the turn
-  // mark moving — means the diff it shows may be older than the counts above it.
-  const [revision, setRevision] = useState(0);
+  // Per file, the answer its diff has to be at least as new as. A file's
+  // stamp moves only when that answer says something new about it — its
+  // entry changed, the watcher saw it written, Refresh or a new scope asked
+  // for everything — so an agent writing one file does not re-read the diff
+  // of every open section (`fileStamps`).
+  const [stamps, setStamps] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const answers = useRef(0);
+  const entries = useRef(new Map<string, string>());
+  const written = useRef(new Set<string>());
+  const everything = useRef(true);
+  // Status reads while writes stream: the first at once, then at most one
+  // per STATUS_GAP_MS, the last batch always answered.
+  const lastBatchRead = useRef(Number.NEGATIVE_INFINITY);
+  const trailingRead = useRef<number | null>(null);
   // A read that failed: git's own words, shown with a retry. Not the same as
   // `isRepository: false`, which is an answer — this is the absence of one.
   const [error, setError] = useState<string | null>(null);
@@ -155,6 +165,7 @@ function ReviewBody({
   // and answer in any order. Only the latest one asked is allowed to land, so
   // an older, slower answer cannot replace a newer one.
   const latestRead = useRef(0);
+  const stampsRef = useRef<ReadonlyMap<string, number>>(new Map());
   // Opening the top files is owed by the first read even when a later read
   // supersedes it; the read that lands pays it.
   const owesOpenTop = useRef(false);
@@ -163,13 +174,25 @@ function ReviewBody({
     (openTop: boolean) => {
       const sequence = ++latestRead.current;
       if (openTop) owesOpenTop.current = true;
+      if (openTop) everything.current = true;
       // One read per refresh, whatever the scope: the answer carries the
       // working tree's file count for the commit button (`workingFiles`).
       return window.textToCad.git.status({ ...request, scope: diffScopeFor(scope) }).then(
         (next) => {
           if (sequence !== latestRead.current) return;
           setStatus(next);
-          setRevision((current) => current + 1);
+          answers.current += 1;
+          const nextStamps = fileStamps(next.files, {
+            answer: answers.current,
+            entries: entries.current,
+            stamps: stampsRef.current,
+            written: written.current,
+            everything: everything.current,
+          });
+          everything.current = false;
+          written.current = new Set();
+          stampsRef.current = nextStamps;
+          setStamps(nextStamps);
           setError(null);
           setLoading(false);
           if (owesOpenTop.current) {
@@ -210,18 +233,33 @@ function ReviewBody({
    * survive it. `git status` on a large repository is tens of milliseconds and
    * the watcher already batches.
    */
-  useEffect(
-    () =>
-      useExplorer.subscribe((state, previous) => {
-        if (state.fsRevision !== previous.fsRevision) {
-          void read(false);
-        }
-      }),
-    [read],
-  );
+  useEffect(() => {
+    const unsubscribe = useExplorer.subscribe((state, previous) => {
+      if (state.fsRevision === previous.fsRevision) return;
+      for (const change of state.changedEntries) {
+        written.current.add(change.path);
+        if (change.kind === "moved") written.current.add(change.previousPath);
+      }
+      if (trailingRead.current !== null) return;
+      const go = () => {
+        trailingRead.current = null;
+        lastBatchRead.current = Date.now();
+        void read(false);
+      };
+      const wait = lastBatchRead.current + STATUS_GAP_MS - Date.now();
+      if (wait <= 0) go();
+      else trailingRead.current = window.setTimeout(go, wait);
+    });
+    return () => {
+      unsubscribe();
+      if (trailingRead.current !== null) window.clearTimeout(trailingRead.current);
+      trailingRead.current = null;
+    };
+  }, [read]);
 
   const refresh = useCallback(() => {
     setLoading(true);
+    everything.current = true;
     void read(false);
   }, [read]);
 
@@ -416,7 +454,7 @@ function ReviewBody({
                   }
                 }}
                 request={request}
-                revision={revision}
+                revision={stamps.get(file.path) ?? 0}
                 root={target?.cwd ?? null}
                 scope={scope}
               />
@@ -441,6 +479,41 @@ function ReviewBody({
 // the working tree (`fromStart`).
 // Each sentence is written for its scope rather than built around the menu's label: a label is a
 // name, and "so This session is measured…" reads as one pasted into the middle of a sentence.
+/** The shortest gap between two status reads that batches of file changes ask for. */
+const STATUS_GAP_MS = 500;
+
+/**
+ * Each file's stamp for a new status answer: the answer's own number when
+ * something about the file is new — its entry (status, counts, old path)
+ * differs from the last answer's, the watcher reported it written since, or
+ * everything is asked for — and the stamp it had otherwise. `entries` is
+ * updated in place to this answer's.
+ */
+function fileStamps(
+  files: readonly ChangedFile[],
+  at: {
+    answer: number;
+    entries: Map<string, string>;
+    stamps: ReadonlyMap<string, number>;
+    written: ReadonlySet<string>;
+    everything: boolean;
+  },
+): ReadonlyMap<string, number> {
+  const next = new Map<string, number>();
+  const seen = new Map<string, string>();
+  for (const file of files) {
+    const entry = JSON.stringify([file.status, file.insertions, file.deletions, file.oldPath ?? null, file.binary]);
+    seen.set(file.path, entry);
+    const previous = at.stamps.get(file.path);
+    const fresh = at.everything || previous === undefined || at.entries.get(file.path) !== entry
+      || at.written.has(file.path) || (file.oldPath !== undefined && at.written.has(file.oldPath));
+    next.set(file.path, fresh ? at.answer : previous);
+  }
+  at.entries.clear();
+  for (const [path, entry] of seen) at.entries.set(path, entry);
+  return next;
+}
+
 function unmarkedDescription(which: "turn" | "session"): string {
   return which === "turn"
     ? "A turn is measured from the prompt that starts it, so there is nothing to show until the next one. The working tree's changes are under “All changes”."
@@ -527,7 +600,7 @@ function FileSection({
   file: ChangedFile;
   request: ReviewRequest;
   scope: ReviewScope;
-  /** The status answer this section belongs to: a newer one re-reads an open diff. */
+  /** The status answer this file's diff must be read for: a newer one re-reads it when open. */
   revision: number;
   open: boolean;
   onToggle: () => void;
