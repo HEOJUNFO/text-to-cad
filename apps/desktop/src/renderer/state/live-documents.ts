@@ -1,3 +1,4 @@
+import { movedFilePath } from '@text-to-cad/ui/file-viewer';
 import type { DocumentDrafts, LiveTextDocument, LivePdfDocument, ViewerHost, TextDraft, LiveTextSnapshot, LivePdfSnapshot } from '@text-to-cad/ui/host';
 
 export interface LiveDocumentScope { projectId: string; root: string | null; path?: string | null }
@@ -28,6 +29,34 @@ export function desktopLiveDocuments(tabId: string, scope: LiveDocumentScope): P
     const release = bind(pdf, tabId, scope, target);
     return () => { if (pdf.get(tabId)?.target === target) inactivePdf.set(tabId, { ...scope, sourceId: target.sourceId, path: target.path, target: target.state() }); release(); };
   } } };
+}
+/** The FileSource id a desktop file tab's drafts and bindings are keyed by. */
+export function desktopSourceId(projectId: string, root: string | null): string {
+  return JSON.stringify(['desktop', projectId, root]);
+}
+/**
+ * A file or folder moved: every tab's draft and inactive snapshot follows it.
+ * A mounted view carries its own draft across (useFileDocument), but a tab
+ * that is not mounted — another tab of this session, any tab of another —
+ * only has its path rewritten by the store; a draft left under the old name
+ * is edits the tab no longer shows and a close that is refused forever.
+ */
+export function moveDocuments(sourceId: string, from: string, to: string): void {
+  for (const [key, draft] of [...retained]) {
+    const [tabId, source, path] = JSON.parse(key) as [string, string, string];
+    const moved = source === sourceId ? movedFilePath(path, from, to) : path;
+    if (moved === path) continue;
+    const next = JSON.stringify([tabId, source, moved]);
+    retained.delete(key); retained.set(next, draft);
+    const owned = draftOwners.get(tabId);
+    if (owned?.delete(key)) owned.add(next);
+  }
+  for (const map of [inactiveText, inactivePdf] as Map<string, { sourceId: string; path: string }>[]) {
+    for (const [tabId, binding] of map) {
+      const moved = binding.sourceId === sourceId ? movedFilePath(binding.path, from, to) : binding.path;
+      if (moved !== binding.path) map.set(tabId, { ...binding, path: moved });
+    }
+  }
 }
 /** Close is a host workflow: never silently drop an unsaved live or retained draft. */
 export function hasDirtyDocument(tabId: string): boolean {

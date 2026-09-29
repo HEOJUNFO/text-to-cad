@@ -1,7 +1,7 @@
 import { FILE_PANEL_TREE, PANEL_DEFAULT_WIDTH, clampPanelWidth } from "@text-to-cad/ui/navigation";
 import { create } from "zustand";
 import { toast } from "sonner";
-import { hasDirtyDocument, releaseDocumentTab, discardDocumentTab } from "./live-documents";
+import { desktopSourceId, hasDirtyDocument, moveDocuments, releaseDocumentTab, discardDocumentTab } from "./live-documents";
 import { releaseCadTab } from "./live-cad";
 import { forgetTabStore } from "@renderer/features/explorer/adapters/tabStore";
 
@@ -720,6 +720,7 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
       return true;
     });
     if (!changes.length) return;
+    for (const change of changes) if (change.kind === "moved") moveDocuments(desktopSourceId(projectId, root), change.previousPath, change.path);
     for (const [sessionId, strip] of retainedStrips) {
       if (sessionId === get().sessionId || !strip.tabs.some(tab => tab.projectId === projectId)) continue;
       let changed = false;

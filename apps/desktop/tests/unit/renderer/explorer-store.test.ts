@@ -11,7 +11,7 @@ vi.mock("@renderer/state/live-documents", async (importOriginal) => {
 });
 
 import { toast } from "sonner";
-import { hasDirtyDocument } from "@renderer/state/live-documents";
+import { desktopLiveDocuments, hasDirtyDocument } from "@renderer/state/live-documents";
 import type * as LiveDocuments from "@renderer/state/live-documents";
 
 import { PersistedExplorerTabSchema } from "@shared/types";
@@ -470,6 +470,23 @@ describe("the explorer strip", () => {
     expect(useExplorer.getState().changedRoot).toBeNull();
     useExplorer.getState().receiveChanges(PROJECT, "/wt/slug", [{ kind: "changed", path: "b.txt", directory: false }]);
     expect(useExplorer.getState().changedRoot).toBe("/wt/slug");
+  });
+
+  it("carries an unmounted tab's draft to the file's new name", () => {
+    const tab = useExplorer.getState().open("file", { path: "old.txt" })!;
+    const drafts = desktopLiveDocuments(tab.id, { projectId: PROJECT, root: null }).documents!.drafts;
+    // The id the tab's FileSource carries (adapters/fileSource.ts).
+    const source = JSON.stringify(["desktop", PROJECT, null]);
+    drafts.put(source, "old.txt", { base: { content: "base", revision: "r1" }, value: "unsaved", stale: false });
+
+    // No view is mounted, so only the store sees the rename.
+    useExplorer.getState().receiveChanges(PROJECT, null, [{ kind: "moved", previousPath: "old.txt", path: "new.txt", directory: false }]);
+    expect(useExplorer.getState().tabs.find((candidate) => candidate.id === tab.id)).toMatchObject({ path: "new.txt" });
+    expect(drafts.get(source, "new.txt")).toMatchObject({ value: "unsaved" });
+
+    // The view that mounts under the new name saves, and the tab closes clean.
+    drafts.put(source, "new.txt", null);
+    expect(hasDirtyDocument(tab.id)).toBe(false);
   });
 
   /**
