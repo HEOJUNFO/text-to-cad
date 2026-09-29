@@ -29,6 +29,7 @@ import { emptyTreeIfUnborn, head, isUnder, samePath } from "../projects/git";
 import { releaseWorkspace, resolveWorkspace } from "../projects/workspace";
 import { pruneProjectWorktrees } from "./git";
 import { browserService } from "../browser/service";
+import { clearBrowserSessionStorage } from "../browser/storage";
 import { explorerTerminals } from "./explorer";
 
 /**
@@ -200,6 +201,9 @@ export const acpHandlers = {
             forgetCadSession(id, row?.worktreePath ?? null);
           },
         });
+        // Delete, unlike archive, takes the session's logins, cookies, cache
+        // and browser artifacts with it — once the row is certainly gone.
+        void clearBrowserSessionStorage(id);
       }),
   },
 } satisfies IpcHandlers<typeof acpContract, IpcContext>;

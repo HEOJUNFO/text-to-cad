@@ -1,16 +1,16 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { type BrowserWindow, WebContentsView } from "electron";
 import { browserMethodSchemas, type BrowserInput, type BrowserMethod, type BrowserTarget } from "../../shared/browser";
 import { browserHarness } from "./harness";
+import { browserPartition, browserScopeKey, type BrowserScope } from "./storage";
 
-export type BrowserScope = { sessionId: string; projectId: string; root: string };
+export { browserScopeKey, type BrowserScope };
 type Target = {
   scope: BrowserScope; id: string; view: WebContentsView; harness: ReturnType<typeof browserHarness>;
   owner?: BrowserWindow; lease?: string; generation: number; visible: boolean; ready: Promise<void>; logs: BrowserTarget["logs"];
 };
 export type BrowserBounds = { x: number; y: number; width: number; height: number };
-export function browserScopeKey(scope: BrowserScope) { return JSON.stringify([scope.sessionId, scope.projectId, scope.root]); }
 export function browserURL(value: string) {
   const url = new URL(value);
   if (url.protocol !== "http:" && url.protocol !== "https:" && value !== "about:blank") {
@@ -23,6 +23,10 @@ export function browserURL(value: string) {
 export class BrowserService {
   readonly events = new EventEmitter();
   private targets = new Map<string, Target>();
+  /** App windows whose own reload/crash hides the pages they present. */
+  private readonly watchedOwners = new WeakSet<BrowserWindow>();
+  /** Storage partitions that already refuse downloads. */
+  private readonly guardedPartitions = new WeakSet<Electron.Session>();
   private get(scope: BrowserScope, id: string) {
     const target = this.targets.get(id);
     if (!target || browserScopeKey(target.scope) !== browserScopeKey(scope) || target.view.webContents.isDestroyed()) {
@@ -30,11 +34,15 @@ export class BrowserService {
     }
     return target;
   }
-  private info(target: Target): BrowserTarget {
+  private info(target: Target, logs = true): BrowserTarget {
     const wc = target.view.webContents;
     return { tabId: target.id, ...target.scope, url: wc.getURL(), generation: target.generation, title: wc.getTitle(), loading: wc.isLoading(),
       canGoBack: wc.navigationHistory.canGoBack(), canGoForward: wc.navigationHistory.canGoForward(),
-      visible: target.visible, logs: [...target.logs] };
+      visible: target.visible, logs: logs ? [...target.logs] : [], errors: target.logs.filter(line => line.level === "error").length };
+  }
+  private log(target: Target, level: BrowserTarget["logs"][number]["level"], message: string) {
+    target.logs.push({ level, message: message.slice(0, 1000) });
+    target.logs = target.logs.slice(-100);
   }
   list(scope: BrowserScope) {
     return [...this.targets.values()].filter(t => browserScopeKey(t.scope) === browserScopeKey(scope)).map(t => this.info(t));
@@ -45,7 +53,7 @@ export class BrowserService {
     const existing = this.targets.get(id);
     if (existing) { const target = this.get(scope, id); await target.ready; return this.info(this.get(scope, id)); }
     const url = browserURL(params.url || "about:blank");
-    const partition = `persist:browser-${createHash("sha256").update(browserScopeKey(scope)).digest("hex")}`;
+    const partition = browserPartition(scope);
     const view = new WebContentsView({ webPreferences: {
       partition, nodeIntegration: false, contextIsolation: true, sandbox: true,
       webSecurity: true, backgroundThrottling: false, spellcheck: false,
@@ -56,6 +64,7 @@ export class BrowserService {
     const wc = view.webContents;
     wc.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     wc.session.setPermissionCheckHandler(() => false);
+    this.refuseDownloads(wc.session);
     // No unmanaged windows or privileged scheme navigations may escape the root.
     wc.setWindowOpenHandler(({ url: popupURL }) => {
       try { void wc.loadURL(browserURL(popupURL)).catch(() => {}); } catch { /* blocked scheme */ }
@@ -64,13 +73,12 @@ export class BrowserService {
     const guard = (event: Electron.Event, nextURL: string) => {
       try { browserURL(nextURL); } catch { event.preventDefault(); }
     };
-    wc.on("did-start-navigation", (_event, _url, _inPlace, isMainFrame) => { if (isMainFrame) target.generation += 1; });
+    // A new document, not a pushState or fragment change: a single-page app
+    // moving its own history keeps the generation "Add to prompt" captured.
+    wc.on("did-start-navigation", details => { if (details.isMainFrame && !details.isSameDocument) target.generation += 1; });
     wc.on("will-navigate", guard);
     wc.on("will-redirect", guard);
-    wc.on("console-message", (_event, level, message) => {
-      target.logs.push({ level: level >= 3 ? "error" : level === 2 ? "warn" : "log", message: message.slice(0, 1000) });
-      target.logs = target.logs.slice(-100);
-    });
+    wc.on("console-message", (_event, level, message) => { this.log(target, level >= 3 ? "error" : level === 2 ? "warn" : "log", message); });
     wc.on("destroyed", () => { this.targets.delete(id); this.events.emit("closed", { ...scope, tabId: id }); });
     this.events.emit("opened", { ...scope, tabId: id });
     target.ready = (async () => {
@@ -83,7 +91,7 @@ export class BrowserService {
       } catch (error) {
         // Keep Chromium's error page reachable and closeable after a failed navigation.
         if (wc.isDestroyed()) throw error;
-        target.logs.push({ level: "error", message: error instanceof Error ? error.message : String(error) });
+        this.log(target, "error", error instanceof Error ? error.message : String(error));
       } finally { clearTimeout(timer); }
     })();
     await target.ready;
@@ -101,6 +109,7 @@ export class BrowserService {
       target.owner = owner;
       owner.contentView.addChildView(target.view);
       owner.once("closed", () => { if (this.targets.get(id) === target && target.owner === owner) this.close(scope, id); });
+      this.watchOwner(owner);
     }
     const zoom = owner.webContents.getZoomFactor();
     target.view.setBounds({ x: Math.round(bounds.x * zoom), y: Math.round(bounds.y * zoom),
@@ -108,6 +117,43 @@ export class BrowserService {
     target.lease = lease;
     target.visible = true;
     target.view.setVisible(true);
+  }
+  /**
+   * A reloaded or crashed app renderer has no browser tab mounted to hide its
+   * pages, and a native view paints over whatever the new document shows. So
+   * the owner's own reload hides every page it presented; the remounted tab
+   * presents it again under a fresh lease.
+   */
+  private watchOwner(owner: BrowserWindow) {
+    if (this.watchedOwners.has(owner)) return;
+    this.watchedOwners.add(owner);
+    const hideAll = () => {
+      for (const target of this.targets.values()) if (target.owner === owner) { target.lease = undefined; this.hide(target); }
+    };
+    owner.webContents.on("did-start-loading", hideAll);
+    owner.webContents.on("render-process-gone", hideAll);
+  }
+  /**
+   * A download from a page — an agent's click in a background session
+   * included — would otherwise open the native save dialog over whatever the
+   * person is doing. It is cancelled and reported in that page's console.
+   */
+  private refuseDownloads(partition: Electron.Session) {
+    if (this.guardedPartitions.has(partition)) return;
+    this.guardedPartitions.add(partition);
+    partition.on("will-download", (event, item, contents) => {
+      event.preventDefault();
+      const target = [...this.targets.values()].find(candidate => candidate.view.webContents === contents);
+      if (target) this.log(target, "warn", `Download blocked: ${item.getFilename() || item.getURL()}. text-to-cad's browser does not save downloads.`);
+    });
+  }
+  /** Reload the embedded page that has keyboard focus. False when none has: then the key does nothing. */
+  reloadFocused(owner?: BrowserWindow | null) {
+    const target = [...this.targets.values()].find(candidate => candidate.visible && (!owner || candidate.owner === owner)
+      && !candidate.view.webContents.isDestroyed() && candidate.view.webContents.isFocused());
+    if (!target) return false;
+    target.view.webContents.reload();
+    return true;
   }
   private hide(target: Target) {
     target.visible = false;
@@ -183,7 +229,7 @@ export class BrowserService {
     return { base64, mimeType: expected.kind === "screenshot" ? "image/png" : "text/plain", url: expected.url, generation: expected.generation };
   }
   clearConsole(scope: BrowserScope, id: string) { this.get(scope, id).logs = []; }
-  metadata(scope: BrowserScope, id: string) { return this.info(this.get(scope, id)); }
+  metadata(scope: BrowserScope, id: string, logs = true) { return this.info(this.get(scope, id), logs); }
   private async input(target: Target, input: BrowserInput) {
     const h = target.harness;
     if (input.action === "click" || input.action === "point") {

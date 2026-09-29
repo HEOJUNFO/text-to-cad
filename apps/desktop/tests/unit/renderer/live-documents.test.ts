@@ -69,3 +69,18 @@ test('two sessions opening the same resource retain independent unsaved buffers'
   expect(b.documents!.drafts.get('same-root', 'same.txt')?.value).toBe('B unsaved');
   discardDocumentTab('session-b-tab');
 });
+
+test('a reload or close with an unsaved draft anywhere is refused; main turns that into a question', () => {
+  const unload = () => { const event = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; };
+  expect(unload()).toBe(false);
+  const bindings = desktopLiveDocuments('unload-tab', { projectId: 'project', root: null });
+  let snapshot: LiveTextSnapshot = { content: 'draft', revision: 'live', dirty: true, readOnly: false, stale: false };
+  const release = bindings.documents!.bind({ sourceId: 'root', path: 'draft.txt', read: () => snapshot, replace: () => snapshot, save: async () => ({ status: 'unavailable' }) });
+  expect(unload()).toBe(true);
+  release();
+  // Unmounted, the retained snapshot still holds the unsaved text.
+  expect(unload()).toBe(true);
+  snapshot = { ...snapshot, dirty: false };
+  discardDocumentTab('unload-tab');
+  expect(unload()).toBe(false);
+});

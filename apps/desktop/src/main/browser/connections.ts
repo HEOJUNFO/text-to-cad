@@ -1,10 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { createHash } from "node:crypto";
 import type { ActionDeps, RendererCommands } from "../integrations/actions";
 import type { BridgeSession } from "../integrations/mcp-bridge";
 import { browserService, type BrowserService } from "./service";
 import { ScopedBrowserCdp } from "./cdp";
+import { browserSessionKey } from "./storage";
 
 /** Session lifetime and renderer-owned tabs are the only app-specific pieces. */
 export class BrowserConnections {
@@ -43,7 +43,7 @@ export class BrowserConnections {
     const endpoint = await pending;
     if (this.entries.get(session.sessionId) !== pending) throw new Error("Browser session authorization changed.");
     signal?.throwIfAborted();
-    const outputDir = path.join(this.artifacts, createHash("sha256").update(session.sessionId).digest("hex"));
+    const outputDir = path.join(this.artifacts, browserSessionKey(session.sessionId));
     await fs.mkdir(outputDir, { recursive: true });
     return { endpoint: await endpoint.start(), root, outputDir };
   }

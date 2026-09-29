@@ -1,0 +1,111 @@
+/**
+ * BrowserService against a fake Electron: the lifetime seams that do not need
+ * Chromium — hiding pages when their app window reloads or crashes, what
+ * counts as a new page for "Add to prompt", download refusal and Cmd+R.
+ * Chromium's side is `tests/e2e/browser-service.spec.ts`.
+ */
+import { EventEmitter } from "node:events";
+import { beforeEach, expect, it, vi } from "vitest";
+
+const electron = await vi.hoisted(async () => {
+  const { EventEmitter } = await import("node:events");
+  const sessions = new Map<string, InstanceType<typeof EventEmitter>>();
+  const partitionSession = (partition: string) => {
+    const session = sessions.get(partition) ?? Object.assign(new EventEmitter(), { setPermissionRequestHandler: () => {}, setPermissionCheckHandler: () => {} });
+    sessions.set(partition, session);
+    return session;
+  };
+  class FakeContents extends EventEmitter {
+    url = "about:blank"; focused = false; destroyed = false;
+    reload = vi.fn(); focus = vi.fn();
+    navigationHistory = { canGoBack: () => false, canGoForward: () => false };
+    constructor(public session: InstanceType<typeof EventEmitter>) { super(); }
+    setWindowOpenHandler() {}
+    async loadURL(url: string) { this.url = url; }
+    getURL() { return this.url; } getTitle() { return ""; } isLoading() { return false; }
+    isDestroyed() { return this.destroyed; } isFocused() { return this.focused; }
+    close() { this.destroyed = true; this.emit("destroyed"); }
+    stop() {}
+  }
+  class WebContentsView {
+    webContents: FakeContents;
+    setBounds = vi.fn(); setVisible = vi.fn();
+    constructor(options: { webPreferences: { partition: string } }) { this.webContents = new FakeContents(partitionSession(options.webPreferences.partition)); }
+  }
+  return { sessions, FakeContents, WebContentsView };
+});
+vi.mock("electron", () => ({ WebContentsView: electron.WebContentsView, app: {}, session: {} }));
+import { BrowserService } from "@main/browser/service";
+import { browserSessionKey } from "@main/browser/storage";
+
+type Contents = InstanceType<typeof electron.FakeContents>;
+const scope = { sessionId: "session-a", projectId: "project", root: "/work" };
+const bounds = { x: 10, y: 20, width: 300, height: 200 };
+function owner() {
+  const webContents = Object.assign(new EventEmitter(), { getZoomFactor: () => 1, focus: vi.fn() });
+  return Object.assign(new EventEmitter(), { webContents, isDestroyed: () => false, contentView: { addChildView: vi.fn(), removeChildView: vi.fn() } }) as unknown as Electron.BrowserWindow & { webContents: EventEmitter };
+}
+let service: BrowserService;
+beforeEach(() => { service = new BrowserService(); electron.sessions.clear(); });
+const contents = (tabId: string) => service.contents(scope, tabId) as unknown as Contents;
+
+it("hides every page an app window presented when that window reloads or its renderer dies", async () => {
+  const window = owner();
+  await service.open(scope, { tabId: "one", url: "https://example.com/" });
+  await service.open(scope, { tabId: "two", url: "https://example.com/two" });
+  service.present(scope, "one", window, "lease-1", bounds);
+  expect(service.metadata(scope, "one").visible).toBe(true);
+  window.webContents.emit("did-start-loading");
+  expect(service.metadata(scope, "one").visible).toBe(false);
+  // The remounted tab presents again under a new lease.
+  service.present(scope, "two", window, "lease-2", bounds);
+  expect(service.metadata(scope, "two").visible).toBe(true);
+  window.webContents.emit("render-process-gone", {}, { reason: "crashed" });
+  expect(service.metadata(scope, "two").visible).toBe(false);
+  // A stale lease's cleanup after the reload cannot hide a newer presentation.
+  service.present(scope, "two", window, "lease-3", bounds);
+  service.present(scope, "two", window, "lease-2", null);
+  expect(service.metadata(scope, "two").visible).toBe(true);
+});
+
+it("counts a new document, not a pushState or fragment change, as a page change", async () => {
+  await service.open(scope, { tabId: "spa", url: "https://example.com/" });
+  const start = service.metadata(scope, "spa").generation;
+  contents("spa").emit("did-start-navigation", { isMainFrame: true, isSameDocument: true });
+  contents("spa").emit("did-start-navigation", { isMainFrame: false, isSameDocument: false });
+  expect(service.metadata(scope, "spa").generation).toBe(start);
+  contents("spa").emit("did-start-navigation", { isMainFrame: true, isSameDocument: false });
+  expect(service.metadata(scope, "spa").generation).toBe(start + 1);
+});
+
+it("cancels downloads instead of opening a save dialog, and says so in the page's console", async () => {
+  await service.open(scope, { tabId: "dl", url: "https://example.com/" });
+  const partition = contents("dl").session;
+  expect(partition.listenerCount("will-download")).toBe(1);
+  await service.open(scope, { tabId: "dl-2", url: "https://example.com/" });
+  expect(partition.listenerCount("will-download")).toBe(1);
+  const event = { preventDefault: vi.fn() };
+  partition.emit("will-download", event, { getFilename: () => "report.zip", getURL: () => "https://example.com/report.zip" }, contents("dl"));
+  expect(event.preventDefault).toHaveBeenCalled();
+  expect(service.metadata(scope, "dl").logs.at(-1)).toMatchObject({ level: "warn", message: expect.stringContaining("report.zip") });
+  expect(service.metadata(scope, "dl", false)).toMatchObject({ logs: [], errors: 0 });
+});
+
+it("names each partition after its session so a deleted session's storage can be found", async () => {
+  await service.open(scope, { tabId: "p1", url: "https://example.com/" });
+  await service.open({ ...scope, sessionId: "session-b" }, { tabId: "p2", url: "https://example.com/" });
+  const [first, second] = [...electron.sessions.keys()];
+  expect(first).toMatch(new RegExp(`^persist:browser-${browserSessionKey("session-a")}-[0-9a-f]{32}$`));
+  expect(second).toMatch(new RegExp(`^persist:browser-${browserSessionKey("session-b")}-[0-9a-f]{32}$`));
+});
+
+it("reloads only the focused, presented page", async () => {
+  const window = owner();
+  await service.open(scope, { tabId: "r", url: "https://example.com/" });
+  expect(service.reloadFocused(window)).toBe(false);
+  service.present(scope, "r", window, "lease", bounds);
+  expect(service.reloadFocused(window)).toBe(false);
+  contents("r").focused = true;
+  expect(service.reloadFocused(window)).toBe(true);
+  expect(contents("r").reload).toHaveBeenCalledTimes(1);
+});

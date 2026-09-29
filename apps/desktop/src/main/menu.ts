@@ -6,16 +6,17 @@
  * menu and the keyboard shortcut and the command palette then all take the
  * same path, and only one of them can be wrong.
  */
-import { Menu, app, shell, type BrowserWindow, type MenuItemConstructorOptions } from "electron";
+import { Menu, app, dialog, shell, type BrowserWindow, type MenuItemConstructorOptions } from "electron";
 
 import type { IpcEventPayload } from "../shared/ipc";
+import { browserService } from "./browser/service";
 import { emit } from "./ipc/register";
 
 type UiCommand = IpcEventPayload<"ui.command">["command"];
 
 const REPOSITORY_URL = "https://github.com/earthtojake/text-to-cad";
 
-export function buildMenu(focusedWindow: () => BrowserWindow | null) {
+export function buildMenu(focusedWindow: () => BrowserWindow | null, packaged = app.isPackaged) {
   const send = (command: UiCommand) => () => {
     const window = focusedWindow();
     if (window) {
@@ -114,7 +115,24 @@ export function buildMenu(focusedWindow: () => BrowserWindow | null) {
         { role: "zoomOut" },
         { type: "separator" },
         { role: "togglefullscreen" },
-        { role: "reload" },
+        // Cmd+R belongs to the embedded browser page that has focus, and to
+        // nothing else: `role: "reload"` reloaded the app's own renderer from
+        // inside a browser page, dropping unsaved drafts and leaving the
+        // native pages painted over the new document.
+        {
+          label: "Reload Page",
+          accelerator: "CmdOrCtrl+R",
+          click: () => { browserService.reloadFocused(focusedWindow()); },
+        },
+        ...(packaged
+          ? []
+          : ([{
+              // Development only, on a chord nothing else uses (Mod+Shift+R
+              // opens a review tab). Unsaved drafts still ask first.
+              label: "Reload App",
+              accelerator: "CmdOrCtrl+Alt+R",
+              click: () => { focusedWindow()?.webContents.reload(); },
+            }] as MenuItemConstructorOptions[])),
         { role: "toggleDevTools" },
       ],
     },
@@ -147,4 +165,38 @@ export function buildMenu(focusedWindow: () => BrowserWindow | null) {
 
 export function installMenu(focusedWindow: () => BrowserWindow | null) {
   Menu.setApplicationMenu(buildMenu(focusedWindow));
+  // Registered here, before the first window: the menu's reload is what the
+  // renderer's unsaved-draft guard exists for.
+  app.on("before-quit", () => { quitting = true; });
+  app.on("browser-window-created", (_event, window) => guardRendererUnload(window));
+}
+
+let quitting = false;
+
+/**
+ * The renderer refuses to unload while a document has unsaved text
+ * (`src/renderer/state/live-documents.ts`). Electron would otherwise cancel
+ * the reload or close silently. While quitting, teardown has already run
+ * (`before-quit` in index.ts), so the unload always proceeds; otherwise the
+ * person decides.
+ */
+export function guardRendererUnload(window: BrowserWindow, isQuitting = () => quitting) {
+  window.webContents.on("will-prevent-unload", (event) => {
+    if (isQuitting()) {
+      event.preventDefault();
+      return;
+    }
+    const choice = dialog.showMessageBoxSync(window, {
+      type: "warning",
+      buttons: ["Discard Changes", "Cancel"],
+      defaultId: 1,
+      cancelId: 1,
+      message: "Discard unsaved changes?",
+      detail: "A document open in this window has changes that are not saved.",
+    });
+    // preventDefault on this event ignores the page's refusal: the unload goes ahead.
+    if (choice === 0) {
+      event.preventDefault();
+    }
+  });
 }

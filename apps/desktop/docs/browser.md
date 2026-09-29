@@ -13,7 +13,13 @@ workspace root. Browser tools derive all three from the authenticated session;
 UI handlers validate the session and its root. IDs cannot be reused across
 sessions, including two sessions in the same directory. Listing exposes only the
 caller's pages. Storage partitions are hashed from session ID, directory and
-root: pages in one session share storage, separate sessions do not. Background
+root, prefixed with a hash of the session ID alone
+(`persist:browser-<sha256(session)>-<scope hash>`, `browser/storage.ts`): pages in
+one session share storage, separate sessions do not. Archiving keeps a session's
+partitions and `browser-artifacts/<sha256(session)>`; deleting it clears the
+partitions' storage and cache and removes the artifacts. The first browser
+request of a run sweeps partitions and artifact directories whose session no
+longer exists. Background
 browser commands never navigate the user's session selection. A session switch
 keeps its pages alive while hiding their presentation; this costs one Chromium
 page per live tab.
@@ -71,8 +77,10 @@ Navigation permits HTTP(S) and the initial `about:blank` page. Guests have no
 Node, preload or app IPC and use sandbox/context isolation. Popups navigate their
 owning tab; permission prompts are denied until a native permission workflow is
 provided. text-to-cad owns pane size and partitions: browser resizing, installing a
-browser, creating contexts and extensions are unsupported. Playwright's download
-artifact API is not bridged; native downloads keep the host's behavior. These
+browser, creating contexts and extensions are unsupported. Playwright's download artifact API is not bridged, and both
+`Browser.` and `Page.setDownloadBehavior` are refused. Every partition cancels
+downloads (`will-download`) rather than opening a save dialog over whatever the
+person is doing; the page's console records it. These
 constraints are reported rather than implemented as successful no-ops.
 
 The stock MCP exposes JavaScript evaluation and file upload; its subprocess runs
@@ -83,7 +91,13 @@ not authorization to act on it.
 
 The native view is positioned inside the explorer content slot. Renderer chrome
 hides it while app dialogs and popover menus are open so native layers cannot
-cover the app's controls. Presentation leases prevent a stale tab's cleanup from
+cover the app's controls. Presentation is measured at most once per animation
+frame, and the metadata poll carries console lines only while the console panel
+is open; a poll the workspace refuses stops polling. When the app window's own
+document reloads or its renderer crashes, main hides every page that window
+presented until a remounted tab presents it again. Cmd+R reloads the focused
+browser page and nothing else; the app renderer has no reload accelerator in a
+packaged build, and an unload with unsaved drafts asks first. Presentation leases prevent a stale tab's cleanup from
 hiding its newer presentation. The URL, loading/navigation state and bounded
 console are read from main, including agent and page-initiated navigation.
 
@@ -93,8 +107,9 @@ The browser toolbar offers selected text and page screenshot actions. Both add a
 URL reference plus a text/PNG attachment through the same desktop prompt port
 used by files and drawings. Selection is a `.txt` attachment so native capture
 can finish asynchronously after the port has bound the tab's owner session. Capture
-checks the page URL and navigation generation before and after reading it. A
-changed page fails explicitly. Switching chats during capture cannot redirect
+checks the page URL and navigation generation before and after reading it. The
+generation counts new documents only — a single-page app's pushState or fragment
+change is not one. A changed page fails explicitly. Switching chats during capture cannot redirect
 the attachment, existing draft text is preserved, and nothing is submitted.
 Deleting or archiving the owner cancels delivery. A workspace mismatch fails
 without redirecting context into another chat.
@@ -112,4 +127,5 @@ a real ACP session and the built renderer command relay.
 partition isolation and cleanup. `explorer.spec.ts` checks the actual explorer
 and browser IPC share one page across tab/project switches and add context to the
 existing draft. Unit tests cover bridge authentication/cancellation, connection
-lifetimes, presentation leases and prompt delivery after chat switches.
+lifetimes, presentation leases, owner reload/crash hiding, download refusal,
+partition cleanup and prompt delivery after chat switches.

@@ -34,6 +34,21 @@ export function hasDirtyDocument(tabId: string): boolean {
   return Boolean(text.get(tabId)?.target.read().dirty || inactiveText.get(tabId)?.target.dirty
     || [...(draftOwners.get(tabId) ?? [])].some(key => retained.has(key)));
 }
+/** Any tab, mounted or not, holding text that is not on disk. */
+export function hasAnyDirtyDocument(): boolean {
+  return [...new Set([...text.keys(), ...inactiveText.keys(), ...draftOwners.keys()])].some(hasDirtyDocument);
+}
+/**
+ * Drafts live only in this document, so a reload or close would drop them.
+ * Refusing the unload hands the choice to main (`will-prevent-unload` in
+ * src/main/menu.ts), which asks — or, when the app is quitting, proceeds.
+ */
+function guardUnload(event: BeforeUnloadEvent) {
+  if (!hasAnyDirtyDocument()) return;
+  event.preventDefault();
+  event.returnValue = '';
+}
+if (typeof window !== 'undefined') window.addEventListener('beforeunload', guardUnload);
 export function releaseDocumentTab(tabId: string): void {
   if (hasDirtyDocument(tabId)) throw new Error('Save or explicitly discard the document before closing its tab.');
   discardDocumentTab(tabId);

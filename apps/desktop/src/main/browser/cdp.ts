@@ -206,7 +206,9 @@ export class ScopedBrowserCdp {
           if (!owned) throw new Error("Unknown browser session");
           cleanups.get(id)?.(); cleanups.delete(id); sessions.delete(id); return {};
         }
-        case "Browser.setDownloadBehavior": throw new Error("Download policy belongs to text-to-cad's browser host.");
+        // Both spellings: the deprecated Page one also takes an arbitrary downloadPath.
+        case "Browser.setDownloadBehavior":
+        case "Page.setDownloadBehavior": throw new Error("Download policy belongs to text-to-cad's browser host.");
         case "Browser.getWindowForTarget": targetId(); return { windowId: 1, bounds: { left: 0, top: 0, width: 1000, height: 700, windowState: "normal" } };
         case "Browser.setWindowBounds": throw new Error("text-to-cad owns the browser pane size; resize it in the app.");
         default:

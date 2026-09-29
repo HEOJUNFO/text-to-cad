@@ -28,7 +28,10 @@ export function BrowserTab({ sessionId, projectId, root, tabId, url }: { session
   const [adding, setAdding] = useState(false);
   const [promptStatus, setPromptStatus] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ value: string; source: string | null } | null>(null);
-  const [showConsole, setShowConsole] = useState(false);
+  // In the store, not local state: the poll only carries console lines while
+  // the panel is open.
+  const showConsole = useBrowser(state => Boolean(state.consoles[tabId]));
+  const setConsoleOpen = useBrowser(state => state.setConsoleOpen);
   const current = target?.url && target.url !== "about:blank" ? target.url : url;
   const loading = target?.loading ?? false;
   const canGoBack = target?.canGoBack ?? false;
@@ -62,7 +65,7 @@ export function BrowserTab({ sessionId, projectId, root, tabId, url }: { session
     }).catch(error => setPromptStatus(error instanceof Error ? error.message : String(error))).finally(() => setAdding(false));
   };
 
-  const errors = logs.filter((line) => line.level === "error").length;
+  const errors = target?.errors ?? logs.filter((line) => line.level === "error").length;
 
   return (
     <WebPreview className="size-full rounded-none border-0 bg-transparent">
@@ -115,7 +118,7 @@ export function BrowserTab({ sessionId, projectId, root, tabId, url }: { session
           <Camera className="size-3.5" />
         </WebPreviewNavigationButton>
         <WebPreviewNavigationButton
-          onClick={() => setShowConsole((open) => !open)}
+          onClick={() => setConsoleOpen(tabId, !showConsole)}
           tooltip={errors > 0 ? `Console (${errors} errors)` : "Console"}
         >
           <Terminal className={cn("size-3.5", errors > 0 && "text-destructive")} />
@@ -198,10 +201,16 @@ export function resolveAddress(raw: string): string | null {
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
     return value;
   }
-  // `localhost:5273`, `example.com`, `192.168.0.4/status` — an address, not a
-  // search. A bare word with no dot and no port is a search.
-  if (/^localhost(:\d+)?(\/|$)/i.test(value) || /^[\w-]+(\.[\w-]+)+(:\d+)?(\/|$)/.test(value)) {
-    return `https://${value}`.replace(/^https:\/\/localhost/, "http://localhost");
+  // `localhost:5273`, `example.com`, `192.168.0.4/status`, `devbox:8080` — an
+  // address, not a search. A bare word with no dot and no port is a search.
+  const address = /^(\[[0-9a-f:.]+\]|[\w-]+(?:\.[\w-]+)*)(:\d+)?(?=[/?#]|$)/i.exec(value);
+  const host = address?.[1]?.toLowerCase();
+  if (address && host && (host.includes(".") || host.startsWith("[") || host === "localhost" || address[2])) {
+    // A dev server, a LAN device or anything on an explicit port is almost
+    // never serving TLS; a public name is.
+    const local = host === "localhost" || host.startsWith("[") || /^\d{1,3}(\.\d{1,3}){3}$/.test(host)
+      || host.endsWith(".local") || Boolean(address[2]);
+    return `${local ? "http" : "https"}://${value}`;
   }
   return `https://duckduckgo.com/?q=${encodeURIComponent(value)}`;
 }
