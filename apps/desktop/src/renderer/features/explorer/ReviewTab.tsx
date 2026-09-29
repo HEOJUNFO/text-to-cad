@@ -632,28 +632,42 @@ function FileSection({
   const theme = useResolvedTheme();
   setupMonaco();
 
+  // One read at a time, and it is never cancelled by a newer stamp: a file
+  // written faster than its diff can be read (every status answer moves the
+  // stamp) would otherwise cancel every read and show "Reading the diff…"
+  // for as long as the writes go on. The read that lands is shown, and the
+  // stamp it is behind asks for the next (`landed`).
+  const reading = useRef(false);
+  const mounted = useRef(true);
+  const [landed, setLanded] = useState(0);
   useEffect(() => {
-    if (!open || current) {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!open || current || reading.current) {
       return;
     }
-    let cancelled = false;
+    reading.current = true;
+    const asked = revision;
     void window.textToCad.git
       .fileDiff({ ...request, path: file.path, scope: diffScopeFor(scope) })
       .then((result) => {
-        if (!cancelled) {
-          setLoaded({ diff: result, revision });
-          setFailure(null);
-        }
+        reading.current = false;
+        if (!mounted.current) return;
+        setLoaded({ diff: result, revision: asked });
+        setFailure(null);
+        setLanded((count) => count + 1);
       })
       .catch((error: unknown) => {
-        if (!cancelled) {
-          setFailure(errorMessage(error));
-        }
+        reading.current = false;
+        // No next read on its own: the failure is shown with its Retry, and
+        // a newer stamp asks again.
+        if (mounted.current) setFailure(errorMessage(error));
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, current, request, file.path, scope, revision, attempt]);
+  }, [open, current, request, file.path, scope, revision, attempt, landed]);
   const retry = () => {
     setFailure(null);
     setAttempt((count) => count + 1);
