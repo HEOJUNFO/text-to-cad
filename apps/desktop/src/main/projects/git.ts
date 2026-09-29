@@ -1141,6 +1141,11 @@ export type WorktreeInfo = {
   bare: boolean;
   detached: boolean;
   locked: boolean;
+  /**
+   * git could not find the folder (`prunable`). Not proof it was deleted: git
+   * says the same of a folder it cannot read, so `folderGone` is asked too.
+   */
+  prunable: boolean;
   /** The repository's own working tree — the one that cannot be removed. */
   primary: boolean;
 };
@@ -1173,6 +1178,7 @@ export function parseWorktreeList(output: string): WorktreeInfo[] {
         bare: false,
         detached: false,
         locked: false,
+        prunable: false,
         primary: worktrees.length === 0,
       };
       worktrees.push(current);
@@ -1191,6 +1197,8 @@ export function parseWorktreeList(output: string): WorktreeInfo[] {
       current.detached = true;
     } else if (key === "locked") {
       current.locked = true;
+    } else if (key === "prunable") {
+      current.prunable = true;
     }
   }
 
@@ -1389,8 +1397,8 @@ export async function removeWorktree(
   worktreePath: string,
   options: { force?: boolean; repoPath?: string } = {},
 ): Promise<void> {
-  const missing = await fsp.stat(worktreePath).then(() => false, () => true);
-  const root = missing && options.repoPath
+  const gone = await folderGone(worktreePath);
+  const root = gone && options.repoPath
     ? await repositoryRoot(options.repoPath)
     : await repositoryRoot(worktreePath);
   if (!root) {
@@ -1405,6 +1413,10 @@ export async function removeWorktree(
   if (target.primary) {
     throw new GitError("that is the repository itself, not a worktree");
   }
+  // Both have to agree. git's `prunable` alone is any folder it cannot see,
+  // an unreadable one included; our own ENOENT alone could be a folder that
+  // reappeared between the two reads.
+  const missing = gone && target.prunable;
   if (missing) {
     await git(root, ["worktree", "remove", target.path]);
     return;
@@ -1423,6 +1435,25 @@ export async function removeWorktree(
     }
   }
   await git(root, ["worktree", "remove", ...(options.force ? ["--force"] : []), worktreePath]);
+}
+
+/**
+ * True when a worktree's folder is not there — ENOENT, or a path through a
+ * file. Any other failure (EACCES, EIO, a volume that is not mounted) is a
+ * folder that may still hold work, and throws: reading "could not look" as
+ * "deleted by hand" is how a removal unregisters somebody's checkout.
+ */
+async function folderGone(folder: string): Promise<boolean> {
+  try {
+    await fsp.stat(folder);
+    return false;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") {
+      return true;
+    }
+    throw new GitError(`could not read that worktree's folder (${code ?? String(error)}), so it was kept`);
+  }
 }
 
 /**
@@ -1489,9 +1520,10 @@ export async function pruneWorktrees(options: PruneOptions): Promise<{ removed: 
   for (const candidate of candidates.slice(Math.max(0, options.keep))) {
     // Ignored files count as work here: `git worktree remove` deletes them.
     // So does a check that failed: only a proved-clean worktree goes — or a
-    // folder deleted by hand, which has nothing left to lose.
-    const missing = await fsp.stat(candidate.path).then(() => false, () => true);
-    if (!missing && (await hasUnsavedWork(candidate.path)) !== false) {
+    // folder deleted by hand, which has nothing left to lose. A folder that
+    // could not be read is neither, and stays.
+    const gone = await folderGone(candidate.path).catch(() => null);
+    if (gone === null || (!gone && (await hasUnsavedWork(candidate.path)) !== false)) {
       continue;
     }
     await removeWorktree(candidate.path, { repoPath: options.repoPath }).then(

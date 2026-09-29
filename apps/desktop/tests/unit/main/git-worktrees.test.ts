@@ -13,7 +13,7 @@
  * that looks like a bug in the code under test.
  */
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readdir, realpath, rm, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readdir, realpath, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -424,6 +424,27 @@ describe("removeWorktree", () => {
     // The branches stay, as for any removal.
     expect((await git_(root, "branch", "--list", gone.branch, swept.branch)).stdout).toContain(gone.branch);
   });
+
+  // Root reads through a 000 directory, so the folder would not be unreadable.
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "keeps a worktree whose folder cannot be read, rather than taking it for one deleted by hand",
+    async () => {
+      const { root, worktrees } = await repository();
+      const locked = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "unmounted" });
+      // A parent the app cannot search: `stat` fails with EACCES, the way an
+      // unmounted volume or a revoked permission fails it. git calls this
+      // `prunable` too — it cannot see the folder either.
+      await chmod(worktrees, 0o000);
+      try {
+        await expect(git.removeWorktree(locked.path, { repoPath: root })).rejects.toThrow(/could not read/);
+        expect((await git.pruneWorktrees({ repoPath: root, parentDir: worktrees, keep: 0 })).removed).toEqual([]);
+      } finally {
+        await chmod(worktrees, 0o755);
+      }
+      expect((await git.listWorktrees(root)).map((worktree) => worktree.path)).toContain(locked.path);
+      expect(await readdir(locked.path)).toContain("README.md");
+    },
+  );
 
   it("refuses the repository's own working tree", async () => {
     const { root } = await repository();
