@@ -143,6 +143,12 @@ function ReviewBody({
   );
 
   const [status, setStatus] = useState<GitStatus | null>(null);
+  // How many files a commit would take. The popover commits the whole working
+  // tree (`git add -A`), whatever scope is on screen, so its button follows the
+  // working tree rather than the scope — a "Last turn" with nothing in it can
+  // sit beside uncommitted work from earlier, and a scope full of committed
+  // history can sit beside a clean tree. `null` until the first answer.
+  const [workingFiles, setWorkingFiles] = useState<number | null>(null);
   // A read that failed: git's own words, shown with a retry. Not the same as
   // `isRepository: false`, which is an answer — this is the absence of one.
   const [error, setError] = useState<string | null>(null);
@@ -162,7 +168,15 @@ function ReviewBody({
     (openTop: boolean) => {
       const sequence = ++latestRead.current;
       if (openTop) owesOpenTop.current = true;
-      return window.textToCad.git.status({ ...request, scope: diffScopeFor(scope) }).then(
+      const scoped = window.textToCad.git.status({ ...request, scope: diffScopeFor(scope) });
+      // "All changes" is the working tree already; any other scope asks twice.
+      const whole = scope === "all" ? scoped : window.textToCad.git.status({ ...request, scope: { kind: "working-tree" } });
+      void whole.then(
+        (next) => { if (sequence === latestRead.current) setWorkingFiles(next.files.length); },
+        // The scoped read reports failures; this one keeps its last count.
+        () => {},
+      );
+      return scoped.then(
         (next) => {
           if (sequence !== latestRead.current) return;
           setStatus(next);
@@ -332,7 +346,8 @@ function ReviewBody({
 
         <CommitPopover
           canOpenPullRequest={Boolean(info?.hasGh && info.hasRemote)}
-          disabled={status.files.length === 0}
+          canPush={Boolean(info?.hasRemote)}
+          fileCount={workingFiles ?? 0}
           onDone={refresh}
           request={request}
           session={target}
@@ -604,14 +619,18 @@ function FileSection({
 function CommitPopover({
   request,
   session,
-  disabled,
+  fileCount,
   canOpenPullRequest,
+  canPush,
   onDone,
 }: {
   request: ReviewRequest;
   session: Session | null;
-  disabled: boolean;
+  /** Files in the working tree — what `Commit` takes, not what the scope shows. */
+  fileCount: number;
   canOpenPullRequest: boolean;
+  /** A remote to push to; without one `Commit and push` is not offered. */
+  canPush: boolean;
   onDone: () => void;
 }) {
   const settings = useSettings((state) => state.settings);
@@ -642,7 +661,10 @@ function CommitPopover({
     if (message.trim() === "") {
       return;
     }
-    void run(() => window.textToCad.git.commit({ ...request, message: message.trim(), push }));
+    void run(async () => {
+      const { sha } = await window.textToCad.git.commit({ ...request, message: message.trim(), push });
+      toast.success(`${push ? "Committed and pushed" : "Committed"} ${sha.slice(0, 7)}`);
+    });
   };
 
   /**
@@ -670,13 +692,15 @@ function CommitPopover({
   return (
     <Popover onOpenChange={setOpen} open={open}>
       <PopoverTrigger asChild>
-        <Button className="h-6 gap-1.5 px-2 text-[12px]" disabled={disabled} size="sm" variant="secondary">
+        <Button className="h-6 gap-1.5 px-2 text-[12px]" disabled={fileCount === 0} size="sm" variant="secondary">
           <GitCommitHorizontal className="size-3.5" />
           Commit or push
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-96 p-3">
-        <p className="mb-2 text-[12px] font-medium">Commit every change</p>
+        <p className="mb-2 text-[12px] font-medium">
+          Commits {fileCount} {fileCount === 1 ? "file" : "files"} (all changes)
+        </p>
         <Textarea
           aria-label="Commit message"
           autoFocus
@@ -710,19 +734,23 @@ function CommitPopover({
             disabled={busy || message.trim() === ""}
             onClick={() => commit(false)}
             size="sm"
-            variant="secondary"
+            // With no remote this is the popover's one action, so it takes the fill.
+            variant={canPush ? "secondary" : "default"}
           >
+            {busy && !canPush ? <Spinner className="size-3" /> : null}
             Commit
           </Button>
-          <Button
-            className="h-7 text-xs"
-            disabled={busy || message.trim() === ""}
-            onClick={() => commit(true)}
-            size="sm"
-          >
-            {busy ? <Spinner className="size-3" /> : null}
-            Commit and push
-          </Button>
+          {canPush ? (
+            <Button
+              className="h-7 text-xs"
+              disabled={busy || message.trim() === ""}
+              onClick={() => commit(true)}
+              size="sm"
+            >
+              {busy ? <Spinner className="size-3" /> : null}
+              Commit and push
+            </Button>
+          ) : null}
         </div>
         {canOpenPullRequest ? (
           <p className="mt-2 text-[11px] leading-snug text-muted-foreground">

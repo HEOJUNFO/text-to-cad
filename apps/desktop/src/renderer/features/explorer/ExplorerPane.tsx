@@ -13,7 +13,7 @@ import { EmptyState } from "@text-to-cad/ui/navigation";
 import { DrawingTab } from "./DrawingTab";
 import { FileTab } from "./FileTab";
 import { ReviewTab } from "./ReviewTab";
-import { TabStrip } from "./TabStrip";
+import { EXPLORER_TABPANEL_ID, TabStrip, explorerTabDomId } from "./TabStrip";
 import { TerminalTab } from "./TerminalTab";
 import { desktopCadConnectionForTab } from "./adapters/cadRuntime";
 
@@ -48,7 +48,8 @@ export function ExplorerPane() {
   return (
     <Frame>
       <TabStrip />
-      <div className="min-h-0 flex-1">
+      {/* The strip's active tab names this panel through aria-controls; the pair lives in TabStrip. */}
+      <div className="min-h-0 flex-1" id={EXPLORER_TABPANEL_ID} role="tabpanel" aria-labelledby={active ? explorerTabDomId(active.id) : undefined}>
         {loadError ? <EmptyState title="Could not restore tabs" description={loadError} icon={PanelsTopLeft}
           action={<Button onClick={() => { const state = useExplorer.getState(); void state.bindSession(state.sessionId, state.projectId, state.root); }}>Try again</Button>} /> : active ? (
           <TabBody key={active.id} project={project} tab={active} />

@@ -1,6 +1,7 @@
 import { PencilRuler, FileText, GitCompare, Globe, Plus, SquareTerminal, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { createElement, useEffect, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 
 import { ExplorerToggle } from "@renderer/app/PaneToggles";
 import { Button } from "@renderer/components/ui/button";
@@ -87,6 +88,13 @@ function TabIcon({ tab, className }: { tab: ExplorerTab; className?: string }) {
   return createElement(KIND_ICONS[tab.kind], { className, strokeWidth: 1.75 });
 }
 
+/**
+ * The one body the strip controls. `ExplorerPane` renders it; the ids live here
+ * so the tab's `aria-controls` and the panel's `aria-labelledby` are one pair.
+ */
+export const EXPLORER_TABPANEL_ID = "explorer-tabpanel";
+export const explorerTabDomId = (tabId: string) => `explorer-tab-${tabId}`;
+
 /** The `+` menu's rows, so the dropdown does not select a type in render. */
 function KindIcon({ kind, className }: { kind: ExplorerTabKind; className?: string }) {
   return createElement(KIND_ICONS[kind], { className });
@@ -102,6 +110,16 @@ export function TabStrip() {
   const move = useExplorer((state) => state.move);
 
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  // Roving tabindex: the strip is one Tab stop. Arrows move focus between tabs
+  // without selecting (manual activation — a selected terminal or browser tab
+  // mounts a pty or a webview, too costly to do per keypress); Enter or Space
+  // selects. While focus is outside the strip, its stop is the selected tab.
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const stopId =
+    (focusedId && tabs.some((tab) => tab.id === focusedId) ? focusedId : null) ??
+    (activeId && tabs.some((tab) => tab.id === activeId) ? activeId : null) ??
+    tabs[0]?.id ??
+    null;
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const stripRef = useRef<HTMLDivElement | null>(null);
   // Whether the row is longer than the pane. Only then does `+` hold tabs
@@ -131,6 +149,48 @@ export function TabStrip() {
     }
   }, [activeId, tabs.length]);
 
+  const focusTab = (id: string | undefined) => {
+    if (!id) return;
+    setFocusedId(id);
+    stripRef.current?.querySelector<HTMLElement>(`[data-tab="${CSS.escape(id)}"]`)?.focus();
+  };
+
+  const onTabKeyDown = (event: ReactKeyboardEvent<HTMLElement>, index: number) => {
+    // Only the tab itself: a key pressed on its close button is that button's.
+    if (event.target !== event.currentTarget) return;
+    const tab = tabs[index];
+    if (!tab) return;
+    const last = tabs.length - 1;
+    const target =
+      event.key === "ArrowRight" ? tabs[index === last ? 0 : index + 1]
+        : event.key === "ArrowLeft" ? tabs[index === 0 ? last : index - 1]
+          : event.key === "Home" ? tabs[0]
+            : event.key === "End" ? tabs[last]
+              : null;
+    if (target) {
+      event.preventDefault();
+      focusTab(target.id);
+      return;
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      setActive(tab.id);
+      return;
+    }
+    // Backspace too: the key macOS labels "delete" sends it.
+    if (event.key === "Delete" || event.key === "Backspace") {
+      event.preventDefault();
+      const neighbour = tabs[index + 1] ?? tabs[index - 1];
+      close(tab.id);
+      // A close can be refused (unsaved changes); focus moves only if it went.
+      window.requestAnimationFrame(() => {
+        if (!useExplorer.getState().tabs.some((candidate) => candidate.id === tab.id)) {
+          focusTab(neighbour?.id);
+        }
+      });
+    }
+  };
+
   return (
     <div
       className="app-drag flex shrink-0 items-center border-b pr-3 pl-2"
@@ -147,10 +207,19 @@ export function TabStrip() {
         ref={stripRef}
       >
         {/* Only tabs are in the tablist; `+` is a control that follows it. */}
-        <div className="app-no-drag flex shrink-0 items-center gap-0.5" aria-label="Explorer tabs" role="tablist">
+        <div
+          aria-label="Explorer tabs"
+          aria-orientation="horizontal"
+          className="app-no-drag flex shrink-0 items-center gap-0.5"
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusedId(null);
+          }}
+          role="tablist"
+        >
           {tabs.map((tab, index) => (
             <TabButton
               active={tab.id === activeId}
+              focusable={tab.id === stopId}
               dragging={tab.id === draggingId}
               dropBefore={dropIndex === index && draggingId !== null && draggingId !== tab.id}
               key={tab.id}
@@ -164,6 +233,8 @@ export function TabStrip() {
               }}
               onDragOver={() => setDropIndex(index)}
               onDragStart={() => setDraggingId(tab.id)}
+              onFocus={() => setFocusedId(tab.id)}
+              onKeyDown={(event) => onTabKeyDown(event, index)}
               onSelect={() => setActive(tab.id)}
               tab={tab}
             />
@@ -224,23 +295,34 @@ export function TabStrip() {
   );
 }
 
+/**
+ * One tab. The whole chip is the `tab` — the focus stop, the selection, the
+ * drag handle — and the close button inside it is reachable by pointer and by
+ * `Delete`, never by Tab: a strip of eight tabs is one Tab stop, not sixteen.
+ */
 function TabButton({
   tab,
   active,
+  focusable,
   dragging,
   dropBefore,
   onSelect,
   onClose,
+  onFocus,
+  onKeyDown,
   onDragStart,
   onDragOver,
   onDragEnd,
 }: {
   tab: ExplorerTab;
   active: boolean;
+  focusable: boolean;
   dragging: boolean;
   dropBefore: boolean;
   onSelect: () => void;
   onClose: () => void;
+  onFocus: () => void;
+  onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void;
   onDragStart: () => void;
   onDragOver: () => void;
   onDragEnd: () => void;
@@ -250,7 +332,8 @@ function TabButton({
   return (
     <div
       className={cn(
-        "group/tab relative flex h-7 max-w-[190px] shrink-0 items-center gap-1.5 rounded-lg border pr-1 pl-2 text-[13px] transition-colors",
+        "group/tab relative flex h-7 max-w-[190px] shrink-0 cursor-default items-center gap-1.5 rounded-lg border pr-1 pl-2 text-[13px] outline-none transition-colors",
+        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
         active
           ? "border-border bg-accent/80 font-medium text-accent-foreground shadow-xs"
           : "border-transparent text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -259,9 +342,13 @@ function TabButton({
         // tabs: a strip whose tabs jump around under the cursor is hard to aim.
         dropBefore && "before:absolute before:inset-y-1 before:-left-0.5 before:w-0.5 before:rounded-full before:bg-primary",
       )}
+      // Only the selected tab names the panel: the one body shows its content.
+      aria-controls={active ? EXPLORER_TABPANEL_ID : undefined}
       aria-selected={active}
       data-tab={tab.id}
       draggable
+      id={explorerTabDomId(tab.id)}
+      onClick={onSelect}
       onDragEnd={onDragEnd}
       onDragOver={(event) => {
         event.preventDefault();
@@ -271,6 +358,10 @@ function TabButton({
         event.dataTransfer.effectAllowed = "move";
         onDragStart();
       }}
+      onFocus={(event) => {
+        if (event.target === event.currentTarget) onFocus();
+      }}
+      onKeyDown={onKeyDown}
       // Middle-click closes, as it does in every tabbed thing.
       onPointerDown={(event) => {
         if (event.button === 1) {
@@ -279,24 +370,28 @@ function TabButton({
         }
       }}
       role="tab"
+      tabIndex={focusable ? 0 : -1}
       title={tab.kind === "file" && tab.path ? tab.path : title}
     >
-      <button
-        aria-selected={active}
-        className="flex min-w-0 items-center gap-1.5 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        onClick={onSelect}
-        type="button"
-      >
+      {/* The label mirrors `aria-selected` only because tests/e2e/shell.spec.ts
+          reads the selection as `[role=tab] [aria-selected=true]` (a
+          descendant); the tab above is the element that states it. */}
+      <span aria-selected={active} className="flex min-w-0 items-center gap-1.5">
         <TabIcon className="size-3.5 shrink-0" tab={tab} />
         <span className="truncate">{title}</span>
-      </button>
+      </span>
       <button
         aria-label={`Close ${title}`}
         className={cn(
-          "flex size-5 shrink-0 items-center justify-center rounded-md outline-none transition-opacity hover:bg-background/70 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring",
-          active ? "opacity-60 hover:opacity-100" : "opacity-0 group-hover/tab:opacity-100 group-focus-within/tab:opacity-100",
+          "flex size-5 shrink-0 items-center justify-center rounded-md outline-none transition-opacity hover:bg-background/70",
+          active ? "opacity-60 hover:opacity-100" : "opacity-0 group-hover/tab:opacity-100 group-focus-visible/tab:opacity-100",
         )}
-        onClick={onClose}
+        onClick={(event) => {
+          // Closing is not also a click on the tab behind it.
+          event.stopPropagation();
+          onClose();
+        }}
+        tabIndex={-1}
         type="button"
       >
         <X className="size-3" />

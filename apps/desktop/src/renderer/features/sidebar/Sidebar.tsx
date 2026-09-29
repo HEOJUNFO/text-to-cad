@@ -1,4 +1,4 @@
-import { CirclePlus, Search, Settings } from "lucide-react";
+import { CirclePlus, FolderOpen, Search, Settings } from "lucide-react";
 import { cn } from "cn";
 
 import { HistoryNav, SidebarToggle } from "@renderer/app/PaneToggles";
@@ -8,7 +8,9 @@ import { SessionSection } from "@renderer/features/sidebar/SessionSection";
 import { SidebarFilterMenu } from "@renderer/features/sidebar/SidebarFilterMenu";
 import { Wordmark } from "@renderer/features/sidebar/Wordmark";
 import { useOpenFolder } from "@renderer/hooks/use-open-folder";
+import { useProjects } from "@renderer/state/projects";
 import { useSessions, useSidebarSections } from "@renderer/state/sessions";
+import { useSettings, useSidebarSettings } from "@renderer/state/settings";
 import { useUi } from "@renderer/state/ui";
 import { GettingStarted } from "@renderer/features/onboarding/GettingStarted";
 
@@ -40,6 +42,19 @@ export function Sidebar() {
   const openSettings = useUi((state) => state.openSettings);
   const toggleCommandPalette = useUi((state) => state.toggleCommandPalette);
   const sections = useSidebarSections();
+  const hasSessions = useSessions((state) => state.sessions.length > 0);
+  const filters = useSidebarSettings();
+  const setSidebar = useSettings((state) => state.setSidebar);
+  const draft = useProjects((state) => state.draft);
+  const setActiveProject = useProjects((state) => state.setActive);
+  // Status and Environment narrow *which* sessions are listed; grouping and
+  // sorting only rearrange them, so only those two can empty the list.
+  const narrowed = filters.status !== "active" || filters.environment !== "all";
+  const empty = sections.every((section) => section.sessions.length === 0);
+  // A folder picked for a session not yet created has no group of its own
+  // (projects are derived from sessions) — but the centre is already asking
+  // what to build in it, so the list says so rather than "no sessions".
+  const pending = draft && !sections.some((section) => section.kind === "project" && section.id === draft.id) ? draft : null;
 
   return (
     <div className="flex h-full flex-col border-r border-sidebar-border bg-sidebar">
@@ -94,10 +109,25 @@ export function Sidebar() {
           scrolling the list sideways when a rename input takes focus. */}
       <ScrollArea className="min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:!block">
         <div className="min-w-0 px-2 pb-2">
+          {pending ? (
+            <PendingGroup
+              name={pending.name}
+              onOpen={() => {
+                setActiveProject(pending.id);
+                setActiveSession(null);
+              }}
+            />
+          ) : null}
           {sections.map((section) => (
             <SessionSection key={section.id} section={section} />
           ))}
-          {ready && sections.every(section => section.sessions.length === 0) ? <NoProjects onOpen={() => void openFolder()} /> : null}
+          {ready && empty && !pending ? (
+            narrowed && hasSessions ? (
+              <NoMatches onClear={() => void setSidebar({ status: "active", environment: "all" })} />
+            ) : (
+              <NoProjects onOpen={() => void openFolder()} />
+            )
+          ) : null}
         </div>
       </ScrollArea>
 
@@ -140,6 +170,37 @@ function SidebarLink({
       <span className="text-muted-foreground">{icon}</span>
       {label}
     </button>
+  );
+}
+
+/**
+ * The folder the new-session screen is about to start in, as a group header
+ * with nothing under it yet. It goes away by itself: the first session in the
+ * folder makes it a real group (`useProjects.derive` drops the draft).
+ */
+function PendingGroup({ name, onOpen }: { name: string; onOpen: () => void }) {
+  return (
+    <button
+      className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded-md px-2 text-left hover:bg-sidebar-accent"
+      data-pending-group
+      onClick={onOpen}
+      type="button"
+    >
+      <FolderOpen className="size-3 shrink-0 text-muted-foreground" />
+      <span className="truncate text-[11px] font-medium text-muted-foreground">{name} — new session</span>
+    </button>
+  );
+}
+
+/** Sessions exist, but Status or Environment hides every one of them. */
+function NoMatches({ onClear }: { onClear: () => void }) {
+  return (
+    <div className="mt-2 rounded-lg border border-dashed border-sidebar-border px-3 py-4 text-center">
+      <p className="text-xs text-muted-foreground">No sessions match these filters</p>
+      <Button className="mt-2 h-7 text-xs" onClick={onClear} size="sm" variant="secondary">
+        Clear filters
+      </Button>
+    </div>
   );
 }
 

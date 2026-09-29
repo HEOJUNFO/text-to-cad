@@ -448,7 +448,9 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
     } catch (error) {
       if (binding !== bindingSequence || get().sessionId !== sessionId) return;
       // Failed reads must never masquerade as an empty strip and overwrite saved tabs.
-      set({ loadError: error instanceof Error ? error.message : String(error), ready: false, collapsed: false });
+      // The pane pair stays what the person left it (only their toggle or drag
+      // writes it): an open pane shows the retry, a shut one shows it on reopening.
+      set({ loadError: error instanceof Error ? error.message : String(error), ready: false });
     }
   },
 

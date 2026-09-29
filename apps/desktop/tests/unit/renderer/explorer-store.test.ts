@@ -431,6 +431,21 @@ describe("the explorer strip", () => {
     expect(useExplorer.getState().tabs).toMatchObject([{ id: tab.id, path: "icon.png" }]);
   });
 
+  it("keeps the stored pane pair when a restore fails, so the retry shows only inside an open pane", async () => {
+    const shut = `failing-${PROJECT}`;
+    vi.mocked(window.textToCad.explorer.loadTabs).mockRejectedValueOnce(new Error("disk said no"));
+    await useExplorer.getState().bindSession(shut, PROJECT);
+    // Only a person's toggle or drag writes the pair: a failure neither opens the pane nor records a choice.
+    expect(useExplorer.getState()).toMatchObject({ sessionId: shut, loadError: "disk said no", ready: false, collapsed: true });
+    expect(window.localStorage.getItem("text-to-cad.explorer.session.collapsed") ?? "").not.toContain(shut);
+
+    const open = `open-${PROJECT}`;
+    window.localStorage.setItem("text-to-cad.explorer.session.collapsed", JSON.stringify({ [open]: false }));
+    vi.mocked(window.textToCad.explorer.loadTabs).mockRejectedValueOnce(new Error("again"));
+    await useExplorer.getState().bindSession(open, PROJECT);
+    expect(useExplorer.getState()).toMatchObject({ sessionId: open, loadError: "again", collapsed: false });
+  });
+
   it("shares an in-flight session restore without applying it to a different session", async () => {
     const earlier = deferred<PersistedExplorerTab[]>();
     const fresh = `unloaded-${PROJECT}`;

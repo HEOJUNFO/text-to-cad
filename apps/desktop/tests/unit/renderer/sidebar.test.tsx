@@ -14,6 +14,7 @@ import {
   defaultSettings,
   type Project,
   type Session,
+  type Settings,
   type SessionStatus,
   type SidebarSettings,
 } from "@shared/types";
@@ -242,6 +243,32 @@ describe("Sidebar", () => {
     withProject();
     wrap(<Sidebar />);
     expect(screen.queryByRole("button", { name: "Add project" })).not.toBeInTheDocument();
+  });
+
+  it("says the filters hide everything, and clears them, instead of offering a folder", async () => {
+    const user = userEvent.setup();
+    useProjects.setState({ projects: [project("p1", "text-to-cad")], ready: true, activeId: "p1", draft: null });
+    useSessions.setState({ sessions: [session({ id: "s1", title: "Bracket" })], ready: true, activeId: null });
+    useSettings.setState({ settings: { ...defaultSettings(), sidebar: filters({ status: "archived" }) }, ready: true });
+    vi.mocked(window.textToCad.settings.set).mockImplementationOnce(async (patch) => ({ ...useSettings.getState().settings!, ...(patch as Partial<Settings>) }));
+    wrap(<Sidebar />);
+
+    expect(screen.getByText("No sessions match these filters")).toBeInTheDocument();
+    expect(screen.queryByText("No sessions to show.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open folder…" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(useSettings.getState().settings?.sidebar).toMatchObject({ status: "active", environment: "all" });
+    expect(screen.getByText("Bracket")).toBeInTheDocument();
+  });
+
+  it("shows a just-picked folder as a pending group, not as no sessions", () => {
+    const draft = project("d1", "gearbox");
+    useProjects.setState({ projects: [], ready: true, activeId: "d1", draft });
+    wrap(<Sidebar />);
+
+    expect(screen.getByText("gearbox — new session")).toBeInTheDocument();
+    expect(screen.queryByText("No sessions to show.")).toBeNull();
   });
 
   it("starts a thread from `New`, not from `New chat`", () => {
