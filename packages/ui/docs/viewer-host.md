@@ -6,8 +6,8 @@ effects. No shared feature discovers Electron, browser clipboard, a backend URL,
 persistent storage or page navigation. DOM, canvas, workers and layout remain
 shared. Missing optional methods mean an operation is unsupported.
 
-The host contains `files`, optional native `fileActions`, `clipboard`,
-`promptContext`, `navigation`, `environment` and the optional live-document
+The host contains document `files`, `clipboard`, `promptContext`, `environment`,
+optional file `navigation`, and the optional live-document
 bindings `documents` and `pdf`. `environment` carries the resolved `colorScheme`,
 the keyboard `platform` (`darwin` shows ⌘, anything else Ctrl) and the app's own
 `reducedMotion`, honoured beside the system's `prefers-reduced-motion`. CAD is a separate registration supplied with a
@@ -32,7 +32,7 @@ are for reading and maintaining the contracts.
 | Contract | Definition | Public entry point |
 | --- | --- | --- |
 | `ViewerHost`, `ClipboardPort` | [Host types](../src/host/types.ts) | `@text-to-cad/ui/host` |
-| `FileSource`, `FileActions`, mutation receipts, `FileViewerState` | [File viewer types](../src/file-viewer/types.ts) | `@text-to-cad/ui/file-viewer` |
+| `DocumentSource`, `FileBrowserSource`, `FileActions`, mutation receipts, `FileViewerState` | [File viewer types](../src/file-viewer/types.ts) | `@text-to-cad/ui/file-viewer` |
 | `createCadFileSource` (read-only CAD catalog adapter) | [CAD source](../src/file-viewer/cadFileSource.ts) | `@text-to-cad/ui/file-viewer` |
 | `PromptContextPort`, bundles, references and delivery receipts | [Prompt types](../../core/src/prompt/types.ts) | `@text-to-cad/core/prompt` |
 | `CadWorkspaceService`, `CadResourceProvider`, worker tickets | [CAD service types](../../core/src/client/types.ts) | `@text-to-cad/core/client` |
@@ -52,8 +52,8 @@ browser lifetimes. Shared component tests can
 use the [explicit fake host](../src/host/testing/host.ts).
 The [MCP App composition](../../../apps/chatgpt/src/App.tsx) uses the same
 FileViewer and CAD source adapter with a host-opened file. It supplies document
-capabilities without listing or path discovery and selects the overlay
-navigation presentation. Its transport and composer delivery stay under
+capabilities without listing or path discovery, so FileViewer places its
+document actions over the viewport. Its transport and composer delivery stay under
 `apps/chatgpt/`.
 
 ## What a CAD renderer does not use
@@ -62,8 +62,8 @@ A CAD renderer (STEP, GLB, mesh, robot, DXF) declares no `panels`, and reads non
 `RendererViewProps.openPanel`, `panelSlot` or `onPanelOpen`: its controls are panels of
 its own tool stack over the viewport (`settings-ui.md#the-tool-stack`), and nothing it
 does opens, closes or turns the host's panel column. FileViewer still hands every
-renderer those props — they are the generic panel contract, which the file tree and
-the desktop markdown's source view use. A host's stored `panel` naming the retired CAD
+renderer those props — they are the generic renderer-panel contract, which the
+desktop markdown's source view uses. A host's stored `panel` naming the retired CAD
 Settings panel (`cad-file`) resolves as nothing open. The tool stack's layout — the
 sizes a person dragged the tree and Position panels to, and the folded panels — is one
 of the tab's settings (`settings.toolStack` of the tab record, `@text-to-cad/ui/tab-store`),
@@ -84,9 +84,9 @@ file's routine plays on entry only when its Autoplay is on. The rules are in
 
 A renderer can publish `FileNavigationAction[]` through
 `RendererViewProps.onNavigationActionsChange`. FileViewer shows these before its
-panel toggles, in the normal navigation row or the compact top-center overlay
-selected by `navigationPresentation`. The overlay omits breadcrumbs and file
-menus, and is absent when there are no actions, status or panels. Each action declares its icon, accessible label, an
+renderer-panel toggles. Without external targets they occupy a compact top-center
+overlay, absent when there are no actions, status or panels. A host can provide
+`navigationTargets` to put them in its own navigation row. Each action declares its icon, accessible label, an
 optional shorter hover `hint`, disabled state and invocation callback. Registration belongs to the mounted
 file generation: publish an empty list on cleanup; departing renderers cannot
 replace a new file's actions. Publish only when action metadata changes; stable
@@ -95,15 +95,11 @@ render loops. These actions use existing host capabilities for effects. For
 example, CAD's snapshot delivers through `host.promptContext`, which binds the
 destination before waiting for the image. It never detects the platform.
 
-`navigation.openFile(path, { target, panel })` shows a file in this view
-(`"current"`) or in a new one, where the host has more than one (`"new"`). `panel`
-is the panel the file opens with: FileViewer asks for the tree (`"tree"`) for a
-file picked in the tree, so the tree stays up while a person walks it. Without a
-panel, a file shown in place or in a new view starts at `FileViewerState.panel:
-null` (its own default), and a view already showing the file keeps what it has
-open. The host applies it because only the host knows which view shows the file:
-web writes it into its one view's state, and desktop into the tab it selects or
-creates.
+`ViewerHost.navigation` is optional. When supplied, `openFile(path, { target })`
+returns `opened` or `unavailable`; a failed open appears as a dismissible alert.
+Without navigation, renderer links to other files are plain text. The browsing
+host owns file-tree selection and any panel it keeps open while moving between
+documents; FileViewer has no directory listing or file-open workflow.
 
 ## Adding a shared feature
 
@@ -224,7 +220,8 @@ Hosts may cache that inactive snapshot without retaining a scene or moving focus
 
 ## Files, state and shutdown
 
-`FileSource` contains storage operations; `FileActions` contains native/menu
+`DocumentSource` contains open-document storage operations; `FileBrowserSource`
+and `FileActions` contain directory browsing and native/menu
 operations. Typed mutation receipts report committed changes independently of
 caller cancellation. An abort after commit is not rollback. Content, metadata,
 add, delete and move notifications have distinct meanings. Desktop reconciles
@@ -280,7 +277,7 @@ and binds the mounted text buffer. Draft retention is host-owned and survives
 view unmounts. Shared UI restores a draft against fresh disk metadata, marking
 external revision changes stale. Explicit reload discards it. The live buffer
 revision is separate from the disk revision: read/edit/save commands compare the
-live token before acting, and saving still uses FileSource's disk conflict check.
+live token before acting, and saving still uses DocumentSource's disk conflict check.
 Bindings reject calls after unmount; the desktop may retain read-only snapshots
 for inactive tabs, tagged `active: false`, and refuse edits until reactivated.
 
@@ -301,12 +298,10 @@ permit its compilation in CSP without enabling JavaScript eval.
 
 ## Host chrome slots
 
-`FileViewer.leading` adds host content before breadcrumbs. `navigationActions` adds
-host controls before renderer navigation actions (such as Snapshot), and
-`navigationPresentation="overlay"` hides the breadcrumb row and puts actions,
-status and available panel toggles over the viewport. Its default is `"bar"`.
-File listing remains a separate `FileSource.list` capability: a host that
-opens one document without listing has no tree toggle in either presentation.
+`FileViewer.navigationTargets` accepts optional host DOM targets for renderer
+actions and status. Web passes nodes in its `FileNavRow`; a document-only host
+omits them and gets the compact overlay. Browsing is a separate
+`FileBrowserSource` capability composed by the host around FileViewer.
 `displayActions` passes host-owned appearance controls into the Display section beside Projection via
 `RendererViewProps`. The shell handles placement and hides the toolbar in
 preview; the host owns callbacks and preferences. These slots do not imply platform detection

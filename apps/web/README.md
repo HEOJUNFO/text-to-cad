@@ -10,8 +10,10 @@ This app is the browser host of `@text-to-cad/ui/file-viewer`, not the owner of
 the shared CAD interface.
 
 **Owns:** URL selection, browser history, document title/appearance, catalog
-file-source adapter, browser persistence, and this app's branding, appearance and release links.
-`src/App.tsx` composes an explicit `ViewerHost` and one renderer per file family. The catalog
+file-source adapter, breadcrumb and tree navigation, browser persistence, and
+this app's branding, appearance and release links. `src/App.tsx` composes the
+shared navigation primitives around a document-focused `FileViewer`, an
+explicit `ViewerHost`, and one renderer per file family. The catalog
 exposes CAD artifacts only, and the web app has no file-writing endpoints.
 Follow the [shared host contract](../../packages/ui/docs/viewer-host.md) when
 adding viewer features; browser effects belong in this app's adapters.
@@ -217,7 +219,7 @@ top-left toolbar; GLB, STL and 3MF have none. Every 3D file has Display settings
 and Preview in the top-right bar. DXF is a 2D canvas with pan, zoom and
 snapshot, without a 3D toolbar or tool stack.
 
-Below 720px of FileViewer width, the file tree becomes a floating sheet over the
+Below 720px of the composed viewer width, the file tree becomes a floating sheet over the
 viewer, the crumbs collapse to the current file, the view cube is hidden and the
 tree panel of the tool stack starts folded. Preview is the shared shell's
 top-right button: it keeps the navbar and the file tree column, hides the toolbar

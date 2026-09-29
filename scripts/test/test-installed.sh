@@ -68,6 +68,8 @@ CACHE="$WORK/cache"
 DAEMON_STATE="$WORK/daemon"
 mkdir -p "$EMPTY" "$DIST" "$CACHE" "$DAEMON_STATE"
 export CADGEN_CACHE_DIR="$CACHE"
+export CADGEN_STATE_DIR="$WORK/user-state"
+export CADGEN_MCP_UI_CACHE_DIR="$WORK/mcp-ui-cache"
 export CADGEN_DAEMON=0
 export CADGEN_DAEMON_STATE_DIR="$DAEMON_STATE"
 unset CADGEN_BROKER CADGEN_BROKER_KEY CADGEN_BROKER_STATS CADGEN_DAEMON_CHILD CADGEN_ROOT_ID
@@ -148,7 +150,7 @@ async def check():
         raise AssertionError(f"MCP app HTML is not in the installed wheel: {asset}")
     async with create_connected_server_and_client_session(create_server(pathlib.Path.cwd())) as client:
         tools = {tool.name: tool for tool in (await client.list_tools()).tools}
-        if {"cad_open", "cad_request"} - tools.keys():
+        if {"cad_open", "cad_request", "cad_library"} - tools.keys():
             raise AssertionError(f"installed MCP tools missing: {tools.keys()}")
         resource_uri = tools["cad_open"].meta["ui"]["resourceUri"]
         resource = (await client.read_resource(resource_uri)).contents[0]

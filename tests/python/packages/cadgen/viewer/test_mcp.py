@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -17,7 +18,8 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from cadgen.mcp.backend import CHUNK_BYTES, ViewerBridge
+from cadgen.mcp.backend import CHUNK_BYTES, ViewerBridge, ViewerRoots
+from cadgen.mcp.library import RecentLibrary
 from cadgen.assets import AssetMissing
 from cadgen.mcp.server import UI_MIME_TYPE, create_server
 from cadgen.viewer.backend import ForbiddenAssetError
@@ -140,11 +142,92 @@ class BridgeTests(unittest.TestCase):
             self.bridge.request(path, offset=CHUNK_BYTES)
 
 
+class LibraryTests(unittest.TestCase):
+    def test_recent_authority_rejects_replaced_root_symlink(self):
+        with tempfile.TemporaryDirectory() as directory, mock.patch.dict(os.environ, {"CADGEN_CACHE_DIR": directory}):
+            base = Path(directory).resolve()
+            root = base / "project"
+            root.mkdir()
+            (root / "part.stl").write_bytes(b"solid part\nendsolid part\n")
+            library = RecentLibrary(base / "library.sqlite3")
+            recent = library.record(str(root), "part.stl")
+            record = library.get(recent["id"])
+            moved = base / "elsewhere"
+            root.rename(moved)
+            try:
+                root.symlink_to(moved, target_is_directory=True)
+            except OSError:
+                self.skipTest("symlinks unavailable")
+            with mock.patch("cadgen.mcp.backend.Path.cwd", return_value=base):
+                roots = ViewerRoots(None)
+            try:
+                with self.assertRaisesRegex(ValueError, "directory has moved"):
+                    roots.for_recent(record)
+            finally:
+                roots.close()
+
+    def test_pins_identity_thumbnail_revisions_and_removal_persist(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            file = root / "part.stl"
+            file.write_bytes(b"solid part\nendsolid part\n")
+            path = root / "state/library.sqlite3"
+            first = RecentLibrary(path)
+            item = first.record(str(root), file.name)
+            second = RecentLibrary(path)
+            self.assertEqual(second.record(str(root), file.name)["id"], item["id"])
+            pinned = first.update("pin", item["id"], pinned=True)
+            self.assertTrue(pinned["items"][0]["pinned"])
+            from PIL import Image
+            image = io.BytesIO()
+            Image.new("RGB", (1, 1)).save(image, format="PNG")
+            png = "data:image/png;base64," + base64.b64encode(image.getvalue()).decode("ascii")
+            second.update("thumbnail", item["id"], thumbnail=png, revision=item["revision"])
+            self.assertEqual(first.update("thumbnail", item["id"])["thumbnail"], png)
+            self.assertEqual(first.list()["items"][0]["thumbnailRevision"], item["revision"])
+            file.write_bytes(b"solid updated part\nendsolid part\n")
+            self.assertIsNone(first.list()["items"][0]["thumbnailRevision"])
+            self.assertIsNone(first.update("thumbnail", item["id"])["thumbnail"])
+            with self.assertRaisesRegex(ValueError, "changed"):
+                first.update("thumbnail", item["id"], thumbnail=png, revision=item["revision"])
+            with self.assertRaisesRegex(ValueError, "PNG"):
+                first.update("thumbnail", item["id"], thumbnail="data:image/svg+xml;base64,PHN2Zz4=")
+            with self.assertRaisesRegex(ValueError, "256 KiB"):
+                first.update("thumbnail", item["id"], thumbnail="data:image/png;base64," + "A" * 400000)
+            with self.assertRaisesRegex(ValueError, "valid PNG"):
+                corrupt = "data:image/png;base64," + base64.b64encode(image.getvalue()[:-8]).decode("ascii")
+                first.update("thumbnail", item["id"], thumbnail=corrupt)
+            self.assertEqual(first.update("remove", item["id"]), {"items": []})
+            self.assertTrue(file.is_file())
+            self.assertEqual(second.list(), {"items": []})
+
+    def test_independent_processes_preserve_concurrent_history(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            path = root / "state/library.sqlite3"
+            code = (
+                "from cadgen.mcp.library import RecentLibrary; import sys; "
+                "library=RecentLibrary(sys.argv[1]); "
+                "[library.record(sys.argv[2],sys.argv[3] + str(i) + '.stl') for i in range(10)]"
+            )
+            processes = [subprocess.Popen([sys.executable, "-c", code, str(path), str(root), prefix],
+                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                         for prefix in ("a", "b")]
+            for process in processes:
+                _, error = process.communicate(timeout=20)
+                self.assertEqual(process.returncode, 0, error)
+            self.assertEqual(len(RecentLibrary(path).list()["items"]), 20)
+
+
 class ProtocolTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         cache_directory = tempfile.TemporaryDirectory()
         self.addCleanup(cache_directory.cleanup)
-        cache_environment = mock.patch.dict(os.environ, {"CADGEN_CACHE_DIR": cache_directory.name})
+        cache_environment = mock.patch.dict(os.environ, {
+            "CADGEN_CACHE_DIR": str(Path(cache_directory.name, "cache")),
+            "CADGEN_STATE_DIR": str(Path(cache_directory.name, "state")),
+            "CADGEN_MCP_UI_CACHE_DIR": str(Path(cache_directory.name, "ui-cache")),
+        })
         cache_environment.start()
         self.addCleanup(cache_environment.stop)
 
@@ -190,6 +273,49 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
                     self.assertFalse(opened.isError)
                     self.assertEqual(opened.structuredContent["file"], "part.stl")
 
+    async def test_library_reopens_recorded_authority_across_servers_and_obeys_explicit_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            project = base / "project"
+            project.mkdir()
+            selected = project / "part.stl"
+            selected.write_bytes(b"solid part\nendsolid part\n")
+            other = base / "other"
+            other.mkdir()
+            ui = base / "viewer.html"
+            ui.write_text("<!doctype html><title>CAD</title>", encoding="utf-8")
+            state = base / "user-state.sqlite3"
+            with mock.patch("cadgen.mcp.backend.Path.cwd", return_value=other):
+                first = create_server(ui_path=ui, library_path=state)
+                second = create_server(ui_path=ui, library_path=state)
+            async with create_connected_server_and_client_session(first) as client:
+                opened = await client.call_tool("cad_open", {}, meta={"openai/resource": {"path": str(selected)}})
+                recent_id = opened.structuredContent["recentId"]
+                self.assertIsNotNone(opened.structuredContent["revision"])
+            async with create_connected_server_and_client_session(second) as client:
+                listed = await client.call_tool("cad_library", {})
+                self.assertEqual(listed.structuredContent["items"][0]["id"], recent_id)
+                opened = await client.call_tool("cad_open", {"recentId": recent_id})
+                self.assertFalse(opened.isError)
+                self.assertEqual(opened.structuredContent["rootPath"], str(project))
+                result = await client.call_tool("cad_request", {
+                    "path": "/__cad/asset?" + urlencode({"file": str(selected)}), "recentId": recent_id,
+                })
+                self.assertEqual(result.structuredContent["status"], 200)
+                unknown = await client.call_tool("cad_open", {"recentId": "unrecorded"})
+                self.assertTrue(unknown.isError)
+                selected.unlink()
+                listed = await client.call_tool("cad_library", {})
+                self.assertTrue(listed.structuredContent["items"][0]["missing"])
+                missing = await client.call_tool("cad_open", {"recentId": recent_id})
+                self.assertTrue(missing.isError)
+            restricted = create_server(other, ui_path=ui, library_path=state)
+            async with create_connected_server_and_client_session(restricted) as client:
+                listed = await client.call_tool("cad_library", {})
+                self.assertEqual(listed.structuredContent["items"], [])
+                denied = await client.call_tool("cad_open", {"recentId": recent_id})
+                self.assertTrue(denied.isError)
+
     async def test_discovery_resource_and_host_scoped_open_over_real_sdk(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
@@ -201,6 +327,7 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
                 listed = (await client.list_tools()).tools
                 tools = {tool.name: tool for tool in listed}
                 self.assertEqual(tools["cad_request"].meta["ui"]["visibility"], ["app"])
+                self.assertTrue(tools["cad_library"].annotations.destructiveHint)
                 ui_uri = tools["cad_open"].meta["ui"]["resourceUri"]
                 self.assertEqual(ui_uri, f"ui://cad/viewer/{hashlib.sha256(ui.read_bytes()).hexdigest()}.html")
                 self.assertEqual(tools["cad_open"].title, "CAD")

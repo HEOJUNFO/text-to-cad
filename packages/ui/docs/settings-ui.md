@@ -14,10 +14,10 @@ belong to apps through the [host contract](viewer-host.md).
 
 ## Ownership and layout
 
-FileViewer owns file navigation, the panel column (including the file tree when
-the source can list files) and which panel is open. The default navigation
-presentation is a row with breadcrumbs; `navigationPresentation="overlay"`
-places actions and status over the viewport without a filename or file menu.
+FileViewer owns the open document, its renderer panels, actions and status.
+The browsing host composes the shared breadcrumb row and file-tree column
+around it. Without host `navigationTargets`, document actions and status float
+over the viewport.
 RendererShell owns the scene's chrome: the toolbar, the tool stack under it,
 the view cube, the bottom action, the playbar and preview mode. Renderers
 supply their tools, their document state and their tool
@@ -28,24 +28,22 @@ closes or turns it.
 | The host supplies | The shared UI decides |
 | --- | --- |
 | Where the tab record lives (`TabRecordStorage`: the web's sessionStorage, the desktop's per-tab store) | The record: its settings (the tree, the tool stack's layout, the appearance) and each file's view (its camera, Display settings, Playback settings and renderer slices), what is written when, and what is never stored (`@text-to-cad/ui/tab-store`, `kit/shell/fileView.js`) |
-| `leading`, `navigationActions`, `navigationPresentation` and `displayActions` (an appearance control) | The navigation layout and order, the snapshot action and the panel toggles |
-| `host.files`, `fileActions`, `navigation`, `clipboard`, `promptContext` | When a copy, capture or open happens and what it carries |
+| `navigationTargets` and `displayActions` (an appearance control) | Renderer action/status placement, the snapshot action and renderer panel toggles |
+| `host.files`, optional `navigation`, `clipboard`, `promptContext` | When a copy, capture or document open happens and what it carries |
 | `host.environment`: color scheme, keyboard `platform`, `reducedMotion` | How the chrome honours them |
 | `onError`, for errors the viewer hands up | Preview, tooltips, keyboard scope, the tool stack, the camera |
 
 Hosts cannot start or observe Preview, and there are no notification props.
-`navigationPresentation` changes only FileViewer's navigation layout; it does
-not hide the renderer's toolbar, tools, Display settings or Preview controls.
+The host's file browsing does not hide the renderer's toolbar, tools, Display
+settings or Preview controls.
 
-- **File navigation.** In the default `"bar"` presentation, leading content,
-  breadcrumbs and loading status precede host actions, renderer actions (the
-  snapshot camera) and one toggle per declared panel, **Show files** last when
-  the source offers listing. The `"overlay"` presentation omits the filename,
-  breadcrumbs and file menus. It places actions, status and available panel
-  toggles in a compact toolbar at the top center, clear of the renderer's
-  top-left tool stack and top-right Display and Preview controls. With no
-  actions, status or panels, no empty toolbar appears. A CAD file declares no
-  host panel.
+- **File navigation.** A browsing host places leading content, breadcrumbs,
+  file actions and its file-tree toggle in the shared navigation row. FileViewer
+  portals renderer actions (the snapshot camera), status and renderer-panel
+  toggles into host targets when supplied. Otherwise they float at the top
+  center, clear of the renderer's top-left tool stack and top-right Display
+  and Preview controls. With no actions, status or panels, no empty toolbar
+  appears. A CAD file declares no renderer panel.
 - **Toolbar** at top-left, 8px in — the gap between it and the stack under it.
   At top-right, 8px in and level with it, a bar of small transparent icon
   buttons: **Display settings** (sliders) then **Preview** (a play icon). In

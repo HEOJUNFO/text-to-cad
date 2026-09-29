@@ -3,8 +3,9 @@ import { createPortal } from "react-dom";
 import { useEffect, useMemo, useState } from "react";
 import { unavailablePromptContext } from "@text-to-cad/core/prompt";
 import { FileText } from "lucide-react";
-import { FileViewer, defineFileRenderer } from "../index.js";
-import type { FileSource, FileActions, FileMetadata, FileRendererProps, FileViewerState, JsonValue, TextDocument } from "../types.js";
+import { FileViewer, defineFileRenderer, useFileNavigation, useViewerMobileMeasure } from "../index.js";
+import { buildCrumbs, clampPanelWidth, FILE_PANEL_TREE, FileNavRow, FilePanelColumn, FileTree, nextOpenPanel, PanelToggle, PANEL_DEFAULT_WIDTH, treePanel } from "../navigation/index.js";
+import type { FileBrowserSource, FileActions, FileMetadata, FileRendererProps, FileBrowserState, JsonValue, TextDocument } from "../types.js";
 
 const events: string[] = [];
 // Every file the viewer asked its host to open, with how: the host contract under test.
@@ -15,14 +16,14 @@ const cleanupWrites = new Map<string, JsonValue>();
 const renders: Record<string, number> = {};
 function memorySource(id: string) {
   const files = new Map<string, TextDocument>([["notes.txt", { content: `${id} original`, revision: "1" }], ["next.txt", { content: `${id} next`, revision: "1" }], ["slow.txt", { content: `${id} slow`, revision: "1" }], ["readonly.txt", { content: "truncated", revision: "1", truncated: true }]]);
-  const listeners = new Set<Parameters<NonNullable<FileSource["subscribe"]>>[0]>();
+  const listeners = new Set<Parameters<NonNullable<FileBrowserSource["subscribe"]>>[0]>();
   const metadata = (path: string): FileMetadata => ({ path, name: path, kind: "file", extension: "txt", size: 20, mediaType: "text" });
   let failWrite = false;
   let holdWrites = false;
   let holdFirstListing = id === "root-a" && new URLSearchParams(window.location.search).has("initialList");
   const waitingWrites: (() => void)[] = [];
   const waitingTrash: (() => void)[] = [];
-  const source: FileSource = {
+  const source: FileBrowserSource = {
     id, rootName: id,
     stat: async (path) => metadata(path),
     list: async (_directory, { signal }) => {
@@ -90,25 +91,58 @@ const renderer = defineFileRenderer({
 });
 const renderers = [renderer];
 const clipboard = { writeText: async () => {}, readText: async () => "", writeImage: async () => {} };
-function host(root: ReturnType<typeof memorySource>, openFile: (path: string, options?: { target: "current" | "new"; panel?: string }) => void) { return { files: root.source, fileActions: root.actions, clipboard, promptContext: unavailablePromptContext, environment: { colorScheme: "light" as const }, navigation: { openFile } }; }
+function host(root: ReturnType<typeof memorySource>, openFile: (path: string, options?: { target: "current" | "new" }) => { status: "opened" }) { return { files: root.source, clipboard, promptContext: unavailablePromptContext, environment: { colorScheme: "light" as const }, navigation: { openFile } }; }
 function App() {
   const [file, setFile] = useState("notes.txt");
   const [root, setRoot] = useState(a);
   const [second, setSecond] = useState(false);
   const [overlay, setOverlay] = useState(false);
   const [navigationPath, setNavigationPath] = useState<string | null | undefined>(undefined);
-  const [state, setState] = useState<FileViewerState>({ panel: null, panelWidth: 300, expandedDirectories: [""] });
-  const [otherState, setOtherState] = useState<FileViewerState>({ panel: "", panelWidth: 300 });
+  const [state, setState] = useState<FileBrowserState>({ panel: null, panelWidth: 300, expandedDirectories: [""] });
+  const [otherState, setOtherState] = useState<FileBrowserState>({ panel: "", panelWidth: 300 });
   Object.assign(window, { harness: { a, b, events, opened, rendererCallbacks, renders, cleanupWrites, state, open: setFile, overlay: setOverlay, navigationPath: setNavigationPath, setRoot: (id: string) => { setRoot(id === "root-b" ? b : a); }, second: setSecond, width: (panelWidth: number) => setState((previous) => ({ ...previous, panelWidth })) } });
   // A host is made once for its root, as an app makes it (FileViewer's props are compared by identity).
-  const primaryHost = useMemo(() => host(root, (path, options) => { opened.push({ path, options }); setFile(path); setState((previous) => ({ ...previous, panel: options?.panel ?? null })); }), [root]);
+  const openFile = (path: string, options?: { target: "current" | "new"; panel?: string }) => {
+    opened.push({ path, options }); setFile(path); setState((previous) => ({ ...previous, panel: options?.panel ?? null }));
+    return { status: "opened" as const };
+  };
+  const primaryHost = useMemo(() => host(root, (path, options) => openFile(path, options)), [root]);
   const presentedHost = useMemo(() => overlay ? { ...primaryHost, files: { ...root.source, list: undefined, paths: undefined } } : primaryHost, [overlay, primaryHost, root]);
+  const [frameRef, mobile] = useViewerMobileMeasure();
+  const [bodyElement, setBodyElement] = useState<HTMLDivElement | null>(null);
+  const [statusTarget, setStatusTarget] = useState<HTMLDivElement | null>(null);
+  const [actionsTarget, setActionsTarget] = useState<HTMLDivElement | null>(null);
+  const [mobilePanel, setMobilePanel] = useState<string | null>(null);
+  useEffect(() => { setMobilePanel(null); }, [file, mobile]);
+  const selectedPath = navigationPath === undefined ? file : navigationPath;
+  const navigation = useFileNavigation({ source: root.source, actions: root.actions, state, onStateChange: setState,
+    onOpenFile: (path, options) => { openFile(path, options); }, path: selectedPath });
+  const allCrumbs = buildCrumbs({ path: selectedPath });
+  const crumbs = mobile ? allCrumbs.slice(-1) : allCrumbs;
+  const requestedPanel = mobile ? mobilePanel ?? (file ? '' : null) : state.panel;
+  const openTree = requestedPanel === FILE_PANEL_TREE || (requestedPanel === null && !file);
+  const tree = treePanel(openTree ? FILE_PANEL_TREE : '', { empty: !file });
+  const setTreeOpen = (next: string) => { if (mobile) setMobilePanel(next); else setState(previous => ({ ...previous, panel: next })); };
   return <div style={{ width: "1000px", height: "650px" }}>
-    <section data-testid="primary" style={{ height: "400px", display: "flex", flexDirection: "column" }}>
+    <section data-testid="primary" ref={frameRef} style={{ height: "400px", display: "flex", flexDirection: "column" }}>
       {/* A host that shows one file at a time: an open moves this view to the file, with the panel it was opened with, or the file's own default. */}
-      <FileViewer file={file} host={presentedHost} renderers={renderers} state={state} onStateChange={setState} navigationPath={navigationPath} navigationPresentation={overlay ? "overlay" : "bar"} />
+      {!overlay ? <FileNavRow activePath={selectedPath} crumbs={crumbs} source={navigation.crumbs} onOpen={path => { openFile(path, { target: 'current' }); }}
+        status={<div ref={setStatusTarget} data-file-navigation-status="" />}
+        trailing={<><div ref={setActionsTarget} /><PanelToggle id={FILE_PANEL_TREE} icon={tree.icon} label={tree.label} active={openTree}
+          testId="tree-toggle" onClick={() => setTreeOpen(nextOpenPanel(openTree ? FILE_PANEL_TREE : '', FILE_PANEL_TREE))} /></>} /> : null}
+      <div ref={setBodyElement} className="relative flex min-h-0 flex-1 overflow-hidden">
+        <div className="min-w-0 flex-1 overflow-hidden"><FileViewer file={file} host={presentedHost} renderers={renderers} state={state} onStateChange={setState}
+          mobileLayout={mobile} navigationTargets={overlay ? undefined : { status: statusTarget, actions: actionsTarget }} /></div>
+        {!overlay && openTree ? <FilePanelColumn mobile={mobile} portalContainer={bodyElement} onDismiss={() => setTreeOpen('')}
+          id={FILE_PANEL_TREE} label="Files" width={clampPanelWidth(state.panelWidth)}
+          onWidthChange={width => setState(previous => ({ ...previous, panelWidth: clampPanelWidth(width) }))}
+          onCollapse={() => setState(previous => ({ ...previous, panel: '', panelWidth: PANEL_DEFAULT_WIDTH }))}>
+          <FileTree key={root.source.id} source={navigation.tree} activePath={selectedPath} edit={navigation.edit}
+            onOpen={path => { if (mobile) setMobilePanel(''); openFile(path, { target: 'new', panel: FILE_PANEL_TREE }); }} />
+        </FilePanelColumn> : null}
+      </div>
     </section>
-    {second ? <section data-testid="secondary" style={{ height: "240px" }}><FileViewer file="notes.txt" host={host(b, () => {})} renderers={renderers} state={otherState} onStateChange={setOtherState} /></section> : null}
+    {second ? <section data-testid="secondary" style={{ height: "240px" }}><FileViewer file="notes.txt" host={host(b, () => ({ status: 'opened' }))} renderers={renderers} state={otherState} onStateChange={setOtherState} /></section> : null}
   </div>;
 }
 createRoot(document.getElementById("root")!).render(<App />);

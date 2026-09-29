@@ -18,13 +18,13 @@ const run = promisify(execFile);
 const repo = fileURLToPath(new URL('../../../', import.meta.url));
 const appDir = path.join(repo, 'apps/chatgpt');
 
-test('built UI opens a STEP through MCP, attaches a selection, observes saves, and follows host file switching, and opens a quiet global home', { timeout: 120_000 }, async t => {
+test('built UI views STEP revisions and provides persistent recents, real thumbnails, native opening and preview fallback', { timeout: 120_000 }, async t => {
   const temporary = await mkdtemp(path.join(tmpdir(), 'cad-mcp-browser-'));
   t.after(() => rm(temporary, { recursive: true, force: true }));
   const localPython = path.join(repo, '.venv/bin/python');
   const python = process.env.PYTHON_BIN || (existsSync(localPython) ? localPython : 'python3');
   const source = path.join(temporary, 'fixture.step');
-  const env = { ...process.env, PYTHONPATH: path.join(repo, 'packages/cadgen/src'), CADGEN_CACHE_DIR: path.join(temporary, 'cache'), CADGEN_DAEMON: '0' };
+  const env = { ...process.env, PYTHONPATH: path.join(repo, 'packages/cadgen/src'), CADGEN_CACHE_DIR: path.join(temporary, 'cache'), CADGEN_DAEMON: '0', CADGEN_STATE_DIR: path.join(temporary, 'state'), CADGEN_MCP_UI_CACHE_DIR: path.join(temporary, 'ui-cache') };
   const save = (width: number) => run(python, ['-c', `from build123d import Box, export_step; export_step(Box(${width},20,30), ${JSON.stringify(source)})`], { env });
   await save(10);
   await copyFile(source, path.join(temporary, 'related.step'));
@@ -61,13 +61,16 @@ test('built UI opens a STEP through MCP, attaches a selection, observes saves, a
   assert.notEqual(home.isError, true, JSON.stringify(home));
   const bundle = await build({ stdin: { contents: `
     import { AppBridge, PostMessageTransport } from '@modelcontextprotocol/ext-apps/app-bridge';
+    import { z } from 'zod';
     const frame = document.querySelector('iframe');
     const homeMode = new URLSearchParams(location.search).has('home');
     const bridge = new AppBridge(null, {name:'CAD test host',version:'1.0.0'}, {
       serverTools:{}, updateModelContext:{text:{}, image:{}, structuredContent:{}},
-      experimental:{'openai/modelContext':{}}
+      experimental:{'openai/modelContext':{}, ...(!new URLSearchParams(location.search).has('fallback') ? {'openai/files':{}} : {})}
     });
     window.attachments = [];
+    window.openedNative = null;
+    bridge.setRequestHandler(z.object({method:z.literal('openai/files/open'),params:z.object({path:z.string()})}), async request => { window.openedNative = request.params.path; return {}; });
     window.openRelated = async () => {
       const response = await fetch('/open-related', {method:'POST'});
       await bridge.sendToolInput({arguments:{file:{name:'related.step',resourceUri:'host-resource://related'}}});
@@ -101,10 +104,10 @@ test('built UI opens a STEP through MCP, attaches a selection, observes saves, a
       }
       else if (request.url === '/home-tool') {
         const chunks = []; for await (const chunk of request) chunks.push(chunk);
-        homeRequests.push(JSON.parse(Buffer.concat(chunks).toString()));
-        // Empty home must not request a catalog or scan the server's working directory.
-        response.setHeader('Content-Type', 'application/json');
-        response.end(JSON.stringify({ isError: true, content: [{ type: 'text', text: 'The empty home must not request CAD services.' }] }));
+        const params = JSON.parse(Buffer.concat(chunks).toString());
+        homeRequests.push(params);
+        const result = await client.callTool(params);
+        response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(result));
       }
       else if (request.url === '/tool') {
         const chunks = []; for await (const chunk of request) chunks.push(chunk);
@@ -122,8 +125,11 @@ test('built UI opens a STEP through MCP, attaches a selection, observes saves, a
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   try {
-    await page.goto(`http://127.0.0.1:${address.port}`);
+    await page.goto(`http://127.0.0.1:${address.port}/?home`);
     const viewer = page.frameLocator('iframe');
+    await expect(viewer.getByRole('heading', { name: 'Your models will appear here' })).toBeVisible();
+    assert.ok(homeRequests.every((request: any) => request.name === 'cad_library'));
+    await page.goto(`http://127.0.0.1:${address.port}`);
     await viewer.getByRole('region', { name: 'Features', exact: true }).waitFor();
     const select = viewer.getByRole('button', { name: 'Select Base extrude', exact: true });
     await select.click();
@@ -164,20 +170,37 @@ test('built UI opens a STEP through MCP, attaches a selection, observes saves, a
     }
     // Navigation mounts a fresh bridge/app instance with the global entrypoint result.
     await page.goto(`http://127.0.0.1:${address.port}/?home`);
-    await expect(viewer.getByRole('heading', { name: 'Create or open a part', exact: true })).toBeVisible();
-    await expect(viewer.getByText('Ask the composer to create or modify a part.', { exact: false })).toBeVisible();
-    await expect(viewer.getByText('Open a STEP, STL, GLB or 3MF file, then choose CAD.', { exact: true })).toBeVisible();
-    await expect(viewer.getByText('Select geometry, then use Add to prompt', { exact: false })).toBeVisible();
-    assert.equal(await viewer.getByRole('button', { name: /^(Show|Hide) files$/ }).count(), 0);
-    assert.equal(await viewer.getByRole('button', { name: /^Browse / }).count(), 0);
+    await expect(viewer.getByRole('heading', { name: 'Recent models', exact: true })).toBeVisible();
+    await expect(viewer.getByRole('button', { name: 'Open related.step', exact: true })).toBeVisible();
+    await expect(viewer.getByRole('button', { name: 'Open related.step', exact: true }).locator('img')).toBeVisible();
+    await viewer.getByRole('searchbox', { name: 'Search recent models' }).fill('related');
+    assert.equal(await viewer.getByRole('button', { name: 'Open fixture.step', exact: true }).count(), 0);
+    await viewer.getByRole('button', { name: 'Pin related.step', exact: true }).click();
+    await expect(viewer.getByRole('button', { name: 'Unpin related.step', exact: true })).toBeVisible();
+    await viewer.getByRole('button', { name: 'Open related.step', exact: true }).click();
+    await page.waitForFunction(() => (window as any).openedNative?.endsWith('/related.step'));
     assert.equal(await viewer.getByRole('tree').count(), 0);
     assert.equal(await viewer.locator('input[type="file"]').count(), 0);
-    assert.equal(await viewer.getByRole('heading', { name: 'CAD', exact: true }).count(), 0);
     assert.equal(await viewer.getByRole('navigation').count(), 0);
-    if (process.env.CAD_EXTENSION_HOME_SCREENSHOT) {
-      await page.screenshot({ path: process.env.CAD_EXTENSION_HOME_SCREENSHOT });
-    }
-    assert.deepEqual(homeRequests, [], 'empty global home makes no catalog or other CAD service requests');
+    assert.ok(homeRequests.every((request: any) => request.name === 'cad_library'), 'home reads extension history without requesting a cwd catalog');
+    await viewer.getByRole('searchbox', { name: 'Search recent models' }).fill('');
+    if (process.env.CAD_EXTENSION_HOME_SCREENSHOT) await page.screenshot({ path: process.env.CAD_EXTENSION_HOME_SCREENSHOT });
+    // Another file tab can update history while this home stays mounted.
+    const later = path.join(temporary, 'later.step');
+    await copyFile(source, later);
+    const recorded = await client.callTool({ name: 'cad_open', arguments: { file: { name: 'later.step', resourceUri: 'host-resource://later' } }, _meta: { 'openai/resource': { path: later } } });
+    assert.notEqual(recorded.isError, true, JSON.stringify(recorded));
+    await viewer.getByRole('button', { name: 'Refresh recent models', exact: true }).click();
+    await expect(viewer.getByRole('button', { name: 'Open later.step', exact: true })).toBeVisible();
+    await viewer.getByRole('button', { name: 'Remove later.step from recents', exact: true }).click();
+    await expect(viewer.getByRole('button', { name: 'Open later.step', exact: true })).toHaveCount(0);
+    // Hosts lacking native file opening get an explicitly labeled local preview.
+    await page.goto(`http://127.0.0.1:${address.port}/?home&fallback`);
+    await viewer.getByRole('button', { name: 'Preview related.step here', exact: true }).click();
+    await viewer.getByRole('region', { name: 'Features', exact: true }).waitFor();
+    await expect(viewer.getByRole('button', { name: 'Back to recent models', exact: true })).toBeVisible();
+    await viewer.getByRole('button', { name: 'Back to recent models', exact: true }).click();
+    await expect(viewer.getByRole('heading', { name: 'Recent models', exact: true })).toBeVisible();
     assert.deepEqual(errors, []);
   } catch (error) {
     throw new Error(`${String(error)}\nBrowser errors: ${errors.join('\n')}\nMCP stderr: ${stderr.slice(-3000)}\n${await page.frameLocator('iframe').locator('body').innerText()}`, { cause: error });

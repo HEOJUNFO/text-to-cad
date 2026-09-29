@@ -1,13 +1,14 @@
 # @text-to-cad/ui
 
-The shared React interface for text-to-cad. `FileViewer` is the complete file tab:
-its breadcrumb row, menus, content, file tree, one panel column, loading and
-error states, and common edit/save/reload lifecycle. `apps/web` and
+The shared React interface for text-to-cad. `FileViewer` presents one document:
+its renderer, actions, status, renderer panels, loading and error states, and
+common edit/save/reload lifecycle. `apps/web` and
 `apps/chatgpt` consume this component through the package's compiled exports;
-a host's own project, session and window layout remains application code.
-`navigationPresentation="overlay"` places only renderer actions, status and
-available panel toggles over the file instead of reserving a breadcrumb row;
-the default `"bar"` presentation keeps the full file navigation.
+a host's project, file browsing, session and window layout remain application
+code. Web composes the reusable breadcrumb, tree, menu and panel primitives
+around FileViewer. Hosts can supply `navigationTargets` to place document
+actions and status in their own navigation row; otherwise they float over the
+document.
 
 The viewer's tools, tool stack, settings, tooltips and keyboard follow one
 binding [design system](docs/settings-ui.md) across hosts. A change to
@@ -111,9 +112,10 @@ the host's source returns. A host that exposes arbitrary files registers a
 fallback renderer (`fallback: true`) for the types nothing else matches.
 `createCadFileSource` in `/file-viewer` supplies shared, read-only CAD catalog
 stat, listing and change subscriptions from a `CadWorkspaceService`. The web
-app uses the full catalog. The MCP App exposes only its host-opened document,
-without `list` or `paths`, so FileViewer has no file tree in that composition.
-Both apps use the same source and renderer contracts.
+app uses its `FileBrowserSource` capabilities for navigation; FileViewer and
+renderers receive only `DocumentSource`. The MCP App supplies one host-opened
+document without directory browsing. Both apps use the same document and
+renderer contracts.
 
 ```tsx
 import { FileViewer } from '@text-to-cad/ui/file-viewer';
@@ -154,8 +156,9 @@ raw transport, clipboard discovery, host storage or page-navigation effects.
 
 ## Lifetimes and state
 
-`FileSource` describes storage only: stat/list/search, optional reads and optional
-write/create/rename/duplicate/trash operations. Menus derive storage capabilities
+`DocumentSource` describes one open file's stat, optional reads and optional
+write and change-stream operations. `FileBrowserSource` adds list/search and
+create/rename/duplicate/trash operations. Menus derive storage capabilities
 from these methods and native/copy capabilities from the separate `FileActions`
 port. Missing methods remain unavailable. A web catalog source stays read-only;
 listing never filters entries by renderer support.
@@ -254,17 +257,16 @@ their own panels; kept effects (Explode, Clip, Measure's results) follow. A pane
 whose tool is not up stays mounted, hidden, so a tree keeps its scroll and expansion;
 only what is on screen does background work. Issues and SDF metadata are Select's
 panels too. Links is the description's link tree, with the Model tree's rows, filter
-and Reference panel; see [robot links](docs/cad-renderer.md#robot-links). Which of
-the host's panels a file opens with is the host's to apply
-(`ViewerHost.navigation.openFile(path, { target, panel })`): a file picked in the
-tree asks for the tree, so the tree stays up while a person walks it; any other open
-gets nothing. No panel is saved in a file's record.
+and Reference panel; see [robot links](docs/cad-renderer.md#robot-links). Which
+browser panel a file opens with belongs to the browsing host: a file picked in
+the tree asks for the tree, so the tree stays up while a person walks it. No
+panel is saved in a file's record.
 The binding [viewer design system](docs/settings-ui.md) defines tool lifecycle,
 the tool stack, mobile layout, section density, keyboard scope, tooltips
 and preview. RendererShell owns the top-left toolbar, the bottom-right cube and
 the top-right bar: Display settings, then Preview. Preview is the shell's own
-mode, where routines play and the model orbits, and preserves the parent
-navbar. Keep app-specific effects in the
+mode, where routines play and the model orbits, and preserves the host's
+navigation row when present. Keep app-specific effects in the
 [host contract](docs/viewer-host.md), not in renderer components.
 
 One per-file settings store serves controls, live commands and persistence.
@@ -278,9 +280,8 @@ Model reference section shows their properties. There is no Materials editor or
 persisted material override. See [View styles](docs/render-mode.md) and
 [progressive detail](docs/lod.md).
 
-The default navbar names the file and carries compact loading/update status.
-An overlay presentation keeps renderer actions and status in a compact toolbar
-at the top center, with no filename or breadcrumb menus. An error
+FileViewer keeps renderer actions and status in a compact top-center overlay
+unless the host supplies navigation targets. An error
 appears as a card over the viewport;
 a failed update the model survives can be dismissed, leaving the previous
 version to inspect. Try again reloads only the selected renderer.

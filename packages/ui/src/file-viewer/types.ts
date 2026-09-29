@@ -40,33 +40,50 @@ export interface FileActions {
   platform?: Platform;
   perform?: Partial<Record<ExternalEntryAction, (entry: Pick<FileEntry, "path" | "kind">) => void | Promise<void>>>;
 }
-export interface FileSource {
+/** The open document's storage and change stream, without directory discovery. */
+export interface DocumentSource {
   /** Stable workspace/root identity. Connection ports must never be used here. */
   id: string;
-  rootName: string;
   stat: (path: string, options: { signal: AbortSignal }) => Promise<FileMetadata>;
-  list?: (directory: string, options: { signal: AbortSignal }) => Promise<readonly FileEntry[]>;
-  paths?: (options: { signal: AbortSignal }) => Promise<readonly string[]>;
   readText?: (path: string, options: { signal: AbortSignal }) => Promise<TextDocument>;
   readAsset?: (path: string, options: { signal: AbortSignal }) => Promise<ManagedFileAsset>;
   /** Revision validation precedes an atomic replacement. Cancellation after dispatch cannot undo a commit. */
   writeText?: (path: string, options: { content: string; expectedRevision?: string; signal: AbortSignal }) => Promise<WriteResult>;
+  subscribe?: (listener: (change: FileChanges) => void) => () => void;
+}
+/** Optional filesystem browsing composed outside FileViewer. */
+export interface FileBrowserSource extends DocumentSource {
+  rootName: string;
+  list: (directory: string, options: { signal: AbortSignal }) => Promise<readonly FileEntry[]>;
+  paths?: (options: { signal: AbortSignal }) => Promise<readonly string[]>;
   rename?: (path: string, options: { name: string; signal: AbortSignal }) => Promise<FileMutationResult>;
   create?: (directory: string, options: { kind: FileEntry["kind"]; name: string; signal: AbortSignal }) => Promise<FileMutationResult>;
   duplicate?: (path: string, options: { signal: AbortSignal }) => Promise<FileMutationResult>;
   trash?: (path: string, options: { signal: AbortSignal }) => Promise<FileMutationResult>;
-  subscribe?: (listener: (change: FileChanges) => void) => () => void;
+}
+/** Compatibility adapter shape. New hosts should name the narrow or browsing contract directly. */
+export interface FileSource extends DocumentSource {
+  rootName?: string;
+  list?: FileBrowserSource["list"];
+  paths?: FileBrowserSource["paths"];
+  rename?: FileBrowserSource["rename"];
+  create?: FileBrowserSource["create"];
+  duplicate?: FileBrowserSource["duplicate"];
+  trash?: FileBrowserSource["trash"];
 }
 export type DocumentSaveResult = WriteResult | { status: "unavailable" } | { status: "stale"; committed?: boolean };
 export interface FileViewerState {
   panel: string | null;
   panelWidth: number;
-  expandedDirectories?: readonly string[];
   /**
    * Each file's view under `JSON.stringify([file path, renderer id])`: what the host's tab store
    * holds for this root (`@text-to-cad/ui/tab-store`), and where a renderer's `onStateChange` lands.
    */
   renderers?: Record<string, JsonValue>;
+}
+/** Browser navigation state composed around the document viewer. */
+export interface FileBrowserState extends FileViewerState {
+  expandedDirectories?: readonly string[];
 }
 export interface DocumentSession {
   /** Changes only for another source/file or an explicit/external reload. */
@@ -85,7 +102,7 @@ export interface DocumentSession {
 }
 export interface PrepareContext {
   file: FileMetadata;
-  source: FileSource;
+  source: DocumentSource;
   signal: AbortSignal;
   /** This same file was explicitly reloaded or invalidated by its source. */
   refresh?: boolean;
@@ -108,7 +125,7 @@ export interface RendererViewProps {
   displayActions?: ReactNode;
   onNavigationActionsChange?: (actions: readonly FileNavigationAction[]) => void;
   file: FileMetadata;
-  source: FileSource;
+  source: DocumentSource;
   document: DocumentSession | null;
   /**
    * The open panel id, for a renderer that declares `panels` of its own (the desktop markdown's
@@ -116,13 +133,13 @@ export interface RendererViewProps {
    * `onPanelOpen`: their controls are tool-stack panels, never the host's column.
    */
   openPanel: string;
-  /** Renderer status beside the filename. */
+  /** Renderer status in a host target or the document overlay. */
   navigationStatusSlot?: HTMLElement | null;
   /** The column's box for a declared `"slot"` panel to draw into. */
   panelSlot: HTMLElement | null;
   onPanelOpen: (id: string) => void;
   onReady: (ready: boolean) => void;
-  onOpenFile: (path: string, options?: { target: "current" | "new" }) => void;
+  onOpenFile?: (path: string, options?: { target: "current" | "new" }) => Promise<import("../host/types.js").OpenFileResult>;
   appearance: { colorScheme: "light" | "dark" };
   /** The file's saved view as it stood when this renderer opened it; later saves do not come back. */
   state: JsonValue | undefined;
@@ -135,7 +152,7 @@ export interface FileRendererDefinition<T> {
   priority: number;
   matches: (file: FileMetadata) => boolean;
   fallback?: boolean;
-  /** The nav row's panels for this file, which can depend on what `prepare` found (`data`). */
+  /** The document's panels, which can depend on what `prepare` found (`data`). */
   panels?: (context: PanelContext & { data: T }) => FilePanel[];
   prepare: (context: PrepareContext) => Promise<PreparedDocument<T>>;
   load: () => Promise<{ default: ComponentType<FileRendererProps<T>> }>;
@@ -162,16 +179,12 @@ export interface FileViewerProps {
   renderers: readonly RendererRegistration[];
   state: FileViewerState;
   onStateChange: (next: FileViewerState) => void;
-  leading?: ReactNode;
-  /** Host content before renderer actions in the navbar. */
-  navigationActions?: ReactNode;
-  /** Place file navigation in its normal row, or show only actions and status over the viewport. */
-  navigationPresentation?: "bar" | "overlay";
+  /** Optional host targets for document status and actions; otherwise controls float over the document. */
+  navigationTargets?: { status?: HTMLElement | null; actions?: HTMLElement | null };
+  /** Use a surrounding frame's responsive measurement when it also owns a side panel. */
+  mobileLayout?: boolean;
   /** Host controls inside the CAD Display popover. */
   displayActions?: ReactNode;
-  /** Override the selected path shown by breadcrumbs and tree, e.g. before a catalog resolves. */
-  navigationPath?: string | null;
-  reveal?: { path: string; directory: boolean; nonce?: number } | null;
   onError?: (error: Error) => void;
   presentation?: { empty?: ReactNode; loading?: ReactNode; error?: (message: string) => ReactNode };
 }

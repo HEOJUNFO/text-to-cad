@@ -1,10 +1,10 @@
 import type { CadEntry, CadServerInfo, CadWorkspaceService } from '@text-to-cad/core/client';
-import type { FileChange, FileEntry, FileMetadata, FileSource } from './types.js';
+import type { FileBrowserSource, FileChange, FileEntry, FileMetadata } from './types.js';
 
 export const catalogPath = (entry: CadEntry): string => String(entry.rootRelativeFile || entry.file || '').trim().replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
 
 /** Catalog access remains read-only; the shared viewer derives menus from these capabilities. */
-export function createCadFileSource(client: CadWorkspaceService, server: CadServerInfo): FileSource {
+export function createCadFileSource(client: CadWorkspaceService, server: CadServerInfo): FileBrowserSource {
   const paths = () => client.getSnapshot().entries.map(catalogPath).filter(Boolean);
   async function ready(signal: AbortSignal) {
     signal.throwIfAborted();

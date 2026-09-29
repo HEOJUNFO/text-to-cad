@@ -233,6 +233,25 @@ class ViewerRoots:
                 self._roots[parent] = ViewerBridge(parent)
             return self._roots[parent]
 
+    def for_recent(self, record: dict) -> ViewerBridge:
+        """Restore only authority already validated and persisted by the extension."""
+        path = record["path"]
+        if not Path(path).is_file():
+            raise ValueError("Recent CAD file is missing; restore it or remove it from the library")
+        if self.explicit_root:
+            require_contained(self.default.app.root_path, path)
+            return self.default
+        root = record["root"]
+        if str(Path(root).resolve()) != root:
+            raise ValueError("Recent CAD directory has moved; open the file again through the host")
+        require_contained(root, path)
+        with self._lock:
+            if root not in self._roots:
+                if len(self._roots) >= self.MAX_ROOTS:
+                    raise ValueError("CAD has reached its 16 open project limit; restart the MCP connection")
+                self._roots[root] = ViewerBridge(root)
+            return self._roots[root]
+
     def close(self):
         for bridge in self._roots.values():
             bridge.close()

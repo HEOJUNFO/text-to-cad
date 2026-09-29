@@ -1,5 +1,5 @@
 import { FileText } from 'lucide-react';
-import { EmptyState } from '@text-to-cad/ui/navigation';
+import { EmptyState, FileNavRow } from '@text-to-cad/ui/navigation';
 import { StrictMode, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { FileViewer, type FileSource } from '@text-to-cad/ui/file-viewer';
@@ -31,15 +31,17 @@ function StartingView({ error }: { error?: Error }) {
       if (signal.aborted) { reject(signal.reason); return; }
       signal.addEventListener('abort', () => reject(signal.reason), { once: true });
     });
-    return { id: 'starting', rootName: 'This directory', stat: (_path, {signal}) => pending(signal), list: (_path, {signal}) => pending(signal) };
+    return { id: 'starting', stat: (_path, {signal}) => pending(signal) };
   }, [error]);
   const { colorScheme } = useTabAppearance(tabStore);
   const host = useMemo<ViewerHost>(() => ({
     files: source, clipboard: browserClipboard, promptContext: unavailablePromptContext,
-    navigation: { openFile: () => {} }, environment: { colorScheme },
+    environment: { colorScheme },
   }), [source, colorScheme]);
-  return <div className="flex h-svh flex-col overflow-hidden"><div className="min-h-0 flex-1">
-    <FileViewer leading={<ViewerBrand />} navigationActions={<ViewerLinks />} file={file} host={host} renderers={[]} state={state} onStateChange={onStateChange} navigationPath={null}
+  return <div className="flex h-svh flex-col overflow-hidden">
+    <FileNavRow activePath={null} crumbs={[]} source={{ useListing: () => null }} onOpen={() => {}}
+      leading={<ViewerBrand />} trailing={<ViewerLinks />} />
+    <div className="min-h-0 flex-1"><FileViewer file={file} host={host} renderers={[]} state={state} onStateChange={onStateChange}
       presentation={{loading:<div className="relative h-full"><ViewerLoadingOverlay viewerLoading /></div>, error:() => <div className="relative h-full"><EmptyState icon={FileText} title="No file open" description="Pick one from the tree on the right, or filter by name." /></div>}} />
   </div></div>;
 }

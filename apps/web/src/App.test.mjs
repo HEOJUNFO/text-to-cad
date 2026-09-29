@@ -12,7 +12,7 @@ const require = createRequire(import.meta.url);
 const temporary = await mkdtemp(join(tmpdir(), 'text-to-cad-web-app-'));
 const output = join(temporary, 'app.mjs');
 await build({
-  stdin: { contents: `export {default as App} from './App.tsx'; export {act,createElement} from 'react'; export {createRoot} from 'react-dom/client'; export {snapshot} from '@text-to-cad/ui/file-viewer'; export {autoReloadOptions} from './host/useViewerAutoReload.js'; export {createTabStore} from '@text-to-cad/ui/tab-store'; export {sessionTabRecord, TAB_RECORD_KEY} from './persistence/tabRecord.ts';`, resolveDir: fileURLToPath(new URL('.', import.meta.url)) },
+  stdin: { contents: `export {default as App} from './App.tsx'; export {act,createElement} from 'react'; export {createRoot} from 'react-dom/client'; export {snapshot,browserNavigation} from '@text-to-cad/ui/file-viewer'; export {navSnapshot} from '@text-to-cad/ui/navigation'; export {autoReloadOptions} from './host/useViewerAutoReload.js'; export {createTabStore} from '@text-to-cad/ui/tab-store'; export {sessionTabRecord, TAB_RECORD_KEY} from './persistence/tabRecord.ts';`, resolveDir: fileURLToPath(new URL('.', import.meta.url)) },
   bundle: true, platform: 'node', format: 'esm', jsx: 'automatic', outfile: output, loader: { '.css': 'empty' },
   banner: { js: `import {createRequire} from 'node:module'; const require=createRequire(import.meta.url);` },
   plugins: [{ name: 'host-boundaries', setup(plugin) {
@@ -20,11 +20,12 @@ await build({
       path: args.kind.startsWith('require') ? require.resolve(args.path) : pathToFileURL(require.resolve(args.path)).href,
       external: true,
     }));
-    plugin.onResolve({ filter: /^@text-to-cad\/ui\/file-viewer$|^@text-to-cad\/ui\/renderers\/(step|dxf|glb|mesh|robot)$|^@text-to-cad\/ui\/file-viewer\/(presentation|empty)$|(?:ViewerAppearance|ViewerBrand|ViewerLinks)\.jsx$|useViewerAutoReload\.js$/ }, args => ({ path: args.path, namespace: 'host-test' }));
+    plugin.onResolve({ filter: /^@text-to-cad\/ui\/(file-viewer|navigation)$|^@text-to-cad\/ui\/renderers\/(step|dxf|glb|mesh|robot)$|^@text-to-cad\/ui\/file-viewer\/(presentation|empty)$|(?:ViewerAppearance|ViewerBrand|ViewerLinks)\.jsx$|useViewerAutoReload\.js$/ }, args => ({ path: args.path, namespace: 'host-test' }));
     // The tab store the host really uses; nothing else of the shared UI renders here.
     plugin.onResolve({ filter: /^@text-to-cad\/ui\/tab-store$/ }, () => ({ path: fileURLToPath(new URL('../../../packages/ui/src/tab-store/index.ts', import.meta.url)) }));
     plugin.onLoad({ filter: /.*/, namespace: 'host-test' }, args => {
-      if (args.path.endsWith('/file-viewer')) return { contents: `export {createCadFileSource,catalogPath} from ${JSON.stringify(fileURLToPath(new URL('../../../packages/ui/src/file-viewer/cadFileSource.ts', import.meta.url)))}; let current; export function FileViewer(props){current=props; return null;} export const snapshot=()=>current;`, loader: 'js', resolveDir: temporary };
+      if (args.path.endsWith('/file-viewer')) return { contents: `export {createCadFileSource,catalogPath} from ${JSON.stringify(fileURLToPath(new URL('../../../packages/ui/src/file-viewer/cadFileSource.ts', import.meta.url)))}; let current, browser; export function FileViewer(props){current=props; return null;} export const snapshot=()=>current; export const browserNavigation=()=>browser; export function useFileNavigation(props){browser=props;return {crumbs:{useListing:()=>[]},tree:{},edit:null};} export function useViewerMobileMeasure(){return [()=>{},false];}`, loader: 'js', resolveDir: temporary };
+      if (args.path.endsWith('/navigation')) return { contents: `let row; export const navSnapshot=()=>row; export const FILE_PANEL_TREE='tree', PANEL_DEFAULT_WIDTH=280; export const buildCrumbs=({path})=>path?[{path}]:[]; export const clampPanelWidth=x=>x; export const nextOpenPanel=(open,id)=>open===id?'':id; export const treePanel=open=>({id:'tree',icon:'span',label:open==='tree'?'Hide files':'Show files'}); export function FileNavRow(props){row=props;return null;} export const FilePanelColumn=()=>null, FileTree=()=>null, PanelToggle=()=>null, EmptyState=()=>null;`, loader: 'js' };
       if (args.path.endsWith('/step')) return { contents: `export const createStepRenderer=({preferences})=>({id:'step', preferences});`, loader: 'js' };
       if (args.path.endsWith('/dxf')) return { contents: `export const createDxfRenderer=()=>({id:'dxf'});`, loader: 'js' };
       if (args.path.endsWith('/glb')) return { contents: `export const createGlbRenderer=()=>({id:'glb'});`, loader: 'js' };
@@ -37,7 +38,7 @@ await build({
     });
   } }],
 });
-const { App, act, createElement, createRoot, snapshot, autoReloadOptions, createTabStore, sessionTabRecord, TAB_RECORD_KEY } = await import(pathToFileURL(output).href);
+const { App, act, createElement, createRoot, snapshot, navSnapshot, browserNavigation, autoReloadOptions, createTabStore, sessionTabRecord, TAB_RECORD_KEY } = await import(pathToFileURL(output).href);
 after(() => rm(temporary, { recursive: true, force: true }));
 
 test('web host preserves compact navigation, history, root state and focus refresh lifecycle', async () => {
@@ -81,14 +82,14 @@ test('web host preserves compact navigation, history, root state and focus refre
     assert.equal(snapshot().file, 'one.step');
     assert.deepEqual(await autoReloadOptions().fetchServerInfo(), { ok: true, identityToken: 'restarted' });
     assert.deepEqual(serverCalls[0], { fresh: true });
-    assert.equal(snapshot().navigationPath, null);
-    assert.equal(snapshot().leading.props.title, undefined, 'the brand mark needs no loading placeholder');
+    assert.equal(navSnapshot().activePath, null);
+    assert.equal(navSnapshot().leading.props.title, undefined, 'the C brand mark does not add a duplicate title');
     await act(() => {
       catalog = { ...catalog, entries: [{ file: 'one.step' }, { file: 'folder/two.step' }], hydrated: true, refreshing: false, revision: 1 };
       for (const listener of listeners) listener();
     });
-    assert.equal(snapshot().navigationPath, 'one.step');
-    assert.equal(snapshot().leading.props.title, undefined);
+    assert.equal(navSnapshot().activePath, 'one.step');
+    assert.equal(navSnapshot().leading.props.title, undefined);
     // A page load is a file opened directly, so it opens on that file's own default panel
     // (`null`) — a narrow window included — and never on one a previous page left open.
     assert.equal(snapshot().state.panel, null);
@@ -97,7 +98,7 @@ test('web host preserves compact navigation, history, root state and focus refre
     assert.equal('lifecycle' in snapshot().host, false);
     assert.equal(window.document.title, 'CAD | one.step');
     const historyLength = window.history.length;
-    await act(() => snapshot().host.navigation.openFile('missing.step'));
+    assert.deepEqual(snapshot().host.navigation.openFile('missing.step'), { status: 'unavailable', reason: 'File is not in the catalog.' });
     assert.equal(window.history.length, historyLength);
     assert.equal(snapshot().file, 'one.step');
     await act(() => snapshot().host.navigation.openFile('folder\\two.step'));
@@ -107,19 +108,19 @@ test('web host preserves compact navigation, history, root state and focus refre
     assert.equal(snapshot().state.panel, null);
     assert.equal(window.history.length, historyLength + 1);
     assert.equal(new URL(window.location.href).searchParams.get('file'), 'folder/two.step');
-    await act(() => snapshot().host.navigation.openFile('one.step', { target: 'new', panel: 'tree' }));
+    await act(() => browserNavigation().onOpenFile('one.step', { target: 'new', panel: 'tree' }));
     assert.equal(snapshot().state.panel, 'tree', 'and one picked in the tree asks for the tree');
     assert.equal(window.history.length, historyLength + 2);
     // The file already shown keeps whatever it has open unless a panel is asked for.
     window.innerWidth = 1280;
-    await act(() => snapshot().host.navigation.openFile('folder\\two.step', { target: 'new', panel: 'tree' }));
+    await act(() => browserNavigation().onOpenFile('folder\\two.step', { target: 'new', panel: 'tree' }));
     assert.equal(snapshot().file, 'folder/two.step');
     assert.equal(snapshot().state.panel, 'tree');
     assert.equal(window.history.length, historyLength + 3);
     await act(() => snapshot().host.navigation.openFile('folder\\two.step', { target: 'current' }));
     assert.equal(snapshot().state.panel, 'tree', 'the shown file opened with no panel keeps the one it has');
     assert.equal(window.history.length, historyLength + 3, 'and is no navigation at all');
-    await act(() => snapshot().host.navigation.openFile('folder\\two.step', { target: 'new', panel: '' }));
+    await act(() => browserNavigation().onOpenFile('folder\\two.step', { target: 'new', panel: '' }));
     assert.equal(snapshot().state.panel, '', 'the shown file opened with a panel takes it');
     assert.equal(window.history.length, historyLength + 3);
     await act(() => snapshot().host.navigation.openFile('one.step', { target: 'current' }));
@@ -130,12 +131,12 @@ test('web host preserves compact navigation, history, root state and focus refre
     assert.equal(snapshot().file, 'one.step');
     await act(() => { window.history.replaceState({}, '', '?file=folder/missing.step'); window.dispatchEvent(new window.PopStateEvent('popstate')); });
     assert.equal(snapshot().file, 'folder/missing.step');
-    assert.equal(snapshot().navigationPath, 'folder/missing.step', 'a missing file, nested or not, keeps its crumbs once the catalog has answered');
-    assert.equal(snapshot().leading.props.title, undefined);
+    assert.equal(navSnapshot().activePath, 'folder/missing.step', 'a missing file, nested or not, keeps its crumbs once the catalog has answered');
+    assert.equal(navSnapshot().leading.props.title, undefined);
     // With no file open, the brand mark remains without placeholder text.
     await act(() => { window.history.replaceState({}, '', '/'); window.dispatchEvent(new window.PopStateEvent('popstate')); });
     assert.ok(!snapshot().file);
-    assert.equal(snapshot().leading.props.title, undefined);
+    assert.equal(navSnapshot().leading.props.title, undefined);
     assert.equal(window.document.title, 'CAD');
     await act(() => { window.history.replaceState({}, '', '?file=one.step'); window.dispatchEvent(new window.PopStateEvent('popstate')); });
     await act(() => window.dispatchEvent(new window.Event('focus')));

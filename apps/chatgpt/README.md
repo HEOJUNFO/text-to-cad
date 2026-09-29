@@ -5,29 +5,46 @@ bridge, file handoff, appearance, composer delivery and iframe lifecycle. Geomet
 selection tools, renderers, file updates and reference serialization remain in
 `@text-to-cad/ui` and `@text-to-cad/core`. The MCP server belongs to `cadgen`.
 
-CAD is a per-file viewer. Open a STEP/STP, STL, GLB or 3MF file in the host and
-choose CAD. File opening and switching belong to the host; the extension has no
-explorer, file picker, directory search, breadcrumbs or second filename bar.
-Compact overlay actions retain snapshots and the shared model controls.
+The global sidebar shows models previously viewed with this extension, across
+folders: thumbnail previews, filename/folder search, pinning and removal from
+history. It reads the persisted `cad_library`; it never scans the server's current
+working directory or pretends to know the active host workspace. A new library
+shows guidance for creating a part in the composer or opening a supported file.
+Loading, unavailable files and operation failures have explicit states. The home
+refreshes when its window regains focus or becomes visible, and offers Refresh
+for hosts that keep hidden panes mounted without visibility events.
 
-The global sidebar opens concise guidance for creating a part through the existing
-composer, opening it with the host, and attaching geometry references to a request.
-It does not list or scan a folder. The source reuses `createCadFileSource` metadata,
-asset access and subscriptions, omitting its listing and search capabilities. File
-subscriptions resolve their current file before starting polling so catalog
-requests remain file-scoped; an empty view starts no catalog subscription.
-Existing skills and the standalone web viewer remain independent.
+A recent model requests a native file tab only when the host advertises
+`experimental["openai/files"]`, through `openai/files/open` with its saved absolute
+path. The acknowledgement means the host accepted the request, not that rendering
+finished. Hosts without that capability show an explicit **Preview here** action,
+which reopens saved server authority using `cad_open(recentId)` and offers a return
+to the recent-model home. Failed opens remain visible and retryable.
+
+Opened STEP/STP, STL, GLB and 3MF files use the shared document-only `FileViewer`.
+There is no explorer, file picker, breadcrumbs or second filename bar. Model
+controls, snapshots and selection are shared; the app injects file services,
+composer delivery and lifecycle. Existing skills and standalone web navigation
+remain independent. File subscriptions resolve the displayed path before polling,
+so requests remain file-scoped.
+
+Thumbnails come from the mounted shared renderer's live capture, scaled to at
+most 320 pixels and 256 KiB PNG. A capture is discarded after unmount, and its
+saved-file revision must still match before storage. Home thumbnails load only
+for visible items and cache by their revision; unavailable previews use a quiet
+placeholder, never fabricated geometry. Viewing another file through CAD records
+history; searching or pinning does not count as opening it.
 
 ## Host protocol
 
-`cad_open` returns `{file, rootId, rootPath}`. `file` is root-relative, or null for
+`cad_open` returns `{file, rootId, rootPath, recentId?, revision?}`. `file` is root-relative, or null for
 an empty sidebar view. Opening from the sidebar passes no file; it does not infer
 the active host workspace from the server's working directory. A native file entrypoint may initially omit its trusted local path;
 after mounting, the app invokes `cad_open` with its original tool input so the
 host can supply that path through trusted metadata. No browser path is trusted.
 
 All service calls, cache requests and binary resources use the app-only
-`cad_request` tool: `{path, method, body?: base64}` returns
+`cad_request` tool: `{path, method, body?: base64, recentId?}` returns
 `{status, headers, body: base64}`. Large file reads add `transfer: {offset,
 totalBytes, revision}` and continue with `offset`/`revision` arguments; the adapter
 checks continuity before returning complete bytes. This keeps each response under
@@ -45,6 +62,12 @@ context updates, including user removals, remain authoritative. A change during
 an asynchronous capture cancels that delivery rather than restoring stale
 attachments. Unsupported hosts show a disabled action with a reason. Ordinary
 Copy Reference remains a clipboard action.
+
+`cad_library` supplies `list`, `pin`, `remove` and revision-checked `thumbnail`
+operations. List and mutations are serialized, so late responses cannot overwrite
+newer pin/removal results. Library requests are cancelled on teardown. Native or
+preview opening keeps a generation guard so a late open cannot replace a newer
+host selection. The library and immutable UI cache tests use isolated state dirs.
 
 Theme comes from the host context. View settings live in memory for the mounted
 app instance. Root changes dispose the previous workspace service and prompt
@@ -79,7 +102,7 @@ No shared renderer source is altered for this packaging.
 
 | Standalone web control | Extension behavior |
 | --- | --- |
-| File selection | The host opens and switches files. The sidebar explains how to create or open a part; it has no explorer or picker. |
+| File selection | The recent-model home requests native file tabs when supported, with explicit local preview fallback. Per-file views have no explorer or picker. |
 | URL navigation, filename bar and browser history | Omitted; compact overlay actions retain snapshots and shared viewer controls. |
 | Theme selector | Follows the host theme. |
 | Brand, version, release and project links | Omitted from the pane; plugin management owns installation and updates. |
@@ -89,7 +112,7 @@ Model controls, geometry selection, measurements, display settings, snapshots an
 reference copying remain shared viewer features. Add to prompt delivers removable
 composer context rather than submitting a message.
 
-Adapter tests cover binary forwarding, worker tickets, cancellation, path handoff,
+Adapter tests cover serialized library updates, disposal, revision-bound thumbnails, search, binary forwarding, worker tickets, cancellation, path handoff,
 canonical reference delivery, failed deliveries and user removal reconciliation.
 The browser integration test exercises the built resource against a real MCP
 bridge and the CAD backend with temporary geometry. A live Codex smoke test is

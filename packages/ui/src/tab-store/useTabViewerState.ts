@@ -1,27 +1,27 @@
 import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
-import type { FileViewerState } from '../file-viewer/types.js';
+import type { FileBrowserState } from '../file-viewer/types.js';
 import type { TabStore } from './tabStore.js';
 
 /**
- * `FileViewer`'s controlled state for one root, from and into the tab store: the panel column's
+ * The browser frame's controlled state for one root, from and into the tab store: the panel column's
  * width and the root's open folders from `settings.fileTree`, the root's file views from
  * `files`, and the open panel — which is never stored: a page load, or a new tab, opens a file
  * on its own default (`panel: null`).
  */
 export function useTabViewerState(store: TabStore, rootId: string): {
-  state: FileViewerState;
-  onStateChange: (next: FileViewerState) => void;
+  state: FileBrowserState;
+  onStateChange: (next: FileBrowserState) => void;
   setPanel: (panel: string | null) => void;
 } {
   const record = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const [panel, setPanel] = useState<string | null>(null);
-  const state = useMemo<FileViewerState>(() => ({
+  const state = useMemo<FileBrowserState>(() => ({
     panel,
     panelWidth: record.settings.fileTree.width,
     expandedDirectories: record.settings.fileTree.expanded[rootId] ?? [],
     renderers: store.files.forRoot(rootId),
   }), [record, panel, rootId, store]);
-  const onStateChange = useCallback((next: FileViewerState) => {
+  const onStateChange = useCallback((next: FileBrowserState) => {
     setPanel(next.panel);
     const { fileTree } = store.settings.getSnapshot();
     const expanded = next.expandedDirectories ? [...next.expandedDirectories] : fileTree.expanded[rootId] ?? [];

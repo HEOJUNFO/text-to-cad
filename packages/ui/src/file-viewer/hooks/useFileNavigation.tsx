@@ -4,10 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "../../primitives/dropdown-menu.jsx";
 import { EntryContextMenu, EntryMenuItems, FILE_PANEL_TREE, InlineName, parentOf, useEntryMenuFocusGuard } from "../navigation/index.js";
 import type { CrumbSource, EntryAction, FileTreeSource, MenuEntryTarget, TreeEdit, TreeEditRequest } from "../navigation/index.js";
-import type { FileActions, FileChange, FileEntry, FileMutationResult, FileSource, FileViewerProps, FileViewerState } from "../types.js";
+import type { FileActions, FileBrowserSource, FileBrowserState, FileChange, FileEntry, FileMutationResult, FileViewerProps } from "../types.js";
 import { movedFilePath, reconcileFileTree } from "../fileChanges.js";
 import { errorMessage } from "./useFileDocument.js";
-import type { ViewerHost } from "../../host/types.js";
 
 type MenuAction = (action: EntryAction, entry: MenuEntryTarget) => void;
 function CrumbActions({ entry, capabilities, platform, onAction }: {
@@ -27,8 +26,8 @@ function CrumbActions({ entry, capabilities, platform, onAction }: {
 
 /** One shared cache feeds breadcrumb menus and tree rows for this mounted root. */
 export function useFileNavigation({ source, actions, state, onStateChange, onOpenFile, path, onError }: {
-  source: FileSource; actions?: FileActions; state: FileViewerState; onStateChange: FileViewerProps["onStateChange"];
-  onOpenFile: ViewerHost["navigation"]["openFile"]; path: string | null; onError?: FileViewerProps["onError"];
+  source: FileBrowserSource; actions?: FileActions; state: FileBrowserState; onStateChange: (next: FileBrowserState) => void;
+  onOpenFile: (path: string, options?: { target: "current" | "new"; panel?: string }) => void; path: string | null; onError?: FileViewerProps["onError"];
 }) {
   const [cache, setCache] = useState<{ id: string; listings: Record<string, readonly FileEntry[]>; revision: number }>({ id: source.id, listings: {}, revision: 0 });
   const listings = cache.id === source.id ? cache.listings : {};
@@ -42,7 +41,7 @@ export function useFileNavigation({ source, actions, state, onStateChange, onOpe
   current.current = { state, onStateChange, source, onError, listings, path, onOpenFile };
   const report = useCallback((error: unknown) => current.current.onError?.(new Error(errorMessage(error))), []);
   const load = useCallback((directory: string) => {
-    if (!source.list || requests.current.has(directory)) return;
+    if (requests.current.has(directory)) return;
     const controller = new AbortController();
     requests.current.set(directory, controller);
     void source.list(directory, { signal: controller.signal }).then((entries) => {
