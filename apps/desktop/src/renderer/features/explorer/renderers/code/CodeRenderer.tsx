@@ -76,7 +76,16 @@ export default function CodeRenderer({
     instance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void saveRef.current?.());
   };
 
-  useEffect(() => () => editorRef.current?.dispose(), []);
+  // This cleanup runs before the wrapper's, and a disposed editor has already
+  // detached its model — so the wrapper's `getModel()?.dispose()` finds none.
+  // The model's URI carries this view's id and nothing will ever reuse it:
+  // taken off the editor first and disposed here, or leaked on every remount.
+  useEffect(() => () => {
+    const instance = editorRef.current;
+    const model = instance?.getModel();
+    instance?.dispose();
+    model?.dispose();
+  }, []);
   useEffect(() => onReady(true), [onReady]);
 
   const language = languageFor(file.path);
