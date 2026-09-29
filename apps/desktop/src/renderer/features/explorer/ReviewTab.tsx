@@ -634,6 +634,12 @@ function FileSection({
   const reading = useRef(false);
   const mounted = useRef(true);
   const [landed, setLanded] = useState(0);
+  // The newest stamp, for a read that settles after it moved: the stamp's own
+  // re-run found a read in flight and asked nothing.
+  const latest = useRef(revision);
+  useEffect(() => {
+    latest.current = revision;
+  }, [revision]);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -657,9 +663,12 @@ function FileSection({
       })
       .catch((error: unknown) => {
         reading.current = false;
-        // No next read on its own: the failure is shown with its Retry, and
-        // a newer stamp asks again.
-        if (mounted.current) setFailure(errorMessage(error));
+        if (!mounted.current) return;
+        // The failure is shown with its Retry. A stamp that moved while it
+        // was read asks again, as a landed read would; the same stamp waits
+        // for Retry or a newer one.
+        setFailure(errorMessage(error));
+        if (latest.current !== asked) setLanded((count) => count + 1);
       });
   }, [open, current, request, file.path, scope, revision, attempt, landed]);
   const retry = () => {

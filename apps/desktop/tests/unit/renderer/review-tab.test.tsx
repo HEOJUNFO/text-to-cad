@@ -294,6 +294,44 @@ it("a diff that could not be read says so, with a Retry that reads it again", as
   expect(read).toHaveBeenCalledTimes(2);
 });
 
+it("a read that fails after the file's stamp moved asks again on its own, without Retry", async () => {
+  scoped.mockResolvedValue({ ...repo("main"), files: [changed("hello.py")], workingFiles: 1 });
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  try {
+    const first = deferred<FileDiff>();
+    const read = vi.fn()
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce(fileDiff({ before: "v0\n", after: "v2\n" }));
+    git.fileDiff = read;
+    renderReview();
+    await act(async () => {});
+    expect(read).toHaveBeenCalledTimes(1);
+
+    // The agent writes the file while its first read is out: the stamp moves, and the read in
+    // flight keeps the newer stamp from asking.
+    await act(async () => {
+      vi.advanceTimersByTime(500);
+      useExplorer.setState({
+        fsRevision: useExplorer.getState().fsRevision + 1,
+        changedEntries: [{ kind: "changed", path: "hello.py", directory: false }],
+      });
+    });
+    await act(async () => { vi.advanceTimersByTime(500); });
+    expect(scoped).toHaveBeenCalledTimes(2);
+    expect(read).toHaveBeenCalledTimes(1);
+
+    // The first read fails; nothing presses Retry, and no status answer follows.
+    await act(async () => { first.reject(new Error("git diff timed out")); });
+    await act(async () => {});
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("review-diff")).toHaveTextContent("v2");
+    expect(screen.queryByText(/git diff timed out/)).toBeNull();
+    expect(scoped).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("a newer status re-reads only the open diffs it says something new about", async () => {
   scoped
     .mockResolvedValueOnce({ ...repo("main"), files: [changed("a.py"), changed("b.py")], workingFiles: 2 })
