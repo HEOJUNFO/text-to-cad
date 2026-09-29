@@ -8,6 +8,7 @@
  */
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ChevronRight, Folder } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "cn";
 import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 
@@ -291,6 +292,7 @@ export function TextRow({
   width = "w-[240px]",
   type = "text",
   problem,
+  note,
 }: {
   title: string;
   description?: string;
@@ -306,6 +308,8 @@ export function TextRow({
    * the field would be left showing a value nothing stored.
    */
   problem?: (value: string) => string | null;
+  /** Said under the row while the field shows no problem of its own. */
+  note?: React.ReactNode;
 }) {
   const draft = useDraft(value, (next) => {
     if (!problem?.(next)) {
@@ -314,6 +318,21 @@ export function TextRow({
   });
   const problemId = useId();
   const refused = problem?.(draft.value) ?? null;
+  // A refused value left in the field when the row goes (Settings closed, the
+  // page changed) was never written; the alert under the row goes with it, so
+  // a toast says so instead of the value vanishing without a word.
+  const left = useRef<{ value: string; reason: string } | null>(null);
+  useEffect(() => {
+    left.current = refused ? { value: draft.value, reason: refused } : null;
+  });
+  useEffect(
+    () => () => {
+      if (left.current) {
+        toast.error(`${title} “${left.current.value}” was not saved`, { description: left.current.reason });
+      }
+    },
+    [title],
+  );
   return (
     <SettingRow
       control={
@@ -343,6 +362,8 @@ export function TextRow({
         <p className="text-xs text-destructive" id={problemId} role="alert">
           {refused}
         </p>
+      ) : note ? (
+        <p className="text-xs text-muted-foreground">{note}</p>
       ) : null}
     </SettingRow>
   );

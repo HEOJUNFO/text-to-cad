@@ -49,6 +49,22 @@ const KEEP_LIMITS = [3, 5, 10, 20, 50].map((count) => ({
 export function GitPage() {
   const settings = useSettingsValue();
   const patch = useSettingsPatch();
+  // A prefix stored before git's rules were checked, which main reads as the
+  // default (`settings.fallbacks`): asked again whenever settings change, so
+  // the note goes once a prefix is set.
+  const [storedPrefix, setStoredPrefix] = useState<string | null>(null);
+  useEffect(() => {
+    let current = true;
+    void window.textToCad.settings
+      .fallbacks()
+      .then(({ branchPrefix }) => {
+        if (current) setStoredPrefix(branchPrefix ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [settings]);
 
   return (
     <>
@@ -68,6 +84,11 @@ export function GitPage() {
           keywords="branch name namespace"
           onChange={(branchPrefix) => patch({ branchPrefix })}
           placeholder="text-to-cad/"
+          note={
+            storedPrefix === null
+              ? undefined
+              : `The stored prefix “${storedPrefix}” is not one git accepts, so “${settings.branchPrefix}” is used until another is set. ${branchPrefixProblem(storedPrefix) ?? ""}`.trim()
+          }
           problem={branchPrefixProblem}
           title="Branch prefix"
           value={settings.branchPrefix}

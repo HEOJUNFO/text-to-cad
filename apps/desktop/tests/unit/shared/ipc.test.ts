@@ -78,6 +78,7 @@ describe("the contract", () => {
       "dialogs.chooseFile",
       "settings.get",
       "settings.set",
+      "settings.fallbacks",
       "window.state",
       "ui.ready",
       "shell.openExternal",

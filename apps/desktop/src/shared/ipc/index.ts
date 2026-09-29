@@ -142,6 +142,12 @@ export const ipcContract = defineIpc({
      * mention.
      */
     set: invoke(SettingsPatchSchema, SettingsSchema),
+    /**
+     * Stored values the read refused and answered with the default in place
+     * of, by field — a branch prefix git refuses, written before the check
+     * existed — so the page that shows the field can say so.
+     */
+    fallbacks: invoke(z.void(), z.object({ branchPrefix: z.string().optional() })),
   },
 
   window: {

@@ -20,6 +20,7 @@ import {
 } from "../../shared/acp/types";
 import type { AgentOptions } from "../../shared/ipc/agent-options";
 import {
+  BranchPrefixSchema,
   PersistedExplorerTabSchema,
   ProjectSchema,
   SessionSchema,
@@ -501,16 +502,44 @@ function writeRaw(values: Record<string, unknown>) {
   write();
 }
 
+/**
+ * Stored values the read refused and answered with the default in place of
+ * (`.catch` in `SettingsSchema`): today a branch prefix git refuses, written
+ * before the check existed.
+ */
+function fallbacksOf(raw: Record<string, unknown>): { branchPrefix?: string } {
+  const stored = raw.branchPrefix;
+  return stored !== undefined && !BranchPrefixSchema.safeParse(stored).success ? { branchPrefix: String(stored) } : {};
+}
+
+/** Each refused stored value is said once a run, not on every settings read. */
+const loggedFallbacks = new Set<string>();
+
 export const settings = {
   get(): Settings {
-    return SettingsSchema.parse(readRaw());
+    const raw = readRaw();
+    const { branchPrefix } = fallbacksOf(raw);
+    if (branchPrefix !== undefined && !loggedFallbacks.has(branchPrefix)) {
+      loggedFallbacks.add(branchPrefix);
+      console.warn(`[settings] the stored branch prefix “${branchPrefix}” is one git refuses; using the default until another is set`);
+    }
+    return SettingsSchema.parse(raw);
   },
 
-  /** Merge a partial update over what is stored and answer with the whole. */
+  /**
+   * Merge a partial update over what is stored and answer with the whole.
+   * Only the fields the patch names are written: the rest are already stored
+   * or defaults, and writing the whole object back would replace a refused
+   * stored value with its fallback without anyone having set it.
+   */
   set(patch: Partial<Settings>): Settings {
     const next = SettingsSchema.parse({ ...readRaw(), ...patch });
-    writeRaw(next as unknown as Record<string, unknown>);
+    writeRaw(Object.fromEntries(Object.keys(patch).map((key) => [key, next[key as keyof Settings]])));
     return next;
+  },
+
+  fallbacks(): { branchPrefix?: string } {
+    return fallbacksOf(readRaw());
   },
 
   windowState(): WindowState {

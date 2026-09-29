@@ -116,6 +116,7 @@ const handlers = {
       }
       return next;
     },
+    fallbacks: () => settings.fallbacks(),
   },
 
   window: {
