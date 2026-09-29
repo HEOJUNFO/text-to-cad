@@ -27,6 +27,8 @@ vi.mock("@main/db/repositories", () => ({
 }));
 vi.mock("@main/projects/workspace", () => ({ resolveProjectRoot: () => fixture.root, projectWorktreeDir: () => fixture.root, realDirectory: (directory: string) => directory }));
 import { explorerHandlers, initExplorerServices, disposeExplorerServices } from "@main/ipc/explorer";
+import { FileWatchers } from "@main/explorer/fs";
+import { fileExtension } from "@main/telemetry";
 import { FileMutationResultSchema, TextWriteResultSchema } from "@shared/ipc/explorer";
 
 beforeAll(async () => { fixture.root = await fs.mkdtemp(path.join(os.tmpdir(), "file-mutations-")); });
@@ -68,8 +70,35 @@ test("opening a file counts its extension and nothing else; a directory or a fai
   await fs.mkdir(path.join(fixture.root, "Secret Project"), { recursive: true });
   await fs.writeFile(path.join(fixture.root, "Secret Project", "Gripper.STL"), "solid");
   fixture.track.mockClear();
-  await explorerHandlers.explorer.stat({ ...at, path: "Secret Project/Gripper.STL" });
-  await explorerHandlers.explorer.stat({ ...at, path: "Secret Project" });
-  await expect(explorerHandlers.explorer.stat({ ...at, path: "missing.step" })).rejects.toThrow();
+  await explorerHandlers.explorer.stat({ ...at, path: "Secret Project/Gripper.STL", intent: "open" });
+  await explorerHandlers.explorer.stat({ ...at, path: "Secret Project", intent: "open" });
+  await expect(explorerHandlers.explorer.stat({ ...at, path: "missing.step", intent: "open" })).rejects.toThrow();
   expect(fixture.track.mock.calls).toEqual([[{ name: "file_opened", extension: "stl" }]]);
+});
+
+test("a stat that is not a tab opening — an attachment check, an integration lookup — neither counts nor watches", async () => {
+  await fs.mkdir(path.join(fixture.root, "attach"), { recursive: true });
+  await fs.writeFile(path.join(fixture.root, "attach", "part.step"), "ISO-10303-21;");
+  fixture.track.mockClear();
+  const watchEntry = vi.spyOn(FileWatchers.prototype, "watchEntry").mockResolvedValue();
+  initExplorerServices(() => {});
+  try {
+    await explorerHandlers.explorer.stat({ ...at, path: "attach/part.step" });
+    expect(fixture.track).not.toHaveBeenCalled();
+    expect(watchEntry).not.toHaveBeenCalled();
+    await explorerHandlers.explorer.stat({ ...at, path: "attach/part.step", intent: "open" });
+    expect(fixture.track).toHaveBeenCalledOnce();
+    expect(watchEntry).toHaveBeenCalledOnce();
+  } finally { disposeExplorerServices(); watchEntry.mockRestore(); }
+});
+
+test("file_opened's extension is a short alphanumeric suffix or \"other\", never a fragment of a name", () => {
+  expect(fileExtension("a/Gripper.STL")).toBe("stl");
+  expect(fileExtension("a/model.step")).toBe("step");
+  expect(fileExtension("README")).toBe("none");
+  expect(fileExtension(".env")).toBe("none");
+  expect(fileExtension("plan.acme-q3-layoffs")).toBe("other");
+  expect(fileExtension("notes.confidential")).toBe("other");
+  expect(fileExtension("photo.jpg ")).toBe("other");
+  expect(fileExtension("archive.tar.gz")).toBe("gz");
 });

@@ -114,13 +114,19 @@ export function rootOf(projectId: string, root?: string | null): string {
   }
   try {
     // Persisted worktrees retain access even if an old project label changed.
-    // What is handed on is the recorded directory after realpath — the same
-    // resolution every other root gets — never the caller's spelling of it.
+    // The match is by real path, so any spelling of the directory finds its
+    // session; what is handed on is the RECORDED spelling — never the
+    // caller's (that let a request key watchers and viewers by a string of
+    // its choosing), and not the realpath either: watchers, `files.changed`
+    // and the CAD viewer are keyed by this root, and the renderer and
+    // `forgetCadSession` know the session by the path main recorded.
     if (root) {
+      const requested = realDirectory(root);
       for (const session of sessions.list()) {
         if (session.projectId !== projectId) continue;
-        const recorded = [session.cwd, session.worktreePath].find((candidate) => candidate && git.samePath(candidate, root));
-        if (recorded) return realDirectory(recorded);
+        const recorded = [session.cwd, session.worktreePath].find((candidate) =>
+          candidate && (git.samePath(candidate, root) || git.samePath(realDirectory(candidate), requested)));
+        if (recorded) return recorded;
       }
     }
     return resolveProjectRoot(settings.get(), project, root);
@@ -353,16 +359,19 @@ export const explorerHandlers = {
         listPaths(rootOf(projectId, root), directory, limit === undefined ? {} : { limit }),
       ),
 
-    stat: ({ projectId, root: rootPath, path: target }: AtPath) =>
+    stat: ({ projectId, root: rootPath, path: target, intent }: AtPath & { intent?: "open" | undefined }) =>
       fsCall(async () => {
         const root = rootOf(projectId, rootPath);
         const entry = await statFile(root, target);
+        // Only a file tab's stat says `intent: "open"` (`fileSource.ts`); the
+        // composer's attachment check and the integrations' renderer lookup
+        // stat files nobody opened, and must neither watch nor count them.
+        if (intent !== "open") return entry;
         await watchers?.watchEntry(root, entry);
-        // `file_opened`: opening a file tab is renderer state, and this is
-        // the one call main sees for every open — the file tab's first read
-        // (`fileSource.ts`) and an agent's `open_file`. It also answers a
-        // tab's reload after an on-disk change, which counts again. Only the
-        // extension leaves: never the path or the name (README, "Telemetry").
+        // `file_opened`: opening a file tab is renderer state, and its stat is
+        // the call main sees for an open. A tab's reload after an on-disk
+        // change stats again and counts again. Only the extension leaves:
+        // never the path or the name (README, "Telemetry").
         if (entry.kind === "file") {
           track({ name: "file_opened", extension: fileExtension(entry.path) });
         }

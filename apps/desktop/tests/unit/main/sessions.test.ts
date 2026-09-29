@@ -267,6 +267,22 @@ describe("SessionManager", () => {
       await manager.prompt(session.id, [{ type: "text", text: "anything else?" }]);
       expect(tally(repo.get(session.id))).toEqual({ changedFiles: 1, insertions: 2, deletions: 0 });
     }
+
+    // An adapter that replays no diffs during session/load: the persisted
+    // counts are the history, and the next edit adds to them rather than
+    // replacing them with just its own turn.
+    const other = { type: "diff", path: "other.md", oldText: "", newText: "x\ny\n" };
+    fixture = await write("reload-quiet.jsonl", [
+      request(1, "session/load"),
+      response(1, {}),
+      request(2, "session/prompt"),
+      { dir: "in", msg: { jsonrpc: "2.0", method: "session/update", params: { sessionId: "recorded", update: { sessionUpdate: "tool_call", toolCallId: "edit-2", status: "completed", kind: "edit", title: "Edit other.md", content: [other] } } } },
+      response(2, { stopReason: "end_turn" }),
+    ]);
+    manager.close(session.id);
+    await manager.load(session.id);
+    await manager.prompt(session.id, [{ type: "text", text: "edit the other file" }]);
+    expect(tally(repo.get(session.id))).toEqual({ changedFiles: 2, insertions: 4, deletions: 0 });
   });
 
   it("close keeps the row, load reconnects through session/load, delete forgets it", async () => {
@@ -541,6 +557,41 @@ describe("SessionManager", () => {
     });
     await manager.delete(session.id);
     expect(released).toEqual([`${cwd}/wt`]);
+  });
+
+  it("delete removes the row, then runs beforeRelease, then releases the worktree", async () => {
+    const order: string[] = [];
+    const { repo, manager, cwd } = await setup({
+      workspace: async () => ({ cwd, worktreePath: `${cwd}/wt` }),
+      releaseWorkspace: async () => {
+        order.push("release");
+      },
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "worktree" });
+    await manager.delete(session.id, {
+      beforeRelease: () => {
+        order.push(repo.get(session.id) ? "dispose (row still there)" : "dispose");
+      },
+    });
+    expect(order).toEqual(["dispose", "release"]);
+  });
+
+  it("a delete whose row cannot be removed disposes nothing and releases nothing", async () => {
+    const released: string[] = [];
+    const disposed: string[] = [];
+    const { repo, manager, cwd } = await setup({
+      workspace: async () => ({ cwd, worktreePath: `${cwd}/wt` }),
+      releaseWorkspace: async () => {
+        released.push("release");
+      },
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "worktree" });
+    repo.remove = () => {
+      throw new Error("database is locked");
+    };
+    await expect(manager.delete(session.id, { beforeRelease: () => { disposed.push("dispose"); } })).rejects.toThrow("database is locked");
+    expect(disposed).toEqual([]);
+    expect(released).toEqual([]);
   });
 
   it("says why a worktree was kept when releaseWorkspace does not remove it", async () => {

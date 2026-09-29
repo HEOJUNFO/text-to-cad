@@ -36,6 +36,16 @@ export function daemonWarmer(): DaemonWarmer {
 }
 
 /**
+ * The key a root's viewer is launched and stopped by. `cad.viewerOrigin`
+ * (the tab's root, from `rootOf` — the session's recorded spelling) and
+ * `forgetCadSession` (the recorded `worktreePath`) both go through this, so
+ * a stop always finds the instance its start made.
+ */
+export function viewerRoot(root: string): string {
+  return path.resolve(root);
+}
+
+/**
  * A project opened at `root`: start what its first CAD file will need. The
  * viewer's launch probes the runtime first (`import cadgen.viewer`, which
  * primes the interpreter's caches for every cadgen process after it), and
@@ -48,7 +58,7 @@ export function daemonWarmer(): DaemonWarmer {
  * are done before the click.
  */
 export async function warmCad(root: string): Promise<void> {
-  const viewer = viewers().originFor(root);
+  const viewer = viewers().originFor(viewerRoot(root));
   const resolved = await cadRuntime().ready();
   if (resolved) {
     daemonWarmer().warm(resolved, root);
@@ -90,6 +100,6 @@ export async function initCad(): Promise<void> {
 
 }
 export function forgetCadSession(sessionId: string, worktreePath?: string | null): void {
-  if (worktreePath && !sessions.list().some(other => other.id !== sessionId && git.samePath(other.cwd, worktreePath))) viewersInstance?.stop(path.resolve(worktreePath));
+  if (worktreePath && !sessions.list().some(other => other.id !== sessionId && git.samePath(other.cwd, worktreePath))) viewersInstance?.stop(viewerRoot(worktreePath));
 }
 export async function shutdownCad(): Promise<void> { viewersInstance?.stopAll(); }

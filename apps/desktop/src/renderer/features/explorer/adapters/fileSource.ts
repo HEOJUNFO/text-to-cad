@@ -47,7 +47,9 @@ export function createDesktopFileSource({ sessionId, projectId, projectName, roo
     id,
     get rootName() { return typeof projectName === "function" ? projectName() : projectName; },
     async stat(path, { signal }) {
-      const stat = await checked(signal, () => window.textToCad.explorer.stat({ ...at, path }));
+      // The viewer stats a file as it opens it: this is the one stat that counts as an open
+      // (file_opened) and watches the entry. Attachments and integrations stat without it.
+      const stat = await checked(signal, () => window.textToCad.explorer.stat({ ...at, path, intent: "open" }));
       return { ...stat, mediaType: stat.fileKind };
     },
     list: (path, { signal }) => checked(signal, () => window.textToCad.explorer.list({ ...at, path })),

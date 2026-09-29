@@ -126,7 +126,13 @@ export const explorerIpc = {
       AtPath.extend({ limit: z.number().int().positive().max(100_000).optional() }),
       z.object({ paths: z.array(z.string()), truncated: z.boolean() }),
     ),
-    stat: invoke(AtPath, FileStatSchema),
+    /**
+     * One entry's metadata. `intent: "open"` is set by the file tab alone
+     * (`fileSource.ts`): only then does main count `file_opened` and watch
+     * the entry's directory. An attachment check or an integration lookup
+     * stats files nobody opened, and leaves it out.
+     */
+    stat: invoke(AtPath.extend({ intent: z.literal("open").optional() }), FileStatSchema),
     /**
      * Which of `paths` exist under the root, in one round trip. The
      * transcript asks this for every path-shaped token in a message before

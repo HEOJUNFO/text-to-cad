@@ -56,15 +56,21 @@ test("refuses a directory outside the project, and an unknown project", () => {
   expect(showItemInFolder).not.toHaveBeenCalled();
 });
 
-test("a session's recorded worktree resolves to its real path, not the spelling it was asked by", async () => {
-  // A worktree an older layout made outside the worktree root, reached
-  // through a link: the session record keeps access, and what main hands on
-  // is the directory itself.
+test("a session's recorded worktree is handed on as the session recorded it, not as the caller spelled it", async () => {
+  // A worktree an older layout made outside the worktree root, recorded
+  // through a link (a dotfile-managed ~/.text-to-cad, /tmp on macOS). The
+  // record keeps access, and the root that leaves main is the recorded
+  // spelling: watchers, `files.changed` and the CAD viewer are keyed by it,
+  // and the renderer compares it with the session's worktreePath by `===`.
   const real = path.join(fixture.root, "legacy-worktree");
   const linked = path.join(fixture.root, "linked-worktree");
   await fs.mkdir(real, { recursive: true });
   await fs.symlink(real, linked);
   fixture.sessions = [{ projectId: "project", cwd: linked, worktreePath: linked }];
   revealProjectDirectory({ projectId: "project", root: linked });
-  expect(showItemInFolder).toHaveBeenCalledExactlyOnceWith(real);
+  // The caller's spelling differs (a trailing slash, the real path): the
+  // recorded one is still what is handed on.
+  revealProjectDirectory({ projectId: "project", root: `${linked}/` });
+  revealProjectDirectory({ projectId: "project", root: real });
+  expect(showItemInFolder.mock.calls.map(([target]) => target)).toEqual([linked, linked, linked]);
 });

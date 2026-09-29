@@ -197,7 +197,12 @@ export function titleFromPrompt(content: PromptBlock[], max = 60): string {
   return collapsed.length > max ? `${collapsed.slice(0, max - 1).trimEnd()}…` : collapsed;
 }
 
-type ChangeTally = { files: Set<string>; insertions: number; deletions: number };
+/**
+ * `baseFiles`: files counted before this app run, when a reload replayed no
+ * diffs — their paths are not known, so a later edit to one of them counts
+ * it again. The row's `changedFiles` is `baseFiles + files.size`.
+ */
+type ChangeTally = { files: Set<string>; baseFiles: number; insertions: number; deletions: number };
 
 /** How long a config-option probe may take before it is abandoned. */
 const PROBE_TIMEOUT_MS = 60_000;
@@ -573,6 +578,18 @@ export class SessionManager {
       await connection.initialize();
       timer.mark("initialize");
       await connection.loadSession(session.acpSessionId);
+      // An adapter that replays no diffs leaves nothing counted, and the
+      // next persistTally would overwrite the row with one turn's edits:
+      // the persisted counts are then the history to add to.
+      if (!this.tallies.has(id)) {
+        const persisted = this.deps.repo.get(id);
+        this.tallies.set(id, {
+          files: new Set(),
+          baseFiles: persisted?.changedFiles ?? 0,
+          insertions: persisted?.insertions ?? 0,
+          deletions: persisted?.deletions ?? 0,
+        });
+      }
     } catch (error) {
       this.setStatus(id, "error");
       connection.close();
@@ -766,7 +783,19 @@ export class SessionManager {
    * delete the thread over it would leave a thread nobody wants and a
    * directory they cannot see.
    */
-  async delete(id: string): Promise<void> {
+  async delete(
+    id: string,
+    options: {
+      /**
+       * Runs after the row is gone and before the worktree is released: the
+       * terminals, browser targets and CAD viewer holding the session's
+       * directory open (`src/main/ipc/acp.ts`). After the row, so a delete
+       * that fails leaves the session whole; before the release, so nothing
+       * outlives its directory. A throw here keeps the worktree on disk.
+       */
+      beforeRelease?: (session: Session | null) => void | Promise<void>;
+    } = {},
+  ): Promise<void> {
     const session = this.deps.repo.get(id);
     this.live.delete(id)?.close();
     this.pendingTitles.delete(id);
@@ -776,6 +805,7 @@ export class SessionManager {
     this.snapshots?.forget(id);
     this.deps.repo.remove(id);
     this.broadcastIndex();
+    await options.beforeRelease?.(session);
     if (session) {
       const released = await this.deps.releaseWorkspace?.(session).catch((error: unknown) => ({
         removed: false,
@@ -1150,7 +1180,7 @@ export class SessionManager {
   private tally(id: string): ChangeTally {
     let tally = this.tallies.get(id);
     if (!tally) {
-      tally = { files: new Set(), insertions: 0, deletions: 0 };
+      tally = { files: new Set(), baseFiles: 0, insertions: 0, deletions: 0 };
       this.tallies.set(id, tally);
     }
     return tally;
@@ -1182,7 +1212,7 @@ export class SessionManager {
     const tally = this.tallies.get(id);
     if (tally && this.deps.repo.get(id)) {
       this.update(id, {
-        changedFiles: tally.files.size,
+        changedFiles: tally.baseFiles + tally.files.size,
         insertions: tally.insertions,
         deletions: tally.deletions,
       });

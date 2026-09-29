@@ -187,15 +187,18 @@ export const acpHandlers = {
     close: ({ id }) => surfacing(async () => { forgetSession(id); await sessionManager.close(id); }),
     delete: ({ id }) =>
       surfacing(async () => {
-        const row = sessions.get(id);
-        // Everything running inside the session's directory goes first:
-        // `delete` may remove a worktree, and a terminal, browser target or
-        // CAD viewer still holding it open would outlive its own directory.
-        forgetSession(id);
-        browserService.disposeSession(id);
-        explorerTerminals().disposeSession(id);
-        forgetCadSession(id, row?.worktreePath ?? null);
-        await sessionManager.delete(id);
+        // The row goes first, so a delete that fails leaves the session whole
+        // with its tools; then everything running inside its directory, before
+        // `delete` may remove the worktree — a terminal, browser target or CAD
+        // viewer still holding it open would outlive its own directory.
+        await sessionManager.delete(id, {
+          beforeRelease: (row) => {
+            forgetSession(id);
+            browserService.disposeSession(id);
+            explorerTerminals().disposeSession(id);
+            forgetCadSession(id, row?.worktreePath ?? null);
+          },
+        });
       }),
   },
 } satisfies IpcHandlers<typeof acpContract, IpcContext>;

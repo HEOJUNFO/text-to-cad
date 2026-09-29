@@ -85,7 +85,9 @@ export function track(event: Event) {
 /**
  * The extension of a path, lowercased and without its dot — the only part of a
  * file name `file_opened` is allowed to carry. Answers `"none"` for a file with
- * no extension so the event still counts.
+ * no extension so the event still counts, and `"other"` for a suffix that is
+ * not a short run of letters and digits: whatever follows the last dot of
+ * `plan.acme-q3-layoffs` is part of a name, not a file type.
  */
 export function fileExtension(filePath: string): string {
   const base = filePath.split(/[\\/]/).pop() ?? "";
@@ -93,7 +95,8 @@ export function fileExtension(filePath: string): string {
   if (dot <= 0 || dot === base.length - 1) {
     return "none";
   }
-  return base.slice(dot + 1).toLowerCase();
+  const extension = base.slice(dot + 1).toLowerCase();
+  return /^[a-z0-9]{1,8}$/.test(extension) ? extension : "other";
 }
 
 /** True when a key was compiled in — Settings shows the switch either way. */
