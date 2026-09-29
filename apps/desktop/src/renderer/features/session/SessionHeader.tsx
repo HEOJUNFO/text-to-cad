@@ -1,6 +1,6 @@
 import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { useState } from "react";
-import { Archive, Copy, FolderOpen, MoreHorizontal, Pencil, Trash2, Unplug } from "lucide-react";
+import { Archive, Copy, FolderOpen, MoreHorizontal, Pencil, RotateCcw, Trash2, Unplug } from "lucide-react";
 
 import { ExplorerToggle, HistoryNav, SidebarToggle } from "@renderer/app/PaneToggles";
 import { Button } from "@renderer/components/ui/button";
@@ -43,6 +43,15 @@ export function SessionHeader({
   const archive = useSessions((state) => state.archive);
   const remove = useSessions((state) => state.remove);
   const closeSession = useAcp((state) => state.close);
+  const reconnect = useAcp((state) => state.load);
+  // The same reading as SessionView's Reconnect bar: what is held says closed, or nothing is
+  // held for a closed row. A session already disconnected is offered the way back, not a
+  // second disconnect.
+  const disconnected = useAcp((state) => {
+    if (!session || state.loading[session.id]) return false;
+    const held = state.sessions[session.id];
+    return held ? held.status === "closed" : session.status === "closed";
+  });
   const sidebarCollapsed = useSettings((state) => state.settings?.layout.sidebarCollapsed ?? false);
   const explorerCollapsed = useExplorer((state) => state.collapsed);
   const projectName = useProjects(
@@ -144,10 +153,17 @@ export function SessionHeader({
                 Reveal in Finder
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => void closeSession(session.id)}>
-                <Unplug />
-                Disconnect agent
-              </DropdownMenuItem>
+              {disconnected ? (
+                <DropdownMenuItem onSelect={() => void reconnect(session.id)}>
+                  <RotateCcw />
+                  Reconnect
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem onSelect={() => void closeSession(session.id)}>
+                  <Unplug />
+                  Disconnect agent
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onSelect={() => void archive(session.id, true)}>
                 <Archive />
                 Archive
