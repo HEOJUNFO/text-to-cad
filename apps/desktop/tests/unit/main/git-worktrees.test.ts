@@ -578,6 +578,20 @@ describe("status against a recorded revision", () => {
   });
 });
 
+describe("a since-period older than the whole history", () => {
+  it("counts the first commit's own changes, not only what came after it", async () => {
+    const { root } = await repository();
+    await writeFile(path.join(root, "README.md"), "one\ntwo\nthree\n");
+    await git_(root, "commit", "--quiet", "-am", "second");
+
+    const since = await git.status(root, { kind: "since", since: "7 days ago" });
+    // README.md was made by the first commit, minutes ago: all three lines are new.
+    expect(since.files).toEqual([expect.objectContaining({ path: "README.md", status: "added", insertions: 3, deletions: 0 })]);
+    const diff = await git.fileDiff(root, "README.md", { kind: "since", since: "7 days ago" });
+    expect(diff).toMatchObject({ status: "added", before: "", after: "one\ntwo\nthree\n" });
+  });
+});
+
 describe("a renamed file", () => {
   it("diffs against its old path, not as a new file", async () => {
     const { root } = await repository();

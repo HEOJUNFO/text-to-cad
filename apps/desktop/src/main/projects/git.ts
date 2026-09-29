@@ -629,11 +629,12 @@ async function baseRevision(root: string, scope: DiffScope): Promise<string | nu
     return scope.to ? `${scope.from}..${scope.to}` : scope.from;
   }
   if (scope.kind === "since") {
-    // The newest commit at or before that time; nothing there means the whole
-    // history is newer, so the range is the root commit.
+    // The newest commit at or before that time. Nothing there means the whole
+    // history is newer, so the range starts before the first commit — the
+    // empty tree. The root commit would leave its own changes out.
     const revision = await tryGit(root, ["rev-list", "-1", `--before=${scope.since}`, "--end-of-options", "HEAD"]);
     const trimmed = revision?.trim();
-    return trimmed || (await tryGit(root, ["rev-list", "--max-parents=0", "-1", "HEAD"]))?.trim() || null;
+    return trimmed || (await emptyTree(root));
   }
   return "HEAD";
 }
@@ -969,6 +970,13 @@ export const runGit: GitRunner = async (cwd, args, input) => {
     timedOut: Boolean(result.timedOut),
   };
 };
+
+/** The empty tree's id, asked of git so a SHA-256 repository answers in its own format. */
+async function emptyTree(cwd: string): Promise<string | null> {
+  const tree = await runGit(cwd, ["hash-object", "-t", "tree", "--stdin"], "");
+  const id = tree.exitCode === 0 && !tree.timedOut ? tree.stdout.trim() : "";
+  return /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(id) ? id : null;
+}
 
 /**
  * The empty tree's id when `cwd` is a repository with no commits yet, and
