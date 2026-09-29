@@ -762,9 +762,12 @@ export class SessionManager {
     }
     // The turn's starting point, read before the agent can move it. This is
     // what the review's `Last turn` scope diffs against; taking it afterwards
-    // would measure the turn against its own result.
+    // would measure the turn against its own result. A read that failed
+    // (a lock, a timeout) keeps the previous mark: a wider `Last turn` is
+    // still a review, where a null would unmark it altogether.
+    const turnHead = await this.headOf(session.cwd);
     this.update(id, {
-      turnHead: await this.headOf(session.cwd),
+      ...(turnHead === null ? {} : { turnHead }),
       turnStartedAt: Date.now(),
     });
     try {

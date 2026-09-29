@@ -640,6 +640,18 @@ describe("SessionManager", () => {
     expect(row.turnStartedAt).toBeGreaterThan(0);
   });
 
+  it("keeps the previous turn mark when git cannot read HEAD at the next turn", async () => {
+    const head = vi.fn<(cwd: string) => Promise<string | null>>()
+      .mockResolvedValueOnce("the-session-starts-here")
+      .mockRejectedValueOnce(new Error("fatal: unable to read index"));
+    const { repo, manager, cwd } = await setup({ head });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    await manager.prompt(session.id, [{ type: "text", text: "hello" }]);
+    const row = repo.get(session.id)!;
+    expect(row.turnHead).toBe(row.sessionHead);
+    expect(row.turnHead).toBe("the-session-starts-here");
+  });
+
   it("counts a created session by its registry id, and nothing else about it", async () => {
     const track = vi.fn();
     const { manager, cwd } = await setup({ track });
