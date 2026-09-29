@@ -130,6 +130,44 @@ export class AgentDetector {
     return this.statuses;
   }
 
+  /**
+   * The table for `agents.list`: the cache when there is one, and otherwise
+   * the first probe's answer if it arrives within `waitMs`. An empty cache
+   * answered at once is a renderer that draws "no agents" and then redraws
+   * when `agents.status` lands — the model chip waited on that second answer
+   * on every cold launch. A probe that hangs past the bound (a login shell
+   * that never returns) still gets the old answer, empty, and the broadcast
+   * follows as before.
+   */
+  async listWithin(waitMs: number): Promise<AgentStatus[]> {
+    const cached = this.list();
+    const inflight = this.inflight;
+    if (cached.length > 0 || !inflight) {
+      return cached;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const bound = new Promise<AgentStatus[]>((resolve) => {
+      timer = setTimeout(() => resolve(this.statuses), waitMs);
+    });
+    try {
+      return await Promise.race([inflight.catch(() => this.statuses), bound]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * The first table: the probe in flight, the cache, or a new probe — never a
+   * second probe on top of one already running or finished. What launch
+   * starts, and what the adapter pre-warm waits on.
+   */
+  settled(): Promise<AgentStatus[]> {
+    if (this.inflight) {
+      return this.inflight;
+    }
+    return this.statuses.length > 0 ? Promise.resolve(this.statuses) : this.refresh(false);
+  }
+
   /** The environment the last probe used, for spawning agents. */
   async environment(): Promise<Env> {
     return this.env ?? (await this.probes.env(false));

@@ -42,8 +42,9 @@ export const useAgents = create<AgentsState>((set) => ({
   /**
    * `ready` means "detection has answered", never "an agent was found".
    *
-   * An empty `agents.list` is main's "the first probe is still running"
-   * (`AgentDetector.list`): the answer follows on `agents.status`, and
+   * An empty `agents.list` is main's "the first probe is still running",
+   * past the wait a cold list allows it (`AgentDetector.listWithin`): the
+   * answer follows on `agents.status`, and
    * `receive` marks it — an empty table included. A list that cannot be read
    * at all is an answer too: nothing will follow it, and a screen waiting on
    * `ready` (the welcome's Continue) would otherwise wait forever. That answer

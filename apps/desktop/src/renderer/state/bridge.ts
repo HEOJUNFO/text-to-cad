@@ -213,11 +213,14 @@ function toggleLayout(key: "sidebarCollapsed") {
 
 /** First read of everything the shell needs. */
 export async function hydrate(): Promise<void> {
+  // Not in the wait below: a cold `agents.list` waits for main's first probe
+  // (a second or so of login shell), and restoring the explorer needs none of
+  // it.
+  const agents = useAgents.getState().load();
   await Promise.all([
     useSettings.getState().load(),
     useSessions.getState().load(),
     useUpdates.getState().load(),
-    useAgents.getState().load(),
     useAgentOptions.getState().load(),
     useOnboarding.getState().load(),
   ]);
@@ -225,4 +228,5 @@ export async function hydrate(): Promise<void> {
   const session = state.sessions.find(session => session.id === state.activeId && !session.archived);
   await useExplorer.getState().bindSession(session?.id ?? null, session?.projectId ?? null,
     session ? explorerRootFor(session.projectId) : null);
+  await agents;
 }

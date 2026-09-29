@@ -26,9 +26,16 @@ const jobs = new JobRunner(
   (job) => void detector.refreshOne(job.agentId),
 );
 
+/**
+ * How long a cold `agents.list` waits for the first probe. The probe starts
+ * with the window (`prewarmAgents` in `./acp.ts`), so by the time the renderer
+ * asks it is usually done or nearly; this bounds a slow login shell.
+ */
+export const COLD_LIST_WAIT_MS = 3_000;
+
 export const agentsHandlers = {
   agents: {
-    list: () => detector.list(),
+    list: () => detector.listWithin(COLD_LIST_WAIT_MS),
     refresh: () => detector.refresh(true),
 
     install: async ({ agentId, platform, index }) => {
