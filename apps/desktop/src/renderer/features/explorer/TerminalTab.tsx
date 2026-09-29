@@ -296,6 +296,14 @@ export function TerminalTab({
     };
   }, [ptyId, sessionId, readOnly, mode]);
 
+  // A new shell for this tab. The old pty is killed first: main keeps an
+  // exited pty's scrollback (up to 512 KB) until its tab lets go of the id,
+  // and a tab that only forgot it would leave that behind on every restart.
+  const restart = () => {
+    if (ptyId) void window.textToCad.terminal.kill({ id: ptyId, sessionId }).catch(() => {});
+    update(tabId, { ptyId: null });
+  };
+
   if (error) {
     return (
       <EmptyState
@@ -304,7 +312,7 @@ export function TerminalTab({
             className="h-7 text-xs"
             onClick={() => {
               setError(null);
-              update(tabId, { ptyId: null });
+              restart();
             }}
             size="sm"
             variant="secondary"
@@ -338,7 +346,7 @@ export function TerminalTab({
               className="ml-2 underline underline-offset-2 hover:text-foreground"
               onClick={() => {
                 setExited(null);
-                update(tabId, { ptyId: null });
+                restart();
               }}
               type="button"
             >

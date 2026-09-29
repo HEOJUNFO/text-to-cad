@@ -31,6 +31,7 @@ import {
   readTextFile,
   renameEntry,
   resolveInRoot,
+  statEntry,
   statFile,
   writeTextFile,
 } from "../explorer/fs";
@@ -473,26 +474,27 @@ export const explorerHandlers = {
       return { kind: "added", path: result.path, directory: true };
     }),
 
+    // Rename, duplicate and trash act on the row: a symlink is the link, its
+    // path is the link's, and its target is left alone (`statEntry`).
     rename: (at: AtPath & { name: string }) => mutateFile(at, async base => {
-      const before = await statFile(base, at.path);
+      const before = await statEntry(base, at.path);
       const result = await renameEntry(base, at.path, at.name);
-      return { kind: "moved", previousPath: before.path, path: result.path, directory: before.kind === "directory" };
+      return { kind: "moved", previousPath: before.path, path: result.path, directory: before.directory };
     }),
 
     duplicate: (at: AtPath) => mutateFile(at, async base => {
-      const before = await statFile(base, at.path);
+      const before = await statEntry(base, at.path);
       const result = await duplicateEntry(base, at.path);
-      return { kind: "added", path: result.path, directory: before.kind === "directory" };
+      return { kind: "added", path: result.path, directory: before.directory };
     }),
 
     trash: (at: AtPath) => mutateFile(at, async base => {
-      const before = await statFile(base, at.path);
-      const absolute = await resolveInRoot(base, at.path);
-      if (absolute === (await fs.realpath(base).catch(() => path.resolve(base)))) {
+      const before = await statEntry(base, at.path);
+      if (before.absolute === (await fs.realpath(base).catch(() => path.resolve(base)))) {
         throw new FsError("the project itself cannot be trashed here", "denied");
       }
-      await shell.trashItem(absolute);
-      return { kind: "removed", path: before.path, directory: before.kind === "directory" };
+      await shell.trashItem(before.absolute);
+      return { kind: "removed", path: before.path, directory: before.directory };
     }),
 
     watch: ({ projectId, root }: { projectId: string; root?: string }) =>

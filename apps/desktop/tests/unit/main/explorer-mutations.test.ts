@@ -9,14 +9,14 @@ const fixture = vi.hoisted(() => {
   // Compiled in by electron-vite; the real `fileExtension` is under test, so
   // the module is loaded with its key blank and Aptabase stubbed.
   (globalThis as { __APTABASE_KEY__?: string }).__APTABASE_KEY__ = "";
-  return { root: "", track: vi.fn() };
+  return { root: "", track: vi.fn(), trash: vi.fn(async (_target: string) => {}) };
 });
 vi.mock("@aptabase/electron/main", () => ({ initialize: vi.fn(), trackEvent: vi.fn() }));
 vi.mock("@main/telemetry", async (importOriginal) => ({
   ...(await importOriginal<typeof Telemetry>()),
   track: fixture.track,
 }));
-vi.mock("electron", () => ({ BrowserWindow: {}, dialog: {}, ipcMain: {}, shell: {} }));
+vi.mock("electron", () => ({ BrowserWindow: {}, dialog: {}, ipcMain: {}, shell: { trashItem: fixture.trash } }));
 vi.mock("@main/db/repositories", () => ({
   projects: {
     get: (id: string) => id === "project" ? { id, path: fixture.root } : null,
@@ -25,7 +25,9 @@ vi.mock("@main/db/repositories", () => ({
   sessions: { list: () => [{ id: "session", projectId: "project", cwd: fixture.root }] },
   settings: { get: () => ({}) }, explorerTabs: {},
 }));
-vi.mock("@main/projects/workspace", () => ({ resolveProjectRoot: () => fixture.root, projectWorktreeDir: () => fixture.root, realDirectory: (directory: string) => directory }));
+// The real `realDirectory`: `explorer/fs` resolves new paths through it, and an
+// identity stub would quietly turn that containment check back into a lexical one.
+vi.mock("@main/projects/workspace", async (importOriginal) => ({ ...(await importOriginal<object>()), resolveProjectRoot: () => fixture.root, projectWorktreeDir: () => fixture.root }));
 import { explorerHandlers, initExplorerServices, disposeExplorerServices } from "@main/ipc/explorer";
 import { FileWatchers } from "@main/explorer/fs";
 import { fileExtension } from "@main/telemetry";
@@ -101,4 +103,38 @@ test("file_opened's extension is a short alphanumeric suffix or \"other\", never
   expect(fileExtension("notes.confidential")).toBe("other");
   expect(fileExtension("photo.jpg ")).toBe("other");
   expect(fileExtension("archive.tar.gz")).toBe("gz");
+});
+
+test("trash, rename and duplicate act on a symlink row itself, and report the link's path", async () => {
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), "file-mutations-outside-"));
+  try {
+    const dir = path.join(fixture.root, "linked");
+    await fs.mkdir(path.join(dir, "shared"), { recursive: true });
+    await fs.writeFile(path.join(dir, "v3.step"), "v3");
+    await fs.symlink("v3.step", path.join(dir, "current.step"));
+    await fs.symlink("shared", path.join(dir, "vendor"));
+    await fs.symlink(outside, path.join(dir, "out"));
+    const real = await fs.realpath(dir);
+    fixture.trash.mockClear();
+
+    const file = FileMutationResultSchema.parse(await explorerHandlers.explorer.trash({ ...at, path: "linked/current.step" }));
+    expect(file).toMatchObject({ status: "committed", path: "linked/current.step", change: { kind: "removed", directory: false } });
+    const folder = FileMutationResultSchema.parse(await explorerHandlers.explorer.trash({ ...at, path: "linked/vendor" }));
+    expect(folder).toMatchObject({ status: "committed", path: "linked/vendor", change: { kind: "removed", directory: true } });
+    const away = FileMutationResultSchema.parse(await explorerHandlers.explorer.trash({ ...at, path: "linked/out" }));
+    expect(away).toMatchObject({ status: "committed", path: "linked/out" });
+    expect(fixture.trash.mock.calls.map(([target]) => target)).toEqual([
+      path.join(real, "current.step"), path.join(real, "vendor"), path.join(real, "out"),
+    ]);
+    // Through a link that leaves the root is still refused.
+    const through = FileMutationResultSchema.parse(await explorerHandlers.explorer.trash({ ...at, path: "linked/out/x" }));
+    expect(through).toMatchObject({ status: "failed", code: "denied" });
+
+    const renamed = FileMutationResultSchema.parse(await explorerHandlers.explorer.rename({ ...at, path: "linked/vendor", name: "deps" }));
+    expect(renamed).toMatchObject({ status: "committed", path: "linked/deps", change: { kind: "moved", previousPath: "linked/vendor", directory: true } });
+    expect(await fs.readlink(path.join(dir, "deps"))).toBe("shared");
+    const copied = FileMutationResultSchema.parse(await explorerHandlers.explorer.duplicate({ ...at, path: "linked/current.step" }));
+    expect(copied).toMatchObject({ status: "committed", path: "linked/current copy.step" });
+    expect(await fs.readlink(path.join(dir, "current copy.step"))).toBe("v3.step");
+  } finally { await fs.rm(outside, { recursive: true, force: true }); }
 });

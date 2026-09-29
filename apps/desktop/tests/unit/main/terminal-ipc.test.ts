@@ -27,7 +27,9 @@ vi.mock("@main/db/repositories", () => {
     explorerTabs: {},
   };
 });
-vi.mock("@main/projects/workspace", () => ({ resolveProjectRoot: () => fixture.root, projectWorktreeDir: () => fixture.root, realDirectory: (directory: string) => directory }));
+// The real `realDirectory`: `explorer/fs` resolves new paths through it, and an
+// identity stub would quietly turn that containment check back into a lexical one.
+vi.mock("@main/projects/workspace", async (importOriginal) => ({ ...(await importOriginal<object>()), resolveProjectRoot: () => fixture.root, projectWorktreeDir: () => fixture.root }));
 import { disposeExplorerServices, explorerHandlers, initExplorerServices } from "@main/ipc/explorer";
 
 beforeAll(async () => {

@@ -23,6 +23,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import ignore from "ignore";
 
+import { realDirectory } from "../projects/workspace";
+
 /* -------------------------------------------------------------------------- */
 /* What a tree row is                                                          */
 /* -------------------------------------------------------------------------- */
@@ -122,20 +124,61 @@ export function isInside(root: string, target: string): boolean {
 /**
  * Resolve a renderer-supplied path against a root and refuse anything outside.
  *
- * Both halves are resolved with `realpath` where they exist, so a symlink in
- * the root that points at `/etc` is caught. A path that does not exist yet (a
- * write to a new file) is checked lexically against the real root instead —
- * its parent is what has to be inside.
+ * Both halves are resolved with `realpath`, so a symlink in the root that
+ * points at `/etc` is caught. A path that does not exist yet (a write to a new
+ * file) is resolved through its deepest existing ancestor (`realDirectory`,
+ * the ACP client's `confineToCwd` rule) with the missing tail kept as spelled:
+ * `docs -> ~/.ssh` cannot carry a new `docs/authorized_keys` out of the root.
+ *
+ * The leaf is followed. That is right for reading and writing a file's
+ * contents; a verb that acts on the row itself — trash, rename, duplicate —
+ * wants `resolveEntryInRoot`.
  */
 export async function resolveInRoot(root: string, target: string): Promise<string> {
   const realRoot = await fs.realpath(root).catch(() => path.resolve(root));
   const absolute = path.isAbsolute(target) ? target : path.join(realRoot, target);
-  const real = await fs.realpath(absolute).catch(() => null);
-  const resolved = real ?? path.resolve(absolute);
+  const resolved = await fs.realpath(absolute).catch(() => realDirectory(absolute));
   if (!isInside(realRoot, resolved)) {
     throw new FsError("path is outside the project", "denied");
   }
   return resolved;
+}
+
+/**
+ * The entry a path names, NOT followed: its parent is resolved as
+ * `resolveInRoot` would and has to be inside the root, and the last segment is
+ * joined on as spelled. A symlink row is the link — trashing `current.step ->
+ * v3.step` trashes the link, and a link pointing outside the root is still a
+ * row inside it that can be trashed or renamed. The root itself answers as
+ * the real root; callers refuse it by comparison.
+ */
+export async function resolveEntryInRoot(root: string, target: string): Promise<string> {
+  const realRoot = await fs.realpath(root).catch(() => path.resolve(root));
+  const absolute = path.resolve(realRoot, target);
+  const spelledParent = path.dirname(absolute);
+  const parent = await fs.realpath(spelledParent).catch(() => realDirectory(spelledParent));
+  const entry = spelledParent === absolute ? parent : path.join(parent, path.basename(absolute));
+  if (entry !== realRoot && !isInside(realRoot, parent)) {
+    throw new FsError("path is outside the project", "denied");
+  }
+  return entry;
+}
+
+/**
+ * The row a verb acts on: the entry itself (`resolveEntryInRoot`), its
+ * root-relative path, and whether the tree shows it as a directory — a link to
+ * a folder is one there, since its children are listed under it.
+ */
+export async function statEntry(root: string, target: string): Promise<{ absolute: string; path: string; directory: boolean; symlink: boolean }> {
+  const absolute = await resolveEntryInRoot(root, target);
+  const own = await fs.lstat(absolute);
+  const followed = own.isSymbolicLink() ? await fs.stat(absolute).catch(() => own) : own;
+  return {
+    absolute,
+    path: toRelative(await fs.realpath(root).catch(() => path.resolve(root)), absolute),
+    directory: followed.isDirectory(),
+    symlink: own.isSymbolicLink(),
+  };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -548,7 +591,7 @@ export async function readBinaryFile(root: string, target: string): Promise<Bina
  * a path, so `../` cannot be smuggled in through the field, and a duplicate
  * lands beside its source. Trashing is not here: `shell.trashItem` is
  * Electron's, and this module stays plain Node (`src/main/ipc/explorer.ts`
- * resolves the path through `resolveInRoot` and hands it over).
+ * resolves the entry through `resolveEntryInRoot` and hands it over).
  */
 
 /** A name the tree can create or rename to: one path segment, nothing hidden in it. */
@@ -633,41 +676,51 @@ export async function createDirectory(root: string, directory: string, name: str
  */
 export async function renameEntry(root: string, target: string, name: string): Promise<{ path: string }> {
   assertEntryName(name);
-  const absolute = await resolveInRoot(root, target);
+  const absolute = await resolveEntryInRoot(root, target);
   const realRoot = await fs.realpath(root).catch(() => path.resolve(root));
   if (absolute === realRoot) {
     throw new FsError("the project itself cannot be renamed here");
   }
+  const source = await fs.lstat(absolute);
   const destination = path.join(path.dirname(absolute), name);
   if (destination === absolute) {
     return { path: toRelative(realRoot, absolute) };
   }
-  // A case-only rename on a case-insensitive filesystem stats as "exists";
-  // it is the one legitimate rename onto an existing name.
-  const caseOnly = destination.toLowerCase() === absolute.toLowerCase();
-  if (!caseOnly && (await fs.lstat(destination).catch(() => null))) {
-    throw new FsError("something with that name is already there", "already-exists");
+  // A case-only rename on a case-insensitive filesystem stats as "exists":
+  // the same entry, and the one legitimate rename onto an existing name. On a
+  // case-sensitive disk `A.txt` beside `a.txt` is a different file, and
+  // rename(2) would replace it — so the two have to be the same inode.
+  const existing = await fs.lstat(destination).catch(() => null);
+  if (existing) {
+    const caseOnly = destination.toLowerCase() === absolute.toLowerCase();
+    if (!caseOnly || existing.dev !== source.dev || existing.ino !== source.ino) {
+      throw new FsError("something with that name is already there", "already-exists");
+    }
   }
   await fs.rename(absolute, destination);
   return { path: toRelative(realRoot, destination) };
 }
 
 /**
- * A copy beside the original, named Finder's way. Directories copy whole;
- * symlinks inside them are copied as links, not followed, because a link
- * pointing up the tree is otherwise a copy that never ends.
+ * A copy beside the original, named Finder's way. Directories copy whole. A
+ * symlink row, and the symlinks inside a directory, are copied as links, not
+ * followed: a link pointing up the tree is otherwise a copy that never ends,
+ * and one pointing outside would copy what is outside into the project.
  */
 export async function duplicateEntry(root: string, target: string): Promise<{ path: string }> {
-  const absolute = await resolveInRoot(root, target);
+  const absolute = await resolveEntryInRoot(root, target);
   const realRoot = await fs.realpath(root).catch(() => path.resolve(root));
   if (absolute === realRoot) {
     throw new FsError("the project itself cannot be duplicated here");
   }
-  const stats = await fs.stat(absolute);
+  const stats = await fs.lstat(absolute);
   const parent = path.dirname(absolute);
   const name = await uniqueName(parent, path.basename(absolute), stats.isDirectory());
   const destination = path.join(parent, name);
-  if (stats.isDirectory()) {
+  if (stats.isSymbolicLink()) {
+    // A link row duplicates as a link, the way links inside a folder do.
+    await fs.symlink(await fs.readlink(absolute), destination);
+  } else if (stats.isDirectory()) {
     await fs.cp(absolute, destination, { recursive: true, verbatimSymlinks: true, errorOnExist: true, force: false });
   } else {
     await fs.copyFile(absolute, destination, fs.constants.COPYFILE_EXCL);

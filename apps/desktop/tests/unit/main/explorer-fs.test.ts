@@ -20,7 +20,9 @@ import {
   pathKinds,
   readTextFile,
   renameEntry,
+  resolveEntryInRoot,
   resolveInRoot,
+  statEntry,
   revisionOf,
   sortEntries,
   toRelative,
@@ -366,5 +368,91 @@ describe("creating, renaming and duplicating", () => {
     expect(await uniqueName(edits, "brand-new.txt", false)).toBe("brand-new.txt");
     expect(await uniqueName(edits, "part.step", false)).toBe("part copy 3.step");
     expect(await uniqueName(edits, "nested", true)).toBe("nested copy 2");
+  });
+});
+
+/**
+ * Symlinks inside the root. A path that does not exist yet is checked through
+ * its deepest existing ancestor, so a linked directory cannot carry a new file
+ * out; and the tree's verbs act on a link row itself, never on what it points
+ * at — trashing `current.step -> v3.step` must not trash v3.
+ */
+describe("symlinks as doors and as rows", () => {
+  let links: string;
+  let outside: string;
+
+  beforeAll(async () => {
+    links = path.join(root, "links");
+    outside = await fs.mkdtemp(path.join(os.tmpdir(), "text-to-cad-outside-"));
+    await fs.mkdir(path.join(links, "shared"), { recursive: true });
+    await fs.writeFile(path.join(links, "v3.step"), "v3\n");
+    await fs.writeFile(path.join(links, "shared", "a.txt"), "shared\n");
+    await fs.writeFile(path.join(outside, "secret.txt"), "secret\n");
+    await fs.symlink("v3.step", path.join(links, "current.step"));
+    await fs.symlink("shared", path.join(links, "vendor"));
+    await fs.symlink(outside, path.join(links, "out"));
+    await fs.symlink(path.join(outside, "secret.txt"), path.join(links, "out.txt"));
+  });
+
+  afterAll(async () => {
+    await fs.rm(outside, { recursive: true, force: true });
+  });
+
+  it("refuses to write a new file through a linked directory that leaves the root", async () => {
+    await fs.mkdir(path.join(root, "edits"), { recursive: true });
+    await fs.symlink(os.tmpdir(), path.join(root, "edits", "escape")).catch(() => {});
+    await expect(writeTextFile(root, "edits/escape/new.txt", "x")).rejects.toBeInstanceOf(FsError);
+    await expect(fs.stat(path.join(os.tmpdir(), "new.txt"))).rejects.toThrow();
+    await expect(writeTextFile(root, "links/out/authorized_keys", "x")).rejects.toBeInstanceOf(FsError);
+    await expect(fs.stat(path.join(outside, "authorized_keys"))).rejects.toThrow();
+    await expect(resolveInRoot(root, "links/out/deeper/still/new.txt")).rejects.toBeInstanceOf(FsError);
+    // A new file through a link that stays inside is still fine.
+    expect((await writeTextFile(root, "links/vendor/new.txt", "ok")).path).toBe("links/shared/new.txt");
+  });
+
+  it("resolves a row to the link itself, not its target", async () => {
+    const realRoot = await fs.realpath(root);
+    expect(await resolveEntryInRoot(root, "links/current.step")).toBe(path.join(realRoot, "links", "current.step"));
+    expect(await resolveEntryInRoot(root, "links/out")).toBe(path.join(realRoot, "links", "out"));
+    expect(await resolveEntryInRoot(root, "")).toBe(realRoot);
+    await expect(resolveEntryInRoot(root, "links/out/secret.txt")).rejects.toBeInstanceOf(FsError);
+    await expect(resolveEntryInRoot(root, "../x")).rejects.toBeInstanceOf(FsError);
+    expect(await statEntry(root, "links/vendor")).toMatchObject({ path: "links/vendor", directory: true, symlink: true });
+    expect(await statEntry(root, "links/out.txt")).toMatchObject({ path: "links/out.txt", directory: false, symlink: true });
+  });
+
+  it("renames a link, leaving its target where it was", async () => {
+    expect(await renameEntry(root, "links/current.step", "latest.step")).toEqual({ path: "links/latest.step" });
+    expect(await fs.readlink(path.join(links, "latest.step"))).toBe("v3.step");
+    expect(await fs.readFile(path.join(links, "v3.step"), "utf8")).toBe("v3\n");
+    expect(await renameEntry(root, "links/vendor", "deps")).toEqual({ path: "links/deps" });
+    expect((await fs.stat(path.join(links, "shared"))).isDirectory()).toBe(true);
+    // A link pointing outside is still a row inside: it can be renamed.
+    expect(await renameEntry(root, "links/out.txt", "away.txt")).toEqual({ path: "links/away.txt" });
+    expect(await fs.readFile(path.join(outside, "secret.txt"), "utf8")).toBe("secret\n");
+  });
+
+  it("duplicates a link as a link", async () => {
+    expect(await duplicateEntry(root, "links/latest.step")).toEqual({ path: "links/latest copy.step" });
+    expect(await fs.readlink(path.join(links, "latest copy.step"))).toBe("v3.step");
+    expect(await duplicateEntry(root, "links/out")).toEqual({ path: "links/out copy" });
+    expect(await fs.readlink(path.join(links, "out copy"))).toBe(outside);
+  });
+
+  it("refuses a case-only rename onto a different file on a case-sensitive disk", async () => {
+    const dir = path.join(links, "case");
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, "a.txt"), "lower\n");
+    await fs.writeFile(path.join(dir, "A.txt"), "upper\n");
+    const names = await fs.readdir(dir);
+    if (names.length === 1) {
+      // Case-insensitive: one file, and the case-only rename is legitimate.
+      expect(await renameEntry(root, "links/case/a.txt", "A.txt")).toEqual({ path: "links/case/A.txt" });
+      expect(await fs.readdir(dir)).toEqual(["A.txt"]);
+      return;
+    }
+    await expect(renameEntry(root, "links/case/a.txt", "A.txt")).rejects.toMatchObject({ code: "already-exists" });
+    expect(await fs.readFile(path.join(dir, "A.txt"), "utf8")).toBe("upper\n");
+    expect(await fs.readFile(path.join(dir, "a.txt"), "utf8")).toBe("lower\n");
   });
 });
