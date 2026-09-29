@@ -512,8 +512,12 @@ export class SessionConnection {
    * baseline (ACP); an image needs `image` and an embedded file's contents
    * need `embeddedContext`. An agent that answered `initialize` without the
    * field takes the baseline only.
+   *
+   * `SessionManager.prompt` asks before it marks, titles or starts the turn.
+   * No `resource_link` stands in for a missing `embeddedContext`: an
+   * attachment's uri is `attachment:///…`, which no agent can open.
    */
-  private unsupportedBlock(content: PromptBlock[]): string | null {
+  refusal(content: PromptBlock[]): string | null {
     const capabilities = this.initializeResponse?.agentCapabilities?.promptCapabilities ?? {};
     const agent = this.options.agentId;
     if (!capabilities.image && content.some((block) => block.type === "image")) {
@@ -528,13 +532,12 @@ export class SessionConnection {
   /** Send a turn. Resolves with the stop reason; rejects (after dispatching `prompt/error`) on failure. */
   async prompt(content: PromptBlock[], turnId = `turn-${Date.now()}`): Promise<PromptResponse> {
     const acpSessionId = this.requireSession();
-    // Refused before the preamble is spent and before anything is written:
-    // the turn and its reason land in the transcript the way an agent's own
-    // refusal does, and the agent never sees a block it did not say it takes.
-    const unsupported = this.unsupportedBlock(content);
+    // Refused before the preamble is spent and before anything is written —
+    // the transcript included: it is not a turn that failed, and a Retry
+    // there would only be refused again. The manager refuses first (with the
+    // draft kept); this is for any caller that did not ask.
+    const unsupported = this.refusal(content);
     if (unsupported) {
-      this.dispatch({ type: "prompt/start", turnId, content, at: Date.now() });
-      this.dispatch({ type: "prompt/error", message: unsupported, at: Date.now() });
       throw new Error(unsupported);
     }
     // The transcript shows what the person wrote; the preamble is a block the

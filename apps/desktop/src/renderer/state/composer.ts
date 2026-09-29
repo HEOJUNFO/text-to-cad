@@ -1,7 +1,8 @@
+import { toast } from "sonner";
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 
-import { useAcp } from "./acp";
+import { PromptRefused, useAcp } from "./acp";
 import { parseSegments } from "../features/session/composer/references";
 import type { PromptBlock } from "@shared/acp/types";
 import { referenceText, type CadReference } from "@shared/cad-refs";
@@ -295,7 +296,8 @@ export const useComposer = create<ComposerState>((set, get) => ({
       await get().drain(sessionId);
       return;
     }
-    await send(sessionId, content);
+    // Only a send with a draft is the composer's, which puts the draft back on a rejection.
+    await send(sessionId, content, undefined, { rethrowRefusal: draft !== undefined });
   },
 
   enqueue: (sessionId, text, content, draft) =>
@@ -428,7 +430,7 @@ export const useComposer = create<ComposerState>((set, get) => ({
  * `prompt/error` part), so nothing else needs to see it here. The next queued
  * prompt is not sent from here: `prompt/end` has already done that.
  */
-async function send(sessionId: string, content: PromptBlock[], item?: QueuedPrompt) {
+async function send(sessionId: string, content: PromptBlock[], item?: QueuedPrompt, options?: { rethrowRefusal?: boolean }) {
   const token = ++sequence;
   // Synchronously, before the IPC: until main dispatches `prompt/start` the
   // session's status still reads idle, and this is what says it is not.
@@ -445,6 +447,18 @@ async function send(sessionId: string, content: PromptBlock[], item?: QueuedProm
     // is (`loadErrors`, with its Retry), rather than the prompt vanishing.
     const refusedUnseen = useComposer.getState().sending[sessionId] === token;
     clearSending(sessionId, token);
+    // Refused for what it holds — a block the agent did not say it takes — and not because the
+    // agent is gone: no turn began, nothing failed, and a Retry or a Reconnect would change
+    // nothing. The reason is said the way `refuseSend`'s is, and what was written is not spent:
+    // a send from the box rejects so the composer puts the draft back with its attachments; a
+    // queued one goes back into the box as it was taken, and the queue goes on behind it.
+    if (error instanceof PromptRefused) {
+      toast.info(error.message);
+      if (options?.rethrowRefusal) throw error;
+      if (item?.draft) useComposer.getState().restoreDraft(sessionId, item.draft);
+      if (item) void useComposer.getState().drain(sessionId);
+      return;
+    }
     if (refusedUnseen && item) {
       useComposer.setState((state) => ({
         queues: { ...state.queues, [sessionId]: [item, ...(state.queues[sessionId] ?? [])] },

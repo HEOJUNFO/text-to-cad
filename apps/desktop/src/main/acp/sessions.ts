@@ -748,9 +748,17 @@ export class SessionManager {
     return this.warm.has(agentId);
   }
 
-  async prompt(id: string, content: PromptBlock[]): Promise<{ stopReason: string }> {
+  async prompt(id: string, content: PromptBlock[]): Promise<{ stopReason: string; refused?: string }> {
     const session = this.require(id);
     const connection = await this.ensureLive(session);
+    // A block the agent did not say it takes (`promptCapabilities`) is
+    // refused before anything moves — the turn mark, the title, the
+    // transcript. An answer rather than a rejection: nothing failed, and the
+    // renderer keeps the draft and says why beside it.
+    const refused = connection.refusal(content);
+    if (refused) {
+      return { stopReason: "refused", refused };
+    }
     // The session being prompted is the one in use: it goes to the front of
     // the keep-alive queue and is never what an eviction closes.
     this.live.touch(id);

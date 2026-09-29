@@ -36,6 +36,15 @@ import type {
  * every turn — and the authoritative state that ends every `load` replaces
  * the picture.
  */
+/**
+ * A prompt main refused before any turn began — it holds a block the agent did not say it takes
+ * (`refused` on the `sessions.prompt` reply). Nothing was written and nothing failed: the message
+ * is the reason, for the composer to say beside the draft it keeps.
+ */
+export class PromptRefused extends Error {
+  override readonly name = "PromptRefused";
+}
+
 type AcpState = {
   sessions: Record<string, SessionState>;
   /** The most recent chunk per agent-created terminal, keyed `sessionId/terminalId`. */
@@ -202,7 +211,10 @@ export const useAcp = create<AcpState>((set, get) => ({
   prompt: async (sessionId, content) => {
     const blocks: PromptBlock[] =
       typeof content === "string" ? [{ type: "text", text: content }] : content;
-    const { stopReason } = await window.textToCad.sessions.prompt({ id: sessionId, content: blocks });
+    const { stopReason, refused } = await window.textToCad.sessions.prompt({ id: sessionId, content: blocks });
+    if (refused !== undefined) {
+      throw new PromptRefused(refused);
+    }
     return stopReason;
   },
 
