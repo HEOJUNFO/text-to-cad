@@ -228,6 +228,9 @@ export const useAcp = create<AcpState>((set, get) => ({
     window.textToCad.sessions.respondPermission({ id: sessionId, requestId, optionId }),
 
   close: async (sessionId) => {
+    // Counted as a forget without the forgetting: a Reconnect still loading is for nobody now, and
+    // its answer — a ready state, or the failure the close causes — would paint over "closed".
+    forgotten.set(sessionId, generationOf(sessionId) + 1);
     await window.textToCad.sessions.close({ id: sessionId });
     // Kept, marked closed: the turns and the plan stay on screen under the Reconnect bar, the way
     // `ensureLoaded` expects a hand-disconnected session to be held. Leaving it lets it go.
@@ -241,9 +244,10 @@ export const useAcp = create<AcpState>((set, get) => ({
 }));
 
 /**
- * How many times each session has been forgotten. An IPC answer that arrives after a forget —
- * the row archived or deleted while its snapshot or its load was on the way — is dropped rather
- * than bringing back state nothing will forget again.
+ * How many times each session has been forgotten, or disconnected. An IPC answer that arrives
+ * after a forget — the row archived or deleted while its snapshot or its load was on the way — is
+ * dropped rather than bringing back state nothing will forget again; one that arrives after a
+ * Disconnect is dropped rather than undoing it.
  */
 const forgotten = new Map<string, number>();
 const generationOf = (sessionId: string) => forgotten.get(sessionId) ?? 0;

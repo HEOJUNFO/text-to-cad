@@ -142,4 +142,40 @@ describe("Disconnect agent", () => {
     expect(held?.status).toBe("closed");
     expect(held?.turns).toBe(turns);
   });
+
+  describe("during a Reconnect", () => {
+    const sessionsApi = window.textToCad.sessions as unknown as Record<string, unknown>;
+    const deferred = <T,>() => {
+      let settle!: { resolve: (value: T) => void; reject: (error: Error) => void };
+      const promise = new Promise<T>((resolve, reject) => (settle = { resolve, reject }));
+      return { promise, ...settle };
+    };
+
+    beforeEach(() => {
+      sessionsApi.close = vi.fn(async () => undefined);
+      useAcp.setState({ sessions: {}, terminalOutput: {}, loading: {}, reconnecting: {}, loadErrors: {} });
+      useAcp.getState().receiveState("s1", { ...initialSessionState("s1", "codex"), status: "closed" as const });
+    });
+
+    it("is not painted ready by the load's answer", async () => {
+      const answer = deferred<unknown>();
+      sessionsApi.load = vi.fn(() => answer.promise);
+      const reconnecting = useAcp.getState().load("s1");
+      await useAcp.getState().close("s1");
+      answer.resolve({ ...initialSessionState("s1", "codex"), status: "idle" as const });
+      await reconnecting;
+      expect(useAcp.getState().sessions.s1?.status).toBe("closed");
+    });
+
+    it("is not given the load's failure", async () => {
+      const answer = deferred<unknown>();
+      sessionsApi.load = vi.fn(() => answer.promise);
+      const reconnecting = useAcp.getState().load("s1");
+      await useAcp.getState().close("s1");
+      answer.reject(new Error("the agent went away"));
+      await reconnecting;
+      expect(useAcp.getState().loadErrors).toEqual({});
+      expect(useAcp.getState().sessions.s1?.status).toBe("closed");
+    });
+  });
 });
