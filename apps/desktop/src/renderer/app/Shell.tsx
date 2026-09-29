@@ -6,7 +6,7 @@ import { SessionPane } from "@renderer/features/session/SessionPane";
 import { Sidebar } from "@renderer/features/sidebar/Sidebar";
 import { maxWidthOf, resolvePanes } from "@renderer/lib/panes";
 import type { SidePane } from "@renderer/lib/panes";
-import { isMac } from "@renderer/lib/platform";
+import { isPrimaryModifier } from "@renderer/lib/platform";
 import { runUiCommand } from "@renderer/state/bridge";
 import { useExplorer } from "@renderer/state/explorer";
 import { useSettings } from "@renderer/state/settings";
@@ -197,8 +197,7 @@ export function Shell() {
 function useShellShortcuts(): void {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      const modifier = isMac ? event.metaKey : event.ctrlKey;
-      if (!modifier || event.shiftKey) {
+      if (!isPrimaryModifier(event) || event.shiftKey) {
         return;
       }
       const key = event.key.toLowerCase();

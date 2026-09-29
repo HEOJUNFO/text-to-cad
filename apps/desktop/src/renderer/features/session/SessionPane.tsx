@@ -3,6 +3,7 @@ import { FolderOpen } from "lucide-react";
 
 import { Button } from "@renderer/components/ui/button";
 import { useOpenFolder } from "@renderer/hooks/use-open-folder";
+import { isPrimaryModifier } from "@renderer/lib/platform";
 import { useActiveProject } from "@renderer/state/projects";
 import { useActiveSession, useSessions } from "@renderer/state/sessions";
 
@@ -26,7 +27,7 @@ export function SessionPane() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() === "n" && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
+      if (event.key.toLowerCase() === "n" && isPrimaryModifier(event) && !event.shiftKey && !event.altKey) {
         event.preventDefault();
         setActiveSession(null);
       }
