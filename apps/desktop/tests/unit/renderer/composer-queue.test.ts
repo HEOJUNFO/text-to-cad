@@ -171,24 +171,96 @@ it("a prompt typed behind a queue while the agent is gone waits its turn: the re
   }
 });
 
-it("on a connecting session, or none at all, a prompt behind a queue is queued and the agent asked back", async () => {
-  // A load still on its way: nothing has answered yet.
-  const ensureLoaded = vi.fn(() => new Promise<void>(() => {}));
+it("on a session main is still connecting, a prompt behind a queue is queued and nothing is sent", async () => {
+  // Main drives the connect, so there is no renderer load: ensureLoaded answers at once.
+  const ensureLoaded = vi.fn(async () => undefined);
   const savedEnsure = useAcp.getState().ensureLoaded;
-  useAcp.setState({ ensureLoaded });
+  useAcp.setState({ ensureLoaded, loading: {} });
   try {
     useComposer.getState().enqueue(SESSION, "stranded", block("stranded"));
     useAcp.setState({ sessions: { [SESSION]: { ...initialSessionState(SESSION, "claude"), status: "connecting" } } });
     void useComposer.getState().submit(SESSION, "new-connecting", block("new-connecting"));
-    useAcp.setState({ sessions: {} });
-    void useComposer.getState().submit(SESSION, "new-none", block("new-none"));
     await settle();
     expect(inFlight()).toEqual([]);
-    expect(useComposer.getState().queues[SESSION]?.map(item => item.text)).toEqual(["stranded", "new-connecting", "new-none"]);
+    expect(useComposer.getState().queues[SESSION]?.map(item => item.text)).toEqual(["stranded", "new-connecting"]);
     expect(ensureLoaded).toHaveBeenCalledWith(SESSION);
   } finally {
     useAcp.setState({ ensureLoaded: savedEnsure });
   }
+});
+
+it("a reconnect that paints a live, busy snapshot does not have the queue's head pushed into it", async () => {
+  const savedEnsure = useAcp.getState().ensureLoaded;
+  for (const status of ["running", "waiting"] as const) {
+    const ensureLoaded = vi.fn(async () => {
+      useAcp.setState({ sessions: { [SESSION]: { ...initialSessionState(SESSION, "claude"), status } } });
+    });
+    useAcp.setState({ ensureLoaded, loading: {}, sessions: { [SESSION]: { ...initialSessionState(SESSION, "claude"), status: "closed" } } });
+    useComposer.setState({ queues: {}, sending: {} });
+    replies = [];
+    try {
+      useComposer.getState().enqueue(SESSION, "stranded", block("stranded"));
+      void useComposer.getState().submit(SESSION, "new", block("new"));
+      await settle();
+      expect(inFlight(), status).toEqual([]);
+      expect(useComposer.getState().queues[SESSION]?.map(item => item.text)).toEqual(["stranded", "new"]);
+    } finally {
+      useAcp.setState({ ensureLoaded: savedEnsure });
+    }
+  }
+});
+
+it("with no session state and a load still on its way, a prompt behind a queue waits", async () => {
+  const ensureLoaded = vi.fn(() => new Promise<void>(() => {}));
+  const savedEnsure = useAcp.getState().ensureLoaded;
+  useAcp.setState({ ensureLoaded, sessions: {} });
+  try {
+    useComposer.getState().enqueue(SESSION, "stranded", block("stranded"));
+    void useComposer.getState().submit(SESSION, "new-none", block("new-none"));
+    await settle();
+    expect(inFlight()).toEqual([]);
+    expect(useComposer.getState().queues[SESSION]?.map(item => item.text)).toEqual(["stranded", "new-none"]);
+  } finally {
+    useAcp.setState({ ensureLoaded: savedEnsure });
+  }
+});
+
+it("a paused queue is unpaused when it is cleared or emptied, and Resume sends its head", async () => {
+  const composer = useComposer.getState();
+  const pause = () => {
+    void composer.submit(SESSION, "failed", block("failed"));
+    start("failed");
+    void composer.submit(SESSION, "A", block("A"));
+    emit({ type: "prompt/error", message: "boom" });
+    replies[0]!.reject(new Error("boom"));
+  };
+  pause();
+  await settle();
+  expect(useComposer.getState().paused[SESSION]).toBe(true);
+  composer.clearQueue(SESSION);
+  expect(useComposer.getState().paused[SESSION], "cleared").toBeUndefined();
+
+  useAcp.setState({ sessions: { [SESSION]: initialSessionState(SESSION, "claude") } });
+  pause();
+  await settle();
+  expect(useComposer.getState().paused[SESSION]).toBe(true);
+  const [only] = useComposer.getState().queues[SESSION]!;
+  composer.dequeue(SESSION, only!.id);
+  expect(useComposer.getState().paused[SESSION], "emptied").toBeUndefined();
+
+  useAcp.setState({ sessions: { [SESSION]: initialSessionState(SESSION, "claude") } });
+  pause();
+  await settle();
+  // A Retry refused before main dispatched anything: no prompt/start, still paused.
+  void composer.submit(SESSION, "failed", block("failed"));
+  replies[0]!.reject(new Error("refused"));
+  await settle();
+  expect(useComposer.getState().paused[SESSION]).toBe(true);
+  useAcp.setState({ sessions: { [SESSION]: { ...initialSessionState(SESSION, "claude"), status: "idle" } } });
+  void composer.resume(SESSION);
+  await settle();
+  expect(useComposer.getState().paused[SESSION]).toBeUndefined();
+  expect(inFlight()).toEqual(["A"]);
 });
 
 it("a failed turn stays paused through an eviction: the Retry goes first, then the queue in order", async () => {

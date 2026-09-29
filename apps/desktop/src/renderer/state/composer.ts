@@ -41,7 +41,9 @@ import type { PromptReference } from "@text-to-cad/core/prompt";
  * Retry, and what the person sends next — that Retry, or a new prompt — goes
  * out at once, ahead of the queue; the queue resumes when that turn ends.
  * `paused` carries that across an eviction or reconnect, which a session's
- * status alone (closed, then idle) does not remember.
+ * status alone (closed, then idle) does not remember. The queue row says it is
+ * paused and offers Resume (`resume`) for a Retry refused before any turn began
+ * or one never sent; clearing or emptying the queue lifts the pause too.
  * Sending the queue on into an agent that just failed would fail each queued
  * prompt in turn, and a Retry that waited behind the queue would answer the
  * failed prompt out of order.
@@ -142,6 +144,8 @@ type ComposerState = {
   clearQueue: (sessionId: string) => void;
   /** Send the next queued prompt if the session is idle and nothing is in flight. */
   drain: (sessionId: string, options?: { evenIfNotIdle?: boolean }) => Promise<void>;
+  /** Lift a failure's pause by hand (the queue's Resume) and send what is next. */
+  resume: (sessionId: string) => Promise<void>;
   /** Sessions with a prompt sent and no `prompt/start` for it yet, by send token. */
   sending: Record<string, number>;
   /**
@@ -284,15 +288,8 @@ export const useComposer = create<ComposerState>((set, get) => ({
     if (busy || (queued && !(sessionId in get().paused) && (status === "idle" || gone))) {
       get().enqueue(sessionId, text, content, draft);
       if (!busy && gone) {
-        // A live connection main still holds sends no fresh snapshot, so drain once this settles too.
-        await useAcp.getState().ensureLoaded(sessionId).catch(() => undefined);
-        const acp = useAcp.getState();
-        if (acp.sessions[sessionId]?.status !== "idle" && !acp.loading[sessionId]) {
-          // The agent did not come back (the load failed, the session is gone): the queue's head
-          // goes out anyway, so it fails in the transcript with a Retry rather than waiting silently.
-          await get().drain(sessionId, { evenIfNotIdle: true });
-          return;
-        }
+        await reconnectAndDrain(sessionId);
+        return;
       }
       await get().drain(sessionId);
       return;
@@ -312,15 +309,28 @@ export const useComposer = create<ComposerState>((set, get) => ({
     const queue = get().queues[sessionId] ?? [];
     const item = queue.find((candidate) => candidate.id === id) ?? null;
     if (item) {
+      const rest = queue.filter((candidate) => candidate.id !== id);
       set((state) => ({
-        queues: { ...state.queues, [sessionId]: queue.filter((candidate) => candidate.id !== id) },
+        queues: { ...state.queues, [sessionId]: rest },
+        // Nothing left to hold back: an emptied queue is not paused.
+        ...(rest.length === 0 ? { paused: withoutKey(state.paused, sessionId) } : {}),
       }));
     }
     return item;
   },
 
   clearQueue: (sessionId) =>
-    set((state) => ({ queues: { ...state.queues, [sessionId]: [] } })),
+    set((state) => ({ queues: { ...state.queues, [sessionId]: [] }, paused: withoutKey(state.paused, sessionId) })),
+
+  resume: async (sessionId) => {
+    set((state) => ({ paused: withoutKey(state.paused, sessionId) }));
+    const status = useAcp.getState().sessions[sessionId]?.status;
+    if (status === "closed" || status === "connecting" || status === undefined) {
+      await reconnectAndDrain(sessionId);
+      return;
+    }
+    await get().drain(sessionId);
+  },
 
   drain: async (sessionId, options) => {
     const next = get().queues[sessionId]?.[0];
@@ -338,10 +348,7 @@ export const useComposer = create<ComposerState>((set, get) => ({
     clearSending(sessionId);
     if (type === "prompt/error") set((state) => ({ paused: { ...state.paused, [sessionId]: true } }));
     if (type === "prompt/start" && sessionId in get().paused) {
-      set((state) => {
-        const { [sessionId]: _resumed, ...rest } = state.paused;
-        return { paused: rest };
-      });
+      set((state) => ({ paused: withoutKey(state.paused, sessionId) }));
     }
     if (type === "prompt/end") void get().drain(sessionId);
   },
@@ -426,6 +433,28 @@ async function send(sessionId: string, content: PromptBlock[]) {
     // main dispatched anything (no `prompt/error`) still frees the session.
     clearSending(sessionId, token);
   }
+}
+
+function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  if (!(key in record)) return record;
+  const { [key]: _removed, ...rest } = record;
+  return rest;
+}
+
+/**
+ * The queue on a session with no live agent: ask it back, then drain. A live connection main
+ * still holds sends no fresh snapshot, so this drains once `ensureLoaded` settles too. If the agent
+ * did not come back — still closed or failed, or no session at all, and no load on its way — the
+ * queue's head goes out anyway, so it fails in the transcript with a Retry rather than waiting
+ * silently. A busy or connecting agent (a live snapshot painted, a connect main is driving) is
+ * never handed it.
+ */
+async function reconnectAndDrain(sessionId: string) {
+  await useAcp.getState().ensureLoaded(sessionId).catch(() => undefined);
+  const acp = useAcp.getState();
+  const status = acp.sessions[sessionId]?.status;
+  const unreachable = status === "closed" || status === "error" || status === undefined;
+  await useComposer.getState().drain(sessionId, { evenIfNotIdle: unreachable && !acp.loading[sessionId] });
 }
 
 function clearSending(sessionId: string, token?: number) {

@@ -170,6 +170,8 @@ export function Composer({
   }, [referenceScope, draftKey]);
   const queue = useQueue(sessionId);
   const dequeue = useComposer((state) => state.dequeue);
+  // A failed turn holds the queue until the next turn starts; said here, with a way to go on.
+  const queuePaused = useComposer((state) => (sessionId ? sessionId in state.paused : false));
 
   useEffect(() => {
     if (autoFocus) {
@@ -234,6 +236,18 @@ export function Composer({
             <QueueSectionTrigger className="px-2 py-1 text-[12px]">
               <QueueSectionLabel count={queue.length} label={queue.length === 1 ? "queued prompt" : "queued prompts"} />
             </QueueSectionTrigger>
+            {queuePaused ? (
+              <div className="flex items-center justify-between gap-2 px-2 py-1 text-[12px] text-muted-foreground" role="status">
+                <span>Paused after an error</span>
+                <button
+                  className="rounded-md px-2 py-0.5 font-medium text-foreground hover:bg-muted"
+                  onClick={() => void useComposer.getState().resume(sessionId)}
+                  type="button"
+                >
+                  Resume
+                </button>
+              </div>
+            ) : null}
             <QueueSectionContent>
               <QueueList className="mt-1">
                 {queue.map((item) => (
