@@ -32,17 +32,6 @@ import { releaseVersion } from "./app-version.mjs";
 import { PYTHON_BUILD, bundledRuntime } from "./bundle-runtime.mjs";
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const argv = process.argv.slice(2);
-// `--no-runtime` is this script's, not electron-builder's: package without
-// the CAD runtime, for a build whose purpose is not CAD (a layout check, a
-// signing rehearsal). A release never passes it.
-const withoutRuntime = argv.includes("--no-runtime");
-const targets = argv.filter((arg) => arg !== "--no-runtime");
-
-if (targets.length === 0) {
-  console.error("usage: node scripts/package.mjs --mac | --win | --linux [--no-runtime] [electron-builder args]");
-  process.exit(2);
-}
 
 /**
  * What `extraResources` copies. Recreated rather than assumed so the config
@@ -109,67 +98,86 @@ function signingEnv() {
   return { env, signed, notarize };
 }
 
-let version;
-try {
-  version = releaseVersion();
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(2);
-}
-const { env, signed, notarize } = signingEnv();
+function main(argv) {
+  // `--no-runtime` is this script's, not electron-builder's: package without
+  // the CAD runtime, for a build whose purpose is not CAD (a layout check, a
+  // signing rehearsal). A release never passes it.
+  const withoutRuntime = argv.includes("--no-runtime");
+  const targets = argv.filter((arg) => arg !== "--no-runtime");
 
-console.info(`packaging text-to-cad ${version} for ${targets.join(" ")}`);
-console.info(
-  signed
-    ? `signing: on (CSC_LINK), notarisation: ${notarize ? "on" : "off (no APPLE_* credentials)"}`
-    : "signing: off (no CSC_LINK) — CSC_IDENTITY_AUTO_DISCOVERY=false",
-);
-
-for (const directory of EXTRA_RESOURCE_DIRS) {
-  fs.mkdirSync(path.join(appRoot, directory), { recursive: true });
-}
-
-// The runtime is the product. A package without one is refused, not warned
-// about, because the app it makes says "the CAD runtime did not start" on the
-// first STEP file — which is the report this check exists to make impossible.
-const runtimeOut = path.join(appRoot, "resources", "runtime");
-for (const target of runtimeTargetsFor(targets)) {
-  const bundle = bundledRuntime(runtimeOut, target, version);
-  if (bundle) {
-    console.info(`runtime: ${target} (Python ${bundle.python}, cadgen ${bundle.cadgen}, built ${bundle.builtAt ?? "?"})`);
-  } else if (withoutRuntime) {
-    console.warn(`runtime: ${target} NOT BUNDLED (--no-runtime): this app will not render CAD`);
-  } else {
-    console.error(
-      `no bundled CAD runtime for ${target} under resources/runtime/ (or not cadgen ${version} on Python ${PYTHON_BUILD.version}+${PYTHON_BUILD.release}).\n` +
-        `Run \`npm run bundle:runtime -- --target ${target}\` first (see resources/README.md), or pass --no-runtime to package without one.`,
-    );
+  if (targets.length === 0) {
+    console.error("usage: node scripts/package.mjs --mac | --win | --linux [--no-runtime] [electron-builder args]");
     process.exit(2);
   }
+
+  let version;
+  try {
+    version = releaseVersion();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(2);
+  }
+  const { env, signed, notarize } = signingEnv();
+
+  console.info(`packaging text-to-cad ${version} for ${targets.join(" ")}`);
+  console.info(
+    signed
+      ? `signing: on (CSC_LINK), notarisation: ${notarize ? "on" : "off (no APPLE_* credentials)"}`
+      : "signing: off (no CSC_LINK) — CSC_IDENTITY_AUTO_DISCOVERY=false",
+  );
+
+  for (const directory of EXTRA_RESOURCE_DIRS) {
+    fs.mkdirSync(path.join(appRoot, directory), { recursive: true });
+  }
+
+  // The runtime is the product. A package without one is refused, not warned
+  // about, because the app it makes says "the CAD runtime did not start" on the
+  // first STEP file — which is the report this check exists to make impossible.
+  const runtimeOut = path.join(appRoot, "resources", "runtime");
+  for (const target of runtimeTargetsFor(targets)) {
+    const bundle = bundledRuntime(runtimeOut, target, version);
+    if (bundle) {
+      console.info(`runtime: ${target} (Python ${bundle.python}, cadgen ${bundle.cadgen}, built ${bundle.builtAt ?? "?"})`);
+    } else if (withoutRuntime) {
+      console.warn(`runtime: ${target} NOT BUNDLED (--no-runtime): this app will not render CAD`);
+    } else {
+      console.error(
+        `no bundled CAD runtime for ${target} under resources/runtime/ (or not cadgen ${version} on Python ${PYTHON_BUILD.version}+${PYTHON_BUILD.release}).\n` +
+          `Run \`npm run bundle:runtime -- --target ${target}\` first (see resources/README.md), or pass --no-runtime to package without one.`,
+      );
+      process.exit(2);
+    }
+  }
+
+  const run = (command, args) => {
+    const result = spawnSync(command, args, { cwd: appRoot, stdio: "inherit", shell: false, env });
+    if (result.error) {
+      throw result.error;
+    }
+    if (result.status !== 0) {
+      process.exit(result.status ?? 1);
+    }
+  };
+
+  const npx = process.platform === "win32" ? "npx.cmd" : "npx";
+
+  // The same build `npm run build` does: the composed skills, electron-vite,
+  // the bundled MCP server (scripts/build.mjs).
+  run(process.execPath, [path.join(appRoot, "scripts", "build.mjs")]);
+  run(npx, [
+    "electron-builder",
+    ...builderArgsFor(targets),
+    `--config.extraMetadata.version=${version}`,
+    ...(notarize ? ["--config.mac.notarize=true"] : []),
+    // Publishing is the release workflow's job, never a local build's: it uploads
+    // the artifacts to the GitHub Release it already tags.
+    "--publish",
+    "never",
+  ]);
 }
 
-const run = (command, args) => {
-  const result = spawnSync(command, args, { cwd: appRoot, stdio: "inherit", shell: false, env });
-  if (result.error) {
-    throw result.error;
-  }
-  if (result.status !== 0) {
-    process.exit(result.status ?? 1);
-  }
-};
-
-const npx = process.platform === "win32" ? "npx.cmd" : "npx";
-
-// The same build `npm run build` does: the composed skills, electron-vite,
-// the bundled MCP server (scripts/build.mjs).
-run(process.execPath, [path.join(appRoot, "scripts", "build.mjs")]);
-run(npx, [
-  "electron-builder",
-  ...builderArgsFor(targets),
-  `--config.extraMetadata.version=${version}`,
-  ...(notarize ? ["--config.mac.notarize=true"] : []),
-  // Publishing is the release workflow's job, never a local build's: it uploads
-  // the artifacts to the GitHub Release it already tags.
-  "--publish",
-  "never",
-]);
+// Run only as a script: the tests import the functions above, and an import
+// must not start a build (or exit on the test runner's own argv).
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main(process.argv.slice(2));
+}
