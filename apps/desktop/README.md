@@ -1109,6 +1109,21 @@ parent receives a direct watch, including Git-ignored outputs. Those files stay
 live without expanding their folders, and all watches close when their root's
 last owner leaves.
 
+An opened file is held per path (`FileWatchers` in `src/main/explorer/fs.ts`),
+with its inode. The watcher reports a rename as a removal and an addition, so
+a batch that removes an open file waits `MOVE_WAIT_MS` (250 ms) for the
+addition, and a removal and an arrival with the same inode become one `moved`
+change: the tab follows the file to its new name, and its holds go with it.
+The app's own save is an atomic rename, a new inode at the same path, so the
+inode is taken again whenever the file changes under its name. An opened link
+is an alias: its target's directory is watched and the target's changes are
+repeated under the link's name; the link's own inode is its identity, taken
+again when `ln -sfn` re-points it, so renaming the link still moves its tab,
+while moving the target leaves the link dangling — a removal to its tab. A
+tab that remounts gives its paths back and takes them again; a release that
+overtakes the watch it follows is counted (`arriving`, `owed`) and given back
+once that watch holds, so no hold is left behind.
+
 ### The file tab's nav
 
 One row: the breadcrumb, with the unsaved dot and the file's loading or update
@@ -1130,7 +1145,9 @@ from native/copy `FileActions`. Writes return structured revision conflicts,
 never parsed error text. Main serializes same-path writes, checks the expected
 content revision immediately before a same-directory atomic replacement, and
 preserves file permissions. Cancellation cannot reverse a dispatched commit.
-Committed move events remap every matching tab and cached/expanded subtree;
+Committed move events — the app's own renames, and an agent's `mv` of an
+open file, paired by inode in the watcher (above) — remap every matching tab
+and cached/expanded subtree;
 delete events prune descendant listings. A bounded mutation-receipt history
 prevents the broadcast and initiating caller's receipt from applying a move
 twice. External edits preserve dirty drafts and refresh clean documents.
