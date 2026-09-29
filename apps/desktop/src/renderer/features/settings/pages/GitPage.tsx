@@ -30,7 +30,7 @@ import {
 import { runUiCommand } from "@renderer/state/bridge";
 import { useProjects } from "@renderer/state/projects";
 import type { Worktree } from "@shared/ipc/git";
-import { branchPrefixProblem, type GitMode, type Project } from "@shared/types";
+import { branchPrefixProblem, defaultSettings, type GitMode, type Project } from "@shared/types";
 
 /**
  * The two choices the composer offers (`lib/git-mode.ts`). `none` is not one
@@ -43,6 +43,9 @@ const GIT_MODES: { value: GitMode; label: string }[] = [
 ];
 
 const KEEP_PRESETS = [3, 5, 10, 20, 50];
+
+/** What a stored prefix git refuses is replaced with by "Use default": the schema's own. */
+const DEFAULT_BRANCH_PREFIX = defaultSettings().branchPrefix;
 
 /**
  * The presets, plus the stored limit when it is none of them (the schema
@@ -102,6 +105,17 @@ export function GitPage() {
                 <TriangleAlert />
                 <AlertDescription className="text-xs text-foreground">
                   {`The stored prefix “${storedPrefix}” is not one git accepts, so “${settings.branchPrefix}” is used until another is set. ${branchPrefixProblem(storedPrefix) ?? ""}`.trim()}
+                  {/* The field already shows the default, so typing it again
+                      changes nothing the row would write: this is the one way
+                      to store it over the bad one. */}
+                  <Button
+                    className="h-6 px-2 text-[12px]"
+                    onClick={() => patch({ branchPrefix: DEFAULT_BRANCH_PREFIX })}
+                    size="sm"
+                    variant="outline"
+                  >
+                    Use default
+                  </Button>
                 </AlertDescription>
               </Alert>
             )

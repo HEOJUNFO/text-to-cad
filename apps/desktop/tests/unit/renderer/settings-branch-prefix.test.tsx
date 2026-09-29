@@ -4,7 +4,7 @@
  * then left behind when Settings closes.
  */
 import { beforeEach, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { toast } from "sonner";
 
@@ -37,6 +37,19 @@ it("draws the stored prefix's note in the kit's warning tone, not as a muted des
   expect(note).not.toHaveClass("text-muted-foreground");
   // The kit's Alert, warning variant: its amber border and wash.
   expect(note.closest("[data-slot=alert]")).toHaveClass("bg-chart-5/10");
+});
+
+it("stores the default over a bad stored prefix from Use default, which retyping it cannot", async () => {
+  const user = userEvent.setup();
+  vi.mocked(window.textToCad.settings.fallbacks).mockResolvedValueOnce({ branchPrefix: "feature..x/" }).mockResolvedValue({});
+  vi.mocked(window.textToCad.settings.set).mockImplementation(async (patch) => ({ ...defaultSettings(), ...(patch as object) }));
+  wrap(<GitPage />);
+  await screen.findByText(/The stored prefix “feature\.\.x\/”/);
+
+  await user.click(screen.getByRole("button", { name: "Use default" }));
+
+  expect(window.textToCad.settings.set).toHaveBeenCalledWith({ branchPrefix: defaultSettings().branchPrefix });
+  await waitFor(() => expect(screen.queryByText(/The stored prefix/)).toBeNull());
 });
 
 it("says a refused prefix was not saved when Settings closes on it", async () => {
