@@ -373,3 +373,22 @@ it("a file written faster than its diff can be read still shows a diff, and a ne
     vi.useRealTimers();
   }
 });
+
+it("a write the watcher reports under a project inside the repository re-reads that file's open diff", async () => {
+  // The repository is /r and the project /r/app: git names the file `app/a.ts`, the watcher —
+  // relative to the project — `a.ts`. The agent rewrites it with the same counts.
+  scoped.mockResolvedValue({ ...repo("main"), files: [changed("app/a.ts")], workingFiles: 1, prefix: "app/" });
+  const read = vi.fn()
+    .mockResolvedValueOnce(fileDiff({ path: "app/a.ts", before: "v0\n", after: "v1\n" }))
+    .mockResolvedValueOnce(fileDiff({ path: "app/a.ts", before: "v0\n", after: "v2\n" }));
+  git.fileDiff = read;
+  renderReview();
+  expect(await screen.findByTestId("review-diff")).toHaveTextContent("v1");
+
+  await act(async () => useExplorer.setState({
+    fsRevision: useExplorer.getState().fsRevision + 1,
+    changedEntries: [{ kind: "changed", path: "a.ts", directory: false }],
+  }));
+  await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+  expect(await screen.findByText("v2")).toBeInTheDocument();
+});

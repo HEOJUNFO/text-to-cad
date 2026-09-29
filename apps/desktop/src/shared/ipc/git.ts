@@ -58,6 +58,13 @@ export const GitStatusSchema = z.object({
    */
   workingFiles: z.number().int().nonnegative(),
   /**
+   * Where the directory asked about sits in the repository, `/`-separated with
+   * a trailing slash (`app/`), or empty at its top. `files` name paths from
+   * the repository's top; the explorer's watcher names them from the project
+   * (or worktree) the review reads in, and this is the difference.
+   */
+  prefix: z.string().optional(),
+  /**
    * Set when the scope asked for was `Last turn` or `This session` and the
    * session has no recorded revision for it. `files` is then empty — not the
    * working tree — and the review says why rather than "No changes".

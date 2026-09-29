@@ -189,7 +189,8 @@ function ReviewBody({
             answer: answers.current,
             entries: entries.current,
             stamps: stampsRef.current,
-            written: written.current,
+            // The watcher's paths are the project's (or worktree's); git's are the repository's.
+            written: new Set([...written.current].map((path) => `${next.prefix ?? ""}${path}`)),
             everything: everything.current,
           });
           everything.current = false;

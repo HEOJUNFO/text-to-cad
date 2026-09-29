@@ -115,3 +115,16 @@ describe("an untracked symlink that points out of the repository", () => {
     expect(listed.files.find((file) => file.path === "creds")).toMatchObject({ insertions: 1, binary: false });
   });
 });
+
+describe("where a review's directory sits in its repository", () => {
+  it("names the prefix of a project inside the repository, and none at its top", async () => {
+    const { root } = await fixture();
+    await mkdir(path.join(root, "app"));
+    await writeFile(path.join(root, "app", "a.ts"), "one\n");
+    // git names the file from the top; the explorer's watcher from the project.
+    const inside = await git.status(path.join(root, "app"));
+    expect(inside.prefix).toBe("app/");
+    expect(inside.files.map((file) => file.path)).toEqual(["app/a.ts"]);
+    expect((await git.status(root)).prefix).toBe("");
+  });
+});
