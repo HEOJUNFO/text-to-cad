@@ -353,6 +353,57 @@ describe("SessionManager", () => {
     expect(repo.get(session.id)).toMatchObject({ sessionHead: null, turnHead: null });
   });
 
+  it("at boot, closes rows a crash left running, waiting or connecting, without reordering them", async () => {
+    const repo = memoryRepo();
+    const row = (id: string, status: Session["status"]): Session => ({
+      id,
+      projectId: "p1",
+      agentId: "claude-code",
+      cwd: "/tmp",
+      gitMode: "none",
+      title: id,
+      titleSource: "prompt",
+      createdAt: 1,
+      updatedAt: 100,
+      status,
+      acpSessionId: `acp-${id}`,
+      changedFiles: 0,
+      insertions: 0,
+      deletions: 0,
+      archived: false,
+      pinned: false,
+    } as Session);
+    for (const [id, status] of [
+      ["running", "running"],
+      ["waiting", "waiting"],
+      ["connecting", "connecting"],
+      ["idle", "idle"],
+      ["error", "error"],
+      ["closed", "closed"],
+    ] as const) {
+      repo.upsert(row(id, status));
+    }
+    const { manager } = await setup({ repo });
+    const statuses = Object.fromEntries(manager.list().map((session) => [session.id, session.status]));
+    expect(statuses).toEqual({
+      running: "closed",
+      waiting: "closed",
+      connecting: "closed",
+      idle: "idle",
+      error: "error",
+      closed: "closed",
+    });
+    expect(manager.list().every((session) => session.updatedAt === 100)).toBe(true);
+  });
+
+  it("refuses an answer to a permission request the agent is no longer waiting on", async () => {
+    const { manager, cwd } = await setup();
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    expect(() => manager.respondPermission(session.id, "no-such-request", "allow-once")).toThrow(/expired/);
+    manager.close(session.id);
+    expect(() => manager.respondPermission(session.id, "no-such-request", "allow-once")).toThrow();
+  });
+
   it("close keeps the row, load reconnects through session/load, delete forgets it", async () => {
     const { repo, manager, cwd } = await setup();
     const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });

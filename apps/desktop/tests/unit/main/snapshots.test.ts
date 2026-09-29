@@ -126,6 +126,49 @@ describe("trimForSnapshot", () => {
     expect(part.output).toBeNull();
   });
 
+  it("cancels a permission request still pending, wherever it sits, since no agent is left to answer it", () => {
+    const permission = (requestId: string, outcome: Extract<Part, { type: "permission_request" }>["outcome"]): Part => ({
+      type: "permission_request",
+      requestId,
+      toolCallId: "cmd",
+      title: "Run ls?",
+      description: null,
+      options: [{ optionId: "allow", name: "Yes", kind: "allow_once", description: null }],
+      outcome,
+    });
+    const state = stateWith([
+      turn("t1", [
+        permission("top", { state: "pending" }),
+        permission("answered", { state: "selected", optionId: "allow" }),
+        toolCall({ children: [permission("nested", { state: "pending" })] }),
+        {
+          type: "subagent",
+          sessionId: "sub",
+          name: "helper",
+          task: null,
+          state: "running",
+          parts: [permission("in-subagent", { state: "pending" })],
+        } as Part,
+      ]),
+    ]);
+    const outcomes: Record<string, unknown> = {};
+    const walk = (parts: Part[]) => {
+      for (const part of parts) {
+        if (part.type === "permission_request") outcomes[part.requestId] = part.outcome;
+        if (part.type === "tool_call") walk(part.children);
+        if (part.type === "subagent") walk(part.parts);
+      }
+    };
+    walk(trimForSnapshot(state).turns[0]!.parts);
+    expect(outcomes).toEqual({
+      top: { state: "cancelled" },
+      answered: { state: "selected", optionId: "allow" },
+      nested: { state: "cancelled" },
+      "in-subagent": { state: "cancelled" },
+    });
+    expect(trimForSnapshot(state).pendingPermissions).toEqual([]);
+  });
+
   it("leaves a small tool call exactly as it was, nested calls included", () => {
     const child = toolCall({ id: "child", stream: "ok", input: { path: "a" } });
     const state = stateWith([turn("t1", [toolCall({ children: [child] })])]);

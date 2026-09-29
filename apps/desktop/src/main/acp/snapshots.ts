@@ -110,6 +110,10 @@ function capPart(part: Part): Part {
       };
     case "subagent":
       return { ...part, parts: part.parts.map(capPart) };
+    case "permission_request":
+      // No agent is left to answer it: painted as pending, it would be a
+      // live card whose buttons go nowhere.
+      return part.outcome.state === "pending" ? { ...part, outcome: { state: "cancelled" } } : part;
     default:
       return part;
   }
@@ -124,7 +128,9 @@ function capPart(part: Part): Part {
  * composer of a session that is about to be live, and a stored `error` would
  * show a failure from last week beside a working thread.
  * `pendingPermissions` goes because a request cannot be answered without the
- * agent that asked it; the requests stay in the transcript as history.
+ * agent that asked it; the requests stay in the transcript as history, and
+ * one still pending is written as `cancelled` (`capPart`) so the painted
+ * card is not an answerable one.
  */
 export function trimForSnapshot(state: SessionState): SessionState {
   const capped: SessionState = {

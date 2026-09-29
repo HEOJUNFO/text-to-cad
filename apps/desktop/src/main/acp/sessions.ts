@@ -265,11 +265,37 @@ export class SessionManager {
   /* ---------------------------------------------------------------------- */
 
   list(projectId?: string): Session[] {
+    this.boot();
     return this.deps.repo.list(projectId);
   }
 
   get(id: string): Session | null {
+    this.boot();
     return this.deps.repo.get(id);
+  }
+
+  /**
+   * Once, before the index is first read: a row left `running`, `waiting` or
+   * `connecting` names an adapter that died with the last app run (a crash or
+   * a force-quit skips `closeAll`). Nothing can be live before this manager
+   * has spawned something, so those rows become `closed` — otherwise a
+   * "needs you" glyph outlives the agent that needed you. Lazy rather than in
+   * the constructor, which runs before the database is open; `updatedAt` is
+   * kept so the sidebar's order does not change.
+   */
+  private booted = false;
+  private boot(): void {
+    if (this.booted) {
+      return;
+    }
+    this.booted = true;
+    for (const session of this.deps.repo.list()) {
+      const stale =
+        session.status === "running" || session.status === "waiting" || session.status === "connecting";
+      if (stale && !this.live.get(session.id)?.alive) {
+        this.deps.repo.upsert({ ...session, status: "closed" });
+      }
+    }
   }
 
   /**
@@ -282,6 +308,7 @@ export class SessionManager {
    * gets the spinner, the way every session did before migration 10.
    */
   state(id: string): { state: SessionState; live: boolean } | null {
+    this.boot();
     const connection = this.live.get(id);
     // `acpSessionId`, not merely `alive`: a connection that is spawned but
     // still replaying holds an empty state, and the snapshot is a better
@@ -315,6 +342,7 @@ export class SessionManager {
     name?: string | undefined;
     branch?: string;
   }): Promise<Session> {
+    this.boot();
     if (!agentProvider(input.agentId)) {
       throw new Error(`unknown agent: ${input.agentId}`);
     }
@@ -537,6 +565,7 @@ export class SessionManager {
    * the same shape for the two adapters (README, "Opening a session").
    */
   async load(id: string): Promise<SessionState> {
+    this.boot();
     // One load per session at a time. The renderer starts one behind the
     // painted snapshot, and a prompt typed into that snapshot's composer
     // arrives while it is still running — two spawns for one session, and a
@@ -738,8 +767,15 @@ export class SessionManager {
     );
   }
 
+  /**
+   * Throws when nothing is waiting on `requestId` — answered already, or
+   * asked by an adapter that has since gone — so the card can say so rather
+   * than swallow the click.
+   */
   respondPermission(id: string, requestId: string, optionId: string | null): void {
-    this.requireLive(id).respondPermission(requestId, optionId);
+    if (!this.requireLive(id).respondPermission(requestId, optionId)) {
+      throw new Error("This request has expired — reconnect and ask again.");
+    }
   }
 
   rename(id: string, title: string): Session {
@@ -886,6 +922,7 @@ export class SessionManager {
   }
 
   private require(id: string): Session {
+    this.boot();
     const session = this.deps.repo.get(id);
     if (!session) {
       throw new Error(`no such session: ${id}`);

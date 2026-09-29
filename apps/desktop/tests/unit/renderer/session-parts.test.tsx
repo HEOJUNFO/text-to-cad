@@ -115,6 +115,19 @@ describe("PermissionCard", () => {
     expect(respond).toHaveBeenCalledWith({ id: "s1", requestId: "perm-1", optionId: "allow-always" });
   });
 
+  it("says the request has expired when the answer is refused, rather than doing nothing", async () => {
+    const user = userEvent.setup();
+    const respond = vi.fn(async () => {
+      throw new Error("the session is not connected; load it first");
+    });
+    (window.textToCad.sessions as unknown as { respondPermission: unknown }).respondPermission = respond;
+    wrap(<PermissionCard part={part} sessionId="s1" />);
+    expect(screen.queryByText(/This request has expired/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Yes" }));
+    expect(respond).toHaveBeenCalled();
+    expect(await screen.findByText("This request has expired — reconnect and ask again.")).toBeInTheDocument();
+  });
+
   it("folds to the decision once answered, stated rather than asked again", () => {
     const { unmount } = wrap(<PermissionCard part={{ ...part, outcome: { state: "selected", optionId: "reject" } }} sessionId="s1" />);
     expect(screen.getByText("Rejected: run ls")).toBeInTheDocument();

@@ -1,4 +1,5 @@
 import { Check, ShieldQuestion, X } from "lucide-react";
+import { useState } from "react";
 
 import {
   Confirmation,
@@ -19,9 +20,14 @@ import type { PermissionOption, PermissionRequestPart } from "@shared/acp/types"
  * Once answered the card folds to one activity-sized line, so the
  * transcript still says what was decided without taking the room the
  * question did.
+ *
+ * An answer main refuses — the adapter is gone (a session reopened after a
+ * crash), or the request was already answered — says so on the card; it is
+ * never a click that silently does nothing.
  */
 export function PermissionCard({ part, sessionId }: { part: PermissionRequestPart; sessionId: string }) {
   const respond = useAcp((state) => state.respondPermission);
+  const [expired, setExpired] = useState(false);
   const outcome = part.outcome;
 
   if (outcome.state !== "pending") {
@@ -76,7 +82,10 @@ export function PermissionCard({ part, sessionId }: { part: PermissionRequestPar
           <ConfirmationAction
             className="h-7 px-2.5 text-[12px]"
             key={option.optionId}
-            onClick={() => void respond(sessionId, part.requestId, option.optionId)}
+            onClick={() => {
+              setExpired(false);
+              respond(sessionId, part.requestId, option.optionId).catch(() => setExpired(true));
+            }}
             title={option.description ?? undefined}
             variant={variantFor(option)}
           >
@@ -84,6 +93,11 @@ export function PermissionCard({ part, sessionId }: { part: PermissionRequestPar
           </ConfirmationAction>
         ))}
       </ConfirmationActions>
+      {expired ? (
+        <p className="text-[12px] leading-5 text-muted-foreground" role="status">
+          This request has expired — reconnect and ask again.
+        </p>
+      ) : null}
     </Confirmation>
   );
 }
