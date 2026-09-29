@@ -448,10 +448,13 @@ async function workingTreeFiles(
   porcelain: ReturnType<typeof parsePorcelainStatus>,
 ): Promise<ChangedFile[]> {
   // Tracked changes, staged and unstaged in one number: the review shows the
-  // working tree against HEAD, which is what "22 files changed" means.
-  const numstat = porcelain.unborn
-    ? new Map()
-    : parseNumstat(await git(root, ["diff", "--numstat", "-z", "-M", "HEAD"]));
+  // working tree against HEAD, which is what "22 files changed" means. With
+  // no commits yet there is no HEAD, and the staged files are measured from
+  // the empty tree — otherwise every one of them reads +0 −0.
+  const from = porcelain.unborn ? await emptyTree(root) : "HEAD";
+  const numstat = from
+    ? parseNumstat(await git(root, ["diff", "--numstat", "-z", "-M", "--end-of-options", from]))
+    : new Map() as ReturnType<typeof parseNumstat>;
 
   const files: ChangedFile[] = [];
   for (const file of porcelain.files) {

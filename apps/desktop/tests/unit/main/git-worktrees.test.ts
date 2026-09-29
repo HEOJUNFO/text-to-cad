@@ -592,6 +592,19 @@ describe("a since-period older than the whole history", () => {
   });
 });
 
+describe("a repository with no commits yet", () => {
+  it("counts a staged file's lines rather than +0 −0", async () => {
+    const base = await scratch("text-to-cad-unborn-");
+    await git_(base, "init", "--quiet", "--initial-branch=main");
+    await writeFile(path.join(base, "part.py"), "a\nb\n");
+    await git_(base, "add", "part.py");
+    await writeFile(path.join(base, "part.py"), "a\nb\nc\n");
+
+    const status = await git.status(base);
+    expect(status.files).toEqual([expect.objectContaining({ path: "part.py", insertions: 3, deletions: 0 })]);
+  });
+});
+
 describe("a renamed file", () => {
   it("diffs against its old path, not as a new file", async () => {
     const { root } = await repository();
