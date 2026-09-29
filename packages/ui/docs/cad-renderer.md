@@ -154,7 +154,7 @@ calls one hook; the shell owns the rest.
 | `liveBinding.ts` | `attachLiveBinding`: the live command surface. Base commands (`readState`, `setCamera`, `resetCamera`, `setDisplaySettings`, `setRenderMode`, `capture`) mean the same for every renderer; a renderer ADDS commands by name and DECLINES the known host commands (`HOST_LIVE_COMMANDS`) that make no sense for it with the sentence the caller reads. Binding fails when a renderer does neither. |
 | `promptContext.js` | `createViewPromptContext` (a snapshot and what it depicts) and `promptDeliveryError`. A renderer with a reference vocabulary of its own passes `promptContext` instead, and may then return that vocabulary from `promptReferences`. |
 | `loadReport.js` | `shellLoadReport`: what the shell asks the status kit about one document load, as one pure function, and all it returns is the loading presentation over the viewport. A renderer whose document is a plain download passes `load` and nothing more. One whose document can be EDITED or PREVIEWED while it is open knows more than the shell can: `load.editPending` (queued work of the person's own, with nothing of it on screen), `load.currentPreview` (that work IS what is drawn, so the wait is over even though the write is not) and `load.finding` (the file is not even located yet). An alert is `load.alert`, which the frame draws as the alert card (`ViewerAlertCard`: an error always, a warning only while nothing is on screen); a warning beside a model is the renderer's own to list (STEP's Issues section). |
-| `useViewerShortcuts.js` | Which mounted viewer an Escape or a ⌘C / Ctrl+C belongs to (focus inside it, or the page after a press inside it); the renderer says what Escape means, and a copy is the active tool's (Draw's drawing, else the bottom action). The order is [the design system's](settings-ui.md#keyboard). |
+| `useViewerShortcuts.js` | Which mounted viewer an Escape or a ⌘C / Ctrl+C belongs to (focus inside it, or the page after a press inside it); the renderer says what Escape means, and a copy is the active tool's (Draw's drawing, else selected references). The order is [the design system's](settings-ui.md#keyboard). |
 | `ViewportBottomAction.jsx` | The active tool's one bottom button (Draw: the view with its ink, to the clipboard), with the copy shortcut beside its label on desktop; `{ label, shortLabel, render }` for a renderer's own, where a label too wide for the button becomes `shortLabel` and `render` draws a control that is not a plain press. |
 | `ViewportContextMenu.jsx` | The viewport's menu on a secondary TAP (a secondary drag pans; primary and secondary together is the pan chord). The gesture, the anchor, the clamping and the dismissal are the shell's; the ITEMS are the renderer's (`contextMenuItems(press)`), asked at the moment of the press, and `onContextMenuOpenChange(open)` says while the menu is up. A renderer that passes no items has no viewport menu at all — every renderer but STEP. |
 
@@ -253,7 +253,7 @@ second publish is its last is re-adopted by the viewport for reasons of its own.
 `kit/tools/draw/Draw.browser.test.mjs` covers the Draw scenario under the shell,
 and each renderer's own browser test asserts that the STEP-only Display sections
 are absent from it. The shell surfaces only STEP uses so far (the viewport menu and
-its open report, the measured bottom action, the camera-settled report, a scene
+its open report, the shared prompt action, the camera-settled report, a scene
 that arrives in place, the pixel ratio kept for hairlines, the runtime lifecycle,
 and what a renderer says about a load that is more than a download) are driven
 through `renderers/shell-harness` in `RendererShell.browser.test.mjs`.
@@ -310,12 +310,10 @@ the viewer was inventing from the file; a drawing is not that.
   asked for there would leave the pane empty for one frame
   (`dxf/DxfResize.browser.test.mjs`). The backing store is DPR-aware
   (`kit/viewport/pixelRatio.js`), and the cursor is `grab` / `grabbing`.
-- **Navbar**: `Take snapshot`, then the file tree's toggle, and nothing else — no
-  panel toggle of its own, because the registration declares no panels, and no zoom
-  buttons, because zooming a drawing is the pointer's: wheel or
-  pinch about it, drag to pan, double-click to fit. The snapshot is the canvas as a
-  PNG, background included, delivered through `host.promptContext` like every other
-  renderer's.
+- **Controls**: DXF declares no renderer panel or zoom buttons; zooming is the
+  pointer's job. Its one bottom **Add To Prompt** button captures the canvas as a
+  PNG, background included, and delivers it with the file reference through
+  `host.promptContext`, as every other renderer does.
 - **Empty and failed drawings.** `bounds: null` (nothing in the modelspace) is a quiet
   sentence over the empty pane, not an error. A non-200 becomes the ordinary actionable
   alert card (`ViewerAlertCard`) carrying the SERVER's sentence (`failureAlert`,
@@ -616,10 +614,10 @@ preserved; a capture names the references it depicts. Ordinary explicit copy
 controls use `host.clipboard`. The viewport only produces screenshot pixels.
 The port and app adapters own delivery and return an acknowledged outcome.
 
-`slots.selectionExtras` is the optional app-contributed selection interface.
-Its typed context builder shares the same capture/reference pipeline; it does
-not expose the CAD scene. See [ViewerHost](viewer-host.md) for lifetime, focus,
-selection invalidation, supported content and clipboard representation limits.
+The shell's `promptReferences` and `promptContext` builder let a renderer add
+its current selection or other context to the shared action. They do not expose
+the CAD scene to apps. See [ViewerHost](viewer-host.md) for delivery lifetimes
+and supported content.
 
 An optional `ViewerCommandSource` (`@text-to-cad/ui/renderers/workspace`) has the same
 subscription shape and publishes
@@ -788,7 +786,7 @@ The optional `@text-to-cad/ui/file-viewer/empty` entry exports `EmptyCadBackdrop
 - **Viewport**: the shell's own `ShellViewport`, mounted by `RendererShell`; STEP
   does not wrap it. The surface decides what it may show and pick just now (nothing
   under Position or in preview; no topology while a previous mesh is held over
-  an update) and hands the viewport menu and the bottom action to the shell, and it
+  an update) and hands the viewport menu and copy shortcut to the shell, and it
   keeps the two things only a STEP can answer, beside the kit viewport's handle: `sampleLodCamera` and `zoomToFitSelection` (the boxes of the selected
   references, from the selector runtime as posed, merged with the boxes of the
   selected parts, from the records on screen).
@@ -875,8 +873,8 @@ The one click that still waits is one under a tool a pick would leave (Explode, 
 a pick there takes up Select): it is held for the double-click window
 (`deferActivation`), so a double-click there isolates and stays in the tool, and a
 lone click selects and switches to Select once the window has passed.
-Every copied reference — the
-bottom action, ⌘C, both menus, the double-click — carries the file's prefix through
+Every copied reference —
+⌘C, both menus, the double-click — carries the file's prefix through
 one `copyTextLines`. Escape clears the
 selection after any open menu has been dismissed. Input fields
 keep their own Escape behaviour.
@@ -1091,8 +1089,8 @@ Selection totals remain above the current reference's name, type, wrapping
 canonical ID, dimensions, coordinates and source material. Rows share an 8px
 gutter, an 80px label column and 11px text, with thin separators between totals,
 reference facts and material. The pane has no copy or dimension-preview buttons:
-copying is the viewport's bottom action (**Copy Reference** or **Copy References**,
-shown only for a resolved selection) and the tree and viewport menus, and
+copying is the Reference heading, the copy shortcut and the tree and viewport
+menus; Add To Prompt includes the selected references with a screenshot, and
 measurement previews are the Measure tool's. There is no source feature view.
 
 Tool order, tool panels, persistent panels and cleanup policies are defined in
@@ -1288,18 +1286,17 @@ panned pose when Draw ends.
 A sketch is session-only. It lives in the mounted editor, is never written to
 tab or file state, and is discarded when Draw is deselected, the file changes or
 the renderer unmounts; a restored tab never reopens in Draw. While the sketch has
-ink, the bottom action is **Copy Drawing**, with the copy shortcut beside it (⌘C or
-Ctrl+C does the same): the viewport capture with the editor's committed ink
-composited over it viewport-aligned (the ink canvas keeps its own pixel ratio and is
-scaled into the frame; selection handles are not included), written to the clipboard
-as a PNG (`host.clipboard.writeImage`).
+ink, the copy shortcut (⌘C or Ctrl+C) writes a PNG to the clipboard. The
+viewport capture composites the editor's committed ink at the same position
+(the ink canvas keeps its own pixel ratio and scales into the frame); selection
+handles are excluded. Add To Prompt includes that same composite screenshot.
 
-### File navbar
+### File navbar and prompt action
 
-The file navbar holds the renderer's actions, then the panel toggles; pressing a
-toggle opens that panel and closes whatever was open. Left to right: the direct
-snapshot action (`Take snapshot`, `Camera`) and the file tree, id `tree` (`Folders`,
-labelled `Show files` / `Hide files`). No CAD registration declares `panels`: every
+The file navbar holds renderer actions, then panel toggles; pressing a toggle
+opens that panel and closes whatever was open. CAD renderers publish no navbar
+action. The web host composes the file tree, id `tree` (`Folders`, labelled
+`Show files` / `Hide files`). No CAD registration declares `panels`: every
 CAD file has the tree alone, its controls being panels of its own tool stack. The
 tree is FileViewer's own (`treePanel`), always last. Display is a popover in the
 viewport's top-right bar and never a panel of the host's. Beside the file name, the nav row's status slot carries the
@@ -1313,13 +1310,10 @@ walked; any other open starts the file at its default, and the host applies eith
 (`viewer-host.md`). `""` is nothing open, and so is an id the file's list does not
 have.
 
-Take snapshot captures the view (with Draw's ink, when there is some). Where the
-host has a composer destination it goes through the prompt-context port with the
-references it depicts (desktop attaches it to the owning session's draft); otherwise
-it is written to the clipboard as a PNG (`host.clipboard.writeImage`), which is the
-web app's case. The DXF renderer, which is not on the shell, contributes its own
-Take snapshot, always through the prompt-context port.
-The shared FileViewer renders these registered actions without importing CAD.
+The single bottom **Add To Prompt** action captures the view (including Draw
+ink) and delivers its file reference, current selection references and PNG
+through `host.promptContext`. The port chooses a composer or clipboard
+destination. DXF has the same action over its 2D canvas. Preview hides it.
 
 ### Preview and camera
 

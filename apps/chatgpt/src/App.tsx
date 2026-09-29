@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { FileViewer, createCadFileSource, type DocumentSource } from '@text-to-cad/ui/file-viewer';
-import { PromptContextAction, type ViewerHost, type ClipboardPort } from '@text-to-cad/ui/host';
-import { createStepRenderer, type StepSelectionSlotProps } from '@text-to-cad/ui/renderers/step';
+import { type ViewerHost, type ClipboardPort } from '@text-to-cad/ui/host';
+import { createStepRenderer } from '@text-to-cad/ui/renderers/step';
 import { createGlbRenderer } from '@text-to-cad/ui/renderers/glb';
 import { createMeshRenderer } from '@text-to-cad/ui/renderers/mesh';
 import { createTabStore, useTabViewerState } from '@text-to-cad/ui/tab-store';
@@ -16,14 +16,6 @@ const clipboard: ClipboardPort = {
   async readText() { if (!navigator.clipboard?.readText) throw new Error('Clipboard is unavailable.'); return navigator.clipboard.readText(); },
   async writeImage(image) { if (!navigator.clipboard?.write || !globalThis.ClipboardItem) throw new Error('Image clipboard is unavailable.'); await navigator.clipboard.write([new ClipboardItem({ 'image/png': image })]); },
 };
-function SelectionAttachment({ createContext, disabled, selectionKey, actionClassName }: StepSelectionSlotProps) {
-  const [message, setMessage] = useState('');
-  useEffect(() => setMessage(''), [selectionKey]);
-  return <div className="cad-context-action"><PromptContextAction size="sm" variant="default" className={actionClassName} disabled={disabled}
-    createContext={() => createContext()}
-    onResult={result => setMessage(result.status === 'added' || result.status === 'copied' ? '' : ('message' in result && result.message) || 'Could not add selection.')}>Add To Prompt</PromptContextAction>
-    {message && <span role="alert">{message}</span>}</div>;
-}
 export default function App({ client, opened, promptContext, colorScheme, library }: {
   client: CadClient; opened: OpenFile; promptContext: PromptContextPort; colorScheme: 'light' | 'dark'; library: RecentLibrary;
 }) {
@@ -44,7 +36,7 @@ export default function App({ client, opened, promptContext, colorScheme, librar
   const { state, onStateChange } = useTabViewerState(tabStore, source.id);
   const live = useMemo(() => createThumbnailBinding(library, opened.recentId, opened.revision), [library, opened.recentId, opened.revision]);
   const renderers = useMemo(() => [
-    createStepRenderer({ client, live, preferences: tabStore.settings, slots: { selectionExtras: SelectionAttachment } }),
+    createStepRenderer({ client, live, preferences: tabStore.settings }),
     createGlbRenderer({ client, live, preferences: tabStore.settings }), createMeshRenderer({ client, live, preferences: tabStore.settings }),
   ], [client, tabStore, live]);
   const host = useMemo<ViewerHost>(() => ({

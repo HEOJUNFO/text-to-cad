@@ -52,11 +52,26 @@ class RecentLibrary:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as db, db:
             db.execute("PRAGMA journal_mode=WAL")
+            db.execute("BEGIN IMMEDIATE")
             db.execute("""CREATE TABLE IF NOT EXISTS recent_models (
                 id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE, root TEXT NOT NULL,
                 opened REAL NOT NULL, pinned INTEGER NOT NULL DEFAULT 0,
-                thumbnail TEXT, thumbnail_revision TEXT
+                thumbnail TEXT, thumbnail_revision TEXT, thumbnail_hash TEXT
             )""")
+            if "thumbnail_hash" not in {row["name"] for row in db.execute("PRAGMA table_info(recent_models)")}:
+                db.execute("ALTER TABLE recent_models ADD COLUMN thumbnail_hash TEXT")
+                for row in db.execute("SELECT id,thumbnail FROM recent_models WHERE thumbnail IS NOT NULL"):
+                    db.execute("UPDATE recent_models SET thumbnail_hash=? WHERE id=?",
+                               (hashlib.sha256(row["thumbnail"].encode("ascii")).hexdigest(), row["id"]))
+            db.execute("""CREATE TABLE IF NOT EXISTS model_roots (
+                recent_id TEXT NOT NULL, root_id TEXT NOT NULL, root TEXT NOT NULL, path TEXT NOT NULL,
+                PRIMARY KEY (recent_id, root_id)
+            )""")
+            if "path" not in {row["name"] for row in db.execute("PRAGMA table_info(model_roots)")}:
+                db.execute("ALTER TABLE model_roots ADD COLUMN path TEXT")
+                db.execute("""UPDATE model_roots SET path=(
+                    SELECT path FROM recent_models WHERE id=model_roots.recent_id
+                )""")
 
     def _connect(self):
         db = sqlite3.connect(self.path, timeout=10)
@@ -72,14 +87,20 @@ class RecentLibrary:
         except (ValueError, ForbiddenAssetError):
             return False
 
-    def get(self, recent_id: str) -> dict:
+    def get(self, recent_id: str, root_id: str | None = None) -> dict:
         with closing(self._connect()) as db:
-            row = db.execute("SELECT * FROM recent_models WHERE id=?", (recent_id,)).fetchone()
-        if row is None or not self._allowed(row["path"]):
+            if root_id is not None:
+                row = db.execute("SELECT path,root FROM model_roots WHERE recent_id=? AND root_id=?",
+                                 (recent_id, root_id)).fetchone()
+            else:
+                row = db.execute("SELECT * FROM recent_models WHERE id=?", (recent_id,)).fetchone()
+        if row is None or not isinstance(row["path"], str) or not self._allowed(row["path"]):
+            if root_id is not None:
+                raise ValueError("CAD view root is no longer authorized; reopen the model")
             raise ValueError("Recent CAD model is unavailable in this library")
         return dict(row)
 
-    def record(self, root: str, file: str) -> dict:
+    def record(self, root: str, file: str, root_id: str | None = None) -> dict:
         path = os.path.abspath(os.path.join(root, file))
         require_contained(root, path)
         if not self._allowed(path):
@@ -89,6 +110,9 @@ class RecentLibrary:
                 ON CONFLICT(path) DO UPDATE SET root=excluded.root, opened=excluded.opened""",
                 (uuid.uuid4().hex, path, root, time.time()))
             row = db.execute("SELECT * FROM recent_models WHERE path=?", (path,)).fetchone()
+            if root_id is not None:
+                db.execute("INSERT OR IGNORE INTO model_roots(recent_id,root_id,root,path) VALUES(?,?,?,?)",
+                           (row["id"], root_id, root, path))
         return self._item(row)
 
     def _item(self, row) -> dict:
@@ -98,13 +122,13 @@ class RecentLibrary:
             "name": Path(row["path"]).name, "rootPath": row["root"], "absolutePath": row["path"],
             "lastOpened": row["opened"], "pinned": bool(row["pinned"]), "missing": revision is None,
             "revision": revision,
-            "thumbnailRevision": revision if revision and row["thumbnail_revision"] == revision else None,
+            "thumbnailRevision": row["thumbnail_hash"] if revision and row["thumbnail_revision"] == revision else None,
         }
 
     def list(self) -> dict:
         items = []
         with closing(self._connect()) as db:
-            rows = db.execute("SELECT id,path,root,opened,pinned,thumbnail_revision FROM recent_models ORDER BY pinned DESC, opened DESC, id")
+            rows = db.execute("SELECT id,path,root,opened,pinned,thumbnail_revision,thumbnail_hash FROM recent_models ORDER BY pinned DESC, opened DESC, id")
             for row in rows:
                 if self._allowed(row["path"]):
                     items.append(self._item(row))
@@ -118,8 +142,9 @@ class RecentLibrary:
         if action == "thumbnail":
             current = file_revision(row["path"])
             if thumbnail is None:
-                return {"thumbnail": row["thumbnail"] if current and row["thumbnail_revision"] == current else None,
-                        "revision": current}
+                fresh = bool(current and row["thumbnail_revision"] == current)
+                return {"thumbnail": row["thumbnail"] if fresh else None,
+                        "revision": row["thumbnail_hash"] if fresh else None}
             prefix = "data:image/png;base64,"
             if not thumbnail.startswith(prefix) or len(thumbnail) > len(prefix) + 4 * ((MAX_THUMBNAIL_BYTES + 2) // 3):
                 raise ValueError("Thumbnail must be a PNG data URL no larger than 256 KiB")
@@ -141,12 +166,13 @@ class RecentLibrary:
                 raise ValueError("Thumbnail is not a valid PNG image") from error
             if current is None or revision != current:
                 raise ValueError("CAD model changed before thumbnail upload; reopen it")
+            thumbnail_hash = hashlib.sha256(thumbnail.encode("ascii")).hexdigest()
             with closing(self._connect()) as db, db:
-                db.execute("UPDATE recent_models SET thumbnail=?,thumbnail_revision=? WHERE id=?",
-                           (thumbnail, revision, recent_id))
+                db.execute("UPDATE recent_models SET thumbnail=?,thumbnail_revision=?,thumbnail_hash=? WHERE id=?",
+                           (thumbnail, revision, thumbnail_hash, recent_id))
                 if file_revision(row["path"]) != revision:
                     raise ValueError("CAD model changed during thumbnail upload; reopen it")
-            return {"thumbnail": thumbnail, "revision": revision}
+            return {"thumbnail": thumbnail, "revision": thumbnail_hash}
         with closing(self._connect()) as db, db:
             if action == "pin" and pinned is not None:
                 db.execute("UPDATE recent_models SET pinned=? WHERE id=?", (int(pinned), recent_id))

@@ -8,10 +8,10 @@ test('MCP fetch preserves binary response, request bytes, and worker transfer is
   const fetch = createBridgeFetch({ async callServerTool(params) {
     calls.push(params);
     return { structuredContent: { status: 200, headers: { 'content-type': 'application/octet-stream' }, body: encodeBytes(new Uint8Array([0, 255, 128])) } };
-  } });
+  } }, { recentId: 'viewed-file', rootId: 'opened-root' });
   const response = await fetch('http://cad.local/__tess_cache/key', { method: 'POST', body: new Uint8Array([1, 2, 255]) });
   assert.deepEqual([...new Uint8Array(await response.arrayBuffer())], [0, 255, 128]);
-  assert.deepEqual(calls[0], { name: 'cad_request', arguments: { path: '/__tess_cache/key', method: 'POST', body: 'AQL/' } });
+  assert.deepEqual(calls[0], { name: 'cad_request', arguments: { recentId: 'viewed-file', rootId: 'opened-root', path: '/__tess_cache/key', method: 'POST', body: 'AQL/' } });
   const client = createCadClient({ origin: 'http://cad.local', workspaceId: 'root', fetch });
   try {
     const one = await client.resources.workerTicket('/__cad/asset?file=part.step');
@@ -39,12 +39,14 @@ test('large resource chunks retain revision and byte order; mismatches fail with
   const offsets: unknown[] = [];
   let mismatch = false;
   const fetch = createBridgeFetch({ async callServerTool({ arguments: args }) {
+    assert.equal(args?.rootId, 'original-root');
+    assert.equal(args?.recentId, 'same-file');
     offsets.push(args?.offset ?? 0);
     if (args?.offset) assert.equal(args.revision, 'revision-a');
     return { structuredContent: { status: 200, headers: {}, body: args?.offset ? 'AwQ=' : 'AQI=', transfer: {
       offset: args?.offset ?? 0, totalBytes: 4, revision: mismatch && args?.offset ? 'revision-b' : 'revision-a',
     } } };
-  } });
+  } }, { recentId: 'same-file', rootId: 'original-root' });
   assert.deepEqual([...new Uint8Array(await (await fetch('/__cad/asset?file=a.step')).arrayBuffer())], [1, 2, 3, 4]);
   assert.deepEqual(offsets, [0, 2]);
   mismatch = true;

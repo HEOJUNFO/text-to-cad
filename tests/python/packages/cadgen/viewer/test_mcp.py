@@ -185,7 +185,15 @@ class LibraryTests(unittest.TestCase):
             png = "data:image/png;base64," + base64.b64encode(image.getvalue()).decode("ascii")
             second.update("thumbnail", item["id"], thumbnail=png, revision=item["revision"])
             self.assertEqual(first.update("thumbnail", item["id"])["thumbnail"], png)
-            self.assertEqual(first.list()["items"][0]["thumbnailRevision"], item["revision"])
+            thumbnail_revision = first.update("thumbnail", item["id"])["revision"]
+            self.assertEqual(first.list()["items"][0]["thumbnailRevision"], thumbnail_revision)
+            replacement = io.BytesIO()
+            Image.new("RGB", (1, 1), "red").save(replacement, format="PNG")
+            replacement_png = "data:image/png;base64," + base64.b64encode(replacement.getvalue()).decode("ascii")
+            updated = second.update("thumbnail", item["id"], thumbnail=replacement_png, revision=item["revision"])
+            self.assertNotEqual(updated["revision"], thumbnail_revision)
+            self.assertEqual(first.list()["items"][0]["thumbnailRevision"], updated["revision"])
+            self.assertEqual(first.update("thumbnail", item["id"])["thumbnail"], replacement_png)
             file.write_bytes(b"solid updated part\nendsolid part\n")
             self.assertIsNone(first.list()["items"][0]["thumbnailRevision"])
             self.assertIsNone(first.update("thumbnail", item["id"])["thumbnail"])
@@ -201,6 +209,39 @@ class LibraryTests(unittest.TestCase):
             self.assertEqual(first.update("remove", item["id"]), {"items": []})
             self.assertTrue(file.is_file())
             self.assertEqual(second.list(), {"items": []})
+
+    def test_existing_library_gains_thumbnail_content_revision(self):
+        import sqlite3
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            file = root / "part.stl"
+            file.write_bytes(b"solid part\nendsolid part\n")
+            database = root / "library.sqlite3"
+            from cadgen.mcp.library import file_revision
+            preview = "data:image/png;base64,cHJldmlldw=="
+            with sqlite3.connect(database) as db:
+                db.execute("""CREATE TABLE recent_models (
+                    id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE, root TEXT NOT NULL,
+                    opened REAL NOT NULL, pinned INTEGER NOT NULL DEFAULT 0,
+                    thumbnail TEXT, thumbnail_revision TEXT
+                )""")
+                db.execute("INSERT INTO recent_models VALUES(?,?,?,?,?,?,?)",
+                           ("saved", str(file), str(root), 1.0, 1, preview, file_revision(str(file))))
+                db.execute("""CREATE TABLE model_roots (
+                    recent_id TEXT NOT NULL, root_id TEXT NOT NULL, root TEXT NOT NULL,
+                    PRIMARY KEY (recent_id, root_id)
+                )""")
+                db.execute("INSERT INTO model_roots VALUES(?,?,?)", ("saved", "bound-root", str(root)))
+            library = RecentLibrary(database)
+            item = library.list()["items"][0]
+            self.assertTrue(item["pinned"])
+            self.assertEqual(item["thumbnailRevision"], hashlib.sha256(preview.encode("ascii")).hexdigest())
+            self.assertEqual(library.update("thumbnail", "saved"),
+                             {"thumbnail": preview, "revision": item["thumbnailRevision"]})
+            library.update("remove", "saved")
+            self.assertEqual(RecentLibrary(database).get("saved", "bound-root"),
+                             {"path": str(file), "root": str(root)})
+            self.assertEqual(library.list(), {"items": []})
 
     def test_independent_processes_preserve_concurrent_history(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -254,6 +295,75 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(authorized.structuredContent["status"], 200)
                 ungranted = await client.call_tool("cad_request", {"path": path})
                 self.assertEqual(ungranted.structuredContent["status"], 403)
+
+    async def test_overlapping_opens_keep_root_authority_across_processes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            project = base / "project"
+            nested = project / "models" / "STEP"
+            nested.mkdir(parents=True)
+            selected = nested / "part.stl"
+            selected.write_bytes(b"solid part\nendsolid part\n")
+            ui = base / "viewer.html"
+            ui.write_text("<!doctype html><title>CAD</title>", encoding="utf-8")
+            state = base / "library.sqlite3"
+            with mock.patch("cadgen.mcp.backend.Path.cwd", return_value=project):
+                first = create_server(ui_path=ui, library_path=state)
+            with mock.patch("cadgen.mcp.backend.Path.cwd", return_value=base):
+                second = create_server(ui_path=ui, library_path=state)
+                reader = create_server(ui_path=ui, library_path=state)
+            async with create_connected_server_and_client_session(first) as client:
+                original = (await client.call_tool("cad_open", {"path": str(selected)})).structuredContent
+            meta = {"openai/resource": {"path": str(selected)}}
+            async with create_connected_server_and_client_session(second) as client:
+                native = (await client.call_tool("cad_open", {}, meta=meta)).structuredContent
+                repeated = (await client.call_tool("cad_open", {}, meta=meta)).structuredContent
+            self.assertEqual(original["recentId"], native["recentId"])
+            self.assertEqual(repeated["rootId"], native["rootId"])
+            self.assertNotEqual(original["rootId"], native["rootId"])
+            self.assertEqual(original["file"], "models/STEP/part.stl")
+            self.assertEqual(native["file"], "part.stl")
+            restricted = create_server(nested, ui_path=ui, library_path=state)
+            async with create_connected_server_and_client_session(restricted) as client:
+                denied = await client.call_tool("cad_request", {
+                    "path": "/__cad/server", "recentId": original["recentId"], "rootId": original["rootId"],
+                })
+                self.assertTrue(denied.isError)
+            async with create_connected_server_and_client_session(reader) as client:
+                for opened in (original, native):
+                    result = await client.call_tool("cad_request", {
+                        "path": "/__cad/catalog?" + urlencode({"file": opened["file"]}),
+                        "recentId": opened["recentId"], "rootId": opened["rootId"],
+                    }, meta=meta)
+                    self.assertFalse(result.isError)
+                    self.assertEqual(result.structuredContent["status"], 200)
+                    catalog = json.loads(base64.b64decode(result.structuredContent["body"]))
+                    self.assertEqual(catalog["rootId"], opened["rootId"])
+                    self.assertTrue(any(entry["rootRelativeFile"] == opened["file"] for entry in catalog["entries"]))
+                denied = await client.call_tool("cad_request", {
+                    "path": "/__cad/server", "recentId": original["recentId"], "rootId": "ungranted",
+                })
+                self.assertTrue(denied.isError)
+                listed = await client.call_tool("cad_library", {})
+                self.assertEqual(len(listed.structuredContent["items"]), 1)
+                await client.call_tool("cad_library", {"action": "remove", "recentId": original["recentId"]})
+            # Reconnect after removal: view grants outlive visible history.
+            with mock.patch("cadgen.mcp.backend.Path.cwd", return_value=base):
+                continued = create_server(ui_path=ui, library_path=state)
+            async with create_connected_server_and_client_session(continued) as client:
+                for opened in (original, native):
+                    result = await client.call_tool("cad_request", {
+                        "path": "/__cad/catalog?" + urlencode({"file": opened["file"]}),
+                        "recentId": opened["recentId"], "rootId": opened["rootId"],
+                    })
+                    self.assertFalse(result.isError)
+                    catalog = json.loads(base64.b64decode(result.structuredContent["body"]))
+                    self.assertEqual(catalog["rootId"], opened["rootId"])
+                    self.assertTrue(any(entry["rootRelativeFile"] == opened["file"] for entry in catalog["entries"]))
+                listed = await client.call_tool("cad_library", {})
+                self.assertEqual(listed.structuredContent["items"], [])
+                forgotten = await client.call_tool("cad_open", {"recentId": original["recentId"]})
+                self.assertTrue(forgotten.isError)
 
     async def test_stdio_cli_initializes_and_opens_document(self):
         with tempfile.TemporaryDirectory() as directory:

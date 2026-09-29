@@ -167,7 +167,6 @@ export function useRendererShell({
   const viewerElement = useContext(ViewerElementContext);
   const destination = usePromptDestination();
   const promptAvailable = destination.available;
-  const composer = destination.kind === "composer";
   const { onStateChange, appearance } = view;
   const colorScheme = appearance?.colorScheme === "dark" ? "dark" : "light";
   const ownPreview = usePreviewState();
@@ -354,15 +353,11 @@ export function useRendererShell({
       if (!viewerRef.current?.captureScreenshotBlob) throw new Error("The viewer is not ready");
       const pixels = viewerRef.current.captureScreenshotBlob();
       void pixels.catch(() => {});
-      if (!composer) {
-        void host.clipboard.writeImage(pixels).catch(reportActionError);
-        return;
-      }
       void deliverPrompt(promptContextRef.current({
         resource: liveResourceRef.current?.() || resource, references: referencesRef.current?.() || [], capture: pixels
       }));
     } catch (error) { reportActionError(error); }
-  }, [modelKey, promptAvailable, viewerLoading, deliverPrompt, resource, composer, host.clipboard, reportActionError]);
+  }, [modelKey, promptAvailable, viewerLoading, deliverPrompt, resource, reportActionError]);
   const copyActionRef = useRef(null);
   const copyDrawing = useCallback(async () => {
     if (!drawing.hasContent || !viewerRef.current?.captureScreenshotBlob) return;
@@ -405,15 +400,17 @@ export function useRendererShell({
       // What is SHOWN, which is not always what is loading: a rebuild that keeps its
       // predecessor on screen reports the predecessor's revision until it is replaced.
       const shown = liveResourceRef.current?.() || resource;
+      const rendererState = live.state?.() || {};
       return {
-        resource: { ...shown }, revision: String(shown.revision || ""), loading: viewerLoading || !scene,
+        resource: { ...shown }, revision: String(shown.revision || ""),
         // Live state reads the selection in the prompt grammar. References are already in it
         // only where the default builder assembles the snapshot; a renderer that keeps its own
         // vocabulary reports its selection through `live.state`, so it is never passed on raw.
         selection: promptContextRef.current === createViewPromptContext ? referencesRef.current?.() || [] : [],
         camera: clonePerspectiveSnapshot(viewerRef.current?.getPerspective?.() || activePerspectiveRef.current),
         display, renderMode: display.mode === "render" ? "render" : "inspect",
-        ...(live.state?.() || {})
+        ...rendererState,
+        loading: Boolean(viewerLoading || !scene || load.updating || presentationPending || rendererState.loading)
       };
     },
     setCamera(camera) {
@@ -501,8 +498,10 @@ export function useRendererShell({
       runtimeLifecycle: stableRuntimeLifecycle,
       previewOrbitSpeed, setPreviewOrbitSpeed, toolStack, changeToolStack, viewerLoading, loading, presentationState,
       handlePresentationChange, viewerAlert, setRuntimeAlert,
-      copyActionRef, copyDrawing, copyShortcut: host.environment.platform === "darwin" ? "⌘C" : "Ctrl+C",
-      snapshot: modelKey ? { disabled: viewerLoading || !scene || !promptAvailable, onInvoke: capture } : null,
+      copyActionRef, copyDrawing,
+      promptAction: { disabled: viewerLoading || !scene || !promptAvailable,
+        reason: !promptAvailable ? destination.reason : viewerLoading || !scene ? "Wait for the model to load." : undefined,
+        onInvoke: capture },
       drawToolActive, drawing, animation, display
     }
   };

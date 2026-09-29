@@ -41,10 +41,10 @@ does. In CAD, Draw's controls are its **Drawing** panel in the tool stack while
 Draw is up (`layout="panel"`): one wrapping row, the tools then Color, Undo, Redo
 and Clear drawing, with no separator and no headings. Picking a tool changes the
 Draw button's icon. Pressing Draw again puts it down; leaving Draw ends the
-session. The viewport’s Copy Drawing action,
-which copies the view with its ink to the host's clipboard as a PNG, appears only
-while the sketch contains visible elements; clearing or undoing the last element
-hides it again. These styles depend on Excalidraw's pinned DOM; verify both hosts when
+session. The copy shortcut copies the view with its ink to the host's clipboard
+as a PNG while the sketch contains visible elements. The shared Add To Prompt
+action remains visible with or without ink and includes it in the screenshot.
+These styles depend on Excalidraw's pinned DOM; verify both hosts when
 upgrading.
 
 Tools are locked in the SDK's sense: a shape is followed by another of the same

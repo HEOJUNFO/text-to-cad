@@ -1,5 +1,5 @@
-import React, { forwardRef, useRef } from 'react';
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import React, { forwardRef, useImperativeHandle, useRef } from 'react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 // The shell's surfaces a RENDERER fills — the viewport menu, the bottom action, the camera-settled
@@ -11,8 +11,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 // The viewport's own half of those reports (a resize, a preview camera) is ShellViewport.test.tsx.
 const viewport = vi.hoisted(() => ({ props: null as any }));
 vi.mock('../../../../dist/renderers/kit/shell/ShellViewport.js', () => ({
-  default: forwardRef(function StandInViewport(props: any, _ref) {
+  default: forwardRef(function StandInViewport(props: any, ref) {
     viewport.props = props;
+    useImperativeHandle(ref, () => ({ captureScreenshotBlob: async () => new Blob(['pixels'], { type: 'image/png' }) }));
     const hostRef = useRef<HTMLDivElement | null>(null);
     const runtimeRef = useRef<any>(null);
     const context = { hostRef, runtimeRef, mountRef: hostRef, viewerReadyTick: 1, commitScene: () => true };
@@ -32,7 +33,7 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); viewport.props = null; });
 
-function mount() {
+function mount(host = testHost()) {
   let settings: any = { toolStack: { panels: {}, collapsed: {} } };
   const listeners = new Set<() => void>();
   const preferences = { getSnapshot: () => settings, subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener); },
@@ -40,7 +41,7 @@ function mount() {
   const props = { source: { id: 'one', rootName: 'one' }, file: { path: 'one.harness', name: 'one.harness', kind: 'file' }, document: null,
     openPanel: '', panelSlot: null, onPanelOpen() {}, onReady() {}, onOpenFile() {}, appearance: { colorScheme: 'light' },
     state: undefined, onStateChange() {}, reload() {}, data: { services: { preferences } } };
-  const view = render(<ViewerHostContext.Provider value={testHost()}><HarnessRenderer {...(props as any)} /></ViewerHostContext.Provider>);
+  const view = render(<ViewerHostContext.Provider value={host}><HarnessRenderer {...(props as any)} /></ViewerHostContext.Provider>);
   const canvas = view.container.querySelector('[data-stand-in-viewport] > canvas') as HTMLCanvasElement;
   const overlay = (name: string) => view.container.querySelector(`[data-harness-${name}]`)!.textContent;
   return { ...view, canvas, overlay };
@@ -97,37 +98,36 @@ it('a press the renderer has nothing to say about, a secondary drag, or a press 
   expect(screen.getByRole('menu')).toBeTruthy();
 });
 
-it('the renderer\'s bottom action shows its count when the reference does not fit, the whole reference when it does, and no native tooltip', () => {
-  // jsdom has no layout: the row's width is 300px and a label is 7px a character, so the
-  // decision is the measured one (`ViewportBottomAction.jsx`'s ruler), not a string length rule.
-  const scrollWidth = vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function (this: HTMLElement) { return (this.textContent || '').length * 7; });
-  const clientWidth = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => 300);
-  try {
-    const { container } = mount();
-    const action = () => container.querySelector('[data-harness-bottom-action]') as HTMLElement;
-    // The renderer's `render` drew the control; what it says is the count, not a cut-off reference.
-    expect(action().getAttribute('title')).toBeNull();
-    expect(action().querySelector('span')!.textContent).toBe('Copy 1 reference');
-    act(() => { fireEvent.click(action()); });
-    // The short reference fits (36 characters): shown whole, still with no tooltip.
-    expect(action().querySelector('span')!.textContent).toBe('#harness_document/triangle_face_0001');
-    expect(action().getAttribute('title')).toBeNull();
-  } finally { scrollWidth.mockRestore(); clientWidth.mockRestore(); }
+it('one shared Add To Prompt action is the only bottom control, independent of the active tool and absent in Preview', () => {
+  const { container } = mount();
+  const action = () => container.querySelector('[data-viewport-bottom-actions]') as HTMLElement | null;
+  expect(action()).not.toBeNull();
+  expect(within(action()!).getAllByRole('button')).toHaveLength(1);
+  expect(within(action()!).getByRole('button', { name: 'Add To Prompt' }).className).toContain('bg-white');
+  act(() => { fireEvent.click(screen.getByRole('button', { name: 'Draw' })); });
+  expect(within(action()!).getAllByRole('button')).toHaveLength(1);
+  act(() => { fireEvent.click(screen.getByRole('button', { name: 'Preview' })); });
+  expect(action()).toBeNull();
+  expect(container.querySelector('[data-file-navigation-overlay]')).toBeNull();
 });
 
-it('the bottom row keeps snapshot after the primary action and out of navigation chrome', () => {
-  const { container } = mount();
-  const row = container.querySelector('[data-viewport-bottom-actions]') as HTMLElement;
-  expect(row).not.toBeNull();
-  const buttons = within(row).getAllByRole('button');
-  expect(buttons).toHaveLength(2);
-  expect(buttons[0].hasAttribute('data-harness-bottom-action')).toBe(true);
-  expect(buttons[1].getAttribute('aria-label')).toBe('Take snapshot');
-  expect(buttons[0].className).toContain('bg-white');
-  const snapshot = within(row).getByRole('button', { name: 'Take snapshot' });
-  expect(snapshot.className).toContain('bg-white');
-  expect(snapshot.className).toContain('size-11');
-  expect(container.querySelector('[data-file-navigation-overlay]')).toBeNull();
+it('Add To Prompt sends a screenshot and file context through the prompt port for a clipboard destination', async () => {
+  const deliver = vi.fn(async (_context: unknown) => ({ status: 'copied' as const }));
+  const writeImage = vi.fn(async () => {});
+  const destination = { kind: 'clipboard', available: true } as const;
+  const host = testHost({
+    promptContext: { getSnapshot: () => destination, subscribe: () => () => {}, deliver } as any,
+    clipboard: { writeText: async () => {}, readText: async () => '', writeImage },
+  });
+  const { container } = mount(host);
+  const button = within(container.querySelector('[data-viewport-bottom-actions]') as HTMLElement).getByRole('button', { name: 'Add To Prompt' });
+  expect((button as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(button);
+  await waitFor(() => expect(deliver).toHaveBeenCalledTimes(1));
+  const context = deliver.mock.calls[0][0] as any;
+  expect(context.parts.map((part: any) => part.kind)).toEqual(['reference', 'text', 'attachment']);
+  expect((await context.parts[2].content).type).toBe('image/png');
+  expect(writeImage).not.toHaveBeenCalled();
 });
 
 it('the renderer is told the camera settled, through what the viewport reports: a recorded move and its own settle', () => {

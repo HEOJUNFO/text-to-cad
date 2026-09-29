@@ -3,13 +3,13 @@ export interface RecentModel {
   id: string; file: string; name: string; rootPath: string; absolutePath: string;
   lastOpened: number; pinned: boolean; missing: boolean; revision: string | null; thumbnailRevision?: string | null;
 }
-export interface LibrarySnapshot { items: readonly RecentModel[]; loading: boolean; pending: readonly string[]; error: string }
+export interface LibrarySnapshot { items: readonly RecentModel[]; hydrated: boolean; loading: boolean; pending: readonly string[]; error: string }
 export function filterRecentModels(items: readonly RecentModel[], query: string) {
   const terms = query.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
   return items.filter(item => terms.every(term => `${item.name} ${item.file} ${item.rootPath}`.toLocaleLowerCase().includes(term)));
 }
 export function createRecentLibrary(bridge: ToolBridge) {
-  let snapshot: LibrarySnapshot = { items: [], loading: false, pending: [], error: '' };
+  let snapshot: LibrarySnapshot = { items: [], hydrated: false, loading: false, pending: [], error: '' };
   let disposed = false;
   const lifetime = new AbortController();
   const listeners = new Set<() => void>();
@@ -33,11 +33,14 @@ export function createRecentLibrary(bridge: ToolBridge) {
   }
   function update(action: 'list' | 'pin' | 'remove', item?: RecentModel) {
     if (disposed) return Promise.reject(new Error('The recent-model home has closed.'));
-    publish({ loading: action === 'list' || snapshot.loading, pending: item ? [...snapshot.pending, item.id] : snapshot.pending, error: '' });
+    publish({ loading: action === 'list' || snapshot.loading, pending: item ? [...snapshot.pending, item.id] : snapshot.pending });
     const operation = queue.then(async () => {
       const result = await call({ action, ...(item ? { recentId: item.id } : {}), ...(action === 'pin' ? { pinned: !item!.pinned } : {}) });
       if (!Array.isArray(result.items) || result.items.some(item => !item || typeof item.id !== 'string' || typeof item.name !== 'string' || typeof item.file !== 'string' || typeof item.rootPath !== 'string' || typeof item.absolutePath !== 'string' || typeof item.pinned !== 'boolean' || typeof item.missing !== 'boolean' || !Number.isFinite(item.lastOpened))) throw new Error('Invalid recent-model list.');
-      publish({ items: result.items as RecentModel[], error: '' });
+      const items = result.items as RecentModel[];
+      const currentKeys = new Set(items.filter(item => item.thumbnailRevision && !item.missing).map(item => `${item.id}:${item.thumbnailRevision}`));
+      for (const key of thumbnails.keys()) if (!currentKeys.has(key)) thumbnails.delete(key);
+      publish({ items, hydrated: true, error: '' });
     }).catch(error => { publish({ error: error instanceof Error ? error.message : String(error) }); throw error; })
       .finally(() => publish({ loading: false, pending: item ? snapshot.pending.filter(id => id !== item.id) : snapshot.pending }));
     queue = operation.catch(() => {});
@@ -55,9 +58,13 @@ export function createRecentLibrary(bridge: ToolBridge) {
       const key = `${item.id}:${item.thumbnailRevision}`;
       let pending = thumbnails.get(key);
       if (!pending) {
-        pending = call({ action: 'thumbnail', recentId: item.id }).then(value => value.revision === item.thumbnailRevision && typeof value.thumbnail === 'string' && value.thumbnail.startsWith('data:image/png;base64,') ? value.thumbnail : null);
+        pending = call({ action: 'thumbnail', recentId: item.id }).then(value => {
+          const image = value.revision === item.thumbnailRevision && typeof value.thumbnail === 'string' && value.thumbnail.startsWith('data:image/png;base64,') ? value.thumbnail : null;
+          if (image === null && thumbnails.get(key) === pending) thumbnails.delete(key);
+          return image;
+        });
         thumbnails.set(key, pending);
-        void pending.catch(() => thumbnails.delete(key));
+        void pending.catch(() => { if (thumbnails.get(key) === pending) thumbnails.delete(key); });
       }
       return pending;
     },

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { existsSync } from 'node:fs';
-import { copyFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +11,7 @@ import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { build } from 'esbuild';
 import { chromium, expect } from '@playwright/test';
+import { PNG } from 'pngjs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
@@ -31,16 +32,18 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
   });
   const localPython = path.join(repo, '.venv/bin/python');
   const python = process.env.PYTHON_BIN || (existsSync(localPython) ? localPython : 'python3');
-  const source = path.join(temporary, 'fixture.step');
+  const documents = path.join(temporary, 'parts');
+  await mkdir(documents);
+  const source = path.join(documents, 'fixture.step');
   const env = { ...process.env, PYTHONPATH: path.join(repo, 'packages/cadgen/src'), CADGEN_CACHE_DIR: path.join(temporary, 'cache'), CADGEN_DAEMON: '0', CADGEN_STATE_DIR: path.join(temporary, 'state'), CADGEN_MCP_UI_CACHE_DIR: path.join(temporary, 'ui-cache') };
   const save = (width: number) => run(python, ['-c', `from build123d import Box, export_step; export_step(Box(${width},20,30), ${JSON.stringify(source)})`], { env });
   await save(10);
-  await copyFile(source, path.join(temporary, 'related.step'));
-  await writeFile(path.join(temporary, 'notes.txt'), 'This is not a CAD file.');
+  await copyFile(source, path.join(documents, 'related.step'));
+  await writeFile(path.join(documents, 'notes.txt'), 'This is not a CAD file.');
   const ui = path.join(appDir, 'dist/index.html');
   // Deliberately launch outside the document's directory: host metadata, not
   // the plugin install directory, authorizes the native file entrypoint.
-  const transport = new StdioClientTransport({ command: python, args: ['-m', 'cadgen.cli', 'mcp', '--ui', ui], cwd: repo, env: env as Record<string, string>, stderr: 'pipe' });
+  const transport = new StdioClientTransport({ command: python, args: ['-m', 'cadgen.cli', 'mcp', '--ui', ui], cwd: temporary, env: env as Record<string, string>, stderr: 'pipe' });
   let stderr = '';
   transport.stderr?.on('data', chunk => { stderr += chunk.toString(); });
   const client = new Client({ name: 'cad-browser-test', version: '1.0.0' });
@@ -69,8 +72,7 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     }
     return result;
   };
-  const opened = await client.callTool({ name: 'cad_open', arguments: { file: { name: 'fixture.step', resourceUri: 'host-resource://fixture' } } });
-  assert.notEqual(opened.isError, true, JSON.stringify(opened));
+  let initialOpen: { rootId: string; recentId: string; file: string } | undefined;
   const home = await client.callTool({ name: 'cad_open', arguments: {} });
   assert.notEqual(home.isError, true, JSON.stringify(home));
   const bundle = await build({ stdin: { contents: `
@@ -97,7 +99,7 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     bridge.onupdatemodelcontext = async params => { window.attachments = params.content || []; return {}; };
     bridge.oninitialized = async () => {
       await bridge.sendToolInput({arguments:homeMode ? {} : {file:{name:'fixture.step',resourceUri:'host-resource://fixture'}}});
-      await bridge.sendToolResult(homeMode ? ${JSON.stringify(home)} : ${JSON.stringify(opened)});
+      await bridge.sendToolResult(homeMode ? ${JSON.stringify(home)} : await (await fetch('/initial-open', {method:'POST'})).json());
     };
     await bridge.connect(new PostMessageTransport(frame.contentWindow, frame.contentWindow));
     window.setTheme = theme => bridge.setHostContext({theme, platform:'desktop'});
@@ -112,8 +114,14 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
         response.end(html.text);
       }
       else if (request.url === '/host.js') { response.setHeader('Content-Type', 'text/javascript'); response.end(bundle.outputFiles[0].text); }
+      else if (request.url === '/initial-open' && request.method === 'POST') {
+        // The model's repo-root result predates the native file-parent metadata.
+        const result = await client.callTool({ name: 'cad_open', arguments: { path: 'parts/fixture.step' } });
+        initialOpen = result.structuredContent as typeof initialOpen;
+        response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(result));
+      }
       else if (request.url === '/open-related' && request.method === 'POST') {
-        hostFile = path.join(temporary, 'related.step');
+        hostFile = path.join(documents, 'related.step');
         const result = await client.callTool({ name: 'cad_open', arguments: { file: { name: 'related.step', resourceUri: 'host-resource://related' } } });
         response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(result));
       }
@@ -136,7 +144,7 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
   const address = server.address(); assert.ok(address && typeof address !== 'string');
   const browser = await chromium.launch({ headless: true, args: process.platform === 'darwin' && !process.env.CAD_TEST_SWIFTSHADER ? ['--use-angle=metal'] : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   closeBrowser = () => browser.close();
-  const page = await browser.newPage({ viewport: { width: 1000, height: 760 } });
+  const page = await browser.newPage({ viewport: { width: 1600, height: 760 } });
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   try {
@@ -147,8 +155,13 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     await expect(viewer.getByRole('img', { name: 'CAD', exact: true })).toHaveAttribute('src', /^data:image\/png/);
     await expect(viewer.locator('meta[name=description]')).toHaveAttribute('content', 'Give your agent CAD superpowers.');
     await expect(viewer.locator('link[rel=icon]')).toHaveAttribute('href', /^data:image\/svg\+xml/);
+    const logoBounds = await viewer.getByRole('img', { name: 'CAD', exact: true }).boundingBox();
+    const headingBounds = await viewer.getByRole('heading', { name: 'Recent models', exact: true }).boundingBox();
+    assert.ok(logoBounds && headingBounds && logoBounds.x <= 40 && headingBounds.y > logoBounds.y + logoBounds.height);
+    await expect(viewer.getByRole('button', { name: 'Refresh recent models', exact: true })).toHaveCount(0);
     if (process.env.CAD_EXTENSION_EMPTY_SCREENSHOT) await page.screenshot({ path: process.env.CAD_EXTENSION_EMPTY_SCREENSHOT });
     assert.ok(homeRequests.every((request: any) => request.name === 'cad_library'));
+    await page.setViewportSize({ width: 1000, height: 760 });
     await page.goto(`http://127.0.0.1:${address.port}`);
     await viewer.getByRole('region', { name: 'Features', exact: true }).waitFor();
     const select = viewer.getByRole('button', { name: 'Select Base extrude', exact: true });
@@ -162,22 +175,22 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
       const add = [...body.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Add To Prompt');
       if (add && !add.disabled) add.click();
     });
-    await select.click();
-    await viewer.getByRole('button', { name: 'Add To Prompt', exact: true }).click();
-    await page.waitForFunction(() => (window as any).attachments.length > 0);
-    await expect(viewer.getByText('Added to prompt', { exact: true })).toHaveCount(0);
+    assert.ok(initialOpen && initialOpen.file === 'parts/fixture.step');
+    // Opening the same file natively must not revoke the original inline root.
+    const original = await client.callTool({ name: 'cad_request', arguments: { rootId: initialOpen.rootId, recentId: initialOpen.recentId, path: '/__cad/catalog?file=parts/fixture.step', method: 'GET' }, _meta: { 'openai/resource': { path: source } } });
+    assert.notEqual(original.isError, true, JSON.stringify(original));
+    const originalCatalog = JSON.parse(Buffer.from((original.structuredContent as { body: string }).body, 'base64').toString());
+    assert.ok(originalCatalog.entries.some((entry: any) => entry.rootRelativeFile === 'parts/fixture.step' && !entry.catalogPending));
     const bottomActions = viewer.locator('[data-viewport-bottom-actions]');
-    const copyAction = bottomActions.getByRole('button', { name: /^Copy References?\b/ });
     const promptAction = bottomActions.getByRole('button', { name: 'Add To Prompt', exact: true });
-    const cameraAction = bottomActions.getByRole('button', { name: 'Take snapshot', exact: true });
-    const [copyBounds, promptBounds, cameraBounds] = await Promise.all([copyAction.boundingBox(), promptAction.boundingBox(), cameraAction.boundingBox()]);
-    assert.ok(copyBounds && promptBounds && cameraBounds);
-    assert.ok(copyBounds.x < promptBounds.x && promptBounds.x < cameraBounds.x);
-    assert.equal(Math.round(copyBounds.y), Math.round(promptBounds.y));
-    assert.equal(Math.round(copyBounds.y), Math.round(cameraBounds.y));
-    assert.equal(Math.round(copyBounds.height), Math.round(promptBounds.height));
-    await page.mouse.move(5, 5);
-    await expect.poll(async () => await copyAction.evaluate(button => getComputedStyle(button).backgroundColor) === await promptAction.evaluate(button => getComputedStyle(button).backgroundColor)).toBe(true);
+    await expect(bottomActions.getByRole('button')).toHaveCount(1);
+    await expect(promptAction).toBeEnabled({ timeout: 30_000 });
+    await promptAction.click();
+    await page.waitForFunction(() => (window as any).attachments.some((part: any) => part.type === 'image'));
+    assert.equal(await page.evaluate(() => (window as any).attachments.some((part: any) => part.text?.includes('fixture.step#'))), false, 'an unselected view includes no geometry selectors');
+    await select.click(); await promptAction.click();
+    await page.waitForFunction(() => (window as any).attachments.some((part: any) => part.text?.includes('fixture.step#')));
+    await expect(viewer.getByText('Added to prompt', { exact: true })).toHaveCount(0);
     const attachments = await page.evaluate(() => (window as any).attachments);
     assert.match(JSON.stringify(attachments), /fixture\.step/);
     assert.ok(calls.includes('cad_request'));
@@ -185,24 +198,26 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     assert.equal(await viewer.getByRole('button', { name: /^Browse / }).count(), 0);
     assert.equal(await viewer.getByRole('tree').count(), 0);
     assert.equal(await viewer.locator('input[type="file"]').count(), 0);
-    await expect(viewer.getByRole('button', { name: 'Take snapshot', exact: true })).toBeVisible();
+    await expect(viewer.getByRole('button', { name: 'Take snapshot', exact: true })).toHaveCount(0);
     await expect(viewer.getByRole('button', { name: 'Display settings', exact: true })).toBeVisible();
-    await expect(viewer.getByRole('button', { name: 'Preview', exact: true })).toBeVisible();
+    await viewer.getByRole('button', { name: 'Preview', exact: true }).click();
+    await expect(viewer.getByRole('button', { name: 'Add To Prompt', exact: true })).toHaveCount(0);
+    await viewer.getByRole('button', { name: 'Exit preview', exact: true }).click();
     await expect(select).toHaveAttribute('aria-pressed', 'true');
     await save(15);
-    const initialRevision = attachments.find((part: any) => part.text?.includes('Document revision:')).text;
+    const initialRevision = attachments.find((part: any) => part.text?.includes('fixture.step#')).text;
     // A new reference must bind the geometry the viewer actually displays, not
     // merely observe that the backend catalog noticed a saved file.
     await expect.poll(async () => {
       await attachCurrentSelection();
       return page.evaluate(() => (window as any).attachments.filter((part: any) => part.text?.includes('Document revision:')).at(-1)?.text);
     }, { timeout: 30_000 }).not.toBe(initialRevision);
-    assert.equal(await page.evaluate(() => (window as any).attachments[0].text), attachments[0].text, 'existing references retain their original revision');
+    assert.equal(await page.evaluate(() => (window as any).attachments.find((part: any) => part.text?.includes('fixture.step#')).text), initialRevision, 'existing references retain their original revision');
     await page.evaluate(() => (window as any).openRelated());
     await viewer.getByRole('region', { name: 'Features', exact: true }).waitFor();
     await expect.poll(async () => {
       await attachCurrentSelection();
-      return page.evaluate(() => (window as any).attachments.at(-1)?.text || '');
+      return page.evaluate(() => (window as any).attachments.filter((part: any) => part.text?.includes('Document revision:')).at(-1)?.text || '');
     }, { timeout: 30_000 }).toMatch(/related\.step/);
     assert.ok(catalogRequests.length > 0);
     assert.ok(catalogRequests.every(request => new URL(request, 'http://cad.local').searchParams.get('file')), 'catalog polling is always scoped to an opened file');
@@ -216,7 +231,7 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     await expect.poll(async () => {
       const buttons = await bottomActions.getByRole('button').all();
       const bounds = await Promise.all(buttons.map(button => button.boundingBox()));
-      return bounds.length >= 3 && bounds.every(box => box && box.x >= 0 && box.x + box.width <= 320 && box.y + box.height <= 640);
+      return bounds.length === 1 && bounds.every(box => box && box.x >= 0 && box.x + box.width <= 320 && box.y + box.height <= 640);
     }).toBe(true);
     if (process.env.CAD_EXTENSION_MOBILE_SCREENSHOT) await page.screenshot({ path: process.env.CAD_EXTENSION_MOBILE_SCREENSHOT });
     await page.setViewportSize({ width: 1000, height: 760 });
@@ -225,6 +240,15 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     await expect(viewer.getByRole('heading', { name: 'Recent models', exact: true })).toBeVisible();
     await expect(viewer.getByRole('button', { name: 'Open related.step', exact: true })).toBeVisible();
     await expect(viewer.getByRole('button', { name: 'Open related.step', exact: true }).locator('img')).toBeVisible();
+    const previewData = await viewer.getByRole('button', { name: 'Open related.step', exact: true }).locator('img').getAttribute('src');
+    assert.ok(previewData?.startsWith('data:image/png;base64,'));
+    const preview = PNG.sync.read(Buffer.from(previewData.split(',')[1], 'base64'));
+    let solidPixels = 0;
+    const backdrop = [...preview.data.subarray(0, 3)];
+    for (let offset = 0; offset < preview.data.length; offset += 4) {
+      if (backdrop.some((channel, index) => Math.abs(channel - preview.data[offset + index]) > 35)) solidPixels++;
+    }
+    assert.ok(solidPixels / (preview.width * preview.height) > 0.1, 'the saved preview contains shaded model surfaces, not only edges');
     await viewer.getByRole('searchbox', { name: 'Search recent models' }).fill('related');
     assert.equal(await viewer.getByRole('button', { name: 'Open fixture.step', exact: true }).count(), 0);
     await viewer.getByRole('button', { name: 'Pin related.step', exact: true }).click();
@@ -241,12 +265,11 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     await expect(viewer.locator('html')).toHaveClass(/dark/);
     if (process.env.CAD_EXTENSION_HOME_DARK_SCREENSHOT) await page.screenshot({ path: process.env.CAD_EXTENSION_HOME_DARK_SCREENSHOT });
     // Another file tab can update history while this home stays mounted.
-    const later = path.join(temporary, 'later.step');
+    const later = path.join(documents, 'later.step');
     await copyFile(source, later);
     const recorded = await client.callTool({ name: 'cad_open', arguments: { file: { name: 'later.step', resourceUri: 'host-resource://later' } }, _meta: { 'openai/resource': { path: later } } });
     assert.notEqual(recorded.isError, true, JSON.stringify(recorded));
-    await viewer.getByRole('button', { name: 'Refresh recent models', exact: true }).click();
-    await expect(viewer.getByRole('button', { name: 'Open later.step', exact: true })).toBeVisible();
+    await expect(viewer.getByRole('button', { name: 'Open later.step', exact: true })).toBeVisible({ timeout: 15_000 });
     await viewer.getByRole('button', { name: 'Remove later.step from recents', exact: true }).click();
     await expect(viewer.getByRole('button', { name: 'Open later.step', exact: true })).toHaveCount(0);
     // Hosts lacking native file opening get an explicitly labeled local preview.

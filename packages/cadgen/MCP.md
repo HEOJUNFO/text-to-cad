@@ -50,8 +50,11 @@ viewer contract, not arbitrary filesystem access.
   Large file responses add `transfer: {offset, totalBytes, revision}`. Repeat
   the same GET with `offset` and `revision` to retrieve the next chunk. The
   app assembles all bytes before rendering; a changed revision fails the read.
-  An optional `recentId` restores the library's recorded directory authority
-  when the app previews a recent model without a new native file entrypoint.
+  The app sends `recentId` and `rootId` from its open result. Together they
+  restore that view's recorded directory authority across MCP processes.
+  Opening the same file later from a different workspace or native file
+  entrypoint does not change an existing view's root-relative paths. Unknown
+  root grants fail explicitly; neither identifier grants arbitrary disk access.
 - `cad_library` is app-only. `action: "list"` returns up to 100 `items`, with
   pinned models first, then most recently opened. Each item includes `id`,
   `name`, `file`, `rootPath`, `absolutePath`, `lastOpened` (Unix seconds),
@@ -60,7 +63,9 @@ viewer contract, not arbitrary filesystem access.
   `action: "remove"` takes `recentId`. Both return the updated list; removal
   forgets history without deleting the model.
   `action: "thumbnail"` with `recentId` returns `{thumbnail, revision}`,
-  where `thumbnail` is a PNG data URL or null. Add a PNG `thumbnail` and its
+  where `thumbnail` is a PNG data URL or null and `revision` identifies the image
+  content (the same token as `thumbnailRevision`). Replacing a preview changes
+  that token even when the CAD file has not changed. Add a PNG `thumbnail` and its
   source file `revision` to upload a validated PNG preview of at most 256 KiB
   and 2048 pixels per dimension. Uploads reject
   changed files, and reads hide stale previews. Images are loaded individually
@@ -89,8 +94,11 @@ permission. It declares no network origins. Hosts may decline permissions.
 Only models successfully opened through this extension enter its library.
 It never scans workspaces, imports the standalone viewer catalog, or executes
 source. A recorded model retains its authorized directory across MCP
-processes, allowing a global recent-model home. An explicit `--root` filters
-the library and restricts reopening and data requests to that directory.
+processes, allowing a global recent-model home. Each open also records an
+immutable file/root grant for live views, separate from visible history.
+Removing a recent model deletes its history, pin and thumbnail; existing views
+retain their authorization across MCP processes without re-adding history.
+An explicit `--root` filters the library and restricts reopening and data requests to that directory.
 Missing files remain visible as missing until removed or restored.
 Replacing a saved root directory with a symlink requires opening the file
 again through the host; existing nested symlink libraries retain the viewer's

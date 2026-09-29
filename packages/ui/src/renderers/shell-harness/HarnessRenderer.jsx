@@ -3,7 +3,6 @@ import * as THREE from "three";
 import { EDGELESS_VIEW_FEATURES } from "@text-to-cad/core/common/viewSettings.js";
 import { createSurfaceLook } from "@text-to-cad/core/lib/viewer/surfaceLook.js";
 import { createPromptContext, referencePart, textPart } from "@text-to-cad/core/prompt";
-import { Button } from "@text-to-cad/ui/primitives/button";
 import RendererShell from "../kit/shell/RendererShell.jsx";
 import { SHELL_TOOL, useRendererShell } from "../kit/shell/useRendererShell.js";
 import { createToolModes } from "../kit/tools/toolModes.js";
@@ -20,7 +19,7 @@ import { TOOL_PANEL_REFERENCE_HEIGHT } from "../kit/tools/toolStackLayout.js";
 //
 // It also stands in for a renderer that USES the shell surfaces STEP will need
 // when it moves: a viewport context menu of its own (and word of when it is up), a
-// bottom action whose long label falls back to a count, the camera-settled report,
+// shared prompt action, the camera-settled report,
 // a scene that ARRIVES in place (`complete`, `viewport.commitScene()`), and what
 // happens to the WebGL runtime under it (`runtimeLifecycle`). Each is exercised here
 // against the real shell in a real browser.
@@ -38,11 +37,6 @@ const LIVE = Object.freeze({ declined: {
   select: "The shell harness has nothing to select: it draws one triangle and reads no file.",
   clearSelection: "The shell harness has no selection to clear."
 } });
-// Deliberately far too long for any button, so what the strip shows is the count;
-// pressing it leaves a short one, which fits and is shown whole. The two together
-// are the measuring rule: what is shown depends on the label's WIDTH, not its text.
-const LONG_LABEL = `#harness_document/${"triangle_face_0001.top_surface_of_the_first_and_only_triangle.".repeat(4)}edge_0001`;
-const SHORT_LABEL = "#harness_document/triangle_face_0001";
 
 // A renderer whose OWN context the whole frame is mounted under: both halves of the
 // shell read it, so it cannot be a viewport overlay (`frameProvider`).
@@ -56,6 +50,7 @@ function FrameContextNote() {
 const LOAD_STAGES = Object.freeze({
   idle: { load: {} },
   finding: { load: { busy: true, finding: true } },
+  updating: { load: { updating: true } },
   // Queued work of the person's own, with nothing of it on screen yet.
   editing: { load: { editPending: true } },
   // The same work, now drawn: the wait is over even though the write is not.
@@ -128,7 +123,6 @@ function HarnessSurface({ view, data }) {
     onRelease: (runtime, { handoff }) => setRuntimeEvents(events => [...events, `release:${runtime?.renderer ? "live" : "gone"}:${handoff ? "handoff" : "final"}`]),
     onContextLost: () => setRuntimeEvents(events => [...events, "lost"])
   }), []);
-  const [actionLabel, setActionLabel] = useState(LONG_LABEL);
   const [stage, setStage] = useState("idle");
   // The revision on screen, which lags the one being loaded while a stage says so.
   const [shownRevision, setShownRevision] = useState("");
@@ -192,14 +186,6 @@ function HarnessSurface({ view, data }) {
     contextMenuItems={contextMenuItems} onContextMenuOpenChange={setMenuUp}
     frameProvider={frame => <HarnessFrameContext.Provider value={`frame:${stage}`}>{frame}</HarnessFrameContext.Provider>}
     onCanvasPointerDown={() => setPutDown(`put down @${stage}`)}
-    bottomAction={shell.toolMode === SHELL_TOOL.DRAW ? null : {
-      label: actionLabel, shortLabel: "Copy 1 reference",
-      // A renderer whose action is not a plain press renders its own control.
-      render: ({ className, disabled, children }) => (
-        <Button type="button" variant="default" size="sm" className={className} disabled={disabled}
-          data-harness-bottom-action onClick={() => setActionLabel(SHORT_LABEL)}>{children}</Button>
-      )
-    }}
     viewportOverlay={viewport => <div className="pointer-events-none absolute left-2 top-2 z-30 text-xs" data-harness-overlay>
       <span data-harness-camera-settles>{settleLabel}</span>
       <span data-harness-menu-note>{picked}</span>

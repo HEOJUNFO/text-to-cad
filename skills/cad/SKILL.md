@@ -174,14 +174,20 @@ After creating or updating STEP/STP, STL, 3MF or GLB files, open the saved artif
 for review. Snapshots and validation do not replace this step. Use the same
 handoff to open an existing file.
 
-When the CAD extension's `cad_open` tool is available, pass the existing artifact
-path in `path` to open it in the host. Paths must be inside the server's working
-directory or configured root; a native file entrypoint can also authorize the
-file's containing directory. For a host-supplied file, retain its trusted input;
-never invent a `resourceUri`. The per-file view provides CAD controls and prompt
-references; the host provides file navigation. Opening with no path shows the
-extension's recent-model home. Do not also launch a standalone viewer unless
-requested or needed after an explicit extension failure.
+Prefer the host's native file-opening tool when it can open the artifact with
+CAD. In Codex, use `open_in_codex` with a `file` target and the absolute path.
+Use one opening route per artifact: also calling `cad_open` creates a second,
+inline viewer. Native file-access consent belongs to the host; a queued open
+or a consent screen does not confirm that the model rendered.
+
+When native file opening is unavailable, or the user requests an inline preview,
+use the CAD extension's `cad_open` tool with the existing artifact path in `path`.
+Paths must be inside the server's working directory or configured root. For a
+host-supplied file, retain its trusted input; never invent a `resourceUri`.
+Opening with no path shows the extension's recent-model home. The per-file view
+provides CAD controls and prompt references; the host provides file navigation.
+Do not also launch a standalone viewer unless requested or needed after an
+explicit extension failure.
 
 Otherwise, **run the command below and return live links**, even if a standalone
 viewer is already running.

@@ -258,20 +258,21 @@ test('a file opens framed at 100% of its own ruler: the open fit is the fit, wha
 
   // Home resets the complete view; cube faces keep the current zoom and target.
   const canvas = pane.locator('[aria-busy] > div > canvas').first();
-  // The share of the drawn frame that is the model: read left of the viewport's own chrome
-  // down its right side (the top-right bar and the view cube), which is drawn over every frame.
+  // The share of the drawn frame that is the model: read the middle/upper canvas region,
+  // clear of the bottom prompt action and the viewport controls at the right edge.
   const inkFraction = async () => {
     const png = PNG.sync.read(await canvas.screenshot());
     const background = [png.data[0], png.data[1], png.data[2]];
     const columns = Math.floor(png.width * 0.8);
+    const rows = Math.floor(png.height * 0.8);
     let drawn = 0;
-    for (let y = 0; y < png.height; y += 1) for (let x = 0; x < columns; x += 1) {
+    for (let y = 0; y < rows; y += 1) for (let x = 0; x < columns; x += 1) {
       const offset = (y * png.width + x) * 4;
       const delta = Math.abs(png.data[offset] - background[0]) + Math.abs(png.data[offset + 1] - background[1])
         + Math.abs(png.data[offset + 2] - background[2]);
       if (delta > 32) drawn += 1;
     }
-    return drawn / (columns * png.height);
+    return drawn / (columns * rows);
   };
   const settleInk = async (reached, what) => {
     for (let attempt = 0; attempt < 60; attempt += 1) {
@@ -431,6 +432,14 @@ test('a renderer says more about its load than a download: finding the file, edi
   // passed, and nothing covers the model or stands over it.
   assert.equal(await overlay.count(), 0, 'a plain load covers nothing');
   assert.equal(await card.count(), 0, 'and raises nothing');
+  await page.waitForFunction(() => window.cadHarness.a.controller.readState().loading === false);
+
+  // A retained scene is visible during an update, but live consumers must wait
+  // until its displayed revision and camera have settled before capturing it.
+  await stage('updating');
+  assert.equal(await page.evaluate(() => window.cadHarness.a.controller.readState().loading), true);
+  await stage('idle');
+  await page.waitForFunction(() => window.cadHarness.a.controller.readState().loading === false);
 
   // FINDING: the wait before the file is even located covers the viewport, and says
   // so as such rather than as a phase of reading it.
@@ -501,7 +510,7 @@ test('a renderer says more about its load than a download: finding the file, edi
   // THE SNAPSHOT IS THE RENDERER'S TO ASSEMBLE. Its own reference vocabulary goes
   // through its own builder — and the resource it names is the one on screen.
   const before = await page.evaluate(() => window.cadHarness.captures.length);
-  await pane.getByRole('button', { name: 'Take snapshot', exact: true }).click();
+  await pane.getByRole('button', { name: 'Add To Prompt', exact: true }).click();
   await page.waitForFunction(count => window.cadHarness.captures.length > count, before);
   assert.deepEqual(await page.evaluate(() => {
     const context = window.cadHarness.captures.at(-1);

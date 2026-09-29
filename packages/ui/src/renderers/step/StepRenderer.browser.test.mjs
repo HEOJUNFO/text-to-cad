@@ -403,9 +403,9 @@ test('Select picks parts and faces, a selection lives only under Select, and the
   }
   await page.evaluate(() => document.documentElement.classList.remove('dark'));
   assert.doesNotMatch(await reference.innerText(), /Selection ·|references|Total/);
-  // The bottom action is the Select tool’s: it copies, and says what in words, never the IDs.
-  await pane.getByRole('button', { name: /^Copy References/ }).waitFor();
-  assert.equal(await pane.getByRole('button', { name: /^Copy Reference\b/ }).count(), 0, 'one action, pluralised');
+  // Selection changes the prompt context, not the count or label of its one action.
+  await pane.getByRole('button', { name: 'Add To Prompt', exact: true }).waitFor();
+  assert.equal(await pane.locator('[data-viewport-bottom-actions] button').count(), 1);
   await page.keyboard.press('Escape');
   await page.waitForFunction(() => window.cadHarness.a.controller.readState().selectedPartIds.length === 0);
 
@@ -439,7 +439,7 @@ test('Select picks parts and faces, a selection lives only under Select, and the
   // And what it delivers: the snapshot carries the file, the references carry the selection.
   await page.evaluate(() => window.cadHarness.a.controller.select({ selectors: ['o1.1'] }));
   await page.waitForFunction(() => window.cadHarness.a.controller.readState().selectedPartIds.length === 1);
-  await pane.getByRole('button', { name: 'Take snapshot', exact: true }).click();
+  await pane.getByRole('button', { name: 'Add To Prompt', exact: true }).click();
   await page.waitForFunction(() => window.cadHarness.captures.length === 1);
   const captured = await page.evaluate(() => window.cadHarness.captures[0]);
   assert.equal(captured.type, 'image/png');
@@ -806,11 +806,10 @@ test('preview opens paused, its playbar plays and pauses the routine without mov
   await page.waitForTimeout(300);
   assert.deepEqual((await translations(page))['o1.2'], restArm, 'nothing plays until its play button is pressed');
   const rest = await view.frame();
-  // The transport, Playback settings and snapshot share the preview playbar.
-  assert.deepEqual(await bar.getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), ['Play animation', 'Playback settings', 'Take snapshot']);
+  // Preview puts away prompt actions, leaving only playback controls.
+  assert.deepEqual(await bar.getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))), ['Play animation', 'Playback settings']);
   assert.equal(await bar.getByRole('slider', { name: 'Animation time', exact: true }).count(), 1);
-  await bar.getByRole('button', { name: 'Take snapshot' }).click();
-  await page.waitForFunction(() => window.cadHarness.captures.length === 1);
+  assert.equal(await pane.getByRole('button', { name: 'Add To Prompt' }).count(), 0);
 
   await bar.getByRole('button', { name: 'Play animation' }).click();
   await page.waitForFunction(() => window.__cadDisplayRecords().find(record => record.partId === 'o1.2').matrix[1] > 0.2);

@@ -160,7 +160,9 @@ function DxfSurface({ view, data }) {
         <ViewerLoadingOverlay loading={{ opening: payload.loading && !alert, progress: { label: "Reading drawing" } }}
           operationKey={file} />
         <ViewerAlertCard alert={alert || (actionError ? { severity: "error", kind: "status", blocking: false, title: "Couldn’t capture the drawing", message: actionError } : null)} hasContent={Boolean(payload.drawing)} onReload={view.reload} />
-        <ViewportBottomAction snapshot={{ disabled: !ready || !promptAvailable, onInvoke: snapshot }} />
+        <ViewportBottomAction disabled={!ready || !promptAvailable}
+          reason={!promptAvailable ? destination.reason : "Wait for the drawing to load."}
+          onInvoke={snapshot} />
       </div>
     </div>
   );

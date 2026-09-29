@@ -11,14 +11,14 @@ export function encodeBytes(bytes: Uint8Array): string {
 export function decodeBytes(value: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(atob(value), character => character.charCodeAt(0));
 }
-export function createBridgeFetch(bridge: ToolBridge, recentId?: string): typeof fetch {
+export function createBridgeFetch(bridge: ToolBridge, { recentId, rootId }: { recentId?: string; rootId?: string } = {}): typeof fetch {
   return async (input, init) => {
     const request = new Request(input instanceof Request ? input : new URL(String(input), CAD_ORIGIN), init);
     const url = new URL(request.url);
     if (url.origin !== CAD_ORIGIN) throw new Error('CAD resources must belong to the connected workspace.');
     request.signal.throwIfAborted();
     const bytes = request.body ? new Uint8Array(await request.arrayBuffer()) : undefined;
-    const args = { ...(recentId ? { recentId } : {}), path: `${url.pathname}${url.search}`, method: request.method, ...(bytes ? { body: encodeBytes(bytes) } : {}) };
+    const args = { ...(recentId ? { recentId } : {}), ...(rootId ? { rootId } : {}), path: `${url.pathname}${url.search}`, method: request.method, ...(bytes ? { body: encodeBytes(bytes) } : {}) };
     async function read(extra: Record<string, unknown> = {}) {
       request.signal.throwIfAborted();
       const result = await bridge.callServerTool({ name: 'cad_request', arguments: { ...args, ...extra } }, { signal: request.signal });

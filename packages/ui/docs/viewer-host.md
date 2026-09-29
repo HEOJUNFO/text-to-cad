@@ -92,8 +92,9 @@ file generation: publish an empty list on cleanup; departing renderers cannot
 replace a new file's actions. Publish only when action metadata changes; stable
 commands should read the current viewport through a ref, avoiding parent/child
 render loops. These actions use existing host capabilities for effects. CAD's
-snapshot lives in the renderer's bottom action row instead; it delivers through
-`host.promptContext`, which binds the destination before waiting for the image.
+shared Add To Prompt action lives at the bottom of the viewport instead; it
+delivers through `host.promptContext`, which binds the destination before
+waiting for the image.
 Neither route detects the platform.
 
 `ViewerHost.navigation` is optional. When supplied, `openFile(path, { target })`
@@ -171,18 +172,14 @@ they do not transfer Promise or Blob values across native IPC.
 
 ## App-specific interfaces
 
-CAD's `slots.selectionExtras` mounts an optional React component beside shared
-selection actions. It receives immutable typed selection, `selectionKey`,
-disabled state, `actionClassName` for the shared bottom-row button treatment,
-and `createContext({text, capture})`. It receives no scene, stores,
-IPC or arbitrary internal setters. Shared actions remain visible. The ChatGPT
-extension contributes its Add To Prompt action through this slot.
-
-The renderer owns placement and visibility. A contributed popover owns its focus,
-Escape handling and cleanup, stops events it consumes, and closes or invalidates
-its draft when `selectionKey` changes. Freeze the context when starting the
-interaction; a changed document/revision must not silently retarget it. Submission
-uses the same host prompt port. Session-specific controls stay in apps.
+The shared Add To Prompt action needs no app-specific selection slot. Renderers
+may contribute selected references or other prompt context through the shell's
+`promptReferences` and `promptContext` builder. The shell captures the viewport
+in the user gesture and gives that context to `host.promptContext`; the host
+decides how to deliver it. STEP freezes its selected references and displayed
+revision before asynchronous image encoding. Draw ink is part of the composite
+screenshot. Apps may still add separate controls for their own workflows, but
+they do not replace the shared action.
 
 The optional CAD `live` binding receives a `CadLiveController` only while its
 viewport is mounted. `readState()` returns a detached serializable snapshot of
@@ -309,19 +306,16 @@ omits them and gets the compact overlay. Browsing is a separate
 preview; the host owns callbacks and preferences. These slots do not imply platform detection
 or move application-specific release/network behavior into shared UI.
 
-The snapshot button follows the bottom-row selection actions, including the
-optional `selectionExtras` contribution; it remains available without a selection.
-For snapshot actions, clipboard destinations receive the viewport PNG directly
-through `ClipboardPort.writeImage`; composer destinations retain prompt-context
-delivery. Native clipboard effects remain in the host implementation.
-
-
-The viewport's Copy Reference(s) and Copy Drawing actions use `ClipboardPort`
-directly, including on desktop. Their copy shortcut and double-click topology
-copy follow the same path. Double-clicking a component or subassembly isolates
-it instead; only non-isolatable topology references use double-click copying. Camera snapshots retain the host's existing prompt
-routing. The host supplies `environment.platform` for the ⌘C / Ctrl+C hint;
-the web host derives that field from its browser environment.
+The single bottom Add To Prompt action always includes a viewport PNG, and
+adds selected references when present. It uses `PromptContextPort` for both
+composer and clipboard destinations. The host binds its destination during
+the gesture; a later image encode cannot redirect it. The action is absent in
+Preview. Copy Reference still uses `ClipboardPort` from menus, the Reference
+heading and the copy shortcut; Copy Drawing uses it from the shortcut while
+Draw has ink. Double-clicking a component or
+subassembly isolates it; only non-isolatable topology references use
+double-click copying. The host supplies `environment.platform` for shortcut
+handling; the web host derives that field from its browser environment.
 
 Renderer status uses `RendererViewProps.navigationStatusSlot`, a named portal
 slot immediately after the filename in the navigation row, or inside the

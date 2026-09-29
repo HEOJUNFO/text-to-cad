@@ -228,7 +228,6 @@ export default function StepSurface({ view, data }) {
 // renderer on the shell.
 function StepSurfaceBody({ view, data }) {
   const { client, entry, serverInfo, renderSession: cadRenderSession } = data;
-  const slots = data.services.slots;
   const workspace = useWorkspaceDocument({ view, data });
   const { resource: documentResource, services, acknowledgeCommand } = workspace;
   const selectReference = workspace.commands.selectReference;
@@ -1725,7 +1724,6 @@ function StepSurfaceBody({ view, data }) {
     () => copyTextLines(copySelectionPayload.lines, fileRefPrefix),
     [copySelectionPayload.lines, fileRefPrefix]
   );
-  const copyButtonLabel = (copySelectionPayload.copiedCount || canonicalCopySelectionLines.length) > 1 ? "Copy References" : "Copy Reference";
   const copySelectedReferences = useCallback(async () => {
     const text = canonicalCopySelectionLines.join("\n");
     if (!text || stepInteractionBlocked) return false;
@@ -1920,22 +1918,6 @@ function StepSurfaceBody({ view, data }) {
     () => ({ deliverReference: deliverReferenceText, addReference: addReferenceText, canAddToPrompt: composerDestination && promptAvailable }),
     [composerDestination, promptAvailable, deliverReferenceText, addReferenceText]
   );
-  const selectionKey = JSON.stringify([promptResource, canonicalCopySelectionLines]);
-  const liveSelectionKey = useRef(selectionKey);
-  liveSelectionKey.current = selectionKey;
-  useLayoutEffect(() => { liveSelectionKey.current = selectionKey; return () => { liveSelectionKey.current = null; }; }, [selectionKey]);
-  const createSelectionPromptContext = useCallback(({ text: instruction = '', capture: includeCapture = false } = {}) => {
-    if (liveSelectionKey.current !== selectionKey) throw new Error('This selection has changed. Open the action again.');
-    if (viewerLoading || stepInteractionBlocked) throw new Error('Wait for the model before using this selection.');
-    const references = referencesForHost(canonicalCopySelectionLines.join("\n"));
-    let capture;
-    if (includeCapture) {
-      if (!viewerRef.current?.captureScreenshotBlob) throw new Error('CAD Viewer not ready');
-      capture = viewerRef.current.captureScreenshotBlob();
-      void capture.catch(() => {});
-    }
-    return createCadPromptContext({ resource: promptResource, references, text: instruction, capture });
-  }, [selectionKey, promptResource, viewerLoading, stepInteractionBlocked, canonicalCopySelectionLines, referencesForHost]);
 
   const toggleStepTreeNode = useCallback((nodeId) => {
     const normalizedNodeId = String(nodeId || "").trim();
@@ -3149,8 +3131,6 @@ function StepSurfaceBody({ view, data }) {
   };
 
   const selectionToolActive = tabToolMode === TAB_TOOL_MODE.REFERENCES;
-  const selectionCount = selectedReferences.length + selectedParts.length
-    + (!isAssemblyView && selectedPartIds.includes(STEP_MODEL_ROOT_ID) ? 1 : 0);
   // Every CAD format shares the View settings and camera contract.
 
   // A mated child's label names its parts, and the mesh here is the model at
@@ -3296,23 +3276,13 @@ function StepSurfaceBody({ view, data }) {
     ...modelEffects.tools,
   ].filter(Boolean);
 
-  // ---- the bottom action ----------------------------------------------------------------------
-  const selectionActionVisible = selectionCount > 0 && !stepUpdateInProgress && !referenceSelectionPending
+  // The copy shortcut remains for selected references; the visible bottom action
+  // is always the shell's screenshot and current prompt context.
+  const selectionActionVisible = (selectedReferences.length + selectedParts.length
+    + (!isAssemblyView && selectedPartIds.includes(STEP_MODEL_ROOT_ID) ? 1 : 0)) > 0 && !stepUpdateInProgress && !referenceSelectionPending
     && !referenceSelectionUnavailable && !topologySelectionDeferred;
-  const bottomAction = drawModeActive
-    ? (stepUpdateInProgress || referenceSelectionPending || referenceSelectionUnavailable || topologySelectionDeferred ? null : undefined)
-    : selectionActionVisible ? {
-      label: copyButtonLabel,
-      shortLabel: "Copy",
-      onInvoke: copySelectedReferences,
-      children: slots?.selectionExtras && selectionCount > 0 && !viewerLoading && !stepInteractionBlocked ? actionClassName => <slots.selectionExtras
-        selection={Object.freeze(createSelectionPromptContext().parts.filter(part => part.kind === 'reference').map(part => part.reference))}
-        selectionKey={selectionKey}
-        disabled={viewerLoading || stepInteractionBlocked || !promptAvailable}
-        createContext={createSelectionPromptContext}
-        actionClassName={actionClassName}
-      /> : null
-    } : null;
+  const copyAction = !drawModeActive && selectionActionVisible
+    ? { onInvoke: copySelectedReferences, disabled: stepInteractionBlocked } : null;
 
   // ---- the tool stack ---------------------------------------------------------------------------
   // Under the strip: Select's Features and Reference, Position's joints, then the kept effects.
@@ -3371,7 +3341,7 @@ function StepSurfaceBody({ view, data }) {
   });
 
   return <RendererShell shell={shell} tools={tools} playback={viewportAnimation} toolPanels={<>{stepPanels}{modelEffects.panels}</>}
-    bottomAction={bottomAction}
+    copyAction={copyAction}
     contextMenuItems={selectionToolActive
       ? press => viewportContextMenuItems(press, pickAtRef.current?.(press.clientX, press.clientY) || "") : null}
     onContextMenuOpenChange={handleViewportContextMenuOpenChange}

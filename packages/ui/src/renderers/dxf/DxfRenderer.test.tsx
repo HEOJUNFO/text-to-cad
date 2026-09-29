@@ -154,7 +154,7 @@ it('a DXF has no panels of its own, no tools and no preview', async () => {
   const row = pane.querySelector('[data-viewport-bottom-actions]') as HTMLElement;
   expect(row).not.toBeNull();
   const snapshot = await waitFor(() => {
-    const button = within(row).getByRole('button', { name: 'Take snapshot' }) as HTMLButtonElement;
+    const button = within(row).getByRole('button', { name: 'Add To Prompt' }) as HTMLButtonElement;
     expect(button.disabled).toBe(false);
     return button;
   });

@@ -288,8 +288,9 @@ and web stay consistent without host-specific copies of those controls.
 The web viewer has one navigation row. The full shaded blue CAD logo (24px tall) sits before
 breadcrumbs, including while loading or with no file open. Browser titles use
 "CAD | <filename>", or "CAD" when no file is selected. At the right
-end, the version/update dropdown comes first, then Show files. The snapshot
-camera follows the renderer's bottom selection actions. The dropdown contains release
+end, the version/update dropdown comes first, then Show files. The shared
+Add To Prompt action sits at the bottom of the viewport, hidden in Preview.
+The dropdown contains release
 instructions, release notes, GitHub and Discord. Appearance is injected as an icon-bearing dropdown beside Projection in
 the Display panel's Display section, below the full-width Mode selector. The original animated mark remains the shared LoadingIcon for loading states. `ViewerBrand`, `ViewerLinks` and `ViewerAppearance` stay web-owned;
 App composes `FileNavRow` around the document viewer, supplies its
@@ -298,9 +299,9 @@ through the renderer's `displayActions` slot.
 The web logo and compact C favicons are generated alongside the docs brand assets, with no
 runtime dependency between apps. See [the brand recipe](../../scripts/brand/README.md).
 
-The web camera action copies only the viewport PNG through guarded
+Add To Prompt copies the viewport PNG and any selected references through guarded
 `POST /__cad/clipboard`, avoiding browser clipboard permission prompts. The local
 backend writes the server machine's native clipboard on macOS or Linux (wl-copy/xclip);
 this is not the remote phone's clipboard when accessing a shared server. Failures
 use the viewer's error presentation; successful actions are silent. Desktop
-attaches the snapshot to its composer instead.
+attaches the same context to its composer instead.

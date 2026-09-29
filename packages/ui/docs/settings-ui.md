@@ -55,13 +55,11 @@ settings or Preview controls.
 - **View cube** at bottom-right: enlarged face/edge/corner hit areas, neutral
   hover and XYZ guides, and nothing around it (no arrows, Home or Reset). Mobile
   and preview omit it.
-- **Bottom actions** and **playbar** sit near bottom-centre, independent of the
-  cube. The primary action is content-sized with the platform's copy shortcut
-  beside its label; mobile omits the shortcut. A contributed selection action
-  receives that button's class through its slot, so its size and style match.
-  The camera button follows the primary and contributed actions, and remains
-  available when no selection action exists. All use the same white treatment.
-  Preview places the same camera button beside its playback controls.
+- **Bottom action** and **playbar** sit near bottom-centre, independent of the
+  cube. One white **Add To Prompt** button captures the current view and adds
+  the file, selected references when present, and the screenshot through the
+  host's prompt destination. It stays visible across tools and without a
+  selection. Preview hides it completely.
 - **Loading status** sits after the filename in the default row or in the
   navigation overlay; on mobile it is a tappable progress icon whose popover
   names what is loading.
@@ -73,7 +71,7 @@ settings or Preview controls.
 | STEP | Select, Position (movable joints only), Draw, Measure, Explode (two or more parts), Clip |
 | URDF / SRDF / SDF | Select, Position (posable joints only) |
 | GLB / STL / 3MF | none |
-| DXF | none: a 2D canvas with only the bottom snapshot action |
+| DXF | none: a 2D canvas with the shared Add To Prompt action |
 
 There is no separator or activity dot. There is no Animate tool: routines play in
 [preview](#camera-animation-and-preview). Display is not a tool: every 3D
@@ -166,8 +164,8 @@ Leaving Draw forgets the sketch, but not the tool, colour and weight in hand,
 which the next time opens with. Choosing a drawing tool changes the toolbar
 icon. Undo and Redo are disabled when their history is empty. The select tool uses lucide's
 SquareMousePointer. The pencil and the shapes share one default stroke width.
-While Draw has ink, the bottom action is **Copy Drawing** (the view with its
-ink, as a PNG to the clipboard). Draw disables the cube without hiding it.
+While Draw has ink, Add To Prompt captures it with the view. The copy shortcut
+still copies that drawing as a PNG. Draw disables the cube without hiding it.
 
 **Measure.** Its **Measure** panel is up as soon as it is the tool, empty: a
 heading whose mode menu, beside the chevron and the X, holds the four snapping
@@ -426,8 +424,8 @@ picker over them with a muted "i/N" beside the name — quiet on hover in either
 theme (no fill; only its chevron comes up), and nothing about it moves; that picker is all a
 multi-selection adds, and the rows are always the browsed reference's alone (no
 totals, no count line). An X at the heading's end clears the selection. Copy
-lives in the bottom action — **Copy Reference** or **Copy References**, never
-the ids — shown only for an actual, usable selection. Every copied reference
+stays in row menus, the Reference heading and the copy shortcut. Add To Prompt
+includes the selected references with the screenshot. Every copied reference
 carries its file prefix.
 
 Viewport picks reach individual faces and edges even where the tree groups them
@@ -441,7 +439,8 @@ tree (robots select several links this way). Double-click, or a row's Isolate,
 isolates a component or subassembly; double-click on empty space leaves
 isolation, as do the isolation bar's Exit and the lit Isolate. Only topology that
 cannot be isolated copies on double-click, and it stays selected.
-Clearing the selection or leaving isolation never leaves a stale Copy Reference.
+Clearing the selection or leaving isolation removes those references from the
+next prompt action.
 
 ## Camera, animation and preview
 
@@ -516,9 +515,8 @@ pressed in while focus is on the page. Editable targets keep their own keys.
   tab order: arrows nudge by 16px, Home and End go to the bounds, and a folded
   panel's handle opens it on ArrowDown or End.
 - **Copy** (⌘C or Ctrl+C, and Ctrl+Insert) copies the drawing while Draw has
-  ink, otherwise the bottom action's references — unless a text field has focus
-  or text is selected. The bottom action shows the shortcut in the platform's
-  form (`⌘C` on macOS, `Ctrl+C` elsewhere).
+  ink, otherwise the selected references — unless a text field has focus or
+  text is selected. It does not invoke Add To Prompt.
 - **Arrow keys and WASD** orbit the viewer that has focus or the pointer over
   it, never every mounted viewport; they do nothing in preview or with a
   modifier held.

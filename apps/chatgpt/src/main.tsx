@@ -53,7 +53,7 @@ function open(value: OpenFile, fromHome = false) {
   if (!value.file || opened?.rootId !== value.rootId || opened?.recentId !== value.recentId || !client) {
     client?.dispose(); composer?.dispose(); client = undefined; composer = undefined;
     if (value.file) {
-      client = createCadClient({ origin: CAD_ORIGIN, workspaceId: value.rootId, fetch: createBridgeFetch(app, value.recentId), shouldPoll: () => document.visibilityState !== 'hidden' });
+      client = createCadClient({ origin: CAD_ORIGIN, workspaceId: value.rootId, fetch: createBridgeFetch(app, { recentId: value.recentId, rootId: value.rootId }), shouldPoll: () => document.visibilityState !== 'hidden' });
       composer = createComposerContext(app, value.rootId, value.rootPath);
       composer.setCapabilities(app.getHostCapabilities());
       composer.syncHostContext(hostContext);

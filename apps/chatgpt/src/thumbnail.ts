@@ -7,13 +7,24 @@ export function createThumbnailBinding(library: RecentLibrary, recentId?: string
     if (!recentId || !revision) return () => {};
     let active = true;
     let frame = 0;
+    let previousView = '';
+    const schedule = () => { frame = requestAnimationFrame(() => void capture()); };
     const capture = async () => {
       const state = controller.readState();
       if (!active || !state.active) return;
-      if (state.loading) { frame = requestAnimationFrame(() => void capture()); return; }
+      // Complete geometry can arrive before the opening camera has finished
+      // fitting it. Observe the presented view, never a fixed loading delay.
+      if (state.loading) { previousView = ''; schedule(); return; }
+      const view = JSON.stringify([state.resource, state.revision, state.camera, state.display]);
+      if (previousView !== view) { previousView = view; schedule(); return; }
       try {
         const image = await createImageBitmap(await controller.capture());
         if (!active) { image.close(); return; }
+        const after = controller.readState();
+        if (!after.active) { image.close(); return; }
+        if (after.loading || JSON.stringify([after.resource, after.revision, after.camera, after.display]) !== view) {
+          image.close(); previousView = ''; schedule(); return;
+        }
         const canvas = document.createElement('canvas');
         const scale = Math.min(1, 320 / Math.max(image.width, image.height));
         canvas.width = Math.max(1, Math.round(image.width * scale)); canvas.height = Math.max(1, Math.round(image.height * scale));
@@ -22,9 +33,17 @@ export function createThumbnailBinding(library: RecentLibrary, recentId?: string
         if (!active || blob.size > 256 * 1024) return;
         const bytes = await blob.arrayBuffer();
         if (active) await library.saveThumbnail(recentId, revision, `data:image/png;base64,${encodeBytes(new Uint8Array(bytes))}`);
-      } catch { /* Preview failure leaves the model view and placeholder usable. */ }
+      } catch {
+        // A live capture rejects when its document changes mid-encoding. Wait
+        // for that replacement; permanent capture failures keep the placeholder.
+        if (!active) return;
+        const after = controller.readState();
+        if (after.active && (after.loading || JSON.stringify([after.resource, after.revision, after.camera, after.display]) !== view)) {
+          previousView = ''; schedule();
+        }
+      }
     };
-    frame = requestAnimationFrame(() => void capture());
+    schedule();
     return () => { active = false; cancelAnimationFrame(frame); };
   } };
 }

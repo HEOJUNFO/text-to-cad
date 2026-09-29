@@ -10,8 +10,9 @@ export function createFileHandoff(bridge: ToolBridge, show: (opened: OpenFile) =
   async function resolve(item: NonNullable<typeof pending>) {
     try {
       let opened = item.opened;
-      if (!opened.file && item.input.file) {
-        // Native entrypoints learn their trusted path only after the view mounts.
+      if (item.input.file) {
+        // Resolve native entrypoints after mounting even when an earlier tool
+        // result used another root: the host now supplies its trusted file path.
         const result = await bridge.callServerTool({ name: 'cad_open', arguments: item.input });
         const resolved = readOpenFile(result.structuredContent);
         if (result.isError || !resolved?.file) throw new Error('The host did not provide the CAD file path. Open the file again in Codex.');

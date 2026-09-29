@@ -120,7 +120,7 @@ def create_server(root: str | Path | None = None, *, ui_path: str | Path | None 
         if file is not None:
             result["resourceUri"] = file.resourceUri
         if result["file"] is not None:
-            recent = await asyncio.to_thread(library.record, result["rootPath"], result["file"])
+            recent = await asyncio.to_thread(library.record, result["rootPath"], result["file"], result["rootId"])
             result.update(recentId=recent["id"], revision=recent["revision"])
         return _result(result, "CAD viewer opened.")
 
@@ -147,12 +147,15 @@ def create_server(root: str | Path | None = None, *, ui_path: str | Path | None 
         meta={"ui": {"visibility": ["app"]}},
     )
     async def cad_request(ctx: Context, path: str, method: str = "GET", body: str | None = None,
-                          offset: int = 0, revision: str | None = None, recentId: str | None = None) -> CallToolResult:
+                          offset: int = 0, revision: str | None = None, recentId: str | None = None,
+                          rootId: str | None = None) -> CallToolResult:
         if recentId is not None:
-            record = await asyncio.to_thread(library.get, recentId)
+            record = await asyncio.to_thread(library.get, recentId, rootId)
             bridge = await asyncio.to_thread(roots.for_recent, record)
         else:
             bridge = await asyncio.to_thread(roots.for_resource, _resource_path(ctx))
+        if rootId is not None and rootId != bridge.app.root_id:
+            raise ValueError("CAD view root does not match the authorized directory; reopen the model")
         return _result(await asyncio.to_thread(bridge.request, path, method, body, offset, revision))
 
     return server
