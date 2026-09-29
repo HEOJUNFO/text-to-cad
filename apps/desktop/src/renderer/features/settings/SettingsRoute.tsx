@@ -37,10 +37,10 @@ export function SettingsRoute() {
   // Which sections have a card that matched, so the nav can drop the ones that
   // did not. Cards report; a section with no reports has nothing to show.
   //
-  // Never cleared. Cards report by a `useId` that is stable for as long as they
-  // are mounted, so a card that stops matching says so; the only entries that
-  // go stale are the unprefixed ones written while no query is active, and
-  // `isSection` discards those.
+  // Cards report by a `useId` that is stable for as long as they are mounted,
+  // so a card that stops matching says so, and a card that unmounts withdraws
+  // its match (`SettingCard`). The unprefixed entries written while no query
+  // is active are not about a search at all, and `isSection` discards those.
   const [matches, setMatches] = useState<Record<string, boolean>>({});
   const reportCard = useCallback((id: string, matched: boolean) => {
     setMatches((current) => (current[id] === matched ? current : { ...current, [id]: matched }));

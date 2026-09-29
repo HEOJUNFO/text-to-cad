@@ -47,6 +47,10 @@ export function SettingCard({
 
   useEffect(() => {
     reportSection(id, !hidden);
+    // Withdrawn when the card goes: clearing the box unmounts every searched
+    // page, and the next search mounts its cards under new ids — a match left
+    // behind would keep a page in the nav that has nothing to show.
+    return () => reportSection(id, false);
   }, [reportSection, id, hidden]);
 
   return (
@@ -114,6 +118,7 @@ export function useRowMatch(...fields: (string | undefined)[]): boolean {
 
   useEffect(() => {
     report(id, matched);
+    return () => report(id, false);
   }, [report, id, matched]);
 
   return matched;
