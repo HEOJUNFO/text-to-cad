@@ -395,7 +395,9 @@ export const explorerHandlers = {
         const entry = await statFile(root, target);
         // Only a file tab's stat says `intent: "open"` (`fileSource.ts`); the
         // composer's attachment check and the integrations' renderer lookup
-        // stat files nobody opened, and must neither watch nor count them.
+        // stat files nobody opened, and must neither watch nor count them. An
+        // agent's open_file needs no watch of its own: the tab it opens stats
+        // again through `fileSource.ts`, and that stat watches.
         if (intent !== "open") return entry;
         await watchers?.watchEntry(root, entry);
         // `file_opened`: opening a file tab is renderer state, and its stat is
