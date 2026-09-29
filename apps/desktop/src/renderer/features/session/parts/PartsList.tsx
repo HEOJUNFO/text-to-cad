@@ -1,4 +1,5 @@
 import { AlertCircle, Paperclip, RotateCcw, Unplug } from "lucide-react";
+import { useMemo } from "react";
 
 import { defaultRemarkPlugins } from "streamdown";
 
@@ -51,7 +52,7 @@ export function PartsList({
   /** Spawn the agent again and load the history; shown when the agent is gone. */
   onReconnect?: () => void;
 }) {
-  const items = partsView(parts, open, prefix);
+  const items = useMemo(() => partsView(parts, open, prefix), [parts, open, prefix]);
   return (
     <>
       {items.map((item) => (

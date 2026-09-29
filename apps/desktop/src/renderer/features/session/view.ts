@@ -23,6 +23,10 @@ import type {
   Turn,
 } from "@shared/acp/types";
 
+import { diffCounts } from "./diff-counts";
+
+export { diffCounts };
+
 /* -------------------------------------------------------------------------- */
 /* Activity rows                                                               */
 /* -------------------------------------------------------------------------- */
@@ -143,7 +147,25 @@ export function partsView(parts: Part[], open: boolean, prefix: string): ViewIte
   return items;
 }
 
+/**
+ * One row per tool call part, remembered by the part itself. The reducer
+ * replaces a part when anything in it changes and keeps it otherwise, so a
+ * row computed once holds until then — and a row is not cheap: its badge
+ * counts the lines of every diff the call reported, and the transcript asks
+ * for every row on every streamed token.
+ */
+const ROWS = new WeakMap<ToolCallPart, ActivityRow>();
+
 export function activityRow(part: ToolCallPart): ActivityRow {
+  let row = ROWS.get(part);
+  if (!row) {
+    row = computeActivityRow(part);
+    ROWS.set(part, row);
+  }
+  return row;
+}
+
+function computeActivityRow(part: ToolCallPart): ActivityRow {
   const glyph = glyphOf(part);
   const path = pathOf(part);
   const command = glyph === "execute" ? commandOf(part) : null;
@@ -439,31 +461,6 @@ function capitalize(text: string): string {
 /* -------------------------------------------------------------------------- */
 /* Diffs                                                                       */
 /* -------------------------------------------------------------------------- */
-
-/** Lines added and removed, as a multiset difference — a badge, not a diff viewer. */
-export function diffCounts(oldText: string, newText: string): { insertions: number; deletions: number } {
-  const count = (text: string) => {
-    const map = new Map<string, number>();
-    if (text === "") {
-      return map;
-    }
-    for (const line of text.replace(/\n$/, "").split("\n")) {
-      map.set(line, (map.get(line) ?? 0) + 1);
-    }
-    return map;
-  };
-  const before = count(oldText);
-  const after = count(newText);
-  let insertions = 0;
-  let deletions = 0;
-  for (const [line, n] of after) {
-    insertions += Math.max(0, n - (before.get(line) ?? 0));
-  }
-  for (const [line, n] of before) {
-    deletions += Math.max(0, n - (after.get(line) ?? 0));
-  }
-  return { insertions, deletions };
-}
 
 function diffTotals(part: ToolCallPart): { insertions: number; deletions: number } {
   let insertions = 0;

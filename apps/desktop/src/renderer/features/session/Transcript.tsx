@@ -1,5 +1,6 @@
 import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { ArrowDown, Paperclip } from "lucide-react";
+import { memo } from "react";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 
 import { Conversation, ConversationContent } from "@renderer/components/ai-elements/conversation";
@@ -30,16 +31,21 @@ export function Transcript({
   return (
     <Conversation className="min-h-0 min-w-0 flex-1" data-transcript>
       <ConversationContent className="mx-auto min-w-0 w-full max-w-[720px] gap-4 px-6 pt-6 pb-4">
-        {state.turns.map((turn, index) => (
-          <TurnView
-            key={turn.id}
-            last={index === state.turns.length - 1}
-            onReconnect={state.status === "error" ? onReconnect : undefined}
-            onRetry={onRetry}
-            sessionId={state.sessionId}
-            turn={turn}
-          />
-        ))}
+        {state.turns.map((turn, index) => {
+          // Only the last turn is handed the callbacks (they are fresh
+          // closures per render), so every other turn's props are equal from
+          // one token to the next and `TurnView`'s memo holds.
+          const last = index === state.turns.length - 1;
+          return (
+            <TurnView
+              key={turn.id}
+              onReconnect={last && state.status === "error" ? onReconnect : undefined}
+              onRetry={last ? onRetry : undefined}
+              sessionId={state.sessionId}
+              turn={turn}
+            />
+          );
+        })}
         {status ? <StatusLine active={state.status !== "waiting"} text={status} /> : null}
       </ConversationContent>
       <JumpToLatest />
@@ -47,17 +53,22 @@ export function Transcript({
   );
 }
 
-function TurnView({
+/**
+ * One turn, memoised: the reducer keeps a turn it did not touch
+ * referentially equal, so while the last turn streams the others are not
+ * drawn again — their markdown, activity rows and diff badges included.
+ */
+const TurnView = memo(function TurnView({
   turn,
   sessionId,
-  last,
   onRetry,
   onReconnect,
 }: {
   turn: Turn;
   sessionId: string;
-  last: boolean;
-  onRetry: () => void;
+  /** Given to the last turn only: its error row's Retry. */
+  onRetry?: () => void;
+  /** Given to the last turn only, while the session is in error. */
   onReconnect?: () => void;
 }) {
   if (turn.role === "user") {
@@ -67,8 +78,8 @@ function TurnView({
   return (
     <div className="flex min-w-0 w-full flex-col" data-turn={turn.id} data-role="agent" data-stop-reason={turn.stopReason ?? undefined}>
       <PartsList
-        onReconnect={last ? onReconnect : undefined}
-        onRetry={last ? onRetry : undefined}
+        onReconnect={onReconnect}
+        onRetry={onRetry}
         open={open}
         parts={turn.parts}
         prefix={turn.id}
@@ -87,7 +98,7 @@ function TurnView({
       ) : null}
     </div>
   );
-}
+});
 
 /** A compact bubble on the right, with the prompt's images and attachments under it. */
 function UserTurn({ turn }: { turn: Turn }) {
