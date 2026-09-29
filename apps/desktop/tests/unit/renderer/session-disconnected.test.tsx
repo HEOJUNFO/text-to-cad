@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -12,7 +12,7 @@ import type { Session } from "@shared/types";
 
 // The pieces around the one state under test are their own suites.
 vi.mock("@renderer/features/session/Composer", () => ({
-  Composer: ({ disabled }: { disabled: boolean }) => <textarea aria-label="Prompt" disabled={disabled} />,
+  Composer: ({ disabled }: { disabled: boolean }) => <textarea aria-label="Prompt" data-composer-input disabled={disabled} />,
 }));
 vi.mock("@renderer/features/session/SessionHeader", () => ({ SessionHeader: () => null }));
 vi.mock("@renderer/features/session/Transcript", () => ({ Transcript: () => <div data-transcript /> }));
@@ -50,6 +50,19 @@ describe("a disconnected agent", () => {
     expect(screen.getByLabelText("Prompt")).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "Reconnect" }));
     expect(load).toHaveBeenCalledWith("s1");
+  });
+
+  it("keeps focus off the page after Reconnect, and hands it to the composer once the agent is back", async () => {
+    const user = userEvent.setup();
+    useAcp.setState({ sessions: { s1: { ...initialSessionState("s1", "claude"), status: "closed" } } });
+    render(<SessionView session={SESSION} />);
+    await user.click(screen.getByRole("button", { name: "Reconnect" }));
+    // The bar goes with the reconnect: its button is gone, and focus is not on the page.
+    act(() => useAcp.setState({ loading: { s1: true }, sessions: { s1: { ...initialSessionState("s1", "claude"), status: "connecting" } } }));
+    expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
+    expect(document.activeElement).not.toBe(document.body);
+    act(() => useAcp.setState({ loading: {}, sessions: { s1: { ...initialSessionState("s1", "claude"), status: "idle" } } }));
+    await waitFor(() => expect(screen.getByLabelText("Prompt")).toHaveFocus());
   });
 
   it("stays disconnected, not connecting, once a closed transcript is let go of", () => {

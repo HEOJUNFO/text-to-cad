@@ -9,11 +9,17 @@ import type { Project } from "@shared/types";
  * synchronously, through `onData`, while it parses — so the tab's handling of
  * those answers can be seen.
  */
-const terminals = vi.hoisted(() => [] as Array<{ options: { fontFamily?: string } }>);
+const terminals = vi.hoisted(() => [] as Array<{
+  options: { fontFamily?: string };
+  focused: number;
+  keys: (event: KeyboardEvent) => boolean;
+}>);
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
     cols = 80;
     rows = 24;
+    focused = 0;
+    keys: (event: KeyboardEvent) => boolean = () => true;
     private listener: (data: string) => void = () => {};
     constructor(public options: { fontFamily?: string }) {
       terminals.push(this);
@@ -28,8 +34,12 @@ vi.mock("@xterm/xterm", () => ({
     onData(listener: (data: string) => void) {
       this.listener = listener;
     }
-    attachCustomKeyEventHandler() {}
-    focus() {}
+    attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) {
+      this.keys = handler;
+    }
+    focus() {
+      this.focused += 1;
+    }
     clear() {}
     getSelection() { return ""; }
     dispose() {}
@@ -39,6 +49,7 @@ vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit() {} } }));
 vi.mock("@xterm/addon-web-links", () => ({ WebLinksAddon: class {} }));
 vi.mock("@xterm/xterm/css/xterm.css", () => ({}));
 
+import { focusTabBody } from "@renderer/features/explorer/focus";
 import { TerminalTab } from "@renderer/features/explorer/TerminalTab";
 import { useExplorer } from "@renderer/state/explorer";
 
@@ -57,7 +68,7 @@ beforeEach(() => {
 });
 
 function renderTab() {
-  render(<TerminalTab tabId="tab" sessionId="session" project={project} ptyId="pty-old" cwd={project.path} readOnly={false} />);
+  return render(<TerminalTab tabId="tab" sessionId="session" project={project} ptyId="pty-old" cwd={project.path} readOnly={false} />);
 }
 
 it("kills the exited pty before restarting, so its scrollback is not kept for a tab that moved on", async () => {
@@ -101,4 +112,36 @@ it("draws in the Code font from Settings, and follows it when it changes", async
   expect(terminals[0]!.options.fontFamily).toBe('"JetBrains Mono", monospace');
   document.documentElement.style.setProperty("--font-mono", "Menlo, monospace");
   await waitFor(() => expect(terminals[0]!.options.fontFamily).toBe("Menlo, monospace"));
+});
+
+it("takes focus when the person opened or picked the tab, not on every mount (a session switch, Back)", async () => {
+  terminal().attach = vi.fn(async () => ({ info: info(null), scrollback: "", seq: 0 }));
+  const first = renderTab();
+  expect(terminals[0]!.focused).toBe(0);
+  first.unmount();
+
+  // Asked for, as the shortcuts, the `+` menu and a click on the tab do.
+  focusTabBody("tab");
+  const second = renderTab();
+  expect(terminals[1]!.focused).toBe(1);
+  second.unmount();
+  // Claimed once: the next remount of the same tab is not the person asking again.
+  renderTab();
+  expect(terminals[2]!.focused).toBe(0);
+});
+
+it("lets Tab leave the terminal after Ctrl+Shift+M, and says so", async () => {
+  terminal().attach = vi.fn(async () => ({ info: info(null), scrollback: "", seq: 0 }));
+  renderTab();
+  const key = (init: KeyboardEventInit) => terminals[0]!.keys(new KeyboardEvent("keydown", init));
+  // Off: Tab is the shell's (completion).
+  expect(key({ key: "Tab" })).toBe(true);
+  expect(key({ key: "M", ctrlKey: true, shiftKey: true })).toBe(false);
+  expect(await screen.findByRole("status")).toHaveTextContent("Tab moves focus");
+  // On: xterm leaves Tab and Shift+Tab alone, so the browser moves focus.
+  expect(key({ key: "Tab" })).toBe(false);
+  expect(key({ key: "Tab", shiftKey: true })).toBe(false);
+  key({ key: "M", ctrlKey: true, shiftKey: true });
+  expect(key({ key: "Tab" })).toBe(true);
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(""));
 });

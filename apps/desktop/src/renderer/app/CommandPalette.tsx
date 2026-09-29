@@ -24,9 +24,9 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-  CommandSeparator,
 } from "@renderer/components/ui/command";
 import { useOpenFolder } from "@renderer/hooks/use-open-folder";
+import { useReturnFocus } from "@renderer/hooks/use-return-focus";
 import { isPrimaryModifier } from "@renderer/lib/platform";
 import { useExplorer } from "@renderer/state/explorer";
 import { useHistory, useHistoryReach } from "@renderer/state/history";
@@ -39,6 +39,8 @@ import type { ExplorerTabKind } from "@shared/types";
 
 /** One string for the box's placeholder and the dialog's description. */
 export const COMMAND_PALETTE_PROMPT = "Search sessions, projects and commands…";
+/** The box's name: a placeholder is not one, and it goes when the person types. */
+export const COMMAND_PALETTE_LABEL = "Search sessions, projects and commands";
 
 /**
  * Every tab kind the explorer's `+` menu makes, as a Create row. `value` is
@@ -88,6 +90,8 @@ export function CommandPalette() {
   const layout = useSettings((state) => state.settings?.layout);
   const setLayout = useSettings((state) => state.setLayout);
   const reach = useHistoryReach();
+  // No trigger (a chord, the menu, the sidebar's search): Escape gives focus back by hand.
+  const returnFocus = useReturnFocus();
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -126,6 +130,8 @@ export function CommandPalette() {
       // the list under the box grows or shrinks, so the box jumps as you type.
       className="top-[20%] translate-y-0"
       description={COMMAND_PALETTE_PROMPT}
+      label={COMMAND_PALETTE_LABEL}
+      {...returnFocus}
       onOpenChange={setOpen}
       open={open}
       title="Command palette"
@@ -135,7 +141,9 @@ export function CommandPalette() {
         placeholder={COMMAND_PALETTE_PROMPT}
         value={query}
       />
-      <CommandList>
+      {/* No separators: a separator is not a listbox's child (axe aria-required-children). The
+          groups are the boundaries, a rule drawn over each visible group after the first. */}
+      <CommandList className="[&_[cmdk-group]:not([hidden])~[cmdk-group]:not([hidden])]:border-t" label="Commands">
         <CommandEmpty>No matches.</CommandEmpty>
 
         {/* Threads first: the box is most often a thread's name, and a
@@ -164,8 +172,6 @@ export function CommandPalette() {
           })}
         </CommandGroup>
 
-        <CommandSeparator />
-
         <CommandGroup heading="Projects">
           {projects.filter(project => sessions.some(session => session.projectId === project.id && !session.archived)).map((project) => (
             <CommandItem
@@ -192,8 +198,6 @@ export function CommandPalette() {
           </CommandItem>
         </CommandGroup>
 
-        <CommandSeparator />
-
         <CommandGroup heading="Create">
           <CommandItem onSelect={show(() => setActiveSession(null))} value="new session chat">
             <MessageSquarePlus className="size-4" />
@@ -209,8 +213,6 @@ export function CommandPalette() {
               ))
             : null}
         </CommandGroup>
-
-        <CommandSeparator />
 
         <CommandGroup heading="View">
           <CommandItem
@@ -249,8 +251,6 @@ export function CommandPalette() {
             </CommandItem>
           ) : null}
         </CommandGroup>
-
-        <CommandSeparator />
 
         <CommandGroup heading="Settings">
           {SETTINGS_SECTIONS.map((section) => (

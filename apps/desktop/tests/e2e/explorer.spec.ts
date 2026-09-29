@@ -115,7 +115,8 @@ test("copies a relative and an absolute path from a row's context menu", async (
   await pick("Copy path");
   await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
     .toBe(fs.realpathSync(path.join(repoRoot, "apps/web/src/client/unboundIdentifiers.test.js")));
-  await page.getByRole("tab", { name: /unboundIdentifiers\.test\.js/ }).getByRole("button", { name: "Close unboundIdentifiers.test.js" }).click();
+  // The close button is the tab's sibling, out of the accessibility tree (Delete is its keyboard twin).
+  await page.locator('[data-tab-strip] button[aria-label="Close unboundIdentifiers.test.js"]').click();
 });
 
 test("opens an image with its dimensions, and reveals it in the tree", async () => {
@@ -210,9 +211,9 @@ test("makes a folder from the tree's menu, renames it, and moves it to the trash
   await page.keyboard.press("Enter");
   await expect(page.getByRole("tab", { name: /notes\.md/ })).toBeVisible();
   expect(fs.readFileSync(path.join(docsDir, "assemblies", "notes.md"), "utf8")).toBe("");
-  // F2 renames the cursor row, and Escape leaves it alone.
+  // F2 renames the focused row (a click focuses it), and Escape leaves it alone.
   await folder("assemblies/notes.md").click();
-  await tree.focus();
+  await expect(folder("assemblies/notes.md")).toBeFocused();
   await page.keyboard.press("F2");
   await expect(page.getByLabel("Rename notes.md")).toBeFocused();
   await page.keyboard.press("Escape");
@@ -404,7 +405,9 @@ test("a browser tab's native page is shared by the explorer and the app tools, p
     await expect(page.locator("[data-turn][data-role=user]")).toHaveCount(0);
     await shoot("browser-app-shell.png");
     // Closing the tab ends the native page.
-    await page.getByRole("tab", { name: /127\.0\.0\.1/ }).getByRole("button", { name: /Close/ }).click();
+    // Delete on the tab: its close button is a sibling out of the accessibility tree.
+    await page.getByRole("tab", { name: /127\.0\.0\.1/ }).focus();
+    await page.keyboard.press("Delete");
     await expect.poll(() => app.evaluate(({ webContents }, id) => !!webContents.fromId(id), nativeId)).toBe(false);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));

@@ -5,10 +5,10 @@
  * filters).
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { COMMAND_PALETTE_PROMPT, CommandPalette } from "@renderer/app/CommandPalette";
+import { COMMAND_PALETTE_LABEL, COMMAND_PALETTE_PROMPT, CommandPalette } from "@renderer/app/CommandPalette";
 import { useOnboarding } from "@renderer/state/onboarding";
 import { useSessions } from "@renderer/state/sessions";
 import { useSettings } from "@renderer/state/settings";
@@ -75,5 +75,30 @@ describe("the command palette", () => {
     await user.click(screen.getByRole("option", { name: "Toggle sidebar" }));
     expect(useUi.getState().route).toBe("app");
     expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("hands focus back to what had it when Escape closes it, not to the page", async () => {
+    useUi.setState({ commandPaletteOpen: false });
+    const user = userEvent.setup();
+    render(<><div aria-label="Composer" contentEditable role="textbox" tabIndex={0} /><CommandPalette /></>);
+    const composer = screen.getByRole("textbox", { name: "Composer" });
+    composer.focus();
+    act(() => useUi.getState().setCommandPaletteOpen(true));
+    await waitFor(() => expect(screen.getByRole("combobox")).toHaveFocus());
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(useUi.getState().commandPaletteOpen).toBe(false));
+    await waitFor(() => expect(document.activeElement).not.toBe(document.body));
+    expect(composer).toHaveFocus();
+  });
+
+  it("names its box, keeps separators out of the listbox, and its title inside the dialog", () => {
+    const view = render(<CommandPalette />);
+    expect(screen.getByRole("combobox")).toHaveAccessibleName(COMMAND_PALETTE_LABEL);
+    expect(document.querySelectorAll("[role=listbox] [role=separator]")).toHaveLength(0);
+    expect(screen.getByRole("dialog")).toContainElement(screen.getByText("Command palette"));
+    // Shut, it leaves no heading in the page.
+    act(() => useUi.getState().setCommandPaletteOpen(false));
+    view.rerender(<CommandPalette />);
+    expect(screen.queryByText("Command palette")).toBeNull();
   });
 });

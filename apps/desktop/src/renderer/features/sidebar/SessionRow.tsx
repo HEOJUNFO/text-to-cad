@@ -145,6 +145,8 @@ export function SessionRow({
             // The whole title, when the row has cut it short.
             <TooltipHint content={projectName ? `${session.title} — ${projectName}` : session.title} overflowOnly>
               <button
+                // The session on screen, said as well as tinted.
+                aria-current={selected ? "page" : undefined}
                 className="min-w-0 flex-1 truncate text-left text-[13px]"
                 onClick={onSelect}
                 onDoubleClick={startRename}
@@ -161,7 +163,7 @@ export function SessionRow({
           )}
           {projectName ? (
             <span
-              className="max-w-[40%] shrink-0 truncate text-[11px] text-muted-foreground/70"
+              className="max-w-[40%] shrink-0 truncate text-[11px] text-muted-foreground"
               data-session-project
             >
               {projectName}

@@ -81,7 +81,7 @@ export function AgentRow({ agent }: { agent: AgentStatus }) {
         <AgentMark icon={agent.icon} id={agent.id} name={agent.name} />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium">{agent.name}</p>
-          <p className={cn("text-xs", ready ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}>
+          <p className={cn("text-xs", ready ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground")}>
             {status}
           </p>
         </div>

@@ -75,6 +75,9 @@ export function diffTexts(diff: FileDiff): { original: string; modified: string 
     : { original, modified };
 }
 
+/** The last segment of a repository path, which is what the editors are named for. */
+const fileName = (path: string) => path.split("/").pop() || path;
+
 const lineCount = (text: string) => (text === "" ? 1 : text.split("\n").length);
 
 /**
@@ -197,7 +200,7 @@ export function ReviewDiff({
             track(code, [[side === "added" ? "modified" : "original", code]]);
             setReady(true);
           }}
-          options={{ ...OPTIONS, lineDecorationsWidth: 14 }}
+          options={{ ...OPTIONS, lineDecorationsWidth: 14, ariaLabel: `${fileName(path)}, ${side === "added" ? "added" : "deleted"}` }}
           theme={monacoTheme(theme)}
           value={text}
         />
@@ -252,6 +255,10 @@ export function ReviewDiff({
           renderSideBySide: false,
           renderOverviewRuler: false,
           hideUnchangedRegions: { enabled: true, revealLineCount: 3, minimumLineCount: 3 },
+          // Each side's text field is named for the file and the side: two unnamed
+          // "Editor content" fields per file is what a screen reader heard.
+          originalAriaLabel: `${fileName(path)}, before`,
+          modifiedAriaLabel: `${fileName(path)}, after`,
         }}
         original={texts.original}
         theme={monacoTheme(theme)}

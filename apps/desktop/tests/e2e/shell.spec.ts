@@ -390,7 +390,7 @@ test("a session owns the explorer: its toggles, its strip and its shortcuts", as
     await page.getByRole("option", { name, exact: false }).first().click();
     await expect(page.getByRole("tab", { name: new RegExp(name.replace(".", "\\.")) })).toBeVisible();
   }
-  const selected = () => page.locator("[role=tab] [aria-selected=true]");
+  const selected = () => page.locator("[role=tab][aria-selected=true]");
   await page.keyboard.press(`${mod}+1`);
   await expect(selected()).toContainText("one.md");
   await page.keyboard.press(`${mod}+2`);

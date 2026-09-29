@@ -112,6 +112,16 @@ describe("the composer's chips and Stop", () => {
     expect(vi.mocked(toast.info).mock.calls).toEqual([["Agent disconnected"], ["Agent disconnected"]]);
   });
 
+  it("open a choice menu on the checked item, not the first", async () => {
+    useAcp.setState({ sessions: { s1: { ...(state("idle") as object), currentModeId: "plan" } } } as never);
+    render(<SessionView session={SESSION} />);
+    act(() => screen.getByRole("button", { name: "Plan" }).focus());
+    await userEvent.setup().keyboard("{Enter}");
+    const checked = await screen.findByRole("menuitemradio", { name: "Plan" });
+    expect(checked).toHaveAttribute("aria-checked", "true");
+    expect(checked).toHaveFocus();
+  });
+
   it("close an open menu when the agent goes away under it", async () => {
     useAcp.setState({ sessions: { s1: state("idle") }, reconnecting: {} } as never);
     render(<SessionView session={SESSION} />);

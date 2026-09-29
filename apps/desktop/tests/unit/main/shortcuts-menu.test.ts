@@ -37,8 +37,11 @@ const accelerators = flatten(
   .filter((accelerator): accelerator is string => typeof accelerator === "string")
   .map(portable);
 
-/** Renderer-only by nature: Escape is not a menu key. */
-const RENDERER_ONLY = new Set(["close-settings"]);
+/**
+ * Renderer-only by nature: Escape is not a menu key, and F6 moves focus between the renderer's
+ * own panes — a menu accelerator would take it from a webview that has focus and do nothing there.
+ */
+const RENDERER_ONLY = new Set(["close-settings", "next-pane", "previous-pane"]);
 
 it("lists every packaged menu accelerator in the shortcut table", () => {
   const bindings = new Set(SHORTCUTS.map((shortcut) => shortcut.binding));

@@ -79,6 +79,21 @@ describe("ActivityGroup", () => {
     expect(detail()).not.toBeNull();
   });
 
+  it("names what each disclosure opens with aria-controls while it is open", async () => {
+    const user = userEvent.setup();
+    const first = call({ id: "c1", kind: "execute", title: "ls", input: { command: "ls" }, output: "first output" });
+    const second = call({ id: "c2", kind: "execute", title: "pwd", input: { command: "pwd" } });
+    wrap(<PartsList open parts={[first, second]} prefix="t1" sessionId="s1" />);
+    const group = screen.getByRole("button", { name: /2 commands/ });
+    if (group.getAttribute("aria-expanded") !== "true") await user.click(group);
+    const rows = document.querySelector(`#${CSS.escape(group.getAttribute("aria-controls") ?? "none")}`);
+    expect(rows?.querySelector('[data-activity-row="c1"]')).not.toBeNull();
+    const row = screen.getByRole("button", { name: /^ls/ });
+    expect(row).not.toHaveAttribute("aria-controls");
+    await user.click(row);
+    expect(document.getElementById(row.getAttribute("aria-controls")!)).toHaveAttribute("data-tool-detail");
+  });
+
   /**
    * A tool can hand back megabytes — a whole file read, a log. The row draws
    * the first 64 KB of each body and says how much it left out, and a plain

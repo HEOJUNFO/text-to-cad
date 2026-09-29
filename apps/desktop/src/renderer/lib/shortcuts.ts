@@ -42,6 +42,10 @@ export const SHORTCUTS: readonly Shortcut[] = [
   // has shown. The explorer's tabs have their own strip and are not in it.
   { id: "navigate-back", group: "Application", label: "Back", binding: "Mod+[" },
   { id: "navigate-forward", group: "Application", label: "Forward", binding: "Mod+]" },
+  // Renderer-only, like Escape: focus between the sidebar, the session and the
+  // explorer, skipping a pane that is shut (`Shell`).
+  { id: "next-pane", group: "Application", label: "Focus the next pane", binding: "F6" },
+  { id: "previous-pane", group: "Application", label: "Focus the previous pane", binding: "Shift+F6" },
 
   { id: "send", group: "Session", label: "Send", binding: "Enter" },
   {
@@ -64,9 +68,17 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: "reload-page", group: "Explorer", label: "Reload the browser page", binding: "Mod+R" },
   // Code and Markdown files, from their own editors.
   { id: "save-file", group: "Explorer", label: "Save the file", binding: "Mod+S" },
-  // The file tree's cursor row; Ctrl+Delete works off macOS too.
+  // The file tree's focused row; Ctrl+Delete works off macOS too.
   { id: "rename-entry", group: "Explorer", label: "Rename in the file tree", binding: "F2" },
   { id: "trash-entry", group: "Explorer", label: "Move to Trash in the file tree", binding: "Mod+Backspace" },
+  // Monaco's tab-focus mode, and the terminal's: while it is on, Tab leaves the
+  // editor or the shell rather than typing into it. Control on every platform.
+  {
+    id: "tab-focus-mode",
+    group: "Explorer",
+    label: "Toggle Tab moving focus out of an editor or terminal",
+    binding: "Ctrl+Shift+M",
+  },
   {
     id: "switch-tab",
     group: "Explorer",

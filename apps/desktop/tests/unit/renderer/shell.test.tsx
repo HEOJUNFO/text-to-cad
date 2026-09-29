@@ -82,7 +82,8 @@ describe("Explorer", () => {
 
     await user.click(screen.getByRole("menuitem", { name: /^File/ }));
     expect(useExplorer.getState().tabs).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "Close Open file…" })).toBeInTheDocument();
+    // Hidden from the accessibility tree (Delete on the tab is its keyboard twin).
+    expect(document.querySelector('button[aria-label="Close Open file…"]')).toBeInTheDocument();
   });
 
   it("opens a file tab on Mod+T without the menu", async () => {
@@ -99,7 +100,7 @@ describe("Explorer", () => {
     wrap(<ExplorerPane />);
     await user.click(screen.getByRole("button", { name: "New tab" }));
     await user.click(screen.getByRole("menuitem", { name: /^File/ }));
-    await user.click(screen.getByRole("button", { name: "Close Open file…" }));
+    await user.click(document.querySelector<HTMLElement>('button[aria-label="Close Open file…"]')!);
     expect(useExplorer.getState().tabs).toHaveLength(0);
   });
 

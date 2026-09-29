@@ -13,6 +13,7 @@
  * platform describes a splitter.
  */
 import { useEffect, useRef } from "react";
+import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 
 import { KEYBOARD_STEP_PX, dragOutcome, type SidePane } from "@renderer/lib/panes";
 import { PANE_LIMITS } from "@shared/types";
@@ -136,7 +137,13 @@ export function PaneSeparator({
   };
 
   return (
+    // Named and hinted without a native `title` (the kit's rule, packages/ui/docs/settings-ui.md):
+    // a title is no name to a screen reader that reads the separator's value, and it ignores the
+    // hint delay. The collapse past the minimum is in the hint.
+    <TooltipHint content={`Drag to resize; ${PANE_LIMITS.overshoot}px past its minimum closes it`}>
     <div
+      aria-controls={pane}
+      aria-label={`Resize the ${pane}`}
       aria-orientation="vertical"
       aria-valuemax={max}
       aria-valuemin={min}
@@ -182,7 +189,7 @@ export function PaneSeparator({
       }}
       role="separator"
       tabIndex={0}
-      title={`Resize the ${pane} (${PANE_LIMITS.overshoot}px past its minimum closes it)`}
     />
+    </TooltipHint>
   );
 }

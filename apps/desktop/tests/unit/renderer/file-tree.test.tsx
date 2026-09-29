@@ -231,13 +231,13 @@ describe("FileTree", () => {
     await user.keyboard("{Escape}");
   });
 
-  it("renames the cursor row on F2 and puts the name back on Escape", async () => {
+  it("renames the focused row on F2 and puts the name back, and focus, on Escape", async () => {
     const user = userEvent.setup();
     mount();
     await waitFor(() => expect(rowExists("README.md")).toBe(true));
 
     await user.click(row("README.md"));
-    screen.getByRole("tree").focus();
+    expect(row("README.md")).toHaveFocus();
     await user.keyboard("{F2}");
     const field = await screen.findByLabelText("Rename README.md");
     expect(field).toHaveFocus();
@@ -246,6 +246,7 @@ describe("FileTree", () => {
     expect((field as HTMLInputElement).selectionEnd).toBe("README".length);
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByLabelText("Rename README.md")).toBeNull());
+    expect(row("README.md")).toHaveFocus();
     expect(window.textToCad.explorer.rename).not.toHaveBeenCalled();
 
     // Enter commits through main, and the row follows the answer.

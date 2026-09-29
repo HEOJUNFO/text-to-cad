@@ -7,7 +7,7 @@
  * cache of a PATH probe. Spawning an adapter to find out whether an agent works
  * is what the first session is for.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { AlertCircle, BookOpen, Download, RefreshCw, Search } from "lucide-react";
 import { cn } from "cn";
 import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
@@ -169,12 +169,16 @@ function AgentGroup({
 }
 
 /**
- * One agent. The whole row opens the drawer; the two trailing controls are
- * buttons inside it, so the click that opens the docs must not also open the
- * drawer behind them.
+ * One agent. The row opens the drawer; the two trailing controls are its
+ * siblings, not its children — a control inside a button (or a `role=button`)
+ * is nested-interactive, one stop a screen reader cannot tell apart — so the
+ * row is a toolbar-like line: the agent's button, then Docs and Install.
+ * A pointer anywhere on the line opens the drawer as before; the trailing
+ * buttons stop their own clicks.
  */
 function AgentRow({ agent, onOpen }: { agent: AgentStatus; onOpen: () => void }) {
   const matched = useRowMatch(agent.name, agent.description, `agent acp ${agent.id}`);
+  const detailId = useId();
   if (!matched) {
     return null;
   }
@@ -197,38 +201,31 @@ function AgentRow({ agent, onOpen }: { agent: AgentStatus; onOpen: () => void })
 
   return (
     <div
-      // Named explicitly: a div with `role="button"` and interactive children
-      // gets no name from its contents, so without this the row is a button
-      // with no label to a screen reader and to the e2e suite alike.
-      aria-label={agent.name}
-      className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-accent/50"
-      // The row is a button; the trailing icons are buttons inside it, which
-      // is not valid HTML nesting — so the row is a div with a button's role
-      // and its keyboard behaviour instead.
+      className="flex w-full items-center gap-3 px-4 py-2.5 transition-colors hover:bg-accent/50"
+      data-agent-row={agent.id}
       onClick={onOpen}
-      onKeyDown={(event) => {
-        // The row's own keys only. Enter or Space on a trailing button bubbles
-        // here too, and taking it would cancel that button's click and open the
-        // drawer instead — the docs would be out of a keyboard's reach.
-        if (event.target !== event.currentTarget) {
-          return;
-        }
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onOpen();
-        }
-      }}
-      role="button"
-      tabIndex={0}
     >
-      <AgentMark icon={agent.icon} id={agent.id} name={agent.name} />
-      <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-2 text-sm">
-          {agent.name}
-          {agent.installed ? <StatusDot tone={tone} /> : null}
-        </p>
-        <p className="mt-0.5 truncate text-xs text-muted-foreground">{detail}</p>
-      </div>
+      <button
+        // The agent's name; the line under it is its description.
+        aria-describedby={detailId}
+        aria-label={agent.name}
+        className="flex min-w-0 flex-1 items-center gap-3 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        onClick={(event) => {
+          // The line's own click opens it, once.
+          event.stopPropagation();
+          onOpen();
+        }}
+        type="button"
+      >
+        <AgentMark icon={agent.icon} id={agent.id} name={agent.name} />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-2 text-sm">
+            {agent.name}
+            {agent.installed ? <StatusDot tone={tone} /> : null}
+          </span>
+          <span className="mt-0.5 block truncate text-xs text-muted-foreground" id={detailId}>{detail}</span>
+        </span>
+      </button>
       <IconButton
         label={`${agent.name} documentation`}
         onClick={() => void window.textToCad.shell.openExternal({ url: agent.docsUrl })}

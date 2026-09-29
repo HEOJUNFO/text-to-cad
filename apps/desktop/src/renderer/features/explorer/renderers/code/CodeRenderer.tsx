@@ -103,6 +103,9 @@ export default function CodeRenderer({
       options={{
         ...SHARED_EDITOR_OPTIONS,
         readOnly: document?.readOnly ?? true,
+        // What a screen reader calls the text field: the file, not "Editor content".
+        // Monaco appends its own Alt+F1 hint; Ctrl+Shift+M (tab-focus mode) is how Tab leaves.
+        ariaLabel: file.name,
         // Prose wraps; code does not. A markdown or plain-text file is
         // paragraphs, and reading one by scrolling sideways is not reading.
         wordWrap: WRAPPED.has(language) ? "on" : "off",

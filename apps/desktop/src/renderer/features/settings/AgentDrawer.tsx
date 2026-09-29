@@ -30,6 +30,7 @@ import {
   SheetTitle,
 } from "@renderer/components/ui/sheet";
 import { Textarea } from "@renderer/components/ui/textarea";
+import { useReturnFocus } from "@renderer/hooks/use-return-focus";
 import { AgentMark } from "@renderer/features/settings/AgentMark";
 import { InlineCode } from "@renderer/features/settings/inline-code";
 import { StatusLabel, type Tone } from "@renderer/features/settings/StatusDot";
@@ -92,11 +93,14 @@ export function AgentDrawer({
   platform: Platform;
   onOpenChange: (open: boolean) => void;
 }) {
+  // Opened from a row, not a Sheet trigger: Escape hands focus back to that row by hand.
+  const returnFocus = useReturnFocus();
   return (
     <Sheet onOpenChange={onOpenChange} open={open}>
       <SheetContent
         className="w-full gap-0 overflow-y-auto p-0 sm:max-w-[520px]"
         side="right"
+        {...returnFocus}
       >
         {/* Keyed by agent: every field inside is per-agent state, and the
             cheapest correct reset is a new component. */}

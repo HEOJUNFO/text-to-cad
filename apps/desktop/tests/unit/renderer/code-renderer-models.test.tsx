@@ -22,6 +22,7 @@ vi.mock("@renderer/features/explorer/renderers/code/editor/setup", () => ({ setu
 
 type FakeModel = { uri: string; disposed: boolean; dispose: () => void };
 const models: FakeModel[] = [];
+const created: Array<Record<string, unknown>> = [];
 const noop = () => ({ dispose: () => undefined });
 
 const fakeMonaco = {
@@ -38,6 +39,7 @@ const fakeMonaco = {
     },
     // Like monaco's: a disposed editor has detached its model.
     create: (_element: HTMLElement, options: { model: FakeModel | null }) => {
+      created.push(options);
       let model = options.model;
       return {
         getModel: () => model,
@@ -105,4 +107,12 @@ it("disposes every model it created once the view unmounts", async () => {
 
   expect(models).toHaveLength(3);
   expect(models.filter((model) => !model.disposed)).toEqual([]);
+});
+
+it("names the editor's text field for the file, not Monaco's \"Editor content\"", async () => {
+  created.length = 0;
+  const view = render(<ViewerHostContext.Provider value={testViewerHost()}><CodeRenderer {...props} /></ViewerHostContext.Provider>);
+  await act(async () => { await Promise.resolve(); });
+  expect(created[0]).toMatchObject({ ariaLabel: "part.py" });
+  view.unmount();
 });
