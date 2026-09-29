@@ -29,8 +29,15 @@ export function isNotInstalledError(message: string | null | undefined): boolean
 /**
  * A session can start with it: it can launch — its CLI is installed, or its
  * adapter runs without one (`launchWithoutBinary`: Claude Code, Codex) — and
- * detection found it signed in, or it needs no sign-in. "unknown" is not
- * ready: detection found no credentials.
+ * detection found it signed in, or it needs no sign-in.
+ *
+ * Deliberately cautious: "unknown" (detection had no env var, check command
+ * or credentials file to go by — Copilot and Kiro always, Claude Code in the
+ * keychain) is not ready here. Onboarding uses this, so its Continue says
+ * "without an agent" until one is confirmed. The new-session screen's "No
+ * agent ready" card is deliberately permissive instead: it counts only
+ * "unauthenticated" against an agent, because an unknown one may well work
+ * and nagging on every new session would be wrong (NewSession.tsx).
  */
 export function isAgentReady(agent: AgentStatus): boolean {
   return (agent.installed || agent.launchWithoutBinary) && (agent.auth === "authenticated" || agent.auth === "not-required");

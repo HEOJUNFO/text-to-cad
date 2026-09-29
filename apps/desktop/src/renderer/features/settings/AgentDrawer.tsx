@@ -46,12 +46,20 @@ const AUTH_TONE: Record<AuthState, Tone> = {
   "not-required": "ok",
 };
 
-const AUTH_LABEL: Record<AuthState, string> = {
+// "unknown" says only what detection knows — whether the CLI is here — the
+// same words as the agent rows (`features/session/agent-setup.tsx`).
+const AUTH_LABEL: Record<Exclude<AuthState, "unknown">, string> = {
   authenticated: "Signed in",
   unauthenticated: "Not signed in",
-  unknown: "Unknown",
   "not-required": "No sign-in needed",
 };
+
+export function authLabel(agent: Pick<AgentStatus, "auth" | "installed">): string {
+  if (agent.auth === "unknown") {
+    return agent.installed ? "Installed" : "Not installed";
+  }
+  return AUTH_LABEL[agent.auth];
+}
 
 /** What `capabilities` means in a sentence, for the "Supports:" line. */
 function supports(agent: AgentStatus): string {
@@ -252,7 +260,7 @@ function AuthenticationSection({ agent }: { agent: AgentStatus }) {
 
   return (
     <Section
-      action={<StatusLabel tone={AUTH_TONE[agent.auth]}>{AUTH_LABEL[agent.auth]}</StatusLabel>}
+      action={<StatusLabel tone={AUTH_TONE[agent.auth]}>{authLabel(agent)}</StatusLabel>}
       title="Authentication"
     >
       {cliLogin ? (

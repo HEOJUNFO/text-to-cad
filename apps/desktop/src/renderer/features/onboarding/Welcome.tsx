@@ -21,6 +21,7 @@ export function Welcome() {
   const finish = () => void patch({ onboardingCompleted: true });
   // On the agent step, Continue says what it means when nothing can run yet:
   // the rest of the app opens, but a session will not start until one is.
+  // Cautious on purpose: unknown sign-in is not ready here (see `isAgentReady`).
   const anyAgentReady = useAgents((state) => state.agents.some(isAgentReady));
   const continueLabel = step === 1 && !anyAgentReady ? "Continue without an agent" : "Continue";
 

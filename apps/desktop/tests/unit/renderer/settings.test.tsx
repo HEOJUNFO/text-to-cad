@@ -15,7 +15,7 @@ import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
 import { SettingCard, SettingRow } from "@renderer/features/settings/SettingCard";
 import { SettingsRoute } from "@renderer/features/settings/SettingsRoute";
 import { matchesQuery } from "@renderer/features/settings/search";
-import { parseEnv, formatEnv } from "@renderer/features/settings/AgentDrawer";
+import { authLabel, parseEnv, formatEnv } from "@renderer/features/settings/AgentDrawer";
 import { agentIcon, agentIconIds } from "@renderer/lib/agent-icons";
 import { SHORTCUTS, shortcutKeys, shortcutsIn } from "@renderer/lib/shortcuts";
 import { useSettings } from "@renderer/state/settings";
@@ -153,5 +153,14 @@ describe("the per-agent environment editor", () => {
 
   it("keeps everything after the first = , which is where tokens live", () => {
     expect(parseEnv("TOKEN=a=b=c")).toEqual({ TOKEN: "a=b=c" });
+  });
+});
+
+describe("the drawer's sign-in label", () => {
+  it("speaks the agent rows' words: Not signed in when signed out, only what detection knows when unknown", () => {
+    expect(authLabel({ auth: "unauthenticated", installed: true })).toBe("Not signed in");
+    expect(authLabel({ auth: "unknown", installed: true })).toBe("Installed");
+    expect(authLabel({ auth: "unknown", installed: false })).toBe("Not installed");
+    expect(authLabel({ auth: "authenticated", installed: true })).toBe("Signed in");
   });
 });
