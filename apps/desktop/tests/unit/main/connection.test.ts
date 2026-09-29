@@ -25,11 +25,12 @@ function connect(options: {
   record?: (frame: RecordedFrame) => void;
   onTerminalOutput?: (terminalId: string, data: string) => void;
   onFilesChanged?: (paths: string[]) => void;
+  agentId?: string;
 }) {
   const args = [FAKE_AGENT, ...(options.fixture ? ["--fixture", options.fixture] : [])];
   const connection = new SessionConnection({
     sessionId: "test-session",
-    agentId: "fake",
+    agentId: options.agentId ?? "fake",
     launch: { command: process.execPath, args, env: {} },
     env: { PATH: process.env.PATH ?? "" },
     cwd: options.cwd,
@@ -248,6 +249,18 @@ describe("SessionConnection against the fake agent", () => {
     expect(connection.alive).toBe(false);
     expect(events.some((event) => event.type === "status" && event.status === "error" && /code 3/.test(event.error ?? ""))).toBe(true);
     expect(events.some((event) => event.type === "prompt/error")).toBe(true);
+  });
+
+  it("tells the person which agent stopped during the turn, in words, not as an RPC method", async () => {
+    const events: SessionEvent[] = [];
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const connection = connect({ cwd: await scratch(), agentId: "claude-code", onEvent: (event) => events.push(event) });
+    await connection.newSession();
+    await expect(connection.prompt([{ type: "text", text: "please crash" }])).rejects.toThrow(/^Claude Code exited during the turn\./);
+    const shown = events.find((event) => event.type === "prompt/error");
+    expect(shown && "message" in shown ? shown.message : "").not.toContain("session/prompt");
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("session/prompt: claude-code exited"));
+    warn.mockRestore();
   });
 
   it("close is idempotent and ends with a closed status", async () => {

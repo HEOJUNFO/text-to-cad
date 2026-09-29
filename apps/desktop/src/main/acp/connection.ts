@@ -56,6 +56,7 @@ import {
   type SessionState,
 } from "../../shared/acp/types";
 import type { Launch } from "../../shared/agents";
+import { agentProvider } from "../agents/registry";
 import { AcpClient } from "./client";
 import { TerminalManager, type SpawnTerminal, type TerminalOutputListener } from "./terminals";
 
@@ -112,6 +113,13 @@ export type SessionConnectionOptions = {
 };
 
 export type ProcessExit = { code: number | null; signal: NodeJS.Signals | null };
+
+/** When an adapter that exited under a request did so, as the person reads it. */
+const EXIT_PHASE: Record<string, string> = {
+  "session/prompt": "during the turn",
+  "session/new": "while starting the session",
+  "session/load": "while reopening the session",
+};
 
 export class SessionConnection {
   readonly client: AcpClient;
@@ -519,7 +527,7 @@ export class SessionConnection {
     }
     const detail = this.stderrTail.slice(-5).join("\n");
     const message =
-      `${this.options.agentId} exited unexpectedly` +
+      `${agentProvider(this.options.agentId)?.name ?? this.options.agentId} exited unexpectedly` +
       (exit.code !== null ? ` (code ${exit.code})` : exit.signal ? ` (${exit.signal})` : "") +
       (detail ? `:\n${detail}` : "");
     this.dispatch({ type: "status", status: "error", error: message, at: Date.now() });
@@ -541,10 +549,11 @@ export class SessionConnection {
       if (this.exit !== null || this.agent.signal.aborted) {
         const tail = this.stderrTail.slice(-5).join("\n");
         const code = this.exit?.code;
-        return new Error(
-          `${method}: ${this.options.agentId} exited${code != null ? ` (code ${code})` : ""}${tail ? `:\n${tail}` : ""}`,
-          { cause: error },
-        );
+        // The method and the agent id are for the log; the person reads
+        // which agent stopped and when, in words.
+        console.warn(`[acp] ${method}: ${this.options.agentId} exited${code != null ? ` (code ${code})` : ""}`);
+        const name = agentProvider(this.options.agentId)?.name ?? this.options.agentId;
+        return new Error(`${name} exited ${EXIT_PHASE[method] ?? "unexpectedly"}.${tail ? `\n${tail}` : ""}`, { cause: error });
       }
       return error;
     }
