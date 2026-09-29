@@ -27,12 +27,12 @@ const LISTINGS = {
 
 // Stable, as a host's is: the tree re-reads the reveal whenever `load` changes.
 const noLoad = () => {};
-function Tree({ activePath = null as string | null, onOpen = (_: string) => {}, listings = LISTINGS as Record<string, any[]> }) {
+function Tree({ activePath = null as string | null, onOpen = (_: string) => {}, listings = LISTINGS as Record<string, any[]>, fails = false }) {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [active, setActive] = useState(activePath);
   const source = { rootName: 'project', expanded, setExpanded, listings, load: noLoad, revision: 0,
     paths: async () => ['.git/config', '.github/ci.yml', 'STEP/bracket.step', 'notes.txt', 'part.step'], platform: 'darwin', onAction() {} };
-  return <FileTree source={source as any} activePath={active} onOpen={(path: string) => { setActive(path); onOpen(path); }} />;
+  return <FileTree source={source as any} activePath={active} onOpen={(path: string) => { if (!fails) setActive(path); onOpen(path); }} />;
 }
 const rows = () => [...document.querySelectorAll<HTMLElement>('[data-path]')].map(row => row.dataset.path);
 
@@ -86,4 +86,19 @@ it('picking the file already open, from a folder shut by hand, opens the folder 
   expect(filter.value).toBe('');
   expect(rows()).toContain('STEP/bracket.step');
   expect(scrolled).toContain('STEP/bracket.step');
+});
+
+it('a pick that did not open never pulls the tree to it later, when its folder is opened by hand', async () => {
+  const onOpen = vi.fn();
+  render(<Tree fails onOpen={onOpen} />);
+  const filter = screen.getByRole('textbox', { name: 'Filter files' }) as HTMLInputElement;
+  fireEvent.change(filter, { target: { value: 'bracket' } });
+  await waitFor(() => expect(rows()).toEqual(['STEP/bracket.step']));
+  fireEvent.click(document.querySelector('[data-path="STEP/bracket.step"]')!);
+  expect(onOpen).toHaveBeenCalledWith('STEP/bracket.step');
+  expect(rows()).not.toContain('STEP/bracket.step');
+  scrolled.length = 0;
+  fireEvent.click(document.querySelector('[data-path="STEP"]')!);
+  expect(rows()).toContain('STEP/bracket.step');
+  expect(scrolled).not.toContain('STEP/bracket.step');
 });

@@ -129,7 +129,13 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
    * it again.
    */
   const [revealAgain, setRevealAgain] = useState(0);
-  /** A file picked from the filter, scrolled to once the tree has its row. */
+  /**
+   * A file picked from the filter, scrolled to once the tree has its row —
+   * and only while it is the file the tree reveals. A pick that did not open
+   * (or a reveal aimed elsewhere) is dropped: the next pick replaces it, the
+   * reveal moving to another path clears it, and so does a folder opened or
+   * shut by hand, so it can never pull the tree somewhere later.
+   */
   const pendingScroll = useRef(null);
   const [cursor, setCursor] = useState(null);
   /** @type {[TreeEditRequest|null, Function]} */
@@ -280,6 +286,7 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
    */
   const toggle = useCallback(
     (directory) => {
+      pendingScroll.current = null;
       const opening = !expanded.has(directory);
       setExpanded((current) => {
         const next = new Set(current);
@@ -410,7 +417,7 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
    */
   useEffect(() => {
     const target = pendingScroll.current;
-    if (!target || filtering) {
+    if (!target || filtering || target !== revealTarget) {
       return;
     }
     const row = listRef.current?.querySelector(`[data-path="${CSS.escape(target)}"]`);
@@ -418,7 +425,18 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
       pendingScroll.current = null;
       row.scrollIntoView({ block: "nearest" });
     }
-  }, [rows, filtering]);
+  }, [rows, filtering, revealTarget]);
+
+  // The reveal moved on to another path: whatever was picked is not coming.
+  const pickedRevealTarget = useRef(revealTarget);
+  useEffect(() => {
+    if (revealTarget !== pickedRevealTarget.current) {
+      pickedRevealTarget.current = revealTarget;
+      if (pendingScroll.current !== revealTarget) {
+        pendingScroll.current = null;
+      }
+    }
+  }, [revealTarget]);
 
   /** Where the "new entry" field goes: first among its folder's children. */
   const creatingAt = useMemo(() => {
