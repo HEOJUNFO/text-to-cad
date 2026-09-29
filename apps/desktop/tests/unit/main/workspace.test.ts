@@ -290,6 +290,47 @@ describe("releaseWorkspace for an abandoned create", () => {
   });
 });
 
+describe("releaseWorkspace for an abandoned create cut from a fetched tip", () => {
+  it("deletes the branch this create made while it is still at its base, even when local HEAD is behind it", async () => {
+    const { base, project, settings } = await fixture();
+    const git = (cwd: string, ...args: string[]) => run("git", args, { cwd, env: GIT_ENV });
+    // A remote one commit ahead of the checkout: the fetch before creating
+    // cuts the branch from there, and `git branch -d` measures against the
+    // checkout's HEAD, which does not contain it.
+    const remote = path.join(base, "remote.git");
+    await git(base, "init", "--quiet", "--bare", "--initial-branch=main", remote);
+    await git(project.path, "remote", "add", "origin", remote);
+    await git(project.path, "push", "--quiet", "-u", "origin", "main");
+    const other = path.join(base, "other");
+    await git(base, "clone", "--quiet", remote, other);
+    await writeFile(path.join(other, "ahead.txt"), "ahead\n");
+    await git(other, "add", "-A");
+    await git(other, "commit", "--quiet", "-m", "ahead");
+    await git(other, "push", "--quiet", "origin", "main");
+
+    const fetching = { ...settings, fetchBeforeCreate: true };
+    const made = await resolveWorkspace({ project, settings: fetching, gitMode: "worktree", name: "never opened" });
+    const sessionHead = (await git(made.cwd, "rev-parse", "HEAD")).stdout.trim();
+    expect(sessionHead).toBe((await git(project.path, "rev-parse", "origin/main")).stdout.trim());
+
+    expect(
+      await releaseWorkspace({ worktreePath: made.cwd, branch: made.branch, sessionHead }, { autoDeleteWorktrees: false }, { abandoned: true }),
+    ).toEqual({ removed: true });
+    expect((await git(project.path, "branch", "--list", made.branch!)).stdout.trim()).toBe("");
+
+    // A branch with a commit beyond where it was cut holds work: it stays.
+    const worked = await resolveWorkspace({ project, settings: fetching, gitMode: "worktree", name: "worked" });
+    const cut = (await git(worked.cwd, "rev-parse", "HEAD")).stdout.trim();
+    await writeFile(path.join(worked.cwd, "part.py"), "x = 1\n");
+    await git(worked.cwd, "add", "-A");
+    await git(worked.cwd, "commit", "--quiet", "-m", "work");
+    expect(
+      await releaseWorkspace({ worktreePath: worked.cwd, branch: worked.branch, sessionHead: cut }, { autoDeleteWorktrees: false }, { abandoned: true }),
+    ).toEqual({ removed: true });
+    expect((await git(project.path, "branch", "--list", worked.branch!)).stdout).toContain(worked.branch);
+  });
+});
+
 /**
  * The explorer's root check (plan §9): a tab, a terminal or an agent may
  * name the project directory or one of its worktrees, and nothing else on

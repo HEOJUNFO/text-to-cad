@@ -24,11 +24,11 @@ import path from "node:path";
 import { projects, sessions, settings } from "../db/repositories";
 import { loginEnv } from "../agents/shell-env";
 import * as git from "../projects/git";
-import { projectWorktreeDir, projectWorktreeDirs } from "../projects/workspace";
+import { projectWorktreeDir, projectWorktreeDirs, resolveWorkspace, type Workspace } from "../projects/workspace";
 import type { IpcHandlers } from "../../shared/ipc";
 import type { gitIpc, Worktree } from "../../shared/ipc/git";
 import { resolveDiffScope } from "../../shared/types";
-import type { Project, Session } from "../../shared/types";
+import type { GitMode, Project, Session } from "../../shared/types";
 import { fsCall, rootOf } from "./explorer";
 import type { IpcContext } from "./register";
 import { IpcError } from "./register";
@@ -161,13 +161,68 @@ export async function pruneProjectWorktrees(project: Project): Promise<void> {
       repoPath: project.path,
       parentDir: projectWorktreeDirs(stored, project),
       keep: stored.worktreeKeepLimit,
-      protectedPaths: [
+      // Read again before each removal, so a create that began after the
+      // sweep did is protected too.
+      protectedPaths: () => [
         ...sessions.list().flatMap((session) =>
           [session.cwd, session.projectId, session.worktreePath].filter((root): root is string => Boolean(root))),
         ...creating.keys(),
       ],
     })
     .catch(() => undefined);
+}
+
+/** Each created worktree's unmark and project, until its session row is written. */
+const settling = new Map<Workspace, { done: () => void; project: Project }>();
+
+/**
+ * P7: the git mode as a directory, and a worktree when the mode asks (plan
+ * §9) — `SessionManager`'s `workspace` dependency.
+ *
+ * A new worktree has no session row yet — that is written after this
+ * returns — so it is marked as being created until `sessionWorkspaceSettled`.
+ * The keep-limit sweep is not run here: dating every candidate worktree is
+ * git and file-system work the session's start has no reason to wait for.
+ */
+export async function sessionWorkspace(input: {
+  projectId: string;
+  gitMode: GitMode;
+  name?: string | undefined;
+  cwd?: string | undefined;
+}): Promise<Workspace> {
+  const project = projects.get(input.projectId);
+  if (!project) {
+    throw new Error("that project is no longer open");
+  }
+  const workspace = await resolveWorkspace({
+    project,
+    gitMode: input.gitMode,
+    settings: settings.get(),
+    name: input.name,
+    cwd: input.cwd,
+    knownWorktrees: sessions.list(project.id).flatMap(session => session.worktreePath ? [session.worktreePath] : []),
+  });
+  if (workspace.worktreePath) {
+    settling.set(workspace, { done: markCreating(workspace.worktreePath), project });
+  }
+  return workspace;
+}
+
+/**
+ * The row for `workspace` is written (or its create failed): the worktree
+ * is a session's now, or nobody's. One more worktree exists, so this is the
+ * moment the keep limit can be exceeded, and the sweep starts — unawaited,
+ * after the row, so the new one is protected as a session's directory and
+ * the session's start never waits on it.
+ */
+export function sessionWorkspaceSettled(workspace: Workspace): void {
+  const entry = settling.get(workspace);
+  if (!entry) {
+    return;
+  }
+  settling.delete(workspace);
+  entry.done();
+  void pruneProjectWorktrees(entry.project);
 }
 
 /* -------------------------------------------------------------------------- */

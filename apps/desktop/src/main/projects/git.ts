@@ -1141,6 +1141,11 @@ export type WorktreeInfo = {
   bare: boolean;
   detached: boolean;
   locked: boolean;
+  /**
+   * git could not find the folder (`prunable`). Not proof it was deleted: git
+   * says the same of a folder it cannot read, so `folderGone` is asked too.
+   */
+  prunable: boolean;
   /** The repository's own working tree — the one that cannot be removed. */
   primary: boolean;
 };
@@ -1173,6 +1178,7 @@ export function parseWorktreeList(output: string): WorktreeInfo[] {
         bare: false,
         detached: false,
         locked: false,
+        prunable: false,
         primary: worktrees.length === 0,
       };
       worktrees.push(current);
@@ -1191,6 +1197,8 @@ export function parseWorktreeList(output: string): WorktreeInfo[] {
       current.detached = true;
     } else if (key === "locked") {
       current.locked = true;
+    } else if (key === "prunable") {
+      current.prunable = true;
     }
   }
 
@@ -1389,8 +1397,8 @@ export async function removeWorktree(
   worktreePath: string,
   options: { force?: boolean; repoPath?: string } = {},
 ): Promise<void> {
-  const missing = await fsp.stat(worktreePath).then(() => false, () => true);
-  const root = missing && options.repoPath
+  const gone = await folderGone(worktreePath);
+  const root = gone && options.repoPath
     ? await repositoryRoot(options.repoPath)
     : await repositoryRoot(worktreePath);
   if (!root) {
@@ -1405,6 +1413,10 @@ export async function removeWorktree(
   if (target.primary) {
     throw new GitError("that is the repository itself, not a worktree");
   }
+  // Both have to agree. git's `prunable` alone is any folder it cannot see,
+  // an unreadable one included; our own ENOENT alone could be a folder that
+  // reappeared between the two reads.
+  const missing = gone && target.prunable;
   if (missing) {
     await git(root, ["worktree", "remove", target.path]);
     return;
@@ -1426,11 +1438,45 @@ export async function removeWorktree(
 }
 
 /**
+ * True when a worktree's folder is not there — ENOENT, or a path through a
+ * file. Any other failure (EACCES, EIO, a volume that is not mounted) is a
+ * folder that may still hold work, and throws: reading "could not look" as
+ * "deleted by hand" is how a removal unregisters somebody's checkout.
+ */
+async function folderGone(folder: string): Promise<boolean> {
+  try {
+    await fsp.stat(folder);
+    return false;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") {
+      return true;
+    }
+    throw new GitError(`could not read that worktree's folder (${code ?? String(error)}), so it was kept`);
+  }
+}
+
+/**
  * `git branch -d`: delete a branch only when its commits are reachable from
  * HEAD, so nothing on it is lost. Answers whether it went.
  */
 export async function deleteMergedBranch(repoPath: string, branch: string): Promise<boolean> {
   return (await tryGit(repoPath, ["branch", "-d", "--end-of-options", branch])) !== null;
+}
+
+/**
+ * Delete a branch only while it still points at `base`, the commit it was cut
+ * from — so it holds nothing of its own, wherever HEAD is. For a create that
+ * failed: its branch may start at a fetched remote tip the checkout is
+ * behind, which `git branch -d` refuses as unmerged. `update-ref -d` with the
+ * old value is that check and the delete in one step, so a commit landing in
+ * between is kept rather than raced. Answers whether it went.
+ */
+export async function deleteBranchAtBase(repoPath: string, branch: string, base: string): Promise<boolean> {
+  if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(base)) {
+    return false;
+  }
+  return (await tryGit(repoPath, ["update-ref", "-d", `refs/heads/${branch}`, base])) !== null;
 }
 
 /** Path comparison that survives a trailing separator and Windows' case rules. */
@@ -1449,9 +1495,11 @@ export type PruneOptions = {
   keep: number;
   /**
    * Directories sessions run in or belong to — never swept, and neither is a
-   * worktree that has one of them inside it.
+   * worktree that has one of them inside it. A function is asked again right
+   * before each removal: the sweep runs beside session creation rather than
+   * in front of it, and a session opened while it ran is protected too.
    */
-  protectedPaths?: string[];
+  protectedPaths?: readonly string[] | (() => readonly string[]);
 };
 
 /**
@@ -1466,19 +1514,24 @@ export type PruneOptions = {
  */
 export async function pruneWorktrees(options: PruneOptions): Promise<{ removed: string[] }> {
   const worktrees = await listWorktrees(options.repoPath);
-  const kept = options.protectedPaths ?? [];
+  const protectedNow = () =>
+    typeof options.protectedPaths === "function" ? options.protectedPaths() : (options.protectedPaths ?? []);
   const parents = typeof options.parentDir === "string" ? [options.parentDir] : options.parentDir;
+  // Inside counts too: a session opened on a folder in the worktree is
+  // running in it just as much as one at its root.
+  const held = (worktreePath: string) => protectedNow().some((protectedPath) =>
+    samePath(protectedPath, worktreePath) || isUnder(worktreePath, protectedPath));
 
+  const eligible = worktrees.filter((worktree) =>
+    !worktree.primary && !worktree.locked && parents.some((parent) => isUnder(parent, worktree.path)) &&
+    !held(worktree.path));
+  // Within the limit nothing goes, so nothing needs dating — the usual case,
+  // and the one every create would otherwise pay for.
+  if (eligible.length <= Math.max(0, options.keep)) {
+    return { removed: [] };
+  }
   const candidates: { path: string; usedAt: number }[] = [];
-  for (const worktree of worktrees) {
-    if (worktree.primary || worktree.locked || !parents.some((parent) => isUnder(parent, worktree.path))) {
-      continue;
-    }
-    // Inside counts too: a session opened on a folder in the worktree is
-    // running in it just as much as one at its root.
-    if (kept.some((protectedPath) => samePath(protectedPath, worktree.path) || isUnder(worktree.path, protectedPath))) {
-      continue;
-    }
+  for (const worktree of eligible) {
     candidates.push({ path: worktree.path, usedAt: (await lastWrittenAt(worktree.path)) ?? 0 });
   }
 
@@ -1487,11 +1540,16 @@ export async function pruneWorktrees(options: PruneOptions): Promise<{ removed: 
 
   const removed: string[] = [];
   for (const candidate of candidates.slice(Math.max(0, options.keep))) {
+    // Asked again: dating took a while, and a session may have opened on it since.
+    if (held(candidate.path)) {
+      continue;
+    }
     // Ignored files count as work here: `git worktree remove` deletes them.
     // So does a check that failed: only a proved-clean worktree goes — or a
-    // folder deleted by hand, which has nothing left to lose.
-    const missing = await fsp.stat(candidate.path).then(() => false, () => true);
-    if (!missing && (await hasUnsavedWork(candidate.path)) !== false) {
+    // folder deleted by hand, which has nothing left to lose. A folder that
+    // could not be read is neither, and stays.
+    const gone = await folderGone(candidate.path).catch(() => null);
+    if (gone === null || (!gone && (await hasUnsavedWork(candidate.path)) !== false)) {
       continue;
     }
     await removeWorktree(candidate.path, { repoPath: options.repoPath }).then(
@@ -1504,37 +1562,48 @@ export async function pruneWorktrees(options: PruneOptions): Promise<{ removed: 
   return { removed };
 }
 
+/** How many of a worktree's changed paths `lastWrittenAt` stats, at most. */
+const DATED_CHANGES = 200;
+
 /**
- * When anything in a worktree was last written: the newest mtime among its
- * tracked and untracked (not ignored) files. Null when the folder is gone.
+ * When anything in a worktree was last written. Null when the folder is gone.
  *
- * Not the folder's own mtime, which moves only when an entry directly in it
- * is added or removed — an afternoon of edits in `src/` leaves it where the
- * checkout put it, and the sweep would take the worktree being worked in
- * for the oldest. Not the branch's last commit either: an agent's edits are
- * uncommitted for most of their life. One `ls-files` and a stat per file is
- * the cheapest read that sees both; a stat is microseconds, and the sweep
- * only runs when a worktree is created.
+ * Not the folder's own mtime alone, which moves only when an entry directly
+ * in it is added or removed — an afternoon of edits in `src/` leaves it where
+ * the checkout put it, and the sweep would take the worktree being worked in
+ * for the oldest. And not a stat of every file: that was an `ls-files` and
+ * an lstat per file per worktree — a million stats for ten worktrees of a
+ * large repository, on every create and every Settings visit. Work is either
+ * committed or it differs from the commit, so the newest of:
+ *
+ * - the last commit's time (`log -1 --format=%ct`), and the worktree's own
+ *   index file, which every commit, add and checkout rewrites — the commit
+ *   time is in whole seconds, the index's mtime is not;
+ * - the paths `git status` says differ — git compares each tracked file to
+ *   the index's cached stat, in C and without a second listing, and only
+ *   what it names is stat'ed here, at most `DATED_CHANGES` of them.
  */
 export async function lastWrittenAt(worktreePath: string): Promise<number | null> {
   const folder = await fsp.stat(worktreePath).catch(() => null);
   if (!folder) {
     return null;
   }
-  const listed = await tryGit(worktreePath, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"]);
-  const files = (listed ?? "").split("\0").filter((file) => file !== "");
-  let newest = folder.mtimeMs;
-  for (let start = 0; start < files.length; start += 256) {
-    const stats = await Promise.all(
-      files.slice(start, start + 256).map((file) => fsp.lstat(path.join(worktreePath, file)).catch(() => null)),
-    );
-    for (const stat of stats) {
-      if (stat && stat.mtimeMs > newest) {
-        newest = stat.mtimeMs;
-      }
-    }
-  }
-  return newest;
+  const [committed, indexPath, changed] = await Promise.all([
+    tryGit(worktreePath, ["log", "-1", "--format=%ct"]),
+    tryGit(worktreePath, ["rev-parse", "--git-path", "index"]),
+    tryGit(worktreePath, ["status", "--porcelain=v1", "-z"]),
+  ]);
+  const seconds = Number(committed?.trim());
+  const paths = [
+    ...(indexPath?.trim() ? [path.resolve(worktreePath, indexPath.trim())] : []),
+    ...parsePorcelainStatus(changed ?? "").files.slice(0, DATED_CHANGES).map((file) => path.join(worktreePath, file.path)),
+  ];
+  const stats = await Promise.all(paths.map((target) => fsp.lstat(target).catch(() => null)));
+  return Math.max(
+    folder.mtimeMs,
+    Number.isFinite(seconds) ? seconds * 1000 : 0,
+    ...stats.map((stat) => stat?.mtimeMs ?? 0),
+  );
 }
 
 /** True when `child` is inside `parent` — the test that keeps the sweep in its own root. */

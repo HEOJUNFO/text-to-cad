@@ -666,6 +666,34 @@ describe("SessionManager", () => {
     expect(row.turnStartedAt).toBeGreaterThan(0);
   });
 
+  it("refuses a block the agent did not say it takes before the turn is marked, titled or begun", async () => {
+    let head = "the-session-starts-here";
+    const { repo, manager, cwd } = await setup({
+      head: async () => head,
+      launchOverride: () => ({ ...fakeProvider.launch, env: { FAKE_AGENT_PROMPT_CAPABILITIES: "{}" } }),
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    head = "would-be-the-turn";
+
+    const answer = await manager
+      .prompt(session.id, [{ type: "text", text: "look" }, { type: "image", data: "AAAA", mimeType: "image/png", uri: null }])
+      .catch(() => null);
+
+    // Nothing moved: `Last turn` still measures the last turn that happened,
+    // and the refusal is not a failed turn — no error state, no Retry.
+    const row = repo.get(session.id)!;
+    expect(row.turnHead).toBe("the-session-starts-here");
+    expect(row.turnStartedAt).toBeNull();
+    expect(row.title).toBe("New session");
+    expect(manager.state(session.id)?.state.status).toBe("idle");
+    expect(manager.state(session.id)?.state.turns).toEqual([]);
+    // The reason, as an answer the renderer shows beside the draft it keeps.
+    expect(answer).toEqual({
+      stopReason: "refused",
+      refused: "claude-code cannot take images in a prompt (no image prompt capability)",
+    });
+  });
+
   it("keeps the previous turn mark when git cannot read HEAD at the next turn", async () => {
     const head = vi.fn<(cwd: string) => Promise<string | null>>()
       .mockResolvedValueOnce("the-session-starts-here")

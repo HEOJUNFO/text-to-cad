@@ -64,11 +64,13 @@ export const acpContract = {
     ),
     /**
      * Send a prompt. Resolves when the turn ends (the whole turn streams on
-     * `session.update` in the meantime), with the agent's stop reason.
+     * `session.update` in the meantime), with the agent's stop reason — or at
+     * once with `refused`, the reason, when the prompt holds a block the agent
+     * did not say it takes; no turn began and nothing was written.
      */
     prompt: invoke(
       Id.extend({ content: z.array(PromptBlockSchema).min(1) }),
-      z.object({ stopReason: z.string() }),
+      z.object({ stopReason: z.string(), refused: z.string().optional() }),
     ),
     cancel: invoke(Id, z.void()),
     /**

@@ -310,14 +310,21 @@ async function explicitWorkspace(cwd: string, input: ResolveInput): Promise<Work
  * says so — the settings page is where someone can look at it and decide.
  *
  * `abandoned` — a create that failed after making the worktree — skips the
- * setting and takes the branch too, with `git branch -d`: nobody chose to
- * keep a worktree no session ever opened, and a branch still where it was
- * cut holds nothing. `-d` refuses a branch with commits of its own, which
- * then stays.
+ * setting and takes the branch too: nobody chose to keep a worktree no
+ * session ever opened, and a branch still where it was cut holds nothing.
+ * "Where it was cut" is the session's recorded `sessionHead`, not HEAD — a
+ * branch cut from a fetched remote tip is not merged into a checkout that is
+ * behind it, and `git branch -d` would keep it for that. A branch with
+ * commits of its own stays; with no recorded head, `-d` decides.
  */
 export async function releaseWorkspace(
   /** `projectId` is the project's directory: the repository to ask when the folder is gone. */
-  session: { worktreePath?: string | undefined; branch?: string | undefined; projectId?: string | undefined },
+  session: {
+    worktreePath?: string | undefined;
+    branch?: string | undefined;
+    projectId?: string | undefined;
+    sessionHead?: string | null | undefined;
+  },
   settings: Pick<Settings, "autoDeleteWorktrees">,
   options: { abandoned?: boolean } = {},
 ): Promise<{ removed: boolean; reason?: string }> {
@@ -333,7 +340,9 @@ export async function releaseWorkspace(
       : undefined;
     await git.removeWorktree(session.worktreePath, session.projectId ? { repoPath: session.projectId } : {});
     if (primary && session.branch) {
-      await git.deleteMergedBranch(primary, session.branch);
+      await (session.sessionHead
+        ? git.deleteBranchAtBase(primary, session.branch, session.sessionHead)
+        : git.deleteMergedBranch(primary, session.branch));
     }
     return { removed: true };
   } catch (error) {

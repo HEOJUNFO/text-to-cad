@@ -268,8 +268,9 @@ describe("SessionConnection against the fake agent", () => {
   /**
    * `promptCapabilities` is what the agent said it takes beyond text and a
    * resource link. An image or an embedded file sent to one that did not say
-   * so is a prompt it may choke on or silently drop; it is refused here, in
-   * the transcript, and nothing reaches the agent.
+   * so is a prompt it may choke on or silently drop; it is refused here and
+   * nothing reaches the agent — nor the transcript: no turn began, so there
+   * is no failed turn to show (the manager keeps the draft and says why).
    */
   it("refuses an image or a file's contents the agent did not say it takes, before the wire", async () => {
     const frames: RecordedFrame[] = [];
@@ -287,11 +288,10 @@ describe("SessionConnection against the fake agent", () => {
       connection.prompt([{ type: "resource", uri: "file:///a.py", text: "print(1)", mimeType: null }]),
     ).rejects.toThrow("fake cannot take a file's contents in a prompt (no embeddedContext prompt capability)");
     expect(frames.some((frame) => (frame.msg as { method?: string }).method === "session/prompt")).toBe(false);
-    const errors = connection.state.turns.flatMap((turn) => turn.parts).filter((part) => part.type === "error");
-    expect(errors.map((part) => part.type === "error" && part.message)).toEqual([
-      "fake cannot take images in a prompt (no image prompt capability)",
-      "fake cannot take a file's contents in a prompt (no embeddedContext prompt capability)",
-    ]);
+    expect(connection.state.turns).toEqual([]);
+    expect(connection.state.status).toBe("idle");
+    expect(connection.refusal([{ type: "resource", uri: "file:///a.py", text: "print(1)", mimeType: null }]))
+      .toBe("fake cannot take a file's contents in a prompt (no embeddedContext prompt capability)");
 
     // Text and a resource link are every agent's baseline.
     const response = await connection.prompt([{ type: "text", text: "say ok" }, { type: "resource_link", uri: "file:///a.py", name: "a.py", mimeType: null, title: null }]);
