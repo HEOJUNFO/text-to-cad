@@ -115,16 +115,28 @@ describe("PermissionCard", () => {
     expect(respond).toHaveBeenCalledWith({ id: "s1", requestId: "perm-1", optionId: "allow-always" });
   });
 
-  it("says the request has expired when the answer is refused, rather than doing nothing", async () => {
+  it("shows main's reason when the answer is refused, rather than doing nothing", async () => {
     const user = userEvent.setup();
     const respond = vi.fn(async () => {
-      throw new Error("the session is not connected; load it first");
+      throw new Error(
+        "Error invoking remote method 'text-to-cad:sessions.respondPermission': IpcError: the session is not connected; load it first",
+      );
     });
     (window.textToCad.sessions as unknown as { respondPermission: unknown }).respondPermission = respond;
     wrap(<PermissionCard part={part} sessionId="s1" />);
-    expect(screen.queryByText(/This request has expired/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Yes" }));
     expect(respond).toHaveBeenCalled();
+    expect(await screen.findByRole("status")).toHaveTextContent(/^the session is not connected; load it first$/);
+  });
+
+  it("falls back to the expired line when the refusal has no message", async () => {
+    const user = userEvent.setup();
+    (window.textToCad.sessions as unknown as { respondPermission: unknown }).respondPermission = vi.fn(async () => {
+      throw new Error("");
+    });
+    wrap(<PermissionCard part={part} sessionId="s1" />);
+    await user.click(screen.getByRole("button", { name: "Yes" }));
     expect(await screen.findByText("This request has expired — reconnect and ask again.")).toBeInTheDocument();
   });
 

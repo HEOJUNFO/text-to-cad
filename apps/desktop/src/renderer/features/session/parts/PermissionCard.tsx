@@ -9,7 +9,11 @@ import {
   ConfirmationTitle,
 } from "@renderer/components/ai-elements/confirmation";
 import { useAcp } from "@renderer/state/acp";
+import { errorMessage } from "@shared/ipc/errors";
 import type { PermissionOption, PermissionRequestPart } from "@shared/acp/types";
+
+/** The card's line for a refusal that carries no reason of its own. */
+const EXPIRED = "This request has expired — reconnect and ask again.";
 
 /**
  * A `session/request_permission` as AI Elements' Confirmation: the title
@@ -23,11 +27,15 @@ import type { PermissionOption, PermissionRequestPart } from "@shared/acp/types"
  *
  * An answer main refuses — the adapter is gone (a session reopened after a
  * crash), or the request was already answered — says so on the card; it is
- * never a click that silently does nothing.
+ * never a click that silently does nothing. The card shows main's own
+ * reason (not connected, expired, an IPC failure), and the expired line only
+ * when the rejection carries no message.
  */
+
 export function PermissionCard({ part, sessionId }: { part: PermissionRequestPart; sessionId: string }) {
   const respond = useAcp((state) => state.respondPermission);
-  const [expired, setExpired] = useState(false);
+  /** Main's reason an answer was refused, shown on the card; null until one is. */
+  const [refusal, setRefusal] = useState<string | null>(null);
   const outcome = part.outcome;
 
   if (outcome.state !== "pending") {
@@ -83,8 +91,10 @@ export function PermissionCard({ part, sessionId }: { part: PermissionRequestPar
             className="h-7 px-2.5 text-[12px]"
             key={option.optionId}
             onClick={() => {
-              setExpired(false);
-              respond(sessionId, part.requestId, option.optionId).catch(() => setExpired(true));
+              setRefusal(null);
+              respond(sessionId, part.requestId, option.optionId).catch((error: unknown) =>
+                setRefusal(errorMessage(error) || EXPIRED),
+              );
             }}
             title={option.description ?? undefined}
             variant={variantFor(option)}
@@ -93,9 +103,9 @@ export function PermissionCard({ part, sessionId }: { part: PermissionRequestPar
           </ConfirmationAction>
         ))}
       </ConfirmationActions>
-      {expired ? (
+      {refusal ? (
         <p className="text-[12px] leading-5 text-muted-foreground" role="status">
-          This request has expired — reconnect and ask again.
+          {refusal}
         </p>
       ) : null}
     </Confirmation>
