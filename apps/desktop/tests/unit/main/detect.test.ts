@@ -212,4 +212,17 @@ describe("the login shell environment", () => {
     const plain = { ANTHROPIC_BASE_URL: "http://proxy", PATH: "/a" };
     expect(stripHostSession(plain)).toBe(plain);
   });
+
+  it("strips the host session's scratch and plugin directories too", () => {
+    // Both are set in a host Claude Code session (seen 2026-09-29); a nested
+    // `claude` would write its temp files and plugin data into the host's.
+    const nested = stripHostSession({
+      CLAUDECODE: "1",
+      CLAUDE_TMPDIR: "/private/tmp/claude-501",
+      CLAUDE_PLUGIN_DATA: "/Users/me/.claude/plugins/data/x",
+      CLAUDE_CONFIG_DIR: "/Users/me/.claude-work",
+      PATH: "/a",
+    });
+    expect(nested).toEqual({ CLAUDE_CONFIG_DIR: "/Users/me/.claude-work", PATH: "/a" });
+  });
 });
