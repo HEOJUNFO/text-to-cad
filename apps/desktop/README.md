@@ -1164,9 +1164,11 @@ change: the tab follows the file to its new name, and its holds go with it.
 The app's own save is an atomic rename, a new inode at the same path, so the
 inode is taken again whenever the file changes under its name. An opened link
 is an alias: its target's directory is watched and the target's changes are
-repeated under the link's name; the link's own inode is its identity, taken
-again when `ln -sfn` re-points it, so renaming the link still moves its tab,
-while moving the target leaves the link dangling — a removal to its tab. A
+repeated under the link's name; the link's own inode is its identity. When
+`ln -sfn` re-points it, the inode is taken again and the alias moves to the
+new target (a target outside the root is none), so its changes are the ones
+repeated and renaming the link still moves its tab; moving the target leaves
+the link dangling — a removal to its tab. A
 tab that remounts gives its paths back and takes them again; a release that
 overtakes the watch it follows is counted (`arriving`, `owed`) and given back
 once that watch holds, so no hold is left behind.

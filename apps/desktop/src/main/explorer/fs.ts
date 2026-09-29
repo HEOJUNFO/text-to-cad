@@ -822,7 +822,8 @@ type WatchedRoot = {
  * removal and an arrival with the same inode leave as one `moved` change
  * (`pairMoves`), the holds moving with it. An opened link is an alias
  * (`aliases`): its target's changes are repeated under its name, and its own
- * inode — taken again when `ln -sfn` re-points it — is its identity. A
+ * inode is its identity; when `ln -sfn` re-points it, the inode is taken
+ * again and the alias follows the new target (`retarget`). A
  * release that overtakes the watch it follows is counted (`arriving`,
  * `owed`) and given back once that watch holds.
  *
