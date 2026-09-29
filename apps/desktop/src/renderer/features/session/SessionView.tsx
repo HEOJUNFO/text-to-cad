@@ -1,5 +1,5 @@
 import LoadingIcon from "@text-to-cad/ui/loading-icon";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Loader2, RotateCcw, Unplug } from "lucide-react";
 import { toast } from "sonner";
 
@@ -192,6 +192,25 @@ export function SessionView({ session }: { session: Session }) {
   // A failed prompt is already in the transcript with its Retry; the banner
   // is for a connection that died with nothing to attach the message to.
   const lastAgentTurn = state?.turns.findLast((turn) => turn.role === "agent") ?? null;
+  const composerDisabled = !state || state.status === "connecting" || state.status === "closed";
+  // A bar's Reconnect goes with its bar, and the composer is disabled until the agent is back:
+  // focus waits on the composer's row (a group, so it is somewhere) and goes into the box when it
+  // opens. Left alone it fell to the page, where no key reaches anything.
+  const composerRow = useRef<HTMLDivElement | null>(null);
+  const focusOnReconnect = useRef(false);
+  const reconnectFromBar = () => {
+    focusOnReconnect.current = true;
+    composerRow.current?.focus();
+    void load(session.id);
+  };
+  useEffect(() => {
+    if (!focusOnReconnect.current || composerDisabled) return;
+    focusOnReconnect.current = false;
+    const row = composerRow.current;
+    if (row && (row.contains(document.activeElement) || document.activeElement === document.body)) {
+      row.querySelector<HTMLElement>("[data-composer-input]")?.focus();
+    }
+  }, [composerDisabled]);
   const errorInTranscript = lastAgentTurn?.parts.at(-1)?.type === "error";
   const showErrorBanner = state?.status === "error" && !!state.error && !errorInTranscript;
   return (
@@ -221,12 +240,12 @@ export function SessionView({ session }: { session: Session }) {
       )}
 
       <div className="shrink-0 px-6 pb-4">
-        <div className="mx-auto flex w-full max-w-[720px] flex-col gap-2">
+        <div aria-label="Composer" className="mx-auto flex w-full max-w-[720px] flex-col gap-2 outline-none" ref={composerRow} role="group" tabIndex={-1}>
           {showErrorBanner && state?.error && !isAuthError(state.error) ? (
             <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-[13px] leading-5" role="status">
               <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
               <span className="min-w-0 flex-1 whitespace-pre-wrap">{state.error}</span>
-              <Button className="h-6 gap-1 px-2 text-[12px]" onClick={() => void load(session.id)} size="sm" variant="outline">
+              <Button className="h-6 gap-1 px-2 text-[12px]" onClick={reconnectFromBar} size="sm" variant="outline">
                 <RotateCcw className="size-3" />
                 Reconnect
               </Button>
@@ -247,7 +266,7 @@ export function SessionView({ session }: { session: Session }) {
               <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-[13px] leading-5" data-reconnect-failed role="status">
                 <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
                 <span className="min-w-0 flex-1 whitespace-pre-wrap">{loadError}</span>
-                <Button className="h-6 gap-1 px-2 text-[12px]" onClick={() => void load(session.id)} size="sm" variant="outline">
+                <Button className="h-6 gap-1 px-2 text-[12px]" onClick={reconnectFromBar} size="sm" variant="outline">
                   <RotateCcw className="size-3" />
                   Reconnect
                 </Button>
@@ -258,7 +277,7 @@ export function SessionView({ session }: { session: Session }) {
             <div className="flex items-center gap-2 rounded-xl border px-3 py-2 text-[13px] leading-5" data-disconnected role="status">
               <Unplug className="size-3.5 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1 text-muted-foreground">Agent disconnected</span>
-              <Button className="h-6 gap-1 px-2 text-[12px]" onClick={() => void load(session.id)} size="sm" variant="outline">
+              <Button className="h-6 gap-1 px-2 text-[12px]" onClick={reconnectFromBar} size="sm" variant="outline">
                 <RotateCcw className="size-3" />
                 Reconnect
               </Button>
@@ -281,7 +300,7 @@ export function SessionView({ session }: { session: Session }) {
               </>
             }
             commands={state?.availableCommands ?? []}
-            disabled={!state || state.status === "connecting" || state.status === "closed"}
+            disabled={composerDisabled}
             onStop={() => reportRefusal(cancel(session.id), "stop the turn", "Could not")}
             onSubmit={onSubmit}
             placeholder={running ? "Send another message — it goes next" : "Do anything"}
