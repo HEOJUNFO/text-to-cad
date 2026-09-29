@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   CadRuntime,
+  execCommand,
   bundledPaths,
   findCheckout,
   readBundleMarker,
@@ -40,6 +41,18 @@ type Machine = {
   resources: string;
   execs: Array<{ file: string; args: string[]; env: Record<string, string> }>;
 };
+
+/** What `python -m cadgen.cli doctor --json` prints for an install. */
+function doctorReport(answer: { version: string; viewer: boolean }, kernel: { ok: boolean; state: string; error: string | null } = { ok: true, state: "ok", error: null }) {
+  return {
+    version: answer.version,
+    python: "3.13.15",
+    install: "/site/cadgen",
+    viewer: { ok: answer.viewer, error: answer.viewer ? null : "ImportError: no viewer" },
+    kernel: { ...kernel, path: kernel.state === "ok" || kernel.state === "unsupported" ? "/site/OCP/__init__.py" : null },
+    pin: { state: "none", file: null, pinned: null },
+  };
+}
 
 function machine(options: {
   checkout?: boolean;
@@ -106,7 +119,7 @@ function machine(options: {
       if (!answer) {
         return { stdout: "", stderr: "Traceback (most recent call last):\nModuleNotFoundError: No module named 'cadgen'", code: 1 };
       }
-      return { stdout: `${JSON.stringify(answer)}\n`, stderr: "", code: 0 };
+      return { stdout: `${JSON.stringify(doctorReport(answer))}\n`, stderr: "", code: 0 };
     },
   };
   return { host, userData, appRoot, resources, execs };
@@ -330,7 +343,7 @@ describe("status", () => {
     const m = machine({ bundle: true });
     const python = bundledPaths(m.resources, "darwin", "arm64").python;
     (m.host as { exec: RuntimeHost["exec"] }).exec = async () => ({
-      stdout: `${JSON.stringify({ version: "9.9.9", viewer: false })}\n`,
+      stdout: `${JSON.stringify(doctorReport({ version: "9.9.9", viewer: false }))}\n`,
       stderr: "",
       code: 0,
     });
@@ -354,6 +367,66 @@ describe("status", () => {
     const log = runtimeLogPath(m.userData);
     expect(status.log).toBe(log);
     expect(fs.readFileSync(log, "utf8")).toContain("No module named 'cadgen'");
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "is an error, in cadgen's words, when cadgen imports but the kernel its STEP path needs does not",
+    async () => {
+      // A real interpreter process: cadgen imports and answers its version,
+      // but `cadgen doctor --json` says its kernel check refuses the OCP it
+      // found (one from another distribution). Asked only whether cadgen
+      // imports, this interpreter would pass.
+      const kernelError =
+        "ValueError: op memo requires the cadquery-ocp-novtk distribution for persistent reuse " +
+        "(PackageNotFoundError: No package metadata was found for cadquery-ocp-novtk)";
+      const python = path.join(tempDir("text-to-cad-fake-python-"), "python");
+      fs.writeFileSync(
+        python,
+        [
+          "#!/bin/sh",
+          'if [ "$3" = doctor ]; then',
+          `  echo '${JSON.stringify(doctorReport({ version: "9.9.9", viewer: true }, { ok: false, state: "unsupported", error: kernelError }))}'`,
+          "  exit 0",
+          "fi",
+          `echo '${JSON.stringify({ version: "9.9.9", viewer: true, kernel: null })}'`,
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+      const m = machine({ env: { CAD_DESKTOP_PYTHON: python } });
+      (m.host as { exec: RuntimeHost["exec"] }).exec = (file, args, options) => execCommand(file, args, options);
+      const runtime = new CadRuntime(m.host);
+      const status = await runtime.status();
+      expect(status.state).toBe("error");
+      expect(status.source).toBe("override");
+      expect(status.cadgenVersion).toBeNull();
+      expect(status.message).toContain("imports cadgen but not the CAD kernel");
+      expect(status.message).toContain(kernelError);
+      expect(fs.readFileSync(runtimeLogPath(m.userData), "utf8")).toContain("cadquery-ocp-novtk");
+      // The viewer is not started on it either.
+      expect(await runtime.ready()).toBeNull();
+    },
+  );
+
+  it("asks a cadgen older than doctor --json the old way, kernel imported by name", async () => {
+    const m = machine({ bundle: true });
+    const python = bundledPaths(m.resources, "darwin", "arm64").python;
+    let ocp = false;
+    (m.host as { exec: RuntimeHost["exec"] }).exec = async (file, args) => {
+      m.execs.push({ file, args, env: {} });
+      if (args.includes("--json")) {
+        return { stdout: "", stderr: "usage: cadgen doctor [-h] [requirements]\ncadgen doctor: error: unrecognized arguments: --json", code: 2 };
+      }
+      const kernel = ocp ? null : "ModuleNotFoundError: No module named 'OCP'";
+      return { stdout: `${JSON.stringify({ version: "0.4.0", viewer: true, kernel })}\n`, stderr: "", code: 0 };
+    };
+    const runtime = new CadRuntime(m.host);
+    const broken = await runtime.status();
+    expect(broken.state).toBe("error");
+    expect(broken.message).toContain("No module named 'OCP'");
+    expect(m.execs.map((exec) => exec.args[0])).toEqual(["-m", "-c"]);
+    ocp = true;
+    expect(await runtime.repair()).toMatchObject({ state: "ready", python, cadgenVersion: "0.4.0" });
   });
 
   it("is an error naming a missing override path", async () => {

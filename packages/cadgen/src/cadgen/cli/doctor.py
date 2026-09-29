@@ -12,6 +12,21 @@ and a refused load is named for what it is: on Windows 11 that is Smart App
 Control blocking the unsigned ``.pyd``, which the bare ``ImportError`` never
 says (``cadgen._internal.kernel_load_hint``).
 
+It then runs cadgen's own kernel check in that same fresh interpreter -- the
+one the build path runs, which also resolves the distribution OCP came from --
+because an OCP that imports is not always one cadgen builds against. That
+verdict is ``--json``'s ``kernel`` field; the text report's ``kernel`` line and
+the exit codes are unchanged.
+
+``--json`` prints the same report as ONE JSON object on stdout, for a program
+to read (the desktop app's runtime probe is one): ``version``, ``python``,
+``install``, ``viewer`` (``{ok, error}``: whether ``cadgen.viewer`` imports),
+``kernel`` (``{ok, state, path, error}``; ``state`` is ``ok``, ``missing``,
+``failed`` or ``unsupported`` -- OCP loads but cadgen's kernel check refuses
+it -- and ``ok`` is true only for ``ok``) and ``pin`` (``{state, file,
+pinned}``; ``state`` is ``none``, ``unpinned``, ``ok`` or ``mismatch``). The
+exit code is the text report's.
+
 Exit codes: 0 = installed cadgen matches the pin (or nothing claims a pin);
 3 = pin mismatch, the same code the shims used; 4 = the kernel is installed
 but cannot be loaded (the report says why when it can tell). A kernel that is
@@ -94,6 +109,65 @@ def _editable_source() -> str | None:
 KERNEL_OK = "ok"
 KERNEL_MISSING = "missing"
 KERNEL_FAILED = "failed"
+KERNEL_UNSUPPORTED = "unsupported"
+
+# Run in the fresh interpreter. ``import OCP`` stays bare so a load that fails
+# or crashes reads exactly as it did; cadgen's own kernel check follows, with
+# this cadgen put first on the path so the child checks the same install.
+_KERNEL_PROBE = """\
+import sys
+sys.path.insert(0, {root!r})
+import json, OCP
+verify = None
+try:
+    from cadgen._internal.op_memo import _runtime_versions
+    _runtime_versions()
+except Exception as error:
+    verify = f"{{type(error).__name__}}: {{error}}"
+    if error.__cause__ is not None:
+        verify += f" ({{type(error.__cause__).__name__}}: {{error.__cause__}})"
+print(json.dumps({{"path": OCP.__file__, "verify": verify}}))
+"""
+
+
+def _run_kernel_probe() -> tuple[str, str, str | None]:
+    """Import OCP, then run cadgen's kernel check, in a fresh interpreter:
+    ``(state, detail, verify)``.
+
+    ``state``/``detail`` are :func:`_probe_kernel`'s. ``verify`` is None when
+    cadgen's check passed (or never ran, the kernel having failed to import),
+    else that check's own words: an OCP from a distribution cadgen does not
+    build against imports fine and fails here.
+    """
+    import json
+    import subprocess
+
+    root = str(Path(__file__).resolve().parent.parent.parent)
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", _KERNEL_PROBE.format(root=root)],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return KERNEL_FAILED, f"{type(error).__name__}: {error}", None
+    if result.returncode == 0:
+        lines = [text for text in result.stdout.splitlines() if text.strip()]
+        last = lines[-1].strip() if lines else ""
+        try:
+            answer = json.loads(last)
+        except ValueError:
+            return KERNEL_OK, last, None
+        if not isinstance(answer, dict):
+            return KERNEL_OK, last, None
+        verify = answer.get("verify")
+        return KERNEL_OK, str(answer.get("path") or ""), verify if isinstance(verify, str) and verify else None
+    lines = [text for text in result.stderr.splitlines() if text.strip()]
+    detail = lines[-1].strip() if lines else f"exit status {result.returncode}"
+    if detail.startswith("ModuleNotFoundError:"):
+        return KERNEL_MISSING, detail, None
+    return KERNEL_FAILED, detail, None
 
 
 def _probe_kernel() -> tuple[str, str]:
@@ -106,25 +180,31 @@ def _probe_kernel() -> tuple[str, str]:
     crashes the interpreter or takes the ~2.5 s import cannot take the report
     down with it, and so this process never carries the kernel itself.
     """
-    import subprocess
+    state, detail, _ = _run_kernel_probe()
+    return state, detail
 
+
+def kernel_status() -> dict:
+    """The kernel as ``--json`` reports it: ``{ok, state, path, error}``.
+
+    ``ok`` only when OCP loads AND cadgen's kernel check accepts it; ``error``
+    is the words of whichever step refused, verbatim.
+    """
+    state, detail, verify = _run_kernel_probe()
+    if state == KERNEL_OK and verify is not None:
+        return {"ok": False, "state": KERNEL_UNSUPPORTED, "path": detail or None, "error": verify}
+    if state == KERNEL_OK:
+        return {"ok": True, "state": KERNEL_OK, "path": detail or None, "error": None}
+    return {"ok": False, "state": state, "path": None, "error": detail}
+
+
+def _viewer_status() -> dict:
+    """Whether ``cadgen.viewer`` imports: ``{ok, error}``."""
     try:
-        result = subprocess.run(
-            [sys.executable, "-c", "import OCP; print(OCP.__file__)"],
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        return KERNEL_FAILED, f"{type(error).__name__}: {error}"
-    if result.returncode == 0:
-        lines = [text for text in result.stdout.splitlines() if text.strip()]
-        return KERNEL_OK, lines[-1].strip() if lines else ""
-    lines = [text for text in result.stderr.splitlines() if text.strip()]
-    detail = lines[-1].strip() if lines else f"exit status {result.returncode}"
-    if detail.startswith("ModuleNotFoundError:"):
-        return KERNEL_MISSING, detail
-    return KERNEL_FAILED, detail
+        import cadgen.viewer  # noqa: F401
+    except Exception as error:  # the report must survive a broken viewer
+        return {"ok": False, "error": f"{type(error).__name__}: {error}"}
+    return {"ok": True, "error": None}
 
 
 def main(argv: list[str] | None = None, prog: str = "cadgen doctor") -> int:
@@ -137,7 +217,14 @@ def main(argv: list[str] | None = None, prog: str = "cadgen doctor") -> int:
         nargs="?",
         help="A requirements.txt, or a directory containing one (default: the working directory).",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the report as one JSON object (version, python, install, viewer, kernel, pin).",
+    )
     args = parser.parse_args(argv)
+    if args.json:
+        return _main_json(args.requirements)
 
     import cadgen
     from cadgen.cli import read_requirements_pin
@@ -203,6 +290,43 @@ def main(argv: list[str] | None = None, prog: str = "cadgen doctor") -> int:
             "published release instead.)\n"
         )
     return 3
+
+
+
+def _main_json(target: str | None) -> int:
+    """``--json``: the report as one object on stdout, the text report's exit code."""
+    import json
+
+    import cadgen
+    from cadgen.cli import read_requirements_pin
+
+    installed = getattr(cadgen, "__version__", "unknown")
+    kernel = kernel_status()
+    requirements = _resolve_requirements(target)
+    pinned = read_requirements_pin(requirements) if requirements is not None else None
+    if requirements is None:
+        pin_state = "none"
+    elif pinned is None:
+        pin_state = "unpinned"
+    else:
+        pin_state = "ok" if pinned == installed else "mismatch"
+    report = {
+        "version": installed,
+        "python": sys.version.split()[0],
+        "executable": sys.executable,
+        "install": str(Path(cadgen.__file__).resolve().parent),
+        "viewer": _viewer_status(),
+        "kernel": kernel,
+        "pin": {
+            "state": pin_state,
+            "file": str(requirements) if requirements is not None else None,
+            "pinned": pinned,
+        },
+    }
+    sys.stdout.write(json.dumps(report) + "\n")
+    if pin_state == "mismatch":
+        return 3
+    return 4 if kernel["state"] == KERNEL_FAILED else 0
 
 
 if __name__ == "__main__":

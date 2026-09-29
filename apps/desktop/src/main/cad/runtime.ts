@@ -276,20 +276,57 @@ export type ResolvedPython = {
   env: Record<string, string>;
 };
 
-/** What `python -c` answers about an installed cadgen. */
-type Probe = { version: string; viewer: boolean };
+/**
+ * What the probe learns about an installed cadgen. `kernel` is null when the
+ * CAD kernel the build path needs loads, else the interpreter's own words for
+ * why it does not.
+ */
+type Probe = { version: string; viewer: boolean; kernel: string | null };
 
 /**
- * `cadgen.viewer` is imported as well as `cadgen`: the desktop runs
- * `python -m cadgen.viewer --api-only` per project, so an interpreter that
- * imports cadgen but not its viewer is not a runtime for this app.
+ * The probe is cadgen's own report: `python -m cadgen.cli doctor --json`.
+ * Its `viewer` says whether `cadgen.viewer` imports (the desktop runs
+ * `python -m cadgen.viewer --api-only` per project, so a cadgen without it is
+ * not a runtime for this app), and its `kernel` is cadgen's kernel check —
+ * the one the STEP path runs, which also refuses an OCP from a distribution
+ * cadgen does not build against. What "the kernel" means stays in cadgen; the
+ * app reads the verdict. The report's exit code and `pin` are not ours: the
+ * pin is a skill's concern, and a mismatch exits 3 with the report intact.
+ *
+ * OCP's import (~2.5 s) is the slow part, paid once per interpreter and
+ * usually at project open.
  */
-const PROBE_SCRIPT = [
+const DOCTOR_ARGS = ["-m", "cadgen.cli", "doctor", "--json"];
+
+/**
+ * A cadgen older than `doctor --json` (an override pointing at an older
+ * install) is asked the old way, with the kernel imported by name.
+ */
+const FALLBACK_PROBE_SCRIPT = [
   "import json, cadgen",
   "viewer = True",
   "try:\n    import cadgen.viewer\nexcept Exception:\n    viewer = False",
-  "print(json.dumps({'version': cadgen.__version__, 'viewer': viewer}))",
+  "kernel = None",
+  "try:\n    import OCP, build123d\nexcept Exception as error:\n    kernel = f'{type(error).__name__}: {error}'",
+  "print(json.dumps({'version': cadgen.__version__, 'viewer': viewer, 'kernel': kernel}))",
 ].join("\n");
+
+function lastJsonObject(stdout: string): Record<string, unknown> | null {
+  const line = stdout.trim().split("\n").at(-1) ?? "";
+  try {
+    const parsed: unknown = JSON.parse(line);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function lastLine(result: ExecResult): string {
+  return result.stderr.trim().split("\n").at(-1) || `python exited ${result.code}`;
+}
+
+/** A probe that ran: cadgen imported, but the kernel its build path needs did not load. */
+class KernelError extends Error {}
 
 /**
  * Environment variables a person's shell may carry that would redirect the
@@ -470,18 +507,12 @@ export class CadRuntime {
         if (!fs.existsSync(resolved.python)) {
           throw new Error(`no interpreter at ${resolved.python}`);
         }
-        const result = await this.host.exec(resolved.python, ["-c", PROBE_SCRIPT], {
-          env: this.processEnv(resolved),
-        });
-        if (result.code !== 0) {
-          throw new Error(result.stderr.trim().split("\n").at(-1) || `python exited ${result.code}`);
+        const env = this.processEnv(resolved);
+        const probe = await this.askDoctor(resolved.python, env);
+        if (probe.kernel) {
+          throw new KernelError(probe.kernel);
         }
-        const line = result.stdout.trim().split("\n").at(-1) ?? "";
-        const parsed = JSON.parse(line) as Partial<Probe>;
-        if (typeof parsed.version !== "string") {
-          throw new Error("cadgen did not report a version");
-        }
-        return { version: parsed.version, viewer: Boolean(parsed.viewer) };
+        return probe;
       })();
       // A failed probe is not cached: the person is likely fixing the path.
       pending.catch((error: unknown) => {
@@ -491,6 +522,41 @@ export class CadRuntime {
       this.probeCache.set(key, pending);
     }
     return pending;
+  }
+
+  /** `cadgen doctor --json`, or the old question for a cadgen without it. */
+  private async askDoctor(python: string, env: Record<string, string>): Promise<Probe> {
+    const result = await this.host.exec(python, DOCTOR_ARGS, { env });
+    const report = lastJsonObject(result.stdout);
+    const kernel = report?.kernel;
+    if (report && typeof report.version === "string" && kernel && typeof kernel === "object") {
+      const { ok, error, state } = kernel as { ok?: unknown; error?: unknown; state?: unknown };
+      const viewer = report.viewer as { ok?: unknown } | undefined;
+      return {
+        version: report.version,
+        viewer: Boolean(viewer?.ok),
+        kernel: ok === true ? null : typeof error === "string" && error ? error : `kernel ${String(state ?? "not ok")}`,
+      };
+    }
+    // A doctor without `--json` (argparse refuses the flag) or without the
+    // `kernel` field: an older cadgen. Anything else is the interpreter's
+    // failure, in its words.
+    if (!report && !/unrecognized arguments: --json/.test(result.stderr)) {
+      throw new Error(lastLine(result));
+    }
+    const fallback = await this.host.exec(python, ["-c", FALLBACK_PROBE_SCRIPT], { env });
+    if (fallback.code !== 0) {
+      throw new Error(lastLine(fallback));
+    }
+    const parsed = lastJsonObject(fallback.stdout);
+    if (!parsed || typeof parsed.version !== "string") {
+      throw new Error("cadgen did not report a version");
+    }
+    return {
+      version: parsed.version,
+      viewer: Boolean(parsed.viewer),
+      kernel: typeof parsed.kernel === "string" && parsed.kernel ? parsed.kernel : null,
+    };
   }
 
   /** The state, probing the interpreter once and remembering the answer. */
@@ -531,7 +597,10 @@ export class CadRuntime {
         cadgenVersion: null,
         viewerBuilt: false,
         log: fs.existsSync(logFile) ? logFile : null,
-        message: `${SOURCE_NAMES[resolved.source]} (${resolved.python}) cannot import cadgen: ${this.lastError}`,
+        message:
+          error instanceof KernelError
+            ? `${SOURCE_NAMES[resolved.source]} (${resolved.python}) imports cadgen but not the CAD kernel it builds with: ${this.lastError}`
+            : `${SOURCE_NAMES[resolved.source]} (${resolved.python}) cannot import cadgen: ${this.lastError}`,
       };
     }
   }

@@ -1309,6 +1309,10 @@ There is nothing to install and no "installing" state. Settings › About &
 Updates carries a read-only block — the runtime (source and interpreter),
 cadgen's version against the app's, the viewer backend, the skills root
 every session is handed — and Repair, which forgets the probe and looks again.
+The probe is cadgen's own report, `python -m cadgen.cli doctor --json`, so an
+interpreter is *Ready* only when cadgen imports AND cadgen's kernel check (the
+one the STEP path runs) accepts its OCP; otherwise About shows that check's
+words.
 A CAD tab whose runtime did not start shows the interpreter's words, the
 log (`userData/cad-runtime.log`: every failed probe, every viewer launch
 that did not come up, the viewer's stderr) and Try again; it never asks the
