@@ -14,13 +14,15 @@ import { DrawingTab } from "./DrawingTab";
 import { FileTab } from "./FileTab";
 import { EXPLORER_TABPANEL_ID, TabStrip, explorerTabDomId } from "./TabStrip";
 import { focusTabBody } from "./focus";
+import { loadTerminal, preloadTerminal } from "./load-terminal";
 import { desktopCadConnectionForTab } from "./adapters/cadRuntime";
 
 // The review draws with Monaco (~9.6 MB of the window's first chunk when it was
 // imported here) and the terminal with xterm; both load with the first tab of
-// their kind, the way the drawing surface and the file renderers already do.
+// their kind, the way the drawing surface and the file renderers already do. The
+// terminal's is also fetched at idle and on a new-terminal request (`./load-terminal`).
 const ReviewTab = lazy(() => import("./ReviewTab").then((module) => ({ default: module.ReviewTab })));
-const TerminalTab = lazy(() => import("./TerminalTab").then((module) => ({ default: module.TerminalTab })));
+const TerminalTab = lazy(() => loadTerminal().then((module) => ({ default: module.TerminalTab })));
 
 /**
  * The explorer: one tab strip and whatever the selected tab renders.
@@ -41,6 +43,7 @@ export function ExplorerPane() {
   const active = useActiveTab();
 
   useExplorerShortcuts();
+  useIdlePreload();
 
   // `Shell` does not mount this pane without a session — the strip belongs to
   // a session and there is none — so this is the type's guard rather than a
@@ -131,9 +134,24 @@ function TabBody({ tab, project }: {
   }
 }
 
-/** A lazy tab's first frame, drawn as the Markdown renderer's "Opening source…" is. */
+/**
+ * A lazy tab's first frame, drawn as the Markdown renderer's "Opening source…" is.
+ *
+ * `data-focus-pending` is the body telling `./focus` it is not there yet: a
+ * tab asked for while its chunk loads is waited for, not given up on for the
+ * strip tab, or the first terminal a window opens never takes the keyboard.
+ */
 function TabLoading({ label }: { label: string }) {
-  return <div className="p-4 text-xs text-muted-foreground">{label}</div>;
+  return <div className="p-4 text-xs text-muted-foreground" data-focus-pending>{label}</div>;
+}
+
+/** The terminal's chunk, fetched once the window has painted and has nothing better to do. */
+function useIdlePreload() {
+  useEffect(() => {
+    if (typeof window.requestIdleCallback !== "function") return;
+    const handle = window.requestIdleCallback(preloadTerminal);
+    return () => window.cancelIdleCallback(handle);
+  }, []);
 }
 
 /**
@@ -168,6 +186,7 @@ function useExplorerShortcuts() {
       // machine they came from.
       if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key === "`") {
         event.preventDefault();
+        preloadTerminal();
         focusOpened(open("terminal"));
         return;
       }

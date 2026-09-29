@@ -132,6 +132,9 @@ test("opens an image with its dimensions, and reveals it in the tree", async () 
 test("runs a command in a terminal tab, and replays its scrollback exactly once on reattach", async () => {
   await newTab("Terminal");
   await expect(page.locator(".xterm-screen")).toBeVisible();
+  // The window's first terminal, asked for from the `+` menu, takes the keyboard even though
+  // its code (xterm) is a chunk of its own that may land after the focus request settled.
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   // A login shell reads the person's profile before it prompts; typing before then is echoed
   // twice. And the command and its output differ, or the echo alone would pass.
   await settleTerminal(page);

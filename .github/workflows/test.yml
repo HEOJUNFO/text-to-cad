@@ -436,6 +436,15 @@ jobs:
         if: steps.build.outputs.cache-hit != 'true'
         run: npm --prefix apps/desktop run build
 
+      # The unit run above comes before the build, so its bundle check found no
+      # out/renderer and stood aside. This is that check with a bundle to read, and
+      # the variable makes a missing one a failure rather than a pass.
+      - name: Check the renderer bundle
+        env:
+          TEXT_TO_CAD_BUNDLE_CHECK: "1"
+        working-directory: apps/desktop
+        run: npx vitest run tests/unit/main/renderer-bundle.test.ts
+
       - name: Run the Electron integration suite
         env:
           TEXT_TO_CAD_E2E_REQUIRE_CAD: "1"

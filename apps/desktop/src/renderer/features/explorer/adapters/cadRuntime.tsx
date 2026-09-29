@@ -32,8 +32,12 @@ export function createDesktopCadConnection(projectId: string, root: ExplorerRoot
           try { answer = await window.textToCad.cad.viewerOrigin({ projectId, ...(root ? { root } : {}) }); }
           catch (error) { throw new CadRuntimeError({ origin: null, reason: "viewer-failed", message: error instanceof Error ? error.message : String(error) }); }
           // The client reaches three.js through its tessellation cache (~2 MB), so
-          // it loads with the first CAD file rather than with the window.
-          const { createCadClient } = await import("@text-to-cad/core/client");
+          // it loads with the first CAD file rather than with the window. A chunk
+          // that does not load is a viewer that did not start, and the tab's
+          // failure card says so rather than showing the loader's raw rejection.
+          const { createCadClient } = await import("@text-to-cad/core/client").catch((error: unknown) => {
+            throw new CadRuntimeError({ origin: null, reason: "viewer-failed", message: `The CAD viewer's code did not load: ${error instanceof Error ? error.message : String(error)}` });
+          });
           if (generation !== requestedAt) throw new DOMException("The operation was aborted.", "AbortError");
           if (!answer.origin) throw new CadRuntimeError(answer);
           // Main answers immediately for its live viewer, and can return a new

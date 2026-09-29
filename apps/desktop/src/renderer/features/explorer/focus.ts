@@ -28,19 +28,32 @@ const claimants = new Set<string>();
  *
  * Two frames: one for the strip's render, one for the body's effects. A body
  * that is still getting ready to claim (a terminal whose shell is starting) is
- * left to claim when it is ready. `prefer` names an element in the body to
- * land on when it is there by then (the tree's row, for a file opened from
- * a tree), ahead of the strip tab.
+ * left to claim when it is ready, and so is one whose code is still loading.
+ * `prefer` names an element in the body to land on when it is there by then
+ * (the tree's row, for a file opened from a tree), ahead of the strip tab.
  */
 export function focusTabBody(tabId: string, prefer?: string): void {
   wanted = tabId;
-  const settle = () => {
+  const later = (landing: boolean) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => settle(landing)));
+  const settle = (landing: boolean) => {
     if (wanted !== tabId) return;
-    if (document.getElementById(EXPLORER_TABPANEL_ID)?.contains(document.activeElement)) {
+    const panel = document.getElementById(EXPLORER_TABPANEL_ID);
+    if (panel?.contains(document.activeElement)) {
       wanted = null;
       return;
     }
     if (claimants.has(tabId)) return;
+    // A lazy body whose chunk is still loading (`data-focus-pending`, the
+    // pane's fallback) is a claimant that has not mounted yet: wait for it,
+    // then give what lands the same two frames a body that was there gets.
+    if (panel?.querySelector("[data-focus-pending]")) {
+      later(true);
+      return;
+    }
+    if (landing) {
+      later(false);
+      return;
+    }
     wanted = null;
     const preferred = prefer ? document.getElementById(EXPLORER_TABPANEL_ID)?.querySelector<HTMLElement>(prefer) : null;
     if (preferred) {
@@ -49,7 +62,7 @@ export function focusTabBody(tabId: string, prefer?: string): void {
     }
     document.querySelector<HTMLElement>(`[data-tab-strip] [data-tab="${CSS.escape(tabId)}"]`)?.focus();
   };
-  window.requestAnimationFrame(() => window.requestAnimationFrame(settle));
+  later(false);
 }
 
 /**
