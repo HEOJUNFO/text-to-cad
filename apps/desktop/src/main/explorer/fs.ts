@@ -821,25 +821,57 @@ const MOVE_WAIT_MS = 250;
 
 type Identity = { dev: number; ino: number };
 
+/**
+ * When a batch leaves: `run` after `ms`, and the function that cancels it.
+ * A timer by default; a test hands in its own clock, so a window is a thing
+ * it steps through rather than sleeps against.
+ */
+export type Schedule = (run: () => void, ms: number) => () => void;
+
+const timer: Schedule = (run, ms) => {
+  const handle = setTimeout(run, ms);
+  return () => clearTimeout(handle);
+};
+
 export class FileWatchers {
   private readonly watchers = new Map<string, WatchedRoot>();
   private readonly listedDirectories = new Map<string, Set<string>>();
   private readonly pending = new Map<string, Map<string, FileChange>>();
-  private readonly timers = new Map<string, NodeJS.Timeout>();
+  private readonly timers = new Map<string, () => void>();
   /** Each root's batches leave in order, however long one takes to settle. */
   private readonly flushes = new Map<string, Promise<void>>();
   /**
    * The inode of each file a tab has open, by root and path. The watcher
    * reports an agent's `mv` or `git mv` as a removal and an addition; the
-   * inode is what says the two are one file, so a tab can follow it.
+   * inode is what says the two are one file, so a tab can follow it. It is
+   * taken again whenever the file changes under its own name — the app's
+   * own save is an atomic rename, a new inode at the same path — and
+   * forgotten when the last tab holding the path lets it go (`unwatch`).
    */
   private readonly identities = new Map<string, Map<string, Identity>>();
   /** Per root, each opened link's target and the link paths tabs hold for it. */
   private readonly aliases = new Map<string, Map<string, Set<string>>>();
+  /** Per root, how many opens (`watchEntry`) each path has not yet given back. */
+  private readonly holds = new Map<string, Map<string, number>>();
 
-  constructor(private readonly emit: (root: string, changes: FileChange[]) => void) {}
+  constructor(
+    private readonly emit: (root: string, changes: FileChange[]) => void,
+    private readonly schedule: Schedule = timer,
+  ) {}
 
-  async watch(root: string): Promise<void> {
+  /**
+   * Take one watch of the root. `paths` are files a tab opened and gave back
+   * with an earlier `unwatch` while it stayed open (a remount): held again,
+   * each as its open stat held it.
+   */
+  async watch(root: string, paths: readonly string[] = []): Promise<void> {
+    await this.watchRoot(root);
+    for (const relative of paths) {
+      await this.watchEntry(root, { path: relative, kind: "file" }).catch(() => {});
+    }
+  }
+
+  private async watchRoot(root: string): Promise<void> {
     const existing = this.watchers.get(root);
     if (existing) {
       existing.refs += 1;
@@ -911,6 +943,7 @@ export class FileWatchers {
         this.aliases.set(root, links);
       }
       links.set(real, new Set([...(links.get(real) ?? []), entry.path]));
+      this.hold(root, entry.path);
       // The inode is the target's: a move of the target is not a move of
       // the link, which is left dangling.
       return;
@@ -923,6 +956,51 @@ export class FileWatchers {
       this.identities.set(root, known);
     }
     known.set(entry.path, { dev: stats.dev, ino: stats.ino });
+    this.hold(root, entry.path);
+  }
+
+  /**
+   * Take an open file's inode again after the app wrote it. A save is an
+   * atomic rename, so the file at the path is a new inode; its echo may be
+   * batched long after, and an agent's `mv` before then would not be
+   * recognised as the same file.
+   */
+  async refreshEntry(root: string, relative: string): Promise<void> {
+    const known = this.identities.get(root);
+    if (!known?.has(relative)) return;
+    const realRoot = await fs.realpath(root).catch(() => path.resolve(root));
+    const stats = await fs.stat(path.join(realRoot, relative)).catch(() => null);
+    if (stats?.isFile() && known.has(relative)) known.set(relative, { dev: stats.dev, ino: stats.ino });
+  }
+
+  private hold(root: string, relative: string) {
+    let held = this.holds.get(root);
+    if (!held) {
+      held = new Map();
+      this.holds.set(root, held);
+    }
+    held.set(relative, (held.get(relative) ?? 0) + 1);
+  }
+
+  /** A closed tab's paths: at the last hold, its inode and its link are forgotten. */
+  private release(root: string, paths: readonly string[]) {
+    const held = this.holds.get(root);
+    if (!held) return;
+    for (const relative of paths) {
+      const count = held.get(relative) ?? 0;
+      if (count === 0) continue;
+      if (count > 1) {
+        held.set(relative, count - 1);
+        continue;
+      }
+      held.delete(relative);
+      this.identities.get(root)?.delete(relative);
+      const links = this.aliases.get(root);
+      for (const [target, names] of links ?? []) {
+        names.delete(relative);
+        if (names.size === 0) links!.delete(target);
+      }
+    }
   }
 
   /** Keep every explicitly browsed directory live without walking its children. */
@@ -976,7 +1054,12 @@ export class FileWatchers {
     }
   }
 
-  async unwatch(root: string): Promise<void> {
+  /**
+   * Give back one watch of the root and, with it, the paths the leaving tab
+   * opened (one per `watchEntry` it caused).
+   */
+  async unwatch(root: string, paths: readonly string[] = []): Promise<void> {
+    this.release(root, paths);
     const existing = this.watchers.get(root);
     if (!existing) {
       this.listedDirectories.delete(root);
@@ -990,6 +1073,7 @@ export class FileWatchers {
     this.listedDirectories.delete(root);
     this.identities.delete(root);
     this.aliases.delete(root);
+    this.holds.delete(root);
     this.clearTimer(root);
     this.pending.delete(root);
     for (const direct of existing.direct.values()) direct.close();
@@ -1008,6 +1092,7 @@ export class FileWatchers {
     this.listedDirectories.clear();
     this.identities.clear();
     this.aliases.clear();
+    this.holds.clear();
     this.pending.clear();
   }
 
@@ -1031,7 +1116,7 @@ export class FileWatchers {
     }
     this.timers.set(
       root,
-      setTimeout(() => {
+      this.schedule(() => {
         this.timers.delete(root);
         const flushing = this.pending.get(root);
         this.pending.delete(root);
@@ -1058,14 +1143,21 @@ export class FileWatchers {
    * buffer reloads under the cursor while a dirty one is told the file
    * changed on disk. A file over the text cap opens read-only and is never
    * saved from here, so it is not read.
+   *
+   * An open file that changed under its own name has its inode taken again
+   * here: after an atomic save it is a different inode at the same path.
    */
   private async settle(root: string, changes: FileChange[]): Promise<FileChange[]> {
     const realRoot = await fs.realpath(root).catch(() => path.resolve(root));
+    const known = this.identities.get(root);
     const stamped = await Promise.all(changes.map(async (change) => {
-      if (change.kind !== "changed" || change.directory) return change;
+      if ((change.kind !== "changed" && change.kind !== "added") || change.directory) return change;
+      if (change.kind === "added" && !known?.has(change.path)) return change;
       const absolute = path.join(realRoot, change.path);
       const stats = await fs.stat(absolute).catch(() => null);
-      if (!stats?.isFile() || stats.size > MAX_TEXT_BYTES) return change;
+      if (!stats?.isFile()) return change;
+      if (known?.has(change.path)) known.set(change.path, { dev: stats.dev, ino: stats.ino });
+      if (change.kind !== "changed" || stats.size > MAX_TEXT_BYTES) return change;
       const content = await fs.readFile(absolute).catch(() => null);
       return content ? { ...change, revision: revisionOf(content) } : change;
     }));
@@ -1116,14 +1208,22 @@ export class FileWatchers {
       moves.set(removal, { kind: "moved", previousPath: removal.path, path: arrival.path, directory: false });
       known.delete(removal.path);
       known.set(arrival.path, identity);
+      // The tabs that held the old name hold the new one (the renderer
+      // follows the move the same way, `fileSource.ts`).
+      const held = this.holds.get(root);
+      const count = held?.get(removal.path) ?? 0;
+      if (held && count > 0) {
+        held.delete(removal.path);
+        held.set(arrival.path, (held.get(arrival.path) ?? 0) + count);
+      }
     }
     return changes.filter((change) => !taken.has(change)).map((change) => moves.get(change) ?? change);
   }
 
   private clearTimer(root: string) {
-    const timer = this.timers.get(root);
-    if (timer) {
-      clearTimeout(timer);
+    const cancel = this.timers.get(root);
+    if (cancel) {
+      cancel();
       this.timers.delete(root);
     }
   }

@@ -475,7 +475,11 @@ export const explorerHandlers = {
       expectedRevision?: string;
     }) => (async () => {
       try {
-        const document = await writeTextFile(rootOf(projectId, root), target, content, expectedRevision);
+        const base = rootOf(projectId, root);
+        const document = await writeTextFile(base, target, content, expectedRevision);
+        // The save renamed a new inode into place; a move right after it is
+        // still this file's (`FileWatchers.refreshEntry`).
+        await watchers?.refreshEntry(base, document.path).catch(() => {});
         publishChange({ projectId, root }, { kind: "changed", path: document.path, directory: false, revision: document.revision });
         return { status: "saved" as const, document };
       } catch (error) {
@@ -549,19 +553,19 @@ export const explorerHandlers = {
       return { kind: "removed", path: before.path, directory: before.directory };
     }),
 
-    watch: ({ projectId, root }: { projectId: string; root?: string }, ctx?: IpcContext) =>
+    watch: ({ projectId, root, paths }: { projectId: string; root?: string; paths?: string[] }, ctx?: IpcContext) =>
       fsCall(async () => {
         const directory = rootOf(projectId, root);
-        await services().watchers.watch(directory);
+        await services().watchers.watch(directory, paths);
         lease(ctx?.sender, directory);
       }),
 
-    unwatch: ({ projectId, root }: { projectId: string; root?: string }, ctx?: IpcContext) =>
+    unwatch: ({ projectId, root, paths }: { projectId: string; root?: string; paths?: string[] }, ctx?: IpcContext) =>
       fsCall(async () => {
         const directory = rootOf(projectId, root);
         // A page's unwatch after its leases went with a reload is already counted.
         if (ctx && !returnLease(ctx.sender, directory)) return;
-        await services().watchers.unwatch(directory);
+        await services().watchers.unwatch(directory, paths);
       }),
 
     loadTabs: ({ sessionId }: { sessionId: string }) => explorerTabs.list(sessionId),
