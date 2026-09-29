@@ -29,11 +29,31 @@ type ActivityItem = Extract<ViewItem, { kind: "activity" }>;
  */
 export function ActivityGroup({ item, sessionId }: { item: ActivityItem; sessionId: string }) {
   const [open, setOpen] = useState(false);
+  // Which rows are open is the group's, not each row's: a lone call is drawn
+  // bare and a second one folds both under the summary, and a row's own
+  // state would not survive that move. Opening the lone row opens the group
+  // too, so the fold that follows shows the row where the person left it.
+  const [openRows, setOpenRows] = useState<ReadonlySet<string>>(() => new Set());
   const active = item.rows.some((row) => row.status === "pending" || row.status === "in_progress");
   const failureCount = item.rows.filter((row) => row.status === "failed").length;
+  const toggleRow = (id: string) => {
+    const opening = !openRows.has(id);
+    setOpenRows((current) => {
+      const next = new Set(current);
+      if (opening) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+    if (opening && item.summary === null) {
+      setOpen(true);
+    }
+  };
+  const rowView = (row: ActivityRow) => (
+    <ActivityRowView key={row.id} onToggle={() => toggleRow(row.id)} open={openRows.has(row.id)} row={row} sessionId={sessionId} />
+  );
 
   if (item.summary === null) {
-    return <ActivityRowView row={item.rows[0]!} sessionId={sessionId} />;
+    return rowView(item.rows[0]!);
   }
 
   return (
@@ -55,17 +75,25 @@ export function ActivityGroup({ item, sessionId }: { item: ActivityItem; session
       </RowButton>
       {open ? (
         <div className="ui-reveal ml-2 border-l pl-2">
-          {item.rows.map((row) => (
-            <ActivityRowView key={row.id} row={row} sessionId={sessionId} />
-          ))}
+          {item.rows.map(rowView)}
         </div>
       ) : null}
     </div>
   );
 }
 
-export function ActivityRowView({ row, sessionId }: { row: ActivityRow; sessionId: string }) {
-  const [open, setOpen] = useState(false);
+export function ActivityRowView({
+  row,
+  sessionId,
+  open,
+  onToggle,
+}: {
+  row: ActivityRow;
+  sessionId: string;
+  /** Held by the group (`ActivityGroup`), so it outlives the fold. */
+  open: boolean;
+  onToggle: () => void;
+}) {
   const active = row.status === "pending" || row.status === "in_progress";
   const failed = row.status === "failed";
   const cancelled = row.status === "cancelled";
@@ -76,7 +104,7 @@ export function ActivityRowView({ row, sessionId }: { row: ActivityRow; sessionI
     <div className="not-prose min-w-0" data-activity-row={row.id} data-status={row.status}>
       <RowButton
         active={active}
-        onClick={() => setOpen((value) => !value)}
+        onClick={onToggle}
         open={open}
         title={row.path ?? row.command ?? row.part.title}
         trailing={row.path ? <OpenCadFile path={row.path} sessionId={sessionId} /> : null}

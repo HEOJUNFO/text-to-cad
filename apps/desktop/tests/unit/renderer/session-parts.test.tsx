@@ -56,6 +56,29 @@ describe("ActivityGroup", () => {
     expect(screen.getByText("ls -la")).toBeInTheDocument();
   });
 
+  /**
+   * A lone call is drawn bare and a second one folds both under a summary.
+   * The row the person opened is the same row after the fold, still open —
+   * not a fresh, closed one under a collapsed summary.
+   */
+  it("keeps a row the person opened open when a second call joins it", async () => {
+    const user = userEvent.setup();
+    const first = call({ id: "c1", kind: "execute", title: "ls", input: { command: "ls" }, output: "first output" });
+    const second = call({ id: "c2", kind: "execute", title: "pwd", input: { command: "pwd" }, status: "in_progress" });
+    const { rerender } = wrap(<PartsList open parts={[first]} prefix="t1" sessionId="s1" />);
+    await user.click(screen.getByRole("button", { name: /ls/ }));
+    const detail = () => document.querySelector('[data-activity-row="c1"] [data-tool-detail]');
+    expect(detail()).not.toBeNull();
+
+    rerender(
+      <TooltipProvider>
+        <PartsList open parts={[first, second]} prefix="t1" sessionId="s1" />
+      </TooltipProvider>,
+    );
+    expect(screen.getByRole("button", { name: /2 commands/ })).toHaveAttribute("aria-expanded", "true");
+    expect(detail()).not.toBeNull();
+  });
+
   it("keeps a mixed group neutral and names its failed calls separately", async () => {
     const user = userEvent.setup();
     const rows = [

@@ -88,7 +88,7 @@ it("no control in a session carries a native title", async () => {
         }}
         sessionId="s1"
       />
-      <ActivityRowView row={activityRow(call({ id: "e1", kind: "edit", title: "Edit bracket", locations: [{ path: "models/deeply/nested/bracket.step", line: null }] }))} sessionId="s1" />
+      <ActivityRowView row={activityRow(call({ id: "e1", kind: "edit", title: "Edit bracket", locations: [{ path: "models/deeply/nested/bracket.step", line: null }] }))} onToggle={vi.fn()} open={false} sessionId="s1" />
       <SubagentRow part={{ type: "subagent", sessionId: "c1", name: "Docs checker", task: "confirm the README", state: "running", parts: [call({ id: "k1" })] }} sessionId="s1" />
     </TranscriptScopeContext.Provider>
     </TooltipProvider>,
