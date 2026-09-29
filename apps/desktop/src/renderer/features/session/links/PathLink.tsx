@@ -60,6 +60,8 @@ export function PathLink({
   children,
   className,
   node: _node,
+  // A markdown link's own title would be a native one; the hint says it all.
+  title: _title,
   ...rest
 }: AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown; children?: ReactNode }) {
   const scope = useContext(TranscriptScopeContext);
@@ -69,11 +71,15 @@ export function PathLink({
       return <span className={className}>{children}</span>;
     }
     // `target="_blank"` reaches main's window-open handler, which hands the
-    // URL to the OS browser rather than opening a window of its own.
+    // URL to the OS browser rather than opening a window of its own. The
+    // label is the agent's words and one click opens it, so the hint says
+    // where it really goes.
     return (
-      <a className={cn("font-medium text-primary underline", className)} href={href} rel="noreferrer" target="_blank" {...rest}>
-        {children}
-      </a>
+      <TooltipHint content={href}>
+        <a className={cn("font-medium text-primary underline", className)} href={href} rel="noreferrer" target="_blank" {...rest}>
+          {children}
+        </a>
+      </TooltipHint>
     );
   }
   return (

@@ -174,4 +174,19 @@ describe("PathLink", () => {
     wrap("https://example.com/docs", "the docs");
     expect(screen.getByRole("link", { name: "the docs" })).toHaveAttribute("href", "https://example.com/docs");
   });
+
+  /**
+   * An outside link opens in one click, and its label is the agent's words —
+   * `[docs.python.org](https://somewhere.else/…)` reads as one place and goes
+   * to another. The hint says where it really goes (the kit's, not a native
+   * `title`).
+   */
+  it("says where an outside link really goes on hover", async () => {
+    const user = userEvent.setup();
+    wrap("https://somewhere.example/collect?d=1", "docs.python.org");
+    const link = screen.getByRole("link", { name: "docs.python.org" });
+    expect(link).not.toHaveAttribute("title");
+    await user.hover(link);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("https://somewhere.example/collect?d=1");
+  });
 });
