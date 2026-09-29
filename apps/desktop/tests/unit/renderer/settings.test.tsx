@@ -279,6 +279,18 @@ describe("the Agents page's rows", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("draws a description's backticks as code, in the row and the drawer", async () => {
+    const user = userEvent.setup();
+    wrap(<AgentsPage />);
+    const row = await screen.findByRole("button", { name: "OpenCode" });
+    expect(row).not.toHaveTextContent("`");
+    expect(row.querySelector("code")).toHaveTextContent("opencode acp");
+    await user.click(row);
+    const drawer = await screen.findByRole("dialog");
+    expect(drawer).not.toHaveTextContent("`");
+    expect(drawer.querySelector("code")).toHaveTextContent("opencode acp");
+  });
+
   it("Enter on the row itself still opens the drawer", async () => {
     const user = userEvent.setup();
     wrap(<AgentsPage />);

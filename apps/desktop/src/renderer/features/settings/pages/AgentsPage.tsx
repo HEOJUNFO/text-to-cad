@@ -17,6 +17,7 @@ import { Button } from "@renderer/components/ui/button";
 import { Input } from "@renderer/components/ui/input";
 import { AgentDrawer } from "@renderer/features/settings/AgentDrawer";
 import { AgentMark } from "@renderer/features/settings/AgentMark";
+import { InlineCode } from "@renderer/features/settings/inline-code";
 import { SettingCard, useRowMatch } from "@renderer/features/settings/SettingCard";
 import { StatusDot, type Tone } from "@renderer/features/settings/StatusDot";
 import { matchesQuery } from "@renderer/features/settings/search";
@@ -187,7 +188,7 @@ function AgentRow({ agent, onOpen }: { agent: AgentStatus; onOpen: () => void })
     ? [agent.version ? `v${agent.version}` : null, agent.auth === "unauthenticated" ? "not signed in" : null]
         .filter(Boolean)
         .join(" · ") || "installed"
-    : agent.description;
+    : <InlineCode text={agent.description} />;
 
   return (
     <div

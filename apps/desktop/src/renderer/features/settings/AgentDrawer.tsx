@@ -31,6 +31,7 @@ import {
 } from "@renderer/components/ui/sheet";
 import { Textarea } from "@renderer/components/ui/textarea";
 import { AgentMark } from "@renderer/features/settings/AgentMark";
+import { InlineCode } from "@renderer/features/settings/inline-code";
 import { StatusLabel, type Tone } from "@renderer/features/settings/StatusDot";
 import {
   useSettingsPatch,
@@ -113,7 +114,7 @@ function DrawerBody({ agent, platform }: { agent: AgentStatus; platform: Platfor
           <AgentMark icon={agent.icon} id={agent.id} name={agent.name} size="drawer" />
           <div className="min-w-0 flex-1">
             <SheetTitle className="text-base">{agent.name}</SheetTitle>
-            <SheetDescription className="mt-0.5 text-xs">{agent.description}</SheetDescription>
+            <SheetDescription className="mt-0.5 text-xs"><InlineCode text={agent.description} /></SheetDescription>
           </div>
         </div>
         <div className="flex items-center justify-between gap-3">
@@ -329,14 +330,18 @@ function SkillsSection({ agent }: { agent: AgentStatus }) {
       title="Skills"
     >
       <p className="text-xs text-muted-foreground">
-        {count > 0
-          ? `Every session in text-to-cad is handed the app's CAD skills and focused workspace integration skills as an extra directory,
+        <InlineCode
+          text={
+            count > 0
+              ? `Every session in text-to-cad is handed the app's CAD skills and focused workspace integration skills as an extra directory,
              ${
                native
                  ? `which ${agent.name} loads by itself.`
                  : `and, because ${agent.name} does not load one, a line in the first prompt saying where they are. The app's MCP server can read them too.`
              } Nothing is installed into ${agent.name}'s own configuration.`
-          : `text-to-cad hands its skills to every session. This build has none composed yet — run \`npm run build\`.`}
+              : "text-to-cad hands its skills to every session. This build has none composed yet — run `npm run build`."
+          }
+        />
       </p>
       {skills?.root ? (
         // The whole path when the line has cut it short.
