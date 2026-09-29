@@ -7,17 +7,19 @@
  * design rests on: a query finds a row on a page nobody navigated to, and the
  * text it matched is the text the row prints.
  */
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
 import { SettingCard, SettingRow } from "@renderer/features/settings/SettingCard";
 import { SettingsRoute } from "@renderer/features/settings/SettingsRoute";
+import { AgentsPage } from "@renderer/features/settings/pages/AgentsPage";
 import { matchesQuery } from "@renderer/features/settings/search";
 import { AgentDrawer, authLabel, parseEnv, formatEnv } from "@renderer/features/settings/AgentDrawer";
 import { agentIcon, agentIconIds } from "@renderer/lib/agent-icons";
 import { SHORTCUTS, shortcutKeys, shortcutsIn } from "@renderer/lib/shortcuts";
+import { useAgents } from "@renderer/state/agents";
 import { useSettings } from "@renderer/state/settings";
 import { useUi } from "@renderer/state/ui";
 import type { AgentStatus } from "@shared/agents";
@@ -237,5 +239,49 @@ describe("the agent drawer's sign-in", () => {
     wrap(<AgentDrawer agent={agent("unauthenticated")} onOpenChange={() => {}} open platform="macos" />);
     expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument();
     expect(screen.getByText("Sign in with your Anthropic account")).toBeInTheDocument();
+  });
+});
+
+describe("the Agents page's rows", () => {
+  const opencode = {
+    id: "opencode",
+    name: "OpenCode",
+    description: "`opencode acp` serves ACP",
+    websiteUrl: "https://example.com",
+    docsUrl: "https://example.com/docs",
+    icon: null,
+    installed: false,
+    binaryPath: null,
+    version: null,
+    auth: "unknown",
+    authMethods: [],
+    capabilities: {},
+    install: { macos: [], windows: [], linux: [] },
+    launch: { command: "opencode", args: ["acp"], env: {} },
+    skillRoots: "native",
+  } as unknown as AgentStatus;
+
+  beforeEach(() => {
+    vi.mocked(window.textToCad.agents.list).mockResolvedValue([opencode]);
+    vi.mocked(window.textToCad.shell.openExternal).mockClear();
+    useAgents.setState({ agents: [opencode], ready: true, loadError: null });
+  });
+
+  it("Enter on the focused docs button opens the docs, not the drawer behind it", async () => {
+    const user = userEvent.setup();
+    wrap(<AgentsPage />);
+    const docs = await screen.findByRole("button", { name: "OpenCode documentation" });
+    docs.focus();
+    await user.keyboard("{Enter}");
+    expect(window.textToCad.shell.openExternal).toHaveBeenCalledWith({ url: "https://example.com/docs" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("Enter on the row itself still opens the drawer", async () => {
+    const user = userEvent.setup();
+    wrap(<AgentsPage />);
+    (await screen.findByRole("button", { name: "OpenCode" })).focus();
+    await user.keyboard("{Enter}");
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
   });
 });

@@ -197,6 +197,12 @@ function AgentRow({ agent, onOpen }: { agent: AgentStatus; onOpen: () => void })
       // and its keyboard behaviour instead.
       onClick={onOpen}
       onKeyDown={(event) => {
+        // The row's own keys only. Enter or Space on a trailing button bubbles
+        // here too, and taking it would cancel that button's click and open the
+        // drawer instead — the docs would be out of a keyboard's reach.
+        if (event.target !== event.currentTarget) {
+          return;
+        }
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           onOpen();
