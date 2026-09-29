@@ -22,11 +22,14 @@ const flushers = new Set<() => void>();
  */
 const MIN_VISIBLE_PX = 100;
 
+/** The smallest a window may be (`minWidth`/`minHeight` in src/main/index.ts). */
+export const WINDOW_MIN = { width: 900, height: 600 } as const;
+
 /**
  * The stored geometry, fitted to the displays that exist now: centred when
  * too little of it is on any of them, and never larger than the work area of
  * the display it opens on — a window sized for a 2560px monitor does not fit
- * a laptop.
+ * a laptop — unless that is smaller than the window's minimum.
  */
 export function restoreWindowState(): WindowState {
   const state = settings.windowState();
@@ -57,8 +60,17 @@ function mostOf(state: WindowState) {
   return best?.display;
 }
 
+/**
+ * No larger than the work area, and no smaller than the minimum: on a work
+ * area under the minimum Electron sizes the window up to it anyway, and the
+ * slide back on screen has to use the size the window will really have.
+ */
 function fit(state: WindowState, area: Rectangle): WindowState {
-  return { ...state, width: Math.min(state.width, area.width), height: Math.min(state.height, area.height) };
+  return {
+    ...state,
+    width: Math.max(WINDOW_MIN.width, Math.min(state.width, area.width)),
+    height: Math.max(WINDOW_MIN.height, Math.min(state.height, area.height)),
+  };
 }
 
 /** Track a window and persist its geometry. Returns a detach function. */

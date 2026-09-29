@@ -71,4 +71,13 @@ describe("window state on launch", () => {
     expect(centred.width).toBeLessThanOrEqual(1440);
     expect(centred.height).toBeLessThanOrEqual(900);
   });
+
+  // A work area smaller than the window's minimum (900×600): Electron sizes
+  // the window up to the minimum whatever it is asked for, so the slide back
+  // on screen has to be worked out with the size it will really have.
+  it("slides a window back by the size it will have, not one under the minimum", () => {
+    displays.all = [{ workArea: { x: 0, y: 0, width: 880, height: 560 } }];
+    saved.state = { maximized: false, x: 30, y: 30, width: 850, height: 520 };
+    expect(restoreWindowState()).toMatchObject({ x: 0, y: 0, width: 900, height: 600 });
+  });
 });

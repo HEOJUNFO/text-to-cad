@@ -23,7 +23,7 @@ import { disposeSettingsEffects } from "./settings-effects";
 import { initTelemetry, track } from "./telemetry";
 import { initUpdater, stopUpdater } from "./updater";
 import { TITLEBAR_HEIGHT, trafficLightPosition } from "../shared/titlebar";
-import { flushWindowStates, restoreWindowState, trackWindowState } from "./window-state";
+import { WINDOW_MIN, flushWindowStates, restoreWindowState, trackWindowState } from "./window-state";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -102,8 +102,8 @@ function createWindow() {
     y: state.y,
     width: state.width,
     height: state.height,
-    minWidth: 900,
-    minHeight: 600,
+    minWidth: WINDOW_MIN.width,
+    minHeight: WINDOW_MIN.height,
     // The chrome is the app's own: on macOS the traffic lights sit inside the
     // sidebar's top strip (--titlebar-height in globals.css). Other platforms
     // keep their native frame, because a hand-drawn one there is a liability.
