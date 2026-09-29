@@ -469,16 +469,23 @@ export const SessionStateSchema = z.object({
   pendingPermissions: z.array(PendingPermissionSchema),
   /** Every subagent session id seen, mapped to the root session's part path. */
   subagentSessionIds: z.array(z.string()),
-  /**
-   * Updates under a session id that is neither the root nor a known
-   * subagent, held until that subagent's spawn arrives. Bounded
-   * (`PARKED_LIMIT` in the reducer); absent when there are none.
-   */
-  parked: z
-    .array(z.object({ acpSessionId: z.string(), update: z.looseObject({ sessionUpdate: z.string() }), at: z.number() }))
-    .optional(),
 });
-export type SessionState = z.infer<typeof SessionStateSchema>;
+
+/** An update held for a subagent whose spawn has not arrived yet. */
+export type ParkedUpdate = { acpSessionId: string; update: RawSessionUpdate; at: number; bytes: number };
+
+/**
+ * `parked` is the reducer's working memory and deliberately not in the
+ * schema: parsing (a `session.state` event, a snapshot read) drops it, so raw
+ * diffs and outputs for a spawn that may never come are not sent or stored.
+ * After a restart there is nothing to rebuild — that spawn will not arrive.
+ */
+export type SessionState = z.infer<typeof SessionStateSchema> & {
+  /** Bounded by count and bytes in the reducer; absent when there are none. */
+  parked?: ParkedUpdate[];
+  /** Set once the reducer has said it dropped parked updates, so it says so once. */
+  parkedDropWarned?: boolean;
+};
 
 export function initialSessionState(sessionId: string, agentId: string): SessionState {
   return {

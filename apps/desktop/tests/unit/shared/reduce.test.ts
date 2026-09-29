@@ -1,8 +1,8 @@
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { allToolCalls, lastAgentText, reduce } from "@shared/acp/reduce";
+import { allToolCalls, lastAgentText, reduce, withoutParked } from "@shared/acp/reduce";
 import {
   SessionEventSchema,
   SessionStateSchema,
@@ -766,5 +766,50 @@ describe("reduce: streamed output", () => {
     expect(call?.stream.endsWith("END")).toBe(true);
     expect(call?.streamTruncated).toBe(true);
     expect(SessionStateSchema.safeParse(state).success).toBe(true);
+  });
+});
+
+describe("reduce: a tool call id belongs to its session", () => {
+  it("sends a subagent's update to its own row, not to a root row with the same id", () => {
+    const child = "child-session";
+    let state = started(connected());
+    state = update(state, { sessionUpdate: "tool_call", toolCallId: "c1", title: "root call", kind: "execute", status: "in_progress" });
+    state = update(state, { sessionUpdate: "subagent_spawned", subagentSessionId: child, name: "explorer" });
+    state = update(state, { sessionUpdate: "tool_call", toolCallId: "c1", title: "child call", kind: "read", status: "in_progress" }, child);
+    state = update(state, { sessionUpdate: "tool_call_update", toolCallId: "c1", status: "completed" }, child);
+    expect(allToolCalls(state).map((call) => `${call.title}:${call.status}`)).toEqual(["root call:in_progress", "child call:completed"]);
+  });
+
+  it("gives an announcement with no turn open a new row, not an old row with the same id", () => {
+    let state = started(connected());
+    state = update(state, { sessionUpdate: "tool_call", toolCallId: "c1", title: "old", kind: "execute", status: "completed" });
+    state = reduce(state, { type: "prompt/end", stopReason: "end_turn", usage: null, at });
+    state = update(state, { sessionUpdate: "tool_call", toolCallId: "c1", title: "new", kind: "execute", status: "in_progress" });
+    expect(allToolCalls(state).map((call) => `${call.title}:${call.status}`)).toEqual(["old:completed", "new:in_progress"]);
+  });
+});
+
+describe("reduce: parked updates stay small and local", () => {
+  const big = (n: number) => ({ sessionUpdate: "tool_call", toolCallId: `b${n}`, rawOutput: "x".repeat(10_000) });
+
+  it("caps what is parked by bytes as well as by count, and says so once", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let state = started(connected());
+    for (let i = 0; i < 100; i += 1) {
+      state = update(state, big(i), "never-spawned");
+    }
+    expect(JSON.stringify(state.parked ?? []).length).toBeLessThanOrEqual(256 * 1024 + 4096);
+    expect(state.parked?.at(-1)?.update).toMatchObject({ toolCallId: "b99" });
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it("is not part of the state a snapshot or session.state carries", () => {
+    let state = started(connected());
+    state = update(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "early" } }, "late-child");
+    expect(state.parked).toHaveLength(1);
+    const wire = SessionStateSchema.parse(state);
+    expect(wire).not.toHaveProperty("parked");
+    expect(JSON.parse(JSON.stringify(withoutParked(state)))).not.toHaveProperty("parked");
   });
 });

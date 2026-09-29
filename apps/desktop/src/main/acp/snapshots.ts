@@ -29,6 +29,7 @@
  * thing you see for the second or two before the real state lands, never a
  * thing the agent is told.
  */
+import { withoutParked } from "../../shared/acp/reduce";
 import { SessionStateSchema, type Part, type SessionState } from "../../shared/acp/types";
 
 /** Characters kept per bulk field of a tool call, in the snapshot. */
@@ -133,8 +134,9 @@ function capPart(part: Part): Part {
  * card is not an answerable one.
  */
 export function trimForSnapshot(state: SessionState): SessionState {
+  // Parked updates wait for a spawn that will not arrive after a restart.
   const capped: SessionState = {
-    ...state,
+    ...withoutParked(state),
     status: "idle",
     error: null,
     pendingPermissions: [],

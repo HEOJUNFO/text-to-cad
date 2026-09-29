@@ -232,15 +232,15 @@ function applyUpdate(
         return state;
       }
       const turnOpen = state.turns.at(-1)?.endedAt === null;
-      // A fresh announcement while a turn is open belongs to that turn, even
-      // if an earlier turn used the same id (the fake agent does); anything
-      // else is news about a call that already has a row somewhere.
-      if (update.sessionUpdate === "tool_call_update" || !turnOpen) {
-        const inPlace = updateToolCallAnywhere(state, id, u);
+      // An announcement is a new row, even if an earlier turn used the same
+      // id (the fake agent does); an update is news about a call that
+      // already has a row somewhere in its own session.
+      if (update.sessionUpdate === "tool_call_update") {
+        const inPlace = updateToolCallInSession(state, acpSessionId, id, u);
         if (inPlace) {
           return inPlace;
         }
-        if (!turnOpen && update.sessionUpdate === "tool_call_update") {
+        if (!turnOpen) {
           // A late update for a call nobody announced, with no turn open:
           // opening one would put a blank row in a turn nobody started.
           return state;
@@ -451,12 +451,37 @@ function settleParts(parts: Part[], settle: Settle): Part[] {
   });
 }
 
-/** How many updates for not-yet-spawned subagents are held; the oldest go first. */
+/** How many updates, and how many bytes of them, are held for not-yet-spawned subagents; the oldest go first. */
 const PARKED_LIMIT = 200;
+const PARKED_BYTES = 256 * 1024;
 
 function park(state: SessionState, acpSessionId: string, update: RawSessionUpdate, at: number): SessionState {
-  const parked = [...(state.parked ?? []), { acpSessionId, update, at }];
-  return { ...state, parked: parked.length > PARKED_LIMIT ? parked.slice(-PARKED_LIMIT) : parked };
+  const parked = [...(state.parked ?? []), { acpSessionId, update, at, bytes: JSON.stringify(update).length }];
+  let total = parked.reduce((sum, entry) => sum + entry.bytes, 0);
+  let drop = 0;
+  while (drop < parked.length && (parked.length - drop > PARKED_LIMIT || total > PARKED_BYTES)) {
+    total -= parked[drop]!.bytes;
+    drop += 1;
+  }
+  if (drop === 0) {
+    return { ...state, parked };
+  }
+  if (!state.parkedDropWarned) {
+    // The one impurity here: a dropped update is data lost, and saying so
+    // once per session is worth more than a silent cap.
+    console.warn(
+      `[acp] dropped ${drop} update(s) parked for a subagent that has not been spawned (cap ${PARKED_LIMIT} / ${PARKED_BYTES} bytes)`,
+    );
+  }
+  const kept = parked.slice(drop);
+  const { parked: _old, ...rest } = state;
+  return kept.length > 0 ? { ...rest, parked: kept, parkedDropWarned: true } : { ...rest, parkedDropWarned: true };
+}
+
+/** The state without what the reducer holds for itself: what a snapshot should store. */
+export function withoutParked(state: SessionState): SessionState {
+  const { parked: _parked, parkedDropWarned: _warned, ...rest } = state;
+  return rest;
 }
 
 /** Fold what was parked for `childId`, in arrival order, now that it has somewhere to go. */
@@ -467,8 +492,8 @@ function unpark(state: SessionState, childId: string): SessionState {
     return state;
   }
   const rest = all.filter((entry) => entry.acpSessionId !== childId);
-  const { parked: _dropped, ...withoutParked } = state;
-  let next: SessionState = rest.length > 0 ? { ...withoutParked, parked: rest } : withoutParked;
+  const { parked: _dropped, ...cleared } = state;
+  let next: SessionState = rest.length > 0 ? { ...cleared, parked: rest } : cleared;
   for (const entry of mine) {
     next = applyUpdate(next, entry.acpSessionId, entry.update, entry.at);
   }
@@ -639,27 +664,59 @@ function upsertToolCall(parts: Part[], id: string, update: Record<string, unknow
 }
 
 /**
- * Merge `update` into the call with this id wherever it is — the newest turn
- * that has one, since an id can come back in a later turn; null when no
- * turn does.
+ * Merge `update` into the call with this id in the session that sent it —
+ * the root's parts (Claude's flattened children included), or that
+ * subagent's — taking the newest turn that has one, since an id can come
+ * back in a later turn. Another session's call with the same id is never
+ * touched. Null when the session has no such call.
  */
-function updateToolCallAnywhere(
+function updateToolCallInSession(
   state: SessionState,
+  acpSessionId: string,
   id: string,
   update: Record<string, unknown>,
 ): SessionState | null {
+  const isRoot = state.acpSessionId === null || acpSessionId === state.acpSessionId;
   for (let index = state.turns.length - 1; index >= 0; index -= 1) {
     const turn = state.turns[index]!;
-    let found = false;
-    const parts = mapPartsDeep(turn.parts, (part) => {
-      if (!found && part.type === "tool_call" && part.id === id) {
-        found = true;
-        return mergeToolCall(part, update);
-      }
-      return part;
-    });
-    if (found) {
-      return { ...state, turns: state.turns.map((candidate, i) => (i === index ? { ...turn, parts } : candidate)) };
+    let parts: Part[] | null;
+    if (isRoot) {
+      parts = mergeInScope(turn.parts, id, update);
+    } else {
+      let merged: Part[] | null = null;
+      const mapped = mapPartsDeep(turn.parts, (part) => {
+        if (merged === null && part.type === "subagent" && part.sessionId === acpSessionId) {
+          merged = mergeInScope(part.parts, id, update);
+          return merged ? { ...part, parts: merged } : part;
+        }
+        return part;
+      });
+      parts = merged ? mapped : null;
+    }
+    if (parts) {
+      const updated = { ...turn, parts };
+      return { ...state, turns: state.turns.map((candidate, i) => (i === index ? updated : candidate)) };
+    }
+  }
+  return null;
+}
+
+/** The first call with this id in `parts` and its tool calls' children — never inside a subagent, which is another session. */
+function mergeInScope(parts: Part[], id: string, update: Record<string, unknown>): Part[] | null {
+  for (let i = 0; i < parts.length; i += 1) {
+    const part = parts[i]!;
+    if (part.type !== "tool_call") {
+      continue;
+    }
+    const next =
+      part.id === id
+        ? mergeToolCall(part, update)
+        : (() => {
+            const children = mergeInScope(part.children, id, update);
+            return children ? { ...part, children } : null;
+          })();
+    if (next) {
+      return parts.map((candidate, j) => (j === i ? next : candidate));
     }
   }
   return null;
