@@ -14,6 +14,7 @@ import { Button } from "@renderer/components/ui/button";
 import { useResolvedTheme } from "@renderer/hooks/use-theme";
 import { terminalPromptRoot } from "@renderer/lib/terminal-workspace";
 import { useExplorer, updateSessionTab } from "@renderer/state/explorer";
+import { isTerminalReply } from "@shared/terminal-replies";
 import type { Project } from "@shared/types";
 
 import { EmptyState } from "@text-to-cad/ui/navigation";
@@ -200,6 +201,13 @@ export function TerminalTab({
      */
     let snapshotSeq: number | null = null;
     let pending: { seq: number; data: string }[] = [];
+    /**
+     * True while the scrollback is being parsed. A query in it (`ESC[6n`, a
+     * device-attributes request) was asked of a widget that is long gone;
+     * xterm answers it again on replay, and that answer, sent on, arrives at
+     * whatever runs now as if it had been typed. It is dropped here.
+     */
+    let replaying = false;
 
     const offData = window.textToCad.on("terminal.data", (event) => {
       if (event.id !== ptyId) {
@@ -221,7 +229,10 @@ export function TerminalTab({
           return;
         }
         if (attached.scrollback) {
-          term.write(attached.scrollback);
+          replaying = true;
+          term.write(attached.scrollback, () => {
+            replaying = false;
+          });
         }
         snapshotSeq = attached.seq;
         for (const chunk of pending) {
@@ -244,6 +255,9 @@ export function TerminalTab({
 
     if (!readOnly) {
       term.onData((data) => {
+        if (replaying && isTerminalReply(data)) {
+          return;
+        }
         void window.textToCad.terminal.write({ id: ptyId, sessionId, data }).catch(() => {});
       });
     }

@@ -19,6 +19,8 @@ import path from "node:path";
 
 import type * as pty from "node-pty";
 
+import { isTerminalReply } from "../../shared/terminal-replies";
+
 /* -------------------------------------------------------------------------- */
 /* Sessions                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -259,14 +261,24 @@ export class Terminals {
     return session.info();
   }
 
+  /**
+   * The person's input, from the tab. It is what the agent's guarded write
+   * waits on: every write moves `inputRevision`, and a line left unfinished —
+   * no newline, return or ^C after the last character — sets `inputPending`.
+   * The widget's own answers to a program's queries (`isTerminalReply`) pass
+   * through untouched: nobody typed them, and counting them would leave a
+   * person's shell looking half-typed whenever a program asked for the cursor.
+   */
   write(id: string, data: string): void {
     const session = this.sessions.get(id);
     if (!session || session.exitCode !== null) {
       return;
     }
-    session.inputRevision++;
-    const resetAt = Math.max(data.lastIndexOf("\n"), data.lastIndexOf("\r"), data.lastIndexOf("\x03"));
-    session.inputPending = resetAt >= 0 ? resetAt < data.length - 1 : (session.inputPending || data.length > 0);
+    if (!isTerminalReply(data)) {
+      session.inputRevision++;
+      const resetAt = Math.max(data.lastIndexOf("\n"), data.lastIndexOf("\r"), data.lastIndexOf("\x03"));
+      session.inputPending = resetAt >= 0 ? resetAt < data.length - 1 : (session.inputPending || data.length > 0);
+    }
     session.process.write(data);
   }
 
@@ -290,7 +302,12 @@ export class Terminals {
     if (session.sequence !== expectedSequence || session.inputRevision !== expectedInputRevision || session.inputPending) {
       throw new Error("terminal changed or has unfinished input; read it again before sending input");
     }
-    this.write(id, data);
+    // The revision moves, so a read taken before this write is stale, but
+    // `inputPending` is the person's alone: an agent answering `y` and then
+    // sending the newline is two writes, and the first must not lock it out
+    // of the second.
+    session.inputRevision++;
+    session.process.write(data);
   }
 
   stop(id: string): void {
