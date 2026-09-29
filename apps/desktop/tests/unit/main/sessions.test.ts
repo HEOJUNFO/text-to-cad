@@ -285,6 +285,42 @@ describe("SessionManager", () => {
     expect(tally(repo.get(session.id))).toEqual({ changedFiles: 2, insertions: 4, deletions: 0 });
   });
 
+  it("marks a repository with no commits at the empty tree, so a first commit mid-session is in This session and Last turn", async () => {
+    const { head, status } = await import("@main/projects/git");
+    const { resolveDiffScope } = await import("@shared/types");
+    const { execFileSync } = await import("node:child_process");
+    const { repo, manager, cwd } = await setup({ head });
+    const run = (...args: string[]) =>
+      execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" }).trim();
+    run("init", "-q");
+    const emptyTree = execFileSync("git", ["hash-object", "-t", "tree", "--stdin"], { cwd, input: "", encoding: "utf8" }).trim();
+
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    expect(repo.get(session.id)).toMatchObject({ sessionHead: emptyTree, turnHead: emptyTree });
+
+    // The first commit lands between the session's start and its next turn.
+    await writeFile(path.join(cwd, "first.txt"), "one\n");
+    run("add", "first.txt");
+    run("commit", "-q", "-m", "first");
+    const firstCommit = run("rev-parse", "HEAD");
+    await manager.prompt(session.id, [{ type: "text", text: "hello" }]);
+
+    const row = repo.get(session.id);
+    expect(row?.sessionHead).toBe(emptyTree);
+    expect(row?.turnHead).toBe(firstCommit);
+    const since = resolveDiffScope({ kind: "session" }, row);
+    expect(since).toEqual({ kind: "range", from: emptyTree });
+    const listed = await status(cwd, since);
+    expect(listed.files.map((file) => file.path)).toContain("first.txt");
+  });
+
+  it("records no mark outside a repository", async () => {
+    const { head } = await import("@main/projects/git");
+    const { repo, manager, cwd } = await setup({ head });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    expect(repo.get(session.id)).toMatchObject({ sessionHead: null, turnHead: null });
+  });
+
   it("close keeps the row, load reconnects through session/load, delete forgets it", async () => {
     const { repo, manager, cwd } = await setup();
     const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
