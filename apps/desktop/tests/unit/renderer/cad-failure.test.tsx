@@ -40,3 +40,12 @@ it("a file whose project is gone says how to get it back and can try again", asy
   screen.getByRole("button", { name: "Try again" }).click();
   expect(reload).toHaveBeenCalledTimes(1);
 });
+
+it("a failing override interpreter is named, not blamed on the runtime that ships with the app", async () => {
+  vi.mocked(window.textToCad.runtime.status).mockResolvedValueOnce({ state: "error", python: "/nowhere/python", source: "override", cadgenVersion: null, viewerBuilt: false, log: null, message: "no interpreter at /nowhere/python" });
+  render(<DesktopCadFailure answer={{ origin: null, reason: "runtime-not-ready", message: "The override interpreter (/nowhere/python) cannot import cadgen" } as never}
+    onReady={() => {}} reload={() => {}} />);
+  expect(await screen.findByText(/override interpreter at \/nowhere\/python could not run cadgen/)).toBeInTheDocument();
+  expect(screen.getByText(/CAD_DESKTOP_PYTHON or the cadPythonOverride setting/)).toBeInTheDocument();
+  expect(screen.queryByText(/ships with text-to-cad could not run cadgen/)).toBeNull();
+});

@@ -215,11 +215,26 @@ function revealLog() {
     .catch((error: unknown) => toast.error(error instanceof Error ? error.message : String(error)));
 }
 
+/**
+ * The runtime that failed is the person's own when an override names it (`CAD_DESKTOP_PYTHON`, or
+ * the `cadPythonOverride` setting): the one that ships with the app was never asked, so the card
+ * names the override's path rather than blaming the bundle.
+ */
+function overrideReason(python: string): string {
+  return `The override interpreter at ${python} could not run cadgen, so nothing can render this file. It comes from CAD_DESKTOP_PYTHON or the cadPythonOverride setting (Runtime status shows which); without it, the runtime that ships with text-to-cad is used. Its own words are below.`;
+}
+
 export function DesktopCadFailure({ answer, onReady, reload }: { answer: ViewerOrigin } & Pick<RendererViewProps, "onReady" | "reload">) {
   const openSettings = useUi((state) => state.openSettings);
+  const runtime = useRuntime((state) => state.status);
   useEffect(() => { onReady(false); }, [onReady]);
   const reason = answer.reason ?? "runtime-not-ready";
-  return <EmptyState icon={Box} title={TITLES[reason]} description={REASONS[reason]} tone="warn" action={reason === "no-project" ?
+  // Which interpreter failed is the runtime status's to say; main answers from the probe it ran.
+  useEffect(() => {
+    if (reason === "runtime-not-ready") void useRuntime.getState().load().catch(() => {});
+  }, [reason]);
+  const override = reason === "runtime-not-ready" && runtime?.source === "override" && runtime.state !== "ready" && runtime.python ? runtime.python : null;
+  return <EmptyState icon={Box} title={TITLES[reason]} description={override ? overrideReason(override) : REASONS[reason]} tone="warn" action={reason === "no-project" ?
     <div className="flex items-center gap-2" data-cad-failure={reason}>
       <Button className="h-7 gap-1.5 text-xs" onClick={reload} size="sm" variant="secondary"><RefreshCw className="size-3.5" />Try again</Button>
     </div> :
