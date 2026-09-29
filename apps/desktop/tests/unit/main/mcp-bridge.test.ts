@@ -113,6 +113,17 @@ describe("McpBridge", () => {
     expect((await pending).body).toMatchObject({ ok: false, error: "Session authorization revoked" });
   });
 
+  it("takes the largest document edit_document's schema accepts, in its worst-case JSON", async () => {
+    const recorded = recordingActions();
+    const edits: unknown[] = [];
+    const { bridge, url } = await startBridge({ ...recorded, edit_document: async (_session, params) => { edits.push(params); return { ok: true }; } });
+    // Two million control characters: each one is six bytes of JSON (`\u0001`).
+    const content = "\u0001".repeat(2 * 1024 * 1024);
+    const answer = await rpc(url, bridge.tokenFor(SESSION, "documents"), { method: "edit_document", params: { tabId: "t", expectedRevision: "r", content } });
+    expect(answer.status).toBe(200);
+    expect(edits).toHaveLength(1);
+  });
+
   it("dispatches each method to its action with the token's session", async () => {
     const actions = recordingActions();
     const { bridge, url } = await startBridge(actions);

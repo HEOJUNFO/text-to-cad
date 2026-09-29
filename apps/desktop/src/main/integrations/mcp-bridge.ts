@@ -25,6 +25,7 @@ export type BridgeSession = { sessionId: string; projectId: string; cwd: string 
 export type BridgeActions = Record<string, (session: BridgeSession, params: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>>;
 export type BridgeMethod = string;
 import { integrations, integrationById, toolByName } from "./registry.mjs";
+import { MAX_DOCUMENT_CHARS } from "./documents/module.mjs";
 export const BRIDGE_METHODS: readonly string[] = integrations.flatMap(entry => [...entry.tools, ...(entry.hostTools ?? [])].map(tool => tool.name));
 
 /** The environment the MCP server reads. One place, shared with server.mjs by name. */
@@ -35,7 +36,13 @@ export const BRIDGE_ENV = {
   session: "TEXT_TO_CAD_SESSION_ID",
 } as const;
 
-const MAX_BODY_BYTES = 3 * 1024 * 1024;
+/**
+ * The request body cap, from the largest thing a tool accepts: a document of
+ * `MAX_DOCUMENT_CHARS`. JSON can spend six bytes on one UTF-16 unit (a control
+ * character or a lone surrogate is `\u00XX`), so a buffer the schema accepts
+ * must not be refused here as too large; 64 KB covers the rest of the request.
+ */
+const MAX_BODY_BYTES = 6 * MAX_DOCUMENT_CHARS + 64 * 1024;
 
 export class McpBridge {
   private server: http.Server | null = null;
