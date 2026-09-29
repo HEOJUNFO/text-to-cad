@@ -468,6 +468,41 @@ describe("the skills root and the preamble", () => {
    * unexpected exit shows the person — and a last line with no newline is
    * kept too.
    */
+  /**
+   * An adapter with a `\r` spinner and no newline writes one line forever.
+   * Held whole, that line grows the buffer without end and lands entire in
+   * the error the person reads. The line is kept to its tail, and so is the
+   * error.
+   */
+  it("keeps only the tail of a line that never ends, and of the error it ends in", async () => {
+    const script = "process.stderr.write('x'.repeat(2e6) + 'the end', () => process.exit(2));";
+    const lines: string[] = [];
+    const events: SessionEvent[] = [];
+    const connection = new SessionConnection({
+      sessionId: "test-session",
+      agentId: "fake",
+      launch: { command: process.execPath, args: ["-e", script], env: {} },
+      env: { PATH: process.env.PATH ?? "" },
+      cwd: await scratch(),
+      spawnTerminal: spawnProcessTerminal,
+      onEvent: (event) => events.push(event),
+      onStderr: (line) => lines.push(line),
+    });
+    open.push(connection);
+    await connection.exited;
+    while (!events.some((event) => event.type === "status")) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.length).toBeLessThanOrEqual(8 * 1024 + 1);
+    expect(lines[0]!.endsWith("the end")).toBe(true);
+    const exit = events.find((event) => event.type === "status") as { error: string };
+    expect(exit.error.length).toBeLessThanOrEqual(4 * 1024 + 100);
+    expect(exit.error.startsWith("fake exited unexpectedly (code 2):\n…")).toBe(true);
+    expect(exit.error.endsWith("the end")).toBe(true);
+  });
+
   it("reassembles stderr lines that straddle chunks, and keeps an unterminated last line", async () => {
     const script = [
       "process.stderr.write('first half ');",

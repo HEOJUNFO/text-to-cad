@@ -210,6 +210,24 @@ export function adapterOptionsKey(
   ]);
 }
 
+/**
+ * How much of the adapter's stderr is held: one line's last 8 KB (a `\r`
+ * spinner with no newline is one line for as long as it spins), and the last
+ * 4 KB of the five lines an unexpected exit shows the person.
+ */
+const STDERR_LINE_MAX = 8 * 1024;
+const STDERR_DETAIL_MAX = 4 * 1024;
+
+/** The last `max` characters, marked as cut when anything was. */
+function keepTail(text: string, max: number): string {
+  return text.length > max ? `…${text.slice(-max)}` : text;
+}
+
+/** The last five stderr lines, as an error's detail. */
+function stderrDetail(lines: readonly string[]): string {
+  return keepTail(lines.slice(-5).join("\n"), STDERR_DETAIL_MAX);
+}
+
 export class SessionConnection {
   readonly client: AcpClient;
   readonly agent: ClientSideConnection;
@@ -247,9 +265,11 @@ export class SessionConnection {
     // Chunks are whatever the pipe hands over, not lines: the text after the
     // last newline waits for the next chunk, so a line split across two is
     // still one line in `onStderr` and in the tail an exit shows the person.
+    // A line that never ends (a `\r` spinner) is held to its tail, so the
+    // buffer does not grow for as long as the adapter runs.
     this.process.stderr.on("data", (chunk: string) => {
       const lines = (this.stderrPartial + chunk).split("\n");
-      this.stderrPartial = lines.pop() ?? "";
+      this.stderrPartial = (lines.pop() ?? "").slice(-STDERR_LINE_MAX);
       for (const line of lines) {
         this.stderrLine(line);
       }
@@ -623,10 +643,11 @@ export class SessionConnection {
     return id;
   }
 
-  private stderrLine(line: string) {
-    if (!line.trim()) {
+  private stderrLine(whole: string) {
+    if (!whole.trim()) {
       return;
     }
+    const line = keepTail(whole, STDERR_LINE_MAX);
     this.stderrTail.push(line);
     if (this.stderrTail.length > 40) {
       this.stderrTail.shift();
@@ -649,7 +670,7 @@ export class SessionConnection {
     if (this.closing) {
       return;
     }
-    const detail = this.stderrTail.slice(-5).join("\n");
+    const detail = stderrDetail(this.stderrTail);
     const message =
       `${agentProvider(this.options.agentId)?.name ?? this.options.agentId} exited unexpectedly` +
       (exit.code !== null ? ` (code ${exit.code})` : exit.signal ? ` (${exit.signal})` : "") +
@@ -671,7 +692,7 @@ export class SessionConnection {
     }
     if (error instanceof Error) {
       if (this.exit !== null || this.agent.signal.aborted) {
-        const tail = this.stderrTail.slice(-5).join("\n");
+        const tail = stderrDetail(this.stderrTail);
         const code = this.exit?.code;
         // The method and the agent id are for the log; the person reads
         // which agent stopped and when, in words.
