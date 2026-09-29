@@ -131,6 +131,30 @@ describe("visible file watching", () => {
     ]));
   });
 
+  it("reports an open file's rename as a move, even when its add arrives after the batch window", async () => {
+    await fs.writeFile(path.join(root, "notes.txt"), "draft\n");
+    await fs.writeFile(path.join(root, "other.txt"), "other\n");
+    await watchers.watch(root);
+    await watchers.watchEntry(root, await statFile(root, "notes.txt"));
+    const handler = (event: string) => recursive.on.mock.calls.find(([name]) => name === event)![1] as (target: string) => void;
+    const realRoot = await fs.realpath(root);
+    await fs.rename(path.join(realRoot, "notes.txt"), path.join(realRoot, "renamed.txt"));
+    // A file nobody has open is still a plain removal beside it.
+    await fs.rm(path.join(realRoot, "other.txt"));
+    handler("unlink")(path.join(realRoot, "notes.txt"));
+    handler("unlink")(path.join(realRoot, "other.txt"));
+    // chokidar holds the add back until the size has settled (awaitWriteFinish).
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    handler("add")(path.join(realRoot, "renamed.txt"));
+    await vi.waitFor(() => expect(emit).toHaveBeenCalled());
+    expect(emit).toHaveBeenCalledTimes(1);
+    expect(emit.mock.calls[0]![1]).toEqual(expect.arrayContaining([
+      { kind: "moved", previousPath: "notes.txt", path: "renamed.txt", directory: false },
+      { kind: "removed", path: "other.txt", directory: false },
+    ]));
+    expect(emit.mock.calls[0]![1]).toHaveLength(2);
+  });
+
   it("cancels setup without creating a watcher when the last owner leaves", async () => {
     const pending = watchers.watch(root);
     await watchers.unwatch(root);

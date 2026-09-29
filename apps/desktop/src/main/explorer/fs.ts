@@ -733,6 +733,11 @@ export async function duplicateEntry(root: string, target: string): Promise<{ pa
 /* -------------------------------------------------------------------------- */
 
 export type FileChange = {
+  kind: "moved";
+  path: string;
+  previousPath: string;
+  directory: boolean;
+} | {
   path: string;
   kind: "added" | "changed" | "removed";
   directory: boolean;
@@ -762,6 +767,14 @@ type WatchedRoot = {
  * event janks for a second. The window is short enough to feel immediate.
  */
 const BATCH_MS = 80;
+/**
+ * How long a batch that removed an open file waits for the name it went to.
+ * A rename is an unlink and an add to chokidar, and the add is held back by
+ * `awaitWriteFinish` until the file's size has settled.
+ */
+const MOVE_WAIT_MS = 250;
+
+type Identity = { dev: number; ino: number };
 
 export class FileWatchers {
   private readonly watchers = new Map<string, WatchedRoot>();
@@ -770,6 +783,12 @@ export class FileWatchers {
   private readonly timers = new Map<string, NodeJS.Timeout>();
   /** Each root's batches leave in order, however long one takes to settle. */
   private readonly flushes = new Map<string, Promise<void>>();
+  /**
+   * The inode of each file a tab has open, by root and path. The watcher
+   * reports an agent's `mv` or `git mv` as a removal and an addition; the
+   * inode is what says the two are one file, so a tab can follow it.
+   */
+  private readonly identities = new Map<string, Map<string, Identity>>();
 
   constructor(private readonly emit: (root: string, changes: FileChange[]) => void) {}
 
@@ -802,7 +821,7 @@ export class FileWatchers {
       awaitWriteFinish: { stabilityThreshold: 40, pollInterval: 20 },
     });
 
-    const record = (kind: FileChange["kind"], directory: boolean) => (target: string) => {
+    const record = (kind: "added" | "changed" | "removed", directory: boolean) => (target: string) => {
       if (this.watchers.get(root) !== owner) return;
       this.queue(root, {
         path: toRelative(realRoot, target),
@@ -830,6 +849,16 @@ export class FileWatchers {
   /** An opened file stays live even when its parent has never been expanded. */
   async watchEntry(root: string, entry: Pick<FileStat, "path" | "kind">): Promise<void> {
     await this.watchListedDirectory(root, entry.kind === "directory" ? entry.path : path.posix.dirname(entry.path));
+    if (entry.kind !== "file") return;
+    const realRoot = await fs.realpath(root).catch(() => path.resolve(root));
+    const stats = await fs.stat(path.join(realRoot, entry.path)).catch(() => null);
+    if (!stats || !this.watchers.has(root)) return;
+    let known = this.identities.get(root);
+    if (!known) {
+      known = new Map();
+      this.identities.set(root, known);
+    }
+    known.set(entry.path, { dev: stats.dev, ino: stats.ino });
   }
 
   /** Keep every explicitly browsed directory live without walking its children. */
@@ -879,6 +908,7 @@ export class FileWatchers {
     }
     this.watchers.delete(root);
     this.listedDirectories.delete(root);
+    this.identities.delete(root);
     this.clearTimer(root);
     this.pending.delete(root);
     for (const direct of existing.direct.values()) direct.close();
@@ -895,6 +925,7 @@ export class FileWatchers {
       await existing?.watcher?.close();
     }
     this.listedDirectories.clear();
+    this.identities.clear();
     this.pending.clear();
   }
 
@@ -907,8 +938,10 @@ export class FileWatchers {
     // Last write wins per path: an add followed by a change in the same window
     // is one row for the tree either way.
     batch.set(change.path, change);
+    const moving = change.kind === "removed" && !change.directory && this.identities.get(root)?.has(change.path);
     if (this.timers.has(root)) {
-      return;
+      if (!moving) return;
+      this.clearTimer(root);
     }
     this.timers.set(
       root,
@@ -928,7 +961,7 @@ export class FileWatchers {
             if (this.flushes.get(root) === flushed) this.flushes.delete(root);
           });
         this.flushes.set(root, flushed);
-      }, BATCH_MS),
+      }, moving ? MOVE_WAIT_MS : BATCH_MS),
     );
   }
 
@@ -942,7 +975,7 @@ export class FileWatchers {
    */
   private async settle(root: string, changes: FileChange[]): Promise<FileChange[]> {
     const realRoot = await fs.realpath(root).catch(() => path.resolve(root));
-    return Promise.all(changes.map(async (change) => {
+    const stamped = await Promise.all(changes.map(async (change) => {
       if (change.kind !== "changed" || change.directory) return change;
       const absolute = path.join(realRoot, change.path);
       const stats = await fs.stat(absolute).catch(() => null);
@@ -950,6 +983,39 @@ export class FileWatchers {
       const content = await fs.readFile(absolute).catch(() => null);
       return content ? { ...change, revision: revisionOf(content) } : change;
     }));
+    return this.pairMoves(root, realRoot, stamped);
+  }
+
+  /**
+   * An open file removed in the same batch as a file that appeared with its
+   * inode was moved, not deleted: one `moved` replaces the pair, so its tab
+   * takes the new name (and a dirty buffer can still be saved) instead of
+   * showing "Could not open that file". A removal with no such partner stays
+   * a removal.
+   */
+  private async pairMoves(root: string, realRoot: string, changes: FileChange[]): Promise<FileChange[]> {
+    const known = this.identities.get(root);
+    const removed = changes.filter((change) => change.kind === "removed" && !change.directory && known?.has(change.path));
+    if (!known || removed.length === 0) return changes;
+    const arrivals = changes.filter((change) => (change.kind === "added" || change.kind === "changed") && !change.directory);
+    const stats = await Promise.all(arrivals.map((change) => fs.stat(path.join(realRoot, change.path)).catch(() => null)));
+    const moves = new Map<FileChange, FileChange>();
+    const taken = new Set<FileChange>();
+    for (const removal of removed) {
+      const identity = known.get(removal.path)!;
+      const index = arrivals.findIndex((arrival, at) => !taken.has(arrival) && stats[at]?.isFile()
+        && stats[at]!.ino === identity.ino && stats[at]!.dev === identity.dev);
+      if (index < 0) {
+        known.delete(removal.path);
+        continue;
+      }
+      const arrival = arrivals[index]!;
+      taken.add(arrival);
+      moves.set(removal, { kind: "moved", previousPath: removal.path, path: arrival.path, directory: false });
+      known.delete(removal.path);
+      known.set(arrival.path, identity);
+    }
+    return changes.filter((change) => !taken.has(change)).map((change) => moves.get(change) ?? change);
   }
 
   private clearTimer(root: string) {
