@@ -12,8 +12,21 @@ import type { editor } from "monaco-editor";
 export const MONACO_LIGHT = "text-to-cad-light";
 export const MONACO_DARK = "text-to-cad-dark";
 
+/**
+ * The transcript's variants: the same colours on a transparent background, so
+ * a diff in a reply sits on the transcript itself. Names of their own — a
+ * second `defineTheme` under the shell theme's name replaces it for every
+ * editor in the window, which is how the review once lost its colours.
+ */
+export const MONACO_TRANSCRIPT_LIGHT = "text-to-cad-transcript-light";
+export const MONACO_TRANSCRIPT_DARK = "text-to-cad-transcript-dark";
+
 export function monacoTheme(resolved: "light" | "dark"): string {
   return resolved === "dark" ? MONACO_DARK : MONACO_LIGHT;
+}
+
+export function transcriptMonacoTheme(resolved: "light" | "dark"): string {
+  return resolved === "dark" ? MONACO_TRANSCRIPT_DARK : MONACO_TRANSCRIPT_LIGHT;
 }
 
 /**

@@ -39,7 +39,7 @@ import htmlWorker from "monaco-editor/language/html/html.worker?worker";
 import jsonWorker from "monaco-editor/language/json/json.worker?worker";
 import tsWorker from "monaco-editor/language/typescript/ts.worker?worker";
 
-import { MONACO_DARK, MONACO_LIGHT } from "./monaco";
+import { MONACO_DARK, MONACO_LIGHT, MONACO_TRANSCRIPT_DARK, MONACO_TRANSCRIPT_LIGHT } from "./monaco";
 
 /* -------------------------------------------------------------------------- */
 /* Themes                                                                      */
@@ -198,6 +198,19 @@ export function setupMonaco(): void {
   };
 
   loader.config({ monaco });
+  // Every theme the renderer uses, registered here, once, in this order.
+  // Monaco themes cannot inherit from each other (`base` is only `vs` or
+  // `vs-dark`), so the transcript's are the shell's colours spread, with a
+  // transparent background.
   monaco.editor.defineTheme(MONACO_LIGHT, lightTheme);
   monaco.editor.defineTheme(MONACO_DARK, darkTheme);
+  monaco.editor.defineTheme(MONACO_TRANSCRIPT_LIGHT, transparent(lightTheme));
+  monaco.editor.defineTheme(MONACO_TRANSCRIPT_DARK, transparent(darkTheme));
+}
+
+function transparent(theme: monaco.editor.IStandaloneThemeData): monaco.editor.IStandaloneThemeData {
+  return {
+    ...theme,
+    colors: { ...theme.colors, "editor.background": "#00000000", "editorGutter.background": "#00000000" },
+  };
 }
