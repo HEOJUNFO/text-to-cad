@@ -116,3 +116,12 @@ it('preserves a background command admitted while watcher startup is still pendi
   watched(); await binding;
   expect(useExplorer.getState().tabs).toMatchObject([{ id: opened.tabId }]);
 });
+
+it("lists a terminal the person opened under the recorded spelling when main names the real path", async () => {
+  // `/tmp/p` is `/private/tmp/p` on macOS; a tab keeps the first, main resolves the second.
+  const terminal = useExplorer.getState().open("terminal")!;
+  useExplorer.getState().update(terminal.id, { cwd: `${projectId}/sub` });
+  const listed = await performIntegrationCommand({ sessionId: sessionA, projectId, requestId: "list", kind: "list-tabs", root: null,
+    rootDirectory: `/private${projectId}`, rootAliases: [projectId] }) as { tabs: Array<{ id: string }> };
+  expect(listed.tabs.map(tab => tab.id)).toEqual([terminal.id]);
+});

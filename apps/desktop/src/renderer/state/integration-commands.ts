@@ -21,19 +21,25 @@ async function rendererIdForPath(projectId: string, root: string | null, path: s
   finally { composition.dispose(); }
 }
 
+const slashed = (directory: string) => directory.replace(/\\/g, "/").replace(/\/$/, "");
+
 function inScope(tab: ExplorerTab, command: IntegrationCommand) {
   if (tab.sessionId !== command.sessionId || tab.projectId !== command.projectId) return false;
   if ("root" in tab) return tab.root === (command.root ?? null);
+  // Main's real path and the session's recorded spelling name one directory;
+  // a tab carries whichever it was opened with.
+  const roots = command.rootDirectory ? [command.rootDirectory, ...(command.rootAliases ?? [])].map(slashed) : [];
   if (tab.kind === "terminal") {
-    const root = command.rootDirectory?.replace(/\\/g, "/").replace(/\/$/, "");
-    const cwd = (tab.cwd ?? useProjects.getState().projects.find(project => project.id === tab.projectId)?.path)?.replace(/\\/g, "/").replace(/\/$/, "");
-    return Boolean(root && cwd && (cwd === root || cwd.startsWith(`${root}/`)));
+    const cwd = tab.cwd ?? useProjects.getState().projects.find(project => project.id === tab.projectId)?.path;
+    if (!cwd) return false;
+    return roots.some(root => slashed(cwd) === root || slashed(cwd).startsWith(`${root}/`));
   }
   // Review tabs lack root identity; do not reveal a different worktree's review.
   if (tab.kind !== "review") return false;
   const session = useSessions.getState().sessions.find(candidate => candidate.id === tab.sessionId);
   const project = useProjects.getState().projects.find(candidate => candidate.id === command.projectId);
-  return Boolean(session && session.cwd === (command.rootDirectory ?? project?.path));
+  if (!session) return false;
+  return roots.length > 0 ? roots.includes(slashed(session.cwd)) : session.cwd === project?.path;
 }
 
 async function scopedTabs(command: IntegrationCommand, signal?: AbortSignal) {

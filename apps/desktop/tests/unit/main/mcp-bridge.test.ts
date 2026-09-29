@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { RendererCommands, createActions, resolveForSession } from "@main/integrations/actions";
 import { BRIDGE_ENV, McpBridge, type BridgeSession } from "@main/integrations/mcp-bridge";
@@ -252,6 +252,21 @@ describe("the actions", () => {
     const snapshot = await actions.attach_snapshot!(session, { path: "tmp/review.png" });
     expect(snapshot).toEqual({ path: "tmp/review.png", mimeType: "image/png", base64: Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString("base64") });
     await expect(actions.attach_snapshot!(session, { path: "notes.txt" })).rejects.toThrow("not a PNG");
+  });
+
+  it.skipIf(process.platform === "win32")("names the session's recorded spelling of its directory beside the real path", async () => {
+    const real = fs.realpathSync(tempDir("text-to-cad-proj-"));
+    const link = path.join(tempDir("text-to-cad-link-"), "checkout");
+    fs.symlinkSync(real, link);
+    const sent: IntegrationCommand[] = [];
+    const sessionRoot = () => ({ directory: link, root: null });
+    const commands = new RendererCommands({ sessionRoot, send: (command) => sent.push(command), newId: () => "r" });
+    const actions = createActions({ sessionRoot, send: () => {}, newId: () => "r" }, commands);
+    const listed = actions.list_open_tabs!({ sessionId: "s", projectId: "p", cwd: link }, {});
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    commands.reply({ requestId: "r", ok: true, result: { tabs: [] } });
+    await listed;
+    expect(sent[0]).toMatchObject({ kind: "list-tabs", rootDirectory: real, rootAliases: [link] });
   });
 
   it.skipIf(process.platform === "win32")("refuses a snapshot that is a FIFO rather than blocking on it", { timeout: 2000 }, async () => {

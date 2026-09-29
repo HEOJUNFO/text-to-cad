@@ -151,6 +151,15 @@ export async function resolveForSession(
 }
 
 /**
+ * A workspace directory as a command names it: its real path, plus the
+ * spelling the session recorded when the two differ (see `rootAliases`).
+ */
+export async function workspaceDirectory(directory: string): Promise<{ rootDirectory: string; rootAliases?: string[] }> {
+  const real = await fsp.realpath(directory);
+  return real === directory ? { rootDirectory: real } : { rootDirectory: real, rootAliases: [directory] };
+}
+
+/**
  * A snapshot's bytes, from one handle. Opened non-blocking and checked with
  * `fstat` on that handle: a FIFO named `x.png` would otherwise hold a libuv
  * thread in `open` for good, and a file checked by path and then read by path
@@ -182,7 +191,7 @@ export function createActions(deps: ActionDeps, commands: RendererCommands): Bri
     const workspace = deps.sessionRoot(session);
     if (!workspace) throw new Error("this session's project is no longer open in text-to-cad");
     return commands.request({ kind, sessionId: session.sessionId, projectId: session.projectId, root: workspace.root,
-      rootDirectory: await fsp.realpath(workspace.directory), params,
+      ...(await workspaceDirectory(workspace.directory)), params,
       ...(typeof params.tabId === "string" ? { tabId: params.tabId } : {}),
       ...(typeof params.title === "string" ? { title: params.title } : {}), ...extra }, signal);
   };

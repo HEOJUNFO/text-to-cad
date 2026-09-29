@@ -1,5 +1,5 @@
 import type { ActionDeps, RendererCommands } from "../actions";
-import { resolveForSession } from "../actions";
+import { resolveForSession, workspaceDirectory } from "../actions";
 import type { BridgeActions, BridgeSession } from "../mcp-bridge";
 import type { Terminals } from "../../explorer/terminal";
 import type { ExplorerTab } from "../../../shared/types";
@@ -17,7 +17,7 @@ export function createTerminalActions(deps: ActionDeps, commands: RendererComman
     const scope = deps.sessionRoot(session);
     if (!scope) throw new Error("workspace no longer exists");
     const tab = await commands.request({ kind: "tab-resource", sessionId: session.sessionId, projectId: session.projectId, root: scope.root,
-      rootDirectory: await fs.realpath(scope.directory), tabId: String(params.tabId) }, signal) as ExplorerTab;
+      ...(await workspaceDirectory(scope.directory)), tabId: String(params.tabId) }, signal) as ExplorerTab;
     if (tab.kind !== "terminal" || !tab.ptyId || !terminals().owns(tab.ptyId, session.sessionId)) throw new Error("this tab has no app-owned terminal in the workspace");
     return tab.ptyId;
   }
