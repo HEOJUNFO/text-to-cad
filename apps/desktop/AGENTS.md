@@ -111,7 +111,10 @@ not.
   tool's input or result (`capToolBody`, `TrimmedBody`) and a string result
   as plain text rather than as JSON; `prompt-input.tsx` does not fetch an
   attachment's `blob:` URL on submit (the CSP refuses it; the composer reads
-  the File). Re-vendoring a component means
+  the File); `command.tsx`'s `CommandDialog` draws its title inside the dialog
+  (stock draws it outside, a heading in the page while the dialog is shut),
+  names its box through cmdk's `label`, and passes the dialog's
+  `onOpenAutoFocus` and `onCloseAutoFocus` through. Re-vendoring a component means
   redoing those.
 - **Nothing is installed into an agent's configuration.** text-to-cad's skills
   and its tools are given to each session — the skills root as an additional
