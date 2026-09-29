@@ -359,3 +359,20 @@ it('the Display popover keeps its controls together: a dropdown or a color edito
   expect(displayPopover()).toBeNull();
   expect(screen.getByRole('button', { name: 'Display settings' }).getAttribute('aria-pressed')).toBe('false');
 });
+
+it('a failure that leaves nothing on screen puts the tool stack away under its card, and a failed update the model survives keeps it', () => {
+  frame();
+  const stack = () => document.querySelector<HTMLElement>('[data-cad-tool-stack]')!;
+  const stage = (name: string) => fireEvent.click(document.querySelector(`[data-harness-stage="${name}"]`)!);
+  expect(stack().hidden).toBe(false);
+  stage('broken');
+  expect(screen.getByRole('alert').textContent).toContain('Harness build failed');
+  expect(stack().hidden).toBe(true);
+  // Kept mounted: the panels come back as they were.
+  expect(panel('Harness tree')).not.toBeNull();
+  stage('failed');
+  expect(screen.getByRole('alert').textContent).toContain('Harness update failed');
+  expect(stack().hidden).toBe(false);
+  stage('idle');
+  expect(stack().hidden).toBe(false);
+});

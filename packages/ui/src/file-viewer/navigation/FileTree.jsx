@@ -82,6 +82,24 @@ const ROW_HEIGHT = TREE_ROW_HEIGHT;
 const INDENT = 12;
 
 /**
+ * Folders the tree leaves out: a repository's own internals, which are the
+ * version control's and never something to open. Other dotfiles and
+ * dotfolders (`.gitignore`, `.github`, `.env`) are the project's and stay. A
+ * hidden folder still shows while the open or revealed path is inside it.
+ */
+const HIDDEN_DIRECTORY_NAMES = new Set([".git"]);
+
+/** True for a directory entry the tree leaves out. */
+export function isHiddenTreeDirectory(entry) {
+  return entry.kind === "directory" && HIDDEN_DIRECTORY_NAMES.has(entry.name);
+}
+
+/** True for a path inside a folder the tree leaves out: the filter does not rank it. */
+export function isInsideHiddenTreeDirectory(path) {
+  return path.split("/").slice(0, -1).some((segment) => HIDDEN_DIRECTORY_NAMES.has(segment));
+}
+
+/**
  * The one inline field the tree can show: a rename over a row, or a new entry
  * in a folder. An edit asked for from OUTSIDE — a crumb's `Rename` or `New
  * folder` — arrives as the same thing plus a nonce, so asking twice is two
@@ -356,6 +374,9 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
     const out = [];
     const walk = (directory, depth) => {
       for (const entry of children[directory] ?? []) {
+        if (isHiddenTreeDirectory(entry) && !revealed.has(entry.path)) {
+          continue;
+        }
         const open = entry.kind === "directory" && isExpanded(entry.path);
         out.push({
           path: entry.path,
@@ -371,7 +392,7 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
     };
     walk("", 0);
     return out;
-  }, [children, isExpanded]);
+  }, [children, isExpanded, revealed]);
 
   /** Where the "new entry" field goes: first among its folder's children. */
   const creatingAt = useMemo(() => {
@@ -390,9 +411,22 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
       : 0;
 
   const matches = useMemo(
-    () => (filtering ? fuzzyFilter(corpus?.paths ?? [], query, 200) : []),
+    () => (filtering ? fuzzyFilter((corpus?.paths ?? []).filter((path) => !isInsideHiddenTreeDirectory(path)), query, 200) : []),
     [corpus, filtering, query]
   );
+
+  /**
+   * Open a file. One picked from the filter ends the search: the tree comes
+   * back, revealed to the file, rather than a one-row list that makes its
+   * folder look as if the file were all there is in it.
+   */
+  const open = (path) => {
+    if (filtering) {
+      setQuery("");
+      setCursor(path);
+    }
+    onOpen(path);
+  };
 
   const visible = filtering ? matches.map((match) => match.path) : rows.map((row) => row.path);
 
@@ -453,7 +487,7 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
       if (row?.kind === "directory") {
         toggle(cursorPath);
       } else {
-        onOpen(cursorPath);
+        open(cursorPath);
       }
     }
   };
@@ -546,7 +580,7 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
                     cursor={match.path === cursorPath}
                     indices={match.indices}
                     key={match.path}
-                    onOpen={() => onOpen(match.path)}
+                    onOpen={() => open(match.path)}
                     path={match.path}
                   />
                 ))

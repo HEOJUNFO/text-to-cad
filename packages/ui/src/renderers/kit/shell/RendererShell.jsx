@@ -5,7 +5,7 @@ import { Play, Pause, X } from "lucide-react";
 import { ToolbarButton } from "@text-to-cad/ui/primitives/toolbar-button";
 import PreviewChrome from "../tools/PreviewChrome.jsx";
 import { useViewerMobile } from "../../../file-viewer/responsive.js";
-import ViewerAlertCard from "../status/ViewerAlertCard.jsx";
+import ViewerAlertCard, { viewportAlert } from "../status/ViewerAlertCard.jsx";
 import { ViewUpdateStatus } from "../status/ViewUpdateStatus.jsx";
 import ViewerLoadingOverlay from "../status/ViewerLoadingOverlay.js";
 import { VIEWER_RENDER_PROFILE, renderProfileKeepsPixelRatio, sceneForRenderProfile } from "../viewport/renderProfile.js";
@@ -146,6 +146,11 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
   </>;
 
   const hasContent = Boolean(scene) && !viewerLoading;
+  // A failure that leaves no model to look at (`blocking`) puts the tool stack away while its
+  // card is up: the panels would float over the card and its actions, and there is nothing for
+  // them to inspect. They stay mounted, and come back as they were once the model loads.
+  const failureShown = viewportAlert(frame.viewerAlert, hasContent);
+  const failureCovers = Boolean(failureShown && failureShown.severity === "error" && failureShown.blocking !== false);
   // Draw's action: the shell's Copy Drawing (the view with its ink, to the clipboard), unless the
   // renderer supplies a drawing action to take its place. Either way the copy stays on the
   // shortcut (`copyActionRef`, ⌘C).
@@ -263,7 +268,7 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
               <div className="group/tool-stack pointer-events-none absolute z-20 flex flex-col items-start gap-2" style={TOOLBAR_POSITION}
                 data-mobile={mobile ? "" : undefined} data-cad-tool-groups="">
                 <FloatingToolBar tools={tools} />
-                <ToolStack hidden={previewing} mobile={mobile} layout={frame.toolStack} onLayoutChange={frame.changeToolStack}>{shellPanels}{toolPanels}</ToolStack>
+                <ToolStack hidden={previewing || failureCovers} mobile={mobile} layout={frame.toolStack} onLayoutChange={frame.changeToolStack}>{shellPanels}{toolPanels}</ToolStack>
               </div>
 
               </PreviewChrome>

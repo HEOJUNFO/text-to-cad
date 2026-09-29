@@ -66,6 +66,12 @@ const LOAD_STAGES = Object.freeze({
     load: { alert: { severity: "error", blocking: false, summary: "Update failed", title: "Harness update failed",
       message: "The harness could not load its latest revision. The existing model remains visible.",
       details: "harness detail", reload: true } }
+  },
+  // A build that failed with nothing to show: the card is all there is, and the tool stack
+  // is put away rather than floated over it.
+  broken: {
+    load: { alert: { severity: "error", kind: "compile", summary: "Compile failed", title: "Harness build failed",
+      message: "The harness could not be prepared for display.", details: "Traceback (most recent call last):\n  harness", reload: true } }
   }
 });
 
