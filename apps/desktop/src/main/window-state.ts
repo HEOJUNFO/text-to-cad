@@ -15,14 +15,50 @@ const SAVE_DEBOUNCE_MS = 400;
 /** Every tracked window's final save, run once by `flushWindowStates`. */
 const flushers = new Set<() => void>();
 
-/** The stored geometry, dropped back to defaults if it lands off-screen. */
+/**
+ * How much of a window has to be on a display to count as on it: enough to
+ * find and grab. A window saved on a monitor that is gone can overlap the
+ * laptop's screen by a pixel, and a pixel is not a window.
+ */
+const MIN_VISIBLE_PX = 100;
+
+/**
+ * The stored geometry, fitted to the displays that exist now: centred when
+ * too little of it is on any of them, and never larger than the work area of
+ * the display it opens on — a window sized for a 2560px monitor does not fit
+ * a laptop.
+ */
 export function restoreWindowState(): WindowState {
   const state = settings.windowState();
-  if (state.x === undefined || state.y === undefined) {
-    return state;
+  const display = state.x === undefined || state.y === undefined ? undefined : mostOf(state);
+  if (!display) {
+    // Centred, which Electron does on the primary display.
+    return { ...fit(state, screen.getPrimaryDisplay().workArea), x: undefined, y: undefined };
   }
-  const visible = screen.getAllDisplays().some((display) => overlaps(display.workArea, state));
-  return visible ? state : { ...state, x: undefined, y: undefined };
+  const area = display.workArea;
+  const size = fit(state, area);
+  // Shrunk, it may still hang off the far edge; slide it back on.
+  return {
+    ...size,
+    x: Math.max(area.x, Math.min(state.x!, area.x + area.width - size.width)),
+    y: Math.max(area.y, Math.min(state.y!, area.y + area.height - size.height)),
+  };
+}
+
+/** The display holding the most of the window, if any holds enough of it. */
+function mostOf(state: WindowState) {
+  let best: { display: Electron.Display; area: number } | undefined;
+  for (const display of screen.getAllDisplays()) {
+    const { width, height } = intersection(display.workArea, state);
+    if (width >= MIN_VISIBLE_PX && height >= MIN_VISIBLE_PX && width * height > (best?.area ?? 0)) {
+      best = { display, area: width * height };
+    }
+  }
+  return best?.display;
+}
+
+function fit(state: WindowState, area: Rectangle): WindowState {
+  return { ...state, width: Math.min(state.width, area.width), height: Math.min(state.height, area.height) };
 }
 
 /** Track a window and persist its geometry. Returns a detach function. */
@@ -100,13 +136,11 @@ export function flushWindowStates() {
   flushers.clear();
 }
 
-function overlaps(area: Rectangle, state: WindowState) {
+function intersection(area: Rectangle, state: WindowState) {
   const x = state.x ?? 0;
   const y = state.y ?? 0;
-  return (
-    x < area.x + area.width &&
-    x + state.width > area.x &&
-    y < area.y + area.height &&
-    y + state.height > area.y
-  );
+  return {
+    width: Math.max(0, Math.min(x + state.width, area.x + area.width) - Math.max(x, area.x)),
+    height: Math.max(0, Math.min(y + state.height, area.y + area.height) - Math.max(y, area.y)),
+  };
 }

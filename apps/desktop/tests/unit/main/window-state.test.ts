@@ -2,11 +2,15 @@ import { EventEmitter } from "node:events";
 
 import { describe, expect, it, vi } from "vitest";
 
-const saved = vi.hoisted(() => ({ calls: 0, closed: false }));
+const saved = vi.hoisted(() => ({ calls: 0, closed: false, state: {} as Record<string, unknown> }));
+const displays = vi.hoisted(() => ({ all: [] as { workArea: { x: number; y: number; width: number; height: number } }[] }));
 
-vi.mock("electron", () => ({ screen: { getAllDisplays: () => [] } }));
+vi.mock("electron", () => ({
+  screen: { getAllDisplays: () => displays.all, getPrimaryDisplay: () => displays.all[0] },
+}));
 vi.mock("@main/db/repositories", () => ({
   settings: {
+    windowState: () => saved.state,
     setWindowState: () => {
       if (saved.closed) {
         throw new Error("database used after close");
@@ -16,7 +20,7 @@ vi.mock("@main/db/repositories", () => ({
   },
 }));
 
-import { flushWindowStates, trackWindowState } from "@main/window-state";
+import { flushWindowStates, restoreWindowState, trackWindowState } from "@main/window-state";
 
 function fakeWindow() {
   return Object.assign(new EventEmitter(), {
@@ -35,5 +39,36 @@ describe("window state on quit", () => {
     saved.closed = true;
     expect(() => window.emit("close")).not.toThrow();
     expect(saved.calls).toBe(1);
+  });
+});
+
+// A laptop's screen alone, after the monitor the window was last on has gone.
+describe("window state on launch", () => {
+  const laptop = { workArea: { x: 0, y: 0, width: 1440, height: 900 } };
+  const restore = (state: Record<string, unknown>) => {
+    displays.all = [laptop];
+    saved.state = { maximized: false, ...state };
+    return restoreWindowState();
+  };
+
+  it("keeps a window that is on a display", () => {
+    expect(restore({ x: 100, y: 50, width: 1200, height: 800 })).toMatchObject({ x: 100, y: 50, width: 1200, height: 800 });
+  });
+
+  // One pixel of it on the laptop's right edge is not a window anyone can
+  // grab: it opens centred instead.
+  it("centres a window with only a sliver left on any display", () => {
+    const state = restore({ x: 1439, y: 0, width: 1200, height: 800 });
+    expect(state.x).toBeUndefined();
+    expect(state.y).toBeUndefined();
+  });
+
+  it("shrinks a window saved on a bigger display to the one it opens on", () => {
+    const placed = restore({ x: 0, y: 0, width: 3000, height: 1400 });
+    expect(placed.width).toBeLessThanOrEqual(1440);
+    expect(placed.height).toBeLessThanOrEqual(900);
+    const centred = restore({ width: 3000, height: 1400 });
+    expect(centred.width).toBeLessThanOrEqual(1440);
+    expect(centred.height).toBeLessThanOrEqual(900);
   });
 });

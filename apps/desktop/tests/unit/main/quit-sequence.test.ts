@@ -79,7 +79,7 @@ vi.mock("electron", async () => {
     nativeImage: { createFromPath: () => ({}) },
     nativeTheme: { shouldUseDarkColors: false },
     shell: { openExternal: async () => undefined },
-    screen: { getAllDisplays: () => [] },
+    screen: { getAllDisplays: () => [], getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1440, height: 900 } }) },
   };
 });
 
