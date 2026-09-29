@@ -7,15 +7,19 @@ import { pathTarget, TranscriptScopeContext, type TranscriptScope } from "./Path
 
 /**
  * The transcript's `img`. An image in the agent's words is drawn only when
- * nothing leaves the machine to draw it: a `data:` image, or a file in the
- * project read through the explorer the way a link to it opens (`pathTarget`,
- * then main's own resolution against the scope). Anything else — an `https:`
- * image, a raw `<img>` — is a request on paint, and whatever the agent put in
- * its query string would go with it, so it is the address as words instead.
+ * nothing leaves the machine to draw it: a file in the project read through
+ * the explorer the way a link to it opens (`pathTarget`, then main's own
+ * resolution against the scope). Anything else — an `https:` image, a raw
+ * `<img>` — is a request on paint, and whatever the agent put in its query
+ * string would go with it, so it is the address as words instead. A `data:`
+ * image never reaches here with its `src`: Streamdown's sanitizer admits only
+ * `http:`, `https:` and relative sources, and drops the rest before any
+ * component sees them.
  *
  * The page's policy admits `https:` images (a CAD view's textures), and
  * Streamdown's defaults admit any image prefix, so this is the one place the
- * transcript refuses them.
+ * transcript refuses them (`<source srcset>` is refused beside it, in
+ * `TRANSCRIPT_COMPONENTS`).
  */
 export function TranscriptImage({
   src,
@@ -25,9 +29,6 @@ export function TranscriptImage({
 }: ImgHTMLAttributes<HTMLImageElement> & { node?: unknown }) {
   const scope = useContext(TranscriptScopeContext);
   const source = typeof src === "string" ? src : "";
-  if (/^data:image\//i.test(source)) {
-    return <img alt={alt ?? ""} className={cn("my-1 max-h-80 w-fit rounded-lg border", className)} data-transcript-image="data" src={source} />;
-  }
   const target = pathTarget(source);
   if (target && scope) {
     return <ProjectImage alt={alt} className={className} path={target.path} scope={scope} />;
