@@ -120,9 +120,9 @@ async function defaultProbe(origin: string): Promise<boolean> {
 
 const defaultDelay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-class StoppedWhileRestarting extends Error {
+class StoppedWhileLaunching extends Error {
   constructor(root: string) {
-    super(`the viewer for ${root} was stopped while restarting`);
+    super(`the viewer for ${root} was stopped while launching`);
   }
 }
 
@@ -191,15 +191,23 @@ export class ViewerManager extends EventEmitter {
   }
 
   private async launch(root: string): Promise<ViewerOrigin> {
+    // Taken before the first await: a session deleted while its viewer is
+    // still coming up (the runtime resolving, then up to a minute and a half
+    // of launch) stops a root that has no entry yet. The launch that
+    // announces afterwards is killed, not kept serving a removed worktree.
+    const generation = this.stopGeneration(root);
     const resolved = await this.deps.runtime();
     if (!resolved) {
       return { origin: null, reason: "runtime-not-ready" };
     }
     try {
-      const entry = await this.start(root, resolved, 0);
+      const entry = await this.start(root, resolved, 0, generation);
       this.failures.delete(root);
       return { origin: entry.origin };
     } catch (error) {
+      if (error instanceof StoppedWhileLaunching) {
+        return { origin: null, reason: "viewer-failed", message: error.message };
+      }
       const message = error instanceof Error ? error.message : String(error);
       this.failures.set(root, message);
       this.log(`launch failed for ${root}: ${message}`);
@@ -211,7 +219,7 @@ export class ViewerManager extends EventEmitter {
     return this.stopsAll + (this.stops.get(root) ?? 0);
   }
 
-  /** `generation`: set for a restart, which is dropped if the root was stopped since. */
+  /** `generation`: the root's stop generation when the launch was asked for; a launch that announces after a stop is dropped. */
   private start(root: string, resolved: ResolvedPython, restarts: number, generation?: number): Promise<Entry> {
     return new Promise<Entry>((resolve, reject) => {
       const child = this.spawn(resolved.python, VIEWER_ARGS, { cwd: root, env: this.deps.env(resolved) });
@@ -237,10 +245,10 @@ export class ViewerManager extends EventEmitter {
         launched = parsed;
         if (generation !== undefined && generation !== this.stopGeneration(root)) {
           if (parsed.action === "started") {
-            this.log(`the viewer for ${root} was stopped while restarting; stopping it (pid ${child.pid})`);
+            this.log(`the viewer for ${root} was stopped while launching; stopping it (pid ${child.pid})`);
             child.kill();
           }
-          reject(new StoppedWhileRestarting(root));
+          reject(new StoppedWhileLaunching(root));
           return;
         }
         const entry: Entry = {
@@ -308,7 +316,7 @@ export class ViewerManager extends EventEmitter {
     const pending = this.start(root, resolved, attempt, generation)
       .then((): ViewerOrigin => ({ origin: this.entries.get(root)?.origin ?? null }))
       .catch((error: unknown): ViewerOrigin => {
-        if (error instanceof StoppedWhileRestarting) {
+        if (error instanceof StoppedWhileLaunching) {
           return { origin: null, reason: "viewer-failed", message: error.message };
         }
         const message = error instanceof Error ? error.message : String(error);
