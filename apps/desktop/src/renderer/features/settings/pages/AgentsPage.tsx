@@ -38,6 +38,7 @@ const PLATFORMS: Record<string, Platform> = {
 export function AgentsPage() {
   const agents = useAgents((state) => state.agents);
   const ready = useAgents((state) => state.ready);
+  const loadError = useAgents((state) => state.loadError);
   const load = useAgents((state) => state.load);
   const refresh = useAgents((state) => state.refresh);
   const info = useAppInfo();
@@ -101,6 +102,12 @@ export function AgentsPage() {
         </Button>
       </div>
 
+      {loadError ? (
+        <p className="mb-3 px-1 text-sm text-destructive" role="alert">
+          Could not read the agent list: {loadError}
+        </p>
+      ) : null}
+
       {!ready && agents.length === 0 ? (
         <p className="px-1 text-sm text-muted-foreground">Looking for agents on this machine…</p>
       ) : null}
@@ -121,7 +128,7 @@ export function AgentsPage() {
         title={`Not installed (${groups.rest.length})`}
       />
 
-      {ready && groups.installed.length + groups.recommended.length + groups.rest.length === 0 ? (
+      {ready && !loadError && groups.installed.length + groups.recommended.length + groups.rest.length === 0 ? (
         <p className="px-1 text-sm text-muted-foreground">No agent matches “{filter}”.</p>
       ) : null}
 

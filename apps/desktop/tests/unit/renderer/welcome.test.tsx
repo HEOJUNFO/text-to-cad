@@ -26,7 +26,7 @@ async function toAgentStep() {
 }
 
 beforeEach(() => {
-  useAgents.setState({ agents: [], ready: false, jobs: {} });
+  useAgents.setState({ agents: [], ready: false, loadError: null, jobs: {} });
 });
 
 describe("the welcome", () => {
@@ -62,12 +62,22 @@ describe("the welcome", () => {
     expect(await screen.findByRole("button", { name: /Continue without an agent/ })).toBeEnabled();
   });
 
-  it("stops waiting when the agent list cannot be read at all", async () => {
+  it("stops waiting when the agent list cannot be read, and says so rather than showing no agents", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(window.textToCad.agents.list).mockRejectedValueOnce(new Error("ipc down"));
     await useAgents.getState().load();
-    expect(useAgents.getState().ready).toBe(true);
+    expect(useAgents.getState()).toMatchObject({ ready: true, loadError: "ipc down" });
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining("Could not read the agent list"), expect.any(Error));
+    logged.mockRestore();
+
     await toAgentStep();
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not read the agent list: ipc down");
     expect(screen.getByRole("button", { name: /Continue without an agent/ })).toBeEnabled();
+
+    // A list that arrives afterwards is the answer, and the failure goes.
+    useAgents.getState().receive([agent({})]);
+    expect(await screen.findByRole("button", { name: /Install/ })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("keeps waiting on an empty first list: that is the probe still running, not an answer", async () => {

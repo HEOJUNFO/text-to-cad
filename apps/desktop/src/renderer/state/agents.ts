@@ -11,6 +11,12 @@ import type { AgentJobOutput, AgentStatus } from "@shared/agents";
 type AgentsState = {
   agents: AgentStatus[];
   ready: boolean;
+  /**
+   * Why the agent list could not be read, when it could not. Set only by a
+   * failed `load`; any list that arrives afterwards clears it. Shown as its
+   * own message, so an unreadable list does not pass for "no agents".
+   */
+  loadError: string | null;
   /** Output so far per job id. */
   jobs: Record<string, { agentId: string; kind: AgentJobOutput["kind"]; output: string; exitCode: number | null }>;
 
@@ -29,6 +35,7 @@ const JOB_TAIL = 64 * 1024;
 export const useAgents = create<AgentsState>((set) => ({
   agents: [],
   ready: false,
+  loadError: null,
   jobs: {},
 
   /**
@@ -38,20 +45,23 @@ export const useAgents = create<AgentsState>((set) => ({
    * (`AgentDetector.list`): the answer follows on `agents.status`, and
    * `receive` marks it — an empty table included. A list that cannot be read
    * at all is an answer too: nothing will follow it, and a screen waiting on
-   * `ready` (the welcome's Continue) would otherwise wait forever.
+   * `ready` (the welcome's Continue) would otherwise wait forever. That answer
+   * is logged and kept in `loadError`, so it reads as a failure, not as an
+   * empty table.
    */
   load: async () => {
     try {
       const agents = await window.textToCad.agents.list();
-      set({ agents, ready: agents.length > 0 });
-    } catch {
-      set({ ready: true });
+      set({ agents, ready: agents.length > 0, loadError: null });
+    } catch (error) {
+      console.error("[agents] Could not read the agent list (agents.list):", error);
+      set({ ready: true, loadError: error instanceof Error ? error.message : String(error) });
     }
   },
 
   refresh: async () => {
     const agents = await window.textToCad.agents.refresh();
-    set({ agents, ready: true });
+    set({ agents, ready: true, loadError: null });
   },
 
   install: async (agentId, index = 0) => {
@@ -68,7 +78,7 @@ export const useAgents = create<AgentsState>((set) => ({
 
   cancelJob: (jobId) => window.textToCad.agents.cancelJob({ jobId }),
 
-  receive: (agents) => set({ agents, ready: true }),
+  receive: (agents) => set({ agents, ready: true, loadError: null }),
 
   receiveOutput: (chunk) =>
     set((state) => {

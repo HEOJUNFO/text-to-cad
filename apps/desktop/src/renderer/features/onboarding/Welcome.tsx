@@ -103,6 +103,7 @@ function Point({ title, children }: { title: string; children: React.ReactNode }
 
 function AgentStep() {
   const detected = useAgents((state) => state.ready);
+  const loadError = useAgents((state) => state.loadError);
   const offered = useOfferedAgents();
   const openSettings = useUi((state) => state.openSettings);
 
@@ -115,6 +116,11 @@ function AgentStep() {
         text-to-cad runs the coding agent you already use. You need one of these, installed and signed in.
       </p>
       <div className="mt-6 space-y-2">
+        {loadError ? (
+          <p className="text-sm text-destructive" role="alert">
+            Could not read the agent list: {loadError}
+          </p>
+        ) : null}
         {!detected && offered.length === 0 ? (
           <p className="text-sm text-muted-foreground" role="status">
             Looking for agents on this machine…
