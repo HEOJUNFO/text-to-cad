@@ -4,6 +4,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SessionView } from "@renderer/features/session/SessionView";
 import { useAcp } from "@renderer/state/acp";
+import { useAgents } from "@renderer/state/agents";
+import { useUi } from "@renderer/state/ui";
+import type { AgentStatus } from "@shared/agents";
 import { initialSessionState } from "@shared/acp/types";
 import type { Session } from "@shared/types";
 
@@ -63,5 +66,46 @@ describe("a disconnected agent", () => {
 
     expect(screen.queryByText("Agent disconnected")).toBeNull();
     expect(screen.getByText(/Connecting to/)).toBeInTheDocument();
+  });
+});
+
+describe("an agent whose CLI is not installed", () => {
+  const missing = {
+    id: "claude",
+    name: "Claude Code",
+    icon: null,
+    installed: false,
+    launchWithoutBinary: false,
+    auth: "unknown",
+    authMethods: [],
+  } as unknown as AgentStatus;
+
+  it("offers the install and Settings › Agents instead of a Reconnect that fails again", async () => {
+    const user = userEvent.setup();
+    const install = vi.fn(async () => "job1");
+    const openSettings = vi.fn();
+    useAgents.setState({ agents: [missing], jobs: {}, ready: true, install } as never);
+    useUi.setState({ openSettings } as never);
+    useAcp.setState({ loadErrors: { s1: "Claude Code is not installed" } });
+    render(<SessionView session={SESSION} />);
+
+    expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Install" }));
+    expect(install).toHaveBeenCalledWith("claude");
+    await user.click(screen.getByRole("button", { name: "Settings › Agents" }));
+    expect(openSettings).toHaveBeenCalledWith("agents");
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(load).toHaveBeenCalledWith("s1");
+  });
+
+  it("does the same above a painted transcript", () => {
+    useAgents.setState({ agents: [missing], jobs: {}, ready: true });
+    useAcp.setState({
+      sessions: { s1: { ...initialSessionState("s1", "claude"), status: "closed" } },
+      loadErrors: { s1: "Claude Code is not installed" },
+    });
+    render(<SessionView session={SESSION} />);
+    expect(screen.getByText("Claude Code is not installed", { selector: "p.font-medium" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
   });
 });

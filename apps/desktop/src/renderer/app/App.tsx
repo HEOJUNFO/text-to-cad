@@ -14,8 +14,9 @@ import { useShowWelcome } from "@renderer/state/onboarding";
 import { useUi } from "@renderer/state/ui";
 
 /**
- * The window. Two full-window routes — the three-pane shell and Settings —
- * plus the palette and the toaster, which belong to neither.
+ * The window. Three full-window routes — the three-pane shell, Settings and
+ * the first-run welcome — plus the palette and the toaster, which belong to
+ * none of them.
  */
 export function App() {
   const route = useUi((state) => state.route);

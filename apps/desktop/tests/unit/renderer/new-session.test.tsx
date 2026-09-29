@@ -5,17 +5,22 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NewSession } from "@renderer/features/session/NewSession";
 import { useAcp } from "@renderer/state/acp";
 import { useAgents } from "@renderer/state/agents";
+import { useAgentOptions } from "@renderer/state/agent-options";
 import { useComposer } from "@renderer/state/composer";
+import { useUi } from "@renderer/state/ui";
 import type { AgentStatus } from "@shared/agents";
 
 // The composer and its chips are their own suites; here the box is a button
 // that sends one prompt, which is all a start needs.
 vi.mock("@renderer/features/session/Composer", () => ({
-  Composer: ({ onSubmit }: { onSubmit: (text: string, content: unknown[]) => Promise<void> | void }) => (
-    // A start that fails rejects; the real composer restores its draft on that (its own suite).
-    <button onClick={() => void Promise.resolve(onSubmit("make a cube", [{ type: "text", text: "make a cube" }])).catch(() => {})} type="button">
-      Send
-    </button>
+  Composer: ({ onSubmit, trailing }: { onSubmit: (text: string, content: unknown[]) => Promise<void> | void; trailing?: React.ReactNode }) => (
+    <>
+      {/* A start that fails rejects; the real composer restores its draft on that (its own suite). */}
+      <button onClick={() => void Promise.resolve(onSubmit("make a cube", [{ type: "text", text: "make a cube" }])).catch(() => {})} type="button">
+        Send
+      </button>
+      {trailing}
+    </>
   ),
 }));
 vi.mock("@renderer/features/session/ComposerChips", () => ({
@@ -51,11 +56,15 @@ const AGENT = {
 
 const create = vi.fn();
 const submit = vi.fn(async () => undefined);
+const openSettings = vi.fn();
 
 beforeEach(() => {
   create.mockReset();
   submit.mockReset();
-  useAgents.setState({ agents: [AGENT], jobs: {} });
+  openSettings.mockReset();
+  useUi.setState({ openSettings } as never);
+  useAgentOptions.setState({ probe: vi.fn(async () => undefined) } as never);
+  useAgents.setState({ agents: [AGENT], jobs: {}, ready: true });
   useAcp.setState({ create } as never);
   useComposer.setState({ submit } as never);
 });
@@ -125,5 +134,51 @@ describe("a start that needs a sign-in", () => {
     await act(async () => useAgents.getState().receiveOutput({ jobId: "j1", agentId: "claude", kind: "login", data: "", exitCode: 1 }));
 
     expect(create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("a machine with no agent", () => {
+  it("says so before anything is typed, with the install and Settings › Agents", async () => {
+    const user = userEvent.setup();
+    const missing = { ...AGENT, id: "claude-code", installed: false, launchWithoutBinary: false, auth: "unknown", authMethods: [] };
+    useAgents.setState({ agents: [missing as unknown as AgentStatus], ready: true });
+    render(<NewSession project={PROJECT} />);
+
+    expect(screen.getByText("No agent installed")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Install" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Settings › Agents" }));
+    expect(openSettings).toHaveBeenCalledWith("agents");
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("does not claim it while detection has not answered", () => {
+    useAgents.setState({ agents: [], ready: false });
+    render(<NewSession project={PROJECT} />);
+    expect(screen.queryByText("No agent installed")).toBeNull();
+  });
+
+  it("offers Settings › Agents beside Dismiss when the start fails for another reason", async () => {
+    const user = userEvent.setup();
+    useAgents.setState({ agents: [{ ...AGENT, auth: "authenticated" } as AgentStatus] });
+    create.mockRejectedValueOnce(new Error("Claude Code is not installed"));
+    render(<NewSession project={PROJECT} />);
+
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Claude Code is not installed");
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Open Settings › Agents/ }));
+    expect(openSettings).toHaveBeenCalledWith("agents");
+  });
+});
+
+describe("the model chip", () => {
+  it("says the models are loading while the agents are probed, and goes once they answer", async () => {
+    let answer!: () => void;
+    useAgentOptions.setState({ probe: vi.fn(() => new Promise<void>((resolve) => (answer = resolve))) } as never);
+    render(<NewSession project={PROJECT} />);
+
+    expect(screen.getByRole("button", { name: /Loading models/ })).toBeDisabled();
+    await act(async () => answer());
+    expect(screen.queryByRole("button", { name: /Loading models/ })).toBeNull();
   });
 });

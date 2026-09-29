@@ -1,16 +1,13 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ArrowRight, Box, Check, FolderOpen, Loader2 } from "lucide-react";
 
 import { Button } from "@renderer/components/ui/button";
-import { AgentMark } from "@renderer/features/settings/AgentMark";
-import { JobLog, useJob } from "@renderer/features/settings/AgentDrawer";
+import { AgentRow, isAgentReady, useOfferedAgents } from "@renderer/features/session/agent-setup";
 import { useOpenFolder } from "@renderer/hooks/use-open-folder";
 import { cn } from "@renderer/lib/utils";
 import { useAgents } from "@renderer/state/agents";
-import { ONBOARDING_AGENT_IDS } from "@renderer/state/onboarding";
 import { useSettings } from "@renderer/state/settings";
 import { useUi } from "@renderer/state/ui";
-import type { AgentStatus } from "@shared/agents";
 import textToCadMark from "@renderer/assets/brand/text-to-cad-star.svg";
 
 /**
@@ -22,11 +19,21 @@ export function Welcome() {
   const [step, setStep] = useState(0);
   const patch = useSettings((state) => state.patch);
   const finish = () => void patch({ onboardingCompleted: true });
+  // On the agent step, Continue says what it means when nothing can run yet:
+  // the rest of the app opens, but a session will not start until one is.
+  const anyAgentReady = useAgents((state) => state.agents.some(isAgentReady));
+  const continueLabel = step === 1 && !anyAgentReady ? "Continue without an agent" : "Continue";
 
   return (
     <div className="flex h-full flex-col bg-background" data-onboarding>
-      {/* The window's drag strip; the traffic lights sit in its left inset. */}
-      <div className="app-drag h-10 shrink-0" />
+      {/* The welcome replaces the shell, so this strip is the window's top
+          edge: the title bar's height, with the traffic lights' corner
+          reserved the same way Settings' header reserves it. */}
+      <div
+        className="app-drag shrink-0"
+        data-onboarding-titlebar
+        style={{ height: "var(--titlebar-height)", paddingLeft: "var(--titlebar-inset)" }}
+      />
       <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto px-6 pb-10">
         <div className="w-full max-w-md">
           {step === 0 ? <WelcomeStep /> : step === 1 ? <AgentStep /> : <StartStep onDone={finish} />}
@@ -44,7 +51,7 @@ export function Welcome() {
               </Button>
               {step < 2 ? (
                 <Button className="gap-1.5" onClick={() => setStep(step + 1)} size="sm">
-                  Continue
+                  {continueLabel}
                   <ArrowRight className="size-3.5" />
                 </Button>
               ) : null}
@@ -67,9 +74,9 @@ function WelcomeStep() {
         Describe a part and an AI agent builds it as real CAD you can open, measure and export.
       </p>
       <ul className="mt-6 space-y-3 text-sm">
-        <Point title="Chat on the left">The agent writes a script and builds the part in your folder.</Point>
+        <Point title="Session in the middle">The agent writes a script and builds the part in your folder.</Point>
         <Point title="Model on the right">Every STEP, STL and drawing opens in the built-in viewer.</Point>
-        <Point title="Point at what to change">Select a face or edge and send it to the chat.</Point>
+        <Point title="Point at what to change">Select a face or edge and Annotate it.</Point>
       </ul>
     </section>
   );
@@ -87,10 +94,8 @@ function Point({ title, children }: { title: string; children: React.ReactNode }
 }
 
 function AgentStep() {
-  const agents = useAgents((state) => state.agents);
-  const offered = ONBOARDING_AGENT_IDS.map((id) => agents.find((agent) => agent.id === id)).filter(
-    (agent): agent is AgentStatus => agent !== undefined,
-  );
+  const detected = useAgents((state) => state.ready);
+  const offered = useOfferedAgents();
   const openSettings = useUi((state) => state.openSettings);
 
   return (
@@ -102,6 +107,11 @@ function AgentStep() {
         text-to-cad runs the coding agent you already use. You need one of these, installed and signed in.
       </p>
       <div className="mt-6 space-y-2">
+        {!detected && offered.length === 0 ? (
+          <p className="text-sm text-muted-foreground" role="status">
+            Looking for agents on this machine…
+          </p>
+        ) : null}
         {offered.map((agent) => (
           <AgentRow agent={agent} key={agent.id} />
         ))}
@@ -114,51 +124,6 @@ function AgentStep() {
         Use a different agent in Settings › Agents
       </button>
     </section>
-  );
-}
-
-function AgentRow({ agent }: { agent: AgentStatus }) {
-  const install = useAgents((state) => state.install);
-  const login = useAgents((state) => state.login);
-  const refresh = useAgents((state) => state.refresh);
-  const { jobId, output, running, start } = useJob();
-
-  // An install or sign-in changes what detection would find: look again once it ends.
-  useEffect(() => {
-    if (jobId && !running) {
-      void refresh();
-    }
-  }, [jobId, running, refresh]);
-
-  const ready = agent.installed && (agent.auth === "authenticated" || agent.auth === "not-required");
-  const status = ready ? "Ready" : !agent.installed ? "Not installed" : agent.auth === "unauthenticated" ? "Signed out" : "Installed";
-
-  return (
-    <div className="rounded-lg border px-3 py-2.5" data-onboarding-agent={agent.id}>
-      <div className="flex items-center gap-3">
-        <AgentMark icon={agent.icon} id={agent.id} name={agent.name} />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">{agent.name}</p>
-          <p className={cn("text-xs", ready ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}>
-            {status}
-          </p>
-        </div>
-        {ready ? (
-          <Check aria-label="Ready" className="size-4 text-emerald-500" />
-        ) : !agent.installed ? (
-          <Button className="h-7 gap-1.5" disabled={running} onClick={() => void start(() => install(agent.id))} size="sm">
-            {running ? <Loader2 className="size-3.5 animate-spin" /> : null}
-            Install
-          </Button>
-        ) : (
-          <Button className="h-7 gap-1.5" disabled={running} onClick={() => void start(() => login(agent.id))} size="sm">
-            {running ? <Loader2 className="size-3.5 animate-spin" /> : null}
-            Sign in
-          </Button>
-        )}
-      </div>
-      {jobId ? <JobLog output={output} /> : null}
-    </div>
   );
 }
 

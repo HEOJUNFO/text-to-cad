@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Loader2, Settings2 } from "lucide-react";
 
 import { Button } from "@renderer/components/ui/button";
 import { resolveGitMode, useProjectGitInfo } from "@renderer/lib/git-mode";
@@ -15,9 +15,11 @@ import { newSessionKey, useComposer } from "@renderer/state/composer";
 import { useProjects } from "@renderer/state/projects";
 import { useSessions } from "@renderer/state/sessions";
 import { useSettings } from "@renderer/state/settings";
+import { useUi } from "@renderer/state/ui";
 import type { PromptBlock } from "@shared/acp/types";
 import type { GitMode, Project } from "@shared/types";
 
+import { AgentSetupCard, useOfferedAgents } from "./agent-setup";
 import { AuthPrompt } from "./AuthPrompt";
 import { Composer } from "./Composer";
 import { EffortChip, GitModeChip, ModeChip, ModelChip, ProjectChip } from "./ComposerChips";
@@ -51,7 +53,9 @@ import { errorMessage, isAuthError } from "./view";
  *
  * Creation can fail before there is a session to show it in: the agent is
  * not signed in, or its adapter would not start. Those land here, above
- * the composer, with the agent's login as the action.
+ * the composer, with the agent's login as the action — or Settings › Agents
+ * for anything else. A machine with no agent at all says so before anything
+ * is typed, with the install as the action, rather than after a send.
  */
 export function NewSession({ project }: { project: Project }) {
   const draftKey = newSessionKey(project.id);
@@ -59,6 +63,9 @@ export function NewSession({ project }: { project: Project }) {
   const settings = useSettings((state) => state.settings);
   const agents = useAgents((state) => state.agents);
   const installed = useInstalledAgents();
+  const detected = useAgents((state) => state.ready);
+  const offered = useOfferedAgents();
+  const openSettings = useUi((state) => state.openSettings);
   const setActiveProject = useProjects((state) => state.setActive);
   const setActiveSession = useSessions((state) => state.setActive);
   const create = useAcp((state) => state.create);
@@ -96,12 +103,29 @@ export function NewSession({ project }: { project: Project }) {
   // Every installed agent is asked for a snapshot the first time this screen
   // is looked at. Main answers from its cache when it has one and spawns a
   // single probe when it does not, so this is a no-op after the first run.
+  // Which of those probes are still out: the model chip says "Loading
+  // models…" while one is, rather than being absent. Counted per set of
+  // agents and project, so a new round starts from none answered.
   const installedIds = installed.map((candidate) => candidate.id).join(",");
+  const probeRound = `${project.id}|${installedIds}`;
+  const [answered, setAnswered] = useState<{ round: string; count: number }>({ round: "", count: 0 });
   useEffect(() => {
+    let live = true;
     for (const id of installedIds.split(",").filter(Boolean)) {
-      void probeOptions(id, project.id);
+      void Promise.resolve(probeOptions(id, project.id))
+        .catch(() => {})
+        .finally(() => {
+          if (!live) return;
+          setAnswered((previous) =>
+            previous.round === probeRound ? { round: probeRound, count: previous.count + 1 } : { round: probeRound, count: 1 },
+          );
+        });
     }
-  }, [installedIds, project.id, probeOptions]);
+    return () => {
+      live = false;
+    };
+  }, [installedIds, probeRound, project.id, probeOptions]);
+  const probing = installed.length - (answered.round === probeRound ? answered.count : 0);
 
   // The models of every installed agent that has answered, and the effort
   // levels of whichever one is picked. `providers` decides which agent the
@@ -265,6 +289,8 @@ export function NewSession({ project }: { project: Project }) {
       ) : <GitModeChip gitMode={resolvedGitMode} info={gitInfo} onChange={setGitMode} />}
     </div>
   );
+  // Detection has answered and nothing on this machine can run a session.
+  const noAgent = detected && installed.length === 0;
   const chips = mode ? (
     <ModeChip currentModeId={mode.currentModeId} modes={mode.modes} onChange={chooseMode} />
   ) : null;
@@ -272,6 +298,8 @@ export function NewSession({ project }: { project: Project }) {
     <>
       {providers.length > 0 ? (
         <ModelChip agentId={pickedProvider?.agentId ?? null} onChange={chooseModel} providers={providers} />
+      ) : probing > 0 ? (
+        <ModelsLoading />
       ) : null}
       {effort ? <EffortChip effort={effort} onChange={chooseEffort} /> : null}
     </>
@@ -287,7 +315,15 @@ export function NewSession({ project }: { project: Project }) {
           text-to-cad runs the agent in this folder, with cadgen and the CAD skills already loaded.
         </p>
 
-        {failure?.auth ? (
+        {noAgent ? (
+          <div className="mt-4">
+            <AgentSetupCard
+              agents={offered}
+              message="text-to-cad runs a coding agent you already use. Install one to start a session here."
+              title="No agent installed"
+            />
+          </div>
+        ) : failure?.auth ? (
           <div className="mt-4">
             <AuthPrompt agent={agent} message={failure.message} onRetry={retry} />
           </div>
@@ -298,6 +334,15 @@ export function NewSession({ project }: { project: Project }) {
           >
             <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
             <div className="min-w-0 flex-1 whitespace-pre-wrap">{failure.message}</div>
+            <Button
+              className="h-6 gap-1 px-2 text-[12px]"
+              onClick={() => openSettings("agents")}
+              size="sm"
+              variant="outline"
+            >
+              <Settings2 className="size-3" />
+              Open Settings › Agents
+            </Button>
             <Button className="h-6 px-2 text-[12px]" onClick={() => setFailure(null)} size="sm" variant="outline">
               Dismiss
             </Button>
@@ -321,6 +366,21 @@ export function NewSession({ project }: { project: Project }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/** The model chip's place while the installed agents' probes are out. */
+function ModelsLoading() {
+  return (
+    <button
+      className="inline-flex h-7 shrink-0 cursor-default items-center gap-1.5 rounded-md px-1.5 text-[12px] leading-none text-muted-foreground"
+      data-chip="model-loading"
+      disabled
+      type="button"
+    >
+      <Loader2 className="size-3.5 animate-spin" />
+      Loading models…
+    </button>
   );
 }
 

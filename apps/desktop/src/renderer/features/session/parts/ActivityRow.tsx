@@ -1,13 +1,17 @@
-import { Suspense, lazy, useState } from "react";
-import { CircleAlert, ChevronRight, Loader2 } from "lucide-react";
+import { Suspense, lazy, useContext, useState } from "react";
+import { Box, CircleAlert, ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "cn";
 
 import { Terminal } from "@renderer/components/ai-elements/terminal";
 import { ToolInput, ToolOutput } from "@renderer/components/ai-elements/tool";
 import { useAcp } from "@renderer/state/acp";
+import { useExplorer } from "@renderer/state/explorer";
+import { useSessions } from "@renderer/state/sessions";
+import { isCadFile } from "@shared/cad-refs";
 import type { ToolCallPart } from "@shared/acp/types";
 
 import { GlyphIcon } from "../glyphs";
+import { TranscriptScopeContext } from "../links/PathLink";
 import { activityRow, commandLine, type ActivityRow, type ViewItem } from "../view";
 import { PartsList } from "./PartsList";
 
@@ -73,6 +77,7 @@ export function ActivityRowView({ row, sessionId }: { row: ActivityRow; sessionI
         onClick={() => setOpen((value) => !value)}
         open={open}
         title={row.path ?? row.command ?? row.part.title}
+        trailing={row.path ? <OpenCadFile path={row.path} sessionId={sessionId} /> : null}
       >
         <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
           {active ? <Loader2 className="size-3.5 animate-spin" /> : <GlyphIcon glyph={row.glyph} />}
@@ -97,6 +102,52 @@ export function ActivityRowView({ row, sessionId }: { row: ActivityRow; sessionI
   );
 }
 
+/**
+ * "Open" beside a row whose path is a CAD file under this session's folder:
+ * the file opens in this session's explorer, in the root the transcript's
+ * links use (the worktree for a worktree thread). A path outside the folder,
+ * or a transcript not bound to the explorer showing, gets no button.
+ */
+function OpenCadFile({ path, sessionId }: { path: string; sessionId: string }) {
+  const scope = useContext(TranscriptScopeContext);
+  const cwd = useSessions((state) => state.sessions.find((session) => session.id === sessionId)?.cwd ?? null);
+  const owned = useExplorer((state) => state.sessionId === sessionId);
+  const relative = relativeTo(path, cwd);
+  if (!scope || !owned || !relative || !isCadFile(relative)) {
+    return null;
+  }
+  const open = () => {
+    const explorer = useExplorer.getState();
+    // The strip may have moved to another session since this rendered.
+    if (explorer.sessionId !== sessionId) return;
+    explorer.openFile(relative, scope.root);
+  };
+  return (
+    <button
+      className="inline-flex h-5 shrink-0 items-center gap-1 rounded-sm px-1.5 text-[11px] font-medium text-primary hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      data-activity-open={relative}
+      onClick={open}
+      title={`Open ${relative}`}
+      type="button"
+    >
+      <Box aria-hidden className="size-3" />
+      Open
+    </button>
+  );
+}
+
+/** A path the agent reported, relative to the session's folder; null when it is outside it. */
+function relativeTo(path: string, cwd: string | null): string | null {
+  const posix = path.replace(/\\/g, "/");
+  if (!posix.startsWith("/") && !/^[a-z]:\//i.test(posix)) {
+    const relative = posix.replace(/^(\.\/)+/, "");
+    return relative && !relative.split("/").includes("..") ? relative : null;
+  }
+  if (!cwd) return null;
+  const base = cwd.replace(/\\/g, "/").replace(/\/+$/, "");
+  return posix.startsWith(`${base}/`) ? posix.slice(base.length + 1) : null;
+}
+
 /** A failure belongs to the affected call, not to every word in the group. */
 function FailureIndicator({ count }: { count?: number }) {
   return (
@@ -113,13 +164,26 @@ function RowButton({
   active,
   onClick,
   title,
+  trailing,
 }: {
   children: React.ReactNode;
   open: boolean;
   active: boolean;
   onClick: () => void;
   title?: string;
+  /** A second control beside the row — a sibling, never nested in the toggle. */
+  trailing?: React.ReactNode;
 }) {
+  if (trailing) {
+    return (
+      <div className="flex min-w-0 items-center gap-1">
+        <RowButton active={active} onClick={onClick} open={open} title={title}>
+          {children}
+        </RowButton>
+        {trailing}
+      </div>
+    );
+  }
   return (
     <button
       aria-expanded={open}

@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
 import { ActivityGroup } from "@renderer/features/session/parts/ActivityRow";
+import { TranscriptScopeContext } from "@renderer/features/session/links/PathLink";
+import { useExplorer } from "@renderer/state/explorer";
 import { PermissionCard } from "@renderer/features/session/parts/PermissionCard";
 import { PlanCard } from "@renderer/features/session/PlanCard";
 import { activityRow, foldSummary } from "@renderer/features/session/view";
@@ -133,5 +135,41 @@ describe("PlanCard", () => {
     );
     expect(screen.getByText("Write the script")).toBeInTheDocument();
     expect(screen.getByText("1 of 3 done")).toBeInTheDocument();
+  });
+});
+
+describe("an activity row about a CAD file", () => {
+  const scoped = (ui: React.ReactNode) =>
+    wrap(<TranscriptScopeContext.Provider value={{ projectId: "p1", root: null }}>{ui}</TranscriptScopeContext.Provider>);
+
+  it("opens the file in this session's explorer", async () => {
+    const user = userEvent.setup();
+    const openFile = vi.fn(() => null);
+    useSessions.setState({ sessions: [{ id: "s1", projectId: "p1", cwd: "/bracket" } as never] });
+    useExplorer.setState({ sessionId: "s1", openFile } as never);
+    const rows = [call({ id: "e1", kind: "edit", title: "Edit part.step", locations: [{ path: "/bracket/models/part.step", line: null }] })].map(activityRow);
+    scoped(<ActivityGroup item={{ kind: "activity", key: "g", rows, summary: null }} sessionId="s1" />);
+
+    await user.click(screen.getByRole("button", { name: "Open" }));
+    expect(openFile).toHaveBeenCalledWith("models/part.step", null);
+  });
+
+  it("offers nothing for a script, a file outside the folder, or another session's explorer", () => {
+    useSessions.setState({ sessions: [{ id: "s1", projectId: "p1", cwd: "/bracket" } as never] });
+    useExplorer.setState({ sessionId: "s1" } as never);
+    const rows = [
+      call({ id: "a", kind: "edit", title: "Edit build.py", locations: [{ path: "/bracket/build.py", line: null }] }),
+      call({ id: "b", kind: "read", title: "Read other.step", locations: [{ path: "/elsewhere/other.step", line: null }] }),
+    ].map(activityRow);
+    const { unmount } = scoped(<ActivityGroup item={{ kind: "activity", key: "g", rows: [rows[0]!], summary: null }} sessionId="s1" />);
+    expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
+    unmount();
+    const second = scoped(<ActivityGroup item={{ kind: "activity", key: "g", rows: [rows[1]!], summary: null }} sessionId="s1" />);
+    expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
+    second.unmount();
+    useExplorer.setState({ sessionId: "s2" } as never);
+    const cad = [call({ id: "c", kind: "edit", title: "Edit part.step", locations: [{ path: "/bracket/part.step", line: null }] })].map(activityRow);
+    scoped(<ActivityGroup item={{ kind: "activity", key: "g", rows: cad, summary: null }} sessionId="s1" />);
+    expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
   });
 });

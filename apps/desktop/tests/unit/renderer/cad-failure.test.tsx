@@ -11,3 +11,11 @@ it("a runtime failure's log line truncates with a shared hint, never a native ti
   expect(log.getAttribute("data-slot")).toBe("tooltip-trigger");
   expect(onReady).toHaveBeenCalledWith(false);
 });
+
+it("a file whose project is gone says how to get it back and can try again", async () => {
+  const reload = vi.fn();
+  render(<DesktopCadFailure answer={{ origin: null, reason: "no-project" } as never} onReady={() => {}} reload={reload} />);
+  expect(screen.getByText("Select a session in this folder to render its files.")).toBeInTheDocument();
+  screen.getByRole("button", { name: "Try again" }).click();
+  expect(reload).toHaveBeenCalledTimes(1);
+});

@@ -179,14 +179,19 @@ const TITLES: Record<NonNullable<ViewerOrigin["reason"]>, string> = {
 const REASONS: Record<NonNullable<ViewerOrigin["reason"]>, string> = {
   "runtime-not-ready": "The Python runtime that ships with text-to-cad could not run cadgen, so nothing can render this file. The runtime's own words are below.",
   "viewer-failed": "The runtime is fine, but its viewer process for this project did not come up. The launcher's last words are below.",
-  "no-project": "Open the project again to render its files.",
+  // Projects are derived from sessions — there is no "open project" to
+  // point at. A session in the folder brings its root back.
+  "no-project": "Select a session in this folder to render its files.",
 };
 
 export function DesktopCadFailure({ answer, onReady, reload }: { answer: ViewerOrigin } & Pick<RendererViewProps, "onReady" | "reload">) {
   const openSettings = useUi((state) => state.openSettings);
   useEffect(() => { onReady(false); }, [onReady]);
   const reason = answer.reason ?? "runtime-not-ready";
-  return <EmptyState icon={Box} title={TITLES[reason]} description={REASONS[reason]} tone="warn" action={reason === "no-project" ? undefined :
+  return <EmptyState icon={Box} title={TITLES[reason]} description={REASONS[reason]} tone="warn" action={reason === "no-project" ?
+    <div className="flex items-center gap-2" data-cad-failure={reason}>
+      <Button className="h-7 gap-1.5 text-xs" onClick={reload} size="sm" variant="secondary"><RefreshCw className="size-3.5" />Try again</Button>
+    </div> :
     <div className="flex flex-col items-center gap-2" data-cad-failure={reason}>
       {answer.message ? <pre className="max-h-40 max-w-[420px] overflow-auto rounded-lg border bg-muted/40 px-3 py-2 text-left font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground"><code data-selectable>{answer.message}</code></pre> : null}
       {answer.log ? <TooltipHint content={answer.log} overflowOnly><p className="max-w-[420px] truncate text-[11px] text-muted-foreground">Log: <span data-selectable>{answer.log}</span></p></TooltipHint> : null}

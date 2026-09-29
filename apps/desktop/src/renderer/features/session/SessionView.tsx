@@ -10,8 +10,10 @@ import type { TakenDraft } from "@renderer/state/composer";
 import { useSettings } from "@renderer/state/settings";
 import { effortOption, fastOption, modeChoice, modelOption } from "@shared/acp/options";
 import type { PromptBlock, SessionState } from "@shared/acp/types";
+import type { AgentStatus } from "@shared/agents";
 import type { Session } from "@shared/types";
 
+import { AgentSetupCard, isNotInstalledError } from "./agent-setup";
 import { AuthPrompt } from "./AuthPrompt";
 import { Composer } from "./Composer";
 import { EffortChip, ModeChip, ModelChip } from "./ComposerChips";
@@ -51,6 +53,9 @@ export function SessionView({ session }: { session: Session }) {
   const submit = useComposer((store) => store.submit);
   const agents = useAgents((store) => store.agents);
   const agent = agents.find((candidate) => candidate.id === session.agentId) ?? null;
+  // The CLI is gone: Reconnect would fail the same way forever, so the
+  // failure offers the install instead (with Try again for after it).
+  const notInstalled = isNotInstalledError;
 
   useEffect(() => {
     void ensureLoaded(session.id);
@@ -177,7 +182,11 @@ export function SessionView({ session }: { session: Session }) {
           <Transcript onReconnect={() => void load(session.id)} onRetry={retry} state={state} />
         </TranscriptScopeContext.Provider>
       ) : loadError ? (
-        isAuthError(loadError) || agent?.auth === "unauthenticated" ? (
+        notInstalled(loadError) ? (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <AgentMissing agent={agent} agentId={session.agentId} message={loadError} onRetry={() => void load(session.id)} />
+          </div>
+        ) : isAuthError(loadError) || agent?.auth === "unauthenticated" ? (
           <div className="min-h-0 flex-1 overflow-y-auto">
             <AuthPrompt agent={agent} message={loadError} onRetry={() => void load(session.id)} />
           </div>
@@ -209,7 +218,9 @@ export function SessionView({ session }: { session: Session }) {
               transcript is still worth reading, so the failure is a line
               above the composer rather than a screen in place of it. */}
           {state && loadError && !loading ? (
-            isAuthError(loadError) ? (
+            notInstalled(loadError) ? (
+              <AgentMissing agent={agent} agentId={session.agentId} message={loadError} onRetry={() => void load(session.id)} />
+            ) : isAuthError(loadError) ? (
               <AuthPrompt agent={agent} message={loadError} onRetry={() => void load(session.id)} />
             ) : (
               <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-[13px] leading-5" data-reconnect-failed role="status">
@@ -297,6 +308,30 @@ function LoadFailed({ message, onRetry }: { message: string; onRetry: () => void
         <RotateCcw className="size-3.5" />
         Reconnect
       </Button>
+    </div>
+  );
+}
+
+/** The load failed because the agent's CLI is not installed: install it, then try again. */
+function AgentMissing({
+  agent,
+  agentId,
+  message,
+  onRetry,
+}: {
+  agent: AgentStatus | null;
+  agentId: string;
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="mx-auto w-full max-w-[720px] px-6 py-8" data-agent-missing>
+      <AgentSetupCard
+        agents={agent ? [agent] : []}
+        message={message}
+        onRetry={onRetry}
+        title={`${agent?.name ?? agentId} is not installed`}
+      />
     </div>
   );
 }
