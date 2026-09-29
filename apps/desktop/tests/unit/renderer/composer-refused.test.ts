@@ -92,3 +92,21 @@ it("hands the box's attachments over with the draft, for a refusal that comes ba
   await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
   expect(onSubmit).toHaveBeenCalledWith("look at this", expect.anything(), expect.objectContaining({ text: "look at this", files: [photo] }));
 });
+
+it("puts the draft back and says why when main refuses a direct send before any turn", async () => {
+  // Closed, nothing queued: the prompt goes straight out (the reconnect is main's `ensureLive`), and
+  // main refuses it before a turn event — the agent is not installed, its folder is gone. The
+  // transcript never saw it, so the box has to keep it and the reason has to be shown somewhere.
+  useAcp.setState({ sessions: { [SESSION]: { ...initialSessionState(SESSION, "claude-code"), status: "closed" } } });
+  prompt.mockImplementation(async () => { throw new Error("Claude Code is not installed"); });
+  const submit = (text: string, content: PromptBlock[], draft: Parameters<ReturnType<typeof useComposer.getState>["submit"]>[3]) =>
+    useComposer.getState().submit(SESSION, text, content, draft);
+  render(createElement(Composer, { sessionId: SESSION, chips: null, commands: [], status: "ready", onSubmit: submit }));
+  useComposer.getState().setDraft(SESSION, "make the bracket thicker");
+  act(() => useComposer.getState().requestSubmit(SESSION));
+
+  await waitFor(() => expect(prompt).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(useComposer.getState().drafts[SESSION]).toBe("make the bracket thicker"));
+  expect(useAcp.getState().loadErrors[SESSION]).toBe("Claude Code is not installed");
+  expect(useComposer.getState().sending[SESSION]).toBeUndefined();
+});

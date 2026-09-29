@@ -303,7 +303,8 @@ export const useComposer = create<ComposerState>((set, get) => ({
       await get().drain(sessionId);
       return;
     }
-    // Only a send with a draft is the composer's, which puts the draft back on a rejection.
+    // Only a send with a draft is the composer's, which puts the draft back on a rejection: a
+    // refusal for what it holds, or main refusing it before any turn (see `send`).
     await send(sessionId, content, undefined, { rethrowRefusal: draft !== undefined });
   },
 
@@ -450,9 +451,10 @@ async function send(sessionId: string, content: PromptBlock[], item?: QueuedProm
     // `prompt/error` part), and that turn event has already cleared `sending`.
     // Still ours means main refused before any turn event — the agent could not
     // be brought back (not installed, signed out, its folder gone) — and the
-    // transcript never saw the prompt. A queued prompt goes back at the head
-    // with the queue paused, and the reason is shown where a failed reconnect
-    // is (`loadErrors`, with its Retry), rather than the prompt vanishing.
+    // transcript never saw the prompt. The reason is shown where a failed
+    // reconnect is (`loadErrors`, with its Retry), and the prompt does not
+    // vanish: a queued one goes back at the head with the queue paused, one
+    // sent from the box rejects so the composer puts the draft back.
     const refusedUnseen = useComposer.getState().sending[sessionId] === token;
     clearSending(sessionId, token);
     // Refused for what it holds — a block the agent did not say it takes — and not because the
@@ -467,13 +469,17 @@ async function send(sessionId: string, content: PromptBlock[], item?: QueuedProm
       if (item) void useComposer.getState().drain(sessionId);
       return;
     }
-    if (refusedUnseen && item) {
+    if (!refusedUnseen) return;
+    if (item) {
       useComposer.setState((state) => ({
         queues: { ...state.queues, [sessionId]: [item, ...(state.queues[sessionId] ?? [])] },
         paused: { ...state.paused, [sessionId]: true },
       }));
-      useAcp.setState((state) => ({ loadErrors: { ...state.loadErrors, [sessionId]: errorMessage(error) } }));
     }
+    useAcp.setState((state) => ({ loadErrors: { ...state.loadErrors, [sessionId]: errorMessage(error) } }));
+    // Sent straight from the box (nothing queued, the agent closed or failed): no queue holds it,
+    // so the rejection goes back to the composer, which puts the draft back with its attachments.
+    if (!item && options?.rethrowRefusal) throw error;
   }
 }
 
