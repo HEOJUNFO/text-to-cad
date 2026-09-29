@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Welcome } from "@renderer/features/onboarding/Welcome";
 import { useAgents } from "@renderer/state/agents";
+import { useProjects } from "@renderer/state/projects";
+import { useSessions } from "@renderer/state/sessions";
 import { useSettings } from "@renderer/state/settings";
 import { defaultSettings, type Project } from "@shared/types";
 import type { AgentStatus } from "@shared/agents";
@@ -124,6 +126,8 @@ describe("the welcome's start step", () => {
 
   beforeEach(() => {
     patch.mockClear();
+    useProjects.setState({ activeId: "/mine", draft: null });
+    useSessions.setState({ activeId: "s1" });
     useSettings.setState({ settings: { ...defaultSettings(), onboardingCompleted: false }, patch } as never);
     useAgents.setState({ agents: [agent({ installed: true, auth: "authenticated" })], ready: true });
     (window.textToCad as unknown as { onboarding: unknown }).onboarding = {
@@ -146,19 +150,25 @@ describe("the welcome's start step", () => {
     return user;
   }
 
-  it("does not finish the welcome when the person went Back while the sample was copying", async () => {
+  // Back cancels it: the welcome is not finished, and the sample is not
+  // selected behind it — the folder and the session the person had stay.
+  it("neither finishes the welcome nor selects the sample when the person went Back while it was copying", async () => {
     const user = await toStartStep();
     await user.click(screen.getByRole("button", { name: /Try the sample/ }));
     await user.click(screen.getByRole("button", { name: "Back" }));
     await act(async () => resolveSample({ id: "/s", name: "text-to-cad Sample", path: "/s", createdAt: 0 }));
     expect(patch).not.toHaveBeenCalledWith({ onboardingCompleted: true });
+    expect(useProjects.getState()).toMatchObject({ activeId: "/mine", draft: null });
+    expect(useSessions.getState().activeId).toBe("s1");
   });
 
-  it("finishes it when the sample is ready and the person stayed", async () => {
+  it("selects the sample and finishes the welcome when it is ready and the person stayed", async () => {
     const user = await toStartStep();
     await user.click(screen.getByRole("button", { name: /Try the sample/ }));
     await act(async () => resolveSample({ id: "/s", name: "text-to-cad Sample", path: "/s", createdAt: 0 }));
     expect(patch).toHaveBeenCalledWith({ onboardingCompleted: true });
+    expect(useProjects.getState()).toMatchObject({ activeId: "/s", draft: { path: "/s" } });
+    expect(useSessions.getState().activeId).toBeNull();
   });
 
   it("announces a failed copy", async () => {

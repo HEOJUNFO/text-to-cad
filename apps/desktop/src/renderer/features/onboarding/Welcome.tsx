@@ -6,6 +6,8 @@ import { AgentRow, isAgentReady, useOfferedAgents } from "@renderer/features/ses
 import { useOpenFolder } from "@renderer/hooks/use-open-folder";
 import { cn } from "@renderer/lib/utils";
 import { useAgents } from "@renderer/state/agents";
+import { useProjects } from "@renderer/state/projects";
+import { useSessions } from "@renderer/state/sessions";
 import { useSettings } from "@renderer/state/settings";
 import { useUi } from "@renderer/state/ui";
 import textToCadMark from "@renderer/assets/brand/text-to-cad-star.svg";
@@ -146,7 +148,8 @@ function StartStep({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState<"sample" | "folder" | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Back while the sample copies unmounts this step: the person has moved
-  // on, and the copy finishing must not finish the welcome behind them.
+  // on, and the copy finishing must neither select the sample nor finish the
+  // welcome behind them. (The copy itself completes; it is left on disk.)
   const here = useRef(true);
   useEffect(() => {
     here.current = true;
@@ -159,10 +162,12 @@ function StartStep({ onDone }: { onDone: () => void }) {
     setBusy("sample");
     setError(null);
     try {
-      // Main copies, selects and broadcasts the sample, which opens the
-      // folder's new-session screen.
-      await window.textToCad.onboarding.createSample();
+      // Main copies the sample and answers with it; selecting it here, as
+      // `ui.directorySelected` would, opens the folder's new-session screen.
+      const sample = await window.textToCad.onboarding.createSample();
       if (here.current) {
+        useProjects.getState().selectDirectory(sample);
+        useSessions.getState().setActive(null);
         onDone();
       }
     } catch (reason) {

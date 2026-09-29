@@ -26,9 +26,10 @@ export const onboardingContract = {
     status: invoke(z.void(), OnboardingStatusSchema),
     /**
      * Copies the bundled sample to `~/Documents/text-to-cad Sample` (or reuses
-     * the copy already there), selects it — main broadcasts
-     * `ui.directorySelected`, as the folder chooser does — and answers with the
-     * project. Never a path for the renderer to hand back: no channel takes one.
+     * the copy already there), makes it a folder main chose, and answers with
+     * the project. It broadcasts nothing: the welcome selects the answer
+     * itself, and not at all if the person went Back while it copied. Never a
+     * path for the renderer to hand back: no channel takes one.
      */
     createSample: invoke(z.void(), ProjectSchema),
   },
