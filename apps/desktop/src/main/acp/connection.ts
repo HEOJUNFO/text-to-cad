@@ -30,6 +30,8 @@
  * in plain Node with the `child_process` terminal backend.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 
 import { trackChild } from "../children";
 import { Readable, Writable } from "node:stream";
@@ -110,6 +112,8 @@ export type SessionConnectionOptions = {
   onStderr?: (line: string) => void;
   /** Every wire frame, both directions. */
   record?: (frame: RecordedFrame) => void;
+  /** For the tests: whose rules the launch is resolved by (`spawnPlan`). */
+  platform?: NodeJS.Platform;
 };
 
 export type ProcessExit = { code: number | null; signal: NodeJS.Signals | null };
@@ -120,6 +124,55 @@ const EXIT_PHASE: Record<string, string> = {
   "session/new": "while starting the session",
   "session/load": "while reopening the session",
 };
+
+/** `cmd.exe`'s metacharacters, escaped with `^` in a command line it parses. */
+const CMD_META = /([()\][%!^"`<>&|;, *?])/g;
+
+/** One argv entry for `cmd /d /s /c "…"`: quoted for the program, then escaped for cmd. */
+function cmdArg(arg: string): string {
+  const quoted = `"${arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, "$1$1")}"`;
+  return quoted.replace(CMD_META, "^$1");
+}
+
+/**
+ * What to spawn for a provider's launch. On Windows `npx`, `gemini` and most
+ * agent CLIs are `.cmd` shims, which `spawn` without a shell does not find
+ * (ENOENT) and, since Node 20.12, refuses to run directly (EINVAL) — while the
+ * detector, which honours PATHEXT, reports them installed. So the command is
+ * resolved along PATH the same way, and a `.cmd` or `.bat` runs under
+ * `cmd.exe` with its argv escaped rather than through `shell: true`, whose
+ * line nobody escapes. Elsewhere the launch is spawned as it is.
+ */
+export function spawnPlan(
+  launch: Pick<Launch, "command" | "args">,
+  env: Record<string, string>,
+  platform: NodeJS.Platform = process.platform,
+): { command: string; args: string[]; windowsVerbatimArguments?: boolean } {
+  if (platform !== "win32" || path.extname(launch.command)) {
+    return { command: launch.command, args: launch.args };
+  }
+  const key = Object.keys(env).find((name) => name.toUpperCase() === "PATH");
+  const dirs = (key ? env[key] ?? "" : "").split(path.delimiter).filter(Boolean);
+  const pathextKey = Object.keys(env).find((name) => name.toUpperCase() === "PATHEXT");
+  const extensions = ((pathextKey ? env[pathextKey] : undefined) ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean);
+  const isFile = (file: string) => fs.statSync(file, { throwIfNoEntry: false })?.isFile() ?? false;
+  for (const dir of path.isAbsolute(launch.command) ? [""] : dirs) {
+    for (const ext of extensions) {
+      const candidate = dir ? path.join(dir, launch.command + ext) : launch.command + ext;
+      if (!isFile(candidate)) {
+        continue;
+      }
+      if (/^\.(cmd|bat)$/i.test(ext)) {
+        // cross-spawn's escaping: the program path escaped for cmd, each
+        // argument quoted for the program and then escaped for cmd.
+        const line = [candidate.replace(CMD_META, "^$1"), ...launch.args.map(cmdArg)].join(" ");
+        return { command: env.ComSpec ?? env.COMSPEC ?? "cmd.exe", args: ["/d", "/s", "/c", `"${line}"`], windowsVerbatimArguments: true };
+      }
+      return { command: candidate, args: launch.args };
+    }
+  }
+  return { command: launch.command, args: launch.args };
+}
 
 export class SessionConnection {
   readonly client: AcpClient;
@@ -141,11 +194,14 @@ export class SessionConnection {
   constructor(private readonly options: SessionConnectionOptions) {
     this.stateValue = initialSessionState(options.sessionId, options.agentId);
 
+    const env = { ...options.env, ...options.launch.env };
+    const plan = spawnPlan(options.launch, env, options.platform);
     this.process = trackChild(
-      spawn(options.launch.command, options.launch.args, {
+      spawn(plan.command, plan.args, {
         cwd: options.cwd,
-        env: { ...options.env, ...options.launch.env },
+        env,
         stdio: ["pipe", "pipe", "pipe"],
+        ...(plan.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
       }),
       "service",
     );
