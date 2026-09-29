@@ -125,7 +125,7 @@ type ComposerState = {
   /** All of a draft's annotations, or only those with the given ids. */
   removeAnnotations: (key: string, ids?: readonly string[]) => void;
   /**
-   * A note rewritten in the chat box's own list. The viewer's copy follows through the
+   * A note rewritten in the composer's own list. The viewer's copy follows through the
    * destination's `heldText`, so nothing is delivered back. An empty note is not an edit.
    */
   editAnnotation: (key: string, id: string, text: string) => void;

@@ -192,7 +192,7 @@ export const ipcEvents = {
     ]),
     /**
      * `new-session` only: the project to start it in, and the directory to
-     * start it in — Settings › Git & Worktrees' `New chat in this worktree`
+     * start it in — Settings › Git & Worktrees' `New session in this worktree`
      * (plan §2). Without them, `new-session` means "in whatever project is
      * selected, in the default mode".
      */

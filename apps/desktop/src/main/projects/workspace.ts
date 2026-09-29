@@ -109,7 +109,7 @@ export function projectWorktreeDirs(
  * directory itself, or a directory under its worktree folder?
  *
  * The one answer to that question, asked by three callers: Settings' `New
- * chat in this worktree` (a session about to run there), the explorer (a
+ * session in this worktree` (a session about to run there), the explorer (a
  * root a tab reads from, plan §9's worktree-aware tree) and the MCP bridge
  * (an agent naming a file in its session's cwd). A renderer or an agent can
  * name any directory on the machine; this is what keeps the answer to the

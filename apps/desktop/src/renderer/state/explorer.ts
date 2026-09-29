@@ -201,7 +201,7 @@ type ExplorerState = {
    * captures, and consumed by `CadRenderer` as the viewer's `captureRequest`.
    */
   cadCapture: { projectId: string; tabId: string; path: string; root: ExplorerRoot; nonce: number } | null;
-  /** An annotation the chat box asked a CAD tab to open (its entry there was pressed). Nonce-keyed like `cadSelection`. */
+  /** An annotation the composer asked a CAD tab to open (its entry there was pressed). Nonce-keyed like `cadSelection`. */
   cadAnnotation: { projectId: string; tabId: string; path: string; root: ExplorerRoot; id: string; nonce: number } | null;
 
   bindSession: (sessionId: string | null, projectId: string | null, root?: ExplorerRoot) => Promise<void>;

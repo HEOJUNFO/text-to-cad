@@ -31,7 +31,7 @@ export const acpContract = {
      * The working directory is **not** given: main resolves it from
      * `gitMode` (plan §9), which is the only place that knows where worktrees
      * go and what they are called. `cwd` is the one exception — Settings'
-     * `New chat in this worktree` — and main checks it belongs to the project
+     * `New session in this worktree` — and main checks it belongs to the project
      * before running anything in it.
      */
     create: invoke(

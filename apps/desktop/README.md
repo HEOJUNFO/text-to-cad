@@ -684,7 +684,7 @@ attachments pick up and send as an ACP image block.
 Click a composer reference chip, or focus its button with Tab and press
 Enter, to open its model and select the referenced geometry. The draft and
 its caret stay intact, and activating a chip never submits the prompt.
-References open relative to the chat’s workspace or the new draft’s pinned
+References open relative to the session’s workspace or the new draft’s pinned
 workspace. A bare selector requires a CAD tab in that same workspace;
 otherwise the app asks you to open the model first. This uses the viewer’s
 existing `selectReference` contract; hover does not alter its selection.
@@ -714,7 +714,7 @@ clipboard-only. A STEP's viewport and model-tree menus also offer **Add to
 prompt**, which adds that reference to the draft, and the navbar's snapshot
 adds the current view and the selected references together. Each tab delivers
 only to the session that owns it. A workspace mismatch is rejected, and
-switching to another chat never redirects context. Nothing is sent until the
+switching to another session never redirects context. Nothing is sent until the
 user submits.
 
 FileViewer receives an explicit `ViewerHost`: workspace files/actions, live
@@ -724,7 +724,7 @@ Follow the [shared host contract](../../packages/ui/docs/viewer-host.md) when
 adding integrations; native effects and session workflows belong in this app.
 Prompt delivery binds the tab's immutable owner session when the host is
 created, validates the entire bundle before one acceptance, and preserves its
-text/reference/attachment order. Changing chats before or during encoding does
+text/reference/attachment order. Changing sessions before or during encoding does
 not redirect the result or steal composer focus. Deleted or archived
 destinations cancel delivery. Recent operation receipts are bounded to 256
 entries; pending captures are bounded to 16. Bundles accept at most
@@ -910,7 +910,7 @@ mounts one tab at a time.
 
 Every session owns its own explorer tabs, active tab, expanded folders and pane
 width/collapse state. A new session starts empty, including another session in
-the same directory. A new-chat draft has no explorer until a session exists.
+the same directory. A new-session draft has no explorer until a session exists.
 Tab `sessionId` is immutable; `projectId` is only the directory identity used by
 filesystem services. Reviews always use their owning session's revisions.
 
@@ -938,7 +938,7 @@ below in narrow panes; the lock control is hidden. Freehand, shapes, arrows and 
 **Add to prompt**. This appends a PNG and sketch description to the owning
 session's draft, preserving existing text and never submitting it. The
 destination is part of the tab's identity; even a late callback after changing
-chats cannot redirect the result. Deleted or archived sessions cancel delivery.
+sessions cannot redirect the result. Deleted or archived sessions cancel delivery.
 
 Drawings live only in renderer memory. Switching tabs or sessions keeps them;
 closing the tab, archiving/deleting its session, reloading or exiting discards them.
@@ -1764,11 +1764,11 @@ Viewer references and captures always enter the draft of the session that owns
 that viewer tab. The host carries the owner ID before any asynchronous work,
 and checks that the session still exists, is unarchived, and shares the file's
 workspace before accepting context. It never chooses a different destination
-from the currently selected chat. The same rule applies to files, CAD, PDFs,
+from the currently selected session. The same rule applies to files, CAD, PDFs,
 drawings, browsers, terminals and review selections.
 
-New-chat text drafts remain separate per directory. They have no explorer until
-a session is created. An ordinary new chat sends only its Git mode; main
+New-session text drafts remain separate per directory. They have no explorer until
+a session is created. An ordinary new session sends only its Git mode; main
 chooses and validates its working directory.
 
 ## How a change moves through the app
