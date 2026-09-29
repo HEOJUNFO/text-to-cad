@@ -19,11 +19,11 @@ const BIND_TIMEOUT_MS = 5_000;
  * session cancels it: click A's badge, then row B, then A again inside the
  * timeout, and A's review must not open unasked. The caller selects the
  * session *before* calling, so the selection this sees is already the
- * target's.
- *
- * Returns a function that cancels the wait.
+ * target's. Nothing else cancels a wait, so nothing is returned: a badge
+ * whose row unmounts mid-wait (archived, filtered out) leaves a wait that
+ * still ends on the next click, a selection change, the bind or the timeout.
  */
-export function openSessionReview(sessionId: string): () => void {
+export function openSessionReview(sessionId: string): void {
   const ready = () => {
     const state = useExplorer.getState();
     return state.sessionId === sessionId && state.ready;
@@ -45,7 +45,7 @@ export function openSessionReview(sessionId: string): () => void {
   cancelPendingReview();
   if (ready()) {
     open();
-    return () => {};
+    return;
   }
   let done = false;
   const finish = () => {
@@ -68,7 +68,6 @@ export function openSessionReview(sessionId: string): () => void {
   });
   const timer = setTimeout(finish, BIND_TIMEOUT_MS);
   pending = finish;
-  return finish;
 }
 
 let pending: (() => void) | null = null;
