@@ -47,6 +47,9 @@ export function subscribeToMain(): () => void {
     }),
     window.textToCad.on("session.state", ({ sessionId, state }) => {
       useAcp.getState().receiveState(sessionId, state);
+      // A reconnect lands here rather than as a turn event: an agent that came back idle with
+      // prompts queued behind its disconnect sends the next one (`state/composer.ts`).
+      if (state.status === "idle") void useComposer.getState().drain(sessionId);
     }),
     window.textToCad.on("session.update", ({ sessionId, event }) => {
       useAcp.getState().receiveEvent(sessionId, event);

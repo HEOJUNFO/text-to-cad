@@ -136,6 +136,15 @@ export function Composer({
   useEffect(() => {
     if (focusRequest !== null) textRef.current?.focus();
   }, [focusRequest]);
+  // A send asked for from outside (the new-session state's Try again) is Enter's send: the form
+  // submits what the box holds now, through `handleSubmit` below.
+  const submitRequest = useComposer((state) => state.submitRequest?.key === draftKey ? state.submitRequest.nonce : null);
+  useEffect(() => {
+    if (submitRequest === null) return;
+    const form = textRef.current?.form() ?? null;
+    const submit = form?.querySelector('button[type="submit"]') as HTMLButtonElement | null;
+    if (form && !submit?.disabled) form.requestSubmit();
+  }, [submitRequest]);
 
   // The form's attachments, for the `+` that now sits outside the form.
   const attachmentsRef = useRef<AttachmentsHandle | null>(null);

@@ -29,6 +29,7 @@ const explorer = window.textToCad.explorer as unknown as {
 };
 
 const STEP = "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('bracket'),'2;1');\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n";
+const MTIME = 1_700_000_000_000;
 const binary = (name: string, type = "") => new File([new Uint8Array([0x50, 0x4b, 0, 0, 1, 2, 3])], name, { type });
 
 beforeEach(() => {
@@ -70,9 +71,9 @@ it("a CAD file outside the project is not attached, and the person is told to pu
 });
 
 it("a CAD file already in the project goes in as its reference chip — its path, as typed — not as its bytes", async () => {
-  const step = new File([STEP], "bracket.step");
+  const step = new File([STEP], "bracket.step", { lastModified: MTIME });
   explorer.paths.mockResolvedValue({ paths: ["README.md", "models/bracket.step", "models/other.step"], truncated: false });
-  explorer.stat.mockImplementation(async ({ path }: { path: string }) => ({ path, name: "bracket.step", kind: "file", size: step.size, modifiedAt: 0, fileKind: "cad", mime: "model/step", extension: "step" }));
+  explorer.stat.mockImplementation(async ({ path }: { path: string }) => ({ path, name: "bracket.step", kind: "file", size: step.size, modifiedAt: MTIME, fileKind: "cad", mime: "model/step", extension: "step" }));
   const view = renderComposer();
   await view.pick(step);
   await waitFor(() => expect(useComposer.getState().drafts[draftKey]).toBe("models/bracket.step "));
@@ -121,4 +122,41 @@ it("a file dropped on the box goes through the same check", async () => {
   await waitFor(() => expect(errors()).toHaveLength(1));
   expect(errors()[0]).toMatch(/^part\.3mf is a CAD file that is not in this project/);
   expect(view.attached("part.3mf")).toBeNull();
+});
+
+it("several CAD files picked at once walk the project once, not once each", async () => {
+  const view = renderComposer();
+  await view.pick(binary("a.stl"), binary("b.stl"), binary("c.step"));
+  await waitFor(() => expect(errors()).toHaveLength(3));
+  expect(explorer.paths).toHaveBeenCalledTimes(1);
+});
+
+it("a CAD file not found in a walk that hit its cap is not called outside the project", async () => {
+  explorer.paths.mockResolvedValue({ paths: ["node_modules/x/index.js"], truncated: true });
+  const view = renderComposer();
+  await view.pick(binary("part.stl"));
+  await waitFor(() => expect(errors()).toHaveLength(1));
+  expect(errors()[0]).not.toMatch(/not in this project/);
+  expect(errors()[0]).toMatch(/^part\.stl could not be confirmed to be in this project.*type its path/i);
+});
+
+it("a same-named, same-sized CAD file with a different modified time is refused with that reason", async () => {
+  const stl = binary("part.stl");
+  explorer.paths.mockResolvedValue({ paths: ["old/part.stl"], truncated: false });
+  explorer.stat.mockResolvedValue({ path: "old/part.stl", name: "part.stl", kind: "file", size: stl.size, modifiedAt: stl.lastModified - 60_000, fileKind: "cad", mime: "", extension: "stl" });
+  const view = renderComposer();
+  await view.pick(stl);
+  await waitFor(() => expect(errors()).toHaveLength(1));
+  expect(errors()[0]).toMatch(/old\/part\.stl/);
+  expect(errors()[0]).toMatch(/modified/);
+  expect(useComposer.getState().drafts[draftKey] ?? "").toBe("");
+});
+
+it("a small file that is text for 8 KB and invalid UTF-8 after it is refused when picked", async () => {
+  const bytes = new Uint8Array(20_000).fill(0x61);
+  bytes[15_000] = 0xff;
+  const view = renderComposer();
+  await view.pick(new File([bytes], "mixed.txt", { type: "text/plain" }));
+  await waitFor(() => expect(errors()).toEqual(["mixed.txt is not text or an image, so it was not attached."]));
+  expect(view.attached("mixed.txt")).toBeNull();
 });

@@ -64,3 +64,14 @@ it("closes the focused tab on Delete and hands focus to its neighbour", async ()
   expect(useExplorer.getState().tabs.map((candidate) => candidate.id)).toEqual(["b", "c"]);
   await waitFor(() => expect(screen.getByRole("tab", { name: /b\.md/ })).toHaveFocus());
 });
+
+it("closing the last tab on Delete hands focus to New tab, not to the page", async () => {
+  useExplorer.setState({ tabs: [tab("a", "a.md", 0)], activeId: "a" });
+  const user = userEvent.setup();
+  strip();
+  screen.getByRole("tab")!.focus();
+
+  await user.keyboard("{Backspace}");
+  expect(useExplorer.getState().tabs).toEqual([]);
+  await waitFor(() => expect(screen.getByRole("button", { name: "New tab" })).toHaveFocus());
+});

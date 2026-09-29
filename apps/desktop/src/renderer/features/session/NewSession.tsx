@@ -11,7 +11,7 @@ import {
   useProviderModels,
 } from "@renderer/state/agent-options";
 import { useAgents, useInstalledAgents } from "@renderer/state/agents";
-import { newSessionKey, useComposer } from "@renderer/state/composer";
+import { newSessionKey, useComposer, type TakenDraft } from "@renderer/state/composer";
 import { useProjects } from "@renderer/state/projects";
 import { useSessions } from "@renderer/state/sessions";
 import { useSettings } from "@renderer/state/settings";
@@ -70,7 +70,6 @@ export function NewSession({ project }: { project: Project }) {
   const setActiveSession = useSessions((state) => state.setActive);
   const create = useAcp((state) => state.create);
   const submitPrompt = useComposer((state) => state.submit);
-  const setDraft = useComposer((state) => state.setDraft);
   const probeOptions = useAgentOptions((state) => state.probe);
   const setAgentDefaults = useAgentOptions((state) => state.setDefaults);
   const setAgentEffort = useAgentOptions((state) => state.setEffort);
@@ -79,9 +78,10 @@ export function NewSession({ project }: { project: Project }) {
   const [gitMode, setGitMode] = useState<GitMode | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<{ message: string; auth: boolean } | null>(null);
-  // The prompt the failed start was sending, attachments and all: "Try
-  // again" sends it rather than asking for it a second time.
-  const failedAttempt = useRef<{ text: string; content: PromptBlock[] } | null>(null);
+  // The draft the failed start took from the box, as the composer put it back. "Try again" sends
+  // what the box holds *now* — the person may have edited it since — and a sign-in that finishes
+  // retries by itself only while the box still holds exactly this.
+  const failedAttempt = useRef<TakenDraft | null>(null);
   const jobs = useAgents((state) => state.jobs);
 
   // Defaults come from settings and from what is installed; a choice made
@@ -215,7 +215,6 @@ export function NewSession({ project }: { project: Project }) {
       });
     } catch (error) {
       const message = errorMessage(error);
-      failedAttempt.current = { text, content };
       // Main has already dropped the row: nothing to resume, nothing to list.
       setFailure({ message, auth: isAuthError(message) || agent?.auth === "unauthenticated" });
       setBusy(false);
@@ -229,23 +228,31 @@ export function NewSession({ project }: { project: Project }) {
   };
 
   // The composer's send: a start that fails rejects, and the composer puts its draft back.
-  const submitFromComposer = async (text: string, content: PromptBlock[]) => {
-    if (!(await start(text, content))) throw new Error("The session did not start");
+  const submitFromComposer = async (text: string, content: PromptBlock[], draft: TakenDraft) => {
+    if (!(await start(text, content))) {
+      failedAttempt.current = draft;
+      throw new Error("The session did not start");
+    }
   };
 
+  // Try again is the composer's own send of what the box holds now — edited or not, attachments
+  // and annotations included — so the draft is taken, and put back on another failure, by the one
+  // path that already does both. Nothing here clears the box.
   const retry = () => {
-    const attempt = failedAttempt.current;
-    if (!attempt || busy) {
+    if (busy) return;
+    if (!failedAttempt.current) {
       setFailure(null);
       return;
     }
-    // The box still holds what the failed start restored to it; once that prompt has gone out
-    // it is sent, so the draft and its annotations go with it.
-    void start(attempt.text, attempt.content).then((started) => {
-      if (!started) return;
-      setDraft(draftKey, "");
-      useComposer.getState().removeAnnotations(draftKey);
-    });
+    useComposer.getState().requestSubmit(draftKey);
+  };
+
+  // A sign-in retries only the prompt that failed: a box edited since is the person's next draft,
+  // left for them to send.
+  const retryAfterSignIn = () => {
+    const attempt = failedAttempt.current;
+    if (!attempt || !unchangedSince(attempt, draftKey)) return;
+    retry();
   };
 
   // A sign-in that finishes is the retry: when a login job for this agent
@@ -253,7 +260,7 @@ export function NewSession({ project }: { project: Project }) {
   // `settledLogins` is what had already ended when the prompt went up, so a
   // login from an earlier failure does not fire this one.
   const settledLogins = useRef<Set<string> | null>(null);
-  const retryAfterLogin = useEffectEvent(retry);
+  const retryAfterLogin = useEffectEvent(retryAfterSignIn);
   useEffect(() => {
     if (!failure?.auth || !startingAgentId) {
       settledLogins.current = null;
@@ -367,6 +374,16 @@ export function NewSession({ project }: { project: Project }) {
       </div>
     </div>
   );
+}
+
+/** Whether the box still holds exactly the draft a failed start put back into it. */
+function unchangedSince(attempt: TakenDraft, key: string): boolean {
+  const state = useComposer.getState();
+  const annotations = state.annotations[key] ?? [];
+  return (state.drafts[key] ?? "") === attempt.text
+    && annotations.length === attempt.annotations.length
+    && annotations.every((annotation, index) =>
+      annotation.id === attempt.annotations[index]?.id && annotation.text === attempt.annotations[index]?.text);
 }
 
 /** The model chip's place while the installed agents' probes are out. */

@@ -122,6 +122,7 @@ export function TabStrip() {
     null;
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const stripRef = useRef<HTMLDivElement | null>(null);
+  const newTabRef = useRef<HTMLButtonElement | null>(null);
   // Whether the row is longer than the pane. Only then does `+` hold tabs
   // back, and only then is the fade to its left drawn — over a row that
   // fits, the fade would dim the last tab's edge for nothing.
@@ -182,10 +183,12 @@ export function TabStrip() {
       event.preventDefault();
       const neighbour = tabs[index + 1] ?? tabs[index - 1];
       close(tab.id);
-      // A close can be refused (unsaved changes); focus moves only if it went.
+      // A close can be refused (unsaved changes); focus moves only if it went. The last tab has
+      // no neighbour: focus goes to `+`, the strip's one control left, rather than to the page.
       window.requestAnimationFrame(() => {
         if (!useExplorer.getState().tabs.some((candidate) => candidate.id === tab.id)) {
-          focusTab(neighbour?.id);
+          if (neighbour) focusTab(neighbour.id);
+          else newTabRef.current?.focus();
         }
       });
     }
@@ -262,6 +265,7 @@ export function TabStrip() {
               <Button
                 aria-label="New tab"
                 disabled={!ready}
+                ref={newTabRef}
                 className="size-6 text-muted-foreground"
                 size="icon-xs"
                 variant="ghost"

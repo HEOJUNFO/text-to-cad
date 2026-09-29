@@ -112,3 +112,41 @@ it("a prompt the IPC refuses before any turn event frees the session", async () 
   await settle();
   expect(useComposer.getState().sending[SESSION]).toBeUndefined();
 });
+
+it("a queue left behind by a disconnect drains when a reconnect's session.state says idle", async () => {
+  const composer = useComposer.getState();
+  void composer.submit(SESSION, "first", block("first"));
+  start("first");
+  void composer.submit(SESSION, "queued", block("queued"));
+  await settle();
+  // The agent is evicted mid-turn: no prompt/end, the reply rejects, the session reads closed.
+  emit({ type: "status", status: "closed", error: null });
+  replies[0]!.reject(new Error("disconnected"));
+  await settle();
+  expect(useComposer.getState().queues[SESSION]?.map(item => item.text)).toEqual(["queued"]);
+
+  // The reconnect: a full snapshot, idle, and no turn event at all.
+  handlers["session.state"]!({ sessionId: SESSION, state: { ...initialSessionState(SESSION, "claude"), status: "idle" } });
+  await settle();
+  expect(inFlight(), "the queued prompt goes out on reconnect").toEqual(["queued"]);
+  expect(useComposer.getState().queues[SESSION]).toEqual([]);
+});
+
+it("with a queue left behind and no live agent, Enter sends rather than queueing behind nothing", async () => {
+  useComposer.getState().enqueue(SESSION, "stranded", block("stranded"));
+  for (const status of ["closed", "connecting"] as const) {
+    useAcp.setState({ sessions: { [SESSION]: { ...initialSessionState(SESSION, "claude"), status } } });
+    useComposer.setState({ sending: {} });
+    replies = [];
+    void useComposer.getState().submit(SESSION, `new-${status}`, block(`new-${status}`));
+    await settle();
+    expect(inFlight(), status).toEqual([`new-${status}`]);
+  }
+  useAcp.setState({ sessions: {} });
+  useComposer.setState({ sending: {} });
+  replies = [];
+  void useComposer.getState().submit(SESSION, "new-none", block("new-none"));
+  await settle();
+  expect(inFlight(), "no live state").toEqual(["new-none"]);
+  expect(useComposer.getState().queues[SESSION]?.map(item => item.text)).toEqual(["stranded"]);
+});

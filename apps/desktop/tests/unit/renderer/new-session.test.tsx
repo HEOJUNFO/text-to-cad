@@ -11,18 +11,34 @@ import { useUi } from "@renderer/state/ui";
 import type { AgentStatus } from "@shared/agents";
 
 // The composer and its chips are their own suites; here the box is a button
-// that sends one prompt, which is all a start needs.
-vi.mock("@renderer/features/session/Composer", () => ({
-  Composer: ({ onSubmit, trailing }: { onSubmit: (text: string, content: unknown[]) => Promise<void> | void; trailing?: React.ReactNode }) => (
-    <>
-      {/* A start that fails rejects; the real composer restores its draft on that (its own suite). */}
-      <button onClick={() => void Promise.resolve(onSubmit("make a cube", [{ type: "text", text: "make a cube" }])).catch(() => {})} type="button">
-        Send
-      </button>
-      {trailing}
-    </>
-  ),
-}));
+// that sends what the draft holds (a stock prompt when it is empty) the way the
+// real composer does: taken whole on submit, put back when the start rejects —
+// and a submit asked for from outside (`requestSubmit`) is the same send.
+vi.mock("@renderer/features/session/Composer", async () => {
+  const { useEffect } = await import("react");
+  const { useComposer } = await import("@renderer/state/composer");
+  return {
+    Composer: ({ onSubmit, trailing, newDraftKey }: {
+      onSubmit: (text: string, content: unknown[], draft: unknown) => Promise<void> | void;
+      trailing?: React.ReactNode; newDraftKey: string;
+    }) => {
+      const send = () => {
+        const store = useComposer.getState();
+        const text = store.drafts[newDraftKey]?.trim() || "make a cube";
+        const taken = store.takeDraft(newDraftKey);
+        void Promise.resolve(onSubmit(text, [{ type: "text", text }], taken)).catch(() => useComposer.getState().restoreDraft(newDraftKey, taken));
+      };
+      const request = useComposer((state) => state.submitRequest?.key === newDraftKey ? state.submitRequest.nonce : null);
+      useEffect(() => { if (request !== null) send(); }, [request]);
+      return (
+        <>
+          <button onClick={send} type="button">Send</button>
+          {trailing}
+        </>
+      );
+    },
+  };
+});
 vi.mock("@renderer/features/session/ComposerChips", () => ({
   EffortChip: () => null,
   GitModeChip: () => null,
@@ -66,7 +82,7 @@ beforeEach(() => {
   useAgentOptions.setState({ probe: vi.fn(async () => undefined) } as never);
   useAgents.setState({ agents: [AGENT], jobs: {}, ready: true });
   useAcp.setState({ create } as never);
-  useComposer.setState({ submit } as never);
+  useComposer.setState({ submit, drafts: {}, annotations: {}, submitRequest: null } as never);
 });
 
 describe("a start that needs a sign-in", () => {
@@ -122,6 +138,43 @@ describe("a start that needs a sign-in", () => {
 
     expect(create).toHaveBeenCalledTimes(2);
     expect(submit).toHaveBeenCalledWith("s1", "make a cube", [{ type: "text", text: "make a cube" }]);
+  });
+
+  it("Try again sends what the box holds now, not what failed", async () => {
+    const user = userEvent.setup();
+    const key = "__new__:p1";
+    useComposer.setState({ drafts: { [key]: "make a cube" } });
+    create.mockRejectedValueOnce(new Error("Authentication required")).mockResolvedValueOnce("s1");
+    render(<NewSession project={PROJECT} />);
+
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByRole("button", { name: "Try again" });
+    // The person edits the restored draft before retrying.
+    act(() => useComposer.getState().setDraft(key, "make a sphere"));
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(submit).toHaveBeenCalledWith("s1", "make a sphere", [{ type: "text", text: "make a sphere" }]);
+    expect(submit).not.toHaveBeenCalledWith("s1", "make a cube", expect.anything());
+  });
+
+  it("does not start again by itself after a login when the draft was edited since the failure", async () => {
+    const user = userEvent.setup();
+    const key = "__new__:p1";
+    useComposer.setState({ drafts: { [key]: "make a cube" } });
+    create.mockRejectedValueOnce(new Error("Authentication required")).mockResolvedValueOnce("s1");
+    render(<NewSession project={PROJECT} />);
+
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByRole("button", { name: "Try again" });
+    act(() => {
+      useComposer.getState().setDraft(key, "make a cube, but hollow");
+      useComposer.setState({ annotations: { [key]: [{ id: "a2", text: "this face", references: [] }] } });
+    });
+    await act(async () => useAgents.getState().receiveOutput({ jobId: "j1", agentId: "claude", kind: "login", data: "", exitCode: 0 }));
+
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(useComposer.getState().drafts[key], "the edit is kept").toBe("make a cube, but hollow");
+    expect(useComposer.getState().annotations[key]).toHaveLength(1);
   });
 
   it("does not start again when the login fails", async () => {
