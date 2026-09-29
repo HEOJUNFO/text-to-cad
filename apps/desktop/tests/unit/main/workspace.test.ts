@@ -4,7 +4,8 @@
  *
  * Real repositories again: the question is what `resolveWorkspace` does with a
  * folder that is not a repository, a repository with no commits, and one that
- * is fine — and only git can answer the first two.
+ * is fine — and only git can answer the first two. The committed ones are
+ * copies of a template this file builds once (`./git-fixtures`).
  */
 import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
@@ -12,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 
 import {
   legacyProjectWorktreeDir,
@@ -25,17 +26,9 @@ import {
 } from "@main/projects/workspace";
 import { defaultSettings, type Project, type Settings } from "@shared/types";
 
-const run = promisify(execFile);
+import { cleanGitTemplates, committedRepository, GIT_ENV, pushedRepository } from "./git-fixtures";
 
-const GIT_ENV = {
-  ...process.env,
-  GIT_AUTHOR_NAME: "text-to-cad Tests",
-  GIT_AUTHOR_EMAIL: "tests@example.invalid",
-  GIT_COMMITTER_NAME: "text-to-cad Tests",
-  GIT_COMMITTER_EMAIL: "tests@example.invalid",
-  GIT_CONFIG_GLOBAL: "/dev/null",
-  GIT_CONFIG_SYSTEM: "/dev/null",
-};
+const run = promisify(execFile);
 
 const temporary: string[] = [];
 
@@ -44,20 +37,26 @@ afterEach(async () => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+afterAll(cleanGitTemplates);
 
-/** A project directory, a worktree root beside it, and the settings pointing at both. */
-async function fixture(options: { repository?: boolean; commit?: boolean } = {}) {
+/**
+ * A project directory, a worktree root beside it, and the settings pointing at
+ * both. `remote`: the project has a bare `origin` at `<base>/remote.git` that
+ * is one commit ahead of it (see `pushedRepository`).
+ */
+async function fixture(options: { repository?: boolean; commit?: boolean; remote?: boolean } = {}) {
   const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "text-to-cad-ws-")));
   temporary.push(base);
   const root = path.join(base, "text-to-cad");
-  await mkdir(root, { recursive: true });
 
-  if (options.repository !== false) {
-    await run("git", ["init", "--quiet", "--initial-branch=main"], { cwd: root, env: GIT_ENV });
-    if (options.commit !== false) {
-      await writeFile(path.join(root, "README.md"), "one\n");
-      await run("git", ["add", "-A"], { cwd: root, env: GIT_ENV });
-      await run("git", ["commit", "--quiet", "-m", "first"], { cwd: root, env: GIT_ENV });
+  if (options.remote) {
+    await pushedRepository(root, path.join(base, "remote.git"), { ahead: true });
+  } else if (options.repository !== false && options.commit !== false) {
+    await committedRepository(root);
+  } else {
+    await mkdir(root, { recursive: true });
+    if (options.repository !== false) {
+      await run("git", ["init", "--quiet", "--initial-branch=main"], { cwd: root, env: GIT_ENV });
     }
   }
 
@@ -111,11 +110,7 @@ describe("worktreeRoot", () => {
       path: root,
     }));
     for (const project of projects) {
-      await mkdir(project.path, { recursive: true });
-      await run("git", ["init", "--quiet", "--initial-branch=main"], { cwd: project.path, env: GIT_ENV });
-      await writeFile(path.join(project.path, "README.md"), "one\n");
-      await run("git", ["add", "-A"], { cwd: project.path, env: GIT_ENV });
-      await run("git", ["commit", "--quiet", "-m", "first"], { cwd: project.path, env: GIT_ENV });
+      await committedRepository(project.path);
     }
     const [mine, theirs] = projects as [(typeof projects)[0], (typeof projects)[0]];
     const legacy = path.join(legacyProjectWorktreeDir(settings, mine), "wrist");
@@ -292,21 +287,11 @@ describe("releaseWorkspace for an abandoned create", () => {
 
 describe("releaseWorkspace for an abandoned create cut from a fetched tip", () => {
   it("deletes the branch this create made while it is still at its base, even when local HEAD is behind it", async () => {
-    const { base, project, settings } = await fixture();
-    const git = (cwd: string, ...args: string[]) => run("git", args, { cwd, env: GIT_ENV });
     // A remote one commit ahead of the checkout: the fetch before creating
     // cuts the branch from there, and `git branch -d` measures against the
     // checkout's HEAD, which does not contain it.
-    const remote = path.join(base, "remote.git");
-    await git(base, "init", "--quiet", "--bare", "--initial-branch=main", remote);
-    await git(project.path, "remote", "add", "origin", remote);
-    await git(project.path, "push", "--quiet", "-u", "origin", "main");
-    const other = path.join(base, "other");
-    await git(base, "clone", "--quiet", remote, other);
-    await writeFile(path.join(other, "ahead.txt"), "ahead\n");
-    await git(other, "add", "-A");
-    await git(other, "commit", "--quiet", "-m", "ahead");
-    await git(other, "push", "--quiet", "origin", "main");
+    const { project, settings } = await fixture({ remote: true });
+    const git = (cwd: string, ...args: string[]) => run("git", args, { cwd, env: GIT_ENV });
 
     const fetching = { ...settings, fetchBeforeCreate: true };
     const made = await resolveWorkspace({ project, settings: fetching, gitMode: "worktree", name: "never opened" });
