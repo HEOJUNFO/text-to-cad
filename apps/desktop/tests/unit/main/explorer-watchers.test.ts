@@ -178,6 +178,33 @@ describe("visible file watching", () => {
     expect(driver.direct.mock.calls[2]![0]).toBe(dependency);
   });
 
+  it("arms a listed directory's watch again when it is removed and made again before its event is read", async () => {
+    const handles: Array<{ on: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> }> = [];
+    driver.direct.mockImplementation(() => {
+      const handle = { on: vi.fn().mockReturnThis(), close: vi.fn() };
+      handles.push(handle);
+      return handle;
+    });
+    await watchers.watch(root);
+    await watchers.watchListedDirectory(root, "node_modules");
+    await watchers.watchListedDirectory(root, "node_modules/dependency");
+    const notifyDependency = driver.direct.mock.calls[1]![2] as (event: string, filename: string) => void;
+    const dependency = path.join(await fs.realpath(root), "node_modules", "dependency");
+
+    // `rm -rf dependency && mkdir dependency`: by the time the dead watch's own event is read the
+    // name stats again, but it is a new directory the old watch hears nothing from.
+    await fs.rm(dependency, { recursive: true });
+    await fs.mkdir(dependency);
+    notifyDependency("rename", "dependency");
+    await vi.waitFor(() => expect(driver.direct).toHaveBeenCalledTimes(3));
+    expect(handles[1]!.close).toHaveBeenCalled();
+    expect(driver.direct.mock.calls[2]![0]).toBe(dependency);
+    await vi.waitFor(() => expect(emit).toHaveBeenCalled());
+    expect(emit.mock.calls.flatMap(([, changes]) => changes)).not.toContainEqual(
+      expect.objectContaining({ path: "node_modules/dependency/dependency" }),
+    );
+  });
+
   it("cancels setup without creating a watcher when the last owner leaves", async () => {
     const pending = watchers.watch(root);
     await watchers.unwatch(root);

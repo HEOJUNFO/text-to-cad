@@ -21,7 +21,7 @@
  * `tests/unit/main/explorer-fs.test.ts` can run it.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { watch as watchDirectory, type FSWatcher, type Stats } from "node:fs";
+import { statSync, watch as watchDirectory, type FSWatcher, type Stats } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import ignore from "ignore";
@@ -1032,15 +1032,27 @@ export class FileWatchers {
       owner.direct.delete(relative);
       direct.close();
     };
+    // Taken without yielding, so a second listing cannot arm the same directory meanwhile.
+    const armed = statSync(absolute, { throwIfNoEntry: false });
     try {
       const direct: FSWatcher = watchDirectory(absolute, { recursive: false }, (_event, filename) => {
         if (this.watchers.get(root) !== owner) return;
         const child = filename ? path.join(absolute, filename.toString()) : absolute;
         void fs.stat(child).catch(() => null).then(async (stats) => {
           if (this.watchers.get(root) !== owner) return;
-          if (!stats && !(await fs.stat(absolute).catch(() => null))) {
-            disarm(direct);
-            return;
+          if (!stats) {
+            // The watch's own directory went (its event names the directory
+            // itself, which no child of it is). Made again already, as with
+            // `rm -rf out && mkdir out`, the name stats but is another inode:
+            // the dead watch is let go all the same, and the directory is
+            // reported changed rather than a child that never was removed —
+            // which lists it again and so arms it again (`queue`).
+            const now = await fs.stat(absolute).catch(() => null);
+            if (!now || (filename?.toString() === path.basename(absolute) && (now.ino !== armed?.ino || now.dev !== armed?.dev))) {
+              disarm(direct);
+              if (now) this.queue(root, { path: relative, kind: "changed", directory: true });
+              return;
+            }
           }
           this.queue(root, {
             path: toRelative(realRoot, child),
