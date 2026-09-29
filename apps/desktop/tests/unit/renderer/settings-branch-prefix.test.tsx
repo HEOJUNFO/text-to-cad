@@ -30,6 +30,15 @@ it("notes a stored prefix main refused and read as the default", async () => {
   );
 });
 
+it("draws the stored prefix's note in the kit's warning tone, not as a muted description", async () => {
+  vi.mocked(window.textToCad.settings.fallbacks).mockResolvedValue({ branchPrefix: "feature..x/" });
+  wrap(<GitPage />);
+  const note = await screen.findByText(/The stored prefix “feature\.\.x\/” is not one git accepts/);
+  expect(note).not.toHaveClass("text-muted-foreground");
+  // The kit's Alert, warning variant: its amber border and wash.
+  expect(note.closest("[data-slot=alert]")).toHaveClass("bg-chart-5/10");
+});
+
 it("says a refused prefix was not saved when Settings closes on it", async () => {
   vi.mocked(window.textToCad.settings.fallbacks).mockResolvedValue({});
   const user = userEvent.setup();

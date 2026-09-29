@@ -9,7 +9,8 @@
  * that make sense on one.
  */
 import { useCallback, useEffect, useId, useState } from "react";
-import { Folder, Loader2 } from "lucide-react";
+import { Folder, Loader2, TriangleAlert } from "lucide-react";
+import { Alert, AlertDescription } from "@text-to-cad/ui/primitives/alert";
 
 import { Button } from "@renderer/components/ui/button";
 import { Textarea } from "@renderer/components/ui/textarea";
@@ -91,10 +92,19 @@ export function GitPage() {
           keywords="branch name namespace"
           onChange={(branchPrefix) => patch({ branchPrefix })}
           placeholder="text-to-cad/"
-          note={
-            storedPrefix === null
-              ? undefined
-              : `The stored prefix “${storedPrefix}” is not one git accepts, so “${settings.branchPrefix}” is used until another is set. ${branchPrefixProblem(storedPrefix) ?? ""}`.trim()
+          // Not the muted note a description is: the stored value is wrong,
+          // and it says so in the kit's warning tone (its Alert's `warning`
+          // variant), boxed, beside a value typed here and refused, which is
+          // a line of red text.
+          warning={
+            storedPrefix === null ? undefined : (
+              <Alert className="mt-1 px-3 py-2 text-xs" data-stored-prefix variant="warning">
+                <TriangleAlert />
+                <AlertDescription className="text-xs text-foreground">
+                  {`The stored prefix “${storedPrefix}” is not one git accepts, so “${settings.branchPrefix}” is used until another is set. ${branchPrefixProblem(storedPrefix) ?? ""}`.trim()}
+                </AlertDescription>
+              </Alert>
+            )
           }
           problem={branchPrefixProblem}
           title="Branch prefix"
