@@ -35,7 +35,11 @@ export const ToolKindSchema = z.enum([
 ]);
 export type ToolKind = z.infer<typeof ToolKindSchema>;
 
-export const ToolCallStatusSchema = z.enum(["pending", "in_progress", "completed", "failed"]);
+/**
+ * `cancelled` is not on the wire: the reducer sets it on a call that was
+ * still pending or running when its turn was cancelled (plan §5).
+ */
+export const ToolCallStatusSchema = z.enum(["pending", "in_progress", "completed", "failed", "cancelled"]);
 export type ToolCallStatus = z.infer<typeof ToolCallStatusSchema>;
 
 /** What a tool call produced: prose, a diff, or a terminal it ran. */
@@ -305,6 +309,8 @@ export type Part =
        * the call completes. Empty for adapters that only report at the end.
        */
       stream: string;
+      /** Set once `stream` was cut to its tail; the head is gone. */
+      streamTruncated?: boolean;
       children: Part[];
     }
   | { type: "plan"; entries: PlanEntry[] }
@@ -329,7 +335,9 @@ export type Part =
   | { type: "available_commands"; commands: AvailableCommand[] }
   | { type: "error"; message: string }
   | { type: "image"; data: string; mimeType: string }
-  | { type: "resource_link"; uri: string; name: string };
+  | { type: "resource_link"; uri: string; name: string }
+  /** An embedded text file the person attached: kept whole so Retry can send it again. */
+  | { type: "resource"; uri: string; name: string; text: string; mimeType: string | null };
 
 const PermissionOutcomeSchema = z.discriminatedUnion("state", [
   z.object({ state: z.literal("pending") }),
@@ -353,6 +361,7 @@ export const PartSchema: z.ZodType<Part> = z.lazy(() =>
       content: z.array(ToolContentSchema),
       locations: z.array(ToolLocationSchema),
       stream: z.string(),
+      streamTruncated: z.boolean().optional(),
       children: z.array(PartSchema),
     }),
     z.object({ type: z.literal("plan"), entries: z.array(PlanEntrySchema) }),
@@ -378,6 +387,13 @@ export const PartSchema: z.ZodType<Part> = z.lazy(() =>
     z.object({ type: z.literal("error"), message: z.string() }),
     z.object({ type: z.literal("image"), data: z.string(), mimeType: z.string() }),
     z.object({ type: z.literal("resource_link"), uri: z.string(), name: z.string() }),
+    z.object({
+      type: z.literal("resource"),
+      uri: z.string(),
+      name: z.string(),
+      text: z.string(),
+      mimeType: z.string().nullable(),
+    }),
   ]),
 );
 
@@ -393,6 +409,8 @@ export const TurnSchema = z.object({
   /** Null while the turn is open — streaming, or being replayed by `session/load`. */
   endedAt: z.number().nullable(),
   stopReason: StopReasonSchema.nullable(),
+  /** The ACP `messageId` a replayed user message carried, so the next message starts its own turn. */
+  messageId: z.string().optional(),
 });
 export type Turn = z.infer<typeof TurnSchema>;
 
@@ -451,6 +469,14 @@ export const SessionStateSchema = z.object({
   pendingPermissions: z.array(PendingPermissionSchema),
   /** Every subagent session id seen, mapped to the root session's part path. */
   subagentSessionIds: z.array(z.string()),
+  /**
+   * Updates under a session id that is neither the root nor a known
+   * subagent, held until that subagent's spawn arrives. Bounded
+   * (`PARKED_LIMIT` in the reducer); absent when there are none.
+   */
+  parked: z
+    .array(z.object({ acpSessionId: z.string(), update: z.looseObject({ sessionUpdate: z.string() }), at: z.number() }))
+    .optional(),
 });
 export type SessionState = z.infer<typeof SessionStateSchema>;
 

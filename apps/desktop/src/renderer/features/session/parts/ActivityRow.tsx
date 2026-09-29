@@ -1,5 +1,5 @@
 import { Suspense, lazy, useContext, useState } from "react";
-import { Box, CircleAlert, ChevronRight, Loader2 } from "lucide-react";
+import { Ban, Box, CircleAlert, ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "cn";
 
 import { Terminal } from "@renderer/components/ai-elements/terminal";
@@ -67,6 +67,7 @@ export function ActivityRowView({ row, sessionId }: { row: ActivityRow; sessionI
   const [open, setOpen] = useState(false);
   const active = row.status === "pending" || row.status === "in_progress";
   const failed = row.status === "failed";
+  const cancelled = row.status === "cancelled";
   const label = row.label;
   const command = row.command ? commandLine(row.command) : null;
 
@@ -91,6 +92,7 @@ export function ActivityRowView({ row, sessionId }: { row: ActivityRow; sessionI
           ) : null}
         </span>
         {failed ? <FailureIndicator /> : null}
+        {cancelled ? <CancelledIndicator /> : null}
         {row.insertions + row.deletions > 0 ? (
           <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums">
             +{row.insertions} −{row.deletions}
@@ -154,6 +156,16 @@ function FailureIndicator({ count }: { count?: number }) {
     <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-destructive" data-activity-failures>
       <CircleAlert aria-hidden className="size-3" />
       {count === undefined ? "Failed" : `${count} failed`}
+    </span>
+  );
+}
+
+/** A call whose turn was cancelled while it was still pending or running. */
+function CancelledIndicator() {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-muted-foreground" data-activity-cancelled>
+      <Ban aria-hidden className="size-3" />
+      Cancelled
     </span>
   );
 }

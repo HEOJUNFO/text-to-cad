@@ -556,3 +556,215 @@ describe("reduce: recorded adapter transcripts", () => {
     expect(agentTurn?.parts.map((part) => part.type)).toEqual(["available_commands", "available_commands", "error"]);
   });
 });
+
+describe("reduce: turn endings settle what was still running", () => {
+  function withWork(): SessionState {
+    let state = started(connected());
+    state = update(state, { sessionUpdate: "tool_call", toolCallId: "p1", title: "ls", kind: "execute", status: "pending" });
+    state = update(state, { sessionUpdate: "tool_call", toolCallId: "r1", title: "Task", kind: "think", status: "in_progress" });
+    state = update(state, {
+      sessionUpdate: "tool_call",
+      toolCallId: "r1-child",
+      title: "Read",
+      kind: "read",
+      status: "in_progress",
+      _meta: { claudeCode: { parentToolUseId: "r1" } },
+    });
+    state = update(state, { sessionUpdate: "tool_call", toolCallId: "done", title: "cat", kind: "execute", status: "completed" });
+    state = update(state, { sessionUpdate: "subagent_spawned", subagentSessionId: "kid", name: "explorer" });
+    return state;
+  }
+
+  it("cancels pending and running calls and subagents when a cancelled turn ends", () => {
+    const state = reduce(withWork(), { type: "prompt/end", stopReason: "cancelled", usage: null, at });
+    expect(Object.fromEntries(allToolCalls(state).map((call) => [call.id, call.status]))).toEqual({
+      p1: "cancelled",
+      r1: "cancelled",
+      "r1-child": "cancelled",
+      done: "completed",
+    });
+    expect(state.turns[1]?.parts.find((part) => part.type === "subagent")).toMatchObject({ state: "cancelled" });
+    expect(SessionStateSchema.safeParse(state).success).toBe(true);
+  });
+
+  it("fails them when the prompt errors, and leaves them alone on a normal end", () => {
+    const failed = reduce(withWork(), { type: "prompt/error", message: "boom", at });
+    expect(allToolCalls(failed).filter((call) => call.id !== "done").map((call) => call.status)).toEqual(["failed", "failed", "failed"]);
+    expect(failed.turns[1]?.parts.find((part) => part.type === "subagent")).toMatchObject({ state: "failed" });
+    // A background command can outlive an ordinary end of turn.
+    const ended = reduce(withWork(), { type: "prompt/end", stopReason: "end_turn", usage: null, at });
+    expect(allToolCalls(ended).find((call) => call.id === "p1")?.status).toBe("pending");
+  });
+});
+
+describe("reduce: tool call updates across turns", () => {
+  it("updates a closed turn's call in place instead of opening a phantom turn", () => {
+    let state = started(connected());
+    state = update(state, { sessionUpdate: "tool_call", toolCallId: "bg", title: "sleep", kind: "execute", status: "in_progress" });
+    state = reduce(state, { type: "prompt/end", stopReason: "end_turn", usage: null, at });
+    state = update(state, { sessionUpdate: "tool_call_update", toolCallId: "bg", status: "completed" });
+    expect(state.turns.map((turn) => turn.role)).toEqual(["user", "agent"]);
+    expect(state.turns[1]?.endedAt).toBe(at);
+    expect(allToolCalls(state)).toMatchObject([{ id: "bg", title: "sleep", status: "completed" }]);
+    // An update for an id nobody announced, with no turn open, is dropped.
+    state = update(state, { sessionUpdate: "tool_call_update", toolCallId: "ghost", status: "completed" });
+    expect(state.turns).toHaveLength(2);
+    expect(allToolCalls(state).map((call) => call.id)).toEqual(["bg"]);
+  });
+
+  it("updates a previous turn's call during the next turn rather than duplicating it", () => {
+    let state = started(connected());
+    state = update(state, { sessionUpdate: "tool_call", toolCallId: "bg", title: "sleep", kind: "execute", status: "in_progress" });
+    state = reduce(state, { type: "prompt/end", stopReason: "end_turn", usage: null, at });
+    state = reduce(state, { type: "prompt/start", turnId: "t2", content: [{ type: "text", text: "next" }], at });
+    state = update(state, { sessionUpdate: "tool_call_update", toolCallId: "bg", status: "completed" });
+    expect(allToolCalls(state).map((call) => `${call.id}:${call.status}`)).toEqual(["bg:completed"]);
+    expect(state.turns[3]?.parts).toEqual([]);
+  });
+
+  it("gives a fresh announcement of a reused id its own row in the open turn, and sends its updates there", () => {
+    let state = started(connected());
+    state = update(state, { sessionUpdate: "tool_call", toolCallId: "write-1", title: "Write a", kind: "edit", status: "completed" });
+    state = reduce(state, { type: "prompt/end", stopReason: "end_turn", usage: null, at });
+    state = reduce(state, { type: "prompt/start", turnId: "t2", content: [{ type: "text", text: "again" }], at });
+    state = update(state, { sessionUpdate: "tool_call", toolCallId: "write-1", title: "Write b", kind: "edit", status: "in_progress" });
+    state = update(state, { sessionUpdate: "tool_call_update", toolCallId: "write-1", status: "failed" });
+    expect(allToolCalls(state).map((call) => `${call.title}:${call.status}`)).toEqual(["Write a:completed", "Write b:failed"]);
+  });
+});
+
+describe("reduce: session ids", () => {
+  it("does not let a subagent's session-level updates replace the root's", () => {
+    const child = "child-session";
+    let state = started(connected());
+    state = update(state, { sessionUpdate: "subagent_spawned", subagentSessionId: child, name: "explorer" });
+    state = update(state, { sessionUpdate: "usage_update", used: 10, size: 100 });
+    state = update(state, { sessionUpdate: "session_info_update", title: "Root" });
+    state = update(state, { sessionUpdate: "plan", entries: [{ content: "root", priority: "high", status: "pending" }] });
+    state = update(state, { sessionUpdate: "usage_update", used: 99, size: 200 }, child);
+    state = update(state, { sessionUpdate: "current_mode_update", currentModeId: "plan" }, child);
+    state = update(state, { sessionUpdate: "session_info_update", title: "Child" }, child);
+    state = update(state, { sessionUpdate: "available_commands_update", availableCommands: [{ name: "x", description: "" }] }, child);
+    state = update(state, { sessionUpdate: "plan", entries: [{ content: "child", priority: "high", status: "pending" }] }, child);
+    expect(state.contextUsage).toMatchObject({ used: 10, size: 100 });
+    expect(state.currentModeId).toBe("default");
+    expect(state.title).toBe("Root");
+    expect(state.availableCommands).toEqual([]);
+    expect(state.plan?.[0]?.content).toBe("root");
+    const rootPlan = state.turns[1]?.parts.find((part) => part.type === "plan");
+    expect(rootPlan).toMatchObject({ entries: [{ content: "root" }] });
+    // The child's own plan lands inside its part.
+    const sub = state.turns[1]?.parts.find((part) => part.type === "subagent");
+    expect(sub?.type === "subagent" && sub.parts.map((part) => part.type)).toEqual(["plan"]);
+  });
+
+  it("parks an unknown child's updates until its spawn arrives, instead of gluing them onto the root", () => {
+    const child = "late-child";
+    let state = started(connected());
+    state = update(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "root " } });
+    state = update(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "child says" } }, child);
+    expect(lastAgentText(state)).toBe("root ");
+    state = update(state, { sessionUpdate: "subagent_spawned", subagentSessionId: child, name: "explorer" });
+    const sub = state.turns[1]?.parts.find((part) => part.type === "subagent");
+    expect(sub?.type === "subagent" && sub.parts).toEqual([{ type: "text", text: "child says" }]);
+    expect(SessionStateSchema.safeParse(state).success).toBe(true);
+  });
+
+  it("keeps only a bounded number of parked updates", () => {
+    let state = started(connected());
+    for (let i = 0; i < 1000; i += 1) {
+      state = update(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "x" } }, "never-spawned");
+    }
+    expect(JSON.stringify(state).length).toBeLessThan(50_000);
+    expect(lastAgentText(state)).toBe("");
+  });
+});
+
+describe("reduce: replayed user messages", () => {
+  it("keeps two consecutive user messages apart by message id", () => {
+    let state = reduce(initialSessionState("s1", "fake"), {
+      type: "session/connected",
+      acpSessionId: root,
+      modes: null,
+      configOptions: null,
+      loading: true,
+      at,
+    });
+    state = update(state, { sessionUpdate: "user_message_chunk", messageId: "m1", content: { type: "text", text: "A" } });
+    state = update(state, { sessionUpdate: "user_message_chunk", messageId: "m1", content: { type: "text", text: "a" } });
+    state = update(state, { sessionUpdate: "user_message_chunk", messageId: "m2", content: { type: "text", text: "B" } });
+    state = reduce(state, { type: "session/loaded", at });
+    const texts = state.turns.map((turn) => turn.parts.map((part) => ("text" in part ? part.text : "")).join("|"));
+    expect(texts).toEqual(["Aa", "B"]);
+    expect(SessionStateSchema.safeParse(state).success).toBe(true);
+  });
+
+  it("keeps separate blocks apart when the agent sends no message id", () => {
+    let state = connected();
+    state = update(state, { sessionUpdate: "user_message_chunk", content: { type: "text", text: "A" } });
+    state = update(state, { sessionUpdate: "user_message_chunk", content: { type: "text", text: "B" } });
+    expect(state.turns[0]?.parts).toEqual([
+      { type: "text", text: "A" },
+      { type: "text", text: "B" },
+    ]);
+  });
+});
+
+describe("reduce: permission/resolve status", () => {
+  it("goes idle, not running, when the answer arrives after the turn ended", () => {
+    let state = started(connected());
+    state = reduce(state, {
+      type: "permission/request",
+      request: { requestId: "perm-1", acpSessionId: root, toolCallId: "c1", title: null, description: null, kind: null, input: null, options: [] },
+      at,
+    });
+    // The turn closes without the connection's cleanup reaching the reducer first.
+    state = { ...state, turns: state.turns.map((turn) => ({ ...turn, endedAt: turn.endedAt ?? at })) };
+    state = reduce(state, { type: "permission/resolve", requestId: "perm-1", outcome: { state: "cancelled" }, at });
+    expect(state.status).toBe("idle");
+  });
+});
+
+describe("reduce: embedded resources", () => {
+  const resource = { type: "resource" as const, uri: "attachment:///notes%20v2.md", text: "# notes", mimeType: "text/markdown" };
+
+  it("keeps a prompt's embedded resource whole, text and all", () => {
+    const state = reduce(connected(), { type: "prompt/start", turnId: "t1", content: [{ type: "text", text: "see" }, resource], at });
+    expect(state.turns[0]?.parts).toEqual([
+      { type: "text", text: "see" },
+      { type: "resource", uri: resource.uri, name: "notes v2.md", text: "# notes", mimeType: "text/markdown" },
+    ]);
+    expect(SessionStateSchema.safeParse(state).success).toBe(true);
+  });
+
+  it("replays a user's embedded resource as a resource, not as text glued onto the prompt", () => {
+    let state = connected();
+    state = update(state, { sessionUpdate: "user_message_chunk", messageId: "m1", content: { type: "text", text: "see" } });
+    state = update(state, {
+      sessionUpdate: "user_message_chunk",
+      messageId: "m1",
+      content: { type: "resource", resource: { uri: resource.uri, text: "# notes", mimeType: "text/markdown" } },
+    });
+    expect(state.turns[0]?.parts).toEqual([
+      { type: "text", text: "see" },
+      { type: "resource", uri: resource.uri, name: "notes v2.md", text: "# notes", mimeType: "text/markdown" },
+    ]);
+  });
+});
+
+describe("reduce: streamed output", () => {
+  it("keeps only the tail of a long stream and says it was cut", () => {
+    let state = started(connected());
+    state = update(state, { sessionUpdate: "tool_call", toolCallId: "c1", title: "yes", kind: "execute", status: "in_progress" });
+    const chunk = "y\n".repeat(4096);
+    for (let i = 0; i < 40; i += 1) {
+      state = update(state, { sessionUpdate: "tool_call_update", toolCallId: "c1", _meta: { terminal_output_delta: { data: chunk } } });
+    }
+    state = update(state, { sessionUpdate: "tool_call_update", toolCallId: "c1", _meta: { terminal_output_delta: { data: "END" } } });
+    const [call] = allToolCalls(state);
+    expect(call?.stream.length).toBeLessThanOrEqual(64 * 1024);
+    expect(call?.stream.endsWith("END")).toBe(true);
+    expect(call?.streamTruncated).toBe(true);
+    expect(SessionStateSchema.safeParse(state).success).toBe(true);
+  });
+});

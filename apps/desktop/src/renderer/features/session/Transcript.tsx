@@ -96,7 +96,8 @@ function UserTurn({ turn }: { turn: Turn }) {
     .join("\n");
   const images = turn.parts.filter((part): part is Extract<Turn["parts"][number], { type: "image" }> => part.type === "image");
   const links = turn.parts.filter(
-    (part): part is Extract<Turn["parts"][number], { type: "resource_link" }> => part.type === "resource_link",
+    (part): part is Extract<Turn["parts"][number], { type: "resource_link" | "resource" }> =>
+      part.type === "resource_link" || part.type === "resource",
   );
   return (
     <div className="flex w-full flex-col items-end gap-1.5" data-turn={turn.id} data-role="user">
