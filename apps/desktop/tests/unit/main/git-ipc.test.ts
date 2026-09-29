@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, expect, test, vi } from "vitest";
 
 type Row = { id: string; projectId: string; cwd: string; worktreePath?: string; archived: boolean };
 const state = vi.hoisted(() => ({
@@ -41,16 +41,9 @@ import { gitHandlers, markCreating, pruneProjectWorktrees, sessionWorkspace, ses
 import * as git from "@main/projects/git";
 import { legacyProjectWorktreeDir, projectWorktreeDir } from "@main/projects/workspace";
 
+import { cleanGitTemplates, committedRepository, GIT_ENV } from "./git-fixtures";
+
 const run = promisify(execFile);
-const GIT_ENV = {
-  ...process.env,
-  GIT_AUTHOR_NAME: "text-to-cad Tests",
-  GIT_AUTHOR_EMAIL: "tests@example.invalid",
-  GIT_COMMITTER_NAME: "text-to-cad Tests",
-  GIT_COMMITTER_EMAIL: "tests@example.invalid",
-  GIT_CONFIG_GLOBAL: "/dev/null",
-  GIT_CONFIG_SYSTEM: "/dev/null",
-};
 // `git.commit` runs through the app's own git, which reads the identity from the environment.
 const previousEnv = { ...process.env };
 
@@ -67,13 +60,11 @@ afterEach(async () => {
   process.env = { ...previousEnv };
   await rm(base, { recursive: true, force: true });
 });
+afterAll(cleanGitTemplates);
 
+/** A one-commit repository at `directory`, copied from this file's template, as a project. */
 async function repository(id: string, directory: string) {
-  await mkdir(directory, { recursive: true });
-  await run("git", ["init", "--quiet", "--initial-branch=main"], { cwd: directory, env: GIT_ENV });
-  await writeFile(path.join(directory, "README.md"), "one\n");
-  await run("git", ["add", "-A"], { cwd: directory, env: GIT_ENV });
-  await run("git", ["commit", "--quiet", "-m", "first"], { cwd: directory, env: GIT_ENV });
+  await committedRepository(directory);
   const project = { id, name: path.basename(directory), path: directory, createdAt: 0 };
   state.projects.push(project);
   return project;
