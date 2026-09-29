@@ -8,7 +8,7 @@
  * text it matched is the text the row prints.
  */
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
@@ -202,6 +202,19 @@ describe("Settings' visual fixes", () => {
     expect(banners).toHaveAttribute("data-state", "unchecked");
     expect(banners.className).toContain("data-[state=unchecked]:border-foreground/25");
     expect(screen.queryByText("OS notifications")).toBeNull();
+  });
+});
+
+describe("the Settings nav", () => {
+  it("says which page is on screen with aria-current, not only a tint", async () => {
+    const user = userEvent.setup();
+    useUi.setState({ route: "settings", settingsSection: "general" });
+    wrap(<SettingsRoute />);
+    const nav = screen.getByRole("navigation");
+    expect(within(nav).getByRole("button", { name: "General" })).toHaveAttribute("aria-current", "page");
+    await user.click(within(nav).getByRole("button", { name: "Appearance" }));
+    expect(within(nav).getByRole("button", { name: "Appearance" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByRole("button", { name: "General" })).not.toHaveAttribute("aria-current");
   });
 });
 

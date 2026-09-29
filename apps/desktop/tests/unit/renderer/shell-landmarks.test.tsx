@@ -55,3 +55,11 @@ it("moves focus sidebar → session → explorer → sidebar on F6, and back on 
   fireEvent.keyDown(row, { key: "F6", shiftKey: true });
   expect(tab).toHaveFocus();
 });
+
+it("names each pane separator and hints it without a native title", () => {
+  render(<Shell />);
+  const separators = screen.getAllByRole("separator");
+  expect(separators.map((separator) => separator.getAttribute("aria-label"))).toEqual(["Resize the sidebar", "Resize the explorer"]);
+  expect(separators.map((separator) => separator.getAttribute("aria-controls"))).toEqual(["sidebar", "explorer"]);
+  for (const separator of separators) expect(separator).not.toHaveAttribute("title");
+});

@@ -201,6 +201,8 @@ function NavItem({
         "rounded-md px-2 py-1.5 text-left text-[13px] transition-colors",
         active ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/60",
       )}
+      // The page on screen, said as well as tinted.
+      aria-current={active ? "page" : undefined}
       onClick={onSelect}
       type="button"
     >
