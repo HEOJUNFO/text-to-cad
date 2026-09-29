@@ -332,6 +332,7 @@ export type Part =
       parts: Part[];
     }
   | { type: "mode_change"; modeId: string }
+  /** No longer produced (the list is `SessionState.availableCommands`); kept so older snapshots parse. */
   | { type: "available_commands"; commands: AvailableCommand[] }
   | { type: "error"; message: string }
   | { type: "image"; data: string; mimeType: string }

@@ -7,6 +7,7 @@ import {
   trimForSnapshot,
   type SnapshotStore,
 } from "@main/acp/snapshots";
+import { reduce } from "@shared/acp/reduce";
 import { initialSessionState, type Part, type SessionState, type Turn } from "@shared/acp/types";
 
 /**
@@ -333,5 +334,28 @@ describe("SessionSnapshotWriter", () => {
     expect(() => writer.save("s1", stateWith([]))).not.toThrow();
     expect(() => writer.flush("s1")).not.toThrow();
     expect(writer.read("s1")).toBeNull();
+  });
+});
+
+describe("the snapshot and the commands list", () => {
+  it("keeps the session's commands and puts none of them in a turn", () => {
+    let state = reduce(initialSessionState("s1", "claude-code"), {
+      type: "session/connected",
+      acpSessionId: "root",
+      modes: null,
+      configOptions: null,
+      loading: false,
+      at: 1,
+    });
+    state = reduce(state, { type: "prompt/start", turnId: "t1", content: [{ type: "text", text: "hi" }], at: 2 });
+    state = reduce(state, {
+      type: "session/update",
+      acpSessionId: "root",
+      update: { sessionUpdate: "available_commands_update", availableCommands: [{ name: "review", description: "" }] },
+      at: 3,
+    });
+    const snapshot = trimForSnapshot(state);
+    expect(snapshot.turns.flatMap((turn) => turn.parts.map((part) => part.type))).not.toContain("available_commands");
+    expect(snapshot.availableCommands.map((command) => command.name)).toEqual(["review"]);
   });
 });

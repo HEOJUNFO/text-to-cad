@@ -20,8 +20,9 @@
  *     `_meta.claudeCode.parentToolUseId` instead; those land in the parent
  *     tool call's `children`.
  *   - Session-level facts (mode, config options, commands, usage, title)
- *     always update the state; they only become parts when a turn is open,
- *     because the adapters send most of them right after `session/new`.
+ *     always update the state; a mode change also becomes a part when a
+ *     turn is open (the adapters send most of these right after
+ *     `session/new`). The commands list never does: it is the composer's.
  *     Only the root session's count: a subagent's plan lands in its own
  *     part, the rest of what it reports about itself is dropped.
  *   - An update under a session id that is neither the root nor a known
@@ -287,22 +288,12 @@ function applyUpdate(
     case "plan_removed":
       return isRoot ? { ...state, plan: null } : state;
 
-    case "available_commands_update": {
-      if (!isRoot) {
-        return state;
-      }
-      const commands = availableCommands(u.availableCommands);
-      const next = { ...state, availableCommands: commands };
-      return hasOpenAgentTurn(next)
-        ? withSessionParts(
-            next,
-            acpSessionId,
-            at,
-            (parts) => [...parts, { type: "available_commands", commands }],
-            false,
-          )
-        : next;
-    }
+    case "available_commands_update":
+      // The session's, never a turn's: the Claude adapter sends the whole
+      // list (129 commands) mid-turn as well as after session/new, and a
+      // copy in the open turn rode in every turn's parts and snapshot — and
+      // was gone after a session/load, whose replay sends none.
+      return isRoot ? { ...state, availableCommands: availableCommands(u.availableCommands) } : state;
 
     case "current_mode_update": {
       if (!isRoot) {
