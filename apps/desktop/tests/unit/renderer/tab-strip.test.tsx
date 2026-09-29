@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 
@@ -74,6 +74,29 @@ it("closing the last tab on Delete hands focus to New tab, not to the page", asy
   await user.keyboard("{Backspace}");
   expect(useExplorer.getState().tabs).toEqual([]);
   await waitFor(() => expect(screen.getByRole("button", { name: "New tab" })).toHaveFocus());
+});
+
+it("closing a tab with its close button hands focus to the tab selected next, not to the page", async () => {
+  const user = userEvent.setup();
+  strip();
+  await user.click(screen.getByRole("button", { name: "Close b.md" }));
+  expect(useExplorer.getState().tabs.map((candidate) => candidate.id)).toEqual(["a", "c"]);
+  const selected = useExplorer.getState().activeId!;
+  await waitFor(() => expect(document.querySelector(`[data-tab="${selected}"]`)).toHaveFocus());
+});
+
+it("Cmd+W from inside the tab's body hands focus to the tab selected next, not to the page", async () => {
+  // The body the strip controls, standing in for Monaco or a terminal: it goes with its tab.
+  function Body() {
+    const activeId = useExplorer((state) => state.activeId);
+    return activeId ? <input aria-label={`Body of ${activeId}`} key={activeId} /> : null;
+  }
+  render(<TooltipProvider><TabStrip /><Body /></TooltipProvider>);
+  screen.getByRole("textbox", { name: "Body of b" }).focus();
+  act(() => useExplorer.getState().closeActive());
+  const selected = useExplorer.getState().activeId!;
+  expect(selected).not.toBe("b");
+  await waitFor(() => expect(document.querySelector(`[data-tab="${selected}"]`)).toHaveFocus());
 });
 
 it("draws the Terminal shortcut's backtick as a keycap and names it, not as a hairline beside ⌃", async () => {

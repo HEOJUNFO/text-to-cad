@@ -174,6 +174,21 @@ export function TabStrip() {
     stripRef.current?.querySelector<HTMLElement>(`[data-tab="${CSS.escape(id)}"]`)?.focus();
   };
 
+  // However a tab closes — its close button, Cmd+W, Delete — a close that took the focused
+  // element with it (the button, or Monaco or a terminal in its body) leaves focus on the page,
+  // where no key reaches the strip. It goes to the tab selected next, or to `+` when none is left.
+  // Focus that is anywhere else — the composer — is not taken.
+  const shownIds = useRef(tabs.map((tab) => tab.id));
+  useEffect(() => {
+    const ids = tabs.map((tab) => tab.id);
+    const closed = shownIds.current.some((id) => !ids.includes(id));
+    shownIds.current = ids;
+    if (!closed || (document.activeElement && document.activeElement !== document.body)) return;
+    // The tab's own onFocus records it as the strip's Tab stop.
+    if (activeId && ids.includes(activeId)) stripRef.current?.querySelector<HTMLElement>(`[data-tab="${CSS.escape(activeId)}"]`)?.focus();
+    else newTabRef.current?.focus();
+  }, [tabs, activeId]);
+
   const onTabKeyDown = (event: ReactKeyboardEvent<HTMLElement>, index: number) => {
     // Only the tab itself: a key pressed on its close button is that button's.
     if (event.target !== event.currentTarget) return;
