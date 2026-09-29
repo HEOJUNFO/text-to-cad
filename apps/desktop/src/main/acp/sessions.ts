@@ -253,6 +253,7 @@ export class SessionManager {
         // The snapshot, now: the adapter is gone and a click on that row has
         // only the picture to paint (`./snapshots.ts`).
         this.snapshots?.flush(sessionId);
+        this.announceClosed(sessionId);
         if (this.deps.repo.get(sessionId)) {
           this.setStatus(sessionId, "closed");
         }
@@ -404,7 +405,7 @@ export class SessionManager {
     } catch (error) {
       // A row with no agent session id can never be loaded; the renderer
       // shows the failure (sign in, install) and the user creates again.
-      this.live.delete(session.id)?.close();
+      this.retire(session.id);
       this.pendingTitles.delete(session.id);
       this.deps.repo.remove(session.id);
       this.broadcastIndex();
@@ -816,7 +817,7 @@ export class SessionManager {
   }
 
   close(id: string): void {
-    this.live.delete(id)?.close();
+    this.retire(id);
     this.pendingTitles.delete(id);
     // The transcript as it stood, written now rather than in a second: the
     // adapter is gone and the next click has only the snapshot to paint.
@@ -850,7 +851,7 @@ export class SessionManager {
     } = {},
   ): Promise<void> {
     const session = this.deps.repo.get(id);
-    this.live.delete(id)?.close();
+    this.retire(id);
     this.pendingTitles.delete(id);
     this.tallies.delete(id);
     // The snapshot row goes with the session's own (ON DELETE CASCADE); this
@@ -1130,7 +1131,7 @@ export class SessionManager {
       this.setStatus(session.id, "error", message);
       throw new Error(message);
     }
-    this.live.delete(session.id)?.close();
+    this.retire(session.id);
     this.setStatus(session.id, "connecting");
 
     const owner: { connection?: SessionConnection } = {};
@@ -1171,6 +1172,35 @@ export class SessionManager {
       throw error;
     }
     return connection;
+  }
+
+  /**
+   * Take a session's connection out of the live set and close it. Out first,
+   * so `onEvent` drops what the closing connection says; the one thing of it
+   * the renderer needs — that it is closed — is then said here.
+   */
+  private retire(id: string): void {
+    const connection = this.live.delete(id);
+    if (!connection) {
+      return;
+    }
+    connection.close();
+    this.announceClosed(id);
+  }
+
+  /**
+   * `closed` on `session.update`, which is where the renderer hears it
+   * (`session.status` feeds only the index): its next click on the row then
+   * reconnects, and it lets go of what it held for the adapter.
+   */
+  private announceClosed(id: string): void {
+    if (this.shuttingDown) {
+      return;
+    }
+    this.deps.broadcast("session.update", {
+      sessionId: id,
+      event: { type: "status", status: "closed", error: null, at: Date.now() },
+    });
   }
 
   /** Set by `closeAll` on quit; `onEvent` drops everything after it. */

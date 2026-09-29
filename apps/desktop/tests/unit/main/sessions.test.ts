@@ -1013,6 +1013,31 @@ describe("SessionManager", () => {
     expect(await prompted).toEqual({ stopReason: "end_turn" });
   });
 
+  /**
+   * The renderer learns a session was closed from `session.update` — that is
+   * what sends its next click through `session/load` and clears what it held
+   * for the adapter. An eviction and a `close` each say so exactly once.
+   */
+  it("broadcasts one closed session.update when an adapter is evicted or closed", async () => {
+    const { broadcasts, manager, cwd } = await setup({ keepAlive: 1 });
+    const closedUpdates = (id: string) =>
+      broadcasts.filter((b) => {
+        const payload = b.payload as { sessionId: string; event: { type: string; status?: string } };
+        return (
+          b.channel === "session.update" &&
+          payload.sessionId === id &&
+          payload.event.type === "status" &&
+          payload.event.status === "closed"
+        );
+      });
+    const first = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    const second = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    expect(closedUpdates(first.id)).toHaveLength(1);
+
+    manager.close(second.id);
+    expect(closedUpdates(second.id)).toHaveLength(1);
+  });
+
   /** A failed load is an error the person should see, not a `closed` row. */
   it("a failed load leaves the row in error, not closed", async () => {
     const dir = await tempDir("text-to-cad-noload-");
