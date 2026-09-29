@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
+import { projectWorktreeDir } from "../../src/main/projects/workspace";
 import type { TextToCadApi } from "../../src/shared/ipc";
 import { launch, mod, scratch, settleTerminal } from "./launch";
 
@@ -143,10 +144,18 @@ test("commits every change from the popover, and Last turn still shows what the 
   await shoot("git-review-committed.png");
 });
 
+/**
+ * `<worktreeRoot>/<name>-<hash of the project path>`, computed by main's own helper so the
+ * spec cannot drift from it. The project list stores the real path, so the hash is of that.
+ */
+function worktreeFolder(): string {
+  return projectWorktreeDir({ worktreeRoot }, { name: projectName, path: fs.realpathSync(repo) });
+}
+
 test("a worktree session gets its own branch, directory and glyph, and the explorer roots there", async () => {
   const session = await page.evaluate((id) => window.textToCad.sessions.create({ projectId: id, agentId: "claude-code", gitMode: "worktree", name: "Model the wrist" }), projectId);
   worktreeSessionId = session.id;
-  const worktree = path.join(worktreeRoot, projectName, "model-the-wrist");
+  const worktree = path.join(worktreeFolder(), "model-the-wrist");
   expect(session.cwd).toBe(worktree);
   expect(session.worktreePath).toBe(worktree);
   expect(session.branch).toBe("text-to-cad/model-the-wrist");
@@ -202,7 +211,7 @@ test("a worktree session gets its own branch, directory and glyph, and the explo
 });
 
 test("the worktree is listed in Settings, and Delete takes it away once no session is on it", async () => {
-  const worktree = path.join(worktreeRoot, projectName, "model-the-wrist");
+  const worktree = path.join(worktreeFolder(), "model-the-wrist");
   await page.keyboard.press(`${mod}+,`);
   await page.getByRole("button", { name: "Git and worktrees" }).click();
   await expect(page.getByText(`Worktrees · ${projectName}`)).toBeVisible();
