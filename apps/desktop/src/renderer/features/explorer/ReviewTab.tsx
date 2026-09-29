@@ -581,7 +581,16 @@ function FileSection({
         ) : diff ? (
           <div style={{ height }}>
             <DiffEditor
+              // The wrapper disposes both text models and only then the widget, which
+              // monaco 0.56 reports as an uncaught "TextModel got disposed before
+              // DiffEditorWidget model got reset" on every unmount — a scope change, a
+              // commit, a closed section. So the models outlive the wrapper's cleanup and
+              // go when the widget itself has gone.
+              keepCurrentModifiedModel
+              keepCurrentOriginalModel
               onMount={(editor) => {
+                const models = editor.getModel();
+                editor.onDidDispose(() => { models?.original.dispose(); models?.modified.dispose(); });
                 listeners.current.forEach((listener) => listener.dispose());
                 selection.current = null;
                 listeners.current = ([
