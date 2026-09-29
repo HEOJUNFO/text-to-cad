@@ -114,9 +114,11 @@ describe("McpBridge", () => {
   });
 
   it("takes the largest document edit_document's schema accepts, in its worst-case JSON", async () => {
-    const recorded = recordingActions();
     const edits: unknown[] = [];
-    const { bridge, url } = await startBridge({ ...recorded, edit_document: async (_session, params) => { edits.push(params); return { ok: true }; } });
+    const recorded = Object.assign(recordingActions(), {
+      edit_document: async (_session: BridgeSession, params: Record<string, unknown>) => { edits.push(params); return { ok: true }; },
+    });
+    const { bridge, url } = await startBridge(recorded);
     // Two million control characters: each one is six bytes of JSON (`\u0001`).
     const content = "\u0001".repeat(2 * 1024 * 1024);
     const answer = await rpc(url, bridge.tokenFor(SESSION, "documents"), { method: "edit_document", params: { tabId: "t", expectedRevision: "r", content } });
