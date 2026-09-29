@@ -22,6 +22,8 @@
  */
 import { spawn } from "node:child_process";
 
+import { isQuittingForUpdate } from "./quitting";
+
 /** The quit deadline, including teardown and watchdog startup, within the two-second budget. */
 export const QUIT_DEADLINE_MS = 1_200;
 
@@ -30,19 +32,32 @@ export const QUIT_DEADLINE_MS = 1_200;
  * `taskkill /T` ends the tree; elsewhere the direct children are listed and
  * killed before the parent. Our own children are already gone by then; what
  * `pgrep -P` finds is Chromium's helpers.
+ *
+ * Except when the quit is an update's (`tree` false): electron-updater has
+ * just spawned the NSIS installer, or the new AppImage, as a child of this
+ * process, and a tree kill would take it down mid-install. Then only the app
+ * itself is killed; its helpers go with the browser process they serve.
  */
-export function watchdogScript(pid: number, deadlineMs: number, platform: NodeJS.Platform = process.platform, startedAt = Date.now()): string {
+export function watchdogScript(
+  pid: number,
+  deadlineMs: number,
+  platform: NodeJS.Platform = process.platform,
+  startedAt = Date.now(),
+  tree = true,
+): string {
   const kill =
     platform === "win32"
-      ? `require("node:child_process").spawnSync("taskkill", ["/PID", "${pid}", "/T", "/F"], { stdio: "ignore" });`
-      : `const cp = require("node:child_process");
+      ? `require("node:child_process").spawnSync("taskkill", ["/PID", "${pid}", ${tree ? `"/T", ` : ""}"/F"], { stdio: "ignore" });`
+      : tree
+        ? `const cp = require("node:child_process");
 let children = [];
 try { children = cp.execFileSync("pgrep", ["-P", "${pid}"], { encoding: "utf8" }).trim().split(/\\s+/).filter(Boolean); } catch {}
 for (const child of children) {
   if (Number(child) === process.pid) continue;
   try { process.kill(Number(child), "SIGKILL"); } catch {}
 }
-try { process.kill(${pid}, "SIGKILL"); } catch {}`;
+try { process.kill(${pid}, "SIGKILL"); } catch {}`
+        : `try { process.kill(${pid}, "SIGKILL"); } catch {}`;
   return `setTimeout(() => {
 let alive = true;
 try { process.kill(${pid}, 0); } catch { alive = false; }
@@ -50,11 +65,16 @@ if (alive) { ${kill} }
 }, Math.max(0, ${startedAt + deadlineMs} - Date.now()));`;
 }
 
-export function armQuitDeadline(startedAt = Date.now(), pid: number = process.pid, deadlineMs: number = QUIT_DEADLINE_MS): void {
+export function armQuitDeadline(
+  startedAt = Date.now(),
+  pid: number = process.pid,
+  deadlineMs: number = QUIT_DEADLINE_MS,
+  tree: boolean = !isQuittingForUpdate(),
+): void {
   try {
     // Arm only after will-quit, once state is saved. If teardown or launching
     // Electron-as-Node used the budget, the watchdog fires immediately.
-    spawn(process.execPath, ["-e", watchdogScript(pid, deadlineMs, process.platform, startedAt)], {
+    spawn(process.execPath, ["-e", watchdogScript(pid, deadlineMs, process.platform, startedAt, tree)], {
       detached: true,
       stdio: "ignore",
       windowsHide: true,

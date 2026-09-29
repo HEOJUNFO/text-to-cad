@@ -34,6 +34,10 @@ vi.mock("@main/ipc", () => ({ broadcast: mocks.broadcast }));
 vi.mock("@main/db/repositories", () => ({ settings: { get: () => mocks.settings } }));
 
 async function load() {
+  // The fake updaters outlive `resetModules`: without this, an earlier test's
+  // module would still be listening to them.
+  autoUpdater?.removeAllListeners();
+  mocks.native?.removeAllListeners();
   vi.resetModules();
   const updater = await import("@main/updater");
   updater.initUpdater();
@@ -91,6 +95,25 @@ describe("updater", () => {
     updater.installUpdate();
     expect(mocks.quitAndInstall).toHaveBeenCalled();
     expect(isQuitting()).toBe(false);
+    updater.stopUpdater();
+  });
+
+  it("an install that is refused puts the scheduled checks back", async () => {
+    const updater = await load();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(mocks.check).toHaveBeenCalledTimes(1);
+    autoUpdater.emit("update-downloaded", { version: "2.0.0" });
+    // MacUpdater refusing an unsigned update: `error`, and no quit.
+    mocks.quitAndInstall.mockImplementation(() => {
+      autoUpdater.emit("error", new Error("Could not get code signature for running application"));
+    });
+    updater.installUpdate();
+    expect(updater.updateStatus()).toEqual({ state: "error", message: "Could not get code signature for running application" });
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(mocks.check).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
+    expect(mocks.check).toHaveBeenCalledTimes(3);
     updater.stopUpdater();
   });
 

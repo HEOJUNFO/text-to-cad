@@ -7,9 +7,24 @@
  * install that does not quit must leave the ask working.
  */
 let quitting = false;
+let forUpdate = false;
 
 export function markQuitting(): void {
   quitting = true;
+}
+
+/**
+ * The quit an update install starts. The installer (NSIS) or the relaunched
+ * AppImage is a child of this process, so the quit deadline must not take the
+ * process tree down with it (`./quit-deadline.ts`).
+ */
+export function markQuittingForUpdate(): void {
+  quitting = true;
+  forUpdate = true;
+}
+
+export function isQuittingForUpdate(): boolean {
+  return forUpdate;
 }
 
 export function isQuitting(): boolean {

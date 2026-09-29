@@ -23,7 +23,7 @@ import electronUpdater from "electron-updater";
 
 import { broadcast } from "./ipc";
 import { settings } from "./db/repositories";
-import { markQuitting } from "./quitting";
+import { markQuittingForUpdate } from "./quitting";
 import type { UpdateStatus } from "../shared/ipc/app";
 
 const { autoUpdater } = electronUpdater;
@@ -35,6 +35,8 @@ const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 let status: UpdateStatus = { state: "unsupported" };
 let timers: NodeJS.Timeout[] = [];
+/** Between `installUpdate` and either the quit or the install's `error`. */
+let installing = false;
 
 /** The last known status. Never asks the feed. */
 export function updateStatus(): UpdateStatus {
@@ -74,8 +76,9 @@ export function initUpdater() {
   // native updater (macOS Squirrel) and re-emitted by electron-updater's
   // BaseUpdater (Windows, Linux) — only once the quit is really under way: a
   // `quitAndInstall` that returns without quitting (Squirrel still fetching,
-  // a failed install) must leave the ask in place (`./quitting.ts`).
-  nativeUpdater.on("before-quit-for-update", markQuitting);
+  // a failed install) must leave the ask in place (`./quitting.ts`). The
+  // same mark keeps the quit deadline off the installer it has just spawned.
+  nativeUpdater.on("before-quit-for-update", markQuittingForUpdate);
 
   autoUpdater.on("checking-for-update", () => {
     if (!busyWithUpdate()) {
@@ -106,8 +109,20 @@ export function initUpdater() {
   );
   autoUpdater.on("error", (error) => {
     failed(error);
+    // An install that was refused (an unsigned or unverifiable update on
+    // macOS, a failed installer spawn) did not quit, so the app carries on —
+    // and so must its scheduled checks, which `installUpdate` stopped.
+    if (installing) {
+      installing = false;
+      scheduleChecks();
+    }
   });
 
+  scheduleChecks();
+}
+
+function scheduleChecks() {
+  stopUpdater();
   const automatic = () => {
     if (busyWithUpdate()) {
       return;
@@ -205,6 +220,7 @@ export function installUpdate() {
     return;
   }
   stopUpdater();
+  installing = true;
   // `isSilent` false, `isForceRunAfter` true: show the installer on Windows,
   // and come back up afterwards on every platform.
   autoUpdater.quitAndInstall(false, true);

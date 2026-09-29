@@ -33,7 +33,7 @@ describe("the release version", () => {
     temps.push(repo);
     const appRoot = path.join(repo, "apps", "desktop");
     fs.mkdirSync(path.join(appRoot, "scripts"), { recursive: true });
-    for (const file of ["package.mjs", "app-version.mjs", "bundle-runtime.mjs", "python-build.json"]) {
+    for (const file of ["package.mjs", "app-version.mjs", "bundle-runtime.mjs", "node-bin.mjs", "python-build.json"]) {
       fs.copyFileSync(path.join(scripts, file), path.join(appRoot, "scripts", file));
     }
 

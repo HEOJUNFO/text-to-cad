@@ -371,12 +371,16 @@ jobs:
       # builder's: tag-release attaches the artifacts to the Release it creates.
       - name: Build and package
         env:
-          # Empty until the secrets exist. See the note above the job.
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Empty until the secrets exist. See the note above the job. The Apple
+          # certificate and credentials reach the macOS leg only: electron-builder
+          # signs Windows with CSC_LINK when WIN_CSC_LINK is unset, which would
+          # Authenticode-sign the installer with the Apple cert (package.mjs's
+          # signingEnv drops them off the Mac too).
+          CSC_LINK: ${{ matrix.name == 'macOS' && secrets.CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.name == 'macOS' && secrets.CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ matrix.name == 'macOS' && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.name == 'macOS' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ matrix.name == 'macOS' && secrets.APPLE_TEAM_ID || '' }}
           TEXT_TO_CAD_APTABASE_KEY: ${{ secrets.TEXT_TO_CAD_APTABASE_KEY }}
           # electron-builder's own GitHub client reads this; `--publish never` means it
           # never uses it, and leaving it unset avoids any ambiguity about that.
@@ -428,7 +432,8 @@ jobs:
     # means a desktop build that failed on one platform delays the tag rather than
     # preventing it -- the wheel is already on PyPI at that point, and an untagged
     # release is the worse outcome. The upload step below tolerates whatever is or
-    # is not there.
+    # is not there, except that a release missing the macOS or Windows update feed
+    # is tagged as a DRAFT (see that step).
     needs:
       - publish
       - desktop
@@ -497,13 +502,30 @@ jobs:
       # A push-triggered run has no `publish` input: it publishes. Only a manual
       # dispatch can ask for a draft. Every asset is attached by the same
       # create/resume/clobber path, so a resumed run repairs the release in one pass.
+      #
+      # Except when the macOS or Windows leg produced no update feed (latest-mac.yml,
+      # latest.yml): electron-updater reads the LATEST published release, and one
+      # without its platform's feed leaves every installed app on that platform
+      # without updates until the next release. Such a release is tagged but left a
+      # draft, so installed apps keep the previous release's feed; re-running the
+      # failed desktop jobs of this run re-runs this job too, which publishes it.
+      # Linux is best-effort (plan §14), so latest-linux.yml is not required.
       - name: Create release tag and GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           INPUT_PUBLISH: ${{ inputs.publish }}
         run: |
           args=(--target HEAD)
-          if [ "${INPUT_PUBLISH:-true}" = "true" ]; then
+          publish="${INPUT_PUBLISH:-true}"
+          missing=()
+          for feed in latest-mac.yml latest.yml; do
+            [ -f "desktop-artifacts/$feed" ] || missing+=("$feed")
+          done
+          if [ "$publish" = "true" ] && [ "${#missing[@]}" -gt 0 ]; then
+            echo "::warning title=Desktop update feed missing::${missing[*]} not among the desktop artifacts; the GitHub Release stays a draft. Re-run the failed desktop jobs to publish it."
+            publish=false
+          fi
+          if [ "$publish" = "true" ]; then
             args+=(--publish)
           fi
           shopt -s nullglob

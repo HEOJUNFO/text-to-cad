@@ -394,7 +394,7 @@ different cadgen build.
 | Platform | Targets |
 | --- | --- |
 | macOS | dmg + zip, arm64 and x64 |
-| Windows | nsis x64 (`…-windows-x64-setup.exe`) |
+| Windows | nsis x64 (`…-win-x64-setup.exe`) |
 | Linux | AppImage + deb, x64, best-effort |
 
 `scripts/package.mjs` is the way in. It builds first, then stamps the
