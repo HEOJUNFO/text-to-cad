@@ -8,7 +8,7 @@
  * text it matched is the text the row prints.
  */
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
@@ -78,13 +78,14 @@ describe("Settings search", () => {
   });
 
   it("forgets the last search's pages: General is not in the nav for a query it has nothing for", async () => {
-    const user = userEvent.setup();
     wrap(<SettingsRoute />);
     const box = screen.getByPlaceholderText("Search settings");
-    await user.type(box, "telemetry");
+    // Whole queries at once: every page is mounted while one is active, and
+    // typing them a letter at a time is seconds of re-renders.
+    fireEvent.change(box, { target: { value: "telemetry" } });
     expect(await screen.findByRole("button", { name: "General" })).toBeInTheDocument();
-    await user.clear(box);
-    await user.type(box, "worktree");
+    fireEvent.change(box, { target: { value: "" } });
+    fireEvent.change(box, { target: { value: "worktree" } });
     expect(await screen.findByRole("button", { name: "Git and worktrees" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "General" })).not.toBeInTheDocument();
     // Not an empty heading either: the page itself is hidden.
