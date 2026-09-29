@@ -7,7 +7,7 @@ import { MessageResponse } from "@renderer/components/ai-elements/message";
 import { Button } from "@renderer/components/ui/button";
 import type { Part } from "@shared/acp/types";
 
-import { TRANSCRIPT_COMPONENTS } from "../links/components";
+import { TRANSCRIPT_COMPONENTS, TRANSCRIPT_REHYPE_PLUGINS } from "../links/components";
 import { remarkPathLinks } from "../links/remarkPathLinks";
 import { partsView, type ViewItem } from "../view";
 
@@ -77,7 +77,7 @@ function ViewItemView({
     case "text":
       return (
         <div className="prose-transcript my-2 min-w-0 [overflow-wrap:anywhere] text-[14px] leading-6" data-part="text">
-          <MessageResponse components={TRANSCRIPT_COMPONENTS} isAnimating={item.streaming} remarkPlugins={REMARK_PLUGINS}>
+          <MessageResponse components={TRANSCRIPT_COMPONENTS} isAnimating={item.streaming} rehypePlugins={TRANSCRIPT_REHYPE_PLUGINS} remarkPlugins={REMARK_PLUGINS}>
             {item.text}
           </MessageResponse>
         </div>
