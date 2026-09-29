@@ -92,6 +92,20 @@ describe("activity rows", () => {
     const bash = activityRow(call({ id: "b", kind: "other", name: "Bash", title: "ls -la", input: { command: "ls -la" } }));
     expect(bash.glyph).toBe("execute");
     expect(bash.command).toBe("ls -la");
+    // A known, non-shell name keeps its glyph even when its title is the argument.
+    expect(activityRow(call({ id: "k", kind: "other", name: "cad_run", title: "rebuild", input: { command: "rebuild" } })).glyph).toBe("other");
+  });
+
+  it("takes a nameless `other` for a shell when its title is its command line (Codex's exec shape)", () => {
+    // The Codex fixture's exec call, reported as `other` by an adapter that sends no name.
+    const command = "printf '%s\\n' 'hello from codex' > hello.txt\nls -la";
+    const codex = activityRow(call({ id: "exec-1", kind: "other", name: null, title: command, input: { command } }));
+    expect(codex.glyph).toBe("execute");
+    expect(codex.command).toBe(command);
+    expect(codex.label).toBe("");
+    expect(activityRow(call({ id: "p", kind: "other", name: null, title: "$ make test", input: { command: "make test" } })).glyph).toBe("execute");
+    // Nameless, titled with its tool name: not a shell.
+    expect(activityRow(call({ id: "m", kind: "other", name: null, title: "cad_run", input: { command: "rebuild" } })).glyph).toBe("other");
   });
 
   it("gives a call that starts a subagent its own glyph, apart from a thought", () => {

@@ -214,7 +214,20 @@ function isShellShaped(part: ToolCallPart): boolean {
   if (part.kind === "delete") {
     return true;
   }
-  return part.kind === "other" && part.name !== null && SHELL_TOOL_NAMES.has(part.name.toLowerCase());
+  if (part.kind !== "other") {
+    return false;
+  }
+  if (part.name !== null) {
+    return SHELL_TOOL_NAMES.has(part.name.toLowerCase());
+  }
+  // ACP's ToolCall has no name, so most adapters send none (the reducer only
+  // keeps a non-standard `name`, and no `_meta` tool name). Then the title
+  // decides: a shell call is titled with its own command line, as Codex
+  // titles its exec calls, or with a `$ ` prompt. An MCP tool is titled with
+  // its tool name, which is not its `command` argument.
+  const title = part.title.trim();
+  const command = shellCommandOf(part);
+  return command !== null && (title === command || title === `$ ${command}` || /^\$\s/.test(title));
 }
 
 /**
