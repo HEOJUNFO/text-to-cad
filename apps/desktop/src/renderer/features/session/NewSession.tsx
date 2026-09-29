@@ -19,7 +19,7 @@ import { useUi } from "@renderer/state/ui";
 import type { PromptBlock } from "@shared/acp/types";
 import type { GitMode, Project } from "@shared/types";
 
-import { AgentSetupCard, isAgentReady, useOfferedAgents } from "./agent-setup";
+import { AgentSetupCard, useOfferedAgents } from "./agent-setup";
 import { AuthPrompt } from "./AuthPrompt";
 import { Composer } from "./Composer";
 import { EffortChip, GitModeChip, ModeChip, ModelChip, ProjectChip } from "./ComposerChips";
@@ -297,11 +297,14 @@ export function NewSession({ project }: { project: Project }) {
       ) : <GitModeChip gitMode={resolvedGitMode} info={gitInfo} onChange={setGitMode} />}
     </div>
   );
-  // Detection has answered and no agent can start a session: none is both
-  // launchable and signed in. Not "none installed" — Claude Code and Codex
-  // launch without their CLI (`useInstalledAgents` counts them), so a first
-  // run's dead end is a sign-in, not an install.
-  const noAgent = detected && !installed.some(isAgentReady);
+  // Detection has answered and every agent that can launch is known to be
+  // signed out. Not "none installed" — Claude Code and Codex launch without
+  // their CLI (`useInstalledAgents` counts them) — and not "none signed in":
+  // detection says "unknown" whenever it has no env var, check command or
+  // credentials file to go by (Copilot and Kiro always; Claude Code in the
+  // keychain), and such an agent may well work. So only "unauthenticated"
+  // counts against an agent here, the same test the default pick above uses.
+  const noAgent = detected && !installed.some((candidate) => candidate.auth !== "unauthenticated");
   const offeredNames = offered.map((candidate) => candidate.name);
   const signInTo = offeredNames.length > 0 ? offeredNames.join(" or ") : "an agent";
   const chips = mode ? (

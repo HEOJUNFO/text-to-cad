@@ -59,4 +59,14 @@ describe("the welcome", () => {
     useAgents.setState({ agents: [agent({ installed: true, auth: "authenticated" })] });
     expect(await screen.findByRole("button", { name: /^Continue$/ })).toBeInTheDocument();
   });
+
+  it("says Not signed in only when detection found the agent signed out", async () => {
+    useAgents.setState({
+      agents: [agent({ installed: true, auth: "unknown" }), agent({ id: "codex", name: "Codex", installed: true, auth: "unauthenticated" })],
+      ready: true,
+    });
+    await toAgentStep();
+    expect(screen.getByText("Installed")).toBeInTheDocument();
+    expect(screen.getAllByText("Not signed in")).toHaveLength(1);
+  });
 });

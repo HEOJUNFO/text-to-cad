@@ -64,7 +64,9 @@ export function AgentRow({ agent }: { agent: AgentStatus }) {
   }, [jobId, running, refresh]);
 
   const ready = isAgentReady(agent);
-  const status = ready ? "Ready" : !agent.installed ? "Not installed" : agent.auth === "unauthenticated" ? "Signed out" : "Not signed in";
+  // The drawer's words (Settings › Agents): "Not signed in" only when
+  // detection found the agent signed out; "unknown" claims nothing.
+  const status = ready ? "Ready" : !agent.installed ? "Not installed" : agent.auth === "unauthenticated" ? "Not signed in" : "Installed";
 
   return (
     <div className="rounded-lg border px-3 py-2.5" data-onboarding-agent={agent.id}>
