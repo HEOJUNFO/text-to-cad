@@ -131,12 +131,31 @@ export function monacoModelUri(
   return `text-to-cad-file://model/${encoded.join("/")}`;
 }
 
-/** Editor options shared by the code view and the diff views. */
+/** Before Settings has written `--font-mono`, and in a test with no stylesheet. */
+const FALLBACK_CODE_FONT =
+  'ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, "Cascadia Mono", Consolas, monospace';
+
+/**
+ * Settings' Code font, which `use-appearance.ts` writes to `--font-mono` on
+ * <html>. Resolved to the family itself, not `var(--font-mono)`: Monaco
+ * measures glyphs on a canvas, and a canvas does not resolve variables.
+ */
+export function codeFontFamily(): string {
+  if (typeof document === "undefined") return FALLBACK_CODE_FONT;
+  return getComputedStyle(document.documentElement).getPropertyValue("--font-mono").trim() || FALLBACK_CODE_FONT;
+}
+
+/**
+ * Editor options shared by the code view and the diff views. `fontFamily` is
+ * read when the options are spread into an editor, so every editor and diff
+ * opens in the Code font Settings chose.
+ */
 export const SHARED_EDITOR_OPTIONS = {
   fontSize: 12.5,
   lineHeight: 20,
-  fontFamily:
-    'ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, "Cascadia Mono", Consolas, monospace',
+  get fontFamily(): string {
+    return codeFontFamily();
+  },
   fontLigatures: false,
   minimap: { enabled: false },
   // A desktop pane, not a document: an editor that scrolls a screen past the

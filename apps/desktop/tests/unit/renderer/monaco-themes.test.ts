@@ -6,6 +6,7 @@ import {
   MONACO_LIGHT,
   MONACO_TRANSCRIPT_DARK,
   MONACO_TRANSCRIPT_LIGHT,
+  SHARED_EDITOR_OPTIONS,
   setupMonaco,
 } from "@renderer/features/explorer/renderers/code/editor";
 import { configureMonaco } from "@renderer/lib/monaco";
@@ -36,4 +37,14 @@ it("the transcript's themes do not replace the review's: each name is registered
     colors(MONACO_DARK)["diffEditor.insertedLineBackground"],
   );
   define.mockRestore();
+});
+
+it("an editor opens in the Code font Settings chose, as the row promises the editor and diffs", () => {
+  document.documentElement.style.setProperty("--font-mono", '"JetBrains Mono", monospace');
+  try {
+    expect({ ...SHARED_EDITOR_OPTIONS }.fontFamily).toBe('"JetBrains Mono", monospace');
+  } finally {
+    document.documentElement.style.removeProperty("--font-mono");
+  }
+  expect({ ...SHARED_EDITOR_OPTIONS }.fontFamily).toMatch(/monospace$/);
 });
