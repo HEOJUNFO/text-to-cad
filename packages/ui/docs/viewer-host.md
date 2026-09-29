@@ -266,6 +266,13 @@ its behalf ([settings-ui.md](settings-ui.md#keyboard)). The standalone
 `DrawingEditor` takes the host's keyboard `platform` as a prop for its undo and
 redo keys.
 
+The file tree is a roving single Tab stop (`FileTree.jsx`): the arrows move
+focus row to row, and the focused row is the cursor that F2 (rename) and
+⌘⌫/Ctrl+Delete (move to trash) act on — both only when the host provides
+those capabilities. While the filter has a query, focus stays in its box and
+the arrows move the cursor through the ranked list
+(`aria-activedescendant`).
+
 ## Live text and PDF capabilities
 
 An optional `host.documents` supplies a draft store with workspace/path identity

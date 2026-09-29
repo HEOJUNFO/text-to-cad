@@ -959,6 +959,53 @@ What a turn cost in dollars is in none of it: it is a number nobody acts
 on mid-thread, and a price tag on a box someone is about to type into is a
 poor thing to put in front of them.
 
+## Keyboard
+
+Every shortcut is a row in `src/renderer/lib/shortcuts.ts`, which Settings ›
+Keyboard shortcuts prints; the ones the app menu also declares are its accelerators, so
+they work with focus inside a webview (see "Rules that are easy to break" in
+AGENTS.md). The menu's New Session and Settings… with no window open one and
+hold the command until its page calls `ui.ready` (`src/main/menu.ts`): pushed
+at load, it could arrive before the page listened. A view toggle with no
+window does nothing.
+
+**Landmarks and panes.** The session is the `main`, the sidebar an `aside`,
+the explorer a named `section`, which also scopes each pane's own `<header>`
+(`app/Shell.tsx`). F6 and Shift+F6 move focus to the next and the previous
+pane on screen, skipping one that is shut, and on the window's capture phase,
+so they work from inside an editor or a terminal. Focus returns to where it
+last was in that pane while that element is still there; the first time it
+lands on the sidebar's current session, the composer, or the explorer's strip
+tab, else the pane's first control. A pane that closes with focus in it — ⌘B,
+⌘⌥B, its toggle, a drag past its minimum — hands that focus to its toggle,
+now in the session's title bar, so the next ⌘B or Enter brings the pane back
+(`useFocusSurvivesCollapse`). ⌘⌥B opening the explorer takes focus into it:
+its strip's tab, else `+`.
+
+**The explorer.** The tab strip is one Tab stop (`TabStrip.tsx`): the arrows,
+Home and End move focus between tabs without selecting them — manual
+activation, because a selected terminal or browser tab mounts a pty or a
+webview — and Enter or Space selects; Delete closes the focused tab and focus
+goes to its neighbour, or to `+` after the last. The file tree is a roving
+single Tab stop as well (see "The file tab's nav"). A file opened from a tab's
+tree or crumbs takes focus with it, to the tree's cursor row in the new tab
+(`features/explorer/focus.ts`); a tab the person opens or picks gives its body
+focus when the body can take it (a terminal once its shell is attached), else
+its strip tab. Monaco and the terminal would keep Tab for themselves: Ctrl+Shift+M
+on every platform toggles tab-focus mode (Monaco's own binding on macOS, added
+elsewhere in `renderers/code/editor/setup.ts`; one switch for every terminal
+in `TerminalTab.tsx`), and while it is on Tab and Shift+Tab leave the editor
+or the shell.
+
+**Focus coming back.** The command palette and Settings' agent drawer hand
+focus back to what had it when they close (`hooks/use-return-focus.ts`),
+since neither has a trigger for Radix to return it to. A disconnected
+session's Reconnect bar goes away with its button, so focus waits on the
+composer's row and goes into the box once the agent is back. Toasts sit top
+right under the title strip (`app/App.tsx`), clear of the composer they would
+otherwise cover. The selected session row and Settings' current page carry
+`aria-current="page"`.
+
 ## The explorer strip
 
 The strip's `+` is one button and a menu of the five kinds, each with its
@@ -1195,8 +1242,9 @@ alone at the bottom and goes to the OS trash (`shell.trashItem`) with no
 dialog — the trash is the undo. Rename and the two `New …` are typed in
 place (`@text-to-cad/ui/navigation`'s `InlineName.jsx`: Enter commits, Escape cancels, clicking away
 commits, the stem is selected and the extension is not); from a crumb they
-go to the tree, which is shown for them. F2 renames the tree's cursor row,
-⌘⌫ (Ctrl+Delete) trashes it. Every edit is an `explorer.*` request main
+go to the tree, which is shown for them. The tree is one Tab stop: the arrows
+move focus row to row, and the focused row is the cursor every key acts on —
+F2 renames it, ⌘⌫ (Ctrl+Delete) trashes it. Every edit is an `explorer.*` request main
 resolves against the root and refuses outside it (`src/main/explorer/fs.ts`
 for create/rename/duplicate, plain Node and unit-tested; trash, reveal and
 `Open with…` — a chooser over `/Applications` then `open -a`, the shell's
@@ -1361,6 +1409,18 @@ kills the app and its helpers at an absolute deadline, 1.2 seconds from
 teardown and watchdog startup toward the same budget. A quit that finishes
 on its own — half a second without WebGL —
 gives it nothing to do.
+
+An update's quit is different. electron-updater spawns the NSIS installer
+(Windows) or the new AppImage (Linux) as a child of the app and then quits,
+so `before-quit-for-update` marks the quit as an update's
+(`markQuittingForUpdate` in `src/main/quitting.ts`) and the watchdog then
+kills the app's own process only — no `taskkill /T`, no child scan — rather
+than the installer with it. macOS keeps the tree kill: Squirrel's ShipIt is
+launched by launchd, not the app, so there is only helpers to spare. And an
+install that is refused (an unsigned update on macOS, an installer that fails
+to spawn) comes back as the updater's `error`, which puts back the scheduled
+checks `installUpdate` stopped (`src/main/updater.ts`), so the session goes on
+checking.
 
 ## CAD runtime
 
