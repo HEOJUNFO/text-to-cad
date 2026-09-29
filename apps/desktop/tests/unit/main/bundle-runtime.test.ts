@@ -16,6 +16,7 @@ import {
   pythonBuildUrl,
   runtimeLayout,
   runtimePipInstallArgs,
+  tarCommand,
 } from "../../../scripts/bundle-runtime.mjs";
 import { bundledPaths, runtimeTarget } from "@main/cad/runtime";
 
@@ -115,6 +116,18 @@ describe("the layout", () => {
       JSON.stringify({ target: "mac-arm64", cadgen: "9.9.9", python: PYTHON_BUILD.version, release: "20200101" }),
     );
     expect(bundledRuntime(out, "mac-arm64", "9.9.9")).toBeNull();
+  });
+});
+
+describe("the interpreter's extraction", () => {
+  it("uses Windows' own bsdtar by full path, never whichever tar the shell finds first", () => {
+    // Git Bash (the release workflow's `shell: bash`) puts GNU tar first on
+    // PATH, and GNU tar takes the `C:` of the archive path for a remote host.
+    expect(tarCommand("win32", { SystemRoot: "C:\\Windows" })).toBe("C:\\Windows\\System32\\tar.exe");
+    expect(tarCommand("win32", { SystemRoot: "D:\\WINNT" })).toBe("D:\\WINNT\\System32\\tar.exe");
+    expect(tarCommand("win32", {})).toBe("C:\\Windows\\System32\\tar.exe");
+    expect(tarCommand("darwin", {})).toBe("tar");
+    expect(tarCommand("linux", {})).toBe("tar");
   });
 });
 

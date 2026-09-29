@@ -331,6 +331,16 @@ function directorySize(dir) {
   return total;
 }
 
+/**
+ * The `tar` that unpacks the interpreter. On Windows it is the system's own
+ * bsdtar, by full path: the release workflow runs this from Git Bash, whose
+ * PATH puts GNU tar first, and GNU tar reads the `C:` of `C:\…\python.tar.gz`
+ * as a remote host ("Cannot connect to C: resolve failed").
+ */
+export function tarCommand(platform = process.platform, env = process.env) {
+  return platform === "win32" ? path.win32.join(env.SystemRoot ?? env.windir ?? "C:\\Windows", "System32", "tar.exe") : "tar";
+}
+
 /** Pip arguments that install the selected release wheel and its pinned closure. */
 export function runtimePipInstallArgs({ layout, asset, pyMinor, wheel, constraints }) {
   const [major, minor] = pyMinor.split(".");
@@ -375,7 +385,7 @@ export async function bundleRuntime({ target, out, cache, wheels, version, pytho
   await fetchPinned(pythonBuildUrl(target, build), archive, asset.sha256);
   fs.rmSync(root, { recursive: true, force: true });
   fs.mkdirSync(root, { recursive: true });
-  run("tar", ["-xzf", archive, "-C", root]);
+  run(tarCommand(), ["-xzf", archive, "-C", root]);
   if (!fs.existsSync(layout.python)) {
     throw new Error(`the archive did not produce ${layout.python}`);
   }
@@ -480,8 +490,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const cache = path.resolve(options.cache ?? defaultCacheDir());
   const wheels = path.resolve(options.wheels ?? path.join(appRoot, "resources", "cadgen"));
   // `tar` is the extractor on every host (macOS and Linux always; Windows 10
-  // 1803+ ships bsdtar as tar.exe).
-  execFileSync("tar", ["--version"], { stdio: "ignore" });
+  // 1803+ ships bsdtar as System32\tar.exe — `tarCommand`).
+  execFileSync(tarCommand(), ["--version"], { stdio: "ignore" });
   for (const target of targets) {
     await bundleRuntime({ target, out, cache, wheels, version, python: options.python });
   }
