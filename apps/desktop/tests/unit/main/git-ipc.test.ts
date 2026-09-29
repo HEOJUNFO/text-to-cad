@@ -87,8 +87,9 @@ test("a session id that matches no session of the project is refused, not answer
   const before = await git.head(project.path);
 
   for (const sessionId of ["deleted", "elsewhere"]) {
-    await expect(gitHandlers.git.commit({ projectId: project.id, sessionId, message: "x", push: true })).rejects.toThrow();
-    await expect(gitHandlers.git.status({ projectId: project.id, sessionId })).rejects.toThrow();
+    const refused = { name: "IpcError", message: "that session is no longer open" };
+    await expect(gitHandlers.git.commit({ projectId: project.id, sessionId, message: "x", push: true })).rejects.toMatchObject(refused);
+    await expect(gitHandlers.git.status({ projectId: project.id, sessionId })).rejects.toMatchObject(refused);
   }
   expect(await git.head(project.path)).toBe(before);
 
@@ -108,9 +109,10 @@ test("a project cannot delete a same-named project's worktree from the shared le
     name: "wrist",
   });
 
-  await expect(gitHandlers.git.removeWorktree({ projectId: theirs.id, path: created.path })).rejects.toThrow(
-    "does not belong to this project",
-  );
+  await expect(gitHandlers.git.removeWorktree({ projectId: theirs.id, path: created.path })).rejects.toMatchObject({
+    name: "IpcError",
+    message: "that worktree does not belong to this project",
+  });
   expect(await exists(created.path)).toBe(true);
   // Its own project still lists and removes it: old folders keep working.
   expect((await gitHandlers.git.worktrees({ projectId: mine.id })).map((row) => row.path)).toEqual([created.path]);
@@ -128,8 +130,9 @@ test("a worktree a session is using is not removed, even forced", async () => {
   });
   state.sessions.push({ id: "s", projectId: project.id, cwd: created.path, worktreePath: created.path, archived: false });
 
-  await expect(gitHandlers.git.removeWorktree({ projectId: project.id, path: created.path, force: true })).rejects.toThrow(
-    "session",
-  );
+  await expect(gitHandlers.git.removeWorktree({ projectId: project.id, path: created.path, force: true })).rejects.toMatchObject({
+    name: "IpcError",
+    message: "1 session is still using that worktree",
+  });
   expect(await exists(created.path)).toBe(true);
 });

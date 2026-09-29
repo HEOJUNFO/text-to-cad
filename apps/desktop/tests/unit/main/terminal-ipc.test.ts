@@ -31,6 +31,19 @@ vi.mock("@main/db/repositories", () => {
 // identity stub would quietly turn that containment check back into a lexical one.
 vi.mock("@main/projects/workspace", async (importOriginal) => ({ ...(await importOriginal<object>()), resolveProjectRoot: () => fixture.root, projectWorktreeDir: () => fixture.root }));
 import { disposeExplorerServices, explorerHandlers, initExplorerServices } from "@main/ipc/explorer";
+import { IpcError } from "@main/ipc/register";
+
+/** The call is refused by main's IpcError with exactly this sentence — not any throw (a missing function's TypeError would pass a bare `toThrow()`). */
+function expectRefused(call: () => unknown, message: string): void {
+  let caught: unknown;
+  try {
+    call();
+  } catch (error) {
+    caught = error;
+  }
+  expect(caught).toBeInstanceOf(IpcError);
+  expect((caught as Error).message).toBe(message);
+}
 
 beforeAll(async () => {
   fixture.root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "terminal-ipc-")));
@@ -50,10 +63,11 @@ const { terminal } = explorerHandlers;
 test("a pty refuses every request from a session that does not own it", async () => {
   const { id } = await terminal.create({ projectId: "project", sessionId: "owner" });
   const intruder = { id, sessionId: "intruder" };
-  expect(() => terminal.write({ ...intruder, data: "rm -rf ~\r" })).toThrow();
-  expect(() => terminal.resize({ ...intruder, cols: 10, rows: 10 })).toThrow();
-  expect(() => terminal.attach(intruder)).toThrow();
-  expect(() => terminal.kill(intruder)).toThrow();
+  const foreign = "that terminal belongs to another session";
+  expectRefused(() => terminal.write({ ...intruder, data: "rm -rf ~\r" }), foreign);
+  expectRefused(() => terminal.resize({ ...intruder, cols: 10, rows: 10 }), foreign);
+  expectRefused(() => terminal.attach(intruder), foreign);
+  expectRefused(() => terminal.kill(intruder), foreign);
   expect(pty.write).not.toHaveBeenCalled();
   expect(pty.kill).not.toHaveBeenCalled();
 

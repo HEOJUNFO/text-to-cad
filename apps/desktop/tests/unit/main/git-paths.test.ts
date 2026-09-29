@@ -62,26 +62,29 @@ function gitArgv(): string[][] {
   return execa.mock.calls.map((call) => call[1] as string[]);
 }
 
+/** The refusal itself — GitError with its sentence — not any failure on the way. */
+const outside = { name: "GitError", message: "that path is outside the repository" };
+
 describe("a review path outside the repository", () => {
   const escapes = ["../secret.txt", "sub/../../secret.txt", "/etc/hosts"];
 
   it.each(escapes)("fileDiff refuses %s before git sees it, and reads nothing", async (target) => {
     const { root } = await fixture();
-    await expect(git.fileDiff(root, target)).rejects.toThrow(git.GitError);
+    await expect(git.fileDiff(root, target)).rejects.toMatchObject(outside);
     expect(gitArgv().some((argv) => argv.includes(target))).toBe(false);
   });
 
   it.each(escapes)("unifiedDiff refuses %s before git sees it, and reads nothing", async (target) => {
     const { root } = await fixture();
-    await expect(git.unifiedDiff(root, target)).rejects.toThrow(git.GitError);
+    await expect(git.unifiedDiff(root, target)).rejects.toMatchObject(outside);
     expect(gitArgv().some((argv) => argv.includes(target))).toBe(false);
   });
 
   it("refuses a path through a symlinked directory that leaves the repository", async () => {
     const { root, secret } = await fixture();
     await symlink(path.dirname(secret), path.join(root, "out"));
-    await expect(git.fileDiff(root, "out/secret.txt")).rejects.toThrow(git.GitError);
-    await expect(git.unifiedDiff(root, "out/secret.txt")).rejects.toThrow(git.GitError);
+    await expect(git.fileDiff(root, "out/secret.txt")).rejects.toMatchObject(outside);
+    await expect(git.unifiedDiff(root, "out/secret.txt")).rejects.toMatchObject(outside);
   });
 
   it("the request schema refuses absolute and climbing paths", () => {

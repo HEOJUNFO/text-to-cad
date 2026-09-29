@@ -38,7 +38,20 @@ vi.mock("@main/db/repositories", () => ({
   explorerTabs: {},
 }));
 import { projectOfRoot, revealProjectDirectory, rootOf } from "@main/ipc/explorer";
+import { IpcError } from "@main/ipc/register";
 import { projectWorktreeDir } from "@main/projects/workspace";
+
+/** The call is refused by main's IpcError with exactly this sentence — not any throw (a missing function's TypeError would pass a bare `toThrow()`). */
+function expectRefused(call: () => unknown, message: string): void {
+  let caught: unknown;
+  try {
+    call();
+  } catch (error) {
+    caught = error;
+  }
+  expect(caught).toBeInstanceOf(IpcError);
+  expect((caught as Error).message).toBe(message);
+}
 
 /** The project's worktree folder: `<root>/demo-<hash of its path>`. */
 const worktreeFolder = () => projectWorktreeDir({ worktreeRoot: fixture.worktrees }, { name: "demo", path: fixture.project });
@@ -66,9 +79,9 @@ test("reveals the project, its worktree and its worktree folder", () => {
 });
 
 test("refuses a directory outside the project, and an unknown project", () => {
-  expect(() => revealProjectDirectory({ projectId: "project", root: path.join(fixture.root, "elsewhere") })).toThrow();
-  expect(() => revealProjectDirectory({ projectId: "project", root: "/etc" })).toThrow();
-  expect(() => revealProjectDirectory({ projectId: "other", worktrees: true })).toThrow();
+  expectRefused(() => revealProjectDirectory({ projectId: "project", root: path.join(fixture.root, "elsewhere") }), "that directory does not belong to this project");
+  expectRefused(() => revealProjectDirectory({ projectId: "project", root: "/etc" }), "that directory does not belong to this project");
+  expectRefused(() => revealProjectDirectory({ projectId: "other", worktrees: true }), "that project is no longer open");
   expect(showItemInFolder).not.toHaveBeenCalled();
 });
 
