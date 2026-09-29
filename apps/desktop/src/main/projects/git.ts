@@ -1464,6 +1464,21 @@ export async function deleteMergedBranch(repoPath: string, branch: string): Prom
   return (await tryGit(repoPath, ["branch", "-d", "--end-of-options", branch])) !== null;
 }
 
+/**
+ * Delete a branch only while it still points at `base`, the commit it was cut
+ * from — so it holds nothing of its own, wherever HEAD is. For a create that
+ * failed: its branch may start at a fetched remote tip the checkout is
+ * behind, which `git branch -d` refuses as unmerged. `update-ref -d` with the
+ * old value is that check and the delete in one step, so a commit landing in
+ * between is kept rather than raced. Answers whether it went.
+ */
+export async function deleteBranchAtBase(repoPath: string, branch: string, base: string): Promise<boolean> {
+  if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(base)) {
+    return false;
+  }
+  return (await tryGit(repoPath, ["update-ref", "-d", `refs/heads/${branch}`, base])) !== null;
+}
+
 /** Path comparison that survives a trailing separator and Windows' case rules. */
 export function samePath(left: string, right: string): boolean {
   const normalise = (value: string) => path.normalize(value).replace(/[\\/]+$/, "");
