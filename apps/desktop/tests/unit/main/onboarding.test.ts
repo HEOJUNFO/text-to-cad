@@ -45,6 +45,14 @@ describe("createSampleProject", () => {
     expect(fs.readFileSync(path.join(target, "part.py"), "utf8")).toBe("print('edited')\n");
   });
 
+  it("copies into a folder that holds only what Finder or Explorer leave behind", () => {
+    fs.mkdirSync(target, { recursive: true });
+    fs.writeFileSync(path.join(target, ".DS_Store"), "");
+    fs.writeFileSync(path.join(target, "Thumbs.db"), "");
+    expect(createSampleProject(target, source)).toBe(target);
+    expect(fs.readFileSync(path.join(target, "part.py"), "utf8")).toBe("print('bundled')\n");
+  });
+
   it("says so when the build has no sample", () => {
     expect(() => createSampleProject(target, path.join(directory, "missing"))).toThrow(/sample project is missing/);
   });

@@ -18,16 +18,20 @@ export function onboardingEnabled(env: NodeJS.ProcessEnv = process.env): boolean
   return env.NODE_ENV !== "test" || env.TEXT_TO_CAD_ONBOARDING === "1";
 }
 
+/** What Finder and Explorer leave in a folder nobody put anything in. */
+const OS_LITTER = new Set([".DS_Store", "Thumbs.db"]);
+
 /**
  * The sample's folder, copied from the bundle the first time. A folder that
  * already has files in it is the person's from an earlier run, and is
- * reused as it is rather than overwritten.
+ * reused as it is rather than overwritten. A `.DS_Store` alone is not a file
+ * anyone put there: that folder is empty, and the sample goes in.
  */
 export function createSampleProject(
   target = path.join(app.getPath("documents"), SAMPLE_FOLDER_NAME),
   source = path.join(resourcesDir(), "sample"),
 ): string {
-  const existing = fs.existsSync(target) ? fs.readdirSync(target) : [];
+  const existing = (fs.existsSync(target) ? fs.readdirSync(target) : []).filter((name) => !OS_LITTER.has(name));
   if (existing.length > 0) {
     return target;
   }

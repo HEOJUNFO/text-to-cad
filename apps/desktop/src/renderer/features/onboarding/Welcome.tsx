@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Box, Check, FolderOpen, Loader2 } from "lucide-react";
 
 import { Button } from "@renderer/components/ui/button";
@@ -145,6 +145,15 @@ function StartStep({ onDone }: { onDone: () => void }) {
   const openFolder = useOpenFolder();
   const [busy, setBusy] = useState<"sample" | "folder" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Back while the sample copies unmounts this step: the person has moved
+  // on, and the copy finishing must not finish the welcome behind them.
+  const here = useRef(true);
+  useEffect(() => {
+    here.current = true;
+    return () => {
+      here.current = false;
+    };
+  }, []);
 
   const trySample = async () => {
     setBusy("sample");
@@ -153,7 +162,9 @@ function StartStep({ onDone }: { onDone: () => void }) {
       // Main copies, selects and broadcasts the sample, which opens the
       // folder's new-session screen.
       await window.textToCad.onboarding.createSample();
-      onDone();
+      if (here.current) {
+        onDone();
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -165,7 +176,7 @@ function StartStep({ onDone }: { onDone: () => void }) {
     setBusy("folder");
     setError(null);
     try {
-      if (await openFolder()) {
+      if ((await openFolder()) && here.current) {
         onDone();
       }
     } catch (reason) {
@@ -201,7 +212,11 @@ function StartStep({ onDone }: { onDone: () => void }) {
           title="Open a folder…"
         />
       </div>
-      {error ? <p className="mt-3 text-xs text-destructive">{error}</p> : null}
+      {error ? (
+        <p className="mt-3 text-xs text-destructive" role="alert">
+          {error}
+        </p>
+      ) : null}
     </section>
   );
 }

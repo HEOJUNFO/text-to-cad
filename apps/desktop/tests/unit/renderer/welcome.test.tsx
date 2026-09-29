@@ -1,9 +1,11 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Welcome } from "@renderer/features/onboarding/Welcome";
 import { useAgents } from "@renderer/state/agents";
+import { useSettings } from "@renderer/state/settings";
+import { defaultSettings, type Project } from "@shared/types";
 import type { AgentStatus } from "@shared/agents";
 
 const agent = (overrides: Partial<AgentStatus>) =>
@@ -112,5 +114,57 @@ describe("the welcome", () => {
     await toAgentStep();
     expect(screen.getByText("Installed")).toBeInTheDocument();
     expect(screen.getAllByText("Not signed in")).toHaveLength(1);
+  });
+});
+
+describe("the welcome's start step", () => {
+  const patch = vi.fn(async () => undefined);
+  let resolveSample: (project: Project) => void = () => {};
+  let rejectSample: (error: Error) => void = () => {};
+
+  beforeEach(() => {
+    patch.mockClear();
+    useSettings.setState({ settings: { ...defaultSettings(), onboardingCompleted: false }, patch } as never);
+    useAgents.setState({ agents: [agent({ installed: true, auth: "authenticated" })], ready: true });
+    (window.textToCad as unknown as { onboarding: unknown }).onboarding = {
+      status: vi.fn(async () => ({ enabled: true })),
+      createSample: vi.fn(
+        () =>
+          new Promise<Project>((resolve, reject) => {
+            resolveSample = resolve;
+            rejectSample = reject;
+          }),
+      ),
+    };
+  });
+
+  async function toStartStep() {
+    const user = userEvent.setup();
+    render(<Welcome />);
+    await user.click(screen.getByRole("button", { name: /Continue/ }));
+    await user.click(screen.getByRole("button", { name: /^Continue$/ }));
+    return user;
+  }
+
+  it("does not finish the welcome when the person went Back while the sample was copying", async () => {
+    const user = await toStartStep();
+    await user.click(screen.getByRole("button", { name: /Try the sample/ }));
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    await act(async () => resolveSample({ id: "/s", name: "text-to-cad Sample", path: "/s", createdAt: 0 }));
+    expect(patch).not.toHaveBeenCalledWith({ onboardingCompleted: true });
+  });
+
+  it("finishes it when the sample is ready and the person stayed", async () => {
+    const user = await toStartStep();
+    await user.click(screen.getByRole("button", { name: /Try the sample/ }));
+    await act(async () => resolveSample({ id: "/s", name: "text-to-cad Sample", path: "/s", createdAt: 0 }));
+    expect(patch).toHaveBeenCalledWith({ onboardingCompleted: true });
+  });
+
+  it("announces a failed copy", async () => {
+    const user = await toStartStep();
+    await user.click(screen.getByRole("button", { name: /Try the sample/ }));
+    await act(async () => rejectSample(new Error("The disk is full.")));
+    expect(screen.getByRole("alert")).toHaveTextContent("The disk is full.");
   });
 });
