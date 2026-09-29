@@ -1,3 +1,4 @@
+import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { cn } from "cn";
@@ -70,15 +71,16 @@ export function ContextMeter({
       open={open}
     >
       <PopoverTrigger asChild>
-        <button
-          aria-label={`Context ${percent}% used`}
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent data-[state=open]:bg-accent"
-          data-context-trigger
-          title={`${formatTokens(usage.used)} / ${formatTokens(usage.size)} (${percent}%)`}
-          type="button"
-        >
-          <Ring fraction={fraction} />
-        </button>
+        <TooltipHint content={`${formatTokens(usage.used)} / ${formatTokens(usage.size)} (${percent}%)`} side="top">
+          <button
+            aria-label={`Context ${percent}% used`}
+            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent data-[state=open]:bg-accent"
+            data-context-trigger
+            type="button"
+          >
+            <Ring fraction={fraction} />
+          </button>
+        </TooltipHint>
       </PopoverTrigger>
       <PopoverContent
         align="end"

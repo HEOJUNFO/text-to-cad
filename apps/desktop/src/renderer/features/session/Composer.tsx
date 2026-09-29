@@ -1,3 +1,4 @@
+import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Paperclip, X } from "lucide-react";
 import { cn } from "cn";
@@ -533,16 +534,17 @@ function AttachButton({
   return (
     <>
       <input aria-hidden className="hidden" data-attach-input multiple onChange={take} ref={files} tabIndex={-1} type="file" />
-      <PromptInputButton
-        aria-label="Attach files or photos"
-        className="size-7 text-muted-foreground"
-        disabled={disabled}
-        onClick={() => files.current?.click()}
-        size="icon-sm"
-        title="Attach files or photos"
-      >
-        <Paperclip className="size-4" />
-      </PromptInputButton>
+      <TooltipHint content="Attach files or photos" side="top">
+        <PromptInputButton
+          aria-label="Attach files or photos"
+          className="size-7 text-muted-foreground"
+          disabled={disabled}
+          onClick={() => files.current?.click()}
+          size="icon-sm"
+        >
+          <Paperclip className="size-4" />
+        </PromptInputButton>
+      </TooltipHint>
     </>
   );
 }

@@ -1,3 +1,4 @@
+import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { useState } from "react";
 import { Archive, Copy, FolderOpen, MoreHorizontal, Pencil, Trash2, Unplug } from "lucide-react";
 
@@ -97,16 +98,17 @@ export function SessionHeader({
             value={draft}
           />
         ) : (
-          <button
-            className="truncate text-[13px] font-medium"
-            data-session-title
-            disabled={!session}
-            onClick={startEditing}
-            title={session ? "Rename" : undefined}
-            type="button"
-          >
-            {title}
-          </button>
+          <TooltipHint content={session ? "Rename" : undefined}>
+            <button
+              className="truncate text-[13px] font-medium"
+              data-session-title
+              disabled={!session}
+              onClick={startEditing}
+              type="button"
+            >
+              {title}
+            </button>
+          </TooltipHint>
         )}
         {/* Where the session lives, as a badge after its name — the way a
             thread is titled in Claude Code. The new-session screen's title is

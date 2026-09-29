@@ -1,3 +1,4 @@
+import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import { Box, Hash } from "lucide-react";
 import { useContext } from "react";
@@ -37,27 +38,29 @@ export function ReferenceChip({ node, selected }: NodeViewProps) {
       data-reference-chip=""
       data-selected={selected ? "" : undefined}
       data-selector={reference.selector}
-      title={scope ? `Show ${token} in viewer` : token}
     >
-      <button
-        aria-label={`Show ${label ? `${label} (${token})` : token} in viewer`}
-        className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md px-1.5 py-px transition-colors duration-120 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none"
-        disabled={!scope}
-        type="button"
-        onMouseDown={(event) => event.preventDefault()}
-        onKeyDown={(event) => event.stopPropagation()}
-        onClick={(event) => {
-          event.stopPropagation();
-          if (!scope) return;
-          try {
-            openComposerReference(scope, reference);
-          } catch (error) {
-            toast.error(error instanceof Error ? error.message : String(error));
-          }
-        }}
-      >
-        <ReferenceChipContent file={reference.file} label={label} selector={reference.selector} />
-      </button>
+      {/* The hint names the whole label, which the chip clips at 160px. */}
+      <TooltipHint content={scope ? `Show ${label ? `${label} (${token})` : token} in viewer` : label ? `${label} (${token})` : token}>
+        <button
+          aria-label={`Show ${label ? `${label} (${token})` : token} in viewer`}
+          className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md px-1.5 py-px transition-colors duration-120 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none"
+          disabled={!scope}
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onKeyDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (!scope) return;
+            try {
+              openComposerReference(scope, reference);
+            } catch (error) {
+              toast.error(error instanceof Error ? error.message : String(error));
+            }
+          }}
+        >
+          <ReferenceChipContent file={reference.file} label={label} selector={reference.selector} />
+        </button>
+      </TooltipHint>
     </NodeViewWrapper>
   );
 }
@@ -85,7 +88,7 @@ export function ReferenceChipContent({ file, label, selector }: { file: string; 
       ) : null}
       {name && label ? <span aria-hidden className="shrink-0 text-muted-foreground"> · </span> : null}
       {label ? (
-        <span className="min-w-0 max-w-[160px] truncate text-muted-foreground" data-reference-label title={label}>{label}</span>
+        <span className="min-w-0 max-w-[160px] truncate text-muted-foreground" data-reference-label>{label}</span>
       ) : null}
       {!label && selector ? (
         <span className="min-w-0 max-w-[160px] truncate rounded-sm bg-primary/10 px-1 font-mono text-[11px] text-primary" data-selector-badge>

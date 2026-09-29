@@ -1,3 +1,4 @@
+import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { Suspense, lazy, useContext, useState } from "react";
 import { Ban, Box, CircleAlert, ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "cn";
@@ -125,16 +126,17 @@ function OpenCadFile({ path, sessionId }: { path: string; sessionId: string }) {
     explorer.openFile(relative, scope.root);
   };
   return (
-    <button
-      className="inline-flex h-5 shrink-0 items-center gap-1 rounded-sm px-1.5 text-[11px] font-medium text-primary hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-      data-activity-open={relative}
-      onClick={open}
-      title={`Open ${relative}`}
-      type="button"
-    >
-      <Box aria-hidden className="size-3" />
-      Open
-    </button>
+    <TooltipHint content={`Open ${relative}`}>
+      <button
+        className="inline-flex h-5 shrink-0 items-center gap-1 rounded-sm px-1.5 text-[11px] font-medium text-primary hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        data-activity-open={relative}
+        onClick={open}
+        type="button"
+      >
+        <Box aria-hidden className="size-3" />
+        Open
+      </button>
+    </TooltipHint>
   );
 }
 
@@ -197,19 +199,20 @@ function RowButton({
     );
   }
   return (
-    <button
-      aria-expanded={open}
-      className={cn(
-        "flex min-w-0 w-full items-center gap-2 rounded-md px-1.5 py-0.5 text-left text-[13px] leading-5 transition-colors hover:bg-accent/60",
-        "text-muted-foreground",
-        active && "text-foreground/80",
-      )}
-      onClick={onClick}
-      title={title}
-      type="button"
-    >
-      {children}
-    </button>
+    <TooltipHint content={title} overflowOnly>
+      <button
+        aria-expanded={open}
+        className={cn(
+          "flex min-w-0 w-full items-center gap-2 rounded-md px-1.5 py-0.5 text-left text-[13px] leading-5 transition-colors hover:bg-accent/60",
+          "text-muted-foreground",
+          active && "text-foreground/80",
+        )}
+        onClick={onClick}
+        type="button"
+      >
+        {children}
+      </button>
+    </TooltipHint>
   );
 }
 

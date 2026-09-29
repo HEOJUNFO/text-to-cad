@@ -200,7 +200,8 @@ test("a new session runs a Codex-shaped turn through every state", async () => {
   // line of text above the box.
   const ring = page.locator("[data-context-trigger]");
   await expect(ring).toHaveAttribute("aria-label", /^Context \d+% used$/);
-  await expect(ring).toHaveAttribute("title", /^[\d.]+k? \/ [\d.]+k? \(\d+%\)$/);
+  // Its token count is the kit's hover hint, never a native `title` (packages/ui/README.md).
+  await expect(ring).not.toHaveAttribute("title", /./);
 
   // Clicking it opens the breakdown, and it STAYS open — hover does nothing
   // and moving away does not take it back. The window as a bar with its

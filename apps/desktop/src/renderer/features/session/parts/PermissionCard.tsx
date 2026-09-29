@@ -1,3 +1,4 @@
+import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { Check, ShieldQuestion, X } from "lucide-react";
 import { useState } from "react";
 
@@ -87,20 +88,20 @@ export function PermissionCard({ part, sessionId }: { part: PermissionRequestPar
       </ConfirmationTitle>
       <ConfirmationActions className="flex-wrap justify-end gap-2">
         {orderOptions(part.options).map((option) => (
-          <ConfirmationAction
-            className="h-7 px-2.5 text-[12px]"
-            key={option.optionId}
-            onClick={() => {
-              setRefusal(null);
-              respond(sessionId, part.requestId, option.optionId).catch((error: unknown) =>
-                setRefusal(errorMessage(error) || EXPIRED),
-              );
-            }}
-            title={option.description ?? undefined}
-            variant={variantFor(option)}
-          >
-            {option.name}
-          </ConfirmationAction>
+          <TooltipHint content={option.description ?? undefined} key={option.optionId}>
+            <ConfirmationAction
+              className="h-7 px-2.5 text-[12px]"
+              onClick={() => {
+                setRefusal(null);
+                respond(sessionId, part.requestId, option.optionId).catch((error: unknown) =>
+                  setRefusal(errorMessage(error) || EXPIRED),
+                );
+              }}
+              variant={variantFor(option)}
+            >
+              {option.name}
+            </ConfirmationAction>
+          </TooltipHint>
         ))}
       </ConfirmationActions>
       {refusal ? (

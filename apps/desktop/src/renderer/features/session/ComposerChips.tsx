@@ -1,3 +1,4 @@
+import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { useId, useMemo } from "react";
 import {
   Check,
@@ -101,22 +102,25 @@ export function Chip({
       </>
     );
   }
+  // The chip's hint is the kit's `TooltipHint`, never a native `title`; it stands aside while the
+  // menu is open (`aria-expanded`).
   const body = (
-    <button
-      className={cn(
-        "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-[12px] leading-none text-muted-foreground transition-colors",
-        menu ? "hover:bg-accent hover:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground" : "cursor-default",
-        className,
-      )}
-      data-chip={testId}
-      style={{ maxWidth }}
-      title={title}
-      type="button"
-    >
-      <span className="[&>svg]:size-3.5">{icon}</span>
-      {label ? <span className="truncate text-foreground/90">{label}</span> : null}
-      {detail ? <span className="truncate">{detail}</span> : null}
-    </button>
+    <TooltipHint content={title} side="top">
+      <button
+        className={cn(
+          "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-[12px] leading-none text-muted-foreground transition-colors",
+          menu ? "hover:bg-accent hover:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground" : "cursor-default",
+          className,
+        )}
+        data-chip={testId}
+        style={{ maxWidth }}
+        type="button"
+      >
+        <span className="[&>svg]:size-3.5">{icon}</span>
+        {label ? <span className="truncate text-foreground/90">{label}</span> : null}
+        {detail ? <span className="truncate">{detail}</span> : null}
+      </button>
+    </TooltipHint>
   );
   if (!menu) {
     return body;
@@ -167,18 +171,16 @@ export function ProjectChip({ project, onChange }: { project: Project | null; on
         <>
           <DropdownMenuLabel className="text-[11px] text-muted-foreground uppercase">Recent</DropdownMenuLabel>
           {recent.map((candidate) => (
-            <DropdownMenuItem
-              key={candidate.id}
-              onSelect={() => onChange(candidate.id)}
-              // The name is what a person picks by; the path is a hover away
-              // rather than a second line under every row.
-              title={candidate.path}
-            >
-              <span className="flex size-4 shrink-0 items-center justify-center">
-                {candidate.id === project?.id ? <Check className="size-3.5" /> : null}
-              </span>
-              <span className="truncate">{candidate.name}</span>
-            </DropdownMenuItem>
+            // The name is what a person picks by; the path is a hover away
+            // rather than a second line under every row.
+            <TooltipHint content={candidate.path} key={candidate.id} side="right">
+              <DropdownMenuItem onSelect={() => onChange(candidate.id)}>
+                <span className="flex size-4 shrink-0 items-center justify-center">
+                  {candidate.id === project?.id ? <Check className="size-3.5" /> : null}
+                </span>
+                <span className="truncate">{candidate.name}</span>
+              </DropdownMenuItem>
+            </TooltipHint>
           ))}
           <DropdownMenuSeparator />
           <DropdownMenuItem

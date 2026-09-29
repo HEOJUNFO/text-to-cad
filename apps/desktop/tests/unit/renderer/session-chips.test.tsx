@@ -106,7 +106,8 @@ describe("the composer's chips and Stop", () => {
     render(<SessionView session={SESSION} />);
     const chip = chipNamed("Mode");
     expect(chip).not.toHaveAttribute("aria-disabled");
-    // Its description is its own `title`, not a reason it cannot be used.
-    expect(chip).not.toHaveAccessibleDescription(/disconnected|connecting/i);
+    // Its hint is the kit's tooltip, not a native `title`, so nothing describes it at rest.
+    expect(chip).not.toHaveAttribute("title");
+    expect(chip).not.toHaveAccessibleDescription();
   });
 });

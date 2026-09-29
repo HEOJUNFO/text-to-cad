@@ -1,3 +1,4 @@
+import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { Box, FileText, Folder } from "lucide-react";
 import { createContext, useContext, useEffect, type AnchorHTMLAttributes, type ReactNode } from "react";
 
@@ -109,17 +110,18 @@ function FileLink({ scope, target, children }: { scope: TranscriptScope; target:
     }
   };
   return (
-    <button
-      className="inline-flex max-w-full items-baseline gap-1 rounded-sm font-medium text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-      data-path-link={target.path}
-      data-path-selector={reference || undefined}
-      data-path-kind={kind}
-      onClick={open}
-      title={reference ? `Open ${target.path} and select ${reference}` : kind === "directory" ? `Reveal ${target.path}` : `Open ${target.path}`}
-      type="button"
-    >
-      <Icon aria-hidden className="size-3 shrink-0 self-center opacity-70" />
-      <span className="min-w-0 break-all">{children}</span>
-    </button>
+    <TooltipHint content={reference ? `Open ${target.path} and select ${reference}` : kind === "directory" ? `Reveal ${target.path}` : `Open ${target.path}`}>
+      <button
+        className="inline-flex max-w-full items-baseline gap-1 rounded-sm font-medium text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        data-path-link={target.path}
+        data-path-selector={reference || undefined}
+        data-path-kind={kind}
+        onClick={open}
+        type="button"
+      >
+        <Icon aria-hidden className="size-3 shrink-0 self-center opacity-70" />
+        <span className="min-w-0 break-all">{children}</span>
+      </button>
+    </TooltipHint>
   );
 }
