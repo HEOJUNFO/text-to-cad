@@ -275,6 +275,30 @@ describe("a machine with no agent ready", () => {
     expect(load).toHaveBeenCalled();
   });
 
+  it("shows a failing Try again trying, then the error it came back with", async () => {
+    const user = userEvent.setup();
+    let answer!: () => void;
+    const load = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          answer = () => {
+            useAgents.setState({ loadError: "spawn /bin/zsh EACCES" });
+            resolve();
+          };
+        }),
+    );
+    useAgents.setState({ agents: [], ready: true, loadError: "agents.list timed out", load } as never);
+    render(<NewSession project={PROJECT} />);
+
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(screen.getByRole("button", { name: "Trying again…" })).toBeDisabled();
+
+    await act(async () => answer());
+    expect(screen.getByText(/spawn \/bin\/zsh EACCES/)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Tried again, and it failed again.");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+  });
+
   it("offers Settings › Agents beside Dismiss when the start fails for another reason", async () => {
     const user = userEvent.setup();
     useAgents.setState({ agents: [{ ...AGENT, auth: "authenticated" } as AgentStatus] });

@@ -390,7 +390,7 @@ export function NewSession({ project }: { project: Project }) {
             <AgentSetupCard
               agents={[]}
               message={`text-to-cad could not read which agents are on this machine: ${listError}`}
-              onRetry={() => void reloadAgents()}
+              onRetry={reloadAgents}
               title="Could not check for agents"
             />
           </div>
