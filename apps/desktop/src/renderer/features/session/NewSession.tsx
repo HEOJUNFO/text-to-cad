@@ -386,7 +386,9 @@ export function NewSession({ project }: { project: Project }) {
             </Button>
           </div>
         ) : listError ? (
-          <div className="mt-4">
+          // Keyed apart: the two cards sit in the same place, and one card for both would carry a
+          // failed read's "Tried again" count over to the sign-in card a good read turns it into.
+          <div className="mt-4" key="list-error">
             <AgentSetupCard
               agents={[]}
               message={`text-to-cad could not read which agents are on this machine: ${listError}`}
@@ -395,7 +397,7 @@ export function NewSession({ project }: { project: Project }) {
             />
           </div>
         ) : noAgent ? (
-          <div className="mt-4">
+          <div className="mt-4" key="no-agent">
             <AgentSetupCard
               agents={offered}
               message={`Sign in to ${signInTo}, or install one. text-to-cad runs a coding agent you already use.`}

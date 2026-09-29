@@ -152,14 +152,18 @@ setInterval(() => {}, 1000);
 
     // And the quit an update starts is what arms that script.
     const spawned = vi.mocked(spawn);
-    const armed = () => {
+    const armed = (platform: NodeJS.Platform) => {
       spawned.mockImplementationOnce((() => ({ unref: () => undefined })) as never);
-      armQuitDeadline(0, 4242, 0);
+      armQuitDeadline(0, 4242, 0, platform);
       return String(spawned.mock.calls.at(-1)![1]![1]);
     };
-    const tree = process.platform === "win32" ? '"/T"' : "pgrep";
-    expect(armed()).toContain(tree);
+    expect(armed("linux")).toContain("pgrep");
+    expect(armed("win32")).toContain('"/T"');
     markQuittingForUpdate();
-    expect(armed()).not.toContain(tree);
+    expect(armed("linux")).not.toContain("pgrep");
+    expect(armed("win32")).not.toContain('"/T"');
+    // Except on macOS: Squirrel's ShipIt is launched by launchd, not as a child of the app, so
+    // the helpers still go — sparing them spares nothing but a utility process that outlives us.
+    expect(armed("darwin")).toContain("pgrep");
   });
 });

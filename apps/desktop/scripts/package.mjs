@@ -160,6 +160,19 @@ export function signingEnv(targets, source = process.env) {
   return { env, signed, notarize };
 }
 
+/** What `signingEnv` decided, for the build log. */
+export function signingLine(targets, { signed, notarize }) {
+  // Linux has no certificate to be missing: naming WIN_CSC_LINK there sends
+  // someone to set a variable that would change nothing.
+  if (!targets.includes("--mac") && !targets.includes("--win")) {
+    return "signing: off (Linux builds are not signed) — CSC_IDENTITY_AUTO_DISCOVERY=false";
+  }
+  const certificate = targets.includes("--mac") ? "CSC_LINK" : "WIN_CSC_LINK";
+  return signed
+    ? `signing: on (${certificate}), notarisation: ${targets.includes("--mac") ? (notarize ? "on" : "off (no APPLE_* credentials)") : "n/a"}`
+    : `signing: off (no ${certificate}) — CSC_IDENTITY_AUTO_DISCOVERY=false`;
+}
+
 /**
  * electron-builder, run by this Node from the package's own `cli.js` — not
  * `npx`, whose Windows shim Node refuses to spawn (scripts/node-bin.mjs).
@@ -202,15 +215,10 @@ function main(argv) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(2);
   }
-  const { env, signed, notarize } = signing;
-  const certificate = targets.includes("--mac") ? "CSC_LINK" : "WIN_CSC_LINK";
+  const { env, notarize } = signing;
 
   console.info(`packaging text-to-cad ${version} for ${targets.join(" ")}`);
-  console.info(
-    signed
-      ? `signing: on (${certificate}), notarisation: ${targets.includes("--mac") ? (notarize ? "on" : "off (no APPLE_* credentials)") : "n/a"}`
-      : `signing: off (no ${certificate}) — CSC_IDENTITY_AUTO_DISCOVERY=false`,
-  );
+  console.info(signingLine(targets, signing));
 
   for (const directory of EXTRA_RESOURCE_DIRS) {
     fs.mkdirSync(path.join(appRoot, directory), { recursive: true });

@@ -1,4 +1,5 @@
 import {
+  AlertCircle,
   AlertTriangle,
   ChevronDown,
   ChevronRight,
@@ -11,6 +12,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObjec
 import { createPromptContext, textPart } from "@text-to-cad/core/prompt";
 import { toast } from "sonner";
 
+import { Alert, AlertDescription } from "@renderer/components/ui/alert";
 import { Button } from "@renderer/components/ui/button";
 import {
   DropdownMenu,
@@ -37,6 +39,7 @@ import {
   type ReviewScope,
   type Session,
 } from "@shared/types";
+import { errorMessage } from "@shared/ipc/errors";
 import type { Project } from "@shared/types";
 
 import { EmptyState } from "@text-to-cad/ui/navigation";
@@ -612,6 +615,11 @@ function FileSection({
   const [loaded, setLoaded] = useState<{ diff: FileDiff; revision: number } | null>(null);
   const diff = loaded?.diff ?? null;
   const current = loaded?.revision === revision;
+  // A read that failed says so, over whatever diff is still on screen, until
+  // a read succeeds: swallowed, it left "Reading the diff…" up for good.
+  // `attempt` is Retry's: the same revision, read again.
+  const [failure, setFailure] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const selection = useRef<ReviewSelection | null>(null);
   const promptContext = useMemo(() => createDesktopPromptContext(request.projectId, root, JSON.stringify(["desktop", request.projectId, root]), request.sessionId), [request.projectId, root, request.sessionId]);
   const requestRevision = () => {
@@ -634,13 +642,22 @@ function FileSection({
       .then((result) => {
         if (!cancelled) {
           setLoaded({ diff: result, revision });
+          setFailure(null);
         }
       })
-      .catch(() => {});
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setFailure(errorMessage(error));
+        }
+      });
     return () => {
       cancelled = true;
     };
-  }, [open, current, request, file.path, scope, revision]);
+  }, [open, current, request, file.path, scope, revision, attempt]);
+  const retry = () => {
+    setFailure(null);
+    setAttempt((count) => count + 1);
+  };
 
   const badge = badgeFor(file.status);
 
@@ -695,15 +712,30 @@ function FileSection({
           <p className="px-4 py-6 text-center text-xs text-muted-foreground">
             Binary file — no textual diff.
           </p>
-        ) : diff ? (
-          <ReviewDiff
-            diff={diff}
-            onSelect={(next) => {
-              selection.current = next;
-            }}
-            path={file.path}
-            theme={theme}
-          />
+        ) : failure || diff ? (
+          <>
+            {failure ? (
+              <Alert className="m-2 w-auto px-3 py-2 text-xs" variant="destructive">
+                <AlertCircle />
+                <AlertDescription className="flex min-w-0 flex-row items-center gap-2 text-xs">
+                  <span className="min-w-0 flex-1 break-words">Could not read the diff: {failure}</span>
+                  <Button className="h-6 shrink-0 px-2 text-[12px]" onClick={retry} size="sm" variant="outline">
+                    Retry
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            ) : null}
+            {diff ? (
+              <ReviewDiff
+                diff={diff}
+                onSelect={(next) => {
+                  selection.current = next;
+                }}
+                path={file.path}
+                theme={theme}
+              />
+            ) : null}
+          </>
         ) : (
           <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
             <Spinner className="size-3.5" />

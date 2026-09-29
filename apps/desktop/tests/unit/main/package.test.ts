@@ -115,6 +115,15 @@ describe("package.mjs", () => {
       expect(signingEnv(["--mac"], { CI: "true" })).toMatchObject({ signed: false, notarize: false });
       expect(signingEnv(["--mac"], { ...APPLE, CI: "true" })).toMatchObject({ signed: true, notarize: true });
     });
+
+    it("logs the certificate each os is signed with, and none for Linux, which is never signed", async () => {
+      const { signingEnv, signingLine } = await import("../../../scripts/package.mjs");
+      const logged = (flag: string, source: Record<string, string>) => signingLine([flag], signingEnv([flag], source));
+      expect(logged("--mac", APPLE)).toBe("signing: on (CSC_LINK), notarisation: on");
+      expect(logged("--win", { WIN_CSC_LINK: "win.pfx" })).toBe("signing: on (WIN_CSC_LINK), notarisation: n/a");
+      expect(logged("--win", {})).toBe("signing: off (no WIN_CSC_LINK) — CSC_IDENTITY_AUTO_DISCOVERY=false");
+      expect(logged("--linux", { WIN_CSC_LINK: "win.pfx" })).toBe("signing: off (Linux builds are not signed) — CSC_IDENTITY_AUTO_DISCOVERY=false");
+    });
   });
 
   describe("lfsPointers", () => {
@@ -153,6 +162,34 @@ describe("package.mjs", () => {
       const config = fs.readFileSync(path.join(appRoot, "electron-builder.yml"), "utf8");
       const copied = [...config.matchAll(/^\s*- from: (\S+)$/gm)].map((match) => match[1]!).filter((from) => !from.startsWith("resources/runtime/"));
       expect([...CHECKED_OUT_RESOURCES].sort()).toEqual([...copied].sort());
+    });
+  });
+
+  describe("the README's Packaging section", () => {
+    const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+    const readme = fs.readFileSync(path.join(appRoot, "README.md"), "utf8");
+    const section = (heading: string) => {
+      const start = readme.indexOf(`\n### ${heading}\n`);
+      expect(start, heading).toBeGreaterThan(-1);
+      const end = readme.slice(start + 1).search(/\n##+ /);
+      return readme.slice(start, end === -1 ? undefined : start + 1 + end);
+    };
+
+    it("names every variable signingEnv reads under Signing", () => {
+      const signing = section("Signing");
+      for (const name of ["CSC_LINK", "CSC_KEY_PASSWORD", "WIN_CSC_LINK", "WIN_CSC_KEY_PASSWORD", "APPLE_ID", "APPLE_APP_SPECIFIC_PASSWORD", "APPLE_TEAM_ID"]) {
+        expect(signing, name).toContain(`\`${name}\``);
+      }
+    });
+
+    it("names every extraResource electron-builder.yml copies under What is bundled", () => {
+      const bundled = section("What is bundled");
+      const config = fs.readFileSync(path.join(appRoot, "electron-builder.yml"), "utf8");
+      for (const [, from] of config.matchAll(/^\s*- from: (\S+)$/gm)) {
+        // `resources/runtime/${os}-${arch}` is written `resources/runtime/<os>-<arch>/`.
+        const named = from!.replace("${os}-${arch}", "<os>-<arch>");
+        expect(bundled, from).toMatch(new RegExp(`\`${named.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/?\``));
+      }
     });
   });
 });

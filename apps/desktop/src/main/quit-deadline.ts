@@ -37,6 +37,8 @@ export const QUIT_DEADLINE_MS = 1_200;
  * just spawned the NSIS installer, or the new AppImage, as a child of this
  * process, and a tree kill would take it down mid-install. Then only the app
  * itself is killed; its helpers go with the browser process they serve.
+ * Not on macOS: Squirrel's ShipIt is launched by launchd, not by the app, so
+ * there is no installer in the tree to spare — only helpers to leave behind.
  */
 export function watchdogScript(
   pid: number,
@@ -69,12 +71,13 @@ export function armQuitDeadline(
   startedAt = Date.now(),
   pid: number = process.pid,
   deadlineMs: number = QUIT_DEADLINE_MS,
-  tree: boolean = !isQuittingForUpdate(),
+  platform: NodeJS.Platform = process.platform,
+  tree: boolean = !isQuittingForUpdate() || platform === "darwin",
 ): void {
   try {
     // Arm only after will-quit, once state is saved. If teardown or launching
     // Electron-as-Node used the budget, the watchdog fires immediately.
-    spawn(process.execPath, ["-e", watchdogScript(pid, deadlineMs, process.platform, startedAt, tree)], {
+    spawn(process.execPath, ["-e", watchdogScript(pid, deadlineMs, platform, startedAt, tree)], {
       detached: true,
       stdio: "ignore",
       windowsHide: true,
