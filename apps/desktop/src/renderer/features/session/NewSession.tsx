@@ -1,3 +1,4 @@
+import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { AlertCircle, Loader2, Settings2 } from "lucide-react";
 
@@ -293,7 +294,13 @@ export function NewSession({ project }: { project: Project }) {
       <ProjectChip onChange={setActiveProject} project={project} />
       <Dot />
       {draftRoot ? (
-        <span className="text-xs text-muted-foreground" title={draftRoot}>In {draftRoot.split(/[\\/]/).pop()}</span>
+        // The folder's name, with its whole path as the hover hint and what a screen reader hears.
+        <TooltipHint content={draftRoot}>
+          <span className="text-xs text-muted-foreground" data-draft-root>
+            In <span aria-hidden>{draftRoot.split(/[\\/]/).pop()}</span>
+            <span className="sr-only">{draftRoot}</span>
+          </span>
+        </TooltipHint>
       ) : <GitModeChip gitMode={resolvedGitMode} info={gitInfo} onChange={setGitMode} />}
     </div>
   );

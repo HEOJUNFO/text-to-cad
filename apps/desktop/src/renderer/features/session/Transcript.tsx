@@ -1,3 +1,4 @@
+import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { ArrowDown, Paperclip } from "lucide-react";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 
@@ -124,14 +125,12 @@ function UserTurn({ turn }: { turn: Turn }) {
       {links.length > 0 ? (
         <div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
           {links.map((link, index) => (
-            <span
-              className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px]"
-              key={index}
-              title={link.uri}
-            >
-              <Paperclip className="size-3 text-muted-foreground" />
-              {link.name}
-            </span>
+            <TooltipHint content={link.uri} key={index}>
+              <span className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px]">
+                <Paperclip className="size-3 text-muted-foreground" />
+                {link.name}
+              </span>
+            </TooltipHint>
           ))}
         </div>
       ) : null}

@@ -1,0 +1,117 @@
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, expect, it, vi } from "vitest";
+
+import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
+
+import { Composer } from "@renderer/features/session/Composer";
+import { AnnotationsChip } from "@renderer/features/session/composer/AnnotationsChip";
+import { ContextMeter } from "@renderer/features/session/ContextMeter";
+import { PathLink, TranscriptScopeContext } from "@renderer/features/session/links/PathLink";
+import { ActivityRowView } from "@renderer/features/session/parts/ActivityRow";
+import { PermissionCard } from "@renderer/features/session/parts/PermissionCard";
+import { SubagentRow } from "@renderer/features/session/parts/SubagentRow";
+import { SessionHeader } from "@renderer/features/session/SessionHeader";
+import { StatusLine } from "@renderer/features/session/StatusLine";
+import { Transcript } from "@renderer/features/session/Transcript";
+import { activityRow } from "@renderer/features/session/view";
+import { useComposer } from "@renderer/state/composer";
+import { useExplorer } from "@renderer/state/explorer";
+import { usePathLinks } from "@renderer/state/path-links";
+import { useProjects } from "@renderer/state/projects";
+import { initialSessionState, type SessionState, type ToolCallPart } from "@shared/acp/types";
+import type { Session } from "@shared/types";
+
+/**
+ * The session's interface hints are the kit's `TooltipHint`, never a native `title`
+ * (packages/ui/README.md): a native tooltip cannot be styled, ignores the 400ms hint delay and
+ * reads twice to a screen reader beside the label. One pass over every control the session draws.
+ */
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), dismiss: vi.fn(), info: vi.fn() } }));
+
+const noRects = () => Object.assign([], { item: () => null }) as unknown as DOMRectList;
+Range.prototype.getClientRects ??= noRects;
+Range.prototype.getBoundingClientRect ??= () => new DOMRect();
+(Text.prototype as unknown as { getClientRects: () => DOMRectList }).getClientRects ??= noRects;
+URL.createObjectURL = () => "blob:no-native-title";
+URL.revokeObjectURL = () => {};
+
+const SESSION = { id: "s1", projectId: "p", agentId: "codex", cwd: "/p", title: "Bracket", status: "idle", archived: false } as unknown as Session;
+const scope = { projectId: "p", root: null };
+
+function call(overrides: Partial<ToolCallPart> & { id: string }): ToolCallPart {
+  return { type: "tool_call", kind: "other", title: "", name: null, status: "completed", input: undefined, output: undefined, content: [], locations: [], stream: "", children: [], ...overrides };
+}
+
+beforeEach(() => {
+  useProjects.setState({ projects: [{ id: "p", name: "p", path: "/p", createdAt: 0 }], activeId: "p" });
+  useComposer.setState({ drafts: {}, annotations: {}, acceptedContexts: {}, referenceLabels: {}, pendingFiles: {}, draftRoots: {}, queues: {}, sending: {} });
+  usePathLinks.setState({ kinds: {} });
+  useExplorer.setState({ sessionId: "s1", projectId: "p", root: null, tabs: [], activeId: null, ready: true, collapsed: true, cadSelection: null, reveal: null });
+  (window.textToCad.explorer as unknown as Record<string, unknown>).exists = vi.fn(async () => ({ "models/x.step": "file" }));
+});
+
+const titled = () =>
+  [...document.querySelectorAll("button, a, [role=button], [role=menuitem], [role=menuitemradio]")]
+    .filter((control) => control.hasAttribute("title"))
+    .map((control) => control.outerHTML.slice(0, 120));
+
+it("no control in a session carries a native title", async () => {
+  const user = userEvent.setup();
+  const annotation = { id: "a1", text: "fillet it", references: [] };
+  useComposer.getState().setDraft("s1", "look at models/x.step#o1 ");
+  const view = render(
+    <TooltipProvider>
+    <TranscriptScopeContext.Provider value={scope}>
+      <SessionHeader session={SESSION} title="Bracket" />
+      <ContextMeter lastTurnUsage={null} rateLimits={{}} sessionId="s1" sessionUsage={null} usage={{ used: 1200, size: 200_000, cost: null, breakdown: null }} />
+      <Composer chips={null} commands={[]} onSubmit={vi.fn()} sessionId="s1" status="ready" />
+      <AnnotationsChip annotations={[annotation]} onEdit={vi.fn()} onRemove={vi.fn()} onRemoveOne={vi.fn()} scope={null} />
+      <PathLink href="./models/x.step#o1">models/x.step#o1</PathLink>
+      <PermissionCard
+        part={{
+          type: "permission_request", requestId: "r1", toolCallId: "c1", title: "Run ls?", description: null,
+          options: [{ optionId: "allow", name: "Yes", kind: "allow_once", description: "Run it this once" }, { optionId: "no", name: "No", kind: "reject_once", description: null }],
+          outcome: { state: "pending" },
+        }}
+        sessionId="s1"
+      />
+      <ActivityRowView row={activityRow(call({ id: "e1", kind: "edit", title: "Edit bracket", locations: [{ path: "models/deeply/nested/bracket.step", line: null }] }))} sessionId="s1" />
+      <SubagentRow part={{ type: "subagent", sessionId: "c1", name: "Docs checker", task: "confirm the README", state: "running", parts: [call({ id: "k1" })] }} sessionId="s1" />
+    </TranscriptScopeContext.Provider>
+    </TooltipProvider>,
+  );
+
+  // The ones that only appear once something is there: an attached image, the linked path, the
+  // annotation list, the reference chip.
+  const input = view.container.querySelector<HTMLInputElement>("[data-attach-input]")!;
+  Object.defineProperty(input, "files", { configurable: true, value: [new File(["x"], "shot.png", { type: "image/png" })] });
+  await act(async () => fireEvent.change(input));
+  await waitFor(() => expect(screen.getByRole("button", { name: /Enlarge shot\.png/ })).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByRole("button", { name: "models/x.step#o1" })).toBeInTheDocument());
+  await user.click(screen.getByRole("button", { name: "Edit 1 annotation" }));
+  expect(screen.getByRole("button", { name: "Show annotation 1 on the model" })).toBeInTheDocument();
+  expect(view.container.querySelector("[data-reference-chip] button")).not.toBeNull();
+
+  const controls = screen.getAllByRole("button");
+  expect(controls.length).toBeGreaterThan(15);
+  expect(titled()).toEqual([]);
+});
+
+it("text the session shows in full elsewhere carries no native title either", () => {
+  const state: SessionState = {
+    ...initialSessionState("s1", "codex"),
+    turns: [{ id: "t1", role: "user", startedAt: 0, parts: [{ type: "resource_link", uri: "attachment:///notes.txt", name: "notes.txt" }] }],
+  } as never;
+  render(
+    <TooltipProvider>
+    <TranscriptScopeContext.Provider value={scope}>
+      <StatusLine active text="Running the build of every part in the assembly" />
+      <Transcript onReconnect={vi.fn()} onRetry={vi.fn()} state={state} />
+    </TranscriptScopeContext.Provider>
+    </TooltipProvider>,
+  );
+  expect(screen.getByText("notes.txt")).toBeInTheDocument();
+  expect([...document.querySelectorAll("[title]")].map((element) => element.outerHTML.slice(0, 120))).toEqual([]);
+});
