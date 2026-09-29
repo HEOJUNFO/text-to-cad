@@ -55,6 +55,8 @@ export type GitStatus = {
   files: ChangedFile[];
   insertions: number;
   deletions: number;
+  /** The session scope that had no recorded revision; `files` is then empty. */
+  unmarked?: "turn" | "session";
 };
 
 /** What a review is taken against. */
@@ -63,7 +65,13 @@ export type DiffScope =
   /** Everything since a point in time, e.g. "Since 1 hour ago". */
   | { kind: "since"; since: string }
   /** An explicit revision range, `<from>..<to>`. */
-  | { kind: "range"; from: string; to?: string };
+  | { kind: "range"; from: string; to?: string }
+  /**
+   * `Last turn` / `This session` for a session with no recorded mark. There
+   * is no revision to measure from, so there is no diff — and substituting
+   * the working tree would answer a different question under the same name.
+   */
+  | { kind: "unmarked"; scope: "turn" | "session" };
 
 export type FileDiff = {
   path: string;
@@ -338,6 +346,20 @@ export async function status(cwd: string, scope: DiffScope = { kind: "working-tr
     await git(root, ["status", "--porcelain=v1", "-z", "--branch", "--untracked-files=all"]),
   );
 
+  if (scope.kind === "unmarked") {
+    return {
+      isRepository: true,
+      branch: porcelain.branch,
+      unborn: porcelain.unborn,
+      ahead: porcelain.ahead,
+      behind: porcelain.behind,
+      files: [],
+      insertions: 0,
+      deletions: 0,
+      unmarked: scope.scope,
+    };
+  }
+
   const files =
     scope.kind === "working-tree"
       ? await workingTreeFiles(root, porcelain)
@@ -468,12 +490,31 @@ const SINCE_PRESETS: ReadonlySet<string> = new Set(
 );
 
 export function assertSafeScope(scope: DiffScope): void {
-  if (scope.kind === "range") {
+  if (scope.kind === "unmarked") {
+    if (scope.scope !== "turn" && scope.scope !== "session") {
+      throw new GitError("an unmarked review scope must be turn or session");
+    }
+  } else if (scope.kind === "range") {
     if (!REVISION.test(scope.from) || (scope.to !== undefined && !REVISION.test(scope.to))) {
       throw new GitError("a review range must be between two commit ids");
     }
   } else if (scope.kind === "since" && !SINCE_PRESETS.has(scope.since)) {
     throw new GitError(`unknown review period: ${scope.since}`);
+  }
+}
+
+/**
+ * A single file's diff in an unmarked scope has no base revision. The review
+ * never asks (its status lists no files), so a request is refused with the
+ * reason rather than answered against the working tree.
+ */
+function refuseUnmarked(scope: DiffScope): void {
+  if (scope.kind === "unmarked") {
+    throw new GitError(
+      scope.scope === "turn"
+        ? "no turn recorded yet: Last turn starts with the next prompt"
+        : "no session start recorded: This session has no revision to measure from",
+    );
   }
 }
 
@@ -543,6 +584,7 @@ export async function fileDiff(
   scope: DiffScope = { kind: "working-tree" },
 ): Promise<FileDiff> {
   assertSafeScope(scope);
+  refuseUnmarked(scope);
   const root = await repositoryRoot(cwd);
   if (!root) {
     throw new GitError("not a git repository");
@@ -626,6 +668,7 @@ export async function unifiedDiff(
   scope: DiffScope = { kind: "working-tree" },
 ): Promise<string> {
   assertSafeScope(scope);
+  refuseUnmarked(scope);
   const root = await repositoryRoot(cwd);
   if (!root) {
     throw new GitError("not a git repository");

@@ -141,3 +141,28 @@ it("offers push only with a remote, and confirms a commit with its short hash", 
   await user.click(again);
   expect(screen.getByRole("button", { name: "Commit and push" })).toBeInTheDocument();
 });
+
+it("a Last turn with no recorded mark says so, instead of showing the working tree under that name", async () => {
+  scoped.mockResolvedValue({ ...repo("main"), unmarked: "turn" });
+  whole.mockResolvedValue({ ...repo("main"), files: [changed("a.step")] });
+  render(<ReviewTab project={PROJECT} scope="turn" sessionId="s1" tabId="t1" />);
+
+  expect(await screen.findByText("No turn recorded yet")).toBeInTheDocument();
+  expect(screen.getByText(/Last turn starts with the next prompt/)).toBeInTheDocument();
+  expect(screen.queryByText("No changes")).toBeNull();
+  expect(screen.queryByText("a.step")).toBeNull();
+});
+
+it("a This session with no recorded mark says so too", async () => {
+  scoped.mockResolvedValue({ ...repo("main"), unmarked: "session" });
+  renderReview();
+  expect(await screen.findByText("No session start recorded")).toBeInTheDocument();
+  expect(screen.queryByText("No changes")).toBeNull();
+});
+
+it("in a repository with no commits, the unmarked scope says a commit is what it needs", async () => {
+  scoped.mockResolvedValue({ ...repo("main"), unborn: true, unmarked: "turn" });
+  render(<ReviewTab project={PROJECT} scope="turn" sessionId="s1" tabId="t1" />);
+  expect(await screen.findByText("No turn recorded yet")).toBeInTheDocument();
+  expect(screen.getByText(/no commits yet/i)).toBeInTheDocument();
+});

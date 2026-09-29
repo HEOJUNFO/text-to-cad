@@ -52,6 +52,12 @@ export const GitStatusSchema = z.object({
   files: z.array(ChangedFileSchema),
   insertions: z.number(),
   deletions: z.number(),
+  /**
+   * Set when the scope asked for was `Last turn` or `This session` and the
+   * session has no recorded revision for it. `files` is then empty — not the
+   * working tree — and the review says why rather than "No changes".
+   */
+  unmarked: z.enum(["turn", "session"]).optional(),
 });
 export type GitStatus = z.infer<typeof GitStatusSchema>;
 

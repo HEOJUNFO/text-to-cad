@@ -275,11 +275,16 @@ export function diffScopeFor(scope: ReviewScope): DiffScope {
  *
  * The marks are revisions rather than times on purpose: two commits can share
  * a second, and `--before=` picks a commit, not a moment. A session with no
- * mark — its directory is not a repository, or had no commits when the mark
- * was taken — falls back to the working tree, which is the honest answer,
- * because everything in it *is* new since that point.
+ * mark — no session at all, its directory was not a repository or had no
+ * commits when the mark was taken, or the row predates the marks — resolves
+ * to `unmarked`, which main answers with an empty review that says why. It is
+ * never the working tree: that would be a different revision under the
+ * scope's name (docs/integrations.md).
  */
-export type ResolvedDiffScope = Exclude<DiffScope, { kind: "turn" } | { kind: "session" }>;
+export type UnmarkedScope = "turn" | "session";
+export type ResolvedDiffScope =
+  | Exclude<DiffScope, { kind: "turn" } | { kind: "session" }>
+  | { kind: "unmarked"; scope: UnmarkedScope };
 
 export function resolveDiffScope(
   scope: DiffScope | undefined,
@@ -292,7 +297,7 @@ export function resolveDiffScope(
     return scope;
   }
   const from = scope.kind === "turn" ? marks?.turnHead : marks?.sessionHead;
-  return from ? { kind: "range", from } : { kind: "working-tree" };
+  return from ? { kind: "range", from } : { kind: "unmarked", scope: scope.kind };
 }
 
 /** The working tree's diff, per file. */

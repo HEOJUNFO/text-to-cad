@@ -212,12 +212,12 @@ describe("review scopes", () => {
     expect(resolveDiffScope({ kind: "session" }, marks)).toEqual({ kind: "range", from: "aaa" });
     expect(resolveDiffScope({ kind: "turn" }, marks)).toEqual({ kind: "range", from: "bbb" });
 
-    // No session, or no mark on it: the working tree, which is the honest
-    // answer — everything in it is new since a point that was never recorded.
-    expect(resolveDiffScope({ kind: "turn" }, null)).toEqual({ kind: "working-tree" });
+    // No session, or no mark on it: an explicit unmarked scope, never the
+    // working tree under the scope's name.
+    expect(resolveDiffScope({ kind: "turn" }, null)).toEqual({ kind: "unmarked", scope: "turn" });
     expect(
       resolveDiffScope({ kind: "turn" }, { turnHead: null, sessionHead: "aaa" }),
-    ).toEqual({ kind: "working-tree" });
+    ).toEqual({ kind: "unmarked", scope: "turn" });
 
     // Everything else passes through untouched, including no scope at all.
     expect(resolveDiffScope(undefined, marks)).toEqual({ kind: "working-tree" });

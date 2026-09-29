@@ -15,7 +15,9 @@
  * tree was when the newest turn began, and when the session was created. They
  * become an open-ended `range`, which git measures against the working tree —
  * so an edit the agent has not committed is in the answer, which is the whole
- * point of reviewing a turn.
+ * point of reviewing a turn. A session with no recorded mark resolves to
+ * `unmarked`, answered with an empty status that names the missing mark —
+ * never the working tree under the scope's name.
  */
 import path from "node:path";
 

@@ -311,7 +311,7 @@ function ReviewBody({
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <Totals deletions={status.deletions} insertions={status.insertions} />
+        {status.unmarked ? null : <Totals deletions={status.deletions} insertions={status.insertions} />}
 
         <div className="flex-1" />
 
@@ -363,7 +363,18 @@ function ReviewBody({
         </div>
       ) : null}
 
-      {status.files.length === 0 ? (
+      {/*
+        Main had no recorded revision for this scope. Its answer is empty on
+        purpose — the working tree would be a different revision under this
+        scope's name — so say why rather than "No changes".
+      */}
+      {status.unmarked ? (
+        <EmptyState
+          description={unmarkedDescription(status.unmarked, status.unborn)}
+          icon={GitCompare}
+          title={status.unmarked === "turn" ? "No turn recorded yet" : "No session start recorded"}
+        />
+      ) : status.files.length === 0 ? (
         <EmptyState
           description={emptyDescription(scope)}
           icon={GitCompare}
@@ -412,6 +423,15 @@ function ReviewBody({
       )}
     </div>
   );
+}
+
+function unmarkedDescription(which: "turn" | "session", unborn: boolean): string {
+  if (unborn) {
+    return `This repository has no commits yet, so there is no revision to measure ${REVIEW_SCOPE_LABELS[which]} from. All changes shows the working tree.`;
+  }
+  return which === "turn"
+    ? "Last turn starts with the next prompt. All changes shows the working tree."
+    : "No revision was recorded when this session began, so there is nothing to measure it from. All changes shows the working tree.";
 }
 
 function emptyDescription(scope: ReviewScope): string {
