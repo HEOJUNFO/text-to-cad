@@ -164,4 +164,32 @@ describe("package.mjs", () => {
       expect([...CHECKED_OUT_RESOURCES].sort()).toEqual([...copied].sort());
     });
   });
+
+  describe("the README's Packaging section", () => {
+    const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+    const readme = fs.readFileSync(path.join(appRoot, "README.md"), "utf8");
+    const section = (heading: string) => {
+      const start = readme.indexOf(`\n### ${heading}\n`);
+      expect(start, heading).toBeGreaterThan(-1);
+      const end = readme.slice(start + 1).search(/\n##+ /);
+      return readme.slice(start, end === -1 ? undefined : start + 1 + end);
+    };
+
+    it("names every variable signingEnv reads under Signing", () => {
+      const signing = section("Signing");
+      for (const name of ["CSC_LINK", "CSC_KEY_PASSWORD", "WIN_CSC_LINK", "WIN_CSC_KEY_PASSWORD", "APPLE_ID", "APPLE_APP_SPECIFIC_PASSWORD", "APPLE_TEAM_ID"]) {
+        expect(signing, name).toContain(`\`${name}\``);
+      }
+    });
+
+    it("names every extraResource electron-builder.yml copies under What is bundled", () => {
+      const bundled = section("What is bundled");
+      const config = fs.readFileSync(path.join(appRoot, "electron-builder.yml"), "utf8");
+      for (const [, from] of config.matchAll(/^\s*- from: (\S+)$/gm)) {
+        // `resources/runtime/${os}-${arch}` is written `resources/runtime/<os>-<arch>/`.
+        const named = from!.replace("${os}-${arch}", "<os>-<arch>");
+        expect(bundled, from).toMatch(new RegExp(`\`${named.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/?\``));
+      }
+    });
+  });
 });

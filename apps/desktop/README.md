@@ -419,8 +419,18 @@ of configs to keep in step — the secrets are there or they are not:
 | Set | Result |
 | --- | --- |
 | nothing | unsigned; `CSC_IDENTITY_AUTO_DISCOVERY=false`, so a certificate in your keychain cannot quietly change the artifact |
-| `CSC_LINK`, `CSC_KEY_PASSWORD` | signed |
+| `CSC_LINK`, `CSC_KEY_PASSWORD` (`--mac`) | signed, not notarised — on a laptop only; on CI (`CI` or `GITHUB_ACTIONS` set) the build is refused |
 | …plus `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | signed and notarised |
+| `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD` (`--win`) | Authenticode-signed installer |
+
+`CSC_LINK` is the Apple certificate and nothing else. electron-builder falls
+back to it for Windows when `WIN_CSC_LINK` is unset, which would sign the
+installer with the Apple cert and pin its subject as the publisher every later
+update is checked against, so `scripts/package.mjs` drops the Apple variables
+from any invocation that is not `--mac` and refuses `--mac` together with
+another os while `CSC_LINK` is set. Linux builds are never signed. The release
+workflow hands the Apple secrets to the macOS leg only and has no
+`WIN_CSC_LINK` yet, so its Windows installer is unsigned.
 
 `hardenedRuntime` and the entitlements (`build/entitlements.mac*.plist`) are on
 either way, so the first signed build is not the first time they are exercised.
@@ -436,13 +446,23 @@ launch and every six hours, with `autoDownload` off: the app says an update
 exists and downloads when asked. Settings › About and updates is the whole UI.
 Development builds report `unsupported` and check nothing.
 
+electron-updater reads the latest *published* Release, so one without a
+platform's feed would strand every installed app on that platform. A run whose
+artifacts lack `latest-mac.yml` or `latest.yml` still tags and uploads, but
+leaves the Release a draft (installed apps keep the previous feed); re-running
+the failed desktop jobs re-runs the publish and releases it. Linux is
+best-effort, so `latest-linux.yml` is not required.
+
 ### What is bundled
 
 `resources/runtime/<os>-<arch>/` (the CAD runtime: a pinned Python with
 cadgen and its whole closure installed), `resources/cadgen/` (the wheel and
 its constraints) and `resources/skills/` (the composed skills) ship beside
 the app as `extraResources`; all three are build outputs, gitignored under a
-committed `.gitkeep`. `npm run build` fills the skills; `npm run
+committed `.gitkeep`. Two more are committed and copied as they are:
+`resources/sample/` (the onboarding sample, Try the sample) and
+`src/main/browser/vendor/LICENSE`, which lands as
+`notices/browser-use-browser-harness-js-LICENSE`. `npm run build` fills the skills; `npm run
 cad:resources` fills the wheel directory from a checkout after verifying the
 ignored cadgen `_runtime` bundle is complete (the release
 workflow drops the wheel it just built into it instead); `npm run
@@ -452,6 +472,19 @@ and Linux their own). The MCP server ships inside `out/text-to-cad-mcp/`,
 unpacked from the asar so an agent can run it by path. See
 `resources/README.md` for the bundler's steps, the cross-target rule and the
 signing note.
+
+The release workflow checks out without git-lfs, and the root tracks `*.step`
+in LFS, so a checked-out resource can arrive as a 130-byte pointer.
+`scripts/package.mjs` looks through every checked-out extraResource after the
+build and refuses to package one that is a pointer — take it out of LFS with a
+`.gitattributes` beside it, as `resources/sample/` has, or `git lfs pull`.
+
+A runtime is current only for the wheel it was installed from. `bundle:runtime`
+records the wheel's name and `wheelSha256` in the runtime's `runtime.json`,
+and `scripts/package.mjs` treats a bundle whose hash differs from the wheel now
+in `resources/cadgen/` as missing. `npm run cad:resources` rebuilds the wheel
+under the same `cadgen-<version>` name but with a new hash, so a
+`bundle:runtime` has to follow it before the next package.
 
 ## Layout
 
