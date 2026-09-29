@@ -6,9 +6,11 @@ import Text from "@tiptap/extension-text";
 import { Placeholder } from "@tiptap/extensions";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import { useEffect, useImperativeHandle, useMemo, useRef, type KeyboardEvent, type Ref } from "react";
+import { toast } from "sonner";
 
 import { cn } from "@renderer/lib/utils";
 
+import { attachmentRefusal, MAX_INLINE_TEXT_BYTES } from "./attachments";
 import { ReferenceNode } from "./ReferenceNode";
 import { docFromText, inlineContentFromText, textFromDoc } from "./references";
 
@@ -148,6 +150,13 @@ export function ComposerEditor({
           const text = event.clipboardData?.getData("text/plain") ?? "";
           if (!text) {
             return false;
+          }
+          // An attached text file past the limit is refused; pasted, it is
+          // the same prompt, so it is refused the same way. Claimed, so
+          // ProseMirror does not paste it either.
+          if (text.length > MAX_INLINE_TEXT_BYTES / 4 && new TextEncoder().encode(text).length > MAX_INLINE_TEXT_BYTES) {
+            toast.error(attachmentRefusal.pasteTooLarge());
+            return true;
           }
           // Pasted text is read the way typed text is: its references are
           // chips at once, its newlines hard breaks.
