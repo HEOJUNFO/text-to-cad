@@ -26,8 +26,8 @@ import {
   settings,
 } from "../db/repositories";
 import { emptyTreeIfUnborn, head, isUnder, samePath } from "../projects/git";
-import { releaseWorkspace, resolveWorkspace } from "../projects/workspace";
-import { markCreating, pruneProjectWorktrees } from "./git";
+import { releaseWorkspace } from "../projects/workspace";
+import { sessionWorkspace, sessionWorkspaceSettled } from "./git";
 import { browserService } from "../browser/service";
 import { clearBrowserSessionStorage } from "../browser/storage";
 import { explorerTerminals } from "./explorer";
@@ -71,9 +71,6 @@ export const agentOptions: AgentOptionStore = new AgentOptionStore({
   },
 });
 
-/** Each created worktree's unmark, until its session row is written. */
-const settling = new Map<object, () => void>();
-
 export const sessionManager: SessionManager = new SessionManager({
   repo: sessions,
   detector,
@@ -111,34 +108,9 @@ export const sessionManager: SessionManager = new SessionManager({
     : undefined,
 
   /** P7: the git mode as a directory, and a worktree when the mode asks (plan §9). */
-  workspace: async ({ projectId, gitMode, name, cwd }) => {
-    const project = projects.get(projectId);
-    if (!project) {
-      throw new Error("that project is no longer open");
-    }
-    const workspace = await resolveWorkspace({
-      project,
-      gitMode,
-      settings: settings.get(),
-      name,
-      cwd,
-      knownWorktrees: sessions.list(project.id).flatMap(session => session.worktreePath ? [session.worktreePath] : []),
-    });
-    if (workspace.worktreePath) {
-      // One more worktree exists, so this is the moment the keep limit can be
-      // exceeded. This one has no session row yet — that is written after
-      // this returns — so it is marked as being created until
-      // `workspaceSettled`, and the sweep (this one, or a concurrent
-      // create's) leaves it alone.
-      settling.set(workspace, markCreating(workspace.worktreePath));
-      await pruneProjectWorktrees(project);
-    }
-    return workspace;
-  },
-  workspaceSettled: (workspace) => {
-    settling.get(workspace)?.();
-    settling.delete(workspace);
-  },
+  workspace: sessionWorkspace,
+  // The keep-limit sweep starts here, after the row, and is not awaited.
+  workspaceSettled: sessionWorkspaceSettled,
 
   head: (cwd) => head(cwd),
   emptyTree: (cwd) => emptyTreeIfUnborn(cwd),

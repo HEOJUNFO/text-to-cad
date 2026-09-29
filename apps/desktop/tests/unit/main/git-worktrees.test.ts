@@ -13,7 +13,7 @@
  * that looks like a bug in the code under test.
  */
 import { execFile } from "node:child_process";
-import { chmod, mkdtemp, mkdir, readdir, realpath, rm, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readdir, readFile, realpath, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -508,6 +508,29 @@ describe("pruneWorktrees", () => {
 
     const { removed } = await git.pruneWorktrees({ repoPath: root, parentDir: worktrees, keep: 1 });
     expect(removed).toEqual([idle.path]);
+  });
+
+  it("dates nothing when the worktrees are within the limit", async () => {
+    const { root, worktrees } = await repository();
+    for (const name of ["one", "two"]) {
+      await git.createWorktree({ repoPath: root, parentDir: worktrees, name });
+    }
+    // A `git` first on PATH that writes down every argv it is given.
+    const real = (await run("sh", ["-c", "command -v git"])).stdout.trim();
+    const bin = await scratch("text-to-cad-git-log-");
+    const log = path.join(bin, "calls");
+    await writeFile(path.join(bin, "git"), `#!/bin/sh\necho "$*" >> "${log}"\nexec "${real}" "$@"\n`, { mode: 0o755 });
+    const previous = process.env.PATH;
+    process.env.PATH = `${bin}${path.delimiter}${previous ?? ""}`;
+    try {
+      expect((await git.pruneWorktrees({ repoPath: root, parentDir: worktrees, keep: 2 })).removed).toEqual([]);
+    } finally {
+      process.env.PATH = previous;
+    }
+    const calls = (await readFile(log, "utf8")).split("\n").filter(Boolean);
+    expect(calls.some((call) => call.startsWith("worktree list"))).toBe(true);
+    // Two worktrees and a limit of two: which is older does not matter.
+    expect(calls.filter((call) => /ls-files|%ct|^status/.test(call))).toEqual([]);
   });
 
   it("never removes one with an open session or uncommitted work", async () => {

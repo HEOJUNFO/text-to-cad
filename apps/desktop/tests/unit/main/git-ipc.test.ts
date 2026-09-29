@@ -37,7 +37,7 @@ vi.mock("@main/db/repositories", async () => {
   };
 });
 
-import { gitHandlers, markCreating, pruneProjectWorktrees } from "@main/ipc/git";
+import { gitHandlers, markCreating, pruneProjectWorktrees, sessionWorkspace, sessionWorkspaceSettled } from "@main/ipc/git";
 import * as git from "@main/projects/git";
 import { legacyProjectWorktreeDir, projectWorktreeDir } from "@main/projects/workspace";
 
@@ -192,3 +192,45 @@ test("two creates in flight at keep 1: neither sweep removes the other's worktre
   expect(await exists(first.path)).toBe(false);
   expect(await exists(second.path)).toBe(true);
 });
+
+test("a create does not wait on the keep-limit sweep, which runs once the row exists", async () => {
+  const project = await repository("a", path.join(base, "robot-arm"));
+  state.settings = { autoDeleteWorktrees: true, worktreeKeepLimit: 1 };
+  const parentDir = projectWorktreeDir({ worktreeRoot: state.worktreeRoot }, project);
+  // Two nobody uses, at a limit of one (a session's own never counts): the
+  // older is past it.
+  const old = await git.createWorktree({ repoPath: project.path, parentDir, name: "old" });
+  const hourAgo = new Date(Date.now() - 3_600_000);
+  await utimes(path.join(old.path, "README.md"), hourAgo, hourAgo);
+  await utimes(old.path, hourAgo, hourAgo);
+  const recent = await git.createWorktree({ repoPath: project.path, parentDir, name: "recent" });
+
+  // A `git` whose `worktree list` — the sweep's first read — waits for a
+  // gate file: a sweep over a large repository, as slow as it likes (thirty
+  // seconds at most, so a failed run leaves nothing spinning).
+  const real = (await run("sh", ["-c", "command -v git"])).stdout.trim();
+  const bin = path.join(base, "bin");
+  await mkdir(bin);
+  const gate = path.join(base, "gate");
+  await writeFile(
+    path.join(bin, "git"),
+    `#!/bin/sh\ncase "$*" in *"worktree list"*) i=0; while [ ! -f "${gate}" ] && [ $i -lt 1500 ]; do sleep 0.02; i=$((i+1)); done;; esac\nexec "${real}" "$@"\n`,
+    { mode: 0o755 },
+  );
+  process.env.PATH = `${bin}${path.delimiter}${process.env.PATH ?? ""}`;
+
+  // Far longer than a create takes, far shorter than the gate holds.
+  const held = new Promise<"held">((resolve) => setTimeout(() => resolve("held"), 10_000));
+  const workspace = await Promise.race([sessionWorkspace({ projectId: project.id, gitMode: "worktree", name: "new" }), held]);
+  expect(workspace).not.toBe("held");
+  const created = workspace as Awaited<ReturnType<typeof sessionWorkspace>>;
+  // The row is written, and the create is told so — which starts the sweep.
+  state.sessions.push({ id: "s", projectId: project.id, cwd: created.cwd, worktreePath: created.worktreePath!, archived: false });
+  sessionWorkspaceSettled(created);
+  expect(await exists(old.path)).toBe(true);
+
+  await writeFile(gate, "");
+  await vi.waitFor(async () => expect(await exists(old.path)).toBe(false), { timeout: 15_000, interval: 100 });
+  expect(await exists(recent.path)).toBe(true);
+  expect(await exists(created.cwd)).toBe(true);
+}, 40_000);
