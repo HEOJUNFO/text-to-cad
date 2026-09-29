@@ -115,6 +115,15 @@ describe("package.mjs", () => {
       expect(signingEnv(["--mac"], { CI: "true" })).toMatchObject({ signed: false, notarize: false });
       expect(signingEnv(["--mac"], { ...APPLE, CI: "true" })).toMatchObject({ signed: true, notarize: true });
     });
+
+    it("logs the certificate each os is signed with, and none for Linux, which is never signed", async () => {
+      const { signingEnv, signingLine } = await import("../../../scripts/package.mjs");
+      const logged = (flag: string, source: Record<string, string>) => signingLine([flag], signingEnv([flag], source));
+      expect(logged("--mac", APPLE)).toBe("signing: on (CSC_LINK), notarisation: on");
+      expect(logged("--win", { WIN_CSC_LINK: "win.pfx" })).toBe("signing: on (WIN_CSC_LINK), notarisation: n/a");
+      expect(logged("--win", {})).toBe("signing: off (no WIN_CSC_LINK) — CSC_IDENTITY_AUTO_DISCOVERY=false");
+      expect(logged("--linux", { WIN_CSC_LINK: "win.pfx" })).toBe("signing: off (Linux builds are not signed) — CSC_IDENTITY_AUTO_DISCOVERY=false");
+    });
   });
 
   describe("lfsPointers", () => {
