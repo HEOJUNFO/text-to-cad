@@ -210,9 +210,9 @@ test("makes a folder from the tree's menu, renames it, and moves it to the trash
   await page.keyboard.press("Enter");
   await expect(page.getByRole("tab", { name: /notes\.md/ })).toBeVisible();
   expect(fs.readFileSync(path.join(docsDir, "assemblies", "notes.md"), "utf8")).toBe("");
-  // F2 renames the cursor row, and Escape leaves it alone.
+  // F2 renames the focused row (a click focuses it), and Escape leaves it alone.
   await folder("assemblies/notes.md").click();
-  await tree.focus();
+  await expect(folder("assemblies/notes.md")).toBeFocused();
   await page.keyboard.press("F2");
   await expect(page.getByLabel("Rename notes.md")).toBeFocused();
   await page.keyboard.press("Escape");

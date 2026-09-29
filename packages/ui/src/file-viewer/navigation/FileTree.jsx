@@ -1,5 +1,5 @@
 import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@text-to-cad/ui/primitives/context-menu";
 import { ScrollArea } from "@text-to-cad/ui/primitives/scroll-area";
@@ -28,9 +28,15 @@ import { InlineName } from "./InlineName.jsx";
  * Every row has the entry menu (`EntryMenu.jsx`) on right-click, filtered by
  * what the host can actually do, and the two items that need a field — Rename,
  * New file/folder — draw it in the row (`InlineName`). The keyboard has the
- * same two: F2 renames the cursor row, ⌘⌫ (Ctrl+Delete) moves it to the trash.
- * Both are capabilities, so in a browser tab neither key does anything and
- * neither item is in the menu.
+ * same two: F2 renames the focused row, ⌘⌫ (Ctrl+Delete) moves it to the trash
+ * and says so. Both are capabilities, so in a browser tab neither key does
+ * anything and neither item is in the menu.
+ *
+ * The rows are the focus, one Tab stop between them (a roving tabindex): the
+ * arrows move focus row to row, and the row with focus is the cursor, the Tab
+ * stop and the row every key acts on. The filter is a combobox over the ranked
+ * list while it has a query: focus stays in the box, the arrows move the
+ * cursor, and `aria-activedescendant` names it.
  *
  * ## The source adapter
  *
@@ -143,6 +149,11 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
   /** The row the context menu is aimed at; the root when the empty space was clicked. */
   const [menuTarget, setMenuTarget] = useState({ path: "", kind: "directory" });
   const listRef = useRef(null);
+  /** Said in the tree's own status region: the one edit that takes a row away without a field. */
+  const [announcement, setAnnouncement] = useState("");
+  const baseId = useId();
+  const listId = `${baseId}-list`;
+  const optionId = (index) => `${baseId}-option-${index}`;
 
   const {
     rootName,
@@ -333,6 +344,11 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
         beginCreate(entry.path, action === "new-file" ? "file" : "directory");
         return;
       }
+      // The menu's Move to Trash and ⌘⌫ are one edit, announced the same way.
+      if (action === "trash" && source.trash) {
+        void trashEntryRef.current(entry);
+        return;
+      }
       source.onAction(action, entry);
     },
     [beginCreate, source]
@@ -375,13 +391,15 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
 
   /**
    * When an inline field goes away the focus goes with it — to `body` — and
-   * the next F2 or arrow key would be lost. The list takes it back, so a
-   * rename from the keyboard ends where it began.
+   * the next F2 or arrow key would be lost. The row takes it back (the one
+   * renamed or made, which is the cursor now), so a rename from the keyboard
+   * ends where it began; the list, if that row is not drawn yet.
    */
   const wasEditing = useRef(false);
   useEffect(() => {
     if (wasEditing.current && editing === null) {
-      listRef.current?.focus();
+      const list = listRef.current;
+      (list?.querySelector('[role=treeitem][tabindex="0"]') ?? list)?.focus();
     }
     wasEditing.current = editing !== null;
   }, [editing]);
@@ -495,43 +513,62 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
   const placed = cursor && visible.includes(cursor) ? cursor : null;
   const cursorPath = placed ?? (activePath && visible.includes(activePath) ? activePath : (visible[0] ?? null));
   const drawnCursor = filtering ? cursorPath : placed;
-  // The row the keys act on is one the eye can find: the drawn cursor, or the
-  // open file (tinted as open). The undrawn first row is only where the first
-  // arrow lands — ⌘⌫ there trashed a folder nobody had picked.
-  const keyed = drawnCursor ?? (cursorPath === activePath ? cursorPath : null);
+  // Where Tab lands in the tree: the cursor row, else the open file, else the
+  // first row. The keys act on the row with focus, never on an undrawn cursor —
+  // ⌘⌫ on the list itself once trashed a folder nobody had picked — and a row
+  // with focus is the cursor, drawn.
+  const stopPath = filtering ? null : cursorPath;
 
-  const onKeyDown = (event) => {
-    if (visible.length === 0) {
-      return;
-    }
-    if (!keyed) {
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        event.preventDefault();
-        setCursor(cursorPath);
-      }
-      return;
-    }
-    const at = visible.indexOf(keyed);
-    if (event.key === "ArrowDown") {
+  /** Put the keyboard on a row: the cursor, and so the Tab stop, follows it. */
+  const focusRow = (path) => {
+    if (!path) return;
+    setCursor(path);
+    listRef.current?.querySelector(`[role=treeitem][data-path="${CSS.escape(path)}"]`)?.focus();
+  };
+
+  /**
+   * Move an entry to the trash and say so. The row goes with it, and focus on
+   * it would go to the page: it moves to the row after, or before, first.
+   */
+  const trashEntry = async (entry) => {
+    const at = rows.findIndex((row) => row.path === entry.path);
+    const inside = (path) => path === entry.path || path.startsWith(`${entry.path}/`);
+    const neighbour = rows.slice(at + 1).find((row) => !inside(row.path)) ?? rows.slice(0, Math.max(at, 0)).reverse()[0];
+    const hadFocus = Boolean(listRef.current?.contains(document.activeElement));
+    const moved = await source.trash?.(entry);
+    if (!moved) return;
+    setAnnouncement(`Moved ${entry.path.split("/").pop()} to the Trash`);
+    if (neighbour && (hadFocus || document.activeElement === document.body)) focusRow(neighbour.path);
+  };
+  // Read by the menu's handler, which is memoised on the source alone.
+  const trashEntryRef = useRef(trashEntry);
+  useEffect(() => {
+    trashEntryRef.current = trashEntry;
+  });
+
+  /** A focused row's keys. Only a row's own: an inline name's field keeps its keys. */
+  const onTreeKeyDown = (event) => {
+    const element = event.target;
+    if (!(element instanceof HTMLElement) || element.getAttribute("role") !== "treeitem") return;
+    const at = rows.findIndex((candidate) => candidate.path === element.dataset.path);
+    const row = rows[at];
+    if (!row) return;
+    const move = (path) => {
       event.preventDefault();
-      setCursor(visible[Math.min(at + 1, visible.length - 1)] ?? null);
-      return;
-    }
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setCursor(visible[Math.max(at - 1, 0)] ?? null);
-      return;
-    }
-    const row = rows.find((candidate) => candidate.path === keyed);
+      focusRow(path);
+    };
+    if (event.key === "ArrowDown") return move(rows[Math.min(at + 1, rows.length - 1)]?.path);
+    if (event.key === "ArrowUp") return move(rows[Math.max(at - 1, 0)]?.path);
+    if (event.key === "Home") return move(rows[0]?.path);
+    if (event.key === "End") return move(rows[rows.length - 1]?.path);
     // The two edits the menu offers, from the keyboard: F2 and ⌘⌫
     // (Ctrl+Delete). Both only where the host offers the menu item too.
-    if (row && event.key === "F2" && capabilities.has("rename")) {
+    if (event.key === "F2" && capabilities.has("rename")) {
       event.preventDefault();
       setEditing({ mode: "rename", entry: { path: row.path, kind: row.kind } });
       return;
     }
     if (
-      row &&
       capabilities.has("trash") &&
       (event.key === "Backspace" || event.key === "Delete") &&
       (platform === "darwin" ? event.metaKey : event.ctrlKey) &&
@@ -539,26 +576,59 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
       !event.shiftKey
     ) {
       event.preventDefault();
-      void source.trash?.({ path: row.path, kind: row.kind });
+      void trashEntry({ path: row.path, kind: row.kind });
       return;
     }
-    if (event.key === "ArrowRight" && row?.kind === "directory" && !row.expanded) {
+    if (event.key === "ArrowRight" && row.kind === "directory") {
       event.preventDefault();
-      toggle(keyed);
+      // Open, then into it.
+      if (!row.expanded) toggle(row.path);
+      else if (rows[at + 1]?.depth > row.depth) focusRow(rows[at + 1].path);
       return;
     }
-    if (event.key === "ArrowLeft" && row?.kind === "directory" && row.expanded) {
+    if (event.key === "ArrowLeft") {
       event.preventDefault();
-      toggle(keyed);
+      // Shut, then up to the folder it is in.
+      if (row.kind === "directory" && row.expanded) toggle(row.path);
+      else focusRow(rows.slice(0, at).reverse().find((candidate) => candidate.depth < row.depth)?.path);
       return;
     }
     if (event.key === "Enter") {
+      // Not the button's own click as well.
       event.preventDefault();
-      if (row?.kind === "directory") {
-        toggle(keyed);
+      if (row.kind === "directory") {
+        toggle(row.path);
       } else {
-        open(keyed);
+        onOpen(row.path);
       }
+    }
+  };
+
+  /**
+   * The filter's keys. With a query, the combobox's: the arrows move the
+   * cursor through the ranked list and Enter opens it. Without one, ArrowDown
+   * goes into the tree. F2 and ⌘⌫ are the box's own here (⌘⌫ deletes the text
+   * before the caret), never an edit of a row the person is not on.
+   */
+  const onFilterKeyDown = (event) => {
+    if (!filtering) {
+      if (event.key === "ArrowDown" && stopPath) {
+        event.preventDefault();
+        focusRow(stopPath);
+      }
+      return;
+    }
+    if (visible.length === 0 || !cursorPath) return;
+    const at = visible.indexOf(cursorPath);
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setCursor(visible[Math.min(at + 1, visible.length - 1)] ?? null);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setCursor(visible[Math.max(at - 1, 0)] ?? null);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      open(cursorPath);
     }
   };
 
@@ -597,9 +667,12 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
 
   const newEntryRow =
     editing?.mode === "create" ? (
+      // A row of the tree, as the tree's children must be; its field is what has focus.
       <div
+        aria-label={editing.kind === "directory" ? "New folder" : "New file"}
         className="flex w-full items-center gap-1.5 pr-2"
         key="__new__"
+        role="treeitem"
         style={{ height: ROW_HEIGHT, paddingLeft: 6 + creatingDepth * INDENT }}
       >
         <span className="w-3 shrink-0" />
@@ -622,12 +695,20 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
   return (
     <div className="flex h-full min-h-0 flex-col bg-sidebar/40">
       <TreeFilterInput data-mobile-panel-top-row=""
+        inputProps={{
+          role: "combobox",
+          "aria-autocomplete": "list",
+          "aria-controls": listId,
+          "aria-expanded": filtering,
+          "aria-activedescendant": filtering && cursorPath ? optionId(visible.indexOf(cursorPath)) : undefined
+        }}
         label="Filter files"
         onChange={setQuery}
-        onKeyDown={onKeyDown}
+        onKeyDown={onFilterKeyDown}
         placeholder="Filter files…"
         value={query}
       />
+      <div aria-live="polite" className="sr-only" role="status">{announcement}</div>
 
       <ContextMenu modal={false}>
         <ContextMenuTrigger asChild>
@@ -635,7 +716,16 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
             className="min-h-0 flex-1"
             onContextMenu={aim}
             viewportClassName="px-1 py-1"
-            viewportProps={{ onKeyDown, role: "tree", tabIndex: 0 }}
+            // A tree of rows (busy while the root is read), or the filter's ranked list — not
+            // while it has no match, when its line is not an option. Not a Tab stop: a row is.
+            viewportProps={{
+              id: listId,
+              onKeyDown: filtering ? undefined : onTreeKeyDown,
+              role: filtering ? (matches.length > 0 ? "listbox" : undefined) : "tree",
+              "aria-busy": !filtering && children[""] === undefined ? true : undefined,
+              "aria-label": filtering ? "Matching files" : "Files",
+              tabIndex: -1
+            }}
             viewportRef={listRef}
           >
             {filtering ? (
@@ -644,10 +734,11 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
                   {corpus === null ? "Searching…" : `No file matches “${query.trim()}”`}
                 </p>
               ) : (
-                matches.map((match) => (
+                matches.map((match, index) => (
                   <FilterRow
                     active={match.path === activePath || match.path === reveal?.path}
                     cursor={match.path === drawnCursor}
+                    id={optionId(index)}
                     indices={match.indices}
                     key={match.path}
                     onOpen={() => open(match.path)}
@@ -667,6 +758,10 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
                     <TreeRow
                       active={row.path === activePath || row.path === reveal?.path}
                       cursor={row.path === drawnCursor}
+                      onFocus={() => {
+                        if (cursor !== row.path) setCursor(row.path);
+                      }}
+                      stop={row.path === stopPath}
                       onRename={
                         editing?.mode === "rename" && editing.entry.path === row.path
                           ? {
@@ -709,7 +804,7 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
   );
 }
 
-function TreeRow({ row, active, cursor, onSelect, onRename }) {
+function TreeRow({ row, active, cursor, stop, onFocus, onSelect, onRename }) {
   const icon =
     row.kind === "directory" ? (
       <FolderIcon className="size-3.5 shrink-0 text-muted-foreground" open={row.expanded} />
@@ -721,9 +816,11 @@ function TreeRow({ row, active, cursor, onSelect, onRename }) {
   if (onRename) {
     return (
       <div
+        aria-label={row.name}
         className="flex w-full items-center gap-1.5 pr-2"
         data-kind={row.kind}
         data-path={row.path}
+        role="treeitem"
         style={{ height: ROW_HEIGHT, paddingLeft: 6 + row.depth * INDENT }}
       >
         {chevron}
@@ -745,12 +842,16 @@ function TreeRow({ row, active, cursor, onSelect, onRename }) {
       active={active}
       cursor={cursor}
       aria-expanded={row.kind === "directory" ? row.expanded : undefined}
+      aria-level={row.depth + 1}
       aria-selected={active}
+      className="outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/45"
       data-kind={row.kind}
       data-path={row.path}
       onClick={onSelect}
+      onFocus={onFocus}
       role="treeitem"
       style={{ height: ROW_HEIGHT, paddingLeft: 6 + row.depth * INDENT }}
+      tabIndex={stop ? 0 : -1}
 
       type="button"
     >
@@ -761,7 +862,7 @@ function TreeRow({ row, active, cursor, onSelect, onRename }) {
   );
 }
 
-function FilterRow({ path, indices, active, cursor, onOpen }) {
+function FilterRow({ id, path, indices, active, cursor, onOpen }) {
   const lastSlash = path.lastIndexOf("/");
   const directory = lastSlash < 0 ? "" : path.slice(0, lastSlash + 1);
   return (
@@ -769,12 +870,16 @@ function FilterRow({ path, indices, active, cursor, onOpen }) {
       as="button"
       active={active}
       cursor={cursor}
-      aria-selected={active}
+      // The option the filter's Enter opens: the one `aria-activedescendant` names.
+      aria-selected={cursor}
       className="px-2"
       data-kind="file"
       data-path={path}
+      id={id}
       onClick={onOpen}
       role="option"
+      // The filter keeps focus while the list is up; a pointer picks.
+      tabIndex={-1}
       style={{ height: ROW_HEIGHT }}
 
       type="button"
