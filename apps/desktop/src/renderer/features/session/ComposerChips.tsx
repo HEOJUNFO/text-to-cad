@@ -63,6 +63,7 @@ export function Chip({
   testId,
   maxWidth = 200,
   disabledReason,
+  hintSide = "bottom",
 }: {
   icon: React.ReactNode;
   maxWidth?: number;
@@ -80,6 +81,12 @@ export function Chip({
    * it rather than opening the menu. No native `title`: the reason is the description.
    */
   disabledReason?: string;
+  /**
+   * Which way the hint opens: away from the box. The row's chips sit under it and open below —
+   * above, the hint lands on the box's right end, which is send. The strip's sit over it and open
+   * above, off the sentence.
+   */
+  hintSide?: "top" | "bottom";
 }) {
   const reasonId = useId();
   // ONE button whether or not the chip can be used, so a keyboard user focused on it while the agent
@@ -101,7 +108,7 @@ export function Chip({
   const body = (
     // `disabled`, not a missing `content`: without content the hint renders a different tree, and
     // the button would be remounted — focus lost — when the chip comes back.
-    <TooltipHint content={title} disabled={Boolean(disabledReason)} side="top">
+    <TooltipHint content={title} disabled={Boolean(disabledReason)} side={hintSide}>
       <button
         aria-describedby={disabledReason ? reasonId : undefined}
         aria-disabled={disabledReason ? "true" : undefined}
@@ -178,17 +185,22 @@ export function ProjectChip({ project, onChange }: { project: Project | null; on
   const projects = useProjects((state) => state.projects);
   const sessions = useSessions((state) => state.sessions);
   const openFolder = useOpenFolder();
+  // The folder this draft is in is listed whether or not a session has run there yet, first when
+  // it has none: a menu that leaves out its own check mark reads as a different folder.
   const recent = useMemo(() => {
     const activeDirectories = new Set(sessions.filter(session => !session.archived).map(session => session.projectId));
-    return recentProjects(projects.filter(candidate => activeDirectories.has(candidate.id)), sessions);
-  }, [projects, sessions]);
+    const listed = recentProjects(projects.filter(candidate => activeDirectories.has(candidate.id)), sessions);
+    return project && !listed.some(candidate => candidate.id === project.id) ? [project, ...listed] : listed;
+  }, [project, projects, sessions]);
   return (
     <Chip
       icon={<Folder />}
       label={project?.name ?? "Choose folder"}
       menu={
         <>
-          <DropdownMenuLabel className="text-[11px] text-muted-foreground uppercase">Recent</DropdownMenuLabel>
+          {recent.length > 0 ? (
+            <DropdownMenuLabel className="text-[11px] text-muted-foreground uppercase">Recent</DropdownMenuLabel>
+          ) : null}
           {recent.map((candidate) => (
             // The name is what a person picks by; the path is a hover away
             // rather than a second line under every row.
@@ -201,7 +213,7 @@ export function ProjectChip({ project, onChange }: { project: Project | null; on
               </DropdownMenuItem>
             </TooltipHint>
           ))}
-          <DropdownMenuSeparator />
+          {recent.length > 0 ? <DropdownMenuSeparator /> : null}
           <DropdownMenuItem
             onSelect={() =>
               void openFolder().then((added) => {
@@ -215,6 +227,7 @@ export function ProjectChip({ project, onChange }: { project: Project | null; on
           </DropdownMenuItem>
         </>
       }
+      hintSide="top"
       maxWidth={150}
       testId="project"
       title={project?.path}
@@ -270,6 +283,7 @@ export function GitModeChip({
           </DropdownMenuRadioItem>
         </DropdownMenuRadioGroup>
       }
+      hintSide="top"
       testId="git-mode"
       title={isWorktree ? "A fresh branch in a worktree of its own" : "The project's own folder"}
     />

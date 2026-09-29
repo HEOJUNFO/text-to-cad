@@ -550,7 +550,7 @@ function AttachButton({
   return (
     <>
       <input aria-hidden className="hidden" data-attach-input multiple onChange={take} ref={files} tabIndex={-1} type="file" />
-      <TooltipHint content="Attach files or photos" side="top">
+      <TooltipHint content="Attach files or photos" side="bottom">
         <PromptInputButton
           aria-label="Attach files or photos"
           className="size-7 text-muted-foreground"
