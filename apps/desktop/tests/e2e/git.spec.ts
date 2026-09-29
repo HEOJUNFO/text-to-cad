@@ -267,9 +267,22 @@ function git(...args: string[]) {
 async function expectReviewShowsBoth() {
   await expect(page.getByRole("button", { name: /tracked\.txt/ }).last()).toContainText("+1");
   await expect(page.getByRole("button", { name: /agent\.txt/ }).last()).toContainText("+1");
-  // agent.txt is new, so it is its one side rather than a diff against an empty file.
-  await expect(page.locator("[data-review-diff=modified] .monaco-diff-editor")).toHaveCount(1, { timeout: 30_000 });
-  await expect(page.locator("[data-review-diff=added] .monaco-editor")).toHaveCount(1, { timeout: 30_000 });
+  // Each file's block once it has drawn (`data-review-ready`, review-diff.tsx), and only then
+  // the count: the editor's DOM is the end of a chain — status, the file's own diff read, the
+  // loader, the widget, the worker's diff — and polling for the DOM alone could not say which
+  // link a slow run was still on. tracked.txt is modified, so a diff; agent.txt is new, so its
+  // one side rather than a diff against an empty file.
+  await expectDrawn("tracked.txt", "modified");
+  await expectDrawn("agent.txt", "added");
+  await expect(page.locator("[data-review-diff=modified] .monaco-diff-editor")).toHaveCount(1);
+  await expect(page.locator("[data-review-diff=added] .monaco-editor")).toHaveCount(1);
+}
+
+/** One file's section has its diff read, as `kind`, and drawn. */
+async function expectDrawn(file: string, kind: "modified" | "added") {
+  const block = page.locator(`[data-review-file="${file}"] [data-review-diff]`);
+  await expect(block).toHaveAttribute("data-review-diff", kind, { timeout: 30_000 });
+  await expect(block).toHaveAttribute("data-review-ready", "true", { timeout: 30_000 });
 }
 
 async function chooseScope(label: string) {

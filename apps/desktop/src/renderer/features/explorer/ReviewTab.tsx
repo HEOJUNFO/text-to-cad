@@ -645,7 +645,7 @@ function FileSection({
   const badge = badgeFor(file.status);
 
   return (
-    <section className="border-b" ref={ref}>
+    <section className="border-b" data-review-file={file.path} ref={ref}>
       {/*
         One row: the toggle takes the name and the counts, and Request
         revision sits after them at the right — a sibling, since a button
