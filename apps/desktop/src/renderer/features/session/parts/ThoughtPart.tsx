@@ -8,11 +8,16 @@ import {
   useReasoning,
 } from "@renderer/components/ai-elements/reasoning";
 
+import { TRANSCRIPT_COMPONENTS } from "../links/components";
+
 /**
  * A thought chunk as AI Elements' Reasoning: collapsed, one line —
  * "Thought for 12s" — that opens to the text. The duration is measured
  * here from when the chunk started streaming to when it stopped; a
  * replayed transcript has no timing, so it says "Thought".
+ *
+ * Its markdown draws links and images the way the transcript's prose does
+ * (`TRANSCRIPT_COMPONENTS`): a thought is the agent's words too.
  *
  * The disclosure chevron leads, in the slot the activity group's summary
  * line uses for its own — one side for every fold in the transcript.
@@ -23,7 +28,12 @@ export function ThoughtPart({ text, streaming }: { text: string; streaming: bool
       <ReasoningTrigger className="rounded-md px-1.5 py-0.5 text-[13px] leading-5 hover:bg-accent/60 hover:text-foreground">
         <TriggerBody />
       </ReasoningTrigger>
-      <ReasoningContent className="ui-disclosure mt-1 ml-6 min-w-0 [overflow-wrap:anywhere] text-[13px] leading-6">{text}</ReasoningContent>
+      <ReasoningContent
+        className="ui-disclosure mt-1 ml-6 min-w-0 [overflow-wrap:anywhere] text-[13px] leading-6"
+        components={TRANSCRIPT_COMPONENTS}
+      >
+        {text}
+      </ReasoningContent>
     </Reasoning>
   );
 }

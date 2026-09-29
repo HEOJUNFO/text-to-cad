@@ -97,12 +97,14 @@ not.
   be a channel that reads any file on the machine.
 - **`src/renderer/components/{ui,ai-elements}` is vendored**, from the shadcn
   and AI Elements registries. It is excluded from eslint (not from the
-  typechecker). Three deliberate edits are in it: the `ai` package's types are
+  typechecker). These deliberate edits are in it: the `ai` package's types are
   replaced by `./types` (`components/ai-elements/types.ts`), about nine
-  index accesses are guarded for `noUncheckedIndexedAccess`, and `shimmer.tsx`
+  index accesses are guarded for `noUncheckedIndexedAccess`, `shimmer.tsx`
   sweeps a foreground-coloured band rather than a background-coloured one
-  (the stock band erases the letters it passes over). Re-vendoring a
-  component means redoing those.
+  (the stock band erases the letters it passes over), and `reasoning.tsx`'s
+  `ReasoningContent` takes Streamdown `components`, so a thought draws links
+  and images through the transcript's own (a stock thought fetches any
+  `https:` image on paint). Re-vendoring a component means redoing those.
 - **Nothing is installed into an agent's configuration.** text-to-cad's skills
   and its tools are given to each session — the skills root as an additional
   directory on `session/new` and `session/load` (both spellings) plus a

