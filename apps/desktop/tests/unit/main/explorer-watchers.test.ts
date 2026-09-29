@@ -155,6 +155,28 @@ describe("visible file watching", () => {
     expect(emit.mock.calls[0]![1]).toHaveLength(2);
   });
 
+  it("keeps an opened link's own path and reports its target's changes under it", async () => {
+    await fs.mkdir(path.join(root, "versions"));
+    await fs.writeFile(path.join(root, "versions", "v3.txt"), "v3\n");
+    await fs.symlink(path.join("versions", "v3.txt"), path.join(root, "current.txt"));
+    const entry = await statFile(root, "current.txt");
+    // The tab is the link: its identity is not its target's.
+    expect(entry).toMatchObject({ path: "current.txt", name: "current.txt", kind: "file" });
+    await watchers.watch(root);
+    await watchers.watchEntry(root, entry);
+    const realRoot = await fs.realpath(root);
+    // The target's directory is watched too; that is where its events come from.
+    const targetDirectory = driver.direct.mock.calls.findIndex(([directory]) => directory === path.join(realRoot, "versions"));
+    expect(targetDirectory).toBeGreaterThanOrEqual(0);
+    const notify = driver.direct.mock.calls[targetDirectory]![2] as (event: string, filename: string) => void;
+    await fs.writeFile(path.join(root, "versions", "v3.txt"), "v3, edited\n");
+    notify("change", "v3.txt");
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledWith(root, [
+      { path: "versions/v3.txt", kind: "changed", directory: false, revision: revisionOf("v3, edited\n") },
+      { path: "current.txt", kind: "changed", directory: false, revision: revisionOf("v3, edited\n") },
+    ]));
+  });
+
   it("cancels setup without creating a watcher when the last owner leaves", async () => {
     const pending = watchers.watch(root);
     await watchers.unwatch(root);

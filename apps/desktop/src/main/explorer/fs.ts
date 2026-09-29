@@ -411,13 +411,23 @@ export async function listPaths(
 /** Above this a file opens read-only with a notice instead of in the editor. */
 export const MAX_TEXT_BYTES = 4 * 1024 * 1024;
 
+/**
+ * A file as a tab opens it. The path is the one asked for, not its target:
+ * a tab opened on `current.step -> v3.step` is the link, so its crumbs, its
+ * identity and the changes it listens for stay the link's (`FileWatchers`
+ * reports its target's changes under the link's name too). The type, size
+ * and time are the target's.
+ */
 export async function statFile(root: string, target: string): Promise<FileStat> {
   const absolute = await resolveInRoot(root, target);
   const stats = await fs.stat(absolute);
   const { kind, mime, extension } = detectType(absolute);
+  const realRoot = await fs.realpath(root).catch(() => path.resolve(root));
+  const spelled = path.resolve(realRoot, target);
+  const identity = isInside(realRoot, spelled) ? spelled : absolute;
   return {
-    path: toRelative(await fs.realpath(root).catch(() => root), absolute),
-    name: path.basename(absolute),
+    path: toRelative(realRoot, identity),
+    name: path.basename(identity),
     kind: stats.isDirectory() ? "directory" : "file",
     size: stats.size,
     modifiedAt: Math.round(stats.mtimeMs),
@@ -807,6 +817,8 @@ export class FileWatchers {
    * inode is what says the two are one file, so a tab can follow it.
    */
   private readonly identities = new Map<string, Map<string, Identity>>();
+  /** Per root, each opened link's target and the link paths tabs hold for it. */
+  private readonly aliases = new Map<string, Map<string, Set<string>>>();
 
   constructor(private readonly emit: (root: string, changes: FileChange[]) => void) {}
 
@@ -869,6 +881,23 @@ export class FileWatchers {
     await this.watchListedDirectory(root, entry.kind === "directory" ? entry.path : path.posix.dirname(entry.path));
     if (entry.kind !== "file") return;
     const realRoot = await fs.realpath(root).catch(() => path.resolve(root));
+    const real = toRelative(realRoot, await resolveInRoot(root, entry.path));
+    if (real !== entry.path) {
+      // A link, or a path through a linked directory. Events name the target
+      // (symlinks are not followed), so the target's directory is watched
+      // and its changes are repeated under the name the tab holds.
+      await this.watchListedDirectory(root, path.posix.dirname(real));
+      if (!this.watchers.has(root)) return;
+      let links = this.aliases.get(root);
+      if (!links) {
+        links = new Map();
+        this.aliases.set(root, links);
+      }
+      links.set(real, new Set([...(links.get(real) ?? []), entry.path]));
+      // The inode is the target's: a move of the target is not a move of
+      // the link, which is left dangling.
+      return;
+    }
     const stats = await fs.stat(path.join(realRoot, entry.path)).catch(() => null);
     if (!stats || !this.watchers.has(root)) return;
     let known = this.identities.get(root);
@@ -927,6 +956,7 @@ export class FileWatchers {
     this.watchers.delete(root);
     this.listedDirectories.delete(root);
     this.identities.delete(root);
+    this.aliases.delete(root);
     this.clearTimer(root);
     this.pending.delete(root);
     for (const direct of existing.direct.values()) direct.close();
@@ -944,6 +974,7 @@ export class FileWatchers {
     }
     this.listedDirectories.clear();
     this.identities.clear();
+    this.aliases.clear();
     this.pending.clear();
   }
 
@@ -1001,7 +1032,23 @@ export class FileWatchers {
       const content = await fs.readFile(absolute).catch(() => null);
       return content ? { ...change, revision: revisionOf(content) } : change;
     }));
-    return this.pairMoves(root, realRoot, stamped);
+    return this.throughLinks(root, await this.pairMoves(root, realRoot, stamped));
+  }
+
+  /** Each change to an opened link's target, repeated under the link's name. */
+  private throughLinks(root: string, changes: FileChange[]): FileChange[] {
+    const links = this.aliases.get(root);
+    if (!links?.size) return changes;
+    const repeated = changes.flatMap((change) => {
+      const target = change.kind === "moved" ? change.previousPath : change.path;
+      const names = links.get(target);
+      if (!names || change.directory) return [];
+      // A target moved away leaves the link dangling: to its tab, a removal.
+      return [...names].map((name): FileChange => change.kind === "moved"
+        ? { kind: "removed", path: name, directory: false }
+        : { ...change, path: name });
+    });
+    return repeated.length ? [...changes, ...repeated] : changes;
   }
 
   /**
