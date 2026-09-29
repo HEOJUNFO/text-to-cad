@@ -125,7 +125,7 @@ test("a new session runs a Codex-shaped turn through every state", async () => {
   await page.keyboard.press("Escape");
   await expect(menu).toBeHidden();
 
-  const composer = page.getByPlaceholder(/^(Do anything|Describe a part to build…)$/);
+  const composer = page.getByPlaceholder("Describe a part to build…", { exact: true });
   await composer.fill("showcase: write a greeting script and tidy up");
   await composer.press("Enter");
 
@@ -288,7 +288,7 @@ test("text in an agent's message can be selected", async () => {
   // Prepare that same turn when this test runs on its own as well.
   if ((await page.locator("[data-part=text]").count()) === 0) {
     await expect(page.locator("[data-new-session] [data-chip=model]")).toContainText("Fast");
-    const composer = page.getByPlaceholder(/^(Do anything|Describe a part to build…)$/);
+    const composer = page.getByPlaceholder("Describe a part to build…", { exact: true });
     await composer.fill("showcase: write a greeting script and tidy up");
     await composer.press("Enter");
     await page.locator("[data-permission][data-outcome=pending]").getByRole("button", { name: "Yes", exact: true }).click();
@@ -435,7 +435,7 @@ test("the composer starts at one row, grows, and caps at eight", async () => {
 });
 
 test("stop cancels the running turn", async () => {
-  const composer = page.getByPlaceholder(/^(Do anything|Describe a part to build…)$/);
+  const composer = page.getByPlaceholder("Do anything", { exact: true });
   await composer.fill("slow");
   await composer.press("Enter");
   await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
@@ -447,7 +447,7 @@ test("stop cancels the running turn", async () => {
 });
 
 test("a queued prompt goes out when the turn ends", async () => {
-  const composer = page.getByPlaceholder(/^(Do anything|Describe a part to build…)$/);
+  const composer = page.getByPlaceholder("Do anything", { exact: true });
   await composer.fill("slow");
   await composer.press("Enter");
   await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
@@ -461,7 +461,7 @@ test("a queued prompt goes out when the turn ends", async () => {
 });
 
 test("a crashed agent is an inline error with retry, and reconnecting resumes the history", async () => {
-  const composer = page.getByPlaceholder(/^(Do anything|Describe a part to build…)$/);
+  const composer = page.getByPlaceholder("Do anything", { exact: true });
   await composer.fill("crash");
   await composer.press("Enter");
   await expect(page.locator("[data-part=error]")).toBeVisible();
@@ -545,7 +545,7 @@ test("the new session is created in the mode its chip is on, and Manual waits", 
   await expect(chip).toContainText("Manual");
   await expectNoChevrons();
 
-  const composer = page.getByPlaceholder(/^(Do anything|Describe a part to build…)$/);
+  const composer = page.getByPlaceholder("Describe a part to build…", { exact: true });
   await composer.fill("permission to run ls");
   await composer.press("Enter");
 
@@ -561,8 +561,9 @@ test("the new session is created in the mode its chip is on, and Manual waits", 
   // And it was created in Manual: the fake reports what the client set on it
   // and which mode it ended in, so no `mode:` at all is the assertion —
   // `default` is where it starts and where the chip said to leave it.
-  await composer.fill("applied");
-  await composer.press("Enter");
+  const live = page.getByPlaceholder("Do anything", { exact: true });
+  await live.fill("applied");
+  await live.press("Enter");
   await expect(page.locator("[data-turn][data-role=agent]").last()).toContainText("in default");
   await expect(page.locator("[data-turn][data-role=agent]").last()).not.toContainText("mode:");
 });
@@ -578,7 +579,7 @@ test("the full-access mode is never asked anything", async () => {
   await page.getByRole("menu").getByRole("menuitemradio", { name: /Full access/ }).click();
   await expect(chip).toContainText("Full access");
 
-  const composer = page.getByPlaceholder(/^(Do anything|Describe a part to build…)$/);
+  const composer = page.getByPlaceholder("Describe a part to build…", { exact: true });
   await composer.fill("permission to run ls");
   await composer.press("Enter");
   await expect(page.locator("[data-session-view]")).toHaveAttribute("data-session-status", "idle", { timeout: 20_000 });
@@ -586,8 +587,9 @@ test("the full-access mode is never asked anything", async () => {
   // made. Nothing here auto-answered one.
   await expect(page.locator("[data-permission]")).toHaveCount(0);
   await expect(page.locator("[data-status-line]")).toHaveCount(0);
-  await composer.fill("applied");
-  await composer.press("Enter");
+  const live = page.getByPlaceholder("Do anything", { exact: true });
+  await live.fill("applied");
+  await live.press("Enter");
   await expect(page.locator("[data-turn][data-role=agent]").last()).toContainText("mode:full in full");
 
   // Left as the tests after this expect the sidebar: no rows under the
@@ -610,7 +612,7 @@ test("a signed-out agent asks to sign in", async () => {
   // saved project, so it is not in the project chip's Recent list (`docs/session-workspaces.md`).
   await page.evaluate((dir) => window.textToCad.projects.addPath({ path: dir }), signedOutProject);
   await expect(page.getByRole("heading", { name: `What should we build in ${path.basename(signedOutProject)}?` })).toBeVisible();
-  const composer = page.getByPlaceholder(/^(Do anything|Describe a part to build…)$/);
+  const composer = page.getByPlaceholder("Describe a part to build…", { exact: true });
   await composer.fill("hello");
   await composer.press("Enter");
   const auth = page.locator("[data-auth-prompt]");
@@ -689,7 +691,7 @@ test("paths an agent writes are links that open in the explorer, and a typed ref
   await expect(page.getByRole("tab", { name: /README\.md/ })).toBeVisible();
   await shoot("transcript-links.png");
 
-  const composer = page.getByPlaceholder(/^(Do anything|Describe a part to build…)$/);
+  const composer = page.getByPlaceholder("Do anything", { exact: true });
   await composer.click();
   await page.keyboard.type(`make ${STEP}#o1.2 thicker, and #f3 `);
   const chips = page.locator("[data-composer] [data-reference-chip]");
@@ -716,14 +718,15 @@ test("paths an agent writes are links that open in the explorer, and a typed ref
 
 /** Observe this prompt's completed reply, rather than the preceding turn's idle state. */
 async function completeContextTurn(prompt: "context" | "limits") {
-  if (await page.locator("[data-new-session]").count()) {
+  const onNewSession = (await page.locator("[data-new-session]").count()) > 0;
+  if (onNewSession) {
     // These cases also run alone against beforeAll's empty project. Enter
     // cannot submit until the detector has supplied a model to launch.
     await expect(page.locator("[data-new-session] [data-chip=model]")).toContainText("Fast", { timeout: 30_000 });
   }
   const turns = page.locator("[data-session-view] [data-turn][data-role=agent]");
   const previousTurns = await turns.count();
-  const composer = page.getByPlaceholder(/^(Do anything|Describe a part to build…)$/);
+  const composer = page.getByPlaceholder(onNewSession ? "Describe a part to build…" : "Do anything", { exact: true });
   await composer.fill(prompt);
   await composer.press("Enter");
   await expect(turns).toHaveCount(previousTurns + 1);

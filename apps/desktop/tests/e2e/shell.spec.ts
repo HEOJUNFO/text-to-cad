@@ -455,7 +455,7 @@ test("in the composer, Shift+Enter is a newline, Enter sends, Escape stops, and 
   await page.evaluate((dir) => window.textToCad.projects.addPath({ path: dir }), project);
   // Sending needs an agent, and the chip fills in once the detector has probed.
   await expect(page.locator("[data-new-session] [data-composer-row] [data-chip=model]")).toBeVisible({ timeout: 30_000 });
-  const composer = page.getByPlaceholder(/^(Do anything|Describe a part to build…)$/);
+  const composer = page.getByPlaceholder("Describe a part to build…", { exact: true });
   await composer.click();
   await composer.fill("first line");
   await page.keyboard.press("Shift+Enter");
