@@ -189,4 +189,14 @@ describe("PathLink", () => {
     await user.hover(link);
     expect(await screen.findByRole("tooltip")).toHaveTextContent("https://somewhere.example/collect?d=1");
   });
+
+  it("breaks a long URL inside the hint rather than running out of its box", async () => {
+    const user = userEvent.setup();
+    const long = "https://example.org/very/long/path/that/goes/on/and/on/and/on/and/on/and/on/and/on/and/on?query=1&other=2";
+    wrap(long, long);
+    await user.hover(screen.getByRole("link"));
+    await screen.findByRole("tooltip");
+    const hint = document.querySelector("[data-slot=tooltip-content] [data-link-hint]");
+    expect(hint).toHaveClass("break-all");
+  });
 });

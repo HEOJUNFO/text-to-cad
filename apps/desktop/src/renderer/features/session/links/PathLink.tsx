@@ -73,9 +73,10 @@ export function PathLink({
     // `target="_blank"` reaches main's window-open handler, which hands the
     // URL to the OS browser rather than opening a window of its own. The
     // label is the agent's words and one click opens it, so the hint says
-    // where it really goes.
+    // where it really goes — broken anywhere, since a URL has no spaces to
+    // wrap at and a long one ran out of the hint's box.
     return (
-      <TooltipHint content={href}>
+      <TooltipHint content={<span className="break-all" data-link-hint>{href}</span>}>
         <a className={cn("font-medium text-primary underline", className)} href={href} rel="noreferrer" target="_blank" {...rest}>
           {children}
         </a>
