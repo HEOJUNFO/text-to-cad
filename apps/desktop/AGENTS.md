@@ -105,7 +105,9 @@ not.
   `ReasoningContent` takes Streamdown `components`, so a thought draws links
   and images through the transcript's own (a stock thought fetches any
   `https:` image on paint), and its `Reasoning` does not auto-close one the
-  person opened or closed themselves. Re-vendoring a component means
+  person opened or closed themselves; `tool.tsx` draws at most 64 KB of a
+  tool's input or result (`capToolBody`, `TrimmedBody`) and a string result
+  as plain text rather than as JSON. Re-vendoring a component means
   redoing those.
 - **Nothing is installed into an agent's configuration.** text-to-cad's skills
   and its tools are given to each session — the skills root as an additional

@@ -4,7 +4,7 @@ import { Ban, Box, CircleAlert, ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "cn";
 
 import { Terminal } from "@renderer/components/ai-elements/terminal";
-import { ToolInput, ToolOutput } from "@renderer/components/ai-elements/tool";
+import { capToolBody, ToolInput, ToolOutput, TrimmedBody } from "@renderer/components/ai-elements/tool";
 import { useAcp } from "@renderer/state/acp";
 import { useExplorer } from "@renderer/state/explorer";
 import { useSessions } from "@renderer/state/sessions";
@@ -260,10 +260,13 @@ export function ToolDetail({ part, sessionId }: { part: ToolCallPart; sessionId:
   const running = part.status === "pending" || part.status === "in_progress";
   const command = part.kind === "execute" ? activityRow(part).command : null;
 
-  const terminalText =
+  // The terminal keeps its last 64 KB (the newest output is what matters);
+  // `capToolBody` is also what the text, input and result below are held to.
+  const terminalBody =
     part.kind === "execute" || terminalRef
-      ? (liveOutput ?? (part.stream || outputText(part.output)))
+      ? capToolBody(liveOutput ?? (part.stream || outputText(part.output)), { keep: "tail" })
       : null;
+  const terminalText = terminalBody?.text ?? null;
 
   return (
     <div className="ui-reveal mt-1 mb-2 ml-6 flex min-w-0 flex-col gap-2 text-[13px]" data-tool-detail>
@@ -293,8 +296,9 @@ export function ToolDetail({ part, sessionId }: { part: ToolCallPart; sessionId:
           output={terminalText || (running ? "" : "(no output)")}
         >
           <div className="max-h-72 overflow-auto px-3 py-2 font-mono text-[12px] leading-5">
-            {part.streamTruncated && liveOutput === null && part.stream ? (
-              // Only the stream's last 64 KB was kept (the reducer's cap).
+            {(part.streamTruncated && liveOutput === null && part.stream) || (terminalBody?.hidden ?? 0) > 0 ? (
+              // Only the stream's last 64 KB was kept (the reducer's cap), or
+              // only its last 64 KB is drawn.
               <p className="mb-1 font-sans text-[11px] text-muted-foreground italic" data-stream-truncated>
                 Earlier output trimmed
               </p>
@@ -303,16 +307,18 @@ export function ToolDetail({ part, sessionId }: { part: ToolCallPart; sessionId:
           </div>
         </Terminal>
       ) : null}
-      {texts.map((text, index) =>
-        text.type === "text" ? (
-          <pre
-            className="max-h-72 overflow-auto rounded-md bg-muted/40 px-3 py-2 font-mono text-[12px] leading-5 whitespace-pre-wrap"
-            key={index}
-          >
-            {text.text}
-          </pre>
-        ) : null,
-      )}
+      {texts.map((text, index) => {
+        if (text.type !== "text") return null;
+        const body = capToolBody(text.text);
+        return (
+          <div className="rounded-md bg-muted/40" key={index}>
+            <pre className="max-h-72 overflow-auto px-3 py-2 font-mono text-[12px] leading-5 whitespace-pre-wrap">
+              {body.text}
+            </pre>
+            <TrimmedBody hidden={body.hidden} />
+          </div>
+        );
+      })}
       {images.map((image, index) =>
         image.type === "image" ? (
           <img

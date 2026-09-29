@@ -79,6 +79,30 @@ describe("ActivityGroup", () => {
     expect(detail()).not.toBeNull();
   });
 
+  /**
+   * A tool can hand back megabytes — a whole file read, a log. The row draws
+   * the first 64 KB of each body and says how much it left out, and a plain
+   * string result is text, not JSON for the highlighter to chew through.
+   */
+  it("draws at most 64 KB of a call's text, input and result, and says how much it left out", async () => {
+    const user = userEvent.setup();
+    const big = call({
+      id: "big",
+      kind: "other",
+      title: "Dump",
+      input: { blob: "a".repeat(5e6) },
+      output: "b".repeat(5e6),
+      content: [{ type: "text", text: "c".repeat(5e6) }],
+    });
+    const { container } = wrap(<ActivityGroup item={{ kind: "activity", key: "g", rows: [activityRow(big)], summary: null }} sessionId="s1" />);
+    await user.click(screen.getByRole("button", { name: /Dump/ }));
+
+    expect(container.textContent!.length).toBeLessThan(400_000);
+    expect(screen.getAllByText(/KB not shown/)).toHaveLength(3);
+    const json = [...container.querySelectorAll('[data-language="json"]')];
+    expect(json.some((block) => block.textContent!.includes("bbbb"))).toBe(false);
+  });
+
   it("keeps a mixed group neutral and names its failed calls separately", async () => {
     const user = userEvent.setup();
     const rows = [
