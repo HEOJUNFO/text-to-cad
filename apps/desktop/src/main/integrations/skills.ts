@@ -150,6 +150,9 @@ function treeHash(dir: string, names: readonly string[]): string | null {
     } else if (stat.isFile()) {
       hash.update(`${relative.split(path.sep).join("/")}\0${stat.size}\0`);
       hash.update(fs.readFileSync(absolute));
+    } else {
+      // A FIFO, socket or device is never ours; naming it makes it a mismatch.
+      hash.update(`${relative.split(path.sep).join("/")}\0other\0`);
     }
   };
   try {
@@ -160,6 +163,22 @@ function treeHash(dir: string, names: readonly string[]): string | null {
     return null;
   }
   return hash.digest("hex");
+}
+
+/**
+ * Whether `dir` holds exactly `names` and nothing else. `treeHash` reads only
+ * the entries it is given, so without this a skill an agent planted beside
+ * ours — `<root>/.claude/skills/<its own>/SKILL.md` — would hash clean, survive
+ * every launch, and be loaded by every later session of every agent.
+ */
+function holdsExactly(dir: string, names: readonly string[]): boolean {
+  try {
+    const entries = fs.readdirSync(dir).sort();
+    const expected = [...names].sort();
+    return entries.length === expected.length && entries.every((entry, index) => entry === expected[index]);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -218,9 +237,10 @@ function removeTree(dir: string): void {
  * and the source's content hash, and whose two layouts still hash to it, is
  * left alone — so the common launch copies nothing. A version bump, a changed
  * skill set, changed skill content (dev builds keep one version while
- * SKILL.md files are edited), an edited copy, or a half-written root (the app
- * was killed mid-copy) is rebuilt from scratch. The copy is then made
- * files are then made read-only (see `lockFiles`).
+ * SKILL.md files are edited), an edited copy, anything in the root that is
+ * not ours (a skill an agent planted beside them), or a half-written root (the
+ * app was killed mid-copy) is rebuilt from scratch. Its files are then made
+ * read-only (see `lockFiles`).
  */
 export function materialiseSkillsRoot(options: {
   /** `resources/skills` — one directory per skill. */
@@ -247,7 +267,13 @@ export function materialiseSkillsRoot(options: {
     manifest.hash === hash &&
     manifest.skills.length === names.length &&
     manifest.skills.every((name, index) => name === names[index]) &&
-    SKILL_LAYOUTS.every((layout) => treeHash(path.join(root, layout), names) === hash);
+    holdsExactly(root, [ROOT_MANIFEST, ...SKILL_LAYOUTS.map((layout) => layout.split(path.sep)[0]!)]) &&
+    SKILL_LAYOUTS.every(
+      (layout) =>
+        holdsExactly(path.join(root, path.dirname(layout)), [path.basename(layout)]) &&
+        holdsExactly(path.join(root, layout), names) &&
+        treeHash(path.join(root, layout), names) === hash,
+    );
 
   if (!fresh) {
     removeTree(root);

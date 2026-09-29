@@ -1,6 +1,8 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -9,6 +11,8 @@ import { afterEach, describe, expect, it } from "vitest";
 // The server the agent talks to, from its source; the packaged app runs the
 // esbuild bundle of the same file (scripts/build-mcp.mjs).
 import { BRIDGE_ENV, createServer, httpBridge, isInside } from "../../../resources/text-to-cad-mcp/server.mjs";
+
+const SERVER = fileURLToPath(new URL("../../../resources/text-to-cad-mcp/server.mjs", import.meta.url));
 
 type Call = { method: string; params: unknown };
 
@@ -248,6 +252,21 @@ describe("the skills tools", () => {
     const listed = await bare.callTool({ name: "list_skills", arguments: {} });
     expect(JSON.parse((listed.content as Array<{text:string}>)[0]!.text)).toEqual([]);
     expect((await bare.callTool({ name: "read_skill", arguments: { name: "cad" } })).isError).toBe(true);
+  });
+});
+
+describe("readSkills", () => {
+  it.skipIf(process.platform === "win32")("skips a SKILL.md that is a FIFO instead of blocking on it", () => {
+    const root = skillsRoot({ cad: "Make CAD." });
+    const stray = path.join(root, ".claude", "skills", "stray");
+    fs.mkdirSync(stray);
+    execFileSync("mkfifo", [path.join(stray, "SKILL.md")]);
+    // A read of a FIFO with no writer blocks the thread for good, which no
+    // vitest timeout can interrupt, so it runs in a child with a deadline.
+    const script = `import { readSkills } from ${JSON.stringify(pathToFileURL(SERVER).href)};
+process.stdout.write(JSON.stringify(readSkills(${JSON.stringify(root)})));`;
+    const out = execFileSync(process.execPath, ["--input-type=module", "-e", script], { timeout: 5000 });
+    expect(JSON.parse(out.toString())).toEqual([{ name: "cad", description: "Make CAD." }]);
   });
 });
 

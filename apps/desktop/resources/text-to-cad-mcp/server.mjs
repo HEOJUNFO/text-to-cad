@@ -89,7 +89,9 @@ export function readSkills(root) {
       continue;
     }
     const file = path.join(directory, entry.name, "SKILL.md");
-    if (!fs.existsSync(file)) {
+    // A regular file only: a FIFO an agent left in the root would block the
+    // read below forever, and with it every tool this server answers.
+    if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) {
       continue;
     }
     skills.push({ name: entry.name, description: skillFrontmatter(fs.readFileSync(file, "utf8")).description ?? "" });

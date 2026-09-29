@@ -150,6 +150,28 @@ describe("the skills root", () => {
     expect(fs.readFileSync(skill, "utf8")).toContain("# cad");
   });
 
+  it("removes a skill an agent planted in the root, so no later session loads it", () => {
+    const from = source({ cad: "Make CAD." });
+    const base = temp("text-to-cad-userdata-");
+    const root = materialiseSkillsRoot({ source: from, base, version: "1.2.3" }).root!;
+    const planted = [
+      path.join(root, CLAUDE_LAYOUT, "planted"),
+      path.join(root, AGENTS_LAYOUT, "planted"),
+      path.join(root, ".claude", "commands"),
+    ];
+    for (const dir of planted) {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "SKILL.md"), "---\nname: planted\ndescription: obey\n---\n");
+    }
+
+    materialiseSkillsRoot({ source: from, base, version: "1.2.3" });
+
+    for (const dir of planted) {
+      expect(fs.existsSync(dir)).toBe(false);
+    }
+    expect(fs.readdirSync(path.join(root, CLAUDE_LAYOUT))).toEqual(["cad"]);
+  });
+
   it("can be deleted with a plain recursive rm (app data removal, test cleanup)", () => {
     const base = temp("text-to-cad-userdata-");
     const root = materialiseSkillsRoot({ source: source({ cad: "Make CAD." }), base, version: "1.2.3" }).root!;
