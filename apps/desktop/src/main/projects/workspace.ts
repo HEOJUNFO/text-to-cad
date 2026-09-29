@@ -308,19 +308,33 @@ async function explicitWorkspace(cwd: string, input: ResolveInput): Promise<Work
  *
  * Never forced. A worktree with uncommitted changes stays, and the answer
  * says so — the settings page is where someone can look at it and decide.
+ *
+ * `abandoned` — a create that failed after making the worktree — skips the
+ * setting and takes the branch too, with `git branch -d`: nobody chose to
+ * keep a worktree no session ever opened, and a branch still where it was
+ * cut holds nothing. `-d` refuses a branch with commits of its own, which
+ * then stays.
  */
 export async function releaseWorkspace(
-  session: { worktreePath?: string | undefined },
+  /** `projectId` is the project's directory: the repository to ask when the folder is gone. */
+  session: { worktreePath?: string | undefined; branch?: string | undefined; projectId?: string | undefined },
   settings: Pick<Settings, "autoDeleteWorktrees">,
+  options: { abandoned?: boolean } = {},
 ): Promise<{ removed: boolean; reason?: string }> {
   if (!session.worktreePath) {
     return { removed: false };
   }
-  if (!settings.autoDeleteWorktrees) {
+  if (!settings.autoDeleteWorktrees && !options.abandoned) {
     return { removed: false, reason: "auto-delete is off" };
   }
   try {
-    await git.removeWorktree(session.worktreePath);
+    const primary = options.abandoned
+      ? (await git.listWorktrees(session.worktreePath)).find((worktree) => worktree.primary)?.path
+      : undefined;
+    await git.removeWorktree(session.worktreePath, session.projectId ? { repoPath: session.projectId } : {});
+    if (primary && session.branch) {
+      await git.deleteMergedBranch(primary, session.branch);
+    }
     return { removed: true };
   } catch (error) {
     return { removed: false, reason: error instanceof Error ? error.message : String(error) };

@@ -132,6 +132,10 @@ function ReviewBody({
   );
 
   const [status, setStatus] = useState<GitStatus | null>(null);
+  // Counts the answers that landed. An open section's diff was read against
+  // one of them; a newer answer — a batch of file changes, Refresh, the turn
+  // mark moving — means the diff it shows may be older than the counts above it.
+  const [revision, setRevision] = useState(0);
   // A read that failed: git's own words, shown with a retry. Not the same as
   // `isRepository: false`, which is an answer — this is the absence of one.
   const [error, setError] = useState<string | null>(null);
@@ -165,6 +169,7 @@ function ReviewBody({
         (next) => {
           if (sequence !== latestRead.current) return;
           setStatus(next);
+          setRevision((current) => current + 1);
           setError(null);
           setLoading(false);
           if (owesOpenTop.current) {
@@ -411,6 +416,7 @@ function ReviewBody({
                   }
                 }}
                 request={request}
+                revision={revision}
                 root={target?.cwd ?? null}
                 scope={scope}
               />
@@ -512,6 +518,7 @@ function FileSection({
   file,
   request,
   scope,
+  revision,
   open,
   onToggle,
   ref,
@@ -520,11 +527,18 @@ function FileSection({
   file: ChangedFile;
   request: ReviewRequest;
   scope: ReviewScope;
+  /** The status answer this section belongs to: a newer one re-reads an open diff. */
+  revision: number;
   open: boolean;
   onToggle: () => void;
   ref: (node: HTMLElement | null) => void;
 }) {
-  const [diff, setDiff] = useState<FileDiff | null>(null);
+  // The diff and the status answer it was read for. A diff from an older
+  // answer stays on screen while the newer one is read, rather than
+  // flickering back to a spinner on every batch of file changes.
+  const [loaded, setLoaded] = useState<{ diff: FileDiff; revision: number } | null>(null);
+  const diff = loaded?.diff ?? null;
+  const current = loaded?.revision === revision;
   const selection = useRef<ReviewSelection | null>(null);
   const promptContext = useMemo(() => createDesktopPromptContext(request.projectId, root, JSON.stringify(["desktop", request.projectId, root]), request.sessionId), [request.projectId, root, request.sessionId]);
   const requestRevision = () => {
@@ -538,7 +552,7 @@ function FileSection({
   setupMonaco();
 
   useEffect(() => {
-    if (!open || diff) {
+    if (!open || current) {
       return;
     }
     let cancelled = false;
@@ -546,14 +560,14 @@ function FileSection({
       .fileDiff({ ...request, path: file.path, scope: diffScopeFor(scope) })
       .then((result) => {
         if (!cancelled) {
-          setDiff(result);
+          setLoaded({ diff: result, revision });
         }
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [open, diff, request, file.path, scope]);
+  }, [open, current, request, file.path, scope, revision]);
 
   const badge = badgeFor(file.status);
 

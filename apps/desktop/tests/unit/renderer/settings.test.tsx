@@ -377,6 +377,12 @@ describe("the worktree keep limit", () => {
     expect(screen.getByText(/Nothing is swept while Auto-delete old worktrees is off/)).toBeInTheDocument();
   });
 
+  it("shows a stored limit that is not a preset, rather than a blank select", () => {
+    useSettings.setState({ settings: { ...defaultSettings(), autoDeleteWorktrees: true, worktreeKeepLimit: 7 }, ready: true });
+    wrap(<GitPage />);
+    expect(screen.getByRole("combobox", { name: "Keep limit" })).toHaveTextContent("Keep 7");
+  });
+
   it("is on once auto-delete is", () => {
     useSettings.setState({ settings: { ...defaultSettings(), autoDeleteWorktrees: true }, ready: true });
     wrap(<GitPage />);

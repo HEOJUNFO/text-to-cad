@@ -13,6 +13,11 @@ let gitInfo: Partial<ProjectGitInfo> | null = null;
 vi.mock("@renderer/lib/git-mode", () => ({ useProjectGitInfo: () => gitInfo }));
 vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }) }));
 import { toast } from "sonner";
+// Monaco draws nothing readable in jsdom; the diff's `after` side stands in for it.
+vi.mock("@renderer/features/explorer/review-diff", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  ReviewDiff: ({ diff }: { diff: FileDiff }) => <pre data-testid="review-diff">{diff.after}</pre>,
+}));
 
 // Monaco's clipboard service (a WebKit workaround) builds a ClipboardItem on every click in the
 // document; jsdom has none, and without this each click in these tests is an unhandled error.
@@ -28,8 +33,10 @@ if (!("ClipboardItem" in globalThis)) {
 }
 
 const PROJECT = { id: "p1", name: "bracket", path: "/bracket", createdAt: 0 };
-const git = window.textToCad.git as unknown as { status: ReturnType<typeof vi.fn>; commit: ReturnType<typeof vi.fn> };
-const original = { status: git.status, commit: git.commit };
+const git = window.textToCad.git as unknown as {
+  status: ReturnType<typeof vi.fn>; commit: ReturnType<typeof vi.fn>; fileDiff: ReturnType<typeof vi.fn>;
+};
+const original = { status: git.status, commit: git.commit, fileDiff: git.fileDiff };
 // One read per refresh: the scope's answer carries the working tree's file count (what a commit takes).
 let scoped: Mock<(request: unknown) => Promise<GitStatus>>;
 
@@ -53,7 +60,7 @@ beforeEach(() => {
   git.status = scoped;
   git.commit = vi.fn();
 });
-afterEach(() => { git.status = original.status; git.commit = original.commit; });
+afterEach(() => { git.status = original.status; git.commit = original.commit; git.fileDiff = original.fileDiff; });
 
 it("a read that fails says so, with git's words and a retry — not that the folder is not a repository", async () => {
   const user = userEvent.setup();
@@ -248,4 +255,19 @@ it("two Review tabs open their commit panels under ids of their own", async () =
   expect(panels).toHaveLength(2);
   expect(panels[0]!.id).not.toBe(panels[1]!.id);
   expect(triggers.map((trigger) => trigger.getAttribute("aria-controls")).sort()).toEqual(panels.map((panel) => panel.id).sort());
+});
+
+it("an open diff is read again when a newer status lands, not kept from the first read", async () => {
+  scoped.mockResolvedValue({ ...repo("main"), files: [changed("hello.py")], workingFiles: 1 });
+  const read = vi.fn()
+    .mockResolvedValueOnce(fileDiff({ before: "v0\n", after: "v1\n" }))
+    .mockResolvedValueOnce(fileDiff({ before: "v0\n", after: "v2\n" }));
+  git.fileDiff = read;
+  renderReview();
+  expect(await screen.findByTestId("review-diff")).toHaveTextContent("v1");
+
+  // The agent writes the file again: the header's counts are re-read, and so is the open diff.
+  await act(async () => useExplorer.setState({ fsRevision: useExplorer.getState().fsRevision + 1 }));
+  await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+  expect(await screen.findByText("v2")).toBeInTheDocument();
 });

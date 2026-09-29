@@ -94,7 +94,6 @@ function cwdFor(request: { projectId: string; sessionId?: string }): string {
  * would be text-to-cad offering to remove something it never created.
  */
 async function worktreesOf(project: Project): Promise<Worktree[]> {
-  const fs = await import("node:fs/promises");
   const parents = projectWorktreeDirs(settings.get(), project);
   const open = sessions.list(project.id);
 
@@ -106,11 +105,11 @@ async function worktreesOf(project: Project): Promise<Worktree[]> {
         !open.some(session => session.worktreePath && git.samePath(session.worktreePath, worktree.path)))) {
       continue;
     }
-    const stat = await fs.stat(worktree.path).catch(() => null);
+    const lastUsedAt = await git.lastWrittenAt(worktree.path);
     rows.push({
       path: worktree.path,
       branch: worktree.branch,
-      lastUsedAt: stat ? Math.round(stat.mtimeMs) : null,
+      lastUsedAt: lastUsedAt === null ? null : Math.round(lastUsedAt),
       openSessions: open.filter((session) => git.samePath(session.cwd, worktree.path)).length,
       // Ignored files count: removing the worktree would delete them too.
       dirty: await git.hasUnsavedWork(worktree.path),
@@ -122,11 +121,35 @@ async function worktreesOf(project: Project): Promise<Worktree[]> {
 }
 
 /**
+ * Worktrees made for a session whose row is not written yet. Between
+ * `git worktree add` and `repo.upsert` a new worktree belongs to no session,
+ * so without this the sweep its own creation triggers — or a concurrent
+ * create's — could remove it before its session ever opened.
+ */
+const creating = new Map<string, number>();
+
+/** Mark a worktree as being created; the answer unmarks it once its row exists (or its create failed). */
+export function markCreating(worktreePath: string): () => void {
+  creating.set(worktreePath, (creating.get(worktreePath) ?? 0) + 1);
+  let done = false;
+  return () => {
+    if (done) return;
+    done = true;
+    const left = (creating.get(worktreePath) ?? 1) - 1;
+    if (left > 0) creating.set(worktreePath, left);
+    else creating.delete(worktreePath);
+  };
+}
+
+/**
  * Enforce the keep limit for one project (Settings › Auto-delete).
  *
  * Called after a worktree is created rather than on a timer: the limit is
  * about how many pile up, and the moment one more appears is the moment to
- * check. Worktrees with an open session are handed to the sweep as protected.
+ * check. Every session's directories are handed to the sweep as protected —
+ * every project's, not only this one's: a session whose *project* is one of
+ * these worktree folders, or that runs somewhere inside one, is using it just
+ * the same (the rule `releaseWorkspace` and `removeWorktree` already keep).
  */
 export async function pruneProjectWorktrees(project: Project): Promise<void> {
   const stored = settings.get();
@@ -138,7 +161,11 @@ export async function pruneProjectWorktrees(project: Project): Promise<void> {
       repoPath: project.path,
       parentDir: projectWorktreeDirs(stored, project),
       keep: stored.worktreeKeepLimit,
-      protectedPaths: sessions.list(project.id).map((session) => session.cwd),
+      protectedPaths: [
+        ...sessions.list().flatMap((session) =>
+          [session.cwd, session.projectId, session.worktreePath].filter((root): root is string => Boolean(root))),
+        ...creating.keys(),
+      ],
     })
     .catch(() => undefined);
 }
@@ -255,7 +282,7 @@ export const gitHandlers = {
             `${using.length} session${using.length === 1 ? " is" : "s are"} still using that worktree`,
           );
         }
-        await git.removeWorktree(requested, force === undefined ? {} : { force });
+        await git.removeWorktree(requested, { repoPath: project.path, ...(force === undefined ? {} : { force }) });
       }),
   },
 } satisfies IpcHandlers<typeof gitIpc, IpcContext>;

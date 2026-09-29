@@ -302,7 +302,9 @@ export function parsePorcelainStatus(output: string): {
     const letter = staged !== " " && staged !== "?" ? staged : unstaged;
     const status = STATUS_LETTERS[letter] ?? "modified";
 
-    if (staged === "R" || staged === "C") {
+    // Either side: `git add -N` on a moved file gives a worktree-side rename,
+    // ` R new\0old\0`, whose old path is a record of its own all the same.
+    if (staged === "R" || staged === "C" || unstaged === "R" || unstaged === "C") {
       // The old path is the next NUL-terminated record.
       const oldPath = records[index + 1];
       index += 1;
@@ -448,10 +450,13 @@ async function workingTreeFiles(
   porcelain: ReturnType<typeof parsePorcelainStatus>,
 ): Promise<ChangedFile[]> {
   // Tracked changes, staged and unstaged in one number: the review shows the
-  // working tree against HEAD, which is what "22 files changed" means.
-  const numstat = porcelain.unborn
-    ? new Map()
-    : parseNumstat(await git(root, ["diff", "--numstat", "-z", "-M", "HEAD"]));
+  // working tree against HEAD, which is what "22 files changed" means. With
+  // no commits yet there is no HEAD, and the staged files are measured from
+  // the empty tree — otherwise every one of them reads +0 −0.
+  const from = porcelain.unborn ? await emptyTree(root) : "HEAD";
+  const numstat = from
+    ? parseNumstat(await git(root, ["diff", "--numstat", "-z", "-M", "--end-of-options", from]))
+    : new Map() as ReturnType<typeof parseNumstat>;
 
   const files: ChangedFile[] = [];
   for (const file of porcelain.files) {
@@ -629,11 +634,12 @@ async function baseRevision(root: string, scope: DiffScope): Promise<string | nu
     return scope.to ? `${scope.from}..${scope.to}` : scope.from;
   }
   if (scope.kind === "since") {
-    // The newest commit at or before that time; nothing there means the whole
-    // history is newer, so the range is the root commit.
+    // The newest commit at or before that time. Nothing there means the whole
+    // history is newer, so the range starts before the first commit — the
+    // empty tree. The root commit would leave its own changes out.
     const revision = await tryGit(root, ["rev-list", "-1", `--before=${scope.since}`, "--end-of-options", "HEAD"]);
     const trimmed = revision?.trim();
-    return trimmed || (await tryGit(root, ["rev-list", "--max-parents=0", "-1", "HEAD"]))?.trim() || null;
+    return trimmed || (await emptyTree(root));
   }
   return "HEAD";
 }
@@ -700,11 +706,15 @@ async function fileMeta(
   scope: DiffScope,
 ): Promise<Omit<FileDiff, "before" | "after">> {
   const base = (await baseRevision(root, scope)) ?? "HEAD";
+  // A rename is only seen with both sides in the pathspec: limited to the
+  // new path, git sees an added file, and the diff's before side is empty.
+  const oldPath = await renamedFrom(root, base, filePath);
+  const paths = oldPath ? [filePath, oldPath] : [filePath];
   const numstat = parseNumstat(
-    (await tryGit(root, ["diff", "--numstat", "-z", "-M", "--end-of-options", base, "--", filePath])) ?? "",
+    (await tryGit(root, ["diff", "--numstat", "-z", "-M", "--end-of-options", base, "--", ...paths])) ?? "",
   );
   const statuses = parseNameStatus(
-    (await tryGit(root, ["diff", "--name-status", "-z", "-M", "--end-of-options", base, "--", filePath])) ?? "",
+    (await tryGit(root, ["diff", "--name-status", "-z", "-M", "--end-of-options", base, "--", ...paths])) ?? "",
   );
   const counted = numstat.get(filePath);
 
@@ -721,6 +731,34 @@ async function fileMeta(
 
   // Nothing against the base means git has never seen it: it is untracked.
   return { path: filePath, status: "untracked", ...(await countUntracked(root, filePath)) };
+}
+
+/**
+ * Where `filePath` was renamed from since `base`, or undefined. The
+ * candidates are the paths deleted since then — usually none, so this is one
+ * cheap `git diff --diff-filter=D` — and git pairs them up as it would over
+ * the whole tree.
+ */
+async function renamedFrom(root: string, base: string, filePath: string): Promise<string | undefined> {
+  const deleted = ((await tryGit(root, ["diff", "--name-only", "-z", "--no-renames", "--diff-filter=D", "--end-of-options", base])) ?? "")
+    .split("\0")
+    .filter((deletedPath) => deletedPath !== "" && deletedPath !== filePath);
+  if (deleted.length === 0) {
+    return undefined;
+  }
+  const records = ((await tryGit(root, ["diff", "--name-status", "-z", "-M", "--end-of-options", base, "--", filePath, ...deleted])) ?? "").split("\0");
+  for (let index = 0; index < records.length; index += 1) {
+    const code = records[index] ?? "";
+    if (code.startsWith("R")) {
+      if (records[index + 2] === filePath) {
+        return records[index + 1];
+      }
+      index += 2;
+    } else if (code !== "") {
+      index += 1;
+    }
+  }
+  return undefined;
 }
 
 function scopeTip(scope: DiffScope): string {
@@ -750,12 +788,12 @@ export async function unifiedDiff(
   const scope = await unmarkedOrRefuse(root, requested);
   const base = await baseRevision(root, scope);
   const args = ["diff", "-M", "--patch", "--end-of-options"];
-  if (scope.kind === "working-tree") {
-    args.push("HEAD");
-  } else if (base) {
-    args.push(base);
+  const from = scope.kind === "working-tree" ? "HEAD" : base;
+  if (from) {
+    args.push(from);
   }
-  args.push("--", filePath);
+  const oldPath = from ? await renamedFrom(root, from, filePath) : undefined;
+  args.push("--", filePath, ...(oldPath ? [oldPath] : []));
   const patch = await tryGit(root, args);
   if (patch && patch.trim() !== "") {
     return patch;
@@ -938,6 +976,13 @@ export const runGit: GitRunner = async (cwd, args, input) => {
   };
 };
 
+/** The empty tree's id, asked of git so a SHA-256 repository answers in its own format. */
+async function emptyTree(cwd: string): Promise<string | null> {
+  const tree = await runGit(cwd, ["hash-object", "-t", "tree", "--stdin"], "");
+  const id = tree.exitCode === 0 && !tree.timedOut ? tree.stdout.trim() : "";
+  return /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(id) ? id : null;
+}
+
 /**
  * The empty tree's id when `cwd` is a repository with no commits yet, and
  * null otherwise — including whenever git cannot answer.
@@ -967,15 +1012,20 @@ export async function emptyTreeIfUnborn(cwd: string, run: GitRunner = runGit): P
   return /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(id) ? id : null;
 }
 
-/** Whether anything is uncommitted — the check `removeWorktree` refuses on. */
+/**
+ * Whether anything is uncommitted — the check `removeWorktree` refuses on.
+ *
+ * Throws when git cannot answer (a timeout, a lock, a broken repository):
+ * "could not look" read as "clean" is how a sweep deletes somebody's work.
+ */
 export async function isDirty(cwd: string): Promise<boolean> {
-  const porcelain = await tryGit(cwd, [
+  const porcelain = await git(cwd, [
     "status",
     "--porcelain=v1",
     "-z",
     "--untracked-files=all",
   ]);
-  return (porcelain ?? "").split("\0").some((record) => record !== "");
+  return porcelain.split("\0").some((record) => record !== "");
 }
 
 /**
@@ -1007,17 +1057,18 @@ function disposable(ignoredPath: string): boolean {
 /**
  * Ignored files in `cwd` that removing the worktree would delete, minus the
  * disposable caches above. `--ignored=matching` names an ignored directory
- * once rather than every file in it.
+ * once rather than every file in it. Throws when git cannot answer, as
+ * `isDirty` does.
  */
 export async function ignoredFiles(cwd: string): Promise<string[]> {
-  const porcelain = await tryGit(cwd, [
+  const porcelain = await git(cwd, [
     "status",
     "--porcelain=v1",
     "-z",
     "--ignored=matching",
     "--untracked-files=all",
   ]);
-  return (porcelain ?? "")
+  return porcelain
     .split("\0")
     .filter((record) => record.startsWith("!! "))
     .map((record) => record.slice(3))
@@ -1028,9 +1079,16 @@ export async function ignoredFiles(cwd: string): Promise<string[]> {
  * Anything removing a worktree would lose: uncommitted changes, or ignored
  * files that are not a disposable cache. What the sweep and a non-forced
  * `removeWorktree` refuse on, and what Settings shows as "dirty".
+ *
+ * Null when git could not say — which every caller treats as "keep it",
+ * never as clean.
  */
-export async function hasUnsavedWork(cwd: string): Promise<boolean> {
-  return (await isDirty(cwd)) || (await ignoredFiles(cwd)).length > 0;
+export async function hasUnsavedWork(cwd: string): Promise<boolean | null> {
+  try {
+    return (await isDirty(cwd)) || (await ignoredFiles(cwd)).length > 0;
+  } catch {
+    return null;
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1213,6 +1271,7 @@ export async function createWorktree(options: CreateWorktreeOptions): Promise<Cr
   const stem = slugify(options.name ?? "") || generatedName();
   const base = options.base ?? fetched ?? "HEAD";
 
+  await assertPrefixUsable(root, prefix);
   const { directory, branch } = await uniqueName(root, options.parentDir, prefix, stem);
 
   await fsp.mkdir(options.parentDir, { recursive: true });
@@ -1244,6 +1303,27 @@ async function remoteBase(root: string): Promise<string | null> {
   return remote?.trim() || null;
 }
 
+/**
+ * A ref is a file under `.git/refs`, so a branch `amy` and a branch `amy/x`
+ * cannot both exist: with the prefix `amy/` and a branch called `amy`, every
+ * `git worktree add -b amy/…` fails with "cannot lock ref", whatever the
+ * name after it. No suffix helps, so it is refused once, naming the branch in
+ * the way.
+ */
+async function assertPrefixUsable(root: string, prefix: string): Promise<void> {
+  const segments = prefix.split("/").filter((segment) => segment !== "");
+  // `amy/` names a folder of branches; `amy-` (no slash) names none.
+  const folders = prefix.endsWith("/") ? segments.length : segments.length - 1;
+  for (let depth = 1; depth <= folders; depth += 1) {
+    const blocking = segments.slice(0, depth).join("/");
+    if (await tryGit(root, ["rev-parse", "--verify", "--quiet", `refs/heads/${blocking}`])) {
+      throw new GitError(
+        `The branch prefix "${prefix}" cannot be used here: this repository already has a branch called "${blocking}", and git cannot keep both "${blocking}" and "${blocking}/…". Change the prefix in Settings › Git & Worktrees, or rename that branch.`,
+      );
+    }
+  }
+}
+
 /** `session-4f2c`: enough to tell two nameless threads apart, short enough to read. */
 function generatedName(): string {
   return `session-${Math.random().toString(16).slice(2, 6)}`;
@@ -1252,6 +1332,11 @@ function generatedName(): string {
 /**
  * The first of `<stem>`, `<stem>-2`, `<stem>-3`… whose directory does not
  * exist and whose branch is not taken.
+ *
+ * Taken means locally *or on a remote*, as far as this checkout knows (after
+ * the fetch, when `fetchBeforeCreate` asked for one): an `origin/<prefix>/<slug>`
+ * someone else pushed is a branch the review's `Push` would be rejected by —
+ * or, when theirs is behind, would silently advance.
  */
 async function uniqueName(
   root: string,
@@ -1259,6 +1344,10 @@ async function uniqueName(
   prefix: string,
   stem: string,
 ): Promise<{ directory: string; branch: string }> {
+  const remote = ((await tryGit(root, ["for-each-ref", "--format=%(refname)", "refs/remotes/"])) ?? "")
+    .split("\n")
+    .filter((ref) => ref !== "");
+  const onRemote = (branch: string) => remote.some((ref) => ref.endsWith(`/${branch}`));
   for (let attempt = 1; attempt <= 100; attempt += 1) {
     const name = attempt === 1 ? stem : `${stem}-${attempt}`;
     const directory = path.join(parentDir, name);
@@ -1270,7 +1359,11 @@ async function uniqueName(
     if (exists) {
       continue;
     }
-    if (await tryGit(root, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])) {
+    if (onRemote(branch) || await tryGit(root, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])) {
+      continue;
+    }
+    // `<branch>/…` existing blocks `<branch>` the same way, from below.
+    if ((await tryGit(root, ["for-each-ref", "--count=1", "--format=%(refname)", `refs/heads/${branch}/`]))?.trim()) {
       continue;
     }
     return { directory, branch };
@@ -1286,12 +1379,20 @@ async function uniqueName(
  * `git worktree remove` deletes even unforced. `--force` deletes both, and a button in a settings page is not
  * where someone decides to lose an afternoon. The branch is left behind —
  * deleting a checkout is reversible, deleting the commits on it is not.
+ *
+ * A folder deleted by hand is still registered (`prunable`), and git cannot
+ * be asked about it from inside. With `repoPath` the registration is removed
+ * from the repository instead — there is nothing left on disk to lose, and
+ * without this Delete errors on it and the sweep skips it forever.
  */
 export async function removeWorktree(
   worktreePath: string,
-  options: { force?: boolean } = {},
+  options: { force?: boolean; repoPath?: string } = {},
 ): Promise<void> {
-  const root = await repositoryRoot(worktreePath);
+  const missing = await fsp.stat(worktreePath).then(() => false, () => true);
+  const root = missing && options.repoPath
+    ? await repositoryRoot(options.repoPath)
+    : await repositoryRoot(worktreePath);
   if (!root) {
     throw new GitError("that worktree is no longer a git repository");
   }
@@ -1304,17 +1405,32 @@ export async function removeWorktree(
   if (target.primary) {
     throw new GitError("that is the repository itself, not a worktree");
   }
-  if (!options.force && (await isDirty(worktreePath))) {
+  if (missing) {
+    await git(root, ["worktree", "remove", target.path]);
+    return;
+  }
+  const unchecked = (error: unknown) => {
+    throw new GitError(`could not check that worktree for unsaved work, so it was kept: ${error instanceof Error ? error.message : String(error)}`);
+  };
+  if (!options.force && (await isDirty(worktreePath).catch(unchecked))) {
     throw new GitError("that worktree has uncommitted changes");
   }
   if (!options.force) {
-    const ignored = await ignoredFiles(worktreePath);
+    const ignored = await ignoredFiles(worktreePath).catch(unchecked);
     if (ignored.length > 0) {
       const named = ignored.slice(0, 3).join(", ") + (ignored.length > 3 ? `, and ${ignored.length - 3} more` : "");
       throw new GitError(`that worktree has ignored files that removing it would delete: ${named}`);
     }
   }
   await git(root, ["worktree", "remove", ...(options.force ? ["--force"] : []), worktreePath]);
+}
+
+/**
+ * `git branch -d`: delete a branch only when its commits are reachable from
+ * HEAD, so nothing on it is lost. Answers whether it went.
+ */
+export async function deleteMergedBranch(repoPath: string, branch: string): Promise<boolean> {
+  return (await tryGit(repoPath, ["branch", "-d", "--end-of-options", branch])) !== null;
 }
 
 /** Path comparison that survives a trailing separator and Windows' case rules. */
@@ -1331,7 +1447,10 @@ export type PruneOptions = {
   parentDir: string | readonly string[];
   /** How many survive. */
   keep: number;
-  /** Worktrees with an open session — never swept. */
+  /**
+   * Directories sessions run in or belong to — never swept, and neither is a
+   * worktree that has one of them inside it.
+   */
   protectedPaths?: string[];
 };
 
@@ -1355,11 +1474,12 @@ export async function pruneWorktrees(options: PruneOptions): Promise<{ removed: 
     if (worktree.primary || worktree.locked || !parents.some((parent) => isUnder(parent, worktree.path))) {
       continue;
     }
-    if (kept.some((protectedPath) => samePath(protectedPath, worktree.path))) {
+    // Inside counts too: a session opened on a folder in the worktree is
+    // running in it just as much as one at its root.
+    if (kept.some((protectedPath) => samePath(protectedPath, worktree.path) || isUnder(worktree.path, protectedPath))) {
       continue;
     }
-    const stat = await fsp.stat(worktree.path).catch(() => null);
-    candidates.push({ path: worktree.path, usedAt: stat?.mtimeMs ?? 0 });
+    candidates.push({ path: worktree.path, usedAt: (await lastWrittenAt(worktree.path)) ?? 0 });
   }
 
   // Newest first, so the tail is what falls off the end of the limit.
@@ -1368,10 +1488,13 @@ export async function pruneWorktrees(options: PruneOptions): Promise<{ removed: 
   const removed: string[] = [];
   for (const candidate of candidates.slice(Math.max(0, options.keep))) {
     // Ignored files count as work here: `git worktree remove` deletes them.
-    if (await hasUnsavedWork(candidate.path)) {
+    // So does a check that failed: only a proved-clean worktree goes — or a
+    // folder deleted by hand, which has nothing left to lose.
+    const missing = await fsp.stat(candidate.path).then(() => false, () => true);
+    if (!missing && (await hasUnsavedWork(candidate.path)) !== false) {
       continue;
     }
-    await removeWorktree(candidate.path).then(
+    await removeWorktree(candidate.path, { repoPath: options.repoPath }).then(
       () => removed.push(candidate.path),
       // One worktree that will not go must not stop the sweep: the next launch
       // would meet the same one and the limit would never be enforced.
@@ -1379,6 +1502,39 @@ export async function pruneWorktrees(options: PruneOptions): Promise<{ removed: 
     );
   }
   return { removed };
+}
+
+/**
+ * When anything in a worktree was last written: the newest mtime among its
+ * tracked and untracked (not ignored) files. Null when the folder is gone.
+ *
+ * Not the folder's own mtime, which moves only when an entry directly in it
+ * is added or removed — an afternoon of edits in `src/` leaves it where the
+ * checkout put it, and the sweep would take the worktree being worked in
+ * for the oldest. Not the branch's last commit either: an agent's edits are
+ * uncommitted for most of their life. One `ls-files` and a stat per file is
+ * the cheapest read that sees both; a stat is microseconds, and the sweep
+ * only runs when a worktree is created.
+ */
+export async function lastWrittenAt(worktreePath: string): Promise<number | null> {
+  const folder = await fsp.stat(worktreePath).catch(() => null);
+  if (!folder) {
+    return null;
+  }
+  const listed = await tryGit(worktreePath, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"]);
+  const files = (listed ?? "").split("\0").filter((file) => file !== "");
+  let newest = folder.mtimeMs;
+  for (let start = 0; start < files.length; start += 256) {
+    const stats = await Promise.all(
+      files.slice(start, start + 256).map((file) => fsp.lstat(path.join(worktreePath, file)).catch(() => null)),
+    );
+    for (const stat of stats) {
+      if (stat && stat.mtimeMs > newest) {
+        newest = stat.mtimeMs;
+      }
+    }
+  }
+  return newest;
 }
 
 /** True when `child` is inside `parent` — the test that keeps the sweep in its own root. */
@@ -1478,20 +1634,50 @@ export async function createPullRequest(
 
   const stdout = typeof result.stdout === "string" ? result.stdout : "";
   const stderr = typeof result.stderr === "string" ? result.stderr : "";
-  const url = findUrl(stdout) ?? findUrl(stderr);
-  if (!url) {
+  if (result.exitCode === 0) {
+    const url = findUrl(stdout) ?? findUrl(stderr);
+    if (url) {
+      return { url };
+    }
     throw new GitError(stderr.trim() || "gh did not print a pull request URL");
   }
-  return { url };
+  // `already exists: <url>` names *a* pull request from a branch of this name,
+  // not necessarily this session's: it is the answer only when it is the
+  // person's own and its head is the commit just pushed.
+  const existing = /already exists/i.test(stderr) ? findUrl(stderr) : null;
+  if (existing && (await ownPullRequest(root, existing, options.env))) {
+    return { url: existing };
+  }
+  throw new GitError(
+    existing
+      ? `a pull request from a branch called ${branch} already exists, and it is not this one: ${existing}`
+      : stderr.trim() || "gh did not print a pull request URL",
+  );
 }
 
-/**
- * The URL in `gh`'s output.
- *
- * `gh pr create` prints the URL on its own line on success and, when the pull
- * request already exists, an error naming the existing one — which is the
- * answer the user wanted either way, so both are read the same.
- */
+/** True when the pull request at `url` is the signed-in user's, at this checkout's HEAD. */
+async function ownPullRequest(root: string, url: string, env?: NodeJS.ProcessEnv): Promise<boolean> {
+  const gh = (args: string[]) =>
+    tracked(execa("gh", args, { ...GIT_OPTIONS, cwd: root, ...(env ? { env, extendEnv: false } : {}) }))
+      .then((result) => (result.exitCode === 0 && typeof result.stdout === "string" ? result.stdout.trim() : null))
+      .catch(() => null);
+  const [viewed, login, local] = await Promise.all([
+    gh(["pr", "view", url, "--json", "author,headRefOid"]),
+    gh(["api", "user", "--jq", ".login"]),
+    head(root),
+  ]);
+  if (!viewed || !login || !local) {
+    return false;
+  }
+  try {
+    const pr = JSON.parse(viewed) as { author?: { login?: string }; headRefOid?: string };
+    return pr.author?.login === login && pr.headRefOid === local;
+  } catch {
+    return false;
+  }
+}
+
+/** The URL in `gh`'s output. */
 export function findUrl(output: string): string | null {
   return /https:\/\/\S+/.exec(output)?.[0]?.replace(/[.,)]+$/, "") ?? null;
 }

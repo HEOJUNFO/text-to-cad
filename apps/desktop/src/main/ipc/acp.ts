@@ -27,7 +27,7 @@ import {
 } from "../db/repositories";
 import { emptyTreeIfUnborn, head, isUnder, samePath } from "../projects/git";
 import { releaseWorkspace, resolveWorkspace } from "../projects/workspace";
-import { pruneProjectWorktrees } from "./git";
+import { markCreating, pruneProjectWorktrees } from "./git";
 import { browserService } from "../browser/service";
 import { clearBrowserSessionStorage } from "../browser/storage";
 import { explorerTerminals } from "./explorer";
@@ -70,6 +70,9 @@ export const agentOptions: AgentOptionStore = new AgentOptionStore({
     console.info(`[acp] ${agentId} answered no config options: ${String(error)}`);
   },
 });
+
+/** Each created worktree's unmark, until its session row is written. */
+const settling = new Map<object, () => void>();
 
 export const sessionManager: SessionManager = new SessionManager({
   repo: sessions,
@@ -123,23 +126,30 @@ export const sessionManager: SessionManager = new SessionManager({
     });
     if (workspace.worktreePath) {
       // One more worktree exists, so this is the moment the keep limit can be
-      // exceeded. The sweep never touches a worktree with an open session, and
-      // this one has just become one.
+      // exceeded. This one has no session row yet — that is written after
+      // this returns — so it is marked as being created until
+      // `workspaceSettled`, and the sweep (this one, or a concurrent
+      // create's) leaves it alone.
+      settling.set(workspace, markCreating(workspace.worktreePath));
       await pruneProjectWorktrees(project);
     }
     return workspace;
+  },
+  workspaceSettled: (workspace) => {
+    settling.get(workspace)?.();
+    settling.delete(workspace);
   },
 
   head: (cwd) => head(cwd),
   emptyTree: (cwd) => emptyTreeIfUnborn(cwd),
 
-  releaseWorkspace: async (session) => {
+  releaseWorkspace: async (session, options) => {
     const worktree = session.worktreePath;
     if (worktree && sessions.list().some(other => other.id !== session.id &&
         [other.cwd, other.worktreePath].some(root => root && (samePath(root, worktree) || isUnder(worktree, root))))) {
       return { removed: false, reason: "another session still uses it" };
     }
-    return releaseWorkspace(session, settings.get());
+    return releaseWorkspace(session, settings.get(), options);
   },
 });
 

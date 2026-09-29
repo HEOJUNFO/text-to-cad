@@ -666,6 +666,18 @@ describe("SessionManager", () => {
     expect(row.turnStartedAt).toBeGreaterThan(0);
   });
 
+  it("keeps the previous turn mark when git cannot read HEAD at the next turn", async () => {
+    const head = vi.fn<(cwd: string) => Promise<string | null>>()
+      .mockResolvedValueOnce("the-session-starts-here")
+      .mockRejectedValueOnce(new Error("fatal: unable to read index"));
+    const { repo, manager, cwd } = await setup({ head });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    await manager.prompt(session.id, [{ type: "text", text: "hello" }]);
+    const row = repo.get(session.id)!;
+    expect(row.turnHead).toBe(row.sessionHead);
+    expect(row.turnHead).toBe("the-session-starts-here");
+  });
+
   it("counts a created session by its registry id, and nothing else about it", async () => {
     const track = vi.fn();
     const { manager, cwd } = await setup({ track });
@@ -705,6 +717,46 @@ describe("SessionManager", () => {
     });
     await manager.delete(session.id);
     expect(released).toEqual([`${cwd}/wt`]);
+  });
+
+  it("a create that fails after its worktree was made releases that worktree", async () => {
+    const released: { worktreePath: string | undefined; options: unknown }[] = [];
+    const { repo, manager, cwd } = await setup({
+      workspace: async () => ({ cwd: `${cwd}/wt`, worktreePath: `${cwd}/wt` }),
+      releaseWorkspace: async (session, options) => {
+        released.push({ worktreePath: session.worktreePath, options });
+      },
+      // An adapter that is not there: the spawn fails after the worktree exists.
+      launchOverride: () => ({ command: path.join(cwd, "no-such-agent"), args: [], env: {} }),
+    });
+    await expect(manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "worktree" })).rejects.toThrow();
+    expect(repo.rows.size).toBe(0);
+    expect(released).toEqual([{ worktreePath: `${cwd}/wt`, options: { abandoned: true } }]);
+  });
+
+  it("a failed create in a worktree it was given leaves that worktree alone", async () => {
+    const released: string[] = [];
+    const { manager, cwd } = await setup({
+      workspace: async ({ cwd: given }) => ({ cwd: given!, worktreePath: given! }),
+      releaseWorkspace: async (session) => {
+        released.push(session.worktreePath ?? "");
+      },
+      launchOverride: () => ({ command: path.join(cwd, "no-such-agent"), args: [], env: {} }),
+    });
+    await expect(manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "worktree", cwd })).rejects.toThrow();
+    expect(released).toEqual([]);
+  });
+
+  it("says a created workspace is settled only once its row exists", async () => {
+    const seen: (string | undefined)[] = [];
+    const { repo, manager, cwd } = await setup({
+      workspace: async () => ({ cwd, worktreePath: `${cwd}/wt` }),
+      workspaceSettled: (workspace) => {
+        seen.push([...repo.rows.values()].find((row) => row.worktreePath === workspace.worktreePath)?.worktreePath);
+      },
+    });
+    await manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "worktree" });
+    expect(seen).toEqual([`${cwd}/wt`]);
   });
 
   it("delete removes the row, then runs beforeRelease, then releases the worktree", async () => {

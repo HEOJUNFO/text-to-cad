@@ -146,6 +146,13 @@ export type SessionManagerDeps = {
   }) => Promise<SessionWorkspace>;
 
   /**
+   * P7: told once the workspace `workspace` answered is recorded on a session
+   * row — or abandoned by a create that failed. Until then a new worktree
+   * belongs to no session, and main keeps the keep-limit sweep off it.
+   */
+  workspaceSettled?: (workspace: SessionWorkspace) => void;
+
+  /**
    * P7: the commit a directory is at. Recorded when the session is created and
    * again when each turn starts, which is what the review's `This session` and
    * `Last turn` scopes are measured from.
@@ -162,8 +169,16 @@ export type SessionManagerDeps = {
   /**
    * P7: remove the session's worktree on delete, if the settings allow it.
    * Answers whether it did and, when it kept one, why — which is logged.
+   *
+   * `abandoned` is a create that failed after its worktree was made: nobody
+   * has worked in it and no session will ever open it, so it goes whatever
+   * the setting says — otherwise every failed sign-in leaves `slug`,
+   * `slug-2`, … and their branches behind.
    */
-  releaseWorkspace?: (session: Session) => Promise<{ removed: boolean; reason?: string } | void>;
+  releaseWorkspace?: (
+    session: Session,
+    options?: { abandoned?: boolean },
+  ) => Promise<{ removed: boolean; reason?: string } | void>;
 
   /**
    * Where the painted-on-select snapshot of each session's transcript is
@@ -382,7 +397,11 @@ export class SessionManager {
       turnHead: startHead,
       turnStartedAt: null,
     };
-    this.deps.repo.upsert(session);
+    try {
+      this.deps.repo.upsert(session);
+    } finally {
+      this.deps.workspaceSettled?.(workspace);
+    }
     this.broadcastIndex();
 
     const timer = createTimer();
@@ -409,6 +428,11 @@ export class SessionManager {
       this.pendingTitles.delete(session.id);
       this.deps.repo.remove(session.id);
       this.broadcastIndex();
+      // The worktree this create made goes with the row. Not one it was given
+      // (`New session in this worktree`): that directory was there before.
+      if (workspace.worktreePath && !input.cwd) {
+        await this.deps.releaseWorkspace?.(session, { abandoned: true }).catch(() => undefined);
+      }
       throw error;
     }
     // What the person last chose for this agent — the model, the effort and
@@ -738,9 +762,12 @@ export class SessionManager {
     }
     // The turn's starting point, read before the agent can move it. This is
     // what the review's `Last turn` scope diffs against; taking it afterwards
-    // would measure the turn against its own result.
+    // would measure the turn against its own result. A read that failed
+    // (a lock, a timeout) keeps the previous mark: a wider `Last turn` is
+    // still a review, where a null would unmark it altogether.
+    const turnHead = await this.headOf(session.cwd);
     this.update(id, {
-      turnHead: await this.headOf(session.cwd),
+      ...(turnHead === null ? {} : { turnHead }),
       turnStartedAt: Date.now(),
     });
     try {

@@ -13,7 +13,7 @@
  * that looks like a bug in the code under test.
  */
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, realpath, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -139,6 +139,52 @@ describe("findUrl", () => {
   });
 });
 
+describe("createPullRequest", () => {
+  /** A `gh` on PATH that reports an existing pull request by `author` at `head`. */
+  async function fakeGh(author: string, headOid: string) {
+    const bin = await scratch("text-to-cad-gh-");
+    const script = [
+      "#!/bin/sh",
+      'case "$1 $2" in',
+      '  "pr create") echo \'a pull request for branch "text-to-cad/wrist" into branch "main" already exists:\' >&2;'
+        + ' echo "https://github.com/o/r/pull/7" >&2; exit 1 ;;',
+      `  "pr view") echo '{"author":{"login":"${author}"},"headRefOid":"${headOid}"}' ;;`,
+      '  "api user") echo "me" ;;',
+      "esac",
+    ].join("\n");
+    await writeFile(path.join(bin, "gh"), `${script}\n`, { mode: 0o755 });
+    return { ...GIT_ENV, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}` };
+  }
+
+  async function pushed() {
+    const { root, worktrees } = await repository();
+    const remote = path.join(path.dirname(root), "remote.git");
+    await git_(path.dirname(root), "init", "--quiet", "--bare", "--initial-branch=main", remote);
+    await git_(root, "remote", "add", "origin", remote);
+    await git_(root, "push", "--quiet", "-u", "origin", "main");
+    const created = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "wrist" });
+    return { cwd: created.path, head: (await git.head(created.path))! };
+  }
+
+  it("does not take someone else's pull request from a branch of the same name as this one", async () => {
+    const { cwd, head } = await pushed();
+    const env = await fakeGh("someone-else", head);
+    await git.ghAvailable(env, true);
+    await expect(git.createPullRequest(cwd, { title: "Wrist", env })).rejects.toThrow(
+      "already exists, and it is not this one: https://github.com/o/r/pull/7",
+    );
+  });
+
+  it("answers the existing pull request when it is the person's own, at the commit just pushed", async () => {
+    const { cwd, head } = await pushed();
+    const env = await fakeGh("me", head);
+    await git.ghAvailable(env, true);
+    await expect(git.createPullRequest(cwd, { title: "Wrist", env })).resolves.toEqual({
+      url: "https://github.com/o/r/pull/7",
+    });
+  });
+});
+
 describe("isUnder and samePath", () => {
   it("keeps the sweep inside its own root", () => {
     expect(git.isUnder("/a/b", "/a/b/c")).toBe(true);
@@ -238,6 +284,36 @@ describe("createWorktree", () => {
     expect(third.branch).toBe("text-to-cad/wrist-4");
   });
 
+  it("refuses a prefix a branch is in the way of, naming it, and steps over a branch under a name", async () => {
+    const { root, worktrees } = await repository();
+    await git_(root, "branch", "amy");
+    await expect(
+      git.createWorktree({ repoPath: root, parentDir: worktrees, name: "wrist", branchPrefix: "amy/" }),
+    ).rejects.toThrow('already has a branch called "amy"');
+
+    // `amy-wrist/old` existing makes `amy-wrist` impossible, but `amy-wrist-2` is fine.
+    await git_(root, "branch", "amy-wrist/old");
+    const created = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "wrist", branchPrefix: "amy-" });
+    expect(created.branch).toBe("amy-wrist-2");
+  });
+
+  it("steps over a branch name someone else already has on the remote", async () => {
+    const { root, worktrees } = await repository();
+    const remote = path.join(path.dirname(root), "remote.git");
+    await git_(path.dirname(root), "init", "--quiet", "--bare", "--initial-branch=main", remote);
+    await git_(root, "remote", "add", "origin", remote);
+    await git_(root, "push", "--quiet", "-u", "origin", "main");
+    // Another machine pushed `text-to-cad/wrist`; only the fetch tells this checkout.
+    await git_(root, "push", "--quiet", "origin", "main:refs/heads/text-to-cad/wrist");
+    await git_(root, "update-ref", "-d", "refs/remotes/origin/text-to-cad/wrist");
+
+    const fetched = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "wrist", fetch: true });
+    expect(fetched.branch).toBe("text-to-cad/wrist-2");
+    // Without a fetch, what the checkout already knows of the remote still counts.
+    const known = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "wrist" });
+    expect(known.branch).toBe("text-to-cad/wrist-3");
+  });
+
   it("with fetch, starts from the fetched upstream rather than local HEAD, and tracks nothing", async () => {
     const { root, worktrees } = await repository();
     const remote = path.join(path.dirname(root), "remote.git");
@@ -335,6 +411,20 @@ describe("removeWorktree", () => {
     expect(await git.listWorktrees(root)).toHaveLength(1);
   });
 
+  it("removes the registration of a folder deleted by hand, and the sweep does too", async () => {
+    const { root, worktrees } = await repository();
+    const gone = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "gone by hand" });
+    const swept = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "swept" });
+    await rm(gone.path, { recursive: true, force: true });
+    await rm(swept.path, { recursive: true, force: true });
+
+    await git.removeWorktree(gone.path, { repoPath: root });
+    expect((await git.pruneWorktrees({ repoPath: root, parentDir: worktrees, keep: 0 })).removed).toEqual([swept.path]);
+    expect((await git.listWorktrees(root)).filter((worktree) => !worktree.primary)).toEqual([]);
+    // The branches stay, as for any removal.
+    expect((await git_(root, "branch", "--list", gone.branch, swept.branch)).stdout).toContain(gone.branch);
+  });
+
   it("refuses the repository's own working tree", async () => {
     const { root } = await repository();
     await expect(git.removeWorktree(root)).rejects.toThrow("the repository itself");
@@ -373,6 +463,32 @@ describe("pruneWorktrees", () => {
     expect(left.map((worktree) => worktree.path).sort()).toEqual([made[2], outside.path].sort());
   });
 
+  it("orders by the newest file written, not the folder's own mtime", async () => {
+    const { root, worktrees } = await repository();
+    await mkdir(path.join(root, "src"));
+    await writeFile(path.join(root, "src", "part.py"), "x = 1\n");
+    await git_(root, "add", "-A");
+    await git_(root, "commit", "--quiet", "-m", "src");
+    const idle = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "idle" });
+    const busy = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "busy" });
+    const hourAgo = Date.now() - 3_600_000;
+    for (const worktree of [idle, busy]) {
+      await utimes(path.join(worktree.path, "src"), new Date(hourAgo), new Date(hourAgo));
+      await utimes(path.join(worktree.path, "src", "part.py"), new Date(hourAgo), new Date(hourAgo));
+      await touch(worktree.path, hourAgo);
+    }
+    // A scratch file made and removed at the idle one's top level: its
+    // folder's mtime moved, nothing in it did.
+    await utimes(idle.path, new Date(), new Date());
+    // The busy one is being edited, deep down: its folder's mtime never moves.
+    await writeFile(path.join(busy.path, "src", "part.py"), "x = 2\n");
+    await git_(busy.path, "commit", "--quiet", "-am", "the edit");
+    await utimes(busy.path, new Date(hourAgo - 60_000), new Date(hourAgo - 60_000));
+
+    const { removed } = await git.pruneWorktrees({ repoPath: root, parentDir: worktrees, keep: 1 });
+    expect(removed).toEqual([idle.path]);
+  });
+
   it("never removes one with an open session or uncommitted work", async () => {
     const { root, worktrees } = await repository();
     const busy = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "busy" });
@@ -402,6 +518,48 @@ describe("pruneWorktrees", () => {
 
     const { removed } = await git.pruneWorktrees({ repoPath: root, parentDir: worktrees, keep: 0 });
     expect(removed).toEqual([]);
+    expect(await readdir(secrets.path)).toContain(".env");
+  });
+});
+
+describe("a check git could not answer", () => {
+  /**
+   * A `git` first on PATH that fails the ignored-files read the way a lock or
+   * a timeout would, and passes everything else to the real one.
+   */
+  async function failingIgnoredCheck(): Promise<() => void> {
+    const real = (await run("sh", ["-c", "command -v git"])).stdout.trim();
+    const bin = await scratch("text-to-cad-git-wrapper-");
+    await writeFile(
+      path.join(bin, "git"),
+      `#!/bin/sh\nfor arg in "$@"; do [ "$arg" = "--ignored=matching" ] && { echo "fatal: unable to read index" >&2; exit 128; }; done\nexec "${real}" "$@"\n`,
+      { mode: 0o755 },
+    );
+    const previous = process.env.PATH;
+    process.env.PATH = `${bin}${path.delimiter}${previous ?? ""}`;
+    return () => {
+      process.env.PATH = previous;
+    };
+  }
+
+  it("is unknown, not clean, and nothing is removed on it", async () => {
+    const { root, worktrees } = await repository();
+    await writeFile(path.join(root, ".gitignore"), ".env\n");
+    await git_(root, "add", "-A");
+    await git_(root, "commit", "--quiet", "-m", "ignore");
+    const secrets = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "secrets" });
+    await writeFile(path.join(secrets.path, ".env"), "TOKEN=1\n");
+
+    const restore = await failingIgnoredCheck();
+    try {
+      const { removed } = await git.pruneWorktrees({ repoPath: root, parentDir: worktrees, keep: 0 });
+      expect(removed).toEqual([]);
+      await expect(git.removeWorktree(secrets.path)).rejects.toThrow(/could not check that worktree/);
+      // What Settings is told: not clean, not dirty — unknown.
+      expect(await git.hasUnsavedWork(secrets.path)).toBeNull();
+    } finally {
+      restore();
+    }
     expect(await readdir(secrets.path)).toContain(".env");
   });
 });
@@ -446,8 +604,54 @@ describe("status against a recorded revision", () => {
   });
 });
 
-/** Set a directory's mtime, so the sweep's ordering is deterministic. */
+describe("a since-period older than the whole history", () => {
+  it("counts the first commit's own changes, not only what came after it", async () => {
+    const { root } = await repository();
+    await writeFile(path.join(root, "README.md"), "one\ntwo\nthree\n");
+    await git_(root, "commit", "--quiet", "-am", "second");
+
+    const since = await git.status(root, { kind: "since", since: "7 days ago" });
+    // README.md was made by the first commit, minutes ago: all three lines are new.
+    expect(since.files).toEqual([expect.objectContaining({ path: "README.md", status: "added", insertions: 3, deletions: 0 })]);
+    const diff = await git.fileDiff(root, "README.md", { kind: "since", since: "7 days ago" });
+    expect(diff).toMatchObject({ status: "added", before: "", after: "one\ntwo\nthree\n" });
+  });
+});
+
+describe("a repository with no commits yet", () => {
+  it("counts a staged file's lines rather than +0 −0", async () => {
+    const base = await scratch("text-to-cad-unborn-");
+    await git_(base, "init", "--quiet", "--initial-branch=main");
+    await writeFile(path.join(base, "part.py"), "a\nb\n");
+    await git_(base, "add", "part.py");
+    await writeFile(path.join(base, "part.py"), "a\nb\nc\n");
+
+    const status = await git.status(base);
+    expect(status.files).toEqual([expect.objectContaining({ path: "part.py", insertions: 3, deletions: 0 })]);
+  });
+});
+
+describe("a renamed file", () => {
+  it("diffs against its old path, not as a new file", async () => {
+    const { root } = await repository();
+    const mark = (await git.head(root))!;
+    await git_(root, "mv", "README.md", "NOTES.md");
+    await writeFile(path.join(root, "NOTES.md"), "one\ntwo\nthree\n");
+
+    for (const scope of [{ kind: "working-tree" as const }, { kind: "range" as const, from: mark }]) {
+      const diff = await git.fileDiff(root, "NOTES.md", scope);
+      expect(diff).toMatchObject({ status: "renamed", oldPath: "README.md", insertions: 1, deletions: 0 });
+      expect(diff.before).toBe("one\ntwo\n");
+      const patch = await git.unifiedDiff(root, "NOTES.md", scope);
+      expect(patch).toContain("rename from README.md");
+      expect(patch).toContain("+three");
+    }
+  });
+});
+
+/** Set a worktree's mtimes — the folder and its one file — so the sweep's ordering is deterministic. */
 async function touch(directory: string, at: number): Promise<void> {
   const { utimes } = await import("node:fs/promises");
+  await utimes(path.join(directory, "README.md"), new Date(at), new Date(at));
   await utimes(directory, new Date(at), new Date(at));
 }
