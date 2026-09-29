@@ -175,7 +175,8 @@ class WorkspaceWorkflowSelection(unittest.TestCase):
                      "scripts/test/common.sh", "scripts/test/test-js.sh", "package-lock.json",
                      "scripts/release/sync-version.mjs", ".github/workflows/test.yml",
                      ".github/actions/setup-deps/action.yml", ".github/workflows/new.yml",
-                     "scripts/new-tool.sh"):
+                     "scripts/new-tool.sh", "scripts/release/new-tool.sh",
+                     "scripts/utils/new-tool.sh", "scripts/install/new-tool.sh"):
             with self.subTest(path=path):
                 self.assertEqual(selected_paths(path), every)
         for path in ("packages/cadgen/src/cadgen/cli/viewer.py", "requirements-dev.txt",

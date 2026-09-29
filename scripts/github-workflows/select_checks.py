@@ -35,6 +35,14 @@ SCOPED = {
     "scripts/test/check-kit-boundaries.mjs": {"core", "ui", "web"},
     "scripts/test/check-kit-boundaries.test.mjs": {"core", "ui", "web"},
     "scripts/release/check-wheel-contents.sh": {"packaging", "policy"},
+    "scripts/release/check-pr-version.sh": {"policy"},
+    "scripts/release/check-version.sh": {"policy"},
+    "scripts/release/bump-version.sh": {"policy"},
+    "scripts/release/pin-cadgen-requirements.sh": {"policy"},
+    "scripts/release/publish-github-release.sh": {"policy"},
+    "scripts/release/release-tags.sh": {"policy"},
+    "scripts/install/install-skills.sh": {"policy"},
+    "scripts/install/uninstall-skills.sh": {"policy"},
     # sync-version is also a bundle input, so it keeps the broad fallback.
     "scripts/release/sync-version.mjs": {"infra"},
 }
@@ -74,9 +82,7 @@ def select(paths: list[str], *, manual: bool = False) -> dict[str, object]:
             flags.add("web")
         elif path.startswith("apps/docs/"):
             flags.add("docs")
-        elif path.startswith((".claude-plugin/", ".codex-plugin/", "scripts/install/", "scripts/utils/")):
-            flags.add("policy")
-        elif path.startswith("scripts/release/"):
+        elif path.startswith((".claude-plugin/", ".codex-plugin/")):
             flags.add("policy")
         elif path.startswith(("scripts/", ".github/")) or path in {"VERSION", "package.json", "package-lock.json", ".gitattributes", ".gitignore"}:
             flags.add("infra")
