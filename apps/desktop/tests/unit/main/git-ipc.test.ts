@@ -5,7 +5,7 @@
  * two same-named projects must not let one delete the other's work.
  */
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, stat, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -17,6 +17,7 @@ const state = vi.hoisted(() => ({
   projects: [] as { id: string; name: string; path: string; createdAt: number }[],
   sessions: [] as Row[],
   worktreeRoot: "",
+  settings: {} as Record<string, unknown>,
 }));
 vi.mock("@main/telemetry", () => ({ track: () => {}, fileExtension: () => "none" }));
 vi.mock("electron", () => ({ BrowserWindow: {}, dialog: {}, ipcMain: {}, shell: {} }));
@@ -31,14 +32,14 @@ vi.mock("@main/db/repositories", async () => {
       get: (id: string) => state.sessions.find((session) => session.id === id) ?? null,
       list: (projectId?: string) => state.sessions.filter((session) => !projectId || session.projectId === projectId),
     },
-    settings: { get: () => ({ ...defaultSettings(), worktreeRoot: state.worktreeRoot }) },
+    settings: { get: () => ({ ...defaultSettings(), worktreeRoot: state.worktreeRoot, ...state.settings }) },
     explorerTabs: {},
   };
 });
 
-import { gitHandlers } from "@main/ipc/git";
+import { gitHandlers, pruneProjectWorktrees } from "@main/ipc/git";
 import * as git from "@main/projects/git";
-import { legacyProjectWorktreeDir } from "@main/projects/workspace";
+import { legacyProjectWorktreeDir, projectWorktreeDir } from "@main/projects/workspace";
 
 const run = promisify(execFile);
 const GIT_ENV = {
@@ -60,6 +61,7 @@ beforeEach(async () => {
   state.worktreeRoot = path.join(base, "worktrees");
   state.projects = [];
   state.sessions = [];
+  state.settings = {};
 });
 afterEach(async () => {
   process.env = { ...previousEnv };
@@ -135,4 +137,30 @@ test("a worktree a session is using is not removed, even forced", async () => {
     message: "1 session is still using that worktree",
   });
   expect(await exists(created.path)).toBe(true);
+});
+
+test("the keep-limit sweep spares a worktree another project's session belongs to, or runs inside", async () => {
+  const project = await repository("a", path.join(base, "robot-arm"));
+  state.settings = { autoDeleteWorktrees: true, worktreeKeepLimit: 1 };
+  const parentDir = projectWorktreeDir({ worktreeRoot: state.worktreeRoot }, project);
+  const opened = await git.createWorktree({ repoPath: project.path, parentDir, name: "opened as a project" });
+  const inside = await git.createWorktree({ repoPath: project.path, parentDir, name: "session in a subfolder" });
+  const spare = await git.createWorktree({ repoPath: project.path, parentDir, name: "spare" });
+  const newest = await git.createWorktree({ repoPath: project.path, parentDir, name: "newest" });
+  const hourAgo = new Date(Date.now() - 3_600_000);
+  await utimes(spare.path, hourAgo, hourAgo);
+  await mkdir(path.join(inside.path, "parts"));
+  // The worktree folder chosen as a project of its own, and a session of this
+  // project running in a folder inside another worktree.
+  state.sessions.push(
+    { id: "s1", projectId: opened.path, cwd: opened.path, archived: false },
+    { id: "s2", projectId: project.id, cwd: path.join(inside.path, "parts"), archived: false },
+  );
+
+  await pruneProjectWorktrees(project);
+  expect(await exists(opened.path)).toBe(true);
+  expect(await exists(inside.path)).toBe(true);
+  // Of the two nobody uses, the older was past the limit and went.
+  expect(await exists(newest.path)).toBe(true);
+  expect(await exists(spare.path)).toBe(false);
 });

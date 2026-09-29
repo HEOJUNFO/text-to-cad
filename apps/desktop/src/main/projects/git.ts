@@ -1339,7 +1339,10 @@ export type PruneOptions = {
   parentDir: string | readonly string[];
   /** How many survive. */
   keep: number;
-  /** Worktrees with an open session — never swept. */
+  /**
+   * Directories sessions run in or belong to — never swept, and neither is a
+   * worktree that has one of them inside it.
+   */
   protectedPaths?: string[];
 };
 
@@ -1363,7 +1366,9 @@ export async function pruneWorktrees(options: PruneOptions): Promise<{ removed: 
     if (worktree.primary || worktree.locked || !parents.some((parent) => isUnder(parent, worktree.path))) {
       continue;
     }
-    if (kept.some((protectedPath) => samePath(protectedPath, worktree.path))) {
+    // Inside counts too: a session opened on a folder in the worktree is
+    // running in it just as much as one at its root.
+    if (kept.some((protectedPath) => samePath(protectedPath, worktree.path) || isUnder(worktree.path, protectedPath))) {
       continue;
     }
     const stat = await fsp.stat(worktree.path).catch(() => null);

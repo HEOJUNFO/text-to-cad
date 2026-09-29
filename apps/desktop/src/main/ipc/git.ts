@@ -126,7 +126,10 @@ async function worktreesOf(project: Project): Promise<Worktree[]> {
  *
  * Called after a worktree is created rather than on a timer: the limit is
  * about how many pile up, and the moment one more appears is the moment to
- * check. Worktrees with an open session are handed to the sweep as protected.
+ * check. Every session's directories are handed to the sweep as protected —
+ * every project's, not only this one's: a session whose *project* is one of
+ * these worktree folders, or that runs somewhere inside one, is using it just
+ * the same (the rule `releaseWorkspace` and `removeWorktree` already keep).
  */
 export async function pruneProjectWorktrees(project: Project): Promise<void> {
   const stored = settings.get();
@@ -138,7 +141,8 @@ export async function pruneProjectWorktrees(project: Project): Promise<void> {
       repoPath: project.path,
       parentDir: projectWorktreeDirs(stored, project),
       keep: stored.worktreeKeepLimit,
-      protectedPaths: sessions.list(project.id).map((session) => session.cwd),
+      protectedPaths: sessions.list().flatMap((session) =>
+        [session.cwd, session.projectId, session.worktreePath].filter((root): root is string => Boolean(root))),
     })
     .catch(() => undefined);
 }
