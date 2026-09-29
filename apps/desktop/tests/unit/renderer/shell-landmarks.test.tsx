@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { Shell } from "@renderer/app/Shell";
@@ -62,4 +62,14 @@ it("names each pane separator and hints it without a native title", () => {
   expect(separators.map((separator) => separator.getAttribute("aria-label"))).toEqual(["Resize the sidebar", "Resize the explorer"]);
   expect(separators.map((separator) => separator.getAttribute("aria-controls"))).toEqual(["sidebar", "explorer"]);
   for (const separator of separators) expect(separator).not.toHaveAttribute("title");
+});
+
+it("takes focus into the explorer when Mod+Alt+B opens it", async () => {
+  useExplorer.setState({ collapsed: true });
+  render(<Shell />);
+  expect(screen.queryByRole("region", { name: "Explorer" })).toBeNull();
+  const composer = screen.getByRole("textbox", { name: "Prompt" });
+  composer.focus();
+  fireEvent.keyDown(window, { key: "b", altKey: true, metaKey: true, ctrlKey: true });
+  await waitFor(() => expect(screen.getByRole("tab")).toHaveFocus());
 });

@@ -211,7 +211,16 @@ function useShellShortcuts(): void {
       const key = event.key.toLowerCase();
       if (key === "b") {
         event.preventDefault();
+        const opening = event.altKey && useExplorer.getState().sessionId !== null && useExplorer.getState().collapsed;
         runUiCommand({ command: event.altKey ? "toggle-explorer" : "toggle-sidebar" });
+        // The chord that opens the explorer takes the keyboard into it — its strip's tab, else
+        // `+` — as the chords that open a tab do (`features/explorer/focus.ts`).
+        if (opening) {
+          window.requestAnimationFrame(() => {
+            const pane = document.getElementById("explorer");
+            pane?.querySelector<HTMLElement>(`${PANE_HOMES.explorer}, [data-new-tab] button`)?.focus();
+          });
+        }
         return;
       }
       if (event.altKey) {
