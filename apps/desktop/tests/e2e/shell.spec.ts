@@ -348,7 +348,9 @@ test("Settings: every page renders, and what it shows comes from main", async ()
     await expect(drawer.getByText("Skills", { exact: true })).toBeVisible();
     await expect(drawer.getByText(/plugin/i)).toHaveCount(0);
     await expect(drawer.getByRole("button", { name: /reinstall/i })).toHaveCount(0);
-    await expect(drawer.getByText("npx", { exact: true })).toBeVisible();
+    // The launch line is the registry's pin (`npm exec … --package=<pkg>@<version>`), not a bare npx.
+    await expect(drawer.getByText("npm", { exact: true })).toBeVisible();
+    await expect(drawer.getByText(/--package=@agentclientprotocol\/(claude-agent-acp|codex-acp)@\d+\.\d+\.\d+/)).toBeVisible();
     await shoot(`settings-agent-${slug}.png`);
     // Escape closes the drawer, not the route behind it...
     await page.keyboard.press("Escape");
