@@ -7,7 +7,7 @@
       "args": [
         "--isolated",
         "--from",
-        "cadgen[mcp]==0.7.3",
+        "cadgen[mcp]==0.7.4",
         "cadgen",
         "mcp"
       ]
