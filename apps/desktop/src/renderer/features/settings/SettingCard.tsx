@@ -293,6 +293,7 @@ export function TextRow({
   type = "text",
   problem,
   note,
+  warning,
 }: {
   title: string;
   description?: string;
@@ -310,6 +311,12 @@ export function TextRow({
   problem?: (value: string) => string | null;
   /** Said under the row while the field shows no problem of its own. */
   note?: React.ReactNode;
+  /**
+   * Drawn under the row in place of `note`, as it is given — the caller's own
+   * alert — while the field shows no problem of its own: something wrong with
+   * what is stored rather than with what is typed.
+   */
+  warning?: React.ReactNode;
 }) {
   const draft = useDraft(value, (next) => {
     if (!problem?.(next)) {
@@ -362,6 +369,8 @@ export function TextRow({
         <p className="text-xs text-destructive" id={problemId} role="alert">
           {refused}
         </p>
+      ) : warning ? (
+        warning
       ) : note ? (
         <p className="text-xs text-muted-foreground">{note}</p>
       ) : null}

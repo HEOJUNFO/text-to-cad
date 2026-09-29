@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Loader2, RotateCcw } from "lucide-react";
 
 import { Button } from "@renderer/components/ui/button";
@@ -121,14 +121,40 @@ export function AgentSetupCard({
   agents: AgentStatus[];
   title: string;
   message: string;
-  onRetry?: () => void;
+  /** A promise is waited on: the button says it is trying, and a try that fails the same way says so. */
+  onRetry?: () => void | Promise<unknown>;
 }) {
   const openSettings = useUi((state) => state.openSettings);
+  // A Try again whose answer is the same error redraws the same words, which reads as a button
+  // that did nothing: the try is shown while it runs, and a card still here after it says so.
+  const [trying, setTrying] = useState(false);
+  const [tries, setTries] = useState(0);
+  const mounted = useRef(true);
+  useEffect(() => () => {
+    mounted.current = false;
+  }, []);
+  const retry = async () => {
+    if (!onRetry || trying) return;
+    setTrying(true);
+    try {
+      await onRetry();
+    } finally {
+      if (mounted.current) {
+        setTrying(false);
+        setTries((count) => count + 1);
+      }
+    }
+  };
   return (
     <div className="flex flex-col gap-3 rounded-xl border bg-card px-4 py-3" data-agent-setup>
       <div>
         <p className="text-[13px] font-medium">{title}</p>
         <p className="mt-0.5 text-[13px] leading-5 whitespace-pre-wrap text-muted-foreground">{message}</p>
+        {tries > 0 && !trying ? (
+          <p className="mt-1 text-[12px] text-muted-foreground" data-retry-result role="status">
+            {tries === 1 ? "Tried again, and it failed again." : `Tried again ${tries} times, and it failed each time.`}
+          </p>
+        ) : null}
       </div>
       {agents.length > 0 ? (
         <div className="space-y-2">
@@ -139,9 +165,9 @@ export function AgentSetupCard({
       ) : null}
       <div className="flex flex-wrap items-center gap-2">
         {onRetry ? (
-          <Button className="h-7 gap-1.5 text-[12px]" onClick={onRetry} size="sm" variant="outline">
-            <RotateCcw className="size-3.5" />
-            Try again
+          <Button aria-busy={trying || undefined} className="h-7 gap-1.5 text-[12px]" disabled={trying} onClick={() => void retry()} size="sm" variant="outline">
+            {trying ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> : <RotateCcw className="size-3.5" />}
+            {trying ? "Trying again…" : "Try again"}
           </Button>
         ) : null}
         <Button

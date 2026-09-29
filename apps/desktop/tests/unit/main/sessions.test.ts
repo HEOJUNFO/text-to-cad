@@ -690,7 +690,7 @@ describe("SessionManager", () => {
     // The reason, as an answer the renderer shows beside the draft it keeps.
     expect(answer).toEqual({
       stopReason: "refused",
-      refused: "claude-code cannot take images in a prompt (no image prompt capability)",
+      refused: "Claude Code cannot take an image in a prompt. Remove the attachment to send.",
     });
   });
 

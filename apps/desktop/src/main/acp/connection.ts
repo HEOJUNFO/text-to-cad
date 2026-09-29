@@ -519,12 +519,14 @@ export class SessionConnection {
    */
   refusal(content: PromptBlock[]): string | null {
     const capabilities = this.initializeResponse?.agentCapabilities?.promptCapabilities ?? {};
-    const agent = this.options.agentId;
+    // Said to the person beside the draft it kept: the agent by the name they know it by, and
+    // what to do about it — not the capability's wire name.
+    const agent = agentProvider(this.options.agentId)?.name ?? this.options.agentId;
     if (!capabilities.image && content.some((block) => block.type === "image")) {
-      return `${agent} cannot take images in a prompt (no image prompt capability)`;
+      return `${agent} cannot take an image in a prompt. Remove the attachment to send.`;
     }
     if (!capabilities.embeddedContext && content.some((block) => block.type === "resource")) {
-      return `${agent} cannot take a file's contents in a prompt (no embeddedContext prompt capability)`;
+      return `${agent} cannot take a file's contents in a prompt. Remove the attachment to send.`;
     }
     return null;
   }

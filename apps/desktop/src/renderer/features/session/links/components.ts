@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
+import { defaultRehypePlugins } from "streamdown";
 
 import { PathLink } from "./PathLink";
+import { rehypeProjectImages } from "./rehypeProjectImages";
 import { TranscriptImage } from "./TranscriptImage";
 
 /**
@@ -21,3 +23,13 @@ export const TRANSCRIPT_COMPONENTS = {
   picture: ({ children }: { children?: ReactNode }) => children,
   source: () => null,
 };
+
+/**
+ * Streamdown's own rehype plugins — raw HTML, the sanitizer, harden — with
+ * `rehypeProjectImages` between the sanitizer and harden, so a project image
+ * named without a `./` reaches `TranscriptImage` instead of being blocked.
+ * `rehypePlugins` *replaces* Streamdown's defaults, so they are spread back in
+ * around it. A module constant, for the memoised `MessageResponse`.
+ */
+const { harden, ...beforeHarden } = defaultRehypePlugins;
+export const TRANSCRIPT_REHYPE_PLUGINS = [...Object.values(beforeHarden), rehypeProjectImages, ...(harden ? [harden] : [])];

@@ -225,8 +225,10 @@ export function Composer({
       // apart, with their chips' labels — rather than as the flattened prompt: a start that fails
       // puts it back as it was (the rejection below), and so does taking it out of the queue.
       const taken = useComposer.getState().takeDraft(draftKey);
+      // With its files, for a refusal that comes back after the box has let them go.
+      const files = message.files.flatMap((part) => attachmentFiles.fileFor(part) ?? []);
       try {
-        await onSubmit(trimmed, content, taken);
+        await onSubmit(trimmed, content, files.length ? { ...taken, files } : taken);
       } catch (error) {
         useComposer.getState().restoreDraft(draftKey, taken);
         // Rethrown so the form keeps its attachments for the next try.

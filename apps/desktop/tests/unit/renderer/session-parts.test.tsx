@@ -459,6 +459,25 @@ describe("an image in the agent's words", () => {
     expect(document.querySelectorAll("img")).toHaveLength(0);
   });
 
+  // rehype-harden cannot parse a bare relative source and blocked it before the transcript's
+  // `img` was asked: `![r](render.png)` read "[Image blocked: r]" however real the file.
+  it("draws a project file named without a ./, in prose and in a thought", async () => {
+    const user = userEvent.setup();
+    const readBinary = vi.mocked(window.textToCad.explorer.readBinary);
+    readBinary.mockResolvedValue({ path: "render.png", mime: "image/png", size: 4, dataUrl: "data:image/png;base64,AAAA" });
+    scoped(
+      <>
+        <PartsList open={false} parts={[{ type: "text", text: "A render: ![r](render.png)" }]} prefix="t" sessionId="s1" />
+        <ThoughtPart streaming={false} text={'Looked at <img alt="t" src="render.png">'} />
+      </>,
+    );
+    expect(await screen.findByAltText("r")).toHaveAttribute("src", "data:image/png;base64,AAAA");
+    await user.click(screen.getByRole("button", { name: /Thought/ }));
+    expect(await screen.findByAltText("t")).toHaveAttribute("src", "data:image/png;base64,AAAA");
+    expect(readBinary).toHaveBeenCalledWith({ projectId: "p1", path: "render.png" });
+    expect(screen.queryByText(/Image blocked/)).toBeNull();
+  });
+
   it("draws a project file, read through the project", async () => {
     const readBinary = vi.mocked(window.textToCad.explorer.readBinary);
     readBinary.mockResolvedValueOnce({ path: "renders/front.png", mime: "image/png", size: 4, dataUrl: "data:image/png;base64,AAAA" });

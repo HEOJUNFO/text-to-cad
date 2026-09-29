@@ -8,7 +8,7 @@ import {
   useReasoning,
 } from "@renderer/components/ai-elements/reasoning";
 
-import { TRANSCRIPT_COMPONENTS } from "../links/components";
+import { TRANSCRIPT_COMPONENTS, TRANSCRIPT_REHYPE_PLUGINS } from "../links/components";
 
 /**
  * A thought chunk as AI Elements' Reasoning: collapsed, one line —
@@ -31,6 +31,7 @@ export function ThoughtPart({ text, streaming }: { text: string; streaming: bool
       <ReasoningContent
         className="ui-disclosure mt-1 ml-6 min-w-0 [overflow-wrap:anywhere] text-[13px] leading-6"
         components={TRANSCRIPT_COMPONENTS}
+        rehypePlugins={TRANSCRIPT_REHYPE_PLUGINS}
       >
         {text}
       </ReasoningContent>

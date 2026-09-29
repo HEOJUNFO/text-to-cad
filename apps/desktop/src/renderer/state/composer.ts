@@ -76,6 +76,13 @@ export type TakenDraft = {
   annotations: DraftAnnotation[];
   labels?: Record<string, string>;
   root?: string;
+  /**
+   * The box's attachments, as files, when the prompt may be refused after the box that held
+   * them has gone — queued, or sent from the new-session screen into the session it made.
+   * `restoreDraft` attaches them again. The composer's own failed send leaves this out: the
+   * form keeps its attachments then.
+   */
+  files?: File[];
 };
 
 /** The draft key for a session, or for the new-session state. */
@@ -387,6 +394,7 @@ export const useComposer = create<ComposerState>((set, get) => ({
       ...(annotations.length ? { annotations: { ...state.annotations, [key]: annotations } } : {}),
       ...(draft.labels ? { referenceLabels: { ...state.referenceLabels, [key]: { ...draft.labels, ...state.referenceLabels[key] } } } : {}),
       ...(draft.root && !state.draftRoots[key] ? { draftRoots: { ...state.draftRoots, [key]: draft.root } } : {}),
+      ...(draft.files?.length ? { pendingFiles: { ...state.pendingFiles, [key]: [...(state.pendingFiles[key] ?? []), ...draft.files] } } : {}),
     };
   }),
 

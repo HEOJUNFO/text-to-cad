@@ -1,6 +1,6 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { NewSession } from "@renderer/features/session/NewSession";
 import { useAcp } from "@renderer/state/acp";
@@ -8,6 +8,7 @@ import { useAgents } from "@renderer/state/agents";
 import { useAgentOptions } from "@renderer/state/agent-options";
 import { useComposer } from "@renderer/state/composer";
 import { useUi } from "@renderer/state/ui";
+import { initialSessionState } from "@shared/acp/types";
 import type { AgentStatus } from "@shared/agents";
 
 // The composer and its chips are their own suites; here the box is a button
@@ -25,7 +26,9 @@ vi.mock("@renderer/features/session/Composer", async () => {
       const send = () => {
         const store = useComposer.getState();
         const text = store.drafts[newDraftKey]?.trim() || "make a cube";
-        const taken = store.takeDraft(newDraftKey);
+        // The box's attachments go with the draft, the way the real composer hands them over.
+        const files = store.takeFiles(newDraftKey);
+        const taken = { ...store.takeDraft(newDraftKey), ...(files.length ? { files } : {}) };
         void Promise.resolve(onSubmit(text, [{ type: "text", text }], taken)).catch(() => useComposer.getState().restoreDraft(newDraftKey, taken));
       };
       const request = useComposer((state) => state.submitRequest?.key === newDraftKey ? state.submitRequest.nonce : null);
@@ -75,6 +78,7 @@ const AGENT = {
   authMethods: [{ type: "cli-login", label: "Sign in" }],
 } as unknown as AgentStatus;
 
+const realSubmit = useComposer.getState().submit;
 const create = vi.fn();
 const submit = vi.fn(async () => undefined);
 const openSettings = vi.fn();
@@ -101,7 +105,7 @@ describe("a start that needs a sign-in", () => {
     await user.click(await screen.findByRole("button", { name: "Try again" }));
 
     expect(create).toHaveBeenCalledTimes(2);
-    expect(submit).toHaveBeenCalledWith("s1", "make a cube", [{ type: "text", text: "make a cube" }]);
+    expect(submit).toHaveBeenCalledWith("s1", "make a cube", [{ type: "text", text: "make a cube" }], expect.anything());
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 
@@ -122,7 +126,7 @@ describe("a start that needs a sign-in", () => {
     expect(useComposer.getState().annotations[key]).toHaveLength(1);
 
     await user.click(screen.getByRole("button", { name: "Try again" }));
-    expect(submit).toHaveBeenCalledWith("s1", "make a cube", [{ type: "text", text: "make a cube" }]);
+    expect(submit).toHaveBeenCalledWith("s1", "make a cube", [{ type: "text", text: "make a cube" }], expect.anything());
     expect(useComposer.getState().drafts[key]).toBe("");
     expect(useComposer.getState().annotations[key]).toBeUndefined();
   });
@@ -143,7 +147,7 @@ describe("a start that needs a sign-in", () => {
     await act(async () => useAgents.getState().receiveOutput({ jobId: "j1", agentId: "claude", kind: "login", data: "", exitCode: 0 }));
 
     expect(create).toHaveBeenCalledTimes(2);
-    expect(submit).toHaveBeenCalledWith("s1", "make a cube", [{ type: "text", text: "make a cube" }]);
+    expect(submit).toHaveBeenCalledWith("s1", "make a cube", [{ type: "text", text: "make a cube" }], expect.anything());
   });
 
   it("Try again sends what the box holds now, not what failed", async () => {
@@ -159,8 +163,8 @@ describe("a start that needs a sign-in", () => {
     act(() => useComposer.getState().setDraft(key, "make a sphere"));
     await user.click(screen.getByRole("button", { name: "Try again" }));
 
-    expect(submit).toHaveBeenCalledWith("s1", "make a sphere", [{ type: "text", text: "make a sphere" }]);
-    expect(submit).not.toHaveBeenCalledWith("s1", "make a cube", expect.anything());
+    expect(submit).toHaveBeenCalledWith("s1", "make a sphere", [{ type: "text", text: "make a sphere" }], expect.anything());
+    expect(submit).not.toHaveBeenCalledWith("s1", "make a cube", expect.anything(), expect.anything());
   });
 
   it("does not start again by itself after a login when the draft was edited since the failure", async () => {
@@ -271,6 +275,30 @@ describe("a machine with no agent ready", () => {
     expect(load).toHaveBeenCalled();
   });
 
+  it("shows a failing Try again trying, then the error it came back with", async () => {
+    const user = userEvent.setup();
+    let answer!: () => void;
+    const load = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          answer = () => {
+            useAgents.setState({ loadError: "spawn /bin/zsh EACCES" });
+            resolve();
+          };
+        }),
+    );
+    useAgents.setState({ agents: [], ready: true, loadError: "agents.list timed out", load } as never);
+    render(<NewSession project={PROJECT} />);
+
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(screen.getByRole("button", { name: "Trying again…" })).toBeDisabled();
+
+    await act(async () => answer());
+    expect(screen.getByText(/spawn \/bin\/zsh EACCES/)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Tried again, and it failed again.");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+  });
+
   it("offers Settings › Agents beside Dismiss when the start fails for another reason", async () => {
     const user = userEvent.setup();
     useAgents.setState({ agents: [{ ...AGENT, auth: "authenticated" } as AgentStatus] });
@@ -311,5 +339,33 @@ describe("the model chip", () => {
   it("hints at CAD in the box, on this screen only", () => {
     render(<NewSession project={PROJECT} />);
     expect(screen.getByPlaceholderText("Describe a part to build…")).toBeInTheDocument();
+  });
+});
+
+describe("a first prompt the agent refuses", () => {
+  const bridge = window.textToCad as unknown as Record<string, unknown>;
+  const saved = bridge.sessions;
+  afterEach(() => {
+    bridge.sessions = saved;
+  });
+
+  it("lands in the new session's box with its attachment, not spent", async () => {
+    const user = userEvent.setup();
+    const key = "__new__:p1";
+    const photo = new File(["png"], "bracket.png", { type: "image/png" });
+    const refused = "Claude Code cannot take an image in a prompt. Remove the attachment to send.";
+    bridge.sessions = { ...(saved as object), prompt: vi.fn(async () => ({ stopReason: "refused", refused })) };
+    // The session just made connects, idle, when it is asked back.
+    const ensureLoaded = vi.fn(async (id: string) =>
+      useAcp.setState((state) => ({ sessions: { ...state.sessions, [id]: { ...initialSessionState(id, "claude"), status: "idle" } } })));
+    useAcp.setState({ create, ensureLoaded, sessions: {}, loading: {} } as never);
+    useComposer.setState({ submit: realSubmit, drafts: { [key]: "look at this" }, pendingFiles: { [key]: [photo] }, queues: {}, sending: {}, paused: {} } as never);
+    create.mockResolvedValueOnce("s1");
+    render(<NewSession project={PROJECT} />);
+
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(useComposer.getState().drafts.s1).toBe("look at this"));
+    expect(useComposer.getState().pendingFiles.s1).toEqual([photo]);
   });
 });

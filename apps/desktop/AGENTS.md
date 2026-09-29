@@ -104,12 +104,14 @@ not.
   index accesses are guarded for `noUncheckedIndexedAccess`, `shimmer.tsx`
   sweeps a foreground-coloured band rather than a background-coloured one
   (the stock band erases the letters it passes over), and `reasoning.tsx`'s
-  `ReasoningContent` takes Streamdown `components`, so a thought draws links
-  and images through the transcript's own (a stock thought fetches any
+  `ReasoningContent` takes Streamdown `components` (and `rehypePlugins`), so
+  a thought draws links and images through the transcript's own (a stock thought fetches any
   `https:` image on paint), and its `Reasoning` does not auto-close one the
   person opened or closed themselves; `tool.tsx` draws at most 64 KB of a
   tool's input or result (`capToolBody`, `TrimmedBody`) and a string result
-  as plain text rather than as JSON. Re-vendoring a component means
+  as plain text rather than as JSON; `prompt-input.tsx` does not fetch an
+  attachment's `blob:` URL on submit (the CSP refuses it; the composer reads
+  the File). Re-vendoring a component means
   redoing those.
 - **Nothing is installed into an agent's configuration.** text-to-cad's skills
   and its tools are given to each session — the skills root as an additional

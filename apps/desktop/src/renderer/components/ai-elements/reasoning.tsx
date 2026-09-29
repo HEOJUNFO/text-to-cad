@@ -209,12 +209,14 @@ export type ReasoningContentProps = ComponentProps<
   children: string;
   /** Passed to Streamdown, so a thought draws links and images as the transcript does. */
   components?: StreamdownProps["components"];
+  /** Passed to Streamdown too: the transcript's rehype plugins, so its images reach `components`. */
+  rehypePlugins?: StreamdownProps["rehypePlugins"];
 };
 
 const streamdownPlugins = { cjk, code, math, mermaid };
 
 export const ReasoningContent = memo(
-  ({ className, children, components, ...props }: ReasoningContentProps) => (
+  ({ className, children, components, rehypePlugins, ...props }: ReasoningContentProps) => (
     <CollapsibleContent
       className={cn(
         "mt-4 text-sm",
@@ -223,7 +225,7 @@ export const ReasoningContent = memo(
       )}
       {...props}
     >
-      <Streamdown components={components} plugins={streamdownPlugins}>
+      <Streamdown components={components} plugins={streamdownPlugins} {...(rehypePlugins ? { rehypePlugins } : {})}>
         {children}
       </Streamdown>
     </CollapsibleContent>
