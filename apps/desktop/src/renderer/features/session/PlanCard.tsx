@@ -23,16 +23,20 @@ import { formatDuration } from "./view";
 export function PlanCard({
   entries,
   startedAt,
+  endedAt,
   running,
 }: {
   entries: PlanEntry[];
   /** When the turn that produced the plan started, for the elapsed clock. */
   startedAt: number | null;
+  /** When that turn ended; the clock then says how long it took. */
+  endedAt: number | null;
+  /** Whether that turn — not the session — is the one running (`planClock`). */
   running: boolean;
 }) {
   const done = entries.filter((entry) => entry.status === "completed").length;
   const current = entries.find((entry) => entry.status === "in_progress") ?? entries.find((entry) => entry.status === "pending");
-  const elapsed = useElapsed(startedAt, running);
+  const elapsed = useElapsed(startedAt, endedAt, running);
   const complete = entries.length > 0 && done === entries.length;
   const title = current?.content ?? (complete ? "Plan complete" : "Plan");
   const progress = `${done} of ${entries.length} done${elapsed !== null ? ` · ${elapsed}` : ""}`;
@@ -101,17 +105,26 @@ export function PlanCard({
   );
 }
 
-function useElapsed(startedAt: number | null, running: boolean): string | null {
+/**
+ * The turn's length once it ended; while it runs, the time since it started,
+ * ticking. A turn that neither ended nor runs (the agent went away mid-turn)
+ * has no length to say.
+ */
+function useElapsed(startedAt: number | null, endedAt: number | null, running: boolean): string | null {
+  const ticking = running && endedAt === null && startedAt !== null;
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (!running || startedAt === null) {
+    if (!ticking) {
       return;
     }
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [running, startedAt]);
+  }, [ticking]);
   if (startedAt === null) {
     return null;
   }
-  return formatDuration((running ? now : Math.max(now, startedAt)) - startedAt);
+  if (endedAt !== null) {
+    return formatDuration(endedAt - startedAt);
+  }
+  return ticking ? formatDuration(Math.max(now, startedAt) - startedAt) : null;
 }

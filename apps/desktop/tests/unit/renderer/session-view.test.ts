@@ -8,6 +8,7 @@ import {
   isAuthError,
   isEffortOption,
   partsView,
+  planClock,
   shellJoin,
   statusLine,
   turnView,
@@ -349,5 +350,40 @@ describe("the composer's model and effort dropdowns", () => {
     // The model itself, and an agent's own inventions, are not it.
     expect(isEffortOption({ id: "model", category: "model" })).toBe(false);
     expect(isEffortOption({ id: "web_search", category: null })).toBe(false);
+  });
+});
+
+describe("planClock", () => {
+  const plan: Part = { type: "plan", entries: [{ content: "Step", priority: "medium", status: "completed" }] };
+  const turn = (id: string, role: "user" | "agent", parts: Part[], startedAt: number, endedAt: number | null) => ({
+    id,
+    role,
+    parts,
+    startedAt,
+    endedAt,
+    stopReason: endedAt === null ? null : ("end_turn" as const),
+  });
+
+  it("is the plan turn's own: a later turn running does not start it again", () => {
+    const state: SessionState = {
+      ...initialSessionState("s1", "codex"),
+      status: "running",
+      turns: [
+        turn("t1", "user", [], 1_000, 1_000),
+        turn("t2", "agent", [plan], 1_000, 13_000),
+        turn("t3", "user", [], 50_000, 50_000),
+        turn("t4", "agent", [{ type: "text", text: "more" }], 50_000, null),
+      ],
+    };
+    expect(planClock(state)).toEqual({ startedAt: 1_000, endedAt: 13_000, running: false });
+  });
+
+  it("runs while the plan turn is the one running", () => {
+    const state: SessionState = {
+      ...initialSessionState("s1", "codex"),
+      status: "running",
+      turns: [turn("t1", "user", [], 1_000, 1_000), turn("t2", "agent", [plan], 1_000, null)],
+    };
+    expect(planClock(state)).toEqual({ startedAt: 1_000, endedAt: null, running: true });
   });
 });

@@ -538,6 +538,22 @@ function lastActive(parts: Part[]): Part | null {
   return last;
 }
 
+/**
+ * The plan card's clock: the turn that produced the plan, on its own terms.
+ * It runs only while that turn is the one running — not while any later turn
+ * does — and a turn that ended says how long it took, whenever it is drawn.
+ */
+export function planClock(state: SessionState): { startedAt: number; endedAt: number | null; running: boolean } | null {
+  const turn = state.turns.findLast(
+    (candidate) => candidate.role === "agent" && candidate.parts.some((part) => part.type === "plan"),
+  );
+  if (!turn) {
+    return null;
+  }
+  const running = turn.endedAt === null && (state.status === "running" || state.status === "waiting");
+  return { startedAt: turn.startedAt, endedAt: turn.endedAt, running };
+}
+
 /** "1m 12s" for the plan card and the reasoning trigger. */
 export function formatDuration(ms: number): string {
   const seconds = Math.max(0, Math.round(ms / 1000));

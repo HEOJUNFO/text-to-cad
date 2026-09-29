@@ -203,6 +203,7 @@ describe("PlanCard", () => {
           { content: "Write the script", priority: "high", status: "in_progress" },
           { content: "Run it", priority: "low", status: "pending" },
         ]}
+        endedAt={null}
         running={false}
         startedAt={null}
       />,
@@ -217,6 +218,27 @@ describe("PlanCard", () => {
     expect(document.querySelector("[data-plan-complete]")).toBeNull();
   });
 
+  /**
+   * A finished plan's clock is the length of its turn, whenever it is drawn:
+   * a remount an hour later, or a later turn running, does not make it tick.
+   */
+  it("says how long a finished plan's turn took, not how long ago it started", () => {
+    vi.useFakeTimers({ now: 3_600_000, toFake: ["Date"] });
+    try {
+      wrap(
+        <PlanCard
+          endedAt={13_000}
+          entries={[{ content: "Read the notes", priority: "medium", status: "completed" }]}
+          running={false}
+          startedAt={1_000}
+        />,
+      );
+      expect(screen.getByText("1 of 1 done · 12s")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("folds a finished plan to one line that still opens to the steps", async () => {
     const user = userEvent.setup();
     wrap(
@@ -225,6 +247,7 @@ describe("PlanCard", () => {
           { content: "Read the notes", priority: "medium", status: "completed" },
           { content: "Run it", priority: "low", status: "completed" },
         ]}
+        endedAt={null}
         running={false}
         startedAt={null}
       />,

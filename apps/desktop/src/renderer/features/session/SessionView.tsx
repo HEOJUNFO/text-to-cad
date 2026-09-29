@@ -24,7 +24,7 @@ import { TranscriptScopeContext, type TranscriptScope } from "./links/PathLink";
 import { PlanCard } from "./PlanCard";
 import { SessionHeader } from "./SessionHeader";
 import { Transcript } from "./Transcript";
-import { isAuthError } from "./view";
+import { isAuthError, planClock } from "./view";
 
 /**
  * One thread, one agent (plan §3): the header, the transcript, the pinned
@@ -187,8 +187,7 @@ export function SessionView({ session }: { session: Session }) {
     };
   }, [state, chipSource, reconnecting, session.id, session.agentId, agent?.icon, agent?.name, setMode, setConfigOption]);
 
-  const planTurn =
-    state?.turns.findLast((turn) => turn.role === "agent" && turn.parts.some((part) => part.type === "plan")) ?? null;
+  const plan = state ? planClock(state) : null;
   // A failed prompt is already in the transcript with its Retry; the banner
   // is for a connection that died with nothing to attach the message to.
   const lastAgentTurn = state?.turns.findLast((turn) => turn.role === "agent") ?? null;
@@ -265,7 +264,12 @@ export function SessionView({ session }: { session: Session }) {
             </div>
           ) : null}
           {state?.plan && state.plan.length > 0 ? (
-            <PlanCard entries={state.plan} running={running} startedAt={planTurn?.startedAt ?? null} />
+            <PlanCard
+              endedAt={plan?.endedAt ?? null}
+              entries={state.plan}
+              running={plan?.running ?? false}
+              startedAt={plan?.startedAt ?? null}
+            />
           ) : null}
           <Composer
             autoFocus
