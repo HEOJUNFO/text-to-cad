@@ -177,6 +177,30 @@ describe("visible file watching", () => {
     ]));
   });
 
+  it("arms a listed directory's watch again after it is removed and made again", async () => {
+    const handles: Array<{ on: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> }> = [];
+    driver.direct.mockImplementation(() => {
+      const handle = { on: vi.fn().mockReturnThis(), close: vi.fn() };
+      handles.push(handle);
+      return handle;
+    });
+    await watchers.watch(root);
+    await watchers.watchListedDirectory(root, "node_modules");
+    await watchers.watchListedDirectory(root, "node_modules/dependency");
+    expect(driver.direct).toHaveBeenCalledTimes(2);
+    const notifyParent = driver.direct.mock.calls[0]![2] as (event: string, filename: string) => void;
+    const notifyDependency = driver.direct.mock.calls[1]![2] as (event: string, filename: string) => void;
+    const dependency = path.join(await fs.realpath(root), "node_modules", "dependency");
+
+    await fs.rm(dependency, { recursive: true });
+    notifyDependency("rename", "dependency");
+    await vi.waitFor(() => expect(handles[1]!.close).toHaveBeenCalled());
+    await fs.mkdir(dependency);
+    notifyParent("rename", "dependency");
+    await vi.waitFor(() => expect(driver.direct).toHaveBeenCalledTimes(3));
+    expect(driver.direct.mock.calls[2]![0]).toBe(dependency);
+  });
+
   it("cancels setup without creating a watcher when the last owner leaves", async () => {
     const pending = watchers.watch(root);
     await watchers.unwatch(root);

@@ -939,12 +939,25 @@ export class FileWatchers {
     const owner = this.watchers.get(root);
     if (!owner || owner.direct.has(relative)) return;
 
+    // A watch is on the directory's inode: once `rm -rf` takes the directory
+    // it hears nothing, including the directory made again under its name.
+    // It is closed and forgotten here, and armed afresh when a change names
+    // the directory again (`queue`) or the tree lists it again.
+    const disarm = (direct: FSWatcher) => {
+      if (owner.direct.get(relative) !== direct) return;
+      owner.direct.delete(relative);
+      direct.close();
+    };
     try {
-      const direct = watchDirectory(absolute, { recursive: false }, (_event, filename) => {
+      const direct: FSWatcher = watchDirectory(absolute, { recursive: false }, (_event, filename) => {
         if (this.watchers.get(root) !== owner) return;
         const child = filename ? path.join(absolute, filename.toString()) : absolute;
-        void fs.stat(child).catch(() => null).then((stats) => {
+        void fs.stat(child).catch(() => null).then(async (stats) => {
           if (this.watchers.get(root) !== owner) return;
+          if (!stats && !(await fs.stat(absolute).catch(() => null))) {
+            disarm(direct);
+            return;
+          }
           this.queue(root, {
             path: toRelative(realRoot, child),
             kind: stats ? "changed" : "removed",
@@ -952,7 +965,10 @@ export class FileWatchers {
           });
         });
       });
-      direct.on("error", (error: unknown) => console.error(`[explorer] watch ${absolute}`, error));
+      direct.on("error", (error: unknown) => {
+        console.error(`[explorer] watch ${absolute}`, error);
+        disarm(direct);
+      });
       owner.direct.set(relative, direct);
     } catch (error) {
       // A failed watch must not make the directory disappear from browsing.
@@ -1004,6 +1020,10 @@ export class FileWatchers {
     // Last write wins per path: an add followed by a change in the same window
     // is one row for the tree either way.
     batch.set(change.path, change);
+    if (change.directory && change.kind !== "removed" && this.listedDirectories.get(root)?.has(change.path)
+      && !this.watchers.get(root)?.direct.has(change.path)) {
+      void this.watchListedDirectory(root, change.path).catch(() => {});
+    }
     const moving = change.kind === "removed" && !change.directory && this.identities.get(root)?.has(change.path);
     if (this.timers.has(root)) {
       if (!moving) return;
