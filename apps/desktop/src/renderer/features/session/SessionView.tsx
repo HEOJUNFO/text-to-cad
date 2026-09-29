@@ -90,14 +90,38 @@ export function SessionView({ session }: { session: Session }) {
       ? "submitted"
       : "ready";
 
+  // "Disconnect agent" (SessionHeader), or the keep-alive evicting the
+  // adapter: nothing is coming back on its own — `ensureLoaded` runs on a
+  // session switch, not here — so the way back is a button. A disconnect by
+  // hand also forgets the transcript (`close` in state/acp.ts), so a session
+  // this view was showing that now has no state and a closed row is that,
+  // not a first open still waiting on `ensureLoaded`. What its chips last
+  // said is kept with it, so the row under the box does not empty out.
+  const [shown, setShown] = useState<ShownChips | null>(null);
+  if (
+    state &&
+    (shown?.sessionId !== session.id ||
+      shown.modes !== state.modes ||
+      shown.configOptions !== state.configOptions ||
+      shown.currentModeId !== state.currentModeId)
+  ) {
+    setShown({ sessionId: session.id, modes: state.modes, configOptions: state.configOptions, currentModeId: state.currentModeId });
+  }
+  const shownHere = shown?.sessionId === session.id ? shown : null;
+  const disconnected =
+    !loading &&
+    !loadError &&
+    (state ? state.status === "closed" : shownHere !== null && session.status === "closed");
+  const chipSource = state ?? (disconnected ? shownHere : null);
+
   const chips = useMemo(() => {
-    if (!state) {
+    if (!chipSource) {
       return null;
     }
-    const model = modelOption(state.configOptions);
-    const effort = effortOption(state.configOptions);
-    const mode = modeChoice(state);
-    const fast = fastOption(state.configOptions);
+    const model = modelOption(chipSource.configOptions);
+    const effort = effortOption(chipSource.configOptions);
+    const mode = modeChoice(chipSource);
+    const fast = fastOption(chipSource.configOptions);
     const setOption = (configId: string, value: string | boolean) =>
       reportRefusal(setConfigOption(session.id, configId, value), configId === model?.id ? "the model" : configId === mode?.configId ? "the mode" : "that setting");
     // One chip, two calls: `session/set_mode` for an agent that sends
@@ -122,8 +146,9 @@ export function SessionView({ session }: { session: Session }) {
     // Main answers these only while the agent is there (`requireLive`): on a painted, reconnecting,
     // failed or closed session the chips are shown as they were and not offered.
     // A snapshot painted while the agent reconnects can say `idle`; it is not live until the load lands.
-    const live = !reconnecting && (state.status === "idle" || state.status === "running" || state.status === "waiting");
-    const unavailable = live ? undefined : reconnecting ? "Reconnecting…" : state.status === "connecting" ? "Connecting…" : "Agent disconnected";
+    const status = state?.status ?? "closed";
+    const live = !reconnecting && (status === "idle" || status === "running" || status === "waiting");
+    const unavailable = live ? undefined : reconnecting ? "Reconnecting…" : status === "connecting" ? "Connecting…" : "Agent disconnected";
     return {
       leading: mode ? (
         <ModeChip currentModeId={mode.currentModeId} disabledReason={unavailable} modes={mode.modes} onChange={chooseMode} />
@@ -148,17 +173,19 @@ export function SessionView({ session }: { session: Session }) {
             />
           ) : null}
           {effort ? <EffortChip disabledReason={unavailable} effort={effort} onChange={setOption} /> : null}
-          <ContextMeter
-            lastTurnUsage={state.lastTurnUsage}
-            rateLimits={state.rateLimits}
-            sessionId={session.id}
-            sessionUsage={state.sessionUsage}
-            usage={state.contextUsage}
-          />
+          {state ? (
+            <ContextMeter
+              lastTurnUsage={state.lastTurnUsage}
+              rateLimits={state.rateLimits}
+              sessionId={session.id}
+              sessionUsage={state.sessionUsage}
+              usage={state.contextUsage}
+            />
+          ) : null}
         </>
       ),
     };
-  }, [state, reconnecting, session.id, session.agentId, agent?.icon, agent?.name, setMode, setConfigOption]);
+  }, [state, chipSource, reconnecting, session.id, session.agentId, agent?.icon, agent?.name, setMode, setConfigOption]);
 
   const planTurn =
     state?.turns.findLast((turn) => turn.role === "agent" && turn.parts.some((part) => part.type === "plan")) ?? null;
@@ -167,21 +194,6 @@ export function SessionView({ session }: { session: Session }) {
   const lastAgentTurn = state?.turns.findLast((turn) => turn.role === "agent") ?? null;
   const errorInTranscript = lastAgentTurn?.parts.at(-1)?.type === "error";
   const showErrorBanner = state?.status === "error" && !!state.error && !errorInTranscript;
-  // "Disconnect agent" (SessionHeader), or the keep-alive evicting the
-  // adapter: nothing is coming back on its own — `ensureLoaded` runs on a
-  // session switch, not here — so the way back is a button. A disconnect by
-  // hand also forgets the transcript (`close` in state/acp.ts), so a session
-  // this view was showing that now has no state and a closed row is that,
-  // not a first open still waiting on `ensureLoaded`.
-  const [shownId, setShownId] = useState<string | null>(null);
-  if (state && shownId !== session.id) {
-    setShownId(session.id);
-  }
-  const disconnected =
-    !loading &&
-    !loadError &&
-    (state ? state.status === "closed" : shownId === session.id && session.status === "closed");
-
   return (
     <div className="flex h-full min-h-0 flex-col" data-session-view={session.id} data-session-status={state?.status ?? (loading ? "loading" : "detached")}>
       <SessionHeader session={session} title={session.title} />
@@ -277,6 +289,9 @@ export function SessionView({ session }: { session: Session }) {
     </div>
   );
 }
+
+/** What the chips were drawn from the last time this view had the session's state. */
+type ShownChips = Pick<SessionState, "modes" | "configOptions" | "currentModeId"> & { sessionId: string };
 
 /** A call main may refuse, said as a toast rather than dropped as an unhandled rejection. */
 function reportRefusal(call: Promise<void>, what: string, verb = "Could not change"): void {

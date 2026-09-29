@@ -121,6 +121,18 @@ describe("the composer's chips and Stop", () => {
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
+  it("stay as they were, disabled, after Disconnect agent forgets the session's state", () => {
+    useAcp.setState({ sessions: { s1: state("idle") } } as never);
+    const { rerender } = render(<SessionView session={SESSION} />);
+    // `close` in state/acp.ts forgets the state; the row says closed.
+    act(() => useAcp.setState({ sessions: {} } as never));
+    rerender(<SessionView session={{ ...SESSION, status: "closed" } as Session} />);
+    for (const name of ["Mode", "Model"] as const) {
+      expect(chipNamed(name), name).toHaveAttribute("aria-disabled", "true");
+      expect(chipNamed(name), name).toHaveAccessibleDescription("Agent disconnected");
+    }
+  });
+
   it("are offered on an idle session", () => {
     useAcp.setState({ sessions: { s1: state("idle") } } as never);
     render(<SessionView session={SESSION} />);
