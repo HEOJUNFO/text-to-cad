@@ -1,5 +1,7 @@
 import { create } from "zustand";
 
+import type { Session } from "@shared/types";
+
 import { useProjects } from "./projects";
 import { useSessions } from "./sessions";
 
@@ -23,6 +25,8 @@ import { useSessions } from "./sessions";
  *
  * A deleted session's entry is skipped rather than removed, in both
  * directions, so the stack keeps its shape while the person walks past it.
+ * An archived one is skipped the same way — the person put it away, and the
+ * sidebar no longer shows it — unless it is the one on screen.
  */
 
 export type Location = {
@@ -98,11 +102,17 @@ function locationNow(): Location | null {
   return { projectId, sessionId: session && session.projectId === projectId ? session.id : null };
 }
 
+/** The sessions back and forward may land on: every one not archived, and the one on screen. */
+function reachableSessionIds(sessions: readonly Session[], activeId: string | null): string[] {
+  return sessions.filter((session) => !session.archived || session.id === activeId).map((session) => session.id);
+}
+
 function liveNow(): Live {
   const { projects, draft } = useProjects.getState();
+  const { sessions, activeId } = useSessions.getState();
   return {
     projectIds: [...projects.map((project) => project.id), ...(draft ? [draft.id] : [])],
-    sessionIds: useSessions.getState().sessions.map((session) => session.id),
+    sessionIds: reachableSessionIds(sessions, activeId),
   };
 }
 
@@ -192,10 +202,11 @@ export function useHistoryReach(): { back: boolean; forward: boolean } {
   // button has to mute itself when that was the last one.
   const projects = useProjects((state) => state.projects);
   const sessions = useSessions((state) => state.sessions);
+  const activeId = useSessions((state) => state.activeId);
   const draft = useProjects((state) => state.draft);
   const live: Live = {
     projectIds: [...projects.map((project) => project.id), ...(draft ? [draft.id] : [])],
-    sessionIds: sessions.map((session) => session.id),
+    sessionIds: reachableSessionIds(sessions, activeId),
   };
   return {
     back: findLive(entries, index, -1, live) >= 0,

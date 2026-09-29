@@ -160,6 +160,22 @@ describe("the top-level history", () => {
     expect(useSessions.getState().activeId).toBe("s2");
   });
 
+  /**
+   * Archiving hides a thread from the sidebar without deleting it, so its
+   * session is still in the list — but back is not a door to a thread the
+   * person put away. It is stepped over like a deleted one.
+   */
+  it("steps over an entry whose session is archived", async () => {
+    await land(() => useProjects.getState().setActive("p1"));
+    await land(() => useSessions.getState().select("s1"));
+    await land(() => useSessions.getState().select("s2"));
+    await land(() => useSessions.getState().receive([{ ...session("s1", "p1"), archived: true }, session("s2", "p1"), session("s3", "p2")]));
+
+    await land(() => useHistory.getState().back());
+    expect(useSessions.getState().activeId).toBeNull();
+    expect(useHistory.getState().index).toBe(0);
+  });
+
   it("steps over entries in a project that is gone", async () => {
     await land(() => useProjects.getState().setActive("p1"));
     await land(() => useSessions.getState().select("s3"));
