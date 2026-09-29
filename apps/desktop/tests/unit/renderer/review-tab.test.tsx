@@ -28,12 +28,11 @@ if (!("ClipboardItem" in globalThis)) {
 const PROJECT = { id: "p1", name: "bracket", path: "/bracket", createdAt: 0 };
 const git = window.textToCad.git as unknown as { status: ReturnType<typeof vi.fn>; commit: ReturnType<typeof vi.fn> };
 const original = { status: git.status, commit: git.commit };
-// The scope on screen and the working tree (what a commit takes) are separate reads.
+// One read per refresh: the scope's answer carries the working tree's file count (what a commit takes).
 let scoped: Mock<(request: unknown) => Promise<GitStatus>>;
-let whole: Mock<(request: unknown) => Promise<GitStatus>>;
 
 const repo = (branch: string): GitStatus => ({
-  isRepository: true, branch, unborn: false, ahead: 0, behind: 0, files: [], insertions: 0, deletions: 0,
+  isRepository: true, branch, unborn: false, ahead: 0, behind: 0, files: [], insertions: 0, deletions: 0, workingFiles: 0,
 });
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -49,8 +48,7 @@ beforeEach(() => {
   gitInfo = null;
   vi.mocked(toast.success).mockClear();
   scoped = vi.fn<(request: unknown) => Promise<GitStatus>>();
-  whole = vi.fn<(request: unknown) => Promise<GitStatus>>().mockResolvedValue(repo("main"));
-  git.status = vi.fn((request: { scope?: { kind: string } }) => (request.scope?.kind === "working-tree" ? whole : scoped)(request));
+  git.status = scoped;
   git.commit = vi.fn();
 });
 afterEach(() => { git.status = original.status; git.commit = original.commit; });
@@ -98,8 +96,7 @@ it("a re-read that fails keeps the last answer on screen and marks it", async ()
 it("the commit button follows the working tree, not the scope, and says it takes every change", async () => {
   const user = userEvent.setup();
   // Last turn touched nothing, but the working tree holds two uncommitted files.
-  scoped.mockResolvedValue(repo("main"));
-  whole.mockResolvedValue({ ...repo("main"), files: [changed("a.step"), changed("b.py")] });
+  scoped.mockResolvedValue({ ...repo("main"), workingFiles: 2 });
   renderReview();
 
   const trigger = await screen.findByRole("button", { name: "Commit or push" });
@@ -109,16 +106,14 @@ it("the commit button follows the working tree, not the scope, and says it takes
 });
 
 it("a clean working tree disables the commit even when the scope shows committed history", async () => {
-  scoped.mockResolvedValue({ ...repo("main"), files: [changed("a.step")] });
-  whole.mockResolvedValue(repo("main"));
+  scoped.mockResolvedValue({ ...repo("main"), files: [changed("a.step")], workingFiles: 0 });
   renderReview();
   expect(await screen.findByRole("button", { name: "Commit or push" })).toBeDisabled();
 });
 
 it("offers push only with a remote, and confirms a commit with its short hash", async () => {
   const user = userEvent.setup();
-  scoped.mockResolvedValue(repo("main"));
-  whole.mockResolvedValue({ ...repo("main"), files: [changed("a.step")] });
+  scoped.mockResolvedValue({ ...repo("main"), workingFiles: 1 });
   git.commit.mockResolvedValue({ sha: "0123456789abcdef0123456789abcdef01234567" });
   const view = renderReview();
 
@@ -143,8 +138,7 @@ it("offers push only with a remote, and confirms a commit with its short hash", 
 });
 
 it("a Last turn with no recorded mark says so, instead of showing the working tree under that name", async () => {
-  scoped.mockResolvedValue({ ...repo("main"), unmarked: "turn" });
-  whole.mockResolvedValue({ ...repo("main"), files: [changed("a.step")] });
+  scoped.mockResolvedValue({ ...repo("main"), unmarked: "turn", workingFiles: 1 });
   render(<ReviewTab project={PROJECT} scope="turn" sessionId="s1" tabId="t1" />);
 
   expect(await screen.findByText("No turn recorded yet")).toBeInTheDocument();
@@ -160,9 +154,21 @@ it("a This session with no recorded mark says so too", async () => {
   expect(screen.queryByText("No changes")).toBeNull();
 });
 
-it("in a repository with no commits, the unmarked scope says a commit is what it needs", async () => {
-  scoped.mockResolvedValue({ ...repo("main"), unborn: true, unmarked: "turn" });
+it("in a repository with no commits, Last turn shows the work and says it is measured from the start", async () => {
+  scoped.mockResolvedValue({ ...repo("main"), unborn: true, fromStart: true, files: [changed("a.step")], insertions: 1, workingFiles: 1 });
   render(<ReviewTab project={PROJECT} scope="turn" sessionId="s1" tabId="t1" />);
-  expect(await screen.findByText("No turn recorded yet")).toBeInTheDocument();
-  expect(screen.getByText(/no commits yet/i)).toBeInTheDocument();
+  expect(await screen.findByText(/measured from the repository's start/)).toBeInTheDocument();
+  expect(screen.getAllByText("a.step").length).toBeGreaterThan(0);
+  expect(screen.queryByText("No turn recorded yet")).toBeNull();
+});
+
+it("a scoped review reads git once per refresh, not a second time for the commit button", async () => {
+  scoped.mockResolvedValue({ ...repo("main"), workingFiles: 3 });
+  renderReview();
+  await vi.waitFor(() => expect(screen.getByRole("button", { name: "Commit or push" })).toBeEnabled());
+  expect(scoped).toHaveBeenCalledTimes(1);
+
+  await act(async () => useExplorer.setState({ fsRevision: useExplorer.getState().fsRevision + 1 }));
+  expect(scoped).toHaveBeenCalledTimes(2);
+  expect(scoped.mock.calls.every(([request]) => (request as { scope: { kind: string } }).scope.kind === "session")).toBe(true);
 });

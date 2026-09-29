@@ -3,8 +3,14 @@
  * `from` of `--output=/any/file` would be read by `git diff` as an option and
  * write wherever it names, so a scope is checked before git is started at all.
  */
+import { execFile } from "node:child_process";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
+
 import type * as Execa from "execa";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const execa = vi.hoisted(() => vi.fn());
 vi.mock("execa", async (importOriginal) => {
@@ -19,6 +25,21 @@ import { diffScopeFor, resolveDiffScope, ReviewScopeSchema } from "@shared/types
 beforeEach(() => {
   execa.mockClear();
 });
+
+const run = promisify(execFile);
+const scratch: string[] = [];
+afterEach(async () => {
+  await Promise.all(scratch.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
+
+/** A fresh `git init` with one uncommitted file and no commits. */
+async function unbornRepo(): Promise<string> {
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "t2c-unborn-")));
+  scratch.push(directory);
+  await run("git", ["init", "--quiet", "--initial-branch=main"], { cwd: directory });
+  await writeFile(path.join(directory, "part.py"), "one\ntwo\n");
+  return directory;
+}
 
 const hostile = [
   { kind: "range", from: "--output=/tmp/x" },
@@ -91,6 +112,17 @@ describe("a session scope with no recorded mark", () => {
     expect(answer.unmarked).toBeUndefined();
   });
 
+  it("every answer carries the working tree's file count, whatever the scope, so a commit button needs no second read", async () => {
+    const directory = await unbornRepo();
+    await writeFile(path.join(directory, "other.py"), "x\n");
+    for (const scope of [{ kind: "working-tree" }, { kind: "unmarked", scope: "turn" }] as const) {
+      expect((await git.status(directory, scope)).workingFiles).toBe(2);
+    }
+    // A repository with a recorded mark: the scope can be empty while the tree is not.
+    const marked = await git.status(process.cwd(), { kind: "unmarked", scope: "session" });
+    expect(marked.workingFiles).toBe((await git.status(process.cwd(), { kind: "working-tree" })).files.length);
+  });
+
   it("a file's diff in an unmarked scope is refused with the reason, not answered from the working tree", async () => {
     await expect(git.fileDiff(process.cwd(), "package.json", { kind: "unmarked", scope: "turn" })).rejects.toThrow(
       /no turn recorded/i,
@@ -98,5 +130,31 @@ describe("a session scope with no recorded mark", () => {
     await expect(
       git.unifiedDiff(process.cwd(), "package.json", { kind: "unmarked", scope: "session" }),
     ).rejects.toThrow(/no session start recorded/i);
+  });
+});
+
+/**
+ * A repository with no commits cannot be marked: `rev-parse HEAD` has nothing
+ * to name. That is not a missing record — every change in it is new since the
+ * repository began, so the working tree is exactly the answer, and the review
+ * says it is measuring from the start.
+ */
+describe("a session scope in a repository with no commits yet", () => {
+  it("status answers the working tree, measured from the repository's start", async () => {
+    const directory = await unbornRepo();
+    for (const which of ["turn", "session"] as const) {
+      const answer = await git.status(directory, { kind: "unmarked", scope: which });
+      expect(answer.unmarked).toBeUndefined();
+      expect(answer).toMatchObject({ unborn: true, fromStart: true, insertions: 2 });
+      expect(answer.files.map((file) => file.path)).toEqual(["part.py"]);
+    }
+    expect((await git.status(directory, { kind: "working-tree" })).fromStart).toBeUndefined();
+  });
+
+  it("a file's diff is the file itself, not a refusal", async () => {
+    const directory = await unbornRepo();
+    const diff = await git.fileDiff(directory, "part.py", { kind: "unmarked", scope: "turn" });
+    expect(diff).toMatchObject({ before: "", after: "one\ntwo\n", insertions: 2 });
+    expect(await git.unifiedDiff(directory, "part.py", { kind: "unmarked", scope: "session" })).toMatch(/\+two/);
   });
 });

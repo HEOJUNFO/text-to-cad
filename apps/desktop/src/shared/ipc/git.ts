@@ -53,11 +53,22 @@ export const GitStatusSchema = z.object({
   insertions: z.number(),
   deletions: z.number(),
   /**
+   * Files in the working tree — what `Commit` takes — whatever the scope. It
+   * rides on every answer so the review's commit button needs no second read.
+   */
+  workingFiles: z.number().int().nonnegative(),
+  /**
    * Set when the scope asked for was `Last turn` or `This session` and the
    * session has no recorded revision for it. `files` is then empty — not the
    * working tree — and the review says why rather than "No changes".
    */
   unmarked: z.enum(["turn", "session"]).optional(),
+  /**
+   * A session scope in a repository with no commits yet. No mark can exist
+   * there, and every change is new since the repository began, so `files` is
+   * the working tree and the review says it is measuring from the start.
+   */
+  fromStart: z.literal(true).optional(),
 });
 export type GitStatus = z.infer<typeof GitStatusSchema>;
 

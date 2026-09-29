@@ -279,7 +279,10 @@ export function diffScopeFor(scope: ReviewScope): DiffScope {
  * commits when the mark was taken, or the row predates the marks — resolves
  * to `unmarked`, which main answers with an empty review that says why. It is
  * never the working tree: that would be a different revision under the
- * scope's name (docs/integrations.md).
+ * scope's name (docs/integrations.md). The one exception is decided in main,
+ * which can see the repository: with no commits yet, no mark can exist and the
+ * working tree is everything since the start, so `status` answers it there
+ * and says so (`fromStart`).
  */
 export type UnmarkedScope = "turn" | "session";
 export type ResolvedDiffScope =

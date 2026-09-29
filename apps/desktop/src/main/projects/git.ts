@@ -55,8 +55,20 @@ export type GitStatus = {
   files: ChangedFile[];
   insertions: number;
   deletions: number;
+  /**
+   * Files in the working tree — what `Commit` takes — whatever the scope. The
+   * same porcelain read every scope makes anyway, so the review's commit
+   * button needs no second, full status.
+   */
+  workingFiles: number;
   /** The session scope that had no recorded revision; `files` is then empty. */
   unmarked?: "turn" | "session";
+  /**
+   * A session scope in a repository with no commits yet: no mark could be
+   * taken, and every change is new since the repository began, so `files` is
+   * the working tree, measured from the start.
+   */
+  fromStart?: true;
 };
 
 /** What a review is taken against. */
@@ -70,6 +82,8 @@ export type DiffScope =
    * `Last turn` / `This session` for a session with no recorded mark. There
    * is no revision to measure from, so there is no diff — and substituting
    * the working tree would answer a different question under the same name.
+   * The one exception is a repository with no commits yet, where no mark can
+   * exist and the working tree *is* everything since the start (`fromStart`).
    */
   | { kind: "unmarked"; scope: "turn" | "session" };
 
@@ -324,6 +338,7 @@ export function emptyStatus(): GitStatus {
     files: [],
     insertions: 0,
     deletions: 0,
+    workingFiles: 0,
   };
 }
 
@@ -346,7 +361,7 @@ export async function status(cwd: string, scope: DiffScope = { kind: "working-tr
     await git(root, ["status", "--porcelain=v1", "-z", "--branch", "--untracked-files=all"]),
   );
 
-  if (scope.kind === "unmarked") {
+  if (scope.kind === "unmarked" && !porcelain.unborn) {
     return {
       isRepository: true,
       branch: porcelain.branch,
@@ -356,12 +371,15 @@ export async function status(cwd: string, scope: DiffScope = { kind: "working-tr
       files: [],
       insertions: 0,
       deletions: 0,
+      workingFiles: porcelain.files.length,
       unmarked: scope.scope,
     };
   }
 
+  // An unmarked scope that got here is in a repository with no commits: the
+  // working tree is everything since the start.
   const files =
-    scope.kind === "working-tree"
+    scope.kind === "working-tree" || scope.kind === "unmarked"
       ? await workingTreeFiles(root, porcelain)
       : await rangeFiles(root, scope, porcelain);
 
@@ -374,6 +392,8 @@ export async function status(cwd: string, scope: DiffScope = { kind: "working-tr
     files,
     insertions: files.reduce((total, file) => total + file.insertions, 0),
     deletions: files.reduce((total, file) => total + file.deletions, 0),
+    workingFiles: porcelain.files.length,
+    ...(scope.kind === "unmarked" ? { fromStart: true as const } : {}),
   };
 }
 
@@ -506,16 +526,22 @@ export function assertSafeScope(scope: DiffScope): void {
 /**
  * A single file's diff in an unmarked scope has no base revision. The review
  * never asks (its status lists no files), so a request is refused with the
- * reason rather than answered against the working tree.
+ * reason rather than answered against the working tree — except in a
+ * repository with no commits, where the working tree is the answer
+ * (`status`'s `fromStart`).
  */
-function refuseUnmarked(scope: DiffScope): void {
-  if (scope.kind === "unmarked") {
-    throw new GitError(
-      scope.scope === "turn"
-        ? "no turn recorded yet: Last turn starts with the next prompt"
-        : "no session start recorded: This session has no revision to measure from",
-    );
+async function unmarkedOrRefuse(root: string, scope: DiffScope): Promise<DiffScope> {
+  if (scope.kind !== "unmarked") {
+    return scope;
   }
+  if ((await tryGit(root, ["rev-parse", "--verify", "--quiet", "HEAD"])) === null) {
+    return { kind: "working-tree" };
+  }
+  throw new GitError(
+    scope.scope === "turn"
+      ? "no turn recorded yet: Last turn starts with the next prompt"
+      : "no session start recorded: This session has no revision to measure from",
+  );
 }
 
 /** True when the scope's second side is the working tree rather than a revision. */
@@ -581,14 +607,14 @@ async function baseRevision(root: string, scope: DiffScope): Promise<string | nu
 export async function fileDiff(
   cwd: string,
   filePath: string,
-  scope: DiffScope = { kind: "working-tree" },
+  requested: DiffScope = { kind: "working-tree" },
 ): Promise<FileDiff> {
-  assertSafeScope(scope);
-  refuseUnmarked(scope);
+  assertSafeScope(requested);
   const root = await repositoryRoot(cwd);
   if (!root) {
     throw new GitError("not a git repository");
   }
+  const scope = await unmarkedOrRefuse(root, requested);
 
   // Scoped to the one path. Asking `status()` for the metadata instead would
   // walk the whole working tree once per open section, and a review of forty
@@ -665,14 +691,14 @@ async function readWorkingCopy(root: string, filePath: string): Promise<string> 
 export async function unifiedDiff(
   cwd: string,
   filePath: string,
-  scope: DiffScope = { kind: "working-tree" },
+  requested: DiffScope = { kind: "working-tree" },
 ): Promise<string> {
-  assertSafeScope(scope);
-  refuseUnmarked(scope);
+  assertSafeScope(requested);
   const root = await repositoryRoot(cwd);
   if (!root) {
     throw new GitError("not a git repository");
   }
+  const scope = await unmarkedOrRefuse(root, requested);
   const base = await baseRevision(root, scope);
   const args = ["diff", "-M", "--patch", "--end-of-options"];
   if (scope.kind === "working-tree") {

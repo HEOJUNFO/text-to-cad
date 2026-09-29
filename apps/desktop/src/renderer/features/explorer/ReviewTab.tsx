@@ -143,12 +143,6 @@ function ReviewBody({
   );
 
   const [status, setStatus] = useState<GitStatus | null>(null);
-  // How many files a commit would take. The popover commits the whole working
-  // tree (`git add -A`), whatever scope is on screen, so its button follows the
-  // working tree rather than the scope — a "Last turn" with nothing in it can
-  // sit beside uncommitted work from earlier, and a scope full of committed
-  // history can sit beside a clean tree. `null` until the first answer.
-  const [workingFiles, setWorkingFiles] = useState<number | null>(null);
   // A read that failed: git's own words, shown with a retry. Not the same as
   // `isRepository: false`, which is an answer — this is the absence of one.
   const [error, setError] = useState<string | null>(null);
@@ -168,15 +162,9 @@ function ReviewBody({
     (openTop: boolean) => {
       const sequence = ++latestRead.current;
       if (openTop) owesOpenTop.current = true;
-      const scoped = window.textToCad.git.status({ ...request, scope: diffScopeFor(scope) });
-      // "All changes" is the working tree already; any other scope asks twice.
-      const whole = scope === "all" ? scoped : window.textToCad.git.status({ ...request, scope: { kind: "working-tree" } });
-      void whole.then(
-        (next) => { if (sequence === latestRead.current) setWorkingFiles(next.files.length); },
-        // The scoped read reports failures; this one keeps its last count.
-        () => {},
-      );
-      return scoped.then(
+      // One read per refresh, whatever the scope: the answer carries the
+      // working tree's file count for the commit button (`workingFiles`).
+      return window.textToCad.git.status({ ...request, scope: diffScopeFor(scope) }).then(
         (next) => {
           if (sequence !== latestRead.current) return;
           setStatus(next);
@@ -347,7 +335,12 @@ function ReviewBody({
         <CommitPopover
           canOpenPullRequest={Boolean(info?.hasGh && info.hasRemote)}
           canPush={Boolean(info?.hasRemote)}
-          fileCount={workingFiles ?? 0}
+          // The popover commits the whole working tree (`git add -A`),
+          // whatever scope is on screen, so its button follows the working
+          // tree: a "Last turn" with nothing in it can sit beside uncommitted
+          // work from earlier, and a scope full of committed history beside a
+          // clean tree.
+          fileCount={status.workingFiles}
           onDone={refresh}
           request={request}
           session={target}
@@ -364,13 +357,23 @@ function ReviewBody({
       ) : null}
 
       {/*
+        No commits yet, so no mark could be taken: the scope is the working
+        tree, and it says so rather than passing it off as the turn's diff.
+      */}
+      {status.fromStart ? (
+        <p className="shrink-0 border-b px-3 py-1.5 text-[12px] text-muted-foreground">
+          This repository has no commits yet, so {REVIEW_SCOPE_LABELS[scope]} is measured from the repository's start.
+        </p>
+      ) : null}
+
+      {/*
         Main had no recorded revision for this scope. Its answer is empty on
         purpose — the working tree would be a different revision under this
         scope's name — so say why rather than "No changes".
       */}
       {status.unmarked ? (
         <EmptyState
-          description={unmarkedDescription(status.unmarked, status.unborn)}
+          description={unmarkedDescription(status.unmarked)}
           icon={GitCompare}
           title={status.unmarked === "turn" ? "No turn recorded yet" : "No session start recorded"}
         />
@@ -425,10 +428,9 @@ function ReviewBody({
   );
 }
 
-function unmarkedDescription(which: "turn" | "session", unborn: boolean): string {
-  if (unborn) {
-    return `This repository has no commits yet, so there is no revision to measure ${REVIEW_SCOPE_LABELS[which]} from. All changes shows the working tree.`;
-  }
+// A repository with no commits never lands here: main answers that case from
+// the working tree (`fromStart`).
+function unmarkedDescription(which: "turn" | "session"): string {
   return which === "turn"
     ? "Last turn starts with the next prompt. All changes shows the working tree."
     : "No revision was recorded when this session began, so there is nothing to measure it from. All changes shows the working tree.";
