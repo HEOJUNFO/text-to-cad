@@ -7,14 +7,18 @@
  * `dedupe` is what keeps them one.
  *
  * It reads `out/renderer`, so it has something to say only after
- * `npm run build`; without a build it logs why and passes.
+ * `npm run build`; without a build, or with one older than the config it
+ * checks (a unit run before the build step sees the previous build), it
+ * logs why and passes.
  */
 import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 
-const assets = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "out", "renderer", "assets");
+const app = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+const assets = path.join(app, "out", "renderer", "assets");
+const config = path.join(app, "electron.vite.config.ts");
 
 /** `abap-B7h4dtBh.js` → `abap.js`: Rollup's eight-character hash dropped. */
 const baseName = (file: string) => file.replace(/-[A-Za-z0-9_-]{8}(\.[a-z0-9]+)$/, "$1");
@@ -22,6 +26,10 @@ const baseName = (file: string) => file.replace(/-[A-Za-z0-9_-]{8}(\.[a-z0-9]+)$
 it("emits no two chunks with one name and one size", () => {
   if (!existsSync(assets)) {
     console.info(`renderer-bundle: no ${assets}; run \`npm run build\` to check the bundle`);
+    return;
+  }
+  if (statSync(assets).mtimeMs < statSync(config).mtimeMs) {
+    console.info(`renderer-bundle: ${assets} predates electron.vite.config.ts; run \`npm run build\` to check the bundle`);
     return;
   }
   const seen = new Map<string, string[]>();
