@@ -82,37 +82,40 @@ export function Chip({
   disabledReason?: string;
 }) {
   const reasonId = useId();
-  if (disabledReason) {
-    return (
-      <>
-        <button
-          aria-describedby={reasonId}
-          aria-disabled="true"
-          className="inline-flex h-7 shrink-0 cursor-not-allowed items-center gap-1.5 rounded-md px-1.5 text-[12px] leading-none text-muted-foreground opacity-50"
-          data-chip={testId}
-          onClick={() => toast.info(disabledReason)}
-          style={{ maxWidth }}
-          type="button"
-        >
-          <span className="[&>svg]:size-3.5">{icon}</span>
-          {label ? <span className="truncate text-foreground/90">{label}</span> : null}
-          {detail ? <span className="truncate">{detail}</span> : null}
-        </button>
-        <span className="sr-only" id={reasonId}>{disabledReason}</span>
-      </>
-    );
-  }
+  // ONE button whether or not the chip can be used, so a keyboard user focused on it while the agent
+  // reconnects keeps their place when it comes back. Unavailable, it refuses activation before the
+  // menu's own pointer and key handlers see it (they skip a default-prevented event) and says why.
+  const refuse = (event: React.SyntheticEvent) => {
+    if (disabledReason) event.preventDefault();
+  };
   // The chip's hint is the kit's `TooltipHint`, never a native `title`; it stands aside while the
-  // menu is open (`aria-expanded`).
+  // menu is open (`aria-expanded`), and while the chip is unavailable its reason is the description.
   const body = (
-    <TooltipHint content={title} side="top">
+    // `disabled`, not a missing `content`: without content the hint renders a different tree, and
+    // the button would be remounted — focus lost — when the chip comes back.
+    <TooltipHint content={title} disabled={Boolean(disabledReason)} side="top">
       <button
+        aria-describedby={disabledReason ? reasonId : undefined}
+        aria-disabled={disabledReason ? "true" : undefined}
         className={cn(
           "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-[12px] leading-none text-muted-foreground transition-colors",
-          menu ? "hover:bg-accent hover:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground" : "cursor-default",
+          disabledReason
+            ? "cursor-not-allowed opacity-50"
+            : menu
+              ? "hover:bg-accent hover:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground"
+              : "cursor-default",
           className,
         )}
         data-chip={testId}
+        onClick={(event) => {
+          if (!disabledReason) return;
+          event.preventDefault();
+          toast.info(disabledReason);
+        }}
+        onKeyDown={(event) => {
+          if (["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) refuse(event);
+        }}
+        onPointerDown={refuse}
         style={{ maxWidth }}
         type="button"
       >
@@ -122,12 +125,19 @@ export function Chip({
       </button>
     </TooltipHint>
   );
+  const reason = disabledReason ? <span className="sr-only" id={reasonId}>{disabledReason}</span> : null;
   if (!menu) {
-    return body;
+    return (
+      <>
+        {body}
+        {reason}
+      </>
+    );
   }
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>{body}</DropdownMenuTrigger>
+      {reason}
       {/*
         Capped at what Radix measured is actually there and scrolled inside,
         rather than at a fraction of the window: a model menu with a group

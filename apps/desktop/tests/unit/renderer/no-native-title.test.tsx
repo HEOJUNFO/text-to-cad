@@ -19,6 +19,7 @@ import { useComposer } from "@renderer/state/composer";
 import { useExplorer } from "@renderer/state/explorer";
 import { usePathLinks } from "@renderer/state/path-links";
 import { useProjects } from "@renderer/state/projects";
+import { useSessions } from "@renderer/state/sessions";
 import { initialSessionState, type SessionState, type ToolCallPart } from "@shared/acp/types";
 import type { Session } from "@shared/types";
 
@@ -61,6 +62,8 @@ it("no control in a session carries a native title", async () => {
   const user = userEvent.setup();
   const annotation = { id: "a1", text: "fillet it", references: [] };
   useComposer.getState().setDraft("s1", "look at models/x.step#o1 ");
+  // The session's row, so the reference chip has a project to open in and is a button.
+  useSessions.setState({ sessions: [SESSION], ready: true, activeId: "s1" });
   const view = render(
     <TooltipProvider>
     <TranscriptScopeContext.Provider value={scope}>

@@ -110,4 +110,15 @@ describe("the composer's chips and Stop", () => {
     expect(chip).not.toHaveAttribute("title");
     expect(chip).not.toHaveAccessibleDescription();
   });
+
+  it("keep a keyboard user's focus when the agent comes back", () => {
+    useAcp.setState({ sessions: { s1: state("idle") }, reconnecting: { s1: true } } as never);
+    render(<SessionView session={SESSION} />);
+    const chip = chipNamed("Mode");
+    act(() => chip.focus());
+    expect(chip).toHaveAttribute("aria-disabled", "true");
+    act(() => useAcp.setState({ reconnecting: {} }));
+    expect(chipNamed("Mode")).not.toHaveAttribute("aria-disabled");
+    expect(chipNamed("Mode")).toHaveFocus();
+  });
 });

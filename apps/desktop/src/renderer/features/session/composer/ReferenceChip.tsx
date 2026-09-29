@@ -21,47 +21,59 @@ import { openComposerReference, ReferenceScopeContext } from "./ReferenceScope";
  * what Delete would remove. Clicking the chip reveals its geometry without
  * moving the caret; Tab then Enter activates it without submitting the form.
  */
+const CHIP_BODY =
+  "inline-flex min-w-0 max-w-full items-center gap-1 rounded-md px-1.5 py-px transition-colors duration-120 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
 export function ReferenceChip({ node, selected }: NodeViewProps) {
   const scope = useContext(ReferenceScopeContext);
   const reference = node.attrs as CadReference;
   const token = referenceToken(reference);
   const label = useComposer((state) => scope?.draftKey ? state.referenceLabels[scope.draftKey]?.[token] : undefined);
+  // The hint is the chip's whole name, and only when the chip clips it (160px per part): the
+  // button's label already says what it does. On the chip, not the button, so a chip with no
+  // project to open it in — its button disabled — still shows its name.
+  const fullName = label ? `${label} (${token})` : token;
   return (
-    <NodeViewWrapper
-      as="span"
-      className={cn(
-        "ui-reference-enter mx-px inline-flex max-w-full rounded-md border bg-secondary/70 align-baseline text-[12px] leading-4 text-secondary-foreground select-none",
-        selected && "ring-2 ring-ring ring-offset-1 ring-offset-background",
-      )}
-      contentEditable={false}
-      data-file={reference.file}
-      data-reference-chip=""
-      data-selected={selected ? "" : undefined}
-      data-selector={reference.selector}
-    >
-      {/* The hint names the whole label, which the chip clips at 160px. */}
-      <TooltipHint content={scope ? `Show ${label ? `${label} (${token})` : token} in viewer` : label ? `${label} (${token})` : token}>
-        <button
-          aria-label={`Show ${label ? `${label} (${token})` : token} in viewer`}
-          className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md px-1.5 py-px transition-colors duration-120 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none"
-          disabled={!scope}
-          type="button"
-          onMouseDown={(event) => event.preventDefault()}
-          onKeyDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation();
-            if (!scope) return;
-            try {
-              openComposerReference(scope, reference);
-            } catch (error) {
-              toast.error(error instanceof Error ? error.message : String(error));
-            }
-          }}
-        >
-          <ReferenceChipContent file={reference.file} label={label} selector={reference.selector} />
-        </button>
-      </TooltipHint>
-    </NodeViewWrapper>
+    <TooltipHint content={fullName} overflowOnly>
+      <NodeViewWrapper
+        as="span"
+        className={cn(
+          "ui-reference-enter mx-px inline-flex max-w-full rounded-md border bg-secondary/70 align-baseline text-[12px] leading-4 text-secondary-foreground select-none",
+          selected && "ring-2 ring-ring ring-offset-1 ring-offset-background",
+        )}
+        contentEditable={false}
+        data-file={reference.file}
+        data-reference-chip=""
+        data-selected={selected ? "" : undefined}
+        data-selector={reference.selector}
+      >
+        {/* With no project to open it in, the chip is its name and not a control: a disabled
+            button would also switch the hint off. */}
+        {scope ? (
+          <button
+            aria-label={`Show ${fullName} in viewer`}
+            className={CHIP_BODY}
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onKeyDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              try {
+                openComposerReference(scope, reference);
+              } catch (error) {
+                toast.error(error instanceof Error ? error.message : String(error));
+              }
+            }}
+          >
+            <ReferenceChipContent file={reference.file} label={label} selector={reference.selector} />
+          </button>
+        ) : (
+          <span className={CHIP_BODY}>
+            <ReferenceChipContent file={reference.file} label={label} selector={reference.selector} />
+          </span>
+        )}
+      </NodeViewWrapper>
+    </TooltipHint>
   );
 }
 

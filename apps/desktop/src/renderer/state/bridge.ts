@@ -46,6 +46,13 @@ export function subscribeToMain(): () => void {
       useUpdates.getState().receive(status);
     }),
     window.textToCad.on("session.state", ({ sessionId, state }) => {
+      // Sent before main heard the session was archived or deleted: taking it would bring back
+      // state the index already let go of, and nothing would forget it again (`state/acp.ts`).
+      // Main broadcasts a new session's row before its first state, so a missing row is a gone one
+      // once the index has loaded.
+      const index = useSessions.getState();
+      const row = index.sessions.find((session) => session.id === sessionId);
+      if (row?.archived || (!row && index.ready)) return;
       useAcp.getState().receiveState(sessionId, state);
       // A reconnect lands here rather than as a turn event: an agent that came back idle with
       // prompts queued behind its disconnect sends the next one (`state/composer.ts`).
