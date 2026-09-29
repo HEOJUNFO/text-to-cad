@@ -150,9 +150,9 @@ function StartStep({ onDone }: { onDone: () => void }) {
     setBusy("sample");
     setError(null);
     try {
-      const { path } = await window.textToCad.onboarding.createSample();
-      // Main broadcasts the selection, which opens the folder's new-session screen.
-      await window.textToCad.projects.addPath({ path });
+      // Main copies, selects and broadcasts the sample, which opens the
+      // folder's new-session screen.
+      await window.textToCad.onboarding.createSample();
       onDone();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));

@@ -5,7 +5,7 @@ import { expect, test, type ElectronApplication, type Page } from "@playwright/t
 
 import { TITLEBAR_HEIGHT, TRAFFIC_LIGHTS_INSET, trafficLightPosition } from "../../src/shared/titlebar";
 import { PANE_LIMITS } from "../../src/shared/types";
-import { dragSeparator, launch, mod, scratch, setContentSize, shoot as shootInto } from "./launch";
+import { chooseDirectory, dragSeparator, launch, mod, scratch, setContentSize, shoot as shootInto } from "./launch";
 import { selectFixtureSession } from "./session-fixture";
 
 /**
@@ -53,7 +53,6 @@ declare const window: {
   __schemeSamples: { dark: boolean; colorScheme: string; prefersDark: boolean }[];
   __schemeFrames: number;
   textToCad: {
-    projects: { addPath(request: { path: string }): Promise<{ id: string }> };
     settings: { get(): Promise<{ theme: string }>; set(patch: Record<string, unknown>): Promise<unknown> };
     agents: { list(): Promise<{ installed: boolean }[]> };
     sessions: { delete(request: { id: string }): Promise<void> };
@@ -366,7 +365,7 @@ test("Settings: every page renders, and what it shows comes from main", async ()
 /* -------------------------------------------------------------------------- */
 
 test("a session owns the explorer: its toggles, its strip and its shortcuts", async () => {
-  const session = await selectFixtureSession(page, project);
+  const session = await selectFixtureSession(app, page, project);
   // Selecting a session brings the toggle with that session's own state — closed.
   const header = page.locator("[data-session-header]");
   const toggle = header.getByRole("button", { name: "Toggle explorer" });
@@ -452,7 +451,7 @@ test("a session owns the explorer: its toggles, its strip and its shortcuts", as
 });
 
 test("in the composer, Shift+Enter is a newline, Enter sends, Escape stops, and Mod+N starts over", async () => {
-  await page.evaluate((dir) => window.textToCad.projects.addPath({ path: dir }), project);
+  await chooseDirectory(app, project);
   // Sending needs an agent, and the chip fills in once the detector has probed.
   await expect(page.locator("[data-new-session] [data-composer-row] [data-chip=model]")).toBeVisible({ timeout: 30_000 });
   const composer = page.getByPlaceholder("Describe a part to build…", { exact: true });

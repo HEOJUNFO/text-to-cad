@@ -43,6 +43,9 @@ function directoryDescriptor(directory: string, createdAt = 0): Project {
   return ProjectSchema.parse({ id: directory, name: path.basename(directory) || directory, path: directory, createdAt });
 }
 
+/** What `projects.choose` handed out this run, by id. Never persisted. */
+const chosen = new Map<string, Project>();
+
 export const projects = {
   list(): Project[] {
     const rows = db().prepare(
@@ -66,13 +69,29 @@ export const projects = {
     return directoryDescriptor(canonical);
   },
 
-  /** Resolve a stable directory identity, including before the first session. */
+  /**
+   * A directory the person chose in main — the folder chooser, the sample —
+   * resolved and remembered for this run, so it can be read before its first
+   * session records it. The one way a directory becomes a project without a
+   * session row.
+   */
+  choose(directory: string): Project {
+    const project = projects.add(directory);
+    chosen.set(project.id, project);
+    return project;
+  },
+
+  /**
+   * Resolve a stable directory identity, including before the first session:
+   * one a session records, or one `choose` was handed this run. Nothing else.
+   * An id is renderer input, and a lookup that resolved any absolute path it
+   * was given would make `/` a project and every file under it readable.
+   */
   get(id: string): Project | null {
     // A checkout may be unmounted while its session's worktree still exists.
     // Recorded identities must remain readable, without rewriting their ids.
     const recorded = projects.list().find(project => project.id === id);
-    if (recorded) return recorded;
-    try { return projects.add(id); } catch { return null; }
+    return recorded ?? chosen.get(id) ?? null;
   },
 };
 

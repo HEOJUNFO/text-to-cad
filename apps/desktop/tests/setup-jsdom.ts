@@ -51,7 +51,6 @@ Object.defineProperty(window, "textToCad", {
     projects: {
       list: vi.fn(async () => []),
       add: vi.fn(async () => null),
-      addPath: vi.fn(),
       remove: vi.fn(),
       rename: vi.fn(),
     },

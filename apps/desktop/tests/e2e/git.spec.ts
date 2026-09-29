@@ -5,7 +5,7 @@ import path from "node:path";
 import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { projectWorktreeDir } from "../../src/main/projects/workspace";
 import type { TextToCadApi } from "../../src/shared/ipc";
-import { launch, mod, scratch, settleTerminal } from "./launch";
+import { chooseDirectory, launch, mod, scratch, settleTerminal } from "./launch";
 
 /**
  * Projects, git modes, worktrees and the review (plan §9), on one app and one
@@ -70,7 +70,7 @@ test.afterAll(async () => {
 });
 
 test("a chosen folder is a draft: no project, no explorer, and its words kept per folder", async () => {
-  const added = await page.evaluate((root) => window.textToCad.projects.addPath({ path: root }), repo);
+  const added = await chooseDirectory(app, repo);
   projectId = added.id;
   const draft = page.getByPlaceholder("Describe a part to build…", { exact: true });
   await expect(draft).toBeVisible();
@@ -78,11 +78,11 @@ test("a chosen folder is a draft: no project, no explorer, and its words kept pe
   await expect(page.getByRole("button", { name: "Toggle explorer" })).toHaveCount(0);
   expect(await page.evaluate(() => window.textToCad.projects.list())).toEqual([]);
   await draft.fill("Round the car body");
-  await page.evaluate((root) => window.textToCad.projects.addPath({ path: root }), other);
+  await chooseDirectory(app, other);
   await expect(page.getByRole("heading", { name: "What should we build in Other project?" })).toBeVisible();
   await expect(draft).toHaveText("");
   // Re-choosing a folder restores its in-memory draft, still without a saved project.
-  await page.evaluate((root) => window.textToCad.projects.addPath({ path: root }), repo);
+  await chooseDirectory(app, repo);
   await expect(draft).toHaveText("Round the car body");
   expect(await page.evaluate(() => window.textToCad.projects.list())).toEqual([]);
   await expect(page.getByTestId("sidebar").locator("[data-sidebar-section]")).toHaveCount(0);
@@ -237,7 +237,7 @@ test("the worktree is listed in Settings, and Delete takes it away once no sessi
 });
 
 test("the new-session screen's New worktree makes the session in a worktree of its own", async () => {
-  await page.evaluate((root) => window.textToCad.projects.addPath({ path: root }), repo);
+  await chooseDirectory(app, repo);
   await page.locator("[data-context-strip]").getByRole("button", { name: "Local", exact: true }).click();
   await page.getByRole("menuitemradio", { name: /New worktree/ }).click();
   await expect(page.locator('[data-composer-row] [data-chip="model"]')).toBeVisible({ timeout: 30_000 });

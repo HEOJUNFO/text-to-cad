@@ -8,6 +8,7 @@
  */
 import { z } from "zod";
 
+import { ProjectSchema } from "../types";
 import { invoke } from "./define";
 
 export const OnboardingStatusSchema = z.object({
@@ -25,8 +26,10 @@ export const onboardingContract = {
     status: invoke(z.void(), OnboardingStatusSchema),
     /**
      * Copies the bundled sample to `~/Documents/text-to-cad Sample` (or reuses
-     * the copy already there) and answers with its path.
+     * the copy already there), selects it — main broadcasts
+     * `ui.directorySelected`, as the folder chooser does — and answers with the
+     * project. Never a path for the renderer to hand back: no channel takes one.
      */
-    createSample: invoke(z.void(), z.object({ path: z.string() })),
+    createSample: invoke(z.void(), ProjectSchema),
   },
 } as const;

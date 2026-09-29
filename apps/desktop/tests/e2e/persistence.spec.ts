@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { expect, test, type ElectronApplication, type Locator, type Page } from "@playwright/test";
 import type { TextToCadApi } from "../../src/shared/ipc";
-import { launch, scratch, type Launched } from "./launch";
+import { chooseDirectory, launch, type Launched, scratch } from "./launch";
 
 /**
  * What a quit and a relaunch keep, and what opening a session then costs —
@@ -74,7 +74,7 @@ test("the first launch: a project, two sessions, the chips a person picked, a ti
     // Every provider answers with the same fake models; pin the one under test so this
     // machine's installed agents cannot change whose preferences are restored.
     await page.evaluate(() => window.textToCad.settings.set({ defaultAgentId: "claude-code" }));
-    const added = await page.evaluate((dir) => window.textToCad.projects.addPath({ path: dir }), project);
+    const added = await chooseDirectory(app, project);
     await expect(page.getByRole("heading", { name: `What should we build in ${path.basename(project)}?` })).toBeVisible();
     const row = page.locator("[data-new-session] [data-composer-row]");
     // The chips appear once the agent has been probed, which on a first run spawns it.

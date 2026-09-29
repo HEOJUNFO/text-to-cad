@@ -13,8 +13,13 @@ New folder choices resolve symlinks, while existing session directory spellings
 remain stable. Choosing an alias of an existing directory reuses that group.
 
 `projects.list` and the renderer's `projectsFromSessions` derive directory
-descriptors from sessions. `projects.add` / `addPath` only validate a folder
-choice and select a transient new-session draft. They create no database row.
+descriptors from sessions. `projects.add` (the chooser) and
+`onboarding.createSample` only validate a folder choice and select a transient
+new-session draft. They create no database row; main remembers the choice for
+the run, and `projects.get` answers only for a directory a session records or
+main chose — never for a path the renderer merely names. The e2e suite
+chooses folders through a main-side `NODE_ENV=test` door (`chooseDirectory` in
+`tests/e2e/launch.ts`), not a channel.
 The descriptor's name is the directory basename. There is no project rename
 or delete operation. Sidebar groups contain sessions matching the current
 filters; empty groups are omitted. Archiving the last visible session hides

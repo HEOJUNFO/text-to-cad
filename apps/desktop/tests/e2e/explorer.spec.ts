@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { expect, test, type ElectronApplication, type Locator, type Page } from "@playwright/test";
 import type { TextToCadApi } from "../../src/shared/ipc";
-import { launch, mod, repoRoot, scratch, settleTerminal } from "./launch";
+import { chooseDirectory, launch, mod, repoRoot, scratch, settleTerminal } from "./launch";
 import { selectFixtureSession } from "./session-fixture";
 
 /**
@@ -351,7 +351,7 @@ test("a browser tab's native page is shared by the explorer and the app tools, p
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}/`;
   try {
-    const project = await page.evaluate((directory) => window.textToCad.projects.addPath({ path: directory }), browserDir);
+    const project = await chooseDirectory(app, browserDir);
     const [sessionA, sessionB] = await page.evaluate(async (projectId) => [
       (await window.textToCad.sessions.create({ projectId, agentId: "claude-code", gitMode: "checkout" })).id,
       (await window.textToCad.sessions.create({ projectId, agentId: "claude-code", gitMode: "checkout" })).id,
@@ -417,7 +417,7 @@ test("a browser tab's native page is shared by the explorer and the app tools, p
 
 /** Select the fixture's session for `directory` (made on first use) and open its explorer. */
 async function switchProject(directory: string) {
-  const session = await selectFixtureSession(page, directory);
+  const session = await selectFixtureSession(app, page, directory);
   if (!(await page.getByTestId("explorer").isVisible())) {
     await page.getByRole("button", { name: "Toggle explorer" }).click();
   }

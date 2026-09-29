@@ -61,6 +61,24 @@ export async function launch(options: {
   return { app, page, lines };
 }
 
+/** What main's e2e door answers with: the chosen folder, as `projects.add` would. */
+export type ChosenDirectory = { id: string; name: string; path: string; createdAt: number };
+
+/**
+ * Choose a folder the way the native chooser does — main resolves it, selects
+ * it and broadcasts `ui.directorySelected` — without the chooser, which
+ * Playwright cannot drive. No renderer channel takes a path, so this goes in
+ * through main: the `NODE_ENV=test` door `installE2eDoor` puts on main's
+ * global (src/main/ipc/index.ts).
+ */
+export async function chooseDirectory(app: ElectronApplication, directory: string): Promise<ChosenDirectory> {
+  return app.evaluate(
+    (_electron, chosen) =>
+      (globalThis as unknown as { __textToCadE2E: { choose(directory: string): ChosenDirectory } }).__textToCadE2E.choose(chosen),
+    directory,
+  );
+}
+
 /** A scratch directory, realpath'd: Electron resolves paths, and macOS's /var is a link. */
 export function scratch(prefix: string): string {
   return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `text-to-cad-${prefix}-`)));

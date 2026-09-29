@@ -79,8 +79,9 @@ export const ipcContract = defineIpc({
      * outcome, not an error.
      */
     add: invoke(z.void(), ProjectSchema.nullable()),
-    /** Validates a directory for a session draft; does not save a project. */
-    addPath: invoke(z.object({ path: z.string().min(1) }), ProjectSchema),
+    // No channel takes a directory by name. A folder becomes a project only
+    // through a chooser main opened, the sample main copied, or a session
+    // that already records it (`projects.get` in src/main/db/repositories.ts).
   },
 
   /** P1: `sessions.*` lives in ./ipc/acp.ts. */

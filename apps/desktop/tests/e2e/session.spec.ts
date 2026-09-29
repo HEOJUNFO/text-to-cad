@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import type { TextToCadApi } from "../../src/shared/ipc";
-import { launch, scratch, settledLayout } from "./launch";
+import { chooseDirectory, launch, scratch, settledLayout } from "./launch";
 
 /**
  * The session UI against the fake agent (plan §12): new session → prompt →
@@ -58,7 +58,7 @@ test.beforeAll(async () => {
     }
   });
   await page.evaluate((value) => window.textToCad.settings.set({ theme: value }), "dark");
-  await page.evaluate((dir) => window.textToCad.projects.addPath({ path: dir }), project);
+  await chooseDirectory(app, project);
 });
 
 test.afterAll(async () => {
@@ -520,7 +520,7 @@ test("the sidebar renames and archives a session", async () => {
 test("the new session is created in the mode its chip is on, and Manual waits", async () => {
   // The archive before this left no session, and so no folder: choose this one again, which is
   // what selects its new-session draft (`docs/session-workspaces.md`).
-  await page.evaluate((dir) => window.textToCad.projects.addPath({ path: dir }), project);
+  await chooseDirectory(app, project);
   await expect(page.getByRole("heading", { name: `What should we build in ${path.basename(project)}?` })).toBeVisible();
   const actionRow = page.locator("[data-new-session] [data-composer-row]");
   const chip = actionRow.locator("[data-chip=mode]");
@@ -610,7 +610,7 @@ test("the full-access mode is never asked anything", async () => {
 test("a signed-out agent asks to sign in", async () => {
   // Choosing a folder selects its new-session draft. A folder no session has used yet is not a
   // saved project, so it is not in the project chip's Recent list (`docs/session-workspaces.md`).
-  await page.evaluate((dir) => window.textToCad.projects.addPath({ path: dir }), signedOutProject);
+  await chooseDirectory(app, signedOutProject);
   await expect(page.getByRole("heading", { name: `What should we build in ${path.basename(signedOutProject)}?` })).toBeVisible();
   const composer = page.getByPlaceholder("Describe a part to build…", { exact: true });
   await composer.fill("hello");
@@ -633,7 +633,7 @@ test("activity keeps failures separate from the summary and uses a quiet thinkin
   fs.mkdirSync(path.join(base, "models"));
   fs.writeFileSync(path.join(base, "README.md"), "# Preview project\n");
   await setTheme("light");
-  const added = await page.evaluate((root) => window.textToCad.projects.addPath({ path: root }), base);
+  const added = await chooseDirectory(app, base);
   const session = await page.evaluate((projectId) => window.textToCad.sessions.create({ projectId, agentId: "claude-code", gitMode: "none" }), added.id);
   await page.locator(`[data-session-row="${session.id}"]`).getByRole("button").first().click();
   // The read succeeds; writing to an existing directory fails safely.
@@ -672,7 +672,7 @@ test("paths an agent writes are links that open in the explorer, and a typed ref
     fs.mkdirSync(path.dirname(path.join(workspace, file)), { recursive: true });
     fs.writeFileSync(path.join(workspace, file), `# ${path.basename(file)}\n`);
   }
-  const added = await page.evaluate((root) => window.textToCad.projects.addPath({ path: root }), workspace);
+  const added = await chooseDirectory(app, workspace);
   const session = await page.evaluate((projectId) => window.textToCad.sessions.create({ projectId, agentId: "claude-code", gitMode: "none" }), added.id);
   await page.locator(`[data-session-row="${session.id}"]`).getByRole("button").first().click();
   await expect(page.locator("[data-explorer-ready=true]")).toBeVisible();

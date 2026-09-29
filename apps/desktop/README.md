@@ -147,8 +147,9 @@ Main answers the two things that are not settings, over `onboarding.*`
   unless `TEXT_TO_CAD_ONBOARDING=1`.
 - `onboarding.createSample` — copies the bundled sample (`resources/sample/`:
   `l_bracket.py`, the `l_bracket.step` it builds, a README of things to ask)
-  to `~/Documents/text-to-cad Sample` and answers with the path; the renderer
-  then adds it with `projects.addPath`. The sample is copied, never opened in
+  to `~/Documents/text-to-cad Sample`, selects it (main broadcasts
+  `ui.directorySelected`, as the folder chooser does) and answers with the
+  project. No channel takes a directory by name. The sample is copied, never opened in
   place — a signed bundle must not be written into, and the agent will edit
   it — and a folder there that already has files in it is reused as it is,
   not overwritten.

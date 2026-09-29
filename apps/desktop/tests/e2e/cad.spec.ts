@@ -107,7 +107,7 @@ test.afterAll(async () => {
 });
 
 test("selecting a session warms the viewer and the daemon before any file is opened", async () => {
-  session = await selectFixtureSession(page, project);
+  session = await selectFixtureSession(app, page, project);
   await expect.poll(() => lines.some((line) => /\[viewer\] (started|reused) http:\/\/127\.0\.0\.1:\d+ for /.test(line)), { timeout: 90_000 }).toBe(true);
   await expect.poll(() => lines.some((line) => /\[daemon\] warming .* \(pid \d+\)/.test(line)), { timeout: 30_000 }).toBe(true);
   daemonPid = Number(/\(pid (\d+)\)/.exec(lines.find((line) => /\[daemon\] warming .* \(pid \d+\)/.test(line))!)![1]);
