@@ -151,6 +151,30 @@ function lease(sender: WebContents | undefined, root: string, document: number |
   return true;
 }
 
+/**
+ * Each page's watches still setting up, by root. An unwatch is sent after
+ * its watch but can land first — the watch awaits the root before it takes
+ * its lease — and would find nothing to give back: the watch then holds a
+ * lease, and the watcher a ref, that nothing returns. An unwatch waits for
+ * the page's watches of that root to land first.
+ */
+const settingUp = new Map<string, Set<Promise<unknown>>>();
+const pageRoot = (sender: WebContents, root: string) => `${sender.id}\0${root}`;
+
+async function watchLanded(sender: WebContents | undefined, root: string, watch: Promise<void>): Promise<void> {
+  if (!sender) return watch;
+  const key = pageRoot(sender, root);
+  const pending = settingUp.get(key) ?? new Set();
+  settingUp.set(key, pending);
+  pending.add(watch);
+  try {
+    await watch;
+  } finally {
+    pending.delete(watch);
+    if (pending.size === 0 && settingUp.get(key) === pending) settingUp.delete(key);
+  }
+}
+
 /** False when this page holds no watch on the root to give back. */
 function returnLease(sender: WebContents, root: string): boolean {
   const held = leases.get(sender.id);
@@ -579,14 +603,18 @@ export const explorerHandlers = {
         const directory = rootOf(projectId, root);
         const document = documentOf(ctx?.sender);
         const { watchers: service } = services();
-        await service.watch(directory, paths);
-        // The page moved on while the watch was set up: nothing will give it back.
-        if (!lease(ctx?.sender, directory, document)) await service.unwatch(directory, paths);
+        await watchLanded(ctx?.sender, directory, (async () => {
+          await service.watch(directory, paths);
+          // The page moved on while the watch was set up: nothing will give it back.
+          if (!lease(ctx?.sender, directory, document)) await service.unwatch(directory, paths);
+        })());
       }),
 
     unwatch: ({ projectId, root, paths }: { projectId: string; root?: string; paths?: string[] }, ctx?: IpcContext) =>
       fsCall(async () => {
         const directory = rootOf(projectId, root);
+        // Behind the page's watches of this root still on their way (`settingUp`).
+        if (ctx) await Promise.allSettled([...settingUp.get(pageRoot(ctx.sender, directory)) ?? []]);
         // A page's unwatch after its leases went with a reload is already counted.
         if (ctx && !returnLease(ctx.sender, directory)) return;
         await services().watchers.unwatch(directory, paths);

@@ -859,6 +859,15 @@ export class FileWatchers {
   private readonly aliases = new Map<string, Map<string, Set<string>>>();
   /** Per root, how many opens (`watchEntry`) each path has not yet given back. */
   private readonly holds = new Map<string, Map<string, number>>();
+  /**
+   * Per root, the paths a `watch` is still on its way to hold again, and the
+   * releases that arrived for them first. A tab that remounts and closes at
+   * once sends its unwatch behind its watch, but the watch awaits the root
+   * before it holds: a release that found no hold would be dropped, and the
+   * hold taken after it never given back.
+   */
+  private readonly arriving = new Map<string, Map<string, number>>();
+  private readonly owed = new Map<string, Map<string, number>>();
 
   constructor(
     private readonly emit: (root: string, changes: FileChange[]) => void,
@@ -871,9 +880,21 @@ export class FileWatchers {
    * each as its open stat held it.
    */
   async watch(root: string, paths: readonly string[] = []): Promise<void> {
-    await this.watchRoot(root);
+    for (const relative of paths) count(this.arriving, root, relative, 1);
+    try {
+      await this.watchRoot(root);
+    } catch (error) {
+      for (const relative of paths) count(this.arriving, root, relative, -1);
+      throw error;
+    }
     for (const relative of paths) {
       await this.watchEntry(root, { path: relative, kind: "file" }).catch(() => {});
+      count(this.arriving, root, relative, -1);
+      // Released while it was on its way: given back now that it is held.
+      if ((this.owed.get(root)?.get(relative) ?? 0) > 0) {
+        count(this.owed, root, relative, -1);
+        this.release(root, [relative]);
+      }
     }
   }
 
@@ -991,15 +1012,17 @@ export class FileWatchers {
   /** A closed tab's paths: at the last hold, its inode and its link are forgotten. */
   private release(root: string, paths: readonly string[]) {
     const held = this.holds.get(root);
-    if (!held) return;
     for (const relative of paths) {
-      const count = held.get(relative) ?? 0;
-      if (count === 0) continue;
-      if (count > 1) {
-        held.set(relative, count - 1);
+      const holding = held?.get(relative) ?? 0;
+      if (holding === 0) {
+        if ((this.arriving.get(root)?.get(relative) ?? 0) > 0) count(this.owed, root, relative, 1);
         continue;
       }
-      held.delete(relative);
+      if (holding > 1) {
+        held!.set(relative, holding - 1);
+        continue;
+      }
+      held!.delete(relative);
       this.identities.get(root)?.delete(relative);
       const links = this.aliases.get(root);
       for (const [target, names] of links ?? []) {
@@ -1092,6 +1115,7 @@ export class FileWatchers {
     this.identities.delete(root);
     this.aliases.delete(root);
     this.holds.delete(root);
+    this.owed.delete(root);
     this.clearTimer(root);
     this.pending.delete(root);
     for (const direct of existing.direct.values()) direct.close();
@@ -1111,6 +1135,7 @@ export class FileWatchers {
     this.identities.clear();
     this.aliases.clear();
     this.holds.clear();
+    this.owed.clear();
     this.pending.clear();
   }
 
@@ -1249,4 +1274,17 @@ export class FileWatchers {
       this.timers.delete(root);
     }
   }
+}
+
+/** Add `by` to a root's count for a path, dropping what reaches zero. */
+function count(counts: Map<string, Map<string, number>>, root: string, relative: string, by: number): void {
+  let paths = counts.get(root);
+  if (!paths) {
+    paths = new Map();
+    counts.set(root, paths);
+  }
+  const next = (paths.get(relative) ?? 0) + by;
+  if (next > 0) paths.set(relative, next);
+  else paths.delete(relative);
+  if (paths.size === 0) counts.delete(root);
 }

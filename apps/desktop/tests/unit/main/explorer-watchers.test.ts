@@ -350,6 +350,20 @@ describe("following an open file", () => {
     expect(emit.mock.calls[0]![1]).toEqual([{ kind: "moved", previousPath: "a.txt", path: "c.txt", directory: false }]);
   });
 
+  it("gives back a hold whose unwatch overtook the watch that takes it again", async () => {
+    await fs.writeFile(path.join(root, "a.txt"), "a\n");
+    await watchers.watch(root);
+    // A remount: the tab's watch that holds `a.txt` again is still on its way when the tab closes
+    // and its unwatch gives `a.txt` back.
+    const remount = watchers.watch(root, ["a.txt"]);
+    await watchers.unwatch(root, ["a.txt"]);
+    await remount;
+    await fs.rm(path.join(realRoot, "a.txt"));
+    on("unlink")("a.txt");
+    // No tab holds it, so its removal waits for no move.
+    expect(waiting().map((tick) => tick.ms)).toEqual([80]);
+  });
+
   it("reads only the changed files a tab has open", async () => {
     const names = Array.from({ length: 40 }, (_, index) => `file-${index}.txt`);
     for (const name of names) await fs.writeFile(path.join(root, name), `${name}\n`);

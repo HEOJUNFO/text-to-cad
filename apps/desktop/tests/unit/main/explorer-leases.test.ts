@@ -84,3 +84,16 @@ test("a watch still setting up when the page navigates is not credited to the ne
   sender.emit("did-navigate");
   expect(watchers.unwatch).toHaveBeenCalledTimes(2);
 });
+
+test("an unwatch that overtakes its page's watch still gives that watch back", async () => {
+  const { ctx } = page();
+  let finish!: () => void;
+  watchers.watch.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+  const pending = explorerHandlers.explorer.watch({ projectId: "project", paths: ["a.txt"] }, ctx);
+  // The tab closed while its watch was still setting up: no lease yet to return.
+  const unwatch = explorerHandlers.explorer.unwatch({ projectId: "project", paths: ["a.txt"] }, ctx);
+  finish();
+  await Promise.all([pending, unwatch]);
+  expect(watchers.unwatch).toHaveBeenCalledTimes(1);
+  expect(watchers.unwatch).toHaveBeenCalledWith(fixture.root, ["a.txt"]);
+});
