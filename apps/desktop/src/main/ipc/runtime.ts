@@ -18,11 +18,7 @@ import { broadcast, type IpcContext } from "./register";
 export const runtimeHandlers = {
   runtime: {
     status: () => cadRuntime().status(),
-    repair: async () => {
-      const status = await cadRuntime().repair();
-      broadcast("runtime.status", status);
-      return status;
-    },
+    repair: () => freshStatus(),
     revealLog: () => revealRuntimeLog(),
   },
 } satisfies IpcHandlers<typeof runtimeContract, IpcContext>;
@@ -35,8 +31,23 @@ export const runtimeHandlers = {
  * that was probed before and has changed since.
  */
 export async function refreshRuntimeAfterOverride(): Promise<RuntimeStatus> {
+  return freshStatus();
+}
+
+/**
+ * Every fresh probe that will broadcast takes a generation; only the newest
+ * one's answer is broadcast. Override A (slow) then B: A's probe may answer
+ * after B's, and a broadcast of it would put the OLD interpreter back on
+ * About — the stale note this exists to clear.
+ */
+let generation = 0;
+
+async function freshStatus(): Promise<RuntimeStatus> {
+  const mine = ++generation;
   const status = await cadRuntime().repair();
-  broadcast("runtime.status", status);
+  if (mine === generation) {
+    broadcast("runtime.status", status);
+  }
   return status;
 }
 

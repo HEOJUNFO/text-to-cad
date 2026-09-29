@@ -190,17 +190,19 @@ const REASONS: Record<NonNullable<ViewerOrigin["reason"]>, string> = {
 };
 
 /**
- * A failed build's recovery line when the runtime is ready with a CAD kernel
- * warning (`missing`, `unsupported`): the build may have failed for that, in
- * cadgen's words. Null when the kernel is fine or the status is not known.
+ * A failed build's recovery note when the runtime is ready with a CAD kernel
+ * warning (`missing`, `unsupported`, `timeout`): the build may have failed for
+ * that, in cadgen's words. `timedOut`: the check did not finish, so the next
+ * step is to check again, not to change the source. Null when the kernel is
+ * fine or the status is not known.
  */
-export function runtimeKernelNote(): string | null {
+export function runtimeKernelNote(): { note: string; timedOut: boolean } | null {
   const kernel = useRuntime.getState().status?.kernel;
   if (!kernel) return null;
   // `timeout` is not a verdict on the kernel: the check did not finish.
   return kernel.state === "timeout"
-    ? `The CAD runtime's kernel check did not finish (Repair in Settings › About checks again): ${kernel.message}`
-    : `The CAD runtime's kernel is ${kernel.state}, which can stop a STEP build: ${kernel.message}`;
+    ? { note: `The CAD runtime's kernel check did not finish (${kernel.message})`, timedOut: true }
+    : { note: `The CAD runtime's kernel is ${kernel.state}, which can stop a STEP build: ${kernel.message}`, timedOut: false };
 }
 
 /** The runtime log, shown in the file manager; main names the file. */

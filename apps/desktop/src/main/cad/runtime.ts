@@ -384,14 +384,28 @@ const FALLBACK_PROBE_SCRIPT = [
   "print(json.dumps({'version': cadgen.__version__, 'viewer': viewer, 'kernel': kernel}))",
 ].join("\n");
 
+/**
+ * The report: the LAST stdout line that is a JSON object with a `version`.
+ * Not simply the last line — an atexit hook or a sitecustomize can print
+ * after it, and that is not a reason to call the runtime broken.
+ */
 function lastJsonObject(stdout: string): Record<string, unknown> | null {
-  const line = stdout.trim().split("\n").at(-1) ?? "";
-  try {
-    const parsed: unknown = JSON.parse(line);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
-  } catch {
-    return null;
+  const lines = stdout.split("\n");
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index]?.trim();
+    if (!line?.startsWith("{")) {
+      continue;
+    }
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && "version" in parsed) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      /* not the report */
+    }
   }
+  return null;
 }
 
 function lastLine(result: ExecResult): string {
@@ -401,6 +415,9 @@ function lastLine(result: ExecResult): string {
 function timedOut(what: string): Error {
   return new Error(`${what} did not answer within ${DOCTOR_TIMEOUT_MS / 1000} s`);
 }
+
+/** Kernel states the build daemon cannot start on: it imports OCP to start. */
+const DAEMON_BLOCKING_KERNEL = new Set(["missing", "unsupported"]);
 
 /** One probe per interpreter and the cadgen source it runs. */
 function probeKey(resolved: ResolvedPython): string {
@@ -602,12 +619,30 @@ export class CadRuntime {
         }
         return probe;
       })();
+      const probing = pending;
+      // Forget this probe — and only this one: an `invalidate()` since may
+      // have put a newer probe under the same key.
+      const forget = () => {
+        if (this.probeCache.get(key) === probing) {
+          this.probeCache.delete(key);
+        }
+      };
       // A failed probe is not cached: the person is likely fixing the path.
-      pending.catch((error: unknown) => {
-        this.probeCache.delete(key);
-        void this.log(`[probe] ${resolved.source} ${resolved.python}: ${error instanceof Error ? error.message : String(error)}`);
-      });
-      this.probeCache.set(key, pending);
+      // Nor is a kernel check that timed out: it said nothing about the
+      // kernel, and the next status asks again rather than quoting it all
+      // session.
+      probing.then(
+        (probe) => {
+          if (probe.kernel?.state === "timeout") {
+            forget();
+          }
+        },
+        (error: unknown) => {
+          forget();
+          void this.log(`[probe] ${resolved.source} ${resolved.python}: ${error instanceof Error ? error.message : String(error)}`);
+        },
+      );
+      this.probeCache.set(key, probing);
     }
     return pending;
   }
@@ -647,6 +682,10 @@ export class CadRuntime {
       /unrecognized arguments: --json/.test(result.stderr) ||
       /No module named '?cadgen\.cli(\.__main__)?(?![\w.])/.test(result.stderr);
     if (!older) {
+      // cadgen itself absent is not an older cadgen: say that plainly.
+      if (/No module named '?cadgen'?(?![\w.])/.test(result.stderr)) {
+        throw new Error(`cadgen is not installed in ${python} (No module named 'cadgen')`);
+      }
       throw new Error(words);
     }
     const fallback = await this.host.exec(python, ["-c", FALLBACK_PROBE_SCRIPT], { env, ...options });
@@ -734,14 +773,8 @@ export class CadRuntime {
   }
 
   /**
-   * Repair is a fresh look: forget the probe and ask again. There is nothing
-   * to install — the runtime shipped with the app — so what this fixes is a
-   * probe that failed while the machine was busy, an override that has since
-   * been corrected, or a bundle that was missing until the app was updated.
-   */
-  /**
    * The interpreter to warm the build daemon on: `ready()`'s, unless its CAD
-   * kernel carries a warning. The daemon imports OCP to start, so on such a
+   * kernel is `missing` or `unsupported`. The daemon imports OCP to start, so on such a
    * runtime it would only fail — noisily, on every project open. The viewer
    * is still warmed; this is said once per interpreter in the log.
    */
@@ -756,7 +789,8 @@ export class CadRuntime {
     } catch {
       return null;
     }
-    if (!probe.kernel) {
+    // A `timeout` says nothing about the kernel: the daemon may start fine.
+    if (!probe.kernel || !DAEMON_BLOCKING_KERNEL.has(probe.kernel.state)) {
       return resolved;
     }
     const key = probeKey(resolved);
@@ -767,6 +801,12 @@ export class CadRuntime {
     return null;
   }
 
+  /**
+   * Repair is a fresh look: forget the probe and ask again. There is nothing
+   * to install — the runtime shipped with the app — so what this fixes is a
+   * probe that failed while the machine was busy, an override that has since
+   * been corrected, or a bundle that was missing until the app was updated.
+   */
   async repair(): Promise<RuntimeStatus> {
     this.invalidate();
     return this.status();

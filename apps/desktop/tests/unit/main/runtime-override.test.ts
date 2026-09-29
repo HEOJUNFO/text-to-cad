@@ -18,3 +18,20 @@ test("probes afresh and tells every window the new interpreter's status", async 
   expect(calls.repair).toHaveBeenCalledOnce();
   expect(calls.broadcast).toHaveBeenCalledWith("runtime.status", fresh);
 });
+
+test("override A then B: only B's answer is broadcast, even when A's arrives last", async () => {
+  calls.repair.mockReset();
+  calls.broadcast.mockReset();
+  let answerA: (status: unknown) => void = () => {};
+  const a = { state: "ready", python: "/a/python", source: "override", cadgenVersion: "9.9.9", viewerBuilt: true, log: null };
+  const b = { ...a, python: "/b/python" };
+  calls.repair.mockImplementationOnce(() => new Promise((resolve) => { answerA = resolve; }));
+  calls.repair.mockResolvedValueOnce(b);
+  const first = refreshRuntimeAfterOverride();
+  const second = refreshRuntimeAfterOverride();
+  await second;
+  answerA(a);
+  await first;
+  expect(calls.broadcast).toHaveBeenCalledOnce();
+  expect(calls.broadcast).toHaveBeenCalledWith("runtime.status", b);
+});

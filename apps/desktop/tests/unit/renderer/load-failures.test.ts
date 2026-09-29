@@ -41,6 +41,17 @@ it("a build failure on a runtime with a CAD kernel warning quotes the warning, i
   }
 });
 
+it("a build failure on a runtime whose kernel check timed out asks for Repair, not a source fix", () => {
+  useRuntime.setState({ status: { state: "ready", python: "/py", source: "override", cadgenVersion: "9.9.9", viewerBuilt: true, log: null, kernel: { state: "timeout", message: "timed out after 90 s" } } });
+  try {
+    const recovery = createDesktopLoadFailures(createDesktopPromptContext("car", null, workspaceId, "first"), clipboard()).recover(failure)!;
+    expect(recovery.recovery).toBe("The CAD runtime's kernel check did not finish (timed out after 90 s). Run Repair in Settings › About, then Try again; or copy the details.");
+    expect(recovery.recovery).not.toMatch(/fix the source/);
+  } finally {
+    useRuntime.setState({ status: null });
+  }
+});
+
 it("Ask the agent to fix delivers the diagnostic to the session's prompt; Copy details copies it", async () => {
   const board = clipboard();
   const [ask, copy] = createDesktopLoadFailures(createDesktopPromptContext("car", null, workspaceId, "first"), board).recover(failure)!.actions!;

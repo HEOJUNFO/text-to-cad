@@ -524,11 +524,11 @@ describe("status", () => {
     expect(await runtime.ready()).toBeNull();
   });
 
-  it("is ready with a timeout warning when the kernel check did not finish, and Repair asks again", async () => {
+  it("is ready with a timeout warning when the kernel check did not finish, not remembered, and the daemon still warms", async () => {
     const m = machine({ bundle: true });
     const python = bundledPaths(m.resources, "darwin", "arm64").python;
     let slow = true;
-    const words = "TimeoutExpired: Command 'python' timed out after 90 seconds";
+    const words = "timed out after 90 s";
     (m.host as { exec: RuntimeHost["exec"] }).exec = async (file, args) => {
       m.execs.push({ file, args, env: {} });
       const kernel = slow ? { ok: false, state: "timeout", error: words } : { ok: true, state: "ok", error: null };
@@ -536,13 +536,64 @@ describe("status", () => {
     };
     const runtime = new CadRuntime(m.host);
     expect(await runtime.status()).toMatchObject({ state: "ready", kernel: { state: "timeout", message: words } });
-    // Not a verdict on the kernel: the viewer still starts.
+    // Not a verdict on the kernel: the viewer starts, and so may the daemon.
     expect((await runtime.ready())?.python).toBe(python);
+    expect((await runtime.daemonReady())?.python).toBe(python);
+    // Not cached either: every one of those asked again.
+    expect(m.execs).toHaveLength(3);
     slow = false;
-    const repaired = await runtime.repair();
-    expect(repaired.state).toBe("ready");
-    expect(repaired.kernel).toBeUndefined();
+    const next = await runtime.status();
+    expect(next.state).toBe("ready");
+    expect(next.kernel).toBeUndefined();
+    await runtime.status();
+    expect(m.execs).toHaveLength(4);
+  });
+
+  it("does not let a stale probe's late failure evict the newer probe an invalidate() started", async () => {
+    const m = machine({ bundle: true });
+    const answers: Array<(result: ExecResult) => void> = [];
+    (m.host as { exec: RuntimeHost["exec"] }).exec = (file, args) => {
+      m.execs.push({ file, args, env: {} });
+      return new Promise((resolve) => answers.push(resolve));
+    };
+    const runtime = new CadRuntime(m.host);
+    const stale = runtime.status();
+    await Promise.resolve();
+    runtime.invalidate();
+    const fresh = runtime.status();
+    await Promise.resolve();
+    expect(answers).toHaveLength(2);
+    answers[1]!({ stdout: `${JSON.stringify(doctorReport({ version: "9.9.9", viewer: true }))}\n`, stderr: "", code: 0 });
+    expect((await fresh).state).toBe("ready");
+    answers[0]!({ stdout: "", stderr: "Traceback (most recent call last):\nRuntimeError: stale", code: 1 });
+    expect((await stale).state).toBe("error");
+    // The newer answer is still the remembered one.
+    expect((await runtime.status()).state).toBe("ready");
     expect(m.execs).toHaveLength(2);
+  });
+
+  it("reads the report even when something prints after it", async () => {
+    const m = machine({ bundle: true });
+    (m.host as { exec: RuntimeHost["exec"] }).exec = async () => ({
+      stdout: `sitecustomize: hello\n${JSON.stringify(doctorReport({ version: "9.9.9", viewer: true }))}\n{"atexit": true}\nbye from atexit\n`,
+      stderr: "",
+      code: 0,
+    });
+    expect(await new CadRuntime(m.host).status()).toMatchObject({ state: "ready", cadgenVersion: "9.9.9" });
+  });
+
+  it("says plainly that cadgen is not installed, rather than calling it an older cadgen", async () => {
+    const m = machine({ bundle: true });
+    const python = bundledPaths(m.resources, "darwin", "arm64").python;
+    (m.host as { exec: RuntimeHost["exec"] }).exec = async (file, args) => {
+      m.execs.push({ file, args, env: {} });
+      return { stdout: "", stderr: `${python}: Error while finding module specification for 'cadgen.cli' (ModuleNotFoundError: No module named 'cadgen')`, code: 1 };
+    };
+    const status = await new CadRuntime(m.host).status();
+    expect(status.state).toBe("error");
+    expect(status.message).toContain(`cadgen is not installed in ${python}`);
+    expect(status.message).not.toContain("Error while finding module specification");
+    expect(m.execs).toHaveLength(1);
   });
 
   it("answers a changed override with the new interpreter's own probe, not the old one's kernel note", async () => {

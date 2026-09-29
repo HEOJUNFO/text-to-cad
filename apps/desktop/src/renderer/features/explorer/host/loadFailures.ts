@@ -36,8 +36,12 @@ export function loadFailurePrompt(failure: ViewerLoadFailure): string {
 
 /** A build failure's next step; first, when the runtime has one, its CAD kernel warning. */
 function buildRecovery(): string {
-  const note = runtimeKernelNote();
-  return note ? `${note}. Ask the agent to fix the source, or copy the details.` : "Ask the agent to fix the source, or copy the details.";
+  const kernel = runtimeKernelNote();
+  if (!kernel) return "Ask the agent to fix the source, or copy the details.";
+  // A check that timed out is no reason to change the source.
+  return kernel.timedOut
+    ? `${kernel.note}. Run Repair in Settings › About, then Try again; or copy the details.`
+    : `${kernel.note}. Ask the agent to fix the source, or copy the details.`;
 }
 
 /**

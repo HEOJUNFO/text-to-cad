@@ -239,7 +239,7 @@ class KernelProbeTest(unittest.TestCase):
         else:
             self.assertTrue(status["error"], status)
 
-    def test_a_caller_bounds_the_kernel_child_and_a_timeout_is_a_failed_kernel(self) -> None:
+    def test_a_caller_bounds_the_kernel_child_and_a_timeout_is_its_own_state(self) -> None:
         # The desktop runs doctor under its own deadline and hands it a shorter
         # one, so the child is ended by subprocess.run rather than orphaned.
         import subprocess
@@ -260,12 +260,13 @@ class KernelProbeTest(unittest.TestCase):
         self.assertEqual(seen, [90.0, 300.0, 300.0, 300.0, 300.0, 300.0, 3600.0])
         # A timeout says nothing about whether the kernel loads: its own state.
         self.assertEqual(state, doctor.KERNEL_TIMEOUT)
-        self.assertIn("TimeoutExpired", detail)
+        # The time, not the exception's repr of the whole probe script.
+        self.assertEqual(detail, "timed out after 90 s")
 
     def test_a_timed_out_kernel_is_its_own_state_in_both_reports_and_still_exits_4(self) -> None:
         import json
 
-        probe = (doctor.KERNEL_TIMEOUT, "TimeoutExpired: Command 'python' timed out after 90 seconds", None)
+        probe = (doctor.KERNEL_TIMEOUT, "timed out after 90 s", None)
         with mock.patch.object(doctor, "_run_kernel_probe", return_value=probe), TemporaryDirectory() as tmp:
             code, out, _ = _run([tmp, "--json"])
             text_code, _, err = _run([tmp])
@@ -274,6 +275,15 @@ class KernelProbeTest(unittest.TestCase):
         self.assertEqual((code, text_code), (4, 4))
         self.assertIn("kernel   timed out", err)
         self.assertNotIn("FAILED", err)
+
+    def test_help_documents_the_exit_codes_and_the_kernel_timeout(self) -> None:
+        out = io.StringIO()
+        with redirect_stdout(out), self.assertRaises(SystemExit):
+            doctor.main(["--help"])
+        text = " ".join(out.getvalue().split())
+        self.assertIn("CADGEN_DOCTOR_KERNEL_TIMEOUT", text)
+        self.assertIn("at most 3600", text)
+        self.assertIn("4 CAD kernel failed to load or timed out", text)
 
     def test_the_probe_tells_a_missing_kernel_from_a_refused_one(self) -> None:
         # The child interpreter's last stderr line is all the probe has. A

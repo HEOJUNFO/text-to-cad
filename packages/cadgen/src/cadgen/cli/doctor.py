@@ -33,7 +33,9 @@ its own. A timed-out kernel exits 4, as a failed one always has.
 
 Exit codes: 0 = installed cadgen matches the pin (or nothing claims a pin);
 3 = pin mismatch, the same code the shims used; 4 = the kernel is installed
-but cannot be loaded (the report says why when it can tell). A kernel that is
+but cannot be loaded (the report says why when it can tell), or its fresh
+interpreter did not answer within ``CADGEN_DOCTOR_KERNEL_TIMEOUT``. A kernel
+that refuses cadgen's check (``unsupported``) exits 0. A kernel that is
 simply not installed is reported, not failed: a no-deps install of the wheel
 (what the release workflow smoke-tests) has no OCP and is still a correct
 install, and the requirements pin is what puts the kernel there.
@@ -172,17 +174,19 @@ def _run_kernel_probe() -> tuple[str, str, str | None]:
     import subprocess
 
     root = str(Path(__file__).resolve().parent.parent.parent)
+    timeout = _kernel_timeout()
     try:
         result = subprocess.run(
             [sys.executable, "-c", _KERNEL_PROBE.format(root=root)],
             capture_output=True,
             text=True,
-            timeout=_kernel_timeout(),
+            timeout=timeout,
         )
-    except subprocess.TimeoutExpired as error:
+    except subprocess.TimeoutExpired:
         # Not a verdict on the kernel: a cold disk can take longer than the
-        # caller allowed. Its own state, so a caller can ask again.
-        return KERNEL_TIMEOUT, f"{type(error).__name__}: {error}", None
+        # caller allowed. Its own state, so a caller can ask again. The
+        # exception's text is the whole probe script; the time is the news.
+        return KERNEL_TIMEOUT, f"timed out after {timeout:g} s", None
     except OSError as error:
         return KERNEL_FAILED, f"{type(error).__name__}: {error}", None
     if result.returncode == 0:
@@ -244,6 +248,12 @@ def main(argv: list[str] | None = None, prog: str = "cadgen doctor") -> int:
     parser = argparse.ArgumentParser(
         prog=prog,
         description="Print the installed cadgen and verify a skill's cadgen version pin.",
+        epilog=(
+            "Exit codes: 0 ok, 3 pin mismatch, 4 CAD kernel failed to load or timed out. "
+            f"{_KERNEL_TIMEOUT_ENV} (seconds, default {_KERNEL_TIMEOUT_DEFAULT:g}, "
+            f"at most {_KERNEL_TIMEOUT_MAX:g}) bounds the fresh interpreter the kernel "
+            "is loaded in."
+        ),
     )
     parser.add_argument(
         "requirements",
