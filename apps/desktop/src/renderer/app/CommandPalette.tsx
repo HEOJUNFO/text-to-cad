@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -26,6 +26,7 @@ import {
   CommandList,
 } from "@renderer/components/ui/command";
 import { useOpenFolder } from "@renderer/hooks/use-open-folder";
+import { useReturnFocus } from "@renderer/hooks/use-return-focus";
 import { isPrimaryModifier } from "@renderer/lib/platform";
 import { useExplorer } from "@renderer/state/explorer";
 import { useHistory, useHistoryReach } from "@renderer/state/history";
@@ -89,10 +90,8 @@ export function CommandPalette() {
   const layout = useSettings((state) => state.settings?.layout);
   const setLayout = useSettings((state) => state.setLayout);
   const reach = useHistoryReach();
-  // What had focus before the palette opened. Radix hands focus back to a Dialog's trigger,
-  // and this dialog has none (a chord, the menu, the sidebar's search): without this, Escape
-  // left focus on the page, where no key reaches anything.
-  const opener = useRef<HTMLElement | null>(null);
+  // No trigger (a chord, the menu, the sidebar's search): Escape gives focus back by hand.
+  const returnFocus = useReturnFocus();
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -132,20 +131,7 @@ export function CommandPalette() {
       className="top-[20%] translate-y-0"
       description={COMMAND_PALETTE_PROMPT}
       label={COMMAND_PALETTE_LABEL}
-      onCloseAutoFocus={(event) => {
-        event.preventDefault();
-        const previous = opener.current;
-        opener.current = null;
-        // Only while nothing else took focus: a row that opened Settings or a new session hands
-        // it to that, and a composer that went with the session it was in is not there to take it.
-        const free = !document.activeElement || document.activeElement === document.body;
-        if (free && previous?.isConnected) previous.focus();
-      }}
-      onOpenAutoFocus={() => {
-        // Before the box takes focus: this is still what the person was in.
-        const active = document.activeElement;
-        opener.current = active instanceof HTMLElement && active !== document.body ? active : null;
-      }}
+      {...returnFocus}
       onOpenChange={setOpen}
       open={open}
       title="Command palette"

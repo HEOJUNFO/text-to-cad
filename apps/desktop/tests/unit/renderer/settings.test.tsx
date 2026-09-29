@@ -8,7 +8,7 @@
  * text it matched is the text the row prints.
  */
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
@@ -295,6 +295,29 @@ describe("the Agents page's rows", () => {
     const drawer = await screen.findByRole("dialog");
     expect(drawer).not.toHaveTextContent("`");
     expect(drawer.querySelector("code")).toHaveTextContent("opencode acp");
+  });
+
+  it("keeps Docs and Install beside the row's button, not inside it (nested-interactive)", async () => {
+    wrap(<AgentsPage />);
+    const row = await screen.findByRole("button", { name: "OpenCode" });
+    expect(document.querySelectorAll("[role=button] button, button button")).toHaveLength(0);
+    expect(row).toHaveAccessibleDescription("`opencode acp` serves ACP".replace(/`/g, ""));
+    for (const name of ["OpenCode documentation", "Install OpenCode…"]) {
+      expect(row.contains(screen.getByRole("button", { name }))).toBe(false);
+    }
+  });
+
+  it("Escape closes the drawer and hands focus back to the row that opened it", async () => {
+    const user = userEvent.setup();
+    wrap(<AgentsPage />);
+    const row = await screen.findByRole("button", { name: "OpenCode" });
+    row.focus();
+    await user.keyboard("{Enter}");
+    await screen.findByRole("dialog");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(document.activeElement).not.toBe(document.body));
+    expect(row).toHaveFocus();
   });
 
   it("Enter on the row itself still opens the drawer", async () => {
