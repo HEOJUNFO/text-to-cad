@@ -151,8 +151,11 @@ export type SessionManagerDeps = {
    */
   head?: (cwd: string) => Promise<string | null>;
 
-  /** P7: remove the session's worktree on delete, if the settings allow it. */
-  releaseWorkspace?: (session: Session) => Promise<void>;
+  /**
+   * P7: remove the session's worktree on delete, if the settings allow it.
+   * Answers whether it did and, when it kept one, why — which is logged.
+   */
+  releaseWorkspace?: (session: Session) => Promise<{ removed: boolean; reason?: string } | void>;
 
   /**
    * Where the painted-on-select snapshot of each session's transcript is
@@ -552,6 +555,10 @@ export class SessionManager {
       replay,
     });
     timer.mark("spawn");
+    // session/load replays the whole history, edits included, through
+    // `tallyUpdate`: start the count again rather than add a second copy of
+    // it to what an earlier load (or turn) in this app run counted.
+    this.tallies.delete(id);
     try {
       await connection.initialize();
       timer.mark("initialize");
@@ -760,7 +767,13 @@ export class SessionManager {
     this.deps.repo.remove(id);
     this.broadcastIndex();
     if (session) {
-      await this.deps.releaseWorkspace?.(session).catch(() => undefined);
+      const released = await this.deps.releaseWorkspace?.(session).catch((error: unknown) => ({
+        removed: false,
+        reason: error instanceof Error ? error.message : String(error),
+      }));
+      if (released && !released.removed && released.reason) {
+        console.warn(`[acp] kept the worktree ${session.worktreePath ?? session.cwd} of deleted session ${id.slice(0, 8)}: ${released.reason}`);
+      }
     }
   }
 

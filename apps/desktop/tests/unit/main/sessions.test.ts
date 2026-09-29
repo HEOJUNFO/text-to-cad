@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AgentDetector } from "@main/agents/detect";
 import { spawnProcessTerminal } from "@main/acp/process-backend";
@@ -228,6 +228,45 @@ describe("SessionManager", () => {
     });
     await second.manager.load(session.id);
     expect(second.manager.get(session.id)).toMatchObject({ title: "My chosen title", titleSource: "user" });
+  });
+
+  it("counts a reloaded session's replayed edits once, however many times it is loaded", async () => {
+    // Recordings in the fake agent's fixture shape. The first adapter has one
+    // turn that edits a file; every later one (a reload) replays that edit as
+    // history during session/load — which is what a real adapter does — and
+    // has an empty turn. (The checked-in fixtures replay no diffs.)
+    const diff = { type: "diff", path: "notes.md", oldText: "a\n", newText: "a\nb\nc\n" };
+    const edit = (sessionUpdate: string) => ({
+      dir: "in",
+      msg: { jsonrpc: "2.0", method: "session/update", params: { sessionId: "recorded", update: { sessionUpdate, toolCallId: "edit-1", status: "completed", kind: "edit", title: "Edit notes.md", content: [diff] } } },
+    });
+    const request = (id: number, method: string) => ({ dir: "out", msg: { jsonrpc: "2.0", id, method, params: { sessionId: "recorded" } } });
+    const response = (id: number, result: object) => ({ dir: "in", msg: { jsonrpc: "2.0", id, result } });
+    const dir = await mkdtemp(path.join(os.tmpdir(), "text-to-cad-tally-"));
+    const write = async (name: string, frames: object[]) => {
+      const file = path.join(dir, name);
+      await writeFile(file, frames.map((frame) => JSON.stringify(frame)).join("\n"));
+      return file;
+    };
+    const first = await write("first.jsonl", [request(1, "session/prompt"), edit("tool_call_update"), response(1, { stopReason: "end_turn" })]);
+    const reload = await write("reload.jsonl", [request(1, "session/load"), edit("tool_call"), response(1, {})]);
+    let fixture = first;
+    const { repo, manager, cwd } = await setup({
+      launchOverride: () => ({ ...fakeProvider.launch, args: [FAKE_AGENT, "--fixture", fixture] }),
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    await manager.prompt(session.id, [{ type: "text", text: "edit the notes" }]);
+    const tally = (row: Session | null) => ({ changedFiles: row?.changedFiles, insertions: row?.insertions, deletions: row?.deletions });
+    expect(tally(repo.get(session.id))).toEqual({ changedFiles: 1, insertions: 2, deletions: 0 });
+    fixture = reload;
+
+    for (let round = 0; round < 2; round += 1) {
+      manager.close(session.id);
+      await manager.load(session.id);
+      // An empty turn: this prompt only persists the tally.
+      await manager.prompt(session.id, [{ type: "text", text: "anything else?" }]);
+      expect(tally(repo.get(session.id))).toEqual({ changedFiles: 1, insertions: 2, deletions: 0 });
+    }
   });
 
   it("close keeps the row, load reconnects through session/load, delete forgets it", async () => {
@@ -492,6 +531,22 @@ describe("SessionManager", () => {
     });
     await manager.delete(session.id);
     expect(released).toEqual([`${cwd}/wt`]);
+  });
+
+  it("says why a worktree was kept when releaseWorkspace does not remove it", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const { manager, cwd } = await setup({
+        workspace: async () => ({ cwd, worktreePath: `${cwd}/wt` }),
+        releaseWorkspace: async () => ({ removed: false, reason: "has uncommitted changes" }),
+      });
+      const session = await manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "worktree" });
+      await manager.delete(session.id);
+      expect(warn.mock.calls.map((call) => String(call[0]))).toContainEqual(expect.stringContaining("has uncommitted changes"));
+      expect(warn.mock.calls.map((call) => String(call[0]))).toContainEqual(expect.stringContaining(`${cwd}/wt`));
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   /* ------------------------------------------------------------------ */

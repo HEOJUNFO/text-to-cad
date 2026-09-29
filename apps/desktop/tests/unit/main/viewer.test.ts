@@ -28,7 +28,7 @@ class FakeChild extends EventEmitter implements ViewerChild {
   }
 }
 
-function manager(options: { runtime?: boolean; probe?: () => Promise<boolean> } = {}) {
+function manager(options: { runtime?: boolean; probe?: () => Promise<boolean>; delay?: () => Promise<void> } = {}) {
   const children: Array<{ child: FakeChild; python: string; args: string[]; cwd: string; env: Record<string, string> }> = [];
   const delays: number[] = [];
   const logs: string[] = [];
@@ -43,6 +43,7 @@ function manager(options: { runtime?: boolean; probe?: () => Promise<boolean> } 
     probe: options.probe ?? (async () => true),
     delay: async (ms) => {
       delays.push(ms);
+      await options.delay?.();
     },
     log: (line) => logs.push(line),
   });
@@ -171,6 +172,54 @@ describe("ViewerManager", () => {
     expect(m.children[2]!.child.killed).toBe(true);
     await new Promise((resolve) => setImmediate(resolve));
     expect(m.children).toHaveLength(3);
+    expect(m.viewers.list()).toEqual([]);
+  });
+
+  it("a stop during a crash's restart delay cancels the restart, even with no entry left", async () => {
+    for (const halt of ["stop", "stopAll"] as const) {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      const m = manager({ delay: () => gate });
+      const pending = m.viewers.originFor("/proj");
+      await new Promise((resolve) => setImmediate(resolve));
+      m.children[0]!.child.say('{"url":"http://127.0.0.1:3250/","port":3250,"action":"started"}');
+      await pending;
+
+      m.children[0]!.child.exit(1);
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(m.delays).toEqual([1000]);
+      if (halt === "stop") m.viewers.stop("/proj");
+      else m.viewers.stopAll();
+      release();
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(m.children).toHaveLength(1);
+      expect(m.viewers.list()).toEqual([]);
+
+      // Asked for again afterwards, it launches as usual.
+      const again = m.viewers.originFor("/proj");
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(m.children).toHaveLength(2);
+      m.children[1]!.child.say('{"url":"http://127.0.0.1:3251/","port":3251,"action":"started"}');
+      expect(await again).toEqual({ origin: "http://127.0.0.1:3251" });
+    }
+  });
+
+  it("a stop while a restart is launching kills it when it announces, and does not retry", async () => {
+    const m = manager();
+    const pending = m.viewers.originFor("/proj");
+    await new Promise((resolve) => setImmediate(resolve));
+    m.children[0]!.child.say('{"url":"http://127.0.0.1:3250/","port":3250,"action":"started"}');
+    await pending;
+
+    m.children[0]!.child.exit(1);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(m.children).toHaveLength(2);
+    m.viewers.stop("/proj");
+    m.children[1]!.child.say('{"url":"http://127.0.0.1:3250/","port":3250,"action":"started"}');
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(m.children[1]!.child.killed).toBe(true);
+    expect(m.children).toHaveLength(2);
+    expect(m.delays).toEqual([1000]);
     expect(m.viewers.list()).toEqual([]);
   });
 

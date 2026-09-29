@@ -127,6 +127,6 @@ export const acpEvents = {
     /** Set once on exit. */
     exit: z.object({ exitCode: z.number().nullable(), signal: z.string().nullable() }).nullable(),
   }),
-  /** The agent wrote files through `fs/write_text_file`; the explorer should refresh them. */
-  "files.changed": z.object({ sessionId: z.string(), paths: z.array(z.string()) }),
+  // An agent's `fs/write_text_file` is announced on the explorer's
+  // `files.changed` (src/shared/ipc/explorer.ts), which owns that event.
 } as const;

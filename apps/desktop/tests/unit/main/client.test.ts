@@ -111,6 +111,19 @@ describe("AcpClient files", () => {
     await expect(instance.writeTextFile({ sessionId: "s", path: path.join(dir, "link", "y.txt"), content: "" })).rejects.toThrow(/link/);
   });
 
+  it("writes inside a session directory spelled through a symlink", async () => {
+    const real = await scratch();
+    const alias = path.join(await scratch(), "alias");
+    await symlink(real, alias);
+    const { instance, changed } = client(alias);
+    const target = path.join(alias, "deep", "new", "a.txt");
+    await instance.writeTextFile({ sessionId: "s", path: target, content: "via alias" });
+    expect(await readFile(path.join(real, "deep", "new", "a.txt"), "utf8")).toBe("via alias");
+    expect(changed).toEqual([[target]]);
+    expect(await confineToCwd(alias, path.join(real, "b.txt"))).toBe(path.join(real, "b.txt"));
+    await expect(confineToCwd(alias, path.join(alias, "..", "escape.txt"))).rejects.toThrow(/outside/);
+  });
+
   it("confineToCwd answers the normalised path for an inside target", async () => {
     const dir = await scratch();
     expect(await confineToCwd(dir, path.join(dir, "sub", "..", "c.txt"))).toBe(path.join(dir, "c.txt"));

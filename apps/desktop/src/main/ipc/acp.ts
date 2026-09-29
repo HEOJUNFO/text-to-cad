@@ -132,8 +132,10 @@ export const sessionManager: SessionManager = new SessionManager({
   releaseWorkspace: async (session) => {
     const worktree = session.worktreePath;
     if (worktree && sessions.list().some(other => other.id !== session.id &&
-        [other.cwd, other.worktreePath].some(root => root && (samePath(root, worktree) || isUnder(worktree, root))))) return;
-    await releaseWorkspace(session, settings.get());
+        [other.cwd, other.worktreePath].some(root => root && (samePath(root, worktree) || isUnder(worktree, root))))) {
+      return { removed: false, reason: "another session still uses it" };
+    }
+    return releaseWorkspace(session, settings.get());
   },
 });
 
@@ -184,11 +186,14 @@ export const acpHandlers = {
     delete: ({ id }) =>
       surfacing(async () => {
         const row = sessions.get(id);
-        await sessionManager.delete(id);
+        // Everything running inside the session's directory goes first:
+        // `delete` may remove a worktree, and a terminal, browser target or
+        // CAD viewer still holding it open would outlive its own directory.
         forgetSession(id);
         browserService.disposeSession(id);
         explorerTerminals().disposeSession(id);
         forgetCadSession(id, row?.worktreePath ?? null);
+        await sessionManager.delete(id);
       }),
   },
 } satisfies IpcHandlers<typeof acpContract, IpcContext>;

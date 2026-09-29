@@ -120,11 +120,25 @@ async function defaultProbe(origin: string): Promise<boolean> {
 
 const defaultDelay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+class StoppedWhileRestarting extends Error {
+  constructor(root: string) {
+    super(`the viewer for ${root} was stopped while restarting`);
+  }
+}
+
 export class ViewerManager extends EventEmitter {
   private readonly entries = new Map<string, Entry>();
   private readonly pending = new Map<string, Promise<ViewerOrigin>>();
   /** The last launch failure per root, for the card that says why there is no viewer. */
   private readonly failures = new Map<string, string>();
+  /**
+   * Bumped by every `stop` (entry or not) and, for all roots at once, by
+   * `stopAll`. A crash's restart remembers the generation it was scheduled
+   * under and gives up if it moved: a stop during the backoff or the
+   * relaunch — on quit, or a deleted worktree session — must stay a stop.
+   */
+  private readonly stops = new Map<string, number>();
+  private stopsAll = 0;
   private readonly spawn: ViewerSpawn;
   private readonly probe: (origin: string) => Promise<boolean>;
   private readonly delay: (ms: number) => Promise<void>;
@@ -193,7 +207,12 @@ export class ViewerManager extends EventEmitter {
     }
   }
 
-  private start(root: string, resolved: ResolvedPython, restarts: number): Promise<Entry> {
+  private stopGeneration(root: string): number {
+    return this.stopsAll + (this.stops.get(root) ?? 0);
+  }
+
+  /** `generation`: set for a restart, which is dropped if the root was stopped since. */
+  private start(root: string, resolved: ResolvedPython, restarts: number, generation?: number): Promise<Entry> {
     return new Promise<Entry>((resolve, reject) => {
       const child = this.spawn(resolved.python, VIEWER_ARGS, { cwd: root, env: this.deps.env(resolved) });
       const stderrTail: string[] = [];
@@ -216,6 +235,14 @@ export class ViewerManager extends EventEmitter {
         settled = true;
         clearTimeout(timer);
         launched = parsed;
+        if (generation !== undefined && generation !== this.stopGeneration(root)) {
+          if (parsed.action === "started") {
+            this.log(`the viewer for ${root} was stopped while restarting; stopping it (pid ${child.pid})`);
+            child.kill();
+          }
+          reject(new StoppedWhileRestarting(root));
+          return;
+        }
         const entry: Entry = {
           root,
           origin: originOf(parsed.url),
@@ -270,16 +297,20 @@ export class ViewerManager extends EventEmitter {
       this.log(`viewer for ${root} crashed ${RESTART_LIMIT} times in a row; giving up until it is asked for again`);
       return;
     }
+    const generation = this.stopGeneration(root);
     const wait = Math.min(RESTART_MAX_MS, RESTART_BASE_MS * 2 ** (attempt - 1));
     this.log(`restarting the viewer for ${root} in ${wait}ms (attempt ${attempt})`);
     await this.delay(wait);
     // Stopped, or asked for (and relaunched) by someone else, meanwhile.
-    if (this.entries.has(root) || this.pending.has(root)) {
+    if (generation !== this.stopGeneration(root) || this.entries.has(root) || this.pending.has(root)) {
       return;
     }
-    const pending = this.start(root, resolved, attempt)
+    const pending = this.start(root, resolved, attempt, generation)
       .then((): ViewerOrigin => ({ origin: this.entries.get(root)?.origin ?? null }))
       .catch((error: unknown): ViewerOrigin => {
+        if (error instanceof StoppedWhileRestarting) {
+          return { origin: null, reason: "viewer-failed", message: error.message };
+        }
         const message = error instanceof Error ? error.message : String(error);
         this.failures.set(root, message);
         this.log(`restart failed for ${root}: ${message}`);
@@ -293,6 +324,7 @@ export class ViewerManager extends EventEmitter {
 
   /** Stop the instance for a root — ours only. A reused one is forgotten, not killed. */
   stop(root: string): void {
+    this.stops.set(root, (this.stops.get(root) ?? 0) + 1);
     const entry = this.entries.get(root);
     if (!entry) {
       return;
@@ -308,6 +340,7 @@ export class ViewerManager extends EventEmitter {
 
   /** On quit. */
   stopAll(): void {
+    this.stopsAll += 1;
     for (const root of [...this.entries.keys()]) {
       this.stop(root);
     }

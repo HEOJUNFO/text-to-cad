@@ -97,7 +97,7 @@ export function rootBelongsToProject(
  * name the directory the way it was chosen. Comparisons resolve the symlinks in the part that
  * exists; the part that does not exist yet (a worktree about to be made) is kept as spelled.
  */
-function realDirectory(candidate: string): string {
+export function realDirectory(candidate: string): string {
   const resolved = path.resolve(candidate);
   const missing: string[] = [];
   for (let existing = resolved; ; existing = path.dirname(existing)) {
