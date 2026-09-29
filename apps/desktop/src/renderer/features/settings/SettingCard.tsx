@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ChevronRight, Folder } from "lucide-react";
 import { cn } from "cn";
+import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 
 import { Button } from "@renderer/components/ui/button";
 import { Input } from "@renderer/components/ui/input";
@@ -356,16 +357,17 @@ export function PathRow({
     <SettingRow
       control={
         <>
-          <span
-            className={cn(
-              "max-w-[260px] truncate text-xs",
-              value ? "text-foreground" : "text-muted-foreground",
-            )}
-            data-selectable
-            title={value ?? placeholder}
-          >
-            {value ?? placeholder}
-          </span>
+          <TooltipHint content={value ?? placeholder} overflowOnly>
+            <span
+              className={cn(
+                "max-w-[260px] truncate text-xs",
+                value ? "text-foreground" : "text-muted-foreground",
+              )}
+              data-selectable
+            >
+              {value ?? placeholder}
+            </span>
+          </TooltipHint>
           <Button className="h-8 gap-1.5" onClick={onChoose} size="sm" variant="secondary">
             <Folder className="size-3.5" />
             {chooseLabel}

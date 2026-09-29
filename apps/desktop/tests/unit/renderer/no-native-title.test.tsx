@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
 
@@ -12,16 +12,22 @@ import { ActivityRowView } from "@renderer/features/session/parts/ActivityRow";
 import { PermissionCard } from "@renderer/features/session/parts/PermissionCard";
 import { SubagentRow } from "@renderer/features/session/parts/SubagentRow";
 import { SessionHeader } from "@renderer/features/session/SessionHeader";
+import { AgentDrawer } from "@renderer/features/settings/AgentDrawer";
+import { SettingsRoute } from "@renderer/features/settings/SettingsRoute";
 import { Sidebar } from "@renderer/features/sidebar/Sidebar";
 import { StatusLine } from "@renderer/features/session/StatusLine";
 import { Transcript } from "@renderer/features/session/Transcript";
 import { activityRow } from "@renderer/features/session/view";
+import { useAgents } from "@renderer/state/agents";
 import { useComposer } from "@renderer/state/composer";
 import { useExplorer } from "@renderer/state/explorer";
 import { usePathLinks } from "@renderer/state/path-links";
 import { useProjects } from "@renderer/state/projects";
+import { useRuntime } from "@renderer/state/runtime";
 import { useSessions } from "@renderer/state/sessions";
 import { useSettings } from "@renderer/state/settings";
+import { SETTINGS_SECTIONS, useUi } from "@renderer/state/ui";
+import type { AgentStatus } from "@shared/agents";
 import { initialSessionState, type SessionState, type ToolCallPart } from "@shared/acp/types";
 import { defaultSettings, type Session } from "@shared/types";
 
@@ -139,4 +145,67 @@ it("no control in the sidebar carries a native title, a row with changes include
   const header = screen.getByRole("button", { name: "Collapse p" });
   await userEvent.hover(within(header).getByText("p"));
   expect(await screen.findByRole("tooltip", {}, { timeout: 2000 })).toHaveTextContent("/p");
+});
+
+describe("Settings", () => {
+  const agent = (installed: boolean) =>
+    ({
+      id: installed ? "claude-code" : "opencode",
+      name: installed ? "Claude Code" : "OpenCode",
+      description: "An agent",
+      websiteUrl: "https://example.com",
+      docsUrl: "https://example.com/docs",
+      icon: null,
+      installed,
+      binaryPath: installed ? "/bin/claude" : null,
+      version: installed ? "1.0.0" : null,
+      auth: installed ? "authenticated" : "unknown",
+      authMethods: [],
+      capabilities: {},
+      install: { macos: [], windows: [], linux: [] },
+      launch: { command: "npx", args: [], env: {} },
+      skillRoots: "native",
+    }) as unknown as AgentStatus;
+
+  beforeEach(() => {
+    // Every value a page prints in a truncating line: a chosen path, a log, a skills root.
+    useSettings.setState({ settings: { ...defaultSettings(), worktreeRoot: "/Users/me/worktrees" }, ready: true });
+    useAgents.setState({ agents: [agent(true), agent(false)], ready: true, loadError: null });
+    vi.mocked(window.textToCad.agents.list).mockResolvedValue([agent(true), agent(false)]);
+    vi.mocked(window.textToCad.skills.info).mockResolvedValue({ root: "/Users/me/Library/skills/0.0.0", skills: [] });
+    const status = { state: "missing", python: null, source: null, cadgenVersion: null, viewerBuilt: false, log: "/Users/me/cad-runtime.log", message: "No runtime" } as const;
+    vi.mocked(window.textToCad.runtime.status).mockResolvedValue(status);
+    useRuntime.setState({ status });
+    // A project with a worktree that has uncommitted work: Delete is off, and says why.
+    useProjects.setState({ projects: [{ id: "p", name: "p", path: "/p", createdAt: 0 }], activeId: "p" });
+    vi.mocked(window.textToCad.git.worktrees).mockResolvedValue([
+      { path: "/Users/me/worktrees/p/fillet", branch: "text-to-cad/fillet", lastUsedAt: null, openSessions: 0, dirty: true, locked: false },
+    ]);
+  });
+
+  it.each(SETTINGS_SECTIONS)("no control or line on %s carries a native title", async (section) => {
+    useUi.setState({ route: "settings", settingsSection: section });
+    render(
+      <TooltipProvider>
+        <SettingsRoute />
+      </TooltipProvider>,
+    );
+    await act(async () => {});
+    if (section === "git") {
+      const remove = await screen.findByRole("button", { name: "Delete" });
+      expect(remove).toBeDisabled();
+      expect(remove).toHaveAccessibleDescription(/uncommitted changes or ignored files/);
+    }
+    expect([...document.querySelectorAll("[title]")].map((element) => element.outerHTML.slice(0, 120))).toEqual([]);
+  });
+
+  it("nor does the agent drawer", async () => {
+    render(
+      <TooltipProvider>
+        <AgentDrawer agent={agent(true)} onOpenChange={() => {}} open platform="macos" />
+      </TooltipProvider>,
+    );
+    expect(await screen.findByText("/Users/me/Library/skills/0.0.0")).toBeInTheDocument();
+    expect([...document.querySelectorAll("[title]")].map((element) => element.outerHTML.slice(0, 120))).toEqual([]);
+  });
 });

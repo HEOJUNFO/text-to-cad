@@ -8,7 +8,7 @@
  * per project listing the worktrees that exist right now, with the two actions
  * that make sense on one.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { Folder, Loader2 } from "lucide-react";
 
 import { Button } from "@renderer/components/ui/button";
@@ -177,6 +177,7 @@ function ProjectWorktrees() {
 }
 
 function ProjectWorktreeCard({ project }: { project: Project }) {
+  const cardId = useId();
   const [worktrees, setWorktrees] = useState<Worktree[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -211,53 +212,60 @@ function ProjectWorktreeCard({ project }: { project: Project }) {
 
   return (
     <SettingCard title={`Worktrees · ${project.name}`}>
-      {worktrees.map((worktree) => (
-        <SettingRow
-          control={
-            <div className="flex items-center gap-1.5">
-              <Button
-                className="h-8"
-                onClick={() =>
-                  runUiCommand({
-                    command: "new-session",
-                    projectId: project.id,
-                    cwd: worktree.path,
-                  })
-                }
-                size="sm"
-                variant="secondary"
-              >
-                New session in this worktree
-              </Button>
-              <Button
-                className="h-8"
-                // A worktree with uncommitted work, or with a thread still
-                // open on it, is not deleted from here: main refuses the
-                // first, and the second would pull the directory out from
-                // under a running agent.
-                disabled={busy === worktree.path || worktree.dirty || worktree.openSessions > 0}
-                onClick={() => void remove(worktree)}
-                size="sm"
-                title={
-                  worktree.dirty
-                    ? "This worktree has uncommitted changes or ignored files (like .env) that deleting it would lose"
-                    : worktree.openSessions > 0
-                      ? "A session is still open in this worktree"
-                      : undefined
-                }
-                variant="ghost"
-              >
-                {busy === worktree.path ? <Loader2 className="size-3.5 animate-spin" /> : null}
-                Delete
-              </Button>
-            </div>
-          }
-          description={describe(worktree)}
-          key={worktree.path}
-          keywords={`worktree branch ${project.name} ${worktree.branch ?? ""}`}
-          title={worktree.branch ?? (worktree.path.split("/").pop() ?? worktree.path)}
-        />
-      ))}
+      {worktrees.map((worktree, index) => {
+        const kept = keptBecause(worktree);
+        const keptId = `${cardId}-kept-${index}`;
+        return (
+          <SettingRow
+            control={
+              <div className="flex items-center gap-1.5">
+                <Button
+                  className="h-8"
+                  onClick={() =>
+                    runUiCommand({
+                      command: "new-session",
+                      projectId: project.id,
+                      cwd: worktree.path,
+                    })
+                  }
+                  size="sm"
+                  variant="secondary"
+                >
+                  New session in this worktree
+                </Button>
+                <Button
+                  className="h-8"
+                  // A worktree with uncommitted work, or with a thread still
+                  // open on it, is not deleted from here: main refuses the
+                  // first, and the second would pull the directory out from
+                  // under a running agent.
+                  //
+                  // A disabled button takes no hover and no hint, so the reason
+                  // is its accessible description rather than a native title
+                  // nobody with a keyboard or a screen reader would ever get.
+                  aria-describedby={kept ? keptId : undefined}
+                  disabled={busy === worktree.path || kept !== null}
+                  onClick={() => void remove(worktree)}
+                  size="sm"
+                  variant="ghost"
+                >
+                  {busy === worktree.path ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                  Delete
+                </Button>
+                {kept ? (
+                  <span className="sr-only" id={keptId}>
+                    {kept}
+                  </span>
+                ) : null}
+              </div>
+            }
+            description={describe(worktree)}
+            key={worktree.path}
+            keywords={`worktree branch ${project.name} ${worktree.branch ?? ""}`}
+            title={worktree.branch ?? (worktree.path.split("/").pop() ?? worktree.path)}
+          />
+        );
+      })}
       {error ? (
         <p className="px-4 py-2 text-[12px] text-destructive">{error}</p>
       ) : null}
@@ -281,6 +289,17 @@ function ProjectWorktreeCard({ project }: { project: Project }) {
       />
     </SettingCard>
   );
+}
+
+/** Why a worktree's Delete is off, or null when it is not. */
+function keptBecause(worktree: Worktree): string | null {
+  if (worktree.dirty) {
+    return "This worktree has uncommitted changes or ignored files (like .env) that deleting it would lose.";
+  }
+  if (worktree.openSessions > 0) {
+    return "A session is still open in this worktree.";
+  }
+  return null;
 }
 
 /** The directory the project's worktrees sit in — `<worktree root>/<project>`. */

@@ -11,6 +11,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, ExternalLink, Loader2, Terminal } from "lucide-react";
+import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 
 import { Button } from "@renderer/components/ui/button";
 import { Input } from "@renderer/components/ui/input";
@@ -338,9 +339,12 @@ function SkillsSection({ agent }: { agent: AgentStatus }) {
           : `text-to-cad hands its skills to every session. This build has none composed yet — run \`npm run build\`.`}
       </p>
       {skills?.root ? (
-        <p className="mt-2 truncate text-[11px] text-muted-foreground" title={skills.root}>
-          <span data-selectable>{skills.root}</span>
-        </p>
+        // The whole path when the line has cut it short.
+        <TooltipHint content={skills.root} overflowOnly side="top">
+          <p className="mt-2 truncate text-[11px] text-muted-foreground">
+            <span data-selectable>{skills.root}</span>
+          </p>
+        </TooltipHint>
       ) : null}
     </Section>
   );

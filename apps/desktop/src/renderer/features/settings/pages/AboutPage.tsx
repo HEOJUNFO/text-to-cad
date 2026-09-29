@@ -7,6 +7,7 @@
  */
 import { useEffect } from "react";
 import { RefreshCw } from "lucide-react";
+import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 
 import { Button } from "@renderer/components/ui/button";
 import {
@@ -255,9 +256,11 @@ function RuntimeCard({ appVersion }: { appVersion: string | null }) {
           </p>
         ) : null}
         {status?.log && (status.state !== "ready" || status.kernel) ? (
-          <p className="truncate text-[11px] text-muted-foreground" title={status.log}>
-            Log: <span data-selectable>{status.log}</span>
-          </p>
+          <TooltipHint content={status.log} overflowOnly side="top">
+            <p className="truncate text-[11px] text-muted-foreground">
+              Log: <span data-selectable>{status.log}</span>
+            </p>
+          </TooltipHint>
         ) : null}
       </SettingRow>
 

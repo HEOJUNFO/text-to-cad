@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { BookOpen, Download, RefreshCw, Search } from "lucide-react";
 import { cn } from "cn";
+import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 
 import { Button } from "@renderer/components/ui/button";
 import { Input } from "@renderer/components/ui/input";
@@ -247,18 +248,19 @@ function IconButton({
   children: React.ReactNode;
 }) {
   return (
-    <Button
-      aria-label={label}
-      className="size-7 shrink-0 text-muted-foreground"
-      onClick={(event) => {
-        event.stopPropagation();
-        onClick();
-      }}
-      size="icon"
-      title={label}
-      variant="ghost"
-    >
-      {children}
-    </Button>
+    <TooltipHint content={label}>
+      <Button
+        aria-label={label}
+        className="size-7 shrink-0 text-muted-foreground"
+        onClick={(event) => {
+          event.stopPropagation();
+          onClick();
+        }}
+        size="icon"
+        variant="ghost"
+      >
+        {children}
+      </Button>
+    </TooltipHint>
   );
 }
