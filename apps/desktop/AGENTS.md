@@ -129,7 +129,10 @@ the rule is about.
   the File); `command.tsx`'s `CommandDialog` draws its title inside the dialog
   (stock draws it outside, a heading in the page while the dialog is shut),
   names its box through cmdk's `label`, and passes the dialog's
-  `onOpenAutoFocus` and `onCloseAutoFocus` through. Re-vendoring a component means
+  `onOpenAutoFocus` and `onCloseAutoFocus` through; `message.tsx` and
+  `reasoning.tsx` take their Mermaid plugin from `src/renderer/lib/mermaid.ts`
+  rather than `@streamdown/mermaid`, so the diagram engine loads with the first
+  diagram and not with the window. Re-vendoring a component means
   redoing those.
 - **Nothing is installed into an agent's configuration.** text-to-cad's skills
   and its tools are given to each session — the skills root as an additional
