@@ -299,6 +299,19 @@ describe("a machine with no agent ready", () => {
     expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
   });
 
+  it("does not carry a failed Try again over to the sign-in card the read turns into", async () => {
+    const user = userEvent.setup();
+    const load = vi.fn(async () => {
+      useAgents.setState({ agents: [claude, codex], loadError: null });
+    });
+    useAgents.setState({ agents: [], ready: true, loadError: "agents.list timed out", load } as never);
+    render(<NewSession project={PROJECT} />);
+
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("No agent ready")).toBeInTheDocument();
+    expect(screen.queryByText("Tried again, and it failed again.")).toBeNull();
+  });
+
   it("offers Settings › Agents beside Dismiss when the start fails for another reason", async () => {
     const user = userEvent.setup();
     useAgents.setState({ agents: [{ ...AGENT, auth: "authenticated" } as AgentStatus] });
