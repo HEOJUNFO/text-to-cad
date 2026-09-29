@@ -18,7 +18,7 @@
  * there, and an unsigned dev build must never be told to replace itself. The
  * status is `unsupported` then, so About shows why instead of a dead button.
  */
-import { app } from "electron";
+import { app, autoUpdater as nativeUpdater } from "electron";
 import electronUpdater from "electron-updater";
 
 import { broadcast } from "./ipc";
@@ -68,6 +68,15 @@ export function initUpdater() {
   // (`busyWithUpdate`), but the feed's events are guarded too: a staged
   // version that the feed announces again is still staged, and flipping it to
   // `available` would leave `installUpdate` with nothing it will install.
+  // The quit an install starts closes every window BEFORE `before-quit`, so
+  // the unsaved-draft ask would otherwise appear and its Cancel strand the
+  // restart. Marked on Electron's own `before-quit-for-update` — emitted by the
+  // native updater (macOS Squirrel) and re-emitted by electron-updater's
+  // BaseUpdater (Windows, Linux) — only once the quit is really under way: a
+  // `quitAndInstall` that returns without quitting (Squirrel still fetching,
+  // a failed install) must leave the ask in place (`./quitting.ts`).
+  nativeUpdater.on("before-quit-for-update", markQuitting);
+
   autoUpdater.on("checking-for-update", () => {
     if (!busyWithUpdate()) {
       setStatus({ state: "checking" });
@@ -196,10 +205,6 @@ export function installUpdate() {
     return;
   }
   stopUpdater();
-  // Before quitAndInstall: it closes the windows before `before-quit` fires,
-  // and a window's unsaved-draft ask must not be able to cancel the restart
-  // (`./quitting.ts`).
-  markQuitting();
   // `isSilent` false, `isForceRunAfter` true: show the installer on Windows,
   // and come back up afterwards on every platform.
   autoUpdater.quitAndInstall(false, true);

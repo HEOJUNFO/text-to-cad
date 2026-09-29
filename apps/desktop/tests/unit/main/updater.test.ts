@@ -8,9 +8,14 @@ const mocks = vi.hoisted(() => ({
   quitAndInstall: vi.fn(),
   downloadUpdate: vi.fn(async () => undefined),
   settings: { checkUpdatesOnLaunch: true },
+  native: null as unknown as EventEmitter,
 }));
 
-vi.mock("electron", () => ({ app: { isPackaged: true } }));
+vi.mock("electron", async () => {
+  const { EventEmitter: Emitter } = await import("node:events");
+  mocks.native = new Emitter();
+  return { app: { isPackaged: true }, autoUpdater: mocks.native };
+});
 type FakeUpdater = EventEmitter & { autoDownload: boolean; autoInstallOnAppQuit: boolean; logger: unknown };
 let autoUpdater: FakeUpdater;
 vi.mock("electron-updater", async () => {
@@ -64,13 +69,28 @@ describe("updater", () => {
     expect(mocks.check).toHaveBeenCalledTimes(1);
     const { isQuitting } = await import("@main/quitting");
     mocks.quitAndInstall.mockImplementation(() => {
-      // Electron closes the windows here, before `before-quit`: the unload
-      // guard has to already know this is a quit.
+      // What Electron does when the install really quits: announce it, then
+      // close the windows before `before-quit`. The unload guard must already
+      // know this is a quit.
+      mocks.native.emit("before-quit-for-update");
       expect(isQuitting()).toBe(true);
     });
-    expect(isQuitting()).toBe(false);
     updater.installUpdate();
     expect(mocks.quitAndInstall).toHaveBeenCalledWith(false, true);
+    expect(isQuitting()).toBe(true);
+    updater.stopUpdater();
+  });
+
+  it("an install that does not quit leaves the unsaved-draft ask in place", async () => {
+    const updater = await load();
+    const { isQuitting } = await import("@main/quitting");
+    autoUpdater.emit("update-downloaded", { version: "2.0.0" });
+    // MacUpdater with Squirrel still fetching, or BaseUpdater's failed
+    // install(): quitAndInstall returns and nothing quits.
+    mocks.quitAndInstall.mockImplementation(() => undefined);
+    updater.installUpdate();
+    expect(mocks.quitAndInstall).toHaveBeenCalled();
+    expect(isQuitting()).toBe(false);
     updater.stopUpdater();
   });
 
