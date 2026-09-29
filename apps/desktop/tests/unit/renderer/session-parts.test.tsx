@@ -78,6 +78,20 @@ describe("ActivityGroup", () => {
     expect(screen.queryByText("Failed")).not.toBeInTheDocument();
   });
 
+  it("says so above a stream that was cut to its tail", async () => {
+    const user = userEvent.setup();
+    const part = call({ id: "c1", kind: "execute", title: "make", input: { command: "make" }, stream: "…last lines\n", streamTruncated: true });
+    const { unmount } = wrap(<ActivityGroup item={{ kind: "activity", key: "g", rows: [activityRow(part)], summary: null }} sessionId="s1" />);
+    await user.click(screen.getByRole("button", { name: /make/ }));
+    const note = screen.getByText("Earlier output trimmed");
+    const terminal = note.parentElement!;
+    expect(terminal.firstElementChild).toBe(note);
+    unmount();
+    wrap(<ActivityGroup item={{ kind: "activity", key: "g", rows: [activityRow({ ...part, streamTruncated: false })], summary: null }} sessionId="s1" />);
+    await user.click(screen.getByRole("button", { name: /make/ }));
+    expect(screen.queryByText("Earlier output trimmed")).toBeNull();
+  });
+
   it("opens a command row to its output", async () => {
     const user = userEvent.setup();
     const rows = [call({ id: "c1", kind: "execute", title: "ls", input: { command: "ls" }, output: { formatted_output: "a.py\nb.py\n" } })].map(activityRow);

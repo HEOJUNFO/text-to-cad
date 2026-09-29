@@ -131,6 +131,13 @@ describe("activity rows", () => {
     expect(activityRow(call({ id: "p", kind: "think", title: "Planning" })).glyph).toBe("think");
   });
 
+  it("words a cancelled call as cancelled, and folds it like a failed one", () => {
+    expect(activityRow(edit("e1", "a.py", "cancelled")).label).toBe("Cancelled editing a.py");
+    expect(activityRow(call({ id: "s", kind: "search", title: "cad kernels", status: "cancelled" })).label).toBe("Cancelled searching cad kernels");
+    const rows = [edit("e1", "a.py", "cancelled"), edit("e2", "b.py")].map(activityRow);
+    expect(foldSummary(rows)).toBe("Edited 2 files");
+  });
+
   it("keeps the first line of a multi-line command and marks the rest", () => {
     expect(commandLine("printf 'x' > a.txt\nls -la")).toBe("printf 'x' > a.txt …");
     expect(commandLine("x".repeat(200)).length).toBe(120);
@@ -191,6 +198,11 @@ describe("the status line", () => {
   const withParts = (parts: Part[]): SessionState => ({
     ...base(),
     turns: [{ id: "t", role: "agent", parts, startedAt: 0, endedAt: null, stopReason: null }],
+  });
+
+  it("does not call a cancelled call's work current", () => {
+    expect(statusLine(withParts([edit("e1", "hand.py", "cancelled")]))).toBe("Working");
+    expect(statusLine(withParts([run("c1", "npm test", "cancelled")]))).toBe("Working");
   });
 
   it("names the running command, the running edit, or the thought", () => {

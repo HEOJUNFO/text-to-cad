@@ -319,7 +319,18 @@ const VERBS: Record<Glyph, [done: string, doing: string, failed: string]> = {
 
 function verb(glyph: Glyph, status: ToolCallStatus): string {
   const [done, doing, failed] = VERBS[glyph];
-  return status === "failed" ? failed : status === "completed" ? done : doing;
+  switch (status) {
+    case "failed":
+      return failed;
+    case "completed":
+      return done;
+    case "cancelled":
+      // The turn stopped it mid-way: "Cancelled editing a.py".
+      return `Cancelled ${doing.charAt(0).toLowerCase()}${doing.slice(1)}`;
+    case "pending":
+    case "in_progress":
+      return doing;
+  }
 }
 
 function labelOf(part: ToolCallPart, glyph: Glyph, path: string | null, hasCommand: boolean): string {
@@ -371,7 +382,8 @@ type Bucket = { glyph: Glyph; paths: Set<string>; count: number; active: boolean
 /**
  * "Edited 3 files, ran 2 commands, read hand.py" — one segment per kind in
  * order of first appearance, a single file named, progressive tense while
- * any call of that kind is still running.
+ * any call of that kind is still running. A failed or cancelled call is not
+ * running: it folds in the past tense.
  */
 export function foldSummary(rows: ActivityRow[]): string {
   const buckets = new Map<Glyph, Bucket>();
@@ -492,6 +504,10 @@ export function statusLine(state: SessionState): string | null {
   }
   switch (last.type) {
     case "tool_call": {
+      // A call the turn cancelled is nobody's current work.
+      if (last.status === "cancelled") {
+        return "Working";
+      }
       const row = activityRow(last);
       if (row.command) {
         return `${VERBS.execute[1]} ${commandLine(row.command, 60)}`;
@@ -516,7 +532,7 @@ function lastActive(parts: Part[]): Part | null {
   if (!last) {
     return null;
   }
-  if (last.type === "tool_call" && (last.status === "completed" || last.status === "failed")) {
+  if (last.type === "tool_call" && (last.status === "completed" || last.status === "failed" || last.status === "cancelled")) {
     return last.children.length > 0 ? (lastActive(last.children) ?? last) : last;
   }
   if (last.type === "subagent" && last.state === "running" && last.parts.length > 0) {

@@ -262,6 +262,12 @@ export function ToolDetail({ part, sessionId }: { part: ToolCallPart; sessionId:
           output={terminalText || (running ? "" : "(no output)")}
         >
           <div className="max-h-72 overflow-auto px-3 py-2 font-mono text-[12px] leading-5">
+            {part.streamTruncated && liveOutput === null && part.stream ? (
+              // Only the stream's last 64 KB was kept (the reducer's cap).
+              <p className="mb-1 font-sans text-[11px] text-muted-foreground italic" data-stream-truncated>
+                Earlier output trimmed
+              </p>
+            ) : null}
             <TerminalBody isStreaming={running} output={terminalText} />
           </div>
         </Terminal>
