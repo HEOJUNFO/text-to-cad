@@ -1856,6 +1856,17 @@ What is left of the seconds is the `session/load` replay itself, which is
 the agent's own work and is now behind a transcript rather than in front of
 one.
 
+With no load at all, what a switch costs is React mounting the transcript,
+and a turn is some sixty nodes. So `features/session/Transcript.tsx` mounts
+the last 12 turns (`TRANSCRIPT_WINDOW`) when it opens and the rest a window
+at a time as the person scrolls up to them, keeping what they were reading
+where it was; a turn that arrives is added and nothing mounted is dropped,
+and an unanswered permission request is mounted wherever it is. Measured on
+a 40-turn session switched to seven times: the median switch went from 90
+to 45 ms and the transcript from about 1 900 nodes to about 580.
+`content-visibility: auto` was tried first and measured slightly worse — the
+cost is the mounting, not the layout.
+
 ## Git modes and worktrees
 
 Every session has a working directory, and a git mode is how it got one
