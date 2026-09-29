@@ -94,7 +94,6 @@ function cwdFor(request: { projectId: string; sessionId?: string }): string {
  * would be text-to-cad offering to remove something it never created.
  */
 async function worktreesOf(project: Project): Promise<Worktree[]> {
-  const fs = await import("node:fs/promises");
   const parents = projectWorktreeDirs(settings.get(), project);
   const open = sessions.list(project.id);
 
@@ -106,11 +105,11 @@ async function worktreesOf(project: Project): Promise<Worktree[]> {
         !open.some(session => session.worktreePath && git.samePath(session.worktreePath, worktree.path)))) {
       continue;
     }
-    const stat = await fs.stat(worktree.path).catch(() => null);
+    const lastUsedAt = await git.lastWrittenAt(worktree.path);
     rows.push({
       path: worktree.path,
       branch: worktree.branch,
-      lastUsedAt: stat ? Math.round(stat.mtimeMs) : null,
+      lastUsedAt: lastUsedAt === null ? null : Math.round(lastUsedAt),
       openSessions: open.filter((session) => git.samePath(session.cwd, worktree.path)).length,
       // Ignored files count: removing the worktree would delete them too.
       dirty: await git.hasUnsavedWork(worktree.path),

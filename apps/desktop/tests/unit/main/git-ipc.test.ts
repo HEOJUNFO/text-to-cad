@@ -148,6 +148,7 @@ test("the keep-limit sweep spares a worktree another project's session belongs t
   const spare = await git.createWorktree({ repoPath: project.path, parentDir, name: "spare" });
   const newest = await git.createWorktree({ repoPath: project.path, parentDir, name: "newest" });
   const hourAgo = new Date(Date.now() - 3_600_000);
+  await utimes(path.join(spare.path, "README.md"), hourAgo, hourAgo);
   await utimes(spare.path, hourAgo, hourAgo);
   await mkdir(path.join(inside.path, "parts"));
   // The worktree folder chosen as a project of its own, and a session of this

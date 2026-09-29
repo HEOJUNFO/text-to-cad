@@ -114,7 +114,7 @@ export type ProjectGitInfo = z.infer<typeof ProjectGitInfoSchema>;
 export const WorktreeSchema = z.object({
   path: z.string(),
   branch: z.string().nullable(),
-  /** Directory mtime: when someone last wrote in it. Null when it is gone. */
+  /** The newest file mtime in it (`lastWrittenAt`): when someone last wrote in it. Null when it is gone. */
   lastUsedAt: z.number().nullable(),
   /** Sessions still pointing at it — never swept, and a warning before Delete. */
   openSessions: z.number().int().nonnegative(),

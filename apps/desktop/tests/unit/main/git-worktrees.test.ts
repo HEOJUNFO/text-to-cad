@@ -13,7 +13,7 @@
  * that looks like a bug in the code under test.
  */
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, realpath, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -463,6 +463,32 @@ describe("pruneWorktrees", () => {
     expect(left.map((worktree) => worktree.path).sort()).toEqual([made[2], outside.path].sort());
   });
 
+  it("orders by the newest file written, not the folder's own mtime", async () => {
+    const { root, worktrees } = await repository();
+    await mkdir(path.join(root, "src"));
+    await writeFile(path.join(root, "src", "part.py"), "x = 1\n");
+    await git_(root, "add", "-A");
+    await git_(root, "commit", "--quiet", "-m", "src");
+    const idle = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "idle" });
+    const busy = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "busy" });
+    const hourAgo = Date.now() - 3_600_000;
+    for (const worktree of [idle, busy]) {
+      await utimes(path.join(worktree.path, "src"), new Date(hourAgo), new Date(hourAgo));
+      await utimes(path.join(worktree.path, "src", "part.py"), new Date(hourAgo), new Date(hourAgo));
+      await touch(worktree.path, hourAgo);
+    }
+    // A scratch file made and removed at the idle one's top level: its
+    // folder's mtime moved, nothing in it did.
+    await utimes(idle.path, new Date(), new Date());
+    // The busy one is being edited, deep down: its folder's mtime never moves.
+    await writeFile(path.join(busy.path, "src", "part.py"), "x = 2\n");
+    await git_(busy.path, "commit", "--quiet", "-am", "the edit");
+    await utimes(busy.path, new Date(hourAgo - 60_000), new Date(hourAgo - 60_000));
+
+    const { removed } = await git.pruneWorktrees({ repoPath: root, parentDir: worktrees, keep: 1 });
+    expect(removed).toEqual([idle.path]);
+  });
+
   it("never removes one with an open session or uncommitted work", async () => {
     const { root, worktrees } = await repository();
     const busy = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "busy" });
@@ -623,8 +649,9 @@ describe("a renamed file", () => {
   });
 });
 
-/** Set a directory's mtime, so the sweep's ordering is deterministic. */
+/** Set a worktree's mtimes — the folder and its one file — so the sweep's ordering is deterministic. */
 async function touch(directory: string, at: number): Promise<void> {
   const { utimes } = await import("node:fs/promises");
+  await utimes(path.join(directory, "README.md"), new Date(at), new Date(at));
   await utimes(directory, new Date(at), new Date(at));
 }

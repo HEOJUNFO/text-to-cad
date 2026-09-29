@@ -1477,8 +1477,7 @@ export async function pruneWorktrees(options: PruneOptions): Promise<{ removed: 
     if (kept.some((protectedPath) => samePath(protectedPath, worktree.path) || isUnder(worktree.path, protectedPath))) {
       continue;
     }
-    const stat = await fsp.stat(worktree.path).catch(() => null);
-    candidates.push({ path: worktree.path, usedAt: stat?.mtimeMs ?? 0 });
+    candidates.push({ path: worktree.path, usedAt: (await lastWrittenAt(worktree.path)) ?? 0 });
   }
 
   // Newest first, so the tail is what falls off the end of the limit.
@@ -1501,6 +1500,39 @@ export async function pruneWorktrees(options: PruneOptions): Promise<{ removed: 
     );
   }
   return { removed };
+}
+
+/**
+ * When anything in a worktree was last written: the newest mtime among its
+ * tracked and untracked (not ignored) files. Null when the folder is gone.
+ *
+ * Not the folder's own mtime, which moves only when an entry directly in it
+ * is added or removed — an afternoon of edits in `src/` leaves it where the
+ * checkout put it, and the sweep would take the worktree being worked in
+ * for the oldest. Not the branch's last commit either: an agent's edits are
+ * uncommitted for most of their life. One `ls-files` and a stat per file is
+ * the cheapest read that sees both; a stat is microseconds, and the sweep
+ * only runs when a worktree is created.
+ */
+export async function lastWrittenAt(worktreePath: string): Promise<number | null> {
+  const folder = await fsp.stat(worktreePath).catch(() => null);
+  if (!folder) {
+    return null;
+  }
+  const listed = await tryGit(worktreePath, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"]);
+  const files = (listed ?? "").split("\0").filter((file) => file !== "");
+  let newest = folder.mtimeMs;
+  for (let start = 0; start < files.length; start += 256) {
+    const stats = await Promise.all(
+      files.slice(start, start + 256).map((file) => fsp.lstat(path.join(worktreePath, file)).catch(() => null)),
+    );
+    for (const stat of stats) {
+      if (stat && stat.mtimeMs > newest) {
+        newest = stat.mtimeMs;
+      }
+    }
+  }
+  return newest;
 }
 
 /** True when `child` is inside `parent` — the test that keeps the sweep in its own root. */
