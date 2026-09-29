@@ -411,6 +411,20 @@ describe("removeWorktree", () => {
     expect(await git.listWorktrees(root)).toHaveLength(1);
   });
 
+  it("removes the registration of a folder deleted by hand, and the sweep does too", async () => {
+    const { root, worktrees } = await repository();
+    const gone = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "gone by hand" });
+    const swept = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "swept" });
+    await rm(gone.path, { recursive: true, force: true });
+    await rm(swept.path, { recursive: true, force: true });
+
+    await git.removeWorktree(gone.path, { repoPath: root });
+    expect((await git.pruneWorktrees({ repoPath: root, parentDir: worktrees, keep: 0 })).removed).toEqual([swept.path]);
+    expect((await git.listWorktrees(root)).filter((worktree) => !worktree.primary)).toEqual([]);
+    // The branches stay, as for any removal.
+    expect((await git_(root, "branch", "--list", gone.branch, swept.branch)).stdout).toContain(gone.branch);
+  });
+
   it("refuses the repository's own working tree", async () => {
     const { root } = await repository();
     await expect(git.removeWorktree(root)).rejects.toThrow("the repository itself");

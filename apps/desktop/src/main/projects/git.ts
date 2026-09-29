@@ -1366,12 +1366,20 @@ async function uniqueName(
  * `git worktree remove` deletes even unforced. `--force` deletes both, and a button in a settings page is not
  * where someone decides to lose an afternoon. The branch is left behind —
  * deleting a checkout is reversible, deleting the commits on it is not.
+ *
+ * A folder deleted by hand is still registered (`prunable`), and git cannot
+ * be asked about it from inside. With `repoPath` the registration is removed
+ * from the repository instead — there is nothing left on disk to lose, and
+ * without this Delete errors on it and the sweep skips it forever.
  */
 export async function removeWorktree(
   worktreePath: string,
-  options: { force?: boolean } = {},
+  options: { force?: boolean; repoPath?: string } = {},
 ): Promise<void> {
-  const root = await repositoryRoot(worktreePath);
+  const missing = await fsp.stat(worktreePath).then(() => false, () => true);
+  const root = missing && options.repoPath
+    ? await repositoryRoot(options.repoPath)
+    : await repositoryRoot(worktreePath);
   if (!root) {
     throw new GitError("that worktree is no longer a git repository");
   }
@@ -1383,6 +1391,10 @@ export async function removeWorktree(
   }
   if (target.primary) {
     throw new GitError("that is the repository itself, not a worktree");
+  }
+  if (missing) {
+    await git(root, ["worktree", "remove", target.path]);
+    return;
   }
   const unchecked = (error: unknown) => {
     throw new GitError(`could not check that worktree for unsaved work, so it was kept: ${error instanceof Error ? error.message : String(error)}`);
@@ -1464,11 +1476,13 @@ export async function pruneWorktrees(options: PruneOptions): Promise<{ removed: 
   const removed: string[] = [];
   for (const candidate of candidates.slice(Math.max(0, options.keep))) {
     // Ignored files count as work here: `git worktree remove` deletes them.
-    // So does a check that failed: only a proved-clean worktree goes.
-    if ((await hasUnsavedWork(candidate.path)) !== false) {
+    // So does a check that failed: only a proved-clean worktree goes — or a
+    // folder deleted by hand, which has nothing left to lose.
+    const missing = await fsp.stat(candidate.path).then(() => false, () => true);
+    if (!missing && (await hasUnsavedWork(candidate.path)) !== false) {
       continue;
     }
-    await removeWorktree(candidate.path).then(
+    await removeWorktree(candidate.path, { repoPath: options.repoPath }).then(
       () => removed.push(candidate.path),
       // One worktree that will not go must not stop the sweep: the next launch
       // would meet the same one and the limit would never be enforced.

@@ -316,7 +316,8 @@ async function explicitWorkspace(cwd: string, input: ResolveInput): Promise<Work
  * then stays.
  */
 export async function releaseWorkspace(
-  session: { worktreePath?: string | undefined; branch?: string | undefined },
+  /** `projectId` is the project's directory: the repository to ask when the folder is gone. */
+  session: { worktreePath?: string | undefined; branch?: string | undefined; projectId?: string | undefined },
   settings: Pick<Settings, "autoDeleteWorktrees">,
   options: { abandoned?: boolean } = {},
 ): Promise<{ removed: boolean; reason?: string }> {
@@ -330,7 +331,7 @@ export async function releaseWorkspace(
     const primary = options.abandoned
       ? (await git.listWorktrees(session.worktreePath)).find((worktree) => worktree.primary)?.path
       : undefined;
-    await git.removeWorktree(session.worktreePath);
+    await git.removeWorktree(session.worktreePath, session.projectId ? { repoPath: session.projectId } : {});
     if (primary && session.branch) {
       await git.deleteMergedBranch(primary, session.branch);
     }

@@ -259,7 +259,7 @@ export const gitHandlers = {
             `${using.length} session${using.length === 1 ? " is" : "s are"} still using that worktree`,
           );
         }
-        await git.removeWorktree(requested, force === undefined ? {} : { force });
+        await git.removeWorktree(requested, { repoPath: project.path, ...(force === undefined ? {} : { force }) });
       }),
   },
 } satisfies IpcHandlers<typeof gitIpc, IpcContext>;
