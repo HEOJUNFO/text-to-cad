@@ -31,9 +31,22 @@ export const useAgents = create<AgentsState>((set) => ({
   ready: false,
   jobs: {},
 
+  /**
+   * `ready` means "detection has answered", never "an agent was found".
+   *
+   * An empty `agents.list` is main's "the first probe is still running"
+   * (`AgentDetector.list`): the answer follows on `agents.status`, and
+   * `receive` marks it — an empty table included. A list that cannot be read
+   * at all is an answer too: nothing will follow it, and a screen waiting on
+   * `ready` (the welcome's Continue) would otherwise wait forever.
+   */
   load: async () => {
-    const agents = await window.textToCad.agents.list();
-    set({ agents, ready: agents.length > 0 });
+    try {
+      const agents = await window.textToCad.agents.list();
+      set({ agents, ready: agents.length > 0 });
+    } catch {
+      set({ ready: true });
+    }
   },
 
   refresh: async () => {

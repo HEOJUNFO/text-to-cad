@@ -22,8 +22,13 @@ export function Welcome() {
   // On the agent step, Continue says what it means when nothing can run yet:
   // the rest of the app opens, but a session will not start until one is.
   // Cautious on purpose: unknown sign-in is not ready here (see `isAgentReady`).
+  // Until detection answers, nothing is known either way: the button stays
+  // "Continue", disabled, rather than announcing "without an agent" for the
+  // second or two before one turns up.
   const anyAgentReady = useAgents((state) => state.agents.some(isAgentReady));
-  const continueLabel = step === 1 && !anyAgentReady ? "Continue without an agent" : "Continue";
+  const detected = useAgents((state) => state.ready);
+  const detecting = step === 1 && !detected;
+  const continueLabel = step === 1 && detected && !anyAgentReady ? "Continue without an agent" : "Continue";
 
   return (
     <div className="flex h-full flex-col bg-background" data-onboarding>
@@ -35,7 +40,9 @@ export function Welcome() {
         data-onboarding-titlebar
         style={{ height: "var(--titlebar-height)", paddingLeft: "var(--titlebar-inset)" }}
       />
-      <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto px-6 pb-10">
+      {/* The block's top is pinned, not centred: the steps are different
+          heights, and a centred block moved its heading ~70px each step. */}
+      <div className="flex min-h-0 flex-1 justify-center overflow-auto px-6 pt-[22vh] pb-10" data-onboarding-body>
         <div className="w-full max-w-md">
           {step === 0 ? <WelcomeStep /> : step === 1 ? <AgentStep /> : <StartStep onDone={finish} />}
 
@@ -51,7 +58,7 @@ export function Welcome() {
                 Skip for now
               </Button>
               {step < 2 ? (
-                <Button className="gap-1.5" onClick={() => setStep(step + 1)} size="sm">
+                <Button className="gap-1.5" disabled={detecting} onClick={() => setStep(step + 1)} size="sm">
                   {continueLabel}
                   <ArrowRight className="size-3.5" />
                 </Button>

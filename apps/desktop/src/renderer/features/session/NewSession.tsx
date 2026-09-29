@@ -307,17 +307,27 @@ export function NewSession({ project }: { project: Project }) {
   const noAgent = detected && !installed.some((candidate) => candidate.auth !== "unauthenticated");
   const offeredNames = offered.map((candidate) => candidate.name);
   const signInTo = offeredNames.length > 0 ? offeredNames.join(" or ") : "an agent";
+  // Until detection has answered and some probe has come back, all three
+  // slots hold a placeholder of the chip's size: chips that pop in seconds
+  // later, one by one, are a row that jumps under the pointer.
+  const loadingChips = providers.length === 0 && (!detected || probing > 0);
   const chips = mode ? (
     <ModeChip currentModeId={mode.currentModeId} modes={mode.modes} onChange={chooseMode} />
+  ) : loadingChips ? (
+    <ChipSkeleton slot="mode" width="w-16" />
   ) : null;
   const trailing = (
     <>
       {providers.length > 0 ? (
         <ModelChip agentId={pickedProvider?.agentId ?? null} onChange={chooseModel} providers={providers} />
-      ) : probing > 0 ? (
+      ) : loadingChips ? (
         <ModelsLoading />
       ) : null}
-      {effort ? <EffortChip effort={effort} onChange={chooseEffort} /> : null}
+      {effort ? (
+        <EffortChip effort={effort} onChange={chooseEffort} />
+      ) : loadingChips ? (
+        <ChipSkeleton slot="effort" width="w-20" />
+      ) : null}
     </>
   );
 
@@ -373,7 +383,9 @@ export function NewSession({ project }: { project: Project }) {
             commands={[]}
             disabled={busy}
             onSubmit={submitFromComposer}
-            placeholder={busy && agent ? `Starting ${agent.name}…` : "Do anything"}
+            // A CAD hint, on this screen only: the live session's box stays
+            // "Do anything" — by then the person knows what it is for.
+            placeholder={busy && agent ? `Starting ${agent.name}…` : "Describe a part to build…"}
             newDraftKey={draftKey}
             sessionId={null}
             status={busy ? "submitted" : "ready"}
@@ -395,11 +407,20 @@ function unchangedSince(attempt: TakenDraft, key: string): boolean {
       annotation.id === attempt.annotations[index]?.id && annotation.text === attempt.annotations[index]?.text);
 }
 
+/** A mode or effort chip's place while detection and the probes are out. */
+function ChipSkeleton({ slot, width }: { slot: "mode" | "effort"; width: string }) {
+  return (
+    <span aria-hidden className={`inline-flex h-7 shrink-0 items-center px-1.5 ${width}`} data-chip={`${slot}-loading`}>
+      <span className="h-3.5 w-full animate-pulse rounded bg-muted" />
+    </span>
+  );
+}
+
 /** The model chip's place while the installed agents' probes are out. */
 function ModelsLoading() {
   return (
     <button
-      className="inline-flex h-7 shrink-0 cursor-default items-center gap-1.5 rounded-md px-1.5 text-[12px] leading-none text-muted-foreground"
+      className="inline-flex h-7 w-[132px] shrink-0 cursor-default items-center gap-1.5 rounded-md px-1.5 text-[12px] leading-none text-muted-foreground"
       data-chip="model-loading"
       disabled
       type="button"

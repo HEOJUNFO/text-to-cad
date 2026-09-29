@@ -41,7 +41,8 @@ export function SessionPane() {
 
   return (
     <div className="flex h-full flex-col">
-      <SessionHeader session={null} title={project ? project.name : "New session"} />
+      {/* No folder yet: nothing to name — the main area's Open folder… is the whole message. */}
+      <SessionHeader session={null} title={project ? project.name : ""} />
       {project ? (
         <NewSession key={project.id} project={project} />
       ) : (

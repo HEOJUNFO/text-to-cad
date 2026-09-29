@@ -563,7 +563,7 @@ describe("the explorer strip", () => {
     expect(tabTitle({ ...base, kind: "file", path: "src/wrist.step", root: null, panel: null })).toBe(
       "wrist.step",
     );
-    expect(tabTitle({ ...base, kind: "file", path: null, root: null, panel: null })).toBe("Untitled");
+    expect(tabTitle({ ...base, kind: "file", path: null, root: null, panel: null })).toBe("Open file…");
     expect(tabTitle({ ...base, kind: "browser", root: null, url: "https://example.com/a/b" })).toBe(
       "example.com",
     );

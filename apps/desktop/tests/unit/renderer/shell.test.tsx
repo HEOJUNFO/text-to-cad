@@ -74,7 +74,7 @@ describe("Explorer", () => {
 
     await user.click(screen.getByRole("menuitem", { name: /^File/ }));
     expect(useExplorer.getState().tabs).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "Close Untitled" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close Open file…" })).toBeInTheDocument();
   });
 
   it("opens a file tab on Mod+T without the menu", async () => {
@@ -91,7 +91,7 @@ describe("Explorer", () => {
     wrap(<ExplorerPane />);
     await user.click(screen.getByRole("button", { name: "New tab" }));
     await user.click(screen.getByRole("menuitem", { name: /^File/ }));
-    await user.click(screen.getByRole("button", { name: "Close Untitled" }));
+    await user.click(screen.getByRole("button", { name: "Close Open file…" }));
     expect(useExplorer.getState().tabs).toHaveLength(0);
   });
 
@@ -135,9 +135,9 @@ describe("Settings", () => {
       "General",
       "Agents",
       "Appearance",
-      "Git & Worktrees",
+      "Git and worktrees",
       "Keyboard shortcuts",
-      "About & Updates",
+      "About and updates",
     ]) {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }

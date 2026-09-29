@@ -153,7 +153,7 @@ test("a STEP renders in the desktop viewer, and its reference reaches the prompt
   test.setTimeout(120_000);
   const previousClipboard = await app.evaluate(({ clipboard }) => clipboard.readText());
   try {
-    const draft = page.getByPlaceholder("Do anything");
+    const draft = page.getByPlaceholder(/^(Do anything|Describe a part to build…)$/);
     await draft.fill("Keep this draft.");
     // The Features list is recognised in the packaged worker, under the desktop CSP: a lone
     // part listed as its features is that worker having run.

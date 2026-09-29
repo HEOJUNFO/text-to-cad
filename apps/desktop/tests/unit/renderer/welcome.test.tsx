@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Welcome } from "@renderer/features/onboarding/Welcome";
 import { useAgents } from "@renderer/state/agents";
@@ -44,9 +44,43 @@ describe("the welcome", () => {
     expect(strip.style.paddingLeft).toBe("var(--titlebar-inset)");
   });
 
-  it("says it is looking while detection has not answered", async () => {
+  it("says it is looking while detection has not answered, with Continue held until it does", async () => {
     await toAgentStep();
     expect(screen.getByText("Looking for agents on this machine…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Continue$/ })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /without an agent/ })).toBeNull();
+
+    useAgents.setState({ agents: [agent({})], ready: true });
+    expect(await screen.findByRole("button", { name: /Continue without an agent/ })).toBeEnabled();
+  });
+
+  it("offers an enabled Continue without an agent when detection answered with an empty table", async () => {
+    await toAgentStep();
+    expect(screen.getByRole("button", { name: /^Continue$/ })).toBeDisabled();
+    // Detection's answer arrives on `agents.status`; an empty one is still an answer.
+    useAgents.getState().receive([]);
+    expect(await screen.findByRole("button", { name: /Continue without an agent/ })).toBeEnabled();
+  });
+
+  it("stops waiting when the agent list cannot be read at all", async () => {
+    vi.mocked(window.textToCad.agents.list).mockRejectedValueOnce(new Error("ipc down"));
+    await useAgents.getState().load();
+    expect(useAgents.getState().ready).toBe(true);
+    await toAgentStep();
+    expect(screen.getByRole("button", { name: /Continue without an agent/ })).toBeEnabled();
+  });
+
+  it("keeps waiting on an empty first list: that is the probe still running, not an answer", async () => {
+    vi.mocked(window.textToCad.agents.list).mockResolvedValueOnce([]);
+    await useAgents.getState().load();
+    expect(useAgents.getState().ready).toBe(false);
+  });
+
+  it("pins the block's top rather than centring it, so steps do not jump", () => {
+    const { container } = render(<Welcome />);
+    const body = container.querySelector<HTMLElement>("[data-onboarding-body]")!;
+    expect(body.className).not.toMatch(/\bitems-center\b/);
+    expect(body.className).toMatch(/\bpt-\[/);
   });
 
   it("offers Continue without an agent when none is ready, and plain Continue once one is", async () => {

@@ -71,7 +71,7 @@ test.afterAll(async () => {
 test("a chosen folder is a draft: no project, no explorer, and its words kept per folder", async () => {
   const added = await page.evaluate((root) => window.textToCad.projects.addPath({ path: root }), repo);
   projectId = added.id;
-  const draft = page.getByPlaceholder("Do anything");
+  const draft = page.getByPlaceholder(/^(Do anything|Describe a part to build…)$/);
   await expect(draft).toBeVisible();
   await expect(page.getByTestId("explorer")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Toggle explorer" })).toHaveCount(0);
@@ -127,9 +127,11 @@ test("a checkout session runs in the project, and the review shows the agent's a
 });
 
 test("commits every change from the popover, and Last turn still shows what the turn did", async () => {
-  await page.getByRole("button", { name: "Commit or push" }).click();
-  await page.getByLabel("Commit message").fill("agent and human, one commit");
+  // No remote in this fixture, so the header offers Commit alone, not a push.
   await page.getByRole("button", { name: "Commit", exact: true }).click();
+  await page.getByLabel("Commit message").fill("agent and human, one commit");
+  await shoot("git-commit-panel.png");
+  await page.getByRole("region", { name: "Commit changes" }).getByRole("button", { name: "Commit", exact: true }).click();
   await expect(page.getByLabel("Commit message")).toBeHidden({ timeout: 20_000 });
   await expect.poll(() => execFileSync("git", ["log", "-1", "--pretty=%s"], { cwd: repo, env: gitEnv }).toString().trim(), { timeout: 20_000 })
     .toBe("agent and human, one commit");
@@ -202,7 +204,7 @@ test("a worktree session gets its own branch, directory and glyph, and the explo
 test("the worktree is listed in Settings, and Delete takes it away once no session is on it", async () => {
   const worktree = path.join(worktreeRoot, projectName, "model-the-wrist");
   await page.keyboard.press(`${mod}+,`);
-  await page.getByRole("button", { name: "Git & Worktrees" }).click();
+  await page.getByRole("button", { name: "Git and worktrees" }).click();
   await expect(page.getByText(`Worktrees · ${projectName}`)).toBeVisible();
   const card = page.getByText("text-to-cad/model-the-wrist", { exact: true });
   await card.scrollIntoViewIfNeeded();
@@ -214,7 +216,7 @@ test("the worktree is listed in Settings, and Delete takes it away once no sessi
   fs.rmSync(path.join(worktree, "hello.txt"));
   // Settings re-reads on remount: leaving and coming back proves the list is not a snapshot.
   await page.getByRole("button", { name: "General" }).click();
-  await page.getByRole("button", { name: "Git & Worktrees" }).click();
+  await page.getByRole("button", { name: "Git and worktrees" }).click();
   await expect(page.getByRole("button", { name: "Delete" }).first()).toBeEnabled();
   await page.getByRole("button", { name: "Delete" }).first().click();
   await expect(page.getByText(`Worktrees · ${projectName}`)).toBeHidden({ timeout: 20_000 });
@@ -230,7 +232,7 @@ test("the new-session screen's New worktree makes the session in a worktree of i
   await page.locator("[data-context-strip]").getByRole("button", { name: "Local", exact: true }).click();
   await page.getByRole("menuitemradio", { name: /New worktree/ }).click();
   await expect(page.locator('[data-composer-row] [data-chip="model"]')).toBeVisible({ timeout: 30_000 });
-  const draft = page.getByPlaceholder("Do anything");
+  const draft = page.getByPlaceholder(/^(Do anything|Describe a part to build…)$/);
   await draft.fill("write a file");
   await draft.press("Enter");
   await expect(page.locator("[data-session-view]")).toBeVisible({ timeout: 30_000 });
@@ -256,7 +258,9 @@ function git(...args: string[]) {
 async function expectReviewShowsBoth() {
   await expect(page.getByRole("button", { name: /tracked\.txt/ }).last()).toContainText("+1");
   await expect(page.getByRole("button", { name: /agent\.txt/ }).last()).toContainText("+1");
-  await expect(page.locator(".monaco-diff-editor")).toHaveCount(2, { timeout: 30_000 });
+  // agent.txt is new, so it is its one side rather than a diff against an empty file.
+  await expect(page.locator("[data-review-diff=modified] .monaco-diff-editor")).toHaveCount(1, { timeout: 30_000 });
+  await expect(page.locator("[data-review-diff=added] .monaco-editor")).toHaveCount(1, { timeout: 30_000 });
 }
 
 async function chooseScope(label: string) {

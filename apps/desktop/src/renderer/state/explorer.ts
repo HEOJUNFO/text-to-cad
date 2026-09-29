@@ -532,7 +532,7 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
       return existing;
     }
     // An empty file tab is the slot the `+` button made; fill it instead of
-    // leaving an "Untitled" behind.
+    // leaving an "Open file…" tab behind.
     const blank = tabs.find((tab) => tab.kind === "file" && tab.path === null);
     if (blank) {
       const next = tabs.map((tab) =>
@@ -781,7 +781,7 @@ export function useActiveTab(): ExplorerTab | null {
 export function tabTitle(tab: ExplorerTab): string {
   switch (tab.kind) {
     case "file":
-      return tab.path ? (tab.path.split("/").pop() ?? tab.path) : "Untitled";
+      return tab.path ? (tab.path.split("/").pop() ?? tab.path) : "Open file…";
     case "review":
       return "Review";
     case "browser":

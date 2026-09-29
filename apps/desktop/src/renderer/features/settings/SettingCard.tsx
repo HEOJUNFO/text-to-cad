@@ -146,6 +146,10 @@ export function SwitchRow({
       control={
         <Switch
           aria-label={title}
+          // The vendored switch's off track is `bg-input` with a transparent
+          // border, which on the light theme's white card is next to
+          // invisible. An off switch still has to read as a switch.
+          className="data-[state=unchecked]:border-foreground/25"
           checked={checked}
           disabled={disabled}
           onCheckedChange={onChange}

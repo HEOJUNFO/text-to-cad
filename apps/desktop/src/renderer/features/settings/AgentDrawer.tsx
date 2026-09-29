@@ -258,24 +258,29 @@ function AuthenticationSection({ agent }: { agent: AgentStatus }) {
   const cliLogin = agent.authMethods.find((method) => method.type === "cli-login");
   const apiKey = agent.authMethods.find((method) => method.type === "api-key");
 
+  const signedIn = agent.auth === "authenticated";
+
   return (
     <Section
       action={<StatusLabel tone={AUTH_TONE[agent.auth]}>{authLabel(agent)}</StatusLabel>}
       title="Authentication"
     >
+      {/* Signed in, the status on the right already says so: what is left is
+          one quiet way to redo it. Signed out, the method's own words sit
+          beside the primary button. */}
       {cliLogin ? (
-        <div className="flex items-center justify-between gap-3">
-          <p className="min-w-0 text-xs text-muted-foreground">{cliLogin.label}</p>
+        <div className={signedIn ? "flex justify-end" : "flex items-center justify-between gap-3"}>
+          {signedIn ? null : <p className="min-w-0 text-xs text-muted-foreground">{cliLogin.label}</p>}
           <Button
             className="h-8 gap-1.5"
             // Signing in runs the agent's own CLI, which has to be installed.
             disabled={running || !agent.installed}
             onClick={() => void start(() => login(agent.id))}
             size="sm"
-            variant={agent.auth === "authenticated" ? "secondary" : "default"}
+            variant={signedIn ? "secondary" : "default"}
           >
             {running ? <Loader2 className="size-3.5 animate-spin" /> : null}
-            {agent.auth === "authenticated" ? "Sign in again" : "Sign in"}
+            {signedIn ? "Sign in again" : "Sign in"}
           </Button>
         </div>
       ) : null}
@@ -286,16 +291,23 @@ function AuthenticationSection({ agent }: { agent: AgentStatus }) {
         </p>
       ) : null}
 
+      {/* The API key is the other way in, not a step after signing in: it is
+          folded away, and open only when it is the one way there is. */}
       {apiKey ? (
-        <div className="mt-3 rounded-lg border bg-muted/40 px-3 py-2.5">
-          <p className="text-xs text-muted-foreground">
-            {apiKey.label}: set one of these in the shell text-to-cad launches from, then press
-            Refresh.
-          </p>
-          <p className="mt-1.5 font-mono text-[11px]" data-selectable>
-            {apiKey.envVars.join("  ·  ")}
-          </p>
-        </div>
+        <details className="group mt-3 text-xs" open={!cliLogin && !signedIn}>
+          <summary className="cursor-default text-muted-foreground select-none hover:text-foreground">
+            Use an API key instead
+          </summary>
+          <div className="mt-2 rounded-lg border bg-muted/40 px-3 py-2.5">
+            <p className="text-muted-foreground">
+              {apiKey.label}: set one of these in the shell text-to-cad launches from, then press
+              Refresh.
+            </p>
+            <p className="mt-1.5 font-mono text-[11px]" data-selectable>
+              {apiKey.envVars.join("  ·  ")}
+            </p>
+          </div>
+        </details>
       ) : null}
 
       {jobId ? <JobLog output={output} /> : null}

@@ -7,7 +7,6 @@ import { ScrollArea } from "@renderer/components/ui/scroll-area";
 import { SessionSection } from "@renderer/features/sidebar/SessionSection";
 import { SidebarFilterMenu } from "@renderer/features/sidebar/SidebarFilterMenu";
 import { Wordmark } from "@renderer/features/sidebar/Wordmark";
-import { useOpenFolder } from "@renderer/hooks/use-open-folder";
 import { useProjects } from "@renderer/state/projects";
 import { useSessions, useSidebarSections } from "@renderer/state/sessions";
 import { useSettings, useSidebarSettings } from "@renderer/state/settings";
@@ -37,7 +36,6 @@ import { GettingStarted } from "@renderer/features/onboarding/GettingStarted";
  */
 export function Sidebar() {
   const ready = useSessions((state) => state.ready);
-  const openFolder = useOpenFolder();
   const setActiveSession = useSessions((state) => state.setActive);
   const openSettings = useUi((state) => state.openSettings);
   const toggleCommandPalette = useUi((state) => state.toggleCommandPalette);
@@ -80,8 +78,8 @@ export function Sidebar() {
           one row that starts something, and the same action as the app menu's
           `Cmd+N`. Adding a folder is not a row here any more; it is
           `Open folder…` at the bottom of the project chip's menu, where
-          picking a folder already happens, and the card below for the one
-          state that has no chip to open — no projects at all. */}
+          picking a folder already happens, and the main area's chooser for
+          the one state that has no chip to open — no projects at all. */}
       <nav className="flex shrink-0 items-center gap-0.5 px-2 pb-1">
         <div className="min-w-0 flex-1">
           <SidebarLink
@@ -125,7 +123,7 @@ export function Sidebar() {
             narrowed && hasSessions ? (
               <NoMatches onClear={() => void setSidebar({ status: "active", environment: "all" })} />
             ) : (
-              <NoProjects onOpen={() => void openFolder()} />
+              <NoProjects />
             )
           ) : null}
         </div>
@@ -205,16 +203,14 @@ function NoMatches({ onClear }: { onClear: () => void }) {
 }
 
 /**
- * The one state that needs a chooser of its own: with no project there is no
- * project chip to open `Open folder…` from, so the card is it.
+ * No projects at all. The chooser for this state is the main area's
+ * `Open folder…` (`data-no-project`), always on screen beside this: a second
+ * button here was the same action twice, one glance apart.
  */
-function NoProjects({ onOpen }: { onOpen: () => void }) {
+function NoProjects() {
   return (
-    <div className="mt-2 rounded-lg border border-dashed border-sidebar-border px-3 py-4 text-center">
-      <p className="text-xs text-muted-foreground">No sessions to show.</p>
-      <Button className="mt-2 h-7 text-xs" onClick={onOpen} size="sm" variant="secondary">
-        Open folder…
-      </Button>
+    <div className="mt-2 rounded-lg border border-dashed border-sidebar-border px-3 py-4 text-center" data-sidebar-empty>
+      <p className="text-xs text-muted-foreground">No sessions yet</p>
     </div>
   );
 }

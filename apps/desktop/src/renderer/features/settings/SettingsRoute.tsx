@@ -91,10 +91,13 @@ export function SettingsRoute() {
         <nav className="flex w-[232px] shrink-0 flex-col gap-2 border-r px-3 py-2">
           <div className="relative">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            {/* `pl-8!`, not `pl-8`: `cn` keeps the vendored Input's `px-3`
+                beside it (different properties), and in the built sheet
+                `px-3` lands later and wins, putting the glyph over the text. */}
             <Input
               aria-label="Search settings"
               autoFocus
-              className="h-8 pl-8 text-sm"
+              className="h-8 pl-8! text-sm"
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search settings"
               value={query}

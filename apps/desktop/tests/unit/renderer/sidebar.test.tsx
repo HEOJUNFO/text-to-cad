@@ -282,7 +282,8 @@ describe("Sidebar", () => {
     withProject();
     wrap(<Sidebar />);
     expect(screen.queryByRole("button", { name: "Collapse text-to-cad" })).not.toBeInTheDocument();
-    expect(screen.queryByText("No sessions yet")).not.toBeInTheDocument();
+    // What shows instead is the panel's own empty card, not a group's.
+    expect(screen.getByText("No sessions yet").closest("[data-sidebar-empty]")).not.toBeNull();
   });
 
   it("lists a project's threads flat, newest first, and hides archived ones", () => {

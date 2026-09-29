@@ -21,9 +21,9 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSection, string> = {
   general: "General",
   agents: "Agents",
   appearance: "Appearance",
-  git: "Git & Worktrees",
+  git: "Git and worktrees",
   shortcuts: "Keyboard shortcuts",
-  about: "About & Updates",
+  about: "About and updates",
 };
 
 /**

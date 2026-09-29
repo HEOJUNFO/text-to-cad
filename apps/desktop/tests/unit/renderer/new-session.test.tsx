@@ -18,9 +18,9 @@ vi.mock("@renderer/features/session/Composer", async () => {
   const { useEffect } = await import("react");
   const { useComposer } = await import("@renderer/state/composer");
   return {
-    Composer: ({ onSubmit, trailing, newDraftKey }: {
+    Composer: ({ onSubmit, chips, trailing, newDraftKey, placeholder }: {
       onSubmit: (text: string, content: unknown[], draft: unknown) => Promise<void> | void;
-      trailing?: React.ReactNode; newDraftKey: string;
+      chips?: React.ReactNode; trailing?: React.ReactNode; newDraftKey: string; placeholder?: string;
     }) => {
       const send = () => {
         const store = useComposer.getState();
@@ -32,7 +32,9 @@ vi.mock("@renderer/features/session/Composer", async () => {
       useEffect(() => { if (request !== null) send(); }, [request]);
       return (
         <>
+          <input aria-label="Prompt" placeholder={placeholder} readOnly />
           <button onClick={send} type="button">Send</button>
+          {chips}
           {trailing}
         </>
       );
@@ -263,7 +265,24 @@ describe("the model chip", () => {
     render(<NewSession project={PROJECT} />);
 
     expect(screen.getByRole("button", { name: /Loading models/ })).toBeDisabled();
+    // All three slots hold their place, so the row does not jump when they land.
+    expect(document.querySelector("[data-chip=mode-loading]")).not.toBeNull();
+    expect(document.querySelector("[data-chip=effort-loading]")).not.toBeNull();
     await act(async () => answer());
     expect(screen.queryByRole("button", { name: /Loading models/ })).toBeNull();
+    expect(document.querySelector("[data-chip=mode-loading]")).toBeNull();
+    expect(document.querySelector("[data-chip=effort-loading]")).toBeNull();
+  });
+
+  it("holds the chips' places while detection has not answered yet", () => {
+    useAgents.setState({ ready: false });
+    render(<NewSession project={PROJECT} />);
+    expect(screen.getByRole("button", { name: /Loading models/ })).toBeDisabled();
+    expect(document.querySelector("[data-chip=mode-loading]")).not.toBeNull();
+  });
+
+  it("hints at CAD in the box, on this screen only", () => {
+    render(<NewSession project={PROJECT} />);
+    expect(screen.getByPlaceholderText("Describe a part to build…")).toBeInTheDocument();
   });
 });

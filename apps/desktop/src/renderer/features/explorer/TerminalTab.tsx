@@ -5,7 +5,7 @@ import { createPromptContext } from "@text-to-cad/core/prompt";
 import { createDesktopPromptContext } from "./host/promptContext";
 import { useSessions } from "@renderer/state/sessions";
 import { toast } from "sonner";
-import { SquareTerminal, MessageSquarePlus } from "lucide-react";
+import { Eraser, SquareTerminal, MessageSquarePlus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import "@xterm/xterm/css/xterm.css";
@@ -248,16 +248,18 @@ export function TerminalTab({
       });
     }
 
-    // Cmd/Ctrl+K clears, as it does in every terminal on this platform; the
-    // copy/paste chords are handled here too because xterm swallows keys
-    // before the menu's accelerators see them.
+    // Cmd/Ctrl+K belongs to the command palette, app-wide: it is passed over
+    // here (not written to the shell, not handled) so the palette's window
+    // listener and the menu accelerator see it exactly as they do anywhere
+    // else. Clearing is the footer's Clear button. The copy/paste chords are
+    // handled here because xterm swallows keys before the menu's accelerators
+    // see them.
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== "keydown") {
         return true;
       }
       const modifier = event.metaKey || event.ctrlKey;
       if (modifier && event.key.toLowerCase() === "k") {
-        term.clear();
         return false;
       }
       if (modifier && event.key.toLowerCase() === "c" && term.hasSelection()) {
@@ -325,6 +327,8 @@ export function TerminalTab({
         <span className="truncate">{cwd ?? project.path}</span>
         {readOnly ? <span className="shrink-0 rounded-sm bg-muted px-1">agent</span> : null}
         <span className="flex-1" />
+        <button type="button" className="inline-flex h-5 shrink-0 items-center gap-1 hover:text-foreground"
+          onClick={() => { termRef.current?.clear(); termRef.current?.focus(); }}><Eraser className="size-3" />Clear</button>
         <button type="button" className="inline-flex h-5 shrink-0 items-center gap-1 hover:text-foreground disabled:opacity-40"
           disabled={!selection} onClick={addSelection}><MessageSquarePlus className="size-3" />Add to prompt</button>
         {exited === null ? null : (

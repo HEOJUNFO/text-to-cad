@@ -175,10 +175,10 @@ export function GeneralPage() {
         />
         <SwitchRow
           checked={settings.notificationOsBanners}
-          description="Show notifications in the system's own notification centre as well."
-          keywords="banner system notification centre center"
+          description="Also show them as banners in the system's notification centre, not only inside text-to-cad."
+          keywords="os banner system notification centre center"
           onChange={(notificationOsBanners) => patch({ notificationOsBanners })}
-          title="OS notifications"
+          title="System banners"
         />
       </SettingCard>
 

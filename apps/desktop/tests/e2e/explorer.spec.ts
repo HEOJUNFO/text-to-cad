@@ -291,7 +291,7 @@ test("a drawing attaches a PNG without sending, writes nothing, and is not resto
     await page.mouse.up();
     await expect(addToPrompt).toBeEnabled();
 
-    const composer = page.getByPlaceholder("Do anything");
+    const composer = page.getByPlaceholder(/^(Do anything|Describe a part to build…)$/);
     await composer.fill("Keep this existing prompt text.");
     await addToPrompt.click();
     const png = page.locator('[data-composer] img[alt="Bracket_concept.png"]').first();
@@ -390,7 +390,7 @@ test("a browser tab's native page is shared by the explorer and the app tools, p
     await expect.poll(fieldValue).toBe("Still here");
 
     // A screenshot and a selection of the page go to the prompt; nothing is sent.
-    const composer = page.getByPlaceholder("Do anything");
+    const composer = page.getByPlaceholder(/^(Do anything|Describe a part to build…)$/);
     await composer.fill("Keep this draft");
     await page.getByRole("button", { name: "Add page screenshot to prompt" }).click();
     const image = page.locator('[data-composer] img[alt="browser-page.png"]').first();

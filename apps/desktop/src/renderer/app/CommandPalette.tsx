@@ -2,14 +2,19 @@ import { useEffect } from "react";
 import {
   ChevronLeft,
   ChevronRight,
+  FileText,
   FolderPlus,
   Folder,
+  GitCompare,
+  Globe,
   MessageSquare,
   MessageSquarePlus,
   PanelLeft,
   PanelRight,
   PencilRuler,
   Settings,
+  SquareTerminal,
+  type LucideIcon,
 } from "lucide-react";
 
 import {
@@ -28,6 +33,23 @@ import { useProjects } from "@renderer/state/projects";
 import { useSessions } from "@renderer/state/sessions";
 import { useSettings } from "@renderer/state/settings";
 import { SETTINGS_SECTIONS, SETTINGS_SECTION_LABELS, useUi } from "@renderer/state/ui";
+import type { ExplorerTabKind } from "@shared/types";
+
+/** One string for the box's placeholder and the dialog's description. */
+export const COMMAND_PALETTE_PROMPT = "Search sessions, projects and commands…";
+
+/**
+ * Every tab kind the explorer's `+` menu makes, as a Create row. `value` is
+ * what cmdk scores: "new" and "open" find all of them, and each carries the
+ * words its kind is known by.
+ */
+const NEW_TAB_ROWS: readonly { kind: ExplorerTabKind; label: string; value: string; icon: LucideIcon }[] = [
+  { kind: "file", label: "New file tab", value: "new file tab open", icon: FileText },
+  { kind: "review", label: "New review tab", value: "new review tab diff changes git", icon: GitCompare },
+  { kind: "terminal", label: "New terminal", value: "new terminal tab shell", icon: SquareTerminal },
+  { kind: "browser", label: "New browser tab", value: "new browser tab web url", icon: Globe },
+  { kind: "drawing", label: "New drawing", value: "new drawing tab sketch canvas", icon: PencilRuler },
+];
 
 /**
  * Cmd/Ctrl+K. Switches project, jumps to a thread, and opens any Settings
@@ -82,14 +104,17 @@ export function CommandPalette() {
 
   return (
     <CommandDialog
-      description="Search projects, settings and commands"
+      // Anchored near the top, not centred: a centred dialog moves every time
+      // the list under the box grows or shrinks, so the box jumps as you type.
+      className="top-[20%] translate-y-0"
+      description={COMMAND_PALETTE_PROMPT}
       onOpenChange={setOpen}
       open={open}
       title="Command palette"
     >
       <CommandInput
         onValueChange={setQuery}
-        placeholder="Search sessions, projects and commands…"
+        placeholder={COMMAND_PALETTE_PROMPT}
         value={query}
       />
       <CommandList>
@@ -146,6 +171,24 @@ export function CommandPalette() {
 
         <CommandSeparator />
 
+        <CommandGroup heading="Create">
+          <CommandItem onSelect={run(() => setActiveSession(null))} value="new session chat">
+            <MessageSquarePlus className="size-4" />
+            New session
+          </CommandItem>
+          {/* The explorer belongs to a session (`Shell`): no session, no tabs. */}
+          {activeSessionId
+            ? NEW_TAB_ROWS.map(({ kind, label, value, icon: Icon }) => (
+                <CommandItem key={kind} onSelect={run(() => { useExplorer.getState().open(kind); })} value={value}>
+                  <Icon className="size-4" />
+                  {label}
+                </CommandItem>
+              ))
+            : null}
+        </CommandGroup>
+
+        <CommandSeparator />
+
         <CommandGroup heading="View">
           <CommandItem
             onSelect={run(() =>
@@ -166,16 +209,6 @@ export function CommandPalette() {
               Toggle explorer
             </CommandItem>
           ) : null}
-          {activeSessionId ? (
-            <CommandItem onSelect={run(() => { useExplorer.getState().open("drawing"); })} value="new drawing sketch canvas">
-              <PencilRuler className="size-4" />
-              New drawing
-            </CommandItem>
-          ) : null}
-          <CommandItem onSelect={run(() => setActiveSession(null))} value="new session chat">
-            <MessageSquarePlus className="size-4" />
-            New session
-          </CommandItem>
           {/* The top level's history (`state/history.ts`). Offered only when
               there is somewhere to go, since a palette row cannot be muted
               the way the two arrows in the title strip are. */}

@@ -15,11 +15,12 @@ import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
 import { SettingCard, SettingRow } from "@renderer/features/settings/SettingCard";
 import { SettingsRoute } from "@renderer/features/settings/SettingsRoute";
 import { matchesQuery } from "@renderer/features/settings/search";
-import { authLabel, parseEnv, formatEnv } from "@renderer/features/settings/AgentDrawer";
+import { AgentDrawer, authLabel, parseEnv, formatEnv } from "@renderer/features/settings/AgentDrawer";
 import { agentIcon, agentIconIds } from "@renderer/lib/agent-icons";
 import { SHORTCUTS, shortcutKeys, shortcutsIn } from "@renderer/lib/shortcuts";
 import { useSettings } from "@renderer/state/settings";
 import { useUi } from "@renderer/state/ui";
+import type { AgentStatus } from "@shared/agents";
 import { defaultSettings } from "@shared/types";
 
 const wrap = (ui: React.ReactNode) => render(<TooltipProvider>{ui}</TooltipProvider>);
@@ -62,8 +63,8 @@ describe("Settings search", () => {
     // A row from another page, matching nothing, is gone rather than dimmed.
     expect(screen.queryByText("Launch at login")).not.toBeInTheDocument();
     // And the nav keeps only the pages that had a match.
-    expect(screen.getByRole("button", { name: "Git & Worktrees" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "About & Updates" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Git and worktrees" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "About and updates" })).not.toBeInTheDocument();
   });
 
   it("says so when nothing matches", async () => {
@@ -78,7 +79,7 @@ describe("Settings search", () => {
     wrap(<SettingsRoute />);
     const box = screen.getByPlaceholderText("Search settings");
     await user.type(box, "branch");
-    await user.click(await screen.findByRole("button", { name: "Git & Worktrees" }));
+    await user.click(await screen.findByRole("button", { name: "Git and worktrees" }));
     expect(box).toHaveValue("");
     expect(useUi.getState().settingsSection).toBe("git");
   });
@@ -162,5 +163,65 @@ describe("the drawer's sign-in label", () => {
     expect(authLabel({ auth: "unknown", installed: true })).toBe("Installed");
     expect(authLabel({ auth: "unknown", installed: false })).toBe("Not installed");
     expect(authLabel({ auth: "authenticated", installed: true })).toBe("Signed in");
+  });
+});
+
+describe("Settings' visual fixes", () => {
+  it("keeps the search glyph clear of the text: the left padding beats the Input's own px-3", () => {
+    wrap(<SettingsRoute />);
+    const box = screen.getByPlaceholderText("Search settings");
+    // `cn` keeps `px-3` beside a plain `pl-8` (they set different properties)
+    // and the built sheet orders `px-3` later, so only the important form
+    // wins regardless of order.
+    expect(box.className.split(/\s+/)).toContain("pl-8!");
+    expect(box.className.split(/\s+/)).not.toContain("pl-8");
+  });
+
+  it("names the OS banner switch for what it does, and draws the off track's edge", () => {
+    useSettings.setState({ settings: { ...defaultSettings(), notificationOsBanners: false }, ready: true });
+    wrap(<SettingsRoute />);
+    const banners = screen.getByRole("switch", { name: "System banners" });
+    expect(banners).toHaveAttribute("data-state", "unchecked");
+    expect(banners.className).toContain("data-[state=unchecked]:border-foreground/25");
+    expect(screen.queryByText("OS notifications")).toBeNull();
+  });
+});
+
+describe("the agent drawer's sign-in", () => {
+  const agent = (auth: "authenticated" | "unauthenticated") =>
+    ({
+      id: "claude-code",
+      name: "Claude Code",
+      description: "",
+      websiteUrl: "https://example.com",
+      docsUrl: "https://example.com",
+      icon: null,
+      installed: true,
+      binaryPath: "/bin/claude",
+      version: "1.0.0",
+      auth,
+      authMethods: [
+        { type: "cli-login", label: "Sign in with your Anthropic account" },
+        { type: "api-key", label: "Anthropic API key", envVars: ["ANTHROPIC_API_KEY"] },
+      ],
+      capabilities: {},
+      install: { macos: [], windows: [], linux: [] },
+      launch: { command: "npx", args: [], env: {} },
+      skillRoots: "native",
+    }) as unknown as AgentStatus;
+
+  it("signed in: the status, one secondary Sign in again, and the API key folded away", async () => {
+    wrap(<AgentDrawer agent={agent("authenticated")} onOpenChange={() => {}} open platform="macos" />);
+    expect(await screen.findByText("Signed in")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in again" })).toBeInTheDocument();
+    expect(screen.queryByText("Sign in with your Anthropic account")).toBeNull();
+    const disclosure = screen.getByText("Use an API key instead").closest("details")!;
+    expect(disclosure.open).toBe(false);
+  });
+
+  it("signed out: the method's words beside a primary Sign in", async () => {
+    wrap(<AgentDrawer agent={agent("unauthenticated")} onOpenChange={() => {}} open platform="macos" />);
+    expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument();
+    expect(screen.getByText("Sign in with your Anthropic account")).toBeInTheDocument();
   });
 });

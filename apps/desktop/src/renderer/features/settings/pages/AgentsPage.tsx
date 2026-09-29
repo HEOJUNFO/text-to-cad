@@ -80,7 +80,7 @@ export function AgentsPage() {
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             aria-label="Search agents"
-            className="h-8 pl-8 text-sm"
+            className="h-8 pl-8! text-sm"
             onChange={(event) => setFilter(event.target.value)}
             placeholder="Search agents"
             value={filter}
