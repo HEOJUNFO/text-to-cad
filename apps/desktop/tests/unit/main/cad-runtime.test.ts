@@ -459,6 +459,7 @@ describe("status", () => {
   it.each([
     ["a doctor without --json", "usage: cadgen doctor [-h] [requirements]\ncadgen doctor: error: unrecognized arguments: --json", 2],
     ["a cadgen with no cadgen.cli entry", "/python: No module named cadgen.cli.__main__; 'cadgen.cli' is a package and cannot be directly executed", 1],
+    ["a cadgen with no cadgen.cli package", "/python: Error while finding module specification for 'cadgen.cli' (ModuleNotFoundError: No module named 'cadgen.cli')", 1],
   ])("asks %s the old way, kernel imported by name", async (_name, stderr, code) => {
     const m = machine({ bundle: true });
     const python = bundledPaths(m.resources, "darwin", "arm64").python;
@@ -488,6 +489,105 @@ describe("status", () => {
     const ready = await runtime.repair();
     expect(ready).toMatchObject({ state: "ready", python, cadgenVersion: "0.4.0" });
     expect(ready.kernel).toBeUndefined();
+  });
+
+  it("asks a doctor whose report has no kernel the old way too", async () => {
+    const m = machine({ bundle: true });
+    (m.host as { exec: RuntimeHost["exec"] }).exec = async (file, args) => {
+      m.execs.push({ file, args, env: {} });
+      return args.includes("--json")
+        ? { stdout: `${JSON.stringify({ version: "0.6.0", python: "3.13", install: "/site/cadgen" })}\n`, stderr: "", code: 0 }
+        : { stdout: `${JSON.stringify({ version: "0.6.0", viewer: true, kernel: null })}\n`, stderr: "", code: 0 };
+    };
+    expect(await new CadRuntime(m.host).status()).toMatchObject({ state: "ready", cadgenVersion: "0.6.0" });
+    expect(m.execs.map((exec) => exec.args[0])).toEqual(["-m", "-c"]);
+  });
+
+  it.each([
+    ["crashed", { stdout: "", stderr: "Traceback (most recent call last):\nImportError: cannot import name 'kernel_status' from 'cadgen.cli.doctor'", code: 1 }, "cannot import name 'kernel_status'"],
+    ["was killed by a signal", { stdout: "", stderr: "", code: null }, "python was killed"],
+  ])("does not mask a doctor that %s with the old way: that is the failure, in its words, logged first", async (_name, answer, words) => {
+    const m = machine({ bundle: true });
+    (m.host as { exec: RuntimeHost["exec"] }).exec = async (file, args) => {
+      m.execs.push({ file, args, env: {} });
+      return args.includes("--json")
+        ? answer
+        : { stdout: `${JSON.stringify({ version: "9.9.9", viewer: true, kernel: null })}\n`, stderr: "", code: 0 };
+    };
+    const runtime = new CadRuntime(m.host);
+    const status = await runtime.status();
+    expect(status.state).toBe("error");
+    expect(status.message).toContain(words);
+    expect(m.execs).toHaveLength(1);
+    const log = fs.readFileSync(runtimeLogPath(m.userData), "utf8").split("\n").find((line) => line.includes("gave no report"));
+    expect(log).toContain(words);
+    expect(await runtime.ready()).toBeNull();
+  });
+
+  it("is ready with a timeout warning when the kernel check did not finish, and Repair asks again", async () => {
+    const m = machine({ bundle: true });
+    const python = bundledPaths(m.resources, "darwin", "arm64").python;
+    let slow = true;
+    const words = "TimeoutExpired: Command 'python' timed out after 90 seconds";
+    (m.host as { exec: RuntimeHost["exec"] }).exec = async (file, args) => {
+      m.execs.push({ file, args, env: {} });
+      const kernel = slow ? { ok: false, state: "timeout", error: words } : { ok: true, state: "ok", error: null };
+      return { stdout: `${JSON.stringify(doctorReport({ version: "9.9.9", viewer: true }, kernel))}\n`, stderr: "", code: slow ? 4 : 0 };
+    };
+    const runtime = new CadRuntime(m.host);
+    expect(await runtime.status()).toMatchObject({ state: "ready", kernel: { state: "timeout", message: words } });
+    // Not a verdict on the kernel: the viewer still starts.
+    expect((await runtime.ready())?.python).toBe(python);
+    slow = false;
+    const repaired = await runtime.repair();
+    expect(repaired.state).toBe("ready");
+    expect(repaired.kernel).toBeUndefined();
+    expect(m.execs).toHaveLength(2);
+  });
+
+  it("answers a changed override with the new interpreter's own probe, not the old one's kernel note", async () => {
+    const m = machine({});
+    const dir = tempDir("text-to-cad-overrides-");
+    const [oldPython, newPython] = [path.join(dir, "old"), path.join(dir, "new")];
+    fs.writeFileSync(oldPython, "");
+    fs.writeFileSync(newPython, "");
+    let override = oldPython;
+    (m.host as { overrideSetting: () => string | null }).overrideSetting = () => override;
+    (m.host as { exec: RuntimeHost["exec"] }).exec = async (file, args) => {
+      m.execs.push({ file, args, env: {} });
+      const kernel = file === oldPython ? { ok: false, state: "missing", error: "ModuleNotFoundError: No module named 'OCP'" } : undefined;
+      return { stdout: `${JSON.stringify(doctorReport({ version: "9.9.9", viewer: true }, kernel))}\n`, stderr: "", code: 0 };
+    };
+    const runtime = new CadRuntime(m.host);
+    expect((await runtime.status()).kernel?.state).toBe("missing");
+    override = newPython;
+    const fresh = await runtime.repair();
+    expect(fresh).toMatchObject({ state: "ready", python: newPython });
+    expect(fresh.kernel).toBeUndefined();
+    expect(m.execs.map((exec) => exec.file)).toEqual([oldPython, newPython]);
+  });
+
+  it("does not warm the build daemon on a runtime with a kernel warning, and says so once", async () => {
+    const m = machine({ bundle: true });
+    const python = bundledPaths(m.resources, "darwin", "arm64").python;
+    let kernel: { ok: boolean; state: string; error: string | null } = { ok: false, state: "missing", error: "ModuleNotFoundError: No module named 'OCP'" };
+    (m.host as { exec: RuntimeHost["exec"] }).exec = async () => ({
+      stdout: `${JSON.stringify(doctorReport({ version: "9.9.9", viewer: true }, kernel))}\n`,
+      stderr: "",
+      code: 0,
+    });
+    const runtime = new CadRuntime(m.host);
+    expect(await runtime.daemonReady()).toBeNull();
+    expect(await runtime.daemonReady()).toBeNull();
+    // The viewer is still warmed on it.
+    expect((await runtime.ready())?.python).toBe(python);
+    await runtime.log("flush");
+    const skipped = fs.readFileSync(runtimeLogPath(m.userData), "utf8").split("\n").filter((line) => line.includes("[daemon] not warmed"));
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0]).toContain("CAD kernel missing");
+    kernel = { ok: true, state: "ok", error: null };
+    await runtime.repair();
+    expect((await runtime.daemonReady())?.python).toBe(python);
   });
 
   it("throws only when the old way fails too, in its words", async () => {
@@ -566,4 +666,14 @@ describe("execCommand", () => {
       expect(alive()).toBe(false);
     },
   );
+
+  it.skipIf(process.platform === "win32")("decodes a UTF-8 character split across two chunks as the character", async () => {
+    const script = path.join(tempDir("text-to-cad-utf8-"), "split");
+    // "€" is E2 82 AC; its bytes arrive in two writes, a pause apart.
+    fs.writeFileSync(script, "#!/bin/sh\nprintf '\\342\\202' >&2\nsleep 0.2\nprintf '\\254 ok\\n' >&2\n", { mode: 0o755 });
+    const lines: string[] = [];
+    const result = await execCommand(script, [], { env: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, onLine: (line) => lines.push(line) });
+    expect(result.stderr).toBe("€ ok\n");
+    expect(lines).toEqual(["€ ok"]);
+  });
 });

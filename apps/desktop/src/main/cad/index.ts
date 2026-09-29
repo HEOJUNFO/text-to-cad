@@ -59,7 +59,9 @@ export function viewerRoot(root: string): string {
  */
 export async function warmCad(root: string): Promise<void> {
   const viewer = viewers().originFor(viewerRoot(root));
-  const resolved = await cadRuntime().ready();
+  // Not on a runtime with a CAD kernel warning: the daemon imports OCP to
+  // start (`CadRuntime.daemonReady` logs why, once).
+  const resolved = await cadRuntime().daemonReady();
   if (resolved) {
     daemonWarmer().warm(resolved, root);
   }

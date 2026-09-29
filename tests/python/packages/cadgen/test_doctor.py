@@ -253,11 +253,27 @@ class KernelProbeTest(unittest.TestCase):
         with mock.patch("subprocess.run", side_effect=run):
             with mock.patch.dict("os.environ", {"CADGEN_DOCTOR_KERNEL_TIMEOUT": "90"}):
                 state, detail, _ = doctor._run_kernel_probe()
-            with mock.patch.dict("os.environ", {"CADGEN_DOCTOR_KERNEL_TIMEOUT": "nonsense"}):
-                doctor._run_kernel_probe()
-        self.assertEqual(seen, [90.0, 300.0])
-        self.assertEqual(state, doctor.KERNEL_FAILED)
+            for value in ("nonsense", "inf", "-inf", "nan", "0", "86400"):
+                with mock.patch.dict("os.environ", {"CADGEN_DOCTOR_KERNEL_TIMEOUT": value}):
+                    doctor._run_kernel_probe()
+        # Not a number, not finite, not positive: the default. Over an hour: an hour.
+        self.assertEqual(seen, [90.0, 300.0, 300.0, 300.0, 300.0, 300.0, 3600.0])
+        # A timeout says nothing about whether the kernel loads: its own state.
+        self.assertEqual(state, doctor.KERNEL_TIMEOUT)
         self.assertIn("TimeoutExpired", detail)
+
+    def test_a_timed_out_kernel_is_its_own_state_in_both_reports_and_still_exits_4(self) -> None:
+        import json
+
+        probe = (doctor.KERNEL_TIMEOUT, "TimeoutExpired: Command 'python' timed out after 90 seconds", None)
+        with mock.patch.object(doctor, "_run_kernel_probe", return_value=probe), TemporaryDirectory() as tmp:
+            code, out, _ = _run([tmp, "--json"])
+            text_code, _, err = _run([tmp])
+        report = json.loads(out)
+        self.assertEqual(report["kernel"], {"ok": False, "state": "timeout", "path": None, "error": probe[1]})
+        self.assertEqual((code, text_code), (4, 4))
+        self.assertIn("kernel   timed out", err)
+        self.assertNotIn("FAILED", err)
 
     def test_the_probe_tells_a_missing_kernel_from_a_refused_one(self) -> None:
         # The child interpreter's last stderr line is all the probe has. A

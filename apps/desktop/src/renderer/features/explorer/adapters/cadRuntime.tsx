@@ -196,7 +196,11 @@ const REASONS: Record<NonNullable<ViewerOrigin["reason"]>, string> = {
  */
 export function runtimeKernelNote(): string | null {
   const kernel = useRuntime.getState().status?.kernel;
-  return kernel ? `The CAD runtime's kernel is ${kernel.state}, which can stop a STEP build: ${kernel.message}` : null;
+  if (!kernel) return null;
+  // `timeout` is not a verdict on the kernel: the check did not finish.
+  return kernel.state === "timeout"
+    ? `The CAD runtime's kernel check did not finish (Repair in Settings › About checks again): ${kernel.message}`
+    : `The CAD runtime's kernel is ${kernel.state}, which can stop a STEP build: ${kernel.message}`;
 }
 
 /** The runtime log, shown in the file manager; main names the file. */

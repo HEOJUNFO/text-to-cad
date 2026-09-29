@@ -22,12 +22,14 @@ is reported as ``kernel   unsupported: <the check's words>`` (``--json``: state
 to read (the desktop app's runtime probe is one): ``version``, ``python``,
 ``install``, ``viewer`` (``{ok, error}``: whether ``cadgen.viewer`` imports),
 ``kernel`` (``{ok, state, path, error}``; ``state`` is ``ok``, ``missing``,
-``failed`` or ``unsupported`` -- OCP loads but cadgen's kernel check refuses
-it -- and ``ok`` is true only for ``ok``) and ``pin`` (``{state, file,
+``failed``, ``unsupported`` -- OCP loads but cadgen's kernel check refuses
+it -- or ``timeout`` -- the kernel interpreter did not answer in time, which
+says nothing about whether it loads -- and ``ok`` is true only for ``ok``) and ``pin`` (``{state, file,
 pinned}``; ``state`` is ``none``, ``unpinned``, ``ok`` or ``mismatch``). The
 exit code is the text report's.
-``CADGEN_DOCTOR_KERNEL_TIMEOUT`` (seconds, default 300) bounds the fresh
-kernel interpreter, for a caller that runs doctor under a deadline of its own.
+``CADGEN_DOCTOR_KERNEL_TIMEOUT`` (seconds, default 300, at most 3600) bounds
+the fresh kernel interpreter, for a caller that runs doctor under a deadline of
+its own. A timed-out kernel exits 4, as a failed one always has.
 
 Exit codes: 0 = installed cadgen matches the pin (or nothing claims a pin);
 3 = pin mismatch, the same code the shims used; 4 = the kernel is installed
@@ -113,6 +115,7 @@ KERNEL_OK = "ok"
 KERNEL_MISSING = "missing"
 KERNEL_FAILED = "failed"
 KERNEL_UNSUPPORTED = "unsupported"
+KERNEL_TIMEOUT = "timeout"
 
 # Run in the fresh interpreter. ``import OCP`` stays bare so a load that fails
 # or crashes reads exactly as it did; cadgen's own kernel check follows, with
@@ -135,18 +138,25 @@ print(json.dumps({{"path": OCP.__file__, "verify": verify}}))
 
 _KERNEL_TIMEOUT_ENV = "CADGEN_DOCTOR_KERNEL_TIMEOUT"
 _KERNEL_TIMEOUT_DEFAULT = 300.0
+_KERNEL_TIMEOUT_MAX = 3600.0
 
 
 def _kernel_timeout() -> float:
     """Seconds the fresh kernel interpreter may take: ``CADGEN_DOCTOR_KERNEL_TIMEOUT``
     when it is a positive number, else 300. A program that runs doctor under
     its own deadline sets it shorter, so the child is ended here, by
-    ``subprocess.run``, rather than orphaned when that program kills doctor."""
+    ``subprocess.run``, rather than orphaned when that program kills doctor.
+    Not finite (``inf``, ``nan``) or not positive is the default, and nothing
+    is longer than an hour: ``subprocess.run`` overflows on an infinite one."""
+    import math
+
     try:
         value = float(os.environ.get(_KERNEL_TIMEOUT_ENV, ""))
     except ValueError:
         return _KERNEL_TIMEOUT_DEFAULT
-    return value if value > 0 else _KERNEL_TIMEOUT_DEFAULT
+    if not math.isfinite(value) or value <= 0:
+        return _KERNEL_TIMEOUT_DEFAULT
+    return min(value, _KERNEL_TIMEOUT_MAX)
 
 
 def _run_kernel_probe() -> tuple[str, str, str | None]:
@@ -169,7 +179,11 @@ def _run_kernel_probe() -> tuple[str, str, str | None]:
             text=True,
             timeout=_kernel_timeout(),
         )
-    except (OSError, subprocess.TimeoutExpired) as error:
+    except subprocess.TimeoutExpired as error:
+        # Not a verdict on the kernel: a cold disk can take longer than the
+        # caller allowed. Its own state, so a caller can ask again.
+        return KERNEL_TIMEOUT, f"{type(error).__name__}: {error}", None
+    except OSError as error:
         return KERNEL_FAILED, f"{type(error).__name__}: {error}", None
     if result.returncode == 0:
         lines = [text for text in result.stdout.splitlines() if text.strip()]
@@ -257,7 +271,7 @@ def main(argv: list[str] | None = None, prog: str = "cadgen doctor") -> int:
     from cadgen._internal.kernel_load_hint import kernel_load_hint
 
     kernel_state, detail, verify = _run_kernel_probe()
-    kernel_loaded = kernel_state != KERNEL_FAILED
+    kernel_loaded = kernel_state not in (KERNEL_FAILED, KERNEL_TIMEOUT)
     if kernel_state == KERNEL_OK and verify is not None:
         # OCP loads, but cadgen's own kernel check refuses it: the same verdict
         # --json reports, and like a missing kernel not an exit-code failure.
@@ -271,6 +285,8 @@ def main(argv: list[str] | None = None, prog: str = "cadgen doctor") -> int:
             "  kernel   not installed — OCP is absent from this interpreter "
             "(python -m pip install -r requirements.txt puts it there)\n"
         )
+    elif kernel_state == KERNEL_TIMEOUT:
+        sys.stderr.write(f"  kernel   timed out — {detail}\n")
     else:
         sys.stderr.write(f"  kernel   FAILED — {detail}\n")
         for hint in kernel_load_hint(detail) or ():
@@ -349,7 +365,7 @@ def _main_json(target: str | None) -> int:
     sys.stdout.write(json.dumps(report) + "\n")
     if pin_state == "mismatch":
         return 3
-    return 4 if kernel["state"] == KERNEL_FAILED else 0
+    return 4 if kernel["state"] in (KERNEL_FAILED, KERNEL_TIMEOUT) else 0
 
 
 if __name__ == "__main__":

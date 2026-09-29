@@ -111,15 +111,18 @@ export function execCommand(file: string, args: string[], options: ExecOptions):
     let stderr = "";
     let timedOut = false;
     let settled = false;
-    const append = (current: string, chunk: Buffer | string) =>
-      current.length >= MAX_OUTPUT ? current : current + String(chunk);
+    const append = (current: string, chunk: string) => (current.length >= MAX_OUTPUT ? current : current + chunk);
+    // Decoded by the stream, not per chunk: a UTF-8 character split across
+    // two chunks would otherwise become two U+FFFDs in the interpreter's words.
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
     const onLine = options.onLine;
     let buffer = "";
-    const feed = (chunk: Buffer | string) => {
+    const feed = (chunk: string) => {
       if (!onLine) {
         return;
       }
-      buffer += String(chunk);
+      buffer += chunk;
       const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() ?? "";
       for (const line of lines) {
@@ -128,11 +131,11 @@ export function execCommand(file: string, args: string[], options: ExecOptions):
         }
       }
     };
-    child.stdout?.on("data", (chunk: Buffer) => {
+    child.stdout?.on("data", (chunk: string) => {
       stdout = append(stdout, chunk);
       feed(chunk);
     });
-    child.stderr?.on("data", (chunk: Buffer) => {
+    child.stderr?.on("data", (chunk: string) => {
       stderr = append(stderr, chunk);
       feed(chunk);
     });
@@ -399,6 +402,11 @@ function timedOut(what: string): Error {
   return new Error(`${what} did not answer within ${DOCTOR_TIMEOUT_MS / 1000} s`);
 }
 
+/** One probe per interpreter and the cadgen source it runs. */
+function probeKey(resolved: ResolvedPython): string {
+  return `${resolved.python}\0${resolved.env.PYTHONPATH ?? ""}`;
+}
+
 /** A probe that ran: cadgen imported, but the CAD kernel failed to load. */
 class KernelError extends Error {}
 
@@ -412,6 +420,8 @@ const HOST_PYTHON_ENV = ["PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONUSE
 
 export class CadRuntime {
   private probeCache = new Map<string, Promise<Probe>>();
+  /** Interpreters the daemon was not warmed on for their kernel, already logged. */
+  private daemonSkipped = new Set<string>();
   private lastError: string | null = null;
   /** Log writes, in order; `status()` waits for them so `log` names a file that exists. */
   private logQueue: Promise<void> = Promise.resolve();
@@ -557,6 +567,7 @@ export class CadRuntime {
   /** Drop what is known about an interpreter; the next `status()` probes again. */
   invalidate(): void {
     this.probeCache.clear();
+    this.daemonSkipped.clear();
   }
 
   /** Append to the runtime log. Best effort: a log that cannot be written is not worth a second error. */
@@ -574,7 +585,7 @@ export class CadRuntime {
   }
 
   private probe(resolved: ResolvedPython): Promise<Probe> {
-    const key = `${resolved.python}\0${resolved.env.PYTHONPATH ?? ""}`;
+    const key = probeKey(resolved);
     let pending = this.probeCache.get(key);
     if (!pending) {
       pending = (async () => {
@@ -623,8 +634,21 @@ export class CadRuntime {
         kernel: ok === true ? null : { state: named, message: typeof error === "string" && error ? error : `kernel ${named}` },
       };
     }
-    // No report: a doctor without `--json` or its `kernel`, or a cadgen with
-    // no `cadgen.cli` entry at all. Ask the old way; only its failure is ours.
+    // No usable report. Its words go to the log first, whatever happens next.
+    const words = lastLine(result);
+    void this.log(`[probe] ${python}: cadgen doctor --json gave no report: ${words}`);
+    // Only an OLDER cadgen is asked the old way: a doctor without `--json`
+    // (argparse refuses it), one whose report has no `kernel`, or a cadgen
+    // with no `cadgen.cli` entry at all. A doctor that crashed is not older —
+    // the old way would skip cadgen's kernel check and hide the crash — so
+    // that is the failure, in the doctor's words.
+    const older =
+      (report !== null && !kernel) ||
+      /unrecognized arguments: --json/.test(result.stderr) ||
+      /No module named '?cadgen\.cli(\.__main__)?(?![\w.])/.test(result.stderr);
+    if (!older) {
+      throw new Error(words);
+    }
     const fallback = await this.host.exec(python, ["-c", FALLBACK_PROBE_SCRIPT], { env, ...options });
     if (fallback.timedOut) {
       throw timedOut("python");
@@ -636,11 +660,13 @@ export class CadRuntime {
     if (!parsed || typeof parsed.version !== "string") {
       throw new Error("cadgen did not report a version");
     }
-    const words = typeof parsed.kernel === "string" && parsed.kernel ? parsed.kernel : null;
+    const kernelWords = typeof parsed.kernel === "string" && parsed.kernel ? parsed.kernel : null;
     return {
       version: parsed.version,
       viewer: Boolean(parsed.viewer),
-      kernel: words ? { state: words.startsWith("ModuleNotFoundError") ? "missing" : "failed", message: words } : null,
+      kernel: kernelWords
+        ? { state: kernelWords.startsWith("ModuleNotFoundError") ? "missing" : "failed", message: kernelWords }
+        : null,
     };
   }
 
@@ -713,6 +739,34 @@ export class CadRuntime {
    * probe that failed while the machine was busy, an override that has since
    * been corrected, or a bundle that was missing until the app was updated.
    */
+  /**
+   * The interpreter to warm the build daemon on: `ready()`'s, unless its CAD
+   * kernel carries a warning. The daemon imports OCP to start, so on such a
+   * runtime it would only fail — noisily, on every project open. The viewer
+   * is still warmed; this is said once per interpreter in the log.
+   */
+  async daemonReady(): Promise<ResolvedPython | null> {
+    const resolved = this.resolve();
+    if (!resolved) {
+      return null;
+    }
+    let probe: Probe;
+    try {
+      probe = await this.probe(resolved);
+    } catch {
+      return null;
+    }
+    if (!probe.kernel) {
+      return resolved;
+    }
+    const key = probeKey(resolved);
+    if (!this.daemonSkipped.has(key)) {
+      this.daemonSkipped.add(key);
+      void this.log(`[daemon] not warmed on ${resolved.python}: CAD kernel ${probe.kernel.state}: ${probe.kernel.message}`);
+    }
+    return null;
+  }
+
   async repair(): Promise<RuntimeStatus> {
     this.invalidate();
     return this.status();

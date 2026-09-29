@@ -251,6 +251,7 @@ function RuntimeCard({ appVersion }: { appVersion: string | null }) {
           // Ready, but a STEP build may fail: cadgen's own words for why.
           <p className="text-[11px] text-muted-foreground" data-runtime-kernel={status.kernel.state}>
             CAD kernel: {status.kernel.state}: <span data-selectable>{status.kernel.message}</span>
+            {status.kernel.state === "timeout" ? " It did not answer in time, which says nothing about whether it loads; Repair checks again." : null}
           </p>
         ) : null}
         {status?.log && (status.state !== "ready" || status.kernel) ? (

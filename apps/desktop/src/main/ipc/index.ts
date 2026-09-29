@@ -24,7 +24,7 @@ import { browserHandlers } from "./browser";
 import { dialogsHandlers } from "./dialogs";
 import { explorerHandlers, initExplorerServices, revealProjectDirectory } from "./explorer";
 import { gitHandlers } from "./git";
-import { runtimeHandlers } from "./runtime";
+import { refreshRuntimeAfterOverride, runtimeHandlers } from "./runtime";
 import { onboardingHandlers } from "./onboarding";
 import { skillsHandlers } from "./skills";
 import { IpcError, broadcast, registerIpc, type IpcContext } from "./register";
@@ -105,6 +105,10 @@ const handlers = {
       // now configured, instead of handing out a process the old one runs.
       if (previous.cadPythonOverride !== next.cadPythonOverride) {
         viewers().stopAll();
+        // And the status every window shows is the new interpreter's.
+        void refreshRuntimeAfterOverride().catch((error: unknown) => {
+          console.error("[runtime] status after the override changed:", error);
+        });
       }
       // The field's NAME, never its value: "someone changed the git mode" is a
       // product question, "to what" is their business (src/main/telemetry.ts).

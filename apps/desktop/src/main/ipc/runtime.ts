@@ -10,7 +10,7 @@
 import { existsSync } from "node:fs";
 import { app, shell } from "electron";
 import type { IpcHandlers } from "../../shared/ipc";
-import type { runtimeContract } from "../../shared/ipc/runtime";
+import type { RuntimeStatus, runtimeContract } from "../../shared/ipc/runtime";
 import { cadRuntime } from "../cad";
 import { runtimeLogPath } from "../cad/runtime";
 import { broadcast, type IpcContext } from "./register";
@@ -26,6 +26,19 @@ export const runtimeHandlers = {
     revealLog: () => revealRuntimeLog(),
   },
 } satisfies IpcHandlers<typeof runtimeContract, IpcContext>;
+
+/**
+ * The CAD interpreter override changed (`settings.set`): probe afresh and
+ * tell every window, so About and a CAD tab's build-failure note stop quoting
+ * the old interpreter's kernel. The probe cache is per interpreter, so a new
+ * path would probe anyway; forgetting all of it also re-asks an interpreter
+ * that was probed before and has changed since.
+ */
+export async function refreshRuntimeAfterOverride(): Promise<RuntimeStatus> {
+  const status = await cadRuntime().repair();
+  broadcast("runtime.status", status);
+  return status;
+}
 
 /** Reveals `userData/cad-runtime.log` when it exists; answers whether it did. */
 export function revealRuntimeLog(): { revealed: boolean } {

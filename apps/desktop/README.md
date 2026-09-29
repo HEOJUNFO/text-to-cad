@@ -1311,8 +1311,9 @@ cadgen's version against the app's, the viewer backend, the skills root
 every session is handed — and Repair, which forgets the probe and looks again.
 The probe is cadgen's own report, `python -m cadgen.cli doctor --json`, which
 runs cadgen's kernel check (the one the STEP path runs). A kernel that fails
-to load is *Failed*; one that is missing or that the check refuses is *Ready —
-CAD kernel: <state>* with the check's words beneath, because the viewer never
+to load is *Failed*; one that is missing, that the check refuses, or whose
+check did not finish in time (Repair asks again) is *Ready — CAD kernel:
+<state>* with the check's words beneath and no build daemon warmed on it, because the viewer never
 imports the kernel and GLB, STL and DXF still open — and a STEP build that
 fails then quotes those words in its recovery line.
 A CAD tab whose runtime did not start shows the interpreter's words, Try
