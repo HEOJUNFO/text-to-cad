@@ -104,7 +104,9 @@ not.
   (the stock band erases the letters it passes over), and `reasoning.tsx`'s
   `ReasoningContent` takes Streamdown `components`, so a thought draws links
   and images through the transcript's own (a stock thought fetches any
-  `https:` image on paint). Re-vendoring a component means redoing those.
+  `https:` image on paint), and its `Reasoning` does not auto-close one the
+  person opened or closed themselves. Re-vendoring a component means
+  redoing those.
 - **Nothing is installed into an agent's configuration.** text-to-cad's skills
   and its tools are given to each session — the skills root as an additional
   directory on `session/new` and `session/load` (both spellings) plus a

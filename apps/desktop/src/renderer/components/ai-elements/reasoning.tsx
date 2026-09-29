@@ -82,6 +82,9 @@ export const Reasoning = memo(
 
     const hasEverStreamedRef = useRef(isStreaming);
     const [hasAutoClosed, setHasAutoClosed] = useState(false);
+    // Set once the person opens or closes it: from then on it is theirs, and
+    // the auto-close below — meant for an auto-open — leaves it alone.
+    const userToggledRef = useRef(false);
     const startTimeRef = useRef<number | null>(null);
 
     // Track when streaming starts and compute duration
@@ -110,7 +113,8 @@ export const Reasoning = memo(
         hasEverStreamedRef.current &&
         !isStreaming &&
         isOpen &&
-        !hasAutoClosed
+        !hasAutoClosed &&
+        !userToggledRef.current
       ) {
         const timer = setTimeout(() => {
           setIsOpen(false);
@@ -123,6 +127,7 @@ export const Reasoning = memo(
 
     const handleOpenChange = useCallback(
       (newOpen: boolean) => {
+        userToggledRef.current = true;
         setIsOpen(newOpen);
       },
       [setIsOpen]

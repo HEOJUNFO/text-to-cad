@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
@@ -267,6 +267,32 @@ describe("transcript marks", () => {
     wrap(<ThoughtPart streaming={false} text="Consider the notes." />);
     const trigger = screen.getByRole("button", { name: /Thought/ });
     expect(trigger.firstElementChild).toHaveAttribute("data-thought-chevron");
+  });
+
+  /**
+   * The stock Reasoning closes itself a second after streaming ends — meant
+   * for the one it opened itself. A thought the person opened is theirs to
+   * close: it stays open when the streaming ends, and when they open one
+   * that has already finished.
+   */
+  it("leaves a thought the person opened open when it stops streaming", async () => {
+    vi.useFakeTimers();
+    try {
+      const { rerender } = wrap(<ThoughtPart streaming text="Consider the notes." />);
+      fireEvent.click(screen.getByRole("button", { name: /Thinking/ }));
+      expect(screen.getByText("Consider the notes.")).toBeInTheDocument();
+      rerender(
+        <TooltipProvider>
+          <ThoughtPart streaming={false} text="Consider the notes." />
+        </TooltipProvider>,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(screen.getByRole("button", { name: /Thought/ })).toHaveAttribute("aria-expanded", "true");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("marks a finished subagent with a check and a running one with its orb", () => {
