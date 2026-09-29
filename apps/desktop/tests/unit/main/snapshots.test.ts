@@ -242,6 +242,23 @@ describe("SessionSnapshotWriter", () => {
     expect(writer.read("s1")!.turns.at(-1)!.id).toBe("t49");
   });
 
+  /** Parked updates wait for a subagent spawn that will not arrive after a restart. */
+  it("stores no parked updates, and reads none back", () => {
+    const store = memoryStore();
+    const writer = new SessionSnapshotWriter({ store, schedule: manualSchedule().schedule });
+    const state: SessionState = {
+      ...stateWith([turn("t1", [])]),
+      parked: [{ acpSessionId: "child", update: { sessionUpdate: "agent_message_chunk" }, at: 1, bytes: 40 }],
+      parkedDropWarned: true,
+    };
+    writer.save("s1", state);
+    writer.flush("s1");
+    const stored = JSON.parse(store.rows.get("s1")!) as Record<string, unknown>;
+    expect(stored).not.toHaveProperty("parked");
+    expect(stored).not.toHaveProperty("parkedDropWarned");
+    expect(writer.read("s1")).not.toHaveProperty("parked");
+  });
+
   it("keeps one pending write per session", () => {
     const store = memoryStore();
     const timers = manualSchedule();
