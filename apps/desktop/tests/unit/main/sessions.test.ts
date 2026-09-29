@@ -1051,7 +1051,7 @@ describe("SessionManager", () => {
         .map((frame) => JSON.stringify(frame))
         .join("\n"),
     );
-    const { repo, manager, cwd } = await setup({
+    const { repo, broadcasts, manager, cwd } = await setup({
       launchOverride: () => ({ ...fakeProvider.launch, args: [FAKE_AGENT, "--fixture", fixture] }),
     });
     const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
@@ -1059,6 +1059,16 @@ describe("SessionManager", () => {
 
     await expect(manager.load(session.id)).rejects.toThrow(/cannot resume/);
     expect(repo.get(session.id)?.status).toBe("error");
+    // The renderer hears it where it listens, once, with the reason.
+    const errors = broadcasts.filter(
+      (b) =>
+        b.channel === "session.update" &&
+        (b.payload as { sessionId: string; event: { type: string; status?: string } }).sessionId === session.id &&
+        (b.payload as { event: { type: string; status?: string } }).event.type === "status" &&
+        (b.payload as { event: { status?: string } }).event.status === "error",
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.payload).toMatchObject({ event: { error: expect.stringMatching(/cannot resume/) } });
   });
 });
 

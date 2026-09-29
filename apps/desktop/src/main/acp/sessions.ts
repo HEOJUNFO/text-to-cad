@@ -636,9 +636,22 @@ export class SessionManager {
       // Out of the live set before it is closed: its `closed` is then a
       // detached connection's and dropped (`onEvent`), and the row keeps
       // the error.
+      const reported = connection.state.status === "error";
       this.live.delete(id);
       connection.close();
-      this.setStatus(id, "error");
+      const message = error instanceof Error ? error.message : String(error);
+      this.setStatus(id, "error", message);
+      // A failure the connection already put on `session.update` (an agent
+      // that answered session/load with an error, an adapter that died) has
+      // been heard; one that never reached it — no loadSession capability,
+      // an `initialize` that threw — is said here, where the renderer
+      // listens, so the state it holds does not keep the old status.
+      if (!reported && !this.shuttingDown) {
+        this.deps.broadcast("session.update", {
+          sessionId: id,
+          event: { type: "status", status: "error", error: message, at: Date.now() },
+        });
+      }
       throw error;
     } finally {
       replay.onReplayUpdate = undefined;
