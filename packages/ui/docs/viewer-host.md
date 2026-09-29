@@ -328,8 +328,8 @@ reaching the viewer (`network`), reading the file (`mesh`), a file with no geome
 (`empty`) or a live edit (`edit`). An action's `run` is called during the click — a
 prompt delivery binds its destination there — and the card shows the string it
 resolves to, or the error it rejects with; every action is disabled until it settles.
-An action returned `disabled` carries its `reason` as the button's accessible
-description; the card re-asks the host when its prompt destination changes, so a
+An action returned `disabled` stays focusable (`aria-disabled`, its click a no-op)
+and its `reason` is shown under the buttons as the button's `aria-describedby`; the card re-asks the host when its prompt destination changes, so a
 prompt action follows the destination's availability as `PromptContextAction` does.
 The web supplies none. The desktop says the CAD runtime reported a build error (or
 lost contact), keeps the card's words for the rest, and offers "Ask the agent to fix"

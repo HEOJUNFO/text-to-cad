@@ -63,7 +63,8 @@ it('an empty mesh and a failed edit reach the host with their own kind and file,
 it('a host action runs once while pending, and one the host marks unavailable is disabled with its reason', async () => {
   let settle!: (text: string) => void;
   const run = vi.fn(() => new Promise<string>(resolve => { settle = resolve; }));
-  const recover = () => ({ actions: [{ label: 'Ask the agent to fix', run }, { label: 'Elsewhere', disabled: true, reason: 'No chat.', run: vi.fn() }] });
+  const recoverRuns = { elsewhere: vi.fn() };
+  const recover = () => ({ actions: [{ label: 'Ask the agent to fix', run }, { label: 'Elsewhere', disabled: true, reason: 'No chat.', run: recoverRuns.elsewhere }] });
   render(<ViewerHostContext.Provider value={testHost({ loadFailures: { recover } })}>
     <ViewerAlertCard alert={compileFailure} hasContent={false} onReload={() => {}} />
   </ViewerHostContext.Provider>);
@@ -73,8 +74,16 @@ it('a host action runs once while pending, and one the host marks unavailable is
   expect(run).toHaveBeenCalledTimes(1);
   expect((ask as HTMLButtonElement).disabled).toBe(true);
   const elsewhere = screen.getByRole('button', { name: 'Elsewhere' }) as HTMLButtonElement;
-  expect(elsewhere.disabled).toBe(true);
-  expect(elsewhere.getAttribute('aria-description')).toBe('No chat.');
+  // Focusable, described by a reason anyone can read, and inert to a click.
+  expect(elsewhere.disabled).toBe(false);
+  expect(elsewhere.getAttribute('aria-disabled')).toBe('true');
+  expect(elsewhere.hasAttribute('aria-description')).toBe(false);
+  expect(elsewhere.hasAttribute('title')).toBe(false);
+  expect(document.getElementById(elsewhere.getAttribute('aria-describedby')!)!.textContent).toBe('No chat.');
+  elsewhere.focus();
+  expect(document.activeElement).toBe(elsewhere);
+  fireEvent.click(elsewhere);
+  expect(recoverRuns.elsewhere).not.toHaveBeenCalled();
   settle('Added to the prompt.');
   expect((await screen.findByRole('status')).textContent).toBe('Added to the prompt.');
   expect((ask as HTMLButtonElement).disabled).toBe(false);

@@ -1,4 +1,4 @@
-import { useContext, useRef, useState, useSyncExternalStore } from "react";
+import { useContext, useId, useRef, useState, useSyncExternalStore } from "react";
 import { CircleAlert, X } from "lucide-react";
 import { Button } from "@text-to-cad/ui/primitives/button";
 import { ScrollArea } from "@text-to-cad/ui/primitives/scroll-area";
@@ -47,6 +47,7 @@ export default function ViewerAlertCard({ alert, hasContent, onReload }) {
   const [outcome, setOutcome] = useState({ key: "", text: "" });
   const [pending, setPending] = useState(false);
   const running = useRef(false);
+  const reasonId = useId();
   // A host's actions may depend on its prompt destination (a chat that went away): the card
   // re-asks the host whenever that destination changes, as PromptContextAction does.
   const destination = host?.promptContext || NO_DESTINATION;
@@ -64,7 +65,7 @@ export default function ViewerAlertCard({ alert, hasContent, onReload }) {
   const actions = recovered?.actions || [];
   // One action at a time: a second click cannot deliver the diagnostic twice.
   const run = (action) => {
-    if (running.current) return;
+    if (running.current || action.disabled) return;
     running.current = true;
     setPending(true);
     let result;
@@ -114,14 +115,21 @@ export default function ViewerAlertCard({ alert, hasContent, onReload }) {
                     Try again
                   </Button>
                 ) : null}
-                {actions.map(action => (
+                {actions.map((action, index) => (
+                  // An unavailable action stays focusable (`aria-disabled`, its click a no-op) so its
+                  // reason, shown under the buttons, is its description for every reader.
                   <Button key={action.label} type="button" variant="outline" size="sm" onClick={() => run(action)}
-                    disabled={pending || Boolean(action.disabled)} aria-description={action.disabled ? action.reason : undefined}>
+                    disabled={pending && !action.disabled}
+                    aria-disabled={action.disabled ? "true" : undefined}
+                    aria-describedby={action.disabled && action.reason ? `${reasonId}-${index}` : undefined}
+                    className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50">
                     {action.label}
                   </Button>
                 ))}
               </div>
             ) : null}
+            {actions.map((action, index) => action.disabled && action.reason
+              ? <p key={action.label} id={`${reasonId}-${index}`} className="break-words text-xs">{action.reason}</p> : null)}
             {outcome.key === key && outcome.text ? <p role="status" className="break-words text-xs">{outcome.text}</p> : null}
           </div>
         </ScrollArea>

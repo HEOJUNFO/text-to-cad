@@ -30,7 +30,8 @@ export interface ViewerLoadFailure {
 /**
  * One extra button on the card. `run` is called during the click; a string it resolves to is
  * shown as its outcome, and the card's actions stay disabled until it settles. `disabled` with a
- * `reason` (the button's accessible description) is how an action says it cannot run now — for a
+ * `reason` is how an action says it cannot run now: the button stays focusable (`aria-disabled`)
+ * and the reason is shown under it as its description — for a
  * prompt delivery, the host's destination state; the card re-asks when that state changes.
  */
 export interface ViewerLoadFailureAction { label: string; disabled?: boolean; reason?: string; run(): void | Promise<string | void> }
