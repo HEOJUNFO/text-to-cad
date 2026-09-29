@@ -16,7 +16,13 @@
  *
  * The layout is the same for every agent (plan §9):
  *
- *     ~/.text-to-cad/worktrees/<project-name>/<slug>
+ *     ~/.text-to-cad/worktrees/<project-name>-<hash>/<slug>
+ *
+ * `<hash>` is eight hex digits of the project's path: `~/work/robot-arm` and
+ * `~/forks/robot-arm` are two projects and get two folders. Builds before the
+ * hash used `<project-name>` alone; those folders are still listed and
+ * accepted, but only for worktrees git says belong to the project's own
+ * repository (`legacyProjectWorktreeDir`).
  *
  * with the branch `text-to-cad/<slug>`. Both the root and the prefix are
  * settings. The slug comes from the session's first prompt when there is one,
@@ -29,7 +35,8 @@
  * threads by cwd, so a worktree is what makes a text-to-cad session resumable
  * from a terminal later.
  */
-import { realpathSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -56,16 +63,45 @@ export function worktreeRoot(settings: Pick<Settings, "worktreeRoot">): string {
   return settings.worktreeRoot ?? path.join(os.homedir(), ".text-to-cad", "worktrees");
 }
 
-/** `<root>/<project>` — one folder per project, whichever agent made it. */
+/** The readable half of a project's worktree folder name. */
+function projectSlug(project: Pick<Project, "name" | "path">): string {
+  // Directory descriptors derive their name from the basename. Existing
+  // session worktree paths remain authoritative if an older build used a
+  // custom project name for this folder.
+  return git.slugify(project.name) || git.slugify(path.basename(project.path)) || "project";
+}
+
+/**
+ * `<root>/<project>-<hash>` — one folder per project, whichever agent made
+ * it. The hash is of the project's path, so two projects that share a
+ * basename never share a folder. New worktrees are always created here.
+ */
 export function projectWorktreeDir(
   settings: Pick<Settings, "worktreeRoot">,
   project: Pick<Project, "name" | "path">,
 ): string {
-  // Directory descriptors derive their name from the basename. Existing
-  // session worktree paths remain authoritative if an older build used a
-  // custom project name for this folder.
-  const name = git.slugify(project.name) || git.slugify(path.basename(project.path)) || "project";
-  return path.join(worktreeRoot(settings), name);
+  const hash = createHash("sha256").update(path.resolve(project.path)).digest("hex").slice(0, 8);
+  return path.join(worktreeRoot(settings), `${projectSlug(project)}-${hash}`);
+}
+
+/**
+ * `<root>/<project>` — the folder builds before the hash created. Every
+ * same-named project maps to it, so being under it proves nothing on its
+ * own: callers also check that git lists the worktree as the project's.
+ */
+export function legacyProjectWorktreeDir(
+  settings: Pick<Settings, "worktreeRoot">,
+  project: Pick<Project, "name" | "path">,
+): string {
+  return path.join(worktreeRoot(settings), projectSlug(project));
+}
+
+/** Both folders a project's generated worktrees can be in: current first. */
+export function projectWorktreeDirs(
+  settings: Pick<Settings, "worktreeRoot">,
+  project: Pick<Project, "name" | "path">,
+): string[] {
+  return [projectWorktreeDir(settings, project), legacyProjectWorktreeDir(settings, project)];
 }
 
 /**
@@ -85,10 +121,60 @@ export function rootBelongsToProject(
   candidate: string,
 ): boolean {
   const requested = realDirectory(candidate);
-  return (
-    isProjectDirectory(project, candidate) ||
-    git.isUnder(realDirectory(projectWorktreeDir(settings, project)), requested)
-  );
+  if (isProjectDirectory(project, candidate) ||
+      git.isUnder(realDirectory(projectWorktreeDir(settings, project)), requested)) {
+    return true;
+  }
+  // The pre-hash folder is shared by every project with this name: a
+  // directory there is this project's only when its worktree is one of this
+  // repository's.
+  const legacy = realDirectory(legacyProjectWorktreeDir(settings, project));
+  if (!git.isUnder(legacy, requested)) {
+    return false;
+  }
+  const top = path.relative(legacy, requested).split(path.sep)[0] ?? "";
+  return worktreeOfRepository(path.join(legacy, top), project.path);
+}
+
+/**
+ * Is `worktree` a linked worktree of the repository at `repository`? Read off
+ * the `.git` files (`gitdir: <common>/worktrees/<name>`), synchronously, so
+ * `rootBelongsToProject` can stay a plain predicate.
+ */
+function worktreeOfRepository(worktree: string, repository: string): boolean {
+  const linked = gitDirOf(worktree);
+  const common = commonGitDir(repository);
+  if (!linked || !common) {
+    return false;
+  }
+  return git.isUnder(path.join(common, "worktrees"), linked);
+}
+
+/** `<dir>/.git` as a directory, or the `gitdir:` a `.git` file names; realpath'd. */
+function gitDirOf(directory: string): string | null {
+  const dotGit = path.join(directory, ".git");
+  try {
+    if (statSync(dotGit).isDirectory()) {
+      return realpathSync(dotGit);
+    }
+    const named = /^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, "utf8"))?.[1]?.trim();
+    return named ? realpathSync(path.resolve(directory, named)) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The repository's shared git directory — through `commondir` when it is itself a linked worktree. */
+function commonGitDir(repository: string): string | null {
+  const own = gitDirOf(repository);
+  if (!own) {
+    return null;
+  }
+  try {
+    return realpathSync(path.resolve(own, readFileSync(path.join(own, "commondir"), "utf8").trim()));
+  } catch {
+    return own;
+  }
 }
 
 /**

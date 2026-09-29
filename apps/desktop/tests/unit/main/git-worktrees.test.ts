@@ -238,6 +238,33 @@ describe("createWorktree", () => {
     expect(third.branch).toBe("text-to-cad/wrist-4");
   });
 
+  it("with fetch, starts from the fetched upstream rather than local HEAD, and tracks nothing", async () => {
+    const { root, worktrees } = await repository();
+    const remote = path.join(path.dirname(root), "remote.git");
+    await git_(path.dirname(root), "init", "--quiet", "--bare", remote);
+    await git_(root, "remote", "add", "origin", remote);
+    await git_(root, "push", "--quiet", "-u", "origin", "main");
+    // Someone else pushes a commit the checkout has not seen.
+    const other = path.join(path.dirname(root), "other");
+    await git_(path.dirname(root), "clone", "--quiet", remote, other);
+    await writeFile(path.join(other, "theirs.txt"), "new\n");
+    await git_(other, "add", "-A");
+    await git_(other, "commit", "--quiet", "-m", "theirs");
+    await git_(other, "push", "--quiet", "origin", "main");
+    const serverTip = (await git_(other, "rev-parse", "HEAD")).stdout.trim();
+
+    const created = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "fresh", fetch: true });
+    expect(created.base).toBe(serverTip);
+    expect(await readdir(created.path)).toContain("theirs.txt");
+    // Local HEAD is untouched, and the new branch does not track main.
+    expect(await git.head(root)).not.toBe(serverTip);
+    await expect(git_(created.path, "rev-parse", "--abbrev-ref", "@{upstream}")).rejects.toThrow();
+
+    // Without fetch it is still local HEAD.
+    const local = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "local" });
+    expect(local.base).toBe(await git.head(root));
+  });
+
   it("refuses a directory that is not a repository, in words a person can act on", async () => {
     const plain = await scratch("text-to-cad-plain-");
     await expect(
@@ -277,6 +304,31 @@ describe("removeWorktree", () => {
     expect(await git.listWorktrees(root)).toHaveLength(2);
 
     await git.removeWorktree(created.path, { force: true });
+    expect(await git.listWorktrees(root)).toHaveLength(1);
+  });
+
+  it("refuses ignored files it would delete unless forced, but not disposable caches", async () => {
+    const { root, worktrees } = await repository();
+    await writeFile(path.join(root, ".gitignore"), ".env\n*.step\nnode_modules/\n__pycache__/\n");
+    await git_(root, "add", "-A");
+    await git_(root, "commit", "--quiet", "-m", "ignore");
+
+    const caches = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "caches" });
+    await mkdir(path.join(caches.path, "node_modules", "left-pad"), { recursive: true });
+    await writeFile(path.join(caches.path, "node_modules", "left-pad", "index.js"), "x\n");
+    await mkdir(path.join(caches.path, "__pycache__"));
+    await writeFile(path.join(caches.path, "__pycache__", "a.pyc"), "x");
+    await git.removeWorktree(caches.path);
+
+    const work = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "work" });
+    await writeFile(path.join(work.path, ".env"), "TOKEN=1\n");
+    await writeFile(path.join(work.path, "arm.step"), "ISO-10303-21;\n");
+    expect(await git.isDirty(work.path)).toBe(false);
+    expect(await git.hasUnsavedWork(work.path)).toBe(true);
+    await expect(git.removeWorktree(work.path)).rejects.toThrow(/ignored files.*\.env/);
+    expect(await readdir(work.path)).toContain(".env");
+
+    await git.removeWorktree(work.path, { force: true });
     expect(await git.listWorktrees(root)).toHaveLength(1);
   });
 
@@ -335,6 +387,19 @@ describe("pruneWorktrees", () => {
     expect(removed).toEqual([spare.path]);
     const left = (await git.listWorktrees(root)).filter((worktree) => !worktree.primary);
     expect(left.map((worktree) => worktree.path).sort()).toEqual([busy.path, held.path].sort());
+  });
+
+  it("never sweeps a worktree whose ignored files it would delete", async () => {
+    const { root, worktrees } = await repository();
+    await writeFile(path.join(root, ".gitignore"), ".env\n");
+    await git_(root, "add", "-A");
+    await git_(root, "commit", "--quiet", "-m", "ignore");
+    const secrets = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "secrets" });
+    await writeFile(path.join(secrets.path, ".env"), "TOKEN=1\n");
+
+    const { removed } = await git.pruneWorktrees({ repoPath: root, parentDir: worktrees, keep: 0 });
+    expect(removed).toEqual([]);
+    expect(await readdir(secrets.path)).toContain(".env");
   });
 });
 

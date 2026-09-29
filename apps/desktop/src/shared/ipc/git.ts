@@ -136,7 +136,19 @@ const InProject = z.object({
    */
   sessionId: z.string().optional(),
 });
-const AtPath = InProject.extend({ path: z.string() });
+/**
+ * A repository-relative path: never absolute, never climbing out with `..`.
+ * Main resolves it again against the repository after realpath; this is the
+ * first lock on the same door.
+ */
+const RepositoryPath = z
+  .string()
+  .min(1)
+  .refine(
+    (value) => !value.includes("\0") && !/^(?:[\\/]|[A-Za-z]:)/.test(value) && !value.split(/[\\/]/).includes(".."),
+    { message: "path must be relative to the repository" },
+  );
+const AtPath = InProject.extend({ path: RepositoryPath });
 
 export const gitIpc = {
   git: {

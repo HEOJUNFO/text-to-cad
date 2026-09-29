@@ -92,7 +92,7 @@ export function GitPage() {
         />
         <SwitchRow
           checked={settings.fetchBeforeCreate}
-          description="Fetch the remote before branching, so a new worktree starts from what is on the server."
+          description="Fetch the remote before branching, and start a new worktree from the current branch's upstream (or the default branch when it has none). Without a connection it starts from where the checkout is."
           keywords="pull remote origin"
           onChange={(fetchBeforeCreate) => patch({ fetchBeforeCreate })}
           title="Fetch before creating"
@@ -239,7 +239,7 @@ function ProjectWorktreeCard({ project }: { project: Project }) {
                 size="sm"
                 title={
                   worktree.dirty
-                    ? "This worktree has uncommitted changes"
+                    ? "This worktree has uncommitted changes or ignored files (like .env) that deleting it would lose"
                     : worktree.openSessions > 0
                       ? "A session is still open in this worktree"
                       : undefined
@@ -307,7 +307,7 @@ function describe(worktree: Worktree): string {
     );
   }
   if (worktree.dirty) {
-    parts.push("uncommitted changes");
+    parts.push("uncommitted or ignored files");
   }
   return parts.join(" · ");
 }

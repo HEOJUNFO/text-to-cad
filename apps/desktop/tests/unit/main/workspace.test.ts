@@ -15,6 +15,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  legacyProjectWorktreeDir,
   projectWorktreeDir,
   releaseWorkspace,
   resolveProjectRoot,
@@ -81,15 +82,49 @@ describe("worktreeRoot", () => {
     expect(worktreeRoot({ worktreeRoot: "/tmp/wt" })).toBe("/tmp/wt");
   });
 
-  it("names the per-project folder by a slug, so a rename cannot move it far", () => {
+  it("names the per-project folder by a slug and a hash of the path", () => {
     const settings = { worktreeRoot: "/wt" };
     expect(
       projectWorktreeDir(settings, { name: "Robot arm (v2)", path: "/src/robot-arm" }),
-    ).toBe(path.join("/wt", "robot-arm-v2"));
+    ).toMatch(new RegExp(`^${path.join("/wt", "robot-arm-v2")}-[0-9a-f]{8}$`));
     // A name with nothing usable in it falls back to the directory's basename.
-    expect(projectWorktreeDir(settings, { name: "…", path: "/src/robot-arm" })).toBe(
-      path.join("/wt", "robot-arm"),
+    expect(projectWorktreeDir(settings, { name: "…", path: "/src/robot-arm" })).toMatch(
+      new RegExp(`^${path.join("/wt", "robot-arm")}-[0-9a-f]{8}$`),
     );
+    expect(legacyProjectWorktreeDir(settings, { name: "…", path: "/src/robot-arm" })).toBe(path.join("/wt", "robot-arm"));
+  });
+
+  it("gives two projects with the same name two folders", () => {
+    const settings = { worktreeRoot: "/wt" };
+    const work = projectWorktreeDir(settings, { name: "robot-arm", path: "/work/robot-arm" });
+    const forks = projectWorktreeDir(settings, { name: "robot-arm", path: "/forks/robot-arm" });
+    expect(work).not.toBe(forks);
+    expect(rootBelongsToProject(settings, { name: "robot-arm", path: "/forks/robot-arm" }, path.join(work, "slug"))).toBe(false);
+  });
+
+  it("accepts a pre-hash folder's worktree only for the repository it belongs to", async () => {
+    const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "text-to-cad-legacy-")));
+    temporary.push(base);
+    const settings = { worktreeRoot: path.join(base, "worktrees") };
+    const projects = [path.join(base, "work", "robot-arm"), path.join(base, "forks", "robot-arm")].map((root) => ({
+      name: "robot-arm",
+      path: root,
+    }));
+    for (const project of projects) {
+      await mkdir(project.path, { recursive: true });
+      await run("git", ["init", "--quiet", "--initial-branch=main"], { cwd: project.path, env: GIT_ENV });
+      await writeFile(path.join(project.path, "README.md"), "one\n");
+      await run("git", ["add", "-A"], { cwd: project.path, env: GIT_ENV });
+      await run("git", ["commit", "--quiet", "-m", "first"], { cwd: project.path, env: GIT_ENV });
+    }
+    const [mine, theirs] = projects as [(typeof projects)[0], (typeof projects)[0]];
+    const legacy = path.join(legacyProjectWorktreeDir(settings, mine), "wrist");
+    await run("git", ["worktree", "add", "--quiet", "-b", "text-to-cad/wrist", legacy], { cwd: mine.path, env: GIT_ENV });
+
+    expect(rootBelongsToProject(settings, mine, legacy)).toBe(true);
+    expect(rootBelongsToProject(settings, mine, path.join(legacy, "sub"))).toBe(true);
+    expect(rootBelongsToProject(settings, theirs, legacy)).toBe(false);
+    expect(() => resolveProjectRoot(settings, theirs, legacy)).toThrow("does not belong to this project");
   });
 });
 
@@ -125,11 +160,9 @@ describe("resolveWorkspace", () => {
       name: "Model the wrist path",
     });
 
-    const expected = path.join(
-      settings.worktreeRoot!,
-      "text-to-cad",
-      "model-the-wrist-path",
-    );
+    // New worktrees go in the hashed folder, never the shared pre-hash one.
+    const expected = path.join(projectWorktreeDir(settings, project), "model-the-wrist-path");
+    expect(path.basename(path.dirname(expected))).toMatch(/^text-to-cad-[0-9a-f]{8}$/);
     expect(workspace).toEqual({
       cwd: expected,
       branch: "text-to-cad/model-the-wrist-path",

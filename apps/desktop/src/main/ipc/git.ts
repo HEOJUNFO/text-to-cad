@@ -24,7 +24,7 @@ import path from "node:path";
 import { projects, sessions, settings } from "../db/repositories";
 import { loginEnv } from "../agents/shell-env";
 import * as git from "../projects/git";
-import { projectWorktreeDir } from "../projects/workspace";
+import { projectWorktreeDir, projectWorktreeDirs } from "../projects/workspace";
 import type { IpcHandlers } from "../../shared/ipc";
 import type { gitIpc, Worktree } from "../../shared/ipc/git";
 import { resolveDiffScope } from "../../shared/types";
@@ -63,10 +63,23 @@ function sessionOf(projectId: string, sessionId: string | undefined): Session | 
   return session;
 }
 
-/** The working directory a request is answered for. */
+/**
+ * The working directory a request is answered for.
+ *
+ * A session id that names no session of this project is refused, never
+ * answered in the project's checkout: a review tab left open on a deleted
+ * worktree session would otherwise commit — and push — its `Commit` into the
+ * main checkout.
+ */
 function cwdFor(request: { projectId: string; sessionId?: string }): string {
-  const session = sessionOf(request.projectId, request.sessionId);
-  return session?.cwd ?? rootOf(request.projectId);
+  if (request.sessionId) {
+    const session = sessionOf(request.projectId, request.sessionId);
+    if (!session) {
+      throw new IpcError("that session is no longer open");
+    }
+    return session.cwd;
+  }
+  return rootOf(request.projectId);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -82,12 +95,14 @@ function cwdFor(request: { projectId: string; sessionId?: string }): string {
  */
 async function worktreesOf(project: Project): Promise<Worktree[]> {
   const fs = await import("node:fs/promises");
-  const parent = projectWorktreeDir(settings.get(), project);
+  const parents = projectWorktreeDirs(settings.get(), project);
   const open = sessions.list(project.id);
 
   const rows: Worktree[] = [];
+  // Listed by the project's own repository, so a worktree in the shared
+  // pre-hash folder shows here only when it is this project's.
   for (const worktree of await git.listWorktrees(project.path)) {
-    if (worktree.primary || (!git.isUnder(parent, worktree.path) &&
+    if (worktree.primary || (!parents.some((parent) => git.isUnder(parent, worktree.path)) &&
         !open.some(session => session.worktreePath && git.samePath(session.worktreePath, worktree.path)))) {
       continue;
     }
@@ -97,7 +112,8 @@ async function worktreesOf(project: Project): Promise<Worktree[]> {
       branch: worktree.branch,
       lastUsedAt: stat ? Math.round(stat.mtimeMs) : null,
       openSessions: open.filter((session) => git.samePath(session.cwd, worktree.path)).length,
-      dirty: await git.isDirty(worktree.path),
+      // Ignored files count: removing the worktree would delete them too.
+      dirty: await git.hasUnsavedWork(worktree.path),
       locked: worktree.locked,
     });
   }
@@ -120,7 +136,7 @@ export async function pruneProjectWorktrees(project: Project): Promise<void> {
   await git
     .pruneWorktrees({
       repoPath: project.path,
-      parentDir: projectWorktreeDir(stored, project),
+      parentDir: projectWorktreeDirs(stored, project),
       keep: stored.worktreeKeepLimit,
       protectedPaths: sessions.list(project.id).map((session) => session.cwd),
     })
@@ -138,9 +154,10 @@ export const gitHandlers = {
         const project = projectOf(projectId);
         const info = await git.repoInfo(project.path);
         const parent = projectWorktreeDir(settings.get(), project);
+        const parents = projectWorktreeDirs(settings.get(), project);
         const worktrees = info.isRepository
           ? (await git.listWorktrees(project.path)).filter(
-              (worktree) => !worktree.primary && (git.isUnder(parent, worktree.path) ||
+              (worktree) => !worktree.primary && (parents.some((dir) => git.isUnder(dir, worktree.path)) ||
                 sessions.list(project.id).some(session => session.worktreePath && git.samePath(session.worktreePath, worktree.path))),
             )
           : [];
@@ -215,13 +232,30 @@ export const gitHandlers = {
     removeWorktree: ({ projectId, path: target, force }) =>
       fsCall(async () => {
         const project = projectOf(projectId);
-        const parent = projectWorktreeDir(settings.get(), project);
+        const requested = path.resolve(target);
+        const parents = projectWorktreeDirs(settings.get(), project);
         const recorded = sessions.list(project.id).some(session =>
-          session.worktreePath && git.samePath(session.worktreePath, target));
-        if (!git.isUnder(parent, path.resolve(target)) && !recorded) {
+          session.worktreePath && git.samePath(session.worktreePath, requested));
+        // Under one of the project's folders (or recorded by one of its
+        // sessions) AND a linked worktree of the project's own repository: the
+        // pre-hash folder is shared by every same-named project, so the folder
+        // alone does not say whose it is.
+        const own = (await git.listWorktrees(project.path)).some(worktree =>
+          !worktree.primary && git.samePath(worktree.path, requested));
+        if (!own || (!parents.some((parent) => git.isUnder(parent, requested)) && !recorded)) {
           throw new IpcError("that worktree does not belong to this project");
         }
-        await git.removeWorktree(target, force === undefined ? {} : { force });
+        // Not even forced: pulling the directory out from under a session
+        // leaves an agent running in a folder that no longer exists.
+        const using = sessions.list().filter(session =>
+          git.samePath(session.cwd, requested) || git.isUnder(requested, session.cwd) ||
+          (session.worktreePath !== undefined && git.samePath(session.worktreePath, requested)));
+        if (using.length > 0) {
+          throw new IpcError(
+            `${using.length} session${using.length === 1 ? " is" : "s are"} still using that worktree`,
+          );
+        }
+        await git.removeWorktree(requested, force === undefined ? {} : { force });
       }),
   },
 } satisfies IpcHandlers<typeof gitIpc, IpcContext>;

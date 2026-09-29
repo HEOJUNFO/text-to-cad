@@ -24,6 +24,7 @@ import { execa, type Options } from "execa";
 
 import { diffScopeFor, ReviewScopeSchema } from "../../shared/types";
 import { trackChild, type ChildKind, type Trackable } from "../children";
+import { resolveInRoot } from "../explorer/fs";
 
 /* -------------------------------------------------------------------------- */
 /* Types                                                                       */
@@ -171,6 +172,51 @@ async function gitNoIndex(
     return null;
   }
   return typeof result.stdout === "string" ? result.stdout : null;
+}
+
+/**
+ * A review path is renderer input: repository-relative, never absolute, never
+ * climbing. Refused lexically, before git or the file system is asked
+ * anything about it.
+ */
+function assertRepositoryPath(filePath: string): void {
+  if (
+    filePath === "" ||
+    filePath.includes("\0") ||
+    path.isAbsolute(filePath) ||
+    path.win32.isAbsolute(filePath) ||
+    filePath.split(/[\\/]/).includes("..")
+  ) {
+    throw new GitError("that path is outside the repository");
+  }
+}
+
+/**
+ * Where a repository-relative file is on disk, refused when any directory on
+ * the way resolves outside the repository (`resolveInRoot`, after realpath).
+ *
+ * The file itself is not followed: a symlink is shown as its link text, the
+ * way git stores and diffs it, so an untracked `creds -> ~/.aws/credentials`
+ * reviews as a one-line path rather than as the credentials.
+ */
+async function pathInRepository(root: string, filePath: string): Promise<string> {
+  assertRepositoryPath(filePath);
+  const directory = await resolveInRoot(root, path.dirname(filePath)).catch(() => {
+    throw new GitError("that path is outside the repository");
+  });
+  return path.join(directory, path.basename(filePath));
+}
+
+/** A working-tree file's bytes, or a symlink's link text; null when it is gone. */
+async function readWorkingBytes(absolute: string): Promise<Buffer | null> {
+  const stat = await fsp.lstat(absolute).catch(() => null);
+  if (!stat) {
+    return null;
+  }
+  if (stat.isSymbolicLink()) {
+    return Buffer.from(await fsp.readlink(absolute).catch(() => ""));
+  }
+  return stat.isFile() ? fsp.readFile(absolute).catch(() => null) : null;
 }
 
 /** The repository root containing `cwd`, or null when there is none. */
@@ -433,8 +479,8 @@ async function workingTreeFiles(
  * count, and "binary" is the same NUL-byte test git itself uses.
  */
 async function countUntracked(root: string, filePath: string) {
-  const fs = await import("node:fs/promises");
-  const buffer = await fs.readFile(path.join(root, filePath)).catch(() => null);
+  const absolute = await pathInRepository(root, filePath).catch(() => null);
+  const buffer = absolute ? await readWorkingBytes(absolute) : null;
   if (!buffer) {
     return { insertions: 0, deletions: 0, binary: false };
   }
@@ -610,10 +656,12 @@ export async function fileDiff(
   requested: DiffScope = { kind: "working-tree" },
 ): Promise<FileDiff> {
   assertSafeScope(requested);
+  assertRepositoryPath(filePath);
   const root = await repositoryRoot(cwd);
   if (!root) {
     throw new GitError("not a git repository");
   }
+  const absolute = await pathInRepository(root, filePath);
   const scope = await unmarkedOrRefuse(root, requested);
 
   // Scoped to the one path. Asking `status()` for the metadata instead would
@@ -639,7 +687,7 @@ export async function fileDiff(
         // revision: "since this turn began" has to show the edit the agent
         // has not committed, which is every edit it just made.
         scope.kind === "working-tree" || openEnded(scope)
-        ? await readWorkingCopy(root, filePath)
+        ? await readWorkingCopy(absolute)
         : ((await tryGit(root, ["show", "--end-of-options", `${scopeTip(scope)}:${filePath}`])) ?? "");
 
   return { ...meta, before, after };
@@ -679,9 +727,8 @@ function scopeTip(scope: DiffScope): string {
   return scope.kind === "range" && scope.to ? scope.to : "HEAD";
 }
 
-async function readWorkingCopy(root: string, filePath: string): Promise<string> {
-  const fs = await import("node:fs/promises");
-  return fs.readFile(path.join(root, filePath), "utf8").catch(() => "");
+async function readWorkingCopy(absolute: string): Promise<string> {
+  return (await readWorkingBytes(absolute))?.toString("utf8") ?? "";
 }
 
 /**
@@ -694,10 +741,12 @@ export async function unifiedDiff(
   requested: DiffScope = { kind: "working-tree" },
 ): Promise<string> {
   assertSafeScope(requested);
+  assertRepositoryPath(filePath);
   const root = await repositoryRoot(cwd);
   if (!root) {
     throw new GitError("not a git repository");
   }
+  await pathInRepository(root, filePath);
   const scope = await unmarkedOrRefuse(root, requested);
   const base = await baseRevision(root, scope);
   const args = ["diff", "-M", "--patch", "--end-of-options"];
@@ -929,6 +978,61 @@ export async function isDirty(cwd: string): Promise<boolean> {
   return (porcelain ?? "").split("\0").some((record) => record !== "");
 }
 
+/**
+ * Ignored paths that are only ever a rebuild away, so removing a worktree
+ * with them in it loses nothing: dependency installs, virtualenvs and
+ * interpreter/tool caches. Anything else ignored — `.env`, generated STEP and
+ * GLB files, local config — is somebody's work, and `git worktree remove`
+ * deletes it without a word. Kept short on purpose: a name missing from here
+ * only means a worktree is kept that could have gone.
+ */
+export const DISPOSABLE_IGNORED = new Set([
+  "node_modules",
+  ".venv",
+  "venv",
+  "__pycache__",
+  ".pytest_cache",
+  ".mypy_cache",
+  ".ruff_cache",
+  ".DS_Store",
+]);
+
+function disposable(ignoredPath: string): boolean {
+  return (
+    ignoredPath.replace(/\/$/, "").split("/").some((segment) => DISPOSABLE_IGNORED.has(segment)) ||
+    ignoredPath.endsWith(".pyc")
+  );
+}
+
+/**
+ * Ignored files in `cwd` that removing the worktree would delete, minus the
+ * disposable caches above. `--ignored=matching` names an ignored directory
+ * once rather than every file in it.
+ */
+export async function ignoredFiles(cwd: string): Promise<string[]> {
+  const porcelain = await tryGit(cwd, [
+    "status",
+    "--porcelain=v1",
+    "-z",
+    "--ignored=matching",
+    "--untracked-files=all",
+  ]);
+  return (porcelain ?? "")
+    .split("\0")
+    .filter((record) => record.startsWith("!! "))
+    .map((record) => record.slice(3))
+    .filter((ignoredPath) => ignoredPath !== "" && !disposable(ignoredPath));
+}
+
+/**
+ * Anything removing a worktree would lose: uncommitted changes, or ignored
+ * files that are not a disposable cache. What the sweep and a non-forced
+ * `removeWorktree` refuse on, and what Settings shows as "dirty".
+ */
+export async function hasUnsavedWork(cwd: string): Promise<boolean> {
+  return (await isDirty(cwd)) || (await ignoredFiles(cwd)).length > 0;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Slugs                                                                       */
 /* -------------------------------------------------------------------------- */
@@ -1056,9 +1160,14 @@ export type CreateWorktreeOptions = {
   name?: string;
   /** From settings; `text-to-cad/` by default. */
   branchPrefix?: string;
-  /** From settings: fetch the remote first, so the branch starts from the server. */
+  /**
+   * From settings: fetch the remote first, and branch from the current
+   * branch's upstream (or the remote's default branch when it has none) so
+   * the worktree starts from the server. HEAD when neither exists or the
+   * fetch fails.
+   */
   fetch?: boolean;
-  /** What to branch from. Defaults to HEAD. */
+  /** What to branch from. Defaults to HEAD, or the fetched remote branch with `fetch`. */
   base?: string;
 };
 
@@ -1090,27 +1199,49 @@ export async function createWorktree(options: CreateWorktreeOptions): Promise<Cr
     throw new GitError("This repository has no commits yet, so there is nothing to branch from");
   }
 
-  if (options.fetch) {
+  let fetched: string | null = null;
+  if (options.fetch && options.base === undefined) {
     // Best-effort: a laptop on a plane must still get a worktree. The branch
     // then starts from what the checkout already has, which is what the user
     // would get by hand.
-    await tryGit(root, ["fetch", "--quiet", "--prune"]);
+    if ((await tryGit(root, ["fetch", "--quiet", "--prune"])) !== null) {
+      fetched = await remoteBase(root);
+    }
   }
 
   const prefix = options.branchPrefix ?? "text-to-cad/";
   const stem = slugify(options.name ?? "") || generatedName();
-  const base = options.base ?? "HEAD";
+  const base = options.base ?? fetched ?? "HEAD";
 
   const { directory, branch } = await uniqueName(root, options.parentDir, prefix, stem);
 
   await fsp.mkdir(options.parentDir, { recursive: true });
-  await git(root, ["worktree", "add", "-b", branch, directory, base]);
+  // `--no-track`: a branch cut from `origin/main` would otherwise track it,
+  // and the review's `Push` would then aim at main instead of its own name.
+  await git(root, ["worktree", "add", "--no-track", "-b", branch, directory, base]);
 
   return {
     path: path.normalize(directory),
     branch,
     base: (await head(directory)) ?? base,
   };
+}
+
+/**
+ * What a fetched worktree branches from: the current branch's upstream, else
+ * the remote's default branch, as a commit id — or null to use HEAD.
+ */
+async function remoteBase(root: string): Promise<string | null> {
+  const upstream = await tryGit(root, ["rev-parse", "--verify", "--quiet", "@{upstream}^{commit}"]);
+  if (upstream?.trim()) {
+    return upstream.trim();
+  }
+  const fallback = await defaultBranchOf(root);
+  if (!fallback) {
+    return null;
+  }
+  const remote = await tryGit(root, ["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${fallback}^{commit}`]);
+  return remote?.trim() || null;
 }
 
 /** `session-4f2c`: enough to tell two nameless threads apart, short enough to read. */
@@ -1150,8 +1281,9 @@ async function uniqueName(
 /**
  * Remove a worktree's directory and git's registration of it.
  *
- * Uncommitted work is refused rather than discarded: `git worktree remove`
- * takes a `--force` that deletes it, and a button in a settings page is not
+ * Uncommitted work is refused rather than discarded — and so are ignored
+ * files outside the disposable caches (`.env`, generated STEP/GLB), which
+ * `git worktree remove` deletes even unforced. `--force` deletes both, and a button in a settings page is not
  * where someone decides to lose an afternoon. The branch is left behind —
  * deleting a checkout is reversible, deleting the commits on it is not.
  */
@@ -1175,6 +1307,13 @@ export async function removeWorktree(
   if (!options.force && (await isDirty(worktreePath))) {
     throw new GitError("that worktree has uncommitted changes");
   }
+  if (!options.force) {
+    const ignored = await ignoredFiles(worktreePath);
+    if (ignored.length > 0) {
+      const named = ignored.slice(0, 3).join(", ") + (ignored.length > 3 ? `, and ${ignored.length - 3} more` : "");
+      throw new GitError(`that worktree has ignored files that removing it would delete: ${named}`);
+    }
+  }
   await git(root, ["worktree", "remove", ...(options.force ? ["--force"] : []), worktreePath]);
 }
 
@@ -1188,8 +1327,8 @@ export function samePath(left: string, right: string): boolean {
 
 export type PruneOptions = {
   repoPath: string;
-  /** Only worktrees under here are considered: never one the user made. */
-  parentDir: string;
+  /** Only worktrees under here (or any of these) are considered: never one the user made. */
+  parentDir: string | readonly string[];
   /** How many survive. */
   keep: number;
   /** Worktrees with an open session — never swept. */
@@ -1201,17 +1340,19 @@ export type PruneOptions = {
  *
  * Three things are never removed, and each is a separate promise to the user:
  * a worktree text-to-cad did not create (outside `parentDir`), one a session is
- * still open on, and one with uncommitted changes. An automatic sweep that
+ * still open on, and one with uncommitted changes or ignored files that are
+ * not a disposable cache (`hasUnsavedWork`). An automatic sweep that
  * could throw work away would make the setting unusable, so it is only ever
  * allowed to remove what the branch can recreate.
  */
 export async function pruneWorktrees(options: PruneOptions): Promise<{ removed: string[] }> {
   const worktrees = await listWorktrees(options.repoPath);
   const kept = options.protectedPaths ?? [];
+  const parents = typeof options.parentDir === "string" ? [options.parentDir] : options.parentDir;
 
   const candidates: { path: string; usedAt: number }[] = [];
   for (const worktree of worktrees) {
-    if (worktree.primary || worktree.locked || !isUnder(options.parentDir, worktree.path)) {
+    if (worktree.primary || worktree.locked || !parents.some((parent) => isUnder(parent, worktree.path))) {
       continue;
     }
     if (kept.some((protectedPath) => samePath(protectedPath, worktree.path))) {
@@ -1226,7 +1367,8 @@ export async function pruneWorktrees(options: PruneOptions): Promise<{ removed: 
 
   const removed: string[] = [];
   for (const candidate of candidates.slice(Math.max(0, options.keep))) {
-    if (await isDirty(candidate.path)) {
+    // Ignored files count as work here: `git worktree remove` deletes them.
+    if (await hasUnsavedWork(candidate.path)) {
       continue;
     }
     await removeWorktree(candidate.path).then(

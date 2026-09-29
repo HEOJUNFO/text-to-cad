@@ -38,12 +38,16 @@ vi.mock("@main/db/repositories", () => ({
   explorerTabs: {},
 }));
 import { revealProjectDirectory, rootOf } from "@main/ipc/explorer";
+import { projectWorktreeDir } from "@main/projects/workspace";
+
+/** The project's worktree folder: `<root>/demo-<hash of its path>`. */
+const worktreeFolder = () => projectWorktreeDir({ worktreeRoot: fixture.worktrees }, { name: "demo", path: fixture.project });
 
 beforeAll(async () => {
   fixture.root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "reveal-")));
   fixture.project = path.join(fixture.root, "demo");
   fixture.worktrees = path.join(fixture.root, "worktrees");
-  await fs.mkdir(path.join(fixture.worktrees, "demo", "feature"), { recursive: true });
+  await fs.mkdir(path.join(worktreeFolder(), "feature"), { recursive: true });
   await fs.mkdir(path.join(fixture.root, "elsewhere"), { recursive: true });
   await fs.mkdir(fixture.project, { recursive: true });
 });
@@ -52,12 +56,12 @@ beforeEach(() => { showItemInFolder.mockClear(); fixture.sessions = []; });
 
 test("reveals the project, its worktree and its worktree folder", () => {
   revealProjectDirectory({ projectId: "project" });
-  revealProjectDirectory({ projectId: "project", root: path.join(fixture.worktrees, "demo", "feature") });
+  revealProjectDirectory({ projectId: "project", root: path.join(worktreeFolder(), "feature") });
   revealProjectDirectory({ projectId: "project", worktrees: true });
   expect(showItemInFolder.mock.calls.map(([target]) => target)).toEqual([
     fixture.project,
-    path.join(fixture.worktrees, "demo", "feature"),
-    path.join(fixture.worktrees, "demo"),
+    path.join(worktreeFolder(), "feature"),
+    worktreeFolder(),
   ]);
 });
 
