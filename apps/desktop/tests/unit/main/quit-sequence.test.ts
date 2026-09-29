@@ -298,7 +298,7 @@ describe("quit sequence", () => {
     // The kill's own rejection, rethrown untouched: the failed turn reads
     // and writes nothing on its way out.
     expect(outcome).toBeInstanceOf(Error);
-    expect(String(outcome)).toMatch(/session\/prompt/);
+    expect(String(outcome)).toMatch(/exited during the turn/);
     expect(String(outcome)).not.toMatch(/closeDb/);
     expect(late).toEqual([]);
 
