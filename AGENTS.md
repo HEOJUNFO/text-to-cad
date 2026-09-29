@@ -47,9 +47,10 @@ in development too — install `requirements-dev.txt`, never a skill's
 `models/` stays on `main` as LFS pointers (`.lfsconfig` excludes it from
 default fetches; `.gitattributes` export-ignores it from archives); nothing
 installs it. `scripts/github-workflows/check-builds.sh` enforces the shipping
-contract on every push: no tracked symlink, no LFS path under `skills/`, no
-skill reaching into a repo root. See the Releases section in `CONTRIBUTING.md`
-for the full flow, the resume path, the rehearsal, and local/manual fallbacks.
+contract on every push: no tracked symlink, no LFS path under `skills/` or
+`apps/desktop/resources/`, no skill reaching into a repo root. See the Releases
+section in `CONTRIBUTING.md` for the full flow, the resume path, the rehearsal,
+and local/manual fallbacks.
 
 ## Repo Map
 

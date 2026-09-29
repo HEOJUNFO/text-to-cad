@@ -469,8 +469,9 @@ on every push:
   one loses data silently: the Skills CLI dereferences them, Claude Code
   preserves them, and Codex `plugin add` drops them with no error at all,
   publishing a skill whose files are simply missing at runtime.
-- **No LFS-tracked path under `skills/`.** Installers clone without git-lfs and
-  receive pointer files. `models/` and `assets/` stay LFS: nothing installs
+- **No LFS-tracked path under `skills/` or `apps/desktop/resources/`.** Installers
+  clone without git-lfs and receive pointer files, and the desktop app packages
+  its resources as they are checked out. `models/` and `assets/` stay LFS: nothing installs
   them, `.lfsconfig` excludes them from default fetches (a fresh clone is ~27 MB
   with `models/` as pointers), and `.gitattributes` export-ignores `models/`
   from archives.

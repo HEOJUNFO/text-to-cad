@@ -123,9 +123,10 @@ where those files ship, so these scripts are what produces them.
 `github-workflows/` — scripts a workflow runs whole.
 
 - `check-builds.sh [--skip-bundle-check]` — the shipping contract: no tracked
-  symlink anywhere, no LFS path under `skills/`, no skill reaching into a repo
-  root; then `bundle.sh --check` unless the workflow already bundled; then every
-  path `cadgen-runtime.sh --print-outputs` names exists and holds no symlink.
+  symlink anywhere, no LFS path under `skills/` or `apps/desktop/resources/`, no
+  skill reaching into a repo root; then `bundle.sh --check` unless the workflow
+  already bundled; then every path `cadgen-runtime.sh --print-outputs` names
+  exists and holds no symlink.
   Called by `test.yml`, `release-publish.yml`, the pre-commit hook path. The
   no-symlink rule is load-bearing: Codex `plugin add` drops symlinks silently.
 - `deploy-vercel-app.sh` — deploys one Vercel project to production and verifies
