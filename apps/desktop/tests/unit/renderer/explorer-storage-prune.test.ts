@@ -57,3 +57,22 @@ it("a session list without a session prunes what that session left", async () =>
   expect(Object.keys(stored(TABS))).toEqual(["tab-archived"]);
   expect(Object.keys(stored("text-to-cad.explorer.session.width"))).toEqual(["archived"]);
 });
+
+it("a session made before the list has loaded prunes nothing: the others are not missing, only not here yet", async () => {
+  await firstRun("kept", "tab-kept");
+
+  vi.resetModules();
+  const { useSessions } = await import("@renderer/state/sessions");
+  const { useAcp } = await import("@renderer/state/acp");
+  expect(useSessions.getState().ready).toBe(false);
+  Object.assign(window.textToCad.sessions, { create: vi.fn(async () => (
+    { id: "fresh", archived: false, projectId: "project", cwd: "/tmp/project", title: "", createdAt: 0, updatedAt: 0 }
+  )) });
+  await useAcp.getState().create({ projectId: "project", agentId: "claude" } as never);
+
+  expect(Object.keys(stored(TABS))).toEqual(["tab-kept"]);
+  expect(Object.keys(stored("text-to-cad.explorer.session.width"))).toEqual(["kept"]);
+  expect(useSessions.getState().sessions.map((session) => session.id)).toEqual(["fresh"]);
+  // Still not the list: whatever waits for it keeps waiting.
+  expect(useSessions.getState().ready).toBe(false);
+});

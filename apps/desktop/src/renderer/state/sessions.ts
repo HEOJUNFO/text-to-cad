@@ -33,7 +33,17 @@ type SessionsState = {
   /** Move the row into the sidebar's `Pinned` section, or back to its project. */
   setPinned: (id: string, pinned: boolean) => Promise<void>;
   remove: (id: string) => Promise<void>;
+  /**
+   * Main's whole list — `load`, and every `sessions.changed`. Only this
+   * list says a session is gone, so only this prunes what one left behind.
+   */
   receive: (sessions: Session[]) => void;
+  /**
+   * One row this renderer just made, ahead of the `sessions.changed` that
+   * brings it. Not the list: before `load` has answered, the rows beside it
+   * are simply not here yet, and nothing is pruned for their absence.
+   */
+  adopt: (session: Session) => void;
   /**
    * Start a thread and select it (plan §9).
    *
@@ -125,6 +135,14 @@ export const useSessions = create<SessionsState>((set, get) => ({
     set({ sessions, ready: true, activeId });
   },
 
+  adopt: (session) => {
+    const current = get().sessions;
+    if (current.some(item => item.id === session.id)) return;
+    const sessions = [...current, session];
+    useProjects.getState().derive(sessions);
+    set({ sessions });
+  },
+
   start: async (input, options) => {
     const agentId = input.agentId ?? defaultAgentId();
     if (!agentId) {
@@ -137,8 +155,7 @@ export const useSessions = create<SessionsState>((set, get) => ({
       ...(input.cwd ? { cwd: input.cwd } : {}),
       ...(input.name ? { name: input.name } : {}),
     });
-    const sessions = get().sessions;
-    if (!sessions.some(item => item.id === session.id)) get().receive([...sessions, session]);
+    get().adopt(session);
     if (options?.select !== false) get().select(session.id);
     return session;
   },
