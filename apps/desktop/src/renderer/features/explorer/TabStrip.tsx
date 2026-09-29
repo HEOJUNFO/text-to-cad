@@ -368,8 +368,8 @@ export function TabStrip() {
 }
 
 /**
- * One tab. The whole chip is the `tab` — the focus stop, the selection, the
- * drag handle — and the close button inside it is reachable by pointer and by
+ * One tab. The chip is the drag handle; the `tab` in it is the focus stop and
+ * the selection, and the close button beside it is reachable by pointer and by
  * `Delete`, never by Tab: a strip of eight tabs is one Tab stop, not sixteen.
  */
 function TabButton({
@@ -402,13 +402,15 @@ function TabButton({
   const title = tabTitle(tab);
 
   return (
+    // The chip: drawn, dragged and middle-clicked as one. It is not the tab — a tab holds no
+    // other control (nested-interactive) — so the tab and its close button are siblings in it.
     <div
       className={cn(
-        "group/tab relative flex h-7 max-w-[190px] shrink-0 cursor-default items-center gap-1.5 rounded-lg border pr-1 pl-2 text-[13px] outline-none transition-colors",
+        "group/tab relative flex h-7 max-w-[190px] shrink-0 cursor-default items-center rounded-lg border pr-1 text-[13px] transition-colors",
         // Inset: the strip scrolls (overflow-x-auto), which clips anything drawn outside
         // the chip, and an offset ring came through as four bracket fragments.
-        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-        "data-[focus-handed]:ring-2 data-[focus-handed]:ring-ring data-[focus-handed]:ring-inset",
+        "has-[[role=tab]:focus-visible]:ring-2 has-[[role=tab]:focus-visible]:ring-ring has-[[role=tab]:focus-visible]:ring-inset",
+        "has-[[data-focus-handed]]:ring-2 has-[[data-focus-handed]]:ring-ring has-[[data-focus-handed]]:ring-inset",
         active
           ? "border-border bg-accent/80 font-medium text-accent-foreground shadow-xs"
           : "border-transparent text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -417,12 +419,7 @@ function TabButton({
         // tabs: a strip whose tabs jump around under the cursor is hard to aim.
         dropBefore && "before:absolute before:inset-y-1 before:-left-0.5 before:w-0.5 before:rounded-full before:bg-primary",
       )}
-      // Only the selected tab names the panel: the one body shows its content.
-      aria-controls={active ? EXPLORER_TABPANEL_ID : undefined}
-      aria-selected={active}
-      data-tab={tab.id}
       draggable
-      id={explorerTabDomId(tab.id)}
       onClick={onSelect}
       onDragEnd={onDragEnd}
       onDragOver={(event) => {
@@ -433,10 +430,6 @@ function TabButton({
         event.dataTransfer.effectAllowed = "move";
         onDragStart();
       }}
-      onFocus={(event) => {
-        if (event.target === event.currentTarget) onFocus();
-      }}
-      onKeyDown={onKeyDown}
       // Middle-click closes, as it does in every tabbed thing.
       onPointerDown={(event) => {
         if (event.button === 1) {
@@ -444,22 +437,36 @@ function TabButton({
           onClose();
         }
       }}
-      role="tab"
-      tabIndex={focusable ? 0 : -1}
-      title={tab.kind === "file" && tab.path ? tab.path : title}
+      role="none"
     >
-      {/* The label mirrors `aria-selected` only because tests/e2e/shell.spec.ts
-          reads the selection as `[role=tab] [aria-selected=true]` (a
-          descendant); the tab above is the element that states it. */}
-      <span aria-selected={active} className="flex min-w-0 items-center gap-1.5">
+      <div
+        // Only the selected tab names the panel: the one body shows its content.
+        aria-controls={active ? EXPLORER_TABPANEL_ID : undefined}
+        // The keyboard's close, since the button beside it is the pointer's.
+        aria-keyshortcuts="Delete"
+        aria-selected={active}
+        className="peer flex h-full min-w-0 flex-1 items-center gap-1.5 pl-2 outline-none"
+        data-tab={tab.id}
+        id={explorerTabDomId(tab.id)}
+        onFocus={(event) => {
+          if (event.target === event.currentTarget) onFocus();
+        }}
+        onKeyDown={onKeyDown}
+        role="tab"
+        tabIndex={focusable ? 0 : -1}
+        title={tab.kind === "file" && tab.path ? tab.path : title}
+      >
         <TabIcon className="size-3.5 shrink-0" tab={tab} />
         <span className="truncate">{title}</span>
-      </span>
+      </div>
+      {/* Out of the Tab order and out of the accessibility tree: Delete on the tab is its
+          keyboard twin, and a button a screen reader could reach would be a second stop per tab. */}
       <button
+        aria-hidden
         aria-label={`Close ${title}`}
         className={cn(
           "flex size-5 shrink-0 items-center justify-center rounded-md outline-none transition-opacity hover:bg-background/70",
-          active ? "opacity-60 hover:opacity-100" : "opacity-0 group-hover/tab:opacity-100 group-focus-visible/tab:opacity-100",
+          active ? "opacity-60 hover:opacity-100" : "opacity-0 group-hover/tab:opacity-100 peer-focus-visible:opacity-100",
         )}
         onClick={(event) => {
           // Closing is not also a click on the tab behind it.

@@ -20,6 +20,9 @@ beforeEach(() => {
   });
 });
 
+// Hidden from the accessibility tree (Delete is the keyboard's close), so found by its label.
+const closeButton = (title: string) => document.querySelector<HTMLElement>(`button[aria-label="Close ${title}"]`)!;
+
 const strip = () => render(<TooltipProvider><TabStrip /></TooltipProvider>);
 
 it("is one Tab stop: the selected tab, with its close button out of the Tab order", () => {
@@ -29,7 +32,18 @@ it("is one Tab stop: the selected tab, with its close button out of the Tab orde
   expect(tabs[1]).toHaveAttribute("aria-selected", "true");
   expect(tabs[1]).toHaveAttribute("aria-controls", EXPLORER_TABPANEL_ID);
   expect(tabs[0]).not.toHaveAttribute("aria-controls");
-  expect(screen.getByRole("button", { name: "Close b.md" })).toHaveAttribute("tabindex", "-1");
+  expect(closeButton("b.md")).toHaveAttribute("tabindex", "-1");
+});
+
+it("states the selection on the tab itself, and keeps its close button outside the tab (no nested interactive)", () => {
+  strip();
+  expect(document.querySelectorAll("[role=tab] [aria-selected]")).toHaveLength(0);
+  expect(document.querySelectorAll("[role=tab] button")).toHaveLength(0);
+  // The pointer's close is a sibling hidden from the accessibility tree: Delete is the keyboard's.
+  const close = closeButton("b.md");
+  expect(close.closest("[role=tab]")).toBeNull();
+  expect(close).toHaveAttribute("aria-hidden", "true");
+  expect(screen.getByRole("tab", { name: /b\.md/ })).toHaveAttribute("aria-keyshortcuts", "Delete");
 });
 
 it("moves focus with the arrows, Home and End, and selects only on Enter", async () => {
@@ -79,7 +93,7 @@ it("closing the last tab on Delete hands focus to New tab, not to the page", asy
 it("closing a tab with its close button hands focus to the tab selected next, not to the page", async () => {
   const user = userEvent.setup();
   strip();
-  await user.click(screen.getByRole("button", { name: "Close b.md" }));
+  await user.click(closeButton("b.md"));
   expect(useExplorer.getState().tabs.map((candidate) => candidate.id)).toEqual(["a", "c"]);
   const selected = useExplorer.getState().activeId!;
   await waitFor(() => expect(document.querySelector(`[data-tab="${selected}"]`)).toHaveFocus());
@@ -118,7 +132,7 @@ it("Cmd+W marks the tab it hands focus to, so the strip draws its ring; a click'
   act(() => (tab as HTMLElement).blur());
   expect(tab).not.toHaveAttribute("data-focus-handed");
 
-  await user.click(screen.getAllByRole("button", { name: /^Close / })[0]!);
+  await user.click(document.querySelector<HTMLElement>('button[aria-label^="Close "]')!);
   await waitFor(() => expect(document.activeElement).not.toBe(document.body));
   expect(document.querySelector("[data-focus-handed]")).toBeNull();
 });
