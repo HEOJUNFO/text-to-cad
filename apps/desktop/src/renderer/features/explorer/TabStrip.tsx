@@ -21,6 +21,7 @@ import type { ExplorerTab, ExplorerTabKind } from "@shared/types";
 import { FileIcon } from "@text-to-cad/ui/navigation";
 
 import { EXPLORER_TABPANEL_ID, focusTabBody } from "./focus";
+import { preloadTerminal } from "./load-terminal";
 
 /**
  * The one strip. No bottom panel (plan §3).
@@ -352,6 +353,7 @@ export function TabStrip() {
             <DropdownMenuContent align="end" className="w-48">
               {KINDS.map(({ kind, label, shortcut }) => (
                 <DropdownMenuItem key={kind} onSelect={() => {
+                  if (kind === "terminal") preloadTerminal();
                   const opened = open(kind);
                   if (opened) focusTabBody(opened.id);
                 }}>
