@@ -13,11 +13,14 @@ test('titled composer attachments preserve revisions, deduplicate deliveries and
   assert.equal((await composer.port.deliver(context)).status, 'added');
   await composer.port.deliver(context);
   assert.equal(updates.length, 1);
-  assert.equal(updates[0][0]._meta?.['openai/title'], 'Bracket · Face 3');
+  assert.equal(updates[0][0]._meta?.['openai/title'], 'bracket.step · Bracket · Face 3');
+  assert.ok((updates[0][0] as { text: string }).text.startsWith('bracket.step · Bracket · Face 3\n'));
   assert.match((updates[0][0] as { text: string }).text, /\/project\/parts\/bracket.step#f3\nDocument revision: sha256:a/);
   composer.syncHostContext({ 'openai/modelContext': null });
   await composer.port.deliver(createPromptContext([reference], 'after-removal'));
   assert.equal(updates[1].length, 1);
+  await composer.port.deliver(createPromptContext([{ ...reference, reference: { ...reference.reference, label: undefined } }], 'unnamed-reference'));
+  assert.equal(updates[2][1]._meta?.['openai/title'], 'bracket.step#f3', 'unlabeled references show filename and selection instead of a full path');
 });
 test('capture freezes composer revision and rejects changes before delivery', async () => {
   let resolve!: (blob: Blob) => void;

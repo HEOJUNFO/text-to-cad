@@ -285,17 +285,17 @@ and web stay consistent without host-specific copies of those controls.
 
 ### Compact navigation
 
-The web viewer has one navigation row. The shaded blue C mark (20px) sits before
+The web viewer has one navigation row. The full shaded blue CAD logo (24px tall) sits before
 breadcrumbs, including while loading or with no file open. Browser titles use
 "CAD | <filename>", or "CAD" when no file is selected. At the right
-end, the version/update dropdown comes first, then the renderer's snapshot action,
-and Show files. The dropdown contains release
+end, the version/update dropdown comes first, then Show files. The snapshot
+camera follows the renderer's bottom selection actions. The dropdown contains release
 instructions, release notes, GitHub and Discord. Appearance is injected as an icon-bearing dropdown beside Projection in
 the Display panel's Display section, below the full-width Mode selector. The original animated mark remains the shared LoadingIcon for loading states. `ViewerBrand`, `ViewerLinks` and `ViewerAppearance` stay web-owned;
 App composes `FileNavRow` around the document viewer, supplies its
 `navigationTargets` for renderer actions and status, and injects appearance
 through the renderer's `displayActions` slot.
-The web logo and favicons are generated alongside the docs brand assets, with no
+The web logo and compact C favicons are generated alongside the docs brand assets, with no
 runtime dependency between apps. See [the brand recipe](../../scripts/brand/README.md).
 
 The web camera action copies only the viewport PNG through guarded

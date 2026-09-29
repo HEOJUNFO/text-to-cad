@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Box, Pin, RefreshCw, Search, X } from 'lucide-react';
-import cadLogo from './assets/logo-c.svg';
+import cadLogo from './assets/logo-cad.png';
 import { filterRecentModels, type RecentLibrary, type RecentModel } from './library';
 function Thumbnail({ item, library }: { item: RecentModel; library: RecentLibrary }) {
   const element = useRef<HTMLDivElement>(null);
@@ -33,7 +33,8 @@ export default function RecentHome({ library, nativeOpenAvailable, onOpen }: {
     refresh(); window.addEventListener('focus', refresh); document.addEventListener('visibilitychange', visible);
     return () => { alive.current = false; window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', visible); };
   }, [library]);
-  const items = filterRecentModels(state.items, query);
+  const searchQuery = state.items.length ? query : '';
+  const items = filterRecentModels(state.items, searchQuery);
   const open = async (item: RecentModel) => {
     if (opening) return;
     setOpening(item.id); setOpenError('');
@@ -42,16 +43,12 @@ export default function RecentHome({ library, nativeOpenAvailable, onOpen }: {
     finally { if (alive.current) setOpening(null); }
   };
   return <main className="cad-library">
-    <header className="cad-library-heading"><div><h1>Recent models</h1><p>Files viewed with CAD, across your folders.</p></div>
-      <div className="cad-library-tools"><label className="cad-library-search"><Search size={15} aria-hidden="true" /><input type="search" aria-label="Search recent models" placeholder="Search models" value={query} onChange={event => setQuery(event.target.value)} /></label><button className="cad-library-refresh" aria-label="Refresh recent models" disabled={state.loading} onClick={() => void library.refresh().catch(() => {})}><RefreshCw size={14} aria-hidden="true" />Refresh</button></div>
+    <header className="cad-library-heading"><div className="cad-library-title"><img className="cad-library-logo" src={cadLogo} alt="CAD" width={1202} height={512} /><h1>Recent models</h1></div>
+      <div className="cad-library-tools">{state.items.length > 0 && <label className="cad-library-search"><Search size={15} aria-hidden="true" /><input type="search" aria-label="Search recent models" placeholder="Search models" value={query} onChange={event => setQuery(event.target.value)} /></label>}<button className="cad-library-refresh" aria-label="Refresh recent models" disabled={state.loading} onClick={() => void library.refresh().catch(() => {})}><RefreshCw size={14} aria-hidden="true" />Refresh</button></div>
     </header>
     {(state.error || openError) && <div className="cad-library-error" role="alert"><p>{openError || state.error}</p>{state.error && <button onClick={() => void library.refresh().catch(() => {})}>Try again</button>}</div>}
     {state.loading && !state.items.length ? <p className="cad-library-empty" role="status">Loading recent models…</p> : !items.length ? <section className="cad-library-empty">
-      {!query && <img className="cad-library-logo" src={cadLogo} alt="CAD" width={64} height={64} />}
-      <h2>{query ? 'No matching models' : 'Your models will appear here'}</h2>
-      {!query && <p>Give your agent CAD superpowers.</p>}
-      <p>{query ? 'Search by filename or folder.' : 'Open a STEP, STL, GLB or 3MF file and choose CAD. Viewed models are remembered here.'}</p>
-      {!query && <p>To create a part, ask the composer: “Create an L-bracket with two mounting holes.”</p>}
+      <p>{searchQuery ? 'No matching models.' : 'Open a CAD file to see it here.'}</p>
     </section> : <div className="cad-recent-grid">{items.map(item => <article key={item.id} className="cad-recent-item">
       <button className="cad-recent-open" disabled={item.missing || Boolean(opening)} aria-label={`${nativeOpenAvailable ? 'Open' : 'Preview'} ${item.name}${nativeOpenAvailable ? '' : ' here'}`} onClick={() => void open(item)}>
         <Thumbnail item={item} library={library} /><span className="cad-recent-name">{item.name}</span><span className="cad-recent-folder">{item.rootPath}</span>
@@ -60,6 +57,5 @@ export default function RecentHome({ library, nativeOpenAvailable, onOpen }: {
       <div className="cad-recent-actions"><button aria-label={`${item.pinned ? 'Unpin' : 'Pin'} ${item.name}`} aria-pressed={item.pinned} disabled={state.pending.includes(item.id)} onClick={() => void library.pin(item).catch(() => {})}><Pin size={14} /></button>
         <button aria-label={`Remove ${item.name} from recents`} disabled={state.pending.includes(item.id)} onClick={() => void library.remove(item).catch(() => {})}><X size={14} /></button></div>
     </article>)}</div>}
-    <footer className="cad-library-footnote">Select geometry in an open model, then use Add to prompt to reference it in your next request.</footer>
   </main>;
 }

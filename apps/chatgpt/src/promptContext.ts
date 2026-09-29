@@ -57,9 +57,15 @@ export function createComposerContext(bridge: ContextBridge, workspaceId: string
           if (part.kind === 'text') append({ type: 'text', text: part.text, _meta: { 'openai/title': 'CAD note' } });
           else if (part.kind === 'reference') {
             const ref = part.reference;
-            const text = formatPromptReference(ref, { resolvePath });
-            append({ type: 'text', text: ref.resource.revision ? `${text}\nDocument revision: ${ref.resource.revision}` : text,
-              _meta: { 'openai/title': ref.label || text } });
+            const path = resolvePath(ref.resource);
+            const text = formatPromptReference(ref, { resolvePath: () => path });
+            const filename = path.split(/[\\/]/).pop() || path;
+            const title = ref.label ? `${filename} · ${ref.label}` : formatPromptReference(ref, { resolvePath: () => filename });
+            // Codex owns the aggregate Context chip. The block title and first
+            // text line label its popup; the canonical reference stays intact.
+            const described = `${title}\n${text}`;
+            append({ type: 'text', text: ref.resource.revision ? `${described}\nDocument revision: ${ref.resource.revision}` : described,
+              _meta: { 'openai/title': title } });
           } else {
             if (destination.capabilities?.attachments === 'none') throw new Error('This host does not support image attachments.');
             const blob = await part.content;

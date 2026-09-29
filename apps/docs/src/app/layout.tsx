@@ -6,10 +6,10 @@ import { siteConfig } from "@/lib/site";
 import "./globals.css";
 
 const socialPreview = {
-  url: "/social-preview-gear.png",
-  width: 1200,
-  height: 630,
-  alt: "text-to-cad homepage showing a planetary gear CAD model",
+  url: "/brand/logo-cad.png",
+  width: 1202,
+  height: 512,
+  alt: "CAD blue 3D logo",
 };
 
 const themeScript = `

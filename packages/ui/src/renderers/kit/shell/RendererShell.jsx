@@ -17,7 +17,7 @@ import FloatingToolBar from "../tools/FloatingToolBar.js";
 import ToolStack from "../tools/ToolStack.jsx";
 import { ViewportAnimationBar, animationControlsHaveContent } from "../tools/playbar/ViewportAnimationBar.js";
 import ShellViewport from "./ShellViewport.jsx";
-import ViewportBottomAction, { drawingCaptureAction } from "./ViewportBottomAction.jsx";
+import ViewportBottomAction, { drawingCaptureAction, SnapshotButton } from "./ViewportBottomAction.jsx";
 import ViewportContextMenu from "./ViewportContextMenu.jsx";
 
 // The strip and the panels under it share one column, inset from the viewer's top, left and
@@ -43,7 +43,8 @@ const BAR_BUTTON_CLASS = "size-6 bg-transparent hover:bg-transparent dark:hover:
  *   toolPanels?: import("react").ReactNode,
  *   playback?: any,
  *   bottomAction?: { label: string, shortLabel?: string, disabled?: boolean,
- *     onInvoke?(): void, render?: (props: object) => import("react").ReactNode, children?: import("react").ReactNode } | null,
+ *     onInvoke?(): void, render?: (props: object) => import("react").ReactNode,
+ *     children?: import("react").ReactNode | ((actionClassName: string) => import("react").ReactNode) } | null,
  *   contextMenuItems?: ((press: { clientX: number, clientY: number, shiftKey: boolean }) => object[] | null) | null,
  *   onContextMenuOpenChange?: ((open: boolean) => void) | null,
  *   frameProvider?: ((frame: import("react").ReactNode) => import("react").ReactNode) | null,
@@ -61,6 +62,7 @@ const BAR_BUTTON_CLASS = "size-6 bg-transparent hover:bg-transparent dark:hover:
  *   than through `useRendererShell`'s `animation`. Routines play in preview alone.
  *   `bottomAction`
  *   replaces Draw's (copy the view with its ink) while the renderer's own tool is active.
+ *   The shell appends its snapshot action to the same row for every 3D renderer.
  *   `contextMenuItems`: what THIS renderer offers on a secondary tap over the canvas; the
  *   gesture, the anchor and the dismissal are the shell's (`ViewportContextMenu.jsx`), and a
  *   renderer that passes none has no viewport menu at all. `onContextMenuOpenChange(open)`
@@ -219,7 +221,7 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
                     runtimeLifecycle={frame.runtimeLifecycle}
                   >{overlay}</ShellViewport>
                   {!previewing ? <ViewerAlertCard key={frame.modelKey} alert={frame.viewerAlert} hasContent={hasContent} onReload={view.reload} /> : null}
-                  {!previewing && action ? <ViewportBottomAction shortcut={frame.copyShortcut} {...action} /> : null}
+                  {!previewing && (action || frame.snapshot) ? <ViewportBottomAction shortcut={frame.copyShortcut} {...action} snapshot={frame.snapshot} /> : null}
                 </div>
               </div>
 
@@ -243,7 +245,7 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
                     autoplay={shell.autoplay} onAutoplayChange={shell.setAutoplay}
                     orbit={orbitPlaying} onOrbitChange={setOrbitPlaying}
                     orbitSpeed={frame.previewOrbitSpeed || 1} onOrbitSpeedChange={frame.setPreviewOrbitSpeed} />;
-                  return hasAnimation ? <ViewportAnimationBar key={frame.modelKey} runtime={animation} trailing={settings}
+                  return hasAnimation ? <ViewportAnimationBar key={frame.modelKey} runtime={animation} trailing={<>{settings}<SnapshotButton snapshot={frame.snapshot} mobile={mobile} /></>}
                     className="pointer-events-auto" disabled={viewerLoading || !scene} /> :
                   <div role="toolbar" aria-label="Orbit playback" data-preview-hover-hold="" style={{ bottom: VIEWPORT_BOTTOM_CENTER }}
                     className="pointer-events-auto absolute left-1/2 flex -translate-x-1/2 translate-y-1/2 items-center gap-1 px-6 py-4">
@@ -251,6 +253,7 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
                       {orbitPlaying ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
                     </ToolbarButton>
                     {settings}
+                    <SnapshotButton snapshot={frame.snapshot} mobile={mobile} />
                   </div>;
                 }}>
 

@@ -149,9 +149,12 @@ it('a DXF has no panels of its own, no tools and no preview', async () => {
     expect(inPane.queryByRole('button', { name }), name).toBeNull();
   }
   expect(inPane.queryAllByRole('tab')).toHaveLength(0);
-  // What a drawing offers: a snapshot, and nothing else.
+  // A drawing has no top action; its one bottom action captures the canvas.
+  expect(pane.querySelector('[data-file-navigation-overlay]')).toBeNull();
+  const row = pane.querySelector('[data-viewport-bottom-actions]') as HTMLElement;
+  expect(row).not.toBeNull();
   const snapshot = await waitFor(() => {
-    const button = inPane.getByRole('button', { name: 'Take snapshot' }) as HTMLButtonElement;
+    const button = within(row).getByRole('button', { name: 'Take snapshot' }) as HTMLButtonElement;
     expect(button.disabled).toBe(false);
     return button;
   });

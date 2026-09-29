@@ -1,5 +1,5 @@
 // Raster exports of the vector logos. Next.js supplies sharp in the docs install.
-import { readFile, writeFile, copyFile } from 'node:fs/promises';
+import { readFile, writeFile, copyFile, mkdir } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -13,6 +13,15 @@ for (const name of ['logo-c', 'logo-cad', 'logo-text2cad']) {
   await sharp(source, { density: 600 }).resize(name === 'logo-c' ? { width: 512, height: 512, fit: 'contain', background: '#00000000' } : { height: 512 }).png().toFile(path.join(brand, `${name}.png`));
 }
 await copyFile(path.join(brand, 'logo-c.png'), path.join(publicDir, 'favicon.png'));
+for (const relative of [
+  'apps/web/src/client/assets/logo-cad.png',
+  'apps/chatgpt/src/assets/logo-cad.png',
+  '.codex-plugin/assets/logo-cad.png',
+]) {
+  const target = path.join(root, relative);
+  await mkdir(path.dirname(target), { recursive: true });
+  await copyFile(path.join(brand, 'logo-cad.png'), target);
+}
 const sizes = [16, 32, 48, 64, 128, 256];
 const pngs = await Promise.all(sizes.map(size => sharp(path.join(brand, 'logo-c.png')).resize(size, size).png().toBuffer()));
 const header = Buffer.alloc(6 + sizes.length * 16);
@@ -32,4 +41,4 @@ await writeFile(path.join(publicDir, 'favicon.ico'), Buffer.concat([header, ...p
 for (const file of ['favicon.png', 'favicon.ico']) {
   await copyFile(path.join(publicDir, file), path.join(root, 'apps/web/src/client/assets', file));
 }
-console.log('Baked three PNGs and synchronized PNG/ICO favicons.');
+console.log('Baked three PNGs and synchronized CAD wordmarks and C PNG/ICO favicons.');

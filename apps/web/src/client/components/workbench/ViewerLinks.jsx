@@ -317,7 +317,7 @@ function VersionReleaseLink({ version, releaseUrl, githubUrl, discordUrl, releas
         className="w-fit max-w-[calc(100vw-1rem)] border border-border bg-popover p-2 text-left text-popover-foreground shadow-lg shadow-black/10"
       >
         <div className="inline-flex max-w-full flex-col gap-3">
-          <div className="px-0.5 text-sm font-medium leading-none text-foreground">text-to-cad</div>
+          <div className="px-0.5 text-sm font-medium leading-none text-foreground">CAD</div>
           {latestVersionVisible ? (
             <div className="grid w-full min-w-0 grid-cols-2 gap-3">
               <VersionTooltipRow

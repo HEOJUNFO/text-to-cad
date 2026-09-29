@@ -91,9 +91,10 @@ optional shorter hover `hint`, disabled state and invocation callback. Registrat
 file generation: publish an empty list on cleanup; departing renderers cannot
 replace a new file's actions. Publish only when action metadata changes; stable
 commands should read the current viewport through a ref, avoiding parent/child
-render loops. These actions use existing host capabilities for effects. For
-example, CAD's snapshot delivers through `host.promptContext`, which binds the
-destination before waiting for the image. It never detects the platform.
+render loops. These actions use existing host capabilities for effects. CAD's
+snapshot lives in the renderer's bottom action row instead; it delivers through
+`host.promptContext`, which binds the destination before waiting for the image.
+Neither route detects the platform.
 
 `ViewerHost.navigation` is optional. When supplied, `openFile(path, { target })`
 returns `opened` or `unavailable`; a failed open appears as a dismissible alert.
@@ -172,9 +173,10 @@ they do not transfer Promise or Blob values across native IPC.
 
 CAD's `slots.selectionExtras` mounts an optional React component beside shared
 selection actions. It receives immutable typed selection, `selectionKey`,
-disabled state and `createContext({text, capture})`. It receives no scene, stores,
-IPC or arbitrary internal setters. Shared actions remain visible. Neither app
-mounts one today.
+disabled state, `actionClassName` for the shared bottom-row button treatment,
+and `createContext({text, capture})`. It receives no scene, stores,
+IPC or arbitrary internal setters. Shared actions remain visible. The ChatGPT
+extension contributes its Add To Prompt action through this slot.
 
 The renderer owns placement and visibility. A contributed popover owns its focus,
 Escape handling and cleanup, stops events it consumes, and closes or invalidates
@@ -307,6 +309,8 @@ omits them and gets the compact overlay. Browsing is a separate
 preview; the host owns callbacks and preferences. These slots do not imply platform detection
 or move application-specific release/network behavior into shared UI.
 
+The snapshot button follows the bottom-row selection actions, including the
+optional `selectionExtras` contribution; it remains available without a selection.
 For snapshot actions, clipboard destinations receive the viewport PNG directly
 through `ClipboardPort.writeImage`; composer destinations retain prompt-context
 delivery. Native clipboard effects remain in the host implementation.

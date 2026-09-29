@@ -4,7 +4,7 @@
 
 <br>
 
-<img src="apps/docs/public/brand/logo-text2cad.png" alt="TEXT2CAD" width="800">
+<img src="apps/docs/public/brand/logo-cad.png" alt="CAD" width="400">
 
 Give your agent CAD superpowers.
 
@@ -25,9 +25,9 @@ Give your agent CAD superpowers.
 
 </div>
 
-# text-to-cad
+# CAD
 
-text-to-cad is a library of agent skills for generating, inspecting, sourcing,
+CAD is a library of agent skills for generating, inspecting, sourcing,
 slicing, and handing off CAD and robot-description artifacts from local project
 files.
 
@@ -83,7 +83,7 @@ skills.)
 
 ### Skills
 
-Install text-to-cad with the Skills CLI:
+Install CAD with the Skills CLI:
 
 ```bash
 npx skills add earthtojake/text-to-cad

@@ -10,8 +10,9 @@ selection tools, renderers, file updates and reference serialization remain in
 The global sidebar shows models previously viewed with this extension, across
 folders: thumbnail previews, filename/folder search, pinning and removal from
 history. It reads the persisted `cad_library`; it never scans the server's current
-working directory or pretends to know the active host workspace. A new library
-shows guidance for creating a part in the composer or opening a supported file.
+working directory or pretends to know the active host workspace. An empty library
+shows one concise instruction to open a CAD file. The host keeps its own composer;
+this gallery does not imitate or duplicate it.
 Loading, unavailable files and operation failures have explicit states. The home
 refreshes when its window regains focus or becomes visible, and offers Refresh
 for hosts that keep hidden panes mounted without visibility events.
@@ -58,7 +59,10 @@ client keeps the usual file polling, build-state handling and resource disposal.
 The STEP selection slot adds the shared `PromptContextAction`. Hosts advertising
 `experimental["openai/modelContext"]` and text model-context updates receive
 removable, titled composer attachments via `ui/update-model-context`; nothing
-submits a message. References use the canonical full-path selector plus the
+submits a message. Attachment titles and their first line identify the filename
+and selected feature; the native host controls composer placement and its generic
+Context chip, while the attachment popover exposes that identifying text. The app
+cannot embed or reposition the native composer. References use the canonical full-path selector plus the
 observed document revision. Snapshot actions use the same prompt port when image updates are supported. Host
 context updates, including user removals, remain authoritative. A change during
 an asynchronous capture cancels that delivery rather than restoring stale
@@ -98,24 +102,26 @@ The JavaScript is gzip-compressed at build time and inflated with the browser's
 `DecompressionStream` before importing a blob module. The JSON-framed resource
 must stay below 8 MiB, leaving headroom under the MCP SDK's 10 MiB stdio limit.
 Modules and workers use blob URLs, so the host's resource policy must permit them.
-No shared renderer source is altered for this packaging. The canonical C logo is
-generated into `src/assets/logo-c.svg` by the repository brand generator and
-inlined into the favicon and empty-home illustration; metadata uses the CAD name
-and the same tagline as the plugin.
+No shared renderer source is altered for this packaging. The full 3D CAD wordmark
+(`src/assets/logo-cad.png`) brands the home header; the single C
+(`src/assets/logo-c.svg`) is the compact favicon. Both use canonical repository
+brand assets and are inlined. Metadata uses the CAD name and plugin tagline.
 
 ## Controls supplied by Codex
 
 | Standalone web control | Extension behavior |
 | --- | --- |
 | File selection | The recent-model home requests native file tabs when supported, with explicit local preview fallback. Per-file views have no explorer or picker. |
-| URL navigation, filename bar and browser history | Omitted; compact overlay actions retain snapshots and shared viewer controls. |
+| URL navigation, filename bar and browser history | Omitted; shared tools stay over the viewport, with snapshots in the bottom action row. |
 | Theme selector | Follows the host theme. |
 | Brand, version, release and project links | Omitted from the pane; plugin management owns installation and updates. |
 | Reveal in file manager and server reload | Omitted; these standalone host actions are not exposed through MCP. |
 
 Model controls, geometry selection, measurements, display settings, snapshots and
-reference copying remain shared viewer features. Add to prompt delivers removable
-composer context rather than submitting a message.
+reference copying remain shared viewer features. Copy References, Add To Prompt
+and the camera share one bottom action row. Add To Prompt delivers removable
+composer context rather than submitting a message; successful delivery adds no
+status text, while failures remain visible for retry.
 
 Adapter tests cover serialized library updates, disposal, revision-bound thumbnails, search, binary forwarding, worker tickets, cancellation, path handoff,
 canonical reference delivery, failed deliveries and user removal reconciliation.

@@ -19,7 +19,7 @@ The browsing host composes the shared breadcrumb row and file-tree column
 around it. Without host `navigationTargets`, document actions and status float
 over the viewport.
 RendererShell owns the scene's chrome: the toolbar, the tool stack under it,
-the view cube, the bottom action, the playbar and preview mode. Renderers
+the view cube, the bottom action row, the playbar and preview mode. Renderers
 supply their tools, their document state and their tool
 panels; the shell never inspects a format's parts, joints or topology. A CAD
 file's controls are never a panel of the host's column: no pick or tool opens,
@@ -28,7 +28,7 @@ closes or turns it.
 | The host supplies | The shared UI decides |
 | --- | --- |
 | Where the tab record lives (`TabRecordStorage`: the web's sessionStorage, the desktop's per-tab store) | The record: its settings (the tree, the tool stack's layout, the appearance) and each file's view (its camera, Display settings, Playback settings and renderer slices), what is written when, and what is never stored (`@text-to-cad/ui/tab-store`, `kit/shell/fileView.js`) |
-| `navigationTargets` and `displayActions` (an appearance control) | Renderer action/status placement, the snapshot action and renderer panel toggles |
+| `navigationTargets` and `displayActions` (an appearance control) | Renderer action/status placement and renderer panel toggles |
 | `host.files`, optional `navigation`, `clipboard`, `promptContext` | When a copy, capture or document open happens and what it carries |
 | `host.environment`: color scheme, keyboard `platform`, `reducedMotion` | How the chrome honours them |
 | `onError`, for errors the viewer hands up | Preview, tooltips, keyboard scope, the tool stack, the camera |
@@ -39,7 +39,7 @@ settings or Preview controls.
 
 - **File navigation.** A browsing host places leading content, breadcrumbs,
   file actions and its file-tree toggle in the shared navigation row. FileViewer
-  portals renderer actions (the snapshot camera), status and renderer-panel
+  portals renderer actions, status and renderer-panel
   toggles into host targets when supplied. Otherwise they float at the top
   center, clear of the renderer's top-left tool stack and top-right Display
   and Preview controls. With no actions, status or panels, no empty toolbar
@@ -55,9 +55,13 @@ settings or Preview controls.
 - **View cube** at bottom-right: enlarged face/edge/corner hit areas, neutral
   hover and XYZ guides, and nothing around it (no arrows, Home or Reset). Mobile
   and preview omit it.
-- **Bottom action** and **playbar** sit near bottom-centre, independent of the
-  cube. The action is a content-sized button with the platform's copy shortcut
-  beside its label; mobile omits the shortcut.
+- **Bottom actions** and **playbar** sit near bottom-centre, independent of the
+  cube. The primary action is content-sized with the platform's copy shortcut
+  beside its label; mobile omits the shortcut. A contributed selection action
+  receives that button's class through its slot, so its size and style match.
+  The camera button follows the primary and contributed actions, and remains
+  available when no selection action exists. All use the same white treatment.
+  Preview places the same camera button beside its playback controls.
 - **Loading status** sits after the filename in the default row or in the
   navigation overlay; on mobile it is a tappable progress icon whose popover
   names what is loading.
@@ -69,7 +73,7 @@ settings or Preview controls.
 | STEP | Select, Position (movable joints only), Draw, Measure, Explode (two or more parts), Clip |
 | URDF / SRDF / SDF | Select, Position (posable joints only) |
 | GLB / STL / 3MF | none |
-| DXF | none: a 2D canvas with the snapshot action only |
+| DXF | none: a 2D canvas with only the bottom snapshot action |
 
 There is no separator or activity dot. There is no Animate tool: routines play in
 [preview](#camera-animation-and-preview). Display is not a tool: every 3D

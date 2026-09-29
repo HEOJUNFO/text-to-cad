@@ -1,6 +1,6 @@
 const DEFAULT_SITE_ORIGIN = "https://www.texttocad.dev";
 const SITE_DESCRIPTION = "Give your agent CAD superpowers.";
-const SITE_TITLE = `text-to-cad | ${SITE_DESCRIPTION.replace(/\.$/, "")}`;
+const SITE_TITLE = `CAD | ${SITE_DESCRIPTION.replace(/\.$/, "")}`;
 
 function normalizeOrigin(value: string | undefined, fallback: string) {
   const candidate = value?.trim() || fallback;
@@ -13,7 +13,7 @@ function normalizeOrigin(value: string | undefined, fallback: string) {
 }
 
 export const siteConfig = {
-  name: "text-to-cad",
+  name: "CAD",
   title: SITE_TITLE,
   description: SITE_DESCRIPTION,
   keywords: [

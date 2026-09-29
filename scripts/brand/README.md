@@ -55,11 +55,12 @@ The bake creates transparent 512px C, CAD and TEXT2CAD PNG downloads beside
 the vectors, plus matching PNG and multi-resolution ICO favicons for both
 apps. Ordinary builds consume the committed files.
 
-The plugin uses `CAD` and `Give your agent CAD superpowers.`. Its manifest's
-composer and light/dark logo paths use `.codex-plugin/assets/logo-c.svg`;
-the MCP server embeds its own packaged copy in discovery, resource and tool
-icons. The extension inlines its copy so no network asset request is required.
-These are generated copies of the same artwork, not alternate marks.
+The plugin uses `CAD` and `Give your agent CAD superpowers.`. Full branding
+uses the 3D `logo-cad.png`: the bake synchronizes it into both viewer apps and
+`.codex-plugin/assets/` for the plugin's light/dark logos. The single C remains
+the compact mark for favicons, the composer icon, and MCP discovery, resource
+and tool icons. The extension inlines its assets so no network asset request is
+required. TEXT2CAD remains an artwork download, not the product logo.
 
 `render-loading-icon.mjs` remains the independent recipe for the original
 animated loading mark. Changing brand vectors must not replace those assets;

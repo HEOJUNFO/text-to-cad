@@ -1,6 +1,6 @@
-import logoUrl from "../../assets/logo-c.svg";
+import logoUrl from "../../assets/logo-cad.png";
 
-/** The C brand mark remains visible while a file loads. */
+/** The CAD brand remains visible while a file loads. */
 export default function ViewerBrand() {
-  return <img src={logoUrl} alt="CAD" width={20} height={20} className="mr-1 size-5 shrink-0 object-contain" />;
+  return <img src={logoUrl} alt="CAD" width={56} height={24} className="mr-1 h-6 w-auto shrink-0 object-contain" />;
 }

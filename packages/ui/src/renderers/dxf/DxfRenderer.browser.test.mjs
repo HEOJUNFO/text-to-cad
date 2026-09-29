@@ -80,15 +80,16 @@ const drawn = async (pane) => {
   await settle(pane.page());
 };
 /**
- * The frame ON SCREEN, not a re-render: what the person is actually looking at — once it has
- * come to rest (two screenshots alike) and, given the frame from before a change, once it
- * shows that change. Never the one frame that happened to follow the change.
+ * The canvas's painted frame, excluding controls layered over it. Wait until two
+ * reads agree and, after an interaction, until the pixels differ from the prior
+ * frame. A screenshot of the canvas element also composites the bottom action
+ * button over its pixels, which is not drawing geometry.
  */
 async function frame(pane, before = null) {
   let last = null;
   for (let attempt = 0; attempt < 60; attempt += 1) {
     await settle(pane.page());
-    const shot = await canvasOf(pane).screenshot();
+    const shot = Buffer.from(await canvasOf(pane).evaluate(canvas => canvas.toDataURL('image/png').split(',')[1]), 'base64');
     if (last?.equals(shot) && !before?.shot.equals(shot)) return Object.assign(PNG.sync.read(shot), { shot });
     last = shot;
   }

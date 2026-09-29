@@ -88,12 +88,13 @@ class PluginManifestPolicyTest(unittest.TestCase):
     def test_openai_plugin_displays_as_cad(self) -> None:
         interface = load_json(CODEX_PLUGIN_PATH)["interface"]
         self.assertEqual(interface["displayName"], "CAD")
-        canonical_logo = (REPO_ROOT / "apps/docs/public/brand/logo-c.svg").read_bytes()
         for field in ("composerIcon", "logo", "logoDark"):
+            artwork = "logo-c.svg" if field == "composerIcon" else "logo-cad.png"
+            canonical_logo = (REPO_ROOT / "apps/docs/public/brand" / artwork).read_bytes()
             self.assertEqual(
                 (REPO_ROOT / interface[field]).read_bytes(),
                 canonical_logo,
-                f"{field} must resolve to the canonical C logo in the plugin package",
+                f"{field} must resolve to the canonical {artwork} in the plugin package",
             )
 
     def test_marketplace_lists_the_plugin_at_the_repository_root(self) -> None:

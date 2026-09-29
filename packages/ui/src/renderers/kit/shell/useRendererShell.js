@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Camera, Pencil } from "lucide-react";
+import { Pencil } from "lucide-react";
 import { clonePerspectiveSnapshot } from "@text-to-cad/core/lib/perspective.js";
 import { VIEWER_SCENE_SCALE } from "@text-to-cad/core/lib/viewer/sceneScale.js";
 import { ViewerElementContext, useViewerHost, usePromptDestination } from "../../../host/context.js";
@@ -71,7 +71,7 @@ const EMPTY = Object.freeze({});
  *    queued application to the viewport, and the Display panel's content;
  *  - tools: the mode state machine and Draw's session, or none at all for a
  *    renderer whose viewport is the camera's alone;
- *  - the host contract: navbar actions, prompt snapshots, clipboard screenshots,
+ *  - the host contract: prompt snapshots, clipboard screenshots,
  *    preview, alerts, shortcuts (a file's controls are tool-stack panels the renderer
  *    shows with its tools, never a host panel);
  *  - the live command surface, with the renderer's added and declined commands.
@@ -168,7 +168,7 @@ export function useRendererShell({
   const destination = usePromptDestination();
   const promptAvailable = destination.available;
   const composer = destination.kind === "composer";
-  const { onNavigationActionsChange, onStateChange, appearance } = view;
+  const { onStateChange, appearance } = view;
   const colorScheme = appearance?.colorScheme === "dark" ? "dark" : "light";
   const ownPreview = usePreviewState();
   const { previewing, set: setPreviewing } = preview || ownPreview;
@@ -379,16 +379,6 @@ export function useRendererShell({
     capture();
   }, [captureKey, viewerLoading, promptAvailable, services.acknowledgeCommand, capture]);
 
-  // Publishing navbar actions must not feed parent renders back into this renderer.
-  const captureRef = useRef(capture);
-  captureRef.current = capture;
-  useEffect(() => {
-    const actions = modelKey ? [{ id: "snapshot", label: "Take snapshot", hint: "Snapshot", icon: Camera,
-      disabled: viewerLoading || !scene || !promptAvailable, onInvoke: () => captureRef.current() }] : [];
-    onNavigationActionsChange?.(actions);
-    return () => onNavigationActionsChange?.([]);
-  }, [onNavigationActionsChange, modelKey, viewerLoading, Boolean(scene), promptAvailable]);
-
   // ---- shortcuts ------------------------------------------------------------
   const escapeRef = useRef(escape.handle);
   escapeRef.current = escape.handle;
@@ -512,6 +502,7 @@ export function useRendererShell({
       previewOrbitSpeed, setPreviewOrbitSpeed, toolStack, changeToolStack, viewerLoading, loading, presentationState,
       handlePresentationChange, viewerAlert, setRuntimeAlert,
       copyActionRef, copyDrawing, copyShortcut: host.environment.platform === "darwin" ? "⌘C" : "Ctrl+C",
+      snapshot: modelKey ? { disabled: viewerLoading || !scene || !promptAvailable, onInvoke: capture } : null,
       drawToolActive, drawing, animation, display
     }
   };

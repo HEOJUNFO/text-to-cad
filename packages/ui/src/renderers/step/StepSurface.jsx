@@ -3303,12 +3303,14 @@ function StepSurfaceBody({ view, data }) {
     ? (stepUpdateInProgress || referenceSelectionPending || referenceSelectionUnavailable || topologySelectionDeferred ? null : undefined)
     : selectionActionVisible ? {
       label: copyButtonLabel,
+      shortLabel: "Copy",
       onInvoke: copySelectedReferences,
-      children: slots?.selectionExtras && selectionCount > 0 && !viewerLoading && !stepInteractionBlocked ? <slots.selectionExtras
+      children: slots?.selectionExtras && selectionCount > 0 && !viewerLoading && !stepInteractionBlocked ? actionClassName => <slots.selectionExtras
         selection={Object.freeze(createSelectionPromptContext().parts.filter(part => part.kind === 'reference').map(part => part.reference))}
         selectionKey={selectionKey}
         disabled={viewerLoading || stepInteractionBlocked || !promptAvailable}
         createContext={createSelectionPromptContext}
+        actionClassName={actionClassName}
       /> : null
     } : null;
 

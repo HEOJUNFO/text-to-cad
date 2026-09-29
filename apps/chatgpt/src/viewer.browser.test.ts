@@ -20,7 +20,15 @@ const appDir = path.join(repo, 'apps/chatgpt');
 
 test('built UI views STEP revisions and provides persistent recents, real thumbnails, native opening and preview fallback', { timeout: 120_000 }, async t => {
   const temporary = await mkdtemp(path.join(tmpdir(), 'cad-mcp-browser-'));
-  t.after(() => rm(temporary, { recursive: true, force: true }));
+  let closeBrowser = async () => {};
+  let closeServer = () => {};
+  let closeClient = async () => {};
+  // Stop producers before deleting their files: mounted views can still write
+  // thumbnails/history until the browser and MCP transport have both closed.
+  t.after(async () => {
+    try { await closeBrowser(); }
+    finally { try { closeServer(); await closeClient(); } finally { await rm(temporary, { recursive: true, force: true }); } }
+  });
   const localPython = path.join(repo, '.venv/bin/python');
   const python = process.env.PYTHON_BIN || (existsSync(localPython) ? localPython : 'python3');
   const source = path.join(temporary, 'fixture.step');
@@ -36,7 +44,7 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
   let stderr = '';
   transport.stderr?.on('data', chunk => { stderr += chunk.toString(); });
   const client = new Client({ name: 'cad-browser-test', version: '1.0.0' });
-  t.after(() => client.close());
+  closeClient = () => client.close();
   try { await client.connect(transport); }
   catch (error) { throw new Error(`${String(error)}\nMCP stderr: ${stderr}`, { cause: error }); }
   const descriptor = (await client.listTools()).tools.find(tool => tool.name === 'cad_open');
@@ -92,7 +100,8 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
       await bridge.sendToolResult(homeMode ? ${JSON.stringify(home)} : ${JSON.stringify(opened)});
     };
     await bridge.connect(new PostMessageTransport(frame.contentWindow, frame.contentWindow));
-    bridge.setHostContext({theme:'light', platform:'desktop'});
+    window.setTheme = theme => bridge.setHostContext({theme, platform:'desktop'});
+    window.setTheme('light');
     frame.src = '/viewer';
   `, resolveDir: appDir }, bundle: true, format: 'esm', write: false });
   const server = createServer(async (request, response) => {
@@ -123,19 +132,20 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     } catch (error) { response.statusCode = 500; response.end(JSON.stringify({ isError: true, content: [{ type: 'text', text: String(error) }] })); }
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
-  t.after(() => { server.closeAllConnections(); server.close(); });
+  closeServer = () => { server.closeAllConnections(); server.close(); };
   const address = server.address(); assert.ok(address && typeof address !== 'string');
   const browser = await chromium.launch({ headless: true, args: process.platform === 'darwin' && !process.env.CAD_TEST_SWIFTSHADER ? ['--use-angle=metal'] : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
-  t.after(() => browser.close());
+  closeBrowser = () => browser.close();
   const page = await browser.newPage({ viewport: { width: 1000, height: 760 } });
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   try {
     await page.goto(`http://127.0.0.1:${address.port}/?home`);
     const viewer = page.frameLocator('iframe');
-    await expect(viewer.getByRole('heading', { name: 'Your models will appear here' })).toBeVisible();
+    await expect(viewer.getByText('Open a CAD file to see it here.', { exact: true })).toBeVisible();
     await expect(viewer.getByRole('img', { name: 'CAD', exact: true })).toBeVisible();
-    await expect(viewer.getByText('Give your agent CAD superpowers.', { exact: true })).toBeVisible();
+    await expect(viewer.getByRole('img', { name: 'CAD', exact: true })).toHaveAttribute('src', /^data:image\/png/);
+    await expect(viewer.locator('meta[name=description]')).toHaveAttribute('content', 'Give your agent CAD superpowers.');
     await expect(viewer.locator('link[rel=icon]')).toHaveAttribute('href', /^data:image\/svg\+xml/);
     if (process.env.CAD_EXTENSION_EMPTY_SCREENSHOT) await page.screenshot({ path: process.env.CAD_EXTENSION_EMPTY_SCREENSHOT });
     assert.ok(homeRequests.every((request: any) => request.name === 'cad_library'));
@@ -149,12 +159,25 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
       const row = body.querySelector<HTMLButtonElement>('button[aria-label="Select Base extrude"]');
       if (!row || row.disabled) return;
       if (row.getAttribute('aria-pressed') !== 'true') { row.click(); return; }
-      const add = [...body.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Add to prompt');
+      const add = [...body.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Add To Prompt');
       if (add && !add.disabled) add.click();
     });
     await select.click();
-    await viewer.getByRole('button', { name: 'Add to prompt', exact: true }).click();
+    await viewer.getByRole('button', { name: 'Add To Prompt', exact: true }).click();
     await page.waitForFunction(() => (window as any).attachments.length > 0);
+    await expect(viewer.getByText('Added to prompt', { exact: true })).toHaveCount(0);
+    const bottomActions = viewer.locator('[data-viewport-bottom-actions]');
+    const copyAction = bottomActions.getByRole('button', { name: /^Copy References?\b/ });
+    const promptAction = bottomActions.getByRole('button', { name: 'Add To Prompt', exact: true });
+    const cameraAction = bottomActions.getByRole('button', { name: 'Take snapshot', exact: true });
+    const [copyBounds, promptBounds, cameraBounds] = await Promise.all([copyAction.boundingBox(), promptAction.boundingBox(), cameraAction.boundingBox()]);
+    assert.ok(copyBounds && promptBounds && cameraBounds);
+    assert.ok(copyBounds.x < promptBounds.x && promptBounds.x < cameraBounds.x);
+    assert.equal(Math.round(copyBounds.y), Math.round(promptBounds.y));
+    assert.equal(Math.round(copyBounds.y), Math.round(cameraBounds.y));
+    assert.equal(Math.round(copyBounds.height), Math.round(promptBounds.height));
+    await page.mouse.move(5, 5);
+    await expect.poll(async () => await copyAction.evaluate(button => getComputedStyle(button).backgroundColor) === await promptAction.evaluate(button => getComputedStyle(button).backgroundColor)).toBe(true);
     const attachments = await page.evaluate(() => (window as any).attachments);
     assert.match(JSON.stringify(attachments), /fixture\.step/);
     assert.ok(calls.includes('cad_request'));
@@ -187,6 +210,16 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     if (process.env.CAD_EXTENSION_SCREENSHOT) {
       await page.screenshot({ path: process.env.CAD_EXTENSION_SCREENSHOT });
     }
+    await page.evaluate(() => (window as any).setTheme('dark'));
+    await page.setViewportSize({ width: 320, height: 640 });
+    await expect(viewer.locator('html')).toHaveClass(/dark/);
+    await expect.poll(async () => {
+      const buttons = await bottomActions.getByRole('button').all();
+      const bounds = await Promise.all(buttons.map(button => button.boundingBox()));
+      return bounds.length >= 3 && bounds.every(box => box && box.x >= 0 && box.x + box.width <= 320 && box.y + box.height <= 640);
+    }).toBe(true);
+    if (process.env.CAD_EXTENSION_MOBILE_SCREENSHOT) await page.screenshot({ path: process.env.CAD_EXTENSION_MOBILE_SCREENSHOT });
+    await page.setViewportSize({ width: 1000, height: 760 });
     // Navigation mounts a fresh bridge/app instance with the global entrypoint result.
     await page.goto(`http://127.0.0.1:${address.port}/?home`);
     await expect(viewer.getByRole('heading', { name: 'Recent models', exact: true })).toBeVisible();
@@ -204,6 +237,9 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     assert.ok(homeRequests.every((request: any) => request.name === 'cad_library'), 'home reads extension history without requesting a cwd catalog');
     await viewer.getByRole('searchbox', { name: 'Search recent models' }).fill('');
     if (process.env.CAD_EXTENSION_HOME_SCREENSHOT) await page.screenshot({ path: process.env.CAD_EXTENSION_HOME_SCREENSHOT });
+    await page.evaluate(() => (window as any).setTheme('dark'));
+    await expect(viewer.locator('html')).toHaveClass(/dark/);
+    if (process.env.CAD_EXTENSION_HOME_DARK_SCREENSHOT) await page.screenshot({ path: process.env.CAD_EXTENSION_HOME_DARK_SCREENSHOT });
     // Another file tab can update history while this home stays mounted.
     const later = path.join(temporary, 'later.step');
     await copyFile(source, later);

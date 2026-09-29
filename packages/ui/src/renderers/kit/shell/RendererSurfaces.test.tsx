@@ -98,10 +98,10 @@ it('a press the renderer has nothing to say about, a secondary drag, or a press 
 });
 
 it('the renderer\'s bottom action shows its count when the reference does not fit, the whole reference when it does, and no native tooltip', () => {
-  // jsdom has no layout: the button's width is 280px and a label is 7px a character, so the
+  // jsdom has no layout: the row's width is 300px and a label is 7px a character, so the
   // decision is the measured one (`ViewportBottomAction.jsx`'s ruler), not a string length rule.
   const scrollWidth = vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function (this: HTMLElement) { return (this.textContent || '').length * 7; });
-  const clientWidth = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => 280);
+  const clientWidth = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => 300);
   try {
     const { container } = mount();
     const action = () => container.querySelector('[data-harness-bottom-action]') as HTMLElement;
@@ -113,6 +113,21 @@ it('the renderer\'s bottom action shows its count when the reference does not fi
     expect(action().querySelector('span')!.textContent).toBe('#harness_document/triangle_face_0001');
     expect(action().getAttribute('title')).toBeNull();
   } finally { scrollWidth.mockRestore(); clientWidth.mockRestore(); }
+});
+
+it('the bottom row keeps snapshot after the primary action and out of navigation chrome', () => {
+  const { container } = mount();
+  const row = container.querySelector('[data-viewport-bottom-actions]') as HTMLElement;
+  expect(row).not.toBeNull();
+  const buttons = within(row).getAllByRole('button');
+  expect(buttons).toHaveLength(2);
+  expect(buttons[0].hasAttribute('data-harness-bottom-action')).toBe(true);
+  expect(buttons[1].getAttribute('aria-label')).toBe('Take snapshot');
+  expect(buttons[0].className).toContain('bg-white');
+  const snapshot = within(row).getByRole('button', { name: 'Take snapshot' });
+  expect(snapshot.className).toContain('bg-white');
+  expect(snapshot.className).toContain('size-11');
+  expect(container.querySelector('[data-file-navigation-overlay]')).toBeNull();
 });
 
 it('the renderer is told the camera settled, through what the viewport reports: a recorded move and its own settle', () => {

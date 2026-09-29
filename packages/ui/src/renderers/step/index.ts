@@ -13,6 +13,8 @@ export interface StepSelectionSlotProps {
   selection: readonly PromptReference[];
   selectionKey: string;
   disabled: boolean;
+  /** Match the shared viewport action row's button size, type and colors. */
+  actionClassName: string;
   /** Capture belongs to this source/selection. Host delivery still binds its own destination. */
   createContext(options?: { text?: string; capture?: boolean }): PromptContext;
 }

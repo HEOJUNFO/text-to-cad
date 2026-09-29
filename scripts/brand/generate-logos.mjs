@@ -169,7 +169,7 @@ export function logoSvg(text, { standalone = false, palette = colors, edgeWidth 
   const left = standalone ? (width - boxWidth) / 2 : -margin;
   const body = parts.join('');
   const artwork = finish === 'soft-relief' ? softRelief(body, `relief-${text.toLowerCase()}`) : body;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${round(left)} ${round(-depth*recession-margin)} ${round(boxWidth)} ${round(boxHeight)}" role="img" aria-label="${standalone ? 'text-to-cad C logo' : text}"><title>${standalone ? 'text-to-cad' : text}</title>${artwork}</svg>\n`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${round(left)} ${round(-depth*recession-margin)} ${round(boxWidth)} ${round(boxHeight)}" role="img" aria-label="${standalone ? 'CAD C icon' : text}"><title>${standalone ? 'CAD' : text}</title>${artwork}</svg>\n`;
 }
 
 // CAD consumes these exact front outlines instead of maintaining a second alphabet.

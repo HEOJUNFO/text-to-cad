@@ -27,8 +27,8 @@
     "longDescription": "CAD packages local agent workflows for generating CAD, inspecting models, sourcing STEP parts, writing robot description files, slicing mesh files, and preparing fabrication handoffs.",
     "developerName": "earthtojake",
     "composerIcon": "./.codex-plugin/assets/logo-c.svg",
-    "logo": "./.codex-plugin/assets/logo-c.svg",
-    "logoDark": "./.codex-plugin/assets/logo-c.svg",
+    "logo": "./.codex-plugin/assets/logo-cad.png",
+    "logoDark": "./.codex-plugin/assets/logo-cad.png",
     "category": "Productivity",
     "capabilities": [
       "Write",

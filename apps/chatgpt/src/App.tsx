@@ -16,13 +16,13 @@ const clipboard: ClipboardPort = {
   async readText() { if (!navigator.clipboard?.readText) throw new Error('Clipboard is unavailable.'); return navigator.clipboard.readText(); },
   async writeImage(image) { if (!navigator.clipboard?.write || !globalThis.ClipboardItem) throw new Error('Image clipboard is unavailable.'); await navigator.clipboard.write([new ClipboardItem({ 'image/png': image })]); },
 };
-function SelectionAttachment({ createContext, disabled, selectionKey }: StepSelectionSlotProps) {
+function SelectionAttachment({ createContext, disabled, selectionKey, actionClassName }: StepSelectionSlotProps) {
   const [message, setMessage] = useState('');
   useEffect(() => setMessage(''), [selectionKey]);
-  return <div className="cad-context-action"><PromptContextAction size="sm" variant="outline" disabled={disabled}
+  return <div className="cad-context-action"><PromptContextAction size="sm" variant="default" className={actionClassName} disabled={disabled}
     createContext={() => createContext()}
-    onResult={result => setMessage(result.status === 'added' ? 'Added to prompt' : 'message' in result ? result.message || 'Could not add selection.' : '')} />
-    {message && <span role="status">{message}</span>}</div>;
+    onResult={result => setMessage(result.status === 'added' || result.status === 'copied' ? '' : ('message' in result && result.message) || 'Could not add selection.')}>Add To Prompt</PromptContextAction>
+    {message && <span role="alert">{message}</span>}</div>;
 }
 export default function App({ client, opened, promptContext, colorScheme, library }: {
   client: CadClient; opened: OpenFile; promptContext: PromptContextPort; colorScheme: 'light' | 'dark'; library: RecentLibrary;
