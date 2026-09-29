@@ -66,6 +66,8 @@ export function NewSession({ project }: { project: Project }) {
   const agents = useAgents((state) => state.agents);
   const installed = useInstalledAgents();
   const detected = useAgents((state) => state.ready);
+  const listError = useAgents((state) => state.loadError);
+  const reloadAgents = useAgents((state) => state.load);
   const offered = useOfferedAgents();
   const openSettings = useUi((state) => state.openSettings);
   const setActiveProject = useProjects((state) => state.setActive);
@@ -311,7 +313,13 @@ export function NewSession({ project }: { project: Project }) {
   // credentials file to go by (Copilot and Kiro always; Claude Code in the
   // keychain), and such an agent may well work. So only "unauthenticated"
   // counts against an agent here, the same test the default pick above uses.
-  const noAgent = detected && !installed.some((candidate) => candidate.auth !== "unauthenticated");
+  // A list that could not be read is not a list of signed-out agents: it
+  // says what failed and offers the read again, rather than asking for a
+  // sign-in nobody can see a reason for.
+  const noAgent = detected && !listError && !installed.some((candidate) => candidate.auth !== "unauthenticated");
+  // Either way nothing can start a session from here, so the chips are shown
+  // as they are and not offered, and a send says why instead of going out.
+  const unavailable = listError ? "The agent list could not be read" : noAgent ? "No agent ready — sign in to one first" : undefined;
   const offeredNames = offered.map((candidate) => candidate.name);
   const signInTo = offeredNames.length > 0 ? offeredNames.join(" or ") : "an agent";
   // Until detection has answered and some probe has come back, all three
@@ -319,19 +327,19 @@ export function NewSession({ project }: { project: Project }) {
   // later, one by one, are a row that jumps under the pointer.
   const loadingChips = providers.length === 0 && (!detected || probing > 0);
   const chips = mode ? (
-    <ModeChip currentModeId={mode.currentModeId} modes={mode.modes} onChange={chooseMode} />
+    <ModeChip currentModeId={mode.currentModeId} disabledReason={unavailable} modes={mode.modes} onChange={chooseMode} />
   ) : loadingChips ? (
     <ChipSkeleton slot="mode" width="w-16" />
   ) : null;
   const trailing = (
     <>
       {providers.length > 0 ? (
-        <ModelChip agentId={pickedProvider?.agentId ?? null} onChange={chooseModel} providers={providers} />
+        <ModelChip agentId={pickedProvider?.agentId ?? null} disabledReason={unavailable} onChange={chooseModel} providers={providers} />
       ) : loadingChips ? (
         <ModelsLoading />
       ) : null}
       {effort ? (
-        <EffortChip effort={effort} onChange={chooseEffort} />
+        <EffortChip disabledReason={unavailable} effort={effort} onChange={chooseEffort} />
       ) : loadingChips ? (
         <ChipSkeleton slot="effort" width="w-20" />
       ) : null}
@@ -372,6 +380,15 @@ export function NewSession({ project }: { project: Project }) {
               Dismiss
             </Button>
           </div>
+        ) : listError ? (
+          <div className="mt-4">
+            <AgentSetupCard
+              agents={[]}
+              message={`text-to-cad could not read which agents are on this machine: ${listError}`}
+              onRetry={() => void reloadAgents()}
+              title="Could not check for agents"
+            />
+          </div>
         ) : noAgent ? (
           <div className="mt-4">
             <AgentSetupCard
@@ -390,6 +407,7 @@ export function NewSession({ project }: { project: Project }) {
             commands={[]}
             disabled={busy}
             onSubmit={submitFromComposer}
+            refuseSend={unavailable}
             // A CAD hint, on this screen only: the live session's box stays
             // "Do anything" — by then the person knows what it is for.
             placeholder={busy && agent ? `Starting ${agent.name}…` : "Describe a part to build…"}

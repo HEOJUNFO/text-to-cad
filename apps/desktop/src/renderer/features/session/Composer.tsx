@@ -1,5 +1,5 @@
 import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Paperclip, X } from "lucide-react";
 import { cn } from "cn";
 import { toast } from "sonner";
@@ -100,6 +100,7 @@ export function Composer({
   disabled,
   placeholder = "Do anything",
   autoFocus,
+  refuseSend,
   onSubmit,
   onStop,
 }: {
@@ -115,6 +116,11 @@ export function Composer({
   disabled?: boolean;
   placeholder?: string;
   autoFocus?: boolean;
+  /**
+   * Why a send cannot go out now. The box still takes a draft; send is shown unavailable and
+   * says this, the way a chip with a `disabledReason` does, and the draft stays where it is.
+   */
+  refuseSend?: string;
   /** `draft` is what the box held, kept apart, so a queued prompt can be put back as it was. */
   onSubmit: (text: string, content: PromptBlock[], draft: TakenDraft) => Promise<void> | void;
   onStop?: () => void;
@@ -123,6 +129,7 @@ export function Composer({
   // sessions and back does not lose typed text and a suggestion card can
   // fill the box from outside.
   const draftKey = sessionId ?? newDraftKey ?? NEW_SESSION_KEY;
+  const refuseId = useId();
   const project = useActiveProject();
   const session = useSessions((state) => state.sessions.find((item) => item.id === sessionId));
   const draftRoot = useComposer((state) => state.draftRoots[draftKey]);
@@ -198,6 +205,11 @@ export function Composer({
 
   const handleSubmit = useCallback(
     async (message: PromptInputMessage) => {
+      if (refuseSend) {
+        toast.info(refuseSend);
+        // Rejected, so the form keeps its attachments; the draft was never taken.
+        throw new Error(refuseSend);
+      }
       // Annotations added from the viewer go out with the prompt, after what was typed.
       const pending = useComposer.getState().annotations[draftKey] ?? NO_ANNOTATIONS;
       const trimmed = withAnnotations(message.text.trim(), pending);
@@ -221,7 +233,7 @@ export function Composer({
         throw error;
       }
     },
-    [onSubmit, draftKey, attachmentFiles],
+    [onSubmit, refuseSend, draftKey, attachmentFiles],
   );
 
   return (
@@ -378,7 +390,10 @@ export function Composer({
               className={cn(
                 "size-7 shrink-0 rounded-full",
                 status === "streaming" && "bg-foreground text-background",
+                refuseSend && status === "ready" && "cursor-not-allowed opacity-50",
               )}
+              aria-describedby={refuseSend ? refuseId : undefined}
+              aria-disabled={refuseSend ? "true" : undefined}
               disabled={disabled || status === "submitted"}
               onStop={onStop}
               size="icon-sm"
@@ -386,6 +401,7 @@ export function Composer({
             />
           </div>
         </PromptInput>
+        {refuseSend ? <span className="sr-only" id={refuseId}>{refuseSend}</span> : null}
 
         {/*
          * The row, under the box. `+` and the caller's chips on the left,

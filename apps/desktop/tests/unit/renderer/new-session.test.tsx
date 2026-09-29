@@ -18,9 +18,9 @@ vi.mock("@renderer/features/session/Composer", async () => {
   const { useEffect } = await import("react");
   const { useComposer } = await import("@renderer/state/composer");
   return {
-    Composer: ({ onSubmit, chips, trailing, newDraftKey, placeholder }: {
+    Composer: ({ onSubmit, chips, trailing, newDraftKey, placeholder, refuseSend }: {
       onSubmit: (text: string, content: unknown[], draft: unknown) => Promise<void> | void;
-      chips?: React.ReactNode; trailing?: React.ReactNode; newDraftKey: string; placeholder?: string;
+      chips?: React.ReactNode; trailing?: React.ReactNode; newDraftKey: string; placeholder?: string; refuseSend?: string;
     }) => {
       const send = () => {
         const store = useComposer.getState();
@@ -33,7 +33,7 @@ vi.mock("@renderer/features/session/Composer", async () => {
       return (
         <>
           <input aria-label="Prompt" placeholder={placeholder} readOnly />
-          <button onClick={send} type="button">Send</button>
+          <button aria-description={refuseSend} aria-disabled={refuseSend ? "true" : undefined} onClick={refuseSend ? undefined : send} type="button">Send</button>
           {chips}
           {trailing}
         </>
@@ -41,13 +41,14 @@ vi.mock("@renderer/features/session/Composer", async () => {
     },
   };
 });
-vi.mock("@renderer/features/session/ComposerChips", () => ({
-  EffortChip: () => null,
-  GitModeChip: () => null,
-  ModeChip: () => null,
-  ModelChip: () => null,
-  ProjectChip: () => null,
-}));
+// A chip is its name and the reason it is not offered, if it has one.
+vi.mock("@renderer/features/session/ComposerChips", () => {
+  const chip = (name: string) => ({ disabledReason }: { disabledReason?: string }) => (
+    <button aria-description={disabledReason} aria-disabled={disabledReason ? "true" : undefined} type="button">{name}</button>
+  );
+  return { EffortChip: chip("Effort"), GitModeChip: () => null, ModeChip: chip("Mode"), ModelChip: chip("Model"), ProjectChip: () => null };
+});
+const options = vi.hoisted(() => ({ mode: null as unknown }));
 vi.mock("@renderer/lib/git-mode", () => ({
   resolveGitMode: () => "checkout",
   useProjectGitInfo: () => null,
@@ -58,7 +59,7 @@ vi.mock("@renderer/state/agent-options", async () => {
     useAgentOptions: create(() => ({ probe: vi.fn(), setDefaults: vi.fn(), setEffort: vi.fn() })),
     useProviderModels: () => [],
     useProviderEffort: () => null,
-    useProviderMode: () => null,
+    useProviderMode: () => options.mode,
   };
 });
 
@@ -68,7 +69,9 @@ const AGENT = {
   name: "Claude Code",
   installed: true,
   launchWithoutBinary: true,
-  auth: "unauthenticated",
+  // Detection could not tell (the keychain case): a send goes out, and it is the start that finds
+  // the sign-in missing. An agent detected signed out is the no-agent card's, which refuses the send.
+  auth: "unknown",
   authMethods: [{ type: "cli-login", label: "Sign in" }],
 } as unknown as AgentStatus;
 
@@ -82,7 +85,8 @@ beforeEach(() => {
   openSettings.mockReset();
   useUi.setState({ openSettings } as never);
   useAgentOptions.setState({ probe: vi.fn(async () => undefined) } as never);
-  useAgents.setState({ agents: [AGENT], jobs: {}, ready: true });
+  useAgents.setState({ agents: [AGENT], jobs: {}, ready: true, loadError: null });
+  options.mode = null;
   useAcp.setState({ create } as never);
   useComposer.setState({ submit, drafts: {}, annotations: {}, submitRequest: null } as never);
 });
@@ -242,6 +246,29 @@ describe("a machine with no agent ready", () => {
     useAgents.setState({ agents: [], ready: false });
     render(<NewSession project={PROJECT} />);
     expect(screen.queryByText("No agent ready")).toBeNull();
+  });
+
+  it("does not offer the chips or the send while no agent is ready, and says why", () => {
+    options.mode = { currentModeId: "auto", modes: [{ id: "auto", name: "Auto" }] };
+    useAgents.setState({ agents: [claude, codex], ready: true });
+    render(<NewSession project={PROJECT} />);
+    for (const name of ["Mode", "Send"]) {
+      const control = screen.getByRole("button", { name });
+      expect(control, name).toHaveAttribute("aria-disabled", "true");
+      expect(control, name).toHaveAccessibleDescription(/No agent ready/);
+    }
+  });
+
+  it("says the agent list could not be read, with the read again, rather than asking for a sign-in", async () => {
+    const user = userEvent.setup();
+    const load = vi.fn(async () => undefined);
+    useAgents.setState({ agents: [], ready: true, loadError: "agents.list timed out", load } as never);
+    render(<NewSession project={PROJECT} />);
+    expect(screen.queryByText("No agent ready")).toBeNull();
+    expect(screen.getByText("Could not check for agents")).toBeInTheDocument();
+    expect(screen.getByText(/agents\.list timed out/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(load).toHaveBeenCalled();
   });
 
   it("offers Settings › Agents beside Dismiss when the start fails for another reason", async () => {
