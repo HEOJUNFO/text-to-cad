@@ -11,8 +11,9 @@ import type { AgentStatus } from "@shared/agents";
 // The composer and its chips are their own suites; here the box is a button
 // that sends one prompt, which is all a start needs.
 vi.mock("@renderer/features/session/Composer", () => ({
-  Composer: ({ onSubmit }: { onSubmit: (text: string, content: unknown[]) => void }) => (
-    <button onClick={() => onSubmit("make a cube", [{ type: "text", text: "make a cube" }])} type="button">
+  Composer: ({ onSubmit }: { onSubmit: (text: string, content: unknown[]) => Promise<void> | void }) => (
+    // A start that fails rejects; the real composer restores its draft on that (its own suite).
+    <button onClick={() => void Promise.resolve(onSubmit("make a cube", [{ type: "text", text: "make a cube" }])).catch(() => {})} type="button">
       Send
     </button>
   ),
@@ -71,6 +72,28 @@ describe("a start that needs a sign-in", () => {
     expect(create).toHaveBeenCalledTimes(2);
     expect(submit).toHaveBeenCalledWith("s1", "make a cube", [{ type: "text", text: "make a cube" }]);
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  it("leaves the draft to the composer on a failed start, and clears it once Try again has sent it", async () => {
+    const user = userEvent.setup();
+    const key = "__new__:p1";
+    // What the composer restored after the failed start: text and annotation apart.
+    useComposer.setState({
+      drafts: { [key]: "make a cube" },
+      annotations: { [key]: [{ id: "a1", text: "hollow it", references: [] }] },
+    });
+    create.mockRejectedValueOnce(new Error("Authentication required")).mockResolvedValueOnce("s1");
+    render(<NewSession project={PROJECT} />);
+
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByRole("button", { name: "Try again" });
+    expect(useComposer.getState().drafts[key], "not overwritten with the flattened prompt").toBe("make a cube");
+    expect(useComposer.getState().annotations[key]).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(submit).toHaveBeenCalledWith("s1", "make a cube", [{ type: "text", text: "make a cube" }]);
+    expect(useComposer.getState().drafts[key]).toBe("");
+    expect(useComposer.getState().annotations[key]).toBeUndefined();
   });
 
   it("starts again by itself when a login that began after the failure exits 0", async () => {

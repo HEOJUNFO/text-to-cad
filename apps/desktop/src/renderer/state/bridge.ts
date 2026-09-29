@@ -50,9 +50,10 @@ export function subscribeToMain(): () => void {
     }),
     window.textToCad.on("session.update", ({ sessionId, event }) => {
       useAcp.getState().receiveEvent(sessionId, event);
-      // A turn that just ended frees the session for the next queued prompt.
-      if (event.type === "prompt/end") {
-        void useComposer.getState().drain(sessionId);
+      // A turn's lifecycle drives the prompt queue, from here only: a turn
+      // that ends sends the next queued prompt (`state/composer.ts`).
+      if (event.type === "prompt/start" || event.type === "prompt/end" || event.type === "prompt/error") {
+        useComposer.getState().turnEvent(sessionId, event.type);
       }
     }),
     window.textToCad.on("terminal.output", ({ sessionId, terminalId, data }) => {

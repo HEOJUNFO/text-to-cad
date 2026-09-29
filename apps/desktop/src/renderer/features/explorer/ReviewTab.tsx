@@ -1,6 +1,7 @@
 import type { IDisposable } from "monaco-editor";
 import { DiffEditor } from "@monaco-editor/react";
 import {
+  AlertTriangle,
   ChevronDown,
   ChevronRight,
   GitCommitHorizontal,
@@ -142,34 +143,54 @@ function ReviewBody({
   );
 
   const [status, setStatus] = useState<GitStatus | null>(null);
+  // A read that failed: git's own words, shown with a retry. Not the same as
+  // `isRepository: false`, which is an answer — this is the absence of one.
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sections = useRef(new Map<string, HTMLElement>());
+  // Reads overlap — the first one, a refresh, every batch of file changes —
+  // and answer in any order. Only the latest one asked is allowed to land, so
+  // an older, slower answer cannot replace a newer one.
+  const latestRead = useRef(0);
+  // Opening the top files is owed by the first read even when a later read
+  // supersedes it; the read that lands pays it.
+  const owesOpenTop = useRef(false);
 
   const read = useCallback(
-    (openTop: boolean) =>
-      window.textToCad.git
-        .status({ ...request, scope: diffScopeFor(scope) })
-        .catch(() => null)
-        .then((next) => {
+    (openTop: boolean) => {
+      const sequence = ++latestRead.current;
+      if (openTop) owesOpenTop.current = true;
+      return window.textToCad.git.status({ ...request, scope: diffScopeFor(scope) }).then(
+        (next) => {
+          if (sequence !== latestRead.current) return;
           setStatus(next);
+          setError(null);
           setLoading(false);
-          if (openTop) {
+          if (owesOpenTop.current) {
+            owesOpenTop.current = false;
             // The first few files open by default: a review whose sections are
             // all shut is a list of filenames, which is not a review. Binary
             // files are skipped — they have no diff to show, and a review that
             // opens on three "Binary file" panels has told you nothing.
             setOpen(
               new Set(
-                (next?.files ?? [])
+                next.files
                   .filter((file) => !file.binary)
                   .slice(0, 3)
                   .map((file) => file.path),
               ),
             );
           }
-        }),
+        },
+        (failure: unknown) => {
+          if (sequence !== latestRead.current) return;
+          setError(failure instanceof Error ? failure.message : String(failure));
+          setLoading(false);
+        },
+      );
+    },
     [request, scope],
   );
 
@@ -222,6 +243,18 @@ function ReviewBody({
         <Spinner className="size-3.5" />
         Reading the working tree…
       </div>
+    );
+  }
+
+  if (error && !status) {
+    return (
+      <EmptyState
+        action={<Button className="h-7 text-[12px]" onClick={refresh} size="sm" variant="outline">Try again</Button>}
+        description={error}
+        icon={AlertTriangle}
+        title="Could not read the changes"
+        tone="warn"
+      />
     );
   }
 
@@ -305,6 +338,15 @@ function ReviewBody({
           session={target}
         />
       </header>
+
+      {/* A re-read that failed keeps the last answer on screen, marked stale. */}
+      {error ? (
+        <div className="flex shrink-0 items-center gap-2 border-b bg-amber-500/10 px-3 py-1.5 text-[12px]" role="alert">
+          <AlertTriangle className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+          <span className="min-w-0 flex-1 truncate" title={error}>Could not refresh: {error}</span>
+          <Button className="h-6 px-2 text-[12px]" onClick={refresh} size="sm" variant="outline">Try again</Button>
+        </div>
+      ) : null}
 
       {status.files.length === 0 ? (
         <EmptyState

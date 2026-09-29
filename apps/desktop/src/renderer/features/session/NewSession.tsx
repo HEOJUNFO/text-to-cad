@@ -164,11 +164,16 @@ export function NewSession({ project }: { project: Project }) {
     void setAgentDefaults(pickedProvider.agentId, { mode: modeId });
   };
 
-  const start = async (text: string, content: PromptBlock[]) => {
+  /**
+   * Whether the session started. What the box held is not put back here: the composer took it
+   * whole on submit — the typed text and the annotations apart — and restores it when
+   * `submitFromComposer` rejects. Writing the prompt back into the draft here would write the
+   * annotations into the text, as a list, a second time beside their own chip.
+   */
+  const start = async (text: string, content: PromptBlock[]): Promise<boolean> => {
     if (!startingAgentId) {
-      setDraft(draftKey, text);
       setFailure({ message: "Install an agent first — Settings › Agents lists what text-to-cad can run.", auth: false });
-      return;
+      return false;
     }
     setBusy(true);
     setFailure(null);
@@ -189,16 +194,19 @@ export function NewSession({ project }: { project: Project }) {
       failedAttempt.current = { text, content };
       // Main has already dropped the row: nothing to resume, nothing to list.
       setFailure({ message, auth: isAuthError(message) || agent?.auth === "unauthenticated" });
-      setDraft(draftKey, text);
-      if (draftRoot) useComposer.getState().setDraftRoot(draftKey, draftRoot);
       setBusy(false);
-      return;
+      return false;
     }
     failedAttempt.current = null;
-    setDraft(draftKey, "");
     setActiveSession(sessionId);
     setBusy(false);
     void submitPrompt(sessionId, text, content);
+    return true;
+  };
+
+  // The composer's send: a start that fails rejects, and the composer puts its draft back.
+  const submitFromComposer = async (text: string, content: PromptBlock[]) => {
+    if (!(await start(text, content))) throw new Error("The session did not start");
   };
 
   const retry = () => {
@@ -207,7 +215,13 @@ export function NewSession({ project }: { project: Project }) {
       setFailure(null);
       return;
     }
-    void start(attempt.text, attempt.content);
+    // The box still holds what the failed start restored to it; once that prompt has gone out
+    // it is sent, so the draft and its annotations go with it.
+    void start(attempt.text, attempt.content).then((started) => {
+      if (!started) return;
+      setDraft(draftKey, "");
+      useComposer.getState().removeAnnotations(draftKey);
+    });
   };
 
   // A sign-in that finishes is the retry: when a login job for this agent
@@ -297,7 +311,7 @@ export function NewSession({ project }: { project: Project }) {
             chips={chips}
             commands={[]}
             disabled={busy}
-            onSubmit={start}
+            onSubmit={submitFromComposer}
             placeholder={busy && agent ? `Starting ${agent.name}…` : "Do anything"}
             newDraftKey={draftKey}
             sessionId={null}

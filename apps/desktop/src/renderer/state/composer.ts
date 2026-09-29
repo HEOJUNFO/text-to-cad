@@ -15,8 +15,25 @@ import type { PromptReference } from "@text-to-cad/core/prompt";
  *
  * Sending is the store's job rather than a component's so the queue drains
  * even when the session pane has re-rendered or the user has moved on to
- * another session: `drain` is called from the bridge whenever a session goes
- * idle.
+ * another session. The queue has exactly one driver: the bridge hands every
+ * `prompt/start`, `prompt/end` and `prompt/error` to `turnEvent`, and a turn
+ * that ends is what sends the next queued prompt. Nothing else drains — the
+ * `prompt` reply arrives after main has already broadcast `prompt/end`, so a
+ * second drain there would send the prompt after the one the bridge just sent,
+ * and main runs whatever turns it is handed.
+ *
+ * One prompt is in flight per session. `sending` is set synchronously when a
+ * prompt goes out and cleared by that turn's `prompt/start` (from then on the
+ * session's own status says it is busy), by `prompt/end`/`prompt/error`, or by
+ * the IPC rejecting before main dispatched anything. A prompt submitted while
+ * one is in flight is queued behind it.
+ *
+ * A failed turn pauses the queue. The failure is in the transcript with its
+ * Retry, and what the person sends next — that Retry, or a new prompt — goes
+ * out at once, ahead of the queue; the queue resumes when that turn ends.
+ * Sending the queue on into an agent that just failed would fail each queued
+ * prompt in turn, and a Retry that waited behind the queue would answer the
+ * failed prompt out of order.
  *
  * The explorer writes into the composer too (item 4 of the CAD review): a
  * reference added from the viewer lands in the draft as its token, which the
@@ -30,6 +47,20 @@ export type QueuedPrompt = {
   /** The text the user typed, for the queue's row. */
   text: string;
   content: PromptBlock[];
+  /** The draft it was sent from, so removing it from the queue puts that back as it was. */
+  draft?: TakenDraft;
+};
+
+/**
+ * A draft as the composer took it on submit: the typed text and the annotations beside it kept
+ * apart (the prompt is their flattening, and cannot be split back), with what the text's chips
+ * and workspace hang on. `restoreDraft` puts it back when the prompt does not go out.
+ */
+export type TakenDraft = {
+  text: string;
+  annotations: DraftAnnotation[];
+  labels?: Record<string, string>;
+  root?: string;
 };
 
 /** The draft key for a session, or for the new-session state. */
@@ -80,13 +111,24 @@ type ComposerState = {
   draftRoots: Record<string, string>;
   setDraftRoot: (key: string, root: string | undefined) => void;
 
-  /** Send now when the session is idle; queue it otherwise. */
-  submit: (sessionId: string, text: string, content: PromptBlock[]) => Promise<void>;
-  enqueue: (sessionId: string, text: string, content: PromptBlock[]) => void;
+  /**
+   * Send now when the session is free; queue it behind a running turn, a prompt already in
+   * flight, or a queue that is still draining. After a failed turn it goes out at once.
+   */
+  submit: (sessionId: string, text: string, content: PromptBlock[], draft?: TakenDraft) => Promise<void>;
+  enqueue: (sessionId: string, text: string, content: PromptBlock[], draft?: TakenDraft) => void;
   dequeue: (sessionId: string, id: string) => QueuedPrompt | null;
   clearQueue: (sessionId: string) => void;
-  /** Send the next queued prompt if the session is idle. */
+  /** Send the next queued prompt if the session is idle and nothing is in flight. */
   drain: (sessionId: string) => Promise<void>;
+  /** Sessions with a prompt sent and no `prompt/start` for it yet, by send token. */
+  sending: Record<string, number>;
+  /** The bridge's hand-off of a turn's lifecycle events: the queue's one driver. */
+  turnEvent: (sessionId: string, type: "prompt/start" | "prompt/end" | "prompt/error") => void;
+  /** Clear a draft for sending, returning what it held. */
+  takeDraft: (key: string) => TakenDraft;
+  /** Put a taken draft back, ahead of anything written into the box since. */
+  restoreDraft: (key: string, draft: TakenDraft) => void;
   setDraft: (sessionId: string, text: string) => void;
   /** Append a reference to a draft, as its token, spaced from what is there. */
   insertReference: (key: string, reference: CadReference) => void;
@@ -200,20 +242,24 @@ export const useComposer = create<ComposerState>((set, get) => ({
     return { draftRoots: roots };
   }),
 
-  submit: async (sessionId, text, content) => {
+  submit: async (sessionId, text, content, draft) => {
     const status = useAcp.getState().sessions[sessionId]?.status;
-    if (status === "running" || status === "waiting") {
-      get().enqueue(sessionId, text, content);
+    const queued = (get().queues[sessionId]?.length ?? 0) > 0;
+    const busy = status === "running" || status === "waiting" || sessionId in get().sending;
+    // After a failed turn the queue is paused and this goes first (see the header).
+    if (busy || (queued && status !== "error")) {
+      get().enqueue(sessionId, text, content, draft);
+      await get().drain(sessionId);
       return;
     }
     await send(sessionId, content);
   },
 
-  enqueue: (sessionId, text, content) =>
+  enqueue: (sessionId, text, content, draft) =>
     set((state) => ({
       queues: {
         ...state.queues,
-        [sessionId]: [...(state.queues[sessionId] ?? []), { id: `q${++sequence}`, text, content }],
+        [sessionId]: [...(state.queues[sessionId] ?? []), { id: `q${++sequence}`, text, content, ...(draft ? { draft } : {}) }],
       },
     })),
 
@@ -234,12 +280,46 @@ export const useComposer = create<ComposerState>((set, get) => ({
   drain: async (sessionId) => {
     const next = get().queues[sessionId]?.[0];
     const status = useAcp.getState().sessions[sessionId]?.status;
-    if (!next || status !== "idle") {
+    if (!next || status !== "idle" || sessionId in get().sending) {
       return;
     }
     get().dequeue(sessionId, next.id);
     await send(sessionId, next.content);
   },
+
+  sending: {},
+  turnEvent: (sessionId, type) => {
+    clearSending(sessionId);
+    if (type === "prompt/end") void get().drain(sessionId);
+  },
+
+  takeDraft: (key) => {
+    const state = get();
+    const labels = state.referenceLabels[key];
+    const root = state.draftRoots[key];
+    const taken: TakenDraft = {
+      text: state.drafts[key] ?? "",
+      annotations: state.annotations[key] ?? [],
+      ...(labels && Object.keys(labels).length ? { labels: { ...labels } } : {}),
+      ...(root ? { root } : {}),
+    };
+    get().setDraft(key, "");
+    get().removeAnnotations(key);
+    return taken;
+  },
+
+  restoreDraft: (key, draft) => set((state) => {
+    const current = state.drafts[key] ?? "";
+    const text = !current.trim() ? draft.text : !draft.text.trim() ? current : `${draft.text}\n\n${current}`;
+    const since = (state.annotations[key] ?? []).filter(annotation => !draft.annotations.some(taken => taken.id === annotation.id));
+    const annotations = [...draft.annotations, ...since];
+    return {
+      drafts: { ...state.drafts, [key]: text },
+      ...(annotations.length ? { annotations: { ...state.annotations, [key]: annotations } } : {}),
+      ...(draft.labels ? { referenceLabels: { ...state.referenceLabels, [key]: { ...draft.labels, ...state.referenceLabels[key] } } } : {}),
+      ...(draft.root && !state.draftRoots[key] ? { draftRoots: { ...state.draftRoots, [key]: draft.root } } : {}),
+    };
+  }),
 
   setDraft: (sessionId, text) =>
     set((state) => {
@@ -278,15 +358,29 @@ export const useComposer = create<ComposerState>((set, get) => ({
 /**
  * `prompt` resolves when the turn ends and rejects when the agent refuses
  * it. The rejection is already in the transcript (the reducer's
- * `prompt/error` part), so nothing else needs to see it here.
+ * `prompt/error` part), so nothing else needs to see it here. The next queued
+ * prompt is not sent from here: `prompt/end` has already done that.
  */
 async function send(sessionId: string, content: PromptBlock[]) {
+  const token = ++sequence;
+  // Synchronously, before the IPC: until main dispatches `prompt/start` the
+  // session's status still reads idle, and this is what says it is not.
+  useComposer.setState((state) => ({ sending: { ...state.sending, [sessionId]: token } }));
   try {
     await useAcp.getState().prompt(sessionId, content);
   } catch {
-    // Reported in the transcript with a Retry.
+    // Reported in the transcript with a Retry. A rejection that came before
+    // main dispatched anything (no `prompt/error`) still frees the session.
+    clearSending(sessionId, token);
   }
-  await useComposer.getState().drain(sessionId);
+}
+
+function clearSending(sessionId: string, token?: number) {
+  useComposer.setState((state) => {
+    if (!(sessionId in state.sending) || (token !== undefined && state.sending[sessionId] !== token)) return state;
+    const { [sessionId]: _done, ...rest } = state.sending;
+    return { sending: rest };
+  });
 }
 
 export function useQueue(sessionId: string | null): QueuedPrompt[] {

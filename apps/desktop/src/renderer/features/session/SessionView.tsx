@@ -6,6 +6,7 @@ import { Button } from "@renderer/components/ui/button";
 import { useAcp } from "@renderer/state/acp";
 import { useAgents } from "@renderer/state/agents";
 import { useComposer } from "@renderer/state/composer";
+import type { TakenDraft } from "@renderer/state/composer";
 import { useSettings } from "@renderer/state/settings";
 import { effortOption, fastOption, modeChoice, modelOption } from "@shared/acp/options";
 import type { PromptBlock, SessionState } from "@shared/acp/types";
@@ -55,7 +56,7 @@ export function SessionView({ session }: { session: Session }) {
     void ensureLoaded(session.id);
   }, [session.id, ensureLoaded]);
 
-  const onSubmit = (text: string, content: PromptBlock[]) => submit(session.id, text, content);
+  const onSubmit = (text: string, content: PromptBlock[], draft: TakenDraft) => submit(session.id, text, content, draft);
 
   // What a path in this thread's prose is relative to: its worktree when it
   // runs in one (plan §9), else the project. `links/PathLink` reads it.

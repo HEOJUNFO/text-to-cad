@@ -42,7 +42,7 @@ import { AttachmentImagePreview } from "./composer/AttachmentImagePreview";
 import { ComposerEditor, type ComposerEditorHandle } from "./composer/ComposerEditor";
 import { ReferenceScopeContext } from "./composer/ReferenceScope";
 import { AnnotationsChip, annotationImageParts, withAnnotations } from "./composer/AnnotationsChip";
-import type { DraftAnnotation } from "@renderer/state/composer";
+import type { DraftAnnotation, TakenDraft } from "@renderer/state/composer";
 
 const NO_ANNOTATIONS: DraftAnnotation[] = [];
 
@@ -106,7 +106,8 @@ export function Composer({
   disabled?: boolean;
   placeholder?: string;
   autoFocus?: boolean;
-  onSubmit: (text: string, content: PromptBlock[]) => Promise<void> | void;
+  /** `draft` is what the box held, kept apart, so a queued prompt can be put back as it was. */
+  onSubmit: (text: string, content: PromptBlock[], draft: TakenDraft) => Promise<void> | void;
   onStop?: () => void;
 }) {
   // The draft lives in the composer store, per session, so switching
@@ -165,11 +166,19 @@ export function Composer({
       if (content.length === 0) {
         return;
       }
-      setText("");
-      if (pending.length) removeAnnotations(draftKey);
-      await onSubmit(trimmed, content);
+      // The box empties now, but what it held is kept whole — the typed text and the annotations
+      // apart, with their chips' labels — rather than as the flattened prompt: a start that fails
+      // puts it back as it was (the rejection below), and so does taking it out of the queue.
+      const taken = useComposer.getState().takeDraft(draftKey);
+      try {
+        await onSubmit(trimmed, content, taken);
+      } catch (error) {
+        useComposer.getState().restoreDraft(draftKey, taken);
+        // Rethrown so the form keeps its attachments for the next try.
+        throw error;
+      }
     },
-    [onSubmit, setText, removeAnnotations, draftKey],
+    [onSubmit, draftKey],
   );
 
   return (
@@ -192,7 +201,9 @@ export function Composer({
                           aria-label="Remove from queue"
                           onClick={() => {
                             const removed = dequeue(sessionId, item.id);
-                            if (removed) {
+                            if (removed?.draft) {
+                              useComposer.getState().restoreDraft(draftKey, removed.draft);
+                            } else if (removed) {
                               setText((current) => (current ? current : removed.text));
                             }
                           }}
