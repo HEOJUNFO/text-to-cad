@@ -17,12 +17,31 @@ type UiCommand = IpcEventPayload<"ui.command">["command"];
 
 const REPOSITORY_URL = "https://github.com/earthtojake/text-to-cad";
 
-export function buildMenu(focusedWindow: () => BrowserWindow | null, packaged = app.isPackaged) {
+export function buildMenu(
+  focusedWindow: () => BrowserWindow | null,
+  openWindow: () => BrowserWindow,
+  packaged = app.isPackaged,
+) {
   const send = (command: UiCommand) => () => {
     const window = focusedWindow();
     if (window) {
       emit([window.webContents], "ui.command", { command });
     }
+  };
+  // New Session and Settings… are how a person gets back into the app, and
+  // on macOS the menu outlives the last window. With no window they open one
+  // and send the command when its page has loaded — sent before, the page
+  // has no listener yet and it is dropped. A view toggle has nothing to act
+  // on in a window that was not there, so it stays `send`.
+  const sendOrOpen = (command: UiCommand) => () => {
+    if (focusedWindow()) {
+      send(command)();
+      return;
+    }
+    const window = openWindow();
+    window.webContents.once("did-finish-load", () => {
+      emit([window.webContents], "ui.command", { command });
+    });
   };
 
   const isMac = process.platform === "darwin";
@@ -57,7 +76,7 @@ export function buildMenu(focusedWindow: () => BrowserWindow | null, packaged = 
           submenu: [
             { role: "about" },
             { type: "separator" },
-            { label: "Settings…", accelerator: "Cmd+,", click: send("open-settings") },
+            { label: "Settings…", accelerator: "Cmd+,", click: sendOrOpen("open-settings") },
             { type: "separator" },
             { role: "services" },
             { type: "separator" },
@@ -76,12 +95,12 @@ export function buildMenu(focusedWindow: () => BrowserWindow | null, packaged = 
     {
       label: "File",
       submenu: [
-        { label: "New Session", accelerator: "CmdOrCtrl+N", click: send("new-session") },
+        { label: "New Session", accelerator: "CmdOrCtrl+N", click: sendOrOpen("new-session") },
         { type: "separator" },
         ...(isMac
           ? [close]
           : ([
-              { label: "Settings…", accelerator: "Ctrl+,", click: send("open-settings") },
+              { label: "Settings…", accelerator: "Ctrl+,", click: sendOrOpen("open-settings") },
               { type: "separator" },
               { role: "quit" },
             ] as MenuItemConstructorOptions[])),
@@ -187,8 +206,8 @@ export function buildMenu(focusedWindow: () => BrowserWindow | null, packaged = 
   return Menu.buildFromTemplate(template);
 }
 
-export function installMenu(focusedWindow: () => BrowserWindow | null) {
-  Menu.setApplicationMenu(buildMenu(focusedWindow));
+export function installMenu(focusedWindow: () => BrowserWindow | null, openWindow: () => BrowserWindow) {
+  Menu.setApplicationMenu(buildMenu(focusedWindow, openWindow));
   // Registered here, before the first window: the menu's reload is what the
   // renderer's unsaved-draft guard exists for.
   app.on("before-quit", markQuitting);

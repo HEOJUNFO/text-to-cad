@@ -16,7 +16,8 @@ vi.mock("electron", () => ({
   dialog: { showMessageBoxSync },
   shell: {},
 }));
-vi.mock("@main/ipc/register", () => ({ emit: vi.fn() }));
+const emit = vi.hoisted(() => vi.fn());
+vi.mock("@main/ipc/register", () => ({ emit }));
 vi.mock("@main/browser/service", () => ({ browserService: { reloadFocused, forwardFromFocused } }));
 import { buildMenu, guardRendererUnload } from "@main/menu";
 
@@ -24,7 +25,9 @@ beforeEach(() => { vi.clearAllMocks(); });
 const flatten = (items: MenuItemConstructorOptions[]): MenuItemConstructorOptions[] =>
   items.flatMap(item => [item, ...(Array.isArray(item.submenu) ? flatten(item.submenu) : [])]);
 const window = { webContents: Object.assign(new EventEmitter(), { reload: vi.fn() }), close: vi.fn() };
-const items = (packaged: boolean) => flatten(buildMenu(() => window as unknown as Electron.BrowserWindow, packaged) as unknown as MenuItemConstructorOptions[]);
+const openWindow = vi.fn();
+const items = (packaged: boolean, focused: unknown = window) =>
+  flatten(buildMenu(() => focused as Electron.BrowserWindow | null, openWindow, packaged) as unknown as MenuItemConstructorOptions[]);
 
 it("has no renderer reload in a packaged build; Cmd+R goes to the focused browser page", () => {
   const packaged = items(true);
@@ -67,6 +70,29 @@ it("keeps an app reload in development under a chord of its own", () => {
   // Every accelerator is bound once.
   const accelerators = development.map(item => item.accelerator).filter(Boolean);
   expect(new Set(accelerators).size).toBe(accelerators.length);
+});
+
+// macOS keeps the app running after its last window closes, and the menu with
+// it: New Session and Settings… there have no window to go to, so they open
+// one and send the command once its page is listening.
+it("opens a window for New Session and Settings when there is none", () => {
+  const opened = { webContents: new EventEmitter() };
+  openWindow.mockReturnValue(opened);
+  const none = items(true, null);
+  for (const [label, command] of [["New Session", "new-session"], ["Settings…", "open-settings"]] as const) {
+    openWindow.mockClear();
+    emit.mockClear();
+    (none.find(item => item.label === label)!.click as () => void)();
+    expect(openWindow).toHaveBeenCalledTimes(1);
+    expect(emit).not.toHaveBeenCalled();
+    opened.webContents.emit("did-finish-load");
+    expect(emit).toHaveBeenCalledWith([opened.webContents], "ui.command", { command });
+  }
+  // With a window, the command goes to it and nothing opens.
+  openWindow.mockClear();
+  (items(true).find(item => item.label === "New Session")!.click as () => void)();
+  expect(openWindow).not.toHaveBeenCalled();
+  expect(emit).toHaveBeenLastCalledWith([window.webContents], "ui.command", { command: "new-session" });
 });
 
 it("asks before an unload the renderer refused, and never blocks a quit", () => {

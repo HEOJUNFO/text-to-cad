@@ -251,7 +251,7 @@ if (!app.requestSingleInstanceLock()) {
     // `additionalDirectories` all need them up.
     await initCad();
     await initIntegrations({ sendCommand: (command) => broadcast("integrations.command", command), cancelCommand: requestId => broadcast("integrations.cancel", { requestId }) });
-    installMenu(() => BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null);
+    installMenu(() => BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null, createWindow);
     createWindow();
     initUpdater();
     // One idle adapter per agent the index says is in use, a second and a
