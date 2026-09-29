@@ -4,6 +4,15 @@ import { dedupeFileTabs, getDrawingTab, tabTitle, useExplorer } from "@renderer/
 import { deleteDrawingScene } from "@renderer/state/drawings";
 
 vi.mock("@renderer/state/drawings", () => ({ deleteDrawingScene: vi.fn() }));
+vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { error: vi.fn(), success: vi.fn(), dismiss: vi.fn() }) }));
+vi.mock("@renderer/state/live-documents", async (importOriginal) => {
+  const actual = await importOriginal<typeof LiveDocuments>();
+  return { ...actual, hasDirtyDocument: vi.fn(actual.hasDirtyDocument) };
+});
+
+import { toast } from "sonner";
+import { hasDirtyDocument } from "@renderer/state/live-documents";
+import type * as LiveDocuments from "@renderer/state/live-documents";
 
 import { PersistedExplorerTabSchema } from "@shared/types";
 import type { PersistedExplorerTab } from "@shared/types";
@@ -58,6 +67,17 @@ describe("the explorer strip", () => {
     await useExplorer.getState().bindSession(null, null);
     await vi.runOnlyPendingTimersAsync();
     vi.useRealTimers();
+  });
+
+  it("keeps one unsaved-changes toast per tab however often it is closed", () => {
+    const tab = useExplorer.getState().open("file")!;
+    vi.mocked(hasDirtyDocument).mockImplementation((id) => id === tab.id);
+    useExplorer.getState().close(tab.id);
+    useExplorer.getState().close(tab.id);
+    const ids = vi.mocked(toast.error).mock.calls.map(([, options]) => options?.id);
+    expect(ids).toEqual([`dirty:${tab.id}`, `dirty:${tab.id}`]);
+    expect(useExplorer.getState().tabs.map((candidate) => candidate.id)).toContain(tab.id);
+    vi.mocked(hasDirtyDocument).mockReset();
   });
 
   it("opens each of the five kinds into one strip", () => {

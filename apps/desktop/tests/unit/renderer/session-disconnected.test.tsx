@@ -1,0 +1,67 @@
+import { act, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { SessionView } from "@renderer/features/session/SessionView";
+import { useAcp } from "@renderer/state/acp";
+import { initialSessionState } from "@shared/acp/types";
+import type { Session } from "@shared/types";
+
+// The pieces around the one state under test are their own suites.
+vi.mock("@renderer/features/session/Composer", () => ({
+  Composer: ({ disabled }: { disabled: boolean }) => <textarea aria-label="Prompt" disabled={disabled} />,
+}));
+vi.mock("@renderer/features/session/SessionHeader", () => ({ SessionHeader: () => null }));
+vi.mock("@renderer/features/session/Transcript", () => ({ Transcript: () => <div data-transcript /> }));
+vi.mock("@renderer/features/session/ContextMeter", () => ({ ContextMeter: () => null }));
+
+const SESSION = {
+  id: "s1",
+  projectId: "p1",
+  agentId: "claude",
+  cwd: "/bracket",
+  gitMode: "checkout",
+  title: "New session",
+  titleSource: "prompt",
+  createdAt: 0,
+  updatedAt: 0,
+  status: "closed",
+} as unknown as Session;
+
+const load = vi.fn(async () => undefined);
+const ensureLoaded = vi.fn(async () => undefined);
+
+beforeEach(() => {
+  load.mockClear();
+  ensureLoaded.mockClear();
+  useAcp.setState({ sessions: {}, loading: {}, reconnecting: {}, loadErrors: {}, load, ensureLoaded } as never);
+});
+
+describe("a disconnected agent", () => {
+  it("says so above the disabled composer and reconnects from there", async () => {
+    const user = userEvent.setup();
+    useAcp.setState({ sessions: { s1: { ...initialSessionState("s1", "claude"), status: "closed" } } });
+    render(<SessionView session={SESSION} />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("Agent disconnected");
+    expect(screen.getByLabelText("Prompt")).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Reconnect" }));
+    expect(load).toHaveBeenCalledWith("s1");
+  });
+
+  it("stays disconnected, not connecting, once Disconnect agent forgets the transcript", () => {
+    useAcp.setState({ sessions: { s1: { ...initialSessionState("s1", "claude"), status: "closed" } } });
+    render(<SessionView session={SESSION} />);
+    act(() => useAcp.getState().forget("s1"));
+
+    expect(screen.getByRole("status")).toHaveTextContent("Agent disconnected");
+    expect(screen.queryByText(/Connecting to/)).toBeNull();
+  });
+
+  it("is not claimed for a closed row opened for the first time, which is still loading", () => {
+    render(<SessionView session={SESSION} />);
+
+    expect(screen.queryByText("Agent disconnected")).toBeNull();
+    expect(screen.getByText(/Connecting to/)).toBeInTheDocument();
+  });
+});

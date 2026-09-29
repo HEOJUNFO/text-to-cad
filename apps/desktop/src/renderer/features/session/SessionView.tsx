@@ -1,6 +1,6 @@
 import LoadingIcon from "@text-to-cad/ui/loading-icon";
-import { useEffect, useMemo } from "react";
-import { AlertCircle, Loader2, RotateCcw } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AlertCircle, Loader2, RotateCcw, Unplug } from "lucide-react";
 
 import { Button } from "@renderer/components/ui/button";
 import { useAcp } from "@renderer/state/acp";
@@ -152,6 +152,20 @@ export function SessionView({ session }: { session: Session }) {
   const lastAgentTurn = state?.turns.findLast((turn) => turn.role === "agent") ?? null;
   const errorInTranscript = lastAgentTurn?.parts.at(-1)?.type === "error";
   const showErrorBanner = state?.status === "error" && !!state.error && !errorInTranscript;
+  // "Disconnect agent" (SessionHeader), or the keep-alive evicting the
+  // adapter: nothing is coming back on its own — `ensureLoaded` runs on a
+  // session switch, not here — so the way back is a button. A disconnect by
+  // hand also forgets the transcript (`close` in state/acp.ts), so a session
+  // this view was showing that now has no state and a closed row is that,
+  // not a first open still waiting on `ensureLoaded`.
+  const [shownId, setShownId] = useState<string | null>(null);
+  if (state && shownId !== session.id) {
+    setShownId(session.id);
+  }
+  const disconnected =
+    !loading &&
+    !loadError &&
+    (state ? state.status === "closed" : shownId === session.id && session.status === "closed");
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-session-view={session.id} data-session-status={state?.status ?? (loading ? "loading" : "detached")}>
@@ -169,6 +183,8 @@ export function SessionView({ session }: { session: Session }) {
         ) : (
           <LoadFailed message={loadError} onRetry={() => void load(session.id)} />
         )
+      ) : disconnected ? (
+        <div className="min-h-0 flex-1" />
       ) : (
         <Connecting agentName={agent?.name ?? session.agentId} />
       )}
@@ -204,6 +220,16 @@ export function SessionView({ session }: { session: Session }) {
                 </Button>
               </div>
             )
+          ) : null}
+          {disconnected ? (
+            <div className="flex items-center gap-2 rounded-xl border px-3 py-2 text-[13px] leading-5" data-disconnected role="status">
+              <Unplug className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 text-muted-foreground">Agent disconnected</span>
+              <Button className="h-6 gap-1 px-2 text-[12px]" onClick={() => void load(session.id)} size="sm" variant="outline">
+                <RotateCcw className="size-3" />
+                Reconnect
+              </Button>
+            </div>
           ) : null}
           {state?.plan && state.plan.length > 0 ? (
             <PlanCard entries={state.plan} running={running} startedAt={planTurn?.startedAt ?? null} />

@@ -178,12 +178,12 @@ test("before a session: two panes, no explorer, and the chooser in both halves",
   await expect(page.getByTestId("sidebar").getByRole("button", { name: "Open folder…" })).toBeVisible();
   await expect(page.locator("[data-no-project]").getByRole("button", { name: "Open folder…" })).toBeVisible();
   await page.keyboard.press(`${mod}+K`);
-  await expect(page.getByPlaceholder("Search projects and commands…")).toBeVisible();
+  await expect(page.getByPlaceholder("Search sessions, projects and commands…")).toBeVisible();
   await expect(page.getByRole("option", { name: "Toggle sidebar" })).toBeVisible();
   await expect(page.getByRole("option", { name: "Open folder…" })).toBeVisible();
   await expect(page.getByRole("option", { name: "Toggle explorer" })).toHaveCount(0);
   await page.keyboard.press("Escape");
-  await expect(page.getByPlaceholder("Search projects and commands…")).toBeHidden();
+  await expect(page.getByPlaceholder("Search sessions, projects and commands…")).toBeHidden();
   await page.keyboard.press(`${mod}+Alt+b`);
   await expect(page.getByTestId("explorer")).toHaveCount(0);
   // The sidebar's collapse is in its title strip, level with the session's bar.
@@ -272,10 +272,10 @@ test("the lights' corner stays clear, and a drag stops at the minimum or closes 
   await page.getByRole("button", { name: "Back to app" }).click();
   await expect(page.getByText("Choose a folder to get started")).toBeVisible();
   await page.keyboard.press(`${mod}+K`);
-  await expect(page.getByPlaceholder("Search projects and commands…")).toBeVisible();
+  await expect(page.getByPlaceholder("Search sessions, projects and commands…")).toBeVisible();
   await expectClear("palette");
   await page.keyboard.press("Escape");
-  await expect(page.getByPlaceholder("Search projects and commands…")).toBeHidden();
+  await expect(page.getByPlaceholder("Search sessions, projects and commands…")).toBeHidden();
 });
 
 /* -------------------------------------------------------------------------- */

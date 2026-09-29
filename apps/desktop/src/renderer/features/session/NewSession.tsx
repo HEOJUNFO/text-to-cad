@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { AlertCircle } from "lucide-react";
 
 import { Button } from "@renderer/components/ui/button";
@@ -72,6 +72,10 @@ export function NewSession({ project }: { project: Project }) {
   const [gitMode, setGitMode] = useState<GitMode | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<{ message: string; auth: boolean } | null>(null);
+  // The prompt the failed start was sending, attachments and all: "Try
+  // again" sends it rather than asking for it a second time.
+  const failedAttempt = useRef<{ text: string; content: PromptBlock[] } | null>(null);
+  const jobs = useAgents((state) => state.jobs);
 
   // Defaults come from settings and from what is installed; a choice made
   // here sticks until the session is created.
@@ -182,6 +186,7 @@ export function NewSession({ project }: { project: Project }) {
       });
     } catch (error) {
       const message = errorMessage(error);
+      failedAttempt.current = { text, content };
       // Main has already dropped the row: nothing to resume, nothing to list.
       setFailure({ message, auth: isAuthError(message) || agent?.auth === "unauthenticated" });
       setDraft(draftKey, text);
@@ -189,11 +194,47 @@ export function NewSession({ project }: { project: Project }) {
       setBusy(false);
       return;
     }
+    failedAttempt.current = null;
     setDraft(draftKey, "");
     setActiveSession(sessionId);
     setBusy(false);
     void submitPrompt(sessionId, text, content);
   };
+
+  const retry = () => {
+    const attempt = failedAttempt.current;
+    if (!attempt || busy) {
+      setFailure(null);
+      return;
+    }
+    void start(attempt.text, attempt.content);
+  };
+
+  // A sign-in that finishes is the retry: when a login job for this agent
+  // that was not already over when the prompt appeared exits 0, start again.
+  // `settledLogins` is what had already ended when the prompt went up, so a
+  // login from an earlier failure does not fire this one.
+  const settledLogins = useRef<Set<string> | null>(null);
+  const retryAfterLogin = useEffectEvent(retry);
+  useEffect(() => {
+    if (!failure?.auth || !startingAgentId) {
+      settledLogins.current = null;
+      return;
+    }
+    const ended = Object.entries(jobs).filter(
+      ([, job]) => job.kind === "login" && job.agentId === startingAgentId && job.exitCode !== null,
+    );
+    if (!settledLogins.current) {
+      settledLogins.current = new Set(ended.map(([id]) => id));
+      return;
+    }
+    const seen = settledLogins.current;
+    const fresh = ended.filter(([id]) => !seen.has(id));
+    for (const [id] of fresh) seen.add(id);
+    if (fresh.some(([, job]) => job.exitCode === 0)) {
+      retryAfterLogin();
+    }
+  }, [failure, jobs, startingAgentId]);
 
   // What the session will be, as a strip above the box: where it runs, how
   // it treats git — the two things that cannot change once the session
@@ -234,7 +275,7 @@ export function NewSession({ project }: { project: Project }) {
 
         {failure?.auth ? (
           <div className="mt-4">
-            <AuthPrompt agent={agent} message={failure.message} onRetry={() => setFailure(null)} />
+            <AuthPrompt agent={agent} message={failure.message} onRetry={retry} />
           </div>
         ) : failure ? (
           <div

@@ -189,6 +189,8 @@ function StartStep({ onDone }: { onDone: () => void }) {
       if (await openFolder()) {
         onDone();
       }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       setBusy(null);
     }

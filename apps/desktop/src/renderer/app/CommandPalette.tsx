@@ -89,7 +89,7 @@ export function CommandPalette() {
     >
       <CommandInput
         onValueChange={setQuery}
-        placeholder="Search projects and commands…"
+        placeholder="Search sessions, projects and commands…"
         value={query}
       />
       <CommandList>
@@ -105,7 +105,9 @@ export function CommandPalette() {
               <CommandItem
                 key={session.id}
                 onSelect={run(() => selectSession(session.id))}
-                value={`${session.title} ${project?.name ?? ""} ${session.branch ?? ""}`}
+                // cmdk keys selection by value: two "New session" rows in one
+                // folder would otherwise be one row twice over.
+                value={`${session.title} ${project?.name ?? ""} ${session.branch ?? ""} ${session.id}`}
               >
                 <MessageSquare className="size-4" />
                 <span className="truncate">{session.title}</span>

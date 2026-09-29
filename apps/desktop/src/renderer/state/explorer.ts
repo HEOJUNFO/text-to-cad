@@ -550,7 +550,8 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
     }
     const closing = tabs[index];
     if (hasDirtyDocument(id)) {
-      toast.error("This file has unsaved changes.", { description: "Save it before closing, or discard your edits.",
+      // One toast per tab: a second Cmd+W replaces it rather than stacking a copy.
+      toast.error("This file has unsaved changes.", { id: `dirty:${id}`, description: "Save it before closing, or discard your edits.",
         action: { label: "Discard and close", onClick: () => {
           // A toast can outlive a session switch. Do not close a different strip.
           if (get().sessionId !== sessionId) return;
