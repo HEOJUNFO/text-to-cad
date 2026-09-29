@@ -41,10 +41,12 @@ const fakeCode = () => {
 };
 
 let models: { original: { dispose: () => void }; modified: { dispose: () => void } };
+let shown: { original?: string; modified?: string } = {};
 
 vi.mock("@monaco-editor/react", async () => {
   const { useEffect, useRef } = await import("react");
-  function DiffEditor({ onMount }: { onMount: (editor: unknown) => void }) {
+  function DiffEditor({ onMount, original, modified }: { onMount: (editor: unknown) => void; original: string; modified: string }) {
+    shown = { original, modified };
     // Mounted once, like the real wrapper, whatever the parent re-renders.
     const mount = useRef(onMount);
     useEffect(() => {
@@ -102,4 +104,17 @@ it("disposes both kept diff models once the diff editor has unmounted", () => {
 
   expect(models.original.dispose).toHaveBeenCalledTimes(1);
   expect(models.modified.dispose).toHaveBeenCalledTimes(1);
+});
+
+it("draws no empty last row for the final newline both sides share", () => {
+  // notes.txt → notes-renamed.txt with a line added: before the fix Monaco was handed
+  // both files whole and drew a fifth, empty row that is on neither side of git's diff.
+  const renamed = { ...diff, path: "notes-renamed.txt", status: "renamed", oldPath: "notes.txt", before: "one\ntwo\nthree\n", after: "one\ntwo\nthree\nfour\n" } as FileDiff;
+  render(<ReviewDiff diff={renamed} onSelect={() => undefined} path="notes-renamed.txt" theme="light" />);
+  expect(shown).toEqual({ original: "one\ntwo\nthree", modified: "one\ntwo\nthree\nfour" });
+});
+
+it("keeps a final newline that only one side has: that is the change", () => {
+  render(<ReviewDiff diff={{ ...diff, before: "a = 1", after: "a = 1\n" }} onSelect={() => undefined} path="part.py" theme="light" />);
+  expect(shown).toEqual({ original: "a = 1", modified: "a = 1\n" });
 });

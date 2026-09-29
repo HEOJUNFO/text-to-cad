@@ -55,6 +55,20 @@ export function sideText(text: string): string {
   return text.endsWith("\n") ? text.slice(0, -1) : text;
 }
 
+/**
+ * The two sides of a two-sided diff, each without git's final newline when
+ * both have one — the rule `sideText` keeps for a one-sided file. Left on,
+ * Monaco draws the newline as an empty last line that is on neither side of
+ * git's diff. One side ending without it is itself the change, and is kept.
+ */
+export function diffTexts(diff: FileDiff): { original: string; modified: string } {
+  const original = diff.before ?? "";
+  const modified = diff.after ?? "";
+  return original.endsWith("\n") && modified.endsWith("\n")
+    ? { original: sideText(original), modified: sideText(modified) }
+    : { original, modified };
+}
+
 const lineCount = (text: string) => (text === "" ? 1 : text.split("\n").length);
 
 /**
@@ -71,7 +85,7 @@ export function estimateHeight(diff: FileDiff): number {
       : side === "deleted"
         ? lineCount(sideText(diff.before ?? ""))
         : Math.min(
-            lineCount(diff.after ?? "") + diff.deletions,
+            lineCount(diffTexts(diff).modified) + diff.deletions,
             diff.insertions + diff.deletions + 8,
           );
   return clampHeight(lines * LINE_HEIGHT + PADDING.top + PADDING.bottom);
@@ -183,6 +197,7 @@ export function ReviewDiff({
     );
   }
 
+  const texts = diffTexts(diff);
   return (
     <div data-review-diff="modified" style={{ height }}>
       <DiffEditor
@@ -194,7 +209,7 @@ export function ReviewDiff({
         keepCurrentModifiedModel
         keepCurrentOriginalModel
         language={languageFor(path)}
-        modified={diff.after ?? ""}
+        modified={texts.modified}
         onMount={(editor) => {
           // The diff widget itself never fires onDidDispose (monaco 0.56's
           // DelegatingEditor creates the emitter and nothing fires it); its inner
@@ -222,7 +237,7 @@ export function ReviewDiff({
           renderOverviewRuler: false,
           hideUnchangedRegions: { enabled: true, revealLineCount: 3, minimumLineCount: 3 },
         }}
-        original={diff.before ?? ""}
+        original={texts.original}
         theme={monacoTheme(theme)}
       />
     </div>
