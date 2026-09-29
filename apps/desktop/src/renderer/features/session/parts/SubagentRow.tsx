@@ -1,5 +1,5 @@
 import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { cn } from "cn";
 
@@ -28,6 +28,7 @@ export function SubagentRow({ part, sessionId }: { part: SubagentPart; sessionId
   const running = part.state === "running";
   const label = `${part.name} ${STATE_LABEL[part.state]}`;
   const expandable = part.parts.length > 0;
+  const partsId = useId();
   const row = (
     <>
       <span className="flex size-4 items-center justify-center">
@@ -47,6 +48,7 @@ export function SubagentRow({ part, sessionId }: { part: SubagentPart; sessionId
       <TooltipHint content={part.task ?? undefined} overflowOnly>
         {expandable ? (
           <button
+            aria-controls={open ? partsId : undefined}
             aria-expanded={open}
             className={cn(ROW, "hover:bg-accent/60")}
             onClick={() => setOpen((value) => !value)}
@@ -60,7 +62,7 @@ export function SubagentRow({ part, sessionId }: { part: SubagentPart; sessionId
         )}
       </TooltipHint>
       {open && expandable ? (
-        <div className="ml-6 border-l pl-2">
+        <div className="ml-6 border-l pl-2" id={partsId}>
           <PartsList open={running} parts={part.parts} prefix={part.sessionId} sessionId={sessionId} />
         </div>
       ) : null}

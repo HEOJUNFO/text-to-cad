@@ -1,5 +1,5 @@
 import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
-import { Suspense, lazy, useContext, useState } from "react";
+import { Suspense, lazy, useContext, useId, useState } from "react";
 import { Ban, Box, CircleAlert, ChevronRight, Loader2 } from "lucide-react";
 import { cn } from "cn";
 
@@ -48,6 +48,7 @@ export function ActivityGroup({ item, sessionId }: { item: ActivityItem; session
       setOpen(true);
     }
   };
+  const groupId = useId();
   const rowView = (row: ActivityRow) => (
     <ActivityRowView key={row.id} onToggle={() => toggleRow(row.id)} open={openRows.has(row.id)} row={row} sessionId={sessionId} />
   );
@@ -60,6 +61,7 @@ export function ActivityGroup({ item, sessionId }: { item: ActivityItem; session
     <div className="not-prose min-w-0" data-activity-group data-open={open}>
       <RowButton
         active={active}
+        controls={groupId}
         onClick={() => setOpen((value) => !value)}
         open={open}
       >
@@ -74,7 +76,7 @@ export function ActivityGroup({ item, sessionId }: { item: ActivityItem; session
         {failureCount > 0 ? <FailureIndicator count={failureCount} /> : null}
       </RowButton>
       {open ? (
-        <div className="ui-reveal ml-2 border-l pl-2">
+        <div className="ui-reveal ml-2 border-l pl-2" id={groupId}>
           {item.rows.map(rowView)}
         </div>
       ) : null}
@@ -99,11 +101,13 @@ export function ActivityRowView({
   const cancelled = row.status === "cancelled";
   const label = row.label;
   const command = row.command ? commandLine(row.command) : null;
+  const detailId = useId();
 
   return (
     <div className="not-prose min-w-0" data-activity-row={row.id} data-status={row.status}>
       <RowButton
         active={active}
+        controls={detailId}
         onClick={onToggle}
         open={open}
         title={row.path ?? row.command ?? row.part.title}
@@ -128,7 +132,7 @@ export function ActivityRowView({
           </span>
         ) : null}
       </RowButton>
-      {open ? <ToolDetail part={row.part} sessionId={sessionId} /> : null}
+      {open ? <ToolDetail id={detailId} part={row.part} sessionId={sessionId} /> : null}
     </div>
   );
 }
@@ -204,12 +208,15 @@ function RowButton({
   children,
   open,
   active,
+  controls,
   onClick,
   title,
   trailing,
 }: {
   children: React.ReactNode;
   open: boolean;
+  /** The id of what the row opens, named while it is open (`aria-controls`). */
+  controls: string;
   active: boolean;
   onClick: () => void;
   title?: string;
@@ -219,7 +226,7 @@ function RowButton({
   if (trailing) {
     return (
       <div className="flex min-w-0 items-center gap-1">
-        <RowButton active={active} onClick={onClick} open={open} title={title}>
+        <RowButton active={active} controls={controls} onClick={onClick} open={open} title={title}>
           {children}
         </RowButton>
         {trailing}
@@ -229,6 +236,7 @@ function RowButton({
   return (
     <TooltipHint content={title} overflowOnly>
       <button
+        aria-controls={open ? controls : undefined}
         aria-expanded={open}
         className={cn(
           "flex min-w-0 w-full items-center gap-2 rounded-md px-1.5 py-0.5 text-left text-[13px] leading-5 transition-colors hover:bg-accent/60",
@@ -249,7 +257,7 @@ function RowButton({
  * (the live stream from the client's own terminal, or what the adapter
  * streamed, or its final output); everything else shows input and result.
  */
-export function ToolDetail({ part, sessionId }: { part: ToolCallPart; sessionId: string }) {
+export function ToolDetail({ part, sessionId, id }: { part: ToolCallPart; sessionId: string; id?: string }) {
   const diffs = part.content.filter((content) => content.type === "diff");
   const terminalRef = part.content.find((content) => content.type === "terminal");
   const terminalKey = terminalRef?.type === "terminal" ? `${sessionId}/${terminalRef.terminalId}` : null;
@@ -269,7 +277,7 @@ export function ToolDetail({ part, sessionId }: { part: ToolCallPart; sessionId:
   const terminalText = terminalBody?.text ?? null;
 
   return (
-    <div className="ui-reveal mt-1 mb-2 ml-6 flex min-w-0 flex-col gap-2 text-[13px]" data-tool-detail>
+    <div className="ui-reveal mt-1 mb-2 ml-6 flex min-w-0 flex-col gap-2 text-[13px]" data-tool-detail id={id}>
       {command !== null ? (
         <pre className="overflow-x-auto rounded-md bg-muted/60 px-3 py-2 font-mono text-[12px] leading-5 whitespace-pre-wrap">
           {command}
