@@ -411,8 +411,11 @@ async function launchApp(userData, cacheEnv) {
   return { app, page, stdoutLines, windowReadyMs };
 }
 
-async function addProject(page) {
-  await page.evaluate((root) => window.textToCad.projects.addPath({ path: root }), repoRoot);
+async function addProject(app, page) {
+  // No renderer channel takes a path; the folder is chosen from main's side,
+  // through the door `NODE_ENV=test` installs (src/main/ipc/index.ts), as
+  // tests/e2e/launch.ts's `chooseDirectory` does.
+  await app.evaluate((_electron, root) => globalThis.__textToCadE2E.choose(root), repoRoot);
   // The strip binds to the project asynchronously; `+` does nothing until it has.
   const newTab = page.getByRole("button", { name: "New tab", exact: true });
   await newTab.waitFor({ state: "visible", timeout: 30_000 });
@@ -682,7 +685,7 @@ async function measureApp(options, scratch) {
     recordResponses(launched.page, responses);
     const context = { ...launched, responses };
     const projectStarted = performance.now();
-    await addProject(launched.page);
+    await addProject(launched.app, launched.page);
     result.launches.push({ label, windowReadyMs: round(launched.windowReadyMs, 0), projectReadyMs: round(performance.now() - projectStarted, 0) });
     try {
       await body(context);
