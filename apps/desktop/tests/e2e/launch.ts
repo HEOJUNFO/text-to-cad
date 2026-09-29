@@ -69,7 +69,7 @@ export type ChosenDirectory = { id: string; name: string; path: string; createdA
  * it and broadcasts `ui.directorySelected` — without the chooser, which
  * Playwright cannot drive. No renderer channel takes a path, so this goes in
  * through main: the `NODE_ENV=test` door `installE2eDoor` puts on main's
- * global (src/main/ipc/index.ts).
+ * global (src/main/e2e-door.ts).
  */
 export async function chooseDirectory(app: ElectronApplication, directory: string): Promise<ChosenDirectory> {
   return app.evaluate(

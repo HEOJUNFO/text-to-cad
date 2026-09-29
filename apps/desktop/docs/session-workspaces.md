@@ -18,8 +18,9 @@ descriptors from sessions. `projects.add` (the chooser) and
 new-session draft. They create no database row; main remembers the choice for
 the run, and `projects.get` answers only for a directory a session records or
 main chose — never for a path the renderer merely names. The e2e suite
-chooses folders through a main-side `NODE_ENV=test` door (`chooseDirectory` in
-`tests/e2e/launch.ts`), not a channel.
+chooses folders through a main-side door that only a `NODE_ENV=test` launch of
+a development build installs (`chooseDirectory` in `tests/e2e/launch.ts`), not
+a channel.
 The descriptor's name is the directory basename. There is no project rename
 or delete operation. Sidebar groups contain sessions matching the current
 filters; empty groups are omitted. Archiving the last visible session hides

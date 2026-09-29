@@ -28,6 +28,7 @@ import { gitHandlers } from "./git";
 import { refreshRuntimeAfterOverride, runtimeHandlers } from "./runtime";
 import { onboardingHandlers } from "./onboarding";
 import { skillsHandlers } from "./skills";
+import { installE2eDoor } from "../e2e-door";
 import { IpcError, broadcast, registerIpc, type IpcContext } from "./register";
 
 export { broadcast } from "./register";
@@ -170,21 +171,3 @@ export function registerIpcHandlers() {
   applySettingsEffects(settings.get());
 }
 
-/**
- * The e2e suite's way to choose a folder without the native chooser, which
- * Playwright cannot drive. It is not a channel: the renderer has no path in
- * that main resolves on its word. It exists only under `NODE_ENV=test` — the
- * same gate the pre-warms and onboarding use — and is reached from main's
- * side, `app.evaluate(() => globalThis.__textToCadE2E.choose(dir))`
- * (`tests/e2e/launch.ts`), exactly as `projects.add` would after a chooser.
- */
-function installE2eDoor(env: NodeJS.ProcessEnv = process.env) {
-  if (env.NODE_ENV !== "test") return;
-  (globalThis as { __textToCadE2E?: unknown }).__textToCadE2E = {
-    choose(directory: string) {
-      const selected = projects.choose(directory);
-      broadcast("ui.directorySelected", selected);
-      return selected;
-    },
-  };
-}
