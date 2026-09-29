@@ -216,6 +216,23 @@ describe("SessionManager", () => {
     expect(repo.get(session.id)).toMatchObject({ title: "Resumed agent title", titleSource: "agent" });
   });
 
+  it("keeps the agent's title in the state across a session/load, and settles the replayed turn", async () => {
+    // The replay carries no `session_info_update`: without the row's title
+    // the reloaded state's `title` was null, and its agent turn had no stop
+    // reason where the live one had `end_turn`.
+    const { manager, cwd } = await setup({
+      launchOverride: () => ({ ...fakeProvider.launch, args: [FAKE_AGENT, "--new-title", "Initial agent title"] }),
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    await manager.prompt(session.id, [{ type: "text", text: "hello there" }]);
+    expect(manager.state(session.id)?.state.title).toBe("Initial agent title");
+    manager.close(session.id);
+
+    const state = await manager.load(session.id);
+    expect(state.title).toBe("Initial agent title");
+    expect(state.turns.map((turn) => `${turn.role}:${turn.stopReason}`)).toEqual(["user:null", "agent:end_turn"]);
+  });
+
   it("preserves a user's explicit title through later agent updates and a manager restart", async () => {
     const first = await setup({
       launchOverride: () => ({ ...fakeProvider.launch, args: [FAKE_AGENT, "--load-title", "Agent replay title"] }),

@@ -98,6 +98,48 @@ describe("reduce: turns and chunks", () => {
   });
 });
 
+describe("reduce: what a session/load keeps", () => {
+  it("keeps the title it was connected with, and settles every replayed agent turn as ended", () => {
+    // A replay sends no `session_info_update` and no stop reasons: the title
+    // comes from what the app already knew, and a turn in the history has
+    // ended even though nothing says how.
+    let state = reduce(initialSessionState("s1", "fake"), {
+      type: "session/connected",
+      acpSessionId: root,
+      modes: null,
+      configOptions: null,
+      loading: true,
+      title: "Design a gripper",
+      at,
+    });
+    state = update(state, { sessionUpdate: "user_message_chunk", content: { type: "text", text: "earlier" } });
+    state = update(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "reply" } });
+    state = update(state, { sessionUpdate: "user_message_chunk", content: { type: "text", text: "again" } });
+    state = update(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "done" } });
+    state = reduce(state, { type: "session/loaded", at });
+    expect(state.title).toBe("Design a gripper");
+    expect(state.turns.map((turn) => `${turn.role}:${turn.stopReason}`)).toEqual([
+      "user:null",
+      "agent:end_turn",
+      "user:null",
+      "agent:end_turn",
+    ]);
+  });
+
+  it("keeps a title it already had when the connect names none", () => {
+    let state = update(connected(), { sessionUpdate: "session_info_update", title: "Hello" });
+    state = reduce(state, {
+      type: "session/connected",
+      acpSessionId: root,
+      modes: null,
+      configOptions: null,
+      loading: true,
+      at,
+    });
+    expect(state.title).toBe("Hello");
+  });
+});
+
 describe("reduce: tool calls", () => {
   it("upserts by id, replacing the fields an update carries and keeping the rest", () => {
     let state = started(connected());

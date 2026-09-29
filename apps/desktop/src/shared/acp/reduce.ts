@@ -86,10 +86,11 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
         currentModeId: event.modes?.currentModeId ?? state.currentModeId,
         modes: event.modes?.availableModes ?? state.modes,
         configOptions: event.configOptions ?? state.configOptions,
+        title: event.title ?? state.title,
       };
 
     case "session/loaded":
-      return { ...closeOpenTurn(state, event.at, null), status: "idle" };
+      return { ...closeOpenTurn(state, event.at, replayedEnd(state)), status: "idle" };
 
     case "prompt/start": {
       const closed = closeOpenTurn(state, event.at, null);
@@ -420,6 +421,17 @@ function hasOpenAgentTurn(state: SessionState): boolean {
   return last?.role === "agent" && last.endedAt === null;
 }
 
+/**
+ * The stop reason of a turn a `session/load` replay closes. The replay says
+ * nothing about how a turn ended — no `session/prompt` answer comes with it —
+ * only that it did, being history; `end_turn` is that, where null would read
+ * as a turn still open and leave a replayed turn unlike the live one it was.
+ * A user turn never has a stop reason, live or replayed.
+ */
+function replayedEnd(state: SessionState): Turn["stopReason"] {
+  return state.turns.at(-1)?.role === "agent" ? "end_turn" : null;
+}
+
 /** What a turn that was cancelled or failed leaves its unfinished work as. */
 type Settle = { tool: ToolCallStatus; subagent: SubagentState };
 
@@ -618,7 +630,7 @@ function appendUserChunk(
     const updated: Turn = { ...last, parts };
     return { ...state, turns: [...state.turns.slice(0, -1), updated] };
   }
-  const closed = closeOpenTurn(state, at, null);
+  const closed = closeOpenTurn(state, at, replayedEnd(state));
   const turn: Turn = {
     id: `t${closed.turns.length + 1}`,
     role: "user",

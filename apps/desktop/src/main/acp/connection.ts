@@ -446,7 +446,11 @@ export class SessionConnection {
     return response;
   }
 
-  async loadSession(acpSessionId: string): Promise<LoadSessionResponse> {
+  /**
+   * `title` is the one the app already knew for this session: the replay
+   * sends no `session_info_update`, so the reloaded state starts from it.
+   */
+  async loadSession(acpSessionId: string, title: string | null = null): Promise<LoadSessionResponse> {
     const init = await this.initialize();
     if (!init.agentCapabilities?.loadSession) {
       throw new Error(`${this.options.agentId} cannot resume sessions (no loadSession capability)`);
@@ -457,6 +461,7 @@ export class SessionConnection {
       modes: null,
       configOptions: null,
       loading: true,
+      title,
       at: Date.now(),
     });
     let response: LoadSessionResponse;

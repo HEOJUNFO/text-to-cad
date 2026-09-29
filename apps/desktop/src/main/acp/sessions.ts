@@ -660,7 +660,11 @@ export class SessionManager {
     try {
       await connection.initialize();
       timer.mark("initialize");
-      await connection.loadSession(session.acpSessionId);
+      // The agent's title, which the replay does not send again: the last
+      // state's, or the row's when the agent is who named it.
+      const title =
+        this.snapshots?.read(id)?.title ?? (session.titleSource === "agent" ? session.title : null);
+      await connection.loadSession(session.acpSessionId, title);
       // An adapter that replays no diffs leaves nothing counted, and the
       // next persistTally would overwrite the row with one turn's edits:
       // the persisted counts are then the history to add to.
