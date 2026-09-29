@@ -1,15 +1,16 @@
-# CAD Viewer for ChatGPT and Codex
+# CAD for ChatGPT and Codex
 
-This app embeds the shared CAD Viewer in an MCP App host. It owns only the host
+CAD embeds the shared viewer in an MCP App host. It owns only the host
 bridge, file handoff, appearance, composer delivery and iframe lifecycle. Geometry,
 selection tools, renderers, file updates and reference serialization remain in
 `@text-to-cad/ui` and `@text-to-cad/core`. The MCP server belongs to `cadgen`.
 
-The first scope is local desktop file entrypoints for STEP/STP, STL, GLB and 3MF.
-Open a supported file in Codex and choose CAD Viewer. The shared collapsible file
-explorer browses supported files within that file's served directory and its
-subdirectories. It starts closed when a model opens; Show files reveals the tree,
-and selecting another file keeps the tree open. The read-only source reuses
+Open CAD from the global sidebar to browse the server's working directory. The
+shared explorer opens immediately with the shared empty state and file search.
+Alternatively, open a STEP/STP, STL, GLB or 3MF file in Codex and choose CAD to
+start with that model. The explorer browses supported files within the served
+directory and its subdirectories. It starts closed for a host-opened file;
+Show files reveals the tree, and selecting another file keeps the tree open. The read-only source reuses
 `createCadFileSource` for listing, search, metadata and update subscriptions,
 filtering file listings and search to STEP/STP, STL, GLB and 3MF. Navigation stays
 within the existing workspace, and references identify the currently viewed file.
@@ -19,7 +20,8 @@ Existing skills and the standalone web viewer remain independent.
 ## Host protocol
 
 `cad_open` returns `{file, rootId, rootPath}`. `file` is root-relative, or null for
-an empty view. A native file entrypoint may initially omit its trusted local path;
+an empty sidebar view. Opening from the sidebar passes no file and uses the
+server's configured working directory. A native file entrypoint may initially omit its trusted local path;
 after mounting, the app invokes `cad_open` with its original tool input so the
 host can supply that path through trusted metadata. No browser path is trusted.
 
@@ -73,7 +75,7 @@ No shared renderer source is altered for this packaging.
 
 | Standalone web control | Extension behavior |
 | --- | --- |
-| File selection | Codex opens the initial file; the collapsible explorer switches related CAD files in its directory. No second native picker. |
+| File selection | The sidebar opens the shared explorer; a native file opening starts with the selected model. The explorer switches CAD files in the served directory. No second native picker. |
 | URL navigation and browser history | Files switch in the extension pane, without another URL or history stack. |
 | Theme selector | Follows the host theme. |
 | Brand, version, release and project links | Omitted from the pane; plugin management owns installation and updates. |

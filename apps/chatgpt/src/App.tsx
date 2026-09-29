@@ -28,7 +28,6 @@ export default function App({ client, opened, promptContext, colorScheme }: {
   client: CadClient; opened: OpenFile; promptContext: PromptContextPort; colorScheme: 'light' | 'dark';
 }) {
   const [file, setFile] = useState(opened.file);
-  useEffect(() => setFile(opened.file), [opened]);
   const source = useMemo<FileSource>(() => {
     const catalog = createCadFileSource(client, { rootId: opened.rootId, rootPath: opened.rootPath });
     return {
@@ -42,6 +41,9 @@ export default function App({ client, opened, promptContext, colorScheme }: {
   }, [client, opened.rootId, opened.rootPath]);
   const tabStore = useMemo(() => createTabStore({ read: () => undefined, write: () => {} }), []);
   const { state, onStateChange, setPanel } = useTabViewerState(tabStore, source.id);
+  // Shared defaults show the explorer for an empty sidebar view and collapse it
+  // for a host-opened file. File picks keep the explorer open via navigation below.
+  useEffect(() => { setFile(opened.file); setPanel(null); }, [opened, setPanel]);
   const renderers = useMemo(() => [
     createStepRenderer({ client, preferences: tabStore.settings, slots: { selectionExtras: SelectionAttachment } }),
     createGlbRenderer({ client, preferences: tabStore.settings }), createMeshRenderer({ client, preferences: tabStore.settings }),
@@ -52,5 +54,5 @@ export default function App({ client, opened, promptContext, colorScheme }: {
     environment: { colorScheme, platform: /Mac|iPhone|iPad/.test(navigator.platform) ? 'darwin' : 'linux' },
   }), [source, promptContext, colorScheme, setPanel]);
   return <FileViewer file={file || null} host={host} renderers={renderers} state={state} onStateChange={onStateChange}
-    presentation={{ empty: <div className="cad-message">Open a STEP, STL, GLB, or 3MF file in Codex to view it here.</div> }} />;
+    leading={!file ? <span>CAD</span> : undefined} />;
 }

@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.types import CallToolResult, TextContent, ToolAnnotations
+from mcp.types import CallToolResult, Icon, TextContent, ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from cadgen.assets import AssetMissing, runtime_build_hint, runtime_root
@@ -14,6 +15,14 @@ from .backend import SUPPORTED_EXTENSIONS, ViewerRoots
 
 UI_URI = "ui://cad/viewer/v1.html"
 UI_MIME_TYPE = "text/html;profile=mcp-app"
+CAD_ICON = Icon(
+    src="data:image/svg+xml;base64," + base64.b64encode(
+        b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="none" '
+        b'stroke="currentColor" stroke-width="1.33" stroke-linejoin="round">'
+        b'<path d="m10 2 7 4v8l-7 4-7-4V6Zm-7 4 7 4 7-4M10 10v8"/></svg>'
+    ).decode("ascii"),
+    mimeType="image/svg+xml", sizes=["20x20"],
+)
 
 
 class FileInput(BaseModel):
@@ -56,7 +65,7 @@ def create_server(root: str | Path | None = None, *, ui_path: str | Path | None 
     )
     html_path = Path(ui_path) if ui_path else runtime_root() / "chatgpt" / "index.html"
 
-    @server.resource(UI_URI, name="CAD viewer", mime_type=UI_MIME_TYPE, meta={
+    @server.resource(UI_URI, name="CAD", mime_type=UI_MIME_TYPE, meta={
         "ui": {
             "prefersBorder": False,
             # The single-file bundle creates blob workers and fetches embedded
@@ -73,12 +82,13 @@ def create_server(root: str | Path | None = None, *, ui_path: str | Path | None 
         return html_path.read_text(encoding="utf-8")
 
     @server.tool(
-        name="cad_open", title="Model viewer",
+        name="cad_open", title="CAD", icons=[CAD_ICON],
         description="Open an existing STEP, STL, GLB or 3MF in the CAD viewer. Model paths stay within the working directory or explicit --root; host file entrypoints can authorize their containing directory unless --root restricts them.",
         annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False),
         meta={
             "ui": {"resourceUri": UI_URI},
             "openai/ui": {"entrypoints": [
+                {"type": "global"},
                 {"type": "file", "extensions": list(SUPPORTED_EXTENSIONS)},
             ]},
         },
@@ -95,7 +105,7 @@ def create_server(root: str | Path | None = None, *, ui_path: str | Path | None 
         return _result(result, "CAD viewer opened.")
 
     @server.tool(
-        name="cad_request", title="CAD viewer data",
+        name="cad_request", title="CAD data",
         description="Internal CAD viewer transport. Reads CAD artifacts and resolves derived geometry through the existing viewer backend.",
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False),
         meta={"ui": {"visibility": ["app"]}},

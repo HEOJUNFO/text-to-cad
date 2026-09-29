@@ -196,9 +196,16 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
                 tools = {tool.name: tool for tool in listed}
                 self.assertEqual(tools["cad_request"].meta["ui"]["visibility"], ["app"])
                 self.assertEqual(tools["cad_open"].meta["ui"]["resourceUri"], UI_URI)
-                extensions = tools["cad_open"].meta["openai/ui"]["entrypoints"][0]["extensions"]
-                self.assertEqual(extensions, [".step", ".stp", ".stl", ".glb", ".3mf"])
-                self.assertEqual(len(tools["cad_open"].meta["openai/ui"]["entrypoints"]), 1)
+                self.assertEqual(tools["cad_open"].title, "CAD")
+                self.assertEqual(tools["cad_open"].icons[0].mimeType, "image/svg+xml")
+                self.assertEqual(tools["cad_open"].meta["openai/ui"]["entrypoints"], [
+                    {"type": "global"},
+                    {"type": "file", "extensions": [".step", ".stp", ".stl", ".glb", ".3mf"]},
+                ])
+                sidebar = await client.call_tool("cad_open", {})
+                self.assertFalse(sidebar.isError)
+                self.assertIsNone(sidebar.structuredContent["file"])
+                self.assertEqual(sidebar.structuredContent["rootPath"], str(root))
                 resource = (await client.read_resource(UI_URI)).contents[0]
                 self.assertEqual(resource.mimeType, UI_MIME_TYPE)
                 self.assertEqual(resource.text, ui.read_text(encoding="utf-8"))

@@ -135,8 +135,8 @@ uses a reachable MCP HTTP endpoint registered in developer mode; this local
 stdio configuration does not provide one.
 
 For desktop testing, restart the app after installing or updating the local
-plugin, then open a STEP/STP, STL, GLB or 3MF file. The viewer is a file handler;
-it does not add a global sidebar entry. Follow the
+plugin, then open **CAD** from the sidebar or open a STEP/STP, STL, GLB or 3MF
+file with CAD. The sidebar starts with the shared file explorer. Follow the
 [official local installation instructions](https://developers.openai.com/plugins/build/plugins#install-a-local-plugin-manually).
 We use the compatibility manifest layout from OpenAI's
 [Bits & Bolts example](https://github.com/openai/mcp-extensions/tree/main/plugins/bits-and-bolts):

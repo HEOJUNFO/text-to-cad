@@ -34,8 +34,10 @@ viewer contract, not arbitrary filesystem access.
   The file is relative to its root; null means no document is selected. Initial
   entrypoint invocation can precede host path injection, so the embedded app
   resolves that input with one `cad_open` call of its own.
-  This version registers only file entrypoints; it has no empty thread panel
-  or project picker. Models can call `cad_open` with an existing artifact path.
+  The tool title is **CAD** for both the global sidebar and file entrypoints.
+  Opening CAD from the sidebar passes `{}` and shows the shared explorer in
+  the server's working directory (or explicit `--root`). Models can also call
+  `cad_open` with an existing artifact path.
 - `cad_request` is visible only to the app. It carries `{path, method, body?}`
   to allowlisted viewer routes and returns `{status, headers, body}`. Both
   bodies are base64. It permits document reads, document compilation and

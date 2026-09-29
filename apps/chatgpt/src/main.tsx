@@ -11,7 +11,7 @@ import { createComposerContext } from './promptContext';
 import { createFileHandoff } from './handoff';
 
 const root = createRoot(document.getElementById('root')!);
-const app = new McpApp({ name: 'CAD Viewer', version }, {}, { autoResize: false });
+const app = new McpApp({ name: 'CAD', version }, {}, { autoResize: false });
 let disposed = false;
 let client: CadClient | undefined;
 let composer: ReturnType<typeof createComposerContext> | undefined;
@@ -55,7 +55,7 @@ app.ontoolresult = result => handoff.result(result.structuredContent);
 app.onhostcontextchanged = context => contextChanged(context as Record<string, unknown>);
 app.onteardown = async () => { teardown(); return {}; };
 window.addEventListener('pagehide', () => { teardown(); void app.close(); }, { once: true });
-root.render(<div className="cad-message" role="status">Connecting CAD Viewer…</div>);
+root.render(<div className="cad-message" role="status">Connecting CAD…</div>);
 void app.connect().then(() => {
   if (disposed) return;
   contextChanged(app.getHostContext() as Record<string, unknown> || {});
