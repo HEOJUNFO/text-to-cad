@@ -664,13 +664,15 @@ export class SessionManager {
       // An adapter that replays no diffs leaves nothing counted, and the
       // next persistTally would overwrite the row with one turn's edits:
       // the persisted counts are then the history to add to.
-      if (!this.tallies.has(id)) {
-        const persisted = this.deps.repo.get(id);
+      // Unless a delete (or another retire) took the session meanwhile: a
+      // tally made now would be one nothing ever forgets.
+      const persisted = this.deps.repo.get(id);
+      if (!this.tallies.has(id) && persisted && this.live.get(id) === connection) {
         this.tallies.set(id, {
           files: new Set(),
-          baseFiles: persisted?.changedFiles ?? 0,
-          insertions: persisted?.insertions ?? 0,
-          deletions: persisted?.deletions ?? 0,
+          baseFiles: persisted.changedFiles ?? 0,
+          insertions: persisted.insertions ?? 0,
+          deletions: persisted.deletions ?? 0,
         });
       }
     } catch (error) {
@@ -1139,6 +1141,12 @@ export class SessionManager {
       onTerminalOutput: (terminalId, data, exit) =>
         this.deps.broadcast("terminal.output", { sessionId: session.id, terminalId, data, exit }),
       onFilesChanged: (paths) => {
+        // The same gate as `onEvent`: a retired connection's late writes
+        // would count into a tally, and ask the explorer to re-read, for a
+        // row that may already be deleted.
+        if (!owner.connection || this.live.get(session.id) !== owner.connection) {
+          return;
+        }
         const tally = this.tally(session.id);
         for (const file of paths) {
           tally.files.add(file);
@@ -1207,6 +1215,11 @@ export class SessionManager {
     // Read before the pool is asked: a warm adapter is only this session's if
     // it was spawned with the options a fresh spawn would get now.
     const adapterOptions = await this.adapterOptions(session.agentId, session.cwd);
+    // Deleted while the options were read: an adapter made live now would
+    // belong to a row that is gone, and nothing would ever retire it.
+    if (!this.deps.repo.get(session.id)) {
+      throw new Error("this session was deleted");
+    }
     const warm = this.warm.take(session.agentId, session.cwd, adapterOptionsKey(adapterOptions));
     if (warm) {
       warm.adopt(sessionOptions);

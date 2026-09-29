@@ -1119,6 +1119,33 @@ describe("SessionManager", () => {
     expect(await prompted).toEqual({ stopReason: "end_turn" });
   });
 
+  it("a retired connection's late writes and a load a delete overtook count nothing for the deleted session", async () => {
+    const { broadcasts, manager, cwd } = await setup();
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    manager.close(session.id);
+    const tallies = (manager as unknown as { tallies: Map<string, unknown> }).tallies;
+
+    // Deleted while its load is on the way (reading the adapter's options, before it spawns):
+    // the load's answer is for nobody.
+    const loading = manager.load(session.id).catch(() => undefined);
+    await manager.delete(session.id);
+    await loading;
+    expect(tallies.has(session.id)).toBe(false);
+    // Nor is an adapter left live for it, which nothing would ever retire.
+    expect(manager.state(session.id)).toBeNull();
+
+    // The listeners of a connection that is not the session's live one — closed, evicted,
+    // replaced — still hear its adapter's writes, and none of them is about the row any more.
+    const retired = { connection: {} as never };
+    const options = (manager as unknown as {
+      sessionOptions: (row: Session, replay: object, owner: object) => { onFilesChanged: (paths: string[]) => void };
+    }).sessionOptions(session, {}, retired);
+    broadcasts.length = 0;
+    options.onFilesChanged([path.join(cwd, "late.txt")]);
+    expect(tallies.has(session.id)).toBe(false);
+    expect(broadcasts.filter((b) => b.channel === "files.changed")).toEqual([]);
+  });
+
   /**
    * The renderer learns a session was closed from `session.update` — that is
    * what sends its next click through `session/load` and clears what it held
