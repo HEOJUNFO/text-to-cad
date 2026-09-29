@@ -1916,8 +1916,9 @@ left to lose (`folderGone` in `src/main/projects/git.ts`). It never removes a wo
 worktree folders, a locked one, one that holds any session row's `cwd`,
 `projectId` or `worktreePath` — archived sessions included — or a create still
 in flight, or one with uncommitted changes or ignored files that are not a
-disposable cache (`hasUnsavedWork`). The limit counts only the worktrees it
-could remove. A branch is deleted only when a failed create abandons the
+disposable cache (`hasUnsavedWork`). The limit counts only unlocked, unheld
+worktrees in the project's worktree folders; one with unsaved work counts
+toward it and is then kept. A branch is deleted only when a failed create abandons the
 worktree it made, and then only while it still points where it was cut
 (`deleteBranchAtBase`; with no recorded head, only if `git branch -d` would
 take it) — a checkout can be recreated, the commits on it cannot.
