@@ -389,7 +389,7 @@ A real one (`link_robot`: a base, two placements of `link_arm`, one of
   "sourceKind": "python",
   "tree": "64429167…",
   "documentTree": "b291420a…",
-  "closure": {"hash": "e341ac84…", "files": ["link_robot.py", "lib/frame.py"], "shas": {"link_robot.py": "ast1:…", "lib/frame.py": "slice2:…"}, "names": {"lib/frame.py": ["WIDTH", "bar"]}, "static": false},
+  "closure": {"hash": "e341ac84…", "files": ["link_robot.py", "lib/frame.py"], "shas": {"link_robot.py": "ast1:…", "lib/frame.py": "slice3:…"}, "names": {"lib/frame.py": ["WIDTH", "bar"]}, "static": false},
   "children": [
     {"model": "/abs/models/assemblies/src/link_robot/link_arm.py::link_arm", "tree": "c161092b…"},
     {"model": "/abs/models/assemblies/src/link_robot/link_pin.py::link_pin", "tree": "265aee57…"}
@@ -430,25 +430,22 @@ A real one (`link_robot`: a base, two placements of `link_arm`, one of
   script itself, a model file taken as source, a `read_step` document, a file
   the fallbacks below made whole) is hashed whole as before. What a slice is,
   by construction:
-  - Every top-level statement of a module is a **definition** — a `def`, a
-    `class`, or a plain-name assignment whose import-time evaluation is inert:
-    its only calls are to the pure vocabulary (a pure builtin such as `tuple`,
-    `sorted`, `float`; a name or attribute chain from `math`, `cadgen`,
-    `build123d`, `OCP`, `numpy`, `operator`, `itertools`, `functools`,
-    `dataclasses`, `enum`, `typing`, `collections`, `fractions`, `decimal`,
-    `string`, `re`; a method on a literal or on another pure call — so
-    `COLOR = srgb("#fff")` and `AXIS = bd.Vector(0, 0, 1)` are definitions,
-    `TABLE = load_table()` and `X = REGISTRY.get(k)` are not); a decorator
-    only from `cadgen`/`functools`/`dataclasses`/`typing`/`contextlib`/`enum`/
-    `abc` or `staticmethod`/`classmethod`/`property`; defaults and
-    annotations inert by the same rule; for a class, no first-party base, no
-    `metaclass=`, an inert class body — or
-    **preamble**: everything else (imports, calls, `if`/`for`/`try`/`with`
-    blocks, attribute writes, a decorated `def`, a default that calls, a class
-    deriving from a project class). Preamble is in every slice of the file and
-    its reads are roots; a definition is in a slice only when a reached name
-    binds it. Adding an unreached helper, or editing one, changes nothing the
-    model hashes. An `if __name__ == "__main__":` block never runs on import
+  - A statement is an optional **definition** only inside a closed grammar:
+    an undecorated function with no type parameters and with defaults and
+    annotations consisting of closed literals; or a single-name
+    assignment of closed literals. Closed literals contain only constants,
+    literal containers without unpacking, and signed numeric constants. A
+    repeated binding is never optional: replacing an object can run its
+    finalizer. Function defaults/annotations referring to an object can also
+    change its lifetime, so bare names there are not optional. Everything else
+    is **preamble**, always hashed with its reads reached. This includes every class, decorator, call, annotated assignment,
+    augmented assignment, alias assignment, unpacking, property/subscript read,
+    operator and formatted string. Neither a familiar module name nor the
+    absence of a call node proves purity: Python protocols can execute user
+    code implicitly. Unknown syntax defaults to preamble. This deliberately
+    trades some cache hits for correct invalidation, while ordinary unused
+    helper bodies and literal constants remain sliced by reach.
+    An unshadowed `if __name__ == "__main__":` block never runs on import
     and is in no slice (the script itself is always hashed whole).
   - A **function edge** brings in that function's own source plus everything
     it can reach: every module-scope name its body, decorators, defaults and
@@ -493,7 +490,7 @@ A real one (`link_robot`: a base, two placements of `link_arm`, one of
     would change what the walk reaches — a reached body calling something
     new, a new binding shadowing a name, an import added or changed — also
     changes a hashed statement or marker. A sliced file that turns dynamic
-    hashes whole (`ast1:` against a recorded `slice2:`) and reads stale.
+    hashes whole (`ast1:` against a recorded `slice3:`) and reads stale.
     `cadgen store why` prints a sliced file as `lib/geo.py[plane, cyl_along,
     …]`.
   - **Lexical scopes decide module reads.** Python's symbol tables distinguish
@@ -502,9 +499,10 @@ A real one (`link_robot`: a base, two placements of `link_arm`, one of
     cannot hide a module read in another; class-body reads also retain the
     possible module fallback. Import aliases retain all candidate bindings
     across those scopes, so two nested imports named `dims` cannot hide one
-    another. Slice hashes use `slice2:`: records made by the earlier `slice1:`
-    analysis rebuild once to recover any missing cross-module edges. Released
-    whole-file `ast1:` records remain compatible.
+    another. Slice hashes use `slice3:`: records made by the earlier `slice1:`
+    or `slice2:` analyses rebuild once to recover missing cross-module edges,
+    including dependencies of import-time effects previously assumed pure.
+    Released whole-file `ast1:` records remain compatible.
 - `constants` is `{"<model file, relative to the script>": {"<NAME>":
   "<sha256 of the literal's canonical repr>"}}` — every literal the model
   took from a model file by value. Empty for most models. The gate's clause

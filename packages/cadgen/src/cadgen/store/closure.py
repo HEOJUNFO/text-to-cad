@@ -43,7 +43,7 @@ geometry the pre-edit source produced. The reach analysis runs over those same
 captured bytes, so a slice and its hash describe one revision.
 
 Hashes are the semantic (AST) digest for ``.py`` (``ast1:``), the slice digest
-for a sliced file (``slice2:``), and the byte digest otherwise, via
+for a sliced file (``slice3:``), and the byte digest otherwise, via
 ``cadgen._internal.source_hash`` and ``cadgen.store.reach`` — a comment-only
 edit is not a change.
 """

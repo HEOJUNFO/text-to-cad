@@ -55,6 +55,157 @@ def part():
 """
 
 
+# Each edit changes import-time state despite assigning an otherwise unused name.
+# These exercise the real closure/gate, without a CAD kernel or sample corpus.
+IMPORT_EFFECTS = {
+    'class method default': (
+        'class Setup:\n'
+        '    def method(self, value=DIMS.append(3)): pass',
+        'append(3)', 'append(5)',
+    ),
+    'class body store': (
+        'class Setup:\n'
+        '    DIMS[0] = 3',
+        '= 3', '= 5',
+    ),
+    'imported mutator': (
+        'from operator import setitem\n'
+        'unused = setitem(DIMS, 0, 3)',
+        '0, 3', '0, 5',
+    ),
+    'walrus binding': (
+        'unused = (DIMS := [3])',
+        '[3]', '[5]',
+    ),
+    'augmented alias': (
+        'alias = DIMS\n'
+        'alias += [3]',
+        '[3]', '[5]',
+    ),
+    'decorator argument': (
+        'from functools import lru_cache\n'
+        '@lru_cache(maxsize=DIMS.append(3))\n'
+        'def unused(): return 0',
+        'append(3)', 'append(5)',
+    ),
+    'variable annotation': (
+        'unused: DIMS.append(3) = 0',
+        'append(3)', 'append(5)',
+    ),
+    'property access': (
+        'class Setup:\n'
+        '    @property\n'
+        '    def apply(self):\n'
+        '        DIMS.append(3)\n'
+        '        return 0\n'
+        'setup = Setup()\n'
+        'unused = setup.apply',
+        'unused = setup.apply', 'unused = 0',
+    ),
+    'subscription': (
+        'class Setup:\n'
+        '    def __getitem__(self, key):\n'
+        '        DIMS.append(3)\n'
+        '        return 0\n'
+        'setup = Setup()\n'
+        'unused = setup[0]',
+        'unused = setup[0]', 'unused = 0',
+    ),
+    'operator dispatch': (
+        'class Setup:\n'
+        '    def __add__(self, value):\n'
+        '        DIMS.append(3)\n'
+        '        return 0\n'
+        'setup = Setup()\n'
+        'unused = setup + 1',
+        'unused = setup + 1', 'unused = 0',
+    ),
+    'truth test': (
+        'class Setup:\n'
+        '    def __bool__(self):\n'
+        '        DIMS.append(3)\n'
+        '        return True\n'
+        'setup = Setup()\n'
+        'unused = setup and 1',
+        'unused = setup and 1', 'unused = 0',
+    ),
+    'format dispatch': (
+        'class Setup:\n'
+        '    def __format__(self, spec):\n'
+        '        DIMS.append(3)\n'
+        "        return ''\n"
+        'setup = Setup()\n'
+        "unused = f'{setup}'",
+        "unused = f'{setup}'", "unused = ''",
+    ),
+    'builtin protocol': (
+        'class Setup:\n'
+        '    def __int__(self):\n'
+        '        DIMS.append(3)\n'
+        '        return 0\n'
+        'setup = Setup()\n'
+        'unused = int(setup)',
+        'unused = int(setup)', 'unused = 0',
+    ),
+    'destructuring': (
+        'class Setup:\n'
+        '    def __iter__(self):\n'
+        '        DIMS.append(3)\n'
+        '        yield 0\n'
+        'setup = Setup()\n'
+        'unused, = setup',
+        'unused, = setup', 'unused = 0',
+    ),
+    'container key protocol': (
+        'class Setup:\n'
+        '    def __hash__(self):\n'
+        '        DIMS.append(3)\n'
+        '        return 0\n'
+        'setup = Setup()\n'
+        'unused = {setup: 0}',
+        'unused = {setup: 0}', 'unused = {}',
+    ),
+    'literal rebinding finalizer': (
+        'class Setup:\n'
+        '    def __del__(self): DIMS.append(3)\n'
+        'unused = Setup()\n'
+        'unused = 0',
+        'unused = 0', 'kept = 0',
+    ),
+    'function rebinding finalizer': (
+        'class Setup:\n'
+        '    def __del__(self): DIMS.append(3)\n'
+        'unused = Setup()\n'
+        'def unused(): return 0',
+        'def unused()', 'def kept()',
+    ),
+    'default retains object': (
+        'class Setup:\n'
+        '    def __del__(self): DIMS.append(3)\n'
+        'setup = Setup()\n'
+        'def unused(value=setup): pass\n'
+        'setup = 0',
+        'value=setup', 'value=None',
+    ),
+    'annotation retains object': (
+        'class Setup:\n'
+        '    def __del__(self): DIMS.append(3)\n'
+        'setup = Setup()\n'
+        'def unused(value: setup): pass\n'
+        'setup = 0',
+        'value: setup', 'value: None',
+    ),
+    'annotation-only': (
+        'unused: DIMS.append(3)',
+        'append(3)', 'append(5)',
+    ),
+    'comprehension walrus': (
+        'unused = [(DIMS := [3]) for _ in [0]]',
+        '[3]', '[5]',
+    ),
+}
+
+
 class ReachClosure(unittest.TestCase):
     def setUp(self):
         from cadgen.store.closure import forget_model_files
@@ -124,7 +275,7 @@ class ReachClosure(unittest.TestCase):
         self.assertEqual(closure.names["lib/spec.py"], ("BORE",))
         self.assertEqual(closure.names["lib/__init__.py"], ())
         self.assertNotIn("part.py", closure.names, "the script is always whole")
-        self.assertTrue(closure.shas["lib/geo.py"].startswith("slice2:"))
+        self.assertTrue(closure.shas["lib/geo.py"].startswith("slice3:"))
         self.assertTrue(closure.shas["part.py"].startswith("ast1:"))
         self.assertFalse(self.verdict(reference).stale)
 
@@ -235,13 +386,18 @@ class ReachClosure(unittest.TestCase):
         self.write("lib/geo.py", "def plane(): return 1")
         reference, _closure = self.record()
         record = read_record(reference)
-        # Actual v1 digest for the same source/name set. The old reach walk
-        # could have missed another module's names, which re-slicing cannot
-        # rediscover; a version change must invalidate the whole record.
-        record["closure"]["shas"]["lib/geo.py"] = "slice1:31b94ddedb0576c51e25bc94360f750246a8dbd4fde2a3ec9180f83aedbde3ae"
-        record["closure"]["hash"] = closure_hash(record["closure"]["shas"].items())
-        write_record(reference, record)
-        self.assert_clause_two(reference, True, "lib/geo.py")
+        import ast
+        import hashlib
+
+        for version in ("slice1", "slice2"):
+            with self.subTest(version=version):
+                digest = hashlib.sha256(version.encode())
+                digest.update(b"\0plane=")
+                digest.update(b"\0\0" + ast.dump(ast.parse("def plane(): return 1").body[0]).encode())
+                record["closure"]["shas"]["lib/geo.py"] = version + ":" + digest.hexdigest()
+                record["closure"]["hash"] = closure_hash(record["closure"]["shas"].items())
+                write_record(reference, record)
+                self.assert_clause_two(reference, True, "lib/geo.py")
 
     def test_module_level_side_effects_are_always_hashed(self):
         self.geo.write_text(self.geo.read_text(encoding="utf-8") + "\n\nREGISTRY = {}\nREGISTRY['k'] = unrelated(1)\n", encoding="utf-8")
@@ -258,6 +414,29 @@ class ReachClosure(unittest.TestCase):
         self.assertIn("unrelated", names)
         self.edit(self.geo, "def plugin():\n    return 1", "def plugin():\n    return 2")
         self.assert_clause_two(reference, True)
+
+    def test_import_effects_invalidate_even_when_the_bound_name_is_unused(self):
+        for name, (effect, old, new) in IMPORT_EFFECTS.items():
+            with self.subTest(effect=name):
+                self.write("lib/geo.py", "DIMS = [2]\n" + effect + "\ndef plane(*args): return sum(DIMS)\n")
+                reference, _closure = self.record()
+                self.assert_clause_two(reference, False)
+                self.edit(self.geo, old, new)
+                self.assert_clause_two(reference, True, "lib/geo.py")
+
+    def test_import_effects_reach_other_modules_before_any_edit(self):
+        self.write("lib/geo.py", """
+            from operator import setitem
+            from lib import spec
+            DIMS = [2]
+            unused = setitem(DIMS, 0, spec.width())
+            def plane(*args): return sum(DIMS)
+        """)
+        self.write("lib/spec.py", "def width(): return 3")
+        reference, closure = self.record()
+        self.assertIn("width", closure.names["lib/spec.py"])
+        self.edit(self.spec, "return 3", "return 5")
+        self.assert_clause_two(reference, True, "lib/spec.py")
 
     # --- the fallbacks -------------------------------------------------------------
 
@@ -450,7 +629,7 @@ class ReachEndToEnd(unittest.TestCase):
         self.assertEqual(self.run_model(), "built")
         record = read_record(self.model)
         self.assertEqual(record["closure"]["names"], {"lib/__init__.py": [], "lib/geo.py": ["SIZE", "size"]})
-        self.assertTrue(record["closure"]["shas"]["lib/geo.py"].startswith("slice2:"))
+        self.assertTrue(record["closure"]["shas"]["lib/geo.py"].startswith("slice3:"))
         self.assertEqual(self.run_model(), "current")
 
         self.edit("return 1", "return 2")
@@ -524,7 +703,7 @@ class ReachAnalysis(unittest.TestCase):
                 pass
         """)
         definitions = {name for name, _ in syntax.definitions.items()}
-        self.assertEqual(definitions, {"A", "B", "D", "E", "F", "f", "g", "P", "S"})
+        self.assertEqual(definitions, {"A", "f"})
         preamble = {syntax.statements[i].binds for i in syntax.preamble}
         self.assertIn(("C",), preamble)
         self.assertIn(("h",), preamble)
@@ -533,7 +712,7 @@ class ReachAnalysis(unittest.TestCase):
         self.assertIn(("i",), preamble)
         self.assertTrue(syntax.dynamic.startswith("unresolved name"), syntax.dynamic)
 
-    def test_pure_vocabulary_calls_keep_an_assignment_a_definition(self):
+    def test_familiar_modules_and_builtins_do_not_prove_call_purity(self):
         syntax = self.analyze("""
             import math
             from cadgen import build123d as bd, srgb
@@ -547,7 +726,7 @@ class ReachAnalysis(unittest.TestCase):
             ROWS = REGISTRY.get("k")
             REGISTRY = {}
         """)
-        self.assertEqual(set(syntax.definitions), {"COLOR", "AXIS", "R", "NAMES", "PARTS", "REGISTRY"})
+        self.assertEqual(set(syntax.definitions), {"REGISTRY"})
         preamble_binds = {b for i in syntax.preamble for b in syntax.statements[i].binds}
         self.assertEqual(preamble_binds & {"TABLE", "ROWS"}, {"TABLE", "ROWS"})
 
@@ -608,7 +787,7 @@ class ReachAnalysis(unittest.TestCase):
         self.assertNotEqual(before, slice_hash(self.analyze(base.replace("return K", "return K + 1")), ["a"]))
         self.assertNotEqual(before, slice_hash(self.analyze(base.replace("import math", "import math, os")), ["a"]))
         self.assertNotEqual(before, slice_hash(self.analyze(base), ["a", "b"]))
-        self.assertTrue(before.startswith("slice2:"))
+        self.assertTrue(before.startswith("slice3:"))
         self.assertTrue(slice_hash(self.analyze(base + "\nfrom os import *\n"), ["a"]).startswith("ast1:"))
 
 

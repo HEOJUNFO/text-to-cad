@@ -9,8 +9,9 @@ so the same bytes always analyse the same way:
 - :func:`analyze` splits the module into top-level **statements**, each with
   the module-scope names it binds and reads, the attribute chains it walks on
   those names, the imports it contains, and its own AST dump. A statement is a
-  **definition** (a ``def``, a ``class`` or a plain-name assignment whose
-  import-time evaluation is inert) or **preamble** (everything else: imports,
+  **definition** (an undecorated ``def`` with inert defaults/annotations,
+  or a single-name literal assignment without rebinding) or **preamble**
+  (everything else: imports,
   calls, conditionals, loops, attribute writes, decorated definitions, defaults
   that call — anything that runs or may register something at import).
   Preamble is always part of a slice; a definition is part of it only when a
@@ -49,25 +50,6 @@ _BUILTIN_NAMES = frozenset(dir(builtins)) | frozenset({
 _DYNAMIC_NAMES = frozenset({"globals", "locals", "exec", "eval", "compile", "__import__"})
 # Any binding taken from one of these modules is a dynamic import surface.
 _DYNAMIC_MODULES = frozenset({"importlib", "builtins", "runpy", "pkgutil"})
-# Decorators whose application is a pure wrapping: the decorated definition stays
-# a definition. Every other decorator may register its target somewhere at import
-# time, which makes the definition preamble (always hashed, its reads reached).
-_PURE_DECORATOR_MODULES = frozenset({"cadgen", "functools", "dataclasses", "typing", "contextlib", "enum", "abc"})
-_PURE_DECORATOR_BUILTINS = frozenset({"staticmethod", "classmethod", "property"})
-# Calls that construct or compute and touch no module state: a module-level
-# assignment whose every call is one of these is a definition (``COLOR =
-# srgb("#fff")``, ``R = math.hypot(3, 4)``, ``AXIS = bd.Vector(0, 0, 1)``), not
-# preamble. Any other call may register something at import and stays preamble.
-_PURE_CALL_MODULES = frozenset({
-    "math", "cmath", "cadgen", "build123d", "OCP", "numpy", "operator", "itertools", "functools",
-    "dataclasses", "enum", "typing", "collections", "fractions", "decimal", "string", "re",
-})
-_PURE_BUILTIN_CALLS = frozenset({
-    "abs", "all", "any", "bool", "bytes", "callable", "chr", "complex", "dict", "divmod", "enumerate",
-    "filter", "float", "format", "frozenset", "hash", "hex", "int", "isinstance", "issubclass", "iter",
-    "len", "list", "map", "max", "min", "next", "oct", "ord", "pow", "range", "repr", "reversed", "round",
-    "set", "slice", "sorted", "str", "sum", "tuple", "type", "zip",
-})
 _MODULE_HOOKS = frozenset({"__getattr__", "__dir__"})
 
 
@@ -174,6 +156,20 @@ def _import_aliases(node: ast.AST) -> tuple[list[tuple[str, Alias]], list[Alias]
     return aliases, stars
 
 
+def _module_bindings(node: ast.stmt) -> set[str]:
+    """Possible namespace writes, excluding ordinary function/class locals."""
+    top = symtable.symtable(ast.unparse(node), "<reach>", "exec")
+    names = {symbol.get_name() for symbol in top.get_symbols()
+             if symbol.is_assigned() or symbol.is_imported()}
+    pending = list(top.get_children())
+    while pending:
+        table = pending.pop()
+        names.update(symbol.get_name() for symbol in table.get_symbols()
+                     if symbol.is_declared_global() and (symbol.is_assigned() or symbol.is_imported()))
+        pending.extend(table.get_children())
+    return names
+
+
 def _module_reads(node: ast.AST) -> set[str]:
     """Conservatively union module reads across lexical scopes in a statement.
 
@@ -236,39 +232,23 @@ def _reads(node: ast.AST) -> tuple[list[str], list[tuple[str, tuple[str, ...]]],
     return sorted(reads), sorted(chains), sorted(stores)
 
 
-_LITERAL_ROOTS = (ast.Constant, ast.List, ast.Tuple, ast.Dict, ast.Set, ast.JoinedStr,
-                  ast.ListComp, ast.DictComp, ast.SetComp, ast.GeneratorExp, ast.BinOp, ast.UnaryOp)
+def _literal(node: ast.AST) -> bool:
+    """Closed literal syntax, without names or Python protocol dispatch.
 
-
-def _pure_call(call: ast.Call, aliases: Mapping[str, tuple[Alias, ...]], module_defined: set[str]) -> bool:
-    """Whether this call can only construct or compute: a pure builtin, a name
-    from a pure module, an attribute chain rooted there, or a method on a
-    literal or on another pure call. A call on the module's own objects is not
-    (``REGISTRY.setdefault(...)`` mutates)."""
-    root: ast.AST = call.func
-    while isinstance(root, ast.Attribute):
-        root = root.value
-    if isinstance(root, ast.Name):
-        if root.id in module_defined:
-            return False
-        bound = aliases.get(root.id)
-        if bound:
-            return all(alias.level == 0 and alias.module.split(".")[0] in _PURE_CALL_MODULES for alias in bound)
-        return root is call.func and root.id in _PURE_BUILTIN_CALLS
-    if isinstance(root, ast.Call):
-        return _pure_call(root, aliases, module_defined)
-    return isinstance(root, _LITERAL_ROOTS)
-
-
-def _inert(nodes: Iterable[ast.AST], aliases: Mapping[str, tuple[Alias, ...]], module_defined: set[str]) -> bool:
-    """Whether evaluating these expressions at import can touch module state."""
-    for node in nodes:
-        for child in ast.walk(node):
-            if isinstance(child, (ast.Await, ast.Yield, ast.YieldFrom)):
-                return False
-            if isinstance(child, ast.Call) and not _pure_call(child, aliases, module_defined):
-                return False
-    return True
+    Do not infer purity from a callable's module or from the absence of Calls:
+    attributes, operators, unpacking, formatting and conversions can all run
+    user code. New expression syntax is non-inert until explicitly handled.
+    """
+    if isinstance(node, ast.Constant):
+        return True
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        return all(_literal(item) for item in node.elts)
+    if isinstance(node, ast.Dict):
+        return all(key is not None and _literal(key) and _literal(value)
+                   for key, value in zip(node.keys, node.values))
+    return (isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub))
+            and isinstance(node.operand, ast.Constant)
+            and type(node.operand.value) in (int, float, complex))
 
 
 def _is_main_guard(node: ast.stmt) -> bool:
@@ -284,48 +264,18 @@ def _is_main_guard(node: ast.stmt) -> bool:
             and not node.orelse)
 
 
-def _decorator_is_pure(decorator: ast.AST, aliases: Mapping[str, tuple[Alias, ...]]) -> bool:
-    callee = decorator.func if isinstance(decorator, ast.Call) else decorator
-    while isinstance(callee, ast.Attribute):
-        callee = callee.value
-    if not isinstance(callee, ast.Name):
-        return False
-    if callee.id in _PURE_DECORATOR_BUILTINS and callee.id not in aliases:
-        return True
-    bound = aliases.get(callee.id)
-    if not bound:
-        return False
-    return all(alias.level == 0 and alias.module.split(".")[0] in _PURE_DECORATOR_MODULES for alias in bound)
+def _classify(node: ast.stmt, rebound: set[str]) -> tuple[bool, list[str]]:
+    """Only deferred function bodies and closed literals may be omitted.
 
-
-def _simple_targets(targets: Iterable[ast.AST]) -> list[str] | None:
-    names: list[str] = []
-    for target in targets:
-        if isinstance(target, ast.Name):
-            names.append(target.id)
-        elif isinstance(target, (ast.Tuple, ast.List)):
-            inner = _simple_targets(target.elts)
-            if inner is None:
-                return None
-            names.extend(inner)
-        elif isinstance(target, ast.Starred):
-            inner = _simple_targets([target.value])
-            if inner is None:
-                return None
-            names.extend(inner)
-        else:
-            return None
-    return names
-
-
-def _classify(
-    node: ast.stmt, aliases: Mapping[str, tuple[Alias, ...]], first_party_bases: set[str], module_defined: set[str],
-) -> tuple[bool, list[str]]:
-    """(is a definition, the names it defines). Preamble binds are collected separately."""
-    if _is_main_guard(node):
-        return True, []  # a definition binding nothing: never in a slice
+    Everything else executes as preamble, including all classes/decorators,
+    annotations on assignments, calls, aliases and augmented assignments.
+    Even inert evaluation can release an old value on rebinding (__del__), so
+    repeated bindings cannot be omitted either.
+    """
+    if _is_main_guard(node) and "__name__" not in rebound:
+        return True, []  # never runs on import
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-        if any(not _decorator_is_pure(d, aliases) for d in node.decorator_list):
+        if node.name in rebound or node.decorator_list or getattr(node, "type_params", ()):
             return False, [node.name]
         args = node.args
         evaluated = [*args.defaults, *[d for d in args.kw_defaults if d is not None],
@@ -333,39 +283,14 @@ def _classify(
                      *([args.vararg.annotation] if args.vararg is not None and args.vararg.annotation is not None else []),
                      *([args.kwarg.annotation] if args.kwarg is not None and args.kwarg.annotation is not None else []),
                      *([node.returns] if node.returns is not None else [])]
-        if not _inert(evaluated, aliases, module_defined):
-            return False, [node.name]
-        return True, [node.name]
-    if isinstance(node, ast.ClassDef):
-        if node.keywords or any(not _decorator_is_pure(d, aliases) for d in node.decorator_list):
-            return False, [node.name]
-        for base in node.bases:
-            root: ast.AST = base
-            while isinstance(root, ast.Attribute):
-                root = root.value
-            if not isinstance(root, ast.Name) or root.id in first_party_bases:
-                return False, [node.name]
-            bound = aliases.get(root.id)
-            if bound is None and root.id not in _BUILTIN_NAMES:
-                return False, [node.name]
-        body_level = [child for child in node.body if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))]
-        if not _inert(body_level, aliases, module_defined):
-            return False, [node.name]
-        return True, [node.name]
-    if isinstance(node, ast.Assign):
-        names = _simple_targets(node.targets)
-    elif isinstance(node, ast.AnnAssign):
-        names = _simple_targets([node.target]) if node.value is not None else None
-    elif isinstance(node, ast.AugAssign):
-        names = _simple_targets([node.target])
-    else:
-        return False, []
-    if names is None:
-        return False, []
-    value = node.value
-    if value is not None and not _inert([value], aliases, module_defined):
-        return False, names
-    return True, names
+        # Even a bare name can retain an object in defaults/annotations and
+        # change when its finalizer runs. Only closed literals are optional.
+        return all(_literal(value) for value in evaluated), [node.name]
+    if (isinstance(node, ast.Assign) and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)):
+        name = node.targets[0].id
+        return name not in rebound and _literal(node.value), [name]
+    return False, []
 
 
 # --- the module ------------------------------------------------------------------
@@ -396,25 +321,27 @@ def analyze(source: bytes, filename: str = "<module>") -> ModuleSyntax:
             dynamic = dynamic or f"dynamic import surface: {name}"
             unbounded = True
 
-    # A first pass over binds decides which class bases are first-party names
-    # (a class deriving from a project class may register through its metaclass).
+    # Count possible namespace writes, including conditional/global writes.
+    # Rebinding can run a finalizer even for a literal RHS.
     module_defined: set[str] = set()
+    seen: set[str] = set(_BUILTIN_NAMES)
+    rebound: set[str] = set()
     for node in tree.body:
+        plain, _imported = _bound_names(node)
+        bound = _module_bindings(node)
+        rebound.update(seen & bound)
+        seen.update(bound)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             module_defined.add(node.name)
         else:
-            plain, _imported = _bound_names(node)
             module_defined.update(plain)
-    first_party_bases = module_defined | {name for name, bound in frozen_aliases.items()
-                                          if any(alias.level > 0 or alias.module.split(".")[0] not in _PURE_DECORATOR_MODULES
-                                                 for alias in bound)}
 
     statements: list[Statement] = []
     definitions: dict[str, list[int]] = {}
     preamble: list[int] = []
     preamble_bound: set[str] = set()
     for index, node in enumerate(tree.body):
-        definition, defined = _classify(node, frozen_aliases, first_party_bases, module_defined)
+        definition, defined = _classify(node, rebound)
         plain, imported = _bound_names(node)
         # Every import in the statement: local to a definition's body, module-scope
         # (and already in ``module_aliases``) for a preamble statement. Listed on
@@ -426,8 +353,7 @@ def analyze(source: bytes, filename: str = "<module>") -> ModuleSyntax:
             # reads so the walk can follow them through the statement's aliases.
             binds = [node.name]
         elif definition:
-            # A plain assignment: what its comprehensions, lambdas and walruses
-            # bind is local to the expression; only the targets are module-scope.
+            # Only a single-name literal assignment can be a definition.
             binds = list(defined)
         else:
             # Preamble binds everything it binds at module scope (a loop
@@ -519,13 +445,13 @@ def slice_hash(syntax: ModuleSyntax, names: Iterable[str]) -> str:
     if syntax.dynamic is not None:
         return syntax.whole_hash
     closed = close_names(syntax, names)
-    # v2 invalidates records made before import aliases in separate nested
-    # scopes were all retained. Re-slicing their old name lists cannot recover
-    # a cross-module edge that was never recorded; they must rebuild once.
-    digest = hashlib.sha256(b"slice2")
+    # v3 replaces optimistic purity inference with a closed definition grammar.
+    # Old name lists can lack cross-module edges from import-time effects;
+    # re-slicing cannot recover those dependencies, so rebuild once.
+    digest = hashlib.sha256(b"slice3")
     for name in sorted(closed):
         digest.update(b"\0" + name.encode("utf-8") + (b"=" if name in syntax.definitions else b"!"))
     for statement in syntax.statements:
         if not statement.definition or any(name in closed for name in statement.binds):
             digest.update(b"\0\0" + statement.dump.encode("utf-8"))
-    return "slice2:" + digest.hexdigest()
+    return "slice3:" + digest.hexdigest()
