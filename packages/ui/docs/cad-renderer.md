@@ -520,7 +520,7 @@ import '@text-to-cad/ui/styles.css';
 
 const client = createCadClient({
   origin: backendOrigin,
-  workspaceId: rootId,
+  scopeId: rootId,
   shouldPoll: () => document.visibilityState !== 'hidden'
 });
 const preferences = createCadPreferences({
@@ -539,7 +539,7 @@ const renderers = [createStepRenderer({ client, preferences })];
 />
 ```
 
-`source.id` and `workspaceId` identify a stable served root, independently of
+`source.id` and `scopeId` identify a stable served root, independently of
 the backend's port. The Python catalog/server response supplies `rootId`.
 The host owns source access, file selection, URL/history, title, navigation,
 the file tree, panel width, browser storage and application color scheme.
@@ -653,7 +653,7 @@ for STEP's (its selection, hidden and isolated parts, `select` and `clearSelecti
 
 ## Lifetimes
 
-The injected `CadWorkspaceService` owns its catalog and request controllers. The first
+The injected `CadService` owns its catalog and request controllers. The first
 subscriber starts the catalog and its two-second poll; further subscribers
 share them. The last unsubscribe stops polling. The host supplies `shouldPoll`
 and connects window focus and visible `visibilitychange` events to

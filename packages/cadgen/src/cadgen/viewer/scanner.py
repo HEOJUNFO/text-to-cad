@@ -734,6 +734,16 @@ def is_served_cad_asset(file_path) -> bool:
 # --- public scan API ------------------------------------------------------
 
 
+def scan_cad_document(source_path: str) -> dict:
+    """Build one saved document's catalog entry without discovering neighbors."""
+    source_path = os.path.abspath(source_path)
+    parent = os.path.dirname(source_path)
+    extension = extension_of(source_path)
+    if extension in (".step", ".stp"):
+        return _create_step_entry(parent, parent, source_path, extension)
+    return _create_single_asset_entry(parent, parent, source_path, extension)
+
+
 def scan_cad_directory(repo_root, *, preferred_file=None, defer_unpreferred=False) -> dict:
     """Scan one directory. It is its own root — a viewer serves exactly one."""
     if not repo_root:

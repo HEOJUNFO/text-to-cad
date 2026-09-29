@@ -57,7 +57,7 @@ async function openDrawing() {
     if (url.pathname.endsWith('/__cad/drawing')) return json(SAMPLE);
     return new Response('', { status: 404 });
   });
-  const client = createCadClient({ origin: 'http://viewer.test/one', workspaceId: 'one', pollIntervalMs: 0, fetch: fetch as typeof globalThis.fetch });
+  const client = createCadClient({ origin: 'http://viewer.test/one', scopeId: 'one', pollIntervalMs: 0, fetch: fetch as typeof globalThis.fetch });
   await client.refresh();
 
   let commandSnapshot: Record<string, any> = {};

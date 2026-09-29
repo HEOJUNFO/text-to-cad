@@ -27,11 +27,11 @@ let colorScheme: 'light' | 'dark' = 'light';
 let hostContext: Record<string, unknown> = {};
 async function openRecent(item: RecentModel) {
   const generation = ++navigationGeneration;
-  if (nativeFiles.available()) { await nativeFiles.open(item.absolutePath); return; }
-  const result = await app.callServerTool({ name: 'cad_open', arguments: { recentId: item.id } });
+  if (nativeFiles.available()) { await nativeFiles.open(item.path); return; }
+  const result = await app.callServerTool({ name: 'cad_open', arguments: { documentId: item.id } });
   if (disposed || generation !== navigationGeneration) return;
   const value = readOpenFile(result.structuredContent);
-  if (result.isError || !value?.file) {
+  if (result.isError || !value?.document) {
     const message = result.content?.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n');
     throw new Error(message || 'Could not open this recent model.');
   }
@@ -40,9 +40,9 @@ async function openRecent(item: RecentModel) {
 }
 function paint() {
   if (!opened || disposed) return;
-  if (!opened.file) root.render(<RecentHome library={library} nativeOpenAvailable={nativeFiles.available()} onOpen={openRecent} />);
+  if (!opened.document) root.render(<RecentHome library={library} nativeOpenAvailable={nativeFiles.available()} onOpen={openRecent} />);
   else if (client && composer) root.render(<>
-    <Viewer key={`${opened.rootId}:${opened.recentId || opened.file}`} client={client} opened={opened} promptContext={composer.port} colorScheme={colorScheme} library={library} />
+    <Viewer key={opened.document.id} client={client} document={opened.document} promptContext={composer.port} colorScheme={colorScheme} library={library} />
     {previewHome && <button className="cad-recent-back" onClick={() => { const home = previewHome!; previewHome = undefined; open(home); }}>Back to recent models</button>}
   </>);
 }
@@ -50,11 +50,11 @@ function open(value: OpenFile, fromHome = false) {
   if (disposed) return;
   navigationGeneration++;
   if (!fromHome) previewHome = undefined;
-  if (!value.file || opened?.rootId !== value.rootId || opened?.recentId !== value.recentId || !client) {
+  if (!value.document || opened?.document?.id !== value.document.id || !client) {
     client?.dispose(); composer?.dispose(); client = undefined; composer = undefined;
-    if (value.file) {
-      client = createCadClient({ origin: CAD_ORIGIN, workspaceId: value.rootId, fetch: createBridgeFetch(app, { recentId: value.recentId, rootId: value.rootId }), shouldPoll: () => document.visibilityState !== 'hidden' });
-      composer = createComposerContext(app, value.rootId, value.rootPath);
+    if (value.document) {
+      client = createCadClient({ origin: CAD_ORIGIN, scopeId: value.document.id, fetch: createBridgeFetch(app, value.document.id), shouldPoll: () => document.visibilityState !== 'hidden' });
+      composer = createComposerContext(app, value.document);
       composer.setCapabilities(app.getHostCapabilities());
       composer.syncHostContext(hostContext);
     }

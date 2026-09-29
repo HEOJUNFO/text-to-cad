@@ -52,7 +52,7 @@ export default function RecentHome({ library, nativeOpenAvailable, onOpen }: {
       <p>{searchQuery ? 'No matching models.' : 'Open a CAD file to see it here.'}</p>
     </section> : <div className="cad-recent-grid">{items.map(item => <article key={item.id} className="cad-recent-item">
       <button className="cad-recent-open" disabled={item.missing || Boolean(opening)} aria-label={`${nativeOpenAvailable ? 'Open' : 'Preview'} ${item.name}${nativeOpenAvailable ? '' : ' here'}`} onClick={() => void open(item)}>
-        <Thumbnail item={item} library={library} /><span className="cad-recent-name">{item.name}</span><span className="cad-recent-folder">{item.rootPath}</span>
+        <Thumbnail item={item} library={library} /><span className="cad-recent-name">{item.name}</span><span className="cad-recent-folder">{item.path.replace(/[\\/][^\\/]+$/, '')}</span>
         <span className="cad-recent-status">{item.missing ? 'File unavailable' : opening === item.id ? 'Opening…' : nativeOpenAvailable ? `${item.pinned ? 'Pinned · ' : ''}${new Date(item.lastOpened * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : 'Preview here'}</span>
       </button>
       <div className="cad-recent-actions"><button aria-label={`${item.pinned ? 'Unpin' : 'Pin'} ${item.name}`} aria-pressed={item.pinned} disabled={state.pending.includes(item.id)} onClick={() => void library.pin(item).catch(() => {})}><Pin size={14} /></button>

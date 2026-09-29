@@ -1,6 +1,7 @@
-/** Portable identity: delivery addresses (HTTP/blob URLs) do not identify workspace files. */
+/** Stable identity: delivery addresses (HTTP/blob URLs) do not identify local documents. */
 export type ResourceRef =
   | { kind: 'workspace-file'; workspaceId: string; path: string; revision?: string }
+  | { kind: 'local-file'; path: string; revision?: string }
   | { kind: 'url'; url: string; revision?: string };
 /** Zero-based UTF-16 coordinates; text ranges have an exclusive end. */
 export interface TextPosition { line: number; character: number }

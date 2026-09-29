@@ -1,6 +1,6 @@
 import { createPromptDeliveryLedger, formatPromptReference, validatePromptContext } from '@text-to-cad/core/prompt';
 import type { PromptContextPort, PromptDestinationState, ResourceRef } from '@text-to-cad/core/prompt';
-import { encodeBytes } from './transport';
+import { encodeBytes, type CadDocument } from './transport';
 
 export type ContextBlock = { type: 'text'; text: string; _meta?: Record<string, unknown> } | { type: 'image'; data: string; mimeType: string; _meta?: Record<string, unknown> };
 export interface ContextBridge {
@@ -21,7 +21,7 @@ const available: PromptDestinationState = { kind: 'composer', available: true, c
 } };
 
 /** Host context is authoritative: replacing it after a removal must not resurrect deleted items. */
-export function createComposerContext(bridge: ContextBridge, workspaceId: string, rootPath: string) {
+export function createComposerContext(bridge: ContextBridge, document: Pick<CadDocument, 'id' | 'path'>) {
   const ledger = createPromptDeliveryLedger({ maxPending: 1 });
   const listeners = new Set<() => void>();
   let destination = unavailable;
@@ -29,8 +29,8 @@ export function createComposerContext(bridge: ContextBridge, workspaceId: string
   let revision = 0;
   let disposed = false;
   const resolvePath = (resource: ResourceRef) => {
-    if (resource.kind === 'url' || resource.workspaceId !== workspaceId) throw new Error('The reference belongs to another workspace.');
-    return `${rootPath.replace(/[\\/]+$/, '')}/${resource.path}`;
+    if (resource.kind !== 'local-file' || resource.path !== document.path) throw new Error('The reference belongs to another document.');
+    return resource.path;
   };
   const port: PromptContextPort = {
     getSnapshot: () => destination,

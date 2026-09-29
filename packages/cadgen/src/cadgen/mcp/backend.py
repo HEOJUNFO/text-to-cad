@@ -1,10 +1,7 @@
-"""Transport adapter over CadApp, restricted to viewer data and derived caches.
+"""MCP transport over the shared viewer for one registered CAD document.
 
-The operator or a trusted host file entrypoint grants each root. No network URL, source
-execution, native clipboard, reveal operation or arbitrary file is exposed.
-The host's resource path is trusted only after the same containment check used
-by the standalone viewer. Store requests retain CadApp's content-addressed
-artifact contract; they cannot address source records or arbitrary disk paths.
+Only that document and declared dependencies are addressable. Content-addressed
+store and display caches retain their existing contracts; no source executes.
 """
 from __future__ import annotations
 
@@ -14,15 +11,13 @@ import hashlib
 import io
 import os
 import threading
-from pathlib import Path
 from urllib.parse import urlsplit
 
-from cadgen.viewer.backend import require_contained
 from cadgen.viewer.http_app import CadApp, POST_GUARD_HEADER
 from cadgen.viewer.response import Request, Response
 from cadgen.viewer.url_norm import request_query
 
-SUPPORTED_EXTENSIONS = (".step", ".stp", ".stl", ".glb", ".3mf")
+from .documents import DocumentAssetBackend, SUPPORTED_EXTENSIONS
 # The official JS stdio client caps a JSON frame at 10 MiB. Base64 bodies fit
 # within that frame; file streams use smaller chunks without a total file cap.
 MAX_BYTES = 6 * 1024 * 1024
@@ -106,40 +101,26 @@ class _ChunkedResponse(Response):
             self.transfer = {"offset": self.offset, "totalBytes": before.st_size, "revision": revision}
 
 
+class _DocumentApp(CadApp):
+    def read_catalog(self, preferred_file=None) -> dict:
+        return {**self.backend.read_catalog(preferred_file), "scopeId": self.document_id}
+
+
 class ViewerBridge:
-    def __init__(self, root: str | Path):
-        root = Path(root).resolve(strict=True)
-        if not root.is_dir():
-            raise ValueError("CAD MCP root must be a directory")
-        self.app = CadApp(root=str(root), host="127.0.0.1", port=0)
-        # MCP owns this process lifecycle. The standalone server's auto-restart
-        # protocol (and its localhost URL) is not applicable to this transport.
+    def __init__(self, document: dict):
+        self.document_id = document["id"]
+        backend = DocumentAssetBackend(document["path"])
+        self.app = _DocumentApp(root=backend.root_path, host="127.0.0.1", port=0, backend=backend)
+        self.app.document_id = self.document_id
         self.app.auto_reload = False
 
     def close(self):
         self.app.ops.shutdown()
 
-    def open(self, *, path: str | None = None, resource_path: str | None = None) -> dict:
-        selected = resource_path if resource_path is not None else path
-        relative = None
-        if selected:
-            candidate = os.path.abspath(os.path.join(self.app.root_path, selected))
-            require_contained(self.app.root_path, candidate)
-            if Path(candidate).suffix.lower() not in SUPPORTED_EXTENSIONS:
-                raise ValueError("CAD supports STEP, STP, STL, GLB and 3MF files")
-            if not self.app.backend.asset_path_for_file_ref(candidate) or not Path(candidate).is_file():
-                raise ValueError("CAD file is missing or hidden")
-            try:
-                relative = Path(candidate).relative_to(self.app.root_path).as_posix()
-            except ValueError:
-                # Realpath aliases such as macOS /var -> /private/var.
-                relative = Path(candidate).resolve().relative_to(self.app.root_path).as_posix()
-        return {"file": relative, "rootId": self.app.root_id, "rootPath": self.app.root_path}
-
     def request(self, path: str, method: str = "GET", body: str | None = None,
                 offset: int = 0, revision: str | None = None) -> dict:
-        # Only the route itself is parsed here; CadApp parses file references
-        # and owns all disk containment, CAD-extension and cache validation.
+        # The bridge binds file-bearing routes to its immutable document.
+        # CadApp still owns compilation and content-addressed cache semantics.
         parsed = urlsplit(path)
         if (not path.startswith("/") or path.startswith("//") or parsed.scheme
                 or parsed.netloc or parsed.fragment or "\\" in parsed.path
@@ -179,13 +160,16 @@ class ViewerBridge:
             headers={POST_GUARD_HEADER: "1", "content-length": str(len(raw))},
             read_body=lambda: raw,
         )
+        if route in {"/__cad/catalog", "/__cad/artifact", "/__cad/preview"}:
+            file = request.query.get("file")
+            if file or route != "/__cad/catalog":
+                self.app.backend.require_document(file or "")
         capture = _Capture()
         response = _ChunkedResponse(capture, head_only=request.is_head, offset=offset, revision=revision)
         if route == "/__cad/server":
             response.send_json(200, {
                 "serverMode": "mcp", "serverFeatures": [], "backend": "local-fs",
-                "rootId": self.app.root_id, "rootPath": self.app.root_path,
-                "rootName": self.app.root_name, "stepArtifactGenerationAvailable": False,
+                "scopeId": self.document_id, "stepArtifactGenerationAvailable": False,
                 "autoReload": False,
             })
         else:
@@ -202,56 +186,24 @@ class ViewerBridge:
         }
 
 
-class ViewerRoots:
-    """One default project plus bounded roots explicitly granted by the host.
+class ViewerDocuments:
+    """Lazy document adapters; no directory limit or discovery.
 
-    A file-extension tool call carries the host's absolute resource path. It
-    may authorize the file's containing directory (for CAD sidecars), never a
-    caller-supplied directory. An explicit --root restricts even host grants.
+    Each adapter owns only locks, subscriber IDs and an empty compile ledger.
+    DocumentCompiler has no workers or threads: jobs belong to the shared pool.
     """
-    MAX_ROOTS = 16
-
-    def __init__(self, root: str | Path | None):
-        self.explicit_root = root is not None
-        self.default = ViewerBridge(root if root is not None else Path.cwd())
-        self._roots = {self.default.app.root_path: self.default}
+    def __init__(self):
+        self._documents = {}
         self._lock = threading.Lock()
 
-    def for_resource(self, resource_path: str | None) -> ViewerBridge:
-        if not resource_path or self.explicit_root:
-            if resource_path:
-                require_contained(self.default.app.root_path, resource_path)
-            return self.default
-        candidate = Path(resource_path)
-        if not candidate.is_absolute() or not candidate.is_file() or candidate.suffix.lower() not in SUPPORTED_EXTENSIONS:
-            raise ValueError("Host resource must name an existing supported CAD file")
-        parent = str(candidate.parent.resolve())
+    def get(self, document: dict) -> ViewerBridge:
         with self._lock:
-            if parent not in self._roots:
-                if len(self._roots) >= self.MAX_ROOTS:
-                    raise ValueError("CAD has reached its 16 open project limit; restart the MCP connection")
-                self._roots[parent] = ViewerBridge(parent)
-            return self._roots[parent]
-
-    def for_recent(self, record: dict) -> ViewerBridge:
-        """Restore only authority already validated and persisted by the extension."""
-        path = record["path"]
-        if not Path(path).is_file():
-            raise ValueError("Recent CAD file is missing; restore it or remove it from the library")
-        if self.explicit_root:
-            require_contained(self.default.app.root_path, path)
-            return self.default
-        root = record["root"]
-        if str(Path(root).resolve()) != root:
-            raise ValueError("Recent CAD directory has moved; open the file again through the host")
-        require_contained(root, path)
-        with self._lock:
-            if root not in self._roots:
-                if len(self._roots) >= self.MAX_ROOTS:
-                    raise ValueError("CAD has reached its 16 open project limit; restart the MCP connection")
-                self._roots[root] = ViewerBridge(root)
-            return self._roots[root]
+            bridge = self._documents.get(document["id"])
+            if bridge is None:
+                bridge = ViewerBridge(document)
+                self._documents[document["id"]] = bridge
+            return bridge
 
     def close(self):
-        for bridge in self._roots.values():
+        for bridge in self._documents.values():
             bridge.close()

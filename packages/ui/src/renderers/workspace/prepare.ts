@@ -1,13 +1,13 @@
-import type { CadWorkspaceService, CadEntry, CadRenderSession, CadServerInfo } from '@text-to-cad/core/client';
+import type { CadService, CadEntry, CadRenderSession, CadServerInfo } from '@text-to-cad/core/client';
 import type { PrepareContext, PreparedDocument } from '../../file-viewer/types.js';
 
 /** The backend connection a viewer renderer is registered with: ready, or obtained when a file first needs it. */
-export type WorkspaceClientOption = CadWorkspaceService | ((context: PrepareContext) => Promise<CadWorkspaceService>);
+export type WorkspaceClientOption = CadService | ((context: PrepareContext) => Promise<CadService>);
 
 /** What every viewer renderer's document starts from: the catalog entry, its server and a render session. */
 export interface PreparedWorkspaceEntry {
   entry: CadEntry;
-  client: CadWorkspaceService;
+  client: CadService;
   serverInfo: CadServerInfo;
   renderSession: CadRenderSession;
 }

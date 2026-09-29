@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { existsSync } from 'node:fs';
-import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,7 +20,7 @@ const repo = fileURLToPath(new URL('../../../', import.meta.url));
 const appDir = path.join(repo, 'apps/chatgpt');
 
 test('built UI views STEP revisions and provides persistent recents, real thumbnails, native opening and preview fallback', { timeout: 120_000 }, async t => {
-  const temporary = await mkdtemp(path.join(tmpdir(), 'cad-mcp-browser-'));
+  const temporary = await realpath(await mkdtemp(path.join(tmpdir(), 'cad-mcp-browser-')));
   let closeBrowser = async () => {};
   let closeServer = () => {};
   let closeClient = async () => {};
@@ -41,9 +41,11 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
   await copyFile(source, path.join(documents, 'related.step'));
   await writeFile(path.join(documents, 'notes.txt'), 'This is not a CAD file.');
   const ui = path.join(appDir, 'dist/index.html');
+  const serverDirectory = path.join(temporary, 'plugin');
+  await mkdir(serverDirectory);
   // Deliberately launch outside the document's directory: host metadata, not
   // the plugin install directory, authorizes the native file entrypoint.
-  const transport = new StdioClientTransport({ command: python, args: ['-m', 'cadgen.cli', 'mcp', '--ui', ui], cwd: temporary, env: env as Record<string, string>, stderr: 'pipe' });
+  const transport = new StdioClientTransport({ command: python, args: ['-m', 'cadgen.cli', 'mcp', '--ui', ui], cwd: serverDirectory, env: env as Record<string, string>, stderr: 'pipe' });
   let stderr = '';
   transport.stderr?.on('data', chunk => { stderr += chunk.toString(); });
   const client = new Client({ name: 'cad-browser-test', version: '1.0.0' });
@@ -72,7 +74,7 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     }
     return result;
   };
-  let initialOpen: { rootId: string; recentId: string; file: string } | undefined;
+  let initialOpen: { document: { id: string; path: string } } | undefined;
   const home = await client.callTool({ name: 'cad_open', arguments: {} });
   assert.notEqual(home.isError, true, JSON.stringify(home));
   const bundle = await build({ stdin: { contents: `
@@ -115,8 +117,8 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
       }
       else if (request.url === '/host.js') { response.setHeader('Content-Type', 'text/javascript'); response.end(bundle.outputFiles[0].text); }
       else if (request.url === '/initial-open' && request.method === 'POST') {
-        // The model's repo-root result predates the native file-parent metadata.
-        const result = await client.callTool({ name: 'cad_open', arguments: { path: 'parts/fixture.step' } });
+        // A model opening precedes native host metadata; both retain the same document.
+        const result = await client.callTool({ name: 'cad_open', arguments: { path: source } });
         initialOpen = result.structuredContent as typeof initialOpen;
         response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(result));
       }
@@ -175,12 +177,23 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
       const add = [...body.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Add To Prompt');
       if (add && !add.disabled) add.click();
     });
-    assert.ok(initialOpen && initialOpen.file === 'parts/fixture.step');
-    // Opening the same file natively must not revoke the original inline root.
-    const original = await client.callTool({ name: 'cad_request', arguments: { rootId: initialOpen.rootId, recentId: initialOpen.recentId, path: '/__cad/catalog?file=parts/fixture.step', method: 'GET' }, _meta: { 'openai/resource': { path: source } } });
+    assert.ok(initialOpen?.document.path === source);
+    // The same basename outside the first document's directory has distinct
+    // authority. Later native metadata cannot redirect an existing document ID.
+    const otherDirectory = path.join(temporary, 'elsewhere');
+    await mkdir(otherDirectory);
+    const sameName = path.join(otherDirectory, 'fixture.step');
+    await copyFile(source, sameName);
+    const otherOpen = await client.callTool({ name: 'cad_open', arguments: { path: sameName } });
+    assert.notEqual(otherOpen.isError, true, JSON.stringify(otherOpen));
+    const otherDocument = (otherOpen.structuredContent as { document: { id: string; path: string } }).document;
+    assert.notEqual(otherDocument.id, initialOpen.document.id);
+    assert.equal(otherDocument.path, sameName);
+    const original = await client.callTool({ name: 'cad_request', arguments: { documentId: initialOpen.document.id, path: `/__cad/catalog?file=${encodeURIComponent(source)}`, method: 'GET' }, _meta: { 'openai/resource': { path: sameName } } });
     assert.notEqual(original.isError, true, JSON.stringify(original));
     const originalCatalog = JSON.parse(Buffer.from((original.structuredContent as { body: string }).body, 'base64').toString());
-    assert.ok(originalCatalog.entries.some((entry: any) => entry.rootRelativeFile === 'parts/fixture.step' && !entry.catalogPending));
+    assert.ok(originalCatalog.entries.some((entry: any) => entry.file === source && !entry.catalogPending));
+    assert.ok(originalCatalog.entries.every((entry: any) => entry.file === source));
     const bottomActions = viewer.locator('[data-viewport-bottom-actions]');
     const promptAction = bottomActions.getByRole('button', { name: 'Add To Prompt', exact: true });
     await expect(bottomActions.getByRole('button')).toHaveCount(1);
@@ -192,7 +205,7 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     await page.waitForFunction(() => (window as any).attachments.some((part: any) => part.text?.includes('fixture.step#')));
     await expect(viewer.getByText('Added to prompt', { exact: true })).toHaveCount(0);
     const attachments = await page.evaluate(() => (window as any).attachments);
-    assert.match(JSON.stringify(attachments), /fixture\.step/);
+    assert.ok(attachments.some((part: any) => part.type === 'text' && part.text.includes(`${source}#`)), 'selected references preserve the canonical absolute document path');
     assert.ok(calls.includes('cad_request'));
     assert.equal(await viewer.getByRole('button', { name: /^(Show|Hide) files$/ }).count(), 0);
     assert.equal(await viewer.getByRole('button', { name: /^Browse / }).count(), 0);

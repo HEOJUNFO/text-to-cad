@@ -3,10 +3,10 @@ import { test } from 'node:test';
 import { createPromptContext } from '@text-to-cad/core/prompt';
 import { createComposerContext, type ContextBlock } from './promptContext';
 const caps = { experimental: { 'openai/modelContext': {} }, updateModelContext: { text: {}, image: {} } };
-const reference = { id: 'face', kind: 'reference' as const, reference: { label: 'Bracket · Face 3', resource: { kind: 'workspace-file' as const, workspaceId: 'root', path: 'parts/bracket.step', revision: 'sha256:a' }, target: { kind: 'cad-selector' as const, selectors: ['f3'] } } };
+const reference = { id: 'face', kind: 'reference' as const, reference: { label: 'Bracket · Face 3', resource: { kind: 'local-file' as const, path: '/project/parts/bracket.step', revision: 'sha256:a' }, target: { kind: 'cad-selector' as const, selectors: ['f3'] } } };
 test('titled composer attachments preserve revisions, deduplicate deliveries and honor user removals', async () => {
   const updates: ContextBlock[][] = [];
-  const composer = createComposerContext({ async updateModelContext({ content }) { updates.push(content); } }, 'root', '/project');
+  const composer = createComposerContext({ async updateModelContext({ content }) { updates.push(content); } }, { id: 'bracket', path: '/project/parts/bracket.step' });
   assert.equal(composer.port.getSnapshot().available, false);
   composer.setCapabilities(caps);
   const context = createPromptContext([reference], 'selection');
@@ -21,12 +21,14 @@ test('titled composer attachments preserve revisions, deduplicate deliveries and
   assert.equal(updates[1].length, 1);
   await composer.port.deliver(createPromptContext([{ ...reference, reference: { ...reference.reference, label: undefined } }], 'unnamed-reference'));
   assert.equal(updates[2][1]._meta?.['openai/title'], 'bracket.step#f3', 'unlabeled references show filename and selection instead of a full path');
+  await composer.port.deliver(createPromptContext([{ ...reference, reference: { ...reference.reference, target: { kind: 'whole-resource' } } }], 'whole-document'));
+  assert.match((updates[3][2] as { text: string }).text, /\n\/project\/parts\/bracket.step\nDocument revision: sha256:a/);
 });
 test('capture freezes composer revision and rejects changes before delivery', async () => {
   let resolve!: (blob: Blob) => void;
   const content = new Promise<Blob>(done => { resolve = done; });
   let sent = 0;
-  const composer = createComposerContext({ async updateModelContext() { sent++; } }, 'root', '/project');
+  const composer = createComposerContext({ async updateModelContext() { sent++; } }, { id: 'bracket', path: '/project/parts/bracket.step' });
   composer.setCapabilities(caps);
   const pending = composer.port.deliver(createPromptContext([{ id: 'image', kind: 'attachment', name: 'View', mimeType: 'image/png', content }]));
   composer.syncHostContext({ 'openai/modelContext': { content: [] } });
@@ -34,19 +36,19 @@ test('capture freezes composer revision and rejects changes before delivery', as
   assert.equal((await pending).status, 'cancelled');
   assert.equal(sent, 0);
 });
-test('workspace mismatch and rejected host update never report acceptance; failure can retry', async () => {
+test('document mismatch and rejected host update never report acceptance; failure can retry', async () => {
   let fail = true;
-  const composer = createComposerContext({ async updateModelContext() { if (fail) throw new Error('Rejected'); } }, 'root', '/project');
+  const composer = createComposerContext({ async updateModelContext() { if (fail) throw new Error('Rejected'); } }, { id: 'bracket', path: '/project/parts/bracket.step' });
   composer.setCapabilities(caps);
   const context = createPromptContext([reference], 'retry');
   assert.equal((await composer.port.deliver(context)).status, 'failed');
   fail = false;
   assert.equal((await composer.port.deliver(context)).status, 'added');
-  assert.equal((await composer.port.deliver(createPromptContext([{ ...reference, reference: { ...reference.reference, resource: { ...reference.reference.resource, workspaceId: 'other' } } }]))).status, 'failed');
+  assert.equal((await composer.port.deliver(createPromptContext([{ ...reference, reference: { ...reference.reference, resource: { ...reference.reference.resource, path: '/other/parts/bracket.step' } } }]))).status, 'failed');
 });
 
 test('text-only context hosts support references and decline images', async () => {
-  const composer = createComposerContext({ async updateModelContext() {} }, 'root', '/project');
+  const composer = createComposerContext({ async updateModelContext() {} }, { id: 'bracket', path: '/project/parts/bracket.step' });
   composer.setCapabilities({ experimental: { 'openai/modelContext': {} }, updateModelContext: { text: {} } });
   assert.equal(composer.port.getSnapshot().available, true);
   assert.equal(composer.port.getSnapshot().capabilities?.attachments, 'none');
@@ -56,7 +58,7 @@ test('text-only context hosts support references and decline images', async () =
 
 test('replacement context bounds accumulated images and text, with capacity restored by removal', async () => {
   let sends = 0;
-  const composer = createComposerContext({ async updateModelContext() { sends++; } }, 'root', '/project');
+  const composer = createComposerContext({ async updateModelContext() { sends++; } }, { id: 'bracket', path: '/project/parts/bracket.step' });
   composer.setCapabilities(caps);
   const limit = 20 * 1024 * 1024;
   const existingImage = { type: 'image', mimeType: 'image/png', data: 'A'.repeat(4 * Math.ceil(limit / 3) - 1) + '=' };

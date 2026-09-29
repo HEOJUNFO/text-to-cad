@@ -18,7 +18,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from cadgen.mcp.backend import CHUNK_BYTES, ViewerBridge, ViewerRoots
+from cadgen.mcp.backend import CHUNK_BYTES, ViewerBridge
 from cadgen.mcp.library import RecentLibrary
 from cadgen.mcp import server as mcp_server
 from cadgen.assets import AssetMissing
@@ -37,13 +37,8 @@ class BridgeTests(unittest.TestCase):
         self.cache = mock.patch.dict(os.environ, {"CADGEN_CACHE_DIR": str(Path(self.tmp.name, "cache"))})
         self.cache.start()
         self.addCleanup(self.cache.stop)
-        self.bridge = ViewerBridge(self.root)
+        self.bridge = ViewerBridge({"id": "test-document", "path": str(self.file)})
         self.addCleanup(self.bridge.close)
-        # Drive catalog hydration synchronously so test cleanup owns every read.
-        hydration = mock.patch.object(self.bridge.app.backend, "_start_catalog_hydration", self.bridge.app.backend._hydrate_catalog)
-        hydration.start()
-        self.addCleanup(hydration.stop)
-
     def test_asset_bytes_catalog_and_replacement_use_the_existing_viewer(self):
         path = "/__cad/asset?" + urlencode({"file": str(self.file)})
         response = self.bridge.request(path)
@@ -52,21 +47,11 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(self.bridge.request(path, "HEAD")["body"], "")
         catalog = self.bridge.request("/__cad/catalog?" + urlencode({"file": str(self.file)}))
         payload = json.loads(base64.b64decode(catalog["body"]))
-        self.assertEqual(payload["rootId"], self.bridge.app.root_id)
-        self.assertEqual(payload["entries"][0]["rootRelativeFile"], "small.stl")
+        self.assertEqual(payload["scopeId"], "test-document")
+        self.assertEqual(payload["entries"][0]["file"], str(self.file))
+        self.assertNotIn("rootRelativeFile", payload["entries"][0])
         self.file.write_bytes(b"solid revised\nendsolid revised\n")
         self.assertEqual(base64.b64decode(self.bridge.request(path)["body"]), self.file.read_bytes())
-
-    def test_open_checks_root_hidden_paths_extensions_and_host_priority(self):
-        self.assertEqual(self.bridge.open(path="small.stl")["file"], "small.stl")
-        self.assertEqual(self.bridge.open(path=str(self.file))["file"], "small.stl")
-        self.assertEqual(self.bridge.open(path="wrong.step", resource_path=str(self.file))["file"], "small.stl")
-        for path in ("../outside.step", str(Path(self.tmp.name, "outside.step"))):
-            with self.subTest(path=path), self.assertRaises(ForbiddenAssetError):
-                self.bridge.open(path=path)
-        for path in ("model.py", ".hidden.stl", "missing.step"):
-            with self.subTest(path=path), self.assertRaises(ValueError):
-                self.bridge.open(path=path)
 
     def test_bridge_cannot_reach_native_actions_sources_or_outside_documents(self):
         for path, method in (
@@ -81,24 +66,31 @@ class BridgeTests(unittest.TestCase):
         outside = Path(self.tmp.name, "outside.step")
         outside.write_bytes(b"outside")
         for route, method in (("asset", "GET"), ("artifact", "GET"), ("artifact", "POST")):
-            result = self.bridge.request(f"/__cad/{route}?" + urlencode({"file": str(outside)}), method)
-            self.assertEqual(result["status"], 403)
+            if route == "asset":
+                result = self.bridge.request(f"/__cad/{route}?" + urlencode({"file": str(outside)}), method)
+                self.assertEqual(result["status"], 403)
+            else:
+                with self.assertRaisesRegex(ValueError, "different CAD document"):
+                    self.bridge.request(f"/__cad/{route}?" + urlencode({"file": str(outside)}), method)
         source = self.root / "model.py"
         source.write_text("raise RuntimeError('MUST NOT RUN')", encoding="utf-8")
         result = self.bridge.request("/__cad/asset?" + urlencode({"file": str(source)}))
-        self.assertEqual(result["status"], 404)
+        self.assertEqual(result["status"], 403)
 
-    def test_explicit_root_preserves_viewer_symlink_library_contract(self):
-        outside = Path(self.tmp.name, "outside.stl")
-        outside.write_bytes(b"secret")
-        alias = self.root / "alias.stl"
-        try:
-            alias.symlink_to(outside)
-        except OSError:
-            self.skipTest("symlinks unavailable")
-        self.assertEqual(self.bridge.open(path="alias.stl")["file"], "alias.stl")
-        result = self.bridge.request("/__cad/asset?" + urlencode({"file": str(alias)}))
-        self.assertEqual(result["status"], 200)
+    def test_only_explicit_glb_dependencies_can_cross_parent(self):
+        import struct
+        dependency = Path(self.tmp.name, "texture.png").resolve()
+        dependency.write_bytes(b"declared texture")
+        file = self.root / "part.glb"
+        metadata = json.dumps({"asset": {"version": "2.0"}, "images": [{"uri": "../texture.png"}]}).encode()
+        metadata += b" " * (-len(metadata) % 4)
+        file.write_bytes(struct.pack("<4sIIII", b"glTF", 2, 20 + len(metadata), len(metadata), 0x4e4f534a) + metadata)
+        bridge = ViewerBridge({"id": "glb", "path": str(file)})
+        self.addCleanup(bridge.close)
+        result = bridge.request("/__cad/asset?" + urlencode({"file": str(dependency)}))
+        self.assertEqual(base64.b64decode(result["body"]), b"declared texture")
+        result = bridge.request("/__cad/asset?" + urlencode({"file": str(self.file)}))
+        self.assertEqual(result["status"], 403)
 
     def test_body_errors_and_bounded_response_are_explicit(self):
         with self.assertRaisesRegex(ValueError, "base64"):
@@ -113,10 +105,33 @@ class BridgeTests(unittest.TestCase):
     def test_compilation_uses_existing_document_operation(self):
         step = self.root / "part.step"
         step.write_text("test-owned STEP placeholder", encoding="utf-8")
-        with mock.patch.object(self.bridge.app.ops, "build_artifact", return_value={"ok": True}) as compile_document:
-            result = self.bridge.request("/__cad/artifact?" + urlencode({"file": str(step)}), "POST")
+        bridge = ViewerBridge({"id": "step", "path": str(step)})
+        self.addCleanup(bridge.close)
+        with mock.patch.object(bridge.app.ops, "build_artifact", return_value={"ok": True}) as compile_document:
+            result = bridge.request("/__cad/artifact?" + urlencode({"file": str(step)}), "POST")
         self.assertEqual(result["status"], 200)
         compile_document.assert_called_once_with(str(step), force=False)
+        catalog = json.loads(base64.b64decode(result["body"]))["catalog"]
+        self.assertEqual(catalog["scopeId"], "step")
+        self.assertNotIn("rootId", catalog)
+
+    def test_step_sidecar_catalog_uses_shared_saved_document_metadata(self):
+        from tests.python.support.store_fixtures import seed_result
+        step = self.root / "sidecar.step"
+        step.write_bytes(b"test-owned document bytes")
+        seed_result(step, {"kind": "assembly-package", "components": {"c0": {}}})
+        sidecar = Path(str(step) + ".json")
+        sidecar.write_text(json.dumps({"schemaVersion": 9, "documentHash": hashlib.sha256(step.read_bytes()).hexdigest(),
+                                      "kinematics": {}}))
+        bridge = ViewerBridge({"id": "sidecar", "path": str(step)})
+        self.addCleanup(bridge.close)
+        with mock.patch("cadgen.viewer.scanner._collect_cad_source_files", side_effect=AssertionError("must not scan")):
+            catalog = json.loads(base64.b64decode(bridge.request("/__cad/catalog")["body"]))
+        entry = catalog["entries"][0]
+        self.assertEqual(entry["file"], str(step))
+        self.assertEqual(entry["sourceUrl"], entry["poseUrl"])
+        data = bridge.request(entry["sourceUrl"])
+        self.assertEqual(base64.b64decode(data["body"]), sidecar.read_bytes())
 
     def test_large_file_chunks_reassemble_and_detect_replacement(self):
         # A real multi-message binary response, without a CAD kernel or fixtures.
@@ -144,28 +159,36 @@ class BridgeTests(unittest.TestCase):
 
 
 class LibraryTests(unittest.TestCase):
-    def test_recent_authority_rejects_replaced_root_symlink(self):
-        with tempfile.TemporaryDirectory() as directory, mock.patch.dict(os.environ, {"CADGEN_CACHE_DIR": directory}):
-            base = Path(directory).resolve()
-            root = base / "project"
-            root.mkdir()
-            (root / "part.stl").write_bytes(b"solid part\nendsolid part\n")
-            library = RecentLibrary(base / "library.sqlite3")
-            recent = library.record(str(root), "part.stl")
-            record = library.get(recent["id"])
-            moved = base / "elsewhere"
-            root.rename(moved)
-            try:
-                root.symlink_to(moved, target_is_directory=True)
-            except OSError:
-                self.skipTest("symlinks unavailable")
-            with mock.patch("cadgen.mcp.backend.Path.cwd", return_value=base):
-                roots = ViewerRoots(None)
-            try:
-                with self.assertRaisesRegex(ValueError, "directory has moved"):
-                    roots.for_recent(record)
-            finally:
-                roots.close()
+    def test_canonical_aliases_and_deleted_history_keep_document_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            file = root / "part.stl"
+            file.write_bytes(b"solid part\nendsolid part\n")
+            alias = root / "alias.stl"
+            alias.symlink_to(file)
+            library = RecentLibrary(root / "library.sqlite3")
+            document = library.record(str(file))
+            self.assertEqual(library.record(str(alias))["id"], document["id"])
+            library.update("remove", document["id"])
+            self.assertEqual(RecentLibrary(library.path).get(document["id"])["path"], str(file))
+            self.assertEqual(library.list(), {"items": []})
+            self.assertEqual(library.record(str(file))["id"], document["id"])
+
+    def test_replaced_registered_path_requires_explicit_reopen(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            file, replacement = root / "part.stl", root / "replacement.stl"
+            file.write_bytes(b"original")
+            replacement.write_bytes(b"replacement")
+            library = RecentLibrary(root / "library.sqlite3")
+            document = library.record(str(file))
+            file.unlink()
+            file.symlink_to(replacement)
+            with self.assertRaisesRegex(ValueError, "reopen its absolute path"):
+                library.get(document["id"])
+            new_document = library.record(str(file))
+            self.assertNotEqual(new_document["id"], document["id"])
+            self.assertEqual(new_document["path"], str(replacement))
 
     def test_pins_identity_thumbnail_revisions_and_removal_persist(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -174,9 +197,9 @@ class LibraryTests(unittest.TestCase):
             file.write_bytes(b"solid part\nendsolid part\n")
             path = root / "state/library.sqlite3"
             first = RecentLibrary(path)
-            item = first.record(str(root), file.name)
+            item = first.record(str(file))
             second = RecentLibrary(path)
-            self.assertEqual(second.record(str(root), file.name)["id"], item["id"])
+            self.assertEqual(second.record(str(file))["id"], item["id"])
             pinned = first.update("pin", item["id"], pinned=True)
             self.assertTrue(pinned["items"][0]["pinned"])
             from PIL import Image
@@ -239,8 +262,9 @@ class LibraryTests(unittest.TestCase):
             self.assertEqual(library.update("thumbnail", "saved"),
                              {"thumbnail": preview, "revision": item["thumbnailRevision"]})
             library.update("remove", "saved")
-            self.assertEqual(RecentLibrary(database).get("saved", "bound-root"),
-                             {"path": str(file), "root": str(root)})
+            self.assertEqual(RecentLibrary(database).get("saved"), {"id": "saved", "path": str(file)})
+            with sqlite3.connect(database) as db:
+                self.assertIsNone(db.execute("SELECT name FROM sqlite_master WHERE name='model_roots'").fetchone())
             self.assertEqual(library.list(), {"items": []})
 
     def test_independent_processes_preserve_concurrent_history(self):
@@ -250,8 +274,11 @@ class LibraryTests(unittest.TestCase):
             code = (
                 "from cadgen.mcp.library import RecentLibrary; import sys; "
                 "library=RecentLibrary(sys.argv[1]); "
-                "[library.record(sys.argv[2],sys.argv[3] + str(i) + '.stl') for i in range(10)]"
+                "[library.record(str(__import__('pathlib').Path(sys.argv[2]) / (sys.argv[3] + str(i) + '.stl'))) for i in range(10)]"
             )
+            for prefix in ("a", "b"):
+                for index in range(10):
+                    (root / f"{prefix}{index}.stl").write_bytes(b"solid part")
             processes = [subprocess.Popen([sys.executable, "-c", code, str(path), str(root), prefix],
                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                          for prefix in ("a", "b")]
@@ -263,230 +290,99 @@ class LibraryTests(unittest.TestCase):
 
 class ProtocolTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        cache_directory = tempfile.TemporaryDirectory()
-        self.addCleanup(cache_directory.cleanup)
-        cache_environment = mock.patch.dict(os.environ, {
-            "CADGEN_CACHE_DIR": str(Path(cache_directory.name, "cache")),
-            "CADGEN_STATE_DIR": str(Path(cache_directory.name, "state")),
-            "CADGEN_MCP_UI_CACHE_DIR": str(Path(cache_directory.name, "ui-cache")),
-        })
-        cache_environment.start()
-        self.addCleanup(cache_environment.stop)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
+        env = mock.patch.dict(os.environ, {name: str(self.root / name) for name in
+                              ("CADGEN_CACHE_DIR", "CADGEN_STATE_DIR", "CADGEN_MCP_UI_CACHE_DIR")})
+        env.start()
+        self.addCleanup(env.stop)
+        self.ui = self.root / "viewer.html"
+        self.ui.write_text("<!doctype html><title>CAD test fixture</title>")
 
-    async def test_host_grants_file_parent_without_trusting_an_app_supplied_root(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory).resolve()
-            granted = root / "part.stl"
-            granted.write_bytes(b"solid part\nendsolid part\n")
-            default_root = root / "default-project"
-            default_root.mkdir()
-            ui = root / "viewer.html"
-            ui.write_text("<!doctype html><title>CAD</title>", encoding="utf-8")
-            with mock.patch("cadgen.mcp.backend.Path.cwd", return_value=default_root):
-                server = create_server(ui_path=ui)
-            meta = {"openai/resource": {"path": str(granted)}}
-            args = {"file": {"name": granted.name, "resourceUri": "host-resource://part"}}
-            async with create_connected_server_and_client_session(server) as client:
-                opened = await client.call_tool("cad_open", args, meta=meta)
-                self.assertFalse(opened.isError)
-                self.assertEqual(opened.structuredContent["rootPath"], str(root))
-                path = "/__cad/asset?" + urlencode({"file": str(granted)})
-                authorized = await client.call_tool("cad_request", {"path": path}, meta=meta)
-                self.assertEqual(authorized.structuredContent["status"], 200)
-                ungranted = await client.call_tool("cad_request", {"path": path})
-                self.assertEqual(ungranted.structuredContent["status"], 403)
-
-    async def test_overlapping_opens_keep_root_authority_across_processes(self):
-        with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory).resolve()
-            project = base / "project"
-            nested = project / "models" / "STEP"
-            nested.mkdir(parents=True)
-            selected = nested / "part.stl"
-            selected.write_bytes(b"solid part\nendsolid part\n")
-            ui = base / "viewer.html"
-            ui.write_text("<!doctype html><title>CAD</title>", encoding="utf-8")
-            state = base / "library.sqlite3"
-            with mock.patch("cadgen.mcp.backend.Path.cwd", return_value=project):
-                first = create_server(ui_path=ui, library_path=state)
-            with mock.patch("cadgen.mcp.backend.Path.cwd", return_value=base):
-                second = create_server(ui_path=ui, library_path=state)
-                reader = create_server(ui_path=ui, library_path=state)
-            async with create_connected_server_and_client_session(first) as client:
-                original = (await client.call_tool("cad_open", {"path": str(selected)})).structuredContent
-            meta = {"openai/resource": {"path": str(selected)}}
-            async with create_connected_server_and_client_session(second) as client:
-                native = (await client.call_tool("cad_open", {}, meta=meta)).structuredContent
-                repeated = (await client.call_tool("cad_open", {}, meta=meta)).structuredContent
-            self.assertEqual(original["recentId"], native["recentId"])
-            self.assertEqual(repeated["rootId"], native["rootId"])
-            self.assertNotEqual(original["rootId"], native["rootId"])
-            self.assertEqual(original["file"], "models/STEP/part.stl")
-            self.assertEqual(native["file"], "part.stl")
-            restricted = create_server(nested, ui_path=ui, library_path=state)
-            async with create_connected_server_and_client_session(restricted) as client:
-                denied = await client.call_tool("cad_request", {
-                    "path": "/__cad/server", "recentId": original["recentId"], "rootId": original["rootId"],
-                })
+    async def test_absolute_documents_survive_cross_session_native_handoff_and_history_removal(self):
+        files = []
+        for folder in ("workspace", "other"):
+            directory = self.root / folder
+            directory.mkdir()
+            file = directory / "same.stl"
+            file.write_bytes(folder.encode())
+            files.append(file)
+        first, second = create_server(ui_path=self.ui), create_server(ui_path=self.ui)
+        async with create_connected_server_and_client_session(first) as client:
+            opened = await client.call_tool("cad_open", {"path": str(files[0])})
+            original = opened.structuredContent["document"]
+            self.assertEqual(original["path"], str(files[0]))
+            self.assertEqual(set(original), {"id", "path", "name", "revision"})
+        async with create_connected_server_and_client_session(second) as client:
+            native = await client.call_tool("cad_open", {"file": {"name": "same.stl", "resourceUri": "file://opaque"}},
+                                          meta={"openai/resource": {"path": str(files[1])}})
+            self.assertNotEqual(original["id"], native.structuredContent["document"]["id"])
+            await client.call_tool("cad_library", {"action": "remove", "documentId": original["id"]})
+            data = await client.call_tool("cad_request", {"documentId": original["id"],
+                "path": "/__cad/asset?" + urlencode({"file": original["path"]})},
+                meta={"openai/resource": {"path": str(files[1])}})
+            self.assertFalse(data.isError)
+            self.assertEqual(base64.b64decode(data.structuredContent["body"]), files[0].read_bytes())
+            catalog = await client.call_tool("cad_request", {"documentId": original["id"], "path": "/__cad/catalog"})
+            payload = json.loads(base64.b64decode(catalog.structuredContent["body"]))
+            self.assertEqual([entry["file"] for entry in payload["entries"]], [original["path"]])
+            self.assertEqual(payload["scopeId"], original["id"])
+            history = (await client.call_tool("cad_library", {})).structuredContent["items"]
+            self.assertEqual([item["id"] for item in history], [native.structuredContent["document"]["id"]])
+            self.assertEqual(set(history[0]), {"id", "path", "name", "lastOpened", "pinned", "missing", "revision", "thumbnailRevision"})
+            forged = await client.call_tool("cad_request", {"documentId": "forged", "path": "/__cad/catalog"})
+            self.assertTrue(forged.isError)
+            for route in ("catalog", "artifact", "preview"):
+                denied = await client.call_tool("cad_request", {"documentId": original["id"],
+                    "path": "/__cad/" + route + "?" + urlencode({"file": str(files[1])})})
                 self.assertTrue(denied.isError)
-            async with create_connected_server_and_client_session(reader) as client:
-                for opened in (original, native):
-                    result = await client.call_tool("cad_request", {
-                        "path": "/__cad/catalog?" + urlencode({"file": opened["file"]}),
-                        "recentId": opened["recentId"], "rootId": opened["rootId"],
-                    }, meta=meta)
-                    self.assertFalse(result.isError)
-                    self.assertEqual(result.structuredContent["status"], 200)
-                    catalog = json.loads(base64.b64decode(result.structuredContent["body"]))
-                    self.assertEqual(catalog["rootId"], opened["rootId"])
-                    self.assertTrue(any(entry["rootRelativeFile"] == opened["file"] for entry in catalog["entries"]))
-                denied = await client.call_tool("cad_request", {
-                    "path": "/__cad/server", "recentId": original["recentId"], "rootId": "ungranted",
-                })
-                self.assertTrue(denied.isError)
-                listed = await client.call_tool("cad_library", {})
-                self.assertEqual(len(listed.structuredContent["items"]), 1)
-                await client.call_tool("cad_library", {"action": "remove", "recentId": original["recentId"]})
-            # Reconnect after removal: view grants outlive visible history.
-            with mock.patch("cadgen.mcp.backend.Path.cwd", return_value=base):
-                continued = create_server(ui_path=ui, library_path=state)
-            async with create_connected_server_and_client_session(continued) as client:
-                for opened in (original, native):
-                    result = await client.call_tool("cad_request", {
-                        "path": "/__cad/catalog?" + urlencode({"file": opened["file"]}),
-                        "recentId": opened["recentId"], "rootId": opened["rootId"],
-                    })
-                    self.assertFalse(result.isError)
-                    catalog = json.loads(base64.b64decode(result.structuredContent["body"]))
-                    self.assertEqual(catalog["rootId"], opened["rootId"])
-                    self.assertTrue(any(entry["rootRelativeFile"] == opened["file"] for entry in catalog["entries"]))
-                listed = await client.call_tool("cad_library", {})
-                self.assertEqual(listed.structuredContent["items"], [])
-                forgotten = await client.call_tool("cad_open", {"recentId": original["recentId"]})
-                self.assertTrue(forgotten.isError)
+            reopened = await client.call_tool("cad_open", {"documentId": original["id"]})
+            self.assertEqual(reopened.structuredContent["document"]["id"], original["id"])
+            files[0].unlink()
+            missing = await client.call_tool("cad_open", {"documentId": original["id"]})
+            self.assertTrue(missing.isError)
+            self.assertIn("missing or unreadable", missing.content[0].text)
 
-    async def test_stdio_cli_initializes_and_opens_document(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory).resolve()
-            (root / "part.stl").write_bytes(b"solid part\nendsolid part\n")
-            ui = root / "viewer.html"
-            ui.write_text("<!doctype html><title>CAD</title>", encoding="utf-8")
-            params = StdioServerParameters(
-                command=sys.executable,
-                args=["-m", "cadgen.cli.mcp", "--root", str(root), "--ui", str(ui)],
-                env={**os.environ, "CADGEN_CACHE_DIR": str(root / "cache")},
-            )
-            async with stdio_client(params) as (read, write):
-                async with ClientSession(read, write) as client:
-                    initialized = await client.initialize()
-                    self.assertEqual(initialized.serverInfo.name, "CAD")
-                    self.assertEqual(
-                        base64.b64decode(initialized.serverInfo.icons[0].src.split(",", 1)[1]),
-                        Path(mcp_server.__file__).with_name("logo-c.svg").read_bytes(),
-                    )
-                    self.assertIn("Give your agent CAD superpowers.", initialized.instructions)
-                    opened = await client.call_tool("cad_open", {"path": "part.stl"})
-                    self.assertFalse(opened.isError)
-                    self.assertEqual(opened.structuredContent["file"], "part.stl")
+    async def test_discovery_resources_and_teaching_errors(self):
+        server = create_server(ui_path=self.ui)
+        async with create_connected_server_and_client_session(server) as client:
+            tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+            self.assertEqual(tools["cad_request"].meta["ui"]["visibility"], ["app"])
+            self.assertEqual(tools["cad_request"].inputSchema["required"], ["documentId", "path"])
+            self.assertTrue(tools["cad_library"].annotations.destructiveHint)
+            tool = tools["cad_open"]
+            self.assertEqual(tool.title, "CAD")
+            self.assertEqual(base64.b64decode(tool.icons[0].src.split(",", 1)[1]),
+                             Path(mcp_server.__file__).with_name("logo-c.svg").read_bytes())
+            self.assertEqual(tool.meta["openai/ui"]["entrypoints"], [{"type": "global"},
+                {"type": "file", "extensions": [".step", ".stp", ".stl", ".glb", ".3mf"]}])
+            home = await client.call_tool("cad_open", {})
+            self.assertEqual(home.structuredContent, {"document": None})
+            opaque = await client.call_tool("cad_open", {"file": {"name": "part.stl", "resourceUri": "file://opaque"}})
+            self.assertEqual(opaque.structuredContent, {"document": None, "resourceUri": "file://opaque"})
+            for path, hint in (("relative.stl", "absolute local"), (str(self.root / "source.py"), "supported format"),
+                               (str(self.root / "missing.stl"), "missing or unreadable")):
+                result = await client.call_tool("cad_open", {"path": path})
+                self.assertTrue(result.isError)
+                self.assertIn(hint, result.content[0].text)
+            uri = tool.meta["ui"]["resourceUri"]
+            self.assertEqual(uri, f"ui://cad/viewer/{hashlib.sha256(self.ui.read_bytes()).hexdigest()}.html")
+            resource = (await client.read_resource(uri)).contents[0]
+            self.assertEqual(resource.text, self.ui.read_text())
+            self.assertEqual(resource.mimeType, UI_MIME_TYPE)
+            self.assertEqual(resource.meta["ui"]["permissions"], {"clipboardWrite": {}})
+            self.assertEqual(resource.meta["ui"]["csp"], {"connectDomains": ["data:", "blob:"], "resourceDomains": ["data:", "blob:"]})
+            self.assertEqual((await client.list_resources()).resources[0].icons, tool.icons)
 
-    async def test_library_reopens_recorded_authority_across_servers_and_obeys_explicit_root(self):
-        with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory).resolve()
-            project = base / "project"
-            project.mkdir()
-            selected = project / "part.stl"
-            selected.write_bytes(b"solid part\nendsolid part\n")
-            other = base / "other"
-            other.mkdir()
-            ui = base / "viewer.html"
-            ui.write_text("<!doctype html><title>CAD</title>", encoding="utf-8")
-            state = base / "user-state.sqlite3"
-            with mock.patch("cadgen.mcp.backend.Path.cwd", return_value=other):
-                first = create_server(ui_path=ui, library_path=state)
-                second = create_server(ui_path=ui, library_path=state)
-            async with create_connected_server_and_client_session(first) as client:
-                opened = await client.call_tool("cad_open", {}, meta={"openai/resource": {"path": str(selected)}})
-                recent_id = opened.structuredContent["recentId"]
-                self.assertIsNotNone(opened.structuredContent["revision"])
-            async with create_connected_server_and_client_session(second) as client:
-                listed = await client.call_tool("cad_library", {})
-                self.assertEqual(listed.structuredContent["items"][0]["id"], recent_id)
-                opened = await client.call_tool("cad_open", {"recentId": recent_id})
-                self.assertFalse(opened.isError)
-                self.assertEqual(opened.structuredContent["rootPath"], str(project))
-                result = await client.call_tool("cad_request", {
-                    "path": "/__cad/asset?" + urlencode({"file": str(selected)}), "recentId": recent_id,
-                })
-                self.assertEqual(result.structuredContent["status"], 200)
-                unknown = await client.call_tool("cad_open", {"recentId": "unrecorded"})
-                self.assertTrue(unknown.isError)
-                selected.unlink()
-                listed = await client.call_tool("cad_library", {})
-                self.assertTrue(listed.structuredContent["items"][0]["missing"])
-                missing = await client.call_tool("cad_open", {"recentId": recent_id})
-                self.assertTrue(missing.isError)
-            restricted = create_server(other, ui_path=ui, library_path=state)
-            async with create_connected_server_and_client_session(restricted) as client:
-                listed = await client.call_tool("cad_library", {})
-                self.assertEqual(listed.structuredContent["items"], [])
-                denied = await client.call_tool("cad_open", {"recentId": recent_id})
-                self.assertTrue(denied.isError)
-
-    async def test_discovery_resource_and_host_scoped_open_over_real_sdk(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory).resolve()
-            (root / "small.stl").write_bytes(b"solid x\nendsolid x\n")
-            ui = root / "viewer.html"
-            ui.write_text("<!doctype html><title>CAD test fixture</title>", encoding="utf-8")
-            server = create_server(root, ui_path=ui)
-            async with create_connected_server_and_client_session(server) as client:
-                listed = (await client.list_tools()).tools
-                tools = {tool.name: tool for tool in listed}
-                self.assertEqual(tools["cad_request"].meta["ui"]["visibility"], ["app"])
-                self.assertTrue(tools["cad_library"].annotations.destructiveHint)
-                ui_uri = tools["cad_open"].meta["ui"]["resourceUri"]
-                self.assertEqual(ui_uri, f"ui://cad/viewer/{hashlib.sha256(ui.read_bytes()).hexdigest()}.html")
-                self.assertEqual(tools["cad_open"].title, "CAD")
-                self.assertEqual(tools["cad_open"].icons[0].mimeType, "image/svg+xml")
-                self.assertEqual(
-                    base64.b64decode(tools["cad_open"].icons[0].src.split(",", 1)[1]),
-                    Path(mcp_server.__file__).with_name("logo-c.svg").read_bytes(),
-                )
-                self.assertEqual(tools["cad_open"].meta["openai/ui"]["entrypoints"], [
-                    {"type": "global"},
-                    {"type": "file", "extensions": [".step", ".stp", ".stl", ".glb", ".3mf"]},
-                ])
-                sidebar = await client.call_tool("cad_open", {})
-                self.assertFalse(sidebar.isError)
-                self.assertIsNone(sidebar.structuredContent["file"])
-                self.assertEqual(sidebar.structuredContent["rootPath"], str(root))
-                resource = (await client.read_resource(ui_uri)).contents[0]
-                self.assertEqual(resource.mimeType, UI_MIME_TYPE)
-                self.assertEqual(resource.text, ui.read_text(encoding="utf-8"))
-                self.assertEqual(resource.meta["ui"]["csp"], {
-                    "connectDomains": ["data:", "blob:"],
-                    "resourceDomains": ["data:", "blob:"],
-                })
-                self.assertEqual(resource.meta["ui"]["permissions"], {"clipboardWrite": {}})
-                listed_resource = (await client.list_resources()).resources[0]
-                self.assertEqual(str(listed_resource.uri), ui_uri)
-                self.assertEqual(listed_resource.icons, tools["cad_open"].icons)
-                template = (await client.list_resource_templates()).resourceTemplates[0]
-                self.assertEqual(template.icons, tools["cad_open"].icons)
-                self.assertEqual(listed_resource.meta, resource.meta)
-                opened = await client.call_tool("cad_open", {"path": "small.stl"})
-                self.assertFalse(opened.isError)
-                self.assertEqual(opened.structuredContent["file"], "small.stl")
-                opaque_file = {"file": {"name": "wrong.step", "resourceUri": "host-resource://opaque"}}
-                initial = await client.call_tool("cad_open", opaque_file)
-                self.assertIsNone(initial.structuredContent["file"])
-                resolved = await client.call_tool("cad_open", opaque_file, meta={"openai/resource": {"path": str(root / "small.stl")}})
-                self.assertEqual(resolved.structuredContent["file"], "small.stl")
-                denied = await client.call_tool("cad_open", {"path": "small.stl"}, meta={"openai/resource": {"path": str(root.parent / "outside.step")}})
-                self.assertTrue(denied.isError)
-                data = await client.call_tool("cad_request", {"path": "/__cad/asset?" + urlencode({"file": str(root / "small.stl")})})
-                self.assertFalse(data.isError)
-                self.assertEqual(base64.b64decode(data.structuredContent["body"]), (root / "small.stl").read_bytes())
+    async def test_real_stdio_protocol(self):
+        params = StdioServerParameters(command=sys.executable, args=["-m", "cadgen.cli.mcp", "--ui", str(self.ui)],
+                                       env=dict(os.environ))
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as client:
+                await client.initialize()
+                home = await client.call_tool("cad_open", {})
+                self.assertEqual(home.structuredContent, {"document": None})
 
     async def test_ui_resource_cache_key_tracks_content_and_serves_immutable_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -494,10 +390,10 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
             ui = root / "viewer.html"
             original = b"<!doctype html>\r\n<title>CAD first</title>"
             ui.write_bytes(original)
-            first = create_server(root, ui_path=ui)
-            same = create_server(root, ui_path=ui)
+            first = create_server(ui_path=ui)
+            same = create_server(ui_path=ui)
             ui.write_bytes(b"<!doctype html><title>CAD rebuilt</title>")
-            changed = create_server(root, ui_path=ui)
+            changed = create_server(ui_path=ui)
             uris = []
             for server, expected in ((first, original), (same, original), (changed, ui.read_bytes())):
                 async with create_connected_server_and_client_session(server) as client:
@@ -513,10 +409,10 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             missing = Path(directory) / "absent.html"
             with self.assertRaisesRegex(AssetMissing, "CAD extension UI is missing") as caught:
-                create_server(directory, ui_path=missing)
+                create_server(ui_path=missing)
             self.assertIn(str(missing), str(caught.exception))
             cli = subprocess.run(
-                [sys.executable, "-m", "cadgen.cli.mcp", "--root", directory, "--ui", str(missing)],
+                [sys.executable, "-m", "cadgen.cli.mcp", "--ui", str(missing)],
                 capture_output=True, text=True,
             )
             self.assertEqual(cli.returncode, 1)
@@ -533,7 +429,7 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
         )
         result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("--root", result.stdout)
+        self.assertNotIn("--root", result.stdout)
 
 
 if __name__ == "__main__":

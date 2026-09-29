@@ -11,14 +11,14 @@ export function encodeBytes(bytes: Uint8Array): string {
 export function decodeBytes(value: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(atob(value), character => character.charCodeAt(0));
 }
-export function createBridgeFetch(bridge: ToolBridge, { recentId, rootId }: { recentId?: string; rootId?: string } = {}): typeof fetch {
+export function createBridgeFetch(bridge: ToolBridge, documentId: string): typeof fetch {
   return async (input, init) => {
     const request = new Request(input instanceof Request ? input : new URL(String(input), CAD_ORIGIN), init);
     const url = new URL(request.url);
-    if (url.origin !== CAD_ORIGIN) throw new Error('CAD resources must belong to the connected workspace.');
+    if (url.origin !== CAD_ORIGIN) throw new Error('CAD resources must belong to the opened document.');
     request.signal.throwIfAborted();
     const bytes = request.body ? new Uint8Array(await request.arrayBuffer()) : undefined;
-    const args = { ...(recentId ? { recentId } : {}), ...(rootId ? { rootId } : {}), path: `${url.pathname}${url.search}`, method: request.method, ...(bytes ? { body: encodeBytes(bytes) } : {}) };
+    const args = { documentId, path: `${url.pathname}${url.search}`, method: request.method, ...(bytes ? { body: encodeBytes(bytes) } : {}) };
     async function read(extra: Record<string, unknown> = {}) {
       request.signal.throwIfAborted();
       const result = await bridge.callServerTool({ name: 'cad_request', arguments: { ...args, ...extra } }, { signal: request.signal });
@@ -56,11 +56,22 @@ export function createBridgeFetch(bridge: ToolBridge, { recentId, rootId }: { re
   };
 }
 
-export interface OpenFile { file: string | null; rootId: string; rootPath: string; recentId?: string; revision?: string | null }
+export interface CadDocument { id: string; path: string; name: string; revision: string }
+export interface OpenFile { document: CadDocument | null }
+export function isDocumentPath(path: unknown): path is string {
+  if (typeof path !== 'string' || path.includes('\0')) return false;
+  const prefix = path.match(/^(?:\/|[A-Za-z]:[\\/])/);
+  if (!prefix) return false;
+  const separator = prefix[0].at(-1)!;
+  if (path.includes(separator === '/' ? '\\' : '/')) return false;
+  return path.slice(prefix[0].length).split(separator).every(part => part && part !== '..' && part !== '.');
+}
 export function readOpenFile(value: unknown): OpenFile | null {
   if (!value || typeof value !== 'object') return null;
   const item = value as Record<string, unknown>;
-  if ((typeof item.file !== 'string' && item.file !== null) || typeof item.rootId !== 'string' || !item.rootId || typeof item.rootPath !== 'string') return null;
-  if (typeof item.file === 'string' && item.file && (item.file.startsWith('/') || /[\\\0]/.test(item.file) || item.file.split('/').some(part => !part || part === '..' || part === '.'))) return null;
-  return item as unknown as OpenFile;
+  if (item.document === null) return { document: null };
+  const document = item.document as Record<string, unknown> | undefined;
+  if (!document || typeof document.id !== 'string' || !document.id || !isDocumentPath(document.path)
+    || typeof document.name !== 'string' || !document.name || typeof document.revision !== 'string' || !document.revision) return null;
+  return { document: document as unknown as CadDocument };
 }

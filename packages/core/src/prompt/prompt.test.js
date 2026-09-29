@@ -16,6 +16,17 @@ test('code targets preserve explicit ranges rather than borrowing the CAD fragme
   assert.equal(formatPromptReference(code), 'src/bracket.py:5:3-7:1');
   assert.equal(formatPromptReference(code, { resolvePath: r => `/project/${r.path}` }), '/project/src/bracket.py:5:3-7:1');
 });
+test('local-file references retain their absolute document identity and serialize selectors', () => {
+  const local = { resource: { kind: 'local-file', path: '/project/parts/my part.step', revision: 'hash-2' }, target: { kind: 'cad-selector', selectors: ['o1.f2'] } };
+  const context = createPromptContext([referencePart(local)]);
+  assert.deepEqual(context.parts[0].reference.resource, local.resource);
+  assert.equal(formatPromptContextText(context), '"/project/parts/my part.step"#o1.f2');
+  assert.equal(formatPromptReference({ resource: { kind: 'local-file', path: 'C:\\CAD\\part.step' }, target: { kind: 'whole-resource' } }), '"C:\\\\CAD\\\\part.step"');
+  for (const path of ['part.step', '/project/../secret.step', '/project//part.step', '/project/./part.step', '/project/part.step/', 'C:part.step', 'C:\\CAD\\..\\secret.step']) {
+    assert.throws(() => referencePart({ ...local, resource: { kind: 'local-file', path } }), /normalized and absolute/, path);
+  }
+  assert.throws(() => referencePart({ ...local, resource: { kind: 'url', url: 'https://example.test/part.step' } }), /CAD selectors require a file/);
+});
 test('invalid bundles fail before delivery, including dangling relationships and unknown targets', () => {
   assert.throws(() => createPromptContext([textPart('a'), textPart('b')]), /unique/);
   assert.throws(() => createPromptContext([{ id: 'i', kind: 'attachment', name: 'a.pdf', mimeType: 'application/pdf', content: new Blob(), about: ['missing'] }]), /absent reference/);

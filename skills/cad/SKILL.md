@@ -181,9 +181,10 @@ inline viewer. Native file-access consent belongs to the host; a queued open
 or a consent screen does not confirm that the model rendered.
 
 When native file opening is unavailable, or the user requests an inline preview,
-use the CAD extension's `cad_open` tool with the existing artifact path in `path`.
-Paths must be inside the server's working directory or configured root. For a
-host-supplied file, retain its trusted input; never invent a `resourceUri`.
+use the CAD extension's `cad_open` tool with the existing artifact's absolute
+path in `path`. Files can be anywhere the local process can read; opening does
+not depend on the chat's project or a served workspace. For a host-supplied
+file, retain its trusted input; never invent a `resourceUri`.
 Opening with no path shows the extension's recent-model home. The per-file view
 provides CAD controls and prompt references; the host provides file navigation.
 Do not also launch a standalone viewer unless requested or needed after an

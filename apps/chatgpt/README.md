@@ -22,7 +22,7 @@ A recent model requests a native file tab only when the host advertises
 `experimental["openai/files"]`, through `openai/files/open` with its saved absolute
 path. The acknowledgement means the host accepted the request, not that rendering
 finished. Hosts without that capability show an explicit **Preview here** action,
-which reopens saved server authority using `cad_open(recentId)` and offers a return
+which reopens saved server authority using `cad_open(documentId)` and offers a return
 to the recent-model home. Failed opens remain visible and retryable.
 
 Opened STEP/STP, STL, GLB and 3MF files use the shared document-only `FileViewer`.
@@ -43,18 +43,17 @@ history; searching or pinning does not count as opening it.
 
 ## Host protocol
 
-`cad_open` returns `{file, rootId, rootPath, recentId?, revision?}`. `file` is root-relative, or null for
-an empty sidebar view. Opening from the sidebar passes no file; it does not infer
-the active host workspace from the server's working directory. A native file entrypoint may initially omit its trusted local path;
-after mounting, the app invokes `cad_open` with its original tool input so the
-host can supply that path through trusted metadata. This resolution also replaces
-a nonempty result produced before native metadata was available. Data requests
-retain the opened `rootId` alongside `recentId`: opening the same file from another
-root cannot change the authority or relative paths of an existing view. No browser
-path is trusted.
+`cad_open` returns `{document: {id, path, name, revision} | null}`. The path is
+canonical and absolute; the opaque document ID identifies the same file across
+native tabs, inline previews and server restarts. A null document shows the global
+recent-model home without initializing a CAD client or reading a catalog. A native
+file entrypoint may initially omit its trusted local path; after mounting, the app
+invokes `cad_open` with the original tool input so host metadata can supply that
+path. This also replaces a nonempty result from an earlier invocation. No app
+workspace, relative-path joining or browser-supplied authority is involved.
 
 All service calls, cache requests and binary resources use the app-only
-`cad_request` tool: `{path, method, body?: base64, recentId?, rootId?}` returns
+`cad_request` tool: `{documentId, path, method, body?: base64}` returns
 `{status, headers, body: base64}`. Large file reads add `transfer: {offset,
 totalBytes, revision}` and continue with `offset`/`revision` arguments; the adapter
 checks continuity before returning complete bytes. This keeps each response under
@@ -79,13 +78,14 @@ delivery rather than restoring stale attachments. Unsupported hosts show a disab
 action with a reason. Reference clipboard commands remain available in shared tools.
 
 `cad_library` supplies `list`, `pin`, `remove` and revision-checked `thumbnail`
-operations. List and mutations are serialized, so late responses cannot overwrite
+operations keyed by `documentId`. Recent entries expose one absolute `path`, with
+folder labels derived for display only. List and mutations are serialized, so late responses cannot overwrite
 newer pin/removal results. Library requests are cancelled on teardown. Native or
 preview opening keeps a generation guard so a late open cannot replace a newer
 host selection. The library and immutable UI cache tests use isolated state dirs.
 
 Theme comes from the host context. View settings live in memory for the mounted
-app instance. Root changes dispose the previous workspace service and prompt
+app instance. Document changes dispose the previous document service and prompt
 port; host teardown and pagehide release the viewer and workers.
 
 ## Build and validation

@@ -26,11 +26,11 @@ class UiResourceTests(unittest.IsolatedAsyncioTestCase):
                 first = "<!doctype html><title>first</title>"
                 second = "<!doctype html><title>second</title>"
                 html.write_text(first)
-                older = create_server(root, ui_path=html)
+                older = create_server(ui_path=html)
                 async with create_connected_server_and_client_session(older) as old_client:
                     old_uri = next(t for t in (await old_client.list_tools()).tools if t.name == "cad_open").meta["ui"]["resourceUri"]
                     html.write_text(second)
-                    newer = create_server(root, ui_path=html)
+                    newer = create_server(ui_path=html)
                     async with create_connected_server_and_client_session(newer) as new_client:
                         new_uri = next(t for t in (await new_client.list_tools()).tools if t.name == "cad_open").meta["ui"]["resourceUri"]
                         self.assertNotEqual(old_uri, new_uri)

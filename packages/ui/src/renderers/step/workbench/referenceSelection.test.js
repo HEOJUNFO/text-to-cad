@@ -253,6 +253,8 @@ test("withFileRefPrefix is idempotent, which is what lets it run at one funnel",
   assert.equal(withFileRefPrefix("#o1.2", "plate.stl"), "plate.stl#o1.2");
   assert.equal(withFileRefPrefix("plate.stl#o1.2", "plate.stl"), "plate.stl#o1.2");
   assert.equal(withFileRefPrefix("other.stl#o1.2", "plate.stl"), "other.stl#o1.2");
+  assert.equal(withFileRefPrefix("plate.stl#o1.2", "/other/place/plate.stl"), "/other/place/plate.stl#o1.2",
+    "a one-document source replaces the short catalog alias with the absolute identity");
   assert.equal(withFileRefPrefix("#", "plate.stl"), "plate.stl#");
   // No prefix available, or nothing ref-like: leave it exactly as it was.
   assert.equal(withFileRefPrefix("#o1.2", ""), "#o1.2");

@@ -1,6 +1,7 @@
 import type { ComponentType, ElementType, ReactNode } from "react";
 import type { EntryAction, FilePanel, Platform } from "./navigation/index.js";
 import type { ViewerHost } from "../host/types.js";
+import type { ResourceRef } from '@text-to-cad/core/prompt';
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export interface FileEntry { path: string; name: string; kind: "file" | "directory" }
@@ -42,9 +43,11 @@ export interface FileActions {
 }
 /** The open document's storage and change stream, without directory discovery. */
 export interface DocumentSource {
-  /** Stable workspace/root identity. Connection ports must never be used here. */
+  /** Stable document or workspace identity. Connection ports must never be used here. */
   id: string;
   stat: (path: string, options: { signal: AbortSignal }) => Promise<FileMetadata>;
+  /** Identity in prompt context; absent sources use the served-workspace fallback. */
+  resourceRef?: (file: FileMetadata) => ResourceRef;
   readText?: (path: string, options: { signal: AbortSignal }) => Promise<TextDocument>;
   readAsset?: (path: string, options: { signal: AbortSignal }) => Promise<ManagedFileAsset>;
   /** Revision validation precedes an atomic replacement. Cancellation after dispatch cannot undo a commit. */

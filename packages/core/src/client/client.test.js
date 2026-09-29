@@ -40,8 +40,8 @@ test('two clients keep root identity, catalog data, cancellation and absolute as
   const [first, second] = await Promise.all([a.resolveEntry('part.step'), b.resolveEntry('part.step')]);
   assert.equal(first.url, 'http://one.test/__cad/asset?file=part.step');
   assert.equal(second.url, 'http://two.test/__cad/asset?file=part.step');
-  assert.equal(a.workspaceId, 'http://one.test-root');
-  assert.equal(b.workspaceId, 'http://two.test-root');
+  assert.equal(a.scopeId, 'http://one.test-root');
+  assert.equal(b.scopeId, 'http://two.test-root');
   a.dispose();
   await b.refresh();
   assert.equal(calls.length, 3);
@@ -75,6 +75,31 @@ test('fresh server reads observe restarts and transport errors while cached cons
   } finally {
     client.dispose();
   }
+});
+
+test('document services preserve absolute identities without directory metadata at a shared origin', async (t) => {
+  const make = (id, file) => createCadClient({
+    origin: 'http://documents.test', scopeId: id, pollIntervalMs: 0,
+    fetch: async (url) => json(new URL(url).pathname === '/__cad/server'
+      ? { scopeId: id, identityToken: id }
+      : { scopeId: id, entries: [{ file, hash: id, url: `/__cad/asset?file=${encodeURIComponent(file)}` }] }),
+  });
+  const first = make('document-a', '/outside/project-a/part.step');
+  const second = make('document-b', '/elsewhere/project-b/part.step');
+  t.after(() => { first.dispose(); second.dispose(); });
+  const [a, b] = await Promise.all([
+    first.resolveEntry('/outside/project-a/part.step'),
+    second.resolveEntry('/elsewhere/project-b/part.step'),
+  ]);
+  assert.equal(a.file, '/outside/project-a/part.step');
+  assert.equal(b.file, '/elsewhere/project-b/part.step');
+  assert.equal(first.getSnapshot().scopeId, 'document-a');
+  assert.equal(second.getSnapshot().scopeId, 'document-b');
+  assert.deepEqual(await first.serverInfo(), { scopeId: 'document-a', identityToken: 'document-a' });
+  first.dispose();
+  await second.refresh();
+  assert.equal(second.getSnapshot().entries[0].file, b.file);
+  await assert.rejects(second.resolveEntry(a.file), /CAD document was not found/);
 });
 
 test('file-specific requests use independent AbortSignals and late replies cannot replace a newer catalog', async () => {

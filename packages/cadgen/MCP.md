@@ -11,65 +11,65 @@ Launch `cadgen mcp` for stdio, or `cadgen mcp --transport streamable-http
 --port 8000` for a loopback-only development endpoint at `/mcp`. HTTP has no
 remote authentication and is not a public hosting configuration.
 
-## Files and trust
+## Documents and local files
 
-Without `--root`, model-requested paths use the working directory.
-File entrypoints instead carry a host-provided
-`_meta["openai/resource"]["path"]`. That trusted path selects the containing
-directory so the existing viewer can resolve CAD files and sidecars there.
-Each app request receives that metadata again; a filename or opaque resource
-URI supplied by the app never grants filesystem access. The process retains
-at most 16 directory backends, including its working directory.
+CAD opens absolute local file paths anywhere the server process can read.
+It has no workspace, directory catalog or project limit. A document is one
+canonical STEP/STP, STL, GLB or 3MF path with a stable opaque ID. Symlink aliases
+resolve to that same document. Relative paths fail with an instruction to
+resolve the absolute artifact path; `--root` is retired. The standalone HTTP
+viewer's directory-containment contract is unchanged.
 
-`--root <directory>` restricts document access, including host file entrypoints,
-to the explicit directory. Containment and symlinked CAD libraries follow the
-standalone viewer's rules. Only viewer CAD assets are served; model source is
-never exposed. Derived store objects retain the existing content-addressed
-viewer contract, not arbitrary filesystem access.
+Native file entrypoints supply `_meta["openai/resource"]["path"]`. This absolute
+host path takes precedence during `cad_open`. An opaque resource URI or filename
+alone never identifies a filesystem location. Once opened, every data request
+uses `documentId`; later host metadata cannot switch an existing view to another
+file. Replacing the registered path with an alias to another file requires
+opening the new canonical document explicitly.
+
+The document backend constructs catalog metadata for just that file, using the
+shared viewer metadata builders without directory discovery. Asset requests can
+read the document, its STEP sidecar, and local buffers/images explicitly declared
+by a GLB. Declared relative dependencies resolve from the document's location,
+including `../` references. Network dependencies are not fetched. GLB JSON asset
+declarations are bounded at 16 MiB. The file's parent is an internal relative-path
+origin for compilation, never a directory access grant. Unrelated sibling files
+must be opened as their own documents. Derived store objects retain the existing
+content-addressed viewer contract. No source program executes.
 
 ## Tools and interface
 
-- `cad_open` accepts an optional project path or the host's file-entrypoint
-  input `{file: {name, resourceUri}}`. It returns `{file, rootId, rootPath}`.
-  Successful file opens also return `recentId` and the file's current
-  `revision`, and record the model in the extension's persistent library.
-  The file is relative to its root; null means no document is selected. Initial
-  entrypoint invocation can precede host path injection, so the embedded app
-  resolves that input with one `cad_open` call of its own.
-  The tool title is **CAD** for both the global sidebar and file entrypoints.
-  Opening CAD from the sidebar passes `{}` and shows the recent-model library
-  without browsing a directory. The interface exposes no filesystem explorer
-  or workspace selector.
-  Models can also call `cad_open` with an existing artifact path.
-  Passing `{recentId}` reopens a recorded model with its previously authorized
-  directory. It cannot be combined with a new path or host file input.
-- `cad_request` is visible only to the app. It carries `{path, method, body?}`
-  to allowlisted viewer routes and returns `{status, headers, body}`. Both
-  bodies are base64. It permits document reads, document compilation and
-  derived display caches, never source execution, native clipboard or reveal.
-  Large file responses add `transfer: {offset, totalBytes, revision}`. Repeat
-  the same GET with `offset` and `revision` to retrieve the next chunk. The
-  app assembles all bytes before rendering; a changed revision fails the read.
-  The app sends `recentId` and `rootId` from its open result. Together they
-  restore that view's recorded directory authority across MCP processes.
-  Opening the same file later from a different workspace or native file
-  entrypoint does not change an existing view's root-relative paths. Unknown
-  root grants fail explicitly; neither identifier grants arbitrary disk access.
-- `cad_library` is app-only. `action: "list"` returns up to 100 `items`, with
-  pinned models first, then most recently opened. Each item includes `id`,
-  `name`, `file`, `rootPath`, `absolutePath`, `lastOpened` (Unix seconds),
-  `pinned`, `missing`, `revision` and `thumbnailRevision`. The app searches
-  these records locally. `action: "pin"` takes `recentId` and `pinned`;
-  `action: "remove"` takes `recentId`. Both return the updated list; removal
-  forgets history without deleting the model.
-  `action: "thumbnail"` with `recentId` returns `{thumbnail, revision}`,
-  where `thumbnail` is a PNG data URL or null and `revision` identifies the image
-  content (the same token as `thumbnailRevision`). Replacing a preview changes
-  that token even when the CAD file has not changed. Add a PNG `thumbnail` and its
-  source file `revision` to upload a validated PNG preview of at most 256 KiB
-  and 2048 pixels per dimension. Uploads reject
-  changed files, and reads hide stale previews. Images are loaded individually
-  so the library list stays below transport frame limits.
+- `cad_open` accepts one absolute `path`, a saved `documentId`, or the host's
+  input `{file: {name, resourceUri}}`. It returns
+  `{document: {id, path, name, revision} | null}`. A successful open records
+  recent history; the document ID survives removing that history. With no file,
+  the global CAD entrypoint shows the recent-model home. Initial native input
+  can precede host path injection; the result also echoes `resourceUri` and the
+  app resolves that input with one `cad_open` call of its own. Null means no
+  selected document. The tool title is **CAD** for global and file entrypoints.
+- `cad_request` is app-only and requires `{documentId, path, method, body?}`.
+  Its allowlisted viewer routes return `{status, headers, body}`; both bodies
+  are base64. Catalog entries name absolute files, and catalogs/server info use
+  `scopeId: documentId` without workspace fields. File-bearing requests are
+  bound to that selected document. Reads, document compilation and derived
+  display caches reuse the existing viewer services; native clipboard/reveal
+  and source execution are unavailable. Large file responses add
+  `transfer: {offset, totalBytes, revision}`. Repeat the same GET with `offset`
+  and `revision` for the next chunk; changed files fail the transfer.
+- `cad_library` is app-only. `action: "list"` returns up to 100 `items`, pinned
+  first then most recently opened. Each has `id`, `path`, `name`, `lastOpened`
+  (Unix seconds), `pinned`, `missing`, `revision` and `thumbnailRevision`.
+  The app searches those records locally. `action: "pin"` takes `documentId`
+  and `pinned`; `action: "remove"` takes `documentId`. Both return the updated
+  list. Removal forgets history, pin and thumbnail without deleting the file
+  or interrupting an open view.
+  `action: "thumbnail"` with `documentId` returns `{thumbnail, revision}`,
+  where the PNG data URL may be null and the revision identifies image content
+  (the same token as `thumbnailRevision`). Replacing a preview changes that
+  token even when the CAD file is unchanged. Add a PNG `thumbnail` and its
+  source-file `revision` to upload a validated preview, at most 256 KiB and
+  2048 pixels per dimension. Changed files reject uploads and hide stale
+  previews. Images load individually to keep library responses small.
 - `ui://cad/viewer/<sha256>.html` serves the self-contained interface from the
   bundled `_runtime/chatgpt/index.html`. The server snapshots the HTML at
   startup and hashes its bytes into the URI, which hosts use as their cache
@@ -91,18 +91,12 @@ permission. It declares no network origins. Hosts may decline permissions.
 
 ## Persistent library
 
-Only models successfully opened through this extension enter its library.
-It never scans workspaces, imports the standalone viewer catalog, or executes
-source. A recorded model retains its authorized directory across MCP
-processes, allowing a global recent-model home. Each open also records an
-immutable file/root grant for live views, separate from visible history.
-Removing a recent model deletes its history, pin and thumbnail; existing views
-retain their authorization across MCP processes without re-adding history.
-An explicit `--root` filters the library and restricts reopening and data requests to that directory.
-Missing files remain visible as missing until removed or restored.
-Replacing a saved root directory with a symlink requires opening the file
-again through the host; existing nested symlink libraries retain the viewer's
-usual semantics.
+Only documents successfully opened through this extension enter its history.
+The persistent document registry is separate from recent history: its IDs map
+to canonical files across MCP processes and remain valid after history removal.
+Reopening a file reuses its ID. Missing files remain visible as missing until
+removed or restored. Existing library records migrate their IDs, pins and
+thumbnails into this document registry; old directory grants are removed.
 
 Library history, pins and thumbnails are user state, separate from the
 disposable geometry store. SQLite transactions coordinate concurrent MCP

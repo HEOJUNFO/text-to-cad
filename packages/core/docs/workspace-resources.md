@@ -1,7 +1,8 @@
-# Workspace CAD services and resources
+# CAD document services and resources
 
-`CadWorkspaceService` is the renderer's domain boundary. A host constructs one
-service per workspace and lends it to every mounted CAD view. The HTTP adapter,
+`CadService` is the renderer's domain boundary. A host chooses the service lifetime: one opened document for a file extension,
+or one browsable directory shared by a web app’s file views. `scopeId` identifies
+that service; it imposes no filesystem root or workspace membership. The HTTP adapter,
 `createCadClient`, implements this contract and retains its catalog, request,
 cache and worker-session lifetimes. Disposing a view releases its render session;
 disposing the service aborts its resources and sessions.
@@ -36,7 +37,7 @@ owner rules in [resource ownership](resource-ownership.md).
 Each service wraps its provider in an opaque cache generation. URL-addressed
 JSON, text, mesh and descriptor caches include this scope; completed package and
 recognition caches do too. A fresh server-metadata read that observes a changed
-root or identity token retires the generation and aborts its pending reads.
+service scope or identity token retires the generation and aborts its pending reads.
 The provider exposes that generation signal on the main thread. Worker clients
 and recognition subscribe before acquiring tickets, so already-issued URL
 tickets cannot publish a late result after retirement. The signal itself never
@@ -52,5 +53,5 @@ using ordinary fetch and URL-addressed caches; it is not a mutable process-wide
 workspace provider. Shared UI requires its injected service. `loadSource` is the
 static/source composition boundary and creates an HTTP provider when none is
 supplied; docs and the snapshot entrypoint compose theirs explicitly. Hosts
-requiring custom credentials, native transfer or workspace isolation must pass
+requiring custom credentials, native transfer or document isolation must pass
 a provider consistently to both loads and peeks.

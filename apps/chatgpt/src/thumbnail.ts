@@ -2,9 +2,9 @@ import type { LiveViewBinding } from '@text-to-cad/ui/renderers/glb';
 import type { RecentLibrary } from './library';
 import { encodeBytes } from './transport';
 /** A small preview of the real displayed geometry; never builds or imports another model. */
-export function createThumbnailBinding(library: RecentLibrary, recentId?: string, revision?: string | null): LiveViewBinding {
+export function createThumbnailBinding(library: RecentLibrary, documentId?: string, revision?: string | null): LiveViewBinding {
   return { bind(controller) {
-    if (!recentId || !revision) return () => {};
+    if (!documentId || !revision) return () => {};
     let active = true;
     let frame = 0;
     let previousView = '';
@@ -32,7 +32,7 @@ export function createThumbnailBinding(library: RecentLibrary, recentId?: string
         const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('Preview encoding failed.')), 'image/png'));
         if (!active || blob.size > 256 * 1024) return;
         const bytes = await blob.arrayBuffer();
-        if (active) await library.saveThumbnail(recentId, revision, `data:image/png;base64,${encodeBytes(new Uint8Array(bytes))}`);
+        if (active) await library.saveThumbnail(documentId, revision, `data:image/png;base64,${encodeBytes(new Uint8Array(bytes))}`);
       } catch {
         // A live capture rejects when its document changes mid-encoding. Wait
         // for that replacement; permanent capture failures keep the placeholder.

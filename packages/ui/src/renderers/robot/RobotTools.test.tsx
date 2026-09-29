@@ -84,7 +84,7 @@ async function openRobot() {
     if (url.pathname.endsWith(`/${FILE}`)) return new Response(ARM_URDF);
     return new Response('', { status: 404 });
   });
-  const client = createCadClient({ origin: 'http://viewer.test/one', workspaceId: 'one', pollIntervalMs: 0, fetch: fetch as typeof globalThis.fetch });
+  const client = createCadClient({ origin: 'http://viewer.test/one', scopeId: 'one', pollIntervalMs: 0, fetch: fetch as typeof globalThis.fetch });
   await client.refresh();
   const renderers = [createRobotRenderer({ client })];
   const destination = { kind: 'composer', available: true };

@@ -111,11 +111,11 @@ File listing is independent of renderer matching: the tree shows every entry
 the host's source returns. A host that exposes arbitrary files registers a
 fallback renderer (`fallback: true`) for the types nothing else matches.
 `createCadFileSource` in `/file-viewer` supplies shared, read-only CAD catalog
-stat, listing and change subscriptions from a `CadWorkspaceService`. The web
-app uses its `FileBrowserSource` capabilities for navigation; FileViewer and
-renderers receive only `DocumentSource`. The MCP App supplies one host-opened
-document without directory browsing. Both apps use the same document and
-renderer contracts.
+stat, listing and change subscriptions from a `CadService`. The web app uses
+its `FileBrowserSource` capabilities for navigation. `createCadDocumentSource`
+exposes one host-opened absolute document with no directory browsing and a
+`local-file` prompt identity. FileViewer and renderers receive the same narrow
+`DocumentSource` contract in both cases.
 
 ```tsx
 import { FileViewer } from '@text-to-cad/ui/file-viewer';
@@ -157,7 +157,9 @@ raw transport, clipboard discovery, host storage or page-navigation effects.
 ## Lifetimes and state
 
 `DocumentSource` describes one open file's stat, optional reads and optional
-write and change-stream operations. `FileBrowserSource` adds list/search and
+write and change-stream operations. Its optional `resourceRef(file)` supplies
+the document's prompt identity; a browsed workspace keeps its existing
+root-relative fallback. `FileBrowserSource` adds list/search and
 create/rename/duplicate/trash operations. Menus derive storage capabilities
 from these methods and native/copy capabilities from the separate `FileActions`
 port. Missing methods remain unavailable. A web catalog source stays read-only;

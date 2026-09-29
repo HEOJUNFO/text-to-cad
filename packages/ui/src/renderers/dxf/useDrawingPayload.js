@@ -26,7 +26,7 @@ class DrawingSchemaError extends Error {
 /**
  * Load and prepare one drawing.
  *
- * @param {{ client: import("@text-to-cad/core/client").CadWorkspaceService, file: string, revision?: string }} options
+ * @param {{ client: import("@text-to-cad/core/client").CadService, file: string, revision?: string }} options
  * @returns {{ drawing: object|null, error: unknown, loading: boolean }}
  */
 export function useDrawingPayload({ client, file, revision = "" }) {

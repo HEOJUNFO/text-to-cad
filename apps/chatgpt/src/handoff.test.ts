@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createFileHandoff } from './handoff';
 import type { OpenFile } from './transport';
-const empty = { file: null, rootId: 'plugin', rootPath: '/plugin' };
-const file = { file: 'bracket.step', rootId: 'project', rootPath: '/project' };
+const empty = { document: null };
+const file = { document: { id: 'bracket', path: '/project/bracket.step', name: 'bracket.step', revision: 'r1' } };
 const input = { file: { name: 'bracket.step', resourceUri: 'host-resource://bracket' } };
 for (const connectFirst of [true, false]) test(`native path handoff waits for input/result, initialization first=${connectFirst}`, async () => {
   const shown: OpenFile[] = [];
@@ -26,7 +26,7 @@ test('a late trusted-path response cannot replace the newer file or revive teard
   const shown: OpenFile[] = [];
   const handoff = createFileHandoff({ callServerTool: () => response }, value => shown.push(value), error => { throw error; });
   handoff.connected(); handoff.input(input); handoff.result(empty);
-  const newer = { ...file, file: 'newer.step' };
+  const newer = { document: { ...file.document, id: 'newer', path: '/outside/newer.step', name: 'newer.step' } };
   handoff.input({ path: 'newer.step' }); handoff.result(newer);
   finish({ structuredContent: file });
   await response; await Promise.resolve();
@@ -35,9 +35,9 @@ test('a late trusted-path response cannot replace the newer file or revive teard
   assert.deepEqual(shown, [newer]);
 });
 
-test('native mounting rebinds a nonempty repo-root result to the host file root', async () => {
-  const original = { file: 'nested/bracket.step', rootId: 'repo', rootPath: '/repo' };
-  const native = { file: 'bracket.step', rootId: 'native', rootPath: '/repo/nested' };
+test('native mounting resolves trusted document identity despite a previous same-name result', async () => {
+  const original = { document: { id: 'other', path: '/other/bracket.step', name: 'bracket.step', revision: 'r1' } };
+  const native = file;
   const shown: OpenFile[] = [];
   let ready!: () => void;
   const complete = new Promise<void>(resolve => { ready = resolve; });

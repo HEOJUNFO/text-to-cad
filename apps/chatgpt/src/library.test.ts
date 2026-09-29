@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createRecentLibrary, filterRecentModels, type RecentModel } from './library';
-const item: RecentModel = { id: 'known', file: 'bracket.step', name: 'bracket.step', rootPath: '/parts/project', absolutePath: '/parts/project/bracket.step', lastOpened: 123, pinned: false, missing: false, revision: 'r1', thumbnailRevision: 'r1' };
+const item: RecentModel = { id: 'known', name: 'bracket.step', path: '/parts/project/bracket.step', lastOpened: 123, pinned: false, missing: false, revision: 'r1', thumbnailRevision: 'r1' };
 test('library operations serialize persisted updates and search names plus folders', async () => {
   const calls: unknown[] = [];
   const library = createRecentLibrary({ async callServerTool(params) {
@@ -10,7 +10,7 @@ test('library operations serialize persisted updates and search names plus folde
   } });
   await Promise.all([library.refresh(), library.pin(item)]);
   assert.equal(library.getSnapshot().items[0].pinned, true);
-  assert.deepEqual(calls, [{ action: 'list' }, { action: 'pin', recentId: 'known', pinned: true }]);
+  assert.deepEqual(calls, [{ action: 'list' }, { action: 'pin', documentId: 'known', pinned: true }]);
   assert.equal(filterRecentModels([item], 'PROJECT bracket').length, 1);
   assert.equal(filterRecentModels([item], 'another').length, 0);
   library.dispose();

@@ -298,10 +298,10 @@ export function copySelectedReferenceText(references) {
 }
 
 /**
- * Put `prefix` in front of a copy line that has none, leaving one that already has a prefix
- * alone. Idempotent on purpose: copy text reaches the clipboard through several builders, and
- * applying this at the one funnel they all pass through is what keeps them consistent without
- * threading an entry through every one of them.
+ * Put `prefix` in front of a copy line that has none. An absolute document prefix
+ * replaces even an inherited catalog suffix: a one-document source must copy its
+ * real file identity, not a same-named file in another directory. Relative
+ * workspace prefixes remain idempotent across the several copy builders.
  */
 export function withFileRefPrefix(line, prefix) {
   const text = String(line || "").trim();
@@ -309,7 +309,7 @@ export function withFileRefPrefix(line, prefix) {
   if (!text || !filePrefix || !text.includes("#")) {
     return text;
   }
-  return text.startsWith("#")
+  return text.startsWith("#") || /^(?:\/|[A-Za-z]:[\\/])/.test(filePrefix)
     ? buildCadRefToken({ cadPath: filePrefix, selectors: parseCadRefToken(text)?.selectors || [] })
     : text;
 }

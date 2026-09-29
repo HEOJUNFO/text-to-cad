@@ -42,7 +42,7 @@ afterEach(() => {
 });
 
 it('restores all 317 STEP components after remount without a descriptor, SURF or TESS read', async () => {
-  const client = { workspaceId: 'large-step-root', origin: 'https://cad-assets.test' };
+  const client = { scopeId: 'large-step-root', origin: 'https://cad-assets.test' };
   const model = { ...entry('warm-large-step', 'assembly'), sourceFormat: 'step',
     file: 'warm-large-step.step', url: 'https://cad-assets.test/__cad/asset?file=/warm-large-step&v=one', documentHash: 'document-one' };
   const tessellation = lodTessellationForLevel(1);

@@ -12,10 +12,10 @@ export function createFileHandoff(bridge: ToolBridge, show: (opened: OpenFile) =
       let opened = item.opened;
       if (item.input.file) {
         // Resolve native entrypoints after mounting even when an earlier tool
-        // result used another root: the host now supplies its trusted file path.
+        // result came from another invocation: the host now supplies its trusted file path.
         const result = await bridge.callServerTool({ name: 'cad_open', arguments: item.input });
         const resolved = readOpenFile(result.structuredContent);
-        if (result.isError || !resolved?.file) throw new Error('The host did not provide the CAD file path. Open the file again in Codex.');
+        if (result.isError || !resolved?.document) throw new Error('The host did not provide the CAD file path. Open the file again in Codex.');
         opened = resolved;
       }
       if (!disposed && item.generation === generation) show(opened);

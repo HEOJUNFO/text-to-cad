@@ -11,7 +11,7 @@ optional file `navigation`, and the optional live-document
 bindings `documents` and `pdf`. `environment` carries the resolved `colorScheme`,
 the keyboard `platform` (`darwin` shows ⌘, anything else Ctrl) and the app's own
 `reducedMotion`, honoured beside the system's `prefers-reduced-motion`. CAD is a separate registration supplied with a
-`CadWorkspaceService`; the generic FileViewer does not import CAD. The CAD
+`CadService`; the generic FileViewer does not import CAD. The CAD
 client contract serves the standalone web app and the MCP App. The MCP App
 supplies its own tool transport and file handoff; neither lives in shared UI.
 Desktop owns native runtime startup/recovery.
@@ -33,9 +33,9 @@ are for reading and maintaining the contracts.
 | --- | --- | --- |
 | `ViewerHost`, `ClipboardPort` | [Host types](../src/host/types.ts) | `@text-to-cad/ui/host` |
 | `DocumentSource`, `FileBrowserSource`, `FileActions`, mutation receipts, `FileViewerState` | [File viewer types](../src/file-viewer/types.ts) | `@text-to-cad/ui/file-viewer` |
-| `createCadFileSource` (read-only CAD catalog adapter) | [CAD source](../src/file-viewer/cadFileSource.ts) | `@text-to-cad/ui/file-viewer` |
+| `createCadFileSource` (browsed catalog), `createCadDocumentSource` (one absolute document) | [CAD sources](../src/file-viewer/cadFileSource.ts) | `@text-to-cad/ui/file-viewer` |
 | `PromptContextPort`, bundles, references and delivery receipts | [Prompt types](../../core/src/prompt/types.ts) | `@text-to-cad/core/prompt` |
-| `CadWorkspaceService`, `CadResourceProvider`, worker tickets | [CAD service types](../../core/src/client/types.ts) | `@text-to-cad/core/client` |
+| `CadService`, `CadResourceProvider`, worker tickets | [CAD service types](../../core/src/client/types.ts) | `@text-to-cad/core/client` |
 | `StepRendererSlots`, selection props, `CadLiveBinding` | [STEP registration](../src/renderers/step/index.ts) | `@text-to-cad/ui/renderers/step` |
 | `TabStore`, `TabRecordStorage`, `createTabStore`, `useTabViewerState` (the tab's one store: its settings, its file views, and `FileViewer`'s state from both) | [Tab store](../src/tab-store/tabStore.ts), [the record](../src/tab-store/tabRecord.ts) | `@text-to-cad/ui/tab-store` |
 | `CadPreferenceSource`, `createCadPreferences` (the tab's settings as renderers read them) | [Viewer preferences](../src/renderers/workspace/preferences.ts) | `@text-to-cad/ui/renderers/workspace` |
@@ -51,8 +51,8 @@ implementations. [Web storage](../../../apps/web/docs/storage.md) documents
 browser lifetimes. Shared component tests can
 use the [explicit fake host](../src/host/testing/host.ts).
 The [MCP App composition](../../../apps/chatgpt/src/App.tsx) uses the same
-FileViewer and CAD source adapter with a host-opened file. It supplies document
-capabilities without listing or path discovery, so FileViewer places its
+FileViewer with `createCadDocumentSource` for one host-opened absolute file.
+That source supplies no listing or path discovery, so FileViewer places its
 document actions over the viewport. Its transport and composer delivery stay under
 `apps/chatgpt/`.
 
@@ -142,12 +142,16 @@ An attachment has a MIME type, name and Blob or Promise of Blob. Its optional
 can travel together. Producers freeze resource and selection identity before
 asynchronous capture. Blob URLs are delivery leases, never portable identity.
 
-A reference contains a workspace-file identity or HTTP(S) URL plus a tagged
+A reference contains a root-relative workspace file, an absolute local file,
+or an HTTP(S) URL plus a tagged
 selection: `whole-resource`, `text-range`, or `cad-selector`. Text positions are
 zero-based UTF-16 with an exclusive end. CAD selectors use core's validated
 cadgen grammar, not STEP entity numbers. Preserve a revision when available;
 references do not promise to survive edits. Shared serialization handles quoting.
 The web adapter maps workspace files to full served-root paths for external chats.
+One-document hosts supply `DocumentSource.resourceRef(file)` so renderer prompt
+references carry the authorized absolute path and current revision. Sources
+without that method retain the existing workspace-file identity.
 
 `PromptContextAction` (the PDF renderer's prompt action) reads the subscribed
 destination and labels the action Add to prompt or Copy for prompt. It calls delivery during the
@@ -219,7 +223,8 @@ Hosts may cache that inactive snapshot without retaining a scene or moving focus
 
 ## Files, state and shutdown
 
-`DocumentSource` contains open-document storage operations; `FileBrowserSource`
+`DocumentSource` contains open-document storage operations and may identify
+that file for prompt handoff through `resourceRef(file)`. `FileBrowserSource`
 and `FileActions` contain directory browsing and native/menu
 operations. Typed mutation receipts report committed changes independently of
 caller cancellation. An abort after commit is not rollback. Content, metadata,

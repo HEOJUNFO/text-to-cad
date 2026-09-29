@@ -223,11 +223,11 @@ class CadApp:
     prefixes, so nothing else can be waiting behind this.
     """
 
-    def __init__(self, *, root: str, host: str, port: int, dist_dir: str = ""):
+    def __init__(self, *, root: str, host: str, port: int, dist_dir: str = "", backend=None):
         from .surfaces import SurfaceSubscribers
 
         self.surface_subscribers = SurfaceSubscribers()
-        self.backend = LocalAssetBackend(root)
+        self.backend = backend if backend is not None else LocalAssetBackend(root)
         root_path = self.backend.root_path
         self.root_path = root_path
         self.root_name = self.backend.root_name

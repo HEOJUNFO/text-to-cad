@@ -1,13 +1,13 @@
 import { useMemo } from 'react';
-import { FileViewer, createCadFileSource, type DocumentSource } from '@text-to-cad/ui/file-viewer';
+import { FileViewer, createCadDocumentSource } from '@text-to-cad/ui/file-viewer';
 import { type ViewerHost, type ClipboardPort } from '@text-to-cad/ui/host';
 import { createStepRenderer } from '@text-to-cad/ui/renderers/step';
 import { createGlbRenderer } from '@text-to-cad/ui/renderers/glb';
 import { createMeshRenderer } from '@text-to-cad/ui/renderers/mesh';
 import { createTabStore, useTabViewerState } from '@text-to-cad/ui/tab-store';
-import type { CadClient } from '@text-to-cad/core/client';
+import type { CadService } from '@text-to-cad/core/client';
 import type { PromptContextPort } from '@text-to-cad/core/prompt';
-import type { OpenFile } from './transport';
+import type { CadDocument } from './transport';
 import type { RecentLibrary } from './library';
 import { createThumbnailBinding } from './thumbnail';
 
@@ -16,25 +16,13 @@ const clipboard: ClipboardPort = {
   async readText() { if (!navigator.clipboard?.readText) throw new Error('Clipboard is unavailable.'); return navigator.clipboard.readText(); },
   async writeImage(image) { if (!navigator.clipboard?.write || !globalThis.ClipboardItem) throw new Error('Image clipboard is unavailable.'); await navigator.clipboard.write([new ClipboardItem({ 'image/png': image })]); },
 };
-export default function App({ client, opened, promptContext, colorScheme, library }: {
-  client: CadClient; opened: OpenFile; promptContext: PromptContextPort; colorScheme: 'light' | 'dark'; library: RecentLibrary;
+export default function App({ client, document, promptContext, colorScheme, library }: {
+  client: CadService; document: CadDocument; promptContext: PromptContextPort; colorScheme: 'light' | 'dark'; library: RecentLibrary;
 }) {
-  const source = useMemo<DocumentSource>(() => {
-    const catalog = createCadFileSource(client, { rootId: opened.rootId, rootPath: opened.rootPath });
-    return {
-      id: catalog.id, rootName: catalog.rootName, stat: catalog.stat, readAsset: catalog.readAsset,
-      subscribe(listener) {
-        if (!opened.file) return () => {};
-        // Resolve first so the client's initial subscribed refresh is file-scoped.
-        // resolveEntry records the path synchronously and deduplicates its request.
-        void client.resolveEntry(opened.file).catch(() => {});
-        return catalog.subscribe!(listener);
-      },
-    };
-  }, [client, opened.rootId, opened.rootPath, opened.file]);
+  const source = useMemo(() => createCadDocumentSource(client, document), [client, document.id, document.path, document.name, document.revision]);
   const tabStore = useMemo(() => createTabStore({ read: () => undefined, write: () => {} }), []);
   const { state, onStateChange } = useTabViewerState(tabStore, source.id);
-  const live = useMemo(() => createThumbnailBinding(library, opened.recentId, opened.revision), [library, opened.recentId, opened.revision]);
+  const live = useMemo(() => createThumbnailBinding(library, document.id, document.revision), [library, document.id, document.revision]);
   const renderers = useMemo(() => [
     createStepRenderer({ client, live, preferences: tabStore.settings }),
     createGlbRenderer({ client, live, preferences: tabStore.settings }), createMeshRenderer({ client, live, preferences: tabStore.settings }),
@@ -43,5 +31,5 @@ export default function App({ client, opened, promptContext, colorScheme, librar
     files: source, clipboard, promptContext,
     environment: { colorScheme, platform: /Mac|iPhone|iPad/.test(navigator.platform) ? 'darwin' : 'linux' },
   }), [source, promptContext, colorScheme]);
-  return <FileViewer file={opened.file || null} host={host} renderers={renderers} state={state} onStateChange={onStateChange} />;
+  return <FileViewer file={document.path} host={host} renderers={renderers} state={state} onStateChange={onStateChange} />;
 }

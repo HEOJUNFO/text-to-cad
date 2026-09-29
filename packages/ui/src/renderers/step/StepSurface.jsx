@@ -367,9 +367,8 @@ function StepSurfaceBody({ view, data }) {
   );
   // While the artifact is missing/stale/building/broken, hide the (possibly stale) render assets so
   // the viewer shows a loading or error state and renders only the fresh artifact once ready.
-  // The shortest path suffix that names each catalog entry uniquely -- almost always just the
-  // filename. Copied refs carry it so they still say which file they belong to when pasted
-  // into a prompt spanning several files, without the length of a full relative path.
+  // Browsed workspaces copy the shortest unique suffix; a host-opened local document
+  // copies its absolute identity, including when another document has the same name.
   const fileRefPrefixByPath = useMemo(
     () => shortestUniquePathSuffixes(storeSnapshot.entries.map((entry) => cadFileParamForEntry(entry))),
     [storeSnapshot.entries]
@@ -383,10 +382,11 @@ function StepSurfaceBody({ view, data }) {
       if (!base) {
         return base;
       }
-      const fileRefPrefix = fileRefPrefixByPath.get(cadFileParamForEntry(base)) || "";
+      const fileRefPrefix = documentResource.kind === "local-file" ? documentResource.path
+        : fileRefPrefixByPath.get(cadFileParamForEntry(base)) || "";
       return fileRefPrefix ? { ...base, fileRefPrefix } : base;
     },
-    [liveEntry, selectedArtifact.status, fileRefPrefixByPath, editingPreview.entry]
+    [liveEntry, selectedArtifact.status, fileRefPrefixByPath, editingPreview.entry, documentResource]
   );
   const previousPreviewTree = useRef(null);
   useEffect(() => {

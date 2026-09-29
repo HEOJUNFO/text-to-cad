@@ -14,7 +14,10 @@ export interface CadEntry {
   [key: string]: unknown;
 }
 export interface CadServerInfo {
-  rootId: string;
+  /** Identity of the connected document or directory service. */
+  scopeId?: string;
+  /** Directory metadata supplied by browsing backends only. */
+  rootId?: string;
   autoReload?: boolean;
   identityToken?: string;
   rootPath?: string;
@@ -22,14 +25,14 @@ export interface CadServerInfo {
   backend?: string;
   [key: string]: unknown;
 }
-export interface CadCatalog { entries: CadEntry[]; rootId?: string; [key: string]: unknown }
+export interface CadCatalog { entries: CadEntry[]; scopeId?: string; rootId?: string; [key: string]: unknown }
 export interface CadCatalogSnapshot {
   entries: CadEntry[];
   revision: number;
   hydrated: boolean;
   refreshing: boolean;
   error: string;
-  rootId: string;
+  scopeId: string;
 }
 export interface CadRequestOptions { signal?: AbortSignal }
 export interface CadArtifactResult {
@@ -133,9 +136,9 @@ export interface CadRenderSession {
   signal: AbortSignal;
   dispose(): void;
 }
-/** Domain service consumed by renderers; HTTP metadata stays on its adapter. */
-export interface CadWorkspaceService {
-  readonly workspaceId: string;
+/** CAD documents and resources consumed by renderers. Hosts choose a document or directory lifetime. */
+export interface CadService {
+  readonly scopeId: string;
   getSnapshot(): CadCatalogSnapshot;
   subscribe(listener: () => void): () => void;
   refresh(options?: CadRequestOptions & {file?: string;markRefreshing?: boolean}): Promise<CadCatalog>;
@@ -152,7 +155,7 @@ export interface CadWorkspaceService {
   dispose(): void;
 }
 /** Reusable HTTP implementation, also used by existing catalog adapters. */
-export interface CadClient extends CadWorkspaceService {
+export interface CadClient extends CadService {
   readonly origin: string;
   requestSurfaces(body: CadSurfaceRequest, options?: CadRequestOptions): Promise<CadSurfaceResponse>;
   cancelSurfaceRequest(body: { job: string }, options?: CadRequestOptions): Promise<{ok?: boolean}>;
@@ -161,7 +164,7 @@ export interface CadClient extends CadWorkspaceService {
 export interface CadClientOptions {
   resources?: CadResourceProvider;
   origin?: string;
-  workspaceId?: string;
+  scopeId?: string;
   fetch?: typeof globalThis.fetch;
   pollIntervalMs?: number;
   /** Host visibility policy, evaluated at each polling interval. */

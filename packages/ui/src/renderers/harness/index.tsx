@@ -51,7 +51,7 @@ function workspace(id: string) {
   const request = (next: CadCommands) => { snapshot = next; for (const listener of listeners) listener(); };
   const capture = () => request({ captureRequest: { key: Date.now() } });
   const selectReference = (selector: string) => request({ selectReference: { selector, key: Date.now() } });
-  const client = createCadClient({ origin: `${location.origin}/${id}`, workspaceId: id, pollIntervalMs: 0 });
+  const client = createCadClient({ origin: `${location.origin}/${id}`, scopeId: id, pollIntervalMs: 0 });
   const source: FileBrowserSource = {
     id, rootName: id,
     stat: async (path) => ({ path, name: path, kind: 'file', size: 400, extension: path.split('.').pop() || '' }),

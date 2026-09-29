@@ -5,6 +5,15 @@ const operationNamespace = globalThis.crypto?.randomUUID?.() ?? Math.random().to
 const object = value => Boolean(value && typeof value === 'object' && !Array.isArray(value));
 function requireValue(condition, message) { if (!condition) throw new TypeError(`Invalid prompt context: ${message}`); }
 function position(value) { return object(value) && Number.isSafeInteger(value.line) && value.line >= 0 && Number.isSafeInteger(value.character) && value.character >= 0; }
+function absoluteLocalPath(path) {
+  if (typeof path !== 'string' || path.includes('\0')) return false;
+  const match = path.match(/^(?:\/|[A-Za-z]:[\\/])/);
+  if (!match) return false;
+  const separator = match[0].at(-1);
+  if (path.includes(separator === '/' ? '\\' : '/')) return false;
+  const rest = path.slice(match[0].length);
+  return rest.length > 0 && rest.split(separator).every(part => part && part !== '.' && part !== '..');
+}
 
 export function validatePromptReference(reference) {
   requireValue(object(reference) && object(reference.resource) && object(reference.target), 'reference requires a resource and target');
@@ -12,6 +21,8 @@ export function validatePromptReference(reference) {
   if (resource.kind === 'workspace-file') {
     requireValue(typeof resource.workspaceId === 'string' && resource.workspaceId.length > 0, 'workspace identity is required');
     requireValue(typeof resource.path === 'string' && resource.path.length > 0 && !resource.path.startsWith('/') && !/^[A-Za-z]:/.test(resource.path) && !/[\\\0]/.test(resource.path) && resource.path.split('/').every(part => part && part !== '.' && part !== '..'), 'file paths must be normalized and root-relative');
+  } else if (resource.kind === 'local-file') {
+    requireValue(absoluteLocalPath(resource.path), 'local file paths must be normalized and absolute');
   } else {
     requireValue(resource.kind === 'url' && typeof resource.url === 'string', 'unknown resource kind');
     let url; try { url = new URL(resource.url); } catch { /* Report the contract error below. */ }
@@ -23,7 +34,7 @@ export function validatePromptReference(reference) {
     requireValue(position(target.start) && position(target.end), 'invalid text range');
     requireValue(target.end.line > target.start.line || (target.end.line === target.start.line && target.end.character >= target.start.character), 'range end precedes its start');
   } else if (target.kind === 'cad-selector') {
-    requireValue(resource.kind === 'workspace-file', 'CAD selectors require a workspace file');
+    requireValue(resource.kind === 'workspace-file' || resource.kind === 'local-file', 'CAD selectors require a file');
     requireValue(Array.isArray(target.selectors) && target.selectors.length > 0 && target.selectors.every(selector => {
       const parsed = typeof selector === 'string' && selector === selector.trim() ? parseCadRefSelector(selector) : null;
       return parsed && parsed.selectorType !== 'opaque';

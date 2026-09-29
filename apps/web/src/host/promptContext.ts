@@ -12,6 +12,7 @@ export function createWebPromptContext(workspaceId: string, rootPath: string, cl
   const ledger = createPromptDeliveryLedger({ busyMessage: 'Wait for pending clipboard operations before copying more.' });
   const resolvePath = (resource: ResourceRef) => {
     if (resource.kind === 'url') return resource.url;
+    if (resource.kind === 'local-file') return resource.path;
     if (resource.workspaceId !== workspaceId) throw new Error('This reference belongs to another served workspace.');
     if (!rootPath) throw new Error('The viewer did not identify its served root.');
     return `${rootPath.replace(/[\\/]+$/, '').replace(/\\/g, '/')}/${resource.path}`;

@@ -188,15 +188,15 @@ Where the mechanism is written:
 ## Public modules and lifetimes
 
 Use `@text-to-cad/core/client`, `/common/*`, `/lib/*` and `/glb/*` exports.
-Construct `createCadClient({ origin, workspaceId })` in a host. Construction is
+Construct `createCadClient({ origin, scopeId })` in a host. Construction is
 inert; subscriptions start catalog polling. `dispose()` stops polling, aborts
 requests and disposes render sessions. The client lazily owns its cache provider
 and bounded write-back queue; each render session borrows a cancellable cache
 view and owns its abort signal and worker leases. Switching views preserves
-admitted cache writes, while disposing the client releases them. Root identity
-comes from the server's stable
-`rootId`, not its port. Multiple roots render concurrently without replacing
-one another's provider. Request failures retain operation, URL, method, kind
+admitted cache writes, while disposing the client releases them. A host supplies
+`scopeId` for its document or directory service. The HTTP adapter also accepts
+a browsing server's `rootId` as its scope. Concurrent services keep separate
+providers even when they share an origin. Request failures retain operation, URL, method, kind
 and HTTP status for host-owned error presentation.
 `serverInfo()` caches stable metadata; `serverInfo({ fresh: true })` performs
 a new request so development restart polling observes identity changes and
@@ -208,9 +208,9 @@ its metadata. Partial replies preserve other resolved entries; newer complete
 entries and directory removals still invalidate them. A cancelled or older
 request cannot overwrite a newer file revision.
 
-`CadWorkspaceService` exposes typed surface resolution, preview observation and
+`CadService` exposes typed surface resolution, preview observation and
 a scoped `resources` provider. Its HTTP adapter owns the protocol; renderers
-consume domain results and resource tickets. See [workspace services and resource
+consume domain results and resource tickets. See [CAD services and resource
 transport](docs/workspace-resources.md) for worker transfer, nested dependencies,
 cache generations and the standalone static-HTTP default. No client reads model
 source or starts a source build.

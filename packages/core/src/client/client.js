@@ -33,16 +33,18 @@ const entryKey = (entry) => normalizedFile(entry.rootRelativeFile || entry.file)
 const matchesFile = (entry, file) => [entry.rootRelativeFile, entry.file].some((value) => normalizedFile(value) === normalizedFile(file));
 
 /**
- * An explicit connection to one served root. Construction never starts requests.
+ * An explicit connection to a document or directory service. Construction never starts requests.
  * @param {import("./types.js").CadClientOptions} options
  * @returns {import("./types.js").CadClient}
  */
-export function createCadClient({ origin = '', workspaceId = '', fetch: fetchImpl = globalThis.fetch, pollIntervalMs = 2000, shouldPoll = () => true, resources: resourceProvider } = {}) {
+export function createCadClient(options = {}) {
+  if ('workspaceId' in options) throw new Error('Use scopeId to identify a CAD service.');
+  let { origin = '', scopeId = '', fetch: fetchImpl = globalThis.fetch, pollIntervalMs = 2000, shouldPoll = () => true, resources: resourceProvider } = options;
   origin = normalizeViewerOrigin(origin);
   let disposed = false;
   const resourceLifetime = new AbortController();
   const resources = scopeCadResources(resourceProvider || createHttpCadResourceProvider({ origin, fetch: fetchImpl }), resourceLifetime.signal);
-  let snapshot = { entries: [], revision: 0, hydrated: false, refreshing: false, error: '', rootId: workspaceId };
+  let snapshot = { entries: [], revision: 0, hydrated: false, refreshing: false, error: '', scopeId };
   const listeners = new Set();
   const requests = new Set();
   const sessions = new Set();
@@ -109,10 +111,10 @@ export function createCadClient({ origin = '', workspaceId = '', fetch: fetchImp
     });
     const presentKeys = new Set(entries.map(entryKey));
     for (const key of entrySequences.keys()) if (!presentKeys.has(key)) entrySequences.delete(key);
-    const rootId = workspaceId || catalog?.rootId || snapshot.rootId;
+    const nextScope = scopeId || catalog?.scopeId || catalog?.rootId || snapshot.scopeId;
     const changed = entries.length !== snapshot.entries.length || entries.some((entry, index) => entry !== snapshot.entries[index]);
-    if (changed || !snapshot.hydrated || snapshot.refreshing || snapshot.error || rootId !== snapshot.rootId) {
-      publish({ entries: changed ? entries : snapshot.entries, rootId, hydrated: true, refreshing: false, error: '' });
+    if (changed || !snapshot.hydrated || snapshot.refreshing || snapshot.error || nextScope !== snapshot.scopeId) {
+      publish({ entries: changed ? entries : snapshot.entries, scopeId: nextScope, hydrated: true, refreshing: false, error: '' });
     }
   }
 
@@ -164,7 +166,7 @@ export function createCadClient({ origin = '', workspaceId = '', fetch: fetchImp
   const client = {
     origin,
     resources,
-    get workspaceId() { return workspaceId || snapshot.rootId; },
+    get scopeId() { return scopeId || snapshot.scopeId; },
     getSnapshot: () => snapshot,
     subscribe(listener) {
       if (disposed) throw new Error('This CAD client has been disposed.');
@@ -185,20 +187,20 @@ export function createCadClient({ origin = '', workspaceId = '', fetch: fetchImp
         entry = match(snapshot.entries);
       }
       if (signal?.aborted || disposed) throw abortError();
-      if (!entry) throw new Error(`CAD file was not found in this workspace: ${path}`);
+      if (!entry) throw new Error(`CAD document was not found: ${path}`);
       if (entry.catalogPending) throw new Error(`CAD file metadata is unavailable: ${path}`);
       return entry;
     },
     async serverInfo({ signal, fresh = false } = {}) {
       if (!server || fresh) {
         const next = await request('/__cad/server', { signal, operation: 'server' });
-        if (server && (server.identityToken !== next.identityToken || server.rootId !== next.rootId)) {
+        if (server && (server.identityToken !== next.identityToken || (server.scopeId || server.rootId) !== (next.scopeId || next.rootId))) {
           resources.invalidate();
           publish({});
         }
         server = next;
       }
-      if (!snapshot.rootId && server?.rootId) publish({ rootId: server.rootId });
+      if (!snapshot.scopeId && (server?.scopeId || server?.rootId)) publish({ scopeId: server.scopeId || server.rootId });
       return server;
     },
     requestArtifactStatus(file, { signal } = {}) {
