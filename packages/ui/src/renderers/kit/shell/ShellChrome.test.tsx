@@ -380,3 +380,25 @@ it('a failure that leaves nothing on screen puts the tool stack away under its c
   stage('idle');
   expect(stack().hidden).toBe(false);
 });
+
+it("a failure card has no view-update spinner beside it: a theme switch under it waits on a frame that is never drawn", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const slot = document.createElement('div');
+    document.body.append(slot);
+    const props = (colorScheme: string) => ({ source: { id: 'one', rootName: 'one' }, file: { path: 'panel.harness', name: 'panel.harness', kind: 'file' }, document: null,
+      openPanel: '', panelSlot: null, navigationStatusSlot: slot, onPanelOpen() {}, onReady() {}, onOpenFile() {}, appearance: { colorScheme }, state: undefined,
+      onStateChange() {}, reload() {}, data: { services: { preferences: tabSettings() } } });
+    const element = (colorScheme: string) => <ViewerHostContext.Provider value={testHost()}><ViewerMobileContext.Provider value={false}>
+      <HarnessRenderer {...(props(colorScheme) as any)} /></ViewerMobileContext.Provider></ViewerHostContext.Provider>;
+    const view = render(element('light'));
+    fireEvent.click(document.querySelector('[data-harness-stage="broken"]')!);
+    expect(screen.getByRole('alert').textContent).toContain('Harness build failed');
+    view.rerender(element('dark'));
+    await act(async () => { vi.advanceTimersByTime(500); });
+    expect(slot.querySelector('[data-view-update-status]')).toBeNull();
+    slot.remove();
+  } finally {
+    vi.useRealTimers();
+  }
+});

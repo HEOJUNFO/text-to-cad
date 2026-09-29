@@ -27,6 +27,7 @@ const INSET = `${VIEWPORT_INSET_PX}px`;
 // The strip and its stack stop short of the top-right bar (Display settings, Preview).
 const TOOLBAR_POSITION = Object.freeze({ top: INSET, left: INSET, bottom: INSET, maxWidth: "calc(100% - 76px)" });
 const MODEL_UPDATE_STATUS = Object.freeze({ pending: true, label: "Updating model…" });
+const NO_VIEW_UPDATE = Object.freeze({ pending: false, error: null, label: "" });
 // The top-right bar's buttons are transparent over the model.
 const BAR_BUTTON_CLASS = "size-6 bg-transparent hover:bg-transparent dark:hover:bg-transparent";
 
@@ -276,9 +277,12 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
 
               {/* One place says the view is catching up: a newer revision of the file loading behind the
                   model on screen, or a Display change being prepared — the latter's failure first, since
-                  it is the one with something to retry. */}
-              {view.navigationStatusSlot ? createPortal(<ViewUpdateStatus status={frame.loading.updating && !frame.viewUpdate.status.error
-                ? MODEL_UPDATE_STATUS : frame.viewUpdate.status} onRetry={frame.viewUpdate.retry} />, view.navigationStatusSlot) : null}
+                  it is the one with something to retry. Under a failure card there is no view to catch
+                  up: a Display change (a theme switch) waits on a frame that is never drawn, and a
+                  spinner beside "Couldn't prepare the model" says busy and failed at once. */}
+              {view.navigationStatusSlot ? createPortal(<ViewUpdateStatus status={failureCovers ? NO_VIEW_UPDATE
+                : frame.loading.updating && !frame.viewUpdate.status.error
+                  ? MODEL_UPDATE_STATUS : frame.viewUpdate.status} onRetry={frame.viewUpdate.retry} />, view.navigationStatusSlot) : null}
               <ViewerLoadingOverlay
                 loading={frame.presentationState?.file === frame.modelKey && frame.presentationState?.covering ? null : frame.loading}
                 operationKey={frame.modelKey}
