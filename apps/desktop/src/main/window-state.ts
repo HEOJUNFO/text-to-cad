@@ -12,6 +12,9 @@ import { settings } from "./db/repositories";
 
 const SAVE_DEBOUNCE_MS = 400;
 
+/** Every tracked window's final save, run once by `flushWindowStates`. */
+const flushers = new Set<() => void>();
+
 /** The stored geometry, dropped back to defaults if it lands off-screen. */
 export function restoreWindowState(): WindowState {
   const state = settings.windowState();
@@ -47,19 +50,48 @@ export function trackWindowState(window: BrowserWindow) {
     timer = setTimeout(save, SAVE_DEBOUNCE_MS);
   };
 
+  let flushed = false;
+  const flush = () => {
+    clearTimeout(timer);
+    if (!flushed) {
+      flushed = true;
+      save();
+    }
+  };
+  flushers.add(flush);
+
   window.on("resize", scheduleSave);
   window.on("move", scheduleSave);
   window.on("maximize", scheduleSave);
   window.on("unmaximize", scheduleSave);
-  // The debounce would lose the last change on quit, so close saves directly.
+  // The debounce would lose the last change on quit, so close saves directly —
+  // unless quitting already did: `before-quit` flushes (below) before the
+  // database closes, and a save from this later `close` would need it open.
   window.on("close", () => {
-    clearTimeout(timer);
-    save();
+    flush();
+    flushers.delete(flush);
   });
 
   return () => {
     clearTimeout(timer);
+    flushers.delete(flush);
   };
+}
+
+/**
+ * Save every tracked window's geometry now, once. Called from `before-quit`
+ * BEFORE `closeDb()`: the windows' own `close` events fire after it, when the
+ * database is gone, and must not reopen it.
+ */
+export function flushWindowStates() {
+  for (const flush of flushers) {
+    try {
+      flush();
+    } catch (error) {
+      console.warn("[window-state] save on quit failed:", error);
+    }
+  }
+  flushers.clear();
 }
 
 function overlaps(area: Rectangle, state: WindowState) {

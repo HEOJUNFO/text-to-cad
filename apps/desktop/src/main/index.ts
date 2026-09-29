@@ -5,13 +5,13 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { BrowserWindow, app, nativeImage, nativeTheme, shell } from "electron";
+import { BrowserWindow, app, dialog, nativeImage, nativeTheme, shell } from "electron";
 
 import { initIntegrations, shutdownIntegrations } from "./integrations";
 import { initCad, shutdownCad } from "./cad";
 import { browserService } from "./browser/service";
 import { endTrackedChildren, killTrackedChildren } from "./children";
-import { closeDb, databaseFile, db } from "./db";
+import { closeDb, databaseFile, db, startupFailureMessage } from "./db";
 import { settings as settingsRepository } from "./db/repositories";
 import { broadcast, registerIpcHandlers } from "./ipc";
 import { prewarmAgents, shutdownAcp } from "./ipc/acp";
@@ -23,7 +23,7 @@ import { disposeSettingsEffects } from "./settings-effects";
 import { initTelemetry, track } from "./telemetry";
 import { initUpdater, stopUpdater } from "./updater";
 import { TITLEBAR_HEIGHT, trafficLightPosition } from "../shared/titlebar";
-import { restoreWindowState, trackWindowState } from "./window-state";
+import { flushWindowStates, restoreWindowState, trackWindowState } from "./window-state";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -203,6 +203,14 @@ if (!app.requestSingleInstanceLock()) {
     }
   });
 
+  // Before ready, or Aptabase disables itself (src/main/telemetry.ts).
+  initTelemetry();
+
+  // A rejection nobody awaited is a bug with no other trace; log it.
+  process.on("unhandledRejection", (reason) => {
+    console.error("[main] unhandled rejection:", reason);
+  });
+
   void app.whenReady().then(async () => {
     if (!app.isPackaged && process.platform === "darwin") {
       // The Dock shows Electron's icon for an unpackaged app; the packaged
@@ -223,7 +231,6 @@ if (!app.requestSingleInstanceLock()) {
     await initCad();
     await initIntegrations({ sendCommand: (command) => broadcast("integrations.command", command), cancelCommand: requestId => broadcast("integrations.cancel", { requestId }) });
     installMenu(() => BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null);
-    initTelemetry();
     createWindow();
     initUpdater();
     // One idle adapter per agent the index says is in use, a second and a
@@ -237,6 +244,17 @@ if (!app.requestSingleInstanceLock()) {
         createWindow();
       }
     });
+  }).catch((error: unknown) => {
+    // A migration that failed, a database from a newer build (refused, not
+    // modified), a pre-upgrade backup on a full disk, the CAD runtime or the
+    // bridge failing to start: without this the app sits in the Dock with no
+    // window and no word. Say why and where, then leave.
+    console.error("[main] startup failed:", error);
+    try {
+      dialog.showErrorBox("text-to-cad could not start", startupFailureMessage(error));
+    } finally {
+      app.exit(1);
+    }
   });
 
   app.on("window-all-closed", () => {
@@ -270,6 +288,9 @@ if (!app.requestSingleInstanceLock()) {
     disposeSettingsEffects();
     browserService.dispose();
     disposeExplorerServices();
+    // Before the database closes: the windows' own `close` saves come after
+    // this handler, and must not reopen it (src/main/window-state.ts).
+    flushWindowStates();
     closeDb();
     endTrackedChildren();
     console.info(`[quit] teardown ${Date.now() - started}ms`);

@@ -11,7 +11,7 @@ import { BrowserWindow, app, dialog, shell } from "electron";
 import { ipcContract, type IpcContract } from "../../shared/ipc";
 import { projects, settings } from "../db/repositories";
 import { viewers } from "../cad";
-import { track } from "../telemetry";
+import { changedSettingsKeys, track } from "../telemetry";
 import { applySettingsEffects } from "../settings-effects";
 import { acpHandlers } from "./acp";
 import { agentOptionsHandlers } from "./agent-options";
@@ -112,7 +112,10 @@ const handlers = {
       }
       // The field's NAME, never its value: "someone changed the git mode" is a
       // product question, "to what" is their business (src/main/telemetry.ts).
-      for (const key of Object.keys(patch) as (keyof typeof patch & string)[]) {
+      // Only a field whose value actually moved: the renderer re-sends
+      // `layout` and `sidebar` on every pane drag, and a patch that restates
+      // a value is not a change anyone made.
+      for (const key of changedSettingsKeys(previous, next, patch)) {
         track({ name: "settings_changed", key });
       }
       return next;

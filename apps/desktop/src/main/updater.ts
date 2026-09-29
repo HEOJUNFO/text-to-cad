@@ -63,10 +63,24 @@ export function initUpdater() {
   autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.logger = null;
 
-  autoUpdater.on("checking-for-update", () => setStatus({ state: "checking" }));
-  autoUpdater.on("update-available", (info) =>
-    setStatus({ state: "available", version: info.version }),
-  );
+  // A check is never started while an update is downloading or staged
+  // (`busyWithUpdate`), but the feed's events are guarded too: a staged
+  // version that the feed announces again is still staged, and flipping it to
+  // `available` would leave `installUpdate` with nothing it will install.
+  autoUpdater.on("checking-for-update", () => {
+    if (!busyWithUpdate()) {
+      setStatus({ state: "checking" });
+    }
+  });
+  autoUpdater.on("update-available", (info) => {
+    if (status.state === "downloading") {
+      return;
+    }
+    if (status.state === "downloaded" && status.version === info.version) {
+      return;
+    }
+    setStatus({ state: "available", version: info.version });
+  });
   autoUpdater.on("update-not-available", () => setStatus({ state: "idle" }));
   autoUpdater.on("download-progress", (progress) =>
     setStatus({
@@ -80,9 +94,14 @@ export function initUpdater() {
   autoUpdater.on("update-downloaded", (info) =>
     setStatus({ state: "downloaded", version: info.version }),
   );
-  autoUpdater.on("error", (error) => setStatus({ state: "error", message: message(error) }));
+  autoUpdater.on("error", (error) => {
+    failed(error);
+  });
 
   const automatic = () => {
+    if (busyWithUpdate()) {
+      return;
+    }
     if (settings.get().checkUpdatesOnLaunch) {
       void checkForUpdates();
     }
@@ -109,6 +128,12 @@ export async function checkForUpdates(): Promise<UpdateStatus> {
   if (!app.isPackaged) {
     return status;
   }
+  // Downloading or staged: there is nothing a check could add, and its events
+  // would knock the state off `downloaded`. The answer is the current status —
+  // which About prints as "Version … is ready. Restarting installs it."
+  if (busyWithUpdate()) {
+    return status;
+  }
   try {
     const result = await autoUpdater.checkForUpdates();
     // A check that finds nothing fires `update-not-available`, which has
@@ -119,8 +144,32 @@ export async function checkForUpdates(): Promise<UpdateStatus> {
     }
     return status;
   } catch (error) {
-    return setStatus({ state: "error", message: message(error) });
+    return failed(error);
   }
+}
+
+/** True while an update is downloading or downloaded and waiting for Restart. */
+function busyWithUpdate() {
+  return status.state === "downloading" || status.state === "downloaded";
+}
+
+/**
+ * A release published without the feed file for this platform (the GitHub
+ * provider's "Cannot find latest-mac.yml …", e.g. while a release's assets are
+ * still uploading) is "no update for this build yet", not a failure to keep on
+ * screen until the next check: logged, and the status goes back to `idle`.
+ */
+export function isMissingFeedFile(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === "ERR_UPDATER_CHANNEL_FILE_NOT_FOUND" || /cannot find latest[^\s]*\.yml/i.test(message(error));
+}
+
+function failed(error: unknown): UpdateStatus {
+  if (isMissingFeedFile(error)) {
+    console.warn("[updater] release has no update feed for this platform yet:", message(error));
+    return status.state === "idle" ? status : setStatus({ state: "idle" });
+  }
+  return setStatus({ state: "error", message: message(error) });
 }
 
 /** Download the update that was found. A no-op unless one was. */
