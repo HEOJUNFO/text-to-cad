@@ -179,6 +179,7 @@ export function SelectRow<T extends string>({
   options,
   onChange,
   width = "w-[200px]",
+  disabled = false,
   children,
 }: {
   title: string;
@@ -188,12 +189,14 @@ export function SelectRow<T extends string>({
   options: readonly { value: T; label: string }[];
   onChange: (value: T) => void;
   width?: string;
+  /** Off while another setting makes this one mean nothing; the description says which. */
+  disabled?: boolean;
   children?: React.ReactNode;
 }) {
   return (
     <SettingRow
       control={
-        <Select onValueChange={(next) => onChange(next as T)} value={value}>
+        <Select disabled={disabled} onValueChange={(next) => onChange(next as T)} value={value}>
           <SelectTrigger aria-label={title} className={width} size="sm">
             <SelectValue />
           </SelectTrigger>

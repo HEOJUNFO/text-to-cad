@@ -107,7 +107,12 @@ export function GitPage() {
           title="Auto-delete old worktrees"
         />
         <SelectRow
-          description="How many worktrees per project survive the sweep."
+          description={
+            settings.autoDeleteWorktrees
+              ? "How many worktrees per project survive the sweep."
+              : "How many worktrees per project survive the sweep. Nothing is swept while Auto-delete old worktrees is off."
+          }
+          disabled={!settings.autoDeleteWorktrees}
           keywords="limit count retain"
           onChange={(value) => patch({ worktreeKeepLimit: Number(value) })}
           options={KEEP_LIMITS}

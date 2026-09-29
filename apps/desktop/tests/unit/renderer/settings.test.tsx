@@ -368,3 +368,18 @@ describe("the Agents page when the list cannot be read", () => {
     logged.mockRestore();
   });
 });
+
+describe("the worktree keep limit", () => {
+  it("is off, and says why, while auto-delete is off", () => {
+    useSettings.setState({ settings: { ...defaultSettings(), autoDeleteWorktrees: false }, ready: true });
+    wrap(<GitPage />);
+    expect(screen.getByRole("combobox", { name: "Keep limit" })).toBeDisabled();
+    expect(screen.getByText(/Nothing is swept while Auto-delete old worktrees is off/)).toBeInTheDocument();
+  });
+
+  it("is on once auto-delete is", () => {
+    useSettings.setState({ settings: { ...defaultSettings(), autoDeleteWorktrees: true }, ready: true });
+    wrap(<GitPage />);
+    expect(screen.getByRole("combobox", { name: "Keep limit" })).toBeEnabled();
+  });
+});
