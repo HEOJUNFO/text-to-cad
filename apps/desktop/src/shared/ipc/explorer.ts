@@ -55,6 +55,8 @@ export const TextFileSchema = z.object({
   modifiedAt: z.number(),
   size: z.number(),
   truncated: z.boolean(),
+  /** Not UTF-8: shown, never saved back (`readTextFile`). */
+  readOnly: z.boolean().optional(),
 });
 
 export const BinaryFileSchema = z.object({

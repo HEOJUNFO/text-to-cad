@@ -463,6 +463,13 @@ export type TextFile = {
   size: number;
   /** True when the file was cut at MAX_TEXT_BYTES — the editor goes read-only. */
   truncated: boolean;
+  /**
+   * True when the bytes are not UTF-8 (a Latin-1 or Shift-JIS file). They are
+   * shown with U+FFFD where a byte did not decode, and a save would write
+   * those replacement characters over the original bytes — so it is shown,
+   * not edited.
+   */
+  readOnly?: boolean;
 };
 
 /** A revision is the content's hash: cheap, and stable across a copy. */
@@ -487,7 +494,18 @@ export async function readTextFile(root: string, target: string): Promise<TextFi
     modifiedAt: Math.round(stats.mtimeMs),
     size: stats.size,
     truncated,
+    ...(isUtf8(slice, truncated) ? {} : { readOnly: true }),
   };
+}
+
+/** A cut may split the last character: only bytes before it have to decode. */
+function isUtf8(bytes: Uint8Array, truncated: boolean): boolean {
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes, { stream: truncated });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
