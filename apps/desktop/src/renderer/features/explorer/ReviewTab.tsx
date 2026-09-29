@@ -73,6 +73,18 @@ import type { ChangedFile, FileDiff, GitStatus } from "./types";
  * the tab's life), and every scope is read for that session: its marks, and
  * its working directory, which for a thread in `worktree` mode is not the
  * project's checkout at all. Choosing a scope changes only the scope.
+ *
+ * ## Staying current
+ *
+ * File changes the explorer reports re-read the status in batches: the first
+ * at once, then at most one per `STATUS_GAP_MS` (500 ms), the last batch
+ * always answered. Only a file the answer says something new about re-reads
+ * its diff. A refresh that fails with nothing on screen is an empty state with
+ * Try again; one that fails over an earlier answer keeps that answer, under a
+ * `role="alert"` strip — "Could not refresh" and Try again. A diff that cannot
+ * be read says so with its error and a Retry, over whatever diff it last drew.
+ * Each drawn block carries `data-review-ready` once its editor has drawn
+ * (`review-diff.tsx`), which is what a reader or a test waits on.
  */
 
 const SCOPES = ReviewScopeSchema.options;

@@ -4,6 +4,10 @@
  * dependency caches and repository internals), plus a direct `fs.watch` on
  * each directory the tree listed and on each opened file's parent, all
  * refcounted by the leases each page takes (`src/main/ipc/explorer.ts`).
+ * Each opened file is also held per path with its inode, so a removal and an
+ * addition of the same inode leave as one `moved` change (an agent's `mv`),
+ * and an opened link is an alias that repeats its target's changes under its
+ * own name (`FileWatchers`).
  *
  * Two rules run through everything here.
  *
@@ -812,6 +816,16 @@ type WatchedRoot = {
  * for it, and beside it a direct `fs.watch` per listed directory and per
  * opened file's parent (`watchListedDirectory`), so a directory the
  * background watcher skips stays live while it is on screen.
+ *
+ * Opened files are held per path (`holds`) with their inode (`identities`).
+ * A batch that removes one waits `MOVE_WAIT_MS` for the addition, and a
+ * removal and an arrival with the same inode leave as one `moved` change
+ * (`pairMoves`), the holds moving with it. An opened link is an alias
+ * (`aliases`): its target's changes are repeated under its name, and its own
+ * inode is its identity; when `ln -sfn` re-points it, the inode is taken
+ * again and the alias follows the new target (`retarget`). A
+ * release that overtakes the watch it follows is counted (`arriving`,
+ * `owed`) and given back once that watch holds.
  *
  * Changes are batched: a `git checkout` or an agent's multi-file edit fires
  * hundreds of events in a few milliseconds, and a tree that re-renders per

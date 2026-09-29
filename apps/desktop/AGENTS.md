@@ -26,7 +26,7 @@ phase is not an oversight — it is the seam.
 | P5 (done) | `src/main/cad`, `src/main/integrations` (but `integrations/drawings/`), `src/{shared,main}/ipc/{cad,integrations,runtime,skills}.ts`, `resources/{cadgen,runtime,skills,text-to-cad-mcp}`, `skills/`, `scripts/{build,build-skills,build-mcp,cad-resources,bundle-runtime,perf-cad}.mjs`, `src/renderer/state/integration-commands.ts`, the `reveal` field of the explorer store and tree |
 | Drawings | the drawing tab kind: `src/renderer/features/explorer/DrawingTab.tsx`, `src/renderer/features/explorer/drawing/`, `src/renderer/state/drawings.ts`, `src/main/integrations/drawings/` |
 | P6 | `src/renderer/features/settings` — the pages' contents — and the choosers its path rows use, `src/{shared,main}/ipc/dialogs.ts` |
-| P7 (done) | `src/main/projects` (`git.ts`, `workspace.ts`, `index.ts`), `src/{shared,main}/ipc/git.ts`, `src/renderer/lib/git-mode.ts`, the review tab's scopes and commit popover, Git and worktrees' per-project cards, `tests/e2e/git.spec.ts` |
+| P7 (done) | `src/main/projects` (`git.ts`, `workspace.ts`, `index.ts`), `src/{shared,main}/ipc/git.ts`, `src/renderer/lib/git-mode.ts`, the review tab's scopes and commit strip, Git and worktrees' per-project cards, `tests/e2e/git.spec.ts` |
 | P8 (done) | `electron-builder.yml`, `build/`, `resources/brand`, `scripts/{package,make-icons,make-brand,app-version}.mjs`, `src/main/{updater,telemetry}.ts`, `src/{shared,main}/ipc/app.ts`, the CI jobs |
 | Browser | the embedded browser P3's tab kind grew into: `src/main/browser/`, `src/shared/browser.ts`, `src/{shared,main}/ipc/browser.ts`, `features/explorer/BrowserTab.tsx`, `docs/browser.md` |
 | Clipboard | `src/{shared,main}/ipc/clipboard.ts` — the one door to the native clipboard; renderer callers go through `window.textToCad.clipboard` |
@@ -62,6 +62,9 @@ not.
 
 ## Rules that are easy to break here
 
+Where a test holds a rule, it is named beside it; run it after touching what
+the rule is about.
+
 - **Pure refactor:** package moves preserve all app UI/UX and functionality.
   FileTab hosts `@text-to-cad/ui/file-viewer`; the viewer renderers both apps
   register live in UI, the file renderers only this app registers (Markdown,
@@ -76,11 +79,13 @@ not.
   `ipc/errors.ts`. A shared module that grows a Node import stops
   qualifying. Its one way off the page is `window.textToCad`, built from the
   contract in `src/shared/ipc/index.ts`.
+  (`tests/unit/main/renderer-shared-imports.test.ts` enforces this.)
 - **Every IPC channel is declared once**, as a request schema and a response
   schema. `registerIpc` validates both and refuses to start if a channel has no
   handler. Do not add an `ipcMain.handle` outside it. A branch is its own module
   under `src/shared/ipc/`, spread into the contract; `invoke` comes from
   `./define`, because importing `../ipc` from a branch is a load-time cycle.
+  (`tests/unit/main/ipc-declared-once.test.ts`.)
 - **Root workspace dependencies are installed in this checkout, never borrowed.** electron-builder walks
   the tree by real path: a symlinked `node_modules` resolves every transitive
   dependency to `undefined`, packages an app missing half its modules, and does
@@ -88,7 +93,7 @@ not.
 - **Nothing reads `process.env` for a build-time secret.** The Aptabase key is
   compiled in as `__APTABASE_KEY__` (`electron.vite.config.ts`); a packaged app
   has no build environment, and a key the launcher can set is a key anyone can
-  redirect.
+  redirect. (`tests/unit/main/build-secrets.test.ts`.)
 - **Every path from the renderer arrives with the project it is relative to,
   and optionally a root within it.** Main resolves the pair against that
   project's directory — or, when the request names a `root`, against one of
@@ -97,6 +102,16 @@ not.
   `src/main/projects/workspace.ts`) — after `realpath`, so a symlink is not a
   door — and refuses anything outside. A channel that took a bare path would
   be a channel that reads any file on the machine.
+  (`tests/unit/main/explorer-fs.test.ts` aims links out of the root;
+  `tests/unit/main/git-paths.test.ts` does the same for a review's paths.)
+- **No channel takes a directory by name.** A folder becomes a project only
+  through a chooser main opened, the sample main copied, or a session that
+  already records it, so no request under `projects.*` has a `path` or
+  `directory` field (`tests/unit/shared/projects-no-paths.test.ts`). The one
+  exception is the e2e suite's door, `src/main/test-door.ts`
+  (`installE2eDoor`), installed only when `NODE_ENV=test` and
+  `!app.isPackaged` — an environment variable is something anyone can set in
+  front of a packaged app (`tests/unit/main/test-door.test.ts`).
 - **`src/renderer/components/{ui,ai-elements}` is vendored**, from the shadcn
   and AI Elements registries. It is excluded from eslint (not from the
   typechecker). These deliberate edits are in it: the `ai` package's types are
@@ -125,6 +140,14 @@ not.
   `~/.codex`, and no first-launch install step. Do not add one back: a
   person's own agent configuration is theirs, and an app that edits it is an
   app they cannot uninstall cleanly.
+  (`tests/unit/main/agent-config-untouched.test.ts`.)
+- **Adapter versions are pinned exactly.** `CLAUDE_ADAPTER` and
+  `CODEX_ADAPTER` in `src/main/agents/registry.ts` name one version each,
+  launched through `npm exec --prefer-offline --package=<pkg>@<version>` and
+  never a global install (`tests/unit/main/registry.test.ts`). Bump by the
+  recipe: `npm view <package> version`, change the constant, run
+  `scripts/acp-harness.mjs` for that agent in a scratch directory, re-record
+  its fixture (README, "ACP").
 - **The CAD runtime ships inside the app.** `resources/runtime/<os>-<arch>/`
   is a complete Python with cadgen installed (`scripts/bundle-runtime.mjs`),
   resolved right after an explicit override; a packaged app downloads and
@@ -140,6 +163,7 @@ not.
   one exception is the workspace links, `"@text-to-cad/core": "*"` and
   `"@text-to-cad/ui": "*"`: those resolve to the root workspace's packages,
   not to a registry, and `*` is how npm workspaces spell that.
+  (`tests/unit/main/package-json.test.ts` holds this and the version above.)
 - **No symlinks, ever** (repo-wide law: installers disagree about them and one
   drops them silently).
 - **Nothing goes in the traffic lights' corner.** On macOS AppKit paints the
@@ -162,6 +186,17 @@ not.
   anywhere to reopen it. The geometry is `lib/panes.ts` (pure) and the drag is
   `app/PaneSeparator.tsx`; the session never collapses, and 40px past a
   minimum is the collapse (`PANE_LIMITS.overshoot`).
+- **Every shortcut is a row in `src/renderer/lib/shortcuts.ts`, and every
+  Application row with a modifier is a menu accelerator** in
+  `src/main/menu.ts` — and every accelerator is a row
+  (`tests/unit/main/shortcuts-menu.test.ts`). Add a key to both or to
+  neither.
+- **The docs point at things that exist.** Every backticked path under src,
+  tests, scripts or docs in README.md, AGENTS.md, `docs/` and
+  the headers of the modules `tests/unit/main/doc-paths.test.ts` lists names
+  something on disk, and the README's screenshot paragraph and the e2e specs
+  name the same shots (`tests/unit/main/readme-screenshots.test.ts`). Rename a file, fix
+  the sentence.
 - **No bottom panel.** The terminal is a fourth explorer tab kind. Everything
   secondary lives in the one strip.
 - **Each session owns its explorer and tools.** New sessions start with no

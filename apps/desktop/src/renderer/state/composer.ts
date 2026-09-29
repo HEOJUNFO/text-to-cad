@@ -57,6 +57,12 @@ import type { PromptReference } from "@text-to-cad/core/prompt";
  * viewport is queued as a file for the composer's attachments to pick up —
  * they live inside AI Elements' `PromptInput`, which nothing outside it can
  * reach directly, so `pendingFiles` is the hand-off.
+ *
+ * What is held here lives as long as the session's row in the index. A row
+ * the index no longer lists (a deleted session) takes its queue, draft,
+ * reference labels, annotations, pending files and flags with it (`forget`,
+ * called from the index subscription at the foot of this file); an archived
+ * row keeps them, because archiving does not spend what was typed.
  */
 export type QueuedPrompt = {
   id: string;

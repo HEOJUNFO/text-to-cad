@@ -66,6 +66,7 @@ These environment variables matter in development:
 | `TEXT_TO_CAD_PREWARM` | Under `NODE_ENV=test` both pre-warms are off — the project's (viewer child + cadgen daemon on project open) and the agents' (one idle adapter per agent in the index, see "Opening a session"); `1` turns them on, as `tests/e2e/cad.spec.ts` and `tests/e2e/persistence.spec.ts` do. |
 | `TEXT_TO_CAD_FAKE_AGENT` | Launch this stdio ACP agent instead of whatever the registry says, for every provider. The session and git suites point it at `tests/fake-agent/index.mjs`; a session needs an agent to exist at all, and a real one would make the suite a test of somebody's login state. |
 | `TEXT_TO_CAD_FAKE_AGENT_ARGS` | Extra arguments for that fake agent, split on spaces (`src/main/ipc/acp.ts`). `tests/e2e/launch.ts` passes them as `fakeArgs`; `persistence.spec.ts` uses `--load-delay` to hold `session/load`. The flags are listed at the top of `tests/fake-agent/index.mjs`. |
+| `FAKE_AGENT_PROFILE` | Read by `tests/fake-agent/index.mjs` from its own environment, never by the app. `claude-code` makes the fake agent answer in the Claude adapter's shape (see "ACP"). `tests/unit/main/connection.test.ts` passes it in the connection's `env`; for a dev run, set it beside `TEXT_TO_CAD_FAKE_AGENT` — main's environment reaches the agent through the login-shell capture (`src/main/agents/shell-env.ts` runs `$SHELL -ilc` with it). |
 | `TEXT_TO_CAD_ONBOARDING` | Under `NODE_ENV=test` the first-run welcome and checklist are off, so a fresh test profile opens on the screen it tests; `1` turns them back on (`onboardingEnabled` in `src/main/onboarding.ts`). Outside tests onboarding is always on, and the settings fields decide whether it shows (see Onboarding). |
 | `TEXT_TO_CAD_RUNTIME_CACHE` | Where `npm run bundle:runtime` keeps the downloaded python-build-standalone archives when no `--cache` is given; default `~/.cache/text-to-cad/python` (`defaultCacheDir` in `scripts/bundle-runtime.mjs`). Build-time only; the app never reads it. |
 
@@ -233,7 +234,7 @@ attached to the draft) and `browser-app-shell` (a browser tab's page and
 selection added to the prompt). From `cad.spec.ts`: `file-cad-failed` (the
 runtime broken on purpose) and `file-cad`. From `git.spec.ts`:
 `git-review-all`, `git-review-committed`, `git-commit-panel` (the review
-tab's commit popover), `worktree-explorer` and `git-settings-worktrees` (Settings' per-project worktree card, whole window).
+tab's commit strip), `worktree-explorer` and `git-settings-worktrees` (Settings' per-project worktree card, whole window).
 From `session.spec.ts`: `session-new`, `session-new-model-menu` (a group per
 installed provider), `session-new-mode-menu` (the `Never asks` note under the
 full-access row), `session-streaming`, `session-permission`,
@@ -303,7 +304,10 @@ pool and is the slow assertion of the suite.
 
 `tests/e2e/git.spec.ts` checks transient folder drafts, confirms folder
 choices create no sidebar groups or explorer tabs, and exercises the
-new-worktree choice through the form. No test talks to a model: every agent
+new-worktree choice through the form. Its review assertions wait, file by
+file, for that file's block to carry `data-review-ready` (`review-diff.tsx`
+sets it once the editor has drawn) before counting editors, so a slow run
+fails on the file it was still drawing. No test talks to a model: every agent
 in the suite is the fake.
 
 Nothing in `npm test` loads `better-sqlite3` or `node-pty`: both are built
@@ -603,6 +607,12 @@ session's header menu and from Settings' worktree cards — is
 of its own worktrees (`root`), or the folder its worktrees live in
 (`worktrees: true`). It never takes a bare path; main resolves the request
 against the project and refuses anything else (`src/main/ipc/explorer.ts`).
+The session's own header menu, the `…` beside its title
+(`features/session/SessionHeader.tsx`), is Rename, Copy path, Reveal in
+Finder, then **Disconnect agent** — main closes the adapter and the
+transcript stays on screen, marked closed, under a Reconnect bar — or, for a
+session already disconnected, **Reconnect** in its place; then Archive and
+Delete.
 There are no project rename or delete actions: these
 are directory groups derived from sessions, not saved project records. A
 directory with no matching sessions has no sidebar header. Archiving or
@@ -746,7 +756,14 @@ over the cap, is refused with the reason. A prompt holding a block the agent's
 `promptCapabilities` say it cannot take — an image, a file's contents — is
 refused by main before any turn starts (`refused` on the `sessions.prompt`
 reply, `src/main/acp/sessions.ts`): the session stays idle, the composer keeps
-the draft, and a toast says why.
+the draft, and a toast says why — naming the agent and what to do ("Codex
+cannot take an image in a prompt. Remove the attachment to send.",
+`SessionConnection.refusal`). A queued prompt main refuses goes back into the
+box as it was taken, behind any put back before it, so the box reads in queue
+order, and the queue goes on. A new session's first prompt refused this way
+goes back into that session's box — the session was created and selected
+before the prompt went out (`NewSession.tsx`); only a create that fails keeps
+the new-session screen, with the error and Try again.
 
 Image attachments show a contained thumbnail beside the filename, with an always-visible remove control. Click the thumbnail (or focus it and press Enter) to inspect the full image. Escape, Close or the backdrop dismisses the preview and returns focus to the thumbnail; the draft is unchanged. Explorer tabs use a bordered active state and visible keyboard focus on selection and close controls.
 
@@ -783,6 +800,11 @@ a fresh request.
 Each changed file in Review has **Request revision**. It appends the file and
 review scope to the draft, plus selected original or modified code and its line
 numbers when present, and focuses the composer for the requested change.
+Review stays current on its own: file changes re-read git's status, at most
+one read per 500 ms (`STATUS_GAP_MS` in `ReviewTab.tsx`), and re-read only the
+diffs of files the answer says changed. A diff that cannot be read says so,
+with git's words and a Retry. A refresh that fails keeps the last answer on
+screen, marked stale under a "Could not refresh" line with Try again.
 
 The composer's paperclip opens one picker for files and photos. The viewer's
 camera button adds the current view and selected references to the draft.
@@ -802,9 +824,11 @@ on every `config_option_update`; an installed agent that has never run here is
 **probed** once — spawn the adapter, `initialize`, `session/new` in the
 project's directory with the same MCP servers a real session gets, keep the
 config options, close without prompting. One probe per agent at a time, and a
-probe never `npx`-fetches an adapter for an agent whose CLI is not on the
-machine: a session is something a person asked for and worth a download, a
-probe is speculative. An agent that cannot answer — not installed, not signed
+probe never fetches the pinned adapter for an agent the detector does not list
+as installed (`SessionManager.canProbe` in `src/main/acp/sessions.ts`; a
+launch override such as `TEXT_TO_CAD_FAKE_AGENT` counts as installed): a
+session is something a person asked for and worth a download, a probe is
+speculative. An agent that cannot answer — not installed, not signed
 in, adapter will not start — contributes **no** models, which is the whole of
 "do not show models that cannot be run".
 
@@ -934,6 +958,53 @@ this build does not understand is ignored rather than thrown on.
 What a turn cost in dollars is in none of it: it is a number nobody acts
 on mid-thread, and a price tag on a box someone is about to type into is a
 poor thing to put in front of them.
+
+## Keyboard
+
+Every shortcut is a row in `src/renderer/lib/shortcuts.ts`, which Settings ›
+Keyboard shortcuts prints; the ones the app menu also declares are its accelerators, so
+they work with focus inside a webview (see "Rules that are easy to break" in
+AGENTS.md). The menu's New Session and Settings… with no window open one and
+hold the command until its page calls `ui.ready` (`src/main/menu.ts`): pushed
+at load, it could arrive before the page listened. A view toggle with no
+window does nothing.
+
+**Landmarks and panes.** The session is the `main`, the sidebar an `aside`,
+the explorer a named `section`, which also scopes each pane's own `<header>`
+(`app/Shell.tsx`). F6 and Shift+F6 move focus to the next and the previous
+pane on screen, skipping one that is shut, and on the window's capture phase,
+so they work from inside an editor or a terminal. Focus returns to where it
+last was in that pane while that element is still there; the first time it
+lands on the sidebar's current session, the composer, or the explorer's strip
+tab, else the pane's first control. A pane that closes with focus in it — ⌘B,
+⌘⌥B, its toggle, a drag past its minimum — hands that focus to its toggle,
+now in the session's title bar, so the next ⌘B or Enter brings the pane back
+(`useFocusSurvivesCollapse`). ⌘⌥B opening the explorer takes focus into it:
+its strip's tab, else `+`.
+
+**The explorer.** The tab strip is one Tab stop (`TabStrip.tsx`): the arrows,
+Home and End move focus between tabs without selecting them — manual
+activation, because a selected terminal or browser tab mounts a pty or a
+webview — and Enter or Space selects; Delete closes the focused tab and focus
+goes to its neighbour, or to `+` after the last. The file tree is a roving
+single Tab stop as well (see "The file tab's nav"). A file opened from a tab's
+tree or crumbs takes focus with it, to the tree's cursor row in the new tab
+(`features/explorer/focus.ts`); a tab the person opens or picks gives its body
+focus when the body can take it (a terminal once its shell is attached), else
+its strip tab. Monaco and the terminal would keep Tab for themselves: Ctrl+Shift+M
+on every platform toggles tab-focus mode (Monaco's own binding on macOS, added
+elsewhere in `renderers/code/editor/setup.ts`; one switch for every terminal
+in `TerminalTab.tsx`), and while it is on Tab and Shift+Tab leave the editor
+or the shell.
+
+**Focus coming back.** The command palette and Settings' agent drawer hand
+focus back to what had it when they close (`hooks/use-return-focus.ts`),
+since neither has a trigger for Radix to return it to. A disconnected
+session's Reconnect bar goes away with its button, so focus waits on the
+composer's row and goes into the box once the agent is back. Toasts sit top
+right under the title strip (`app/App.tsx`), clear of the composer they would
+otherwise cover. The selected session row and Settings' current page carry
+`aria-current="page"`.
 
 ## The explorer strip
 
@@ -1085,6 +1156,23 @@ parent receives a direct watch, including Git-ignored outputs. Those files stay
 live without expanding their folders, and all watches close when their root's
 last owner leaves.
 
+An opened file is held per path (`FileWatchers` in `src/main/explorer/fs.ts`),
+with its inode. The watcher reports a rename as a removal and an addition, so
+a batch that removes an open file waits `MOVE_WAIT_MS` (250 ms) for the
+addition, and a removal and an arrival with the same inode become one `moved`
+change: the tab follows the file to its new name, and its holds go with it.
+The app's own save is an atomic rename, a new inode at the same path, so the
+inode is taken again whenever the file changes under its name. An opened link
+is an alias: its target's directory is watched and the target's changes are
+repeated under the link's name; the link's own inode is its identity. When
+`ln -sfn` re-points it, the inode is taken again and the alias moves to the
+new target (a target outside the root is none), so its changes are the ones
+repeated and renaming the link still moves its tab; moving the target leaves
+the link dangling — a removal to its tab. A
+tab that remounts gives its paths back and takes them again; a release that
+overtakes the watch it follows is counted (`arriving`, `owed`) and given back
+once that watch holds, so no hold is left behind.
+
 ### The file tab's nav
 
 One row: the breadcrumb, with the unsaved dot and the file's loading or update
@@ -1106,7 +1194,9 @@ from native/copy `FileActions`. Writes return structured revision conflicts,
 never parsed error text. Main serializes same-path writes, checks the expected
 content revision immediately before a same-directory atomic replacement, and
 preserves file permissions. Cancellation cannot reverse a dispatched commit.
-Committed move events remap every matching tab and cached/expanded subtree;
+Committed move events — the app's own renames, and an agent's `mv` of an
+open file, paired by inode in the watcher (above) — remap every matching tab
+and cached/expanded subtree;
 delete events prune descendant listings. A bounded mutation-receipt history
 prevents the broadcast and initiating caller's receipt from applying a move
 twice. External edits preserve dirty drafts and refresh clean documents.
@@ -1154,8 +1244,9 @@ alone at the bottom and goes to the OS trash (`shell.trashItem`) with no
 dialog — the trash is the undo. Rename and the two `New …` are typed in
 place (`@text-to-cad/ui/navigation`'s `InlineName.jsx`: Enter commits, Escape cancels, clicking away
 commits, the stem is selected and the extension is not); from a crumb they
-go to the tree, which is shown for them. F2 renames the tree's cursor row,
-⌘⌫ (Ctrl+Delete) trashes it. Every edit is an `explorer.*` request main
+go to the tree, which is shown for them. The tree is one Tab stop: the arrows
+move focus row to row, and the focused row is the cursor every key acts on —
+F2 renames it, ⌘⌫ (Ctrl+Delete) trashes it. Every edit is an `explorer.*` request main
 resolves against the root and refuses outside it (`src/main/explorer/fs.ts`
 for create/rename/duplicate, plain Node and unit-tested; trash, reveal and
 `Open with…` — a chooser over `/Applications` then `open -a`, the shell's
@@ -1320,6 +1411,18 @@ kills the app and its helpers at an absolute deadline, 1.2 seconds from
 teardown and watchdog startup toward the same budget. A quit that finishes
 on its own — half a second without WebGL —
 gives it nothing to do.
+
+An update's quit is different. electron-updater spawns the NSIS installer
+(Windows) or the new AppImage (Linux) as a child of the app and then quits,
+so `before-quit-for-update` marks the quit as an update's
+(`markQuittingForUpdate` in `src/main/quitting.ts`) and the watchdog then
+kills the app's own process only — no `taskkill /T`, no child scan — rather
+than the installer with it. macOS keeps the tree kill: Squirrel's ShipIt is
+launched by launchd, not the app, so there is only helpers to spare. And an
+install that is refused (an unsigned update on macOS, an installer that fails
+to spawn) comes back as the updater's `error`, which puts back the scheduled
+checks `installUpdate` stopped (`src/main/updater.ts`), so the session goes on
+checking.
 
 ## CAD runtime
 
@@ -1657,26 +1760,44 @@ session's mode decides what is asked and a request that arrives is answered
 in the transcript — and a terminal with no transcript has to say something,
 unattended, for a recording run to finish. Those recordings are the reducer's test corpus
 (`tests/unit/shared/reduce.test.ts`) and what `tests/fake-agent` replays for
-the connection tests. Re-record after an adapter upgrade; never run the
-harness against this repository, use a scratch directory.
+the connection tests. Re-record after bumping an adapter's pinned version
+(below); never run the harness against this repository, use a scratch
+directory.
 
-Two things learned from the real adapters that the code now depends on:
+Three things learned from the real adapters that the code now depends on:
 
+- Each adapter is pinned to an exact version in `src/main/agents/registry.ts`
+  — `CLAUDE_ADAPTER` (`@agentclientprotocol/claude-agent-acp` 0.84.0) and
+  `CODEX_ADAPTER` (`@agentclientprotocol/codex-acp` 1.13.1) — and launched as
+  `npm exec --yes --prefer-offline --no-audit --no-fund --no-update-notifier
+  --package=<pkg>@<version> -- <bin>`: fetched once into npm's cache, never a
+  global install or a bare `npx`. `--prefer-offline` because `--prefer-online`
+  puts a registry round trip in front of every spawn, and with a proxy
+  refusing connections that held a session start for 71 s before npm fell
+  back to its cache. Settings › Agents shows the pin beside the CLI's own
+  version. To bump one: `npm view <package> version`, change the constant,
+  run `scripts/acp-harness.mjs` for that agent in a scratch directory, and
+  re-record its fixture.
 - Both adapters accept the draft subagent capability and then send update
   kinds (`subagent_spawned`, `subagent_state_update`) that SDK 1.4.0's schema
   rejects. The connection reads every `session/update` raw off the wire and
   only forwards the kinds the SDK knows, so the reducer sees everything.
 - A terminal started from inside a Claude Code session carries that session's
-  environment (`CLAUDECODE`, `CLAUDE_CODE_*`, its `ANTHROPIC_BASE_URL`). A
-  nested `claude` then reports itself logged out and the adapter answers
-  `Authentication required`. `shell-env.ts` strips those when it sees the
-  marker. The Claude fixture on this machine is the auth-failure exchange for
+  environment. A nested `claude` then reports itself logged out and the
+  adapter answers `Authentication required`. When `CLAUDECODE` is set,
+  `src/main/agents/shell-env.ts` strips everything `HOST_SESSION_PATTERN`
+  names — `CLAUDECODE`, `CLAUDE_CODE_*`, `CLAUDE_PID`, `CLAUDE_EFFORT`,
+  `CLAUDE_TMPDIR`, `CLAUDE_PLUGIN_DATA`, `CLAUDE_AGENT_SDK_*`,
+  `CLAUDE_PREVIEW_*` — and `ANTHROPIC_BASE_URL`; without the marker a user's
+  own `ANTHROPIC_BASE_URL` (a proxy) stays, and `CLAUDE_CONFIG_DIR` always
+  stays, being the person's own choice. The Claude fixture on this machine is the auth-failure exchange for
   that reason (`claude-code-auth-required.jsonl`); a machine with a signed-in
   `claude` (`claude auth status` → `loggedIn: true`) records a full session.
-  Until one is recorded, `FAKE_AGENT_PROFILE=claude-code` makes
-  `tests/fake-agent` answer in the shape a real Claude session showed —
-  its modes and config options, the 129-command list after `session/new`,
-  mid-turn and after `session/load`, a title sent live only.
+  Until one is recorded, the fake agent's `claude-code` profile
+  (`FAKE_AGENT_PROFILE`, in the environment table under Development) answers
+  in the shape a real Claude session showed — its modes and config options,
+  the 129-command list after `session/new`, mid-turn and after
+  `session/load`, a title sent live only.
 
 ### Opening a session
 
@@ -1773,17 +1894,33 @@ anything. That directory is also the session's *identity* in the agent's own
 store — both `codex resume` and `claude --resume` key their threads by cwd —
 so a text-to-cad worktree session is resumable from a terminal later.
 
-Nothing is deleted automatically unless auto-delete is on. With it on,
-deleting a session removes its worktree, never forced (`releaseWorkspace`), and
-the keep-limit sweep runs after each worktree is created (`pruneProjectWorktrees`
-in `src/main/ipc/git.ts`) and never removes a worktree outside the project's
+A branch prefix git would refuse cannot be typed in: the field says why and
+writes nothing. One stored before that check existed is read as the default
+(`text-to-cad/`), and `settings.fallbacks()` (`src/shared/ipc/index.ts`)
+reports the stored value, so the Git page (`GitPage.tsx`) flags it in a
+warning beside the field with **Use default**, which stores the default over
+it.
+
+A worktree that belongs to a session is deleted automatically only when
+auto-delete is on. The exception is a create that fails: its row goes, and the
+worktree that create made goes with it whatever the setting
+(`releaseWorkspace(…, { abandoned: true })` in `src/main/projects/workspace.ts`,
+called from `SessionManager.create`) — never a worktree it was handed by `New
+session in this worktree`. With auto-delete on, deleting a session removes its
+worktree, never forced (`releaseWorkspace`), and the keep-limit sweep
+(`pruneProjectWorktrees` in `src/main/ipc/git.ts`) starts once a new
+worktree's session row is written (`sessionWorkspaceSettled`), unawaited, so
+the new one is already protected and the session's start never waits. It
+also clears a worktree whose folder was deleted by hand, which has nothing
+left to lose (`folderGone` in `src/main/projects/git.ts`). It never removes a worktree outside the project's
 worktree folders, a locked one, one that holds any session row's `cwd`,
 `projectId` or `worktreePath` — archived sessions included — or a create still
 in flight, or one with uncommitted changes or ignored files that are not a
 disposable cache (`hasUnsavedWork`). The limit counts only the worktrees it
 could remove. A branch is deleted only when a failed create abandons the
 worktree it made, and then only while it still points where it was cut
-(`deleteBranchAtBase`) — a checkout can be recreated, the commits on it cannot.
+(`deleteBranchAtBase`; with no recorded head, only if `git branch -d` would
+take it) — a checkout can be recreated, the commits on it cannot.
 
 The review's scopes are the other half of this. Main records HEAD when a
 session is created and again at the start of every turn (`sessions.sessionHead`
