@@ -1252,6 +1252,11 @@ function generatedName(): string {
 /**
  * The first of `<stem>`, `<stem>-2`, `<stem>-3`… whose directory does not
  * exist and whose branch is not taken.
+ *
+ * Taken means locally *or on a remote*, as far as this checkout knows (after
+ * the fetch, when `fetchBeforeCreate` asked for one): an `origin/<prefix>/<slug>`
+ * someone else pushed is a branch the review's `Push` would be rejected by —
+ * or, when theirs is behind, would silently advance.
  */
 async function uniqueName(
   root: string,
@@ -1259,6 +1264,10 @@ async function uniqueName(
   prefix: string,
   stem: string,
 ): Promise<{ directory: string; branch: string }> {
+  const remote = ((await tryGit(root, ["for-each-ref", "--format=%(refname)", "refs/remotes/"])) ?? "")
+    .split("\n")
+    .filter((ref) => ref !== "");
+  const onRemote = (branch: string) => remote.some((ref) => ref.endsWith(`/${branch}`));
   for (let attempt = 1; attempt <= 100; attempt += 1) {
     const name = attempt === 1 ? stem : `${stem}-${attempt}`;
     const directory = path.join(parentDir, name);
@@ -1270,7 +1279,7 @@ async function uniqueName(
     if (exists) {
       continue;
     }
-    if (await tryGit(root, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])) {
+    if (onRemote(branch) || await tryGit(root, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])) {
       continue;
     }
     return { directory, branch };
@@ -1491,20 +1500,50 @@ export async function createPullRequest(
 
   const stdout = typeof result.stdout === "string" ? result.stdout : "";
   const stderr = typeof result.stderr === "string" ? result.stderr : "";
-  const url = findUrl(stdout) ?? findUrl(stderr);
-  if (!url) {
+  if (result.exitCode === 0) {
+    const url = findUrl(stdout) ?? findUrl(stderr);
+    if (url) {
+      return { url };
+    }
     throw new GitError(stderr.trim() || "gh did not print a pull request URL");
   }
-  return { url };
+  // `already exists: <url>` names *a* pull request from a branch of this name,
+  // not necessarily this session's: it is the answer only when it is the
+  // person's own and its head is the commit just pushed.
+  const existing = /already exists/i.test(stderr) ? findUrl(stderr) : null;
+  if (existing && (await ownPullRequest(root, existing, options.env))) {
+    return { url: existing };
+  }
+  throw new GitError(
+    existing
+      ? `a pull request from a branch called ${branch} already exists, and it is not this one: ${existing}`
+      : stderr.trim() || "gh did not print a pull request URL",
+  );
 }
 
-/**
- * The URL in `gh`'s output.
- *
- * `gh pr create` prints the URL on its own line on success and, when the pull
- * request already exists, an error naming the existing one — which is the
- * answer the user wanted either way, so both are read the same.
- */
+/** True when the pull request at `url` is the signed-in user's, at this checkout's HEAD. */
+async function ownPullRequest(root: string, url: string, env?: NodeJS.ProcessEnv): Promise<boolean> {
+  const gh = (args: string[]) =>
+    tracked(execa("gh", args, { ...GIT_OPTIONS, cwd: root, ...(env ? { env, extendEnv: false } : {}) }))
+      .then((result) => (result.exitCode === 0 && typeof result.stdout === "string" ? result.stdout.trim() : null))
+      .catch(() => null);
+  const [viewed, login, local] = await Promise.all([
+    gh(["pr", "view", url, "--json", "author,headRefOid"]),
+    gh(["api", "user", "--jq", ".login"]),
+    head(root),
+  ]);
+  if (!viewed || !login || !local) {
+    return false;
+  }
+  try {
+    const pr = JSON.parse(viewed) as { author?: { login?: string }; headRefOid?: string };
+    return pr.author?.login === login && pr.headRefOid === local;
+  } catch {
+    return false;
+  }
+}
+
+/** The URL in `gh`'s output. */
 export function findUrl(output: string): string | null {
   return /https:\/\/\S+/.exec(output)?.[0]?.replace(/[.,)]+$/, "") ?? null;
 }

@@ -139,6 +139,52 @@ describe("findUrl", () => {
   });
 });
 
+describe("createPullRequest", () => {
+  /** A `gh` on PATH that reports an existing pull request by `author` at `head`. */
+  async function fakeGh(author: string, headOid: string) {
+    const bin = await scratch("text-to-cad-gh-");
+    const script = [
+      "#!/bin/sh",
+      'case "$1 $2" in',
+      '  "pr create") echo \'a pull request for branch "text-to-cad/wrist" into branch "main" already exists:\' >&2;'
+        + ' echo "https://github.com/o/r/pull/7" >&2; exit 1 ;;',
+      `  "pr view") echo '{"author":{"login":"${author}"},"headRefOid":"${headOid}"}' ;;`,
+      '  "api user") echo "me" ;;',
+      "esac",
+    ].join("\n");
+    await writeFile(path.join(bin, "gh"), `${script}\n`, { mode: 0o755 });
+    return { ...GIT_ENV, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}` };
+  }
+
+  async function pushed() {
+    const { root, worktrees } = await repository();
+    const remote = path.join(path.dirname(root), "remote.git");
+    await git_(path.dirname(root), "init", "--quiet", "--bare", "--initial-branch=main", remote);
+    await git_(root, "remote", "add", "origin", remote);
+    await git_(root, "push", "--quiet", "-u", "origin", "main");
+    const created = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "wrist" });
+    return { cwd: created.path, head: (await git.head(created.path))! };
+  }
+
+  it("does not take someone else's pull request from a branch of the same name as this one", async () => {
+    const { cwd, head } = await pushed();
+    const env = await fakeGh("someone-else", head);
+    await git.ghAvailable(env, true);
+    await expect(git.createPullRequest(cwd, { title: "Wrist", env })).rejects.toThrow(
+      "already exists, and it is not this one: https://github.com/o/r/pull/7",
+    );
+  });
+
+  it("answers the existing pull request when it is the person's own, at the commit just pushed", async () => {
+    const { cwd, head } = await pushed();
+    const env = await fakeGh("me", head);
+    await git.ghAvailable(env, true);
+    await expect(git.createPullRequest(cwd, { title: "Wrist", env })).resolves.toEqual({
+      url: "https://github.com/o/r/pull/7",
+    });
+  });
+});
+
 describe("isUnder and samePath", () => {
   it("keeps the sweep inside its own root", () => {
     expect(git.isUnder("/a/b", "/a/b/c")).toBe(true);
@@ -236,6 +282,23 @@ describe("createWorktree", () => {
     await git_(root, "branch", "text-to-cad/wrist-3");
     const third = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "wrist" });
     expect(third.branch).toBe("text-to-cad/wrist-4");
+  });
+
+  it("steps over a branch name someone else already has on the remote", async () => {
+    const { root, worktrees } = await repository();
+    const remote = path.join(path.dirname(root), "remote.git");
+    await git_(path.dirname(root), "init", "--quiet", "--bare", "--initial-branch=main", remote);
+    await git_(root, "remote", "add", "origin", remote);
+    await git_(root, "push", "--quiet", "-u", "origin", "main");
+    // Another machine pushed `text-to-cad/wrist`; only the fetch tells this checkout.
+    await git_(root, "push", "--quiet", "origin", "main:refs/heads/text-to-cad/wrist");
+    await git_(root, "update-ref", "-d", "refs/remotes/origin/text-to-cad/wrist");
+
+    const fetched = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "wrist", fetch: true });
+    expect(fetched.branch).toBe("text-to-cad/wrist-2");
+    // Without a fetch, what the checkout already knows of the remote still counts.
+    const known = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "wrist" });
+    expect(known.branch).toBe("text-to-cad/wrist-3");
   });
 
   it("with fetch, starts from the fetched upstream rather than local HEAD, and tracks nothing", async () => {
