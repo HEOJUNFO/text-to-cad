@@ -524,6 +524,24 @@ export class SessionManager {
   }
 
   /**
+   * Whether `probeOptions` would run for this agent at all: its CLI is on
+   * this machine, or a launch override makes every provider the same test
+   * process. `launchWithoutBinary` is not enough — it says the adapter can
+   * run without the CLI, which a session the person asked for may use, not
+   * that a speculative probe should fetch it (see `probeOptions`).
+   */
+  canProbe(agentId: string): boolean {
+    const provider = agentProvider(agentId);
+    if (!provider) {
+      return false;
+    }
+    if (this.deps.launchOverride?.(provider.id)) {
+      return true;
+    }
+    return this.deps.detector.list().find((candidate) => candidate.id === provider.id)?.installed === true;
+  }
+
+  /**
    * What one `session/new` with this agent would offer, without keeping the
    * session: the adapter is spawned exactly as a real session's is — the same
    * environment, the same MCP servers, the project's own directory — asked
@@ -546,7 +564,6 @@ export class SessionManager {
       throw new Error(`unknown agent: ${input.agentId}`);
     }
     const launch = this.deps.launchOverride?.(provider.id) ?? null;
-    const status = this.deps.detector.list().find((candidate) => candidate.id === provider.id);
     // Stricter than `connect`, on purpose. A session is something a person
     // asked for and is worth an `npx -y` download; a probe is speculative,
     // and eight `launchWithoutBinary` providers fetching their adapters on a
@@ -554,7 +571,7 @@ export class SessionManager {
     // nobody asked for. So: the CLI is on this machine, or nothing. (With a
     // launch override in force every provider is the same test process, and
     // the machine's PATH says nothing about it.)
-    if (!launch && !status?.installed) {
+    if (!this.canProbe(provider.id)) {
       throw new Error(`${provider.name} is not installed`);
     }
     if (!existsSync(input.cwd)) {

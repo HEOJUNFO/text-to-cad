@@ -1053,6 +1053,12 @@ describe("SessionManager", () => {
     expect(manager.list()).toHaveLength(0);
   });
 
+  it("says which agents a probe would run for: an installed CLI, or a launch override", async () => {
+    expect((await setup()).manager.canProbe("claude-code")).toBe(false);
+    expect((await setup({ launchOverride: () => fakeProvider.launch })).manager.canProbe("claude-code")).toBe(true);
+    expect((await setup()).manager.canProbe("no-such-agent")).toBe(false);
+  });
+
   it("refuses to probe an agent whose CLI is not on the machine", async () => {
     const { manager, cwd } = await setup();
     await expect(manager.probeOptions({ agentId: "claude-code", cwd, projectId: "p1" })).rejects.toThrow(

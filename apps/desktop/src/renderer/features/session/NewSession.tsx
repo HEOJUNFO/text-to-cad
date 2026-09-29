@@ -107,6 +107,9 @@ export function NewSession({ project }: { project: Project }) {
   // Every installed agent is asked for a snapshot the first time this screen
   // is looked at. Main answers from its cache when it has one and spawns a
   // single probe when it does not, so this is a no-op after the first run.
+  // An adapter-only agent whose CLI is not here is asked too, and main
+  // answers at once without spawning (`SessionManager.canProbe`): only main
+  // knows when the fake agent's launch override makes it probeable anyway.
   // Which of those probes are still out: the model chip says "Loading
   // models…" while one is, rather than being absent. Counted per set of
   // agents and project, so a new round starts from none answered.
