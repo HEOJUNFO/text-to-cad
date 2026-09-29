@@ -16,6 +16,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { cn } from "cn";
+import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 
 import { Button } from "@renderer/components/ui/button";
 import {
@@ -248,10 +249,14 @@ function StateGlyph({ status }: { status: SessionStatus }) {
 }
 
 /**
- * What the thread's turns changed, as a compact `+9 −1` after the title —
- * main tallies the agent's reported diffs onto the row
- * (`Session.changedFiles/insertions/deletions`). Nothing at all while the
- * counts are zero. A click opens the Review tab in this session's explorer.
+ * What the thread's turns changed, as a compact `+8 −1` after the title —
+ * main tallies the diffs the agent *reported* onto the row
+ * (`Session.changedFiles/insertions/deletions`). Review reads git instead, so
+ * the two can differ (the person edited a file too, or the agent wrote one
+ * without reporting it); the hint says which count this is. A side that is
+ * zero is not drawn — a red `−0` reads as a removal — and nothing at all is
+ * drawn while every count is zero. A click opens the Review tab in this
+ * session's explorer.
  */
 function ChangeCounts({ session, onOpen }: { session: Session; onOpen: () => void }) {
   const { changedFiles, insertions, deletions } = session;
@@ -260,22 +265,28 @@ function ChangeCounts({ session, onOpen }: { session: Session; onOpen: () => voi
   }
   const files = `${changedFiles} ${changedFiles === 1 ? "file" : "files"} changed`;
   return (
-    <button
-      aria-label={`Review changes: ${files}, ${insertions} added, ${deletions} removed`}
-      className="flex h-5 shrink-0 items-center gap-1 rounded-sm px-1 font-mono text-[11px] leading-none tabular-nums hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-      data-session-changes
-      onClick={(event) => {
-        event.stopPropagation();
-        onOpen();
-      }}
-      title={`${files} — open Review`}
-      type="button"
-    >
-      <span className="text-success">+{insertions}</span>
-      <span className="text-destructive">−{deletions}</span>
-    </button>
+    <TooltipHint content={`${REPORTED_HINT} — Review shows the working tree`}>
+      <button
+        aria-label={`Review changes: ${files}, ${insertions} added, ${deletions} removed. ${REPORTED_HINT}; Review shows the working tree`}
+        className="flex h-4 shrink-0 items-center gap-0.5 rounded-sm px-0.5 font-mono text-[10px] leading-none tabular-nums hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        data-session-changes
+        onClick={(event) => {
+          event.stopPropagation();
+          onOpen();
+        }}
+        type="button"
+      >
+        {insertions > 0 ? <span className="text-success">+{insertions}</span> : null}
+        {deletions > 0 ? <span className="text-destructive">−{deletions}</span> : null}
+        {insertions === 0 && deletions === 0 ? (
+          <span className="text-muted-foreground">{changedFiles}f</span>
+        ) : null}
+      </button>
+    </TooltipHint>
   );
 }
+
+const REPORTED_HINT = "Edits the agent reported this session";
 
 /**
  * Where the thread writes, when that is worth saying: a worktree, or a branch

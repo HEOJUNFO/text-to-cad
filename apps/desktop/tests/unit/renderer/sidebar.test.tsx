@@ -356,6 +356,9 @@ describe("Sidebar", () => {
     wrap(<Sidebar />);
     const pill = screen.getByRole("button", { name: /Review changes: 2 files changed/ });
     expect(pill).toHaveTextContent("+9−1");
+    // The row counts what the agent reported; Review counts git. The name says so.
+    expect(pill).toHaveAccessibleName(/Edits the agent reported this session; Review shows the working tree/);
+    expect(pill).not.toHaveAttribute("title");
     expect(document.querySelectorAll("[data-session-changes]")).toHaveLength(1);
 
     await user.click(pill);
@@ -388,7 +391,10 @@ describe("Sidebar", () => {
       show,
     } as never);
     wrap(<Sidebar />);
-    await user.click(screen.getByRole("button", { name: /Review changes/ }));
+    const pill = screen.getByRole("button", { name: /Review changes/ });
+    // A zero side is not drawn: no red `−0`.
+    expect(pill).toHaveTextContent(/^\+3$/);
+    await user.click(pill);
     expect(open).not.toHaveBeenCalled();
     expect(update).toHaveBeenCalledWith("r1", { scope: "session" });
     expect(setActive).toHaveBeenCalledWith("r1");
