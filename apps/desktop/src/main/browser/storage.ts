@@ -5,6 +5,7 @@
  * found without the session row.
  */
 import { createHash } from "node:crypto";
+import { existsSync, realpathSync, renameSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { app, session } from "electron";
@@ -24,16 +25,38 @@ export function browserScopeKey(scope: BrowserScope) { return JSON.stringify([sc
 export function browserSessionKey(sessionId: string) { return sha256(sessionId); }
 export function browserArtifactsRoot(userData: string) { return path.join(userData, "browser-artifacts"); }
 
+/** The name alone, without migrating anything or recording a use. */
+export const browserPartitionName = (scope: BrowserScope) => `persist:${partitionName(scope)}`;
+const partitionName = (scope: BrowserScope) => `browser-${browserSessionKey(scope.sessionId)}-${sha256(browserScopeKey(scope)).slice(0, 32)}`;
+/** The name before the session prefix; still on disk for sessions created by an older build. */
+export const legacyPartitionName = (scope: BrowserScope) => `browser-${sha256(browserScopeKey(scope))}`;
+const openedNames = () => new Set([...opened.values()].flatMap(names => [...names]).map(name => name.slice("persist:".length)));
+function userDataOrNull() { try { return app.getPath("userData"); } catch { return null; } }
+
+/** Move an older build's partition to its current name, so logins and cookies survive the rename. */
+function migrateLegacyPartition(partitions: string, scope: BrowserScope) {
+  const legacy = path.join(partitions, legacyPartitionName(scope));
+  const next = path.join(partitions, partitionName(scope));
+  if (!existsSync(legacy)) return false;
+  if (existsSync(next)) return false;
+  renameSync(legacy, next);
+  return true;
+}
+
 /**
  * `persist:browser-<sha256(session)>-<sha256(scope)[:32]>`: pages in one
  * session and workspace share storage, separate sessions never do, and the
- * prefix names the owning session. (Before the session prefix a partition was
- * `browser-<sha256(scope)>`; nothing opens those any more and the sweep
- * removes them.)
+ * prefix names the owning session. The first use this run moves an older
+ * build's `browser-<sha256(scope)>` directory to the new name, before
+ * Chromium creates it.
  */
-export function browserPartition(scope: BrowserScope) {
-  const partition = `persist:browser-${browserSessionKey(scope.sessionId)}-${sha256(browserScopeKey(scope)).slice(0, 32)}`;
+export function browserPartition(scope: BrowserScope, userData = userDataOrNull()) {
+  const partition = `persist:${partitionName(scope)}`;
   const names = opened.get(scope.sessionId) ?? new Set<string>();
+  if (!names.has(partition) && userData) {
+    try { migrateLegacyPartition(path.join(userData, "Partitions"), scope); }
+    catch (error) { console.warn(`[browser] could not migrate a browser partition: ${String(error)}`); }
+  }
   names.add(partition); opened.set(scope.sessionId, names);
   return partition;
 }
@@ -62,24 +85,51 @@ export async function clearBrowserSessionStorage(sessionId: string, host: Browse
   for (const result of results) if (result.status === "rejected") console.warn(`[browser] could not clear a deleted session's storage: ${String(result.reason)}`);
 }
 
+export type LiveBrowserSession = { id: string; projectId: string; cwd: string };
+
 /**
- * Remove partitions and artifact directories whose session no longer exists
- * (deleted while the app was not running, or by a build without this cleanup),
- * and every pre-prefix partition. Only directories never loaded this run are
- * touched: a live session's are kept by `liveSessionIds`.
+ * Migrate, then remove what no session owns:
+ * - an older build's `browser-<sha256(scope)>` partition is renamed to its
+ *   current name when a live session's scope (its recorded directory, after
+ *   realpath) hashes to it, and removed only when every live session's scope
+ *   could be computed and none does;
+ * - a current partition or artifact directory whose session no longer exists
+ *   (deleted while the app was not running, or by an older build) is removed.
+ * The directories are listed before the sessions are read, so a session
+ * created mid-sweep is never mistaken for an orphan; anything opened or
+ * cleared this run is skipped as well (an agent's page can open before the
+ * first renderer request).
  */
-export async function sweepBrowserStorage(liveSessionIds: Iterable<string>, userData = app.getPath("userData")) {
-  const live = new Set([...liveSessionIds].map(browserSessionKey));
-  const doomed: string[] = [];
+export async function sweepBrowserStorage(liveSessions: () => Iterable<LiveBrowserSession>, userData = app.getPath("userData")) {
   const partitions = path.join(userData, "Partitions");
-  for (const entry of await entries(partitions)) {
-    const match = /^browser-([0-9a-f]{64})(-[0-9a-f]{32})?$/.exec(entry);
-    if (!match || cleared.has(entry)) continue;
-    if (!match[2] || !live.has(match[1]!)) doomed.push(path.join(partitions, entry));
-  }
   const artifacts = browserArtifactsRoot(userData);
-  for (const entry of await entries(artifacts)) {
-    if (/^[0-9a-f]{64}$/.test(entry) && !live.has(entry)) doomed.push(path.join(artifacts, entry));
+  const [partitionEntries, artifactEntries] = await Promise.all([entries(partitions), entries(artifacts)]);
+  const sessions = [...liveSessions()];
+  const live = new Set(sessions.map(session => browserSessionKey(session.id)));
+  const legacy = new Map<string, BrowserScope>();
+  let unresolved = false;
+  for (const session of sessions) {
+    let root: string;
+    try { root = realpathSync(session.cwd); } catch { unresolved = true; continue; }
+    const scope = { sessionId: session.id, projectId: session.projectId, root };
+    legacy.set(legacyPartitionName(scope), scope);
+  }
+  const doomed: string[] = [];
+  const skip = () => new Set([...openedNames(), ...cleared]);
+  for (const entry of partitionEntries) {
+    const match = /^browser-([0-9a-f]{64})(-[0-9a-f]{32})?$/.exec(entry);
+    if (!match || skip().has(entry)) continue;
+    if (match[2]) { if (!live.has(match[1]!)) doomed.push(path.join(partitions, entry)); continue; }
+    const scope = legacy.get(entry);
+    if (scope) {
+      // Both names on disk (a race with an open): keep both rather than guess.
+      try { migrateLegacyPartition(partitions, scope); }
+      catch (error) { console.warn(`[browser] could not migrate ${entry}: ${String(error)}`); }
+    } else if (!unresolved) doomed.push(path.join(partitions, entry));
+  }
+  const openedSessions = new Set([...opened.keys()].map(browserSessionKey));
+  for (const entry of artifactEntries) {
+    if (/^[0-9a-f]{64}$/.test(entry) && !live.has(entry) && !openedSessions.has(entry)) doomed.push(path.join(artifacts, entry));
   }
   await Promise.all(doomed.map(directory => fs.rm(directory, { recursive: true, force: true }).catch((error: unknown) => {
     console.warn(`[browser] could not remove orphaned browser storage ${directory}: ${String(error)}`);

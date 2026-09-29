@@ -43,7 +43,7 @@ const scope = { sessionId: "session-a", projectId: "project", root: "/work" };
 const bounds = { x: 10, y: 20, width: 300, height: 200 };
 function owner() {
   const webContents = Object.assign(new EventEmitter(), { getZoomFactor: () => 1, focus: vi.fn() });
-  return Object.assign(new EventEmitter(), { webContents, isDestroyed: () => false, contentView: { addChildView: vi.fn(), removeChildView: vi.fn() } }) as unknown as Electron.BrowserWindow & { webContents: EventEmitter };
+  return Object.assign(new EventEmitter(), { webContents, focused: true, isFocused() { return this.focused; }, isDestroyed: () => false, contentView: { addChildView: vi.fn(), removeChildView: vi.fn() } }) as unknown as Electron.BrowserWindow & { webContents: EventEmitter };
 }
 let service: BrowserService;
 beforeEach(() => { service = new BrowserService(); electron.sessions.clear(); });
@@ -55,7 +55,10 @@ it("hides every page an app window presented when that window reloads or its ren
   await service.open(scope, { tabId: "two", url: "https://example.com/two" });
   service.present(scope, "one", window, "lease-1", bounds);
   expect(service.metadata(scope, "one").visible).toBe(true);
+  // Loading starts before beforeunload: a reload cancelled over unsaved drafts leaves pages shown.
   window.webContents.emit("did-start-loading");
+  expect(service.metadata(scope, "one").visible).toBe(true);
+  window.webContents.emit("did-navigate", {}, "app://index.html");
   expect(service.metadata(scope, "one").visible).toBe(false);
   // The remounted tab presents again under a new lease.
   service.present(scope, "two", window, "lease-2", bounds);
@@ -78,17 +81,27 @@ it("counts a new document, not a pushState or fragment change, as a page change"
   expect(service.metadata(scope, "spa").generation).toBe(start + 1);
 });
 
-it("cancels downloads instead of opening a save dialog, and says so in the page's console", async () => {
+it("cancels background downloads with an error line, and lets the person's own foreground download through", async () => {
+  const window = owner();
   await service.open(scope, { tabId: "dl", url: "https://example.com/" });
   const partition = contents("dl").session;
   expect(partition.listenerCount("will-download")).toBe(1);
   await service.open(scope, { tabId: "dl-2", url: "https://example.com/" });
   expect(partition.listenerCount("will-download")).toBe(1);
-  const event = { preventDefault: vi.fn() };
-  partition.emit("will-download", event, { getFilename: () => "report.zip", getURL: () => "https://example.com/report.zip" }, contents("dl"));
-  expect(event.preventDefault).toHaveBeenCalled();
-  expect(service.metadata(scope, "dl").logs.at(-1)).toMatchObject({ level: "warn", message: expect.stringContaining("report.zip") });
-  expect(service.metadata(scope, "dl", false)).toMatchObject({ logs: [], errors: 0 });
+  const item = { getFilename: () => "report.zip", getURL: () => "https://example.com/report.zip" };
+  const download = () => { const event = { preventDefault: vi.fn() }; partition.emit("will-download", event, item, contents("dl")); return event.preventDefault.mock.calls.length > 0; };
+  // Hidden (a background session, or an agent's page nobody is looking at).
+  expect(download()).toBe(true);
+  expect(service.metadata(scope, "dl").logs.at(-1)).toMatchObject({ level: "error", message: expect.stringContaining("report.zip") });
+  expect(service.metadata(scope, "dl", false)).toMatchObject({ logs: [], errors: 1 });
+  // Shown but not focused: still not the person's gesture.
+  service.present(scope, "dl", window, "lease", bounds);
+  expect(download()).toBe(true);
+  // Shown, focused, in the focused window: the native dialog is theirs.
+  contents("dl").focused = true;
+  expect(download()).toBe(false);
+  (window as unknown as { focused: boolean }).focused = false;
+  expect(download()).toBe(true);
 });
 
 it("names each partition after its session so a deleted session's storage can be found", async () => {

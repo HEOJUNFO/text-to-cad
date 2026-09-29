@@ -38,7 +38,8 @@ it("resolves the session's own workspace", () => {
   expect(metadata).toHaveBeenLastCalledWith(expect.anything(), "tab", false);
   // Orphaned partitions are swept once, against every session that still exists.
   expect(sweep).toHaveBeenCalledTimes(1);
-  expect(sweep).toHaveBeenCalledWith(["owner", "archived"]);
+  const liveSessions = sweep.mock.calls[0]![0] as () => { id: string }[];
+  expect(liveSessions().map(session => session.id)).toEqual(["owner", "archived"]);
 });
 
 it("refuses a missing workspace with an IpcError instead of a raw ENOENT", async () => {

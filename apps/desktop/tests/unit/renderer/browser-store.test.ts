@@ -102,10 +102,30 @@ describe("browser chrome cost", () => {
     expect(window.textToCad.browser.metadata).toHaveBeenCalled();
     expect(changes).not.toHaveBeenCalled();
   });
-  it("stops polling once the workspace refuses the tab", async () => {
-    vi.mocked(window.textToCad.browser.metadata).mockRejectedValue(new Error("This session's workspace is missing."));
+  it("stops polling once the workspace refuses the tab, and resumes after a navigation or wake", async () => {
+    vi.mocked(window.textToCad.browser.metadata).mockRejectedValue(new Error("Error invoking remote method 'text-to-cad:browser.metadata': IpcError: This session's workspace is missing."));
     mount(); await vi.advanceTimersByTimeAsync(3_000);
     expect(window.textToCad.browser.metadata).toHaveBeenCalledTimes(1);
-    expect(useBrowser.getState().errors[binding.tabId]).toBe("This session's workspace is missing.");
+    expect(useBrowser.getState().errors[binding.tabId]).toContain("This session's workspace is missing.");
+    vi.mocked(window.textToCad.browser.metadata).mockResolvedValue(target);
+    vi.mocked(window.textToCad.browser.navigate).mockResolvedValue(target);
+    await useBrowser.getState().navigate(binding, { direction: "reload" });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(vi.mocked(window.textToCad.browser.metadata).mock.calls.length).toBeGreaterThan(2);
+    expect(useBrowser.getState().errors[binding.tabId]).toBeUndefined();
+  });
+  it("keeps polling through a failure that is not a refusal", async () => {
+    vi.mocked(window.textToCad.browser.metadata).mockRejectedValueOnce(new Error("transient")).mockResolvedValue(target);
+    mount(); await vi.advanceTimersByTimeAsync(1_600);
+    expect(vi.mocked(window.textToCad.browser.metadata).mock.calls.length).toBeGreaterThan(1);
+    expect(useBrowser.getState().errors[binding.tabId]).toBeUndefined();
+  });
+  it("opening the console wakes a refused tab's poll", async () => {
+    vi.mocked(window.textToCad.browser.metadata).mockRejectedValueOnce(new Error("This session is no longer active.")).mockResolvedValue(target);
+    mount(); await vi.advanceTimersByTimeAsync(2_000);
+    expect(window.textToCad.browser.metadata).toHaveBeenCalledTimes(1);
+    useBrowser.getState().setConsoleOpen(binding.tabId, true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(window.textToCad.browser.metadata).toHaveBeenLastCalledWith({ ...binding, logs: true });
   });
 });

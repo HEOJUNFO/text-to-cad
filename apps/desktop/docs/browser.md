@@ -17,9 +17,12 @@ root, prefixed with a hash of the session ID alone
 (`persist:browser-<sha256(session)>-<scope hash>`, `browser/storage.ts`): pages in
 one session share storage, separate sessions do not. Archiving keeps a session's
 partitions and `browser-artifacts/<sha256(session)>`; deleting it clears the
-partitions' storage and cache and removes the artifacts. The first browser
-request of a run sweeps partitions and artifact directories whose session no
-longer exists. Background
+partitions' storage and cache and removes the artifacts. A partition an older build named `browser-<sha256(scope)>` is
+renamed to the current name on first use, and by the sweep that the first
+renderer browser request of a run starts; that sweep also removes partitions and
+artifact directories whose session no longer exists. Nothing opened this run is
+swept, and an older partition no live session matches is removed only when every
+live session's workspace resolved. Background
 browser commands never navigate the user's session selection. A session switch
 keeps its pages alive while hiding their presentation; this costs one Chromium
 page per live tab.
@@ -78,9 +81,11 @@ Node, preload or app IPC and use sandbox/context isolation. Popups navigate thei
 owning tab; permission prompts are denied until a native permission workflow is
 provided. text-to-cad owns pane size and partitions: browser resizing, installing a
 browser, creating contexts and extensions are unsupported. Playwright's download artifact API is not bridged, and both
-`Browser.` and `Page.setDownloadBehavior` are refused. Every partition cancels
-downloads (`will-download`) rather than opening a save dialog over whatever the
-person is doing; the page's console records it. These
+`Browser.` and `Page.setDownloadBehavior` are refused. A download the person starts (the page shown and focused in the
+focused window) keeps the native save dialog; any other download (an agent in a
+background session, a page's script while the person works elsewhere) is
+cancelled rather than opening that dialog over their work, and counted as an
+error in the page's console. These
 constraints are reported rather than implemented as successful no-ops.
 
 The stock MCP exposes JavaScript evaluation and file upload; its subprocess runs
@@ -93,8 +98,9 @@ The native view is positioned inside the explorer content slot. Renderer chrome
 hides it while app dialogs and popover menus are open so native layers cannot
 cover the app's controls. Presentation is measured at most once per animation
 frame, and the metadata poll carries console lines only while the console panel
-is open; a poll the workspace refuses stops polling. When the app window's own
-document reloads or its renderer crashes, main hides every page that window
+is open; a poll the workspace refuses (session inactive, workspace missing
+or different) stops polling until a navigation or the console wakes it. When the app window's own document navigates (a reload that got
+past its unsaved-drafts question) or its renderer crashes, main hides every page that window
 presented until a remounted tab presents it again. Cmd+R reloads the focused
 browser page and nothing else; the app renderer has no reload accelerator in a
 packaged build, and an unload with unsaved drafts asks first. Presentation leases prevent a stale tab's cleanup from

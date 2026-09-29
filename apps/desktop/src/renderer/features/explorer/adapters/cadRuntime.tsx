@@ -171,7 +171,10 @@ let desktopConnections: ReturnType<typeof createDesktopCadConnectionRegistry> | 
 export function desktopCadConnectionForTab(tab: CadTabOwner): DesktopCadConnection {
   if (!desktopConnections) {
     desktopConnections = createDesktopCadConnectionRegistry();
-    window.addEventListener("beforeunload", () => { desktopConnections?.dispose(); desktopConnections = undefined; }, { once: true });
+    // `pagehide`, not `beforeunload`: an unload refused over unsaved drafts
+    // (state/live-documents.ts) and then cancelled keeps this document and
+    // every CAD tab in it alive.
+    window.addEventListener("pagehide", () => { desktopConnections?.dispose(); desktopConnections = undefined; }, { once: true });
   }
   return desktopConnections.forTab(tab);
 }

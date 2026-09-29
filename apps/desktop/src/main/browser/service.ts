@@ -122,7 +122,9 @@ export class BrowserService {
    * A reloaded or crashed app renderer has no browser tab mounted to hide its
    * pages, and a native view paints over whatever the new document shows. So
    * the owner's own reload hides every page it presented; the remounted tab
-   * presents it again under a fresh lease.
+   * presents it again under a fresh lease. `did-navigate`, not
+   * `did-start-loading`: loading starts before `beforeunload`, and a reload
+   * the person cancels (unsaved drafts) must leave the pages where they are.
    */
   private watchOwner(owner: BrowserWindow) {
     if (this.watchedOwners.has(owner)) return;
@@ -130,22 +132,30 @@ export class BrowserService {
     const hideAll = () => {
       for (const target of this.targets.values()) if (target.owner === owner) { target.lease = undefined; this.hide(target); }
     };
-    owner.webContents.on("did-start-loading", hideAll);
+    owner.webContents.on("did-navigate", hideAll);
     owner.webContents.on("render-process-gone", hideAll);
   }
   /**
-   * A download from a page — an agent's click in a background session
-   * included — would otherwise open the native save dialog over whatever the
-   * person is doing. It is cancelled and reported in that page's console.
+   * A download the person starts — in the page that is shown, focused, in the
+   * focused app window — keeps the native save dialog. Anything else (an
+   * agent's click in a background session, a page's own script while the
+   * person works elsewhere) would open that dialog over whatever they are
+   * doing, so it is cancelled and counted as an error in the page's console.
    */
   private refuseDownloads(partition: Electron.Session) {
     if (this.guardedPartitions.has(partition)) return;
     this.guardedPartitions.add(partition);
     partition.on("will-download", (event, item, contents) => {
-      event.preventDefault();
       const target = [...this.targets.values()].find(candidate => candidate.view.webContents === contents);
-      if (target) this.log(target, "warn", `Download blocked: ${item.getFilename() || item.getURL()}. text-to-cad's browser does not save downloads.`);
+      if (target && this.inForeground(target)) return;
+      event.preventDefault();
+      if (target) this.log(target, "error", `Download blocked: ${item.getFilename() || item.getURL()}. Downloads start only from the page you are using.`);
     });
+  }
+  private inForeground(target: Target) {
+    const owner = target.owner;
+    return target.visible && !!owner && !owner.isDestroyed() && owner.isFocused()
+      && !target.view.webContents.isDestroyed() && target.view.webContents.isFocused();
   }
   /** Reload the embedded page that has keyboard focus. False when none has: then the key does nothing. */
   reloadFocused(owner?: BrowserWindow | null) {

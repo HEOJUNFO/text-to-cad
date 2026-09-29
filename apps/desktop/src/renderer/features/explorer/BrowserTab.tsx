@@ -201,16 +201,17 @@ export function resolveAddress(raw: string): string | null {
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
     return value;
   }
-  // `localhost:5273`, `example.com`, `192.168.0.4/status`, `devbox:8080` — an
-  // address, not a search. A bare word with no dot and no port is a search.
-  const address = /^(\[[0-9a-f:.]+\]|[\w-]+(?:\.[\w-]+)*)(:\d+)?(?=[/?#]|$)/i.exec(value);
+  // `localhost:5273`, `example.com`, `192.168.0.4/status`, `[::1]:3000` — an
+  // address, not a search. A bare word with no dot is a search, port or not
+  // (`note:1`).
+  const address = /^(\[[0-9a-f:.]+\]|[\w-]+(?:\.[\w-]+)*)(?::(\d+))?(?=[/?#]|$)/i.exec(value);
   const host = address?.[1]?.toLowerCase();
-  if (address && host && (host.includes(".") || host.startsWith("[") || host === "localhost" || address[2])) {
-    // A dev server, a LAN device or anything on an explicit port is almost
-    // never serving TLS; a public name is.
-    const local = host === "localhost" || host.startsWith("[") || /^\d{1,3}(\.\d{1,3}){3}$/.test(host)
-      || host.endsWith(".local") || Boolean(address[2]);
-    return `${local ? "http" : "https"}://${value}`;
+  if (address && host && (host.includes(".") || host.startsWith("[") || host === "localhost")) {
+    // A dev server or LAN device is almost never serving TLS; a public name
+    // is, and so is anything on a TLS port.
+    const port = address[2];
+    const local = host === "localhost" || host.startsWith("[") || /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.endsWith(".local") || Boolean(port);
+    return `${local && port !== "443" && port !== "8443" ? "http" : "https"}://${value}`;
   }
   return `https://duckduckgo.com/?q=${encodeURIComponent(value)}`;
 }

@@ -10,16 +10,15 @@ import { rootOf } from "./explorer";
 import { IpcError, type IpcContext } from "./register";
 let swept = false;
 /**
- * Once, on the first browser request (a restored browser tab asks at launch):
- * partitions and artifacts of sessions deleted while nothing cleared them.
- * Before any page of this run could have loaded an orphan's partition.
+ * Once, on the first renderer browser request (a restored browser tab asks at
+ * launch): migrate older builds' partitions and remove those — and artifact
+ * directories — whose session no longer exists. An agent's page may already
+ * be open by then; `sweepBrowserStorage` skips whatever this run opened.
  */
 function sweepOnce() {
   if (swept) return;
   swept = true;
-  try {
-    void sweepBrowserStorage(sessions.list().map(session => session.id)).catch((error: unknown) => console.warn(`[browser] storage sweep failed: ${String(error)}`));
-  } catch (error) { console.warn(`[browser] storage sweep failed: ${String(error)}`); }
+  void sweepBrowserStorage(() => sessions.list()).catch((error: unknown) => console.warn(`[browser] storage sweep failed: ${String(error)}`));
 }
 const scope = (request: { sessionId: string; projectId: string; root?: string | null }) => {
   sweepOnce();

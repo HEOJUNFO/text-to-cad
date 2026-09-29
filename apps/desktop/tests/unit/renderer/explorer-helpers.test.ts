@@ -25,10 +25,17 @@ describe("the address bar", () => {
     expect(resolveAddress("[::1]:3000/x")).toBe("http://[::1]:3000/x");
     expect(resolveAddress("myhost.local:3000")).toBe("http://myhost.local:3000");
     expect(resolveAddress("printer.local")).toBe("http://printer.local");
-    expect(resolveAddress("devbox:8080")).toBe("http://devbox:8080");
-    expect(resolveAddress("example.com:8443/a")).toBe("http://example.com:8443/a");
+    expect(resolveAddress("example.com:3000/a")).toBe("http://example.com:3000/a");
     expect(resolveAddress("example.local.com")).toBe("https://example.local.com");
     expect(resolveAddress("1.2.3.example.com")).toBe("https://1.2.3.example.com");
+  });
+
+  it("keeps https on TLS ports, and a portless word with a colon is still a search", () => {
+    expect(resolveAddress("example.com:443")).toBe("https://example.com:443");
+    expect(resolveAddress("example.com:8443/a")).toBe("https://example.com:8443/a");
+    expect(resolveAddress("192.168.0.4:443")).toBe("https://192.168.0.4:443");
+    expect(resolveAddress("note:1")).toMatch(/^https:\/\/duckduckgo\.com\/\?q=note%3A1$/);
+    expect(resolveAddress("devbox:8080")).toMatch(/^https:\/\/duckduckgo\.com\//);
   });
 
   it("searches for anything that is not an address", () => {

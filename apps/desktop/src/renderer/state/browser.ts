@@ -72,11 +72,12 @@ export const useBrowser = create<BrowserState>((set, get) => {
         const logs = Boolean(get().consoles[binding.tabId]);
         try { const target = await window.textToCad.browser.metadata({ ...binding, logs }); if (!disposed) { accept(target, logs); schedule(); } }
         catch (error) {
-          // Metadata only fails on scope or lifetime; polling cannot fix either.
-          if (!disposed) { stopped = true; failed(binding.tabId, error); }
+          // A workspace refusal will not change by asking again; anything else
+          // (a transient failure) keeps polling.
+          if (!disposed) { if (isScopeRefusal(error)) stopped = true; failed(binding.tabId, error); }
         } finally { pending = false; }
       };
-      const wake = () => { void poll(); };
+      const wake = () => { stopped = false; void poll(); };
       wakers.set(binding.tabId, wake);
       void window.textToCad.browser.ensure({ ...binding, url }).then(target => {
         if (disposed) return;
@@ -100,7 +101,7 @@ export const useBrowser = create<BrowserState>((set, get) => {
       };
     },
     navigate: async (binding, navigation) => {
-      try { accept(await window.textToCad.browser.navigate({ ...binding, ...navigation })); }
+      try { accept(await window.textToCad.browser.navigate({ ...binding, ...navigation })); wakers.get(binding.tabId)?.(); }
       catch (error) { failed(binding.tabId, error); }
     },
     contextAttachment: async (binding, target, kind) => {
@@ -114,6 +115,13 @@ export const useBrowser = create<BrowserState>((set, get) => {
     }),
   };
 });
+
+/** The IpcErrors `src/main/ipc/browser.ts` refuses a tab's scope with. */
+const SCOPE_REFUSALS = ["This session is no longer active.", "This session's workspace is missing.", "This browser belongs to a different session workspace."];
+function isScopeRefusal(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return SCOPE_REFUSALS.some(refusal => message.includes(refusal));
+}
 
 function sameTarget(a: BrowserTarget, b: BrowserTarget): boolean {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)] as (keyof BrowserTarget)[]);
