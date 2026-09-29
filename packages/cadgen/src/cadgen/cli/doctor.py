@@ -14,9 +14,9 @@ says (``cadgen._internal.kernel_load_hint``).
 
 It then runs cadgen's own kernel check in that same fresh interpreter -- the
 one the build path runs, which also resolves the distribution OCP came from --
-because an OCP that imports is not always one cadgen builds against. That
-verdict is ``--json``'s ``kernel`` field; the text report's ``kernel`` line and
-the exit codes are unchanged.
+because an OCP that imports is not always one cadgen builds against. A refusal
+is reported as ``kernel   unsupported: <the check's words>`` (``--json``: state
+``unsupported``) and, like a kernel that is not installed, exits 0.
 
 ``--json`` prints the same report as ONE JSON object on stdout, for a program
 to read (the desktop app's runtime probe is one): ``version``, ``python``,
@@ -237,9 +237,13 @@ def main(argv: list[str] | None = None, prog: str = "cadgen doctor") -> int:
 
     from cadgen._internal.kernel_load_hint import kernel_load_hint
 
-    kernel_state, detail = _probe_kernel()
+    kernel_state, detail, verify = _run_kernel_probe()
     kernel_loaded = kernel_state != KERNEL_FAILED
-    if kernel_state == KERNEL_OK:
+    if kernel_state == KERNEL_OK and verify is not None:
+        # OCP loads, but cadgen's own kernel check refuses it: the same verdict
+        # --json reports, and like a missing kernel not an exit-code failure.
+        sys.stdout.write(f"  kernel   unsupported: {verify} (OCP at {detail})\n")
+    elif kernel_state == KERNEL_OK:
         sys.stdout.write(f"  kernel   OK — OCP at {detail}\n")
     elif kernel_state == KERNEL_MISSING:
         # Not a failure: the requirements pin installs the kernel, and a wheel

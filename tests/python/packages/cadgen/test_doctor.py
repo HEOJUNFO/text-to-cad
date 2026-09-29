@@ -39,11 +39,15 @@ def _run(argv: list[str]) -> tuple[int, str, str]:
 
 
 REFUSED = "ImportError: DLL load failed while importing OCP: Access is denied."
+UNSUPPORTED = (
+    "ValueError: op memo requires the cadquery-ocp-novtk distribution for persistent reuse "
+    "(PackageNotFoundError: No package metadata was found for cadquery-ocp-novtk)"
+)
 
 
 class DoctorTests(unittest.TestCase):
     def setUp(self) -> None:
-        patcher = mock.patch.object(doctor, "_probe_kernel", return_value=(doctor.KERNEL_OK, "/site/OCP.pyd"))
+        patcher = mock.patch.object(doctor, "_run_kernel_probe", return_value=(doctor.KERNEL_OK, "/site/OCP.pyd", None))
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -58,7 +62,7 @@ class DoctorTests(unittest.TestCase):
         # The release workflow installs the wheel --no-deps and runs doctor: no OCP
         # there is a correct install, and the pin is what brings the kernel.
         missing = "ModuleNotFoundError: No module named 'OCP'"
-        with mock.patch.object(doctor, "_probe_kernel", return_value=(doctor.KERNEL_MISSING, missing)), \
+        with mock.patch.object(doctor, "_run_kernel_probe", return_value=(doctor.KERNEL_MISSING, missing, None)), \
                 TemporaryDirectory() as tmp:
             code, out, err = _run([tmp])
         self.assertEqual(code, 0)
@@ -66,8 +70,19 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("pip install -r requirements.txt", out)
         self.assertNotIn("FAILED", err)
 
+    def test_an_ocp_cadgen_refuses_reads_unsupported_not_ok_and_exits_0(self) -> None:
+        # The text report and --json give one verdict: OCP imports, but
+        # cadgen's own kernel check refuses it, in that check's words.
+        probe = (doctor.KERNEL_OK, "/site/OCP/__init__.py", UNSUPPORTED)
+        with mock.patch.object(doctor, "_run_kernel_probe", return_value=probe), TemporaryDirectory() as tmp:
+            code, out, err = _run([tmp])
+        self.assertEqual(code, 0, "only a kernel that fails to load exits 4")
+        self.assertIn(f"kernel   unsupported: {UNSUPPORTED}", out)
+        self.assertNotIn("kernel   OK", out)
+        self.assertNotIn("FAILED", err)
+
     def test_a_kernel_that_will_not_load_exits_4(self) -> None:
-        with mock.patch.object(doctor, "_probe_kernel", return_value=(doctor.KERNEL_FAILED, REFUSED)), \
+        with mock.patch.object(doctor, "_run_kernel_probe", return_value=(doctor.KERNEL_FAILED, REFUSED, None)), \
                 mock.patch.object(sys, "platform", "linux"), TemporaryDirectory() as tmp:
             code, out, err = _run([tmp])
         self.assertEqual(code, 4)
@@ -77,7 +92,7 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("pin      none found", out, "the rest of the report still prints")
 
     def test_a_refused_load_on_windows_names_smart_app_control(self) -> None:
-        with mock.patch.object(doctor, "_probe_kernel", return_value=(doctor.KERNEL_FAILED, REFUSED)), \
+        with mock.patch.object(doctor, "_run_kernel_probe", return_value=(doctor.KERNEL_FAILED, REFUSED, None)), \
                 mock.patch.object(sys, "platform", "win32"), TemporaryDirectory() as tmp:
             code, _, err = _run([tmp])
         self.assertEqual(code, 4)
@@ -86,7 +101,7 @@ class DoctorTests(unittest.TestCase):
 
     def test_a_pin_mismatch_outranks_the_kernel(self) -> None:
         # The install is wrong before the kernel is: fixing the pin may fix both.
-        with mock.patch.object(doctor, "_probe_kernel", return_value=(doctor.KERNEL_FAILED, REFUSED)), \
+        with mock.patch.object(doctor, "_run_kernel_probe", return_value=(doctor.KERNEL_FAILED, REFUSED, None)), \
                 TemporaryDirectory() as tmp:
             (Path(tmp) / "requirements.txt").write_text("cadgen==0.0.0.dev0\n", encoding="utf-8")
             code, _, err = _run([tmp])
@@ -152,12 +167,6 @@ class DoctorTests(unittest.TestCase):
             with self.subTest(text=text):
                 with mock.patch("importlib.metadata.distribution", return_value=Record(text)):
                     self.assertIsNone(doctor._editable_source())
-
-
-UNSUPPORTED = (
-    "ValueError: op memo requires the cadquery-ocp-novtk distribution for persistent reuse "
-    "(PackageNotFoundError: No package metadata was found for cadquery-ocp-novtk)"
-)
 
 
 class DoctorJsonTests(unittest.TestCase):
