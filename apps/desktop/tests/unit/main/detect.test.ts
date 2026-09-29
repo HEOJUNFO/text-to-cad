@@ -1,6 +1,10 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
-import { AgentDetector, parseVersion, which, type DetectorProbes } from "@main/agents/detect";
+import { AgentDetector, nodeProbes, parseVersion, which, type DetectorProbes } from "@main/agents/detect";
 import { agentProvider } from "@main/agents/registry";
 import { parseEnv, stripHostSession } from "@main/agents/shell-env";
 
@@ -60,6 +64,20 @@ describe("which", () => {
   });
 });
 
+describe("the real executable probe", () => {
+  it.skipIf(process.platform === "win32")("is a regular executable file, never a directory of that name", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "text-to-cad-detect-"));
+    try {
+      fs.mkdirSync(path.join(dir, "claude"));
+      fs.writeFileSync(path.join(dir, "codex"), "#!/bin/sh\n", { mode: 0o755 });
+      expect(await nodeProbes.isExecutable(path.join(dir, "claude"))).toBe(false);
+      expect(await nodeProbes.isExecutable(path.join(dir, "codex"))).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("AgentDetector", () => {
   const providers = [agentProvider("claude-code")!, agentProvider("codex")!, agentProvider("gemini-cli")!];
 
@@ -86,6 +104,22 @@ describe("AgentDetector", () => {
     });
     expect(byId.codex).toMatchObject({ installed: true, version: "0.149.1", auth: "unauthenticated" });
     expect(byId["gemini-cli"]).toMatchObject({ installed: false, binaryPath: null, version: null });
+  });
+
+  it("falls back to the credential file when the auth probe fails for a reason that is not a sign-out", async () => {
+    const detector = new AgentDetector(
+      [agentProvider("claude-code")!],
+      machine({
+        executables: ["/opt/homebrew/bin/claude"],
+        files: ["/Users/me/.claude/.credentials.json"],
+        outputs: {
+          "/opt/homebrew/bin/claude --version": { stdout: "1.0.0 (Claude Code)" },
+          "/opt/homebrew/bin/claude auth status": { stderr: "error: unknown command 'auth'", code: 1 },
+        },
+      }),
+    );
+    const [claude] = await detector.refresh();
+    expect(claude).toMatchObject({ installed: true, auth: "authenticated" });
   });
 
   it("treats an API key in the environment as authenticated without running anything", async () => {

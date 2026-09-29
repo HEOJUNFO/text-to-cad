@@ -12,7 +12,7 @@
  * fake filesystem and a fake `--version` without a real PATH.
  */
 import { execFile } from "node:child_process";
-import { access, constants } from "node:fs/promises";
+import { access, constants, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -39,10 +39,18 @@ export type DetectorProbes = {
 
 const EXEC_TIMEOUT_MS = 10_000;
 
+/** What an auth probe prints when the person is signed out (`Not logged in`, `{"loggedIn":false}`). */
+const SIGNED_OUT = /not (logged|signed) in|logged out|signed out|"loggedIn"\s*:\s*false|not authenticated|unauthenticated|login required/i;
+
 export const nodeProbes: DetectorProbes = {
   env: (force) => loginEnv({ force }),
   isExecutable: async (file) => {
     try {
+      // `access(X_OK)` alone is true of a directory (search permission), so a
+      // folder named `claude` on PATH would read as the CLI.
+      if (!(await stat(file)).isFile()) {
+        return false;
+      }
       await access(file, constants.X_OK);
       return true;
     } catch {
@@ -211,7 +219,10 @@ export class AgentDetector {
         if (result.code === 0) {
           return "authenticated";
         }
-        if (result.code !== null) {
+        // Only a failure that reads as "signed out" is one. Anything else — a
+        // CLI too old for `auth status`, a crash — says nothing about the
+        // login, and the credential file below still can.
+        if (result.code !== null && SIGNED_OUT.test(`${result.stdout}\n${result.stderr}`)) {
           return "unauthenticated";
         }
       } catch {
