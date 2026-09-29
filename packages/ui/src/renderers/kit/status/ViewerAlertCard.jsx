@@ -1,4 +1,4 @@
-import { useContext, useState } from "react";
+import { useContext, useRef, useState, useSyncExternalStore } from "react";
 import { CircleAlert, X } from "lucide-react";
 import { Button } from "@text-to-cad/ui/primitives/button";
 import { ScrollArea } from "@text-to-cad/ui/primitives/scroll-area";
@@ -16,6 +16,8 @@ import { ViewerHostContext } from "../../../host/context.js";
 export function viewportAlert(alert, hasContent) {
   return alert && (alert.severity !== "warning" || (!hasContent && alert.blocking !== false)) ? alert : null;
 }
+
+const NO_DESTINATION = { subscribe: () => () => {}, getSnapshot: () => null };
 
 // The same failure raised again is the same alert, even as a new object.
 const alertKey = alert => JSON.stringify([alert.severity, alert.title, alert.message, alert.reason, alert.details]);
@@ -43,6 +45,12 @@ export default function ViewerAlertCard({ alert, hasContent, onReload }) {
   const host = useContext(ViewerHostContext);
   const [dismissed, setDismissed] = useState("");
   const [outcome, setOutcome] = useState({ key: "", text: "" });
+  const [pending, setPending] = useState(false);
+  const running = useRef(false);
+  // A host's actions may depend on its prompt destination (a chat that went away): the card
+  // re-asks the host whenever that destination changes, as PromptContextAction does.
+  const destination = host?.promptContext || NO_DESTINATION;
+  useSyncExternalStore(destination.subscribe, destination.getSnapshot, destination.getSnapshot);
   if (!shown) {
     if (dismissed) setDismissed("");
     return null;
@@ -54,12 +62,17 @@ export default function ViewerAlertCard({ alert, hasContent, onReload }) {
   const message = recovered?.message ?? shown.message;
   const recovery = recovered?.recovery ?? shown.recovery;
   const actions = recovered?.actions || [];
+  // One action at a time: a second click cannot deliver the diagnostic twice.
   const run = (action) => {
-    let pending;
-    try { pending = action.run(); } catch (error) { pending = Promise.reject(error); }
-    void Promise.resolve(pending).then(
+    if (running.current) return;
+    running.current = true;
+    setPending(true);
+    let result;
+    try { result = action.run(); } catch (error) { result = Promise.reject(error); }
+    void Promise.resolve(result).then(
       text => setOutcome({ key, text: typeof text === "string" ? text : "" }),
-      error => setOutcome({ key, text: error instanceof Error ? error.message : String(error) }));
+      error => setOutcome({ key, text: error instanceof Error ? error.message : String(error) }))
+      .finally(() => { running.current = false; setPending(false); });
   };
   const reason = String(shown.reason || "");
   const shortReason = reason.split("\n").find((line) => line.trim()) || "";
@@ -102,7 +115,8 @@ export default function ViewerAlertCard({ alert, hasContent, onReload }) {
                   </Button>
                 ) : null}
                 {actions.map(action => (
-                  <Button key={action.label} type="button" variant="outline" size="sm" onClick={() => run(action)}>
+                  <Button key={action.label} type="button" variant="outline" size="sm" onClick={() => run(action)}
+                    disabled={pending || Boolean(action.disabled)} aria-description={action.disabled ? action.reason : undefined}>
                     {action.label}
                   </Button>
                 ))}

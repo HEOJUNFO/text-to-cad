@@ -27,6 +27,7 @@ export function buildViewerMeshAlert(entry, hasMeshData, loadError, artifact = n
     if (!renderableGlb || !loadError) {
       return {
         severity: renderableGlb ? "warning" : "error",
+        kind: "artifact",
         file: fileRef,
         ...(renderableGlb ? { blocking: false } : {}),
         summary,
@@ -90,8 +91,11 @@ export function buildViewerEditAlert(editingState, showingCurrentPreview = false
     showingCurrentPreview ? "Operation: writing the STEP file" : "Operation: updating the model",
     actualDetail
   ].filter(Boolean).join("\n");
+  const file = editingState.file || editingState.output;
   const common = {
     severity: "error",
+    kind: "edit",
+    ...(file ? { file } : {}),
     details,
     reload: true,
     ...(usableModelVisible ? { blocking: false } : {})

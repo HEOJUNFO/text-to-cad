@@ -2,7 +2,8 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import ViewerAlertCard from './ViewerAlertCard.jsx';
-import { failureAlert } from './loadAlerts.js';
+import { failureAlert, noGeometryAlert } from './loadAlerts.js';
+import { buildViewerEditAlert } from '../../step/workbench/viewerAlerts.js';
 import { ViewerHostContext } from '../../../host/context.js';
 import { testHost } from '../../../host/testing/host.js';
 Object.assign(globalThis, { React });
@@ -45,4 +46,36 @@ it('an action that fails says why', async () => {
   expect(screen.getByText(/viewer’s terminal output/)).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Copy details' }));
   expect((await screen.findByRole('status')).textContent).toBe('Clipboard refused.');
+});
+
+it('an empty mesh and a failed edit reach the host with their own kind and file, and keep their words without one', () => {
+  const empty = noGeometryAlert('meshes/panel.stl');
+  const edit = buildViewerEditAlert({ state: 'failed', file: 'models/bracket.step', error: 'Fillet radius is too large' }, false, true);
+  const recover = vi.fn(() => null);
+  for (const alert of [empty, edit]) render(<ViewerHostContext.Provider value={testHost({ loadFailures: { recover } })}>
+    <ViewerAlertCard alert={alert} hasContent={false} onReload={() => {}} />
+  </ViewerHostContext.Provider>);
+  expect(recover.mock.calls.map(([failure]: any[]) => [failure.kind, failure.file])).toEqual([['empty', 'meshes/panel.stl'], ['edit', 'models/bracket.step']]);
+  expect(screen.getByText('Check that the file contains a model and was saved completely, then reload.')).toBeTruthy();
+  expect(screen.getByText('Check the diagnostic in Details, correct the model, then run it again.')).toBeTruthy();
+});
+
+it('a host action runs once while pending, and one the host marks unavailable is disabled with its reason', async () => {
+  let settle!: (text: string) => void;
+  const run = vi.fn(() => new Promise<string>(resolve => { settle = resolve; }));
+  const recover = () => ({ actions: [{ label: 'Ask the agent to fix', run }, { label: 'Elsewhere', disabled: true, reason: 'No chat.', run: vi.fn() }] });
+  render(<ViewerHostContext.Provider value={testHost({ loadFailures: { recover } })}>
+    <ViewerAlertCard alert={compileFailure} hasContent={false} onReload={() => {}} />
+  </ViewerHostContext.Provider>);
+  const ask = screen.getByRole('button', { name: 'Ask the agent to fix' });
+  fireEvent.click(ask);
+  fireEvent.click(ask);
+  expect(run).toHaveBeenCalledTimes(1);
+  expect((ask as HTMLButtonElement).disabled).toBe(true);
+  const elsewhere = screen.getByRole('button', { name: 'Elsewhere' }) as HTMLButtonElement;
+  expect(elsewhere.disabled).toBe(true);
+  expect(elsewhere.getAttribute('aria-description')).toBe('No chat.');
+  settle('Added to the prompt.');
+  expect((await screen.findByRole('status')).textContent).toBe('Added to the prompt.');
+  expect((ask as HTMLButtonElement).disabled).toBe(false);
 });

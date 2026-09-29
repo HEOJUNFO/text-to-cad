@@ -322,9 +322,16 @@ Its default next step names the served viewer's terminal output and address, whi
 only the web has. The optional `host.loadFailures.recover(failure)` receives the
 failure (`kind`, `file`, `title`, `message`, the interpreter's `reason`, the full
 `details`, and `blocking`) and may return its own `message` and `recovery` and extra
-`actions` shown beside Try again; returning nothing keeps the defaults. An action's
-`run` is called during the click — a prompt delivery binds its destination there —
-and the card shows the string it resolves to, or the error it rejects with. The web
-supplies none. The desktop says the CAD runtime reported the error and offers "Ask
-the agent to fix" (the diagnostic as text through `host.promptContext`, like Add to
-prompt) and "Copy details" (`ClipboardPort`). 
+`actions` shown beside Try again; returning nothing keeps the defaults. `kind` says
+what failed: building (`compile`, `artifact`, `service`, `http`, `response`),
+reaching the viewer (`network`), reading the file (`mesh`), a file with no geometry
+(`empty`) or a live edit (`edit`). An action's `run` is called during the click — a
+prompt delivery binds its destination there — and the card shows the string it
+resolves to, or the error it rejects with; every action is disabled until it settles.
+An action returned `disabled` carries its `reason` as the button's accessible
+description; the card re-asks the host when its prompt destination changes, so a
+prompt action follows the destination's availability as `PromptContextAction` does.
+The web supplies none. The desktop says the CAD runtime reported a build error (or
+lost contact), keeps the card's words for the rest, and offers "Ask the agent to fix"
+(the diagnostic, with a request that fits its kind, as text through
+`host.promptContext`, like Add to prompt) and "Copy details" (`ClipboardPort`).

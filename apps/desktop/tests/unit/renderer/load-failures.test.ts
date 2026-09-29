@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import type { ClipboardPort, ViewerLoadFailure } from "@text-to-cad/ui/host";
 
-import { createDesktopLoadFailures } from "@renderer/features/explorer/host/loadFailures";
+import { createDesktopLoadFailures, loadFailurePrompt } from "@renderer/features/explorer/host/loadFailures";
 import { createDesktopPromptContext } from "@renderer/features/explorer/host/promptContext";
 import { useComposer } from "@renderer/state/composer";
 import { useProjects } from "@renderer/state/projects";
@@ -40,9 +40,28 @@ it("Ask the agent to fix delivers the diagnostic to the session's prompt; Copy d
   expect(board.writeText).toHaveBeenCalledWith(failure.details);
 });
 
-it("a delivery the session cannot take says why and leaves the draft alone", async () => {
+it("Ask the agent to fix is unavailable, with the destination's reason, while the session can't take a prompt", () => {
   useSessions.setState({ sessions: [] });
-  const [ask] = createDesktopLoadFailures(createDesktopPromptContext("car", null, workspaceId, "first"), clipboard()).recover(failure)!.actions!;
-  expect(await ask!.run()).toMatch(/\w/);
-  expect(useComposer.getState().drafts.first).toBeUndefined();
+  const [ask, copy] = createDesktopLoadFailures(createDesktopPromptContext("car", null, workspaceId, "first"), clipboard()).recover(failure)!.actions!;
+  expect(ask).toMatchObject({ disabled: true, reason: "This tab's session is no longer active." });
+  expect(copy!.disabled).toBeUndefined();
+});
+
+it("an empty mesh and a failed edit are not build errors: the card keeps its words and the agent is asked the right thing", async () => {
+  const host = createDesktopLoadFailures(createDesktopPromptContext("car", null, workspaceId, "first"), clipboard());
+  const empty: ViewerLoadFailure = { kind: "empty", file: "meshes/panel.stl", title: "No geometry to display", blocking: true };
+  const edit: ViewerLoadFailure = { kind: "edit", file: "models/bracket.step", title: "Couldn’t update the model", blocking: false,
+    reason: "Fillet radius is too large", details: "File: models/bracket.step\nOperation: updating the model\nFillet radius is too large" };
+  for (const alert of [empty, edit]) {
+    const recovery = host.recover(alert)!;
+    expect(recovery.message).toBeUndefined();
+    expect(recovery.recovery).toBeUndefined();
+    expect(loadFailurePrompt(alert)).not.toMatch(/runtime could not build|Fix the source/);
+    expect(loadFailurePrompt(alert)).toContain(alert.file);
+  }
+  expect(loadFailurePrompt(empty)).toMatch(/no geometry/);
+  expect(loadFailurePrompt(edit)).toMatch(/live edit of “models\/bracket.step” failed[\s\S]*Fillet radius is too large/);
+  const [ask] = host.recover(edit)!.actions!;
+  expect(await ask!.run()).toBe("Added to the prompt.");
+  expect(useComposer.getState().drafts.first).toContain("A live edit of “models/bracket.step” failed");
 });

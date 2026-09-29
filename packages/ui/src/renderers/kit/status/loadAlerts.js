@@ -63,6 +63,7 @@ export function failureAlert(fileRef, error, failure, compile = false) {
 export function noGeometryAlert(fileRef) {
   return {
     severity: "error",
+    kind: "empty",
     file: fileRef,
     summary: "Mesh unavailable",
     title: "No geometry to display",
