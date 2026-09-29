@@ -276,6 +276,24 @@ it("an open diff is read again when a newer status lands, not kept from the firs
   expect(await screen.findByText("v2")).toBeInTheDocument();
 });
 
+it("a diff that could not be read says so, with a Retry that reads it again", async () => {
+  const user = userEvent.setup();
+  scoped.mockResolvedValue({ ...repo("main"), files: [changed("hello.py")], workingFiles: 1 });
+  const read = vi.fn()
+    .mockRejectedValueOnce(new Error("git diff timed out"))
+    .mockResolvedValueOnce(fileDiff({ before: "v0\n", after: "v1\n" }));
+  git.fileDiff = read;
+  renderReview();
+
+  expect(await screen.findByText(/git diff timed out/)).toBeInTheDocument();
+  const failed = screen.getByRole("alert");
+  expect(screen.queryByText("Reading the diff…")).toBeNull();
+  await user.click(within(failed).getByRole("button", { name: "Retry" }));
+  expect(await screen.findByTestId("review-diff")).toHaveTextContent("v1");
+  expect(screen.queryByText(/git diff timed out/)).toBeNull();
+  expect(read).toHaveBeenCalledTimes(2);
+});
+
 it("a newer status re-reads only the open diffs it says something new about", async () => {
   scoped
     .mockResolvedValueOnce({ ...repo("main"), files: [changed("a.py"), changed("b.py")], workingFiles: 2 })
