@@ -30,7 +30,6 @@ import { useOpenFolder } from "@renderer/hooks/use-open-folder";
 import { isPrimaryModifier } from "@renderer/lib/platform";
 import { useExplorer } from "@renderer/state/explorer";
 import { useHistory, useHistoryReach } from "@renderer/state/history";
-import { leaveWelcome } from "@renderer/state/onboarding";
 import { useProjects } from "@renderer/state/projects";
 import { useSessions } from "@renderer/state/sessions";
 import { useSettings } from "@renderer/state/settings";
@@ -77,7 +76,6 @@ export function CommandPalette() {
   const query = useUi((state) => state.commandPaletteQuery);
   const setQuery = useUi((state) => state.setCommandPaletteQuery);
   const openSettings = useUi((state) => state.openSettings);
-  const closeSettings = useUi((state) => state.closeSettings);
   const projects = useProjects((state) => state.projects);
   const setActiveProject = useProjects((state) => state.setActive);
   const openFolder = useOpenFolder();
@@ -104,21 +102,6 @@ export function CommandPalette() {
     setOpen(false);
     action();
   };
-  /**
-   * A row that changes what the shell shows. Behind Settings, or behind the
-   * welcome, that change lands in a window nobody is looking at — so the row
-   * leaves them first, the way the menu's New Session leaves Settings
-   * (`runUiCommand`). A view toggle leaves Settings but not the welcome:
-   * collapsing a sidebar is not a reason to skip first-run.
-   */
-  const leaveForShell = () => {
-    closeSettings();
-    leaveWelcome();
-  };
-  const show = (action: () => void, leave: () => void = leaveForShell) => run(() => {
-    leave();
-    action();
-  });
 
   return (
     <CommandDialog
@@ -147,7 +130,7 @@ export function CommandPalette() {
             return (
               <CommandItem
                 key={session.id}
-                onSelect={show(() => selectSession(session.id))}
+                onSelect={run(() => selectSession(session.id))}
                 // cmdk keys selection by value: two "New session" rows in one
                 // folder would otherwise be one row twice over.
                 value={`${session.title} ${project?.name ?? ""} ${session.branch ?? ""} ${session.id}`}
@@ -170,7 +153,7 @@ export function CommandPalette() {
           {projects.filter(project => sessions.some(session => session.projectId === project.id && !session.archived)).map((project) => (
             <CommandItem
               key={project.id}
-              onSelect={show(() => { setActiveProject(project.id); setActiveSession(null); })}
+              onSelect={run(() => { setActiveProject(project.id); setActiveSession(null); })}
               value={`${project.name} ${project.path}`}
             >
               <Folder className="size-4" />
@@ -181,12 +164,7 @@ export function CommandPalette() {
           {/* The keyboard's way to the chooser the project chip's menu ends
               with. `add project` stays in the search terms: it is what
               somebody who remembers the old row will type. */}
-          <CommandItem
-            // Only a folder actually chosen leaves Settings: a cancelled
-            // chooser changed nothing, and Settings is where the person was.
-            onSelect={run(() => void openFolder().then((project) => { if (project) leaveForShell(); }))}
-            value="open folder add project"
-          >
+          <CommandItem onSelect={run(() => void openFolder())} value="open folder add project">
             <FolderPlus className="size-4" />
             Open folder…
           </CommandItem>
@@ -195,14 +173,14 @@ export function CommandPalette() {
         <CommandSeparator />
 
         <CommandGroup heading="Create">
-          <CommandItem onSelect={show(() => setActiveSession(null))} value="new session chat">
+          <CommandItem onSelect={run(() => setActiveSession(null))} value="new session chat">
             <MessageSquarePlus className="size-4" />
             New session
           </CommandItem>
           {/* The explorer belongs to a session (`Shell`): no session, no tabs. */}
           {activeSessionId
             ? NEW_TAB_ROWS.map(({ kind, label, value, icon: Icon }) => (
-                <CommandItem key={kind} onSelect={show(() => { useExplorer.getState().open(kind); })} value={value}>
+                <CommandItem key={kind} onSelect={run(() => { useExplorer.getState().open(kind); })} value={value}>
                   <Icon className="size-4" />
                   {label}
                 </CommandItem>
@@ -214,9 +192,8 @@ export function CommandPalette() {
 
         <CommandGroup heading="View">
           <CommandItem
-            onSelect={show(
-              () => void setLayout({ sidebarCollapsed: !(layout?.sidebarCollapsed ?? false) }),
-              closeSettings,
+            onSelect={run(() =>
+              void setLayout({ sidebarCollapsed: !(layout?.sidebarCollapsed ?? false) }),
             )}
             value="toggle sidebar"
           >
@@ -226,7 +203,7 @@ export function CommandPalette() {
           {/* No session, no explorer to toggle (`Shell`). */}
           {activeSessionId ? (
             <CommandItem
-              onSelect={show(() => useExplorer.getState().toggleCollapsed(), closeSettings)}
+              onSelect={run(() => useExplorer.getState().toggleCollapsed())}
               value="toggle explorer"
             >
               <PanelRight className="size-4" />
@@ -237,13 +214,13 @@ export function CommandPalette() {
               there is somewhere to go, since a palette row cannot be muted
               the way the two arrows in the title strip are. */}
           {reach.back ? (
-            <CommandItem onSelect={show(() => useHistory.getState().back(), closeSettings)} value="back navigate history">
+            <CommandItem onSelect={run(() => useHistory.getState().back())} value="back navigate history">
               <ChevronLeft className="size-4" />
               Back
             </CommandItem>
           ) : null}
           {reach.forward ? (
-            <CommandItem onSelect={show(() => useHistory.getState().forward(), closeSettings)} value="forward navigate history">
+            <CommandItem onSelect={run(() => useHistory.getState().forward())} value="forward navigate history">
               <ChevronRight className="size-4" />
               Forward
             </CommandItem>

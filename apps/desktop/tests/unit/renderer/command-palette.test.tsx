@@ -4,13 +4,16 @@
  * anchored near the top rather than centred (a centred one jumps as the list
  * filters).
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { COMMAND_PALETTE_PROMPT, CommandPalette } from "@renderer/app/CommandPalette";
+import { useOnboarding } from "@renderer/state/onboarding";
 import { useSessions } from "@renderer/state/sessions";
+import { useSettings } from "@renderer/state/settings";
 import { useUi } from "@renderer/state/ui";
+import { defaultSettings, type Session } from "@shared/types";
 
 beforeEach(() => {
   useUi.setState({ route: "app", commandPaletteOpen: true, commandPaletteQuery: "" });
@@ -41,5 +44,36 @@ describe("the command palette", () => {
       expect(screen.getByRole("option", { name })).toBeInTheDocument();
     }
     expect(screen.getByText("Create")).toBeInTheDocument();
+  });
+
+  it("leaves Settings for a session chosen behind it, and the welcome too", async () => {
+    const session = {
+      id: "s1", projectId: "/p", agentId: "claude-code", cwd: "/p", gitMode: "none", title: "Bracket",
+      titleSource: "prompt", createdAt: 1, updatedAt: 1, status: "idle", acpSessionId: null,
+      changedFiles: 0, insertions: 0, deletions: 0, archived: false, pinned: false,
+      sessionHead: null, turnHead: null, turnStartedAt: null,
+    } as unknown as Session;
+    const patch = vi.fn(async () => undefined);
+    useSessions.setState({ sessions: [session], activeId: null });
+    useSettings.setState({ settings: { ...defaultSettings, onboardingCompleted: false }, patch } as never);
+    useOnboarding.setState({ enabled: true });
+    useUi.setState({ route: "settings" });
+    const user = userEvent.setup();
+    render(<CommandPalette />);
+    await user.click(screen.getByRole("option", { name: /Bracket/ }));
+    expect(useUi.getState().route).toBe("app");
+    expect(patch).toHaveBeenCalledWith({ onboardingCompleted: true });
+  });
+
+  it("leaves Settings for a view toggle, but a toggle does not skip the welcome", async () => {
+    const patch = vi.fn(async () => undefined);
+    useSettings.setState({ settings: { ...defaultSettings, onboardingCompleted: false }, patch, setLayout: vi.fn() } as never);
+    useOnboarding.setState({ enabled: true });
+    useUi.setState({ route: "settings" });
+    const user = userEvent.setup();
+    render(<CommandPalette />);
+    await user.click(screen.getByRole("option", { name: "Toggle sidebar" }));
+    expect(useUi.getState().route).toBe("app");
+    expect(patch).not.toHaveBeenCalled();
   });
 });

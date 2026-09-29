@@ -69,3 +69,15 @@ export function markViewerOpened(): void {
     void patch({ onboardingViewerOpened: true });
   }
 }
+
+/**
+ * Leaves the welcome as Skip does, if it is up. For the command palette: a row
+ * that opens a session or a folder while the welcome covers the window would
+ * otherwise change a screen nobody can see.
+ */
+export function leaveWelcome(): void {
+  const { settings, patch } = useSettings.getState();
+  if (useOnboarding.getState().enabled === true && settings && !settings.onboardingCompleted) {
+    void patch({ onboardingCompleted: true });
+  }
+}
