@@ -166,8 +166,12 @@ type ComposerState = {
   turnEvent: (sessionId: string, type: "prompt/start" | "prompt/end" | "prompt/error") => void;
   /** Clear a draft for sending, returning what it held. */
   takeDraft: (key: string) => TakenDraft;
-  /** Put a taken draft back, ahead of anything written into the box since. */
-  restoreDraft: (key: string, draft: TakenDraft) => void;
+  /**
+   * Put a taken draft back, ahead of anything written into the box since — or after it (`behind`),
+   * for a queued prompt refused after those ahead of it were put back, so the box reads in the
+   * order they were queued.
+   */
+  restoreDraft: (key: string, draft: TakenDraft, options?: { behind?: boolean }) => void;
   setDraft: (sessionId: string, text: string) => void;
   /** Append a reference to a draft, as its token, spaced from what is there. */
   insertReference: (key: string, reference: CadReference) => void;
@@ -385,11 +389,12 @@ export const useComposer = create<ComposerState>((set, get) => ({
     return taken;
   },
 
-  restoreDraft: (key, draft) => set((state) => {
+  restoreDraft: (key, draft, options) => set((state) => {
     const current = state.drafts[key] ?? "";
-    const text = !current.trim() ? draft.text : !draft.text.trim() ? current : `${draft.text}\n\n${current}`;
+    const [first, second] = options?.behind ? [current, draft.text] : [draft.text, current];
+    const text = !second.trim() ? first : !first.trim() ? second : `${first}\n\n${second}`;
     const since = (state.annotations[key] ?? []).filter(annotation => !draft.annotations.some(taken => taken.id === annotation.id));
-    const annotations = [...draft.annotations, ...since];
+    const annotations = options?.behind ? [...since, ...draft.annotations] : [...draft.annotations, ...since];
     return {
       drafts: { ...state.drafts, [key]: text },
       ...(annotations.length ? { annotations: { ...state.annotations, [key]: annotations } } : {}),
@@ -465,7 +470,9 @@ async function send(sessionId: string, content: PromptBlock[], item?: QueuedProm
     if (error instanceof PromptRefused) {
       toast.info(error.message);
       if (options?.rethrowRefusal) throw error;
-      if (item?.draft) useComposer.getState().restoreDraft(sessionId, item.draft);
+      // After any put back before it, in queue order; one queued with no draft (the transcript's
+      // Retry behind a running turn) goes back as the text its row showed.
+      if (item) useComposer.getState().restoreDraft(sessionId, item.draft ?? { text: item.text, annotations: [] }, { behind: true });
       if (item) void useComposer.getState().drain(sessionId);
       return;
     }

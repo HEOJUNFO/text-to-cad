@@ -110,3 +110,16 @@ it("puts the draft back and says why when main refuses a direct send before any 
   expect(useAcp.getState().loadErrors[SESSION]).toBe("Claude Code is not installed");
   expect(useComposer.getState().sending[SESSION]).toBeUndefined();
 });
+
+it("puts refused queued prompts back in the order they were queued, a Retry's with no draft included", async () => {
+  const composer = useComposer.getState();
+  composer.enqueue(SESSION, "first", [{ type: "text", text: "first" }], { text: "first", annotations: [] });
+  composer.enqueue(SESSION, "second", [{ type: "text", text: "second" }], { text: "second", annotations: [] });
+  // The transcript's Retry, queued behind a running turn: the prompt it resends, with no draft.
+  composer.enqueue(SESSION, "again", [{ type: "text", text: "again" }]);
+  await composer.drain(SESSION);
+
+  await waitFor(() => expect(prompt).toHaveBeenCalledTimes(3));
+  await waitFor(() => expect(useComposer.getState().drafts[SESSION]).toBe("first\n\nsecond\n\nagain"));
+  expect(useComposer.getState().queues[SESSION]).toEqual([]);
+});
