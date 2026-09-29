@@ -20,6 +20,7 @@ import {
   SettingRow,
   SwitchRow,
   TextRow,
+  useDraft,
 } from "@renderer/features/settings/SettingCard";
 import {
   useSettingsPatch,
@@ -332,7 +333,11 @@ function relative(at: number): string {
   return "a while ago";
 }
 
-/** A row whose control is a paragraph, so it sits under the title rather than beside it. */
+/**
+ * A row whose control is a paragraph, so it sits under the title rather than
+ * beside it. Committed on blur, not per keystroke (`useDraft`): Enter is a
+ * newline here.
+ */
 function InstructionsRow({
   title,
   description,
@@ -348,14 +353,17 @@ function InstructionsRow({
   placeholder: string;
   onChange: (value: string) => void;
 }) {
+  const draft = useDraft(value, onChange);
   return (
     <SettingRow description={description} keywords={keywords} title={title}>
       <Textarea
         aria-label={title}
         className="min-h-20 text-sm"
-        onChange={(event) => onChange(event.target.value)}
+        onBlur={draft.onBlur}
+        onChange={(event) => draft.onChange(event.target.value)}
+        onFocus={draft.onFocus}
         placeholder={placeholder}
-        value={value}
+        value={draft.value}
       />
     </SettingRow>
   );

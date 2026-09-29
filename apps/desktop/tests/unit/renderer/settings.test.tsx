@@ -8,13 +8,14 @@
  * text it matched is the text the row prints.
  */
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
 import { SettingCard, SettingRow } from "@renderer/features/settings/SettingCard";
 import { SettingsRoute } from "@renderer/features/settings/SettingsRoute";
 import { AgentsPage } from "@renderer/features/settings/pages/AgentsPage";
+import { GitPage } from "@renderer/features/settings/pages/GitPage";
 import { matchesQuery } from "@renderer/features/settings/search";
 import { AgentDrawer, authLabel, parseEnv, formatEnv } from "@renderer/features/settings/AgentDrawer";
 import { agentIcon, agentIconIds } from "@renderer/lib/agent-icons";
@@ -23,7 +24,7 @@ import { useAgents } from "@renderer/state/agents";
 import { useSettings } from "@renderer/state/settings";
 import { useUi } from "@renderer/state/ui";
 import type { AgentStatus } from "@shared/agents";
-import { defaultSettings } from "@shared/types";
+import { defaultSettings, type Settings } from "@shared/types";
 
 const wrap = (ui: React.ReactNode) => render(<TooltipProvider>{ui}</TooltipProvider>);
 
@@ -283,5 +284,37 @@ describe("the Agents page's rows", () => {
     (await screen.findByRole("button", { name: "OpenCode" })).focus();
     await user.keyboard("{Enter}");
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  });
+});
+
+describe("a settings text field", () => {
+  it("keeps what is being typed when an earlier write's answer lands late", async () => {
+    const replies: ((settings: Settings) => void)[] = [];
+    vi.mocked(window.textToCad.settings.set).mockImplementation(
+      () => new Promise<Settings>((resolve) => replies.push(resolve)),
+    );
+    const user = userEvent.setup();
+    wrap(<GitPage />);
+    const box = screen.getByRole("textbox", { name: "Commit instructions" });
+    await user.type(box, "a");
+    await user.tab();
+    await user.click(box);
+    await user.type(box, "b");
+    expect(box).toHaveValue("ab");
+    // The answer to the write of "a" arrives while "ab" is still being edited.
+    await act(async () => {
+      replies[0]!({ ...defaultSettings(), commitInstructions: "a" });
+    });
+    expect(box).toHaveValue("ab");
+  });
+
+  it("writes a finished edit once, not once per keystroke", async () => {
+    vi.mocked(window.textToCad.settings.set).mockReset();
+    vi.mocked(window.textToCad.settings.set).mockImplementation(async (patch) => ({ ...defaultSettings(), ...(patch as Partial<Settings>) }));
+    const user = userEvent.setup();
+    wrap(<GitPage />);
+    await user.type(screen.getByRole("textbox", { name: "Branch prefix" }), "{Control>}a{/Control}me/{Enter}");
+    expect(window.textToCad.settings.set).toHaveBeenCalledTimes(1);
+    expect(window.textToCad.settings.set).toHaveBeenCalledWith({ branchPrefix: "me/" });
   });
 });

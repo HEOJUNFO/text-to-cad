@@ -6,7 +6,7 @@
  * page cannot invent its own row spacing, and search (`./search.tsx`) has one
  * place to hook into rather than seven.
  */
-import { useEffect, useId } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ChevronRight, Folder } from "lucide-react";
 import { cn } from "cn";
 
@@ -218,7 +218,65 @@ export function SelectRow<T extends string>({
   );
 }
 
-/** A row whose control is a text field. */
+/**
+ * A text control's own copy of what is being typed, handed to the store on
+ * blur and Enter rather than on every keystroke.
+ *
+ * Per keystroke, each character was a `settings.set` and a `settings_changed`
+ * event, and the answers came back late: the one for "a" landed after "ab"
+ * had been typed and put "a" back, the caret jumped to the end, and the next
+ * key went in after it. While the field is being edited the store's value is
+ * not let in; once the edit is over, the store's value is the field's again.
+ * A draft still open when the row unmounts — Settings closed mid-sentence —
+ * is committed then.
+ */
+export function useDraft(value: string, commit: (value: string) => void) {
+  const [draft, setDraft] = useState(value);
+  const editing = useRef(false);
+  const latest = useRef({ draft: value, committed: value, commit });
+  useEffect(() => {
+    latest.current.commit = commit;
+  }, [commit]);
+
+  useEffect(() => {
+    if (!editing.current) {
+      latest.current.draft = value;
+      latest.current.committed = value;
+      setDraft(value);
+    }
+  }, [value]);
+
+  const flush = useCallback(() => {
+    const current = latest.current;
+    if (current.draft !== current.committed) {
+      current.committed = current.draft;
+      current.commit(current.draft);
+    }
+  }, []);
+  useEffect(() => flush, [flush]);
+
+  return {
+    value: draft,
+    onChange: (next: string) => {
+      editing.current = true;
+      latest.current.draft = next;
+      setDraft(next);
+    },
+    onFocus: () => {
+      editing.current = true;
+    },
+    onBlur: () => {
+      editing.current = false;
+      flush();
+    },
+    flush,
+  };
+}
+
+/**
+ * A row whose control is a text field. `onChange` hears a finished edit — on
+ * blur or Enter (`useDraft`) — not each keystroke.
+ */
 export function TextRow({
   title,
   description,
@@ -238,16 +296,24 @@ export function TextRow({
   width?: string;
   type?: "text" | "number";
 }) {
+  const draft = useDraft(value, onChange);
   return (
     <SettingRow
       control={
         <Input
           aria-label={title}
           className={cn("h-8", width)}
-          onChange={(event) => onChange(event.target.value)}
+          onBlur={draft.onBlur}
+          onChange={(event) => draft.onChange(event.target.value)}
+          onFocus={draft.onFocus}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              draft.flush();
+            }
+          }}
           placeholder={placeholder}
           type={type}
-          value={value}
+          value={draft.value}
         />
       }
       description={description}
