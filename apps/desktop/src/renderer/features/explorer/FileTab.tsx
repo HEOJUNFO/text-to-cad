@@ -17,6 +17,7 @@ import { createDesktopLoadFailures } from "./host/loadFailures";
 import type { DesktopCadConnection } from "./adapters/cadRuntime";
 import { useDesktopViewState } from "./adapters/persistence";
 import { createDesktopRenderers } from "./renderers";
+import { EXPLORER_TABPANEL_ID, focusTabBody } from "./focus";
 
 /**
  * The worktree a tab's root is, drawn before the crumbs, or null for a tab in the project
@@ -56,8 +57,12 @@ export function FileTab({ sessionId, tabId, project, root, path, panel, cadConne
           return;
         }
       }
-      // A new tab, or the one already showing the file.
-      await openSessionTab(sessionId, project.id, root, "file", panel === undefined ? { path: next } : { path: next, panel });
+      // A new tab, or the one already showing the file. Picked from this tab's tree or crumbs,
+      // the keyboard goes with it — to the tree's row there, else the new tab — rather than to the
+      // page with the body it was in.
+      const fromHere = document.getElementById(EXPLORER_TABPANEL_ID)?.contains(document.activeElement) ?? false;
+      const opened = await openSessionTab(sessionId, project.id, root, "file", panel === undefined ? { path: next } : { path: next, panel });
+      if (fromHere && opened.id !== tabId) focusTabBody(opened.id, '[role=treeitem][tabindex="0"]');
     })().catch(error => toast.error(error instanceof Error ? error.message : String(error)));
   }, [sessionId, project.id, tabId, root]);
   const liveDocuments = useMemo(() => desktopLiveDocuments(tabId, { projectId: project.id, root }), [tabId, project.id, root]);

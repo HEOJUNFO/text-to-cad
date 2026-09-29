@@ -28,9 +28,11 @@ const claimants = new Set<string>();
  *
  * Two frames: one for the strip's render, one for the body's effects. A body
  * that is still getting ready to claim (a terminal whose shell is starting) is
- * left to claim when it is ready.
+ * left to claim when it is ready. `prefer` names an element in the body to
+ * land on when it is there by then (the tree's row, for a file opened from
+ * a tree), ahead of the strip tab.
  */
-export function focusTabBody(tabId: string): void {
+export function focusTabBody(tabId: string, prefer?: string): void {
   wanted = tabId;
   const settle = () => {
     if (wanted !== tabId) return;
@@ -40,6 +42,11 @@ export function focusTabBody(tabId: string): void {
     }
     if (claimants.has(tabId)) return;
     wanted = null;
+    const preferred = prefer ? document.getElementById(EXPLORER_TABPANEL_ID)?.querySelector<HTMLElement>(prefer) : null;
+    if (preferred) {
+      preferred.focus();
+      return;
+    }
     document.querySelector<HTMLElement>(`[data-tab-strip] [data-tab="${CSS.escape(tabId)}"]`)?.focus();
   };
   window.requestAnimationFrame(() => window.requestAnimationFrame(settle));
