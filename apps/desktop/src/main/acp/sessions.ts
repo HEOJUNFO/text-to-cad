@@ -605,12 +605,28 @@ export class SessionManager {
     const replay: { onReplayUpdate?: () => void } = {
       onReplayUpdate: () => timer.mark("firstUpdate"),
     };
-    const connection = await this.connect(session, {
-      onWarm: () => {
-        warmed = true;
-      },
-      replay,
-    });
+    // A `connect` that throws after it quietly retired the old connection (the shell env probe,
+    // the spawn) has left the renderer with its last status and the row `connecting`: said here,
+    // the same way a failed `initialize` is.
+    let connection: SessionConnection;
+    try {
+      connection = await this.connect(session, {
+        onWarm: () => {
+          warmed = true;
+        },
+        replay,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.setStatus(id, "error", message);
+      if (!this.shuttingDown) {
+        this.deps.broadcast("session.update", {
+          sessionId: id,
+          event: { type: "status", status: "error", error: message, at: Date.now() },
+        });
+      }
+      throw error;
+    }
     timer.mark("spawn");
     // session/load replays the whole history, edits included, through
     // `tallyUpdate`: start the count again rather than add a second copy of

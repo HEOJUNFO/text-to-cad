@@ -101,6 +101,26 @@ describe("the composer's chips and Stop", () => {
     expect(vi.mocked(toast.info).mock.calls).toEqual([[reason], [reason]]);
   });
 
+  it("say why from the keyboard too, where the refused activation has no click to say it", async () => {
+    useAcp.setState({ sessions: { s1: state("closed") }, reconnecting: {} } as never);
+    render(<SessionView session={SESSION} />);
+    const chip = chipNamed("Mode");
+    act(() => chip.focus());
+    await userEvent.setup().keyboard("{Enter}");
+    await userEvent.setup().keyboard(" ");
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(vi.mocked(toast.info).mock.calls).toEqual([["Agent disconnected"], ["Agent disconnected"]]);
+  });
+
+  it("close an open menu when the agent goes away under it", async () => {
+    useAcp.setState({ sessions: { s1: state("idle") }, reconnecting: {} } as never);
+    render(<SessionView session={SESSION} />);
+    await userEvent.setup().click(chipNamed("Mode"));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    act(() => useAcp.setState({ sessions: { s1: state("closed") } } as never));
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   it("are offered on an idle session", () => {
     useAcp.setState({ sessions: { s1: state("idle") } } as never);
     render(<SessionView session={SESSION} />);

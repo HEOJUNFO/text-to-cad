@@ -1059,6 +1059,34 @@ describe("SessionManager", () => {
     expect(statuses).toEqual([]);
   });
 
+  /**
+   * The quiet replace means the renderer hears nothing when the old adapter
+   * goes; a `connect` that then throws (the shell env probe here, a spawn in
+   * the app) has to say so itself, or the row stays `connecting` and the
+   * renderer keeps its last status.
+   */
+  it("says so when the reconnect itself fails after the quiet retire", async () => {
+    let probes = 0;
+    const { repo, broadcasts, manager, cwd } = await setup({
+      runtimePath: () => {
+        if (++probes > 1) throw new Error("runtime probe failed");
+        return [];
+      },
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    await expect(manager.prompt(session.id, [{ type: "text", text: "please crash" }])).rejects.toThrow();
+    await until(() => (repo.get(session.id)?.status === "error" ? true : undefined));
+    broadcasts.length = 0;
+
+    await expect(manager.prompt(session.id, [{ type: "text", text: "ok again" }])).rejects.toThrow(/runtime probe failed/);
+    expect(repo.get(session.id)?.status).toBe("error");
+    const statuses = broadcasts
+      .filter((b) => b.channel === "session.update")
+      .map((b) => (b.payload as { event: { type: string; status?: string; error?: string } }).event)
+      .filter((event) => event.type === "status");
+    expect(statuses).toMatchObject([{ status: "error", error: "runtime probe failed" }]);
+  });
+
   /** A failed load is an error the person should see, not a `closed` row. */
   it("a failed load leaves the row in error, not closed", async () => {
     const dir = await tempDir("text-to-cad-noload-");

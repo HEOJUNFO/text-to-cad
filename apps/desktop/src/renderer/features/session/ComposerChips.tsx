@@ -1,5 +1,5 @@
 import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
-import { useId, useMemo } from "react";
+import { useId, useMemo, useState } from "react";
 import {
   Check,
   Folder,
@@ -85,9 +85,17 @@ export function Chip({
   // ONE button whether or not the chip can be used, so a keyboard user focused on it while the agent
   // reconnects keeps their place when it comes back. Unavailable, it refuses activation before the
   // menu's own pointer and key handlers see it (they skip a default-prevented event) and says why.
-  const refuse = (event: React.SyntheticEvent) => {
-    if (disabledReason) event.preventDefault();
+  // Enter and Space say it here: preventing their default is what stops the button's own click,
+  // and the click is where a pointer hears the reason.
+  const refuse = (event: React.SyntheticEvent, say = false) => {
+    if (!disabledReason) return;
+    event.preventDefault();
+    if (say) toast.info(disabledReason);
   };
+  // The menu is controlled so that one open when the chip becomes unavailable closes with it: its
+  // items would otherwise still run against an agent that is reconnecting.
+  const [open, setOpen] = useState(false);
+  const menuOpen = open && !disabledReason;
   // The chip's hint is the kit's `TooltipHint`, never a native `title`; it stands aside while the
   // menu is open (`aria-expanded`), and while the chip is unavailable its reason is the description.
   const body = (
@@ -113,7 +121,8 @@ export function Chip({
           toast.info(disabledReason);
         }}
         onKeyDown={(event) => {
-          if (["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) refuse(event);
+          if (event.key === "Enter" || event.key === " ") refuse(event, true);
+          else if (event.key === "ArrowDown" || event.key === "ArrowUp") refuse(event);
         }}
         onPointerDown={refuse}
         style={{ maxWidth }}
@@ -135,7 +144,7 @@ export function Chip({
     );
   }
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={setOpen} open={menuOpen}>
       <DropdownMenuTrigger asChild>{body}</DropdownMenuTrigger>
       {reason}
       {/*

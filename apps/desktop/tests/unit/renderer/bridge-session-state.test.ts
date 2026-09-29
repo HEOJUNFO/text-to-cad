@@ -40,3 +40,13 @@ it("takes a session's state from main, but not an archived or deleted session's"
   broadcast("deleted");
   expect(Object.keys(useAcp.getState().sessions)).toEqual(["live"]);
 });
+
+/**
+ * An archived session open on screen is a session main reconnects on a prompt; the `session.state`
+ * that ends that load is the one that replaces the replayed transcript, so it is taken.
+ */
+it("takes an archived session's state while the renderer still holds that session", () => {
+  useAcp.setState({ sessions: { archived: initialSessionState("archived", "codex") } });
+  broadcast("archived");
+  expect(useAcp.getState().sessions.archived?.status).toBe("running");
+});
