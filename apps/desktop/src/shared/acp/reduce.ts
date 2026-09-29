@@ -26,7 +26,14 @@
  *     part, the rest of what it reports about itself is dropped.
  *   - An update under a session id that is neither the root nor a known
  *     subagent is parked (bounded) until that subagent's spawn arrives,
- *     rather than glued onto the root's reply.
+ *     rather than glued onto the root's reply. `parked` is not in the
+ *     schema, so no wire copy carries it: a renderer that takes a
+ *     `session.state` while a child has updates parked lacks them, and when
+ *     main later unparks them into the subagent's part the renderer's copy
+ *     of that part is short. Accepted: it needs a spawn to trail its first
+ *     updates across a `session.state` (sent on connect and load only), the
+ *     loss is those early updates' rows, and the next `session.state` heals
+ *     it. Carrying raw parked diffs on every snapshot is the worse trade.
  *   - A tool call id is looked up across every turn: a late update (after a
  *     cancel, a background command) updates the row where it is, and an
  *     update for an unknown id never opens a turn when none is open.
@@ -232,15 +239,17 @@ function applyUpdate(
         return state;
       }
       const turnOpen = state.turns.at(-1)?.endedAt === null;
-      // An announcement is a new row, even if an earlier turn used the same
-      // id (the fake agent does); an update is news about a call that
-      // already has a row somewhere in its own session.
-      if (update.sessionUpdate === "tool_call_update") {
+      // While a turn is open an announcement is a new row in it, even if an
+      // earlier turn used the same id (the fake agent does). An update — or
+      // an announcement with no turn open (a background call re-announced
+      // after its turn ended) — is news about a call that already has a row
+      // somewhere in its own session.
+      if (update.sessionUpdate === "tool_call_update" || !turnOpen) {
         const inPlace = updateToolCallInSession(state, acpSessionId, id, u);
         if (inPlace) {
           return inPlace;
         }
-        if (!turnOpen) {
+        if (!turnOpen && update.sessionUpdate === "tool_call_update") {
           // A late update for a call nobody announced, with no turn open:
           // opening one would put a blank row in a turn nobody started.
           return state;
@@ -453,13 +462,18 @@ function settleParts(parts: Part[], settle: Settle): Part[] {
 
 /** How many updates, and how many bytes of them, are held for not-yet-spawned subagents; the oldest go first. */
 const PARKED_LIMIT = 200;
+/** In UTF-8 bytes, what the entries weigh on the wire. */
 const PARKED_BYTES = 256 * 1024;
+const UTF8 = new TextEncoder();
 
 function park(state: SessionState, acpSessionId: string, update: RawSessionUpdate, at: number): SessionState {
-  const parked = [...(state.parked ?? []), { acpSessionId, update, at, bytes: JSON.stringify(update).length }];
+  const bytes = UTF8.encode(JSON.stringify(update)).length;
+  const parked = [...(state.parked ?? []), { acpSessionId, update, at, bytes }];
   let total = parked.reduce((sum, entry) => sum + entry.bytes, 0);
   let drop = 0;
-  while (drop < parked.length && (parked.length - drop > PARKED_LIMIT || total > PARKED_BYTES)) {
+  // The newest always stays: a spawn is usually right behind its first
+  // update, and dropping that update on arrival would lose it for nothing.
+  while (drop < parked.length - 1 && (parked.length - drop > PARKED_LIMIT || total > PARKED_BYTES)) {
     total -= parked[drop]!.bytes;
     drop += 1;
   }

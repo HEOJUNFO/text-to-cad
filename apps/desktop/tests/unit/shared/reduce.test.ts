@@ -780,12 +780,17 @@ describe("reduce: a tool call id belongs to its session", () => {
     expect(allToolCalls(state).map((call) => `${call.title}:${call.status}`)).toEqual(["root call:in_progress", "child call:completed"]);
   });
 
-  it("gives an announcement with no turn open a new row, not an old row with the same id", () => {
+  it("merges an announcement with no turn open into its session's row, rather than opening a turn with a duplicate", () => {
     let state = started(connected());
-    state = update(state, { sessionUpdate: "tool_call", toolCallId: "c1", title: "old", kind: "execute", status: "completed" });
+    state = update(state, { sessionUpdate: "tool_call", toolCallId: "c1", title: "old", kind: "execute", status: "in_progress" });
     state = reduce(state, { type: "prompt/end", stopReason: "end_turn", usage: null, at });
-    state = update(state, { sessionUpdate: "tool_call", toolCallId: "c1", title: "new", kind: "execute", status: "in_progress" });
-    expect(allToolCalls(state).map((call) => `${call.title}:${call.status}`)).toEqual(["old:completed", "new:in_progress"]);
+    state = update(state, { sessionUpdate: "tool_call", toolCallId: "c1", title: "again", kind: "execute", status: "completed" });
+    expect(state.turns).toHaveLength(2);
+    expect(allToolCalls(state).map((call) => `${call.title}:${call.status}`)).toEqual(["again:completed"]);
+    // An announcement for an id no row has still opens a turn for it.
+    state = update(state, { sessionUpdate: "tool_call", toolCallId: "c2", title: "new", kind: "execute", status: "in_progress" });
+    expect(state.turns).toHaveLength(3);
+    expect(allToolCalls(state).map((call) => call.id)).toEqual(["c1", "c2"]);
   });
 });
 
@@ -802,6 +807,20 @@ describe("reduce: parked updates stay small and local", () => {
     expect(state.parked?.at(-1)?.update).toMatchObject({ toolCallId: "b99" });
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
+  });
+
+  it("keeps the newest update even when it alone is over the byte cap", () => {
+    let state = started(connected());
+    state = update(state, { sessionUpdate: "tool_call", toolCallId: "huge", rawOutput: "x".repeat(300_000) }, "late-child");
+    expect(state.parked?.map((entry) => (entry.update as { toolCallId?: string }).toolCallId)).toEqual(["huge"]);
+  });
+
+  it("measures the cap in UTF-8 bytes, not UTF-16 units", () => {
+    let state = started(connected());
+    state = update(state, { sessionUpdate: "tool_call", toolCallId: "ascii", rawOutput: "x".repeat(100_000) }, "late-child");
+    // 100k two-byte characters: 200 KB on the wire, 100k units in a JS string.
+    state = update(state, { sessionUpdate: "tool_call", toolCallId: "accents", rawOutput: "é".repeat(100_000) }, "late-child");
+    expect(state.parked?.map((entry) => (entry.update as { toolCallId?: string }).toolCallId)).toEqual(["accents"]);
   });
 
   it("is not part of the state a snapshot or session.state carries", () => {
