@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,6 +18,8 @@ import type { SnapshotStore } from "@main/acp/snapshots";
 import type { AgentProvider } from "@shared/agents";
 import type { IpcEventChannel } from "@shared/ipc";
 import type { Session } from "@shared/types";
+
+import { cleanTempDirs, tempDir } from "./temp-dirs";
 
 const FAKE_AGENT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "fake-agent", "index.mjs");
 
@@ -106,6 +108,7 @@ afterEach(() => {
   for (const manager of managers.splice(0)) {
     manager.closeAll();
   }
+  cleanTempDirs();
 });
 
 async function setup(extra: Partial<SessionManagerDeps> = {}) {
@@ -132,7 +135,7 @@ async function setup(extra: Partial<SessionManagerDeps> = {}) {
     ...extra,
   });
   managers.push(manager);
-  const cwd = await realpath(await mkdtemp(path.join(os.tmpdir(), "text-to-cad-mgr-")));
+  const cwd = await tempDir("text-to-cad-mgr-");
   return { repo, broadcasts, manager, cwd };
 }
 
@@ -242,7 +245,7 @@ describe("SessionManager", () => {
     });
     const request = (id: number, method: string) => ({ dir: "out", msg: { jsonrpc: "2.0", id, method, params: { sessionId: "recorded" } } });
     const response = (id: number, result: object) => ({ dir: "in", msg: { jsonrpc: "2.0", id, result } });
-    const dir = await mkdtemp(path.join(os.tmpdir(), "text-to-cad-tally-"));
+    const dir = await tempDir("text-to-cad-tally-");
     const write = async (name: string, frames: object[]) => {
       const file = path.join(dir, name);
       await writeFile(file, frames.map((frame) => JSON.stringify(frame)).join("\n"));
@@ -963,7 +966,7 @@ describe("SessionManager", () => {
  */
 describe("what a session is given", () => {
   async function recorded(agentId: string, deps: Partial<SessionManagerDeps> = {}) {
-    const file = path.join(await mkdtemp(path.join(os.tmpdir(), "text-to-cad-record-")), "frames.jsonl");
+    const file = path.join(await tempDir("text-to-cad-record-"), "frames.jsonl");
     const { manager, cwd } = await setup({
       launchOverride: () => ({ ...fakeProvider.launch, env: { FAKE_AGENT_RECORD: file } }),
       skills: { root: () => "/data/skills/1.2.3", preamble: () => "SKILLS: /data/skills/1.2.3" },

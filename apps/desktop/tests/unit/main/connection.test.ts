@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, realpath } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,7 @@ import { SessionConnection, type RecordedFrame } from "@main/acp/connection";
 import { spawnProcessTerminal } from "@main/acp/process-backend";
 import { allToolCalls, lastAgentText } from "@shared/acp/reduce";
 import type { SessionEvent } from "@shared/acp/types";
+import { cleanTempDirs, tempDir } from "./temp-dirs";
 
 const FAKE_AGENT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "fake-agent", "index.mjs");
 const FIXTURES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "fixtures", "acp");
@@ -49,10 +50,11 @@ afterEach(async () => {
     connection.close();
     await connection.exited;
   }
+  cleanTempDirs();
 });
 
-async function scratch() {
-  return realpath(await mkdtemp(path.join(os.tmpdir(), "text-to-cad-conn-")));
+function scratch() {
+  return tempDir("text-to-cad-conn-");
 }
 
 describe("SessionConnection against the fake agent", () => {

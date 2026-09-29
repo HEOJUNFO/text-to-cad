@@ -1,5 +1,4 @@
 import type { EventEmitter } from "node:events";
-import { mkdtemp, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +13,7 @@ import { SessionManager, type SessionRepository } from "@main/acp/sessions";
 import { db } from "@main/db/index";
 import type { AgentProvider } from "@shared/agents";
 import type { Session } from "@shared/types";
+import { cleanTempDirs, tempDir } from "./temp-dirs";
 
 /**
  * The quit path of `src/main/index.ts`, with Electron's app and window modelled
@@ -155,6 +155,7 @@ vi.mock("@main/updater", () => ({ initUpdater: () => undefined, stopUpdater: () 
 
 afterEach(() => {
   vi.useRealTimers();
+  cleanTempDirs();
 });
 
 /** The fake ACP agent (`tests/fake-agent`), in the registry's claude-code slot. */
@@ -216,7 +217,7 @@ async function managerWithSlowTurn() {
     broadcast: () => undefined,
     newId: () => "session-1",
   });
-  const cwd = await realpath(await mkdtemp(path.join(os.tmpdir(), "text-to-cad-quit-")));
+  const cwd = await tempDir("text-to-cad-quit-");
   const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
   // "slow" holds the turn open until cancelled: a prompt in flight at quit.
   const turn = manager.prompt(session.id, [{ type: "text", text: "slow" }]);

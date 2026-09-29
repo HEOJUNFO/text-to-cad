@@ -1,16 +1,18 @@
-import { mkdtemp, readFile, realpath, symlink, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { readFile, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { AcpClient, confineToCwd } from "@main/acp/client";
 import { TerminalManager } from "@main/acp/terminals";
 import type { SessionEvent } from "@shared/acp/types";
+import { cleanTempDirs, tempDir } from "./temp-dirs";
 
-async function scratch() {
-  return realpath(await mkdtemp(path.join(os.tmpdir(), "text-to-cad-client-")));
+function scratch() {
+  return tempDir("text-to-cad-client-");
 }
+
+afterEach(cleanTempDirs);
 
 function client(cwd: string) {
   const events: SessionEvent[] = [];
