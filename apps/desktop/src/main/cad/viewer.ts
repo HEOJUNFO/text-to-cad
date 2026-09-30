@@ -151,8 +151,6 @@ export class ViewerManager extends EventEmitter {
   private readonly pending = new Map<string, Promise<ViewerOrigin>>();
   /** The child of each launch still waiting to announce, so a stop can kill it now. */
   private readonly launching = new Map<string, ViewerChild>();
-  /** The last launch failure per root, for the card that says why there is no viewer. */
-  private readonly failures = new Map<string, string>();
   /**
    * Bumped by every `stop` (entry or not) and, for all roots at once, by
    * `stopAll`. A crash's restart remembers the generation it was scheduled
@@ -238,14 +236,12 @@ export class ViewerManager extends EventEmitter {
     }
     try {
       const entry = await this.start(root, resolved, 0, generation);
-      this.failures.delete(root);
       return { origin: entry.origin };
     } catch (error) {
       if (error instanceof StoppedWhileLaunching) {
         return { origin: null, reason: "viewer-failed", message: error.message };
       }
       const message = error instanceof Error ? error.message : String(error);
-      this.failures.set(root, message);
       this.log(`launch failed for ${root}: ${message}`);
       return { origin: null, reason: "viewer-failed", message };
     }
@@ -371,8 +367,7 @@ export class ViewerManager extends EventEmitter {
           return { origin: null, reason: "viewer-failed", message: error.message };
         }
         const message = error instanceof Error ? error.message : String(error);
-        this.failures.set(root, message);
-        this.log(`restart failed for ${root}: ${message}`);
+          this.log(`restart failed for ${root}: ${message}`);
         void this.restart(root, resolved, attempt + 1);
         return { origin: null, reason: "viewer-failed", message };
       })
