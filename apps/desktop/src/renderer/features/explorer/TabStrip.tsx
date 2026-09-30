@@ -19,6 +19,7 @@ import { tabTitle, useExplorer } from "@renderer/state/explorer";
 import type { ExplorerTab, ExplorerTabKind } from "@shared/types";
 
 import { FileIcon } from "@text-to-cad/ui/navigation";
+import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 
 import { EXPLORER_TABPANEL_ID, focusTabBody } from "./focus";
 import { preloadTerminal } from "./load-terminal";
@@ -480,26 +481,28 @@ function TabButton({
       }}
       role="none"
     >
-      <div
-        // Only the selected tab names the panel: the one body shows its content.
-        aria-controls={active ? EXPLORER_TABPANEL_ID : undefined}
-        // The keyboard's close, since the button beside it is the pointer's.
-        aria-keyshortcuts="Delete"
-        aria-selected={active}
-        className="peer flex h-full min-w-0 flex-1 items-center gap-1.5 pl-2 outline-none"
-        data-tab={tab.id}
-        id={explorerTabDomId(tab.id)}
-        onFocus={(event) => {
-          if (event.target === event.currentTarget) onFocus();
-        }}
-        onKeyDown={onKeyDown}
-        role="tab"
-        tabIndex={focusable ? 0 : -1}
-        title={tab.kind === "file" && tab.path ? tab.path : title}
-      >
-        <TabIcon className="size-3.5 shrink-0" tab={tab} />
-        <span className="truncate">{title}</span>
-      </div>
+      {/* A file's path is always the hint; any other tab's title only when the chip clips it. */}
+      <TooltipHint content={tab.kind === "file" && tab.path ? tab.path : title} overflowOnly={!(tab.kind === "file" && tab.path)}>
+        <div
+          // Only the selected tab names the panel: the one body shows its content.
+          aria-controls={active ? EXPLORER_TABPANEL_ID : undefined}
+          // The keyboard's close, since the button beside it is the pointer's.
+          aria-keyshortcuts="Delete"
+          aria-selected={active}
+          className="peer flex h-full min-w-0 flex-1 items-center gap-1.5 pl-2 outline-none"
+          data-tab={tab.id}
+          id={explorerTabDomId(tab.id)}
+          onFocus={(event) => {
+            if (event.target === event.currentTarget) onFocus();
+          }}
+          onKeyDown={onKeyDown}
+          role="tab"
+          tabIndex={focusable ? 0 : -1}
+        >
+          <TabIcon className="size-3.5 shrink-0" tab={tab} />
+          <span className="truncate">{title}</span>
+        </div>
+      </TooltipHint>
       {/* Out of the Tab order and out of the accessibility tree: Delete on the tab is its
           keyboard twin, and a button a screen reader could reach would be a second stop per tab. */}
       <button

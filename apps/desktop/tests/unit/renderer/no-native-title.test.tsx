@@ -4,6 +4,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
 
+import { ReviewTab } from "@renderer/features/explorer/ReviewTab";
+import { TabStrip } from "@renderer/features/explorer/TabStrip";
+import type { FileDiff, GitStatus } from "@renderer/features/explorer/types";
 import { Composer } from "@renderer/features/session/Composer";
 import { AnnotationsChip } from "@renderer/features/session/composer/AnnotationsChip";
 import { ContextMeter } from "@renderer/features/session/ContextMeter";
@@ -37,6 +40,11 @@ import { defaultSettings, type Session } from "@shared/types";
  * reads twice to a screen reader beside the label. One pass over every control the session draws.
  */
 
+// Monaco draws nothing readable in jsdom; the review's diff is stood in for.
+vi.mock("@renderer/features/explorer/review-diff", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  ReviewDiff: ({ diff }: { diff: FileDiff }) => <pre>{diff.after}</pre>,
+}));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), dismiss: vi.fn(), info: vi.fn() } }));
 
 const noRects = () => Object.assign([], { item: () => null }) as unknown as DOMRectList;
@@ -207,5 +215,40 @@ describe("Settings", () => {
     );
     expect(await screen.findByText("/Users/me/Library/skills/0.0.0")).toBeInTheDocument();
     expect([...document.querySelectorAll("[title]")].map((element) => element.outerHTML.slice(0, 120))).toEqual([]);
+  });
+});
+
+// Every `title` attribute on the page. An svg's own `<title>` child is not one, and one on an
+// svg descendant is the icon's accessible name, not a tooltip.
+const nativeTitles = () =>
+  [...document.querySelectorAll("[title]")].filter((element) => !element.closest("svg")).map((element) => element.outerHTML.slice(0, 120));
+
+describe("Explorer", () => {
+  it("nor does the tab strip: a file tab's path is a hint on the tab", async () => {
+    const file = { id: "f1", kind: "file", sessionId: "s1", projectId: "p", order: 0, root: null, panel: null, path: "models/deeply/nested/bracket.step" };
+    const terminal = { id: "t1", kind: "terminal", sessionId: "s1", projectId: "p", order: 1, ptyId: null, cwd: null, readOnly: false };
+    useExplorer.setState({ tabs: [file, terminal] as never, activeId: "f1", collapsed: false });
+    render(<TooltipProvider><TabStrip /></TooltipProvider>);
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+    expect(nativeTitles()).toEqual([]);
+    await userEvent.hover(screen.getAllByRole("tab")[0]!);
+    expect(await screen.findByRole("tooltip", {}, { timeout: 2000 })).toHaveTextContent("models/deeply/nested/bracket.step");
+  });
+
+  it("nor does the review: branch, file rows, diff headers and a stale-read strip", async () => {
+    const status: GitStatus = {
+      isRepository: true, branch: "main", unborn: false, ahead: 0, behind: 0, insertions: 1, deletions: 0, workingFiles: 1,
+      files: [{ path: "models/bracket.step", status: "modified", insertions: 1, deletions: 0, binary: false }],
+    };
+    const git = window.textToCad.git as unknown as { status: ReturnType<typeof vi.fn>; fileDiff: ReturnType<typeof vi.fn> };
+    git.status.mockResolvedValueOnce(status).mockRejectedValueOnce(new Error("index.lock exists"));
+    git.fileDiff.mockResolvedValue({ path: "models/bracket.step", before: "", after: "ISO-10303", binary: false, truncated: false });
+    useSessions.setState({ sessions: [{ ...SESSION, cwd: "/p/worktree" }], ready: true });
+    render(<TooltipProvider><ReviewTab project={{ id: "p", name: "p", path: "/p", createdAt: 0 }} scope="session" sessionId="s1" tabId="t1" /></TooltipProvider>);
+    expect(await screen.findByText("main")).toBeInTheDocument();
+    await screen.findAllByRole("button", { name: /bracket\.step/ });
+    await act(async () => useExplorer.setState({ fsRevision: useExplorer.getState().fsRevision + 1 }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not refresh: index.lock exists");
+    expect(nativeTitles()).toEqual([]);
   });
 });
