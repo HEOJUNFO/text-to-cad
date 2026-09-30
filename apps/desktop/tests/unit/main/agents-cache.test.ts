@@ -117,7 +117,7 @@ it("ignores a table that is unreadable or missing a provider", () => {
   expect(read({ version: "1.2.3", statuses: lastLaunch })).toHaveLength(lastLaunch.length);
 });
 
-it("drops the provisional rows if the probe fails, so none stays 'probing' for good", async () => {
+it("keeps the rows, flagged, if the probe fails: none stays 'probing', and the table is not empty", async () => {
   shell.env = Promise.reject(new Error("no login shell"));
   shell.env.catch(() => undefined);
   const cache: AgentsCache = { read: () => lastLaunch, write: vi.fn() };
@@ -126,6 +126,9 @@ it("drops the provisional rows if the probe fails, so none stays 'probing' for g
   detector.onChange((statuses) => broadcasts.push(statuses));
   expect((await detector.listWithin(3_000)).every((row) => row.probing)).toBe(true);
   await detector.settled().catch(() => undefined);
-  expect(broadcasts).toEqual([[]]);
+  // An empty table would be read as "no agent ready — sign in": the wrong cause.
+  expect(broadcasts).toHaveLength(1);
+  expect(broadcasts[0]).toHaveLength(AGENT_PROVIDERS.length);
+  expect(broadcasts[0]!.every((row) => row.probeFailed === true && !row.probing)).toBe(true);
   expect(cache.write).not.toHaveBeenCalled();
 });

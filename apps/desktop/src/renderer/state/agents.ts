@@ -81,7 +81,17 @@ export const useAgents = create<AgentsState>((set) => ({
 
   cancelJob: (jobId) => window.textToCad.agents.cancelJob({ jobId }),
 
-  receive: (agents) => set({ agents, ready: true, loadError: null }),
+  // A probe that failed leaves the last launch's rows flagged (`probeFailed`): that is a check
+  // that did not happen, so it reads as `loadError` — not as agents that are signed out.
+  receive: (agents) =>
+    set({
+      agents,
+      ready: true,
+      loadError:
+        agents.length > 0 && agents.every((agent) => agent.probeFailed === true)
+          ? "the check did not finish"
+          : null,
+    }),
 
   receiveOutput: (chunk) =>
     set((state) => {

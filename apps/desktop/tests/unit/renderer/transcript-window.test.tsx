@@ -119,6 +119,67 @@ describe("a long transcript mounts its latest turns", () => {
     expect(screen.getByRole("button", { name: `Show ${48 - TRANSCRIPT_WINDOW} earlier turns` })).toBeTruthy();
   });
 
+  it("mounts a second window only for a press on the pane itself, its scrollbar", async () => {
+    render(view(session(turns(48))));
+    const pane = scroller();
+    tall(pane);
+    // Off the bottom, as the opening's clamp leaves it, with no reach behind it.
+    for (const top of [500, 100]) {
+      pane.scrollTop = top;
+      fireEvent.scroll(pane);
+      await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    }
+    // A press on a turn is a click on the page, not a reach for what is above.
+    act(() => {
+      fireEvent.pointerDown(document.querySelector("[data-turn]")!);
+    });
+    act(() => intersect(true));
+    expect(mounted()).toHaveLength(TRANSCRIPT_WINDOW);
+
+    // A press on the pane itself is its scrollbar being dragged.
+    act(() => {
+      fireEvent.pointerDown(pane);
+    });
+    // The drag scrolls, and the sentinel comes into reach again on the way up.
+    act(() => intersect(false));
+    act(() => intersect(true));
+    expect(mounted().length).toBeGreaterThan(TRANSCRIPT_WINDOW);
+  });
+
+  it("keeps the turns an early permission request pulled in once it is answered", () => {
+    const request = (state: "pending" | "cancelled"): Turn["parts"][number] => ({
+      type: "permission_request",
+      requestId: "r1",
+      toolCallId: "c1",
+      title: "Edit car.py",
+      description: null,
+      options: [],
+      outcome: { state },
+    });
+    const list = turns(40);
+    list[5] = agent("t5", [request("pending")]);
+    const { rerender } = render(view(session(list)));
+    expect(mounted()[0]).toBe("t5");
+    const answered = [...list];
+    answered[5] = agent("t5", [request("cancelled")]);
+    rerender(view(session(answered)));
+    expect(mounted()[0]).toBe("t5");
+    expect(mounted()).toHaveLength(35);
+  });
+
+  it("mounts earlier turns inside a silent live region, and a new turn outside it", () => {
+    const list = turns(2 * TRANSCRIPT_WINDOW);
+    const { rerender } = render(view(session(list)));
+    fireEvent.click(screen.getByRole("button", { name: `Show ${TRANSCRIPT_WINDOW} earlier turns` }));
+    const silent = (id: string) => document.querySelector(`[data-turn="${id}"]`)!.closest('[aria-live="off"]');
+    // The transcript is `role=log`, live by default: what the person scrolled up to is not news.
+    expect(silent("t0")).not.toBeNull();
+    expect(silent(`t${TRANSCRIPT_WINDOW - 1}`)).not.toBeNull();
+    expect(silent(`t${2 * TRANSCRIPT_WINDOW - 1}`)).toBeNull();
+    rerender(view(session([...list, agent("new")])));
+    expect(silent("new")).toBeNull();
+  });
+
   it("mounts the next window from the sentinel's button", () => {
     render(view(session(turns(40))));
     fireEvent.click(screen.getByRole("button", { name: `Show ${40 - TRANSCRIPT_WINDOW} earlier turns` }));

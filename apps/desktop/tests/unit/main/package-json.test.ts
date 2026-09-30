@@ -34,3 +34,14 @@ it("pins every dependency to an exact version, workspace links aside", () => {
   );
   expect(offenders.join("\n"), "dependency specifiers that are not exact versions").toBe("");
 });
+
+it("declares the packages math.ts imports, not only hoists them", () => {
+  // `katex/dist/katex.min.css` is imported by `src/renderer/lib/math.ts`; the
+  // package arrived as a transitive dependency of `@streamdown/math`, which is
+  // one hoist away from not being there.
+  const source = readFileSync(path.join(appRoot, "src", "renderer", "lib", "math.ts"), "utf8");
+  const imported = [...source.matchAll(/(?:from|import)\s*\(?\s*["']((?:@[\w-]+\/)?[\w-]+)[^"']*["']/g)].map((match) => match[1]!);
+  const declared = { ...manifest.dependencies, ...manifest.devDependencies };
+  const undeclared = imported.filter((name) => !name.startsWith("@renderer") && !name.startsWith("@shared") && !(name in declared) && name !== "react");
+  expect(undeclared.join(", "), "packages imported by math.ts and missing from package.json").toBe("");
+});

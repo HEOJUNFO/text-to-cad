@@ -22,3 +22,11 @@ it("holds the probing mark until the fresh table replaces the table", () => {
   useAgents.getState().receive([{ ...row, auth: "authenticated", probing: undefined }]);
   expect(useAgents.getState().agents.some((agent) => agent.probing)).toBe(false);
 });
+
+it("reads a failed probe's flagged rows as a check that did not happen, not as agents signed out", () => {
+  const row = { id: "claude-code", installed: true, launchWithoutBinary: true, auth: "unauthenticated", probeFailed: true } as AgentStatus;
+  useAgents.getState().receive([row]);
+  expect(useAgents.getState().loadError).not.toBeNull();
+  useAgents.getState().receive([{ ...row, probeFailed: undefined }]);
+  expect(useAgents.getState().loadError).toBeNull();
+});
