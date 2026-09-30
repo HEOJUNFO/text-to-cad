@@ -1625,10 +1625,13 @@ instance the launcher reported as `reused`, because that one is somebody
 else's. `cad.viewerOrigin` is how the file tab gets the origin.
 
 The viewer does not wait for the first CAD file. When the explorer binds to
-a project (or a session's worktree), the renderer calls `cad.warm`, and main,
-if the root holds a `.step`/`.stp`/`.stl`/`.3mf`/`.glb`/`.gltf`/`.dxf`/`.urdf`/`.srdf`/`.sdf` file within three folders
-(`hasCadFile`, a bounded scan; any other root gets its viewer when a CAD tab opens), starts what the first CAD file would have paid for on its own clock: the
-runtime probe, the viewer for that root, and cadgen's warm build daemon
+a project (or a session's worktree), the renderer calls `cad.warm`, and main
+starts what the first CAD file would have paid for on its own clock. The
+runtime probe and the daemon are global, so every bind runs them, whatever the
+root holds; the viewer is per root, so it starts only if the root holds a
+`.step`/`.stp`/`.stl`/`.3mf`/`.glb`/`.gltf`/`.dxf`/`.urdf`/`.srdf`/`.sdf` file
+within three folders (`hasCadFile`, a bounded scan; any other root gets its
+viewer when a CAD tab opens). The daemon is cadgen's warm build daemon
 (`src/main/cad/daemon.ts` spawns `python -m cadgen.daemon`, the registered
 command a cadgen client spawns for itself, detached and never stopped — it is
 the person's daemon, shared with every terminal, and it retires on its own

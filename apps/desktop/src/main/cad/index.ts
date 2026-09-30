@@ -53,7 +53,10 @@ export function viewerRoot(root: string): string {
  * the daemon follows once the probe has said which interpreter runs. Nothing
  * here is awaited by the caller; `cad.viewerOrigin` shares the launch.
  *
- * Only for a root with a CAD file near its top (`hasCadFile`).
+ * The viewer only for a root with a CAD file near its top (`hasCadFile`);
+ * the probe and the daemon are global, once per run, so every bind runs them
+ * (an empty project is the main flow, and its first build should not pay the
+ * daemon's start).
  *
  * Measured on the reference machine (scripts/perf-cad.mjs): the first STEP
  * open after launch paid 0.9 s for the probe and the viewer and 3.5 s for
@@ -63,11 +66,8 @@ export function viewerRoot(root: string): string {
 export async function warmCad(root: string): Promise<void> {
   // Every session bind asks. A root with no model in it would start a Python
   // viewer that idles until quit; its first CAD tab launches one through
-  // `cad.viewerOrigin` instead.
-  if (!(await hasCadFile(root))) {
-    return;
-  }
-  const viewer = viewers().originFor(viewerRoot(root));
+  // `cad.viewerOrigin` instead. The daemon is not per root: it follows anyway.
+  const viewer = hasCadFile(root).then((has) => (has ? viewers().originFor(viewerRoot(root)) : null));
   // Not on a runtime with a CAD kernel warning: the daemon imports OCP to
   // start (`CadRuntime.daemonReady` logs why, once).
   const resolved = await cadRuntime().daemonReady();
