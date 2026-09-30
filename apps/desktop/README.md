@@ -2017,16 +2017,22 @@ and its `acpSessionId` is stored on its own right after `session/new` returns �
 before the preferences and the marks — so a crash while those are pending does
 not take a connected session with it. A create that fails before that answer
 removes the row and, for a worktree it cut, the worktree. One that fails after
-it keeps the row and settles it (`settleAfterFailedCreate`): `idle` while the
-connection is alive, `error` when it is not; when the store refuses that settle too,
-the create is abandoned like one that failed before the answer (connection retired,
-row removed), so nothing stays `connecting` behind a live connection. A create whose
-row the person deleted while it started rejects with `DELETED_WHILE_STARTING`
-(`shared/ipc/errors.ts`), which `NewSession` swallows: no failure card, no toast.
+it while the connection is alive resolves: the row goes `idle`, the composer
+opens, and the failure is a note in `session.status.error`
+(`settleAfterFailedCreate`). One whose connection is dead, or whose row is gone,
+is abandoned (`abandonCreate`): the connection is retired, the row removed, the
+worktree that create cut released, and `create` rejects. The same happens when
+the store refuses the settle too, so nothing stays `connecting` behind a live
+connection. A create whose row the person deleted while it started rejects with
+`DELETED_WHILE_STARTING` (`shared/ipc/errors.ts`), which `NewSession` swallows:
+no failure card, no toast. A row closed under the create keeps that state; only
+a row still `connecting` is written `idle` (`stillConnecting`).
 `boot()`, on the first call after
 launch, removes every row with no `acpSessionId` that no create in this run
-owns — a create cut short by a quit, which can never be loaded — and unpins its
-marks. A row whose directory is missing or unmounted is not of that kind: it is
+owns — a create cut short by a quit, which can never be loaded — unpins its
+marks, and, when the row records `worktreeOwned` and a `worktreePath`, releases
+the worktree that create cut (`releaseWorkspace(…, { abandoned: true })`); a
+worktree the create was handed is left alone. A row whose directory is missing or unmounted is not of that kind: it is
 never deleted for that.
 
 An archive during a create waits for the create to settle, then closes the row;
@@ -2189,7 +2195,8 @@ A worktree that belongs to a session is deleted automatically only when
 auto-delete is on. The exception is a create that fails: its row goes, and the
 worktree that create made goes with it whatever the setting
 (`releaseWorkspace(…, { abandoned: true })` in `src/main/projects/workspace.ts`,
-called from `SessionManager.create`) — never a worktree it was handed by `New
+called from `SessionManager.create` through `abandonCreate`, and from `boot` for
+a dead create's row) — never a worktree it was handed by `New
 session in this worktree`. With auto-delete on, deleting a session removes its
 worktree, never forced (`releaseWorkspace`), and the keep-limit sweep
 (`pruneProjectWorktrees` in `src/main/ipc/git.ts`) starts once a new

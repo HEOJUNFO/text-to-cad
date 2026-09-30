@@ -5,8 +5,11 @@
  * (`sessions` table). `SessionManager` maps a row to at most one
  * `SessionConnection`, creates rows, resumes them with `session/load`, and
  * forwards every event to the renderer through `broadcast`. A connection
- * that dies stays in the index with `status: error`; the next `prompt` or
- * `load` spawns a fresh adapter and loads the transcript back.
+ * that dies stays in the index with `status: error`; the next `load` spawns a
+ * fresh adapter and loads the transcript back, and so does the next `prompt`
+ * — except for an archived row with no live connection, which `prompt`
+ * refuses ("This thread is archived; unarchive it first.") after awaiting an
+ * in-flight create.
  *
  * Opening a session used to be that whole sequence with a spinner over it —
  * two and a half seconds for Claude Code, one for Codex, measured by the

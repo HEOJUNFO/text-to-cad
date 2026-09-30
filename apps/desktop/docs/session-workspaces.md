@@ -35,10 +35,14 @@ the group. Archived sessions remain available in Settings and can be restored
 without recreating a project. Missing or unmounted directories never cause
 their session index entries to be deleted. The rows that are removed are the
 ones with no `acpSessionId`: `boot()` deletes each that no create in this run
-owns (a create cut short by a quit) and unpins its marks. `acpSessionId` is
-stored right after `session/new`, before the preferences and the marks; a
-create that fails after that point keeps its row and settles it `idle` while
-the connection is alive, `error` when it is not.
+owns (a create cut short by a quit), unpins its marks, and releases the
+worktree the row records as cut by that create (`worktreeOwned`; a handed-in
+worktree is left alone). `acpSessionId` is stored right after `session/new`,
+before the preferences and the marks; a create that fails after that point
+while the connection is alive resolves, the row `idle` with the failure as a
+note in `session.status.error`. When the connection is dead or the row is
+gone, `abandonCreate` removes the row, retires the connection and releases the
+worktree that create cut, and `create` rejects.
 
 ## Explorer and tool ownership
 

@@ -262,10 +262,18 @@ the rule is about.
   snapshot is the only copy of the history and stays whole
   (`src/main/acp/snapshots.ts`).
 - **A row's `connecting` has an exit on every path.** `create` ends it in
-  success (`idle`), in `settleAfterFailedCreate` (`idle` while the connection
-  is alive, else `error`), or by removing the row when it failed before
-  `session/new` answered; `loadNow`'s catch sets `error`; `boot` makes a stale
-  one `closed`. A row left at `connecting` is a box that never opens.
+  success (`idle`), in `settleAfterFailedCreate` (`idle` again, the failure a
+  note in `session.status.error`, while the connection is alive), or by
+  removing the row (`abandonCreate`) when the adapter is dead or the row is
+  gone; a row closed under the create keeps that state (`stillConnecting`
+  guards the write of `idle`). `loadNow`'s catch sets `error`; `boot` makes a
+  stale one `closed`. A row left at `connecting` is a box that never opens.
+- **A `create` that reached `session/new` resolves with its live session.**
+  Only a dead adapter or a deleted row rejects, and it takes the row, the
+  connection and the worktree that create cut with it (`abandonCreate`); a
+  delete rejects with `DELETED_WHILE_STARTING`, which `NewSession` swallows.
+  The renderer adopts the row a resolved create returns and offers no second
+  create for it.
 - **The composer follows the row and the connection together.**
   `src/renderer/features/session/SessionView.tsx` reads a session as
   `connecting` when the state says so or when the row does and no reconnect
@@ -320,7 +328,14 @@ the rule is about.
 - **The row changes before the teardown.** Archive and delete write the
   session row first and revoke tokens, dispose pages and kill shells after, so
   a write that throws leaves the session whole with its tools
-  (`tests/unit/main/acp-archive-order.test.ts`).
+  (`tests/unit/main/acp-archive-order.test.ts`). Archive first joins an
+  in-flight create, bounded at `ARCHIVE_WAIT_MS`, so it closes a session that
+  exists rather than one about to be removed; `prompt` and `NewSession` never
+  reconnect an archived row.
+- **A row records whether its create cut the worktree.** `worktreeOwned` is set
+  when the create made a fresh worktree and not when it was handed one
+  (`New session in this worktree`); `boot` and `abandonCreate` release only
+  the worktrees that flag names.
 - **The terminals an agent can create are capped, and the cap is checked
   before the pty is registered.** `Terminals.create` takes `maxPerSession`
   (16 for `create_terminal`, counting every pty of the session, the person's
