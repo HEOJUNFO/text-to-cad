@@ -260,6 +260,13 @@ export class SessionManager {
   /** The `load` in flight per session, so two callers wait on one spawn. */
   private readonly loads = new Map<string, Promise<SessionState>>();
   /**
+   * The connections a `prompt` is between `ensureLive` and the end of its
+   * turn. The turn mark waits on git, and until `session/prompt` is sent the
+   * connection is `idle`, which `busy` alone would let a second session's
+   * `create` or `load` evict from under the prompt.
+   */
+  private readonly held = new Set<SessionConnection>();
+  /**
    * The `create` still spawning per session, settled when it succeeds or fails.
    * The row is in the index (and in the sidebar) from before `session/new`, so
    * a click on it — or a prompt — arrives while the row has no agent session
@@ -278,8 +285,10 @@ export class SessionManager {
       // would both be lost, and the limit comes back down when it ends. Nor
       // is one still connecting — in `session/new` or `session/load`: closing
       // it rejects the load, and a prompt waiting on that load in
-      // `ensureLive` with it.
+      // `ensureLive` with it. Nor one whose prompt is on its way out — idle
+      // until the turn mark is taken and `session/prompt` is sent (`held`).
       busy: (connection) =>
+        this.held.has(connection) ||
         connection.state.status === "running" ||
         connection.state.status === "waiting" ||
         connection.state.status === "connecting",
@@ -862,31 +871,36 @@ export class SessionManager {
     if (refused) {
       return { stopReason: "refused", refused };
     }
-    // The session being prompted is the one in use: it goes to the front of
-    // the keep-alive queue and is never what an eviction closes.
-    this.live.touch(id);
-    // Re-read after reconnect: session/load may have supplied the agent's
-    // title while ensureLive was in flight.
-    const current = this.require(id);
-    if (current.titleSource === "prompt" && current.title === "New session") {
-      this.update(id, { title: titleFromPrompt(content), titleSource: "prompt" });
-    }
-    // The turn's starting point, read before the agent can move it. This is
-    // what the review's `Last turn` scope diffs against; taking it afterwards
-    // would measure the turn against its own result. A read that failed
-    // (a lock, a timeout) keeps the previous mark: a wider `Last turn` is
-    // still a review, where a null would unmark it altogether.
-    const turnHead = await this.markOf(session.cwd, `${id}/turn`);
-    this.update(id, turnHead === null ? {} : { turnHead });
+    this.held.add(connection);
     try {
-      const response = await connection.prompt(content, `${id}:${Date.now()}`);
-      this.persistTally(id);
-      return { stopReason: response.stopReason };
-    } catch (error) {
-      // A turn cut short by `close` (or an eviction, or a reconnect) is not
-      // activity in the session: its counts are kept, its row does not move.
-      this.persistTally(id, { touch: this.live.get(id) === connection });
-      throw error;
+      // The session being prompted is the one in use: it goes to the front of
+      // the keep-alive queue and is never what an eviction closes.
+      this.live.touch(id);
+      // Re-read after reconnect: session/load may have supplied the agent's
+      // title while ensureLive was in flight.
+      const current = this.require(id);
+      if (current.titleSource === "prompt" && current.title === "New session") {
+        this.update(id, { title: titleFromPrompt(content), titleSource: "prompt" });
+      }
+      // The turn's starting point, read before the agent can move it. This is
+      // what the review's `Last turn` scope diffs against; taking it afterwards
+      // would measure the turn against its own result. A read that failed
+      // (a lock, a timeout) keeps the previous mark: a wider `Last turn` is
+      // still a review, where a null would unmark it altogether.
+      const turnHead = await this.markOf(session.cwd, `${id}/turn`);
+      this.update(id, turnHead === null ? {} : { turnHead });
+      try {
+        const response = await connection.prompt(content, `${id}:${Date.now()}`);
+        this.persistTally(id);
+        return { stopReason: response.stopReason };
+      } catch (error) {
+        // A turn cut short by `close` (or an eviction, or a reconnect) is not
+        // activity in the session: its counts are kept, its row does not move.
+        this.persistTally(id, { touch: this.live.get(id) === connection });
+        throw error;
+      }
+    } finally {
+      this.held.delete(connection);
     }
   }
 

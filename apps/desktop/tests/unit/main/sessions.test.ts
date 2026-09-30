@@ -676,6 +676,27 @@ describe("SessionManager", () => {
     expect(manager.state(row.id)?.live).toBe(true);
   });
 
+  /**
+   * The turn mark waits on git while the connection is idle; a second session
+   * opened in that window is what the keep-alive limit evicts the oldest for.
+   */
+  it("does not evict a session whose prompt is waiting on the turn mark", async () => {
+    let release: ((tree: string) => void) | undefined;
+    const { manager, cwd } = await setup({
+      keepAlive: 1,
+      // Only a turn's mark waits; a `none`-mode create marks `<id>/session`.
+      snapshot: async (_cwd, mark) =>
+        mark.endsWith("/turn") ? new Promise<string>((resolve) => (release = resolve)) : "tree",
+    });
+    const a = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    const turn = manager.prompt(a.id, [{ type: "text", text: "hello" }]);
+    await until(() => release);
+    // Opening B during the snapshot takes the limit past one; A is the oldest.
+    await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    release!("tree");
+    await expect(turn).resolves.toMatchObject({ stopReason: "end_turn" });
+  });
+
   it("has no snapshot for a session that never connected, so the spinner stays", async () => {
     const { manager } = await setup({ snapshots: memorySnapshots() });
     expect(manager.state("session-does-not-exist")).toBeNull();
