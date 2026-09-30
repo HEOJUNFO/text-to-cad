@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as THREE from "three";
-import { createZoomPivotReanchor } from "./zoomPivotReanchor.js";
+import { createRealOrbitRuntime } from "./harness/realOrbit.js";
+import { applyPerspectiveSnapshot, stepCameraTransition, transitionCameraToViewPreset } from "./runtimeCamera.js";
+import { createZoomPivotGate, createZoomPivotReanchor } from "./zoomPivotReanchor.js";
 
 function fixture() {
   const camera = new THREE.PerspectiveCamera();
@@ -61,4 +63,36 @@ test("Zoom uses the existing target for missing bounds and respects pivot distan
     anchor.apply(f.runtime);
     assert.deepEqual(f.runtime.controls.target.toArray(), [0, 0, 18]);
   } finally { f.dispose(); }
+});
+
+// The gate decides which `change` of a REAL OrbitControls may re-anchor the pivot; the events
+// reach it in the order the browser delivers them (our capture listener, three's, ours after).
+function gatedControls(options) {
+  const runtime = createRealOrbitRuntime(options);
+  const gate = createZoomPivotGate();
+  let reanchors = 0;
+  runtime.controls.addEventListener("change", () => { if (gate.consumeChange()) reanchors += 1; });
+  runtime.element.addEventListener("wheel", () => gate.wheelStart(), { capture: true });
+  runtime.element.addEventListener("wheel", () => gate.wheelEnd());
+  return { runtime, reanchors: () => reanchors };
+}
+
+test("a wheel zoom's change re-anchors the pivot once", () => {
+  const { runtime, reanchors } = gatedControls({ position: [50, 0, 0], maxDistance: 100 });
+  runtime.wheel(-100);
+  assert.equal(reanchors(), 1);
+  runtime.controls.update();
+  assert.equal(reanchors(), 1, "and a later settling update is not another zoom");
+});
+
+test("a wheel the controls clamp leaves no pending re-anchor for the next camera change", () => {
+  const { runtime, reanchors } = gatedControls({ position: [100, 0, 0], maxDistance: 100 });
+  runtime.wheel(100);
+  assert.equal(reanchors(), 0, "zooming out past the limit changes nothing");
+  assert.equal(applyPerspectiveSnapshot(runtime, { position: [60, 30, 10], target: [0, 0, 0], up: [0, 0, 1] }), true);
+  assert.equal(reanchors(), 0, "a setCamera after it is not a zoom along the old pointer ray");
+  assert.equal(transitionCameraToViewPreset(runtime, { direction: [1, 0, 0], up: [0, 0, 1] }), true);
+  stepCameraTransition(runtime, runtime.cameraTransition.startTime + 10_000);
+  runtime.controls.update();
+  assert.equal(reanchors(), 0, "nor is the last frame of an eased move");
 });

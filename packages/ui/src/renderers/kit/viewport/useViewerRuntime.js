@@ -19,7 +19,7 @@ import {
 import { updateOrbitControls } from "../camera/orbitControls.js";
 import { PERF_MEASURE_NAMES, perfMeasure, perfStart } from "@text-to-cad/core/lib/viewer/perfMarks.js";
 import { viewerDepthSettings, viewerLogarithmicDepthBuffer } from "./renderDepthPolicy.js";
-import { createZoomPivotReanchor } from "../camera/zoomPivotReanchor.js";
+import { createZoomPivotGate, createZoomPivotReanchor } from "../camera/zoomPivotReanchor.js";
 import { createFramePresentation } from "./framePresentation.js";
 
 function createWebGlRenderer(THREE) {
@@ -631,7 +631,7 @@ export function useViewerRuntime({
       // it on the forward axis so the camera never re-orients or jumps the view.
       const zoomReanchor = createZoomPivotReanchor(THREE);
       const zoomReanchorPointer = zoomReanchor.pointer;
-      let zoomPivotReanchorPending = false;
+      const zoomPivotGate = createZoomPivotGate();
 
       const handleControlsStart = () => {
         // Any drag on the controls — orbit, pan or zoom — means the view is the
@@ -644,8 +644,7 @@ export function useViewerRuntime({
         beginInteraction();
       };
       const handleControlsChange = () => {
-        if (zoomPivotReanchorPending) {
-          zoomPivotReanchorPending = false;
+        if (zoomPivotGate.consumeChange()) {
           zoomReanchor.apply(runtimeRef.current);
         }
         emitPerspectiveChange(runtimeRef.current);
@@ -676,16 +675,20 @@ export function useViewerRuntime({
             ((event.clientX - rect.left) / rect.width) * 2 - 1,
             -((event.clientY - rect.top) / rect.height) * 2 + 1
           );
-          zoomPivotReanchorPending = true;
+          zoomPivotGate.wheelStart();
         }
         beginInteraction();
       };
       const wheelListenerOptions = { passive: true, capture: true };
+      // After the controls' own wheel listener (registered when they were made): the wheel has
+      // been acted on, or ignored, and a later change is not its zoom.
+      const handleWheelHandled = () => zoomPivotGate.wheelEnd();
 
       controls.addEventListener("start", handleControlsStart);
       controls.addEventListener("change", handleControlsChange);
       controls.addEventListener("end", handleControlsEnd);
       renderer.domElement.addEventListener("wheel", handleWheel, wheelListenerOptions);
+      renderer.domElement.addEventListener("wheel", handleWheelHandled, { passive: true });
       renderer.domElement.addEventListener("webglcontextlost", handleContextLost, false);
       renderer.domElement.addEventListener("webglcontextrestored", handleContextRestored, false);
 
@@ -914,6 +917,7 @@ export function useViewerRuntime({
         runtime.controls.removeEventListener("change", handleControlsChange);
         runtime.controls.removeEventListener("end", handleControlsEnd);
         runtime.renderer.domElement.removeEventListener("wheel", handleWheel, wheelListenerOptions);
+        runtime.renderer.domElement.removeEventListener("wheel", handleWheelHandled);
         runtime.renderer.domElement.removeEventListener("webglcontextlost", handleContextLost, false);
         runtime.renderer.domElement.removeEventListener("webglcontextrestored", handleContextRestored, false);
         window.removeEventListener("keydown", handleKeyDown);
