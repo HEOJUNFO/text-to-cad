@@ -139,11 +139,33 @@ function tracked<T extends Trackable>(subprocess: T, kind: ChildKind = "probe"):
   return trackChild(subprocess, kind);
 }
 
-async function git(cwd: string, args: string[]): Promise<string> {
-  const result = await tracked(execa("git", args, { ...GIT_OPTIONS, cwd }));
+/**
+ * Commit, push and the pre-commit hooks a commit runs are the calls that can
+ * legitimately outlast the reads' minute: a hook that lints a repository, a
+ * push of a large branch over a slow link. Killed at sixty seconds they left
+ * a half-run hook and a blank error, so they get this instead.
+ */
+const WRITE_TIMEOUT = 10 * 60_000;
+
+/** The last lines of a git command's output — a hook can print a page before the reason. */
+function tail(output: string, lines = 20): string {
+  return output.trim().split(/\r?\n/).slice(-lines).join("\n");
+}
+
+async function git(cwd: string, args: string[], options: { timeout?: number } = {}): Promise<string> {
+  const timeout = options.timeout ?? GIT_OPTIONS.timeout;
+  const result = await tracked(execa("git", args, { ...GIT_OPTIONS, timeout, cwd }));
   if (result.failed || result.exitCode !== 0) {
-    const stderr = typeof result.stderr === "string" ? result.stderr.trim() : "";
-    throw new GitError(stderr || `git ${args[0]} failed`);
+    if (result.timedOut) {
+      const minutes = Number(timeout) / 60_000;
+      throw new GitError(`git ${args[0]} was stopped after ${minutes >= 1 ? `${minutes} minute${minutes === 1 ? "" : "s"}` : `${Number(timeout) / 1000} seconds`} without finishing`);
+    }
+    // `git commit` says "nothing to commit" on stdout, and a hook's reason
+    // ("no console.log") is whatever the hook echoed: stderr alone is blank
+    // for both.
+    const stderr = typeof result.stderr === "string" ? tail(result.stderr) : "";
+    const stdout = typeof result.stdout === "string" ? tail(result.stdout) : "";
+    throw new GitError(stderr || stdout || `git ${args[0]} failed`);
   }
   return typeof result.stdout === "string" ? result.stdout : "";
 }
@@ -831,8 +853,8 @@ export async function commitAll(cwd: string, message: string): Promise<{ sha: st
   if (message.trim() === "") {
     throw new GitError("a commit needs a message");
   }
-  await git(root, ["add", "-A"]);
-  await git(root, ["commit", "-m", message]);
+  await git(root, ["add", "-A"], { timeout: WRITE_TIMEOUT });
+  await git(root, ["commit", "-m", message], { timeout: WRITE_TIMEOUT });
   const sha = (await git(root, ["rev-parse", "HEAD"])).trim();
   return { sha };
 }
@@ -848,7 +870,7 @@ export async function push(cwd: string): Promise<void> {
     throw new GitError("cannot push a detached HEAD");
   }
   const upstream = await tryGit(root, ["rev-parse", "--abbrev-ref", `${branch}@{upstream}`]);
-  await git(root, upstream ? ["push"] : ["push", "--set-upstream", "origin", branch]);
+  await git(root, upstream ? ["push"] : ["push", "--set-upstream", "origin", branch], { timeout: WRITE_TIMEOUT });
 }
 
 /* -------------------------------------------------------------------------- */
