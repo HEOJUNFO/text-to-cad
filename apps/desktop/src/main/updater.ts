@@ -17,6 +17,28 @@
  * A no-op in development: `electron-updater` has no `app-update.yml` to read
  * there, and an unsigned dev build must never be told to replace itself. The
  * status is `unsupported` then, so About shows why instead of a dead button.
+ * It is also `unsupported` for an install whose updater is inactive (an
+ * AppImage run without `APPIMAGE`, a snap): its check answers with no result.
+ *
+ * The statuses are pushed (`app.updateStatus`), and two rules keep them true:
+ *
+ * - An offer survives a background check. `available` is left only by an
+ *   answer (`update-available` refreshes it, `update-not-available` retires
+ *   it to `idle`) or by Download; a check that fails while one is on offer
+ *   leaves it on offer. A check never overwrites a busy state: while an update
+ *   is downloading, downloaded or installing, `checkForUpdates` answers with
+ *   the status and the feed's events are ignored.
+ * - Restart is a pushed `installing` status, so the row says "Restarting…" for
+ *   as long as it is true. It lasts at most `INSTALL_DEADLINE_MS`; past that
+ *   the status is an `error` that keeps the staged version, the scheduled
+ *   checks start again, and Restart is a retry.
+ *
+ * A failure is one sentence (`message`): "Could not reach GitHub to check for
+ * updates." (or "…to download the update.") for a socket error, "No release is
+ * published yet." for the provider's 404, "GitHub did not answer the update
+ * check." for its other failures, and otherwise the error's first line. A
+ * release that lacks this platform's feed file is not a failure: the status
+ * goes back to `idle`.
  */
 import { app, autoUpdater as nativeUpdater } from "electron";
 import electronUpdater from "electron-updater";

@@ -479,4 +479,13 @@ describe("the worktree keep limit", () => {
     wrap(<GitPage />);
     expect(screen.getByRole("combobox", { name: "Keep limit" })).toBeEnabled();
   });
+
+  it("says a worktree with unsaved work counts toward the limit and is then kept", () => {
+    useSettings.setState({ settings: { ...defaultSettings(), autoDeleteWorktrees: true }, ready: true });
+    wrap(<GitPage />);
+    expect(
+      screen.getByText("How many idle worktrees per project the sweep keeps. In-use and locked ones are not counted; one with unsaved work is counted, then kept."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/unsaved ones are not counted/)).toBeNull();
+  });
 });

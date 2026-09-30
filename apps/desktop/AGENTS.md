@@ -25,7 +25,7 @@ phase is not an oversight — it is the seam.
 | P4 (done) | `@text-to-cad/ui` CAD renderer and explicit `@text-to-cad/core/client`; FileTab hosts the shared FileViewer through `src/renderer/features/explorer/host/` and `src/renderer/state/{live-cad,cad-draft}.ts` |
 | P5 (done) | `src/main/cad`, `src/main/integrations` (but `integrations/drawings/`), `src/{shared,main}/ipc/{cad,integrations,runtime,skills}.ts`, `resources/{cadgen,runtime,skills,text-to-cad-mcp}`, `skills/`, `scripts/{build,build-skills,build-mcp,cad-resources,bundle-runtime,perf-cad}.mjs`, `src/renderer/state/integration-commands.ts`, the `reveal` field of the explorer store and tree |
 | Drawings | the drawing tab kind: `src/renderer/features/explorer/DrawingTab.tsx`, `src/renderer/features/explorer/drawing/`, `src/renderer/state/drawings.ts`, `src/main/integrations/drawings/` |
-| P6 | `src/renderer/features/settings` — the pages' contents — and the choosers its path rows use, `src/{shared,main}/ipc/dialogs.ts` |
+| P6 | `src/renderer/features/settings` — the pages' contents — and the choosers its path rows use, `src/{shared,main}/ipc/dialogs.ts`, `src/main/ipc/settings-fallbacks.ts` |
 | P7 (done) | `src/main/projects` (`git.ts`, `workspace.ts`, `index.ts`), `src/{shared,main}/ipc/git.ts`, `src/renderer/lib/git-mode.ts`, the review tab's scopes and commit strip, Git and worktrees' per-project cards, `tests/e2e/git.spec.ts` |
 | P8 (done) | `electron-builder.yml`, `build/`, `resources/brand`, `scripts/{package,make-icons,make-brand,app-version}.mjs`, `src/main/{updater,telemetry}.ts`, `src/{shared,main}/ipc/app.ts`, the CI jobs |
 | Browser | the embedded browser P3's tab kind grew into: `src/main/browser/`, `src/shared/browser.ts`, `src/{shared,main}/ipc/browser.ts`, `features/explorer/BrowserTab.tsx`, `docs/browser.md` |
@@ -142,7 +142,9 @@ the rule is about.
   redoing those.
 - **The renderer's first chunk stays small.** Monaco (the review tab), xterm
   (the terminal tab), the CAD client, Mermaid and KaTeX load with their first
-  use; do not import them statically from the shell. A lazy tab's fallback
+  use; do not import them statically from the shell. A failed Mermaid or KaTeX
+  import is retried by the next diagram or formula (`src/renderer/lib/mermaid.ts`,
+  `math.ts`), never remembered as the window's answer. A lazy tab's fallback
   carries `data-focus-pending` so `features/explorer/focus.ts` waits for it, and
   its failure lands in the tab's own boundary: "Could not open the …" with Try
   again only for a chunk that did not load (`ChunkLoadError`, which builds a
@@ -164,7 +166,7 @@ the rule is about.
   renders the session, the sidebar, Settings, the agent drawer, the tab strip
   and the review. A new screen is added to that test.
 - **Keyboard focus is visible.** A control revealed by `group-hover:opacity-100`
-  carries a `focus-visible:opacity-100` twin, and a button that takes
+  carries a `focus-visible:opacity-100` (or `group-focus-within:opacity-100`) twin, and a button that takes
   `outline-none` draws the kit's ring (`focus-visible:ring-[3px]
   focus-visible:ring-ring/50`). `tests/unit/renderer/a11y-source.test.ts` scans
   `src/renderer` for both (named groups and prefixed `focus-visible:outline-none`
@@ -206,6 +208,14 @@ the rule is about.
   text-to-cad has no CAD runtime … Reinstall the app"; a checkout keeps the
   list of interpreters it looked for (`missingMessage` in
   `src/main/cad/runtime.ts`).
+- **The updater's Restart is a pushed `installing` state with a deadline.**
+  `installUpdate` (`src/main/updater.ts`) pushes `installing` before it asks
+  Electron to quit and sets `INSTALL_DEADLINE_MS`; past it the status is an
+  `error` that keeps the staged version, the scheduled checks resume, and the
+  same button retries. An offer survives a background check, a check never
+  overwrites a downloading, downloaded or installing state, and an updater that
+  is inactive for the install (development, an AppImage without `APPIMAGE`, a
+  snap) is `unsupported`, never `idle`.
 - **`package.json` stays at version `0.0.0`.** The repository's `VERSION` is
   the canonical release version; `scripts/app-version.mjs` reads it and both
   the build and `scripts/package.mjs` stamp it. Do not hand-edit it.
@@ -226,6 +236,21 @@ the rule is about.
   fails when the two drift or when any state puts a control in the corner. A
   new full-window route reserves the room itself, the way Settings does.
 
+- **Focus is handed on whenever the control under it unmounts, and a refused
+  action keeps focus on its control.** A permission answer goes to the
+  composer, a refused one stays on the card; rename's Enter and Escape go to
+  the title button; every Reconnect or Retry on the session screen goes
+  through `reconnectFromBar`; leaving Settings goes to the composer
+  (`focusSessionHome`, `src/renderer/app/pane-focus.ts`, where `PANE_HOMES` is
+  shared with F6); a pane that collapses under focus hands it to its toggle.
+- **Every route has exactly one `main`.** The shell's session, Settings and the
+  Welcome each draw their own; a search in Settings has one (hidden) h1 and
+  the pages are h2.
+- **A streaming live region is `aria-busy` while it streams, and not while it
+  waits on a permission.** The transcript (`Transcript.tsx`) holds its
+  announcements back until a turn settles, but a permission card must be
+  announced. A failure is `role="alert"`, a wait or a count is
+  `role="status"`.
 - **A side pane is `{ collapsed, width }` and nothing else** — the sidebar's in
   `settings.layout`, the explorer's per session in `state/explorer.ts`. What is
   rendered, where each toggle is drawn and which pane reserves the traffic
@@ -241,7 +266,12 @@ the rule is about.
   Application row with a modifier is a menu accelerator** in
   `src/main/menu.ts` — and every accelerator is a row
   (`tests/unit/main/shortcuts-menu.test.ts`). Add a key to both or to
-  neither.
+  neither. The one exemption is the toast chord in
+  `components/ui/sonner.tsx` (Cmd+Option+T on a Mac, Ctrl+Shift+T elsewhere):
+  a row holds one portable binding and this one differs by platform.
+- **A global chord is checked on all three platforms.** It types no character
+  with Option on a Mac (Option+T is a dagger), does not arrive as AltGr on a
+  European keyboard (Ctrl+Alt), and is not GNOME's Ctrl+Alt+T.
 - **The docs point at things that exist.** Every backticked path under src,
   tests, scripts or docs in README.md, AGENTS.md, `docs/` and
   the headers of the modules `tests/unit/main/doc-paths.test.ts` lists names
@@ -290,6 +320,16 @@ the rule is about.
   pending write and `loadNow` flushes before it starts, so the previous
   snapshot is the only copy of the history and stays whole
   (`src/main/acp/snapshots.ts`).
+- **A closed or errored connection ends its open turn and settles its calls.**
+  The reducer (`src/shared/acp/reduce.ts`) treats `status: closed` and
+  `status: error` as the turn's end — calls and subagents `cancelled` or
+  `failed` — because the adapter will send neither `prompt/end` nor
+  `prompt/error`, and `retire` (`src/main/acp/sessions.ts`) files that closed
+  state so a repaint from the snapshot is not a session still streaming. Every
+  turn end cancels the cards still pending, and main cancels the client's
+  pending permissions first, before it dispatches `prompt/end`. Content behind
+  `prompt/end` lands on the closed last turn as a part of its own, and a
+  settled call is never revived by a later `in_progress`.
 - **A row's `connecting` has an exit on every path.** `create` ends it in
   success (`idle`), in `settleAfterFailedCreate` (`idle` again, the failure a
   note in `session.status.error`, while the connection is alive), or by
@@ -320,6 +360,20 @@ the rule is about.
   worktree, under it, or record it. Settings' count, Delete's refusal, the
   keep-limit sweep, a session's release and the CAD viewer's stop (archive and
   delete, `forgetCadSession`) all ask it; an archived session holds no worktree.
+  Delete from Settings is refused on two grounds, in use and locked
+  (`git worktree lock`), and the row says which (`keptBecause`,
+  `features/settings/pages/GitPage.tsx`).
+- **A settings write main refuses is rolled back and said, and a key with a
+  write in flight keeps its value until that write settles.** `patch`
+  (`src/renderer/state/settings.ts`) puts back what main last reported for the
+  keys it owns and toasts; an older reply or `settings.changed` never moves a
+  key a newer write owns, and `setLayout`/`setSidebar` build their whole object
+  from the optimistic state.
+- **One bad stored settings field never breaks the others.** Each field parses
+  alone (`parseFields` in `src/main/db/repositories.ts`) and a refused one takes
+  its default; `settings.fallbacks` reports it in `refused`, field to stored
+  text. A folder of the wrong type is `refused`, never `gone`: `gone` is only a
+  remembered folder that parses and no longer exists, and its note says so.
 - **The viewer warm is gated by a model in the root; the daemon is not.**
   `warmCad` starts a root's viewer only when `hasCadFile` finds a model in it,
   and warms the build daemon on every bind (unless the kernel is `missing` or
@@ -333,6 +387,13 @@ the rule is about.
   ends; `stop` and `stopAll` bump it, so a stop that lands mid-launch is
   never overtaken by the launch or the restart that was already under way
   (`tests/unit/main/viewer.test.ts`).
+- **A live viewer command replies only once its effect is committed.**
+  `attachLiveBinding` (`packages/ui/src/renderers/kit/shell/liveBinding.ts`)
+  waits a settled frame and, where the command has a committed predicate
+  (display settings, render mode, `clearSelection` = selection empty, a
+  renderer command's own), until it holds — at most ten seconds, then "The
+  viewer did not finish applying this command." A reply on the call returning
+  would hand an agent a state the command had not produced yet.
 - **Every capture goes through `imageResult`.** It redraws an image over
   `MAX_IMAGE_BYTES` smaller and refuses it only when it cannot be made to fit,
   so no tool result larger than the model takes enters a transcript

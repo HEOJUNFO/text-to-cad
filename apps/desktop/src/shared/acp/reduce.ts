@@ -48,6 +48,25 @@
  *     the answer the turn ended with; the chunks behind its first join it.
  *   - A cancelled or failed turn settles what was still pending or running
  *     in it; an ordinary end does not (a background command can outlive it).
+ *   - `status: closed` and `status: error` end the open turn and settle it: a
+ *     closed connection stops it (`cancelled`, calls and subagents
+ *     `cancelled`), an errored one ends it with no stop reason (calls and
+ *     subagents `failed`). The adapter is gone and will send neither
+ *     `prompt/end` nor `prompt/error`, and `retire` files that closed state
+ *     as the stored snapshot. A call that is settled, or completed, is never
+ *     revived by a later `pending` or `in_progress` for it.
+ *   - Every turn end cancels the permission cards still pending, in any turn:
+ *     `prompt/end` whatever its stop reason, `prompt/error`, and the two
+ *     statuses above. Main cancels the client's pending permissions before it
+ *     dispatches `prompt/end`, so the cards and the requests agree.
+ *   - `prompt/error` on a last turn that has already ended (a crash reports
+ *     `status: error` first) adds the error part to that turn rather than
+ *     opening a new one.
+ *   - `lateChunk` marks that the first chunk behind `prompt/end` has opened a
+ *     part, so the chunks after it join that part. `prompt/start` clears it;
+ *     it is not in the schema, so neither a stored snapshot (`withoutParked`,
+ *     which `retire`'s closed state goes through) nor a `session.state` from a
+ *     load carries it, and a loaded session starts without it.
  */
 import {
   type AvailableCommand,

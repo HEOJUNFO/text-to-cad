@@ -174,8 +174,40 @@ Cmd+K after Settings opens empty.
 
 General's **Default project folder** (`defaultProjectFolder` in `SettingsSchema`,
 `features/settings/pages/GeneralPage.tsx`) is where the Open folder chooser
-opens (`projects.add` passes it as `defaultPath` when it is still a directory);
-Clear returns the choice to the OS.
+opens (`projects.add` passes it as `defaultPath` when it is still a directory,
+`defaultPathOption` in `src/main/ipc/index.ts`); Clear returns the choice to
+the OS. The choosers Settings' own path rows open (`dialogs.chooseDirectory`
+and `dialogs.chooseFile`, `src/main/ipc/dialogs.ts`) start from the row's
+value through `existingPath`, which drops a `defaultPath` that is missing, so
+the sheet opens where the OS would have put it; for the folder chooser it also
+drops one that is now a file, so it agrees with `projects.add`. A remembered
+folder that is gone gets a quiet note on its row: General's Default project
+folder ("This folder no longer exists, so the chooser opens where it last
+did.") and Git and worktrees' Worktree folder ("…it is created again with the
+next worktree.").
+
+**Settings persist optimistically** (`state/settings.ts`). A write moves the
+store at once and goes out over IPC; the reply, the whole object, is the
+correction. A write main refuses or fails brings no reply: the keys it owns go
+back to what main last reported and a "Could not save the setting" toast says
+why. Ownership is per key: while a write is in flight its value wins over an
+older reply and over a `settings.changed` event, and a key a newer write owns
+keeps that write's value when an older one fails. `layout`, `sidebar` and
+`agentOverrides` travel as whole objects (the patch is only top-level
+partial), so `setLayout` and `setSidebar` build theirs from the optimistic
+state, never from a copy an old reply just reverted. On the way out main
+parses each stored field on its own (`parseFields`), so one that no longer
+parses takes its default and leaves the others alone. `settings.fallbacks()`
+(`src/main/ipc/settings-fallbacks.ts`, read by `useSettingsFallbacks`, asked
+again whenever settings change) returns `{ refused, gone }`: `refused` is every
+top-level field that failed its own parse, field to stored text; `gone` is a
+remembered `defaultProjectFolder` or `worktreeRoot` that parses but no longer
+exists as a folder. A folder of the wrong type is `refused`, never `gone`: the
+note for `gone` says the folder no longer exists, which would be untrue. The
+Git page keeps its worktree lists for the visit (`worktree-cache.ts`): a card
+that mounts reads afresh over the kept list, only a change in which sessions
+run where (id, cwd, worktreePath, archived) invalidates on `sessions.changed`,
+a deleted worktree invalidates, and closing Settings clears the cache.
 
 The Settings search hides a row through `useRowMatch`. The Agents page's group
 headings ("Installed (4)") count the rows that search leaves, by the same row
@@ -196,7 +228,9 @@ Interaction motion is scoped to activity/thought reveals, composer reference
 chips, and attachment previews: 100–160 ms, with at most 3 px of travel and a
 small scale change. It does not animate streamed text, pane dimensions, or CAD
 geometry. The OS reduced-motion preference and Settings › Appearance's Reduce
-motion switch both suppress these transitions.
+motion switch both suppress these transitions, app-wide: `MotionConfig` in
+`app/App.tsx` carries the setting ("always" with the switch, else the OS's) to
+every motion component, and the shimmer stands still under it.
 
 ```sh
 npm run typecheck    # tsc over both projects: node (main/preload/shared) and web (renderer)
@@ -225,7 +259,8 @@ window is idle and again when a new terminal is asked for), the CAD client
 connection is first acquired; a chunk that does not load surfaces as a
 `CadRuntimeError` with reason `viewer-failed`, so the tab shows the "CAD
 viewer did not start" card), Mermaid (`src/renderer/lib/mermaid.ts`, on the
-first diagram) and KaTeX (`src/renderer/lib/math.ts`: `hasMath` says whether a
+first diagram; an import that fails is retried by the next diagram, as math's
+is, not remembered for the life of the window) and KaTeX (`src/renderer/lib/math.ts`: `hasMath` says whether a
 text may hold a formula, `useMathPlugin` imports the plugin and KaTeX's
 stylesheet together on the first one, and that text is drawn untypeset until
 the import lands). While a lazy tab's chunk loads, `ExplorerPane` draws a
@@ -522,7 +557,28 @@ launch and every six hours, with `autoDownload` off: the app says an update
 exists and downloads when asked. Settings › About and updates is the whole UI.
 Development builds report `unsupported` and check nothing; so does an install the
 updater is inactive for (an AppImage run without `APPIMAGE`, a snap), whose check
-answers with no result. `idle` means the feed said there is nothing newer.
+answers with no result. `idle` means the feed said there is nothing newer; it
+is also what a release that lacks this platform's feed file (`latest-mac.yml`
+and the like, while the assets are still uploading) reads as, logged rather than
+shown as an error.
+
+An offer survives a background check. A check started from `available` does not
+swap the Download button for a spinner: `update-available` refreshes the
+offer, `update-not-available` retires it to `idle`, and a check that fails
+leaves it on offer. A check is refused while an update is downloading,
+downloaded or installing (`busyWithUpdate`): the answer is the current status,
+and the feed's own events cannot knock `downloaded` back to `available`.
+A failure is one sentence, never the library's text: a socket error
+(`ERR_`, `ENOTFOUND`, `ECONNRESET` and the like, by the first line or the
+error's code) reads "Could not reach GitHub to check for updates." (or "…to
+download the update." for a download), a 404 from the provider "No release is
+published yet.", any other GitHub failure "GitHub did not answer the update
+check.", and anything else its first line. The renderer's own `fail`
+(`state/updates.ts`), for a rejected IPC call, strips Electron's "Error
+invoking remote method" wrapper to main's sentence, keeps it on the row and
+toasts only the headline "Could not reach the updater". The About row is a
+`role="status"` region; the download's percentage is drawn outside it, beside
+the progress bar, so a number that changes every second is not read out.
 Restart pushes an `installing` status (the row reads "Restarting…" and stays
 off) until the quit; if neither the quit nor an installer error arrives within a
 minute the status becomes an `error` that keeps the staged version, and Restart
@@ -1067,18 +1123,29 @@ poor thing to put in front of them.
 ## Keyboard
 
 Every shortcut is a row in `src/renderer/lib/shortcuts.ts`, which Settings ›
-Keyboard shortcuts prints; the ones the app menu also declares are its accelerators, so
+Keyboard shortcuts prints, but one: the toast chord (Cmd+Option+T on a Mac,
+Ctrl+Shift+T elsewhere, `components/ui/sonner.tsx`) differs by platform, and a
+row holds one portable binding. The ones the app menu also declares are its accelerators, so
 they work with focus inside a webview (see "Rules that are easy to break" in
 AGENTS.md). The menu's New Session and Settings… with no window open one and
 hold the command until its page calls `ui.ready` (`src/main/menu.ts`): pushed
 at load, it could arrive before the page listened. A view toggle with no
 window does nothing.
 
-**Landmarks and panes.** The session is the `main`, the sidebar an `aside`,
-the explorer a named `section`, which also scopes each pane's own `<header>`
-(`app/Shell.tsx`). F6 and Shift+F6 move focus to the next and the previous
-pane on screen, skipping one that is shut, and on the window's capture phase,
-so they work from inside an editor or a terminal. Focus returns to where it
+**Landmarks and panes.** Every route has exactly one `main`. In the shell the
+session is the `main`, the sidebar an `aside`, the explorer a named `section`,
+which also scopes each pane's own `<header>` (`app/Shell.tsx`); Settings and
+the Welcome each have their own `main`. Settings' nav is named "Settings".
+While a query is typed the pages are stacked under one visually hidden h1
+("Search results") with each page's title an h2, and a status region, there
+before the first keystroke, says "N rows match" (it counts rows, not pages).
+The composer's editor is named "Prompt", and the document title is
+"text-to-cad — Settings", "text-to-cad — Welcome", or "text-to-cad — " followed
+by the selected session's title (`app/App.tsx`). F6 and Shift+F6 move focus to the
+next and the previous pane on screen, skipping one that is shut, and on the
+window's capture phase, so they work from inside an editor or a terminal. Where
+focus lands in a pane it has not been in (`PANE_HOMES`) lives in
+`app/pane-focus.ts`, which F6 and the return from Settings share. Focus returns to where it
 last was in that pane while that element is still there; the first time it
 lands on the sidebar's current session, the composer, or the explorer's strip
 tab, else the pane's first control. A pane that closes with focus in it — ⌘B,
@@ -1102,11 +1169,29 @@ elsewhere in `renderers/code/editor/setup.ts`; one switch for every terminal
 in `TerminalTab.tsx`), and while it is on Tab and Shift+Tab leave the editor
 or the shell.
 
-**Focus coming back.** The command palette and Settings' agent drawer hand
-focus back to what had it when they close (`hooks/use-return-focus.ts`),
-since neither has a trigger for Radix to return it to. A disconnected
-session's Reconnect bar goes away with its button, so focus waits on the
-composer's row and goes into the box once the agent is back. Toasts sit top
+**Focus coming back.** Whenever the control that has focus unmounts, focus is
+handed on, and an action that is refused leaves it on its control. The command
+palette and Settings' agent drawer hand focus back to what had it when they
+close (`hooks/use-return-focus.ts`), since neither has a trigger for Radix to
+return it to. A permission answer goes to the composer; one main refuses keeps
+focus on the card, which says why. Rename's Enter or Escape goes to the title
+button. Enter on a pane separator closes the pane and hands focus to that pane's
+toggle (the separator reads its width through `aria-valuetext`). A
+disconnected session's Reconnect bar goes away with its button, so focus waits
+on the composer's row and goes into the box once the agent is back; every
+Reconnect, Retry, Install and sign-in retry on the session screen, the
+transcript's included, goes through `reconnectFromBar`
+(`features/session/SessionView.tsx`) for the same reason. Leaving Settings
+unmounts the button that had focus, so `focusSessionHome` (`app/pane-focus.ts`)
+puts it in the composer, waiting one frame for the editor to mount. The
+context ring takes focus into its panel on open and gets it back on close.
+A global chord is checked on all three platforms before it is bound: it must
+not type a character with Option on a Mac, must not arrive as AltGr
+(Ctrl+Alt) on a European keyboard, and must not be GNOME's Ctrl+Alt+T. The
+toast list's chord, Cmd+Option+T on a Mac and Ctrl+Shift+T elsewhere
+(`components/ui/sonner.tsx`), moves focus into the notifications, and is not a
+row of `lib/shortcuts.ts`: its binding differs by platform, and the table holds
+one portable string per row. Toasts sit top
 right under the title strip (`app/App.tsx`), clear of the composer they would
 otherwise cover. The selected session row and Settings' current page carry
 `aria-current="page"`. A session row's keyboard focus ring is drawn around the
@@ -1649,7 +1734,7 @@ also gets `CADGEN_NODE`: cadgen's DXF and mesh-export builders run in Node,
 an app launched from the Finder has no `node` on its PATH, and the one Node
 a packaged app is sure to have is its own Electron binary run as Node.
 
-There is nothing to install and no "installing" state. Settings › About and
+There is nothing to install and no CAD-runtime install state. Settings › About and
 updates carries a read-only block — the runtime (source and interpreter),
 cadgen's version against the app's, the viewer backend, the skills root
 every session is handed — and Repair, which forgets the probe and looks again.
@@ -1854,6 +1939,7 @@ src/main/                 the Electron main process: everything with a side effe
   ipc/agent-options.ts    agentOptions.*: the cache, the probe and the stored defaults
   ipc/{skills,runtime}.ts   the skills root and CAD runtime branches (P5's bodies, P6's shape)
   ipc/dialogs.ts          the native folder and file choosers Settings' path rows use
+  ipc/settings-fallbacks.ts  settings.fallbacks: { refused, gone } — stored values read as defaults
   ipc/{explorer,cad}.ts   files, terminals; cad.viewerOrigin + cad.warm
   ipc/integrations.ts    scoped integration command/reply relay
   ipc/browser.ts          browser.*: the embedded browser's pages, scoped to a live session
@@ -1903,6 +1989,7 @@ src/renderer/
   app/                    Shell (three panes in a flex row), App, CommandPalette
     PaneSeparator.tsx     one pane divider: drag, arrow keys, and the overshoot collapse
     PaneToggles.tsx       the sidebar's and explorer's toggles, and back/forward
+    pane-focus.ts         PANE_HOMES (where focus lands in a pane) for F6 and the return from Settings
   lib/mermaid.ts, lib/math.ts  Streamdown's Mermaid and KaTeX plugins, imported on first use
   lib/panes.ts            the pane geometry: clamps, the overshoot rule, what fits (pure)
   features/sidebar        projects as sections, their sessions flat, Pinned, the filter menu
@@ -1936,6 +2023,8 @@ src/renderer/
                           GettingStarted.tsx (the sidebar checklist after it) — see Onboarding
   features/settings       the Settings route, the card-grouped rows, the agent drawer, and
                           pages/ — one module per page; search is done by the rows themselves
+    settings-value.ts     the page's read and write path over the store, and useSettingsFallbacks
+    worktree-cache.ts     the Git page's worktree lists, kept for the Settings visit
   lib/shortcuts.ts        the keyboard-shortcut table the Shortcuts page prints
   lib/git-mode.ts         the sidebar glyph, the composer chip's labels and which
                           modes a project can offer — one answer, two features
@@ -2042,8 +2131,16 @@ history, not as a turn: it rides on the last agent turn, or on a closed turn of
 its own, and the session reads `waiting` until it is answered. Answering a
 request changes only the turn that holds it; every other turn keeps its
 identity, so a long transcript does not re-render. A `closed` or `error` status
-marks every card still pending `cancelled`, since whoever would take the answer
-is gone. In the renderer, `receiveState` (`state/acp.ts`) clears a session's
+also ends the open turn, since the adapter is gone and will send neither
+`prompt/end` nor `prompt/error`: `closed` stops it (stop reason `cancelled`,
+which the transcript shows as "Stopped"; pending and in-progress calls and
+running subagents become `cancelled`), `error` ends it with no stop reason
+(they become `failed`), and either marks every card still pending `cancelled`,
+since whoever would take the answer is gone. `prompt/end`, whatever its stop
+reason, and `prompt/error` cancel pending cards as well; main cancels the
+client's pending permissions just before it dispatches `prompt/end`, so the
+cards and the requests agree. A call that is settled or completed is never
+revived by a late `in_progress`. In the renderer, `receiveState` (`state/acp.ts`) clears a session's
 `loadErrors` once the state it takes says the agent is up (`idle`, `running` or
 `waiting`). In main, an `initialize` failure goes through `describe`
 (`src/main/acp/connection.ts`) as `session/new`, `session/load` and
@@ -2264,10 +2361,14 @@ so a text-to-cad worktree session is resumable from a terminal later.
 
 A branch prefix git would refuse cannot be typed in: the field says why and
 writes nothing. One stored before that check existed is read as the default
-(`text-to-cad/`), and `settings.fallbacks()` (`src/shared/ipc/index.ts`)
-reports the stored value, so the Git page (`GitPage.tsx`) flags it in a
-warning beside the field with **Use default**, which stores the default over
-it.
+(`text-to-cad/`), and `settings.fallbacks()` (`src/shared/ipc/index.ts`,
+handler in `src/main/ipc/settings-fallbacks.ts`) returns `{ refused, gone }`:
+`refused` holds the stored text of every top-level field that failed its own
+parse, `gone` the remembered `defaultProjectFolder` or `worktreeRoot` that no
+longer exists (a wrong-typed folder is `refused`, never `gone`). The Git page
+(`GitPage.tsx`) flags a refused `branchPrefix` in a warning beside the field
+with **Use default**, which stores the default over it; a gone folder shows a
+quiet note on its row.
 
 A worktree that belongs to a session is deleted automatically only when
 auto-delete is on. The exception is a create that fails: its row goes, and the
@@ -2291,7 +2392,13 @@ disposable cache (`hasUnsavedWork`). An archived session holds no worktree.
 sessions that are not archived and run in the worktree, in a folder inside it,
 or record it as their `worktreePath`. It answers Settings' open-session count,
 Delete's refusal, and a session's release of its own worktree; the sweep's
-`protectedPaths` applies the same not-archived filter. The limit counts only unlocked, unheld
+`protectedPaths` applies the same not-archived filter. Settings' Delete is
+refused on two grounds: a worktree in use (main answers "N sessions are still
+using that worktree", and the row says "A session is still open in this
+worktree.") and a locked one (`git worktree lock`; the row says it is kept
+until it is unlocked). The row disables Delete and gives the reason through
+`keptBecause` in `GitPage.tsx`, which also covers uncommitted changes or
+ignored files and a worktree git could not check. The limit counts only unlocked, unheld
 worktrees in the project's worktree folders; one with unsaved work counts
 toward it and is then kept. A branch is deleted only when a failed create abandons the
 worktree it made, and then only while it still points where it was cut

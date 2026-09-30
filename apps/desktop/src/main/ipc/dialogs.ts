@@ -15,14 +15,19 @@ import type { IpcContext } from "./register";
  * (Settings › default project folder, worktree root) can be moved or deleted
  * after it was chosen; handing the OS a path that does not exist opens the
  * sheet somewhere arbitrary instead of where it would have opened unasked.
+ * `directory` asks for a folder, as `projects.add` does: a default that is now
+ * a file is left off a folder chooser, and stays valid for the file chooser.
  */
-export async function existingPath(path: string | undefined): Promise<string | undefined> {
+export async function existingPath(
+  path: string | undefined,
+  { directory = false }: { directory?: boolean } = {},
+): Promise<string | undefined> {
   if (!path) {
     return undefined;
   }
   try {
-    await stat(path);
-    return path;
+    const found = await stat(path);
+    return !directory || found.isDirectory() ? path : undefined;
   } catch {
     return undefined;
   }
@@ -33,7 +38,8 @@ async function choose(
   options: Electron.OpenDialogOptions,
 ): Promise<{ path: string } | null> {
   const window = BrowserWindow.fromWebContents(ctx.sender);
-  const asked = { ...options, defaultPath: await existingPath(options.defaultPath) };
+  const directory = options.properties?.includes("openDirectory") ?? false;
+  const asked = { ...options, defaultPath: await existingPath(options.defaultPath, { directory }) };
   const result = window
     ? await dialog.showOpenDialog(window, asked)
     : await dialog.showOpenDialog(asked);

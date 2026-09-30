@@ -111,6 +111,13 @@ before retrying", and an abort after the command was sent says it "may already
 have been applied". A handler that finished before the abort reports "was
 applied, but the request was aborted before the reply".
 
+The window's reply is itself made only once the effect is on screen: the
+viewer's live commands (`packages/ui/src/renderers/kit/shell/liveBinding.ts`)
+answer after a settled frame and, where the command has a committed
+predicate (clearing is an empty selection; a renderer's own command returns
+its own), once it holds, bounded at ten seconds, then "The viewer did not
+finish applying this command."
+
 The PDF renderer and its agent tools share one real Mozilla PDF.js document,
 worker and text layer. Page reads are bounded to 50 pages/one million
 characters and canvases to 4096 pixels on the longest side. Extraction does not

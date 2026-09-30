@@ -18,7 +18,7 @@ export async function settingsFallbacks(): Promise<{ refused: Record<string, str
   const gone: Record<string, string> = {};
   for (const key of ["defaultProjectFolder", "worktreeRoot"] as const) {
     const folder = stored[key];
-    if (folder && (await existingPath(folder)) === undefined) {
+    if (folder && (await existingPath(folder, { directory: true })) === undefined) {
       gone[key] = folder;
     }
   }

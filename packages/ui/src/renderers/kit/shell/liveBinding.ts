@@ -8,6 +8,16 @@ import { mergeViewerDisplaySettings } from '../view-settings/viewerDisplaySettin
 // for every renderer; a renderer ADDS commands of its own by name and DECLINES
 // the known host commands that make no sense for it, with the sentence the
 // caller is shown. Nothing is ever a silent no-op.
+//
+// A mutating command replies only once its effect is on screen, never on the
+// call returning: a settled frame at least, and where the command has a
+// committed predicate, until that holds. `setDisplaySettings` waits for the
+// merged settings, `setRenderMode` for the viewport showing the mode,
+// `clearSelection` for an empty selection, and a renderer's own command (such
+// as `select`) returns its predicate. The wait is bounded at ten seconds, then
+// it throws "The viewer did not finish applying this command." rather than
+// answer with a state the command did not produce. Commands set from an IPC
+// handler render on a macrotask, which is why one frame is not the answer.
 
 export interface LiveCameraSnapshot {
   position: [number, number, number];
