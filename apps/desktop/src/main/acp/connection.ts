@@ -101,7 +101,8 @@ export type SessionConnectionOptions = {
   /**
    * Text put in front of the FIRST prompt of a session created here, for an
    * agent that does not load the skills root by itself. Sent once: a resumed
-   * session already has it in its transcript.
+   * session already has it in its transcript — unless it was never prompted,
+   * and then the reload carries it (see `loadSession`).
    */
   preamble?: string | null;
   spawnTerminal: SpawnTerminal;
@@ -120,6 +121,7 @@ export type ProcessExit = { code: number | null; signal: NodeJS.Signals | null }
 
 /** When an adapter that exited under a request did so, as the person reads it. */
 const EXIT_PHASE: Record<string, string> = {
+  initialize: "while starting",
   "session/prompt": "during the turn",
   "session/new": "while starting the session",
   "session/load": "while reopening the session",
@@ -239,6 +241,8 @@ export class SessionConnection {
   private initializeResponse: InitializeResponse | null = null;
   /** The preamble, until the first prompt has carried it. */
   private pendingPreamble: string | null = null;
+  /** `session/update`s heard since the last prompt started: an agent that streamed took the turn. */
+  private updatesHeard = 0;
   private closing = false;
   private exit: ProcessExit | null = null;
   private readonly stderrTail: string[] = [];
@@ -389,24 +393,35 @@ export class SessionConnection {
     if (this.initializeResponse) {
       return this.initializeResponse;
     }
-    const response = await this.agent.initialize({
-      protocolVersion: PROTOCOL_VERSION,
-      clientInfo: { name: "text-to-cad", version: this.options.clientVersion ?? "0.0.0" },
-      clientCapabilities: {
-        fs: { readTextFile: true, writeTextFile: true },
-        terminal: true,
-        auth: { terminal: false },
-        // Subagent transcripts. The canonical draft field (`subagents`) is
-        // not in SDK 1.4.0's ClientCapabilities type, so it rides in as a
-        // plain property; the AIR meta key is what the Claude and Codex
-        // adapters read while released SDKs strip the draft field.
-        ...({ subagents: {} } as Record<string, unknown>),
-        _meta: {
-          "subagent-transcript": true,
-          jetbrains: { air: { version: 1, capabilities: ["nativeSubagentSessions"] } },
+    let response: InitializeResponse;
+    try {
+      response = await this.agent.initialize({
+        protocolVersion: PROTOCOL_VERSION,
+        clientInfo: { name: "text-to-cad", version: this.options.clientVersion ?? "0.0.0" },
+        clientCapabilities: {
+          fs: { readTextFile: true, writeTextFile: true },
+          terminal: true,
+          auth: { terminal: false },
+          // Subagent transcripts. The canonical draft field (`subagents`) is
+          // not in SDK 1.4.0's ClientCapabilities type, so it rides in as a
+          // plain property; the AIR meta key is what the Claude and Codex
+          // adapters read while released SDKs strip the draft field.
+          ...({ subagents: {} } as Record<string, unknown>),
+          _meta: {
+            "subagent-transcript": true,
+            jetbrains: { air: { version: 1, capabilities: ["nativeSubagentSessions"] } },
+          },
         },
-      },
-    });
+      });
+    } catch (error) {
+      // An adapter that dies before it answers (an `npx` that 404s) closes the
+      // stream first; its exit and last stderr lines follow a beat later, and
+      // they are the message.
+      if (!(error instanceof RequestError)) {
+        await Promise.race([this.exited, new Promise((resolve) => setTimeout(resolve, 1_000))]);
+      }
+      throw this.describe(error, "initialize");
+    }
     this.initializeResponse = response;
     return response;
   }
@@ -493,6 +508,12 @@ export class SessionConnection {
       });
     }
     this.dispatch({ type: "session/loaded", at: Date.now() });
+    // A session that was created and never prompted has no transcript to hold
+    // the preamble: the replay carried no user turn, and the first prompt on
+    // this connection is the first the agent will read.
+    this.pendingPreamble = this.stateValue.turns.some((turn) => turn.role === "user")
+      ? null
+      : (this.options.preamble ?? null);
     return response;
   }
 
@@ -551,6 +572,7 @@ export class SessionConnection {
     // AGENT gets, once, in front of it.
     const preamble = this.pendingPreamble;
     this.pendingPreamble = null;
+    this.updatesHeard = 0;
     this.dispatch({ type: "prompt/start", turnId, content, at: Date.now() });
     try {
       const response = await this.agent.prompt({
@@ -579,8 +601,11 @@ export class SessionConnection {
     } catch (error) {
       // A turn the agent did not take carried nothing: the retry, or the next
       // message, is the first the agent actually reads, and the only place a
-      // preamble-only agent hears where the skills are.
-      this.pendingPreamble ??= preamble;
+      // preamble-only agent hears where the skills are. One that streamed
+      // before it failed did read it.
+      if (this.updatesHeard === 0) {
+        this.pendingPreamble ??= preamble;
+      }
       const described = this.describe(error, "session/prompt");
       // After `close` the rejection is the SDK tearing down the turn we
       // killed, not a failure of it: `closed` was the last word.
@@ -731,6 +756,7 @@ export class SessionConnection {
           this.options.record?.({ dir: "in", at: Date.now(), msg });
           const update = sessionUpdateOf(msg);
           if (update) {
+            this.updatesHeard += 1;
             this.dispatch({
               type: "session/update",
               acpSessionId: update.sessionId,

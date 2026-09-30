@@ -48,6 +48,18 @@ describe("TerminalManager", () => {
     expect(seen).toEqual(["hello ", "world", ""]);
   });
 
+  it("hands over nothing after release, neither the process's last words nor its exit", () => {
+    const { spawn, handles } = fakeSpawn();
+    const seen: Array<[string, unknown]> = [];
+    const manager = new TerminalManager(spawn, (_id, data, exit) => seen.push([data, exit]));
+    const id = manager.create({ command: "x", cwd: "/", baseEnv: {} });
+    handles[0]!.data("before");
+    manager.release(id);
+    handles[0]!.data("after");
+    handles[0]!.exit({ exitCode: null, signal: "SIGTERM" });
+    expect(seen).toEqual([["before", null]]);
+  });
+
   it("truncates from the front at the byte limit, on a character boundary", () => {
     const { spawn, handles } = fakeSpawn();
     const manager = new TerminalManager(spawn);

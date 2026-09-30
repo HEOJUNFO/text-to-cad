@@ -32,11 +32,21 @@ describe("the acp store", () => {
   });
 
   it("keeps a bounded tail of terminal output per terminal", () => {
+    useAcp.getState().receiveState("s1", initialSessionState("s1", "codex"));
     useAcp.getState().receiveTerminalOutput("s1", "t1", "a".repeat(70_000));
     useAcp.getState().receiveTerminalOutput("s1", "t1", "b");
     const tail = useAcp.getState().terminalOutput["s1/t1"]!;
     expect(tail.length).toBe(64 * 1024);
     expect(tail.endsWith("b")).toBe(true);
+  });
+
+  it("ignores terminal output for a session it does not hold, or has let go of", () => {
+    useAcp.getState().receiveTerminalOutput("ghost", "t1", "late");
+    useAcp.getState().receiveState("s1", initialSessionState("s1", "codex"));
+    useAcp.getState().receiveTerminalOutput("s1", "t1", "kept");
+    useAcp.getState().forget("s1");
+    useAcp.getState().receiveTerminalOutput("s1", "t1", "late");
+    expect(useAcp.getState().terminalOutput).toEqual({});
   });
 
   it("forgets a session", () => {

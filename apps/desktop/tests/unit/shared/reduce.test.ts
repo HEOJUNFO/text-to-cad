@@ -795,6 +795,41 @@ describe("reduce: permission/resolve status", () => {
   });
 });
 
+describe("reduce: a permission request outside an open turn", () => {
+  const late = { requestId: "perm-1", acpSessionId: root, toolCallId: "c1", title: null, description: null, kind: null, input: null, options: [] };
+
+  it("does not open a turn, so the answer leaves the session idle", () => {
+    let state = started(connected());
+    state = reduce(state, { type: "prompt/end", stopReason: "end_turn", usage: null, at });
+    const turns = state.turns.length;
+    state = reduce(state, { type: "permission/request", request: late, at });
+    expect(state.status).toBe("waiting");
+    expect(state.turns).toHaveLength(turns);
+    expect(state.turns.at(-1)?.parts.at(-1)).toMatchObject({ type: "permission_request", outcome: { state: "pending" } });
+    state = reduce(state, { type: "permission/resolve", requestId: "perm-1", outcome: { state: "selected", optionId: "x" }, at });
+    expect(state.status).toBe("idle");
+    expect(state.turns.at(-1)?.endedAt).not.toBeNull();
+  });
+
+  it("gives a session with no turn at all a closed one to hold it", () => {
+    const state = reduce(connected(), { type: "permission/request", request: late, at });
+    expect(state.turns).toHaveLength(1);
+    expect(state.turns[0]?.endedAt).not.toBeNull();
+  });
+});
+
+describe("reduce: a permission card when the adapter goes away", () => {
+  const ask = { requestId: "perm-1", acpSessionId: root, toolCallId: "c1", title: null, description: null, kind: null, input: null, options: [] };
+
+  it.each(["closed", "error"] as const)("marks a pending card cancelled on status %s", (status) => {
+    let state = started(connected());
+    state = reduce(state, { type: "permission/request", request: ask, at });
+    state = reduce(state, { type: "status", status, error: null, at });
+    expect(state.turns[1]?.parts.at(-1)).toMatchObject({ type: "permission_request", outcome: { state: "cancelled" } });
+    expect(state.pendingPermissions).toEqual([]);
+  });
+});
+
 describe("reduce: embedded resources", () => {
   const resource = { type: "resource" as const, uri: "attachment:///notes%20v2.md", text: "# notes", mimeType: "text/markdown" };
 

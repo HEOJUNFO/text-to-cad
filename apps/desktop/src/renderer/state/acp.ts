@@ -131,6 +131,12 @@ export const useAcp = create<AcpState>((set, get) => ({
 
   receiveTerminalOutput: (sessionId, terminalId, data) =>
     set((current) => {
+      // A session the store let go of (Disconnect, delete, archive) or never
+      // held: its terminals' chunks are not kept, or `without` would have
+      // nothing to sweep them with.
+      if (!current.sessions[sessionId]) {
+        return current;
+      }
       const key = `${sessionId}/${terminalId}`;
       const next = ((current.terminalOutput[key] ?? "") + data).slice(-TERMINAL_TAIL);
       return { terminalOutput: { ...current.terminalOutput, [key]: next } };

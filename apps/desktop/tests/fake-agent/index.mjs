@@ -7,6 +7,7 @@
  *   node tests/fake-agent/index.mjs --fixture <file.jsonl> replay a recording
  *   node tests/fake-agent/index.mjs --mode-option           modes as a `mode`
  *                                                          config option
+ *   node tests/fake-agent/index.mjs --load-empty            session/load replays nothing
  *   node tests/fake-agent/index.mjs --load-delay 1200       hold session/load
  *                                                          for that long
  *   node tests/fake-agent/index.mjs --new-title <title>    title before session/new answers
@@ -447,6 +448,10 @@ new AgentSideConnection((conn) => ({
         sessionId: params.sessionId,
         update: { sessionUpdate: "session_info_update", title: args[args.indexOf("--load-title") + 1] },
       });
+    }
+    if (args.includes("--load-empty")) {
+      // A session that was created and never prompted: nothing to replay.
+      return {};
     }
     await conn.sessionUpdate({
       sessionId: params.sessionId,

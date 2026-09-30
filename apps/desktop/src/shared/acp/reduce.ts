@@ -162,10 +162,19 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
         options: request.options,
         outcome: { state: "pending" },
       };
-      const next = withSessionParts(state, request.acpSessionId, event.at, (parts) => [
-        ...parts,
-        part,
-      ]);
+      // Not `create`: a request that arrives with no turn open (the prompt has
+      // ended, or was cancelled, and the adapter asked late) must not open one
+      // — nothing would ever end it, and the resolve below would call the
+      // session running. It rides on the last turn, or on a closed one.
+      const next =
+        withSessionParts(state, request.acpSessionId, event.at, (parts) => [...parts, part], false);
+      if (next === state) {
+        return {
+          ...withClosedParts(state, event.at, [part]),
+          status: "waiting",
+          pendingPermissions: [...state.pendingPermissions, request],
+        };
+      }
       return {
         ...next,
         status: "waiting",
@@ -202,6 +211,26 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
       return { ...state, configOptions: event.configOptions };
 
     case "status":
+      if (event.status === "closed" || event.status === "error") {
+        // The adapter is gone, and with it whoever would take the answer:
+        // `retire` drops the connection's own resolve before it can be
+        // dispatched, so a card left pending here would stay answerable.
+        const turns = state.turns.map((turn) => {
+          const parts = mapPartsDeep(turn.parts, (part) =>
+            part.type === "permission_request" && part.outcome.state === "pending"
+              ? { ...part, outcome: { state: "cancelled" } }
+              : part,
+          );
+          return parts === turn.parts ? turn : { ...turn, parts };
+        });
+        return {
+          ...state,
+          turns: turns.every((turn, index) => turn === state.turns[index]) ? state.turns : turns,
+          pendingPermissions: [],
+          status: event.status,
+          error: event.error,
+        };
+      }
       return { ...state, status: event.status, error: event.error };
   }
 }
@@ -549,6 +578,23 @@ function withRootParts(
     stopReason: null,
   };
   return { ...closed, turns: [...closed.turns, turn] };
+}
+
+/** Parts for a moment when no turn is open: the last agent turn takes them, or a closed one of their own. */
+function withClosedParts(state: SessionState, at: number, added: Part[]): SessionState {
+  const last = state.turns.at(-1);
+  if (last?.role === "agent") {
+    return { ...state, turns: [...state.turns.slice(0, -1), { ...last, parts: [...last.parts, ...added] }] };
+  }
+  const turn: Turn = {
+    id: `t${state.turns.length + 1}`,
+    role: "agent",
+    parts: added,
+    startedAt: at,
+    endedAt: at,
+    stopReason: null,
+  };
+  return { ...state, turns: [...state.turns, turn] };
 }
 
 /** Route by ACP session id: the root's open turn, or a subagent's parts. */
