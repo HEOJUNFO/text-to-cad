@@ -32,6 +32,8 @@ const h = vi.hoisted(() => ({
   /** `app.isReady()` at each call of Aptabase's `initialize`. */
   aptabaseInitReady: [] as boolean[],
   teardown: [] as string[],
+  /** `armQuitDeadline`, the watchdog's arm. */
+  arm: vi.fn(),
   electron: null as unknown as { dialog: { showErrorBox: ReturnType<typeof vi.fn> }; app: { exit: ReturnType<typeof vi.fn> } },
 }));
 
@@ -151,7 +153,7 @@ vi.mock("@main/ipc", () => ({ broadcast: () => undefined, registerIpcHandlers: (
 vi.mock("@main/ipc/agents", () => ({ shutdownAgents: () => undefined }));
 vi.mock("@main/ipc/explorer", () => ({ disposeExplorerServices: () => undefined }));
 vi.mock("@main/menu", () => ({ installMenu: () => undefined }));
-vi.mock("@main/quit-deadline", () => ({ armQuitDeadline: () => undefined }));
+vi.mock("@main/quit-deadline", () => ({ armQuitDeadline: h.arm }));
 vi.mock("@main/settings-effects", () => ({ disposeSettingsEffects: () => undefined }));
 // The real telemetry module over a fake Aptabase: which side of whenReady
 // index.ts initializes it on is the bug this pins (Aptabase disables itself
@@ -327,5 +329,59 @@ describe("quit sequence", () => {
     expect(h.windows).toHaveLength(0);
     error.mockRestore();
     info.mockRestore();
+  });
+
+  /** A fresh `@main/index` over a fresh app, with the process-level handlers it registers captured, not installed. */
+  async function freshMain() {
+    vi.resetModules();
+    h.windows.length = 0;
+    h.teardown.length = 0;
+    h.cadFails = false;
+    h.ready = false;
+    h.arm.mockClear();
+    // The app emitter outlives resetModules: earlier imports' listeners go.
+    h.app.removeAllListeners();
+    const handlers = new Map<string, (...args: unknown[]) => void>();
+    const on = vi.spyOn(process, "on").mockImplementation(((event: string, handler: (...args: unknown[]) => void) => {
+      handlers.set(event, handler);
+      return process;
+    }) as never);
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await import("@main/index");
+    await vi.waitFor(() => expect(h.windows).toHaveLength(1));
+    on.mockRestore();
+    const { markQuitting } = await import("@main/quitting");
+    return { handlers, markQuitting, info, error, restore: () => [info, error].forEach((spy) => spy.mockRestore()) };
+  }
+
+  it("arms the quit deadline at before-quit, not only at will-quit: a stall between the two is bounded", async () => {
+    const main = await freshMain();
+    h.app.emit("before-quit");
+    // will-quit never comes (a window that never acks its unload, a modal error dialog).
+    expect(h.arm).toHaveBeenCalledTimes(1);
+    // will-quit is a second arm, and arms nothing twice.
+    h.app.emit("will-quit");
+    expect(h.arm).toHaveBeenCalledTimes(1);
+    expect(main.info).toHaveBeenCalledWith("[quit] will-quit");
+    main.restore();
+  });
+
+  it("an uncaught exception logs; while quitting it also kills the children and exits, so no error dialog can hold the quit", async () => {
+    const main = await freshMain();
+    const uncaught = main.handlers.get("uncaughtException")!;
+    expect(uncaught).toBeTypeOf("function");
+    h.electron.app.exit.mockClear();
+
+    uncaught(new Error("x"));
+    expect(main.error).toHaveBeenCalledWith("[main] uncaught exception:", expect.any(Error));
+    expect(h.electron.app.exit).not.toHaveBeenCalled();
+
+    main.markQuitting();
+    h.teardown.length = 0;
+    uncaught(new Error("x"));
+    expect(h.teardown).toEqual(["children", "exit"]);
+    expect(h.electron.app.exit).toHaveBeenCalledWith(1);
+    main.restore();
   });
 });
