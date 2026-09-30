@@ -223,17 +223,24 @@ export function Composer({
       }
       // The box empties now, but what it held is kept whole — the typed text and the annotations
       // apart, with their chips' labels — rather than as the flattened prompt: a start that fails
-      // puts it back as it was (the rejection below), and so does taking it out of the queue.
+      // puts it back as it was (the catch below), and so does taking it out of the queue.
       const taken = useComposer.getState().takeDraft(draftKey);
       // With its files, for a refusal that comes back after the box has let them go.
       const files = message.files.flatMap((part) => attachmentFiles.fileFor(part) ?? []);
-      try {
-        await onSubmit(trimmed, content, files.length ? { ...taken, files } : taken);
-      } catch (error) {
-        useComposer.getState().restoreDraft(draftKey, taken);
-        // Rethrown so the form keeps its attachments for the next try.
-        throw error;
-      }
+      const sent = files.length ? { ...taken, files } : taken;
+      // The strip empties with the text, now: `onSubmit` settles when the turn ends, and waiting
+      // for that kept the image chip on screen through the whole turn, sent it again with the
+      // next message typed meanwhile, and let the form's late clear wipe a file attached since.
+      attachmentsRef.current?.clear();
+      // Not awaited for the same reason. A start that fails puts the draft back as it was, its
+      // files in the strip again (`restoreDraft`), from wherever the rejection arrives.
+      void (async () => {
+        try {
+          await onSubmit(trimmed, content, sent);
+        } catch {
+          useComposer.getState().restoreDraft(draftKey, sent);
+        }
+      })();
     },
     [onSubmit, refuseSend, draftKey, attachmentFiles],
   );

@@ -84,10 +84,10 @@ export type TakenDraft = {
   labels?: Record<string, string>;
   root?: string;
   /**
-   * The box's attachments, as files, when the prompt may be refused after the box that held
-   * them has gone — queued, or sent from the new-session screen into the session it made.
-   * `restoreDraft` attaches them again. The composer's own failed send leaves this out: the
-   * form keeps its attachments then.
+   * The box's attachments, as files: the strip empties when the prompt is accepted, not when
+   * its turn ends, so a prompt refused afterwards — queued, sent from the new-session screen
+   * into the session it made, or sent straight from the box — has only these to get them back.
+   * `restoreDraft` attaches them again.
    */
   files?: File[];
 };
