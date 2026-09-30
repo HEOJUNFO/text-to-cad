@@ -3,17 +3,24 @@
  * what a row says about why one does not.
  */
 import { beforeEach, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
 import { SettingsRoute } from "@renderer/features/settings/SettingsRoute";
 import { GitPage } from "@renderer/features/settings/pages/GitPage";
-import { useWorktreeCache } from "@renderer/features/settings/worktree-cache";
+import {
+  ensureWorktrees,
+  noteSessions,
+  resetForTests,
+  seedSessions,
+  useWorktreeCache,
+} from "@renderer/features/settings/worktree-cache";
 import { useUi } from "@renderer/state/ui";
 import { useProjects } from "@renderer/state/projects";
 import { useSettings } from "@renderer/state/settings";
 import { defaultSettings } from "@shared/types";
+import type { Session } from "@shared/types";
 import type { Worktree } from "@shared/ipc/git";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), dismiss: vi.fn(), info: vi.fn() } }));
@@ -30,7 +37,7 @@ const worktree = (over: Partial<Worktree>): Worktree => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useWorktreeCache.getState().invalidate();
+  resetForTests();
   useSettings.setState({ settings: defaultSettings(), ready: true });
   useProjects.setState({ projects: [{ id: "p", name: "p", path: "/p", createdAt: 0 }], activeId: "p" });
 });
@@ -78,4 +85,59 @@ it("reads a project's worktrees once for the visit, however often the search mou
   await user.type(search, "a");
   expect(await screen.findAllByText("text-to-cad/fillet")).not.toHaveLength(0);
   expect(window.textToCad.git.worktrees).toHaveBeenCalledTimes(1);
+});
+
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+};
+
+it("reads again after an invalidation discards a read in flight, instead of handing back the discarded one", async () => {
+  const first = deferred<Worktree[]>();
+  const second = deferred<Worktree[]>();
+  vi.mocked(window.textToCad.git.worktrees).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+  const a = ensureWorktrees("p");
+  useWorktreeCache.getState().invalidate();
+  const b = ensureWorktrees("p");
+  first.resolve([]);
+  second.resolve([]);
+  await Promise.all([a, b]);
+  expect(useWorktreeCache.getState().lists.p).toEqual([]);
+});
+
+it("keeps the previous list on the page while a re-read is under way", async () => {
+  const again = deferred<Worktree[]>();
+  vi.mocked(window.textToCad.git.worktrees)
+    .mockResolvedValueOnce([worktree({})])
+    .mockReturnValueOnce(again.promise);
+  render(
+    <TooltipProvider>
+      <GitPage />
+    </TooltipProvider>,
+  );
+  expect(await screen.findByText("text-to-cad/fillet")).toBeInTheDocument();
+  act(() => useWorktreeCache.getState().invalidate());
+  expect(window.textToCad.git.worktrees).toHaveBeenCalledTimes(2);
+  expect(screen.getByText("text-to-cad/fillet")).toBeInTheDocument();
+  await act(async () => again.resolve([worktree({ branch: "text-to-cad/other" })]));
+  expect(await screen.findByText("text-to-cad/other")).toBeInTheDocument();
+  expect(screen.queryByText("text-to-cad/fillet")).not.toBeInTheDocument();
+});
+
+it("invalidates on a session that appeared, moved or was archived, and not on status churn", () => {
+  const session = (over: Partial<Session>) =>
+    ({ id: "s1", cwd: "/w/p/fillet", archived: false, status: "idle", title: "t", insertions: 0, ...over }) as Session;
+  seedSessions([session({})]);
+  const epoch = () => useWorktreeCache.getState().epoch;
+  noteSessions([session({ status: "running", title: "renamed", insertions: 9 })]);
+  expect(epoch()).toBe(0);
+  noteSessions([session({ archived: true })]);
+  expect(epoch()).toBe(1);
+  noteSessions([session({ archived: true }), session({ id: "s2" })]);
+  expect(epoch()).toBe(2);
+  noteSessions([session({ archived: true }), session({ id: "s2", cwd: "/w/p/other" })]);
+  expect(epoch()).toBe(3);
 });

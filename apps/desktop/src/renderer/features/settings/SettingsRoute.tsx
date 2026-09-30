@@ -7,7 +7,8 @@ import { Input } from "@renderer/components/ui/input";
 import { ScrollArea } from "@renderer/components/ui/scroll-area";
 import { SettingsPage } from "@renderer/features/settings/pages";
 import { SettingsSearchProvider } from "@renderer/features/settings/search";
-import { useWorktreeCache } from "@renderer/features/settings/worktree-cache";
+import { noteSessions, seedSessions, useWorktreeCache } from "@renderer/features/settings/worktree-cache";
+import { useSessions } from "@renderer/state/sessions";
 import {
   SETTINGS_SECTIONS,
   SETTINGS_SECTION_LABELS,
@@ -36,13 +37,14 @@ export function SettingsRoute() {
   const searching = query.trim() !== "";
 
   // The worktree lists are kept for this visit (`worktree-cache.ts`): a session
-  // opening or closing changes a row's "in use", and closing Settings drops them.
+  // opening, closing or moving changes a row's "in use" (status churn does
+  // not), and closing Settings drops them.
   useEffect(() => {
-    const { invalidate } = useWorktreeCache.getState();
-    const off = window.textToCad.on("sessions.changed", invalidate);
+    seedSessions(useSessions.getState().sessions);
+    const off = window.textToCad.on("sessions.changed", noteSessions);
     return () => {
       off();
-      invalidate();
+      useWorktreeCache.getState().clear();
     };
   }, []);
 
