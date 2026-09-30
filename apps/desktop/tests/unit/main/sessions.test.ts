@@ -417,6 +417,17 @@ describe("SessionManager", () => {
     expect(manager.list().every((session) => session.updatedAt === 100)).toBe(true);
   });
 
+  it("drops the row of a create that never reached session/new's answer when the app next starts", async () => {
+    // `closeAll` in the middle of a create closes the database under it, and
+    // the create's own cleanup then throws: the row is what is left.
+    const repo = memoryRepo();
+    const base = { projectId: "p1", agentId: "claude-code", cwd: "/x", gitMode: "none", title: "New session", titleSource: "prompt", createdAt: 1, updatedAt: 100, changedFiles: 0, insertions: 0, deletions: 0, archived: false, pinned: false } as const;
+    repo.upsert({ ...base, id: "phantom", status: "connecting", acpSessionId: null } as Session);
+    repo.upsert({ ...base, id: "real", status: "closed", acpSessionId: "acp-real" } as Session);
+    const { manager } = await setup({ repo });
+    expect(manager.list().map((session) => session.id)).toEqual(["real"]);
+  });
+
   it("refuses an answer to a permission request the agent is no longer waiting on", async () => {
     const { manager, cwd } = await setup();
     const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
@@ -606,6 +617,136 @@ describe("SessionManager", () => {
     expect(stopReason).toBe("end_turn");
   });
 
+  /**
+   * A reconnect's state is the beginning of its own replay: turns empty until
+   * `session/load` has streamed them. Filed over the stored transcript — by a
+   * failed load's debounce, or by a quit in the first second — it destroys the
+   * only copy of the history.
+   */
+  it("keeps the stored transcript when a reconnect's session/load is refused", async () => {
+    let launchArgs = [FAKE_AGENT];
+    const store = memorySnapshots();
+    const { manager, cwd } = await setup({
+      snapshots: store,
+      launchOverride: () => ({ ...fakeProvider.launch, args: launchArgs }),
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    await manager.prompt(session.id, [{ type: "text", text: "hello there" }]);
+    manager.close(session.id);
+    expect(JSON.parse(store.rows.get(session.id)!).turns).toHaveLength(2);
+
+    launchArgs = [FAKE_AGENT, "--load-error"];
+    await expect(manager.load(session.id)).rejects.toThrow();
+    manager.closeAll(); // flushAll: whatever was still pending is written now
+    expect(JSON.parse(store.rows.get(session.id)!).turns).toHaveLength(2);
+  });
+
+  it("keeps the stored transcript when the app quits in the middle of a reconnect's replay", async () => {
+    let launchArgs = [FAKE_AGENT];
+    const store = memorySnapshots();
+    const { broadcasts, manager, cwd } = await setup({
+      snapshots: store,
+      launchOverride: () => ({ ...fakeProvider.launch, args: launchArgs }),
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    await manager.prompt(session.id, [{ type: "text", text: "hello there" }]);
+    manager.close(session.id);
+
+    launchArgs = [FAKE_AGENT, "--load-delay", "60000"];
+    broadcasts.length = 0;
+    const loading = manager.load(session.id);
+    loading.catch(() => undefined);
+    // `session/load` is on the wire, and the state is the empty beginning of it.
+    await until(() =>
+      broadcasts.some(
+        (b) => b.channel === "session.update" && (b.payload as { event: { type: string } }).event.type === "session/connected",
+      )
+        ? true
+        : undefined,
+    );
+    manager.closeAll();
+    await expect(loading).rejects.toThrow();
+    expect(JSON.parse(store.rows.get(session.id)!).turns).toHaveLength(2);
+  });
+
+  /**
+   * The row is in the sidebar from before `session/new` answers, and the
+   * spawn takes one to three seconds: a click in that window is a `load` of a
+   * session with no agent session id yet.
+   */
+  it("joins a create still in session/new when the row is loaded", async () => {
+    const { repo, manager, cwd } = await setup({
+      launchOverride: () => ({ ...fakeProvider.launch, args: [FAKE_AGENT, "--new-delay", "150"] }),
+    });
+    const creating = manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    const row = await until(() => repo.list()[0]);
+    expect(row.acpSessionId).toBeNull();
+    const state = await manager.load(row.id);
+    expect(state.status).toBe("idle");
+    expect((await creating).acpSessionId).toBe("fake-session-1");
+    expect(manager.state(row.id)?.live).toBe(true);
+  });
+
+  /**
+   * The turn mark waits on git while the connection is idle; a second session
+   * opened in that window is what the keep-alive limit evicts the oldest for.
+   */
+  it("does not evict a session whose prompt is waiting on the turn mark", async () => {
+    let release: ((tree: string) => void) | undefined;
+    const { manager, cwd } = await setup({
+      keepAlive: 1,
+      // Only a turn's mark waits; a `none`-mode create marks `<id>/session`.
+      snapshot: async (_cwd, mark) =>
+        mark.endsWith("/turn") ? new Promise<string>((resolve) => (release = resolve)) : "tree",
+    });
+    const a = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    const turn = manager.prompt(a.id, [{ type: "text", text: "hello" }]);
+    await until(() => release);
+    // Opening B during the snapshot takes the limit past one; A is the oldest.
+    await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    release!("tree");
+    await expect(turn).resolves.toMatchObject({ stopReason: "end_turn" });
+  });
+
+  /**
+   * A snapshot of a huge or locked tree can take a minute. The mark is never
+   * a reason to fail a turn, nor to hold one back for long: past five seconds
+   * the commit stands in for the tree.
+   */
+  it("falls back to HEAD when a turn's snapshot takes longer than five seconds", async () => {
+    const { repo, manager, cwd } = await setup({
+      head: async () => "the-commit",
+      snapshot: (_cwd, mark) => (mark.endsWith("/turn") ? new Promise<string>(() => undefined) : Promise.resolve("tree")),
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const turn = manager.prompt(session.id, [{ type: "text", text: "hello" }]);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(turn).resolves.toMatchObject({ stopReason: "end_turn" });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(repo.get(session.id)?.turnHead).toBe("the-commit");
+  });
+
+  it("spawns the adapter without waiting for the creating session's snapshot", async () => {
+    const { broadcasts, manager, cwd } = await setup({
+      head: async () => "the-commit",
+      snapshot: () => new Promise<string>(() => undefined),
+    });
+    const creating = manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    creating.catch(() => undefined);
+    // `session/new` answered: the adapter was spawned while the snapshot hangs.
+    await until(() =>
+      broadcasts.some(
+        (b) => b.channel === "session.update" && (b.payload as { event: { type: string } }).event.type === "session/connected",
+      )
+        ? true
+        : undefined,
+    );
+  });
+
   it("has no snapshot for a session that never connected, so the spinner stays", async () => {
     const { manager } = await setup({ snapshots: memorySnapshots() });
     expect(manager.state("session-does-not-exist")).toBeNull();
@@ -790,6 +931,40 @@ describe("SessionManager", () => {
 
     expect(run("for-each-ref", "refs/text-to-cad/")).toContain(`refs/text-to-cad/${session.id}/turn`);
     await manager.delete(session.id);
+    expect(run("for-each-ref", "refs/text-to-cad/")).toBe("");
+  });
+
+  it("does not leave a ref behind when the session is deleted while its turn mark is being taken", async () => {
+    const { head, snapshotTree, dropMarks } = await import("@main/projects/git");
+    const { execFileSync } = await import("node:child_process");
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let reached = false;
+    const { manager, cwd } = await setup({
+      head,
+      dropMarks,
+      snapshot: async (dir, mark) => {
+        if (mark.endsWith("/turn")) {
+          reached = true;
+          await gate;
+        }
+        return snapshotTree(dir, mark);
+      },
+    });
+    const run = (...args: string[]) =>
+      execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" }).trim();
+    run("init", "-q");
+    await writeFile(path.join(cwd, "base.txt"), "base\n");
+    run("add", "-A");
+    run("commit", "-q", "-m", "base");
+
+    const session = await manager.create({ projectId: cwd, agentId: "claude-code", cwd, gitMode: "none" });
+    const turn = manager.prompt(session.id, [{ type: "text", text: "one" }]);
+    turn.catch(() => undefined);
+    await until(() => (reached ? true : undefined));
+    await manager.delete(session.id);
+    release();
+    await expect(turn).rejects.toThrow(/no such session/);
     expect(run("for-each-ref", "refs/text-to-cad/")).toBe("");
   });
 

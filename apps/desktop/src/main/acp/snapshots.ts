@@ -224,6 +224,16 @@ export class SessionSnapshotWriter {
     return parsed.data;
   }
 
+  /**
+   * Cancel the pending write and keep the row: what was stored stands. For a
+   * state that is not worth filing over it — a reload that failed leaves an
+   * empty transcript, and the stored one is the only copy.
+   */
+  discard(sessionId: string): void {
+    this.pending.get(sessionId)?.timer.cancel();
+    this.pending.delete(sessionId);
+  }
+
   /** Cancel the pending write and drop the row: the session is gone. */
   forget(sessionId: string): void {
     this.pending.get(sessionId)?.timer.cancel();

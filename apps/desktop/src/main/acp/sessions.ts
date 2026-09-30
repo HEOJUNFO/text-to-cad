@@ -239,6 +239,10 @@ export function titleFromPrompt(content: PromptBlock[], max = 60): string {
  */
 type ChangeTally = { files: Set<string>; baseFiles: number; insertions: number; deletions: number };
 
+/** How long a turn (or a create) waits for the working tree to be snapshotted. */
+const MARK_WAIT_MS = 5_000;
+const EXPIRED = Symbol("mark wait expired");
+
 /** How long a config-option probe may take before it is abandoned. */
 const PROBE_TIMEOUT_MS = 60_000;
 
@@ -259,6 +263,20 @@ export class SessionManager {
   private readonly tallies = new Map<string, ChangeTally>();
   /** The `load` in flight per session, so two callers wait on one spawn. */
   private readonly loads = new Map<string, Promise<SessionState>>();
+  /**
+   * The connections a `prompt` is between `ensureLive` and the end of its
+   * turn. The turn mark waits on git, and until `session/prompt` is sent the
+   * connection is `idle`, which `busy` alone would let a second session's
+   * `create` or `load` evict from under the prompt.
+   */
+  private readonly held = new Set<SessionConnection>();
+  /**
+   * The `create` still spawning per session, settled when it succeeds or fails.
+   * The row is in the index (and in the sidebar) from before `session/new`, so
+   * a click on it — or a prompt — arrives while the row has no agent session
+   * id yet, and `load` waits here rather than say it never connected.
+   */
+  private readonly creating = new Map<string, Promise<void>>();
   /** An agent may announce its title before session/new tells us its session id. */
   private readonly pendingTitles = new Map<string, Map<string, string>>();
   private readonly snapshots: SessionSnapshotWriter | null;
@@ -271,8 +289,10 @@ export class SessionManager {
       // would both be lost, and the limit comes back down when it ends. Nor
       // is one still connecting — in `session/new` or `session/load`: closing
       // it rejects the load, and a prompt waiting on that load in
-      // `ensureLive` with it.
+      // `ensureLive` with it. Nor one whose prompt is on its way out — idle
+      // until the turn mark is taken and `session/prompt` is sent (`held`).
       busy: (connection) =>
+        this.held.has(connection) ||
         connection.state.status === "running" ||
         connection.state.status === "waiting" ||
         connection.state.status === "connecting",
@@ -316,6 +336,11 @@ export class SessionManager {
    * "needs you" glyph outlives the agent that needed you. Lazy rather than in
    * the constructor, which runs before the database is open; `updatedAt` is
    * kept so the sidebar's order does not change.
+   *
+   * A row with no agent session id is a `create` that never reached
+   * `session/new`'s answer — the app quit mid-spawn, and `create`'s cleanup
+   * cannot run once the database is closed. It can never be loaded, so it is
+   * removed rather than left in the sidebar as a "New session" nobody made.
    */
   private booted = false;
   private boot(): void {
@@ -324,6 +349,11 @@ export class SessionManager {
     }
     this.booted = true;
     for (const session of this.deps.repo.list()) {
+      if (!session.acpSessionId && !this.creating.has(session.id)) {
+        this.deps.repo.remove(session.id);
+        void this.unpinMarks(session);
+        continue;
+      }
       const stale =
         session.status === "running" || session.status === "waiting" || session.status === "connecting";
       if (stale && !this.live.get(session.id)?.alive) {
@@ -389,10 +419,12 @@ export class SessionManager {
     // worktree the caller named (`New session in this worktree`, which sends
     // `cwd`), so the start of those is the tree as it is.
     const fresh = input.gitMode === "worktree" && !input.cwd;
-    const startHead = fresh
-      ? await this.headOf(workspace.cwd)
-      : await this.markOf(workspace.cwd, `${id}/session`);
-    const turnStart = fresh ? await this.markOf(workspace.cwd, `${id}/turn`) : startHead;
+    // Started now and settled after `session/new`: the marks are of the tree
+    // before the first prompt, which cannot go out until this create has
+    // returned, so they overlap the spawn rather than delay it.
+    const marks: Promise<[string | null, string | null]> = fresh
+      ? Promise.all([this.headOf(workspace.cwd), this.markWithin(workspace.cwd, `${id}/turn`)])
+      : this.markWithin(workspace.cwd, `${id}/session`).then((head) => [head, head]);
     const now = Date.now();
     const session: Session = {
       id,
@@ -413,61 +445,78 @@ export class SessionManager {
       deletions: 0,
       archived: false,
       pinned: false,
-      // Both scopes start here. `turnHead` is the session's mark until the
-      // first turn moves it, so a review taken before any prompt shows what
-      // the person changed by hand rather than nothing at all.
-      sessionHead: startHead,
-      turnHead: turnStart,
+      // Both scopes start at `marks`, filled in below once they have landed.
+      // `turnHead` is the session's mark until the first turn moves it, so a
+      // review taken before any prompt shows what the person changed by hand
+      // rather than nothing at all.
+      sessionHead: null,
+      turnHead: null,
     };
     try {
       this.deps.repo.upsert(session);
     } finally {
       this.deps.workspaceSettled?.(workspace);
     }
-    this.broadcastIndex();
-
-    const timer = createTimer();
-    let warmed = false;
-    let connection: SessionConnection;
+    let created!: () => void;
+    this.creating.set(id, new Promise<void>((resolve) => (created = resolve)));
     try {
-      connection = await this.connect(session, {
-        onWarm: () => {
-          warmed = true;
-        },
-      });
-      timer.mark("spawn");
-      await connection.initialize();
-      timer.mark("initialize");
-      await connection.newSession();
-      timer.mark("session/new");
-      console.info(
-        `[acp] create ${session.id.slice(0, 8)} ${session.agentId} warm=${warmed ? "yes" : "no"} ${timer.format()}`,
-      );
-    } catch (error) {
-      // A row with no agent session id can never be loaded; the renderer
-      // shows the failure (sign in, install) and the user creates again.
-      this.retire(session.id);
-      this.pendingTitles.delete(session.id);
-      this.deps.repo.remove(session.id);
       this.broadcastIndex();
-      await this.unpinMarks(session);
-      // The worktree this create made goes with the row. Not one it was given
-      // (`New session in this worktree`): that directory was there before.
-      if (workspace.worktreePath && !input.cwd) {
-        await this.deps.releaseWorkspace?.(session, { abandoned: true }).catch(() => undefined);
+
+      const timer = createTimer();
+      let warmed = false;
+      let connection: SessionConnection;
+      try {
+        connection = await this.connect(session, {
+          onWarm: () => {
+            warmed = true;
+          },
+        });
+        timer.mark("spawn");
+        await connection.initialize();
+        timer.mark("initialize");
+        await connection.newSession();
+        timer.mark("session/new");
+        console.info(
+          `[acp] create ${session.id.slice(0, 8)} ${session.agentId} warm=${warmed ? "yes" : "no"} ${timer.format()}`,
+        );
+      } catch (error) {
+        // A row with no agent session id can never be loaded; the renderer
+        // shows the failure (sign in, install) and the user creates again.
+        this.retire(session.id);
+        this.pendingTitles.delete(session.id);
+        this.deps.repo.remove(session.id);
+        this.broadcastIndex();
+        // The marks may still be landing: unpin them once they have, and take
+        // the branch's base from the session mark (`releaseWorkspace`).
+        const [startHead] = await marks;
+        await this.unpinMarks(session);
+        // The worktree this create made goes with the row. Not one it was given
+        // (`New session in this worktree`): that directory was there before.
+        if (workspace.worktreePath && !input.cwd) {
+          await this.deps.releaseWorkspace?.({ ...session, sessionHead: startHead }, { abandoned: true }).catch(() => undefined);
+        }
+        throw error;
       }
-      throw error;
+      // What the person last chose for this agent — the model, the effort and
+      // the mode. Never a reason for the session to fail: a refused
+      // `set_config_option` leaves the session at the agent's own defaults,
+      // which is a working session.
+      await this.applyPreferences(session, connection);
+      const [sessionHead, turnHead] = await marks;
+      const updated = this.update(session.id, {
+        acpSessionId: connection.acpSessionId,
+        status: "idle",
+        sessionHead,
+        turnHead,
+      });
+      this.deps.broadcast("session.state", { sessionId: session.id, state: connection.state });
+      // The registry id and nothing else — no directory, project or prompt.
+      this.deps.track?.({ name: "session_created", agent: session.agentId });
+      return updated;
+    } finally {
+      this.creating.delete(id);
+      created();
     }
-    // What the person last chose for this agent — the model, the effort and
-    // the mode. Never a reason for the session to fail: a refused
-    // `set_config_option` leaves the session at the agent's own defaults,
-    // which is a working session.
-    await this.applyPreferences(session, connection);
-    const updated = this.update(session.id, { acpSessionId: connection.acpSessionId, status: "idle" });
-    this.deps.broadcast("session.state", { sessionId: session.id, state: connection.state });
-    // The registry id and nothing else — no directory, project or prompt.
-    this.deps.track?.({ name: "session_created", agent: session.agentId });
-    return updated;
   }
 
   /**
@@ -645,6 +694,10 @@ export class SessionManager {
    */
   async load(id: string): Promise<SessionState> {
     this.boot();
+    const creation = this.creating.get(id);
+    if (creation) {
+      return creation.then(() => this.load(id));
+    }
     // One load per session at a time. The renderer starts one behind the
     // painted snapshot, and a prompt typed into that snapshot's composer
     // arrives while it is still running — two spawns for one session, and a
@@ -751,6 +804,10 @@ export class SessionManager {
       const closed = overtaken();
       if (this.live.get(id) === connection) this.live.delete(id);
       connection.close();
+      // The error state has no transcript (the reload never replayed one), and
+      // its pending write would put that over the stored one 750 ms later —
+      // the previous snapshot is the only copy of the session's history.
+      this.snapshots?.discard(id);
       if (closed) throw error;
       const message = error instanceof Error ? error.message : String(error);
       this.setStatus(id, "error", message);
@@ -840,31 +897,42 @@ export class SessionManager {
     if (refused) {
       return { stopReason: "refused", refused };
     }
-    // The session being prompted is the one in use: it goes to the front of
-    // the keep-alive queue and is never what an eviction closes.
-    this.live.touch(id);
-    // Re-read after reconnect: session/load may have supplied the agent's
-    // title while ensureLive was in flight.
-    const current = this.require(id);
-    if (current.titleSource === "prompt" && current.title === "New session") {
-      this.update(id, { title: titleFromPrompt(content), titleSource: "prompt" });
-    }
-    // The turn's starting point, read before the agent can move it. This is
-    // what the review's `Last turn` scope diffs against; taking it afterwards
-    // would measure the turn against its own result. A read that failed
-    // (a lock, a timeout) keeps the previous mark: a wider `Last turn` is
-    // still a review, where a null would unmark it altogether.
-    const turnHead = await this.markOf(session.cwd, `${id}/turn`);
-    this.update(id, turnHead === null ? {} : { turnHead });
+    this.held.add(connection);
     try {
-      const response = await connection.prompt(content, `${id}:${Date.now()}`);
-      this.persistTally(id);
-      return { stopReason: response.stopReason };
-    } catch (error) {
-      // A turn cut short by `close` (or an eviction, or a reconnect) is not
-      // activity in the session: its counts are kept, its row does not move.
-      this.persistTally(id, { touch: this.live.get(id) === connection });
-      throw error;
+      // The session being prompted is the one in use: it goes to the front of
+      // the keep-alive queue and is never what an eviction closes.
+      this.live.touch(id);
+      // Re-read after reconnect: session/load may have supplied the agent's
+      // title while ensureLive was in flight.
+      const current = this.require(id);
+      if (current.titleSource === "prompt" && current.title === "New session") {
+        this.update(id, { title: titleFromPrompt(content), titleSource: "prompt" });
+      }
+      // The turn's starting point, read before the agent can move it. This is
+      // what the review's `Last turn` scope diffs against; taking it afterwards
+      // would measure the turn against its own result. A read that failed
+      // (a lock, a timeout) keeps the previous mark: a wider `Last turn` is
+      // still a review, where a null would unmark it altogether.
+      const turnHead = await this.markWithin(session.cwd, `${id}/turn`);
+      // Deleted while the snapshot ran: `delete` unpinned before this mark
+      // was pinned, and nothing else would ever drop the ref it just made.
+      if (!this.deps.repo.get(id)) {
+        await this.unpinMarks(session);
+        throw new Error(`no such session: ${id}`);
+      }
+      this.update(id, turnHead === null ? {} : { turnHead });
+      try {
+        const response = await connection.prompt(content, `${id}:${Date.now()}`);
+        this.persistTally(id);
+        return { stopReason: response.stopReason };
+      } catch (error) {
+        // A turn cut short by `close` (or an eviction, or a reconnect) is not
+        // activity in the session: its counts are kept, its row does not move.
+        this.persistTally(id, { touch: this.live.get(id) === connection });
+        throw error;
+      }
+    } finally {
+      this.held.delete(connection);
     }
   }
 
@@ -1081,6 +1149,30 @@ export class SessionManager {
   private async markOf(cwd: string, mark: string): Promise<string | null> {
     const tree = await this.deps.snapshot?.(cwd, mark).catch(() => null);
     return tree ?? this.headOf(cwd);
+  }
+
+  /**
+   * `markOf`, but only up to `MARK_WAIT_MS`: a `git add` in a huge or locked
+   * tree can take a minute, and a turn — or a new session — waits for its
+   * mark on the way out. Past the wait the commit stands in for the tree, the
+   * same fallback a git failure gets, and the late snapshot's result is
+   * dropped.
+   */
+  private async markWithin(cwd: string, mark: string): Promise<string | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<typeof EXPIRED>((resolve) => {
+      timer = setTimeout(() => resolve(EXPIRED), MARK_WAIT_MS);
+    });
+    try {
+      const tree = await Promise.race([this.markOf(cwd, mark), expired]);
+      if (tree !== EXPIRED) {
+        return tree;
+      }
+      console.warn(`[acp] mark fell back to HEAD after ${MARK_WAIT_MS / 1000} s`);
+      return this.headOf(cwd);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** The commit a directory is at, or null — never a reason to fail a turn. */
@@ -1413,9 +1505,13 @@ export class SessionManager {
     this.deps.broadcast("session.update", { sessionId: id, event });
     // Every state main sees is a state the next click could paint from
     // (`./snapshots.ts`). Debounced there, so a streaming turn is one write
-    // when it stops rather than one per token.
+    // when it stops rather than one per token. Not while the connection is
+    // still connecting — in `session/new`, or replaying `session/load`: its
+    // transcript is the beginning of its own reload, and filed now (a quit, a
+    // Disconnect) it would replace the whole one stored. `session/loaded`
+    // ends the replay, and its state is the one worth keeping.
     const current = this.live.get(id)?.state;
-    if (current && this.deps.repo.get(id)) {
+    if (current && current.status !== "connecting" && this.deps.repo.get(id)) {
       this.snapshots?.save(id, current);
     }
     // Every time the agent tells us what a session can be configured with —

@@ -1976,7 +1976,9 @@ That was a spinner over the whole pane, and what replaces it is a paint in
 beside `sessions.ts`:
 
 - **The snapshot** (`acp/snapshots.ts`, migration 10). Every reduced state
-  main sees is written to sqlite, debounced by 750 ms, and clicking a
+  main sees is written to sqlite, debounced by 750 ms — except while a
+  connection is still connecting (a reload's replay is the beginning of
+  the transcript, and never replaces the stored one) — and clicking a
   disconnected row paints *that* — 30–40 ms; `tests/e2e/persistence.spec.ts`
   asserts it lands before the load — with `Reconnecting…` in the composer's row
   while the real load runs behind it. The live state replaces the picture
