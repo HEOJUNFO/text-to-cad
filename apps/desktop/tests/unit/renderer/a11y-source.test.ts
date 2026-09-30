@@ -19,7 +19,6 @@ const sources = import.meta.glob("../../../src/renderer/**/*.tsx", { query: "?ra
 const ALLOWED: Record<string, string> = {
   "components/ai-elements/attachments.tsx:345": "the remove button is overridden at Composer.tsx:605 (opacity-60, focus-visible:opacity-100 and a ring)",
   "components/ai-elements/attachments.tsx:351": "the remove button is overridden at Composer.tsx:605 (opacity-60, focus-visible:opacity-100 and a ring)",
-  "components/ai-elements/queue.tsx:129": "fixed on amy/fix42-session; remove this entry at merge",
 };
 
 /** `src/renderer/` onward, and the 1-based line of `offset`. */
