@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import { create } from "zustand";
 
 import {
@@ -39,13 +40,26 @@ export const useSettings = create<SettingsState>((set, get) => ({
 
   patch: async (patch) => {
     // Optimistic: a switch that waits for a round trip before it moves feels
-    // broken. The event that follows the write is the correction.
+    // broken. The reply is the correction — and for a write main refuses or
+    // fails there is no reply, so the catch puts the old values back.
     const current = get().settings;
+    const keys = Object.keys(patch) as (keyof Settings)[];
     if (current) {
       set({ settings: { ...current, ...patch } });
     }
-    const settings = await window.textToCad.settings.set(patch);
-    set({ settings, ready: true });
+    try {
+      const settings = await window.textToCad.settings.set(patch);
+      set({ settings, ready: true });
+    } catch (error) {
+      if (current) {
+        const reverted: Record<string, unknown> = {};
+        for (const key of keys) {
+          reverted[key] = current[key];
+        }
+        set((state) => ({ settings: state.settings ? { ...state.settings, ...reverted } : state.settings }));
+      }
+      toast.error("Could not save the setting", { description: error instanceof Error ? error.message : String(error) });
+    }
   },
 
   setTheme: (theme) => get().patch({ theme }),

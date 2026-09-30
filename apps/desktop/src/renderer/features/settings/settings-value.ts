@@ -18,7 +18,7 @@ export function useSettingsValue(): Settings {
   return useSettings((state) => state.settings) ?? FALLBACK;
 }
 
-/** The write path. Optimistic in the store; main's answer is the correction. */
+/** The write path. Optimistic in the store; main's reply is the correction, and a refused write reverts and toasts. */
 export function useSettingsPatch(): (patch: Partial<Settings>) => void {
   const patch = useSettings((state) => state.patch);
   return (next) => void patch(next);
