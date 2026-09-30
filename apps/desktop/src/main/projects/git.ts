@@ -1271,6 +1271,9 @@ async function withTempIndex<T>(
  * (`acquireReadIndex`): a review of forty files opens sections that each read
  * with the same untracked files. `untracked` is the caller's list when it has
  * the porcelain already; without one it is asked for.
+ *
+ * A temp index that cannot be built fails the read. Falling back to the real
+ * index would show every untracked file from before the mark as deleted.
  */
 async function withReadIndex<T>(
   root: string,
@@ -1283,10 +1286,7 @@ async function withReadIndex<T>(
     return work();
   }
   const paths = untracked ?? (await git(root, ["ls-files", "--others", "--exclude-standard", "-z"])).split("\0").filter(Boolean);
-  const entry = await acquireReadIndex(root, paths).catch(() => null);
-  if (!entry) {
-    return work();
-  }
+  const entry = await acquireReadIndex(root, paths);
   try {
     return await readIndex.run({ GIT_INDEX_FILE: entry.index }, work);
   } finally {

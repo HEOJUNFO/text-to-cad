@@ -321,6 +321,24 @@ describe("snapshot marks", () => {
     expect(adds()).toHaveLength(1);
   });
 
+  it("a read whose index cannot be built fails, rather than reading earlier untracked files as deleted", async () => {
+    const cwd = await committedRepo();
+    await writeFile(path.join(cwd, "old.txt"), "there at the mark\n");
+    const turn = await git.snapshotTree(cwd, "s7/turn");
+    const scope = resolveDiffScope({ kind: "turn" }, { turnHead: turn, sessionHead: turn });
+    const actual = await vi.importActual<typeof Execa>("execa");
+    execa.mockImplementation(((file: string, args: string[], options: object) =>
+      args[0] === "add"
+        ? Promise.resolve({ failed: true, exitCode: 128, stdout: "", stderr: "fatal: unable to write new index file" })
+        : actual.execa(file, args, options)) as never);
+    try {
+      await expect(git.status(cwd, scope)).rejects.toThrow(/unable to write new index file/);
+      await expect(git.fileDiff(cwd, "old.txt", scope)).rejects.toThrow(git.GitError);
+    } finally {
+      execa.mockImplementation(actual.execa);
+    }
+  });
+
   it("leaves the person's index and staging alone", async () => {
     const cwd = await committedRepo();
     await writeFile(path.join(cwd, "staged.txt"), "s\n");
