@@ -70,6 +70,35 @@ describe("a job that has printed nothing yet", () => {
   });
 });
 
+describe("a job that ended badly", () => {
+  const drawer = (agent: AgentStatus) => (
+    <TooltipProvider>
+      <AgentDrawer agent={agent} onOpenChange={() => {}} open platform="macos" />
+    </TooltipProvider>
+  );
+
+  it("is labelled with its exit code, and still is when the drawer is opened again", () => {
+    useAgents.getState().receiveOutput({ jobId: "j1", agentId: "codex", kind: "install", data: "EACCES\n", exitCode: 1 });
+    render(drawer(codex));
+    expect(screen.getByText("Install failed (exit 1)")).toBeInTheDocument();
+    expect(screen.getByText("EACCES")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Install" })).toBeEnabled();
+  });
+
+  it("names a failed sign-in as one", () => {
+    const installed = { ...codex, installed: true, auth: "unauthenticated", authMethods: [{ type: "cli-login", label: "Sign in with Codex" }] } as unknown as AgentStatus;
+    useAgents.getState().receiveOutput({ jobId: "j2", agentId: "codex", kind: "login", data: "", exitCode: 2 });
+    render(drawer(installed));
+    expect(screen.getByText("Sign in failed (exit 2)")).toBeInTheDocument();
+  });
+
+  it("says nothing of a job that exited cleanly", () => {
+    useAgents.getState().receiveOutput({ jobId: "j3", agentId: "codex", kind: "install", data: "done\n", exitCode: 0 });
+    render(drawer(codex));
+    expect(screen.queryByText(/failed/)).toBeNull();
+  });
+});
+
 describe("a row the last launch left", () => {
   it("offers no Install in the drawer until the probe has confirmed the agent is missing", () => {
     render(

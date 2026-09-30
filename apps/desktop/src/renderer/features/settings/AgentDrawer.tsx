@@ -183,7 +183,7 @@ function InstallationSection({ agent, platform }: { agent: AgentStatus; platform
   const methods = agent.install[platform];
   const [index, setIndex] = useState(0);
   const install = useAgents((state) => state.install);
-  const { jobId, output, running, start } = useJob(agent.id, "install");
+  const { jobId, output, running, failure, start } = useJob(agent.id, "install");
 
   if (agent.installed) {
     return (
@@ -196,7 +196,7 @@ function InstallationSection({ agent, platform }: { agent: AgentStatus; platform
             {agent.adapter ? ` · adapter ${agent.adapter.version}` : ""}
           </p>
         </div>
-        {jobId ? <JobLog output={output} /> : null}
+        {jobId ? <JobLog failure={failure} output={output} /> : null}
       </Section>
     );
   }
@@ -259,7 +259,7 @@ function InstallationSection({ agent, platform }: { agent: AgentStatus; platform
       <p className="mt-2 font-mono text-[11px] break-all text-muted-foreground" data-selectable>
         {methods[index]?.command}
       </p>
-      {jobId ? <JobLog output={output} /> : null}
+      {jobId ? <JobLog failure={failure} output={output} /> : null}
     </Section>
   );
 }
@@ -274,7 +274,7 @@ const PLATFORM_NAMES: Record<Platform, string> = {
 
 function AuthenticationSection({ agent }: { agent: AgentStatus }) {
   const login = useAgents((state) => state.login);
-  const { jobId, output, running, start } = useJob(agent.id, "login");
+  const { jobId, output, running, failure, start } = useJob(agent.id, "login");
 
   const cliLogin = agent.authMethods.find((method) => method.type === "cli-login");
   const apiKey = agent.authMethods.find((method) => method.type === "api-key");
@@ -331,7 +331,7 @@ function AuthenticationSection({ agent }: { agent: AgentStatus }) {
         </details>
       ) : null}
 
-      {jobId ? <JobLog output={output} /> : null}
+      {jobId ? <JobLog failure={failure} output={output} /> : null}
     </Section>
   );
 }
@@ -559,14 +559,18 @@ export function formatEnv(env: Record<string, string>): string {
  */
 export function useJob(agentId: string, kind: AgentJobOutput["kind"]) {
   const [startedId, setStartedId] = useState<string | null>(null);
-  const runningId = useAgents(
+  // This agent and kind's latest job in the store (insertion order): running, it is this
+  // one's whoever started it; finished with a non-zero code, it stays to say so on a remount.
+  const latestId = useAgents(
     (state) =>
-      Object.keys(state.jobs).find((id) => {
-        const other = state.jobs[id];
-        return other?.agentId === agentId && other.kind === kind && other.exitCode === null;
-      }) ?? null,
+      Object.keys(state.jobs)
+        .filter((id) => state.jobs[id]?.agentId === agentId && state.jobs[id]?.kind === kind)
+        .at(-1) ?? null,
   );
-  const jobId = runningId ?? startedId;
+  const latest = useAgents((state) => (latestId ? state.jobs[latestId] : undefined));
+  const remembered = latest && (latest.exitCode === null || latest.exitCode !== 0) ? latestId : null;
+  // A job still running anywhere in the store beats the id this mount remembers.
+  const jobId = (latest?.exitCode === null ? latestId : null) ?? startedId ?? remembered;
   const job = useAgents((state) => (jobId ? state.jobs[jobId] : undefined));
   const starting = useRef(false);
 
@@ -587,12 +591,17 @@ export function useJob(agentId: string, kind: AgentJobOutput["kind"]) {
     output: job?.output ?? "",
     // A job with an exit code has finished, whatever the code was.
     running: jobId !== null && (job?.exitCode ?? null) === null,
+    // A finished job's non-zero code, in words; the log above it is the why.
+    failure:
+      job && job.exitCode !== null && job.exitCode !== 0
+        ? `${kind === "install" ? "Install" : "Sign in"} failed (exit ${job.exitCode})`
+        : null,
     start,
   };
 }
 
 /** The tail of a running job, scrolled to the bottom. */
-export function JobLog({ output }: { output: string }) {
+export function JobLog({ output, failure = null }: { output: string; failure?: string | null }) {
   const ref = useRef<HTMLPreElement>(null);
   const text = useMemo(() => stripAnsi(output).trimEnd(), [output]);
 
@@ -604,19 +613,26 @@ export function JobLog({ output }: { output: string }) {
   }, [text]);
 
   return (
-    <pre
-      className="mt-3 max-h-40 overflow-auto rounded-lg border bg-muted/40 px-3 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap"
-      ref={ref}
-    >
-      {text === "" ? (
-        <span className="flex items-center gap-1.5 text-muted-foreground">
-          <Terminal className="size-3" />
-          Waiting for output…
-        </span>
-      ) : (
-        <code data-selectable>{text}</code>
-      )}
-    </pre>
+    <>
+      {failure ? (
+        <p className="mt-3 text-xs text-destructive" role="alert">
+          {failure}
+        </p>
+      ) : null}
+      <pre
+        className="mt-3 max-h-40 overflow-auto rounded-lg border bg-muted/40 px-3 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap"
+        ref={ref}
+      >
+        {text === "" ? (
+          <span className="flex items-center gap-1.5 text-muted-foreground">
+            <Terminal className="size-3" />
+            Waiting for output…
+          </span>
+        ) : (
+          <code data-selectable>{text}</code>
+        )}
+      </pre>
+    </>
   );
 }
 

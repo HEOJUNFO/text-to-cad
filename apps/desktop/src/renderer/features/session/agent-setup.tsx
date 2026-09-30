@@ -63,7 +63,7 @@ export function AgentRow({ agent }: { agent: AgentStatus }) {
   const refresh = useAgents((state) => state.refresh);
   // The step the row is at: a job of that kind still running for this agent is the row's own,
   // whoever started it (the row may be a remount of the one that did).
-  const { jobId, output, running, start } = useJob(agent.id, agent.installed ? "login" : "install");
+  const { jobId, output, running, failure, start } = useJob(agent.id, agent.installed ? "login" : "install");
 
   // An install or sign-in changes what detection would find: look again once it ends.
   useEffect(() => {
@@ -105,7 +105,7 @@ export function AgentRow({ agent }: { agent: AgentStatus }) {
           </Button>
         )}
       </div>
-      {jobId ? <JobLog output={output} /> : null}
+      {jobId ? <JobLog failure={failure} output={output} /> : null}
     </div>
   );
 }
