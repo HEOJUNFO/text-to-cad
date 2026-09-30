@@ -138,6 +138,8 @@ class StoppedWhileLaunching extends Error {
 export class ViewerManager extends EventEmitter {
   private readonly entries = new Map<string, Entry>();
   private readonly pending = new Map<string, Promise<ViewerOrigin>>();
+  /** The child of each launch still waiting to announce, so a stop can kill it now. */
+  private readonly launching = new Map<string, ViewerChild>();
   /** The last launch failure per root, for the card that says why there is no viewer. */
   private readonly failures = new Map<string, string>();
   /**
@@ -197,10 +199,18 @@ export class ViewerManager extends EventEmitter {
     }
     let pending = this.pending.get(root);
     if (!pending) {
-      pending = this.launch(root).finally(() => this.pending.delete(root));
+      const launch = this.launch(root).finally(() => this.forgetPending(root, launch));
+      pending = launch;
       this.pending.set(root, pending);
     }
     return pending;
+  }
+
+  /** Drop `promise` from the pending launches — unless a stop has since let a newer one take its place. */
+  private forgetPending(root: string, promise: Promise<ViewerOrigin>): void {
+    if (this.pending.get(root) === promise) {
+      this.pending.delete(root);
+    }
   }
 
   private async launch(root: string): Promise<ViewerOrigin> {
@@ -238,11 +248,16 @@ export class ViewerManager extends EventEmitter {
       const child = this.spawn(resolved.python, VIEWER_ARGS, { cwd: root, env: this.deps.env(resolved) });
       const stderrTail: string[] = [];
       let settled = false;
+      this.launching.set(root, child);
+      const announced = () => {
+        if (this.launching.get(root) === child) this.launching.delete(root);
+      };
       let launched: Launched | null = null;
 
       const timer = setTimeout(() => {
         if (!settled) {
           settled = true;
+          announced();
           child.kill();
           reject(new Error(`the viewer did not announce itself within ${LAUNCH_TIMEOUT_MS / 1000}s`));
         }
@@ -254,6 +269,7 @@ export class ViewerManager extends EventEmitter {
           return;
         }
         settled = true;
+        announced();
         clearTimeout(timer);
         launched = parsed;
         if (generation !== undefined && generation !== this.stopGeneration(root)) {
@@ -290,7 +306,12 @@ export class ViewerManager extends EventEmitter {
       child.on("exit", (code, signal) => {
         if (!settled) {
           settled = true;
+          announced();
           clearTimeout(timer);
+          if (generation !== undefined && generation !== this.stopGeneration(root)) {
+            reject(new StoppedWhileLaunching(root));
+            return;
+          }
           reject(new Error(`the viewer exited (${code ?? signal}) before announcing itself: ${stderrTail.slice(-3).join(" | ")}`));
           return;
         }
@@ -339,7 +360,7 @@ export class ViewerManager extends EventEmitter {
         void this.restart(root, resolved, attempt + 1);
         return { origin: null, reason: "viewer-failed", message };
       })
-      .finally(() => this.pending.delete(root));
+      .finally(() => this.forgetPending(root, pending));
     this.pending.set(root, pending);
     await pending;
   }
@@ -370,6 +391,17 @@ export class ViewerManager extends EventEmitter {
   stop(root: string): void {
     this.stops.set(root, (this.stops.get(root) ?? 0) + 1);
     this.lastAsked.delete(root);
+    // A launch still coming up is stopped now, not when it announces, and the
+    // next `originFor` starts its own: joining this one would hand its caller
+    // "stopped while launching" for a viewer it just asked for. (Whoever
+    // already joined sees that failure once.)
+    this.pending.delete(root);
+    const starting = this.launching.get(root);
+    if (starting) {
+      this.launching.delete(root);
+      this.log(`stopping the viewer for ${root} while it launches (pid ${starting.pid})`);
+      starting.kill();
+    }
     const entry = this.entries.get(root);
     if (!entry) {
       return;

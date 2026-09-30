@@ -238,6 +238,21 @@ describe("ViewerManager", () => {
     expect(m.children).toHaveLength(1);
   });
 
+  it("a launch asked for after a stop is its own, not the stopped one it would have joined", async () => {
+    const m = manager();
+    const first = m.viewers.originFor("/proj");
+    await new Promise((resolve) => setImmediate(resolve));
+    m.viewers.stop("/proj");
+    const second = m.viewers.originFor("/proj");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(m.children).toHaveLength(2);
+    m.children[1]!.child.say('{"url":"http://127.0.0.1:3251/","port":3251,"action":"started"}');
+    expect(await second).toEqual({ origin: "http://127.0.0.1:3251" });
+    expect(await first).toMatchObject({ origin: null, reason: "viewer-failed", message: expect.stringContaining("stopped while launching") });
+    expect(m.children[0]!.child.killed).toBe(true);
+    expect(m.viewers.list()).toEqual([{ root: "/proj", origin: "http://127.0.0.1:3251", reused: false, pid: 4242 }]);
+  });
+
   it("stopAll kills every instance it started", async () => {
     const m = manager();
     const a = m.viewers.originFor("/a");
