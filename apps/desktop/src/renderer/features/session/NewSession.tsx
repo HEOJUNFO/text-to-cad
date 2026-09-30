@@ -264,9 +264,11 @@ export function NewSession({ project }: { project: Project }) {
       return true;
     }
     // Only from the screen the person is still on (or the connecting row this create made): a
-    // create that outlasted a click on another thread does not pull them back.
+    // create that outlasted a click on another thread does not pull them back, nor does one
+    // that outlasted a move to another project's new-session screen (`activeId` is null there
+    // too, with this screen unmounted).
     const activeNow = useSessions.getState().activeId;
-    if (activeNow === null || activeNow === sessionId) {
+    if (activeNow === sessionId || (activeNow === null && mounted.current)) {
       setActiveSession(sessionId);
     }
     setBusy(false);

@@ -440,6 +440,20 @@ describe("a create that outlasts the screen that asked for it", () => {
     expect(useSessions.getState().activeId).toBe("B");
   });
 
+  it("does not pull the person off another project's new-session screen", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<string>();
+    create.mockReturnValueOnce(pending.promise);
+    useSessions.setState({ activeId: null, sessions: [] });
+    const screenView = render(<NewSession project={PROJECT} />);
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    // Project B's new-session screen: no thread is active, and this screen is gone.
+    screenView.unmount();
+    act(() => useProjects.getState().setActive("B"));
+    await act(async () => pending.resolve("s1"));
+    expect(useSessions.getState().activeId).toBeNull();
+  });
+
   it("sends nothing to a thread archived while it was created, and keeps the draft in its box", async () => {
     const user = userEvent.setup();
     const pending = deferred<string>();
