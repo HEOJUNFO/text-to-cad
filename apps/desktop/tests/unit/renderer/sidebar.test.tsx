@@ -352,7 +352,7 @@ describe("Sidebar", () => {
     wrap(<Sidebar />);
     const row = document.querySelector('[data-session-row="s1"]')!;
     const title = screen.getByRole("button", { name: "One" });
-    expect(row.getAttribute("class")).toContain("has-[[data-session-title]:focus-visible]:ring-2");
+    expect(row.getAttribute("class")).toContain("has-[[data-session-row-title]:focus-visible]:ring-2");
     expect(title.getAttribute("class")).not.toContain("ring");
     expect(title.getAttribute("class")).toContain("focus-visible:outline-none");
   });

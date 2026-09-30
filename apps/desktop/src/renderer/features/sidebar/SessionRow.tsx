@@ -117,7 +117,7 @@ export function SessionRow({
           className={cn(
             "group/session flex h-7 min-w-0 items-center gap-1.5 rounded-md pr-1 pl-2 transition-colors",
             // The keyboard ring is the row's, not the title button's 153×20 box inside it.
-            "has-[[data-session-title]:focus-visible]:ring-2 has-[[data-session-title]:focus-visible]:ring-inset has-[[data-session-title]:focus-visible]:ring-ring",
+            "has-[[data-session-row-title]:focus-visible]:ring-2 has-[[data-session-row-title]:focus-visible]:ring-inset has-[[data-session-row-title]:focus-visible]:ring-ring",
             selected
               ? "bg-sidebar-accent text-sidebar-accent-foreground"
               : "hover:bg-sidebar-accent/60",
@@ -150,7 +150,7 @@ export function SessionRow({
                 // The session on screen, said as well as tinted.
                 aria-current={selected ? "page" : undefined}
                 className="min-w-0 flex-1 truncate text-left text-[13px] focus-visible:outline-none"
-                data-session-title
+                data-session-row-title
                 onClick={onSelect}
                 onDoubleClick={startRename}
                 type="button"
