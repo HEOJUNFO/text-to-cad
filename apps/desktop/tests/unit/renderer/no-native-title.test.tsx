@@ -152,7 +152,7 @@ it("no control in the sidebar carries a native title, a row with changes include
   expect(titled()).toEqual([]);
 
   // The project's folder the header's title used to give is a hint on its name, open or not.
-  const header = screen.getByRole("button", { name: "Collapse p" });
+  const header = screen.getByRole("button", { name: "p", expanded: true });
   await userEvent.hover(within(header).getByText("p"));
   expect(await screen.findByRole("tooltip", {}, { timeout: 2000 })).toHaveTextContent("/p");
 });

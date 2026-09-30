@@ -72,10 +72,41 @@ describe("the rename box", () => {
   });
 });
 
+describe("after the rename box closes", () => {
+  // Enter and Escape unmount the input that held focus; without a hand-off it fell to the page.
+  it("Enter puts focus on the title button", () => {
+    row();
+    const input = editBox();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Bracket" }));
+  });
+
+  it("Escape leaves the title as it was and puts focus on the title button", () => {
+    row();
+    const input = editBox();
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(rename).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Bracket" }));
+  });
+});
+
 describe("the actions button", () => {
   it("shows itself when the keyboard reaches it, not only on hover", () => {
     row();
     // jsdom has no :focus-visible to evaluate, so the class is the only signal there is to check.
     expect(screen.getByRole("button", { name: "Bracket actions" })).toHaveClass("focus-visible:opacity-100");
+  });
+});
+
+describe("the row's state", () => {
+  // The glyph precedes the title button and is not a tab stop, so a screen-reader user landing on the
+  // row heard only "Bracket". The word now rides on the button as its description.
+  it("is the title button's accessible description when the agent needs you", () => {
+    render(
+      <TooltipProvider>
+        <SessionRow onSelect={() => {}} selected={false} session={{ ...SESSION, status: "waiting" }} showBranch={false} />
+      </TooltipProvider>,
+    );
+    expect(screen.getByRole("button", { name: "Bracket" })).toHaveAccessibleDescription(/Needs you|Waiting/);
   });
 });

@@ -6,6 +6,7 @@ import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
 
 import { SessionHeader } from "@renderer/features/session/SessionHeader";
 import { useAcp } from "@renderer/state/acp";
+import { useSessions } from "@renderer/state/sessions";
 import { initialSessionState } from "@shared/acp/types";
 import type { Session } from "@shared/types";
 
@@ -45,5 +46,27 @@ describe("the session menu's agent item", () => {
     await user.click(screen.getByRole("menuitem", { name: "Reconnect" }));
     expect(load).toHaveBeenCalledWith("s1");
     expect(close).not.toHaveBeenCalled();
+  });
+});
+
+describe("the header's rename box", () => {
+  // Enter and Escape unmount the input that held focus; without a hand-off it fell to the page.
+  it("hands focus back to the title button on Enter, and on Escape without saving", async () => {
+    const rename = vi.fn(async () => undefined);
+    useSessions.setState({ rename } as never);
+    const user = userEvent.setup();
+    render(
+      <TooltipProvider>
+        <SessionHeader session={SESSION} title="Bracket" />
+      </TooltipProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "Bracket" }));
+    await user.keyboard("{Escape}");
+    expect(rename).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Bracket" })).toHaveFocus();
+
+    await user.click(screen.getByRole("button", { name: "Bracket" }));
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("button", { name: "Bracket" })).toHaveFocus();
   });
 });

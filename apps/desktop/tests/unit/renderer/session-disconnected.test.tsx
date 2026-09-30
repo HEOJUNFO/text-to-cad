@@ -122,3 +122,25 @@ describe("an agent whose CLI is not installed", () => {
     expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
   });
 });
+
+describe("a load that failed with nothing painted", () => {
+  // Drawn where the transcript would be, so nothing had moved focus or said anything: a screen reader
+  // heard no failure, and Reconnect was the only way out.
+  it("is announced as an alert", () => {
+    useAcp.setState({ loadErrors: { s1: "spawn failed" } });
+    render(<SessionView session={SESSION} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("spawn failed");
+  });
+
+  it("keeps focus off the page once its Reconnect has unmounted, and says it is connecting", async () => {
+    const user = userEvent.setup();
+    useAcp.setState({ loadErrors: { s1: "spawn failed" } });
+    render(<SessionView session={SESSION} />);
+    await user.click(screen.getByRole("button", { name: "Reconnect" }));
+    // The load starts: the failure panel and its button go, the connecting screen takes their place.
+    act(() => useAcp.setState({ loading: { s1: true }, loadErrors: {} }));
+    expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
+    expect(document.activeElement).not.toBe(document.body);
+    expect(screen.getByRole("status")).toHaveTextContent("Connecting to");
+  });
+});

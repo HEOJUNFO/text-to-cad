@@ -280,7 +280,7 @@ describe("Sidebar", () => {
   it("does not show an empty directory group", () => {
     withProject();
     wrap(<Sidebar />);
-    expect(screen.queryByRole("button", { name: "Collapse text-to-cad" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "text-to-cad", expanded: true })).not.toBeInTheDocument();
     // What shows instead is the panel's own empty card, not a group's.
     expect(screen.getByText("No sessions yet").closest("[data-sidebar-empty]")).not.toBeNull();
   });
@@ -318,9 +318,10 @@ describe("Sidebar", () => {
       activeId: null,
     });
     wrap(<Sidebar />);
-    expect(screen.getByLabelText("Working")).toBeInTheDocument();
-    expect(screen.getByLabelText("Waiting for you")).toBeInTheDocument();
-    expect(screen.getByLabelText("Failed")).toBeInTheDocument();
+    // The glyph is drawn only; its word is the title button's description.
+    expect(screen.getByRole("button", { name: "Busy" })).toHaveAccessibleDescription("Working");
+    expect(screen.getByRole("button", { name: "Asked" })).toHaveAccessibleDescription("Waiting for you");
+    expect(screen.getByRole("button", { name: "Broken" })).toHaveAccessibleDescription("Failed");
     expect(screen.getByLabelText(/^Worktree/)).toBeInTheDocument();
     expect(screen.getByLabelText("main")).toBeInTheDocument();
   });
@@ -333,7 +334,7 @@ describe("Sidebar", () => {
       activeId: null,
     });
     wrap(<Sidebar />);
-    const glyph = screen.getByLabelText("Waiting for you");
+    const glyph = document.querySelector('[data-session-glyph="waiting"] svg')!;
     expect(glyph.getAttribute("class")).toContain("text-info");
     expect(glyph.getAttribute("class")).not.toContain("warning");
   });
@@ -454,13 +455,13 @@ describe("Sidebar", () => {
       activeId: null,
     });
     wrap(<Sidebar />);
-    await user.click(screen.getByRole("button", { name: "Collapse text-to-cad" }));
+    await user.click(screen.getByRole("button", { name: "text-to-cad", expanded: true }));
     expect(set).toHaveBeenCalledWith(
       expect.objectContaining({ sidebar: expect.objectContaining({ collapsedProjects: ["p1"] }) }),
     );
     // Optimistic, so the row is gone before the round trip lands.
     expect(screen.queryByText("Session 1")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Expand text-to-cad" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "text-to-cad", expanded: false })).toBeInTheDocument();
   });
 
   it("pins from the row's menu, and the row moves to Pinned", async () => {
@@ -488,7 +489,7 @@ describe("Sidebar", () => {
     );
     expect(screen.getByText("Pinned")).toBeInTheDocument();
     expect(screen.getAllByText("Keeper")).toHaveLength(1);
-    expect(screen.queryByRole("button", { name: "Collapse text-to-cad" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "text-to-cad", expanded: true })).not.toBeInTheDocument();
   });
 
   /**
