@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { useAcp } from "@renderer/state/acp";
+import { useComposer } from "@renderer/state/composer";
 import { subscribeToMain } from "@renderer/state/bridge";
 import { useSessions } from "@renderer/state/sessions";
 import { initialSessionState } from "@shared/acp/types";
@@ -49,4 +50,29 @@ it("takes an archived session's state while the renderer still holds that sessio
   useAcp.setState({ sessions: { archived: initialSessionState("archived", "codex") } });
   broadcast("archived");
   expect(useAcp.getState().sessions.archived?.status).toBe("running");
+});
+
+/**
+ * The state that ends a load drains the prompts queued behind the disconnect — but only when the
+ * store took it: one it dropped (a load a Disconnect has since overtaken) sent nothing to drain into.
+ */
+it("drains the composer for an idle state the store took, and not for one it dropped", () => {
+  const drain = vi.fn(async () => {});
+  const drained = useComposer.getState().drain;
+  const received = useAcp.getState().receiveState;
+  useComposer.setState({ drain });
+  try {
+    const idle = (sessionId: string) =>
+      handlers["session.state"]!({ sessionId, state: { ...initialSessionState(sessionId, "codex"), status: "idle" } });
+    idle("live");
+    expect(drain).toHaveBeenCalledWith("live");
+
+    drain.mockClear();
+    useAcp.setState({ receiveState: () => {} });
+    idle("live");
+    expect(drain).not.toHaveBeenCalled();
+  } finally {
+    useComposer.setState({ drain: drained });
+    useAcp.setState({ receiveState: received });
+  }
 });
