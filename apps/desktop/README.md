@@ -1653,7 +1653,8 @@ playbook for the mode bases and camera behavior.
 
 ## Quitting
 
-`app.quit()` has a budget of two seconds (`tests/e2e/cad.spec.ts` quits with everything running), and the
+`app.quit()` has a budget of two seconds (`tests/e2e/cad.spec.ts` quits with everything running and
+asserts the process is gone within it, and that `[quit] teardown` and `[quit] will-quit` were logged), and the
 teardown in `before-quit` is written for it: every owner signals what it
 owns and nothing is awaited. Electron waits for the Node side, and the Node
 side waits for every child it holds a pipe to, so `src/main/children.ts`

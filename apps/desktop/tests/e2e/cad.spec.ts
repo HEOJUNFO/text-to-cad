@@ -8,6 +8,7 @@ import type { TextToCadApi } from "../../src/shared/ipc";
 import type { IntegrationCommand, IntegrationReply } from "../../src/shared/ipc/integrations";
 import { cadRegistryEnvironment, cadRuntimeReady, cadTestProfile } from "./cad-runtime";
 import { launch, repoRoot, settleTerminal } from "./launch";
+import { QUIT_DEADLINE_MS } from "../../src/main/quit-deadline";
 import { selectFixtureSession } from "./session-fixture";
 
 /**
@@ -51,6 +52,8 @@ const revision = createHash("sha256").update(stepBytes).digest("hex");
 
 let app: ElectronApplication;
 let page: Page;
+/** README "Quitting": `app.quit()` has two seconds, teardown and the watchdog's deadline included. */
+const QUIT_BUDGET_MS = 2_000;
 let lines: string[];
 let userData: string;
 let socketDir: string;
@@ -305,11 +308,19 @@ test("the app quits with everything running and leaves no child behind", async (
   const tree = descendants(pid).filter((entry) => entry.pid !== daemonPid && !descendants(daemonPid ?? -1).some((child) => child.pid === entry.pid));
   expect(tree.length, "the app should have children to end").toBeGreaterThan(3);
   const exited = new Promise<void>((resolve) => app.process().once("exit", () => resolve()));
+  const quitAt = Date.now();
   // The real thing: the menu's Quit, Cmd+Q, the dock — all `app.quit()`. The connection drops
   // before the evaluate resolves; the exit is what counts.
   await app.evaluate(({ app: electronApp }) => electronApp.quit()).catch(() => {});
   // Gone by the kernel's word (`kill -0`), not Playwright's `exit`, which trails it by seconds.
   await expect.poll(() => alive(pid), { timeout: 30_000, intervals: [25] }).toBe(false);
+  // README "Quitting": two seconds overall. Measured from before `app.quit()`, so the round trip
+  // into main and the 25 ms poll are inside it; the watchdog's part is QUIT_DEADLINE_MS plus the
+  // quarter second the kill takes to land (quit-deadline.ts), which leaves the rest of the budget as slack.
+  const quitMs = Date.now() - quitAt;
+  expect(quitMs, `the app took ${quitMs} ms to quit (deadline ${QUIT_DEADLINE_MS} ms, budget ${QUIT_BUDGET_MS} ms)`).toBeLessThan(QUIT_BUDGET_MS);
+  // `before-quit` ran its teardown and `will-quit` arrived (the lines land as the pipe drains).
+  await expect.poll(() => lines.filter((line) => /^\[quit\] (will-quit|teardown \d+ms)$/.test(line.trim())).length).toBeGreaterThanOrEqual(2);
   await expect.poll(() => tree.filter((entry) => alive(entry.pid)).map((entry) => ({ ...entry, current: processState(entry.pid) })), { timeout: 5_000 }).toEqual([]);
   await exited;
 });
