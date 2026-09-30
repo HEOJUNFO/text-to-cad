@@ -116,6 +116,19 @@ export function useViewerRuntime({
   useEffect(() => {
     let cancelled = false;
     let cleanup = () => {};
+    // Everything this start registers is released through here as it is registered, in reverse. The
+    // runtime's own `cleanup` only exists once initialisation has finished, and it finds its work
+    // through `runtimeRef`; a start that throws midway (or whose ref was cleared) would otherwise
+    // leave the window's listeners, the observer and the renderer behind.
+    const releases = [];
+    const release = (fn) => { releases.push(fn); };
+    const releaseAll = () => {
+      for (const fn of releases.splice(0).reverse()) {
+        try { fn(); } catch (error) { console.error("[viewer] release failed", error); }
+      }
+    };
+    // True once `cleanup` below is installed and owns the renderer and the canvas.
+    let runtimeOwnsRenderer = false;
 
     async function initializeViewer() {
       const [
@@ -205,8 +218,15 @@ export function useViewerRuntime({
       });
       container.innerHTML = "";
       container.appendChild(renderer.domElement);
+      release(() => {
+        if (runtimeOwnsRenderer) return;
+        if (runtimeRef.current?.renderer === renderer) runtimeRef.current = null;
+        renderer.dispose();
+        if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement);
+      });
 
       const controls = new OrbitControls(camera, renderer.domElement);
+      release(() => controls.dispose());
       // three's controls write `cursor: auto` inline on the canvas when they (re)connect, and
       // `auto` does not inherit: it would pin the arrow over every tool's cursor (Select's
       // pointer, Pose's grab, Measure's crosshair), which the tools set on the viewport host.
@@ -408,6 +428,7 @@ export function useViewerRuntime({
       };
 
       let rafId = 0;
+      release(() => window.cancelAnimationFrame(rafId));
       const requestRender = () => {
         if (interactionState.renderQueued) {
           const now = typeof performance !== "undefined" && typeof performance.now === "function"
@@ -616,12 +637,14 @@ export function useViewerRuntime({
       // ratio change (a window dragged to another display), which moves no box.
       const onWindowResize = () => onResize();
       window.addEventListener("resize", onWindowResize);
+      release(() => window.removeEventListener("resize", onWindowResize));
       const resizeObserver = typeof ResizeObserver === "function"
         ? new ResizeObserver(() => {
           onResize({ paintNow: true });
         })
         : null;
       resizeObserver?.observe(container);
+      release(() => resizeObserver?.disconnect());
 
       // Zoom-to-cursor leaves the orbit pivot (controls.target) drifting along the view ray
       // at the new camera distance. Perspective pan and dolly both scale by the
@@ -693,6 +716,15 @@ export function useViewerRuntime({
       renderer.domElement.addEventListener("wheel", handleWheelHandled, { passive: true });
       renderer.domElement.addEventListener("webglcontextlost", handleContextLost, false);
       renderer.domElement.addEventListener("webglcontextrestored", handleContextRestored, false);
+      release(() => {
+        controls.removeEventListener("start", handleControlsStart);
+        controls.removeEventListener("change", handleControlsChange);
+        controls.removeEventListener("end", handleControlsEnd);
+        renderer.domElement.removeEventListener("wheel", handleWheel, wheelListenerOptions);
+        renderer.domElement.removeEventListener("wheel", handleWheelHandled);
+        renderer.domElement.removeEventListener("webglcontextlost", handleContextLost, false);
+        renderer.domElement.removeEventListener("webglcontextrestored", handleContextRestored, false);
+      });
 
       // Arrow keys orbit the viewer that owns them: the key landed inside it, or on the page
       // background while the pointer is over it. Another viewer, a panel or the page keeps its arrows.
@@ -702,6 +734,10 @@ export function useViewerRuntime({
       const handlePointerLeave = () => { pointerOverViewer = false; };
       keyOwner.addEventListener("pointerenter", handlePointerEnter);
       keyOwner.addEventListener("pointerleave", handlePointerLeave);
+      release(() => {
+        keyOwner.removeEventListener("pointerenter", handlePointerEnter);
+        keyOwner.removeEventListener("pointerleave", handlePointerLeave);
+      });
       const ownsKey = (event) => {
         const target = event.target;
         if (target instanceof Node && keyOwner.contains(target)) return true;
@@ -890,13 +926,23 @@ export function useViewerRuntime({
       window.addEventListener("keyup", handleKeyUp);
       window.addEventListener("blur", clearKeyboardOrbit);
       document.addEventListener("visibilitychange", handleVisibilityChange);
+      release(() => {
+        window.removeEventListener("keydown", handleKeyDown);
+        window.removeEventListener("keyup", handleKeyUp);
+        window.removeEventListener("blur", clearKeyboardOrbit);
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      });
       requestRender();
       updateGridHelper(runtimeRef.current, viewerTheme, defaultGridRadius, 0, sceneScaleMode, floorMode);
       setViewerReadyTick((value) => value + 1);
 
+      runtimeOwnsRenderer = true;
       cleanup = () => {
         const runtime = runtimeRef.current;
         if (!runtime) {
+          // Nothing left to tear down in order, but what this start registered is still ours.
+          runtimeOwnsRenderer = false;
+          releaseAll();
           return;
         }
         if (runtime.activeModelKey && runtime.interactiveFraming) previousViewStateRef.current = {
@@ -913,22 +959,8 @@ export function useViewerRuntime({
         }
         cancelCameraTransition(runtime, { scheduleIdle: false });
         window.cancelAnimationFrame(runtime.rafId);
-        window.removeEventListener("resize", runtime.onWindowResize);
-        runtime.resizeObserver?.disconnect();
-        runtime.controls.removeEventListener("start", handleControlsStart);
-        runtime.controls.removeEventListener("change", handleControlsChange);
-        runtime.controls.removeEventListener("end", handleControlsEnd);
-        runtime.renderer.domElement.removeEventListener("wheel", handleWheel, wheelListenerOptions);
-        runtime.renderer.domElement.removeEventListener("wheel", handleWheelHandled);
-        runtime.renderer.domElement.removeEventListener("webglcontextlost", handleContextLost, false);
-        runtime.renderer.domElement.removeEventListener("webglcontextrestored", handleContextRestored, false);
-        window.removeEventListener("keydown", handleKeyDown);
-        window.removeEventListener("keyup", handleKeyUp);
-        keyOwner.removeEventListener("pointerenter", handlePointerEnter);
-        keyOwner.removeEventListener("pointerleave", handlePointerLeave);
-        window.removeEventListener("blur", clearKeyboardOrbit);
-        document.removeEventListener("visibilitychange", handleVisibilityChange);
-        runtime.controls.dispose();
+        // The listeners, the observer, the frame and the controls, in the reverse of how they went in.
+        releaseAll();
         // The scene in the viewport is its owner's: the owner releases it (and
         // whatever it hung on the runtime) and names what it released.
         const disposedSource = disposeScene?.(runtime);
@@ -962,6 +994,8 @@ export function useViewerRuntime({
     return () => {
       cancelled = true;
       cleanup();
+      // A start that never finished has no `cleanup` of its own; one that did has emptied this.
+      releaseAll();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runtimeResetToken]);
