@@ -24,7 +24,7 @@ import path from "node:path";
 import { integrations, toolByName } from "./registry.mjs";
 
 import type { IntegrationCommand, IntegrationCommandKind, IntegrationReply } from "../../shared/ipc/integrations";
-import { resolveInRoot, toRelative } from "../explorer/fs";
+import { climbsOut, resolveInRoot, toRelative } from "../explorer/fs";
 import type { BridgeActions, BridgeSession } from "./mcp-bridge";
 
 const REPLY_TIMEOUT_MS = 10_000;
@@ -180,7 +180,7 @@ async function readSnapshot(directory: string, absolute: string, target: string,
     const now = await fsp.realpath(absolute).catch(() => null);
     const there = now && await fsp.stat(now).catch(() => null);
     const relative = now ? path.relative(directory, now) : "";
-    if (!there || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative) || there.dev !== opened.dev || there.ino !== opened.ino) {
+    if (!there || climbsOut(relative) || there.dev !== opened.dev || there.ino !== opened.ino) {
       throw new Error(`${target} changed while it was being read; only files inside the workspace can be shown`);
     }
     const buffer = Buffer.allocUnsafe(MAX_SNAPSHOT_BYTES + 1);
