@@ -258,6 +258,7 @@ test("live CAD commands observe and control the mounted viewport without prompt 
   expect(captured.selection).toEqual(selected.selection);
   expect(captured.mimeType).toBe("image/png");
   expect(Buffer.from(captured.base64, "base64").subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  // The reply waits on clearSelection's committed predicate (selection empty), so no poll belongs here.
   expect((await command("cad-clear-selection", tabId) as CadLiveState).selection).toEqual([]);
 
   const initial = state.camera!;
