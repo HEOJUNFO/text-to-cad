@@ -26,10 +26,14 @@ type UpdatesState = {
 export const useUpdates = create<UpdatesState>((set, get) => {
   // A rejected IPC call is the updater being unreachable, not a state main
   // pushed: say so on the row the way a refused answer would, and in a toast.
+  // Electron wraps a handler's error as "Error invoking remote method 'x': Error:
+  // y"; only y is for the person. The sentence is on the row, which stays, and
+  // the toast is just the headline, so it is not printed twice.
   const fail = (error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
+    const raw = error instanceof Error ? error.message : String(error);
+    const message = raw.match(/^Error invoking remote method '[^']*': (?:\w*Error: )?([^\n]*)/)?.[1]?.trim() || raw;
     set({ status: { state: "error", message } });
-    toast.error("Could not reach the updater", { description: message });
+    toast.error("Could not reach the updater");
   };
 
   // `action` answers with the status, except Restart, which answers with
