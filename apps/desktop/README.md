@@ -2128,6 +2128,10 @@ session that cut a fresh worktree keeps that worktree's base commit as its
 an existing worktree (`New session in this worktree`) marks the tree as it is,
 since earlier uncommitted work may be in it; marks recorded as commits by older builds
 still work as `git diff <sha>` against the working tree.
+A read of either scope lists the untracked files in a throwaway copy of the
+index (`add --intent-to-add` of just those paths, no objects written), and the
+reads of one review share it while the real index and the untracked set stay the
+same.
 Those two scopes also move the whole read into the session's directory, which
 for a worktree thread is not the project's checkout.
 

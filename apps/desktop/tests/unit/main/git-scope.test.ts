@@ -289,6 +289,38 @@ describe("snapshot marks", () => {
     expect(listed.files).toEqual([expect.objectContaining({ path: "part.step", status: "untracked" })]);
   });
 
+  /** The `git add` calls the spy has seen since it was last cleared. */
+  const adds = () =>
+    execa.mock.calls
+      .filter((call) => (call[1] as string[] | undefined)?.[0] === "add")
+      .map((call) => ({ args: call[1] as string[], input: (call[2] as { input?: string } | undefined)?.input }));
+
+  it("a read adds only the untracked paths to its index, and reads with the same index reuse it", async () => {
+    const cwd = await committedRepo();
+    await writeFile(path.join(cwd, "old.txt"), "there at the mark\n");
+    await writeFile(path.join(cwd, "older.txt"), "so was this\n");
+    const turn = await git.snapshotTree(cwd, "s6/turn");
+    const scope = resolveDiffScope({ kind: "turn" }, { turnHead: turn, sessionHead: turn });
+
+    execa.mockClear();
+    await git.status(cwd, scope);
+    expect(adds()).toHaveLength(1);
+    expect(adds()[0]?.args).not.toContain("-A");
+    expect(adds()[0]?.input?.split("\0")).toEqual([":(literal)old.txt", ":(literal)older.txt"]);
+
+    // Two more sections open on the same, unchanged repository.
+    execa.mockClear();
+    await git.fileDiff(cwd, "old.txt", scope);
+    await git.unifiedDiff(cwd, "older.txt", scope);
+    await git.status(cwd, scope);
+    expect(adds()).toEqual([]);
+
+    // A new untracked file is a different index.
+    await writeFile(path.join(cwd, "new.txt"), "n\n");
+    await git.status(cwd, scope);
+    expect(adds()).toHaveLength(1);
+  });
+
   it("leaves the person's index and staging alone", async () => {
     const cwd = await committedRepo();
     await writeFile(path.join(cwd, "staged.txt"), "s\n");
