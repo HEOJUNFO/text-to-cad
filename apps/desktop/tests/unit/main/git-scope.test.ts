@@ -246,6 +246,24 @@ describe("snapshot marks", () => {
     ]);
   });
 
+  it("a read of a snapshot scope writes no objects, however much changed", async () => {
+    const cwd = await committedRepo();
+    await writeFile(path.join(cwd, "old.txt"), "there at the mark\n");
+    const turn = await git.snapshotTree(cwd, "s4/turn");
+    const scope = resolveDiffScope({ kind: "turn" }, { turnHead: turn, sessionHead: turn });
+    // Reads run twice a second while an agent writes; `count-objects` counts the loose ones.
+    const loose = async () => Number((await sh(cwd, "count-objects")).split(" ")[0]);
+    await git.status(cwd, scope); // the first may write the empty blob an intent-to-add entry names
+    const before = await loose();
+    await writeFile(path.join(cwd, "big.bin"), "x".repeat(50_000));
+    await writeFile(path.join(cwd, "part.py"), "rewritten\n");
+    const listed = await git.status(cwd, scope);
+    expect(listed.files.map((file) => file.path)).toEqual(["big.bin", "part.py"]);
+    await git.fileDiff(cwd, "big.bin", scope);
+    await git.unifiedDiff(cwd, "part.py", scope);
+    expect(await loose()).toBe(before);
+  });
+
   it("pins the tree under a ref, and dropMarks unpins it", async () => {
     const cwd = await committedRepo();
     const tree = await git.snapshotTree(cwd, "s3/turn");

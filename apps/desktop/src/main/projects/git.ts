@@ -17,6 +17,7 @@
  * The parsers are exported and pure: `git`'s porcelain formats are stable and
  * fiddly, and they are the part worth a unit test.
  */
+import { AsyncLocalStorage } from "node:async_hooks";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -141,7 +142,8 @@ function tracked<T extends Trackable>(subprocess: T, kind: ChildKind = "probe"):
 }
 
 async function git(cwd: string, args: string[]): Promise<string> {
-  const result = await tracked(execa("git", args, { ...GIT_OPTIONS, cwd }));
+  const env = readIndex.getStore();
+  const result = await tracked(execa("git", args, env ? { ...GIT_OPTIONS, cwd, env: { ...GIT_OPTIONS.env, ...env } } : { ...GIT_OPTIONS, cwd }));
   if (result.failed || result.exitCode !== 0) {
     const stderr = typeof result.stderr === "string" ? result.stderr.trim() : "";
     throw new GitError(stderr || `git ${args[0]} failed`);
@@ -439,7 +441,7 @@ export async function status(cwd: string, scope: DiffScope = { kind: "working-tr
   const files =
     scope.kind === "working-tree" || scope.kind === "unmarked"
       ? await workingTreeFiles(root, porcelain)
-      : await rangeFiles(root, scope, porcelain);
+      : await withReadIndex(root, scope, () => rangeFiles(root, scope, porcelain));
 
   return {
     isRepository: true,
@@ -530,8 +532,8 @@ async function rangeFiles(
   const nameStatus = await git(root, ["diff", "--name-status", "-z", "-M", "--end-of-options", base]);
   const statuses = parseNameStatus(nameStatus);
 
-  // A snapshot mark is compared with a snapshot, where an untracked file is
-  // simply added; the review still calls it untracked, as it does in "All".
+  // Against a snapshot mark an untracked file is simply added; the review
+  // still calls it untracked, as it does in "All".
   const untracked = new Set(porcelain.files.filter((file) => file.status === "untracked").map((file) => file.path));
   const files: ChangedFile[] = [...numstat.entries()].map(([filePath, counted]) => ({
     path: filePath,
@@ -547,9 +549,9 @@ async function rangeFiles(
   // file git has never seen. Without this a "since this turn began" review of
   // a turn whose whole output was new files shows nothing at all, which is the
   // one case the scope exists for.
-  // (A snapshot mark is already compared with a snapshot: those files are in
-  // the numstat, and the untracked ones from before the mark must stay out.)
-  if (openEnded(scope) && !base.includes("..")) {
+  // (Against a snapshot mark the read index already lists them, so they are in
+  // the numstat, and the untracked ones from before the mark stay out.)
+  if (openEnded(scope) && !readIndex.getStore()) {
     for (const file of porcelain.files) {
       if (file.status === "untracked" && !numstat.has(file.path)) {
         files.push({ ...file, ...(await countUntracked(root, file.path)) });
@@ -650,17 +652,6 @@ async function baseRevision(root: string, scope: DiffScope): Promise<string | nu
     if (scope.to) {
       return `${scope.from}..${scope.to}`;
     }
-    // A snapshot mark is a tree, and `git diff <tree>` against the working
-    // tree reads an untracked file that was already there as deleted (the
-    // tree has it, the index does not). So the far side is a snapshot of the
-    // working tree too, and the two trees are compared: untracked files are
-    // in both, or in one, which is exactly added and removed.
-    if ((await tryGit(root, ["cat-file", "-t", "--end-of-options", scope.from]))?.trim() === "tree") {
-      const now = await snapshotTree(root);
-      if (now) {
-        return `${scope.from}..${now}`;
-      }
-    }
     return scope.from;
   }
   if (scope.kind === "since") {
@@ -699,6 +690,10 @@ export async function fileDiff(
   }
   const absolute = await pathInRepository(root, filePath);
   const scope = await unmarkedOrRefuse(root, requested);
+  return withReadIndex(root, scope, () => fileDiffAt(root, filePath, absolute, scope));
+}
+
+async function fileDiffAt(root: string, filePath: string, absolute: string, scope: DiffScope): Promise<FileDiff> {
 
   // Scoped to the one path. Asking `status()` for the metadata instead would
   // walk the whole working tree once per open section, and a review of forty
@@ -816,6 +811,10 @@ export async function unifiedDiff(
   }
   await pathInRepository(root, filePath);
   const scope = await unmarkedOrRefuse(root, requested);
+  return withReadIndex(root, scope, () => unifiedDiffAt(root, filePath, scope));
+}
+
+async function unifiedDiffAt(root: string, filePath: string, scope: DiffScope): Promise<string> {
   const base = await baseRevision(root, scope);
   const args = ["diff", "-M", "--patch", "--end-of-options"];
   const from = scope.kind === "working-tree" ? "HEAD" : base;
@@ -1018,14 +1017,8 @@ export async function snapshotTree(cwd: string, mark?: string): Promise<string |
   if (!root) {
     return null;
   }
-  const scratch = await fsp.mkdtemp(path.join(os.tmpdir(), "text-to-cad-index-"));
-  try {
-    const index = path.join(scratch, "index");
-    const live = (await tryGit(root, ["rev-parse", "--path-format=absolute", "--git-path", "index"]))?.trim();
-    if (live) {
-      await fsp.copyFile(live, index).catch(() => undefined);
-    }
-    const options = { ...GIT_OPTIONS, cwd: root, env: { ...GIT_OPTIONS.env, GIT_INDEX_FILE: index } };
+  return withTempIndex(root, async (env) => {
+    const options = { ...GIT_OPTIONS, cwd: root, env: { ...GIT_OPTIONS.env, ...env } };
     const added = await tracked(execa("git", ["add", "-A"], options));
     if (added.failed || added.exitCode !== 0) {
       return null;
@@ -1039,11 +1032,54 @@ export async function snapshotTree(cwd: string, mark?: string): Promise<string |
       return null;
     }
     return tree;
-  } catch {
-    return null;
+  }).catch(() => null);
+}
+
+/** The environment of the read in flight: a temp index that lists the untracked files too. */
+const readIndex = new AsyncLocalStorage<NodeJS.ProcessEnv>();
+
+/** Run `work` with `GIT_INDEX_FILE` at a throwaway copy of the repository's index. */
+async function withTempIndex<T>(
+  root: string,
+  work: (env: NodeJS.ProcessEnv) => Promise<T>,
+): Promise<T> {
+  const scratch = await fsp.mkdtemp(path.join(os.tmpdir(), "text-to-cad-index-"));
+  try {
+    const index = path.join(scratch, "index");
+    const live = (await tryGit(root, ["rev-parse", "--path-format=absolute", "--git-path", "index"]))?.trim();
+    if (live) {
+      await fsp.copyFile(live, index).catch(() => undefined);
+    }
+    return await work({ GIT_INDEX_FILE: index });
   } finally {
     await fsp.rm(scratch, { recursive: true, force: true }).catch(() => undefined);
   }
+}
+
+/**
+ * Run a read of `scope` where `git diff <mark>` can see the untracked files.
+ *
+ * A snapshot mark is a tree, and `git diff <tree>` against the working tree
+ * reads an untracked file that was already there as deleted (the tree has it,
+ * the index does not). `add -A --intent-to-add` puts every such path in a
+ * throwaway index without writing a single blob, so the diff finds the file
+ * unchanged, or added when it is new since the mark. A read runs every half
+ * second while an agent writes: it must not write objects (`write-tree` does,
+ * a loose blob per changed file per poll), which only a mark may.
+ */
+async function withReadIndex<T>(root: string, scope: DiffScope, work: () => Promise<T>): Promise<T> {
+  if (scope.kind !== "range" || scope.to || readIndex.getStore() ||
+      (await tryGit(root, ["cat-file", "-t", "--end-of-options", scope.from]))?.trim() !== "tree") {
+    return work();
+  }
+  return withTempIndex(root, async (env) => {
+    const options = { ...GIT_OPTIONS, cwd: root, env: { ...GIT_OPTIONS.env, ...env } };
+    const added = await tracked(execa("git", ["add", "-A", "--intent-to-add"], options));
+    if (added.failed || added.exitCode !== 0) {
+      return work();
+    }
+    return readIndex.run(env, work);
+  });
 }
 
 /** Unpin every mark a session took (`snapshotTree`'s refs). */
