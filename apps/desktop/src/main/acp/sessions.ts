@@ -507,26 +507,13 @@ export class SessionManager {
       } catch (error) {
         // A row with no agent session id can never be loaded; the renderer
         // shows the failure (sign in, install) and the user creates again.
-        this.retire(session.id);
-        this.pendingTitles.delete(session.id);
-        this.deps.repo.remove(session.id);
-        this.broadcastIndex();
-        // The marks may still be landing: unpin them once they have, and take
-        // the branch's base from the session mark (`releaseWorkspace`).
-        const [startHead] = await marks;
-        await this.unpinMarks(session);
-        // The worktree this create made goes with the row. Not one it was given
-        // (`New session in this worktree`): that directory was there before.
-        if (workspace.worktreePath && !input.cwd) {
-          await this.deps.releaseWorkspace?.({ ...session, sessionHead: startHead }, { abandoned: true }).catch(() => undefined);
-        }
+        await this.abandonCreate(session, input, workspace, marks);
         throw error;
       }
       // What the person last chose for this agent — the model, the effort and
       // the mode. Never a reason for the session to fail: a refused
       // `set_config_option` leaves the session at the agent's own defaults,
       // which is a working session.
-      let settled = false;
       try {
         await this.applyPreferences(session, connection);
         const [sessionHead, turnHead] = await marks;
@@ -538,20 +525,30 @@ export class SessionManager {
           session.id,
           stillConnecting ? { status: "idle", sessionHead, turnHead } : { sessionHead, turnHead },
         );
-        settled = true;
         if (stillConnecting) {
           this.deps.broadcast("session.state", { sessionId: session.id, state: connection.state });
         }
         // The registry id and nothing else — no directory, project or prompt.
         this.deps.track?.({ name: "session_created", agent: session.agentId });
         return updated;
-      } finally {
+      } catch (error) {
         // A throw between `session/new` and the row going idle (the store
-        // refusing `remember`, say) rejects `create`, but the connection is
-        // live and the row is kept: left at `connecting` it is a box that
-        // never opens and no bar to retry from, and `boot` only runs at
-        // launch. Settle the row on what the connection can do.
-        if (!settled) await this.settleAfterFailedCreate(session, connection, marks);
+        // refusing `remember`, say). One contract: a `create` that reached
+        // `session/new` and still has its connection RESOLVES with the session,
+        // so the renderer adopts the row and offers no second create; the
+        // failure is logged and told to the index as a note. One whose
+        // connection is gone rejects and leaves no row, as a failure before
+        // `session/new` does — its agent session was never used, so a Retry that
+        // loaded it would have nothing to resume ("this session never
+        // connected; create it again").
+        const row = this.deps.repo.get(session.id);
+        if (row && row.status !== "connecting") return row; // closed under this create: that state stands
+        if (!row || !connection.alive) {
+          await this.abandonCreate(session, input, workspace, marks);
+          throw error;
+        }
+        console.warn(`[acp] create ${session.id.slice(0, 8)} finished with a warning: ${String(error)}`);
+        return this.settleAfterFailedCreate(session, connection, marks, error);
       }
     } finally {
       if (setup) this.held.delete(setup);
@@ -560,22 +557,50 @@ export class SessionManager {
     }
   }
 
-  /** The row a failed `create` leaves behind: idle if its connection can take a prompt, `error` if not. */
+  /**
+   * A `create` that will not produce a session: the connection, the row, and
+   * the worktree this create cut all go. Not a worktree it was given
+   * (`New session in this worktree` sends `cwd`): that directory was there before.
+   */
+  private async abandonCreate(
+    session: Session,
+    input: { cwd?: string },
+    workspace: { worktreePath?: string | undefined },
+    marks: Promise<[string | null, string | null]>,
+  ): Promise<void> {
+    this.retire(session.id);
+    this.pendingTitles.delete(session.id);
+    this.deps.repo.remove(session.id);
+    this.broadcastIndex();
+    // The marks may still be landing: unpin them once they have, and take
+    // the branch's base from the session mark (`releaseWorkspace`).
+    const [startHead] = await marks.catch(() => [null, null] as const);
+    await this.unpinMarks(session);
+    if (workspace.worktreePath && !input.cwd) {
+      await this.deps.releaseWorkspace?.({ ...session, sessionHead: startHead }, { abandoned: true }).catch(() => undefined);
+    }
+  }
+
+  /**
+   * The row a `create` that failed after `session/new` leaves, its connection
+   * alive: idle, so the composer opens, with what went wrong as a note on the
+   * index (`session.status` carries `error` beside a live status).
+   */
   private async settleAfterFailedCreate(
     session: Session,
     connection: SessionConnection,
     marks: Promise<[string | null, string | null]>,
-  ): Promise<void> {
-    if (this.deps.repo.get(session.id)?.status !== "connecting") return;
+    cause: unknown,
+  ): Promise<Session> {
     const [sessionHead, turnHead] = await marks.catch(() => [null, null] as const);
-    if (connection.alive) {
-      this.update(session.id, { status: "idle", sessionHead, turnHead });
-      this.deps.broadcast("session.state", { sessionId: session.id, state: connection.state });
-      return;
-    }
-    const message = "The agent stopped while the session was being created.";
-    this.update(session.id, { status: "error", sessionHead, turnHead });
-    this.deps.broadcast("session.status", { sessionId: session.id, status: "error", error: message });
+    const row = this.update(session.id, { status: "idle", sessionHead, turnHead });
+    this.deps.broadcast("session.state", { sessionId: session.id, state: connection.state });
+    this.deps.broadcast("session.status", {
+      sessionId: session.id,
+      status: "idle",
+      error: `The session started, but setting it up failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+    });
+    return row;
   }
 
   /**

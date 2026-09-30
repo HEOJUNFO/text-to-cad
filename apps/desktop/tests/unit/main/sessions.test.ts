@@ -1525,7 +1525,7 @@ describe("SessionManager", () => {
     expect(recorder.remembered.at(-1)?.modes).toEqual(["default", "plan", "auto", "full"]);
   });
 
-  it("settles a row whose create failed after session/new instead of leaving it connecting", async () => {
+  it("resolves a create whose setup failed after session/new: one idle row, the failure told to the index", async () => {
     const recorder = optionRecorder({ model: null });
     const deps = {
       ...recorder.deps,
@@ -1536,11 +1536,34 @@ describe("SessionManager", () => {
       },
     };
     const { repo, manager, broadcasts, cwd } = await setup({ agentOptions: deps });
-    await expect(manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" })).rejects.toThrow("SQLITE_BUSY");
+    const created = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
     const id = "session-1";
-    expect(repo.get(id)).not.toBeNull();
-    expect(repo.get(id)?.status).not.toBe("connecting");
+    expect(created).toMatchObject({ id, status: "idle", acpSessionId: "fake-session-1" });
+    expect(repo.list()).toHaveLength(1);
+    expect(repo.get(id)?.status).toBe("idle");
     expect(broadcasts.some((b) => b.channel === "session.state" && (b.payload as { sessionId: string }).sessionId === id)).toBe(true);
+    const note = broadcasts.find((b) => b.channel === "session.status" && (b.payload as { error: string | null }).error);
+    expect((note?.payload as { error: string }).error).toContain("SQLITE_BUSY");
+  });
+
+  it("rejects a create whose adapter died after session/new, and leaves no row behind", async () => {
+    const recorder = optionRecorder({ model: null });
+    const made = {} as Awaited<ReturnType<typeof setup>>;
+    const deps = {
+      ...recorder.deps,
+      remember: (...args: Parameters<typeof recorder.deps.remember>) => {
+        if (recorder.remembered.length >= 1) {
+          // The adapter is gone without anyone closing it (a crash), so the row is still `connecting`.
+          const live = (made.manager as unknown as { live: { get(id: string): object | undefined } }).live.get("session-1");
+          Object.defineProperty(live, "alive", { get: () => false });
+          throw new Error("SQLITE_BUSY");
+        }
+        recorder.deps.remember(...args);
+      },
+    };
+    Object.assign(made, await setup({ agentOptions: deps }));
+    await expect(made.manager.create({ projectId: "p1", agentId: "claude-code", cwd: made.cwd, gitMode: "none" })).rejects.toThrow("SQLITE_BUSY");
+    expect(made.repo.list()).toHaveLength(0);
   });
 
   /**
