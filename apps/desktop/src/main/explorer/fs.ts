@@ -21,6 +21,9 @@
  * it is seconds of work and megabytes of payload for a pane that shows thirty
  * rows.
  *
+ * `listPaths`, the tree's flat fuzzy index, is the one recursive listing, bounded
+ * by a path limit and reading a few directories ahead of the one it is on.
+ *
  * Electron is deliberately not imported: this module is plain Node, so
  * `tests/unit/main/explorer-fs.test.ts` can run it.
  */

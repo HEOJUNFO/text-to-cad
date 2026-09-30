@@ -254,9 +254,11 @@ if (!app.requestSingleInstanceLock()) {
     installMenu(() => BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null, createWindow);
     createWindow();
     initUpdater();
-    // One idle adapter per agent the index says is in use, a second and a
-    // half from now: the first session opened then costs a `session/load`
-    // and not a spawn (src/main/acp/warm.ts).
+    // Starts the agent probe now, and (outside `NODE_ENV=test` unless
+    // `TEXT_TO_CAD_PREWARM=1`) spawns one idle adapter per agent the index says
+    // is in use a second and a half from now, once the probe has settled: the
+    // first session opened then costs a `session/load` and not a spawn
+    // (src/main/acp/warm.ts).
     prewarmAgents();
     track({ name: "app_launched" });
 
