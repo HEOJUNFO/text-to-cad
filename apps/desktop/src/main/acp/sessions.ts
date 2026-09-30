@@ -794,9 +794,14 @@ export class SessionManager {
       timer.mark("initialize");
       // The agent's title, which the replay does not send again: the last
       // state's, or the row's when the agent is who named it.
-      const title =
-        this.snapshots?.read(id)?.title ?? (session.titleSource === "agent" ? session.title : null);
-      await connection.loadSession(session.acpSessionId, title);
+      const stored = this.snapshots?.read(id) ?? null;
+      const title = stored?.title ?? (session.titleSource === "agent" ? session.title : null);
+      // The preamble went out with the first prompt: an agent turn with more
+      // in it than an error says that prompt was read, whatever the replay
+      // brings back (`loadSession`).
+      const answered =
+        stored?.turns.some((turn) => turn.role === "agent" && turn.parts.some((part) => part.type !== "error")) ?? false;
+      await connection.loadSession(session.acpSessionId, title, answered);
       // An adapter that replays no diffs leaves nothing counted, and the
       // next persistTally would overwrite the row with one turn's edits:
       // the persisted counts are then the history to add to.

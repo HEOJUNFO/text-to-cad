@@ -1650,8 +1650,11 @@ adapters read whichever spelling they understand. Claude Code and Codex use
 their native skill-root mechanisms. Other adapters retain the concise first
 prompt preamble; workspace `list_skills` and `read_skill` read the same root.
 `session/new` sets the preamble and the first `session/prompt` the agent takes
-consumes it: a prompt the agent rejects puts it back, so the retry still
-carries it. `loadSession` never sets it; a resumed session's history has it.
+consumes it: a prompt the agent rejects before it has streamed anything (a
+title or a command list does not count) puts it back, so the retry still
+carries it. `loadSession` sets it only for a session that was never prompted —
+one whose replay has no user turn and whose stored transcript has no agent
+answer; a resumed session's history has it.
 These are discovery options, not a requirement to load every skill on a turn.
 
 **MCP servers.** The registry supplies separate `text-to-cad-workspace`,

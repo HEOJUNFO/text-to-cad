@@ -469,8 +469,18 @@ export class SessionConnection {
   /**
    * `title` is the one the app already knew for this session: the replay
    * sends no `session_info_update`, so the reloaded state starts from it.
+   *
+   * `answered` is the caller's word that the agent has already answered a
+   * prompt in this session (the stored transcript has an agent turn with
+   * something in it): an adapter that resumes but replays nothing leaves this
+   * connection's own transcript without the user turn that carried the
+   * preamble, and it must not be sent a second time.
    */
-  async loadSession(acpSessionId: string, title: string | null = null): Promise<LoadSessionResponse> {
+  async loadSession(
+    acpSessionId: string,
+    title: string | null = null,
+    answered = false,
+  ): Promise<LoadSessionResponse> {
     const init = await this.initialize();
     if (!init.agentCapabilities?.loadSession) {
       throw new Error(`${this.options.agentId} cannot resume sessions (no loadSession capability)`);
@@ -516,7 +526,7 @@ export class SessionConnection {
     // A session that was created and never prompted has no transcript to hold
     // the preamble: the replay carried no user turn, and the first prompt on
     // this connection is the first the agent will read.
-    this.pendingPreamble = this.stateValue.turns.some((turn) => turn.role === "user")
+    this.pendingPreamble = answered || this.stateValue.turns.some((turn) => turn.role === "user")
       ? null
       : (this.options.preamble ?? null);
     return response;

@@ -1925,6 +1925,29 @@ describe("what a session is given", () => {
     ]);
     expect(prompts[1]!.params.prompt).toEqual([{ type: "text", text: "second" }]);
   });
+
+  it("does not send it again on the reload of an answered session whose adapter replays nothing", async () => {
+    const file = path.join(await tempDir("text-to-cad-record-"), "frames.jsonl");
+    let launchArgs = [FAKE_AGENT];
+    const { manager, cwd } = await setup({
+      snapshots: memorySnapshots(),
+      launchOverride: () => ({ ...fakeProvider.launch, args: launchArgs, env: { FAKE_AGENT_RECORD: file } }),
+      skills: { root: () => "/data/skills/1.2.3", preamble: () => "SKILLS: /data/skills/1.2.3" },
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "gemini-cli", cwd, gitMode: "none" });
+    await manager.prompt(session.id, [{ type: "text", text: "first" }]);
+    manager.close(session.id);
+    // The reload replays no transcript; the stored one is the evidence.
+    launchArgs = [FAKE_AGENT, "--load-empty"];
+    await manager.prompt(session.id, [{ type: "text", text: "second" }]);
+    const prompts = (await readFile(file, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { kind: string; params: Record<string, unknown> })
+      .filter((line) => line.kind === "prompt");
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]!.params.prompt).toEqual([{ type: "text", text: "second" }]);
+  });
 });
 
 /** How many `session/connected` events have been broadcast: `session/new` has answered that many times. */
