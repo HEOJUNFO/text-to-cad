@@ -73,11 +73,9 @@ export function SessionSection({ section }: { section: SidebarSection }) {
       className="flex h-7 items-center gap-0.5 rounded-md pr-0.5 pl-2"
       data-sidebar-section-header
     >
+      {/* Named for the section, always: the state is aria-expanded's to say, not the name's. */}
       <button
         aria-expanded={collapsible ? !collapsed : undefined}
-        aria-label={
-          collapsible ? (collapsed ? `Expand ${section.name}` : `Collapse ${section.name}`) : undefined
-        }
         className="flex min-w-0 flex-1 items-center gap-1 text-left"
         disabled={!collapsible}
         onClick={toggle}

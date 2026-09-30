@@ -280,7 +280,7 @@ describe("Sidebar", () => {
   it("does not show an empty directory group", () => {
     withProject();
     wrap(<Sidebar />);
-    expect(screen.queryByRole("button", { name: "Collapse text-to-cad" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "text-to-cad", expanded: true })).not.toBeInTheDocument();
     // What shows instead is the panel's own empty card, not a group's.
     expect(screen.getByText("No sessions yet").closest("[data-sidebar-empty]")).not.toBeNull();
   });
@@ -455,13 +455,13 @@ describe("Sidebar", () => {
       activeId: null,
     });
     wrap(<Sidebar />);
-    await user.click(screen.getByRole("button", { name: "Collapse text-to-cad" }));
+    await user.click(screen.getByRole("button", { name: "text-to-cad", expanded: true }));
     expect(set).toHaveBeenCalledWith(
       expect.objectContaining({ sidebar: expect.objectContaining({ collapsedProjects: ["p1"] }) }),
     );
     // Optimistic, so the row is gone before the round trip lands.
     expect(screen.queryByText("Session 1")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Expand text-to-cad" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "text-to-cad", expanded: false })).toBeInTheDocument();
   });
 
   it("pins from the row's menu, and the row moves to Pinned", async () => {
@@ -489,7 +489,7 @@ describe("Sidebar", () => {
     );
     expect(screen.getByText("Pinned")).toBeInTheDocument();
     expect(screen.getAllByText("Keeper")).toHaveLength(1);
-    expect(screen.queryByRole("button", { name: "Collapse text-to-cad" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "text-to-cad", expanded: true })).not.toBeInTheDocument();
   });
 
   /**
