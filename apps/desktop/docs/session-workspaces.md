@@ -113,7 +113,8 @@ the normal profile. Use the same profile when relaunching a user's preview.
 The startup `[db]` log identifies the actual database.
 
 Before upgrading an existing schema, the app writes a consistent SQLite
-backup beside it: `text-to-cad.db.before-v<version>-<timestamp>.bak`. `VACUUM INTO`
+backup beside it: `text-to-cad.db.before-v<newest migration>-<timestamp>.bak`, named
+by the version the upgrade goes to, not the one it leaves. `VACUUM INTO`
 includes committed WAL contents; copying only the main database file would
 not. A backup or migration error aborts the open, never resets the database.
 After an upgrade succeeds only the newest three backups are kept and older
@@ -129,8 +130,14 @@ without any session remain recoverable from the pre-upgrade backup while it is
 among the three kept. No tabs
 are copied into sessions subsequently created in the same directory.
 
+Migration 12 adds `sessions.worktree_owned`: whether the create that wrote a row
+cut its worktree or was handed it (`New session in this worktree`). `boot`
+releases only the first kind when it purges a create the app quit in. Existing
+rows read as given, so a worktree nobody can vouch for is left alone.
+
 Schema migrations are append-only. Validate changes against an existing
 database fixture as well as an empty database. The native regression suite
 `tests/e2e/session-storage.spec.ts` covers upgrade, restart, backup contents,
-ownership rejection and deletion isolation; `persistence.spec.ts` covers
+ownership rejection and deletion isolation (it finds the backup by the newest
+migration's version, `MIGRATIONS.at(-1)`, so a new migration does not break it); `persistence.spec.ts` covers
 agent naming and persisted user overrides.

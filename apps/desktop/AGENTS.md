@@ -340,6 +340,23 @@ the rule is about.
   and an Enter during input-method composition is not a commit
   (`src/renderer/features/explorer/BrowserTab.tsx`).
 
+- **A migration's backup is named by the newest version.** `db()` writes
+  `before-v<latest>-<ms>.bak` with `latest` the last entry of `MIGRATIONS`, and
+  `tests/e2e/session-storage.spec.ts` derives the name from `MIGRATIONS.at(-1)`
+  rather than typing a number; a new migration edits neither.
+- **A watch is returned with the root it was taken with.** A file source gives
+  its opened paths back through the project and root it was created for
+  (`requestAt`, `adapters/fileSource.ts`), and the store unwatches the root it
+  had bound (`previous.root`), never the root the explorer has since moved to.
+- **A terminal spawns once per tab.** `spawning` in `TerminalTab` is keyed by
+  tab id, not by component instance, so a double effect or a body that unmounts
+  and mounts while `terminal.create` is in flight cannot start a second shell
+  that would be an orphan counting toward the agent's 16.
+- **A deduped tab is disposed like a close.** `dedupeFileTabs` returns the tabs
+  it drops, and the two writers of a strip (`commit` and `updateSessionStrip`,
+  `state/explorer.ts`) run `disposeTab` on them, the function `close` uses, so
+  a dropped duplicate's document record, CAD state and tab store are released
+  as a close releases them.
 - **Path containment is `climbsOut`/`isInside`** (`src/main/explorer/fs.ts`),
   never a `startsWith("..")` on a `path.relative`: a folder named `..keep` is an
   ordinary name and climbs nowhere (`tests/unit/main/git-paths.test.ts`,
@@ -353,7 +370,9 @@ the rule is about.
 - **A job's running state comes from the store.** `useJob(agentId, kind)`
   (`features/settings/AgentDrawer.tsx`) reads the running job from
   `useAgents.jobs`, not from component state, so a drawer or welcome that
-  remounts finds the installer under way and disables Install and Sign in.
+  remounts finds the installer under way and disables Install and Sign in. The
+  job is seeded in the store when main names it (`seedJob`, `state/agents.ts`),
+  not on its first byte, so a silent install is found too.
 - **A draft that resyncs from the store compares the normalised value.**
   `useDraft` (`features/settings/SettingCard.tsx`) takes a `same()` predicate;
   a field whose text is parsed on the way in (the Advanced environment) says
