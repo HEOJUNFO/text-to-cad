@@ -1922,6 +1922,9 @@ when it was written by the same app version and holds every provider. Then:
   (`features/settings/AgentDrawer.tsx`), not from component state, so a drawer
   closed and reopened, or a welcome left for Settings and back, finds the
   installer under way and attaches its log instead of offering a second one.
+  A failed run's "Install failed (exit N)" / "Sign in failed (exit N)" is worded
+  only while the step is undone (`useJob`'s `done`: installed, signed in), and a
+  newer job of the kind replaces the failed one a mount started.
 - A **cold launch** (no usable cache) waits for the first probe for at most
   `PROBE_WAIT_MS` (3 s), then answers with whatever it has, which may be empty.
 - If the probe fails while the table is still the last launch's, or has none and the
