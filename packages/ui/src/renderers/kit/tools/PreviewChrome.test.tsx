@@ -25,7 +25,7 @@ it('keeps editor controls hidden throughout Preview and restores them on exit, w
   expect(screen.getByRole('button', { name: 'Display settings' })).toBeTruthy();
   expect((bar as HTMLElement).style.top).toBe('calc(4px + 6rem)');
   rerender(<ViewerMobileContext.Provider value={true}><PreviewChrome active={false} actions={actions} /></ViewerMobileContext.Provider>);
-  expect((container.querySelector('[data-viewport-actions]') as HTMLElement).style.top).toBe('8px');
+  expect((container.querySelector('[data-viewport-actions]') as HTMLElement).style.top).toBe('calc(4px + 6rem)');
 });
 
 it('fades preview controls together, keeps their hover area awake, and never reveals editing tools', () => {

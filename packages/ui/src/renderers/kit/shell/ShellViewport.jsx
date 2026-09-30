@@ -15,7 +15,6 @@ import {
 } from "@text-to-cad/core/lib/viewer/stageTheme.js";
 import { buildRuntimeInitializationAlert } from "@text-to-cad/core/lib/viewer/webglSupport.js";
 import { THEME_FLOOR_MODES } from "@text-to-cad/core/lib/themeSettings.js";
-import { useViewerMobile } from "../../../file-viewer/responsive.js";
 import ViewPlaneControl from "../camera/ViewPlaneControl.js";
 import { CAD_DEFAULT_VERTICAL_FOV_DEGREES, explicitViewerFocalLength, perspectiveDistanceScale } from "../camera/cameraLens.js";
 import { PREVIEW_AUTO_ROTATE_SPEED } from "../camera/orbitControls.js";
@@ -124,7 +123,6 @@ const ShellViewport = forwardRef(function ShellViewport({
   if (scene && !isKitScene(scene)) {
     throw new Error("ShellViewport needs a kit scene: { object3D, bounds, dispose() } (kit/scene.js).");
   }
-  const mobile = useViewerMobile();
   const normalizedSceneScaleMode = normalizeSceneScaleMode(sceneScaleMode);
   const normalizedProjection = normalizeCameraProjection(projection);
   const defaultGridRadius = defaultSceneGridRadius(normalizedSceneScaleMode);
@@ -990,7 +988,7 @@ const ShellViewport = forwardRef(function ShellViewport({
       {drawingOverlayActive ? <DrawingOverlay drawing={drawing} onReady={handleDrawingReady} onContentChange={handleDrawingContent} onViewportChange={followDrawingViewport} /> : null}
       {overlay}
       {/* The cube is the tools view's: preview has no cube to draw or keep in step with the orbit. */}
-      {!mobile && !previewMode && <div className="pointer-events-none absolute inset-0">
+      {!previewMode && <div className="pointer-events-none absolute inset-0">
       <ViewPlaneControl
         showViewPlane
         disabled={drawingOverlayActive}

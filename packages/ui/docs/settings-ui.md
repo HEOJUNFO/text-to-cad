@@ -47,16 +47,14 @@ settings or Preview controls.
 - **Toolbar** at top-left, 8px in — the gap between it and the stack under it.
   At top-right, 2px in, the view cube sits above a centred bar of 20px
   transparent buttons with 12px icons: **Display settings** (cog),
-  **Reset view**, then **Preview** (a play icon). Mobile omits the cube and keeps the bar at
-  the top inset. In preview the same bar, in the same place, keeps Display and Reset, then an
+  **Reset view**, then **Preview** (a play icon). Mobile uses the same cube and bar layout. In preview the same bar, in the same place, keeps Display and Reset, then an
   X where Preview was; **Playback settings** is the cog at the playbar's right
   end, and its menu opens upward.
 - **Tool stack** beneath the toolbar: the panels of the tool in hand and of the
   effects a person keeps (see [The tool stack](#the-tool-stack)).
 - **View cube** at top-right, 2px in, with a 2px gap before the 24px action bar below
   its 6rem area: enlarged face/edge/corner hit areas and neutral hover and XYZ
-  guides. Mobile
-  and preview omit it.
+  guides. Preview omits it.
 - **Bottom action** and **playbar** sit near bottom-centre, independent of the
   cube. For a composer destination, one white **Add To Prompt** button captures the current view and adds
   the file, selected references when present, and the screenshot through the
