@@ -101,7 +101,8 @@ export type SessionConnectionOptions = {
   /**
    * Text put in front of the FIRST prompt of a session created here, for an
    * agent that does not load the skills root by itself. Sent once: a resumed
-   * session already has it in its transcript.
+   * session already has it in its transcript — unless it was never prompted,
+   * and then the reload carries it (see `loadSession`).
    */
   preamble?: string | null;
   spawnTerminal: SpawnTerminal;
@@ -505,6 +506,12 @@ export class SessionConnection {
       });
     }
     this.dispatch({ type: "session/loaded", at: Date.now() });
+    // A session that was created and never prompted has no transcript to hold
+    // the preamble: the replay carried no user turn, and the first prompt on
+    // this connection is the first the agent will read.
+    this.pendingPreamble = this.stateValue.turns.some((turn) => turn.role === "user")
+      ? null
+      : (this.options.preamble ?? null);
     return response;
   }
 

@@ -19,6 +19,8 @@ const open: SessionConnection[] = [];
 function connect(options: {
   cwd: string;
   fixture?: string;
+  /** More switches for the fake agent. */
+  agentArgs?: string[];
   skillsRoot?: string | null;
   preamble?: string | null;
   onEvent?: (event: SessionEvent) => void;
@@ -29,7 +31,7 @@ function connect(options: {
   /** The adapter's own environment, for the fake agent's switches. */
   env?: Record<string, string>;
 }) {
-  const args = [FAKE_AGENT, ...(options.fixture ? ["--fixture", options.fixture] : [])];
+  const args = [FAKE_AGENT, ...(options.fixture ? ["--fixture", options.fixture] : []), ...(options.agentArgs ?? [])];
   const connection = new SessionConnection({
     sessionId: "test-session",
     agentId: options.agentId ?? "fake",
@@ -540,6 +542,32 @@ describe("the skills root and the preamble", () => {
     await connection.prompt([{ type: "text", text: "hello" }]);
 
     expect(allSent(frames, "session/prompt")[0]!.prompt).toEqual([{ type: "text", text: "hello" }]);
+  });
+
+  it("carries the preamble to a session that was created and never prompted, once its connection is replaced", async () => {
+    const preamble = "The skills are at /data/skills/1.2.3.";
+    const first = connect({ cwd: await scratch(), agentId: "gemini-cli", preamble });
+    await first.newSession();
+    first.close();
+
+    const frames: RecordedFrame[] = [];
+    const second = connect({
+      cwd: await scratch(),
+      agentId: "gemini-cli",
+      preamble,
+      agentArgs: ["--load-empty"],
+      record: (frame) => frames.push(frame),
+    });
+    await second.loadSession("fake-session-1");
+    await second.prompt([{ type: "text", text: "hello" }]);
+    await second.prompt([{ type: "text", text: "again" }]);
+
+    const prompts = allSent(frames, "session/prompt");
+    expect(prompts[0]!.prompt).toEqual([
+      { type: "text", text: preamble },
+      { type: "text", text: "hello" },
+    ]);
+    expect(prompts[1]!.prompt).toEqual([{ type: "text", text: "again" }]);
   });
 
   it("dispatches nothing after close, though the SDK rejects the turn that was running", async () => {
