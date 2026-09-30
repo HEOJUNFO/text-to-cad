@@ -67,8 +67,8 @@ beforeEach(() => {
   terminal().resize = vi.fn(async () => {});
 });
 
-function renderTab(ptyId: string | null = "pty-old", agent = false) {
-  return render(<TerminalTab tabId="tab" sessionId="session" project={project} ptyId={ptyId} cwd={project.path} readOnly={false} agent={agent} />);
+function renderTab(ptyId: string | null = "pty-old", agent = false, tabId = "tab") {
+  return render(<TerminalTab tabId={tabId} sessionId="session" project={project} ptyId={ptyId} cwd={project.path} readOnly={false} agent={agent} />);
 }
 
 it("kills the exited pty before restarting, so its scrollback is not kept for a tab that moved on", async () => {
@@ -86,9 +86,37 @@ it("respawns an agent-opened tab as the agent's, and a person's without that", a
   renderTab(null, true).unmount();
   expect(create).toHaveBeenCalledWith(expect.objectContaining({ agent: true }));
   create.mockClear();
-  renderTab(null, false);
+  renderTab(null, false, "other-tab");
   await waitFor(() => expect(create).toHaveBeenCalled());
   expect(create.mock.calls[0]![0]).not.toHaveProperty("agent");
+});
+
+it("marks its host as a terminal body, which the strip's chords read to leave Ctrl+W to the shell", async () => {
+  terminal().attach = vi.fn(async () => ({ info: info(null), scrollback: "", seq: 0 }));
+  const { container } = renderTab();
+  await waitFor(() => expect(terminals).toHaveLength(1));
+  expect(container.querySelector("[data-terminal-body]")).not.toBeNull();
+});
+
+it("spawns one shell for a tab whose body unmounts and mounts again while create is in flight", () => {
+  let spawned: (value: ReturnType<typeof info>) => void = () => {};
+  const create = vi.fn(() => new Promise<ReturnType<typeof info>>((resolve) => { spawned = resolve; }));
+  terminal().create = create;
+  terminal().attach = vi.fn(async () => null);
+  renderTab(null, false, "raced-tab").unmount();
+  renderTab(null, false, "raced-tab");
+  expect(create).toHaveBeenCalledTimes(1);
+  spawned(info(null));
+});
+
+it("labels a terminal the agent opened, and only that one", async () => {
+  terminal().attach = vi.fn(async () => ({ info: info(null), scrollback: "", seq: 0 }));
+  const { unmount } = renderTab("pty-old", true);
+  expect(await screen.findByText("agent")).toBeInTheDocument();
+  unmount();
+  renderTab("pty-old", false);
+  await waitFor(() => expect(terminals).toHaveLength(2));
+  expect(screen.queryByText("agent")).toBeNull();
 });
 
 it("releases the old pty id on Try again too", async () => {

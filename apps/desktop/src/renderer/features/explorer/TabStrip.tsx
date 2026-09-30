@@ -289,6 +289,10 @@ export function TabStrip() {
           onBlur={(event) => {
             if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusedId(null);
           }}
+          // Out of the strip the line goes: a drag that ends elsewhere has nowhere it would land.
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropIndex(null);
+          }}
           role="tablist"
         >
           {tabs.map((tab, index) => (
@@ -299,9 +303,18 @@ export function TabStrip() {
               dropBefore={dropIndex === index && draggingId !== null && draggingId !== tab.id}
               key={tab.id}
               onClose={() => close(tab.id)}
+              // The end of every drag, dropped or cancelled (Escape, a release outside the
+              // strip): it only puts the strip back. The reorder is `onDrop`'s.
               onDragEnd={() => {
-                if (draggingId !== null && dropIndex !== null) {
-                  move(draggingId, dropIndex);
+                setDraggingId(null);
+                setDropIndex(null);
+              }}
+              onDrop={() => {
+                const from = tabs.findIndex((candidate) => candidate.id === draggingId);
+                if (draggingId !== null && dropIndex !== null && from >= 0) {
+                  // The line is drawn before the tab at `dropIndex`; `move` lands in the strip
+                  // without the tab it lifts, which is one place earlier for a drag forward.
+                  move(draggingId, from < dropIndex ? dropIndex - 1 : dropIndex);
                 }
                 setDraggingId(null);
                 setDropIndex(null);
@@ -398,6 +411,7 @@ function TabButton({
   onDragStart,
   onDragOver,
   onDragEnd,
+  onDrop,
 }: {
   tab: ExplorerTab;
   active: boolean;
@@ -411,6 +425,7 @@ function TabButton({
   onDragStart: () => void;
   onDragOver: () => void;
   onDragEnd: () => void;
+  onDrop: () => void;
 }) {
   const title = tabTitle(tab);
 
@@ -437,7 +452,12 @@ function TabButton({
       onDragEnd={onDragEnd}
       onDragOver={(event) => {
         event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
         onDragOver();
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        onDrop();
       }}
       onDragStart={(event) => {
         event.dataTransfer.effectAllowed = "move";

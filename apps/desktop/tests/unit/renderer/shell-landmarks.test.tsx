@@ -18,6 +18,7 @@ vi.mock("@renderer/features/session/SessionPane", () => ({
   SessionPane: () => <><header>Bracket<button aria-label="Toggle sidebar" type="button" /></header><div aria-label="Prompt" contentEditable data-composer-input role="textbox" suppressContentEditableWarning tabIndex={0} /></>,
 }));
 vi.mock("@renderer/features/explorer/ExplorerPane", () => ({
+  useExplorerShortcuts: () => {},
   ExplorerPane: () => <div role="tablist"><div aria-selected data-tab="t1" role="tab" tabIndex={0}>part.step</div></div>,
 }));
 

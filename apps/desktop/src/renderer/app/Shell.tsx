@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { PaneSeparator } from "@renderer/app/PaneSeparator";
-import { ExplorerPane } from "@renderer/features/explorer/ExplorerPane";
+import { ExplorerPane, useExplorerShortcuts } from "@renderer/features/explorer/ExplorerPane";
 import { SessionPane } from "@renderer/features/session/SessionPane";
 import { Sidebar } from "@renderer/features/sidebar/Sidebar";
 import { maxWidthOf, resolvePanes } from "@renderer/lib/panes";
@@ -55,6 +55,7 @@ export function Shell() {
   const rowRef = useRef<HTMLDivElement | null>(null);
 
   useShellShortcuts();
+  useExplorerShortcuts();
   usePaneCycling();
 
   // The explorer belongs to a session, and is closed until something opens
