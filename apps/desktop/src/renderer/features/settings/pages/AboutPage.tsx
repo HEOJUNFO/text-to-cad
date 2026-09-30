@@ -10,6 +10,7 @@ import { RefreshCw } from "lucide-react";
 import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 
 import { Button } from "@renderer/components/ui/button";
+import { Progress } from "@renderer/components/ui/progress";
 import {
   ActionRow,
   SettingCard,
@@ -108,6 +109,11 @@ export function AboutPage() {
   );
 }
 
+/** A line of the updater's error, not a page of it: main sends one line, this is the backstop. */
+const MAX_ERROR_LENGTH = 160;
+const clamp = (text: string) =>
+  text.length > MAX_ERROR_LENGTH ? `${text.slice(0, MAX_ERROR_LENGTH - 1).trimEnd()}…` : text;
+
 /**
  * The updater, as one row: what the state is on the left, the only action that
  * state allows on the right.
@@ -131,7 +137,9 @@ function UpdateRow() {
       action: null,
     },
     idle: {
-      description: "text-to-cad is up to date.",
+      // Also what a check answers when the updater is inactive or the feed is
+      // still being uploaded: "no update found" is true of all of them.
+      description: "No update found.",
       action: { label: "Check now", onClick: check },
     },
     checking: { description: "Checking GitHub Releases…", action: null },
@@ -145,10 +153,12 @@ function UpdateRow() {
     },
     downloaded: {
       description: `Version${version} is ready. Restarting installs it.`,
-      action: { label: "Restart", onClick: install },
+      // The visible word stays the start of the name (label in name); the
+      // version says which build the button installs.
+      action: { label: "Restart", name: `Restart to install${version}`, onClick: install },
     },
     error: {
-      description: status.message ?? "The update check failed.",
+      description: clamp(status.message ?? "The update check failed."),
       action: { label: "Try again", onClick: check },
     },
   }[status.state];
@@ -159,12 +169,13 @@ function UpdateRow() {
         action ? (
           <Button
             className="h-8"
+            aria-label={busy ? undefined : action.name}
             disabled={busy}
             onClick={() => void action.onClick()}
             size="sm"
             variant={status.state === "downloaded" ? "default" : "secondary"}
           >
-            {action.label}
+            {busy && status.state === "downloaded" ? "Restarting…" : action.label}
           </Button>
         ) : (
           <span className="text-sm text-muted-foreground">
@@ -174,8 +185,21 @@ function UpdateRow() {
       }
       description={description}
       keywords="update download install restart version"
+      live
       title="Software update"
-    />
+    >
+      {status.state === "downloading" ? (
+        // The vendored Progress draws `value` but does not hand it to Radix's
+        // root, which would then announce an indeterminate bar: the reading is
+        // passed as the ARIA attribute as well.
+        <Progress
+          aria-label="Update download progress"
+          aria-valuenow={Math.round(status.percent ?? 0)}
+          className="h-1"
+          value={Math.round(status.percent ?? 0)}
+        />
+      ) : null}
+    </SettingRow>
   );
 }
 

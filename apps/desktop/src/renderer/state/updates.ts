@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import { create } from "zustand";
 
 import type { UpdateStatus } from "@shared/ipc/app";
@@ -23,10 +24,25 @@ type UpdatesState = {
 };
 
 export const useUpdates = create<UpdatesState>((set) => {
-  const run = async (action: () => Promise<UpdateStatus>) => {
+  // A rejected IPC call is the updater being unreachable, not a state main
+  // pushed: say so on the row the way a refused answer would, and in a toast.
+  const fail = (error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    set({ status: { state: "error", message } });
+    toast.error("Could not reach the updater", { description: message });
+  };
+
+  // `action` answers with the status, except Restart, which answers with
+  // nothing: the app is about to quit, and a refused install arrives as a push.
+  const run = async (action: () => Promise<UpdateStatus | void>) => {
     set({ busy: true });
     try {
-      set({ status: await action() });
+      const status = await action();
+      if (status) {
+        set({ status });
+      }
+    } catch (error) {
+      fail(error);
     } finally {
       set({ busy: false });
     }
@@ -39,7 +55,11 @@ export const useUpdates = create<UpdatesState>((set) => {
     busy: false,
 
     load: async () => {
-      set({ status: await window.textToCad.app.updateStatus() });
+      try {
+        set({ status: await window.textToCad.app.updateStatus() });
+      } catch (error) {
+        fail(error);
+      }
     },
 
     check: () => run(() => window.textToCad.app.checkForUpdates()),
@@ -48,7 +68,9 @@ export const useUpdates = create<UpdatesState>((set) => {
     // pushes, which is why this store is not just a promise.
     download: () => run(() => window.textToCad.app.downloadUpdate()),
 
-    install: () => window.textToCad.app.installUpdate(),
+    // Through `run` like the others: `busy` is what keeps a second press off
+    // the button while main is starting the quit.
+    install: () => run(() => window.textToCad.app.installUpdate()),
 
     receive: (status) => set({ status }),
   };

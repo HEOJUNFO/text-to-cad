@@ -81,7 +81,11 @@ export function initUpdater() {
   nativeUpdater.on("before-quit-for-update", markQuittingForUpdate);
 
   autoUpdater.on("checking-for-update", () => {
-    if (!busyWithUpdate()) {
+    // An offered update stays offered while the feed is asked again (the
+    // scheduled check runs from `available`): the Download button is not
+    // swapped for a spinner, and the answer — `update-available` refreshes it,
+    // `update-not-available` retires it — is what moves the status.
+    if (!busyWithUpdate() && status.state !== "available") {
       setStatus({ state: "checking" });
     }
   });
@@ -190,6 +194,13 @@ export function isMissingFeedFile(error: unknown): boolean {
 }
 
 function failed(error: unknown): UpdateStatus {
+  // `available` is only ever left by an answer or by `downloadUpdate`, which
+  // moves to `downloading` first: an error here is a background check that
+  // failed, and the update it found earlier is still there to download.
+  if (status.state === "available") {
+    console.warn("[updater] check failed while an update is on offer:", message(error));
+    return status;
+  }
   if (isMissingFeedFile(error)) {
     console.warn("[updater] release has no update feed for this platform yet:", message(error));
     return status.state === "idle" ? status : setStatus({ state: "idle" });
@@ -216,19 +227,39 @@ export async function downloadUpdate(): Promise<UpdateStatus> {
  * to quit and install nothing quits and installs nothing, loudly.
  */
 export function installUpdate() {
-  if (status.state !== "downloaded") {
+  // A second press while the first is under way: MacUpdater would add a second
+  // `update-downloaded` listener and a second install while Squirrel is still
+  // fetching, and BaseUpdater's second `install` resets its own guard.
+  if (status.state !== "downloaded" || installing) {
     return;
   }
   stopUpdater();
   installing = true;
-  // `isSilent` false, `isForceRunAfter` true: show the installer on Windows,
-  // and come back up afterwards on every platform.
+  // `isSilent` false: show the installer on Windows. BaseUpdater passes
+  // `isSilent ? isForceRunAfter : autoRunAppAfterInstall` on to the installer,
+  // so here the second argument does nothing and coming back up afterwards is
+  // the wizard's "run after finish" box (`oneClick: false`); macOS relaunches
+  // through Squirrel.
   autoUpdater.quitAndInstall(false, true);
 }
 
+/** What a socket says when GitHub could not be reached at all. */
+const UNREACHABLE = /net::ERR_|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH/;
+
+/**
+ * The line About prints (the schema promises a `message` safe to show). The
+ * library's text is for a log: the GitHub provider appends the failure's whole
+ * stack to "Unable to find latest version on GitHub (url), please ensure a
+ * production release exists", so the known cases get a sentence of their own
+ * and anything else keeps its first line and nothing after it.
+ */
 function message(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
+  const raw = error instanceof Error ? error.message : String(error);
+  if (UNREACHABLE.test(raw)) {
+    return "Could not reach GitHub to check for updates.";
   }
-  return String(error);
+  if (/unable to find latest version on github/i.test(raw)) {
+    return "No release is published yet.";
+  }
+  return raw.split(/\r?\n/, 1)[0]!.trim();
 }

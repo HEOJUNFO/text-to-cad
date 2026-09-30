@@ -98,6 +98,17 @@ describe("updater", () => {
     updater.stopUpdater();
   });
 
+  it("a second Restart while the first install is under way does not quit and install again", async () => {
+    const updater = await load();
+    autoUpdater.emit("update-downloaded", { version: "2.0.0" });
+    // MacUpdater with Squirrel still fetching: quitAndInstall returns, nothing quits.
+    mocks.quitAndInstall.mockImplementation(() => undefined);
+    updater.installUpdate();
+    updater.installUpdate();
+    expect(mocks.quitAndInstall).toHaveBeenCalledTimes(1);
+    updater.stopUpdater();
+  });
+
   it("an install that is refused puts the scheduled checks back", async () => {
     const updater = await load();
     await vi.advanceTimersByTimeAsync(10_000);
@@ -114,6 +125,43 @@ describe("updater", () => {
     expect(mocks.check).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
     expect(mocks.check).toHaveBeenCalledTimes(3);
+    updater.stopUpdater();
+  });
+
+  it("shows one line of an error, never its stack", async () => {
+    const updater = await load();
+    autoUpdater.emit("error", new Error("x\n    at foo (file:1:1)"));
+    const { message } = updater.updateStatus();
+    expect(message).toBe("x");
+    expect(message).not.toContain("at foo");
+    updater.stopUpdater();
+  });
+
+  it("says a release is missing in a sentence, not in the provider's text and stack", async () => {
+    const updater = await load();
+    autoUpdater.emit(
+      "error",
+      new Error(
+        "Unable to find latest version on GitHub (https://github.com/o/r/releases/latest), please ensure a production release exists: HttpError: 404\n    at createHttpError (x.js:1:1)",
+      ),
+    );
+    expect(updater.updateStatus()).toEqual({ state: "error", message: "No release is published yet." });
+    updater.stopUpdater();
+  });
+
+  it("a background check that fails leaves the offered update on offer", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const updater = await load();
+    autoUpdater.emit("update-available", { version: "2.0.0" });
+    autoUpdater.emit("checking-for-update");
+    expect(updater.updateStatus()).toEqual({ state: "available", version: "2.0.0" });
+    autoUpdater.emit("error", new Error("net::ERR_INTERNET_DISCONNECTED"));
+    expect(updater.updateStatus()).toEqual({ state: "available", version: "2.0.0" });
+
+    autoUpdater.emit("checking-for-update");
+    autoUpdater.emit("update-not-available", { version: "1.0.0" });
+    expect(updater.updateStatus()).toEqual({ state: "idle" });
+    warn.mockRestore();
     updater.stopUpdater();
   });
 
@@ -153,7 +201,7 @@ describe("updater", () => {
     expect(warn).toHaveBeenCalled();
 
     mocks.check.mockRejectedValue(new Error("net::ERR_INTERNET_DISCONNECTED"));
-    expect(await updater.checkForUpdates()).toEqual({ state: "error", message: "net::ERR_INTERNET_DISCONNECTED" });
+    expect(await updater.checkForUpdates()).toEqual({ state: "error", message: "Could not reach GitHub to check for updates." });
     warn.mockRestore();
     updater.stopUpdater();
   });
