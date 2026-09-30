@@ -11,6 +11,7 @@ import { useProjects } from "./projects";
 import { useSessions } from "./sessions";
 import { hasDirtyDocument, performDocumentCommand, performPdfCommand } from "./live-documents";
 import { performCadViewerCommand } from "./live-cad";
+import { imageResult } from "./image-result";
 
 async function rendererIdForPath(projectId: string, root: string | null, path: string, tabId: string) {
   const composition = createDesktopRenderers(projectId, root, tabId);
@@ -57,12 +58,6 @@ async function scopedTab(command: IntegrationCommand, signal?: AbortSignal) {
   const tab = strip.tabs.find(tab => tab.id === (command.tabId ?? strip.activeId));
   if (!tab) throw new Error("that tab is closed or belongs to another workspace");
   return tab;
-}
-
-async function imageResult(blob: Blob, metadata: Record<string, unknown>) {
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte);
-  return { ...metadata, mimeType: blob.type, base64: btoa(binary) };
 }
 
 export async function performIntegrationCommand(command: IntegrationCommand, signal?: AbortSignal): Promise<unknown> {

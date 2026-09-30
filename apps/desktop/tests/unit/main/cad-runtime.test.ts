@@ -138,6 +138,7 @@ function machine(options: {
     resourcesDir: resources,
     appRoot,
     nodeBinary: "/apps/text-to-cad.app/Contents/MacOS/text-to-cad",
+    packaged: false,
     env: options.env ?? {},
     overrideSetting: () => options.override ?? null,
     exec: async (file, args, execOptions): Promise<ExecResult> => {
@@ -371,6 +372,16 @@ describe("status", () => {
     expect(status).toMatchObject({ state: "missing", python: null, source: null, cadgenVersion: null });
     expect(status.message).toContain(bundledPaths(m.resources, "darwin", "arm64").root);
     expect(status.message).toContain("not running from a checkout");
+  });
+
+  it("tells an installed copy to reinstall, without naming a build script; a checkout keeps the pointer", async () => {
+    const m = machine({});
+    (m.host as { packaged: boolean }).packaged = true;
+    const packaged = (await new CadRuntime(m.host).status()).message;
+    expect(packaged).toContain("Reinstall");
+    expect(packaged).not.toContain("scripts/");
+    m.host.packaged = false;
+    expect((await new CadRuntime(m.host).status()).message).toContain("scripts/bundle-runtime.mjs");
   });
 
   it("is ready with the bundle's version and viewer flag, probed once", async () => {
@@ -728,7 +739,30 @@ describe("status", () => {
     expect(status.message).toContain("/nowhere/python");
   });
 
-  it("does not remember a failed probe, and repair probes again", async () => {
+  it("runs a failing doctor once per window; repair() and the window's end ask again", async () => {
+    const m = machine({ bundle: true });
+    let now = 1_000;
+    (m.host as { now?: () => number }).now = () => now;
+    (m.host as { exec: RuntimeHost["exec"] }).exec = async (file, args) => {
+      m.execs.push({ file, args, env: {} });
+      return { stdout: "", stderr: "ImportError: dlopen failed", code: 1 };
+    };
+    const runtime = new CadRuntime(m.host);
+    for (let bind = 0; bind < 5; bind += 1) {
+      expect(await runtime.daemonReady()).toBeNull();
+      expect(await runtime.ready()).toBeNull();
+    }
+    expect(m.execs).toHaveLength(1);
+    await runtime.repair();
+    expect(m.execs).toHaveLength(2);
+    await runtime.ready();
+    expect(m.execs).toHaveLength(2);
+    now += 61_000;
+    await runtime.ready();
+    expect(m.execs).toHaveLength(3);
+  });
+
+  it("does not remember a failed probe past repair, which probes again", async () => {
     const m = machine({ bundle: true });
     const python = bundledPaths(m.resources, "darwin", "arm64").python;
     // First the bundle answers with an error; then it is fixed.

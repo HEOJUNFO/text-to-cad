@@ -1,4 +1,5 @@
 import type { CadLiveBinding, CadLiveController, CadLiveState } from "@text-to-cad/ui/renderers/step";
+import { imageResult } from "./image-result";
 type Scope = { projectId: string; root: string | null };
 const live = new Map<string, Scope & { controller: CadLiveController }>();
 const snapshots = new Map<string, Scope & { state: CadLiveState }>();
@@ -31,9 +32,7 @@ export async function performCadViewerCommand(kind: string, params: Record<strin
   if (kind === "capture-view") {
     const state = controller.readState();
     const blob = await controller.capture();
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte);
-    return { tabId, ...state, base64: btoa(binary), mimeType: blob.type };
+    return imageResult(blob, { tabId, ...state });
   }
   throw new Error(`Unknown CAD operation: ${kind}`);
 }

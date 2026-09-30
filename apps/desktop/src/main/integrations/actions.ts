@@ -24,6 +24,7 @@ import path from "node:path";
 import { integrations, toolByName } from "./registry.mjs";
 
 import type { IntegrationCommand, IntegrationCommandKind, IntegrationReply } from "../../shared/ipc/integrations";
+import { MAX_IMAGE_BYTES } from "../../shared/image-cap";
 import { climbsOut, resolveInRoot, toRelative } from "../explorer/fs";
 import type { BridgeActions, BridgeSession } from "./mcp-bridge";
 
@@ -33,11 +34,6 @@ const REPLY_TIMEOUT_MS = 10_000;
 // finds it already done (or conflicts with it).
 const SLOW_REPLY_TIMEOUT_MS = 30_000;
 const SLOW_KINDS: ReadonlySet<IntegrationCommandKind> = new Set(["document-save", "capture-view", "drawing-capture", "pdf-capture"]);
-// The model rejects an image over 5 MB, and a rejected tool result stays in the
-// transcript for good, so the ceiling is the model's rather than memory's. It
-// measures the base64 the image travels as, which is 4/3 of the file: the cap
-// on the file's own bytes is the 5 MiB divided by that.
-const MAX_SNAPSHOT_BYTES = Math.floor(5 * 1024 * 1024 * 3 / 4);
 const OVER_SNAPSHOT_CAP = "is over the model's 5 MB image limit, which counts the encoded size (about 3.75 MB of file); snapshots that large are not attached";
 
 const IMAGE_TYPES: Record<string, string> = {
@@ -210,9 +206,9 @@ async function readSnapshot(directory: string, absolute: string, target: string,
     if (!there || climbsOut(relative) || there.dev !== opened.dev || there.ino !== opened.ino) {
       throw new Error(`${target} changed while it was being read; only files inside the workspace can be shown`);
     }
-    if (opened.size > MAX_SNAPSHOT_BYTES) throw new Error(`${target} ${OVER_SNAPSHOT_CAP}`);
+    if (opened.size > MAX_IMAGE_BYTES) throw new Error(`${target} ${OVER_SNAPSHOT_CAP}`);
     // Sized from the stat, plus the one byte that shows a file grown since.
-    const buffer = Buffer.allocUnsafe(Math.min(opened.size, MAX_SNAPSHOT_BYTES) + 1);
+    const buffer = Buffer.allocUnsafe(Math.min(opened.size, MAX_IMAGE_BYTES) + 1);
     let length = 0;
     while (length < buffer.length) {
       signal?.throwIfAborted();
@@ -220,7 +216,7 @@ async function readSnapshot(directory: string, absolute: string, target: string,
       if (bytesRead === 0) break;
       length += bytesRead;
     }
-    if (length > MAX_SNAPSHOT_BYTES) throw new Error(`${target} ${OVER_SNAPSHOT_CAP}`);
+    if (length > MAX_IMAGE_BYTES) throw new Error(`${target} ${OVER_SNAPSHOT_CAP}`);
     // More bytes than the stat promised: the file grew during the read, and what
     // is in the buffer is a cut of it, not the image.
     if (length > opened.size) throw new Error(`${target} changed while it was being read`);

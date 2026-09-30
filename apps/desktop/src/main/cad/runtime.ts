@@ -72,16 +72,29 @@ export type RuntimeHost = {
   resourcesDir: string;
   /** Where the app's code lives; the checkout search starts here. */
   appRoot: string;
+  /** `app.isPackaged`: a copy a person installed, as opposed to a build run from a checkout. */
+  packaged: boolean;
   /** The Node cadgen's builders run under: this Electron binary, as Node. */
   nodeBinary: string;
   env: Record<string, string | undefined>;
   /** The `cadPythonOverride` setting, read fresh on every resolution. */
   overrideSetting: () => string | null;
+  /** The clock the failed-probe window is measured on; `Date.now` when omitted. */
+  now?: () => number;
   /** `timeoutMs` defaults to the probe's sixty seconds. */
   exec: (file: string, args: string[], options: ExecOptions) => Promise<ExecResult>;
 };
 
 const PROBE_TIMEOUT_MS = 60_000;
+
+/**
+ * How long a failed probe is remembered. `cad.warm` asks on every session
+ * bind and a probe can take up to `DOCTOR_TIMEOUT_MS`, so a broken interpreter
+ * re-probed each time floods the log and spawns a doctor per bind. Short
+ * enough that fixing it and reopening is not a wait; `repair()` and an
+ * override change clear it at once.
+ */
+const FAILED_PROBE_MS = 60_000;
 
 const MAX_OUTPUT = 64 * 1024 * 1024;
 
@@ -176,6 +189,7 @@ export function nodeHost(options: {
   appVersion: string;
   resourcesDir: string;
   appRoot: string;
+  packaged: boolean;
   overrideSetting: () => string | null;
 }): RuntimeHost {
   return {
@@ -463,6 +477,8 @@ const HOST_PYTHON_ENV = ["PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONUSE
 
 export class CadRuntime {
   private probeCache = new Map<string, Promise<Probe>>();
+  /** Probes that failed, by key, until the window closes or `invalidate()`. */
+  private failedProbes = new Map<string, { error: unknown; until: number }>();
   /** Interpreters the daemon was not warmed on for their kernel, already logged. */
   private daemonSkipped = new Set<string>();
   private lastError: string | null = null;
@@ -639,6 +655,7 @@ export class CadRuntime {
   /** Drop what is known about an interpreter; the next `status()` probes again. */
   invalidate(): void {
     this.probeCache.clear();
+    this.failedProbes.clear();
     this.daemonSkipped.clear();
   }
 
@@ -659,6 +676,11 @@ export class CadRuntime {
 
   private probe(resolved: ResolvedPython): Promise<Probe> {
     const key = probeKey(resolved);
+    const failed = this.failedProbes.get(key);
+    if (failed && (this.host.now?.() ?? Date.now()) < failed.until) {
+      return Promise.reject(failed.error);
+    }
+    this.failedProbes.delete(key);
     let pending = this.probeCache.get(key);
     if (!pending) {
       pending = (async () => {
@@ -683,10 +705,11 @@ export class CadRuntime {
           this.probeCache.delete(key);
         }
       };
-      // A failed probe is not cached: the person is likely fixing the path.
-      // Nor is a kernel check that timed out: it said nothing about the
-      // kernel, and the next status asks again rather than quoting it all
-      // session.
+      // A failed probe is remembered for `FAILED_PROBE_MS`, not for the
+      // session: the person is likely fixing the path, and `repair()` asks
+      // again at once. Not remembered at all: a kernel check that timed out,
+      // which said nothing about the kernel; the next status asks again
+      // rather than quoting it all session.
       probing.then(
         (probe) => {
           if (probe.kernel?.state === "timeout") {
@@ -694,6 +717,11 @@ export class CadRuntime {
           }
         },
         (error: unknown) => {
+          // Only if this probe is still the current one: an `invalidate()`
+          // since means the answer is about an interpreter setup that is gone.
+          if (this.probeCache.get(key) === probing) {
+            this.failedProbes.set(key, { error, until: (this.host.now?.() ?? Date.now()) + FAILED_PROBE_MS });
+          }
           forget();
           void this.log(`[probe] ${resolved.source} ${resolved.python}: ${error instanceof Error ? error.message : String(error)}`);
         },
@@ -870,6 +898,11 @@ export class CadRuntime {
 
   private missingMessage(): string {
     const bundled = this.bundled();
+    // The card shows this as written. Someone who installed the app cannot act
+    // on a build script; the developer running from a checkout can.
+    if (this.host.packaged) {
+      return `This copy of text-to-cad has no CAD runtime, so models cannot be shown. Reinstall the app to restore it. (Looked for it at ${bundled.root}.)`;
+    }
     const checkout = this.checkout();
     const looked = [
       `no bundled runtime at ${bundled.root}`,

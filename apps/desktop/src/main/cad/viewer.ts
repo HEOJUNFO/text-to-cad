@@ -45,10 +45,18 @@ export const VIEWER_ARGS = ["-m", "cadgen.viewer", "--api-only", "--host", "127.
 
 /** How long the launcher has to print its JSON line. */
 const LAUNCH_TIMEOUT_MS = 90_000;
-/** Crash restarts: 1s, 2s, 4s … capped, and given up after this many in a row. */
+/**
+ * Crash restarts: 1s, 2s, 4s … capped, and given up after this many in a row.
+ * "In a row" ends when an instance stays up `HEALTHY_UPTIME_MS`: its next
+ * crash starts the count again, so a viewer that dies once a day is never
+ * given up on.
+ */
 const RESTART_BASE_MS = 1_000;
 const RESTART_MAX_MS = 30_000;
 const RESTART_LIMIT = 5;
+const HEALTHY_UPTIME_MS = 5 * 60_000;
+/** Live viewers this manager started; opening one more stops the least recently asked for. */
+const MAX_LIVE_VIEWERS = 3;
 
 export type Launched = { url: string; port: number; action: "started" | "reused" };
 
@@ -80,7 +88,10 @@ type Entry = {
   /** Somebody else's instance: probed before use, never killed. */
   reused: boolean;
   child: ViewerChild | null;
+  /** Crashes in a row that led to this instance. */
   restarts: number;
+  /** When it announced, on the manager's clock. */
+  startedAt: number;
   stopped: boolean;
 };
 
@@ -93,6 +104,15 @@ export type ViewerManagerDeps = {
   /** Is an origin answering? Used for reused instances before handing them out. */
   probe?: (origin: string) => Promise<boolean>;
   delay?: (ms: number) => Promise<void>;
+  /** The clock uptime is measured on; `Date.now` when omitted. */
+  now?: () => number;
+  /**
+   * Roots that must keep their viewer (a CAD tab is open on them). Asked when
+   * a launch would put the manager over its bound; never evicted.
+   */
+  inUse?: () => Iterable<string>;
+  /** The bound on live viewers; `MAX_LIVE_VIEWERS` when omitted. */
+  maxLive?: number;
   log?: (line: string) => void;
 };
 
@@ -129,8 +149,8 @@ class StoppedWhileLaunching extends Error {
 export class ViewerManager extends EventEmitter {
   private readonly entries = new Map<string, Entry>();
   private readonly pending = new Map<string, Promise<ViewerOrigin>>();
-  /** The last launch failure per root, for the card that says why there is no viewer. */
-  private readonly failures = new Map<string, string>();
+  /** The child of each launch still waiting to announce, so a stop can kill it now. */
+  private readonly launching = new Map<string, ViewerChild>();
   /**
    * Bumped by every `stop` (entry or not) and, for all roots at once, by
    * `stopAll`. A crash's restart remembers the generation it was scheduled
@@ -138,10 +158,14 @@ export class ViewerManager extends EventEmitter {
    * relaunch — on quit, or a deleted worktree session — must stay a stop.
    */
   private readonly stops = new Map<string, number>();
+  /** When each root was last asked for, as a counter: the order eviction goes in. */
+  private readonly lastAsked = new Map<string, number>();
+  private askedCount = 0;
   private stopsAll = 0;
   private readonly spawn: ViewerSpawn;
   private readonly probe: (origin: string) => Promise<boolean>;
   private readonly delay: (ms: number) => Promise<void>;
+  private readonly now: () => number;
   private readonly log: (line: string) => void;
 
   constructor(private readonly deps: ViewerManagerDeps) {
@@ -149,6 +173,7 @@ export class ViewerManager extends EventEmitter {
     this.spawn = deps.spawn ?? defaultSpawn;
     this.probe = deps.probe ?? defaultProbe;
     this.delay = deps.delay ?? defaultDelay;
+    this.now = deps.now ?? Date.now;
     this.log = deps.log ?? ((line) => console.info(`[viewer] ${line}`));
   }
 
@@ -167,6 +192,7 @@ export class ViewerManager extends EventEmitter {
    * one root share a launch; a root whose instance is up answers at once.
    */
   originFor(root: string): Promise<ViewerOrigin> {
+    this.lastAsked.set(root, ++this.askedCount);
     const existing = this.entries.get(root);
     if (existing && !existing.stopped) {
       if (!existing.reused) {
@@ -184,10 +210,18 @@ export class ViewerManager extends EventEmitter {
     }
     let pending = this.pending.get(root);
     if (!pending) {
-      pending = this.launch(root).finally(() => this.pending.delete(root));
+      const launch = this.launch(root).finally(() => this.forgetPending(root, launch));
+      pending = launch;
       this.pending.set(root, pending);
     }
     return pending;
+  }
+
+  /** Drop `promise` from the pending launches — unless a stop has since let a newer one take its place. */
+  private forgetPending(root: string, promise: Promise<ViewerOrigin>): void {
+    if (this.pending.get(root) === promise) {
+      this.pending.delete(root);
+    }
   }
 
   private async launch(root: string): Promise<ViewerOrigin> {
@@ -202,14 +236,12 @@ export class ViewerManager extends EventEmitter {
     }
     try {
       const entry = await this.start(root, resolved, 0, generation);
-      this.failures.delete(root);
       return { origin: entry.origin };
     } catch (error) {
       if (error instanceof StoppedWhileLaunching) {
         return { origin: null, reason: "viewer-failed", message: error.message };
       }
       const message = error instanceof Error ? error.message : String(error);
-      this.failures.set(root, message);
       this.log(`launch failed for ${root}: ${message}`);
       return { origin: null, reason: "viewer-failed", message };
     }
@@ -225,11 +257,16 @@ export class ViewerManager extends EventEmitter {
       const child = this.spawn(resolved.python, VIEWER_ARGS, { cwd: root, env: this.deps.env(resolved) });
       const stderrTail: string[] = [];
       let settled = false;
+      this.launching.set(root, child);
+      const announced = () => {
+        if (this.launching.get(root) === child) this.launching.delete(root);
+      };
       let launched: Launched | null = null;
 
       const timer = setTimeout(() => {
         if (!settled) {
           settled = true;
+          announced();
           child.kill();
           reject(new Error(`the viewer did not announce itself within ${LAUNCH_TIMEOUT_MS / 1000}s`));
         }
@@ -241,6 +278,7 @@ export class ViewerManager extends EventEmitter {
           return;
         }
         settled = true;
+        announced();
         clearTimeout(timer);
         launched = parsed;
         if (generation !== undefined && generation !== this.stopGeneration(root)) {
@@ -257,9 +295,11 @@ export class ViewerManager extends EventEmitter {
           reused: parsed.action === "reused",
           child: parsed.action === "started" ? child : null,
           restarts,
+          startedAt: this.now(),
           stopped: false,
         };
         this.entries.set(root, entry);
+        this.evictBeyondBound(root);
         this.log(`${parsed.action} ${entry.origin} for ${root}${child.pid ? ` (pid ${child.pid})` : ""}`);
         this.emit("change", this.list());
         resolve(entry);
@@ -276,7 +316,12 @@ export class ViewerManager extends EventEmitter {
       child.on("exit", (code, signal) => {
         if (!settled) {
           settled = true;
+          announced();
           clearTimeout(timer);
+          if (generation !== undefined && generation !== this.stopGeneration(root)) {
+            reject(new StoppedWhileLaunching(root));
+            return;
+          }
           reject(new Error(`the viewer exited (${code ?? signal}) before announcing itself: ${stderrTail.slice(-3).join(" | ")}`));
           return;
         }
@@ -295,14 +340,16 @@ export class ViewerManager extends EventEmitter {
           return;
         }
         this.log(`viewer for ${root} exited (${code ?? signal})`);
-        void this.restart(root, resolved, entry.restarts + 1);
+        // One that stayed up was healthy: this is a first crash, not another in a row.
+        const healthy = this.now() - entry.startedAt >= HEALTHY_UPTIME_MS;
+        void this.restart(root, resolved, healthy ? 1 : entry.restarts + 1);
       });
     });
   }
 
   private async restart(root: string, resolved: ResolvedPython, attempt: number): Promise<void> {
     if (attempt > RESTART_LIMIT) {
-      this.log(`viewer for ${root} crashed ${RESTART_LIMIT} times in a row; giving up until it is asked for again`);
+      this.log(`viewer for ${root} crashed ${RESTART_LIMIT} times in a row (none staying up ${HEALTHY_UPTIME_MS / 60_000} minutes); giving up until it is asked for again`);
       return;
     }
     const generation = this.stopGeneration(root);
@@ -320,19 +367,52 @@ export class ViewerManager extends EventEmitter {
           return { origin: null, reason: "viewer-failed", message: error.message };
         }
         const message = error instanceof Error ? error.message : String(error);
-        this.failures.set(root, message);
-        this.log(`restart failed for ${root}: ${message}`);
+          this.log(`restart failed for ${root}: ${message}`);
         void this.restart(root, resolved, attempt + 1);
         return { origin: null, reason: "viewer-failed", message };
       })
-      .finally(() => this.pending.delete(root));
+      .finally(() => this.forgetPending(root, pending));
     this.pending.set(root, pending);
     await pending;
+  }
+
+  /**
+   * Keep the viewers this manager started within the bound: past it, stop the
+   * least recently asked-for one whose root has no CAD tab open. `keep` (the
+   * one that just came up) is never the victim. A project root that idles for
+   * the rest of the session is otherwise a Python process until quit.
+   */
+  private evictBeyondBound(keep: string): void {
+    const bound = this.deps.maxLive ?? MAX_LIVE_VIEWERS;
+    const owned = () => [...this.entries.values()].filter((entry) => entry.child && entry.root !== keep);
+    const busy = new Set(this.deps.inUse?.() ?? []);
+    while ([...this.entries.values()].filter((entry) => entry.child).length > bound) {
+      const victim = owned()
+        .filter((entry) => !busy.has(entry.root))
+        .sort((a, b) => (this.lastAsked.get(a.root) ?? 0) - (this.lastAsked.get(b.root) ?? 0))[0];
+      if (!victim) {
+        return;
+      }
+      this.log(`more than ${bound} viewers are running; stopping the least recently used, for ${victim.root}`);
+      this.stop(victim.root);
+    }
   }
 
   /** Stop the instance for a root — ours only. A reused one is forgotten, not killed. */
   stop(root: string): void {
     this.stops.set(root, (this.stops.get(root) ?? 0) + 1);
+    this.lastAsked.delete(root);
+    // A launch still coming up is stopped now, not when it announces, and the
+    // next `originFor` starts its own: joining this one would hand its caller
+    // "stopped while launching" for a viewer it just asked for. (Whoever
+    // already joined sees that failure once.)
+    this.pending.delete(root);
+    const starting = this.launching.get(root);
+    if (starting) {
+      this.launching.delete(root);
+      this.log(`stopping the viewer for ${root} while it launches (pid ${starting.pid})`);
+      starting.kill();
+    }
     const entry = this.entries.get(root);
     if (!entry) {
       return;

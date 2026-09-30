@@ -15,12 +15,13 @@ const fakes = vi.hoisted(() => {
     daemonReady: vi.fn(),
     warm: vi.fn(),
     originFor: vi.fn(),
+    hasCadFile: vi.fn(),
   };
 });
 
 vi.mock("electron", () => ({ app: { getPath: () => "/user-data" } }));
 vi.mock("@main/app-paths", () => ({ appVersion: () => "0.0.0", appRoot: () => "/app", resourcesDir: () => "/resources" }));
-vi.mock("@main/db/repositories", () => ({ sessions: { list: () => [] }, settings: { get: () => ({ cadPythonOverride: null }) } }));
+vi.mock("@main/db/repositories", () => ({ explorerTabs: { list: () => [] }, projects: { get: () => null }, sessions: { list: () => [] }, settings: { get: () => ({ cadPythonOverride: null }) } }));
 vi.mock("@main/projects/git", () => ({ samePath: () => false }));
 vi.mock("@main/cad/runtime", () => ({
   CadRuntime: class {
@@ -33,6 +34,7 @@ vi.mock("@main/cad/runtime", () => ({
   runtimeLogPath: () => "/user-data/cad-runtime.log",
 }));
 vi.mock("@main/cad/viewer", () => ({ ViewerManager: class { originFor = fakes.originFor; } }));
+vi.mock("@main/cad/has-cad-file", () => ({ hasCadFile: fakes.hasCadFile, CAD_FILE: /\.step$/ }));
 vi.mock("@main/cad/daemon", () => ({ DaemonWarmer: class { warm = fakes.warm; } }));
 import { initCad, warmCad } from "@main/cad";
 
@@ -40,6 +42,7 @@ beforeEach(async () => {
   fakes.ready.mockReset().mockResolvedValue(fakes.resolved);
   fakes.daemonReady.mockReset();
   fakes.warm.mockReset();
+  fakes.hasCadFile.mockReset().mockResolvedValue(true);
   fakes.originFor.mockReset().mockResolvedValue("http://127.0.0.1:1");
   await initCad();
 });
@@ -56,4 +59,12 @@ test("a runtime the daemon can start on warms both, on the interpreter daemonRea
   await warmCad("/project");
   expect(fakes.originFor).toHaveBeenCalledOnce();
   expect(fakes.warm).toHaveBeenCalledWith(fakes.resolved);
+});
+
+test("a root with no CAD file starts neither a viewer nor the daemon", async () => {
+  fakes.hasCadFile.mockResolvedValue(false);
+  fakes.daemonReady.mockResolvedValue(fakes.resolved);
+  await warmCad("/prose-only");
+  expect(fakes.originFor).not.toHaveBeenCalled();
+  expect(fakes.warm).not.toHaveBeenCalled();
 });
