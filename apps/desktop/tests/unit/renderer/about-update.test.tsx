@@ -80,6 +80,10 @@ describe("About › Software update", () => {
   it("exposes the download as a named progress bar", () => {
     useUpdates.setState({ status: { state: "downloading", version: "2.0.0", percent: 40 } });
     renderAbout();
+    // The live region is not rewritten by every progress event.
+    expect(screen.getByRole("status")).toHaveTextContent("Downloading 2.0.0…");
+    expect(screen.getByRole("status").textContent).not.toMatch(/\d+%/);
+    expect(screen.getByText("40%")).toBeInTheDocument();
     const bar = screen.getByRole("progressbar", { name: /download/i });
     expect(bar).toHaveAttribute("aria-valuenow", "40");
     expect(bar).toHaveAttribute("aria-valuemin", "0");

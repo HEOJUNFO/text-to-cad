@@ -148,7 +148,10 @@ function UpdateRow() {
       action: { label: "Download", onClick: download },
     },
     downloading: {
-      description: `Downloading${version}… ${Math.round(status.percent ?? 0)}%`,
+      // No number here: this is a polite live region, and a percentage that
+      // changes every second would be read out every second. The reading is the
+      // progress bar's (and is printed beside it, outside the region).
+      description: `Downloading${version}…`,
       action: null,
     },
     downloaded: {
@@ -187,7 +190,11 @@ function UpdateRow() {
           </Button>
         ) : (
           <span className="text-sm text-muted-foreground">
-            {status.state === "checking" || status.state === "downloading" ? "…" : "—"}
+            {status.state === "downloading"
+              ? `${Math.round(status.percent ?? 0)}%`
+              : status.state === "checking"
+                ? "…"
+                : "—"}
           </span>
         )
       }
