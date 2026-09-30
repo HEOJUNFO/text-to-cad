@@ -681,7 +681,9 @@ export function useViewerRuntime({
       };
       const wheelListenerOptions = { passive: true, capture: true };
       // After the controls' own wheel listener (registered when they were made): the wheel has
-      // been acted on, or ignored, and a later change is not its zoom.
+      // been acted on, or ignored, and a later change is not its zoom. The gate depends on three's
+      // listener being registered FIRST, so nothing may call controls.connect()/disconnect()
+      // (which would re-add it after this one).
       const handleWheelHandled = () => zoomPivotGate.wheelEnd();
 
       controls.addEventListener("start", handleControlsStart);
