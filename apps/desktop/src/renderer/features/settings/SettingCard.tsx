@@ -406,6 +406,7 @@ export function PathRow({
   onChoose,
   onClear,
   chooseLabel = "Choose…",
+  note,
 }: {
   title: string;
   description?: string;
@@ -416,6 +417,8 @@ export function PathRow({
   onChoose: () => void;
   onClear?: () => void;
   chooseLabel?: string;
+  /** A quiet line under the row — the stored folder is gone. */
+  note?: string;
 }) {
   return (
     <SettingRow
@@ -446,7 +449,9 @@ export function PathRow({
       description={description}
       keywords={keywords}
       title={title}
-    />
+    >
+      {note ? <p className="text-xs text-muted-foreground">{note}</p> : null}
+    </SettingRow>
   );
 }
 

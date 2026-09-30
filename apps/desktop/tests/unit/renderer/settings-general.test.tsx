@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
@@ -24,5 +24,12 @@ describe("Settings › General", () => {
       expect(screen.getByText(event, { exact: true })).toBeInTheDocument();
     }
     expect(screen.getByText(/never the name or the path/)).toBeInTheDocument();
+  });
+
+  it("notes a default project folder that no longer exists", async () => {
+    useSettings.setState({ settings: { ...defaultSettings(), defaultProjectFolder: "/gone" }, ready: true });
+    vi.mocked(window.textToCad.settings.fallbacks).mockResolvedValue({ defaultProjectFolder: "/gone" });
+    render(<TooltipProvider><SettingsRoute /></TooltipProvider>);
+    expect(await screen.findByText(/no longer exists, so the chooser opens in your home folder/)).toBeInTheDocument();
   });
 });

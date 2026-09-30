@@ -24,6 +24,7 @@ import {
   useDraft,
 } from "@renderer/features/settings/SettingCard";
 import {
+  useSettingsFallbacks,
   useSettingsPatch,
   useSettingsValue,
 } from "@renderer/features/settings/settings-value";
@@ -63,19 +64,8 @@ export function GitPage() {
   // A prefix stored before git's rules were checked, which main reads as the
   // default (`settings.fallbacks`): asked again whenever settings change, so
   // the note goes once a prefix is set.
-  const [storedPrefix, setStoredPrefix] = useState<string | null>(null);
-  useEffect(() => {
-    let current = true;
-    void window.textToCad.settings
-      .fallbacks()
-      .then(({ branchPrefix }) => {
-        if (current) setStoredPrefix(branchPrefix ?? null);
-      })
-      .catch(() => {});
-    return () => {
-      current = false;
-    };
-  }, [settings]);
+  const fallbacks = useSettingsFallbacks();
+  const storedPrefix = fallbacks.branchPrefix ?? null;
 
   return (
     <>
@@ -139,6 +129,7 @@ export function GitPage() {
               })
               .then((chosen) => chosen && patch({ worktreeRoot: chosen.path }));
           }}
+          note={fallbacks.worktreeRoot ? "This folder no longer exists; it is created again with the next worktree." : undefined}
           onClear={() => patch({ worktreeRoot: null })}
           placeholder="~/.text-to-cad/worktrees"
           title="Worktree root"
