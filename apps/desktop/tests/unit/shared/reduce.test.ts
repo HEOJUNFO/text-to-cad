@@ -701,6 +701,19 @@ describe("reduce: content that arrives after prompt/end", () => {
   });
 });
 
+describe("reduce: a crash mid-turn", () => {
+  it("puts the error in the turn it ended, whichever of the status and the rejection comes first", () => {
+    let state = started(connected());
+    state = update(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "working" } });
+    state = reduce(state, { type: "status", status: "error", error: "adapter died", at });
+    state = reduce(state, { type: "prompt/error", message: "adapter died", at });
+    expect(state.turns.map((turn) => turn.role)).toEqual(["user", "agent"]);
+    expect(state.turns.at(-1)?.parts.at(-1)).toEqual({ type: "error", message: "adapter died" });
+    expect(state.turns.at(-1)?.endedAt).not.toBeNull();
+    expect(state.status).toBe("error");
+  });
+});
+
 describe("reduce: a settled call stays settled", () => {
   it("does not let a late in_progress bring a failed call back to life", () => {
     let state = started(connected());

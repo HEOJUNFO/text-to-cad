@@ -147,10 +147,14 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
     }
 
     case "prompt/error": {
-      const withError = withRootParts(state, event.at, (parts) => [
-        ...parts,
-        { type: "error", message: event.message },
-      ]);
+      const addError = (parts: Part[]) => [...parts, { type: "error", message: event.message } as Part];
+      // A turn already ended (a crash reports `status: error` before the SDK's rejection arrives,
+      // and that ends it) keeps its error: a new turn for it would leave the real one without.
+      const last = state.turns.at(-1);
+      const withError =
+        last && last.endedAt !== null
+          ? withClosedParts(state, event.at, addError)
+          : withRootParts(state, event.at, addError);
       const closed = closeOpenTurn(withError, event.at, null, { tool: "failed", subagent: "failed" });
       return {
         ...closed,
