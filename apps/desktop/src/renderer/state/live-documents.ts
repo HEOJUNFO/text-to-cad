@@ -1,3 +1,4 @@
+import { imageResult } from './image-result';
 import { movedFilePath } from '@text-to-cad/ui/file-viewer';
 import type { DocumentDrafts, LiveTextDocument, LivePdfDocument, ViewerHost, TextDraft, LiveTextSnapshot, LivePdfSnapshot } from '@text-to-cad/ui/host';
 
@@ -144,9 +145,8 @@ export async function performPdfCommand(kind: string, params: Record<string, unk
     const frozen = document.state();
     const capturedPage = params.page as number | undefined ?? frozen.page;
     const blob = await document.capture(capturedPage);
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte);
-    return { base64: btoa(binary), mimeType: 'image/png', ...frozen, page: capturedPage, visiblePage: frozen.page };
+    // Through the same cap as the viewer and drawing captures: a page rendered at up to 4096 px can be over the model's image limit.
+    return imageResult(blob, { ...frozen, page: capturedPage, visiblePage: frozen.page });
   }
   throw new Error(`Unknown PDF command: ${kind}`);
 }
