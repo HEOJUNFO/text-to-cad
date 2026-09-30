@@ -697,6 +697,45 @@ describe("SessionManager", () => {
     await expect(turn).resolves.toMatchObject({ stopReason: "end_turn" });
   });
 
+  /**
+   * A snapshot of a huge or locked tree can take a minute. The mark is never
+   * a reason to fail a turn, nor to hold one back for long: past five seconds
+   * the commit stands in for the tree.
+   */
+  it("falls back to HEAD when a turn's snapshot takes longer than five seconds", async () => {
+    const { repo, manager, cwd } = await setup({
+      head: async () => "the-commit",
+      snapshot: (_cwd, mark) => (mark.endsWith("/turn") ? new Promise<string>(() => undefined) : Promise.resolve("tree")),
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const turn = manager.prompt(session.id, [{ type: "text", text: "hello" }]);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(turn).resolves.toMatchObject({ stopReason: "end_turn" });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(repo.get(session.id)?.turnHead).toBe("the-commit");
+  });
+
+  it("spawns the adapter without waiting for the creating session's snapshot", async () => {
+    const { broadcasts, manager, cwd } = await setup({
+      head: async () => "the-commit",
+      snapshot: () => new Promise<string>(() => undefined),
+    });
+    const creating = manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    creating.catch(() => undefined);
+    // `session/new` answered: the adapter was spawned while the snapshot hangs.
+    await until(() =>
+      broadcasts.some(
+        (b) => b.channel === "session.update" && (b.payload as { event: { type: string } }).event.type === "session/connected",
+      )
+        ? true
+        : undefined,
+    );
+  });
+
   it("has no snapshot for a session that never connected, so the spinner stays", async () => {
     const { manager } = await setup({ snapshots: memorySnapshots() });
     expect(manager.state("session-does-not-exist")).toBeNull();

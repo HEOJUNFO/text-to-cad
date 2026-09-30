@@ -239,6 +239,10 @@ export function titleFromPrompt(content: PromptBlock[], max = 60): string {
  */
 type ChangeTally = { files: Set<string>; baseFiles: number; insertions: number; deletions: number };
 
+/** How long a turn (or a create) waits for the working tree to be snapshotted. */
+const MARK_WAIT_MS = 5_000;
+const EXPIRED = Symbol("mark wait expired");
+
 /** How long a config-option probe may take before it is abandoned. */
 const PROBE_TIMEOUT_MS = 60_000;
 
@@ -405,10 +409,12 @@ export class SessionManager {
     // worktree the caller named (`New session in this worktree`, which sends
     // `cwd`), so the start of those is the tree as it is.
     const fresh = input.gitMode === "worktree" && !input.cwd;
-    const startHead = fresh
-      ? await this.headOf(workspace.cwd)
-      : await this.markOf(workspace.cwd, `${id}/session`);
-    const turnStart = fresh ? await this.markOf(workspace.cwd, `${id}/turn`) : startHead;
+    // Started now and settled after `session/new`: the marks are of the tree
+    // before the first prompt, which cannot go out until this create has
+    // returned, so they overlap the spawn rather than delay it.
+    const marks: Promise<[string | null, string | null]> = fresh
+      ? Promise.all([this.headOf(workspace.cwd), this.markWithin(workspace.cwd, `${id}/turn`)])
+      : this.markWithin(workspace.cwd, `${id}/session`).then((head) => [head, head]);
     const now = Date.now();
     const session: Session = {
       id,
@@ -429,11 +435,12 @@ export class SessionManager {
       deletions: 0,
       archived: false,
       pinned: false,
-      // Both scopes start here. `turnHead` is the session's mark until the
-      // first turn moves it, so a review taken before any prompt shows what
-      // the person changed by hand rather than nothing at all.
-      sessionHead: startHead,
-      turnHead: turnStart,
+      // Both scopes start at `marks`, filled in below once they have landed.
+      // `turnHead` is the session's mark until the first turn moves it, so a
+      // review taken before any prompt shows what the person changed by hand
+      // rather than nothing at all.
+      sessionHead: null,
+      turnHead: null,
     };
     try {
       this.deps.repo.upsert(session);
@@ -469,11 +476,14 @@ export class SessionManager {
         this.pendingTitles.delete(session.id);
         this.deps.repo.remove(session.id);
         this.broadcastIndex();
+        // The marks may still be landing: unpin them once they have, and take
+        // the branch's base from the session mark (`releaseWorkspace`).
+        const [startHead] = await marks;
         await this.unpinMarks(session);
         // The worktree this create made goes with the row. Not one it was given
         // (`New session in this worktree`): that directory was there before.
         if (workspace.worktreePath && !input.cwd) {
-          await this.deps.releaseWorkspace?.(session, { abandoned: true }).catch(() => undefined);
+          await this.deps.releaseWorkspace?.({ ...session, sessionHead: startHead }, { abandoned: true }).catch(() => undefined);
         }
         throw error;
       }
@@ -482,7 +492,13 @@ export class SessionManager {
       // `set_config_option` leaves the session at the agent's own defaults,
       // which is a working session.
       await this.applyPreferences(session, connection);
-      const updated = this.update(session.id, { acpSessionId: connection.acpSessionId, status: "idle" });
+      const [sessionHead, turnHead] = await marks;
+      const updated = this.update(session.id, {
+        acpSessionId: connection.acpSessionId,
+        status: "idle",
+        sessionHead,
+        turnHead,
+      });
       this.deps.broadcast("session.state", { sessionId: session.id, state: connection.state });
       // The registry id and nothing else — no directory, project or prompt.
       this.deps.track?.({ name: "session_created", agent: session.agentId });
@@ -887,7 +903,7 @@ export class SessionManager {
       // would measure the turn against its own result. A read that failed
       // (a lock, a timeout) keeps the previous mark: a wider `Last turn` is
       // still a review, where a null would unmark it altogether.
-      const turnHead = await this.markOf(session.cwd, `${id}/turn`);
+      const turnHead = await this.markWithin(session.cwd, `${id}/turn`);
       this.update(id, turnHead === null ? {} : { turnHead });
       try {
         const response = await connection.prompt(content, `${id}:${Date.now()}`);
@@ -1117,6 +1133,30 @@ export class SessionManager {
   private async markOf(cwd: string, mark: string): Promise<string | null> {
     const tree = await this.deps.snapshot?.(cwd, mark).catch(() => null);
     return tree ?? this.headOf(cwd);
+  }
+
+  /**
+   * `markOf`, but only up to `MARK_WAIT_MS`: a `git add` in a huge or locked
+   * tree can take a minute, and a turn — or a new session — waits for its
+   * mark on the way out. Past the wait the commit stands in for the tree, the
+   * same fallback a git failure gets, and the late snapshot's result is
+   * dropped.
+   */
+  private async markWithin(cwd: string, mark: string): Promise<string | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<typeof EXPIRED>((resolve) => {
+      timer = setTimeout(() => resolve(EXPIRED), MARK_WAIT_MS);
+    });
+    try {
+      const tree = await Promise.race([this.markOf(cwd, mark), expired]);
+      if (tree !== EXPIRED) {
+        return tree;
+      }
+      console.warn(`[acp] mark fell back to HEAD after ${MARK_WAIT_MS / 1000} s`);
+      return this.headOf(cwd);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** The commit a directory is at, or null — never a reason to fail a turn. */
