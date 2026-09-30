@@ -7,13 +7,13 @@ const state = (): Omit<CadLiveState, 'active'> => ({
   revision: 'r1', loading: false, selection: [], selectedPartIds: [], selectedReferenceIds: [],
   hiddenPartIds: [], isolatedPartIds: [], camera: null, display: { mode: 'solid' }, renderMode: 'inspect',
 });
-function harness(settle = () => Promise.resolve()) {
+function harness(settle = () => Promise.resolve(), extra: { atRest?: () => boolean } = {}) {
   let current = state();
   let controller!: CadLiveController;
   const commands = { select: vi.fn(), clearSelection: vi.fn(), setCamera: vi.fn(), resetCamera: vi.fn(),
     setDisplaySettings: vi.fn(), setRenderMode: vi.fn(), capture: vi.fn(() => Promise.resolve(new Blob(['png']))) };
   const release = vi.fn();
-  const readRuntime = vi.fn(() => ({ ...commands, readState: () => current }));
+  const readRuntime = vi.fn(() => ({ ...commands, ...extra, readState: () => current }));
   // The binding production attaches (`useRendererShell`): the shared surface plus this
   // renderer's two selection commands.
   const detach = attachLiveBinding<CadLiveController>({ bind(value) { controller = value; return release; } }, readRuntime,
@@ -103,6 +103,21 @@ describe('live CAD viewer binding', () => {
     const adding = selectionCommitted({ partIds: ['a', 'b'], referenceIds: [], replace: false });
     expect(adding({ selectedPartIds: ['a', 'b'], selectedReferenceIds: ['kept'] })).toBe(true);
     expect(adding({ selectedPartIds: ['a'], selectedReferenceIds: [] })).toBe(false);
+  });
+  it('captures once the camera has come to rest, so the image and the camera state agree', async () => {
+    let frames = 0;
+    let framesAtCapture = -1;
+    const view = harness(async () => { frames += 1; }, { atRest: () => frames >= 2 });
+    view.commands.capture.mockImplementation(() => { framesAtCapture = frames; return Promise.resolve(new Blob(['png'])); });
+    await view.controller.capture();
+    expect(framesAtCapture).toBe(2);
+  });
+  it('captures at once when the camera is already at rest', async () => {
+    let frames = 0;
+    const view = harness(async () => { frames += 1; }, { atRest: () => true });
+    await view.controller.capture();
+    expect(frames).toBe(0);
+    expect(view.commands.capture).toHaveBeenCalledOnce();
   });
   it('reads the actual latest view and returns detached pure snapshots', async () => {
     const view = harness();

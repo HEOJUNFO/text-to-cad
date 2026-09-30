@@ -74,6 +74,8 @@ export interface LiveViewRuntime<State extends LiveViewState = LiveViewState> {
   resetCamera(): void | ((state: State) => boolean);
   setDisplaySettings(patch: { [key: string]: JsonValue }): void;
   setRenderMode(enabled: boolean): void;
+  /** False while the camera is under way; a capture waits for it, so the image shows the camera the state names. */
+  atRest?(): boolean;
   capture(): Promise<Blob>;
 }
 export interface LiveBindingOptions {
@@ -174,6 +176,8 @@ export function attachLiveBinding<State extends LiveViewState, Controller extend
         && (!state.camera?.projection || state.camera.projection === resolveViewSettings(state.display).camera.projection)),
     async capture() {
       const { runtime, scope } = admit();
+      // An image taken mid-move would show a camera the state (read right after) does not name.
+      if (runtime.atRest && !runtime.atRest()) await untilCommitted(scope, () => runtime.atRest!());
       const pending = runtime.capture();
       const blob = await pending;
       checkScope(scope);

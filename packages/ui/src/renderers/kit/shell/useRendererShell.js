@@ -465,6 +465,8 @@ export function useRendererShell({
     },
     setDisplaySettings(patch) { viewSettingsStore.patch(patch); },
     setRenderMode(enabled) { viewSettingsStore.selectPreset(enabled ? "render" : "solid"); },
+    // A capture waits for the camera to come to rest, so the image and the state read with it agree.
+    atRest: () => !viewerRef.current?.isCameraTransitioning?.(),
     capture() {
       if (!viewerRef.current?.captureScreenshotBlob) throw new Error("The viewer cannot capture this model yet.");
       return viewerRef.current.captureScreenshotBlob();
