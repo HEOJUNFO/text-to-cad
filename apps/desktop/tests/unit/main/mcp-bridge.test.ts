@@ -115,6 +115,25 @@ describe("McpBridge", () => {
     expect((await pending).body).toMatchObject({ ok: false, error: "Session authorization revoked" });
   });
 
+  it("says an action applied when the session was revoked after the handler finished", async () => {
+    const actions = recordingActions();
+    let began!: () => void;
+    const started = new Promise<void>(resolve => { began = resolve; });
+    let finish!: () => void;
+    // Ignores the signal, as write_terminal and edit_document do: it completes.
+    actions.open_file = async () => {
+      began();
+      await new Promise<void>(resolve => { finish = resolve; });
+      return { done: "open_file" };
+    };
+    const { bridge, url } = await startBridge(actions);
+    const pending = rpc(url, bridge.tokenFor(SESSION), { method: "open_file", params: { path: "a.txt" } });
+    await started;
+    bridge.revoke(SESSION.sessionId);
+    finish();
+    expect((await pending).body).toMatchObject({ ok: false, error: expect.stringMatching(/applied/) });
+  });
+
   /** POST a body in two halves; `between` runs once the server has authorised the request and before the rest is sent. */
   async function slowRpc(bridge: McpBridge, url: string, token: string, body: unknown, between: () => void) {
     const byToken = (bridge as unknown as { byToken: Map<string, unknown> }).byToken;
@@ -228,6 +247,26 @@ describe("RendererCommands", () => {
     commands.reply({ requestId: "r1", ok: false, error: "no such tab" });
     await expect(refused).rejects.toThrow("no such tab");
     await expect(commands.request({ sessionId: "s1", kind: "list-tabs", projectId: "p1" })).rejects.toThrow("did not answer");
+  });
+
+  it("names the timeout, says the command may still complete, and gives a save longer than a tab list", async () => {
+    vi.useFakeTimers();
+    try {
+      const commands = new RendererCommands({ sessionRoot: () => ({ directory: "/proj", root: null }), send: () => {}, newId: () => "r1" });
+      const list = commands.request({ sessionId: "s1", kind: "list-tabs", projectId: "p1" });
+      const save = commands.request({ sessionId: "s1", kind: "document-save", projectId: "p1" });
+      const listFailed = expect(list).rejects.toThrow(/within 10 s.*may still complete/);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await listFailed;
+      const outcome = await Promise.race([save.then(() => "answered", () => "rejected"), Promise.resolve("waiting")]);
+      expect(outcome).toBe("waiting");
+      const saveFailed = expect(save).rejects.toThrow(/within 30 s/);
+      await vi.advanceTimersByTimeAsync(20_000);
+      await saveFailed;
+      await expect(save).rejects.not.toThrow(/window open/);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

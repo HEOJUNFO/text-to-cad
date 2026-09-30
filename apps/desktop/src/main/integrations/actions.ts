@@ -28,6 +28,11 @@ import { climbsOut, resolveInRoot, toRelative } from "../explorer/fs";
 import type { BridgeActions, BridgeSession } from "./mcp-bridge";
 
 const REPLY_TIMEOUT_MS = 10_000;
+// A save waits on the disk and a capture on a frame and a PNG encode; a
+// timeout there reports failure for work that then finishes, and the retry
+// finds it already done (or conflicts with it).
+const SLOW_REPLY_TIMEOUT_MS = 30_000;
+const SLOW_KINDS: ReadonlySet<IntegrationCommandKind> = new Set(["document-save", "capture-view", "drawing-capture", "pdf-capture"]);
 // The model rejects an image over 5 MB, and a rejected tool result stays in the
 // transcript for good, so the ceiling is the model's rather than memory's.
 const MAX_SNAPSHOT_BYTES = 5 * 1024 * 1024;
@@ -80,13 +85,14 @@ export class RendererCommands {
   request(command: Omit<IntegrationCommand, "requestId">, signal?: AbortSignal): Promise<unknown> {
     signal?.throwIfAborted();
     const requestId = this.deps.newId();
+    const timeoutMs = this.deps.timeoutMs ?? (SLOW_KINDS.has(command.kind) ? SLOW_REPLY_TIMEOUT_MS : REPLY_TIMEOUT_MS);
     return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         cleanup();
         this.cancel(requestId);
         this.pending.delete(requestId);
-        reject(new Error("the explorer did not answer; is a text-to-cad window open?"));
-      }, this.deps.timeoutMs ?? REPLY_TIMEOUT_MS);
+        reject(new Error(`the text-to-cad window did not answer within ${timeoutMs / 1000} s (is one open?); the command may still complete, so check before retrying`));
+      }, timeoutMs);
       const abort = () => { cleanup(); this.cancel(requestId); this.pending.delete(requestId); clearTimeout(timer); reject(signal?.reason ?? new Error("cancelled")); };
       const cleanup = () => signal?.removeEventListener("abort", abort);
       signal?.addEventListener("abort", abort, { once: true });
