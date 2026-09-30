@@ -2021,6 +2021,14 @@ owns — a create cut short by a quit, which can never be loaded — and unpins 
 marks. A row whose directory is missing or unmounted is not of that kind: it is
 never deleted for that.
 
+An archive during a create waits for the create to settle, then closes the row.
+`prompt` does not reconnect an archived row (it rejects with "This thread is
+archived; unarchive it first."): the first prompt a `NewSession` sends as its
+create returns would otherwise run a turn in the thread that was put away, and
+`NewSession` skips the send for a row the index says is archived, leaving the
+draft in that thread's box. An archived transcript the person opened and
+Reconnected has a connection, and is prompted as any other.
+
 ### Opening a session
 
 The agent owns the transcript, so a session that is not connected has

@@ -770,6 +770,24 @@ describe("SessionManager", () => {
   });
 
   /**
+   * `NewSession` sends the first prompt as the create returns; with an archive
+   * in between, `prompt -> ensureLive -> load` reconnected the archived row
+   * and ran a turn in it.
+   */
+  it("refuses a prompt to a row archived during its create, and reconnects nothing", async () => {
+    const { repo, manager, cwd } = await setup({
+      launchOverride: () => ({ ...fakeProvider.launch, args: [FAKE_AGENT, "--new-delay", "150"] }),
+    });
+    const creating = manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    const row = await until(() => repo.list()[0]);
+    await manager.archive(row.id, true);
+    await creating;
+    await expect(manager.prompt(row.id, [{ type: "text", text: "hello" }])).rejects.toThrow(/archived; unarchive it first/);
+    expect(manager.state(row.id)?.live).toBeFalsy();
+    expect(repo.get(row.id)).toMatchObject({ archived: true, status: "closed" });
+  });
+
+  /**
    * A `close` while the preferences and the marks are pending set `closed`,
    * and `create` wrote `idle` over it and announced a live state for a
    * connection that was gone.

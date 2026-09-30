@@ -254,6 +254,15 @@ export function NewSession({ project }: { project: Project }) {
       return false;
     }
     failedAttempt.current = null;
+    // Archived while the create ran: the person put the thread away, so it is
+    // neither opened nor sent to (main refuses the prompt to a row it would
+    // have to reconnect). What was written waits in that thread's box, which
+    // an archived row keeps.
+    if (useSessions.getState().sessions.find((row) => row.id === sessionId)?.archived) {
+      useComposer.getState().restoreDraft(sessionId, draft);
+      setBusy(false);
+      return true;
+    }
     // Only from the screen the person is still on (or the connecting row this create made): a
     // create that outlasted a click on another thread does not pull them back.
     const activeNow = useSessions.getState().activeId;

@@ -989,7 +989,19 @@ export class SessionManager {
   }
 
   async prompt(id: string, content: PromptBlock[]): Promise<{ stopReason: string; refused?: string }> {
+    this.require(id);
+    // An archive that landed during a create closed the connection once the
+    // create settled, and the first prompt (`NewSession` sends it as the
+    // create returns) would reconnect the archived row and run a turn in a
+    // thread the person put away. Wait the create out, then look.
+    await this.creating.get(id)?.catch(() => undefined);
     const session = this.require(id);
+    // Only a row with nothing live is refused: an archived transcript the
+    // person opened and Reconnected is theirs to continue, and it has a
+    // connection. What `prompt` must not do is be the reconnect.
+    if (session.archived && !this.live.get(id)?.alive) {
+      throw new Error("This thread is archived; unarchive it first.");
+    }
     const connection = await this.ensureLive(session);
     // A block the agent did not say it takes (`promptCapabilities`) is
     // refused before anything moves — the turn mark, the title, the

@@ -440,6 +440,23 @@ describe("a create that outlasts the screen that asked for it", () => {
     expect(useSessions.getState().activeId).toBe("B");
   });
 
+  it("sends nothing to a thread archived while it was created, and keeps the draft in its box", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<string>();
+    create.mockReturnValueOnce(pending.promise);
+    useComposer.setState({ drafts: { "__new__:p1": "make a cube" } });
+    useSessions.setState({ activeId: null, sessions: [] });
+    render(<NewSession project={PROJECT} />);
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    // The sidebar archived the connecting row; the index now says so.
+    useSessions.setState({ sessions: [{ id: "s1", projectId: "p1", archived: true }] } as never);
+    await act(async () => pending.resolve("s1"));
+    expect(submit).not.toHaveBeenCalled();
+    expect(useComposer.getState().drafts.s1).toBe("make a cube");
+    expect(useSessions.getState().activeId).toBeNull();
+    useSessions.setState({ sessions: [] });
+  });
+
   it("selects the new session when the person is still on it, or on nothing", async () => {
     const user = userEvent.setup();
     create.mockResolvedValueOnce("s1");
