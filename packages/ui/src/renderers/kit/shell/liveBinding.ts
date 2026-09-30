@@ -13,16 +13,22 @@ import { cameraReadsBack } from './liveReadback.js';
 // A mutating command replies only once its effect is on screen, never on the
 // call returning: a settled frame at least, and where the command has a
 // committed predicate, until that holds. `setDisplaySettings` waits for the
-// merged settings, `setRenderMode` for the viewport showing the mode,
-// `setCamera` for the camera's position and target to read back as asked,
-// `clearSelection` for an empty selection, and a renderer's own command (such
-// as `select`) returns its predicate; the shell's `resetCamera` returns the
-// camera being at rest, since a reset is an eased transition that a single
-// frame cannot tell from its end. A renderer whose reset is instant (DXF)
-// returns none, and a settled frame is its answer. The wait is bounded at ten seconds, then
-// it throws "The viewer did not finish applying this command." rather than
-// answer with a state the command did not produce. Commands set from an IPC
-// handler render on a macrotask, which is why one frame is not the answer.
+// merged settings and `setRenderMode` for the store naming the mode (and the
+// camera's projection following it): both answer at the STORE's commit, so a
+// Render chunk that fails to load leaves the store at "render" while the screen
+// still shows "inspect". `setCamera` waits for the shell's APPLIED camera (the
+// request with the configured projection and lens, after the controls' clamps)
+// to read back, scoped, with no camera move under way, which differs from the
+// request whenever the camera is clamped or the lens is derived. `clearSelection`
+// waits for an empty selection, and a renderer's own command (such as `select`)
+// returns its predicate; the shell's `resetCamera` returns the camera being at
+// rest, since a reset is an eased transition that a single frame cannot tell from
+// its end. A renderer whose reset is instant (DXF) returns none, and a settled
+// frame is its answer. `capture` waits for the camera to rest before it takes the
+// image. The wait is bounded at ten seconds, then it throws "The viewer did not
+// finish applying this command." rather than answer with a state the command did
+// not produce. Commands set from an IPC handler render on a macrotask, which is
+// why one frame is not the answer.
 
 export interface LiveCameraSnapshot {
   position: [number, number, number];

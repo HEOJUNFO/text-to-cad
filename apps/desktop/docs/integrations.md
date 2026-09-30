@@ -114,10 +114,14 @@ applied, but the request was aborted before the reply".
 The window's reply is itself made only once the effect is on screen: the
 viewer's live commands (`packages/ui/src/renderers/kit/shell/liveBinding.ts`)
 answer after a settled frame and, where the command has a committed
-predicate (clearing is an empty selection; `setCamera` the camera reading
-back at the pose asked for; `resetCamera` the eased move at rest; a renderer's
-own command returns its own), once it holds, bounded at ten seconds, then "The viewer did not
-finish applying this command."
+predicate (clearing is an empty selection; `setCamera` the shell's applied,
+scoped camera at rest, which differs from the pose asked for when the camera is
+clamped or the lens/projection is derived; `resetCamera` the eased move at rest;
+`setDisplaySettings` and `setRenderMode` the store's commit, so a Render chunk
+that fails to load leaves the store at "render" while the screen shows
+"inspect"; a renderer's own command returns its own), once it holds, bounded at
+ten seconds, then "The viewer did not finish applying this command." A capture
+waits for the camera to rest.
 
 The PDF renderer and its agent tools share one real Mozilla PDF.js document,
 worker and text layer. Page reads are bounded to 50 pages/one million
