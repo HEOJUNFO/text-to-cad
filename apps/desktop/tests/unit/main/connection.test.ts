@@ -435,6 +435,21 @@ function allSent(frames: RecordedFrame[], method: string): Array<Record<string, 
     .map((candidate) => (candidate.msg as { params?: Record<string, unknown> }).params ?? {});
 }
 
+describe("an adapter that dies before it answers initialize", () => {
+  it("says it exited, with what it printed", async () => {
+    const connection = new SessionConnection({
+      sessionId: "test-session",
+      agentId: "fake",
+      launch: { command: process.execPath, args: ["-e", "console.error('boom'); process.exit(2)"], env: {} },
+      env: { PATH: process.env.PATH ?? "" },
+      cwd: await scratch(),
+      spawnTerminal: spawnProcessTerminal,
+    });
+    open.push(connection);
+    await expect(connection.initialize()).rejects.toThrow(/exited.*boom/s);
+  });
+});
+
 describe("the skills root and the preamble", () => {
   it("names the root in session/new under both spellings, beside the MCP servers", async () => {
     const frames: RecordedFrame[] = [];

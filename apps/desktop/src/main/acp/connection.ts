@@ -120,6 +120,7 @@ export type ProcessExit = { code: number | null; signal: NodeJS.Signals | null }
 
 /** When an adapter that exited under a request did so, as the person reads it. */
 const EXIT_PHASE: Record<string, string> = {
+  initialize: "while starting",
   "session/prompt": "during the turn",
   "session/new": "while starting the session",
   "session/load": "while reopening the session",
@@ -389,24 +390,35 @@ export class SessionConnection {
     if (this.initializeResponse) {
       return this.initializeResponse;
     }
-    const response = await this.agent.initialize({
-      protocolVersion: PROTOCOL_VERSION,
-      clientInfo: { name: "text-to-cad", version: this.options.clientVersion ?? "0.0.0" },
-      clientCapabilities: {
-        fs: { readTextFile: true, writeTextFile: true },
-        terminal: true,
-        auth: { terminal: false },
-        // Subagent transcripts. The canonical draft field (`subagents`) is
-        // not in SDK 1.4.0's ClientCapabilities type, so it rides in as a
-        // plain property; the AIR meta key is what the Claude and Codex
-        // adapters read while released SDKs strip the draft field.
-        ...({ subagents: {} } as Record<string, unknown>),
-        _meta: {
-          "subagent-transcript": true,
-          jetbrains: { air: { version: 1, capabilities: ["nativeSubagentSessions"] } },
+    let response: InitializeResponse;
+    try {
+      response = await this.agent.initialize({
+        protocolVersion: PROTOCOL_VERSION,
+        clientInfo: { name: "text-to-cad", version: this.options.clientVersion ?? "0.0.0" },
+        clientCapabilities: {
+          fs: { readTextFile: true, writeTextFile: true },
+          terminal: true,
+          auth: { terminal: false },
+          // Subagent transcripts. The canonical draft field (`subagents`) is
+          // not in SDK 1.4.0's ClientCapabilities type, so it rides in as a
+          // plain property; the AIR meta key is what the Claude and Codex
+          // adapters read while released SDKs strip the draft field.
+          ...({ subagents: {} } as Record<string, unknown>),
+          _meta: {
+            "subagent-transcript": true,
+            jetbrains: { air: { version: 1, capabilities: ["nativeSubagentSessions"] } },
+          },
         },
-      },
-    });
+      });
+    } catch (error) {
+      // An adapter that dies before it answers (an `npx` that 404s) closes the
+      // stream first; its exit and last stderr lines follow a beat later, and
+      // they are the message.
+      if (!(error instanceof RequestError)) {
+        await Promise.race([this.exited, new Promise((resolve) => setTimeout(resolve, 1_000))]);
+      }
+      throw this.describe(error, "initialize");
+    }
     this.initializeResponse = response;
     return response;
   }
