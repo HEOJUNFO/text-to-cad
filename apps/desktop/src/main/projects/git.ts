@@ -24,7 +24,7 @@ import { execa, type Options } from "execa";
 
 import { diffScopeFor, ReviewScopeSchema } from "../../shared/types";
 import { trackChild, type ChildKind, type Trackable } from "../children";
-import { resolveInRoot } from "../explorer/fs";
+import { climbsOut, resolveInRoot } from "../explorer/fs";
 
 /* -------------------------------------------------------------------------- */
 /* Types                                                                       */
@@ -415,7 +415,7 @@ export async function status(cwd: string, scope: DiffScope = { kind: "working-tr
   );
   // `--show-toplevel` is a real path; the directory asked about is compared as one too.
   const inside = path.relative(root, await fsp.realpath(cwd).catch(() => path.resolve(cwd)));
-  const prefix = !inside || inside.startsWith("..") || path.isAbsolute(inside) ? "" : `${inside.split(path.sep).join("/")}/`;
+  const prefix = !inside || climbsOut(inside) ? "" : `${inside.split(path.sep).join("/")}/`;
 
   if (scope.kind === "unmarked" && !porcelain.unborn) {
     return {
@@ -1619,7 +1619,7 @@ export async function lastWrittenAt(worktreePath: string): Promise<number | null
 /** True when `child` is inside `parent` — the test that keeps the sweep in its own root. */
 export function isUnder(parent: string, child: string): boolean {
   const relative = path.relative(path.normalize(parent), path.normalize(child));
-  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+  return relative !== "" && !climbsOut(relative);
 }
 
 /* -------------------------------------------------------------------------- */

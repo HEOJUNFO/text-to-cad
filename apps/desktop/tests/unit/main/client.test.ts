@@ -126,6 +126,13 @@ describe("AcpClient files", () => {
     await expect(confineToCwd(alias, path.join(alias, "..", "escape.txt"))).rejects.toThrow(/outside/);
   });
 
+  it("confineToCwd accepts a top-level entry named ..keep and still refuses ../escape", async () => {
+    const dir = await scratch();
+    expect(await confineToCwd(dir, path.join(dir, "..keep"))).toBe(path.join(dir, "..keep"));
+    expect(await confineToCwd(dir, path.join(dir, "..keep", "a.txt"))).toBe(path.join(dir, "..keep", "a.txt"));
+    await expect(confineToCwd(dir, path.join(dir, "..", "escape"))).rejects.toThrow(/outside/);
+  });
+
   it("confineToCwd answers the normalised path for an inside target", async () => {
     const dir = await scratch();
     expect(await confineToCwd(dir, path.join(dir, "sub", "..", "c.txt"))).toBe(path.join(dir, "c.txt"));

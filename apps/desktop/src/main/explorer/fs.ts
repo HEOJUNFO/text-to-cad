@@ -122,13 +122,22 @@ export function toRelative(root: string, target: string): string {
   return relative === "" ? "" : relative.split(path.sep).join("/");
 }
 
+/**
+ * True when a `path.relative` result leaves its base: ".." alone, ".." plus a
+ * separator, or an absolute path (another Windows drive). A first segment that
+ * only STARTS with dots (`..keep`) is an ordinary name and does not climb.
+ */
+export function climbsOut(relative: string): boolean {
+  return relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
+}
+
 /** True when `target` is `root` or lives under it. */
 export function isInside(root: string, target: string): boolean {
   if (target === root) {
     return true;
   }
   const relative = path.relative(root, target);
-  return relative !== "" && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+  return relative !== "" && !climbsOut(relative);
 }
 
 /**

@@ -127,4 +127,11 @@ describe("where a review's directory sits in its repository", () => {
     expect(inside.files.map((file) => file.path)).toEqual(["app/a.ts"]);
     expect((await git.status(root)).prefix).toBe("");
   });
+
+  it("names a project folder called ..keep by its prefix, not as if it were outside", async () => {
+    const { root } = await fixture();
+    await mkdir(path.join(root, "..keep"));
+    await writeFile(path.join(root, "..keep", "a.ts"), "one\n");
+    expect((await git.status(path.join(root, "..keep"))).prefix).toBe("..keep/");
+  });
 });

@@ -22,6 +22,7 @@ import type * as acp from "@agentclientprotocol/sdk";
 
 import { pendingPermissionFromRequest } from "../../shared/acp/reduce";
 import type { SessionEvent } from "../../shared/acp/types";
+import { climbsOut } from "../explorer/fs";
 import { realDirectory } from "../projects/workspace";
 import type { TerminalManager } from "./terminals";
 
@@ -210,7 +211,7 @@ export async function confineToCwd(cwd: string, target: string): Promise<string>
   const root = realDirectory(cwd);
   const inside = (base: string, candidate: string) => {
     const relative = path.relative(base, candidate);
-    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    return relative === "" || !climbsOut(relative);
   };
   if (inside(root, realDirectory(file))) {
     return file;
