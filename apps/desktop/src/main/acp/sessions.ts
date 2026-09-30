@@ -639,6 +639,30 @@ export class SessionManager {
   }
 
   /**
+   * Run the setup again on a live, idle session that `settleAfterFailedCreate` left with a note:
+   * the same `applyPreferences` a create runs. Resolves with the new note, or null when it went
+   * through (the renderer drops its held note on null); a failure is also re-broadcast as the
+   * note. It is the only way to retry: `load` on a live connection re-broadcasts its state and
+   * returns, so it would retry nothing.
+   */
+  async retrySetup(id: string): Promise<{ error: string | null }> {
+    const connection = this.requireLive(id);
+    const session = this.require(id);
+    if (session.status !== "idle") {
+      throw new Error("The session is busy; set it up again when it is idle.");
+    }
+    try {
+      await this.applyPreferences(session, connection);
+    } catch (error) {
+      const note = `Setting it up again failed: ${error instanceof Error ? error.message : String(error)}`;
+      this.setStatus(id, "idle", note);
+      return { error: note };
+    }
+    this.deps.broadcast("session.state", { sessionId: id, state: connection.state });
+    return { error: null };
+  }
+
+  /**
    * The model, then the effort, then the mode — in that order, and the order
    * matters twice over: switching model is what changes which effort levels
    * the agent offers, *and* which effort was remembered. An effort read or

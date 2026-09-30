@@ -162,6 +162,7 @@ export const acpHandlers = {
       surfacing(() => sessionManager.setConfigOption(id, configId, value)),
     respondPermission: ({ id, requestId, optionId }) =>
       surfacing(() => sessionManager.respondPermission(id, requestId, optionId)),
+    retrySetup: ({ id }) => surfacing(() => sessionManager.retrySetup(id)),
     rename: ({ id, title }) => surfacing(() => sessionManager.rename(id, title)),
     // The row first, as `delete` does: an archive that throws leaves the session
     // active with its tokens, pages and shells, not half torn down.

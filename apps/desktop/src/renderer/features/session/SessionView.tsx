@@ -50,6 +50,7 @@ export function SessionView({ session }: { session: Session }) {
   const setupNote = useAcp((store) => store.setupNotes[session.id] ?? null);
   const ensureLoaded = useAcp((store) => store.ensureLoaded);
   const load = useAcp((store) => store.load);
+  const retrySetup = useAcp((store) => store.retrySetup);
   const cancel = useAcp((store) => store.cancel);
   const setMode = useAcp((store) => store.setMode);
   const setConfigOption = useAcp((store) => store.setConfigOption);
@@ -300,9 +301,9 @@ export function SessionView({ session }: { session: Session }) {
             <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-[13px] leading-5" data-setup-failed role="alert">
               <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
               <span className="min-w-0 flex-1 whitespace-pre-wrap">{setupNote}</span>
-              <Button className="h-6 gap-1 px-2 text-[12px]" onClick={reconnectFromBar} size="sm" variant="outline">
+              <Button className="h-6 gap-1 px-2 text-[12px]" onClick={() => void retrySetup(session.id)} size="sm" variant="outline">
                 <RotateCcw className="size-3" />
-                Reconnect
+                Retry setup
               </Button>
             </div>
           ) : null}

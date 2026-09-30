@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -30,12 +30,16 @@ const saved = { on: bridge.on, sessions: bridge.sessions };
 let handlers: Record<string, Handler>;
 let detach: () => void;
 const load = vi.fn(async () => ({ ...initialSessionState("s1", "claude"), status: "idle" as const }));
+const retrySetup = vi.fn(async (_input: { id: string }): Promise<{ error: string | null }> => ({ error: null }));
+const close = vi.fn(async () => undefined);
 
 beforeEach(() => {
   handlers = {};
   bridge.on = vi.fn((channel: string, handler: Handler) => { handlers[channel] = handler; return () => {}; });
-  bridge.sessions = { ...(saved.sessions as object), load };
+  bridge.sessions = { ...(saved.sessions as object), load, retrySetup, close };
   load.mockClear();
+  retrySetup.mockClear();
+  close.mockClear();
   useSessions.setState({ sessions: [SESSION], ready: true, activeId: null });
   useAcp.setState({ sessions: { s1: { ...initialSessionState("s1", "claude"), status: "idle" } }, loading: {}, reconnecting: {}, loadErrors: {}, setupNotes: {}, terminalOutput: {} });
   detach = subscribeToMain();
@@ -50,7 +54,7 @@ afterEach(() => {
 const emitNote = (error: string | null, status = "idle") =>
   act(() => {
     handlers["session.state"]!({ sessionId: "s1", state: { ...initialSessionState("s1", "claude"), status: "idle" } });
-    handlers["session.status"]?.({ sessionId: "s1", status, error });
+    handlers["session.status"]!({ sessionId: "s1", status, error });
   });
 
 describe("the note a failed setup leaves", () => {
@@ -60,23 +64,48 @@ describe("the note a failed setup leaves", () => {
     emitNote(NOTE);
     expect(screen.getByRole("alert")).toHaveTextContent(NOTE);
     expect(screen.getByLabelText("Prompt")).toBeEnabled();
-    act(() => handlers["session.status"]?.({ sessionId: "s1", status: "running", error: null }));
+    act(() => handlers["session.status"]!({ sessionId: "s1", status: "running", error: null }));
     expect(screen.getByRole("alert")).toHaveTextContent(NOTE);
   });
 
-  it("is not taken from an error status, whose message the load failure already shows", () => {
+  it("is not taken from an error or closed status, whose message the load failure already shows", () => {
     render(<SessionView session={SESSION} />);
+    expect(handlers["session.status"], "the bridge listens for statuses").toBeTypeOf("function");
     emitNote("spawn failed", "error");
+    emitNote("gone", "closed");
     expect(useAcp.getState().setupNotes).toEqual({});
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("goes with the next load, and Reconnect asks for one", async () => {
+  it("Retry setup runs the setup again through its own call, never a load, and goes when it went through", async () => {
     const user = userEvent.setup();
     render(<SessionView session={SESSION} />);
     emitNote(NOTE);
-    await user.click(screen.getByRole("button", { name: "Reconnect" }));
-    expect(load).toHaveBeenCalledWith({ id: "s1" });
-    expect(screen.queryByRole("alert")).toBeNull();
+    load.mockClear();
+    await user.click(screen.getByRole("button", { name: "Retry setup" }));
+    expect(retrySetup).toHaveBeenCalledWith({ id: "s1" });
+    expect(load).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(useAcp.getState().reconnecting).toEqual({});
+  });
+
+  it("keeps the alert with the new note when the retry fails too", async () => {
+    const user = userEvent.setup();
+    retrySetup.mockResolvedValueOnce({ error: "Setting it up again failed: SQLITE_BUSY" });
+    render(<SessionView session={SESSION} />);
+    emitNote(NOTE);
+    await user.click(screen.getByRole("button", { name: "Retry setup" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Setting it up again failed"));
+  });
+
+  it("goes when the session is disconnected by hand, leaving one Reconnect", async () => {
+    render(<SessionView session={SESSION} />);
+    emitNote(NOTE);
+    expect(screen.getByRole("alert")).toHaveTextContent(NOTE);
+    await act(() => useAcp.getState().close("s1"));
+    expect(close).toHaveBeenCalledWith({ id: "s1" });
     expect(useAcp.getState().setupNotes).toEqual({});
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getAllByRole("button", { name: /Reconnect|Retry setup/ })).toHaveLength(1);
   });
 });

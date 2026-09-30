@@ -22,6 +22,7 @@
  */
 import { spawn } from "node:child_process";
 
+import { daemonPids } from "./cad/daemon";
 import { isQuittingForUpdate } from "./quitting";
 
 /** The quit deadline, including teardown and watchdog startup, within the two-second budget. */
@@ -33,11 +34,15 @@ export const QUIT_DEADLINE_MS = 1_200;
  * killed before the parent. Our own children are already gone by then; what
  * `pgrep -P` finds is Chromium's helpers.
  *
- * Only the children in the app's own process group are killed: the shared warm
- * daemon and a reused external viewer are spawned `detached` (their own
- * session, so their own group) and outlive the app by design; Chromium's
- * helpers are spawned into the app's group. If the groups cannot be read,
- * only the app is killed.
+ * Every direct child is killed except the pids in `spare`: the shared warm
+ * daemon (`daemonPids()`, src/main/cad/daemon.ts) outlives the app by design.
+ * It is spared by identity, not by process group, because the app-owned
+ * viewer is `detached` too (its own group, so its compile workers die with
+ * it) and must not be spared with it. A child that leads a group of its own
+ * is killed as a group (`kill(-pgid)`); Chromium's helpers, in the app's
+ * group, are killed one by one. A viewer reused from another app run is not
+ * a child of this process and is never seen here. If the groups cannot be
+ * read, every unspared child is killed singly.
  *
  * Except when the quit is an update's (`tree` false): electron-updater has
  * just spawned the NSIS installer, or the new AppImage, as a child of this
@@ -52,6 +57,7 @@ export function watchdogScript(
   platform: NodeJS.Platform = process.platform,
   startedAt = Date.now(),
   tree = true,
+  spare: readonly number[] = [],
 ): string {
   const kill =
     platform === "win32"
@@ -68,11 +74,14 @@ try {
     groups.set(member, group);
   }
 } catch {}
+const spare = ${JSON.stringify(spare.filter(Number.isInteger))};
 const own = groups.get(${pid});
 for (const child of children) {
-  if (Number(child) === process.pid) continue;
-  if (own === undefined || groups.get(Number(child)) !== own) continue;
-  try { process.kill(Number(child), "SIGKILL"); } catch {}
+  const target = Number(child);
+  if (target === process.pid || spare.includes(target)) continue;
+  const group = groups.get(target);
+  if (group !== undefined && group === target && group !== own) { try { process.kill(-group, "SIGKILL"); } catch {} }
+  try { process.kill(target, "SIGKILL"); } catch {}
 }
 try { process.kill(${pid}, "SIGKILL"); } catch {}`
         : `try { process.kill(${pid}, "SIGKILL"); } catch {}`;
@@ -89,13 +98,14 @@ export function armQuitDeadline(
   deadlineMs: number = QUIT_DEADLINE_MS,
   platform: NodeJS.Platform = process.platform,
   tree: boolean = !isQuittingForUpdate() || platform === "darwin",
+  spare: readonly number[] = daemonPids(),
 ): void {
   try {
     // Armed once state is saved: at the end of before-quit (nothing cancels a
     // quit after its teardown; the database is closed) and again at will-quit.
     // If teardown or launching Electron-as-Node used the budget, the watchdog
     // fires immediately.
-    spawn(process.execPath, ["-e", watchdogScript(pid, deadlineMs, platform, startedAt, tree)], {
+    spawn(process.execPath, ["-e", watchdogScript(pid, deadlineMs, platform, startedAt, tree, spare)], {
       detached: true,
       stdio: "ignore",
       windowsHide: true,

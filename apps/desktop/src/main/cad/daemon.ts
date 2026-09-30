@@ -33,6 +33,13 @@ import type { ResolvedPython } from "./runtime";
 
 export const DAEMON_ARGS = ["-m", "cadgen.daemon"];
 
+const spawnedPids = new Set<number>();
+
+/** Pids of the daemons this app run started; the quit watchdog spares them (src/main/quit-deadline.ts). */
+export function daemonPids(): number[] {
+  return [...spawnedPids];
+}
+
 export type DaemonSpawn = (
   python: string,
   args: string[],
@@ -114,6 +121,9 @@ export class DaemonWarmer {
         return false;
       }
       child.unref();
+      if (child.pid) {
+        spawnedPids.add(child.pid);
+      }
       this.log(`warming ${resolved.source} ${resolved.python}${child.pid ? ` (pid ${child.pid})` : ""}`);
       return true;
     } catch (error) {
