@@ -416,7 +416,9 @@ export async function listPaths(
         const isDirectory = dirent.isDirectory();
         if (isDirectory) {
           (backgroundWatchIgnores(relative) ? deferred : queue).push(child);
-        } else if (dirent.isFile()) {
+        } else if (dirent.isFile() || (dirent.isSymbolicLink() && (await fs.stat(child).catch(() => null))?.isFile())) {
+          // A link to a file is a row in the tree (`listDirectory` reads what it points at), so
+          // it is in the filter's index too. A broken one is neither.
           if (paths.length >= limit) {
             truncated = true;
             break;
