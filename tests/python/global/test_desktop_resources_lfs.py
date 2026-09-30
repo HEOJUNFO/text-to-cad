@@ -86,6 +86,16 @@ class CheckBuildsRefusesLfsInDesktopResourcesTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("apps/desktop/resources/sample/l_bracket.step", result.stderr)
 
+    def test_a_non_ascii_lfs_path_fails_the_check(self) -> None:
+        sample = self.root / "apps" / "desktop" / "resources" / "sample"
+        self.git("rm", "-q", "-f", "apps/desktop/resources/sample/l_bracket.step")
+        sample.mkdir(parents=True, exist_ok=True)
+        (sample / "résumé.step").write_text("ISO-10303-21;\n", encoding="utf-8")
+        self.git("add", ".")
+        result = self.check()
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("apps/desktop/resources/sample/résumé.step", result.stderr)
+
     def test_a_path_taken_out_of_lfs_passes(self) -> None:
         sample = self.root / "apps" / "desktop" / "resources" / "sample"
         (sample / ".gitattributes").write_text("l_bracket.step !filter !diff !merge text\n", encoding="utf-8")
