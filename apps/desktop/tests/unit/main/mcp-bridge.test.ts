@@ -11,6 +11,8 @@ import { RendererCommands, createActions, resolveForSession } from "@main/integr
 import { BRIDGE_ENV, McpBridge, type BridgeSession } from "@main/integrations/mcp-bridge";
 import type { IntegrationCommand } from "@shared/ipc/integrations";
 
+// The full eight bytes: the source matches the whole signature, not its first four.
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const temps: string[] = [];
 function tempDir(prefix: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -132,6 +134,18 @@ describe("McpBridge", () => {
     bridge.revoke(SESSION.sessionId);
     finish();
     expect((await pending).body).toMatchObject({ ok: false, error: expect.stringMatching(/applied/) });
+  });
+
+  it("says a relayed edit may have been applied when the session is revoked while the window holds it", async () => {
+    const root = fs.realpathSync(tempDir("text-to-cad-proj-"));
+    let sentCommand!: () => void;
+    const sent = new Promise<void>(resolve => { sentCommand = resolve; });
+    const deps = { sessionRoot: () => ({ directory: root, root: null }), send: () => sentCommand(), newId: () => "r" };
+    const { bridge, url } = await startBridge(Object.assign(recordingActions(), createActions(deps, new RendererCommands(deps))));
+    const pending = rpc(url, bridge.tokenFor({ ...SESSION, cwd: root }, "documents"), { method: "edit_document", params: { tabId: "t", expectedRevision: "r", content: "x" } });
+    await sent;
+    bridge.revoke(SESSION.sessionId);
+    expect((await pending).body).toMatchObject({ ok: false, error: expect.stringMatching(/may already have been applied.*Session authorization revoked/) });
   });
 
   /** POST a body in two halves; `between` runs once the server has authorised the request and before the rest is sent. */
@@ -323,7 +337,7 @@ describe("the actions", () => {
     const root = tempDir("text-to-cad-proj-");
     fs.mkdirSync(path.join(root, "tmp"));
     fs.writeFileSync(path.join(root, "part.step"), "");
-    fs.writeFileSync(path.join(root, "tmp", "review.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    fs.writeFileSync(path.join(root, "tmp", "review.png"), PNG_SIGNATURE);
     fs.writeFileSync(path.join(root, "notes.txt"), "text");
     const sent: IntegrationCommand[] = [];
     const sessionRoot = () => ({ directory: root, root: null });
@@ -355,16 +369,18 @@ describe("the actions", () => {
 
 
     const snapshot = await actions.attach_snapshot!(session, { path: "tmp/review.png" });
-    expect(snapshot).toEqual({ path: "tmp/review.png", mimeType: "image/png", base64: Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString("base64") });
+    expect(snapshot).toEqual({ path: "tmp/review.png", mimeType: "image/png", base64: PNG_SIGNATURE.toString("base64") });
     await expect(actions.attach_snapshot!(session, { path: "notes.txt" })).rejects.toThrow("not a PNG");
   });
 
   it("refuses an attach_snapshot whose bytes are not the image its extension claims, or that is empty or over 5 MB", async () => {
     const root = tempDir("text-to-cad-proj-");
-    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const png = PNG_SIGNATURE;
     fs.writeFileSync(path.join(root, "page.png"), "<html><body>not an image</body></html>");
     fs.writeFileSync(path.join(root, "empty.png"), "");
     fs.writeFileSync(path.join(root, "big.png"), Buffer.concat([png, Buffer.alloc(6 * 1024 * 1024)]));
+    // Under the raw 5 MiB but over 5 MB once base64'd, which is what the model measures.
+    fs.writeFileSync(path.join(root, "encoded.png"), Buffer.concat([png, Buffer.alloc(4 * 1024 * 1024)]));
     fs.writeFileSync(path.join(root, "photo.jpg"), png);
     fs.writeFileSync(path.join(root, "ok.png"), png);
     const sessionRoot = () => ({ directory: root, root: null });
@@ -373,17 +389,35 @@ describe("the actions", () => {
     await expect(actions.attach_snapshot!(session, { path: "page.png" })).rejects.toThrow(/not a PNG/);
     await expect(actions.attach_snapshot!(session, { path: "empty.png" })).rejects.toThrow(/empty/);
     await expect(actions.attach_snapshot!(session, { path: "big.png" })).rejects.toThrow(/5 MB/);
+    await expect(actions.attach_snapshot!(session, { path: "encoded.png" })).rejects.toThrow(/5 MB/);
     await expect(actions.attach_snapshot!(session, { path: "photo.jpg" })).rejects.toThrow(/not a JPEG/);
     await expect(actions.attach_snapshot!(session, { path: "ok.png" })).resolves.toMatchObject({ mimeType: "image/png", base64: png.toString("base64") });
   });
 
   describe("attach_snapshot re-checks the handle against a fresh realpath", () => {
-    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    const png = PNG_SIGNATURE;
     function actionsFor(root: string) {
       const sessionRoot = () => ({ directory: root, root: null });
       const commands = new RendererCommands({ sessionRoot, send: () => {}, newId: () => "r" });
       return createActions({ sessionRoot, send: () => {}, newId: () => "r" }, commands);
     }
+
+    it("refuses a file that grew past what the stat said while it was read", async () => {
+      const root = fs.realpathSync(tempDir("text-to-cad-proj-"));
+      fs.writeFileSync(path.join(root, "a.png"), Buffer.concat([png, Buffer.alloc(100)]));
+      const realOpen = fsp.open.bind(fsp);
+      const spy = vi.spyOn(fsp, "open").mockImplementation((async (...args: Parameters<typeof fsp.open>) => {
+        const real = await realOpen(...args);
+        // A stat from before the writer appended: the read then finds more than the stat promised.
+        const stat = async () => Object.assign(Object.create(await real.stat()) as object, { size: png.length }) as Awaited<ReturnType<typeof real.stat>>;
+        return { stat, read: (...a: unknown[]) => (real.read as (...x: unknown[]) => unknown)(...a), close: () => real.close() };
+      }) as unknown as typeof fsp.open);
+      try {
+        await expect(actionsFor(root).attach_snapshot!({ sessionId: "s", projectId: "p", cwd: root }, { path: "a.png" })).rejects.toThrow(/changed while/);
+      } finally {
+        spy.mockRestore();
+      }
+    });
 
     it("accepts a folder whose name only starts with dots", async () => {
       const root = fs.realpathSync(tempDir("text-to-cad-proj-"));
@@ -434,7 +468,7 @@ describe("the actions", () => {
     const root = tempDir("text-to-cad-proj-");
     const outside = path.join(tempDir("text-to-cad-secret-"), "id_rsa");
     fs.writeFileSync(outside, "PRIVATE KEY");
-    fs.writeFileSync(path.join(root, "x.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    fs.writeFileSync(path.join(root, "x.png"), PNG_SIGNATURE);
     const sessionRoot = () => ({ directory: root, root: null });
     const actions = createActions({ sessionRoot, send: () => {}, newId: () => "r" }, new RendererCommands({ sessionRoot, send: () => {}, newId: () => "r" }));
     // The swap lands after the path was resolved and before the file is opened.
@@ -450,7 +484,7 @@ describe("the actions", () => {
   it("attaches a snapshot in a top-level folder whose name starts with two dots", async () => {
     const root = tempDir("text-to-cad-proj-");
     fs.mkdirSync(path.join(root, "..shots"));
-    fs.writeFileSync(path.join(root, "..shots", "x.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    fs.writeFileSync(path.join(root, "..shots", "x.png"), PNG_SIGNATURE);
     const sessionRoot = () => ({ directory: root, root: null });
     const actions = createActions({ sessionRoot, send: () => {}, newId: () => "r" }, new RendererCommands({ sessionRoot, send: () => {}, newId: () => "r" }));
     await expect(actions.attach_snapshot!({ sessionId: "s", projectId: "p", cwd: root }, { path: "..shots/x.png" })).resolves.toMatchObject({ mimeType: "image/png" });

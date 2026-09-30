@@ -101,14 +101,23 @@ function requiredString(params: Record<string, unknown>, key: string) {
 }
 // The longest buffer the bridge reads or replaces, in UTF-16 units. The same
 // number as MAX_DOCUMENT_CHARS in main's documents/module.mjs (the renderer
-// cannot import it: change both).
-const MAX_BRIDGE_DOCUMENT_CHARS = 2 * 1024 * 1024;
+// cannot import it: change both; live-documents.test.ts holds them equal).
+export const MAX_BRIDGE_DOCUMENT_CHARS = 2 * 1024 * 1024;
 const TOO_LARGE_TO_EDIT = 'The buffer is too large to edit through the bridge; edit it in the editor.';
-/** A read result cut at the cap, flagged and noted in the text the agent sees; the revision still names the whole buffer. */
+/**
+ * A read result cut at the cap, flagged and noted in the text the agent sees;
+ * the revision still names the whole buffer. `truncated` and `note` come
+ * before `content` in the object: a client that clips the JSON it is handed
+ * clips the tail, and the flag must not be in it.
+ */
 function boundedRead(snapshot: LiveTextSnapshot) {
   if (snapshot.content.length <= MAX_BRIDGE_DOCUMENT_CHARS) return snapshot;
-  return { ...snapshot, content: snapshot.content.slice(0, MAX_BRIDGE_DOCUMENT_CHARS), truncated: true,
-    note: `Only the first ${MAX_BRIDGE_DOCUMENT_CHARS} of ${snapshot.content.length} characters are shown; this buffer is too large to edit through the bridge.` };
+  // A cut between the halves of a surrogate pair would end the text on a lone high surrogate.
+  let end = MAX_BRIDGE_DOCUMENT_CHARS;
+  const last = snapshot.content.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+  return { truncated: true, note: `Only the first ${end} of ${snapshot.content.length} characters are shown; this buffer is too large to edit through the bridge.`,
+    ...snapshot, content: snapshot.content.slice(0, end) };
 }
 export async function performDocumentCommand(kind: string, params: Record<string, unknown>, scope: LiveDocumentScope) {
   if (kind === 'document-read' && !text.has(String(params.tabId))) {
