@@ -116,6 +116,16 @@ describe("package.mjs", () => {
       expect(signingEnv(["--mac"], { ...APPLE, CI: "true" })).toMatchObject({ signed: true, notarize: true });
     });
 
+    it("refuses notarisation credentials with no certificate on CI, and allows them on a laptop", async () => {
+      const { signingEnv } = await import("../../../scripts/package.mjs");
+      const { CSC_LINK: _certificate, CSC_KEY_PASSWORD: _password, ...credentialsOnly } = APPLE;
+      expect(() => signingEnv(["--mac"], { ...credentialsOnly, CI: "true" })).toThrow(/APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID set but CSC_LINK is not/);
+      expect(() => signingEnv(["--mac"], { ...credentialsOnly, GITHUB_ACTIONS: "true" })).toThrow(/CSC_LINK is not/);
+      expect(signingEnv(["--mac"], credentialsOnly)).toMatchObject({ signed: false, notarize: false });
+      // The workflow blanks the secrets it has not been given: empty is absent.
+      expect(signingEnv(["--mac"], { CI: "true", APPLE_ID: "", CSC_LINK: "" })).toMatchObject({ signed: false });
+    });
+
     it("logs the certificate each os is signed with, and none for Linux, which is never signed", async () => {
       const { signingEnv, signingLine } = await import("../../../scripts/package.mjs");
       const logged = (flag: string, source: Record<string, string>) => signingLine([flag], signingEnv([flag], source));

@@ -452,6 +452,7 @@ of configs to keep in step — the secrets are there or they are not:
 | --- | --- |
 | nothing | unsigned; `CSC_IDENTITY_AUTO_DISCOVERY=false`, so a certificate in your keychain cannot quietly change the artifact |
 | `CSC_LINK`, `CSC_KEY_PASSWORD` (`--mac`) | signed, not notarised — on a laptop only; on CI (`CI` or `GITHUB_ACTIONS` set) the build is refused |
+| `APPLE_*` without `CSC_LINK` (`--mac`, CI) | refused: notarisation credentials with no certificate to sign with |
 | …plus `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | signed and notarised |
 | `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD` (`--win`) | Authenticode-signed installer |
 
@@ -461,8 +462,9 @@ installer with the Apple cert and pin its subject as the publisher every later
 update is checked against, so `scripts/package.mjs` drops the Apple variables
 from any invocation that is not `--mac` and refuses `--mac` together with
 another os while `CSC_LINK` is set. Linux builds are never signed. The release
-workflow hands the Apple secrets to the macOS leg only and has no
-`WIN_CSC_LINK` yet, so its Windows installer is unsigned.
+workflow hands the Apple secrets to the macOS leg and `WIN_CSC_LINK` and
+`WIN_CSC_KEY_PASSWORD` to the Windows leg, so adding the secrets is all it
+takes to sign; until then both installers are unsigned.
 
 `hardenedRuntime` and the entitlements (`build/entitlements.mac*.plist`) are on
 either way, so the first signed build is not the first time they are exercised.

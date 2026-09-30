@@ -106,6 +106,12 @@ export function builderArgsFor(args) {
 const MAC_SIGNING = ["CSC_LINK", "CSC_KEY_PASSWORD", "APPLE_ID", "APPLE_APP_SPECIFIC_PASSWORD", "APPLE_TEAM_ID"];
 
 /**
+ * The secrets each os's signing reads, which the release workflow has to map
+ * onto that os's leg for `signingEnv` to see them at all.
+ */
+export const SIGNING_SECRETS = { mac: MAC_SIGNING, win: ["WIN_CSC_LINK", "WIN_CSC_KEY_PASSWORD"] };
+
+/**
  * Code-signing is on when, and only when, the credentials exist.
  *
  * `CSC_LINK` (+ `CSC_KEY_PASSWORD`) is the macOS certificate and
@@ -152,6 +158,12 @@ export function signingEnv(targets, source = process.env) {
       `CSC_LINK is set but notarisation is off (missing ${apple.filter((name) => !has(name)).join(", ")}): ` +
         "a CI build signs and notarises, or does neither",
     );
+  }
+
+  // Notarisation credentials without a certificate to notarise are a build
+  // that was meant to be signed and is not, so on CI it stops here too.
+  if (mac && !signed && apple.some(has) && (has("CI") || has("GITHUB_ACTIONS"))) {
+    throw new Error(`${apple.filter(has).join(", ")} set but CSC_LINK is not: a CI build signs and notarises, or does neither`);
   }
 
   if (!signed) {

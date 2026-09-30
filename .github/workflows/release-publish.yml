@@ -237,9 +237,10 @@ jobs:
   # release is a package that does not exist yet.
   #
   # Signing is decided by the environment inside scripts/package.mjs and nowhere else:
-  # the CSC_*/APPLE_* secrets below are empty until they are added, and an empty secret
-  # is an unsigned build with CSC_IDENTITY_AUTO_DISCOVERY=false. Adding the secrets is
-  # the entire act of turning signing on.
+  # the CSC_*/APPLE_*/WIN_CSC_* secrets below are empty until they are added, and an
+  # empty secret is an unsigned build with CSC_IDENTITY_AUTO_DISCOVERY=false. Adding
+  # the secrets is the entire act of turning signing on: each leg is handed the ones
+  # its os reads (SIGNING_SECRETS in scripts/package.mjs).
   desktop:
     name: Desktop (${{ matrix.name }})
     needs: publish
@@ -381,6 +382,8 @@ jobs:
           APPLE_ID: ${{ matrix.name == 'macOS' && secrets.APPLE_ID || '' }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.name == 'macOS' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ matrix.name == 'macOS' && secrets.APPLE_TEAM_ID || '' }}
+          WIN_CSC_LINK: ${{ matrix.name == 'Windows' && secrets.WIN_CSC_LINK || '' }}
+          WIN_CSC_KEY_PASSWORD: ${{ matrix.name == 'Windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
           TEXT_TO_CAD_APTABASE_KEY: ${{ secrets.TEXT_TO_CAD_APTABASE_KEY }}
           # electron-builder's own GitHub client reads this; `--publish never` means it
           # never uses it, and leaving it unset avoids any ambiguity about that.
