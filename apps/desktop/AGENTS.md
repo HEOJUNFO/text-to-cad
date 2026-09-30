@@ -244,6 +244,59 @@ the rule is about.
   and main resolves it. Uncommitted work from before the turn is in the tree,
   so it is not the turn's. Two commits can share a second, and `--before=`
   picks a commit rather than a moment, so a timestamp cannot do this job.
+- **A mark never fails or delays a turn or a create.** The turn and create
+  paths wait on the snapshot at most `MARK_WAIT_MS` (5 s,
+  `src/main/acp/sessions.ts`); past it a turn keeps the previous `turnHead` and
+  a session mark is the commit, and the snapshot goes on. One snapshot runs per
+  `<session id>/<kind>`, and a second asker takes the first's result. Whoever
+  finds the row gone unpins its marks: the late snapshot, a create that failed,
+  a turn whose session was deleted while it ran. Only a mark writes objects — a
+  review's read lists untracked files in a throwaway index by intent-to-add — and
+  an untracked file over 8 MiB (`SNAPSHOT_MAX_BYTES`) is left out of the tree,
+  never hashed. Counting an untracked file for the review reads at most 1 MiB
+  whole; a larger one is streamed and remembered by size and mtime.
+- **A snapshot of the transcript is never filed while its connection replays,
+  and never replaces a stored transcript with an empty one.** `onEvent` skips
+  the write while the state is `connecting`; a reload that fails `discard`s the
+  pending write and `loadNow` flushes before it starts, so the previous
+  snapshot is the only copy of the history and stays whole
+  (`src/main/acp/snapshots.ts`).
+- **A row's `connecting` has an exit on every path.** `create` ends it in
+  success (`idle`), in `settleAfterFailedCreate` (`idle` while the connection
+  is alive, else `error`), or by removing the row when it failed before
+  `session/new` answered; `loadNow`'s catch sets `error`; `boot` makes a stale
+  one `closed`. A row left at `connecting` is a box that never opens.
+- **The composer follows the row and the connection together.**
+  `src/renderer/features/session/SessionView.tsx` reads a session as
+  `connecting` when the state says so or when the row does and no reconnect
+  behind a painted transcript is under way, and `state()` reports `connecting`
+  for a live idle connection whose create is still open. Neither alone is the
+  truth: the reducer says idle from `session/new`, the row says `connecting`
+  until the preferences and marks have landed.
+- **A prompt holds its session against eviction until its turn ends, and a
+  create until it returns.** `held` (`src/main/acp/sessions.ts`) is part of
+  `busy` beside `running`, `waiting` and `connecting`; the connection is idle
+  through the turn mark and the create's preferences, and the keep-alive limit
+  would close it under them.
+- **"In use" for a worktree is one function, `sessionsUsing`**
+  (`src/main/projects/git.ts`): sessions that are not archived and run in the
+  worktree, under it, or record it. Settings' count, Delete's refusal, the
+  keep-limit sweep and a session's release all ask it; an archived session holds
+  no worktree.
+- **A git write child is signalled at quit, never killed first.**
+  `endTrackedChildren` sends a commit, push or worktree add/remove SIGTERM so
+  git drops its `index.lock`; `will-quit` kills what is left
+  (`src/main/children.ts`).
+- **A browser tab id can come back over new contents, and every guard keys to
+  the contents.** The `destroyed` handler ignores a target a later page replaced
+  under the same id, the CDP adapter keys its sessions and target ids to the
+  owning contents, and `disposePages` acts only for the newest call of a session
+  (`docs/browser.md`).
+- **A typed address survives blur.** The address bar's draft is dropped by
+  Escape or by the URL moving while the field is not focused, never by a URL
+  change under a focused field; a committed one shows until the page moves on,
+  and an Enter during input-method composition is not a commit
+  (`src/renderer/features/explorer/BrowserTab.tsx`).
 
 - **Path containment is `climbsOut`/`isInside`** (`src/main/explorer/fs.ts`),
   never a `startsWith("..")` on a `path.relative`: a folder named `..keep` is an
