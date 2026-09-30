@@ -67,12 +67,15 @@ jobs:
         run: scripts/release/check-version.sh
 
       # Publish only when the version is new: past the latest release tag (either
-      # spelling), or equal to it with the tag missing (a run that uploaded the wheel
-      # and died before tagging; a rerun resumes it). On build-test the same
+      # spelling), or equal to it with the tag missing or its Release unpublished (a
+      # run that uploaded the wheel and died before tagging, or tagged and died
+      # before the Release had its files; a rerun resumes it). On build-test the same
       # comparison runs against the same real tags -- a rehearsal bump passes the
       # gate exactly as it would on main, and an unbumped build-test push skips.
       - name: Evaluate release gate
         id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           current_version="$(tr -d '[:space:]' < VERSION)"
           echo "version=$current_version" >> "$GITHUB_OUTPUT"
@@ -99,8 +102,17 @@ jobs:
             echo "Version $current_version has no tag ($current_tag) yet; resuming publish."
             exit 0
           fi
+          # publish-github-release.sh pushes the tag before it creates the Release and
+          # attaches the files, so a tag alone is not a finished release: only a
+          # published Release ends the resume. One that cannot be read is treated as
+          # absent -- the publish is idempotent, a skipped one is not.
+          if [ "$(gh release view "$current_tag" --json isDraft --jq .isDraft 2>/dev/null || true)" != "false" ]; then
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+            echo "Version $current_version is tagged ($current_tag) but its Release is not published; resuming publish."
+            exit 0
+          fi
           echo "should_publish=false" >> "$GITHUB_OUTPUT"
-          echo "Nothing to publish: version $current_version is already tagged ($current_tag)."
+          echo "Nothing to publish: version $current_version is already released ($current_tag)."
 
       - name: Set up dependencies
         if: steps.gate.outputs.should_publish == 'true'
