@@ -461,6 +461,12 @@ describe("symlinks as doors and as rows", () => {
     await fs.rm(outside, { recursive: true, force: true });
   });
 
+  it("lists a link to a file in the flat index, as the tree shows it, and descends into no link", async () => {
+    const { paths } = await listPaths(root, "links");
+    expect(paths).toContain("links/current.step");
+    expect(paths).not.toContain("links/vendor/a.txt");
+  });
+
   it("refuses to write a new file through a linked directory that leaves the root", async () => {
     const door = await outsideDirectory();
     await fs.symlink(door, path.join(links, "door"));

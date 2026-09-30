@@ -448,6 +448,45 @@ describe("SessionManager", () => {
     expect(manager.state(session.id)).toBeNull();
   });
 
+  /**
+   * `connect` waits on the shell environment before the connection is in the live set, so a
+   * Disconnect that lands then has nothing to retire: the load is what has to notice it.
+   */
+  describe("a Disconnect that lands while a load is still connecting", () => {
+    async function held() {
+      const { repo, broadcasts, manager, cwd } = await setup();
+      const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+      manager.close(session.id);
+      broadcasts.length = 0;
+      const detector = (manager as unknown as { deps: { detector: { environment: () => Promise<Record<string, string>> } } }).deps.detector;
+      let release!: { resolve: () => void; reject: (error: Error) => void };
+      const gate = new Promise<void>((resolve, reject) => (release = { resolve, reject }));
+      detector.environment = async () => {
+        await gate;
+        return { PATH: process.env.PATH ?? "" };
+      };
+      const loading = manager.load(session.id);
+      const settled = loading.then(() => "loaded", () => "refused");
+      manager.close(session.id);
+      return { repo, broadcasts, session, release, settled };
+    }
+
+    it("does not leave the row error when the connect fails", async () => {
+      const { repo, session, release, settled } = await held();
+      release.reject(new Error("the login shell went away"));
+      expect(await settled).toBe("refused");
+      expect(repo.get(session.id)?.status).toBe("closed");
+    });
+
+    it("does not make the row idle, or broadcast a state, when the connect goes on to succeed", async () => {
+      const { repo, broadcasts, session, release, settled } = await held();
+      release.resolve();
+      expect(await settled).toBe("refused");
+      expect(repo.get(session.id)?.status).toBe("closed");
+      expect(broadcasts.filter((sent) => sent.channel === "session.state")).toEqual([]);
+    });
+  });
+
   /* ------------------------------------------------------------------ */
   /* Opening a session: the snapshot, the keep-alive, the warm adapter   */
   /* ------------------------------------------------------------------ */
@@ -1051,9 +1090,32 @@ describe("SessionManager", () => {
   });
 
   it("says which agents a probe would run for: an installed CLI, or a launch override", async () => {
-    expect((await setup()).manager.canProbe("claude-code")).toBe(false);
-    expect((await setup({ launchOverride: () => fakeProvider.launch })).manager.canProbe("claude-code")).toBe(true);
-    expect((await setup()).manager.canProbe("no-such-agent")).toBe(false);
+    expect(await (await setup()).manager.canProbe("claude-code")).toBe(false);
+    expect(await (await setup({ launchOverride: () => fakeProvider.launch })).manager.canProbe("claude-code")).toBe(true);
+    expect(await (await setup()).manager.canProbe("no-such-agent")).toBe(false);
+  });
+
+  it("does not call an agent absent on the last launch's row: the CLI may have been installed since", async () => {
+    const stale = { ...fakeProvider, installed: false, binaryPath: null, version: null, auth: "not-required", checkedAt: 1 } as const;
+    let probeStarts!: () => void;
+    const held = new Promise<void>((resolve) => (probeStarts = resolve));
+    const detector = new AgentDetector([fakeProvider], {
+      env: async () => {
+        await held;
+        return { PATH: "/bin" };
+      },
+      isExecutable: async (file) => file === "/bin/fake",
+      exists: async () => false,
+      exec: async () => ({ stdout: "1.0.0", stderr: "", code: 0 }),
+      homeDir: () => os.homedir(),
+      platform: process.platform,
+    }, { read: () => [stale], write: () => {} });
+    // A warm launch: the table held is the last launch's, and this launch's probe has not landed.
+    expect(detector.list()[0]?.installed).toBe(false);
+    const { manager } = await setup({ detector });
+    const asked = manager.canProbe("claude-code");
+    probeStarts();
+    expect(await asked).toBe(true);
   });
 
   it("refuses to probe an agent whose CLI is not on the machine", async () => {

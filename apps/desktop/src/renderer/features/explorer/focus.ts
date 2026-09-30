@@ -20,8 +20,10 @@ export const EXPLORER_TABPANEL_ID = "explorer-tabpanel";
 
 /** The tab the person asked for, until its body claims it or another request replaces it. */
 let wanted: string | null = null;
-/** Bodies that will claim focus when they can, and are not ready yet. */
-const claimants = new Set<string>();
+/** Bodies that will claim focus when they can, each with how to focus it once it is mounted and ready. */
+const claimants = new Map<string, () => void>();
+/** Claimants that have come up to their claim once: mounted and ready, and not going to ask again. */
+const claimed = new Set<string>();
 
 /**
  * The person opened or picked `tabId`: its body takes focus, or its strip tab does.
@@ -42,7 +44,15 @@ export function focusTabBody(tabId: string, prefer?: string): void {
       wanted = null;
       return;
     }
-    if (claimants.has(tabId)) return;
+    if (claimants.has(tabId)) {
+      // Still getting ready: it claims when it can. Ready already (the tab was picked while it
+      // was the active one): nothing will run its claim again, so it is focused here — left
+      // pending, the next rebuild of its widget (a theme change) would take the keyboard unasked.
+      if (!claimed.has(tabId)) return;
+      wanted = null;
+      claimants.get(tabId)?.();
+      return;
+    }
     // A lazy body whose chunk is still loading (`data-focus-pending`, the
     // pane's fallback) is a claimant that has not mounted yet: wait for it,
     // then give what lands the same two frames a body that was there gets.
@@ -71,16 +81,18 @@ export function focusTabBody(tabId: string, prefer?: string): void {
  * it — an unmounted body claims nothing, and a request it never claimed must
  * not be claimed by the next mount of the same tab (a session switch back).
  */
-export function holdFocusClaim(tabId: string): () => void {
-  claimants.add(tabId);
+export function holdFocusClaim(tabId: string, focus: () => void = () => {}): () => void {
+  claimants.set(tabId, focus);
   return () => {
     claimants.delete(tabId);
+    claimed.delete(tabId);
     if (wanted === tabId) wanted = null;
   };
 }
 
 /** True once, for the body of the tab the person asked for. */
 export function claimFocus(tabId: string): boolean {
+  claimed.add(tabId);
   if (wanted !== tabId) return false;
   wanted = null;
   return true;

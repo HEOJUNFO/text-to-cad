@@ -528,8 +528,12 @@ export class SessionManager {
    * process. `launchWithoutBinary` is not enough — it says the adapter can
    * run without the CLI, which a session the person asked for may use, not
    * that a speculative probe should fetch it (see `probeOptions`).
+   *
+   * "Not installed" is a verdict only from this launch's probe: a warm launch's first table is
+   * the last launch's, and a CLI installed since is on this machine now. A row that says absent
+   * waits for the fresh table, with the bound `connect` uses, before it refuses.
    */
-  canProbe(agentId: string): boolean {
+  async canProbe(agentId: string): Promise<boolean> {
     const provider = agentProvider(agentId);
     if (!provider) {
       return false;
@@ -537,7 +541,12 @@ export class SessionManager {
     if (this.deps.launchOverride?.(provider.id)) {
       return true;
     }
-    return this.deps.detector.list().find((candidate) => candidate.id === provider.id)?.installed === true;
+    const held = this.deps.detector.list().find((candidate) => candidate.id === provider.id);
+    if (held?.installed === true) {
+      return true;
+    }
+    const fresh = await this.deps.detector.freshWithin(PROBE_WAIT_MS);
+    return (fresh ?? this.deps.detector.list()).find((candidate) => candidate.id === provider.id)?.installed === true;
   }
 
   /**
@@ -570,7 +579,7 @@ export class SessionManager {
     // nobody asked for. So: the CLI is on this machine, or nothing. (With a
     // launch override in force every provider is the same test process, and
     // the machine's PATH says nothing about it.)
-    if (!this.canProbe(provider.id)) {
+    if (!(await this.canProbe(provider.id))) {
       throw new Error(`${provider.name} is not installed`);
     }
     if (!existsSync(input.cwd)) {
@@ -634,8 +643,18 @@ export class SessionManager {
     return work;
   }
 
+  /**
+   * How many times each session was closed by a person. A load that began before one is for
+   * nobody: a close that lands while `connect` is still reading the shell environment finds no
+   * connection to retire, and the load would go on to make the row `idle` again — or `error`, if
+   * the close is what made it fail.
+   */
+  private readonly disconnects = new Map<string, number>();
+
   private async loadNow(id: string): Promise<SessionState> {
     const session = this.require(id);
+    const disconnectsAtStart = this.disconnects.get(id) ?? 0;
+    const overtaken = () => (this.disconnects.get(id) ?? 0) !== disconnectsAtStart;
     if (!session.acpSessionId) {
       throw new Error("this session never connected; create it again");
     }
@@ -658,6 +677,7 @@ export class SessionManager {
         replay,
       });
     } catch (error) {
+      if (overtaken()) throw error;
       const message = error instanceof Error ? error.message : String(error);
       this.setStatus(id, "error", message);
       if (!this.shuttingDown) {
@@ -668,6 +688,7 @@ export class SessionManager {
       }
       throw error;
     }
+    if (overtaken()) return this.abandon(id, connection);
     timer.mark("spawn");
     // session/load replays the whole history, edits included, through
     // `tallyUpdate`: start the count again rather than add a second copy of
@@ -700,8 +721,11 @@ export class SessionManager {
       // detached connection's and dropped (`onEvent`), and the row keeps
       // the error.
       const reported = connection.state.status === "error";
-      this.live.delete(id);
+      // Closed by the person mid-load: the failure is the close's, and the row keeps `closed`.
+      const closed = overtaken();
+      if (this.live.get(id) === connection) this.live.delete(id);
       connection.close();
+      if (closed) throw error;
       const message = error instanceof Error ? error.message : String(error);
       this.setStatus(id, "error", message);
       // A failure the connection already put on `session.update` (an agent
@@ -719,6 +743,7 @@ export class SessionManager {
     } finally {
       replay.onReplayUpdate = undefined;
     }
+    if (overtaken()) return this.abandon(id, connection);
     timer.mark("replay");
     console.info(
       `[acp] load ${id.slice(0, 8)} ${session.agentId} warm=${warmed ? "yes" : "no"} ${timer.format()}`,
@@ -726,6 +751,13 @@ export class SessionManager {
     this.update(id, { status: "idle" });
     this.deps.broadcast("session.state", { sessionId: id, state: connection.state });
     return connection.state;
+  }
+
+  /** A load a person's close overtook: its connection goes, and nothing is written over the `closed` row or broadcast over the pane. */
+  private abandon(id: string, connection: SessionConnection): never {
+    if (this.live.get(id) === connection) this.live.delete(id);
+    connection.close();
+    throw new Error("the session was disconnected while it loaded");
   }
 
   /**
@@ -901,6 +933,7 @@ export class SessionManager {
   }
 
   close(id: string): void {
+    this.disconnects.set(id, (this.disconnects.get(id) ?? 0) + 1);
     this.retire(id);
     this.pendingTitles.delete(id);
     // The transcript as it stood, written now rather than in a second: the

@@ -155,7 +155,10 @@ export class AgentDetector {
   list(): AgentStatus[] {
     this.seed();
     if (!this.probed && !this.inflight) {
-      void this.refresh();
+      // The environment already resolved is good enough for a read; a caller that asked for the
+      // table did not ask for a second login shell. The failure reaches listeners (`probeAll`) and
+      // the callers that wait on `settled()`: this one has nobody to tell.
+      this.refresh(false).catch((error: unknown) => console.info(`[agents] the probe failed: ${String(error)}`));
     }
     return this.statuses;
   }
@@ -282,18 +285,20 @@ export class AgentDetector {
     if (!provider) {
       return null;
     }
-    if (!this.probed && this.statuses.length > 0) {
-      // The rows held are the last launch's: fold this one into the fresh table, not into them.
+    if (!this.probed) {
+      // A probe in flight would overwrite this row when it lands, and the rows held before it
+      // are the last launch's or none: fold this one into the fresh table, not into them.
       await this.settled().catch(() => undefined);
     }
     const env = await this.probes.env(true);
     this.env = env;
     const status = await this.probe(provider, env);
-    this.statuses = this.providers.map(
-      (candidate) =>
-        (candidate.id === agentId ? status : this.statuses.find((s) => s.id === candidate.id)) ??
-        missing(candidate),
-    );
+    // A provider with no row yet, or only the registry's placeholder for a probe that failed cold
+    // (`checkedAt` 0), is left out rather than drawn as "not installed", and never cached as such.
+    this.statuses = this.providers.flatMap((candidate) => {
+      const row = candidate.id === agentId ? status : this.statuses.find((s) => s.id === candidate.id);
+      return row && row.checkedAt > 0 ? [row] : [];
+    });
     this.persist();
     this.emit();
     return status;
@@ -306,10 +311,14 @@ export class AgentDetector {
       const statuses = await Promise.all(this.providers.map((provider) => this.probe(provider, env)));
       this.statuses = statuses;
     } catch (error) {
-      if (!this.probed && this.statuses.length > 0) {
+      if (!this.probed) {
         // No fresh table is coming: the last launch's rows would stay "probing" for good. They stay,
         // unmarked but flagged: an empty table would read as "no agent ready — sign in", the wrong cause.
-        this.statuses = this.statuses.map((status) => ({ ...status, probing: undefined, probeFailed: true }));
+        // With no last launch's either, the flagged rows are the registry's, so the failure reaches
+        // the renderer as one all the same and not as a list that is still on its way.
+        this.statuses = (this.statuses.length > 0 ? this.statuses : this.providers.map(missing)).map(
+          (status) => ({ ...status, probing: undefined, probeFailed: true }),
+        );
         this.emit();
       }
       throw error;

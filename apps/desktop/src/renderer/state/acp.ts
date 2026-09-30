@@ -12,31 +12,6 @@ import type {
 } from "@shared/acp/types";
 
 /**
- * Live session state, one `SessionState` per connected session, mirrored
- * from main (plan §5).
- *
- * Main sends a full snapshot on `session.state` (connect, load) and then one
- * reducer event per `session.update`; this store runs the same pure reducer
- * on them, so both processes hold the same state without a second protocol.
- * Every mutation is an IPC call and never touches the state directly — the
- * event that follows is what updates it, exactly as a change made from
- * anywhere else would.
- *
- * `loading` and `loadErrors` are the renderer's own: they cover the gap
- * between selecting a session from the index and its snapshot arriving,
- * which is where the connecting and the reconnect-failed states live.
- *
- * That gap is a second or two of spawn, `initialize` and replay (README,
- * "Opening a session"), and `reconnecting` is what makes it invisible: a
- * session with no live connection is painted from the snapshot main filed
- * on disk and then reconnected behind the transcript, with `Reconnecting…`
- * in the composer's row instead of a spinner over the pane. While that flag
- * is up the reducer events are dropped — they are the agent replaying a
- * history the snapshot already shows, and folding them onto it would double
- * every turn — and the authoritative state that ends every `load` replaces
- * the picture.
- */
-/**
  * A prompt main refused before any turn began — it holds a block the agent did not say it takes
  * (`refused` on the `sessions.prompt` reply). Nothing was written and nothing failed: the message
  * is the reason, for the composer to say beside the draft it keeps.
@@ -89,6 +64,31 @@ type AcpState = {
 
 const TERMINAL_TAIL = 64 * 1024;
 
+/**
+ * Live session state, one `SessionState` per connected session, mirrored
+ * from main (plan §5).
+ *
+ * Main sends a full snapshot on `session.state` (connect, load) and then one
+ * reducer event per `session.update`; this store runs the same pure reducer
+ * on them, so both processes hold the same state without a second protocol.
+ * Every mutation is an IPC call and never touches the state directly — the
+ * event that follows is what updates it, exactly as a change made from
+ * anywhere else would.
+ *
+ * `loading` and `loadErrors` are the renderer's own: they cover the gap
+ * between selecting a session from the index and its snapshot arriving,
+ * which is where the connecting and the reconnect-failed states live.
+ *
+ * That gap is a second or two of spawn, `initialize` and replay (README,
+ * "Opening a session"), and `reconnecting` is what makes it invisible: a
+ * session with no live connection is painted from the snapshot main filed
+ * on disk and then reconnected behind the transcript, with `Reconnecting…`
+ * in the composer's row instead of a spinner over the pane. While that flag
+ * is up the reducer events are dropped — they are the agent replaying a
+ * history the snapshot already shows, and folding them onto it would double
+ * every turn — and the authoritative state that ends every `load` replaces
+ * the picture.
+ */
 export const useAcp = create<AcpState>((set, get) => ({
   sessions: {},
   terminalOutput: {},
@@ -97,7 +97,14 @@ export const useAcp = create<AcpState>((set, get) => ({
   loadErrors: {},
 
   receiveState: (sessionId, state) =>
-    set((current) => ({ sessions: { ...current.sessions, [sessionId]: state } })),
+    set((current) => {
+      // Main broadcasts `session.state` at the end of a load, ahead of the load's reply — and a
+      // Disconnect (or a forget) that landed since the load began has already made that reply
+      // for nobody. Taking the broadcast would paint the pane connected again.
+      const load = loadsInFlight.get(sessionId);
+      if (load && load.asked !== generationOf(sessionId)) return current;
+      return { sessions: { ...current.sessions, [sessionId]: state } };
+    }),
 
   receiveEvent: (sessionId, event) =>
     set((current) => {
@@ -150,6 +157,8 @@ export const useAcp = create<AcpState>((set, get) => ({
       };
     });
     const asked = generationOf(sessionId);
+    const flight = { asked };
+    loadsInFlight.set(sessionId, flight);
     try {
       const state = await window.textToCad.sessions.load({ id: sessionId });
       // Forgotten while it loaded — archived, deleted, disconnected: the answer is for nobody.
@@ -159,6 +168,7 @@ export const useAcp = create<AcpState>((set, get) => ({
         set((current) => ({ loadErrors: { ...current.loadErrors, [sessionId]: errorMessage(error) } }));
       }
     } finally {
+      if (loadsInFlight.get(sessionId) === flight) loadsInFlight.delete(sessionId);
       set((current) => {
         const loading = { ...current.loading };
         delete loading[sessionId];
@@ -260,6 +270,9 @@ export const useAcp = create<AcpState>((set, get) => ({
  */
 const forgotten = new Map<string, number>();
 const generationOf = (sessionId: string) => forgotten.get(sessionId) ?? 0;
+
+/** The generation each in-flight `load` began under, so a state main broadcasts for it can be judged the same way its reply is. */
+const loadsInFlight = new Map<string, { asked: number }>();
 
 /** Everything held for one session, taken out: its state, its load's leftovers, its terminals' tails. */
 function without(current: AcpState, sessionId: string): Partial<AcpState> {

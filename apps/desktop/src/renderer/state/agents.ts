@@ -33,6 +33,10 @@ type AgentsState = {
 
 const JOB_TAIL = 64 * 1024;
 
+/** The reason for a table every row of which a failed probe flagged, else null. */
+const probeFailure = (agents: AgentStatus[]): string | null =>
+  agents.length > 0 && agents.every((agent) => agent.probeFailed === true) ? "the check did not finish" : null;
+
 export const useAgents = create<AgentsState>((set) => ({
   agents: [],
   ready: false,
@@ -54,7 +58,9 @@ export const useAgents = create<AgentsState>((set) => ({
   load: async () => {
     try {
       const agents = await window.textToCad.agents.list();
-      set({ agents, ready: agents.length > 0, loadError: null });
+      // A cold probe that failed answers with its flagged rows: nothing follows those on
+      // `agents.status`, so they are the answer, and read as the failure they are.
+      set({ agents, ready: agents.length > 0, loadError: probeFailure(agents) });
     } catch (error) {
       console.error("[agents] Could not read the agent list (agents.list):", error);
       // The handler's words, without Electron's "Error invoking remote method …" wrapper.
@@ -84,14 +90,7 @@ export const useAgents = create<AgentsState>((set) => ({
   // A probe that failed leaves the last launch's rows flagged (`probeFailed`): that is a check
   // that did not happen, so it reads as `loadError` — not as agents that are signed out.
   receive: (agents) =>
-    set({
-      agents,
-      ready: true,
-      loadError:
-        agents.length > 0 && agents.every((agent) => agent.probeFailed === true)
-          ? "the check did not finish"
-          : null,
-    }),
+    set({ agents, ready: true, loadError: probeFailure(agents) }),
 
   receiveOutput: (chunk) =>
     set((state) => {
