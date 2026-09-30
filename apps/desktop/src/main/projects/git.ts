@@ -989,7 +989,23 @@ export async function push(cwd: string): Promise<void> {
     throw new GitError("cannot push a detached HEAD");
   }
   const upstream = await tryGit(root, ["rev-parse", "--abbrev-ref", `${branch}@{upstream}`]);
-  await git(root, upstream ? ["push"] : ["push", "--set-upstream", "origin", branch], WRITE);
+  await git(root, upstream ? ["push"] : ["push", "--set-upstream", await remoteToPush(root, branch), branch], WRITE);
+}
+
+/**
+ * Where a branch with no upstream goes: the remote it is configured for
+ * (`branch.<name>.remote`), else the only remote there is, else `origin` —
+ * the name a clone gives its own, and the one git will complain about by
+ * name if it is not there. A repository whose one remote is called `fork`
+ * used to fail here on an `origin` it never had.
+ */
+async function remoteToPush(root: string, branch: string): Promise<string> {
+  const configured = (await tryGit(root, ["config", "--get", `branch.${branch}.remote`]))?.trim();
+  if (configured && configured !== ".") {
+    return configured;
+  }
+  const remotes = ((await tryGit(root, ["remote"])) ?? "").split("\n").map((name) => name.trim()).filter(Boolean);
+  return remotes.length === 1 ? (remotes[0] as string) : "origin";
 }
 
 /* -------------------------------------------------------------------------- */

@@ -119,3 +119,17 @@ describe("counting an untracked file", () => {
     await expect(git.fileDiff(root, "export.txt")).rejects.toThrow(/too large/);
   });
 });
+
+describe("push", () => {
+  it("goes to the only remote there is, whatever it is called", async () => {
+    const root = await repository();
+    const remote = path.join(root, "..", "fork.git");
+    await gitIn(root, "init", "--quiet", "--bare", "--initial-branch=main", remote);
+    await gitIn(root, "remote", "add", "fork", remote);
+
+    await git.push(root);
+
+    expect((await gitIn(remote, "rev-parse", "main")).stdout.trim()).toBe((await git.head(root)) ?? "");
+    expect((await gitIn(root, "rev-parse", "--abbrev-ref", "main@{upstream}")).stdout.trim()).toBe("fork/main");
+  });
+});
