@@ -211,6 +211,8 @@ export const explorerIpc = {
         cwd: z.string().optional(),
         cols: z.number().int().positive().optional(),
         rows: z.number().int().positive().optional(),
+        /** The tab was opened by the agent: its shell gets the runtime launchers on PATH. */
+        agent: z.boolean().optional(),
       }),
       TerminalInfoSchema,
     ),

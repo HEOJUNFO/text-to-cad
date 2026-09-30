@@ -125,3 +125,10 @@ it("lists a terminal the person opened under the recorded spelling when main nam
     rootDirectory: `/private${projectId}`, rootAliases: [projectId] }) as { tabs: Array<{ id: string }> };
   expect(listed.tabs.map(tab => tab.id)).toEqual([terminal.id]);
 });
+
+it("marks a terminal tab the agent opens as the agent's, so its respawn keeps the runtime PATH", async () => {
+  const opened = await performIntegrationCommand({ sessionId: sessionA, projectId, requestId: "terminal", kind: "terminal-open", root: null,
+    rootDirectory: projectId, params: { cwd: projectId, ptyId: "pty-agent" } }) as { tabId: string };
+  expect(useExplorer.getState().tabs.find(tab => tab.id === opened.tabId)).toMatchObject({ kind: "terminal", agent: true });
+  expect(useExplorer.getState().open("terminal")).toMatchObject({ agent: false });
+});

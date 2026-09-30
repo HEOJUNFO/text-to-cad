@@ -333,6 +333,11 @@ export const TerminalTabSchema = z.object({
   cwd: z.string().nullable().default(null),
   /** Agent-created ACP terminals are shown read-only with a label. */
   readOnly: z.boolean().default(false),
+  /**
+   * Opened by the agent (`create_terminal`). Its shell gets the runtime
+   * launchers on PATH, and a respawn after a relaunch must give it the same.
+   */
+  agent: z.boolean().default(false),
 });
 
 /** A scratch drawing. Metadata and scene live only in renderer memory. */

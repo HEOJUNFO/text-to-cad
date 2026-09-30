@@ -127,6 +127,7 @@ function TabBody({ tab, project }: {
             project={project}
             ptyId={tab.ptyId}
             readOnly={tab.readOnly}
+            agent={tab.agent}
             tabId={tab.id}
           />
         </Suspense>

@@ -35,6 +35,7 @@ import {
   statFile,
   writeTextFile,
 } from "../explorer/fs";
+import { sessionRuntimePath } from "../cad";
 import { Terminals } from "../explorer/terminal";
 import * as git from "../projects/git";
 import { projectWorktreeDir, realDirectory, resolveProjectRoot, rootBelongsToProject } from "../projects/workspace";
@@ -623,12 +624,11 @@ export const explorerHandlers = {
     // A saved terminal tab names a pty of the run that saved it. Ptys die with
     // the app, so an id no live pty of this session answers to is released here
     // and the tab starts a fresh shell; left in, every restored terminal would
-    // say "no longer running" until Try again. An agent's read-only terminal is
-    // not restarted (nobody is driving it): it keeps the id and says so.
+    // say "no longer running" until Try again.
     loadTabs: ({ sessionId }: { sessionId: string }) => {
       const { terminals: live } = services();
       return explorerTabs.list(sessionId).map(tab =>
-        tab.kind === "terminal" && tab.ptyId && !tab.readOnly && !live.owns(tab.ptyId, sessionId) ? { ...tab, ptyId: null } : tab);
+        tab.kind === "terminal" && tab.ptyId && !live.owns(tab.ptyId, sessionId) ? { ...tab, ptyId: null } : tab);
     },
 
     saveTabs: ({ sessionId, tabs }: { sessionId: string; tabs: ExplorerTab[] }) => {
@@ -643,12 +643,14 @@ export const explorerHandlers = {
       cwd,
       cols,
       rows,
+      agent,
     }: {
       sessionId: string;
       projectId: string;
       cwd?: string;
       cols?: number;
       rows?: number;
+      agent?: boolean;
     }) =>
       fsCall(async () => {
         // A worktree is outside the project directory by design (plan §9), so
@@ -666,6 +668,8 @@ export const explorerHandlers = {
           cwd: directory,
           ...(cols === undefined ? {} : { cols }),
           ...(rows === undefined ? {} : { rows }),
+          // A respawned agent-opened tab gets what `create_terminal` gave it: `cadgen` on PATH.
+          ...(agent ? { pathPrefix: sessionRuntimePath() } : {}),
         });
         const current = sessions.get(sessionId);
         if (!current || current.archived || current.cwd !== session.cwd || current.projectId !== projectId) {

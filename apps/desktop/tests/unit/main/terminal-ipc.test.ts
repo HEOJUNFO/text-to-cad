@@ -13,6 +13,7 @@ const fixture = vi.hoisted(() => ({ root: "", tabs: [] as unknown[] }));
 const spawn = vi.hoisted(() => vi.fn());
 const pty = vi.hoisted(() => ({ write: vi.fn(), kill: vi.fn(), resize: vi.fn(), onData: vi.fn(), onExit: vi.fn() }));
 vi.mock("node-pty", () => ({ spawn }));
+vi.mock("@main/cad", () => ({ sessionRuntimePath: () => ["/runtime/bin"] }));
 vi.mock("@main/telemetry", () => ({ track: () => {}, fileExtension: () => "none" }));
 vi.mock("electron", () => ({ BrowserWindow: {}, dialog: {}, ipcMain: {}, shell: {} }));
 vi.mock("@main/db/repositories", () => {
@@ -86,12 +87,20 @@ test("create ignores a shell or arguments the renderer names", async () => {
   expect(args).not.toEqual(["-c", "x"]);
 });
 
+test("create puts the runtime launchers on PATH for an agent-opened tab's respawn, and not for a person's", async () => {
+  await terminal.create({ projectId: "project", sessionId: "owner", agent: true });
+  await terminal.create({ projectId: "project", sessionId: "owner" });
+  const paths = spawn.mock.calls.map(call => (call[2] as { env: Record<string, string> }).env.PATH ?? "");
+  expect(paths[0]!.startsWith(`/runtime/bin${path.delimiter}`)).toBe(true);
+  expect(paths[1]!).not.toContain("/runtime/bin");
+});
+
 test("loadTabs releases a terminal tab's pty id when no live pty of the session answers to it", async () => {
   const { id } = await terminal.create({ projectId: "project", sessionId: "owner" });
-  const tab = (tabId: string, ptyId: string | null, readOnly = false) => ({ id: tabId, kind: "terminal", ptyId, readOnly });
-  fixture.tabs = [tab("live", id), tab("dead", "pty-old"), tab("agent", "pty-agent", true), { id: "file", kind: "file" }];
+  const tab = (tabId: string, ptyId: string | null) => ({ id: tabId, kind: "terminal", ptyId, readOnly: false });
+  fixture.tabs = [tab("live", id), tab("dead", "pty-old"), { id: "file", kind: "file" }];
   const loaded = explorerHandlers.explorer.loadTabs({ sessionId: "owner" }) as Array<{ id: string; ptyId?: string | null }>;
-  expect(loaded.map(t => [t.id, t.ptyId])).toEqual([["live", id], ["dead", null], ["agent", "pty-agent"], ["file", undefined]]);
+  expect(loaded.map(t => [t.id, t.ptyId])).toEqual([["live", id], ["dead", null], ["file", undefined]]);
   // Another session's live pty is no more this session's than a dead one.
   expect((explorerHandlers.explorer.loadTabs({ sessionId: "intruder" }) as Array<{ id: string; ptyId?: string | null }>)[0]!.ptyId).toBeNull();
 });
