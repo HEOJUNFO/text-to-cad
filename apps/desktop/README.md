@@ -1945,7 +1945,8 @@ src/main/                 the Electron main process: everything with a side effe
   ipc/agent-options.ts    agentOptions.*: the cache, the probe and the stored defaults
   ipc/{skills,runtime}.ts   the skills root and CAD runtime branches (P5's bodies, P6's shape)
   ipc/dialogs.ts          the native folder and file choosers Settings' path rows use
-  ipc/settings-fallbacks.ts  settings.fallbacks: { refused, gone } — stored values read as defaults
+  ipc/settings-fallbacks.ts
+                          settings.fallbacks: { refused, gone } — stored values read as defaults
   ipc/{explorer,cad}.ts   files, terminals; cad.viewerOrigin + cad.warm
   ipc/integrations.ts    scoped integration command/reply relay
   ipc/browser.ts          browser.*: the embedded browser's pages, scoped to a live session
