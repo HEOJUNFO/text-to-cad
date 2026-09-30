@@ -45,10 +45,16 @@ export const VIEWER_ARGS = ["-m", "cadgen.viewer", "--api-only", "--host", "127.
 
 /** How long the launcher has to print its JSON line. */
 const LAUNCH_TIMEOUT_MS = 90_000;
-/** Crash restarts: 1s, 2s, 4s … capped, and given up after this many in a row. */
+/**
+ * Crash restarts: 1s, 2s, 4s … capped, and given up after this many in a row.
+ * "In a row" ends when an instance stays up `HEALTHY_UPTIME_MS`: its next
+ * crash starts the count again, so a viewer that dies once a day is never
+ * given up on.
+ */
 const RESTART_BASE_MS = 1_000;
 const RESTART_MAX_MS = 30_000;
 const RESTART_LIMIT = 5;
+const HEALTHY_UPTIME_MS = 5 * 60_000;
 /** Live viewers this manager started; opening one more stops the least recently asked for. */
 const MAX_LIVE_VIEWERS = 3;
 
@@ -82,7 +88,10 @@ type Entry = {
   /** Somebody else's instance: probed before use, never killed. */
   reused: boolean;
   child: ViewerChild | null;
+  /** Crashes in a row that led to this instance. */
   restarts: number;
+  /** When it announced, on the manager's clock. */
+  startedAt: number;
   stopped: boolean;
 };
 
@@ -95,6 +104,8 @@ export type ViewerManagerDeps = {
   /** Is an origin answering? Used for reused instances before handing them out. */
   probe?: (origin: string) => Promise<boolean>;
   delay?: (ms: number) => Promise<void>;
+  /** The clock uptime is measured on; `Date.now` when omitted. */
+  now?: () => number;
   /**
    * Roots that must keep their viewer (a CAD tab is open on them). Asked when
    * a launch would put the manager over its bound; never evicted.
@@ -156,6 +167,7 @@ export class ViewerManager extends EventEmitter {
   private readonly spawn: ViewerSpawn;
   private readonly probe: (origin: string) => Promise<boolean>;
   private readonly delay: (ms: number) => Promise<void>;
+  private readonly now: () => number;
   private readonly log: (line: string) => void;
 
   constructor(private readonly deps: ViewerManagerDeps) {
@@ -163,6 +175,7 @@ export class ViewerManager extends EventEmitter {
     this.spawn = deps.spawn ?? defaultSpawn;
     this.probe = deps.probe ?? defaultProbe;
     this.delay = deps.delay ?? defaultDelay;
+    this.now = deps.now ?? Date.now;
     this.log = deps.log ?? ((line) => console.info(`[viewer] ${line}`));
   }
 
@@ -286,6 +299,7 @@ export class ViewerManager extends EventEmitter {
           reused: parsed.action === "reused",
           child: parsed.action === "started" ? child : null,
           restarts,
+          startedAt: this.now(),
           stopped: false,
         };
         this.entries.set(root, entry);
@@ -330,14 +344,16 @@ export class ViewerManager extends EventEmitter {
           return;
         }
         this.log(`viewer for ${root} exited (${code ?? signal})`);
-        void this.restart(root, resolved, entry.restarts + 1);
+        // One that stayed up was healthy: this is a first crash, not another in a row.
+        const healthy = this.now() - entry.startedAt >= HEALTHY_UPTIME_MS;
+        void this.restart(root, resolved, healthy ? 1 : entry.restarts + 1);
       });
     });
   }
 
   private async restart(root: string, resolved: ResolvedPython, attempt: number): Promise<void> {
     if (attempt > RESTART_LIMIT) {
-      this.log(`viewer for ${root} crashed ${RESTART_LIMIT} times in a row; giving up until it is asked for again`);
+      this.log(`viewer for ${root} crashed ${RESTART_LIMIT} times in a row (none staying up ${HEALTHY_UPTIME_MS / 60_000} minutes); giving up until it is asked for again`);
       return;
     }
     const generation = this.stopGeneration(root);

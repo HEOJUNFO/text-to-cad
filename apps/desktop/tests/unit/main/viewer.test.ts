@@ -28,7 +28,7 @@ class FakeChild extends EventEmitter implements ViewerChild {
   }
 }
 
-function manager(options: { inUse?: () => string[]; maxLive?: number; runtime?: boolean; probe?: () => Promise<boolean>; delay?: () => Promise<void> } = {}) {
+function manager(options: { now?: () => number; inUse?: () => string[]; maxLive?: number; runtime?: boolean; probe?: () => Promise<boolean>; delay?: () => Promise<void> } = {}) {
   const children: Array<{ child: FakeChild; python: string; args: string[]; cwd: string; env: Record<string, string> }> = [];
   const delays: number[] = [];
   const logs: string[] = [];
@@ -47,6 +47,7 @@ function manager(options: { inUse?: () => string[]; maxLive?: number; runtime?: 
     },
     log: (line) => logs.push(line),
     ...(options.inUse ? { inUse: options.inUse } : {}),
+    ...(options.now ? { now: options.now } : {}),
     ...(options.maxLive ? { maxLive: options.maxLive } : {}),
   });
   return { viewers, children, delays, logs };
@@ -236,6 +237,42 @@ describe("ViewerManager", () => {
     expect(m.children[0]!.child.killed).toBe(true);
     expect(m.viewers.list()).toEqual([]);
     expect(m.children).toHaveLength(1);
+  });
+
+  it("counts crashes in a row: an instance that stayed up is forgiven, a crash loop is given up on", async () => {
+    let clock = 0;
+    const m = manager({ now: () => clock });
+    const settle = () => new Promise((resolve) => setImmediate(resolve));
+    const announce = (index: number) => m.children[index]!.child.say('{"url":"http://127.0.0.1:3250/","port":3250,"action":"started"}');
+    const first = m.viewers.originFor("/proj");
+    await settle();
+    announce(0);
+    await first;
+    // Ten crashes, each after ten minutes up: never an nth in a row.
+    for (let crash = 0; crash < 10; crash += 1) {
+      clock += 10 * 60_000;
+      m.children[crash]!.child.exit(1);
+      await settle();
+      expect(m.children).toHaveLength(crash + 2);
+      announce(crash + 1);
+      await settle();
+    }
+    expect(m.delays).toEqual(Array(10).fill(1000));
+    // The last forgiven restart is attempt 1, so four more quick crashes in a
+    // row are restarted (attempts 2 to 5) and the fifth is given up on.
+    const base = m.children.length;
+    for (let crash = 0; crash < 4; crash += 1) {
+      clock += 1_000;
+      m.children.at(-1)!.child.exit(1);
+      await settle();
+      announce(m.children.length - 1);
+      await settle();
+    }
+    expect(m.children).toHaveLength(base + 4);
+    clock += 1_000;
+    m.children.at(-1)!.child.exit(1);
+    await settle();
+    expect(m.children).toHaveLength(base + 4);
   });
 
   it("a launch asked for after a stop is its own, not the stopped one it would have joined", async () => {
