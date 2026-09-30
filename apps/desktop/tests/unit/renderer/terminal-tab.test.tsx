@@ -145,3 +145,20 @@ it("lets Tab leave the terminal after Ctrl+Shift+M, and says so", async () => {
   expect(key({ key: "Tab" })).toBe(true);
   await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(""));
 });
+
+it("leaves paste to xterm: Cmd+V is passed over and the clipboard is not also written to the shell", async () => {
+  terminal().attach = vi.fn(async () => ({ info: info(null), scrollback: "", seq: 0 }));
+  terminal().write = vi.fn(async () => {});
+  const readText = vi.fn(async () => "echo A\n");
+  Object.defineProperty(navigator, "clipboard", { value: { readText, writeText: vi.fn(async () => {}) }, configurable: true });
+  renderTab();
+  await waitFor(() => expect(terminal().attach).toHaveBeenCalled());
+  await Promise.resolve();
+  // xterm's own paste listener sees the native event and brackets it; a second,
+  // manual write here would run the command twice.
+  expect(terminals[0]!.keys(new KeyboardEvent("keydown", { key: "v", metaKey: true }))).toBe(false);
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(readText).not.toHaveBeenCalled();
+  expect(terminal().write).not.toHaveBeenCalled();
+});

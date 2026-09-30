@@ -309,9 +309,8 @@ export function TerminalTab({
     // Cmd/Ctrl+K belongs to the command palette, app-wide: it is passed over
     // here (not written to the shell, not handled) so the palette's window
     // listener and the menu accelerator see it exactly as they do anywhere
-    // else. Clearing is the footer's Clear button. The copy/paste chords are
-    // handled here because xterm swallows keys before the menu's accelerators
-    // see them.
+    // else. Clearing is the footer's Clear button. Copy is handled
+    // here because xterm swallows keys before the menu's accelerators see it.
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== "keydown") {
         return true;
@@ -333,12 +332,12 @@ export function TerminalTab({
         term.clearSelection();
         return false;
       }
+      // Paste is xterm's: passed over (not prevented) so the browser's paste
+      // event reaches xterm's own listener, which wraps the text in bracketed-
+      // paste markers when the shell asked for them. Writing the clipboard here
+      // as well would run a pasted command twice, once unbracketed. Returning
+      // false also keeps Ctrl+V from reaching the shell as ^V.
       if (modifier && event.key.toLowerCase() === "v") {
-        void navigator.clipboard.readText().then((text) => {
-          if (text) {
-            void window.textToCad.terminal.write({ id: ptyId, sessionId, data: text }).catch(() => {});
-          }
-        });
         return false;
       }
       return true;
