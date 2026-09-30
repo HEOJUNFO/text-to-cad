@@ -2195,10 +2195,30 @@ session that cut a fresh worktree keeps that worktree's base commit as its
 an existing worktree (`New session in this worktree`) marks the tree as it is,
 since earlier uncommitted work may be in it; marks recorded as commits by older builds
 still work as `git diff <sha>` against the working tree.
+A mark never fails or delays a turn or a create past `MARK_WAIT_MS` (5 s, in
+`src/main/acp/sessions.ts`). Past it a turn keeps the previous `turnHead` and a
+session mark falls back to the commit (`HEAD`, or the empty tree in a
+repository with no commits), and the snapshot goes on running. There is one
+snapshot at a time per `<session id>/<kind>`: a second asker, the next turn's
+say, takes the first's result rather than stacking another `add -A` that could
+land after it and re-point the ref. A snapshot that lands for a row that is gone
+(deleted, or a create that failed) unpins the marks it just made; the create's
+own marks are started before the spawn and settled after `session/new`, so they
+run alongside it.
 A read of either scope lists the untracked files in a throwaway copy of the
 index (`add --intent-to-add` of just those paths, no objects written), and the
 reads of one review share it while the real index and the untracked set stay the
-same.
+same. That index is kept per repository root, keyed by the real index's
+`inode:mtime:size` and a hash of the untracked paths; an unused one lives 30
+seconds for the next poll and every one is removed at exit. A build that fails
+fails the read: falling back to the real index would show every untracked file
+from before the mark as deleted.
+Counting an untracked file for the review reads it whole up to 1 MiB; a larger
+one is streamed a megabyte at a time (after the NUL test on its first 8000
+bytes) and its counts are remembered by size and mtime, so the half-second
+status poll does not read it again. Past 512 MiB, git's own
+`core.bigFileThreshold`, it counts as binary without being read. A diff of a
+working-tree file is refused past 4 MiB (`MAX_TEXT_BYTES`, `readWorkingCopy`).
 Those two scopes also move the whole read into the session's directory, which
 for a worktree thread is not the project's checkout.
 
@@ -2209,6 +2229,20 @@ validates them before git starts (`assertSafeScope` in
 a review scope's revision also puts `--end-of-options` in front of it, so a
 value shaped like `--output=…` is a revision git rejects, never an option.
 That flag needs git 2.24 or newer.
+
+The commit strip's button reads **Push** when the tree has no changed files and
+the branch is ahead (`pushState` answers `{ dirty, ahead }` in one status
+read), **Commit or push** when a remote exists, else **Commit**. A `Commit or
+push` that finds a clean tree with commits ahead pushes them and reports that it
+only pushed, rather than failing on "nothing to commit" after a push that
+failed. `ahead` is porcelain's count for a branch with an upstream; without one
+(a first push that failed) `commitsAhead` counts the commits on no remote
+branch, and skips that walk, answering 0, when the repository has no remote. A
+branch with no upstream pushes with `--set-upstream` to its
+`branch.<name>.remote`, else the only remote there is, else `origin`. A git
+write (commit, push, worktree add or remove) times out after 10 minutes and a
+read after 60 seconds; a failure reads as the last 20 lines of stderr, or of
+stdout when stderr is blank (a commit hook's reason, "nothing to commit").
 
 ### The explorer's root
 
