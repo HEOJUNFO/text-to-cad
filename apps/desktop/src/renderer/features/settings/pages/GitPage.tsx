@@ -130,7 +130,13 @@ export function GitPage() {
               })
               .then((chosen) => chosen && patch({ worktreeRoot: chosen.path }));
           }}
-          note={fallbacks.gone.worktreeRoot ? "This folder no longer exists; it is created again with the next worktree." : undefined}
+          note={
+            fallbacks.gone.worktreeRoot?.reason === "file"
+              ? "This is a file, not a folder, so worktrees cannot be made here."
+              : fallbacks.gone.worktreeRoot
+                ? "This folder no longer exists; it is created again with the next worktree."
+                : undefined
+          }
           onClear={() => patch({ worktreeRoot: null })}
           placeholder="~/.text-to-cad/worktrees"
           title="Worktree root"

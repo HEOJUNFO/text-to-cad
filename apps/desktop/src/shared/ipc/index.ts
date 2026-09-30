@@ -152,8 +152,11 @@ export const ipcContract = defineIpc({
       z.void(),
       z.object({
         refused: z.record(z.string(), z.string()),
-        /** Remembered folders (`defaultProjectFolder`, `worktreeRoot`) that no longer exist: stored fine, just gone. */
-        gone: z.record(z.string(), z.string()),
+        /**
+         * Remembered folders (`defaultProjectFolder`, `worktreeRoot`) that are not folders any more: stored fine, just
+         * gone. `missing` is nothing at the path; `file` is a file there, which a worktree cannot be made under.
+         */
+        gone: z.record(z.string(), z.object({ path: z.string(), reason: z.enum(["missing", "file"]) })),
       }),
     ),
   },

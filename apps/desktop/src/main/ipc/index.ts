@@ -6,7 +6,6 @@
  * `shell`, `ui`, `window`) answered here — `registerIpc` refuses to start if
  * the two disagree.
  */
-import { stat } from "node:fs/promises";
 import { BrowserWindow, app, dialog, shell } from "electron";
 
 import { ipcContract, type IpcContract } from "../../shared/ipc";
@@ -24,7 +23,7 @@ import { integrationHandlers } from "./integrations";
 import { cadHandlers } from "./cad";
 import { clipboardHandlers } from "./clipboard";
 import { browserHandlers } from "./browser";
-import { dialogsHandlers } from "./dialogs";
+import { dialogsHandlers, existingPath } from "./dialogs";
 import { explorerHandlers, initExplorerServices, revealProjectDirectory } from "./explorer";
 import { gitHandlers } from "./git";
 import { refreshRuntimeAfterOverride, runtimeHandlers } from "./runtime";
@@ -167,15 +166,8 @@ const openProjectDialog = {
 // has since been moved or deleted is left out, so the chooser opens where the
 // OS would have put it rather than on an error.
 async function defaultPathOption(): Promise<{ defaultPath?: string }> {
-  const folder = settings.get().defaultProjectFolder;
-  if (!folder) {
-    return {};
-  }
-  try {
-    return (await stat(folder)).isDirectory() ? { defaultPath: folder } : {};
-  } catch {
-    return {};
-  }
+  const defaultPath = await existingPath(settings.get().defaultProjectFolder ?? undefined, { directory: true });
+  return defaultPath === undefined ? {} : { defaultPath };
 }
 
 export function registerIpcHandlers() {

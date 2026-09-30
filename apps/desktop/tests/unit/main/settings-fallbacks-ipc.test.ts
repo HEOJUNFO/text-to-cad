@@ -3,6 +3,7 @@
  * value main refused (read as the default) and a remembered folder that is
  * gone. Only the second may make a row say "no longer exists".
  */
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -38,7 +39,7 @@ afterEach(() => {
 it("reports a remembered folder that is gone, as gone and not as refused", async () => {
   rows.set("defaultProjectFolder", JSON.stringify(gone));
   rows.set("worktreeRoot", JSON.stringify(tmpdir()));
-  expect(await settingsFallbacks()).toEqual({ refused: {}, gone: { defaultProjectFolder: gone } });
+  expect(await settingsFallbacks()).toEqual({ refused: {}, gone: { defaultProjectFolder: { path: gone, reason: "missing" } } });
 });
 
 it("reads a wrong-typed stored folder as the schema fallback, not as gone", async () => {
@@ -49,7 +50,19 @@ it("reads a wrong-typed stored folder as the schema fallback, not as gone", asyn
 
 it("a gone folder is reported and the chooser stops opening there, from the same stored value", async () => {
   rows.set("worktreeRoot", JSON.stringify(gone));
-  expect((await settingsFallbacks()).gone).toEqual({ worktreeRoot: gone });
+  expect((await settingsFallbacks()).gone).toEqual({ worktreeRoot: { path: gone, reason: "missing" } });
   await dialogsHandlers.dialogs.chooseDirectory({ defaultPath: gone }, ctx);
   expect(showOpenDialog.mock.calls[0]?.[0]).not.toHaveProperty("defaultPath", expect.any(String));
+});
+
+it("reports a remembered folder that is now a file as gone with the file reason, not as missing", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "text-to-cad-fallbacks-"));
+  const file = join(dir, "worktrees");
+  writeFileSync(file, "");
+  try {
+    rows.set("worktreeRoot", JSON.stringify(file));
+    expect(await settingsFallbacks()).toEqual({ refused: {}, gone: { worktreeRoot: { path: file, reason: "file" } } });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

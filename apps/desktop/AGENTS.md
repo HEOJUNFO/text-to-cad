@@ -239,8 +239,9 @@ the rule is about.
 - **Focus is handed on whenever the control under it unmounts, and a refused
   action keeps focus on its control.** A permission answer goes to the
   composer, a refused one stays on the card; rename's Enter and Escape go to
-  the title button; every Reconnect or Retry on the session screen goes
-  through `reconnectFromBar`; leaving Settings goes to the composer
+  the title button; every Reconnect or Retry on the session screen, the
+  transcript's included, goes through `handToComposer` (`reconnectFromBar` and
+  `retry` in `SessionView.tsx` both start with it); leaving Settings goes to the composer
   (`focusSessionHome`, `src/renderer/app/pane-focus.ts`, where `PANE_HOMES` is
   shared with F6); a pane that collapses under focus hands it to its toggle.
 - **Every route has exactly one `main`.** The shell's session, Settings and the
@@ -266,9 +267,11 @@ the rule is about.
   Application row with a modifier is a menu accelerator** in
   `src/main/menu.ts` — and every accelerator is a row
   (`tests/unit/main/shortcuts-menu.test.ts`). Add a key to both or to
-  neither. The one exemption is the toast chord in
-  `components/ui/sonner.tsx` (Cmd+Option+T on a Mac, Ctrl+Shift+T elsewhere):
-  a row holds one portable binding and this one differs by platform.
+  neither. The table lists everything but the development build's `Reload App`
+  (a packaged app has none) and the toast chord in
+  `components/ui/sonner.tsx` (Cmd+Option+T on a Mac, Ctrl+Shift+T elsewhere): a
+  row holds one portable binding and this one differs by platform, so the
+  Shortcuts page names it in a footnote instead.
 - **A global chord is checked on all three platforms.** It types no character
   with Option on a Mac (Option+T is a dagger), does not arrive as AltGr on a
   European keyboard (Ctrl+Alt), and is not GNOME's Ctrl+Alt+T.
@@ -360,9 +363,13 @@ the rule is about.
   worktree, under it, or record it. Settings' count, Delete's refusal, the
   keep-limit sweep, a session's release and the CAD viewer's stop (archive and
   delete, `forgetCadSession`) all ask it; an archived session holds no worktree.
-  Delete from Settings is refused on two grounds, in use and locked
-  (`git worktree lock`), and the row says which (`keptBecause`,
-  `features/settings/pages/GitPage.tsx`).
+  Delete from Settings is kept on four grounds, and the row says which
+  (`keptBecause`, `features/settings/pages/GitPage.tsx`): locked
+  (`git worktree lock`), git could not check it for unsaved work, unsaved
+  work (uncommitted changes or ignored files that are not a disposable
+  cache), and an open session. Main refuses a worktree in use even forced
+  and unsaved work unless the request says `force`; a lock is git's own
+  refusal.
 - **A settings write main refuses is rolled back and said, and a key with a
   write in flight keeps its value until that write settles.** `patch`
   (`src/renderer/state/settings.ts`) puts back what main last reported for the
@@ -372,8 +379,10 @@ the rule is about.
 - **One bad stored settings field never breaks the others.** Each field parses
   alone (`parseFields` in `src/main/db/repositories.ts`) and a refused one takes
   its default; `settings.fallbacks` reports it in `refused`, field to stored
-  text. A folder of the wrong type is `refused`, never `gone`: `gone` is only a
-  remembered folder that parses and no longer exists, and its note says so.
+  text. A stored value of the wrong JSON type is `refused`, never `gone`; a path
+  that is a file is `gone` with the reason `file`, and a path with nothing at
+  it with `missing` — the row says "a file, not a folder" for the one and
+  "no longer exists" for the other.
 - **The viewer warm is gated by a model in the root; the daemon is not.**
   `warmCad` starts a root's viewer only when `hasCadFile` finds a model in it,
   and warms the build daemon on every bind (unless the kernel is `missing` or
@@ -390,8 +399,9 @@ the rule is about.
 - **A live viewer command replies only once its effect is committed.**
   `attachLiveBinding` (`packages/ui/src/renderers/kit/shell/liveBinding.ts`)
   waits a settled frame and, where the command has a committed predicate
-  (display settings, render mode, `clearSelection` = selection empty, a
-  renderer command's own), until it holds — at most ten seconds, then "The
+  (display settings, render mode, `setCamera` = position and target read
+  back as asked, `resetCamera` = the eased move at rest, `clearSelection` =
+  selection empty, a renderer command's own), until it holds — at most ten seconds, then "The
   viewer did not finish applying this command." A reply on the call returning
   would hand an agent a state the command had not produced yet.
 - **Every capture goes through `imageResult`.** It redraws an image over
