@@ -13,16 +13,23 @@ const sendCommand = vi.fn(async (method: string) => {
   return {};
 });
 const contents = { isDestroyed: () => false, debugger: Object.assign(new EventEmitter(), { isAttached: () => true, attach: vi.fn(), sendCommand }) };
+/** The contents a tab id shows now; a test re-opens the tab over `reopened`. */
+const reopened = { isDestroyed: () => false, debugger: Object.assign(new EventEmitter(), { isAttached: () => true, attach: vi.fn(), sendCommand: vi.fn(async (method: string) => {
+  if (method === "Target.getTargetInfo") return { targetInfo: { targetId: "new-target" } };
+  if (method === "Target.attachToTarget") return { sessionId: "new-native-session" };
+  return {};
+}) }) };
+let showing: typeof contents = contents;
 const service = {
   events: new EventEmitter(),
   metadata: () => ({ tabId: "tab", title: "Page", url: "https://example.com/" }),
-  contents: () => contents,
+  contents: () => showing,
   list: () => [{ tabId: "tab" }],
   noteAutomatedInput: vi.fn(),
 } as unknown as BrowserService & { noteAutomatedInput: ReturnType<typeof vi.fn> };
 const tabs = { open: vi.fn(), show: vi.fn(), close: vi.fn() };
 let endpoint: ScopedBrowserCdp | undefined;
-afterEach(async () => { await endpoint?.dispose(); });
+afterEach(async () => { showing = contents; await endpoint?.dispose(); });
 
 it("refuses Page.setDownloadBehavior as well as Browser.setDownloadBehavior on an attached page", async () => {
   endpoint = new ScopedBrowserCdp(service, scope, tabs);
@@ -95,4 +102,22 @@ it("forgets a closed page's target id, and takes its listeners off the service's
   await new Promise(resolve => { socket.once("close", resolve); socket.close(); });
   await vi.waitFor(() => expect(service.events.listenerCount("closed")).toBe(0));
   expect(service.events.listenerCount("opened")).toBe(0);
+});
+
+it("a tab id re-opened over new contents gets its own session and target id, and the old contents' detach does not touch them", async () => {
+  await vi.waitFor(() => expect(service.events.listenerCount("closed")).toBe(0));
+  const { socket, call, events } = await client();
+  await call("Target.getTargets");
+  const first = String((await call("Target.attachToTarget", { targetId: "native-target", flatten: true })).result?.sessionId);
+  // Archive, then a quick unarchive on the same tab id: the old contents never reports `closed`.
+  showing = reopened as unknown as typeof contents;
+  await call("Target.getTargets");
+  const second = String((await call("Target.attachToTarget", { targetId: "new-target", flatten: true })).result?.sessionId);
+  expect(second).not.toBe(first);
+  contents.debugger.emit("detach", {}, "target closed");
+  await vi.waitFor(() => expect(events.find(item => item.method === "Target.detachedFromTarget")?.params).toEqual({ sessionId: first, targetId: "native-target" }));
+  expect((await call("Page.enable", {}, second)).error).toBeUndefined();
+  service.events.emit("closed", { ...scope, tabId: "tab" });
+  await vi.waitFor(() => expect(events.find(item => item.method === "Target.targetDestroyed")?.params).toEqual({ targetId: "new-target" }));
+  await new Promise(resolve => { socket.once("close", resolve); socket.close(); });
 });

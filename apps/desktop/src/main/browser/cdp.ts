@@ -53,22 +53,28 @@ export class ScopedBrowserCdp {
     const send = (value: unknown) => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(value)); };
     const event = (method: string, params: unknown, sessionId?: string) => send({ method, params, ...(sessionId ? { sessionId } : {}) });
     const targetIds = new Map<string, string>();
+    // The id of the page a tab shows now: a tab id re-opened over new contents
+    // (archive, then a quick unarchive) has the old contents' id in `targetIds`
+    // until that one's detach is heard.
+    const liveTargetIds = new Map<string, string>();
     const info = async (tabId: string) => {
       const target = this.service.metadata(this.scope, tabId);
       const contents = this.service.contents(this.scope, tabId);
       if (!contents.debugger.isAttached()) contents.debugger.attach("1.3");
       const { targetInfo } = await contents.debugger.sendCommand("Target.getTargetInfo");
       targetIds.set(targetInfo.targetId, tabId);
+      liveTargetIds.set(tabId, targetInfo.targetId);
       return { targetId: targetInfo.targetId, browserContextId: "text-to-cad-workspace", type: "page", title: target.title, url: target.url || "about:blank", attached: true, canAccessOpener: false };
     };
-    const targetIdOf = (tabId: string) => [...targetIds].find(([, id]) => id === tabId)?.[0];
+    const targetIdOf = (tabId: string) => liveTargetIds.get(tabId);
     const attaching = new Map<string, Promise<string>>();
     const attachPage = async (tabId: string) => {
       const targetInfo = await info(tabId);
       if (socket.readyState !== WebSocket.OPEN) throw new Error("Browser connection closed");
-      const existing = [...sessions].find(([, page]) => page.tabId === tabId && page.root);
-      if (existing) return existing[0];
       const contents = this.service.contents(this.scope, tabId);
+      // The same contents too: a session bound to a destroyed page is not the re-opened tab's.
+      const existing = [...sessions].find(([, page]) => page.tabId === tabId && page.root && page.contents === contents);
+      if (existing) return existing[0];
       if (!contents.debugger.isAttached()) contents.debugger.attach("1.3");
       const { sessionId: nativeSession } = await contents.debugger.sendCommand("Target.attachToTarget", { targetId: targetInfo.targetId, flatten: true });
       if (socket.readyState !== WebSocket.OPEN) {
@@ -95,10 +101,14 @@ export class ScopedBrowserCdp {
       };
       const protocol = contents.debugger;
       protocol.on("message", onMessage);
-      // A crashed renderer, or DevTools taking the page over, ends the debugger
+      // DevTools taking the page over, or its contents closing, ends the debugger
       // and every native session with it; the client is told, not left waiting.
+      // (A crashed renderer does not: the agent host stays and reports
+      // `Inspector.targetCrashed`.)
       const onDetach = () => {
-        const targetId = targetIdOf(tabId);
+        const targetId = targetInfo.targetId;
+        targetIds.delete(targetId);
+        if (liveTargetIds.get(tabId) === targetId) liveTargetIds.delete(tabId);
         for (const [id, page] of sessions) if (page.contents === contents) {
           cleanups.get(id)?.(); cleanups.delete(id); sessions.delete(id);
           event("Target.detachedFromTarget", { sessionId: id, targetId });
@@ -138,6 +148,7 @@ export class ScopedBrowserCdp {
       const targetId = targetIdOf(target.tabId);
       event("Target.targetDestroyed", { targetId });
       if (targetId) targetIds.delete(targetId);
+      liveTargetIds.delete(target.tabId);
     };
     this.service.events.on("opened", opened);
     this.service.events.on("closed", closed);
