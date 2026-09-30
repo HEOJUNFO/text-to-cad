@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { AgentDetector, nodeProbes, parseVersion, which, type DetectorProbes } from "@main/agents/detect";
+import type { AgentStatus } from "@shared/agents";
 import { CLAUDE_ADAPTER, CODEX_ADAPTER, agentProvider } from "@main/agents/registry";
 import { parseEnv, stripHostSession } from "@main/agents/shell-env";
 
@@ -186,6 +187,48 @@ describe("AgentDetector", () => {
     const status = await detector.refreshOne("gemini-cli");
     expect(status?.installed).toBe(true);
     expect(detector.list().find((s) => s.id === "gemini-cli")?.version).toBe("1.0.0");
+  });
+});
+
+describe("AgentDetector on a cold table", () => {
+  const providers = [agentProvider("claude-code")!, agentProvider("codex")!];
+  const deferred = <T,>() => {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((done) => (resolve = done));
+    return { promise, resolve };
+  };
+
+  it("folds a refreshed row into the probe in flight, not over it, and never caches a row it did not check", async () => {
+    const written: AgentStatus[][] = [];
+    const gate = deferred<Record<string, string>>();
+    const probes = machine({ executables: ["/usr/local/bin/claude", "/usr/local/bin/codex"], outputs: {
+      "/usr/local/bin/claude --version": { stdout: "2.0.0" },
+      "/usr/local/bin/claude auth status": { code: 0 },
+      "/usr/local/bin/codex --version": { stdout: "0.1.0" },
+      "/usr/local/bin/codex login status": { code: 0 },
+    } });
+    let first = true;
+    const detector = new AgentDetector(providers, {
+      ...probes,
+      env: async () => {
+        if (first) {
+          first = false;
+          return gate.promise;
+        }
+        return { PATH: "/usr/local/bin" };
+      },
+    }, { read: () => null, write: (statuses) => written.push(statuses) });
+    const seen: AgentStatus[][] = [];
+    detector.onChange((statuses) => seen.push(statuses));
+
+    const all = detector.refresh(false);
+    const one = detector.refreshOne("claude-code");
+    gate.resolve({ PATH: "/usr/local/bin" });
+    await Promise.all([all, one]);
+
+    expect(seen.every((table) => table.every((row) => row.checkedAt > 0))).toBe(true);
+    expect(written.every((table) => table.every((row) => row.checkedAt > 0))).toBe(true);
+    expect(detector.list().map((row) => [row.id, row.installed])).toEqual([["claude-code", true], ["codex", true]]);
   });
 });
 

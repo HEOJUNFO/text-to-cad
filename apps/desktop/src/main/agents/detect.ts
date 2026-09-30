@@ -282,18 +282,20 @@ export class AgentDetector {
     if (!provider) {
       return null;
     }
-    if (!this.probed && this.statuses.length > 0) {
-      // The rows held are the last launch's: fold this one into the fresh table, not into them.
+    if (!this.probed) {
+      // A probe in flight would overwrite this row when it lands, and the rows held before it
+      // are the last launch's or none: fold this one into the fresh table, not into them.
       await this.settled().catch(() => undefined);
     }
     const env = await this.probes.env(true);
     this.env = env;
     const status = await this.probe(provider, env);
-    this.statuses = this.providers.map(
-      (candidate) =>
-        (candidate.id === agentId ? status : this.statuses.find((s) => s.id === candidate.id)) ??
-        missing(candidate),
-    );
+    // A provider with no row yet (a probe that failed cold) is left out rather than drawn as
+    // "not installed", and never cached as such.
+    this.statuses = this.providers.flatMap((candidate) => {
+      const row = candidate.id === agentId ? status : this.statuses.find((s) => s.id === candidate.id);
+      return row ? [row] : [];
+    });
     this.persist();
     this.emit();
     return status;
@@ -384,15 +386,4 @@ export class AgentDetector {
       listener(this.statuses);
     }
   }
-}
-
-function missing(provider: AgentProvider): AgentStatus {
-  return {
-    ...provider,
-    installed: false,
-    binaryPath: null,
-    version: null,
-    auth: "unknown",
-    checkedAt: 0,
-  };
 }
