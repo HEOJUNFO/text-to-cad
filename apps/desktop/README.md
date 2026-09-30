@@ -466,8 +466,10 @@ workflow hands the Apple secrets to the macOS leg and `WIN_CSC_LINK` and
 `WIN_CSC_KEY_PASSWORD` to the Windows leg, so adding the secrets is all it
 takes to sign; until then both installers are unsigned.
 
-`hardenedRuntime` and the entitlements (`build/entitlements.mac*.plist`) are on
-either way, so the first signed build is not the first time they are exercised.
+`hardenedRuntime` and the entitlements (`build/entitlements.mac*.plist`) are
+configured either way but only applied by codesign, so an unsigned build never
+exercises them: the first check that the app launches under them is a signed
+build, which on a laptop is `CSC_LINK` set by hand.
 
 ### Updates
 
