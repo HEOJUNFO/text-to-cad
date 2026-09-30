@@ -57,7 +57,11 @@ const AUTH_LABEL: Record<Exclude<AuthState, "unknown">, string> = {
   "not-required": "No sign-in needed",
 };
 
-export function authLabel(agent: Pick<AgentStatus, "auth" | "installed">): string {
+export function authLabel(agent: Pick<AgentStatus, "auth" | "installed" | "probing">): string {
+  // The last launch's row: its login is being asked again, so it says nothing yet.
+  if (agent.probing && agent.auth === "unauthenticated") {
+    return "Checking…";
+  }
   if (agent.auth === "unknown") {
     return agent.installed ? "Installed" : "Not installed";
   }
@@ -269,7 +273,7 @@ function AuthenticationSection({ agent }: { agent: AgentStatus }) {
 
   return (
     <Section
-      action={<StatusLabel tone={AUTH_TONE[agent.auth]}>{authLabel(agent)}</StatusLabel>}
+      action={<StatusLabel tone={agent.probing && agent.auth === "unauthenticated" ? "idle" : AUTH_TONE[agent.auth]}>{authLabel(agent)}</StatusLabel>}
       title="Authentication"
     >
       {/* Signed in, the status on the right already says so: what is left is

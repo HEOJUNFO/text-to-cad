@@ -102,6 +102,15 @@ export const useAgents = create<AgentsState>((set) => ({
 }));
 
 /**
+ * Whether the table on screen is the last launch's, given before this launch's
+ * probe has finished (`AgentStatus.probing`). Its `auth` is provisional: a
+ * screen that would say "signed out" waits for `agents.status` instead.
+ */
+export function useAgentsProbing(): boolean {
+  return useAgents((state) => state.agents.some((agent) => agent.probing === true));
+}
+
+/**
  * The installed agents, for the composer's agent chip. `useShallow` because
  * the filter builds a fresh array every call and zustand compares with
  * Object.is — without it every render schedules another.

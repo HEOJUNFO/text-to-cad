@@ -132,7 +132,9 @@ the rule is about.
   `onOpenAutoFocus` and `onCloseAutoFocus` through; `message.tsx` and
   `reasoning.tsx` take their Mermaid plugin from `src/renderer/lib/mermaid.ts`
   rather than `@streamdown/mermaid`, so the diagram engine loads with the first
-  diagram and not with the window. Re-vendoring a component means
+  diagram and not with the window. They likewise leave `@streamdown/math` out of the
+  list until `src/renderer/lib/math.ts` (`useMathPlugin`) has loaded it for a
+  text with a formula in it, so KaTeX is not in the window's first chunk. Re-vendoring a component means
   redoing those.
 - **Nothing is installed into an agent's configuration.** text-to-cad's skills
   and its tools are given to each session — the skills root as an additional

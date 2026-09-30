@@ -13,7 +13,8 @@ export const agentsContract = {
   agents: {
     /**
      * Every provider with its status, from the cache; before the first probe
-     * has answered, it waits for it, up to `COLD_LIST_WAIT_MS`
+     * has answered, the last launch's table with every row `probing`, and
+     * with none of those it waits for the probe, up to `COLD_LIST_WAIT_MS`
      * (`src/main/ipc/agents.ts`), and answers empty past that.
      */
     list: invoke(z.void(), z.array(AgentStatusSchema)),

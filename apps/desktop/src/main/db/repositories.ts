@@ -471,6 +471,8 @@ function safeJson(value: string): unknown {
  * to Settings while still being one table to back up.
  */
 const WINDOW_STATE_KEY = "__window";
+/** The agent detector's last table (`src/main/agents/cache.ts`), under the same terms. */
+const AGENTS_CACHE_KEY = "__agents";
 
 function readRaw(): Record<string, unknown> {
   const rows = db().prepare("SELECT key, value FROM settings").all() as {
@@ -549,5 +551,14 @@ export const settings = {
     const parsed = WindowStateSchema.parse(state);
     writeRaw({ [WINDOW_STATE_KEY]: parsed });
     return parsed;
+  },
+
+  /** Whatever the detector stored, unchecked: its module validates it. */
+  agentsCache(): unknown {
+    return readRaw()[AGENTS_CACHE_KEY];
+  },
+
+  setAgentsCache(value: unknown): void {
+    writeRaw({ [AGENTS_CACHE_KEY]: value });
   },
 };
