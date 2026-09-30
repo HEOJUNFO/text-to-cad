@@ -233,8 +233,11 @@ function ProjectWorktreeCard({ project }: { project: Project }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Read once per Settings visit (`worktree-cache.ts`); `epoch` reads again
-  // after an invalidation.
+  // A mount reads afresh over the list the visit already has (`worktree-cache.ts`);
+  // `epoch` reads again after an invalidation.
+  useEffect(() => {
+    void ensureWorktrees(project.id, { fresh: true });
+  }, [project.id]);
   useEffect(() => {
     void ensureWorktrees(project.id);
   }, [project.id, epoch]);

@@ -3,7 +3,7 @@
  * what a row says about why one does not.
  */
 import { beforeEach, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
@@ -68,7 +68,7 @@ it("says on the row why a worktree is kept: in use, locked", async () => {
   expect(screen.getByText(/held · locked/)).toBeInTheDocument();
 });
 
-it("reads a project's worktrees once for the visit, however often the search mounts the Git page", async () => {
+it("reads afresh each time the search mounts the Git page, and keeps the list on the page meanwhile", async () => {
   const user = userEvent.setup();
   vi.mocked(window.textToCad.git.worktrees).mockClear();
   vi.mocked(window.textToCad.git.worktrees).mockResolvedValue([worktree({})]);
@@ -83,8 +83,10 @@ it("reads a project's worktrees once for the visit, however often the search mou
   expect(await screen.findAllByText("text-to-cad/fillet")).not.toHaveLength(0);
   await user.clear(search);
   await user.type(search, "a");
-  expect(await screen.findAllByText("text-to-cad/fillet")).not.toHaveLength(0);
-  expect(window.textToCad.git.worktrees).toHaveBeenCalledTimes(1);
+  // The list from the first mount is on the page at once, not after the new read.
+  expect(screen.getAllByText("text-to-cad/fillet")).not.toHaveLength(0);
+  // A file removed on disk makes a worktree clean: a mount reads again, over the old list.
+  await waitFor(() => expect(window.textToCad.git.worktrees).toHaveBeenCalledTimes(2));
 });
 
 const deferred = <T,>() => {

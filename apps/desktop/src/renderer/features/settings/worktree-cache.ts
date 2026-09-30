@@ -38,10 +38,16 @@ export const useWorktreeCache = create<WorktreeCache>((set) => ({
 /** Reads under way, one per project and epoch: a read begun before an invalidation is not the answer to the next. */
 const inflight = new Map<string, Promise<void>>();
 
-/** Read a project's worktrees unless the visit already has a current list. A failed read is not kept. */
-export function ensureWorktrees(projectId: string): Promise<void> {
+/**
+ * Read a project's worktrees. A card that mounts reads afresh (`fresh`): a file
+ * the person removed on disk makes a worktree clean, and coming back to the
+ * page has to show that. Between mounts only an invalidation reads again, and a
+ * read under way is shared. The old list stays on the page until the new one
+ * lands. A failed read is not kept.
+ */
+export function ensureWorktrees(projectId: string, { fresh = false } = {}): Promise<void> {
   const { epoch, readAt } = useWorktreeCache.getState();
-  if (readAt[projectId] === epoch) {
+  if (!fresh && readAt[projectId] === epoch) {
     return Promise.resolve();
   }
   const key = `${projectId}:${epoch}`;
