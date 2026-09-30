@@ -332,6 +332,9 @@ export function sortEntries(entries: DirEntry[]): DirEntry[] {
   });
 }
 
+/** Entries `listDirectory` stats at once. */
+const LIST_STAT_BATCH = 64;
+
 /**
  * Every directory child, independent of Git ignores or renderer support.
  * `directory` is root-relative; `""` is the root.
@@ -346,30 +349,28 @@ export async function listDirectory(
   const dirents = await fs.readdir(absolute, { withFileTypes: true });
   const entries: DirEntry[] = [];
 
-  for (const dirent of dirents) {
-    const child = path.join(absolute, dirent.name);
-    const relative = toRelative(realRoot, child);
-    const symlink = dirent.isSymbolicLink();
-
-    // A symlink's own stat says "symlink"; what the tree wants to show is what
-    // it points at. A broken one is skipped rather than shown as a mystery.
-    const stats = await fs.stat(child).catch(() => null);
-    if (!stats) {
-      continue;
-    }
-    const kind = stats.isDirectory() ? "directory" : "file";
-    if (!stats.isDirectory() && !stats.isFile()) {
-      continue;
-    }
-
-    entries.push({
-      path: relative,
-      name: dirent.name,
-      kind,
-      size: stats.isDirectory() ? 0 : stats.size,
-      modifiedAt: Math.round(stats.mtimeMs),
-      symlink,
-    });
+  // Every row needs its size and mtime, which the dirent does not carry, so
+  // each is stat'ed; a folder of twenty thousand frames is twenty thousand
+  // round trips, so they go a batch at a time rather than one after another.
+  for (let from = 0; from < dirents.length; from += LIST_STAT_BATCH) {
+    const rows = await Promise.all(dirents.slice(from, from + LIST_STAT_BATCH).map(async (dirent): Promise<DirEntry | null> => {
+      const child = path.join(absolute, dirent.name);
+      // A symlink's own stat says "symlink"; what the tree wants to show is what
+      // it points at. A broken one is skipped rather than shown as a mystery.
+      const stats = await fs.stat(child).catch(() => null);
+      if (!stats || (!stats.isDirectory() && !stats.isFile())) {
+        return null;
+      }
+      return {
+        path: toRelative(realRoot, child),
+        name: dirent.name,
+        kind: stats.isDirectory() ? "directory" : "file",
+        size: stats.isDirectory() ? 0 : stats.size,
+        modifiedAt: Math.round(stats.mtimeMs),
+        symlink: dirent.isSymbolicLink(),
+      };
+    }));
+    for (const row of rows) if (row) entries.push(row);
   }
 
   return sortEntries(entries);
