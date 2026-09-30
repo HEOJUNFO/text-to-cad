@@ -468,7 +468,7 @@ describe("SessionManager", () => {
       const loading = manager.load(session.id);
       const settled = loading.then(() => "loaded", () => "refused");
       manager.close(session.id);
-      return { repo, broadcasts, session, release, settled };
+      return { repo, broadcasts, manager, session, release, settled };
     }
 
     it("does not leave the row error when the connect fails", async () => {
@@ -484,6 +484,70 @@ describe("SessionManager", () => {
       expect(await settled).toBe("refused");
       expect(repo.get(session.id)?.status).toBe("closed");
       expect(broadcasts.filter((sent) => sent.channel === "session.state")).toEqual([]);
+    });
+
+    it("lets a Reconnect start a load of its own rather than join the abandoned one", async () => {
+      const { session, release, settled, manager } = await held();
+      const reconnecting = manager.load(session.id);
+      release.resolve();
+      expect(await settled).toBe("refused");
+      expect((await reconnecting).status).toBe("idle");
+    });
+
+    it("does not make the row connecting when the close lands during the wait for the probe", async () => {
+      const { repo, manager, cwd } = await setup();
+      const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+      manager.close(session.id);
+      // An agent that needs its binary, whose last-launch row says "not installed" while this
+      // launch's probe has not landed.
+      const gemini = AGENT_PROVIDERS.find((provider) => provider.id === "gemini-cli")!;
+      repo.upsert({ ...repo.get(session.id)!, agentId: "gemini-cli" });
+      const detector = (manager as unknown as { deps: { detector: AgentDetector } }).deps.detector;
+      const fresh = [{ ...gemini, installed: true, binaryPath: "/usr/local/bin/gemini", version: "1.0.0", auth: "unknown" as const, checkedAt: 2 }];
+      const stale = [{ ...fresh[0]!, installed: false, binaryPath: null, version: null, checkedAt: 1 }];
+      let probeLands!: () => void;
+      const probe = new Promise<void>((resolve) => (probeLands = resolve));
+      detector.list = () => stale;
+      // Nothing past the wait may spawn the agent: what is under test is what `connect` writes.
+      (manager as unknown as { adapterOptions: () => Promise<never> }).adapterOptions = async () => {
+        throw new Error("no adapter in this test");
+      };
+      detector.freshWithin = async () => {
+        await probe;
+        return fresh;
+      };
+      const loading = manager.load(session.id).then(() => "loaded", () => "refused");
+      manager.close(session.id);
+      probeLands();
+      expect(await loading).toBe("refused");
+      expect(repo.get(session.id)?.status).toBe("closed");
+    });
+
+    it("keeps the connection of the load that replaced an overtaken one", async () => {
+      const { repo, manager, cwd } = await setup();
+      const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+      manager.close(session.id);
+      const detector = (manager as unknown as { deps: { detector: { environment: () => Promise<Record<string, string>> } } }).deps.detector;
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      let calls = 0;
+      detector.environment = async () => {
+        if (++calls === 1) await gate;
+        return { PATH: process.env.PATH ?? "" };
+      };
+      const first = manager.load(session.id).then(() => "loaded", () => "refused");
+      await until(() => (calls === 1 ? true : undefined));
+      manager.close(session.id);
+      // The abandoned load is not there to be joined: a `load` is `async`, so the promises it hands out
+      // are never identical and the map is where joining shows.
+      expect((manager as unknown as { loads: Map<string, unknown> }).loads.has(session.id)).toBe(false);
+      await manager.load(session.id);
+      const second = (manager as unknown as { live: { get: (id: string) => unknown } }).live.get(session.id);
+      expect(second).toBeDefined();
+      release();
+      expect(await first).toBe("refused");
+      expect((manager as unknown as { live: { get: (id: string) => unknown } }).live.get(session.id)).toBe(second);
+      expect(repo.get(session.id)?.status).toBe("idle");
     });
   });
 

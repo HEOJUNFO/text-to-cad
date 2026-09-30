@@ -1799,8 +1799,10 @@ when it was written by the same app version and holds every provider. Then:
   signed in".
 - A **cold launch** (no usable cache) waits for the first probe for at most
   `PROBE_WAIT_MS` (3 s), then answers with whatever it has, which may be empty.
-- If the probe fails while the table is still the last launch's, its rows stay
-  but carry `probeFailed` instead of `probing`; when every row has it the
+- If the probe fails while the table is still the last launch's, or has none and the
+  rows are the registry's, its rows stay
+  but carry `probeFailed` instead of `probing` (a row a login has since re-checked
+  does not); when every row has it the
   renderer treats it as a failed read, and the new-session screen shows "Could
   not check for agents" with a retry rather than "No agent ready".
 - Anything that would act on a row waits for this launch's probe, through

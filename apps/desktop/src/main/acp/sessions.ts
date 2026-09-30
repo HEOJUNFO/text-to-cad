@@ -636,8 +636,10 @@ export class SessionManager {
       this.deps.broadcast("session.state", { sessionId: id, state: existing.state });
       return existing.state;
     }
-    const work = this.loadNow(id).finally(() => {
-      this.loads.delete(id);
+    const work: Promise<SessionState> = this.loadNow(id).finally(() => {
+      // Its own entry only: a close drops an abandoned load's, and the load a Reconnect then
+      // started is not this one's to delete.
+      if (this.loads.get(id) === work) this.loads.delete(id);
     });
     this.loads.set(id, work);
     return work;
@@ -671,6 +673,7 @@ export class SessionManager {
     let connection: SessionConnection;
     try {
       connection = await this.connect(session, {
+        overtaken,
         onWarm: () => {
           warmed = true;
         },
@@ -934,6 +937,8 @@ export class SessionManager {
 
   close(id: string): void {
     this.disconnects.set(id, (this.disconnects.get(id) ?? 0) + 1);
+    // An abandoned load is for nobody: a Reconnect that joined it would inherit its refusal.
+    this.loads.delete(id);
     this.retire(id);
     this.pendingTitles.delete(id);
     // The transcript as it stood, written now rather than in a second: the
@@ -1227,8 +1232,16 @@ export class SessionManager {
    */
   private async connect(
     session: Session,
-    hooks: { onWarm?: () => void; replay?: { onReplayUpdate?: () => void } } = {},
+    hooks: {
+      onWarm?: () => void;
+      replay?: { onReplayUpdate?: () => void };
+      /** A person's close landed since the load began: nothing this call does may touch the session. */
+      overtaken?: () => boolean;
+    } = {},
   ): Promise<SessionConnection> {
+    const stop = () => {
+      if (hooks.overtaken?.()) throw new Error("the session was disconnected while it loaded");
+    };
     const provider = agentProvider(session.agentId);
     if (!provider) {
       throw new Error(`unknown agent: ${session.agentId}`);
@@ -1261,6 +1274,10 @@ export class SessionManager {
       this.setStatus(session.id, "error", message);
       throw new Error(message);
     }
+    // Before the old connection is retired and the row says `connecting`: an overtaken load's
+    // connect is for nobody, and would write over the `closed` row or over the connection of the
+    // load a Reconnect started since.
+    stop();
     // Quietly: this is a reconnect, not a close. The renderer may not have
     // asked for it (a prompt into a crashed session reconnects on its own),
     // and a `closed` would show it Disconnected until `session/connected`.
@@ -1277,6 +1294,7 @@ export class SessionManager {
     if (!this.deps.repo.get(session.id)) {
       throw new Error("this session was deleted");
     }
+    stop();
     const warm = this.warm.take(session.agentId, session.cwd, adapterOptionsKey(adapterOptions));
     if (warm) {
       warm.adopt(sessionOptions);

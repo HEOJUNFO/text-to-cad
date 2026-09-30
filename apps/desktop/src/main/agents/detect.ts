@@ -139,6 +139,8 @@ export class AgentDetector {
   /** This run has finished a probe; until then any rows held are the last launch's. */
   private probed = false;
   private seeded = false;
+  /** Providers `refreshOne` has checked in this run, before any whole table has: their rows are not the last launch's. */
+  private readonly freshIds = new Set<string>();
 
   constructor(
     private readonly providers: readonly AgentProvider[] = AGENT_PROVIDERS,
@@ -181,7 +183,8 @@ export class AgentDetector {
 
   private persist() {
     try {
-      this.cache?.write(this.statuses);
+      // A placeholder for a probe that failed cold (`checkedAt` 0) is not something this machine said.
+      this.cache?.write(this.statuses.filter((status) => status.checkedAt > 0));
     } catch (error) {
       console.info(`[agents] the table was not cached: ${String(error)}`);
     }
@@ -205,7 +208,9 @@ export class AgentDetector {
     const cached = this.list();
     if (!this.probed && cached.length > 0) {
       // A retry after a failed probe starts over: the failure's mark is not this run's.
-      return cached.map((status) => ({ ...status, probing: true, probeFailed: undefined }));
+      return cached.map((status) =>
+        this.freshIds.has(status.id) ? status : { ...status, probing: true, probeFailed: undefined },
+      );
     }
     const inflight = this.inflight;
     if (cached.length > 0 || !inflight) {
@@ -293,11 +298,13 @@ export class AgentDetector {
     const env = await this.probes.env(true);
     this.env = env;
     const status = await this.probe(provider, env);
-    // A provider with no row yet, or only the registry's placeholder for a probe that failed cold
-    // (`checkedAt` 0), is left out rather than drawn as "not installed", and never cached as such.
+    this.freshIds.add(agentId);
+    // A provider with no row yet is left out rather than drawn as "not installed". The flagged
+    // placeholders for a probe that failed cold stay, so the failure and the other agents stay on
+    // screen as unknown; `persist` is where they are left out, and they are never cached as such.
     this.statuses = this.providers.flatMap((candidate) => {
       const row = candidate.id === agentId ? status : this.statuses.find((s) => s.id === candidate.id);
-      return row && row.checkedAt > 0 ? [row] : [];
+      return row ? [row] : [];
     });
     this.persist();
     this.emit();
@@ -317,7 +324,8 @@ export class AgentDetector {
         // With no last launch's either, the flagged rows are the registry's, so the failure reaches
         // the renderer as one all the same and not as a list that is still on its way.
         this.statuses = (this.statuses.length > 0 ? this.statuses : this.providers.map(missing)).map(
-          (status) => ({ ...status, probing: undefined, probeFailed: true }),
+          // Not a row `refreshOne` has since checked: that one is this run's, and says so.
+          (status) => (this.freshIds.has(status.id) ? status : { ...status, probing: undefined, probeFailed: true }),
         );
         this.emit();
       }

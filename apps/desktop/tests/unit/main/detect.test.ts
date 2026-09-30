@@ -231,6 +231,36 @@ describe("AgentDetector on a cold table", () => {
     expect(detector.list().map((row) => [row.id, row.installed])).toEqual([["claude-code", true], ["codex", true]]);
   });
 
+  it("keeps the flagged rows in view when a login re-probes one agent after a cold probe failed", async () => {
+    const written: AgentStatus[][] = [];
+    const probes = machine({ executables: ["/usr/local/bin/claude"], outputs: {
+      "/usr/local/bin/claude --version": { stdout: "2.0.0" },
+      "/usr/local/bin/claude auth status": { code: 0 },
+    } });
+    // The cached environment is what fails; a forced re-resolve, as a login does, works.
+    const detector = new AgentDetector(providers, {
+      ...probes,
+      env: async (force) => {
+        if (!force) throw new Error("the login shell went away");
+        return { PATH: "/usr/local/bin" };
+      },
+    }, { read: () => null, write: (statuses) => written.push(statuses) });
+    const seen: AgentStatus[][] = [];
+    detector.onChange((statuses) => seen.push(statuses));
+    await detector.refresh(false).catch(() => undefined);
+
+    await detector.refreshOne("claude-code");
+    let table = seen.at(-1)!;
+    expect(table.map((row) => [row.id, row.probeFailed === true])).toEqual([["claude-code", false], ["codex", true]]);
+    expect(table.find((row) => row.id === "claude-code")?.installed).toBe(true);
+    expect(written.flat().some((row) => row.checkedAt === 0)).toBe(false);
+
+    // A later probe that fails again does not flag the row this run has checked.
+    await detector.refresh(false).catch(() => undefined);
+    table = seen.at(-1)!;
+    expect(table.map((row) => [row.id, row.probeFailed === true])).toEqual([["claude-code", false], ["codex", true]]);
+  });
+
   it("does not resolve the environment again for a list, and leaves no rejection unhandled when it fails", async () => {
     const forced: boolean[] = [];
     const unhandled: unknown[] = [];
