@@ -234,6 +234,12 @@ export class ViewerManager extends EventEmitter {
     if (!resolved) {
       return { origin: null, reason: "runtime-not-ready" };
     }
+    // A stop while the runtime resolved (a probe can take seconds) already
+    // let the next ask start its own launch; spawning here too would race it
+    // and overwrite its `launching` child.
+    if (generation !== this.stopGeneration(root)) {
+      return { origin: null, reason: "viewer-failed", message: new StoppedWhileLaunching(root).message };
+    }
     try {
       const entry = await this.start(root, resolved, 0, generation);
       return { origin: entry.origin };
@@ -367,7 +373,7 @@ export class ViewerManager extends EventEmitter {
           return { origin: null, reason: "viewer-failed", message: error.message };
         }
         const message = error instanceof Error ? error.message : String(error);
-          this.log(`restart failed for ${root}: ${message}`);
+        this.log(`restart failed for ${root}: ${message}`);
         void this.restart(root, resolved, attempt + 1);
         return { origin: null, reason: "viewer-failed", message };
       })
@@ -429,7 +435,10 @@ export class ViewerManager extends EventEmitter {
   /** On quit. */
   stopAll(): void {
     this.stopsAll += 1;
-    for (const root of [...this.entries.keys()]) {
+    // A root still launching has no entry: its pending launch and its child
+    // are found by their own maps, or the next ask would join a stopped launch.
+    const roots = new Set([...this.entries.keys(), ...this.pending.keys(), ...this.launching.keys()]);
+    for (const root of roots) {
       this.stop(root);
     }
   }

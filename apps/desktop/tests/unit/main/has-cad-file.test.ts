@@ -4,7 +4,9 @@ import path from "node:path";
 
 import { afterEach, beforeEach, expect, it } from "vitest";
 
-import { hasCadFile } from "@main/cad/has-cad-file";
+import { isCadFile, RENDER_FORMAT } from "@text-to-cad/core/lib/fileFormats.js";
+
+import { CAD_FILE, hasCadFile } from "@main/cad/has-cad-file";
 
 let root: string;
 beforeEach(() => { root = mkdtempSync(path.join(tmpdir(), "has-cad-")); });
@@ -35,4 +37,20 @@ it("does not look into dependency folders, hidden folders or past the depth boun
 
 it("is false for a root that does not exist", async () => {
   expect(await hasCadFile(path.join(root, "missing"))).toBe(false);
+});
+
+it("matches every file the viewer client renders, and only those", () => {
+  expect(CAD_FILE.test("a.stl")).toBe(true);
+  expect(CAD_FILE.test("a.DXF")).toBe(true);
+  expect(CAD_FILE.test("robot.urdf")).toBe(true);
+  // Pinned to core's own answer, over every format it names plus the aliases and some non-models.
+  const extensions = [...Object.values(RENDER_FORMAT), "stp", "gltf", "md", "ts", "png", "pdf", "json", "step.bak"];
+  for (const extension of extensions) {
+    expect(CAD_FILE.test(`part.${extension}`), extension).toBe(isCadFile(`part.${extension}`));
+  }
+});
+
+it("finds a project whose only model is a DXF, STL or URDF", async () => {
+  touch("part.dxf");
+  expect(await hasCadFile(root)).toBe(true);
 });

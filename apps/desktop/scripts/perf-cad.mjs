@@ -711,7 +711,7 @@ async function measureApp(options, scratch) {
     // column of dashes would pass for a result. (The daemon column may be null
     // on its own: `CADGEN_DAEMON=0` or a CAD kernel that cannot start it.)
     if (result.launches.at(-1).viewerWarmMs === null) {
-      throw new Error(`launch "${label}": no "[viewer] started|reused" line after the project was added; the project-open pre-warm did not run (does ${repoRoot} still hold a .step/.glb near its top, the condition for warming?)`);
+      throw new Error(`launch "${label}": no "[viewer] started|reused" line after the project was added; the project-open pre-warm did not run (hasCadFile warms a viewer only for a root with a .step/.stp/.stl/.3mf/.glb/.gltf/.dxf/.urdf/.srdf/.sdf file within three folders and inside its 400-listing cap: does ${repoRoot} still hold one, or has it moved deeper?)`);
     }
   };
 

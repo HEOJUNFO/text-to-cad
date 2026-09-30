@@ -28,12 +28,12 @@ class FakeChild extends EventEmitter implements ViewerChild {
   }
 }
 
-function manager(options: { now?: () => number; inUse?: () => string[]; maxLive?: number; runtime?: boolean; probe?: () => Promise<boolean>; delay?: () => Promise<void> } = {}) {
+function manager(options: { now?: () => number; inUse?: () => string[]; maxLive?: number; runtime?: boolean; gate?: Promise<void>; probe?: () => Promise<boolean>; delay?: () => Promise<void> } = {}) {
   const children: Array<{ child: FakeChild; python: string; args: string[]; cwd: string; env: Record<string, string> }> = [];
   const delays: number[] = [];
   const logs: string[] = [];
   const viewers = new ViewerManager({
-    runtime: async () => (options.runtime === false ? null : { python: "/py", source: "override", env: { PYTHONPATH: "/src" } }),
+    runtime: async () => (await options.gate, options.runtime === false ? null : { python: "/py", source: "override", env: { PYTHONPATH: "/src" } }),
     env: (resolved) => ({ ...resolved.env, HOME: "/home" }),
     spawn: (python, args, spawnOptions) => {
       const child = new FakeChild();
@@ -301,6 +301,34 @@ describe("ViewerManager", () => {
     m.viewers.stopAll();
     expect(m.children.every((entry) => entry.child.killed)).toBe(true);
     expect(m.viewers.list()).toEqual([]);
+  });
+
+  it("a stop while the runtime resolves does not spawn a second viewer", async () => {
+    let release!: () => void;
+    const m = manager({ gate: new Promise<void>((resolve) => (release = resolve)) });
+    const first = m.viewers.originFor("/proj");
+    m.viewers.stop("/proj");
+    const second = m.viewers.originFor("/proj");
+    release();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(m.children).toHaveLength(1);
+    m.children[0]!.child.say('{"url":"http://127.0.0.1:3253/","port":3253,"action":"started"}');
+    expect(await second).toEqual({ origin: "http://127.0.0.1:3253" });
+    expect(await first).toMatchObject({ origin: null, reason: "viewer-failed", message: expect.stringContaining("stopped while launching") });
+  });
+
+  it("stopAll stops a root still launching, so the next ask starts its own", async () => {
+    const m = manager();
+    const first = m.viewers.originFor("/p");
+    await new Promise((resolve) => setImmediate(resolve));
+    m.viewers.stopAll();
+    const second = m.viewers.originFor("/p");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(m.children).toHaveLength(2);
+    expect(m.children[0]!.child.killed).toBe(true);
+    m.children[1]!.child.say('{"url":"http://127.0.0.1:3252/","port":3252,"action":"started"}');
+    expect(await second).toEqual({ origin: "http://127.0.0.1:3252" });
+    expect(await first).toMatchObject({ origin: null, reason: "viewer-failed" });
   });
 
   describe("the bound on live viewers", () => {

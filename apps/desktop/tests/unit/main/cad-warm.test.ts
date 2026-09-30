@@ -1,6 +1,7 @@
 /**
- * `warmCad` at project open: the viewer is always warmed, the build daemon
- * only on an interpreter `daemonReady` gives — never on one whose CAD kernel
+ * `warmCad` at project open: the viewer is warmed for a root with a model in
+ * it (the daemon and the probe are global, so every root runs them), the build
+ * daemon only on an interpreter `daemonReady` gives — never on one whose CAD kernel
  * failed, where the daemon (which imports OCP to start) would only fail,
  * noisily, on every project open. `ready()` still answers for such a runtime,
  * so a warm-up that asked it instead would start the daemon here.
@@ -61,10 +62,10 @@ test("a runtime the daemon can start on warms both, on the interpreter daemonRea
   expect(fakes.warm).toHaveBeenCalledWith(fakes.resolved);
 });
 
-test("a root with no CAD file starts neither a viewer nor the daemon", async () => {
+test("a root with no CAD file starts no viewer but still warms the daemon", async () => {
   fakes.hasCadFile.mockResolvedValue(false);
   fakes.daemonReady.mockResolvedValue(fakes.resolved);
   await warmCad("/prose-only");
   expect(fakes.originFor).not.toHaveBeenCalled();
-  expect(fakes.warm).not.toHaveBeenCalled();
+  expect(fakes.warm).toHaveBeenCalledWith(fakes.resolved);
 });

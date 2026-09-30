@@ -1625,10 +1625,14 @@ instance the launcher reported as `reused`, because that one is somebody
 else's. `cad.viewerOrigin` is how the file tab gets the origin.
 
 The viewer does not wait for the first CAD file. When the explorer binds to
-a project (or a session's worktree), the renderer calls `cad.warm`, and main,
-if the root holds a `.step`/`.stp`/`.glb`/`.gltf` file within three folders
-(`hasCadFile`, a bounded scan; any other root gets its viewer when a CAD tab opens), starts what the first CAD file would have paid for on its own clock: the
-runtime probe, the viewer for that root, and cadgen's warm build daemon
+a project (or a session's worktree), the renderer calls `cad.warm`, and main
+starts what the first CAD file would have paid for on its own clock. The
+runtime probe and the daemon are global, so every bind runs them, whatever the
+root holds; the viewer is per root, so it starts only if the root holds a
+`.step`/`.stp`/`.stl`/`.3mf`/`.glb`/`.gltf`/`.dxf`/`.urdf`/`.srdf`/`.sdf` file
+within three folders (`hasCadFile`: a breadth-first scan of at most 400 directory
+listings, skipping `node_modules` and dot folders, and not cached, so every
+bind repeats it; any other root gets its viewer when a CAD tab opens). The daemon is cadgen's warm build daemon
 (`src/main/cad/daemon.ts` spawns `python -m cadgen.daemon`, the registered
 command a cadgen client spawns for itself, detached and never stopped — it is
 the person's daemon, shared with every terminal, and it retires on its own
@@ -2309,6 +2313,13 @@ open the path is resolved again with a fresh `realpath`, which must still be
 inside the workspace (`climbsOut`, so a folder named `..keep` is fine) and name
 the file the handle holds (same device and inode); a path swapped for a link out
 of the root between the check and the open is refused.
+
+The captures the app makes itself (`capture_view`, `capture_drawing`,
+`capture_pdf`) all pass through `imageResult` (`src/renderer/state/image-result.ts`):
+one over the same limit is redrawn smaller (up to six passes, a side never
+below 64 px), or refused. A shrunk result carries `scaled: true`, `scale` (how
+much each side shrank) and, for a PNG source, `scaledFrom: {width, height}`, so
+an agent can map a pixel it reads off the picture back to the original.
 
 ### CAD references and session drafts
 
