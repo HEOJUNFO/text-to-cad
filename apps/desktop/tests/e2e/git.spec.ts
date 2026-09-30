@@ -5,7 +5,7 @@ import path from "node:path";
 import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import { projectWorktreeDir } from "../../src/main/projects/workspace";
 import type { TextToCadApi } from "../../src/shared/ipc";
-import { chooseDirectory, launch, mod, scratch, settleTerminal } from "./launch";
+import { chooseDirectory, launch, mod, newTab as newTabIn, scratch, settleTerminal, shoot as shootInto } from "./launch";
 
 /**
  * Projects, git modes, worktrees and the review (plan §9), on one app and one
@@ -294,12 +294,9 @@ async function chooseScope(label: string) {
 }
 
 async function shoot(name: string, whole = false) {
-  const target = whole ? page : page.getByTestId("explorer");
-  await target.screenshot({ path: test.info().outputPath(name), animations: "disabled" });
+  await shootInto(whole ? page : page.getByTestId("explorer"), name, test.info());
 }
 
 async function newTab(label: "File" | "Review" | "Terminal") {
-  await page.getByRole("button", { name: "New tab", exact: true }).click();
-  await page.getByRole("menuitem", { name: label }).click();
-  await expect(page.getByRole("menu")).toHaveCount(0);
+  await newTabIn(page, label);
 }

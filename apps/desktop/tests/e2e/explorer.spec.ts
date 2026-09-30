@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { expect, test, type ElectronApplication, type Locator, type Page } from "@playwright/test";
 import type { TextToCadApi } from "../../src/shared/ipc";
-import { chooseDirectory, launch, mod, repoRoot, scratch, settleTerminal } from "./launch";
+import { chooseDirectory, launch, mod, newTab as newTabIn, repoRoot, scratch, settleTerminal, shoot as shootInto } from "./launch";
 import { selectFixtureSession } from "./session-fixture";
 
 /**
@@ -473,7 +473,7 @@ async function pick(item: string) {
 
 /** The explorer pane, not the window: the rest of the window belongs to other specs. */
 async function shoot(name: string) {
-  await page.getByTestId("explorer").screenshot({ path: test.info().outputPath(name), animations: "disabled" });
+  await shootInto(page.getByTestId("explorer"), name, test.info());
 }
 
 function occurrences(haystack: string, needle: string): number {
@@ -482,8 +482,6 @@ function occurrences(haystack: string, needle: string): number {
 
 /** `+` is a menu of the tab kinds; a closing Radix menu can swallow the next click, so wait it out. */
 async function newTab(label: "File" | "Browser" | "Terminal" | "Drawing") {
-  await page.getByRole("button", { name: "New tab", exact: true }).click();
-  await page.getByRole("menuitem", { name: label }).click();
-  await expect(page.getByRole("menu")).toHaveCount(0);
+  await newTabIn(page, label);
   if (label === "File") await expect(page.getByText("No file open", { exact: true })).toBeVisible();
 }

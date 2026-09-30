@@ -335,7 +335,8 @@ the rule is about.
   settled call is never revived by a later `in_progress`.
 - **A row's `connecting` has an exit on every path.** `create` ends it in
   success (`idle`), in `settleAfterFailedCreate` (`idle` again, the failure a
-  note in `session.status.error`, while the connection is alive), or by
+  note in `session.status.error`, while the connection is alive; the renderer
+  holds it in `setupNotes` and shows it above the composer), or by
   removing the row (`abandonCreate`) when the adapter is dead or the row is
   gone; a row closed under the create keeps that state (`stillConnecting`
   guards the write of `idle`). `loadNow`'s catch sets `error`; `boot` makes a

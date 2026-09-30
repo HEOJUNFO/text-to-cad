@@ -63,6 +63,13 @@ export function subscribeToMain(): () => void {
       // prompts queued behind its disconnect sends the next one (`state/composer.ts`).
       if (state.status === "idle") void useComposer.getState().drain(sessionId);
     }),
+    // The index row's status: the renderer reads the row from `sessions.changed`, so the only thing
+    // here is the note a create that failed after `session/new` leaves (`settleAfterFailedCreate`).
+    // `error: null` is every ordinary status change and says nothing about a note already held.
+    // An `error` status carries its message too, but that is the load failure `loadErrors` shows.
+    window.textToCad.on("session.status", ({ sessionId, status, error }) => {
+      if (error && status !== "error" && status !== "closed") useAcp.getState().receiveSetupNote(sessionId, error);
+    }),
     window.textToCad.on("session.update", ({ sessionId, event }) => {
       const before = useAcp.getState().sessions[sessionId]?.status;
       useAcp.getState().receiveEvent(sessionId, event);

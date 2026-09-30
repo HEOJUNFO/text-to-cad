@@ -40,7 +40,15 @@ type AcpState = {
   reconnecting: Record<string, true>;
   /** The last `load` failure per session, cleared by the next attempt. */
   loadErrors: Record<string, string>;
+  /**
+   * What main said went wrong after `session/new` answered (`session.status.error` beside a live
+   * status, `settleAfterFailedCreate`): the session started and is promptable, so this is a note
+   * above the composer, not a screen in place of the transcript. Cleared by the next `load` and
+   * when the session is forgotten.
+   */
+  setupNotes: Record<string, string>;
 
+  receiveSetupNote: (sessionId: string, note: string) => void;
   receiveState: (sessionId: string, state: SessionState) => void;
   receiveEvent: (sessionId: string, event: SessionEvent) => void;
   receiveTerminalOutput: (sessionId: string, terminalId: string, data: string, silent?: boolean) => void;
@@ -102,6 +110,10 @@ export const useAcp = create<AcpState>((set, get) => ({
   loading: {},
   reconnecting: {},
   loadErrors: {},
+  setupNotes: {},
+
+  receiveSetupNote: (sessionId, note) =>
+    set((current) => ({ setupNotes: { ...current.setupNotes, [sessionId]: note } })),
 
   receiveState: (sessionId, state) =>
     set((current) => {
@@ -181,7 +193,9 @@ export const useAcp = create<AcpState>((set, get) => ({
     set((current) => {
       const loadErrors = { ...current.loadErrors };
       delete loadErrors[sessionId];
+      const setupNotes = withoutError(current.setupNotes, sessionId);
       return {
+        setupNotes,
         loading: { ...current.loading, [sessionId]: true },
         // A load with something already on screen is a reconnect: the events
         // it produces are a replay of that, and are dropped.
@@ -321,10 +335,11 @@ function without(current: AcpState, sessionId: string): Partial<AcpState> {
   delete loadErrors[sessionId];
   const reconnecting = { ...current.reconnecting };
   delete reconnecting[sessionId];
+  const setupNotes = withoutError(current.setupNotes, sessionId);
   const prefix = `${sessionId}/`;
   const terminalOutput = Object.fromEntries(Object.entries(current.terminalOutput).filter(([key]) => !key.startsWith(prefix)));
   const coldTerminals = Object.fromEntries(Object.entries(current.coldTerminals).filter(([key]) => !key.startsWith(prefix)));
-  return { sessions, loadErrors, reconnecting, terminalOutput, coldTerminals };
+  return { sessions, loadErrors, setupNotes, reconnecting, terminalOutput, coldTerminals };
 }
 
 /** Whether a closed session's state is still wanted: it is on screen, or a load is bringing it back. */

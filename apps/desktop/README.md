@@ -1653,7 +1653,8 @@ playbook for the mode bases and camera behavior.
 
 ## Quitting
 
-`app.quit()` has a budget of two seconds (`tests/e2e/cad.spec.ts` quits with everything running), and the
+`app.quit()` has a budget of two seconds (`tests/e2e/cad.spec.ts` quits with everything running and
+asserts the process is gone within it, and that `[quit] teardown` and `[quit] will-quit` were logged), and the
 teardown in `before-quit` is written for it: every owner signals what it
 owns and nothing is awaited. Electron waits for the Node side, and the Node
 side waits for every child it holds a pipe to, so `src/main/children.ts`
@@ -1683,7 +1684,9 @@ kills the app and its helpers at an absolute deadline, 1.2 seconds from
 (and again, harmlessly, at `will-quit`), so a stall between the two — a
 window that never acks its unload, a main-process error dialog (an
 `uncaughtException` while quitting exits at once) — is bounded too. It counts
-teardown and watchdog startup toward the same budget. A quit that finishes
+teardown and watchdog startup toward the same budget. On POSIX it kills only the
+children in the app's own process group (Chromium's helpers); a `detached` child
+— the warm daemon, a reused viewer — has a group of its own and is left running. A quit that finishes
 on its own — half a second without WebGL —
 gives it nothing to do.
 
@@ -2199,7 +2202,11 @@ not take a connected session with it. A create that fails before that answer
 removes the row and, for a worktree it cut, the worktree. One that fails after
 it while the connection is alive resolves: the row goes `idle`, the composer
 opens, and the failure is a note in `session.status.error`
-(`settleAfterFailedCreate`). One whose connection is dead, or whose row is gone,
+(`settleAfterFailedCreate`). The renderer keeps it in `setupNotes` (`state/acp.ts`,
+fed by `bridge.ts`) and shows it as an alert above the composer with a Reconnect
+button; the composer stays sendable, because the session did start. The next
+`load` or a forget clears it; it is not persisted, so a window reload drops it.
+One whose connection is dead, or whose row is gone,
 is abandoned (`abandonCreate`): the connection is retired, the row removed, the
 worktree that create cut released, and `create` rejects. The same happens when
 the store refuses the settle too, so nothing stays `connecting` behind a live
