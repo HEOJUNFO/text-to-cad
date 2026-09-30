@@ -165,6 +165,36 @@ describe("updater", () => {
     updater.stopUpdater();
   });
 
+  /** An offered 2.0.0 whose download is under way, as a check that started earlier is still pending. */
+  async function downloading() {
+    const updater = await load();
+    autoUpdater.emit("update-available", { version: "2.0.0" });
+    mocks.downloadUpdate.mockImplementation(() => new Promise<undefined>(() => undefined));
+    void updater.downloadUpdate();
+    autoUpdater.emit("download-progress", { percent: 10 });
+    return updater;
+  }
+
+  it("a check that fails while a download runs leaves the download running", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const updater = await downloading();
+    autoUpdater.emit("error", new Error("net::ERR_INTERNET_DISCONNECTED"));
+    expect(updater.updateStatus()).toEqual({ state: "downloading", version: "2.0.0", percent: 10 });
+    autoUpdater.emit("download-progress", { percent: 20 });
+    expect(updater.updateStatus()).toEqual({ state: "downloading", version: "2.0.0", percent: 20 });
+    warn.mockRestore();
+    updater.stopUpdater();
+  });
+
+  it("a check that finds nothing while a download runs leaves the download running", async () => {
+    const updater = await downloading();
+    autoUpdater.emit("update-not-available", { version: "1.0.0" });
+    expect(updater.updateStatus()).toEqual({ state: "downloading", version: "2.0.0", percent: 10 });
+    autoUpdater.emit("download-progress", { percent: 20 });
+    expect(updater.updateStatus()).toEqual({ state: "downloading", version: "2.0.0", percent: 20 });
+    updater.stopUpdater();
+  });
+
   it("skips the six-hourly check while downloaded or downloading", async () => {
     const updater = await load();
     autoUpdater.emit("update-downloaded", { version: "2.0.0" });

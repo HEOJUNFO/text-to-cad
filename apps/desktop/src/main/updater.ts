@@ -98,7 +98,13 @@ export function initUpdater() {
     }
     setStatus({ state: "available", version: info.version });
   });
-  autoUpdater.on("update-not-available", () => setStatus({ state: "idle" }));
+  autoUpdater.on("update-not-available", () => {
+    // A check that overlaps a download (the six-hourly one, answering after
+    // the Download press) finds nothing for the version already on its way.
+    if (!busyWithUpdate()) {
+      setStatus({ state: "idle" });
+    }
+  });
   autoUpdater.on("download-progress", (progress) =>
     setStatus({
       state: "downloading",
@@ -194,6 +200,14 @@ export function isMissingFeedFile(error: unknown): boolean {
 }
 
 function failed(error: unknown): UpdateStatus {
+  // A check that fails while a download runs must not replace it: the
+  // download's own rejection sets its error (`downloadUpdate`), and the next
+  // progress event would otherwise restore `downloading` with no version. An
+  // install the updater refuses is the one error that does belong here.
+  if (busyWithUpdate() && !installing) {
+    console.warn("[updater] ignoring an error while an update is in progress:", message(error));
+    return status;
+  }
   // `available` is only ever left by an answer or by `downloadUpdate`, which
   // moves to `downloading` first: an error here is a background check that
   // failed, and the update it found earlier is still there to download.
