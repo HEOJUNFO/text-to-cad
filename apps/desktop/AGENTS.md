@@ -290,6 +290,16 @@ the rule is about.
   pending write and `loadNow` flushes before it starts, so the previous
   snapshot is the only copy of the history and stays whole
   (`src/main/acp/snapshots.ts`).
+- **A closed or errored connection ends its open turn and settles its calls.**
+  The reducer (`src/shared/acp/reduce.ts`) treats `status: closed` and
+  `status: error` as the turn's end — calls and subagents `cancelled` or
+  `failed` — because the adapter will send neither `prompt/end` nor
+  `prompt/error`, and `retire` (`src/main/acp/sessions.ts`) files that closed
+  state so a repaint from the snapshot is not a session still streaming. Every
+  turn end cancels the cards still pending, and main cancels the client's
+  pending permissions first, before it dispatches `prompt/end`. Content behind
+  `prompt/end` lands on the closed last turn as a part of its own, and a
+  settled call is never revived by a later `in_progress`.
 - **A row's `connecting` has an exit on every path.** `create` ends it in
   success (`idle`), in `settleAfterFailedCreate` (`idle` again, the failure a
   note in `session.status.error`, while the connection is alive), or by

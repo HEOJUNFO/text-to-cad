@@ -2077,8 +2077,16 @@ history, not as a turn: it rides on the last agent turn, or on a closed turn of
 its own, and the session reads `waiting` until it is answered. Answering a
 request changes only the turn that holds it; every other turn keeps its
 identity, so a long transcript does not re-render. A `closed` or `error` status
-marks every card still pending `cancelled`, since whoever would take the answer
-is gone. In the renderer, `receiveState` (`state/acp.ts`) clears a session's
+also ends the open turn, since the adapter is gone and will send neither
+`prompt/end` nor `prompt/error`: `closed` stops it (stop reason `cancelled`,
+which the transcript shows as "Stopped"; pending and in-progress calls and
+running subagents become `cancelled`), `error` ends it with no stop reason
+(they become `failed`), and either marks every card still pending `cancelled`,
+since whoever would take the answer is gone. `prompt/end`, whatever its stop
+reason, and `prompt/error` cancel pending cards as well; main cancels the
+client's pending permissions just before it dispatches `prompt/end`, so the
+cards and the requests agree. A call that is settled or completed is never
+revived by a late `in_progress`. In the renderer, `receiveState` (`state/acp.ts`) clears a session's
 `loadErrors` once the state it takes says the agent is up (`idle`, `running` or
 `waiting`). In main, an `initialize` failure goes through `describe`
 (`src/main/acp/connection.ts`) as `session/new`, `session/load` and
