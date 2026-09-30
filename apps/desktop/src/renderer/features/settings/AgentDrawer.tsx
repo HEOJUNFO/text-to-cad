@@ -201,6 +201,15 @@ function InstallationSection({ agent, platform }: { agent: AgentStatus; platform
     );
   }
 
+  // The last launch's "not installed" is provisional: nothing to install until it is confirmed.
+  if (agent.probing) {
+    return (
+      <Section title="Installation">
+        <p className="text-xs text-muted-foreground">Checking…</p>
+      </Section>
+    );
+  }
+
   if (methods.length === 0) {
     return (
       <Section title="Installation">

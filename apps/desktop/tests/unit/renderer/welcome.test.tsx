@@ -123,6 +123,23 @@ describe("the welcome", () => {
     expect(await screen.findByRole("button", { name: /^Continue$/ })).toBeInTheDocument();
   });
 
+  // A warm launch answers agents.list at once with the last launch's rows (`probing`): their
+  // "not installed" and "signed out" are provisional, and Continue must not announce them.
+  it("holds Continue on Checking… while the last launch's rows are being confirmed, and offers no Install for them", async () => {
+    useAgents.setState({
+      agents: [agent({ probing: true }), agent({ id: "codex", name: "Codex", installed: true, auth: "unauthenticated", probing: true })],
+      ready: true,
+    });
+    await toAgentStep();
+    expect(screen.queryByRole("button", { name: /Continue without an agent/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Checking…" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Install/ })).toBeNull();
+
+    useAgents.getState().receive([agent({}), agent({ id: "codex", name: "Codex", installed: true, auth: "unauthenticated" })]);
+    expect(await screen.findByRole("button", { name: /Continue without an agent/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Install/ })).toBeInTheDocument();
+  });
+
   it("says Not signed in only when detection found the agent signed out", async () => {
     useAgents.setState({
       agents: [agent({ installed: true, auth: "unknown" }), agent({ id: "codex", name: "Codex", installed: true, auth: "unauthenticated" })],

@@ -75,7 +75,9 @@ export function AgentRow({ agent }: { agent: AgentStatus }) {
   const ready = isAgentReady(agent);
   // The drawer's words (Settings › Agents): "Not signed in" only when
   // detection found the agent signed out; "unknown" claims nothing.
-  const status = ready ? "Ready" : !agent.installed ? "Not installed" : agent.auth === "unauthenticated" ? (agent.probing ? "Checking…" : "Not signed in") : "Installed";
+  // A cached "not installed" from the last launch is provisional too: no Install until it is confirmed.
+  const checkingInstall = agent.probing === true && !agent.installed && !ready;
+  const status = ready ? "Ready" : checkingInstall ? "Checking…" : !agent.installed ? "Not installed" : agent.auth === "unauthenticated" ? (agent.probing ? "Checking…" : "Not signed in") : "Installed";
 
   return (
     <div className="rounded-lg border px-3 py-2.5" data-onboarding-agent={agent.id}>
@@ -89,6 +91,8 @@ export function AgentRow({ agent }: { agent: AgentStatus }) {
         </div>
         {ready ? (
           <Check aria-label="Ready" className="size-4 text-emerald-500" />
+        ) : checkingInstall ? (
+          <Loader2 aria-label="Checking" className="size-4 animate-spin text-muted-foreground motion-reduce:animate-none" />
         ) : !agent.installed ? (
           <Button className="h-7 gap-1.5" disabled={running} onClick={() => void start(() => install(agent.id))} size="sm">
             {running ? <Loader2 className="size-3.5 animate-spin" /> : null}

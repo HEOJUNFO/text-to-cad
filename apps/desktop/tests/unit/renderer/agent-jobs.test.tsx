@@ -50,3 +50,14 @@ describe("a job that outlives the component that started it", () => {
     expect(screen.getByText("fetching…")).toBeInTheDocument();
   });
 });
+
+describe("a row the last launch left", () => {
+  it("offers no Install in the drawer until the probe has confirmed the agent is missing", () => {
+    render(
+      <TooltipProvider>
+        <AgentDrawer agent={{ ...codex, probing: true }} onOpenChange={() => {}} open platform="macos" />
+      </TooltipProvider>,
+    );
+    expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
+  });
+});
