@@ -19,6 +19,7 @@ import { shutdownAgents } from "./ipc/agents";
 import { disposeExplorerServices } from "./ipc/explorer";
 import { installMenu } from "./menu";
 import { armQuitDeadline } from "./quit-deadline";
+import { isQuitting } from "./quitting";
 import { disposeSettingsEffects } from "./settings-effects";
 import { initTelemetry, track } from "./telemetry";
 import { initUpdater, stopUpdater } from "./updater";
@@ -228,6 +229,17 @@ if (!app.requestSingleInstanceLock()) {
     console.error("[main] unhandled rejection:", reason);
   });
 
+  // An exception nobody caught raises Electron's modal error dialog, which
+  // nobody is there to dismiss once the app is quitting: it would hold the
+  // process before `will-quit` ever runs. Log it; while quitting, leave now.
+  process.on("uncaughtException", (error) => {
+    console.error("[main] uncaught exception:", error);
+    if (isQuitting()) {
+      killTrackedChildren();
+      app.exit(1);
+    }
+  });
+
   // Which step of startup is running, so a failure names the database file
   // only when the database is what failed.
   let startupStep: "database" | "services" = "database";
@@ -318,6 +330,14 @@ if (!app.requestSingleInstanceLock()) {
    * made quitting take sixty seconds.
    */
   let quitStartedAt: number | undefined;
+  // Armed at the end of `before-quit` and again at `will-quit`; once is enough.
+  let deadlineArmed = false;
+  const armDeadline = () => {
+    if (!deadlineArmed) {
+      deadlineArmed = true;
+      armQuitDeadline(quitStartedAt);
+    }
+  };
   app.on("before-quit", () => {
     const started = Date.now();
     quitStartedAt = started;
@@ -341,12 +361,18 @@ if (!app.requestSingleInstanceLock()) {
     closeDb();
     endTrackedChildren();
     console.info(`[quit] teardown ${Date.now() - started}ms`);
+    // Everything this app owns is saved and closed, and nothing can take the
+    // quit back (no handler cancels it; the unload guard lets it through), so
+    // the deadline starts here: a window that never acks its unload, or a
+    // main-process error dialog, sits between `before-quit` and `will-quit`.
+    armDeadline();
   });
 
   // Whatever ignored its signal is not going to stop on its own — and
   // Chromium's own shutdown gets a deadline (src/main/quit-deadline.ts).
   app.on("will-quit", () => {
+    console.info("[quit] will-quit");
     killTrackedChildren();
-    armQuitDeadline(quitStartedAt);
+    armDeadline();
   });
 }

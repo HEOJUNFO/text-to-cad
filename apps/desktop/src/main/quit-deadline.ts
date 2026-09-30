@@ -1,7 +1,7 @@
 /**
  * A deadline on quitting.
  *
- * By `will-quit` everything this app owns is done: the database is closed,
+ * By the end of `before-quit` everything this app owns is done: the database is closed,
  * the window has saved its geometry and run its unload, every child has its
  * signal and the probes are dead (`before-quit`, src/main/index.ts). What is
  * left is Chromium's own shutdown — and on macOS 26 with Electron 40, once a
@@ -75,8 +75,10 @@ export function armQuitDeadline(
   tree: boolean = !isQuittingForUpdate() || platform === "darwin",
 ): void {
   try {
-    // Arm only after will-quit, once state is saved. If teardown or launching
-    // Electron-as-Node used the budget, the watchdog fires immediately.
+    // Armed once state is saved: at the end of before-quit (nothing cancels a
+    // quit after its teardown; the database is closed) and again at will-quit.
+    // If teardown or launching Electron-as-Node used the budget, the watchdog
+    // fires immediately.
     spawn(process.execPath, ["-e", watchdogScript(pid, deadlineMs, platform, startedAt, tree)], {
       detached: true,
       stdio: "ignore",

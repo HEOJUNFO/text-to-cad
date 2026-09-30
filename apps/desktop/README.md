@@ -1507,14 +1507,17 @@ workers are stopped when the viewer exits or the app quits, including workers
 that outlive the viewer process. Reused external viewers and the shared warm
 daemon belong to separate groups and are left running.
 
-What is left after `will-quit` is Chromium's own shutdown, which on this
+What is left after `before-quit` is Chromium's own shutdown, which on this
 macOS takes twelve seconds to minutes once a window has held a WebGL context
 (the GPU and utility helpers hang, then the browser process retries a
 CoreAnalytics XPC send; `app.exit()` is slower still, and no timer of ours
 runs once the event loop has stopped). `src/main/quit-deadline.ts` keeps a
 deadline from outside: a detached copy of this binary run as Node that
 kills the app and its helpers at an absolute deadline, 1.2 seconds from
-`before-quit`. It is armed after `will-quit`, once state is saved, and counts
+`before-quit`. It is armed at the end of `before-quit`, once state is saved
+(and again, harmlessly, at `will-quit`), so a stall between the two — a
+window that never acks its unload, a main-process error dialog (an
+`uncaughtException` while quitting exits at once) — is bounded too. It counts
 teardown and watchdog startup toward the same budget. A quit that finishes
 on its own — half a second without WebGL —
 gives it nothing to do.
@@ -1720,7 +1723,7 @@ src/main/                 the Electron main process: everything with a side effe
   app-paths.ts            appVersion, appRoot, resourcesDir (checkout vs packaged)
   children.ts             every child process main spawns, tracked so `before-quit` can end them
   quit-deadline.ts        a watchdog process that ends the app if Chromium's shutdown hangs
-                          past `will-quit` (see Quitting)
+                          past `before-quit` (see Quitting)
   quitting.ts             whether the app is on its way out (`before-quit`, or earlier for an
                           update), so the unsaved-draft guard lets the unload through
   test-door.ts            the e2e suite's folder choice from main's side (`__textToCadE2E`),
