@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ToolbarTooltipScope } from "@text-to-cad/ui/primitives/toolbar-button";
-import { VIEWPORT_CUBE_SIZE, VIEWPORT_INSET_PX, VIEWPORT_TOP_BAR_PX } from "../shell/viewportLayout.js";
+import { VIEWPORT_CUBE_SIZE, VIEWPORT_CORNER_INSET_PX, VIEWPORT_ACTION_HEIGHT_PX, VIEWPORT_INSET_PX, VIEWPORT_TOP_BAR_PX } from "../shell/viewportLayout.js";
 import { useViewerMobile } from "../../../file-viewer/responsive.js";
 
 export const PREVIEW_CHROME_IDLE_MS = 1000;
@@ -9,8 +9,8 @@ export const PREVIEW_CHROME_IDLE_MS = 1000;
 const previewChromeIdleMs = () => Number(globalThis.window?.__cadPreviewChromeIdleMs) || PREVIEW_CHROME_IDLE_MS;
 
 const BAR_POSITION = Object.freeze({
-  top: `calc(${VIEWPORT_CUBE_SIZE} + ${VIEWPORT_INSET_PX * 2}px)`,
-  right: VIEWPORT_INSET_PX, width: VIEWPORT_CUBE_SIZE, height: VIEWPORT_TOP_BAR_PX,
+  top: `calc(${VIEWPORT_CUBE_SIZE} + ${VIEWPORT_CORNER_INSET_PX * 2}px)`,
+  right: VIEWPORT_CORNER_INSET_PX, width: VIEWPORT_CUBE_SIZE, height: VIEWPORT_ACTION_HEIGHT_PX,
 });
 const MOBILE_BAR_POSITION = Object.freeze({ top: VIEWPORT_INSET_PX, right: VIEWPORT_INSET_PX, height: VIEWPORT_TOP_BAR_PX });
 

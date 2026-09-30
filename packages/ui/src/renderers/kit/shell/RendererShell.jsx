@@ -16,7 +16,7 @@ import FloatingToolBar from "../tools/FloatingToolBar.js";
 import ToolStack from "../tools/ToolStack.jsx";
 import { ViewportAnimationBar, animationControlsHaveContent } from "../tools/playbar/ViewportAnimationBar.js";
 import ShellViewport from "./ShellViewport.jsx";
-import ViewportBottomAction from "./ViewportBottomAction.jsx";
+import ViewportBottomAction, { drawingCaptureAction } from "./ViewportBottomAction.jsx";
 import ViewportContextMenu from "./ViewportContextMenu.jsx";
 
 // The strip and the panels under it share one column, inset from the viewer's top, left and
@@ -27,7 +27,7 @@ const INSET = `${VIEWPORT_INSET_PX}px`;
 const TOOLBAR_POSITION = Object.freeze({ top: INSET, left: INSET, bottom: INSET, maxWidth: "calc(100% - 76px)" });
 const MODEL_UPDATE_STATUS = Object.freeze({ pending: true, label: "Updating model…" });
 // The top-right bar's buttons are transparent over the model.
-const BAR_BUTTON_CLASS = "size-6 bg-transparent hover:bg-transparent dark:hover:bg-transparent";
+const BAR_BUTTON_CLASS = "size-5 bg-transparent hover:bg-transparent dark:hover:bg-transparent";
 
 /**
  * The frame every file-family renderer draws itself in: the viewport box with
@@ -41,7 +41,7 @@ const BAR_BUTTON_CLASS = "size-6 bg-transparent hover:bg-transparent dark:hover:
  *   tools: import("../tools/FloatingToolBar.js").ViewportTool[],
  *   toolPanels?: import("react").ReactNode,
  *   playback?: any,
- *   copyAction?: { disabled?: boolean, onInvoke?(): void } | null,
+ *   copyAction?: { label?: string, shortLabel?: string, disabled?: boolean, onInvoke?(): void } | null,
  *   contextMenuItems?: ((press: { clientX: number, clientY: number, shiftKey: boolean }) => object[] | null) | null,
  *   onContextMenuOpenChange?: ((open: boolean) => void) | null,
  *   frameProvider?: ((frame: import("react").ReactNode) => import("react").ReactNode) | null,
@@ -142,6 +142,8 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
   </>;
 
   const hasContent = Boolean(scene) && !viewerLoading;
+  const action = frame.promptAction || copyAction || (frame.drawToolActive && frame.drawing.hasContent
+    ? drawingCaptureAction({ disabled: viewerLoading || !hasContent, onInvoke: frame.copyDrawing }) : null);
   frame.copyActionRef.current = () => {
     if (previewing) return false;
     if (frame.drawToolActive && frame.drawing.hasContent) { frame.copyDrawing(); return true; }
@@ -214,7 +216,7 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
                     runtimeLifecycle={frame.runtimeLifecycle}
                   >{overlay}</ShellViewport>
                   {!previewing ? <ViewerAlertCard key={frame.modelKey} alert={frame.viewerAlert} hasContent={hasContent} onReload={view.reload} /> : null}
-                  {!previewing ? <ViewportBottomAction {...frame.promptAction} /> : null}
+                  {!previewing && action ? <ViewportBottomAction shortcut={frame.promptAction ? "" : frame.copyShortcut} {...action} /> : null}
                 </div>
               </div>
 
@@ -224,16 +226,16 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
                   pause), with Playback settings' cog at its right end. */}
               <PreviewChrome active={previewing} surface={frame.hostElement} hold={displayOpen}
                 actions={() => <>
-                  <ToolbarButton label="Reset view" className={BAR_BUTTON_CLASS} disabled={shell.idle} onClick={shell.resetView}>
-                    <RotateCcw className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
-                  </ToolbarButton>
                   <DisplayPopover open={displayOpen} onOpenChange={setDisplayOpen} disabled={shell.idle}>{frame.display}</DisplayPopover>
+                  <ToolbarButton label="Reset view" className={BAR_BUTTON_CLASS} disabled={shell.idle} onClick={shell.resetView}>
+                    <RotateCcw className="size-3" strokeWidth={1.5} aria-hidden="true" />
+                  </ToolbarButton>
                   {previewing
                     ? <ToolbarButton key="exit" tooltip={false} label="Exit preview" className={BAR_BUTTON_CLASS} onClick={leavePreview}>
-                      <X className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
+                      <X className="size-3" strokeWidth={1.5} aria-hidden="true" />
                     </ToolbarButton>
                     : <ToolbarButton key="preview" label="Preview" className={BAR_BUTTON_CLASS} disabled={shell.idle} onClick={enterPreview}>
-                      <Play className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
+                      <Play className="size-3" strokeWidth={1.5} aria-hidden="true" />
                     </ToolbarButton>}
                 </>}
                 playbar={onMenuOpenChange => {

@@ -23,7 +23,7 @@ it('keeps editor controls hidden throughout Preview and restores them on exit, w
   // The same bar, in the same place, in either mode.
   expect(container.querySelector('[data-viewport-actions]')).toBe(bar);
   expect(screen.getByRole('button', { name: 'Display settings' })).toBeTruthy();
-  expect((bar as HTMLElement).style.top).toBe('calc(16px + 7rem)');
+  expect((bar as HTMLElement).style.top).toBe('calc(4px + 6rem)');
   rerender(<ViewerMobileContext.Provider value={true}><PreviewChrome active={false} actions={actions} /></ViewerMobileContext.Provider>);
   expect((container.querySelector('[data-viewport-actions]') as HTMLElement).style.top).toBe('8px');
 });

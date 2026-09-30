@@ -36,17 +36,18 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); viewport.props = null; });
 
 function mount(host = testHost(), state?: unknown) {
   const save = vi.fn();
+  const navigation = vi.fn();
   let settings: any = { toolStack: { panels: {}, collapsed: {} } };
   const listeners = new Set<() => void>();
   const preferences = { getSnapshot: () => settings, subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener); },
     update: (patch: any) => { settings = { ...settings, ...patch }; listeners.forEach(listener => listener()); } };
   const props = { source: { id: 'one', rootName: 'one' }, file: { path: 'one.harness', name: 'one.harness', kind: 'file' }, document: null,
     openPanel: '', panelSlot: null, onPanelOpen() {}, onReady() {}, onOpenFile() {}, appearance: { colorScheme: 'light' },
-    state, onStateChange: save, reload() {}, data: { services: { preferences } } };
+    state, onStateChange: save, onNavigationActionsChange: navigation, reload() {}, data: { services: { preferences } } };
   const view = render(<ViewerHostContext.Provider value={host}><HarnessRenderer {...(props as any)} /></ViewerHostContext.Provider>);
   const canvas = view.container.querySelector('[data-stand-in-viewport] > canvas') as HTMLCanvasElement;
   const overlay = (name: string) => view.container.querySelector(`[data-harness-${name}]`)!.textContent;
-  return { ...view, canvas, overlay, save };
+  return { ...view, canvas, overlay, save, navigation };
 }
 
 // A secondary press as the browser delivers one: down, (moves), up, all on the canvas.
@@ -101,7 +102,8 @@ it('a press the renderer has nothing to say about, a secondary drag, or a press 
 });
 
 it('one shared Add To Prompt action is the only bottom control, independent of the active tool and absent in Preview', () => {
-  const { container } = mount();
+  const destination = { kind: 'composer', available: true } as const;
+  const { container } = mount(testHost({ promptContext: { getSnapshot: () => destination, subscribe: () => () => {}, deliver: async () => ({ status: 'added', partIds: [] }) } }));
   const action = () => container.querySelector('[data-viewport-bottom-actions]') as HTMLElement | null;
   expect(action()).not.toBeNull();
   expect(within(action()!).getAllByRole('button')).toHaveLength(1);
@@ -113,10 +115,10 @@ it('one shared Add To Prompt action is the only bottom control, independent of t
   expect(container.querySelector('[data-file-navigation-overlay]')).toBeNull();
 });
 
-it('Add To Prompt sends a screenshot and file context through the prompt port for a clipboard destination', async () => {
-  const deliver = vi.fn(async (_context: unknown) => ({ status: 'copied' as const }));
+it('Add To Prompt sends a screenshot and tool context through the composer port', async () => {
+  const deliver = vi.fn(async (_context: unknown) => ({ status: 'added' as const }));
   const writeImage = vi.fn(async () => {});
-  const destination = { kind: 'clipboard', available: true } as const;
+  const destination = { kind: 'composer', available: true } as const;
   const host = testHost({
     promptContext: { getSnapshot: () => destination, subscribe: () => () => {}, deliver } as any,
     clipboard: { writeText: async () => {}, readText: async () => '', writeImage },
@@ -130,6 +132,32 @@ it('Add To Prompt sends a screenshot and file context through the prompt port fo
   expect(context.parts.map((part: any) => part.kind)).toEqual(['reference', 'text', 'attachment']);
   expect((await context.parts[2].content).type).toBe('image/png');
   expect(writeImage).not.toHaveBeenCalled();
+});
+
+it('clipboard destinations retain the snapshot action and Copy Drawing with ink, without Add To Prompt', async () => {
+  const destination = { kind: 'clipboard', available: true } as const;
+  const writeImage = vi.fn(async () => {}), deliver = vi.fn();
+  const { container, navigation } = mount(testHost({
+    promptContext: { getSnapshot: () => destination, subscribe: () => () => {}, deliver } as any,
+    clipboard: { writeText: async () => {}, readText: async () => '', writeImage },
+  }));
+  expect(screen.queryByRole('button', { name: 'Add To Prompt' })).toBeNull();
+  expect(container.querySelector('[data-viewport-bottom-actions]')).toBeNull();
+  const snapshot = navigation.mock.calls.at(-1)![0];
+  expect(snapshot.map((action: any) => action.label)).toEqual(['Take snapshot']);
+  act(() => snapshot[0].onInvoke());
+  await waitFor(() => expect(writeImage).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByRole('button', { name: 'Draw' }));
+  expect(container.querySelector('[data-viewport-bottom-actions]')).toBeNull();
+  act(() => viewport.props.drawing.onContentChange(true));
+  const copy = screen.getByRole('button', { name: /Copy Drawing/ });
+  expect(copy.className).toContain('bg-primary/85');
+  expect(copy.className).not.toContain('bg-white');
+  fireEvent.click(copy);
+  await waitFor(() => expect(writeImage).toHaveBeenCalledTimes(2));
+  expect(deliver).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+  expect(container.querySelector('[data-viewport-bottom-actions]')).toBeNull();
 });
 
 it('the renderer is told the camera settled, through what the viewport reports: a recorded move and its own settle', () => {

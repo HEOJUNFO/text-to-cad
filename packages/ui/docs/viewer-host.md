@@ -96,7 +96,7 @@ file generation: publish an empty list on cleanup; departing renderers cannot
 replace a new file's actions. Publish only when action metadata changes; stable
 commands should read the current viewport through a ref, avoiding parent/child
 render loops. These actions use existing host capabilities for effects. CAD's
-shared Add To Prompt action lives at the bottom of the viewport instead; it
+composer Add To Prompt action lives at the bottom of the viewport instead; it
 delivers through `host.promptContext`, which binds the destination before
 waiting for the image.
 Neither route detects the platform.
@@ -180,7 +180,7 @@ they do not transfer Promise or Blob values across native IPC.
 
 ## App-specific interfaces
 
-The shared Add To Prompt action needs no app-specific selection slot. Renderers
+The shared composer Add To Prompt action needs no app-specific selection slot. Renderers
 may contribute selected references or other prompt context through the shell's
 `promptReferences` and `promptContext` builder. The shell captures the viewport
 in the user gesture and gives that context to `host.promptContext`; the host
@@ -321,13 +321,17 @@ omits them and gets the compact overlay. Browsing is a separate
 preview; the host owns callbacks and preferences. These slots do not imply platform detection
 or move application-specific release/network behavior into shared UI.
 
-The single bottom Add To Prompt action always includes a viewport PNG, and
-adds selected references when present. It uses `PromptContextPort` for both
-composer and clipboard destinations. The host binds its destination during
+For `destination.kind === "composer"`, the single bottom Add To Prompt action
+always includes a viewport PNG and adds selected references when present.
+It uses `PromptContextPort`; the host binds its destination during
 the gesture; a later image encode cannot redirect it. The action is absent in
-Preview. Copy Reference still uses `ClipboardPort` from menus, the Reference
-heading and the copy shortcut; Copy Drawing uses it from the shortcut while
-Draw has ink. Double-clicking a component or
+Preview. Clipboard destinations retain the selection's Copy Reference(s)
+bottom action, or Copy Drawing while Draw has ink, with the primary copy
+styling and shortcut. Their snapshot action remains in file navigation.
+Copy Reference uses `ClipboardPort` from that action, menus, the Reference
+heading and the copy shortcut; Copy Drawing uses it from its action and shortcut.
+This choice follows the subscribed destination capability, never an app name.
+Double-clicking a component or
 subassembly isolates it; only non-isolatable topology references use
 double-click copying. The host supplies `environment.platform` for shortcut
 handling; the web host derives that field from its browser environment.

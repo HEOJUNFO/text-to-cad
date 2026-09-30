@@ -47,7 +47,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
 
 /** One pane of the harness: a host, a workspace, host commands and a live binding, and the tab. */
-async function openDrawing() {
+async function openDrawing(destinationKind = 'composer') {
   const fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input));
     if (url.pathname.endsWith('/__cad/catalog')) {
@@ -77,7 +77,7 @@ async function openDrawing() {
   const live = { bind(next: unknown) { controller = next; return () => { controller = null; }; } };
   const renderers = [createDxfRenderer({ client, commands, live })];
 
-  const destination = { kind: 'composer', available: true };
+  const destination = { kind: destinationKind, available: true };
   const delivered: Array<{ type: string; parts: string[] }> = [];
   const host = {
     files: {
@@ -163,6 +163,16 @@ it('a DXF has no panels of its own, no tools and no preview', async () => {
   await waitFor(() => expect(delivered).toHaveLength(1));
   expect(delivered[0].type).toBe('image/png');
   expect(delivered[0].parts).toContain('attachment');
+  dispose();
+});
+
+it('a clipboard DXF retains the snapshot action instead of a composer CTA', async () => {
+  const { pane, delivered, dispose } = await openDrawing('clipboard');
+  expect(within(pane).queryByRole('button', { name: 'Add To Prompt' })).toBeNull();
+  expect(pane.querySelector('[data-viewport-bottom-actions]')).toBeNull();
+  fireEvent.click(within(pane).getByRole('button', { name: 'Take snapshot' }));
+  await waitFor(() => expect(delivered).toHaveLength(1));
+  expect(delivered[0].type).toBe('image/png');
   dispose();
 });
 

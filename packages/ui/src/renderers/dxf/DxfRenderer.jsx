@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Camera } from "lucide-react";
 import { cn } from "@text-to-cad/ui/utils";
 import { usePromptDestination, useViewerHost } from "../../host/context.js";
 import ViewerAlertCard from "../kit/status/ViewerAlertCard.jsx";
@@ -9,7 +10,7 @@ import { useWorkspaceDocument } from "../workspace/useWorkspaceDocument.js";
 import { drawingLoadAlert, useDrawingPayload } from "./useDrawingPayload.js";
 import { useDrawingView } from "./useDrawingView.js";
 import { readFileView, writeFileView } from "../kit/shell/fileView.js";
-import ViewportBottomAction from "../kit/shell/ViewportBottomAction.jsx";
+import ViewportBottomAction, { promptCaptureAction } from "../kit/shell/ViewportBottomAction.jsx";
 import { drawingTransformCamera, readDrawingTransform } from "./drawingTransform.js";
 
 /**
@@ -39,11 +40,12 @@ const SAVE_DELAY_MS = 180;
 function DxfSurface({ view, data }) {
   const host = useViewerHost();
   const destination = usePromptDestination();
+  const composer = destination.kind === "composer";
   const workspace = useWorkspaceDocument({ view, data });
   const file = workspace.entry?.file || view.file.path;
   const payload = useDrawingPayload({ client: workspace.client, file, revision: workspace.resource.revision });
   const [actionError, setActionError] = useState(null);
-  const { onReady, onStateChange } = view;
+  const { onReady, onNavigationActionsChange, onStateChange } = view;
 
   // ---- the view this file was left at ---------------------------------------
   // The file's view (`kit/shell/fileView.js`) with the drawing's transform as its camera and
@@ -108,6 +110,11 @@ function DxfSurface({ view, data }) {
   // A host's own capture request is the same act, acknowledged.
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
+  useEffect(() => {
+    onNavigationActionsChange?.(!composer ? [{ id: "snapshot", label: "Take snapshot", hint: "Snapshot", icon: Camera,
+      disabled: !ready || !promptAvailable, onInvoke: () => snapshotRef.current() }] : []);
+    return () => onNavigationActionsChange?.([]);
+  }, [onNavigationActionsChange, composer, ready, promptAvailable]);
   const captureKey = workspace.commands.captureRequest?.key ?? null;
   const appliedCapture = useRef(null);
   useEffect(() => {
@@ -160,9 +167,9 @@ function DxfSurface({ view, data }) {
         <ViewerLoadingOverlay loading={{ opening: payload.loading && !alert, progress: { label: "Reading drawing" } }}
           operationKey={file} />
         <ViewerAlertCard alert={alert || (actionError ? { severity: "error", kind: "status", blocking: false, title: "Couldn’t capture the drawing", message: actionError } : null)} hasContent={Boolean(payload.drawing)} onReload={view.reload} />
-        <ViewportBottomAction disabled={!ready || !promptAvailable}
-          reason={!promptAvailable ? destination.reason : "Wait for the drawing to load."}
-          onInvoke={snapshot} />
+        {composer ? <ViewportBottomAction {...promptCaptureAction({ disabled: !ready || !promptAvailable,
+          reason: !promptAvailable ? destination.reason : "Wait for the drawing to load.",
+          onInvoke: snapshot })} /> : null}
       </div>
     </div>
   );

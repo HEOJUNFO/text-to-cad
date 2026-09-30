@@ -3289,13 +3289,14 @@ function StepSurfaceBody({ view, data }) {
     ...modelEffects.tools,
   ].filter(Boolean);
 
-  // The copy shortcut remains for selected references; the visible bottom action
-  // is always the shell's screenshot and current prompt context.
+  // Clipboard destinations expose the selection action; composers combine the
+  // current screenshot and selection in the shell's Add To Prompt action.
   const selectionActionVisible = (selectedReferences.length + selectedParts.length
     + (!isAssemblyView && selectedPartIds.includes(STEP_MODEL_ROOT_ID) ? 1 : 0)) > 0 && !stepUpdateInProgress && !referenceSelectionPending
     && !referenceSelectionUnavailable && !topologySelectionDeferred;
   const copyAction = !drawModeActive && selectionActionVisible
-    ? { onInvoke: copySelectedReferences, disabled: stepInteractionBlocked } : null;
+    ? { label: (copySelectionPayload.copiedCount || canonicalCopySelectionLines.length) > 1 ? "Copy References" : "Copy Reference",
+      onInvoke: copySelectedReferences, disabled: stepInteractionBlocked } : null;
 
   // ---- the tool stack ---------------------------------------------------------------------------
   // Under the strip: Select's Features and Reference, Position's joints, then the kept effects.

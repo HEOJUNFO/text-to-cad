@@ -1,5 +1,6 @@
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Pencil } from "lucide-react";
+import { Camera, Pencil } from "lucide-react";
+import { promptCaptureAction } from "./ViewportBottomAction.jsx";
 import { clonePerspectiveSnapshot } from "@text-to-cad/core/lib/perspective.js";
 import { VIEWER_SCENE_SCALE } from "@text-to-cad/core/lib/viewer/sceneScale.js";
 import { ViewerElementContext, useViewerHost, usePromptDestination } from "../../../host/context.js";
@@ -168,7 +169,8 @@ export function useRendererShell({
   const viewerElement = useContext(ViewerElementContext);
   const destination = usePromptDestination();
   const promptAvailable = destination.available;
-  const { onStateChange, appearance } = view;
+  const composer = destination.kind === "composer";
+  const { onNavigationActionsChange, onStateChange, appearance } = view;
   const colorScheme = appearance?.colorScheme === "dark" ? "dark" : "light";
   const ownPreview = usePreviewState();
   const { previewing, set: setPreviewing } = preview || ownPreview;
@@ -375,11 +377,15 @@ export function useRendererShell({
       if (!viewerRef.current?.captureScreenshotBlob) throw new Error("The viewer is not ready");
       const pixels = viewerRef.current.captureScreenshotBlob();
       void pixels.catch(() => {});
+      if (!composer) {
+        void host.clipboard.writeImage(pixels).catch(reportActionError);
+        return;
+      }
       void deliverPrompt(promptContextRef.current({
         resource: liveResourceRef.current?.() || resource, references: referencesRef.current?.() || [], capture: pixels
       }));
     } catch (error) { reportActionError(error); }
-  }, [modelKey, promptAvailable, viewerLoading, deliverPrompt, resource, reportActionError]);
+  }, [modelKey, promptAvailable, viewerLoading, deliverPrompt, resource, composer, host.clipboard, reportActionError]);
   const copyActionRef = useRef(null);
   const copyDrawing = useCallback(async () => {
     if (!drawing.hasContent || !viewerRef.current?.captureScreenshotBlob) return;
@@ -395,6 +401,17 @@ export function useRendererShell({
     services.acknowledgeCommand?.("captureRequest", captureKey);
     capture();
   }, [captureKey, viewerLoading, promptAvailable, services.acknowledgeCommand, capture]);
+
+  // Clipboard destinations retain their explicit snapshot control. Composer
+  // destinations use the combined bottom action, without a duplicate camera.
+  const captureRef = useRef(capture);
+  captureRef.current = capture;
+  useEffect(() => {
+    const actions = !composer && modelKey ? [{ id: "snapshot", label: "Take snapshot", hint: "Snapshot", icon: Camera,
+      disabled: viewerLoading || !scene || !promptAvailable, onInvoke: () => captureRef.current() }] : [];
+    onNavigationActionsChange?.(actions);
+    return () => onNavigationActionsChange?.([]);
+  }, [onNavigationActionsChange, composer, modelKey, viewerLoading, Boolean(scene), promptAvailable]);
 
   // ---- shortcuts ------------------------------------------------------------
   const escapeRef = useRef(escape.handle);
@@ -520,10 +537,10 @@ export function useRendererShell({
       runtimeLifecycle: stableRuntimeLifecycle,
       previewOrbitSpeed, setPreviewOrbitSpeed, toolStack, changeToolStack, viewerLoading, loading, presentationState,
       handlePresentationChange, viewerAlert, setRuntimeAlert,
-      copyActionRef, copyDrawing,
-      promptAction: { disabled: viewerLoading || !scene || !promptAvailable,
+      copyActionRef, copyDrawing, copyShortcut: host.environment.platform === "darwin" ? "⌘C" : "Ctrl+C",
+      promptAction: composer ? promptCaptureAction({ disabled: viewerLoading || !scene || !promptAvailable,
         reason: !promptAvailable ? destination.reason : viewerLoading || !scene ? "Wait for the model to load." : undefined,
-        onInvoke: capture },
+        onInvoke: capture }) : null,
       drawToolActive, drawing, animation, display
     }
   };

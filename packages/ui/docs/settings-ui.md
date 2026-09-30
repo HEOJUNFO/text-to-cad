@@ -45,23 +45,27 @@ settings or Preview controls.
   and Preview controls. With no actions, status or panels, no empty toolbar
   appears. A CAD file declares no renderer panel.
 - **Toolbar** at top-left, 8px in — the gap between it and the stack under it.
-  At top-right, 8px in, the view cube sits above a centred bar of small
-  transparent icon buttons: **Reset view**, **Display settings** (sliders),
-  then **Preview** (a play icon). Mobile omits the cube and keeps the bar at
-  the top inset. In preview the same bar, in the same place, keeps Reset and Display, then an
+  At top-right, 2px in, the view cube sits above a centred bar of 20px
+  transparent buttons with 12px icons: **Display settings** (cog),
+  **Reset view**, then **Preview** (a play icon). Mobile omits the cube and keeps the bar at
+  the top inset. In preview the same bar, in the same place, keeps Display and Reset, then an
   X where Preview was; **Playback settings** is the cog at the playbar's right
   end, and its menu opens upward.
 - **Tool stack** beneath the toolbar: the panels of the tool in hand and of the
   effects a person keeps (see [The tool stack](#the-tool-stack)).
-- **View cube** at top-right, 8px in, with one 8px gap before the action bar below
-  its 7rem area: enlarged face/edge/corner hit areas and neutral hover and XYZ
+- **View cube** at top-right, 2px in, with a 2px gap before the 24px action bar below
+  its 6rem area: enlarged face/edge/corner hit areas and neutral hover and XYZ
   guides. Mobile
   and preview omit it.
 - **Bottom action** and **playbar** sit near bottom-centre, independent of the
-  cube. One white **Add To Prompt** button captures the current view and adds
+  cube. For a composer destination, one white **Add To Prompt** button captures the current view and adds
   the file, selected references when present, and the screenshot through the
   host's prompt destination. It stays visible across tools and without a
-  selection. Preview hides it completely.
+  selection. Clipboard destinations retain the tool's **Copy Reference(s)**
+  action for a selection and **Copy Drawing** while Draw has ink, with the
+  normal primary styling and copy shortcut. With neither there is no bottom
+  action; their snapshot action remains in file navigation. Preview hides
+  bottom actions completely. The destination capability decides this behavior.
 - **Model update status** sits at top-centre of the viewport, vertically centred
   in the same 34px row as the top-left toolbar in every host.
   It is renderer chrome, independent of the host's navigation status slot.
@@ -81,7 +85,7 @@ to the shared shell; no host or file-format branch belongs in the button.
 | STEP | Select, Position (movable joints only), Draw, Measure, Explode (two or more parts), Clip |
 | URDF / SRDF / SDF | Select, Position (posable joints only) |
 | GLB / STL / 3MF | none |
-| DXF | none: a 2D canvas with the shared Add To Prompt action |
+| DXF | none: a 2D canvas; composer Add To Prompt or clipboard navigation snapshot |
 
 There is no separator or activity dot. There is no Animate tool: routines play in
 [preview](#camera-animation-and-preview). Display is not a tool: every 3D
@@ -174,8 +178,9 @@ Leaving Draw forgets the sketch, but not the tool, colour and weight in hand,
 which the next time opens with. Choosing a drawing tool changes the toolbar
 icon. Undo and Redo are disabled when their history is empty. The select tool uses lucide's
 SquareMousePointer. The pencil and the shapes share one default stroke width.
-While Draw has ink, Add To Prompt captures it with the view. The copy shortcut
-still copies that drawing as a PNG. Draw disables the cube without hiding it.
+While Draw has ink, a clipboard destination shows Copy Drawing; a composer
+destination keeps Add To Prompt and captures the ink with the view. The copy
+shortcut copies that drawing as a PNG. Draw disables the cube without hiding it.
 
 **Measure.** Its **Measure** panel is up as soon as it is the tool, empty: a
 heading whose mode menu, beside the chevron and the X, holds the four snapping
@@ -339,7 +344,7 @@ minimum closes the column, and the keyboard never does. The next open starts at
 
 ## Display settings and section primitives
 
-Display is not a tool. Its button — the sliders icon, "Display settings" — sits in the viewport's
+Display is not a tool. Its button — the cog icon, "Display settings" — sits in the viewport's
 top-right bar beside Preview, in the same place in the tools view and in
 preview, and opens an ordinary popover end-aligned under it (`kit/shell/DisplayPopover.jsx`), 256px wide and
 never taller than the viewer. Opening it leaves the tool in hand as it is: a
@@ -434,8 +439,10 @@ picker over them with a muted "i/N" beside the name — quiet on hover in either
 theme (no fill; only its chevron comes up), and nothing about it moves; that picker is all a
 multi-selection adds, and the rows are always the browsed reference's alone (no
 totals, no count line). An X at the heading's end clears the selection. Copy
-stays in row menus, the Reference heading and the copy shortcut. Add To Prompt
-includes the selected references with the screenshot. Every copied reference
+stays in row menus, the Reference heading and the copy shortcut. Clipboard
+destinations also show Copy Reference or Copy References below the viewport;
+composer destinations show Add To Prompt, which includes the selected
+references with the screenshot. Every copied reference
 carries its file prefix.
 
 Viewport picks reach individual faces and edges even where the tree groups them
@@ -472,7 +479,7 @@ host's navigation row, when present, and beside the host's column, which stays a
 and can still be opened and shut; the toolbar, the tool stack and its resize
 handles, joint handles, cube, bottom action and context menu are gone. It starts
 orbiting, unless the file's Playback settings turned its orbit off. Its top-right bar is the tools view's bar in the same place:
-**Reset view**, **Display settings** and an X ("Exit preview") where Preview was. **Playback
+**Display settings**, **Reset view** and an X ("Exit preview") where Preview was. **Playback
 settings** (a cog; `PlaybackMenu`) ends the playbar under the model and opens
 upward. It holds, for a file with routines, **Animation** — the Routine (with more than one), Speed, Loop and
 Autoplay — then **Orbit**: on or off, and its speed. Under the model, an
