@@ -8,7 +8,7 @@
  * per project listing the worktrees that exist right now, with the two actions
  * that make sense on one.
  */
-import { useCallback, useEffect, useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Folder, Loader2, TriangleAlert } from "lucide-react";
 import { Alert, AlertDescription } from "@text-to-cad/ui/primitives/alert";
 
@@ -28,6 +28,7 @@ import {
   useSettingsPatch,
   useSettingsValue,
 } from "@renderer/features/settings/settings-value";
+import { ensureWorktrees, useWorktreeCache } from "@renderer/features/settings/worktree-cache";
 import { runUiCommand } from "@renderer/state/bridge";
 import { useProjects } from "@renderer/state/projects";
 import type { Worktree } from "@shared/ipc/git";
@@ -227,25 +228,23 @@ function ProjectWorktrees() {
 
 function ProjectWorktreeCard({ project }: { project: Project }) {
   const cardId = useId();
-  const [worktrees, setWorktrees] = useState<Worktree[] | null>(null);
+  const worktrees = useWorktreeCache((state) => state.lists[project.id]) ?? null;
+  const epoch = useWorktreeCache((state) => state.epoch);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const read = useCallback(() => {
-    void window.textToCad.git
-      .worktrees({ projectId: project.id })
-      .then(setWorktrees)
-      .catch(() => setWorktrees([]));
-  }, [project.id]);
-
-  useEffect(read, [read]);
+  // Read once per Settings visit (`worktree-cache.ts`); `epoch` reads again
+  // after an invalidation.
+  useEffect(() => {
+    void ensureWorktrees(project.id);
+  }, [project.id, epoch]);
 
   const remove = async (worktree: Worktree) => {
     setBusy(worktree.path);
     setError(null);
     try {
       await window.textToCad.git.removeWorktree({ projectId: project.id, path: worktree.path });
-      read();
+      useWorktreeCache.getState().invalidate();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
