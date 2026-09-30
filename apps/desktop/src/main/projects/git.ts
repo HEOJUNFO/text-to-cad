@@ -1165,6 +1165,12 @@ const MARK_REF = /^[A-Za-z0-9_-]+\/[a-z]+$/;
  * unreferenced object is `gc`'s to prune after two weeks, and a session can
  * be older than that. `dropMarks` unpins them when the session is deleted.
  * Null when git cannot answer — never a reason to fail a turn.
+ *
+ * An untracked file over `SNAPSHOT_MAX_BYTES` is left out of the tree: `add`
+ * would hash it into a loose object on every turn (a CAD export beside the
+ * source is easily hundreds of megabytes, and `gc` is weeks away), and in an
+ * LFS repository run its clean filter as well. Under `Last turn` such a file
+ * reads as untracked, as if added since the mark, whether or not it changed.
  */
 export async function snapshotTree(cwd: string, mark?: string): Promise<string | null> {
   if (mark !== undefined && !MARK_REF.test(mark)) {
@@ -1176,7 +1182,16 @@ export async function snapshotTree(cwd: string, mark?: string): Promise<string |
   }
   return withTempIndex(root, async (env) => {
     const options = { ...GIT_OPTIONS, cwd: root, env: { ...GIT_OPTIONS.env, ...env } };
-    const added = await tracked(execa("git", ["add", "-A"], options));
+    const big = await bigUntracked(root);
+    const added = await tracked(execa(
+      "git",
+      big.length === 0
+        ? ["add", "-A"]
+        : ["add", "-A", "--pathspec-from-file=-", "--pathspec-file-nul"],
+      big.length === 0
+        ? options
+        : { ...options, input: [".", ...big.map((file) => `:(exclude,literal)${file}`)].join("\0") },
+    ));
     if (added.failed || added.exitCode !== 0) {
       return null;
     }
@@ -1190,6 +1205,27 @@ export async function snapshotTree(cwd: string, mark?: string): Promise<string |
     }
     return tree;
   }).catch(() => null);
+}
+
+/** Above this an untracked file stays out of a snapshot (`snapshotTree`). */
+export const SNAPSHOT_MAX_BYTES = 8 * 1024 * 1024;
+
+/** The untracked, non-ignored files over `SNAPSHOT_MAX_BYTES`, repository-relative. */
+async function bigUntracked(root: string): Promise<string[]> {
+  const listed = parsePorcelainStatus(
+    (await tryGit(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"])) ?? "",
+  );
+  const big: string[] = [];
+  for (const file of listed.files) {
+    if (file.status !== "untracked") {
+      continue;
+    }
+    const stat = await fsp.lstat(path.join(root, file.path)).catch(() => null);
+    if (stat?.isFile() && stat.size > SNAPSHOT_MAX_BYTES) {
+      big.push(file.path);
+    }
+  }
+  return big;
 }
 
 /** The environment of the read in flight: a temp index that lists the untracked files too. */

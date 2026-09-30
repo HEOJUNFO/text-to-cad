@@ -4,7 +4,7 @@
  * write wherever it names, so a scope is checked before git is started at all.
  */
 import { execFile } from "node:child_process";
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, open, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -270,6 +270,23 @@ describe("snapshot marks", () => {
     expect(await sh(cwd, "for-each-ref", "--format=%(refname) %(objectname)", "refs/text-to-cad/")).toBe(`refs/text-to-cad/s3/turn ${tree}`);
     await git.dropMarks(cwd, "s3");
     expect(await sh(cwd, "for-each-ref", "refs/text-to-cad/")).toBe("");
+  });
+
+  it("leaves an untracked file over the size limit out of the tree, and it still reads as untracked", async () => {
+    const cwd = await committedRepo();
+    const big = path.join(cwd, "part.step");
+    const handle = await open(big, "w");
+    await handle.truncate(20 * 1024 * 1024); // sparse: no disk, but git would hash all of it
+    await handle.close();
+    await writeFile(path.join(cwd, "small.txt"), "s\n");
+    const blob = await sh(cwd, "hash-object", "part.step");
+    const turn = await git.snapshotTree(cwd, "s5/turn");
+    // `cat-file -e` fails for an object that was never written.
+    await expect(sh(cwd, "cat-file", "-e", blob)).rejects.toThrow();
+    expect(await sh(cwd, "ls-tree", "-r", "--name-only", turn ?? "")).toBe("part.py\nsmall.txt");
+    const scope = resolveDiffScope({ kind: "turn" }, { turnHead: turn, sessionHead: turn });
+    const listed = await git.status(cwd, scope);
+    expect(listed.files).toEqual([expect.objectContaining({ path: "part.step", status: "untracked" })]);
   });
 
   it("leaves the person's index and staging alone", async () => {

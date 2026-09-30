@@ -2117,7 +2117,10 @@ of the working tree when a session is created and again at the start of every
 turn (`sessions.sessionHead` and `turnHead`: a tree made from a throwaway copy
 of the index with `add -A`, so untracked files are in and `.gitignore` applies,
 and pinned under `refs/text-to-cad/<session id>/` so `gc` cannot prune it; the
-refs go when the session is deleted). `Last turn` / `This session` compare that
+refs go when the session is deleted). An untracked file over 8 MiB
+(`SNAPSHOT_MAX_BYTES`) is left out of the tree, so a large CAD export beside the
+source is not hashed into `.git/objects` every turn; under `Last turn` it reads
+as untracked, as if added since the mark. `Last turn` / `This session` compare that
 tree with a snapshot of the working tree as it is now, so an edit the agent has
 not committed is in the answer and work from before the turn began is not. A
 worktree session's `sessionHead` stays the commit it was cut from, which is also
