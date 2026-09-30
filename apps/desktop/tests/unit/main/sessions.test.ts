@@ -770,6 +770,27 @@ describe("SessionManager", () => {
   });
 
   /**
+   * `initialize` and `session/new` have no timeout, and `archive` waits for
+   * the create: a hung agent left the sidebar's archive click dead.
+   */
+  it("archives a hung create after the wait, by abandoning it: the row is removed", async () => {
+    const timers: (() => void)[] = [];
+    const { repo, manager, cwd } = await setup({
+      launchOverride: () => ({ ...fakeProvider.launch, args: [FAKE_AGENT, "--new-delay", "600000"] }),
+      startTimer: (_ms, fire) => (timers.push(fire), () => undefined),
+    });
+    const creating = manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    const settled = creating.then(() => "resolved", (error: Error) => error.message);
+    const row = await until(() => repo.list()[0]);
+    const archiving = manager.archive(row.id, true);
+    expect(timers).toHaveLength(1);
+    timers[0]!();
+    await expect(archiving).resolves.toMatchObject({ id: row.id, archived: true, status: "closed" });
+    expect(await settled).not.toBe("resolved");
+    await until(() => (repo.get(row.id) ? undefined : true));
+  });
+
+  /**
    * `NewSession` sends the first prompt as the create returns; with an archive
    * in between, `prompt -> ensureLive -> load` reconnected the archived row
    * and ran a turn in it.

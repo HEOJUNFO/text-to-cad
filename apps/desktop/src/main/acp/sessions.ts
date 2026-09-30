@@ -216,6 +216,12 @@ export type SessionManagerDeps = {
    * that a session was created, and with which agent.
    */
   track?: (event: TelemetryEvent) => void;
+
+  /**
+   * Start a timer that calls `fire` after `ms`; returns its cancel. The clock
+   * for the archive's wait on a create, injected so a test fires it by hand.
+   */
+  startTimer?: (ms: number, fire: () => void) => () => void;
 };
 
 /** A provisional title until the agent supplies one, trimmed to fit a sidebar row. */
@@ -241,7 +247,12 @@ type ChangeTally = { files: Set<string>; baseFiles: number; insertions: number; 
 
 /** How long a turn (or a create) waits for the working tree to be snapshotted. */
 const MARK_WAIT_MS = 5_000;
-const EXPIRED = Symbol("mark wait expired");
+const EXPIRED = Symbol("mark wait expired");/** How long an archive waits for a create still running before it abandons that create. */
+const ARCHIVE_WAIT_MS = 10_000;
+const defaultTimer = (ms: number, fire: () => void) => {
+  const timer = setTimeout(fire, ms);
+  return () => clearTimeout(timer);
+};
 
 /** How long a config-option probe may take before it is abandoned. */
 const PROBE_TIMEOUT_MS = 60_000;
@@ -1127,14 +1138,38 @@ export class SessionManager {
    * for it. The create runs to its end (the row goes idle), then this closes it.
    */
   async archive(id: string, archived: boolean): Promise<Session> {
-    this.require(id);
+    const session = this.require(id);
     if (archived) {
-      await this.creating.get(id)?.catch(() => undefined);
+      const creation = this.creating.get(id);
+      if (creation && !(await this.settlesWithin(creation, ARCHIVE_WAIT_MS))) {
+        // A create that never answers (`initialize` and `session/new` have no
+        // timeout of their own) would leave the sidebar's archive click dead.
+        // Past the limit, the old way: close under it. `session/new` rejects,
+        // `create` removes the row and its worktree and rejects to its caller,
+        // so the thread is gone, not archived; this answers with the row as it
+        // stood.
+        console.warn(`[acp] archive ${id.slice(0, 8)}: create still running after ${ARCHIVE_WAIT_MS / 1000} s, abandoning it`);
+        this.close(id);
+        return this.deps.repo.get(id) ? this.update(id, { archived }) : { ...session, archived, status: "closed" };
+      }
       // A create that failed took the row with it: there is nothing left to archive.
       this.require(id);
       this.close(id);
     }
     return this.update(id, { archived });
+  }
+
+  /** Whether `work` settled (either way) before `ms` passed. */
+  private async settlesWithin(work: Promise<unknown>, ms: number): Promise<boolean> {
+    let cancel = () => {};
+    const expired = new Promise<false>((resolve) => {
+      cancel = (this.deps.startTimer ?? defaultTimer)(ms, () => resolve(false));
+    });
+    try {
+      return await Promise.race([work.then(() => true, () => true), expired]);
+    } finally {
+      cancel();
+    }
   }
 
   /**

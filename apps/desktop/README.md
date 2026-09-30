@@ -2021,7 +2021,9 @@ owns — a create cut short by a quit, which can never be loaded — and unpins 
 marks. A row whose directory is missing or unmounted is not of that kind: it is
 never deleted for that.
 
-An archive during a create waits for the create to settle, then closes the row.
+An archive during a create waits for the create to settle, then closes the row;
+past ten seconds (a hung `initialize` or `session/new`) it closes under the
+create instead, which removes the row and its worktree and rejects.
 `prompt` does not reconnect an archived row (it rejects with "This thread is
 archived; unarchive it first."): the first prompt a `NewSession` sends as its
 create returns would otherwise run a turn in the thread that was put away, and
