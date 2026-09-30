@@ -1,6 +1,7 @@
 import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { AlertCircle, Loader2, Settings2 } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@renderer/components/ui/button";
 import { resolveGitMode, useProjectGitInfo } from "@renderer/lib/git-mode";
@@ -87,6 +88,15 @@ export function NewSession({ project }: { project: Project }) {
   // what the box holds *now* — the person may have edited it since — and a sign-in that finishes
   // retries by itself only while the box still holds exactly this.
   const failedAttempt = useRef<TakenDraft | null>(null);
+  // A create takes seconds, and the person may click the connecting row in the sidebar meanwhile:
+  // this screen unmounts, and the card `failure` would draw goes nowhere.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const jobs = useAgents((state) => state.jobs);
 
   // Defaults come from settings and from what is installed; a choice made
@@ -223,6 +233,21 @@ export function NewSession({ project }: { project: Project }) {
       });
     } catch (error) {
       const message = errorMessage(error);
+      if (!mounted.current) {
+        // The person is elsewhere (the connecting row, or another thread): say so where they are.
+        // The composer has already put the draft back (`restoreDraft`), so Try again is the way
+        // back to the new-session screen that holds it.
+        toast.error(message, {
+          action: {
+            label: "Try again",
+            onClick: () => {
+              useProjects.getState().setActive(project.id);
+              useSessions.getState().setActive(null);
+            },
+          },
+        });
+        return false;
+      }
       // Main has already dropped the row: nothing to resume, nothing to list.
       setFailure({ message, auth: isAuthError(message) || agent?.auth === "unauthenticated" });
       setBusy(false);

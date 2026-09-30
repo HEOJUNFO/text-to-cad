@@ -7,7 +7,10 @@ import { useAcp } from "@renderer/state/acp";
 import { useAgents } from "@renderer/state/agents";
 import { useAgentOptions } from "@renderer/state/agent-options";
 import { useComposer } from "@renderer/state/composer";
+import { useProjects } from "@renderer/state/projects";
+import { useSessions } from "@renderer/state/sessions";
 import { useUi } from "@renderer/state/ui";
+import { toast } from "sonner";
 import { initialSessionState } from "@shared/acp/types";
 import type { AgentStatus } from "@shared/agents";
 
@@ -44,6 +47,7 @@ vi.mock("@renderer/features/session/Composer", async () => {
     },
   };
 });
+vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { error: vi.fn() }) }));
 // A chip is its name and the reason it is not offered, if it has one.
 vi.mock("@renderer/features/session/ComposerChips", () => {
   const chip = (name: string) => ({ disabledReason }: { disabledReason?: string }) => (
@@ -380,5 +384,57 @@ describe("a first prompt the agent refuses", () => {
 
     await waitFor(() => expect(useComposer.getState().drafts.s1).toBe("look at this"));
     expect(useComposer.getState().pendingFiles.s1).toEqual([photo]);
+  });
+});
+
+describe("a create that outlasts the screen that asked for it", () => {
+  const deferred = <T,>() => {
+    let resolve!: (value: T) => void;
+    let reject!: (reason: unknown) => void;
+    const promise = new Promise<T>((res, rej) => ((resolve = res), (reject = rej)));
+    return { promise, resolve, reject };
+  };
+
+  it("says a failed create where the person is: a toast whose Try again brings the draft back", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<string>();
+    create.mockReturnValueOnce(pending.promise);
+    useComposer.setState({ drafts: { "__new__:p1": "make a cube" } });
+    const screenView = render(<NewSession project={PROJECT} />);
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    // The person clicks the connecting row: the pane is that session, this screen is gone.
+    screenView.unmount();
+    useSessions.setState({ activeId: "provisional" });
+    vi.mocked(toast.error).mockClear();
+
+    await act(async () => pending.reject(new Error("agent would not start")));
+    expect(toast.error).toHaveBeenCalledWith("agent would not start", expect.objectContaining({ action: expect.objectContaining({ label: "Try again" }) }));
+    expect(useComposer.getState().drafts["__new__:p1"], "the draft is back in the box").toBe("make a cube");
+
+    // The row is gone (`sessions.receive` nulls the active id); the person is on another project.
+    useSessions.setState({ activeId: "other" });
+    const { action } = vi.mocked(toast.error).mock.calls[0]![1] as unknown as { action: { onClick: () => void } };
+    act(() => action.onClick());
+    expect(useSessions.getState().activeId).toBeNull();
+    expect(useProjects.getState().activeId).toBe("p1");
+  });
+
+  it("keeps its card in place while the screen is still there", async () => {
+    const user = userEvent.setup();
+    create.mockRejectedValueOnce(new Error("agent would not start"));
+    render(<NewSession project={PROJECT} />);
+    vi.mocked(toast.error).mockClear();
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    expect(await screen.findByText("agent would not start")).toBeInTheDocument();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("selects the new session when the person is still on it, or on nothing", async () => {
+    const user = userEvent.setup();
+    create.mockResolvedValueOnce("s1");
+    useSessions.setState({ activeId: null });
+    render(<NewSession project={PROJECT} />);
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(useSessions.getState().activeId).toBe("s1"));
   });
 });
