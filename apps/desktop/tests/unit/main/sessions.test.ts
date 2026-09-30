@@ -934,6 +934,40 @@ describe("SessionManager", () => {
     expect(run("for-each-ref", "refs/text-to-cad/")).toBe("");
   });
 
+  it("does not leave a ref behind when the session is deleted while its turn mark is being taken", async () => {
+    const { head, snapshotTree, dropMarks } = await import("@main/projects/git");
+    const { execFileSync } = await import("node:child_process");
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let reached = false;
+    const { manager, cwd } = await setup({
+      head,
+      dropMarks,
+      snapshot: async (dir, mark) => {
+        if (mark.endsWith("/turn")) {
+          reached = true;
+          await gate;
+        }
+        return snapshotTree(dir, mark);
+      },
+    });
+    const run = (...args: string[]) =>
+      execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" }).trim();
+    run("init", "-q");
+    await writeFile(path.join(cwd, "base.txt"), "base\n");
+    run("add", "-A");
+    run("commit", "-q", "-m", "base");
+
+    const session = await manager.create({ projectId: cwd, agentId: "claude-code", cwd, gitMode: "none" });
+    const turn = manager.prompt(session.id, [{ type: "text", text: "one" }]);
+    turn.catch(() => undefined);
+    await until(() => (reached ? true : undefined));
+    await manager.delete(session.id);
+    release();
+    await expect(turn).rejects.toThrow(/no such session/);
+    expect(run("for-each-ref", "refs/text-to-cad/")).toBe("");
+  });
+
   it("a session that opens an existing worktree starts from the tree as it is, not from a commit", async () => {
     const { head, snapshotTree, dropMarks, status } = await import("@main/projects/git");
     const { resolveDiffScope } = await import("@shared/types");

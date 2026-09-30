@@ -914,6 +914,12 @@ export class SessionManager {
       // (a lock, a timeout) keeps the previous mark: a wider `Last turn` is
       // still a review, where a null would unmark it altogether.
       const turnHead = await this.markWithin(session.cwd, `${id}/turn`);
+      // Deleted while the snapshot ran: `delete` unpinned before this mark
+      // was pinned, and nothing else would ever drop the ref it just made.
+      if (!this.deps.repo.get(id)) {
+        await this.unpinMarks(session);
+        throw new Error(`no such session: ${id}`);
+      }
       this.update(id, turnHead === null ? {} : { turnHead });
       try {
         const response = await connection.prompt(content, `${id}:${Date.now()}`);
