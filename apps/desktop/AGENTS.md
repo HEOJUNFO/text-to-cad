@@ -361,9 +361,13 @@ the rule is about.
   worktree, under it, or record it. Settings' count, Delete's refusal, the
   keep-limit sweep, a session's release and the CAD viewer's stop (archive and
   delete, `forgetCadSession`) all ask it; an archived session holds no worktree.
-  Delete from Settings is refused on two grounds, in use and locked
-  (`git worktree lock`), and the row says which (`keptBecause`,
-  `features/settings/pages/GitPage.tsx`).
+  Delete from Settings is kept on four grounds, and the row says which
+  (`keptBecause`, `features/settings/pages/GitPage.tsx`): locked
+  (`git worktree lock`), git could not check it for unsaved work, unsaved
+  work (uncommitted changes or ignored files that are not a disposable
+  cache), and an open session. Main refuses a worktree in use even forced
+  and unsaved work unless the request says `force`; a lock is git's own
+  refusal.
 - **A settings write main refuses is rolled back and said, and a key with a
   write in flight keeps its value until that write settles.** `patch`
   (`src/renderer/state/settings.ts`) puts back what main last reported for the
