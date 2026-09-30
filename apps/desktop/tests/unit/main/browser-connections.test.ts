@@ -18,7 +18,7 @@ afterEach(async () => { await fs.rm(directory, { recursive: true, force: true })
 const session = { sessionId: "session", projectId: "project", cwd: "/untrusted" };
 function fixture() {
   const commands = { request: vi.fn().mockResolvedValue({ tabId: "new-tab" }) };
-  const service = { open: vi.fn().mockResolvedValue({ tabId: "new-tab" }), invoke: vi.fn().mockResolvedValue({}) };
+  const service = { open: vi.fn().mockResolvedValue({ tabId: "new-tab" }), invoke: vi.fn().mockResolvedValue({}), disposeSession: vi.fn() };
   const connections = new BrowserConnections({ sessionRoot: () => ({ directory, root: null }) }, commands, path.join(directory, "artifacts"), service as unknown as BrowserService);
   return { commands, service, connections };
 }
@@ -47,5 +47,13 @@ it("cancellation prevents resource creation, including after renderer admission"
   commands.request.mockImplementation(async () => { throw new Error("renderer command cancelled"); });
   await expect(endpoints[0]!.tabs.open("https://example.com", controller.signal)).rejects.toThrow("cancelled");
   expect(service.open).not.toHaveBeenCalled();
+  await connections.dispose();
+});
+it("disposePages closes the session's native pages but keeps its endpoint", async () => {
+  const { connections, service } = fixture();
+  await connections.connect(session);
+  connections.disposePages(session.sessionId);
+  expect(service.disposeSession).toHaveBeenCalledWith("session");
+  expect(endpoints[0]!.dispose).not.toHaveBeenCalled();
   await connections.dispose();
 });

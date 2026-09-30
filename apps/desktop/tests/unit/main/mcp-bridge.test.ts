@@ -153,6 +153,19 @@ describe("McpBridge", () => {
     expect(moved).toMatchObject({ status: 401, body: { error: "session authorization changed" } });
   });
 
+  it("disposes the session's pages when its workspace changes, and not when it is merely asked for again", async () => {
+    const disposePages = vi.fn();
+    const { calls: _calls, ...actions } = recordingActions();
+    const bridge = new McpBridge(actions, () => ({ command: "/electron", args: ["/server.mjs"], env: {} }), { revoke: vi.fn(), disposePages, dispose: async () => {} });
+    bridges.push(bridge);
+    await bridge.start();
+    bridge.tokenFor(SESSION);
+    bridge.tokenFor({ ...SESSION });
+    expect(disposePages).not.toHaveBeenCalled();
+    bridge.tokenFor({ ...SESSION, cwd: "/elsewhere" });
+    expect(disposePages).toHaveBeenCalledExactlyOnceWith(SESSION.sessionId);
+  });
+
   it("takes the largest document edit_document's schema accepts, in its worst-case JSON", async () => {
     const edits: unknown[] = [];
     const recorded = Object.assign(recordingActions(), {

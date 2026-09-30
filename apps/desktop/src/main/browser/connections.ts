@@ -51,6 +51,8 @@ export class BrowserConnections {
     const pending = this.entries.get(sessionId); this.entries.delete(sessionId);
     void pending?.then(endpoint => endpoint.dispose()).catch(() => {});
   }
+  /** A workspace change: the pages opened in the old scope go, the session stays. */
+  disposePages(sessionId: string) { this.service.disposeSession(sessionId); }
   async dispose() {
     const pending = [...this.entries.values()]; this.entries.clear();
     await Promise.allSettled(pending.map(async entry => (await entry).dispose()));
