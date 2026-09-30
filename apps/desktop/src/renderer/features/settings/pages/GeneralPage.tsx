@@ -152,7 +152,7 @@ export function GeneralPage() {
         />
         <PathRow
           chooseLabel="Choose…"
-          description="An aiff, wav, mp3 or m4a file. Empty plays text-to-cad's own chime."
+          description="An aiff, wav, mp3, m4a or ogg file. Empty plays text-to-cad's own chime."
           keywords="audio file custom"
           onChoose={() => {
             void window.textToCad.dialogs

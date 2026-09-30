@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
 import { SettingsRoute } from "@renderer/features/settings/SettingsRoute";
@@ -24,6 +25,15 @@ describe("Settings › General", () => {
       expect(screen.getByText(event, { exact: true })).toBeInTheDocument();
     }
     expect(screen.getByText(/never the name or the path/)).toBeInTheDocument();
+  });
+
+  it("names every extension the sound chooser allows", async () => {
+    render(<TooltipProvider><SettingsRoute /></TooltipProvider>);
+    expect(await screen.findByText(/An aiff, wav, mp3, m4a or ogg file/)).toBeInTheDocument();
+    await userEvent.click(screen.getAllByRole("button", { name: "Choose…" })[1]!);
+    expect(window.textToCad.dialogs.chooseFile).toHaveBeenCalledWith(
+      expect.objectContaining({ filters: [expect.objectContaining({ extensions: expect.arrayContaining(["ogg"]) })] }),
+    );
   });
 
   it("notes a default project folder that no longer exists", async () => {

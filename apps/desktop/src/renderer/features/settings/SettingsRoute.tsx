@@ -128,7 +128,9 @@ export function SettingsRoute() {
               />
             ))}
             {searching && navSections.length === 0 ? (
-              <p className="px-2 py-3 text-xs text-muted-foreground">No matching settings.</p>
+              <p className="px-2 py-3 text-xs text-muted-foreground" role="status">
+                No matching settings.
+              </p>
             ) : null}
           </div>
         </nav>
