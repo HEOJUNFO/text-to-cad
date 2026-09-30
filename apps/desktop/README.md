@@ -2109,11 +2109,17 @@ worktree, never forced (`releaseWorkspace`), and the keep-limit sweep
 worktree's session row is written (`sessionWorkspaceSettled`), unawaited, so
 the new one is already protected and the session's start never waits. It
 also clears a worktree whose folder was deleted by hand, which has nothing
-left to lose (`folderGone` in `src/main/projects/git.ts`). It never removes a worktree outside the project's
-worktree folders, a locked one, one that holds any session row's `cwd`,
-`projectId` or `worktreePath` — archived sessions included — or a create still
+left to lose (`folderGone` in `src/main/projects/git.ts`); Settings lists such
+a worktree as clean, so Delete there is open to it. It never removes a worktree outside the project's
+worktree folders, a locked one, one that holds the `cwd`, `projectId` or
+`worktreePath` of a session row that is not archived, or a create still
 in flight, or one with uncommitted changes or ignored files that are not a
-disposable cache (`hasUnsavedWork`). The limit counts only unlocked, unheld
+disposable cache (`hasUnsavedWork`). An archived session holds no worktree.
+"In use" is one function, `sessionsUsing` in `src/main/projects/git.ts`: the
+sessions that are not archived and run in the worktree, in a folder inside it,
+or record it as their `worktreePath`. It answers Settings' open-session count,
+Delete's refusal, and a session's release of its own worktree; the sweep's
+`protectedPaths` applies the same not-archived filter. The limit counts only unlocked, unheld
 worktrees in the project's worktree folders; one with unsaved work counts
 toward it and is then kept. A branch is deleted only when a failed create abandons the
 worktree it made, and then only while it still points where it was cut

@@ -67,10 +67,13 @@ Archive writes the session row first, then closes live session resources; it
 retains the session row and its persisted tabs. Delete removes that session and its children only. A
 session's worktree goes only when Settings' auto-delete is on: deleting the
 session then removes it (never forced), and after each new worktree's row is
-written a keep-limit sweep removes the oldest past the limit — never one a
-session row's `cwd`, `projectId` or `worktreePath` names (archived sessions
-included), a locked one, a create still in flight, or one with unsaved work
-(README, "Git modes and worktrees"). A create that fails is the exception:
+written a keep-limit sweep removes the oldest past the limit — never one the
+`cwd`, `projectId` or `worktreePath` of a session that is not archived names, a
+locked one, a create still in flight, or one with unsaved work (README, "Git
+modes and worktrees"). An archived session holds no worktree: `sessionsUsing`
+(`src/main/projects/git.ts`) is the one answer to "in use" for Settings' count,
+Delete's refusal, the sweep and a session's release. A worktree whose folder
+was deleted by hand reads as clean in Settings and can be deleted there. A create that fails is the exception:
 the worktree it made, and its branch while still at its base, go with its row
 whatever the setting.
 
