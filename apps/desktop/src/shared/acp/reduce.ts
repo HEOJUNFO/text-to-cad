@@ -211,6 +211,26 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
       return { ...state, configOptions: event.configOptions };
 
     case "status":
+      if (event.status === "closed" || event.status === "error") {
+        // The adapter is gone, and with it whoever would take the answer:
+        // `retire` drops the connection's own resolve before it can be
+        // dispatched, so a card left pending here would stay answerable.
+        const turns = state.turns.map((turn) => {
+          const parts = mapPartsDeep(turn.parts, (part) =>
+            part.type === "permission_request" && part.outcome.state === "pending"
+              ? { ...part, outcome: { state: "cancelled" } }
+              : part,
+          );
+          return parts === turn.parts ? turn : { ...turn, parts };
+        });
+        return {
+          ...state,
+          turns: turns.every((turn, index) => turn === state.turns[index]) ? state.turns : turns,
+          pendingPermissions: [],
+          status: event.status,
+          error: event.error,
+        };
+      }
       return { ...state, status: event.status, error: event.error };
   }
 }

@@ -818,6 +818,18 @@ describe("reduce: a permission request outside an open turn", () => {
   });
 });
 
+describe("reduce: a permission card when the adapter goes away", () => {
+  const ask = { requestId: "perm-1", acpSessionId: root, toolCallId: "c1", title: null, description: null, kind: null, input: null, options: [] };
+
+  it.each(["closed", "error"] as const)("marks a pending card cancelled on status %s", (status) => {
+    let state = started(connected());
+    state = reduce(state, { type: "permission/request", request: ask, at });
+    state = reduce(state, { type: "status", status, error: null, at });
+    expect(state.turns[1]?.parts.at(-1)).toMatchObject({ type: "permission_request", outcome: { state: "cancelled" } });
+    expect(state.pendingPermissions).toEqual([]);
+  });
+});
+
 describe("reduce: embedded resources", () => {
   const resource = { type: "resource" as const, uri: "attachment:///notes%20v2.md", text: "# notes", mimeType: "text/markdown" };
 
