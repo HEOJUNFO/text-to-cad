@@ -20,7 +20,7 @@ import { AgentMark } from "@renderer/features/settings/AgentMark";
 import { InlineCode } from "@renderer/features/settings/inline-code";
 import { SettingCard, useRowMatch } from "@renderer/features/settings/SettingCard";
 import { StatusDot, type Tone } from "@renderer/features/settings/StatusDot";
-import { matchesQuery } from "@renderer/features/settings/search";
+import { matchesQuery, useSettingsQuery } from "@renderer/features/settings/search";
 import { useAppInfo } from "@renderer/features/settings/use-app-info";
 import { useAgents } from "@renderer/state/agents";
 import type { AgentStatus, Platform } from "@shared/agents";
@@ -37,6 +37,11 @@ const PLATFORMS: Record<string, Platform> = {
   win32: "windows",
   linux: "linux",
 };
+
+/** What the Settings search reads on an agent's row. */
+function agentRowText(agent: AgentStatus) {
+  return [agent.name, agent.description, `agent acp ${agent.id}`];
+}
 
 export function AgentsPage() {
   const agents = useAgents((state) => state.agents);
@@ -59,16 +64,22 @@ export function AgentsPage() {
 
   const platform = info ? (PLATFORMS[info.platform] ?? "linux") : "macos";
 
+  // The Settings search hides rows through `useRowMatch`; the counts have to
+  // ask the same question or "Installed (4)" sits over one row.
+  const query = useSettingsQuery();
+
   const groups = useMemo(() => {
-    const visible = agents.filter((agent) =>
-      matchesQuery(filter, agent.name, agent.description, agent.id),
+    const visible = agents.filter(
+      (agent) =>
+        matchesQuery(filter, agent.name, agent.description, agent.id) &&
+        matchesQuery(query, ...agentRowText(agent)),
     );
     return {
       installed: visible.filter((agent) => agent.installed),
       recommended: visible.filter((agent) => !agent.installed && RECOMMENDED.has(agent.id)),
       rest: visible.filter((agent) => !agent.installed && !RECOMMENDED.has(agent.id)),
     };
-  }, [agents, filter]);
+  }, [agents, filter, query]);
 
   const shown = agents.find((agent) => agent.id === shownId) ?? null;
 
@@ -133,7 +144,7 @@ export function AgentsPage() {
         title={`Not installed (${groups.rest.length})`}
       />
 
-      {ready && !loadError && groups.installed.length + groups.recommended.length + groups.rest.length === 0 ? (
+      {ready && !loadError && !query && groups.installed.length + groups.recommended.length + groups.rest.length === 0 ? (
         <p className="px-1 text-sm text-muted-foreground">No agent matches “{filter}”.</p>
       ) : null}
 
@@ -177,7 +188,7 @@ function AgentGroup({
  * buttons stop their own clicks.
  */
 function AgentRow({ agent, onOpen }: { agent: AgentStatus; onOpen: () => void }) {
-  const matched = useRowMatch(agent.name, agent.description, `agent acp ${agent.id}`);
+  const matched = useRowMatch(...agentRowText(agent));
   const detailId = useId();
   if (!matched) {
     return null;

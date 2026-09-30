@@ -65,7 +65,9 @@ export const useUi = create<UiState>((set) => ({
     set((state) => ({
       route: "settings",
       settingsSection: section ?? state.settingsSection,
+      // Closing the palette by any door forgets what was typed in it.
       commandPaletteOpen: false,
+      commandPaletteQuery: "",
     })),
   closeSettings: () => set({ route: "app" }),
   setSettingsSection: (settingsSection) => set({ settingsSection }),

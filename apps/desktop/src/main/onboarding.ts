@@ -38,6 +38,21 @@ export function createSampleProject(
   if (!fs.existsSync(source)) {
     throw new Error(`The sample project is missing from this build (${source}).`);
   }
-  fs.cpSync(source, target, { recursive: true });
+  // Copied beside the target and renamed into place, so `target` holds files
+  // only once it holds all of them: a copy that dies midway (disk full, the
+  // app killed) leaves a `.copying` folder that the next run discards, not a
+  // half-sample the check above would take for the person's own.
+  const staging = `${target}.copying`;
+  fs.rmSync(staging, { recursive: true, force: true });
+  try {
+    fs.cpSync(source, staging, { recursive: true });
+    // Only litter is in `target` here; a rename onto a directory is refused
+    // on Windows even when it is empty.
+    fs.rmSync(target, { recursive: true, force: true });
+    fs.renameSync(staging, target);
+  } catch (error) {
+    fs.rmSync(staging, { recursive: true, force: true });
+    throw error;
+  }
   return target;
 }

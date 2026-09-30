@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { FolderOpen } from "lucide-react";
 
 import { Button } from "@renderer/components/ui/button";
-import { useOpenFolder } from "@renderer/hooks/use-open-folder";
+import { useOpenFolderOrToast } from "@renderer/hooks/use-open-folder";
 import { isPrimaryModifier } from "@renderer/lib/platform";
 import { useActiveProject } from "@renderer/state/projects";
 import { useActiveSession, useSessions } from "@renderer/state/sessions";
@@ -23,7 +23,7 @@ export function SessionPane() {
   const project = useActiveProject();
   const session = useActiveSession();
   const setActiveSession = useSessions((state) => state.setActive);
-  const openFolder = useOpenFolder();
+  const openFolder = useOpenFolderOrToast();
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

@@ -53,6 +53,19 @@ describe("createSampleProject", () => {
     expect(fs.readFileSync(path.join(target, "part.py"), "utf8")).toBe("print('bundled')\n");
   });
 
+  it("does not take a copy that died midway for the person's own", () => {
+    fs.writeFileSync(path.join(source, "second.py"), "print('also bundled')\n");
+    const dying = vi.spyOn(fs, "cpSync").mockImplementationOnce((from, to) => {
+      fs.mkdirSync(to as string, { recursive: true });
+      fs.copyFileSync(path.join(from as string, "part.py"), path.join(to as string, "part.py"));
+      throw new Error("ENOSPC");
+    });
+    expect(() => createSampleProject(target, source)).toThrow(/ENOSPC/);
+    dying.mockRestore();
+    expect(createSampleProject(target, source)).toBe(target);
+    expect(fs.readFileSync(path.join(target, "second.py"), "utf8")).toBe("print('also bundled')\n");
+  });
+
   it("says so when the build has no sample", () => {
     expect(() => createSampleProject(target, path.join(directory, "missing"))).toThrow(/sample project is missing/);
   });

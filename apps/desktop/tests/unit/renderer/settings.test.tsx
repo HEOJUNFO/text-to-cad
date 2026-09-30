@@ -16,7 +16,7 @@ import { SettingCard, SettingRow } from "@renderer/features/settings/SettingCard
 import { SettingsRoute } from "@renderer/features/settings/SettingsRoute";
 import { AgentsPage } from "@renderer/features/settings/pages/AgentsPage";
 import { GitPage } from "@renderer/features/settings/pages/GitPage";
-import { matchesQuery } from "@renderer/features/settings/search";
+import { SettingsSearchProvider, matchesQuery } from "@renderer/features/settings/search";
 import { AgentDrawer, authLabel, parseEnv, formatEnv } from "@renderer/features/settings/AgentDrawer";
 import { agentIcon, agentIconIds } from "@renderer/lib/agent-icons";
 import { SHORTCUTS, shortcutKeys, shortcutsIn } from "@renderer/lib/shortcuts";
@@ -407,6 +407,40 @@ describe("the branch prefix row", () => {
     expect(box).toHaveAccessibleDescription("Git refuses spaces in a branch name.");
     await user.tab();
     expect(window.textToCad.settings.set).not.toHaveBeenCalled();
+  });
+});
+
+describe("the Agents page under the Settings search", () => {
+  const agent = (id: string, name: string) =>
+    ({
+      id,
+      name,
+      description: `${name} agent`,
+      websiteUrl: "https://example.com",
+      docsUrl: "https://example.com/docs",
+      icon: null,
+      installed: true,
+      binaryPath: `/bin/${id}`,
+      version: "1.0.0",
+      auth: "authenticated",
+      authMethods: [],
+      capabilities: {},
+      install: { macos: [], windows: [], linux: [] },
+      launch: { command: id, args: [], env: {} },
+      skillRoots: "native",
+    }) as unknown as AgentStatus;
+
+  it("counts the rows the search leaves, not the ones it hides", async () => {
+    const agents = [agent("codex", "Codex"), agent("claude-code", "Claude Code"), agent("goose", "Goose"), agent("amp", "Amp")];
+    vi.mocked(window.textToCad.agents.list).mockResolvedValue(agents);
+    useAgents.setState({ agents, ready: true, loadError: null });
+    wrap(
+      <SettingsSearchProvider query="codex" reportCard={() => {}} section="agents">
+        <AgentsPage />
+      </SettingsSearchProvider>,
+    );
+    expect(await screen.findByText("Installed (1)")).toBeInTheDocument();
+    expect(screen.getAllByText(/^(Codex|Claude Code|Goose|Amp)$/)).toHaveLength(1);
   });
 });
 
