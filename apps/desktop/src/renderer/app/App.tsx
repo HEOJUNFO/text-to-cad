@@ -1,3 +1,4 @@
+import { MotionConfig } from "motion/react";
 import { useEffect } from "react";
 
 import { CommandPalette } from "@renderer/app/CommandPalette";
@@ -10,6 +11,7 @@ import { useApplyTheme } from "@renderer/hooks/use-theme";
 import { Toaster } from "@renderer/components/ui/sonner";
 import { TooltipProvider } from "@renderer/components/ui/tooltip";
 import { hydrate, subscribeToMain } from "@renderer/state/bridge";
+import { useSettings } from "@renderer/state/settings";
 import { useShowWelcome } from "@renderer/state/onboarding";
 import { useUi } from "@renderer/state/ui";
 
@@ -27,6 +29,7 @@ export function App() {
   // translucent sidebar are tokens on <html> (Settings › Appearance).
   useApplyAppearance();
   useSettingsShortcuts();
+  const reduceMotion = useSettings((state) => state.settings?.reduceMotion ?? false);
 
   useEffect(() => {
     const detach = subscribeToMain();
@@ -35,13 +38,17 @@ export function App() {
   }, []);
 
   return (
-    <TooltipProvider delayDuration={300}>
-      {route === "settings" ? <SettingsRoute /> : showWelcome ? <Welcome /> : <Shell />}
-      <CommandPalette />
-      {/* Top right, under the title strip: the composer is centred at the
-          bottom, and a toast in the bottom corner sat on its send button and
-          chips — the refusal of a prompt over the very box that kept it. */}
-      <Toaster offset={{ top: "calc(var(--titlebar-height) + 8px)", right: 16 }} position="top-right" />
-    </TooltipProvider>
+    // The `.reduce-motion` class only reaches CSS animations; the JS ones (the
+    // shimmer's sweep) read this. The setting wins, the OS is the fallback.
+    <MotionConfig reducedMotion={reduceMotion ? "always" : "user"}>
+      <TooltipProvider delayDuration={300}>
+        {route === "settings" ? <SettingsRoute /> : showWelcome ? <Welcome /> : <Shell />}
+        <CommandPalette />
+        {/* Top right, under the title strip: the composer is centred at the
+            bottom, and a toast in the bottom corner sat on its send button and
+            chips — the refusal of a prompt over the very box that kept it. */}
+        <Toaster offset={{ top: "calc(var(--titlebar-height) + 8px)", right: 16 }} position="top-right" />
+      </TooltipProvider>
+    </MotionConfig>
   );
 }

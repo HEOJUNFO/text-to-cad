@@ -118,7 +118,8 @@ the rule is about.
   replaced by `./types` (`components/ai-elements/types.ts`), about nine
   index accesses are guarded for `noUncheckedIndexedAccess`, `shimmer.tsx`
   sweeps a foreground-coloured band rather than a background-coloured one
-  (the stock band erases the letters it passes over), and `reasoning.tsx`'s
+  (the stock band erases the letters it passes over) and stands still under
+  `useReducedMotionConfig` (motion's own reduced-motion setting skips a background-position), and `reasoning.tsx`'s
   `ReasoningContent` takes Streamdown `components` (and `rehypePlugins`), so
   a thought draws links and images through the transcript's own (a stock thought fetches any
   `https:` image on paint), and its `Reasoning` does not auto-close one the
