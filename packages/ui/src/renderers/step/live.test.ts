@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { attachLiveBinding } from '../kit/shell/liveBinding';
-import type { CadLiveController, CadLiveState } from './live';
+import { selectionCommitted, type CadLiveController, type CadLiveState } from './live';
 
 const state = (): Omit<CadLiveState, 'active'> => ({
   resource: { kind: 'workspace-file', workspaceId: 'root', path: 'model.step', revision: 'r1' },
@@ -80,6 +80,29 @@ describe('live CAD viewer binding', () => {
       return (next: CadLiveState) => next.selection.length > 0;
     });
     expect((await view.controller.select({ selectors: ['model.step'] })).selection).toEqual([whole]);
+  });
+  it('answers a part-only select with the NEW selection, not the one it replaced', async () => {
+    // A selector with no references holds them all vacuously, and a previous selection makes
+    // the live one non-empty on the old state: only the set itself says the select landed.
+    const view = harness();
+    const before = { ...state(), selectedPartIds: ['part-a', 'extra'], selectedReferenceIds: ['old-face'] };
+    const after = { ...state(), selectedPartIds: ['part-b'], selectedReferenceIds: [] };
+    view.update(before);
+    view.commands.select.mockImplementation(() => {
+      queueMicrotask(() => queueMicrotask(() => view.update(after)));
+      return selectionCommitted({ partIds: ['part-b'], referenceIds: [], replace: true });
+    });
+    expect((await view.controller.select({ selectors: ['part-b'] })).selectedPartIds).toEqual(['part-b']);
+  });
+  it('holds a replacing select to exactly the resolved set and an adding one to a superset of it', () => {
+    const replacing = selectionCommitted({ partIds: ['b'], referenceIds: ['f1'], replace: true });
+    expect(replacing({ selectedPartIds: ['b'], selectedReferenceIds: ['f1'] })).toBe(true);
+    expect(replacing({ selectedPartIds: ['a', 'b'], selectedReferenceIds: ['f1'] })).toBe(false);
+    expect(replacing({ selectedPartIds: ['b'], selectedReferenceIds: ['f0', 'f1'] })).toBe(false);
+    expect(replacing({ selectedPartIds: [], selectedReferenceIds: ['f1'] })).toBe(false);
+    const adding = selectionCommitted({ partIds: ['a', 'b'], referenceIds: [], replace: false });
+    expect(adding({ selectedPartIds: ['a', 'b'], selectedReferenceIds: ['kept'] })).toBe(true);
+    expect(adding({ selectedPartIds: ['a'], selectedReferenceIds: [] })).toBe(false);
   });
   it('reads the actual latest view and returns detached pure snapshots', async () => {
     const view = harness();
