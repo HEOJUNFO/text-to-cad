@@ -38,9 +38,10 @@ import {
   useSettingsPatch,
   useSettingsValue,
 } from "@renderer/features/settings/settings-value";
+import { useDraft } from "@renderer/features/settings/SettingCard";
 import { useSkills } from "@renderer/features/settings/use-skills";
 import { useAgents } from "@renderer/state/agents";
-import type { AgentStatus, AuthState, Platform } from "@shared/agents";
+import type { AgentJobOutput, AgentStatus, AuthState, Platform } from "@shared/agents";
 
 const AUTH_TONE: Record<AuthState, Tone> = {
   authenticated: "ok",
@@ -182,7 +183,7 @@ function InstallationSection({ agent, platform }: { agent: AgentStatus; platform
   const methods = agent.install[platform];
   const [index, setIndex] = useState(0);
   const install = useAgents((state) => state.install);
-  const { jobId, output, running, start } = useJob();
+  const { jobId, output, running, start } = useJob(agent.id, "install");
 
   if (agent.installed) {
     return (
@@ -196,6 +197,15 @@ function InstallationSection({ agent, platform }: { agent: AgentStatus; platform
           </p>
         </div>
         {jobId ? <JobLog output={output} /> : null}
+      </Section>
+    );
+  }
+
+  // The last launch's "not installed" is provisional: nothing to install until it is confirmed.
+  if (agent.probing) {
+    return (
+      <Section title="Installation">
+        <p className="text-xs text-muted-foreground">Checking…</p>
       </Section>
     );
   }
@@ -264,7 +274,7 @@ const PLATFORM_NAMES: Record<Platform, string> = {
 
 function AuthenticationSection({ agent }: { agent: AgentStatus }) {
   const login = useAgents((state) => state.login);
-  const { jobId, output, running, start } = useJob();
+  const { jobId, output, running, start } = useJob(agent.id, "login");
 
   const cliLogin = agent.authMethods.find((method) => method.type === "cli-login");
   const apiKey = agent.authMethods.find((method) => method.type === "api-key");
@@ -394,12 +404,10 @@ function AdvancedSection({ agent }: { agent: AgentStatus }) {
   const patch = useSettingsPatch();
   const override = settings.agentOverrides[agent.id];
 
-  // Initialised from the stored value and owned by the fields after that; the
-  // drawer is keyed by agent id, so switching agents remounts this rather than
-  // synchronising two copies of the same string.
-  const [extraArgs, setExtraArgs] = useState(() => (override?.extraArgs ?? []).join(" "));
-  const [env, setEnv] = useState(() => formatEnv(override?.env ?? {}));
-
+  // Each field is a draft (`useDraft`): written on blur, and on unmount for an
+  // edit the drawer closed on (Esc) before any blur. The two fields save as one
+  // record, so a commit reads the other field's draft from `typed`.
+  const typed = useRef({ extraArgs: "", env: "" });
   const save = (nextArgs: string, nextEnv: string) => {
     const parsedArgs = nextArgs.split(/\s+/).filter(Boolean);
     const parsedEnv = parseEnv(nextEnv);
@@ -412,6 +420,12 @@ function AdvancedSection({ agent }: { agent: AgentStatus }) {
     }
     patch({ agentOverrides: overrides });
   };
+  const extraArgs = useDraft((override?.extraArgs ?? []).join(" "), (next) => save(next, typed.current.env));
+  const env = useDraft(formatEnv(override?.env ?? {}), (next) => save(typed.current.extraArgs, next));
+  useEffect(() => {
+    typed.current = { extraArgs: extraArgs.value, env: env.value };
+  });
+  const dropped = droppedEnvLines(env.value);
 
   const launchEnv = Object.entries(agent.launch.env);
 
@@ -436,12 +450,13 @@ function AdvancedSection({ agent }: { agent: AgentStatus }) {
       <Input
         className="mt-1.5 h-8 font-mono text-xs"
         id={`${agent.id}-extra-args`}
-        onBlur={() => save(extraArgs, env)}
-        onChange={(event) => setExtraArgs(event.target.value)}
+        onBlur={extraArgs.onBlur}
+        onChange={(event) => extraArgs.onChange(event.target.value)}
+        onFocus={extraArgs.onFocus}
         // Neutral: one drawer serves every agent, and a model name in the
         // hint was one agent's flag shown on all the others.
         placeholder="--flag value"
-        value={extraArgs}
+        value={extraArgs.value}
       />
 
       <label className="mt-3 block text-xs" htmlFor={`${agent.id}-env`}>
@@ -450,11 +465,18 @@ function AdvancedSection({ agent }: { agent: AgentStatus }) {
       <Textarea
         className="mt-1.5 min-h-16 font-mono text-xs"
         id={`${agent.id}-env`}
-        onBlur={() => save(extraArgs, env)}
-        onChange={(event) => setEnv(event.target.value)}
+        onBlur={env.onBlur}
+        onChange={(event) => env.onChange(event.target.value)}
+        onFocus={env.onFocus}
         placeholder={"KEY=value\nANOTHER=value"}
-        value={env}
+        value={env.value}
       />
+      {dropped.length > 0 ? (
+        <p className="mt-1.5 text-[11px] text-amber-600 dark:text-amber-500" role="status">
+          {dropped.length === 1 ? `Line ${dropped[0]} has` : `Lines ${dropped.slice(0, -1).join(", ")} and ${dropped.at(-1)} have`}{" "}
+          no KEY=value and will not be saved.
+        </p>
+      ) : null}
       <p className="mt-1.5 text-[11px] text-muted-foreground">
         One per line. Merged over the launch environment when text-to-cad starts {agent.name}.
       </p>
@@ -473,21 +495,36 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** One line of the environment field: blank and `#` lines say nothing; the rest are `KEY=value` or not. */
+function envEntry(line: string): { key: string; value: string } | "ignored" | "malformed" {
+  const trimmed = line.trim();
+  if (trimmed === "" || trimmed.startsWith("#")) {
+    return "ignored";
+  }
+  const split = trimmed.indexOf("=");
+  if (split <= 0) {
+    return "malformed";
+  }
+  return { key: trimmed.slice(0, split).trim(), value: trimmed.slice(split + 1).trim() };
+}
+
 /** `KEY=value` lines → a record. Blank lines and comments are ignored. */
 export function parseEnv(text: string): Record<string, string> {
   const entries: Record<string, string> = {};
   for (const line of text.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed === "" || trimmed.startsWith("#")) {
-      continue;
+    const entry = envEntry(line);
+    if (typeof entry === "object") {
+      entries[entry.key] = entry.value;
     }
-    const split = trimmed.indexOf("=");
-    if (split <= 0) {
-      continue;
-    }
-    entries[trimmed.slice(0, split).trim()] = trimmed.slice(split + 1).trim();
   }
   return entries;
+}
+
+/** The 1-based numbers of the lines `parseEnv` drops without saying so: not blank, not a comment, no `KEY=`. */
+export function droppedEnvLines(text: string): number[] {
+  return text
+    .split("\n")
+    .flatMap((line, index) => (envEntry(line) === "malformed" ? [index + 1] : []));
 }
 
 export function formatEnv(env: Record<string, string>): string {
@@ -504,9 +541,21 @@ export function formatEnv(env: Record<string, string>): string {
  * The job id comes back from the IPC call and the output arrives on
  * `agents.output` afterwards, so the component has to remember the id to know
  * which stream is its own — two drawers open on two agents share one store.
+ * The remembered id dies with the component, though the installer does not: a
+ * job of this agent and kind still running in the store is this one's too, so a
+ * drawer closed and reopened (or a welcome left for Settings and back) finds
+ * the install under way instead of offering to start a second.
  */
-export function useJob() {
-  const [jobId, setJobId] = useState<string | null>(null);
+export function useJob(agentId: string, kind: AgentJobOutput["kind"]) {
+  const [startedId, setStartedId] = useState<string | null>(null);
+  const runningId = useAgents(
+    (state) =>
+      Object.keys(state.jobs).find((id) => {
+        const other = state.jobs[id];
+        return other?.agentId === agentId && other.kind === kind && other.exitCode === null;
+      }) ?? null,
+  );
+  const jobId = runningId ?? startedId;
   const job = useAgents((state) => (jobId ? state.jobs[jobId] : undefined));
   const starting = useRef(false);
 
@@ -516,7 +565,7 @@ export function useJob() {
     }
     starting.current = true;
     try {
-      setJobId(await run());
+      setStartedId(await run());
     } finally {
       starting.current = false;
     }

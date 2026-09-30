@@ -194,9 +194,12 @@ function AgentRow({ agent, onOpen }: { agent: AgentStatus; onOpen: () => void })
     return null;
   }
 
+  // Next to "checking sign-in…" the dot claims nothing, as the drawer's does.
   const tone: Tone = agent.installed
-    ? agent.auth === "unauthenticated" && !agent.probing
-      ? "warn"
+    ? agent.auth === "unauthenticated"
+      ? agent.probing
+        ? "idle"
+        : "warn"
       : "ok"
     : "idle";
   const detail = agent.installed

@@ -5,7 +5,8 @@ import { Button } from "@renderer/components/ui/button";
 import { AgentRow, isAgentReady, useOfferedAgents } from "@renderer/features/session/agent-setup";
 import { useOpenFolder } from "@renderer/hooks/use-open-folder";
 import { cn } from "@renderer/lib/utils";
-import { useAgents } from "@renderer/state/agents";
+import { useAgents, useAgentsProbing } from "@renderer/state/agents";
+import { useOnboarding } from "@renderer/state/onboarding";
 import { useProjects } from "@renderer/state/projects";
 import { useSessions } from "@renderer/state/sessions";
 import { useSettings } from "@renderer/state/settings";
@@ -18,7 +19,8 @@ import textToCadMark from "@renderer/assets/brand/text-to-cad-star.svg";
  * Getting started checklist picks up from there.
  */
 export function Welcome() {
-  const [step, setStep] = useState(0);
+  const step = useOnboarding((state) => state.step);
+  const setStep = useOnboarding((state) => state.setStep);
   const patch = useSettings((state) => state.patch);
   const finish = () => void patch({ onboardingCompleted: true });
   // On the agent step, Continue says what it means when nothing can run yet:
@@ -29,8 +31,12 @@ export function Welcome() {
   // second or two before one turns up.
   const anyAgentReady = useAgents((state) => state.agents.some(isAgentReady));
   const detected = useAgents((state) => state.ready);
-  const detecting = step === 1 && !detected;
-  const continueLabel = step === 1 && detected && !anyAgentReady ? "Continue without an agent" : "Continue";
+  // A warm launch answers with the last launch's rows (`probing`), whose verdicts are provisional:
+  // the button waits for `agents.status` the same way it waits for a first answer.
+  const probing = useAgentsProbing();
+  const detecting = step === 1 && (!detected || probing);
+  const continueLabel =
+    step === 1 && detected && probing ? "Checking…" : step === 1 && detected && !anyAgentReady ? "Continue without an agent" : "Continue";
   // A new step takes focus to its heading, which is read out with the step. The button that moved
   // it can go with the step (Continue is not on the last) or be disabled by it (Continue while
   // detection runs), and focus on either fell to the page.
