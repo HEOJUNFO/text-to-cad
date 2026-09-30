@@ -1,10 +1,10 @@
 import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { ArrowDown, Paperclip } from "lucide-react";
-import { memo } from "react";
+import { memo, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 
 import { Conversation, ConversationContent } from "@renderer/components/ai-elements/conversation";
-import type { SessionState, Turn } from "@shared/acp/types";
+import type { Part, SessionState, Turn } from "@shared/acp/types";
 
 import { PartsList } from "./parts/PartsList";
 import { StatusLine } from "./StatusLine";
@@ -16,6 +16,13 @@ import { statusLine } from "./view";
  * and activity rows at full width, the live status line under the turn
  * that is running. Sticks to the bottom while streaming; a "Jump to
  * latest" pill appears once the user scrolls up.
+ *
+ * Only the latest `TRANSCRIPT_WINDOW` turns are mounted when it opens: a
+ * turn is some sixty nodes of markdown and activity rows, and switching back
+ * to a forty-turn session spent its time in React mounting all of them, not
+ * in layout (`content-visibility` measured no better). The rest mount a
+ * window at a time as the person scrolls up to them (`EarlierTurns`). A turn
+ * that arrives while it is open is added, and nothing mounted is dropped.
  */
 export function Transcript({
   state,
@@ -27,15 +34,25 @@ export function Transcript({
   onReconnect: () => void;
 }) {
   const status = statusLine(state);
+  // How many of the earliest turns are not mounted. It is set once, when the
+  // transcript opens (SessionView is keyed by session), and only shrinks, so
+  // turns that arrive later are mounted rather than sliding the window along.
+  const [unmounted, setUnmounted] = useState(() => Math.max(0, state.turns.length - TRANSCRIPT_WINDOW));
+  // A list that came back shorter (a reload) still mounts a full window; an
+  // unanswered permission request is mounted wherever it is, and with it
+  // every turn after it, so the transcript stays in order.
+  const pending = state.turns.findIndex((turn) => turn.role === "agent" && awaitsAnswer(turn.parts));
+  const start = Math.min(unmounted, Math.max(0, state.turns.length - TRANSCRIPT_WINDOW), pending === -1 ? Infinity : pending);
 
   return (
     <Conversation className="min-h-0 min-w-0 flex-1" data-transcript>
       <ConversationContent className="mx-auto min-w-0 w-full max-w-[720px] gap-4 px-6 pt-6 pb-4">
-        {state.turns.map((turn, index) => {
+        <EarlierTurns count={start} onMount={() => setUnmounted(Math.max(0, start - TRANSCRIPT_WINDOW))} />
+        {state.turns.slice(start).map((turn, offset) => {
           // Only the last turn is handed the callbacks (they are fresh
           // closures per render), so every other turn's props are equal from
           // one token to the next and `TurnView`'s memo holds.
-          const last = index === state.turns.length - 1;
+          const last = start + offset === state.turns.length - 1;
           return (
             <TurnView
               key={turn.id}
@@ -50,6 +67,99 @@ export function Transcript({
       </ConversationContent>
       <JumpToLatest />
     </Conversation>
+  );
+}
+
+/** How many turns a transcript mounts when it opens, and how many more each step up mounts. */
+export const TRANSCRIPT_WINDOW = 12;
+
+/** Whether a turn's parts, a subagent's or a tool call's children included, hold a request still waiting on the person. */
+function awaitsAnswer(parts: Part[]): boolean {
+  return parts.some((part) =>
+    part.type === "permission_request"
+      ? part.outcome.state === "pending"
+      : part.type === "tool_call"
+        ? awaitsAnswer(part.children)
+        : part.type === "subagent"
+          ? awaitsAnswer(part.parts)
+          : false,
+  );
+}
+
+/**
+ * The top of a transcript whose earliest turns are not mounted: a quiet
+ * button naming how many there are, and the sentinel that mounts the next
+ * window when the person scrolls to within a screen of it. Opening at the
+ * bottom does not count — the pane starts at the top and animates down, so
+ * the sentinel is in reach for a moment on every switch — only a scroll that
+ * has left the bottom does, or a pane too short to scroll at all.
+ *
+ * Mounting above what the person is reading would push it down the screen,
+ * so the distance from the bottom is kept across the mount. It stays in the
+ * tree once everything is mounted so the last of those corrections still runs.
+ */
+function EarlierTurns({ count, onMount }: { count: number; onMount: () => void }) {
+  const { isAtBottom, scrollRef } = useStickToBottomContext();
+  const sentinel = useRef<HTMLDivElement | null>(null);
+  const fromBottom = useRef<number | null>(null);
+  const [inReach, setInReach] = useState(false);
+  const present = count > 0;
+
+  const mountMore = () => {
+    const scroller = scrollRef.current;
+    fromBottom.current = scroller ? scroller.scrollHeight - scroller.scrollTop : null;
+    // Out of reach until the observer, started afresh for the new count, says otherwise.
+    setInReach(false);
+    onMount();
+  };
+
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    const node = sentinel.current;
+    if (!present || !scroller || !node) {
+      setInReach(false);
+      return;
+    }
+    const observer = new IntersectionObserver(([entry]) => setInReach(entry?.isIntersecting ?? false), {
+      root: scroller,
+      rootMargin: "100% 0px 0px 0px",
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+    // A fresh observer per count: it reports once on observe, which is how a
+    // sentinel still in reach after a window mounted is known to be.
+  }, [present, count, scrollRef]);
+
+  const mountIfInReach = useEffectEvent(() => {
+    const scroller = scrollRef.current;
+    const scrolls = !!scroller && scroller.scrollHeight > scroller.clientHeight;
+    if (present && inReach && (!isAtBottom || !scrolls)) {
+      mountMore();
+    }
+  });
+  useEffect(() => mountIfInReach(), [present, inReach, isAtBottom]);
+
+  useLayoutEffect(() => {
+    const scroller = scrollRef.current;
+    if (fromBottom.current === null || !scroller) return;
+    // Chromium's scroll anchoring usually has done this already; setting the
+    // same offset again is no scroll at all, and it covers the top edge, where
+    // there is nothing above the viewport to anchor to.
+    scroller.scrollTop = scroller.scrollHeight - fromBottom.current;
+    fromBottom.current = null;
+  }, [count, scrollRef]);
+
+  if (!present) return null;
+  return (
+    <div className="flex justify-center" data-earlier-turns ref={sentinel}>
+      <button
+        className="inline-flex h-7 items-center rounded-full px-3 text-[12px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        onClick={mountMore}
+        type="button"
+      >
+        Show {count} earlier {count === 1 ? "turn" : "turns"}
+      </button>
+    </div>
   );
 }
 
