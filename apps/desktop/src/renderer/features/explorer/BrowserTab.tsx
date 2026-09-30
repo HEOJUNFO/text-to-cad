@@ -118,6 +118,7 @@ export function BrowserTab({ sessionId, projectId, root, tabId, url }: { session
           <Camera className="size-3.5" />
         </WebPreviewNavigationButton>
         <WebPreviewNavigationButton
+          aria-pressed={showConsole}
           onClick={() => setConsoleOpen(tabId, !showConsole)}
           tooltip={errors > 0 ? `Console (${errors} errors)` : "Console"}
         >
