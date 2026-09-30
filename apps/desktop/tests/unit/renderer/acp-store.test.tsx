@@ -26,6 +26,14 @@ describe("the acp store", () => {
     expect(state.turns[1]?.parts).toEqual([{ type: "text", text: "ok" }]);
   });
 
+  it("clears a reconnect failure when a state says the agent is up, and keeps it for one that does not", () => {
+    useAcp.setState({ loadErrors: { s1: "Claude Code exited", s2: "Claude Code exited" } });
+    useAcp.getState().receiveState("s1", { ...initialSessionState("s1", "codex"), status: "idle" });
+    expect(useAcp.getState().loadErrors).toEqual({ s2: "Claude Code exited" });
+    useAcp.getState().receiveState("s2", { ...initialSessionState("s2", "codex"), status: "closed" });
+    expect(useAcp.getState().loadErrors).toEqual({ s2: "Claude Code exited" });
+  });
+
   it("drops events for sessions it has no snapshot of", () => {
     useAcp.getState().receiveEvent("ghost", { type: "status", status: "idle", error: null, at: 1 });
     expect(useAcp.getState().sessions).toEqual({});

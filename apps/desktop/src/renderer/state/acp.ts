@@ -119,7 +119,12 @@ export const useAcp = create<AcpState>((set, get) => ({
           }
         }
       }
-      return { sessions: { ...current.sessions, [sessionId]: state }, coldTerminals };
+      // A state that says the agent is up is a reconnect that worked, by hand or on its own
+      // (`ensureLive` in main): the "Reconnect failed" line above the box is over. Left, it
+      // outlived the recovery and sat above a working session until a prompt was refused.
+      const up = state.status === "idle" || state.status === "running" || state.status === "waiting";
+      const loadErrors = up && sessionId in current.loadErrors ? withoutError(current.loadErrors, sessionId) : current.loadErrors;
+      return { sessions: { ...current.sessions, [sessionId]: state }, coldTerminals, loadErrors };
     }),
 
   receiveEvent: (sessionId, event) =>
@@ -295,6 +300,11 @@ const generationOf = (sessionId: string) => forgotten.get(sessionId) ?? 0;
 
 /** The generation each in-flight `load` began under, so a state main broadcasts for it can be judged the same way its reply is. */
 const loadsInFlight = new Map<string, { asked: number }>();
+
+function withoutError(errors: Record<string, string>, sessionId: string): Record<string, string> {
+  const { [sessionId]: _cleared, ...rest } = errors;
+  return rest;
+}
 
 /** Everything held for one session, taken out: its state, its load's leftovers, its terminals' tails. */
 function without(current: AcpState, sessionId: string): Partial<AcpState> {
