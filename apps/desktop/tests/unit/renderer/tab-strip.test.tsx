@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 
@@ -170,11 +170,22 @@ it("draws the Terminal shortcut's backtick as a keycap and names it, not as a ha
 const chip = (id: string) => document.querySelector(`[data-tab="${id}"]`)!.closest<HTMLElement>("[draggable]")!;
 const order = () => useExplorer.getState().tabs.map((candidate) => candidate.id);
 const dataTransfer = () => ({ effectAllowed: "", dropEffect: "none" });
+// jsdom has no layout: every chip is 100px wide, so a drag over its left half is x=10 and its right x=90.
+const BOX = { left: 0, right: 100, top: 0, bottom: 28, width: 100, height: 28, x: 0, y: 0, toJSON: () => ({}) };
+beforeEach(() => {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(BOX as DOMRect);
+});
+// jsdom has no DragEvent, so the init's clientX is dropped: it is set on the event itself.
+const over = (id: string, half: "left" | "right") => {
+  const event = createEvent.dragOver(chip(id), { dataTransfer: dataTransfer() });
+  Object.defineProperty(event, "clientX", { value: half === "left" ? 10 : 90 });
+  fireEvent(chip(id), event);
+};
 
 it("leaves the order alone when a drag ends without a drop (Escape, released outside)", () => {
   strip();
   fireEvent.dragStart(chip("a"), { dataTransfer: dataTransfer() });
-  fireEvent.dragOver(chip("c"), { dataTransfer: dataTransfer() });
+  over("c", "left");
   fireEvent.dragEnd(chip("a"), { dataTransfer: dataTransfer() });
   expect(order()).toEqual(["a", "b", "c"]);
 });
@@ -182,7 +193,7 @@ it("leaves the order alone when a drag ends without a drop (Escape, released out
 it("drops a tab dragged forward where the line was drawn, before the tab it was over", () => {
   strip();
   fireEvent.dragStart(chip("a"), { dataTransfer: dataTransfer() });
-  fireEvent.dragOver(chip("c"), { dataTransfer: dataTransfer() });
+  over("c", "left");
   expect(chip("c").className).toContain("before:w-0.5");
   fireEvent.drop(chip("c"), { dataTransfer: dataTransfer() });
   fireEvent.dragEnd(chip("a"), { dataTransfer: dataTransfer() });
@@ -192,11 +203,30 @@ it("drops a tab dragged forward where the line was drawn, before the tab it was 
 it("drops a tab dragged back before the tab it was over, and takes the line away when the drag leaves the strip", () => {
   strip();
   fireEvent.dragStart(chip("c"), { dataTransfer: dataTransfer() });
-  fireEvent.dragOver(chip("a"), { dataTransfer: dataTransfer() });
+  over("a", "left");
   fireEvent.dragLeave(chip("a"), { relatedTarget: document.body });
   expect(chip("a").className).not.toContain("before:w-0.5");
-  fireEvent.dragOver(chip("b"), { dataTransfer: dataTransfer() });
+  over("b", "left");
   fireEvent.drop(chip("b"), { dataTransfer: dataTransfer() });
   fireEvent.dragEnd(chip("c"), { dataTransfer: dataTransfer() });
   expect(order()).toEqual(["a", "c", "b"]);
+});
+
+it("drops a tab on the right half of the last chip at the end of the strip, with the line drawn after it", () => {
+  strip();
+  fireEvent.dragStart(chip("b"), { dataTransfer: dataTransfer() });
+  over("c", "right");
+  expect(chip("c").className).toContain("after:w-0.5");
+  fireEvent.drop(chip("c"), { dataTransfer: dataTransfer() });
+  fireEvent.dragEnd(chip("b"), { dataTransfer: dataTransfer() });
+  expect(order()).toEqual(["a", "c", "b"]);
+});
+
+it("drops a tab on the left half of the first chip at the front of the strip", () => {
+  strip();
+  fireEvent.dragStart(chip("c"), { dataTransfer: dataTransfer() });
+  over("a", "left");
+  fireEvent.drop(chip("a"), { dataTransfer: dataTransfer() });
+  fireEvent.dragEnd(chip("c"), { dataTransfer: dataTransfer() });
+  expect(order()).toEqual(["c", "a", "b"]);
 });

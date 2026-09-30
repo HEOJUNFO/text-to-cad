@@ -301,6 +301,8 @@ export function TabStrip() {
               focusable={tab.id === stopId}
               dragging={tab.id === draggingId}
               dropBefore={dropIndex === index && draggingId !== null && draggingId !== tab.id}
+              // Past the last chip: the one place no tab is "the one it is before".
+              dropAfter={dropIndex === tabs.length && index === tabs.length - 1 && draggingId !== null && draggingId !== tab.id}
               key={tab.id}
               onClose={() => close(tab.id)}
               // The end of every drag, dropped or cancelled (Escape, a release outside the
@@ -312,14 +314,16 @@ export function TabStrip() {
               onDrop={() => {
                 const from = tabs.findIndex((candidate) => candidate.id === draggingId);
                 if (draggingId !== null && dropIndex !== null && from >= 0) {
-                  // The line is drawn before the tab at `dropIndex`; `move` lands in the strip
-                  // without the tab it lifts, which is one place earlier for a drag forward.
+                  // The line is drawn before the tab at `dropIndex` (`tabs.length` is after the
+                  // last); `move` lands in the strip without the tab it lifts, which is one
+                  // place earlier for a drag forward.
                   move(draggingId, from < dropIndex ? dropIndex - 1 : dropIndex);
                 }
                 setDraggingId(null);
                 setDropIndex(null);
               }}
-              onDragOver={() => setDropIndex(index)}
+              // The right half of a chip is "after it": without that the strip has no end to drop on.
+              onDragOver={(after) => setDropIndex(after ? index + 1 : index)}
               onDragStart={() => setDraggingId(tab.id)}
               onFocus={() => setFocusedId(tab.id)}
               onKeyDown={(event) => onTabKeyDown(event, index)}
@@ -404,6 +408,7 @@ function TabButton({
   focusable,
   dragging,
   dropBefore,
+  dropAfter,
   onSelect,
   onClose,
   onFocus,
@@ -418,12 +423,13 @@ function TabButton({
   focusable: boolean;
   dragging: boolean;
   dropBefore: boolean;
+  dropAfter: boolean;
   onSelect: () => void;
   onClose: () => void;
   onFocus: () => void;
   onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void;
   onDragStart: () => void;
-  onDragOver: () => void;
+  onDragOver: (after: boolean) => void;
   onDragEnd: () => void;
   onDrop: () => void;
 }) {
@@ -446,6 +452,7 @@ function TabButton({
         // The insertion point, drawn as a line rather than by shifting the
         // tabs: a strip whose tabs jump around under the cursor is hard to aim.
         dropBefore && "before:absolute before:inset-y-1 before:-left-0.5 before:w-0.5 before:rounded-full before:bg-primary",
+        dropAfter && "after:absolute after:inset-y-1 after:-right-0.5 after:w-0.5 after:rounded-full after:bg-primary",
       )}
       draggable
       onClick={onSelect}
@@ -453,7 +460,8 @@ function TabButton({
       onDragOver={(event) => {
         event.preventDefault();
         event.dataTransfer.dropEffect = "move";
-        onDragOver();
+        const box = event.currentTarget.getBoundingClientRect();
+        onDragOver(event.clientX >= box.left + box.width / 2);
       }}
       onDrop={(event) => {
         event.preventDefault();
