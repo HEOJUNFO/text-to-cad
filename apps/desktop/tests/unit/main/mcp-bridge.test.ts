@@ -136,6 +136,18 @@ describe("McpBridge", () => {
     expect((await pending).body).toMatchObject({ ok: false, error: expect.stringMatching(/applied/) });
   });
 
+  it("says a relayed edit may have been applied when the session is revoked while the window holds it", async () => {
+    const root = fs.realpathSync(tempDir("text-to-cad-proj-"));
+    let sentCommand!: () => void;
+    const sent = new Promise<void>(resolve => { sentCommand = resolve; });
+    const deps = { sessionRoot: () => ({ directory: root, root: null }), send: () => sentCommand(), newId: () => "r" };
+    const { bridge, url } = await startBridge(Object.assign(recordingActions(), createActions(deps, new RendererCommands(deps))));
+    const pending = rpc(url, bridge.tokenFor({ ...SESSION, cwd: root }, "documents"), { method: "edit_document", params: { tabId: "t", expectedRevision: "r", content: "x" } });
+    await sent;
+    bridge.revoke(SESSION.sessionId);
+    expect((await pending).body).toMatchObject({ ok: false, error: expect.stringMatching(/may already have been applied.*Session authorization revoked/) });
+  });
+
   /** POST a body in two halves; `between` runs once the server has authorised the request and before the rest is sent. */
   async function slowRpc(bridge: McpBridge, url: string, token: string, body: unknown, between: () => void) {
     const byToken = (bridge as unknown as { byToken: Map<string, unknown> }).byToken;

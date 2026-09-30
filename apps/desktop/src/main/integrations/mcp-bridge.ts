@@ -218,10 +218,11 @@ export class McpBridge {
       if (!handler) throw new Error(`Integration method is unavailable: ${method}`);
       const result = await handler(session, validated.data, controller.signal);
       // The handler has finished: a write_terminal or edit_document is done,
-      // and "revoked" alone would read as if it were not. Say which it is.
+      // and "revoked" alone would read as if it were not. Say which it is, in
+      // the abort's own words (a shutdown, a revoke and a move are not one thing).
       if (controller.signal.aborted) {
         const why = controller.signal.reason instanceof Error ? controller.signal.reason.message : "cancelled";
-        throw new Error(`${method} was applied, but the session's workspace changed before the reply (${why}); check the result before retrying`);
+        throw new Error(`${method} was applied, but the request was aborted before the reply (${why}); check the result before retrying`);
       }
       if (!response.destroyed) send(200, { ok: true, result });
     } catch (error) {

@@ -96,7 +96,14 @@ export class RendererCommands {
         this.pending.delete(requestId);
         reject(new Error(`the text-to-cad window did not answer within ${timeoutMs / 1000} s (is one open?); the command may still complete, so check before retrying`));
       }, timeoutMs);
-      const abort = () => { cleanup(); this.cancel(requestId); this.pending.delete(requestId); clearTimeout(timer); reject(signal?.reason ?? new Error("cancelled")); };
+      // `send` runs before anything can abort (an abort already raised threw
+      // above), so by here the window has the command and may have applied it:
+      // the bare reason ("revoked") would read as if nothing had happened.
+      const abort = () => {
+        cleanup(); this.cancel(requestId); this.pending.delete(requestId); clearTimeout(timer);
+        const why = signal?.reason instanceof Error ? signal.reason.message : "cancelled";
+        reject(new Error(`${command.kind} was sent; it may already have been applied (${why}); check before retrying`));
+      };
       const cleanup = () => signal?.removeEventListener("abort", abort);
       signal?.addEventListener("abort", abort, { once: true });
       this.pending.set(requestId, { resolve: value => { cleanup(); resolve(value); }, reject: error => { cleanup(); reject(error); }, timer });
