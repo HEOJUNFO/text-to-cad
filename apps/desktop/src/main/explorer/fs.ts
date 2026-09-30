@@ -408,6 +408,18 @@ export async function listPaths(
       const current = list[next] as string;
       const dirents = await (reads.get(next) as Promise<Dirent[]>);
       reads.delete(next);
+      // A directory's links are stat'ed together: one `stat` per await was the same wait on the
+      // disk's latency that the read-ahead removed for `readdir`.
+      const linked = new Map<string, boolean>(
+        await Promise.all(
+          dirents
+            .filter((dirent) => dirent.isSymbolicLink())
+            .map(async (dirent) => [
+              dirent.name,
+              Boolean((await fs.stat(path.join(current, dirent.name)).catch(() => null))?.isFile()),
+            ] as const),
+        ),
+      );
       for (const dirent of dirents) {
         const child = path.join(current, dirent.name);
         const relative = toRelative(realRoot, child);
@@ -416,7 +428,7 @@ export async function listPaths(
         const isDirectory = dirent.isDirectory();
         if (isDirectory) {
           (backgroundWatchIgnores(relative) ? deferred : queue).push(child);
-        } else if (dirent.isFile() || (dirent.isSymbolicLink() && (await fs.stat(child).catch(() => null))?.isFile())) {
+        } else if (dirent.isFile() || linked.get(dirent.name)) {
           // A link to a file is a row in the tree (`listDirectory` reads what it points at), so
           // it is in the filter's index too. A broken one is neither.
           if (paths.length >= limit) {
