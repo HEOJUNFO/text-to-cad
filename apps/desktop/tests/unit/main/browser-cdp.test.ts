@@ -81,3 +81,18 @@ it("tells the client its page sessions are gone when Electron's debugger detache
   expect((await call("Page.enable", {}, sessionId)).error?.message).toBe("Unknown browser session");
   socket.close();
 });
+
+it("forgets a closed page's target id, and takes its listeners off the service's events with the connection", async () => {
+  // The previous test's socket is still closing.
+  await vi.waitFor(() => expect(service.events.listenerCount("closed")).toBe(0));
+  const { socket, call } = await client();
+  await call("Target.getTargets");
+  expect((await call("Target.attachToTarget", { targetId: "native-target", flatten: true })).error).toBeUndefined();
+  service.events.emit("closed", { ...scope, tabId: "tab" });
+  // The id no longer names a target of this connection (the fake service would still hand out the page).
+  expect((await call("Target.attachToTarget", { targetId: "native-target", flatten: true })).error?.message).toBe("Unknown browser target");
+  expect(service.events.listenerCount("opened")).toBe(1);
+  await new Promise(resolve => { socket.once("close", resolve); socket.close(); });
+  await vi.waitFor(() => expect(service.events.listenerCount("closed")).toBe(0));
+  expect(service.events.listenerCount("opened")).toBe(0);
+});

@@ -212,3 +212,14 @@ it("drops its app-window `closed` listener when the page closes", async () => {
   service.close(scope, "w");
   expect(window.listenerCount("closed")).toBe(0);
 });
+
+it("lets more than ten CDP connections listen on its events without a MaxListeners warning", async () => {
+  const warn = vi.fn();
+  process.on("warning", warn);
+  try {
+    // Each scoped CDP connection adds one `opened` and one `closed` listener.
+    for (let connection = 0; connection < 12; connection += 1) { service.events.on("opened", () => {}); service.events.on("closed", () => {}); }
+    await new Promise(resolve => setImmediate(resolve));
+  } finally { process.off("warning", warn); }
+  expect(warn).not.toHaveBeenCalled();
+});

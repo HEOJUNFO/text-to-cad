@@ -135,7 +135,9 @@ export class ScopedBrowserCdp {
         cleanups.get(id)?.(); cleanups.delete(id); sessions.delete(id);
         event("Target.detachedFromTarget", { sessionId: id, targetId: targetIdOf(target.tabId) });
       }
-      event("Target.targetDestroyed", { targetId: targetIdOf(target.tabId) });
+      const targetId = targetIdOf(target.tabId);
+      event("Target.targetDestroyed", { targetId });
+      if (targetId) targetIds.delete(targetId);
     };
     this.service.events.on("opened", opened);
     this.service.events.on("closed", closed);
