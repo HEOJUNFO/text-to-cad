@@ -165,6 +165,31 @@ Main answers the two things that are not settings, over `onboarding.*`
   there clears the target, so no half-sample is left to be taken for the
   person's own.
 
+## Settings
+
+Settings replaces the shell (`app/App.tsx`) and is a route, so opening it
+unmounts everything under the shell. `openSettings` in `state/ui.ts` closes the
+command palette and clears its query, as every other way of closing it does, so
+Cmd+K after Settings opens empty.
+
+General's **Default project folder** (`defaultProjectFolder` in `SettingsSchema`,
+`features/settings/pages/GeneralPage.tsx`) is where the Open folder chooser
+opens (`projects.add` passes it as `defaultPath` when it is still a directory);
+Clear returns the choice to the OS.
+
+The Settings search hides a row through `useRowMatch`. The Agents page's group
+headings ("Installed (4)") count the rows that search leaves, by the same row
+text (`agentRowText` in `features/settings/pages/AgentsPage.tsx`), so a heading
+never claims rows the search hid.
+
+The agent drawer's Advanced fields, Extra arguments and Environment, are drafts
+(`useDraft`): written on blur, and on unmount for an edit the drawer closed on
+(Esc) before any blur. Environment saves as `KEY=value` records, so `useDraft`
+takes a `same` predicate and the field compares the parse of its text with the
+store's value; comments and malformed lines the person typed stay in the box
+after the blur that saved them. A line with no `KEY=` is not saved, and the
+field says which lines ("Line 3 has no KEY=value and will not be saved").
+
 ## Checks
 
 Interaction motion is scoped to activity/thought reveals, composer reference
@@ -954,7 +979,13 @@ worked in, which is the newest `updatedAt` of any of their sessions
 (`lib/projects.ts`, over the index, because a project has no `lastUsedAt` of
 its own and should not grow one) — a check on the one this screen is for,
 then `Open folder…`: the native folder chooser, followed by that folder's
-new-session screen (`hooks/use-open-folder.ts`). Codex's shape, minus its
+new-session screen (`hooks/use-open-folder.ts`). The palette, the session pane
+and the chip use `useOpenFolderOrToast`, which says a chooser or `projects.add`
+that rejects in a "Could not open that folder" toast and reads as a cancelled
+chooser; the welcome keeps its own inline line on the plain `useOpenFolder`. The
+chooser opens at Settings › General's Default project folder
+(`defaultProjectFolder`, empty for the OS's choice) when that folder still
+exists as a directory; a moved or deleted one is left out. Codex's shape, minus its
 `No folder` row: a session here always belongs to a folder. There is no
 `Add project` button, because adding a folder *is* choosing one. The one
 state with no chip to open — no folder at all — is the "Choose a folder to
