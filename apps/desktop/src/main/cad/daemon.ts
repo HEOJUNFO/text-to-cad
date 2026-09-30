@@ -16,6 +16,11 @@
  * viewer would have started later, only earlier and off the critical path.
  * Detached and never tracked: it is the person's daemon, shared with every
  * terminal, and it retires on its own idle timeout the way the CLI's does.
+ * It starts in the app's data directory, not in the project that opened it:
+ * a process's cwd locks that folder on Windows (the worktree could not be
+ * removed while the daemon lives on) and pins a deleted inode elsewhere. It
+ * needs no project cwd — every request carries its own, and its workers run
+ * in a tempdir between jobs.
  *
  * Once per app run per interpreter. The daemon's stderr — its lifecycle
  * lines and the kernel's noise — goes to the runtime log beside the probe's
@@ -39,6 +44,8 @@ export type DaemonWarmerDeps = {
   env: (resolved: ResolvedPython) => Record<string, string>;
   /** Where the daemon's stderr goes: the runtime log. */
   logFile: () => string;
+  /** The directory it starts in: one that no project owns, so none is held open. */
+  cwd: () => string;
   spawn?: DaemonSpawn;
   log?: (line: string) => void;
 };
@@ -94,14 +101,14 @@ export class DaemonWarmer {
    * none: the viewer and the CLI would run every job cold in that
    * environment, and warming one they will never use is not a favour.
    */
-  warm(resolved: ResolvedPython, cwd: string): boolean {
+  warm(resolved: ResolvedPython): boolean {
     const env = this.deps.env(resolved);
     if (env.CADGEN_DAEMON === "0" || this.warmed.has(resolved.python)) {
       return false;
     }
     this.warmed.add(resolved.python);
     try {
-      const child = this.spawn(resolved.python, DAEMON_ARGS, { cwd, env, logFile: this.deps.logFile() });
+      const child = this.spawn(resolved.python, DAEMON_ARGS, { cwd: this.deps.cwd(), env, logFile: this.deps.logFile() });
       if (!child) {
         this.warmed.delete(resolved.python);
         return false;

@@ -55,5 +55,5 @@ test("a runtime the daemon can start on warms both, on the interpreter daemonRea
   fakes.daemonReady.mockResolvedValue(fakes.resolved);
   await warmCad("/project");
   expect(fakes.originFor).toHaveBeenCalledOnce();
-  expect(fakes.warm).toHaveBeenCalledWith(fakes.resolved, "/project");
+  expect(fakes.warm).toHaveBeenCalledWith(fakes.resolved);
 });

@@ -63,7 +63,7 @@ export async function warmCad(root: string): Promise<void> {
   // start (`CadRuntime.daemonReady` logs why, once).
   const resolved = await cadRuntime().daemonReady();
   if (resolved) {
-    daemonWarmer().warm(resolved, root);
+    daemonWarmer().warm(resolved);
   }
   await viewer;
 }
@@ -94,6 +94,7 @@ export async function initCad(): Promise<void> {
   daemonInstance = new DaemonWarmer({
     env: (resolved) => runtimeInstance!.processEnv(resolved),
     logFile: () => runtimeLogPath(userData),
+    cwd: () => userData,
     log: (line) => {
       console.info(`[daemon] ${line}`);
       void runtimeInstance!.log(`[daemon] ${line}`);
