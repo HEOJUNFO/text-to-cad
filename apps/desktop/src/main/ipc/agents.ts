@@ -28,7 +28,7 @@ const jobs = new JobRunner(
   spawnJobPty,
   (chunk) => broadcast("agents.output", chunk),
   // An install or a login changes what the next probe finds.
-  (job) => void detector.refreshOne(job.agentId),
+  (job) => void detector.refreshOne(job.agentId).catch((error: unknown) => console.info(`[agents] the re-probe after ${job.kind} failed: ${String(error)}`)),
 );
 
 /**

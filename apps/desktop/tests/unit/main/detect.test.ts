@@ -230,6 +230,30 @@ describe("AgentDetector on a cold table", () => {
     expect(written.every((table) => table.every((row) => row.checkedAt > 0))).toBe(true);
     expect(detector.list().map((row) => [row.id, row.installed])).toEqual([["claude-code", true], ["codex", true]]);
   });
+
+  it("does not resolve the environment again for a list, and leaves no rejection unhandled when it fails", async () => {
+    const forced: boolean[] = [];
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const detector = new AgentDetector(providers, {
+        ...machine({}),
+        env: async (force) => {
+          forced.push(force);
+          throw new Error("the login shell went away");
+        },
+      });
+      detector.list();
+      // Nothing here waits on the probe, so nobody else handles its rejection: if `list` did not,
+      // it is reported once the microtasks are done.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(forced).toEqual([false]);
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
 });
 
 describe("the login shell environment", () => {

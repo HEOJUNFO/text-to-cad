@@ -155,7 +155,10 @@ export class AgentDetector {
   list(): AgentStatus[] {
     this.seed();
     if (!this.probed && !this.inflight) {
-      void this.refresh();
+      // The environment already resolved is good enough for a read; a caller that asked for the
+      // table did not ask for a second login shell. The failure reaches listeners (`probeAll`) and
+      // the callers that wait on `settled()`: this one has nobody to tell.
+      this.refresh(false).catch((error: unknown) => console.info(`[agents] the probe failed: ${String(error)}`));
     }
     return this.statuses;
   }
