@@ -33,17 +33,31 @@ const TerminalTab = lazyTab<ComponentProps<typeof TerminalTabBody>>(() => loadTe
 
 /** A lazy component that can be replaced with a fresh one after its import failed. */
 function lazyTab<P extends object>(load: () => Promise<{ default: ComponentType<P> }>) {
-  let current = lazy(load);
-  return { get: () => current, retry: () => { current = lazy(load); } };
+  // The import's rejection is marked, so the boundary can tell a chunk that did not load from
+  // a body that threw while rendering: only the first is cured by fetching the chunk again.
+  const marked = () => load().catch((error: unknown) => { throw new ChunkLoadError(error); });
+  let current = lazy(marked);
+  return { get: () => current, retry: () => { current = lazy(marked); } };
 }
 
-class TabBoundary extends Component<{ children: ReactNode; failed: (retry: () => void) => ReactNode; onRetry: () => void }, { error: boolean }> {
-  override state = { error: false };
-  static getDerivedStateFromError() {
-    return { error: true };
+class ChunkLoadError extends Error {
+  constructor(cause: unknown) {
+    super("A tab's code did not load", { cause });
+  }
+}
+
+class TabBoundary extends Component<
+  { children: ReactNode; failed: (retry: () => void) => ReactNode; broken: (error: Error) => ReactNode; onRetry: () => void },
+  { error: Error | null }
+> {
+  override state: { error: Error | null } = { error: null };
+  static getDerivedStateFromError(error: unknown) {
+    return { error: error instanceof Error ? error : new Error(String(error)) };
   }
   override render() {
-    return this.state.error ? this.props.failed(() => this.props.onRetry()) : this.props.children;
+    const { error } = this.state;
+    if (!error) return this.props.children;
+    return error instanceof ChunkLoadError ? this.props.failed(() => this.props.onRetry()) : this.props.broken(error);
   }
 }
 
@@ -63,6 +77,12 @@ function LazyTab<P extends object>({ tab, props, opening, what }: {
         <div role="alert">
           <EmptyState action={<Button onClick={retry} size="sm" variant="secondary">Try again</Button>}
             description={`The code for the ${what} did not load.`} icon={SquareTerminal} title={`Could not open the ${what}`} tone="warn" />
+        </div>
+      )}
+      // A body that threw: fetching its chunk again would throw again, so there is no Try again.
+      broken={(error) => (
+        <div role="alert">
+          <EmptyState description={error.message} icon={SquareTerminal} title="This tab hit an error" tone="warn" />
         </div>
       )}
       key={attempt}
@@ -241,14 +261,6 @@ export function useExplorerShortcuts() {
       if (!modifier || event.altKey) {
         return;
       }
-      // Control is the shell's on Windows and Linux: Ctrl+W deletes a word, Ctrl+T
-      // transposes, Ctrl+1..9 are typed. With the focus in a terminal the terminal
-      // keeps them — it forwards Ctrl+K/C/V itself (`TerminalTab`) — and the strip's
-      // chords wait for the focus to leave. Cmd is no shell's key, so macOS keeps them.
-      if (!isMac && event.target instanceof Element && event.target.closest("[data-terminal-body]")) {
-        return;
-      }
-
       const key = event.key.toLowerCase();
       if (event.shiftKey) {
         // Secondary tab kinds. `Mod+B` is the sidebar,
@@ -261,9 +273,25 @@ export function useExplorerShortcuts() {
         }
         return;
       }
+      // Control is the shell's on Windows and Linux: Ctrl+W deletes a word, Ctrl+T
+      // transposes, Ctrl+1..9 are typed. With the focus in a terminal the terminal
+      // keeps them — it forwards Ctrl+K/C/V itself (`TerminalTab`) — and the strip's
+      // plain chords wait for the focus to leave. Cmd is no shell's key, so macOS keeps them.
+      // The Shift chords above are no shell's, so they run from a terminal too and this waits.
+      if (!isMac && event.target instanceof Element && event.target.closest("[data-terminal-body]")) {
+        return;
+      }
+
       if (key === "t") {
         event.preventDefault();
         if (!event.repeat) focusOpened(open("file"));
+        return;
+      }
+      // The chords above open a tab, and opening reveals the pane. Close and pick act on tabs
+      // the person cannot see while the explorer is collapsed, so they are left to the menu
+      // (Cmd+W closes the window, as it did before there was a strip): closing a hidden tab
+      // would kill its shell, and picking one would change what the next reveal shows.
+      if (useExplorer.getState().collapsed) {
         return;
       }
       // A held key repeats: it is swallowed, not acted on again. Holding Cmd+T would open

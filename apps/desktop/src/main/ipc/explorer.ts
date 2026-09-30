@@ -113,8 +113,13 @@ const leases = new Map<number, Map<string, number>>();
  * this names rather than resolving the request again: a project or session
  * deleted since the watch has no row for `rootOf` to read, and the unwatch
  * that follows a delete would throw before it gave anything back.
+ *
+ * A list per request, one entry per watch outstanding: the same request can
+ * resolve to another root between two watches (a worktree switched under a
+ * session), and a single slot would hand the second watch's root to the
+ * first unwatch. The oldest is returned first; an emptied list is deleted.
  */
-const leased = new Map<number, Map<string, string>>();
+const leased = new Map<number, Map<string, string[]>>();
 const requestKey = (projectId: string, root: string | undefined) => `${projectId}\0${root ?? ""}`;
 /** Per page, how many documents it has shown; a watch is credited to the one that asked. */
 const documents = new Map<number, number>();
@@ -158,7 +163,7 @@ function lease(sender: WebContents | undefined, root: string, document: number |
     names = new Map();
     leased.set(sender.id, names);
   }
-  names.set(request, root);
+  names.set(request, [...names.get(request) ?? [], root]);
   let held = leases.get(sender.id);
   if (!held) {
     held = new Map();
@@ -190,6 +195,16 @@ async function watchLanded(sender: WebContents | undefined, root: string, watch:
     pending.delete(watch);
     if (pending.size === 0 && settingUp.get(key) === pending) settingUp.delete(key);
   }
+}
+
+/** One outstanding watch of `request` is being given back: forget the root it took. */
+function forgetLeased(sender: WebContents, request: string, root: string) {
+  const names = leased.get(sender.id);
+  const roots = names?.get(request);
+  if (!names || !roots) return;
+  const at = roots.indexOf(root);
+  if (at >= 0) roots.splice(at, 1);
+  if (roots.length === 0) names.delete(request);
 }
 
 /** False when this page holds no watch on the root to give back. */
@@ -512,7 +527,8 @@ export const explorerHandlers = {
         await watchers?.watchEntry(root, entry);
         // `file_opened`: opening a file tab is renderer state, and its stat is
         // the call main sees for an open. A tab's reload after an on-disk
-        // change stats again and counts again. Only the extension leaves:
+        // change stats again without the intent, so it is neither held nor
+        // counted twice. Only the extension leaves:
         // never the path or the name (README, "Telemetry").
         if (entry.kind === "file") {
           track({ name: "file_opened", extension: fileExtension(entry.path) });
@@ -629,9 +645,12 @@ export const explorerHandlers = {
 
     unwatch: ({ projectId, root, paths }: { projectId: string; root?: string; paths?: string[] }, ctx?: IpcContext) =>
       fsCall(async () => {
-        const directory = (ctx && leased.get(ctx.sender.id)?.get(requestKey(projectId, root))) || rootOf(projectId, root);
+        const request = requestKey(projectId, root);
+        const directory = (ctx && leased.get(ctx.sender.id)?.get(request)?.[0]) || rootOf(projectId, root);
         // Behind the page's watches of this root still on their way (`settingUp`).
         if (ctx) await Promise.allSettled([...settingUp.get(pageRoot(ctx.sender, directory)) ?? []]);
+        // After the wait: a watch that landed meanwhile has recorded its root by now.
+        if (ctx) forgetLeased(ctx.sender, request, directory);
         // A page's unwatch after its leases went with a reload is already counted.
         if (ctx && !returnLease(ctx.sender, directory)) return;
         await services().watchers.unwatch(directory, paths);

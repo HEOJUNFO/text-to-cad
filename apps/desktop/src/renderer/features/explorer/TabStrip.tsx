@@ -19,6 +19,7 @@ import { tabTitle, useExplorer } from "@renderer/state/explorer";
 import type { ExplorerTab, ExplorerTabKind } from "@shared/types";
 
 import { FileIcon } from "@text-to-cad/ui/navigation";
+import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 
 import { EXPLORER_TABPANEL_ID, focusTabBody } from "./focus";
 import { preloadTerminal } from "./load-terminal";
@@ -301,6 +302,8 @@ export function TabStrip() {
               focusable={tab.id === stopId}
               dragging={tab.id === draggingId}
               dropBefore={dropIndex === index && draggingId !== null && draggingId !== tab.id}
+              // Past the last chip: the one place no tab is "the one it is before".
+              dropAfter={dropIndex === tabs.length && index === tabs.length - 1 && draggingId !== null && draggingId !== tab.id}
               key={tab.id}
               onClose={() => close(tab.id)}
               // The end of every drag, dropped or cancelled (Escape, a release outside the
@@ -312,14 +315,16 @@ export function TabStrip() {
               onDrop={() => {
                 const from = tabs.findIndex((candidate) => candidate.id === draggingId);
                 if (draggingId !== null && dropIndex !== null && from >= 0) {
-                  // The line is drawn before the tab at `dropIndex`; `move` lands in the strip
-                  // without the tab it lifts, which is one place earlier for a drag forward.
+                  // The line is drawn before the tab at `dropIndex` (`tabs.length` is after the
+                  // last); `move` lands in the strip without the tab it lifts, which is one
+                  // place earlier for a drag forward.
                   move(draggingId, from < dropIndex ? dropIndex - 1 : dropIndex);
                 }
                 setDraggingId(null);
                 setDropIndex(null);
               }}
-              onDragOver={() => setDropIndex(index)}
+              // The right half of a chip is "after it": without that the strip has no end to drop on.
+              onDragOver={(after) => setDropIndex(after ? index + 1 : index)}
               onDragStart={() => setDraggingId(tab.id)}
               onFocus={() => setFocusedId(tab.id)}
               onKeyDown={(event) => onTabKeyDown(event, index)}
@@ -404,6 +409,7 @@ function TabButton({
   focusable,
   dragging,
   dropBefore,
+  dropAfter,
   onSelect,
   onClose,
   onFocus,
@@ -418,12 +424,13 @@ function TabButton({
   focusable: boolean;
   dragging: boolean;
   dropBefore: boolean;
+  dropAfter: boolean;
   onSelect: () => void;
   onClose: () => void;
   onFocus: () => void;
   onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void;
   onDragStart: () => void;
-  onDragOver: () => void;
+  onDragOver: (after: boolean) => void;
   onDragEnd: () => void;
   onDrop: () => void;
 }) {
@@ -446,6 +453,7 @@ function TabButton({
         // The insertion point, drawn as a line rather than by shifting the
         // tabs: a strip whose tabs jump around under the cursor is hard to aim.
         dropBefore && "before:absolute before:inset-y-1 before:-left-0.5 before:w-0.5 before:rounded-full before:bg-primary",
+        dropAfter && "after:absolute after:inset-y-1 after:-right-0.5 after:w-0.5 after:rounded-full after:bg-primary",
       )}
       draggable
       onClick={onSelect}
@@ -453,7 +461,8 @@ function TabButton({
       onDragOver={(event) => {
         event.preventDefault();
         event.dataTransfer.dropEffect = "move";
-        onDragOver();
+        const box = event.currentTarget.getBoundingClientRect();
+        onDragOver(event.clientX >= box.left + box.width / 2);
       }}
       onDrop={(event) => {
         event.preventDefault();
@@ -472,26 +481,28 @@ function TabButton({
       }}
       role="none"
     >
-      <div
-        // Only the selected tab names the panel: the one body shows its content.
-        aria-controls={active ? EXPLORER_TABPANEL_ID : undefined}
-        // The keyboard's close, since the button beside it is the pointer's.
-        aria-keyshortcuts="Delete"
-        aria-selected={active}
-        className="peer flex h-full min-w-0 flex-1 items-center gap-1.5 pl-2 outline-none"
-        data-tab={tab.id}
-        id={explorerTabDomId(tab.id)}
-        onFocus={(event) => {
-          if (event.target === event.currentTarget) onFocus();
-        }}
-        onKeyDown={onKeyDown}
-        role="tab"
-        tabIndex={focusable ? 0 : -1}
-        title={tab.kind === "file" && tab.path ? tab.path : title}
-      >
-        <TabIcon className="size-3.5 shrink-0" tab={tab} />
-        <span className="truncate">{title}</span>
-      </div>
+      {/* A file's path is always the hint; any other tab's title only when the chip clips it. */}
+      <TooltipHint content={tab.kind === "file" && tab.path ? tab.path : title} overflowOnly={!(tab.kind === "file" && tab.path)}>
+        <div
+          // Only the selected tab names the panel: the one body shows its content.
+          aria-controls={active ? EXPLORER_TABPANEL_ID : undefined}
+          // The keyboard's close, since the button beside it is the pointer's.
+          aria-keyshortcuts="Delete"
+          aria-selected={active}
+          className="peer flex h-full min-w-0 flex-1 items-center gap-1.5 pl-2 outline-none"
+          data-tab={tab.id}
+          id={explorerTabDomId(tab.id)}
+          onFocus={(event) => {
+            if (event.target === event.currentTarget) onFocus();
+          }}
+          onKeyDown={onKeyDown}
+          role="tab"
+          tabIndex={focusable ? 0 : -1}
+        >
+          <TabIcon className="size-3.5 shrink-0" tab={tab} />
+          <span className="truncate">{title}</span>
+        </div>
+      </TooltipHint>
       {/* Out of the Tab order and out of the accessibility tree: Delete on the tab is its
           keyboard twin, and a button a screen reader could reach would be a second stop per tab. */}
       <button

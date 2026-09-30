@@ -43,6 +43,7 @@ import { errorMessage } from "@shared/ipc/errors";
 import type { Project } from "@shared/types";
 
 import { EmptyState } from "@text-to-cad/ui/navigation";
+import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { FileIcon } from "@text-to-cad/ui/navigation";
 import { setupMonaco } from "@renderer/features/explorer/renderers/code/editor";
 import { ReviewDiff, type ReviewSelection } from "./review-diff";
@@ -363,9 +364,11 @@ function ReviewBody({
           worktree's is not the project's — is the hover.
         */}
         {status.branch ? (
-          <span className="min-w-0 truncate text-[12px] text-muted-foreground" title={session?.cwd}>
-            {status.branch}
-          </span>
+          <TooltipHint content={session?.cwd}>
+            <span className="min-w-0 truncate text-[12px] text-muted-foreground">
+              {status.branch}
+            </span>
+          </TooltipHint>
         ) : null}
 
         <Button
@@ -414,7 +417,9 @@ function ReviewBody({
       {error ? (
         <div className="flex shrink-0 items-center gap-2 border-b bg-amber-500/10 px-3 py-1.5 text-[12px]" role="alert">
           <AlertTriangle className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
-          <span className="min-w-0 flex-1 truncate" title={error}>Could not refresh: {error}</span>
+          <TooltipHint content={error} overflowOnly>
+            <span className="min-w-0 flex-1 truncate">Could not refresh: {error}</span>
+          </TooltipHint>
           <Button className="h-6 px-2 text-[12px]" onClick={refresh} size="sm" variant="outline">Try again</Button>
         </div>
       ) : null}
@@ -584,22 +589,23 @@ function RailRow({ file, onSelect }: { file: ChangedFile; onSelect: () => void }
   const badge = badgeFor(file.status);
   const name = file.path.split("/").pop() ?? file.path;
   return (
-    <button
-      className="flex h-7 w-full items-center gap-1.5 px-3 text-left text-[13px] transition-colors hover:bg-accent/50"
-      onClick={onSelect}
-      title={file.path}
-      type="button"
-    >
-      <span className={cn("w-2 shrink-0 font-mono font-semibold", badge.className)}>
-        {badge.letter}
-      </span>
-      <FileIcon className="size-3 shrink-0 text-muted-foreground" path={file.path} />
-      <span className="min-w-0 flex-1 truncate">{name}</span>
-      <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-        <span className="text-emerald-600 dark:text-emerald-400">+{file.insertions}</span>{" "}
-        <span className="text-rose-600 dark:text-rose-400">−{file.deletions}</span>
-      </span>
-    </button>
+    <TooltipHint content={file.path}>
+      <button
+        className="flex h-7 w-full items-center gap-1.5 px-3 text-left text-[13px] transition-colors hover:bg-accent/50"
+        onClick={onSelect}
+        type="button"
+      >
+        <span className={cn("w-2 shrink-0 font-mono font-semibold", badge.className)}>
+          {badge.letter}
+        </span>
+        <FileIcon className="size-3 shrink-0 text-muted-foreground" path={file.path} />
+        <span className="min-w-0 flex-1 truncate">{name}</span>
+        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+          <span className="text-emerald-600 dark:text-emerald-400">+{file.insertions}</span>{" "}
+          <span className="text-rose-600 dark:text-rose-400">−{file.deletions}</span>
+        </span>
+      </button>
+    </TooltipHint>
   );
 }
 
@@ -720,15 +726,17 @@ function FileSection({
           <span className={cn("shrink-0 font-mono text-[11px] font-semibold", badge.className)}>
             {badge.letter}
           </span>
-          <span className="min-w-0 flex-1 truncate font-mono text-[12px]" title={file.path}>
-            {file.oldPath ? (
-              <>
-                <span className="text-muted-foreground line-through">{file.oldPath}</span>
-                <span className="text-muted-foreground"> → </span>
-              </>
-            ) : null}
-            {file.path}
-          </span>
+          <TooltipHint content={file.path} overflowOnly>
+            <span className="min-w-0 flex-1 truncate font-mono text-[12px]">
+              {file.oldPath ? (
+                <>
+                  <span className="text-muted-foreground line-through">{file.oldPath}</span>
+                  <span className="text-muted-foreground"> → </span>
+                </>
+              ) : null}
+              {file.path}
+            </span>
+          </TooltipHint>
           <Totals deletions={file.deletions} insertions={file.insertions} />
         </button>
         <Button
