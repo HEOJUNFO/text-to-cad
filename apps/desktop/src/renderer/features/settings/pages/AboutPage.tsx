@@ -108,6 +108,11 @@ export function AboutPage() {
   );
 }
 
+/** A line of the updater's error, not a page of it: main sends one line, this is the backstop. */
+const MAX_ERROR_LENGTH = 160;
+const clamp = (text: string) =>
+  text.length > MAX_ERROR_LENGTH ? `${text.slice(0, MAX_ERROR_LENGTH - 1).trimEnd()}…` : text;
+
 /**
  * The updater, as one row: what the state is on the left, the only action that
  * state allows on the right.
@@ -148,7 +153,7 @@ function UpdateRow() {
       action: { label: "Restart", onClick: install },
     },
     error: {
-      description: status.message ?? "The update check failed.",
+      description: clamp(status.message ?? "The update check failed."),
       action: { label: "Try again", onClick: check },
     },
   }[status.state];

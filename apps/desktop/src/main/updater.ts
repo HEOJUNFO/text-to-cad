@@ -229,9 +229,23 @@ export function installUpdate() {
   autoUpdater.quitAndInstall(false, true);
 }
 
+/** What a socket says when GitHub could not be reached at all. */
+const UNREACHABLE = /net::ERR_|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH/;
+
+/**
+ * The line About prints (the schema promises a `message` safe to show). The
+ * library's text is for a log: the GitHub provider appends the failure's whole
+ * stack to "Unable to find latest version on GitHub (url), please ensure a
+ * production release exists", so the known cases get a sentence of their own
+ * and anything else keeps its first line and nothing after it.
+ */
 function message(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
+  const raw = error instanceof Error ? error.message : String(error);
+  if (UNREACHABLE.test(raw)) {
+    return "Could not reach GitHub to check for updates.";
   }
-  return String(error);
+  if (/unable to find latest version on github/i.test(raw)) {
+    return "No release is published yet.";
+  }
+  return raw.split(/\r?\n/, 1)[0]!.trim();
 }

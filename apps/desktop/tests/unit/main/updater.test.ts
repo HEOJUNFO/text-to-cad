@@ -128,6 +128,27 @@ describe("updater", () => {
     updater.stopUpdater();
   });
 
+  it("shows one line of an error, never its stack", async () => {
+    const updater = await load();
+    autoUpdater.emit("error", new Error("x\n    at foo (file:1:1)"));
+    const { message } = updater.updateStatus();
+    expect(message).toBe("x");
+    expect(message).not.toContain("at foo");
+    updater.stopUpdater();
+  });
+
+  it("says a release is missing in a sentence, not in the provider's text and stack", async () => {
+    const updater = await load();
+    autoUpdater.emit(
+      "error",
+      new Error(
+        "Unable to find latest version on GitHub (https://github.com/o/r/releases/latest), please ensure a production release exists: HttpError: 404\n    at createHttpError (x.js:1:1)",
+      ),
+    );
+    expect(updater.updateStatus()).toEqual({ state: "error", message: "No release is published yet." });
+    updater.stopUpdater();
+  });
+
   it("skips the six-hourly check while downloaded or downloading", async () => {
     const updater = await load();
     autoUpdater.emit("update-downloaded", { version: "2.0.0" });
@@ -164,7 +185,7 @@ describe("updater", () => {
     expect(warn).toHaveBeenCalled();
 
     mocks.check.mockRejectedValue(new Error("net::ERR_INTERNET_DISCONNECTED"));
-    expect(await updater.checkForUpdates()).toEqual({ state: "error", message: "net::ERR_INTERNET_DISCONNECTED" });
+    expect(await updater.checkForUpdates()).toEqual({ state: "error", message: "Could not reach GitHub to check for updates." });
     warn.mockRestore();
     updater.stopUpdater();
   });

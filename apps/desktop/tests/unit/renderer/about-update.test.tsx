@@ -47,4 +47,11 @@ describe("About › Software update", () => {
     expect(await screen.findByText("ipc went away")).toBeInTheDocument();
     expect(useUpdates.getState().busy).toBe(false);
   });
+
+  it("clamps a long error to a line's worth", () => {
+    useUpdates.setState({ status: { state: "error", message: "e".repeat(500) } });
+    renderAbout();
+    const text = screen.getByText(/^e+…$/).textContent ?? "";
+    expect(text.length).toBeLessThanOrEqual(160);
+  });
 });
