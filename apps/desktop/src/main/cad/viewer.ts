@@ -14,9 +14,19 @@
  * viewer's source compiled into this app's renderer (`CadFileView`); the
  * process serves `/__cad` and `/__tess_cache` and nothing else.
  *
- * `spawn`, `probe` and `delay` are injectable so the crash/restart and
- * reuse-never-killed rules are unit-tested with a fake child
- * (tests/unit/main/viewer.test.ts).
+ * A crash restarts the child with backoff and gives up after
+ * `RESTART_LIMIT` in a row; an instance that stays up `HEALTHY_UPTIME_MS`
+ * starts the count again. `launch`, `restart` and `stop` share a per-root
+ * generation: every stop bumps it (`stopAll` bumps all roots, and stops the
+ * ones still launching), and each launch or restart checks it after every
+ * await, so a stop during a backoff or a launch stays a stop. At most
+ * `MAX_LIVE_VIEWERS` children run; going over stops the least recently asked
+ * for root that `inUse` (a CAD tab is open on it) does not name, and when
+ * every other root is named the bound is exceeded.
+ *
+ * `spawn`, `probe`, `delay`, `now`, `inUse` and `maxLive` are injectable so
+ * the crash/restart, eviction and reuse-never-killed rules are unit-tested
+ * with a fake child (tests/unit/main/viewer.test.ts).
  */
 import { spawn as nodeSpawn } from "node:child_process";
 import { EventEmitter } from "node:events";

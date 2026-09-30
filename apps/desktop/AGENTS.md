@@ -175,8 +175,11 @@ the rule is about.
   resolved right after an explicit override; a packaged app downloads and
   installs nothing, and `scripts/package.mjs` refuses to package without it.
   Do not add a first-launch install, a progress state, or a Settings page for
-  it back: a runtime that is not there is a failure the CAD tab reports with
-  the interpreter's words, not a state the person is asked to fix.
+  it back: a runtime that is not there is a failure the CAD tab reports, not a
+  state the person is asked to fix. A packaged build says "This copy of
+  text-to-cad has no CAD runtime … Reinstall the app"; a checkout keeps the
+  list of interpreters it looked for (`missingMessage` in
+  `src/main/cad/runtime.ts`).
 - **`package.json` stays at version `0.0.0`.** The repository's `VERSION` is
   the canonical release version; `scripts/app-version.mjs` reads it and both
   the build and `scripts/package.mjs` stamp it. Do not hand-edit it.
@@ -289,8 +292,25 @@ the rule is about.
 - **"In use" for a worktree is one function, `sessionsUsing`**
   (`src/main/projects/git.ts`): sessions that are not archived and run in the
   worktree, under it, or record it. Settings' count, Delete's refusal, the
-  keep-limit sweep and a session's release all ask it; an archived session holds
-  no worktree.
+  keep-limit sweep, a session's release and the CAD viewer's stop (archive and
+  delete, `forgetCadSession`) all ask it; an archived session holds no worktree.
+- **The viewer warm is gated by a model in the root; the daemon is not.**
+  `warmCad` starts a root's viewer only when `hasCadFile` finds a model in it,
+  and warms the build daemon on every bind (unless the kernel is `missing` or
+  `unsupported`). At most three viewers run, and the least recently asked-for
+  is stopped for a fourth unless a CAD tab is open on its root (`openCadRoots`,
+  non-archived sessions), so the bound is exceeded rather than a tab's viewer
+  evicted.
+- **A viewer launch checks its generation after every await, and every stop
+  bumps it.** `ViewerManager` compares the root's stop generation after the
+  runtime resolves, when the launcher announces and when a restart's backoff
+  ends; `stop` and `stopAll` bump it, so a stop that lands mid-launch is
+  never overtaken by the launch or the restart that was already under way
+  (`tests/unit/main/viewer.test.ts`).
+- **Every capture goes through `imageResult`.** It redraws an image over
+  `MAX_IMAGE_BYTES` smaller and refuses it only when it cannot be made to fit,
+  so no tool result larger than the model takes enters a transcript
+  (`src/renderer/state/image-result.ts`).
 - **A git write child is signalled at quit, never killed first.**
   `endTrackedChildren` sends a commit, push or worktree add/remove SIGTERM so
   git drops its `index.lock`; `will-quit` kills what is left

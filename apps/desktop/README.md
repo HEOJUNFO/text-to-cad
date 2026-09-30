@@ -63,7 +63,7 @@ These environment variables matter in development:
 | --- | --- |
 | `TEXT_TO_CAD_APTABASE_KEY` | Read at BUILD time and compiled in (see Telemetry). Unset means no network call is ever attempted. |
 | `CAD_DESKTOP_PYTHON` | An interpreter with cadgen installed, used instead of the bundled runtime (see CAD runtime below). A developer's knob; the e2e suite breaks and clears the equivalent setting on purpose. |
-| `TEXT_TO_CAD_PREWARM` | Under `NODE_ENV=test` both pre-warms are off — the project's (viewer child + cadgen daemon on project open) and the agents' (one idle adapter per agent in the index, see "Opening a session"); `1` turns them on, as `tests/e2e/cad.spec.ts` and `tests/e2e/persistence.spec.ts` do. The launch's agent probe ("Which agents are installed", under ACP) is not gated: it starts no agent. |
+| `TEXT_TO_CAD_PREWARM` | Under `NODE_ENV=test` both pre-warms are off — the project's (viewer child, only for a root that holds a model, + cadgen daemon on project open) and the agents' (one idle adapter per agent in the index, see "Opening a session"); `1` turns them on, as `tests/e2e/cad.spec.ts` and `tests/e2e/persistence.spec.ts` do. The launch's agent probe ("Which agents are installed", under ACP) is not gated: it starts no agent. |
 | `TEXT_TO_CAD_FAKE_AGENT` | Launch this stdio ACP agent instead of whatever the registry says, for every provider. The session and git suites point it at `tests/fake-agent/index.mjs`; a session needs an agent to exist at all, and a real one would make the suite a test of somebody's login state. |
 | `TEXT_TO_CAD_FAKE_AGENT_ARGS` | Extra arguments for that fake agent, split on spaces (`src/main/ipc/acp.ts`). `tests/e2e/launch.ts` passes them as `fakeArgs`; `persistence.spec.ts` uses `--load-delay` to hold `session/load`. The flags are listed at the top of `tests/fake-agent/index.mjs`. |
 | `FAKE_AGENT_PROFILE` | Read by `tests/fake-agent/index.mjs` from its own environment, never by the app. `claude-code` makes the fake agent answer in the Claude adapter's shape (see "ACP"). `tests/unit/main/connection.test.ts` passes it in the connection's `env`; for a dev run, set it beside `TEXT_TO_CAD_FAKE_AGENT` — main's environment reaches the agent through the login-shell capture (`src/main/agents/shell-env.ts` runs `$SHELL -ilc` with it). |
@@ -1606,8 +1606,12 @@ that probe is not cached — the next status asks again. A probe that *fails*
 (no interpreter, cadgen not importable, a kernel that fails to load) is
 remembered for a minute, because `cad.warm` asks on every session bind and a
 broken interpreter would otherwise run a doctor per bind; Repair and an
-override change clear it at once.
-A CAD tab whose runtime did not start shows the interpreter's words, Try
+override change clear it at once, and so does the runtime card's Try again in a
+CAD tab, which calls `runtime.repair()` and then reloads the viewer.
+A CAD tab whose runtime did not start shows the failure's words — for a
+missing runtime, "This copy of text-to-cad has no CAD runtime … Reinstall the
+app" in a packaged build and the list of interpreters it looked for in a
+checkout (`missingMessage`) — with Try
 again, and Reveal log — `runtime.revealLog` shows the log
 (`userData/cad-runtime.log`: every failed probe, every viewer launch that did
 not come up, the viewer's stderr; cut back in place to its last 1 MB whenever it passes 4 MB) in the file manager. The request carries no
@@ -1616,13 +1620,22 @@ not exist yet. The tab never asks the person to set anything up.
 
 `src/main/cad/viewer.ts` runs one `python -m cadgen.viewer --api-only --host
 127.0.0.1 --json` per project root (cwd = the root, the launcher's contract),
-parses its JSON line, keeps the child, restarts it on a crash with backoff,
-stops a worktree's viewer when the last session in that worktree is
-deleted (`forgetCadSession` in `src/main/cad/index.ts`), keeps at most three
-of its own running (opening a fourth stops the least recently asked-for one
-whose root has no CAD tab open) and stops all of them on quit — and never kills an
+parses its JSON line, keeps the child, restarts it on a crash with backoff
+(1 s doubling to 30 s), and gives up after five crashes in a row; an instance
+that stays up five minutes resets the count, and a viewer asked for again after
+giving up launches afresh. Every launch, restart and stop shares a generation
+per root: a stop bumps it, a launch or restart checks it after each await, so a
+stop during the backoff or the launch stays a stop, and `stopAll` also stops
+roots still launching. A worktree's viewer stops when the last open session in
+that worktree is archived or deleted (`forgetCadSession` in
+`src/main/cad/index.ts`, asking `sessionsUsing` over the other sessions). At
+most three of its own run: opening a fourth stops the least recently asked-for
+one whose root has no CAD tab open (`openCadRoots`: the persisted strips of
+sessions that are not archived), and when every other has one the bound is
+exceeded rather than a tab's viewer stopped. All stop on quit. It never kills an
 instance the launcher reported as `reused`, because that one is somebody
-else's. `cad.viewerOrigin` is how the file tab gets the origin.
+else's. The manager's injectables are `spawn`, `probe`, `delay`, `now`,
+`inUse` and `maxLive`. `cad.viewerOrigin` is how the file tab gets the origin.
 
 The viewer does not wait for the first CAD file. When the explorer binds to
 a project (or a session's worktree), the renderer calls `cad.warm`, and main
@@ -1636,7 +1649,7 @@ bind repeats it; any other root gets its viewer when a CAD tab opens). The daemo
 (`src/main/cad/daemon.ts` spawns `python -m cadgen.daemon`, the registered
 command a cadgen client spawns for itself, detached and never stopped — it is
 the person's daemon, shared with every terminal, and it retires on its own
-idle timeout). Once per interpreter per app run, and never when
+idle timeout; it starts in `userData`, so it holds no project folder open). Once per interpreter per app run, and never when
 `CADGEN_DAEMON=0`. Measured with `scripts/perf-cad.mjs`: the first STEP open
 after launch had paid 0.9 s for the probe and the viewer and ~3 s for the
 daemon's start inside its first compile; warmed at project open both are done
@@ -2313,8 +2326,8 @@ worktrees.
   thread is active starts there (`TerminalTab.cwd`). A review's
   `All changes` uses its owning session's directory. The CAD tab
   asks `cad.viewerOrigin` for its root, and main runs one `cadgen viewer`
-  per root — a worktree gets its own, stopped when its last session is
-  deleted.
+  per root — a worktree gets its own, stopped when its last open session is
+  archived or deleted.
 - Every filesystem `explorer.*` request names `{ projectId, root? }`, and main's
   `rootOf` (`src/main/ipc/explorer.ts`) resolves the pair: first any `cwd` or
   `worktreePath` a session of the project records (handed on in the recorded
@@ -2342,7 +2355,9 @@ of the root between the check and the open is refused.
 The captures the app makes itself (`capture_view`, `capture_drawing`,
 `capture_pdf`) all pass through `imageResult` (`src/renderer/state/image-result.ts`):
 one over the same limit is redrawn smaller (up to six passes, a side never
-below 64 px), or refused. A shrunk result carries `scaled: true`, `scale` (how
+below 64 px), or refused when it cannot fit. `capture_view` also rejects with
+"the viewer's WebGL context is lost; try again once it restores" while the
+GPU context is gone. A shrunk result carries `scaled: true`, `scale` (how
 much each side shrank) and, for a PNG source, `scaledFrom: {width, height}`, so
 an agent can map a pixel it reads off the picture back to the original.
 

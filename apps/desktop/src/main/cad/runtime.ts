@@ -860,7 +860,8 @@ export class CadRuntime {
    * The interpreter to warm the build daemon on: `ready()`'s, unless its CAD
    * kernel is `missing` or `unsupported`. The daemon imports OCP to start, so on such a
    * runtime it would only fail — noisily, on every project open. The viewer
-   * is still warmed; this is said once per interpreter in the log.
+   * is still warmed, but only for a root that holds a model (`warmCad`);
+   * this is said once per interpreter in the log.
    */
   async daemonReady(): Promise<ResolvedPython | null> {
     const resolved = this.resolve();
