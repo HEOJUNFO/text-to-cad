@@ -28,7 +28,7 @@ class FakeChild extends EventEmitter implements ViewerChild {
   }
 }
 
-function manager(options: { runtime?: boolean; probe?: () => Promise<boolean>; delay?: () => Promise<void> } = {}) {
+function manager(options: { inUse?: () => string[]; maxLive?: number; runtime?: boolean; probe?: () => Promise<boolean>; delay?: () => Promise<void> } = {}) {
   const children: Array<{ child: FakeChild; python: string; args: string[]; cwd: string; env: Record<string, string> }> = [];
   const delays: number[] = [];
   const logs: string[] = [];
@@ -46,6 +46,8 @@ function manager(options: { runtime?: boolean; probe?: () => Promise<boolean>; d
       await options.delay?.();
     },
     log: (line) => logs.push(line),
+    ...(options.inUse ? { inUse: options.inUse } : {}),
+    ...(options.maxLive ? { maxLive: options.maxLive } : {}),
   });
   return { viewers, children, delays, logs };
 }
@@ -247,5 +249,36 @@ describe("ViewerManager", () => {
     m.viewers.stopAll();
     expect(m.children.every((entry) => entry.child.killed)).toBe(true);
     expect(m.viewers.list()).toEqual([]);
+  });
+
+  describe("the bound on live viewers", () => {
+    const settle = () => new Promise((resolve) => setImmediate(resolve));
+    async function bring(m: ReturnType<typeof manager>, root: string, port: number) {
+      const pending = m.viewers.originFor(root);
+      await settle();
+      m.children.at(-1)!.child.say(`{"url":"http://127.0.0.1:${port}/","port":${port},"action":"started"}`);
+      await pending;
+    }
+
+    it("stops the least recently asked-for viewer when a fourth root comes up", async () => {
+      const m = manager();
+      await bring(m, "/a", 1);
+      await bring(m, "/b", 2);
+      await bring(m, "/c", 3);
+      await m.viewers.originFor("/a"); // /a is now newer than /b
+      await bring(m, "/d", 4);
+      expect(m.children.map((entry) => entry.child.killed)).toEqual([false, true, false, false]);
+      expect(m.viewers.list().map((entry) => entry.root).sort()).toEqual(["/a", "/c", "/d"]);
+    });
+
+    it("never stops a root with a CAD tab open, even the oldest", async () => {
+      const m = manager({ inUse: () => ["/a"] });
+      await bring(m, "/a", 1);
+      await bring(m, "/b", 2);
+      await bring(m, "/c", 3);
+      await bring(m, "/d", 4);
+      expect(m.children.map((entry) => entry.child.killed)).toEqual([false, true, false, false]);
+      expect(m.viewers.list().map((entry) => entry.root).sort()).toEqual(["/a", "/c", "/d"]);
+    });
   });
 });

@@ -49,6 +49,8 @@ const LAUNCH_TIMEOUT_MS = 90_000;
 const RESTART_BASE_MS = 1_000;
 const RESTART_MAX_MS = 30_000;
 const RESTART_LIMIT = 5;
+/** Live viewers this manager started; opening one more stops the least recently asked for. */
+const MAX_LIVE_VIEWERS = 3;
 
 export type Launched = { url: string; port: number; action: "started" | "reused" };
 
@@ -93,6 +95,13 @@ export type ViewerManagerDeps = {
   /** Is an origin answering? Used for reused instances before handing them out. */
   probe?: (origin: string) => Promise<boolean>;
   delay?: (ms: number) => Promise<void>;
+  /**
+   * Roots that must keep their viewer (a CAD tab is open on them). Asked when
+   * a launch would put the manager over its bound; never evicted.
+   */
+  inUse?: () => Iterable<string>;
+  /** The bound on live viewers; `MAX_LIVE_VIEWERS` when omitted. */
+  maxLive?: number;
   log?: (line: string) => void;
 };
 
@@ -138,6 +147,9 @@ export class ViewerManager extends EventEmitter {
    * relaunch — on quit, or a deleted worktree session — must stay a stop.
    */
   private readonly stops = new Map<string, number>();
+  /** When each root was last asked for, as a counter: the order eviction goes in. */
+  private readonly lastAsked = new Map<string, number>();
+  private askedCount = 0;
   private stopsAll = 0;
   private readonly spawn: ViewerSpawn;
   private readonly probe: (origin: string) => Promise<boolean>;
@@ -167,6 +179,7 @@ export class ViewerManager extends EventEmitter {
    * one root share a launch; a root whose instance is up answers at once.
    */
   originFor(root: string): Promise<ViewerOrigin> {
+    this.lastAsked.set(root, ++this.askedCount);
     const existing = this.entries.get(root);
     if (existing && !existing.stopped) {
       if (!existing.reused) {
@@ -260,6 +273,7 @@ export class ViewerManager extends EventEmitter {
           stopped: false,
         };
         this.entries.set(root, entry);
+        this.evictBeyondBound(root);
         this.log(`${parsed.action} ${entry.origin} for ${root}${child.pid ? ` (pid ${child.pid})` : ""}`);
         this.emit("change", this.list());
         resolve(entry);
@@ -330,9 +344,32 @@ export class ViewerManager extends EventEmitter {
     await pending;
   }
 
+  /**
+   * Keep the viewers this manager started within the bound: past it, stop the
+   * least recently asked-for one whose root has no CAD tab open. `keep` (the
+   * one that just came up) is never the victim. A project root that idles for
+   * the rest of the session is otherwise a Python process until quit.
+   */
+  private evictBeyondBound(keep: string): void {
+    const bound = this.deps.maxLive ?? MAX_LIVE_VIEWERS;
+    const owned = () => [...this.entries.values()].filter((entry) => entry.child && entry.root !== keep);
+    const busy = new Set(this.deps.inUse?.() ?? []);
+    while ([...this.entries.values()].filter((entry) => entry.child).length > bound) {
+      const victim = owned()
+        .filter((entry) => !busy.has(entry.root))
+        .sort((a, b) => (this.lastAsked.get(a.root) ?? 0) - (this.lastAsked.get(b.root) ?? 0))[0];
+      if (!victim) {
+        return;
+      }
+      this.log(`more than ${bound} viewers are running; stopping the least recently used, for ${victim.root}`);
+      this.stop(victim.root);
+    }
+  }
+
   /** Stop the instance for a root — ours only. A reused one is forgotten, not killed. */
   stop(root: string): void {
     this.stops.set(root, (this.stops.get(root) ?? 0) + 1);
+    this.lastAsked.delete(root);
     const entry = this.entries.get(root);
     if (!entry) {
       return;

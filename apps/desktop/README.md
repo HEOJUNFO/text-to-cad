@@ -1614,15 +1614,16 @@ not exist yet. The tab never asks the person to set anything up.
 127.0.0.1 --json` per project root (cwd = the root, the launcher's contract),
 parses its JSON line, keeps the child, restarts it on a crash with backoff,
 stops a worktree's viewer when the last session in that worktree is
-deleted (`forgetCadSession` in `src/main/cad/index.ts`; projects are never
-removed, so a checkout's viewer lives until quit) and stops all of them on
-quit — and never kills an
+deleted (`forgetCadSession` in `src/main/cad/index.ts`), keeps at most three
+of its own running (opening a fourth stops the least recently asked-for one
+whose root has no CAD tab open) and stops all of them on quit — and never kills an
 instance the launcher reported as `reused`, because that one is somebody
 else's. `cad.viewerOrigin` is how the file tab gets the origin.
 
 The viewer does not wait for the first CAD file. When the explorer binds to
-a project (or a session's worktree), the renderer calls `cad.warm`, and main
-starts what the first CAD file would have paid for on its own clock: the
+a project (or a session's worktree), the renderer calls `cad.warm`, and main,
+if the root holds a `.step`/`.stp`/`.glb`/`.gltf` file within three folders
+(`hasCadFile`, a bounded scan; any other root gets its viewer when a CAD tab opens), starts what the first CAD file would have paid for on its own clock: the
 runtime probe, the viewer for that root, and cadgen's warm build daemon
 (`src/main/cad/daemon.ts` spawns `python -m cadgen.daemon`, the registered
 command a cadgen client spawns for itself, detached and never stopped — it is
