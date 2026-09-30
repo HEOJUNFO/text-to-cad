@@ -162,13 +162,16 @@ export const acpHandlers = {
     respondPermission: ({ id, requestId, optionId }) =>
       surfacing(() => sessionManager.respondPermission(id, requestId, optionId)),
     rename: ({ id, title }) => surfacing(() => sessionManager.rename(id, title)),
+    // The row first, as `delete` does: an archive that throws leaves the session
+    // active with its tokens, pages and shells, not half torn down.
     archive: ({ id, archived }) => surfacing(() => {
+      const session = sessionManager.archive(id, archived);
       if (archived) {
         forgetSession(id);
         browserService.disposeSession(id);
         explorerTerminals().disposeSession(id);
       }
-      return sessionManager.archive(id, archived);
+      return session;
     }),
     setPinned: ({ id, pinned }) => surfacing(() => sessionManager.setPinned(id, pinned)),
     close: ({ id }) => surfacing(async () => { forgetSession(id); await sessionManager.close(id); }),
