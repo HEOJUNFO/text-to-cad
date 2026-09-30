@@ -187,7 +187,7 @@ it("a queued prompt taken back out of the queue restores its text and annotation
   await waitFor(() => expect(useComposer.getState().queues[session]).toHaveLength(1));
   expect(useComposer.getState().annotations[session]).toBeUndefined();
 
-  await act(async () => fireEvent.click(view.getByRole("button", { name: "Remove from queue" })));
+  await act(async () => fireEvent.click(view.getByRole("button", { name: /^Remove from queue/ })));
   expect(useComposer.getState().drafts[session]).toBe("round the edge");
   expect(useComposer.getState().annotations[session]?.map(item => item.text)).toEqual(["fillet it"]);
 });
