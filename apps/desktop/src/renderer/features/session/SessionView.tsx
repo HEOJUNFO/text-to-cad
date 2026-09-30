@@ -75,13 +75,6 @@ export function SessionView({ session }: { session: Session }) {
     [session.projectId, session.worktreePath],
   );
 
-  const retry = () => {
-    const lastPrompt = lastUserPrompt(state);
-    if (lastPrompt) {
-      void submit(session.id, promptText(lastPrompt), lastPrompt);
-    }
-  };
-
   const running = state?.status === "running" || state?.status === "waiting";
   // A reconnect behind a painted transcript is not the composer's business:
   // a prompt sent now is queued against the load and goes out when it lands
@@ -209,18 +202,34 @@ export function SessionView({ session }: { session: Session }) {
   const focusOnReconnect = useRef(false);
   // Every Reconnect / Retry on this screen, the full-screen ones too: each goes with its panel once
   // the load starts, and a button that unmounts under focus drops it to the page.
-  const reconnectFromBar = () => {
-    focusOnReconnect.current = true;
-    composerRow.current?.focus();
-    void load(session.id);
-  };
-  useEffect(() => {
-    if (!focusOnReconnect.current || composerDisabled) return;
+  const moveIntoComposer = () => {
     focusOnReconnect.current = false;
     const row = composerRow.current;
     if (row && (row.contains(document.activeElement) || document.activeElement === document.body)) {
       row.querySelector<HTMLElement>("[data-composer-input]")?.focus();
     }
+  };
+  const handToComposer = () => {
+    focusOnReconnect.current = true;
+    composerRow.current?.focus();
+    // An enabled box has nothing to wait for: the transcript's Retry resubmits, and its button goes
+    // with the turn that replaces it.
+    if (!composerDisabled) moveIntoComposer();
+  };
+  const reconnectFromBar = () => {
+    handToComposer();
+    void load(session.id);
+  };
+  const retry = () => {
+    const lastPrompt = lastUserPrompt(state);
+    if (lastPrompt) {
+      handToComposer();
+      void submit(session.id, promptText(lastPrompt), lastPrompt);
+    }
+  };
+  useEffect(() => {
+    if (!focusOnReconnect.current || composerDisabled) return;
+    moveIntoComposer();
   }, [composerDisabled]);
   const errorInTranscript = lastAgentTurn?.parts.at(-1)?.type === "error";
   const showErrorBanner = state?.status === "error" && !!state.error && !errorInTranscript;

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SessionView } from "@renderer/features/session/SessionView";
 import { useAcp } from "@renderer/state/acp";
+import { useComposer } from "@renderer/state/composer";
 import { useAgents } from "@renderer/state/agents";
 import { useUi } from "@renderer/state/ui";
 import type { AgentStatus } from "@shared/agents";
@@ -15,11 +16,13 @@ vi.mock("@renderer/features/session/Composer", () => ({
   Composer: ({ disabled }: { disabled: boolean }) => <textarea aria-label="Prompt" data-composer-input disabled={disabled} />,
 }));
 vi.mock("@renderer/features/session/SessionHeader", () => ({ SessionHeader: () => null }));
-// The error part's Reconnect lives in the transcript; the mock draws it for a session in error.
+// The error part's Reconnect and Retry live in the transcript; the mock draws Reconnect for a session
+// in error and Retry on the last turn, which a resubmit replaces (so the button goes, as it does there).
 vi.mock("@renderer/features/session/Transcript", () => ({
-  Transcript: ({ state, onReconnect }: { state: { status: string }; onReconnect: () => void }) => (
+  Transcript: ({ state, onReconnect, onRetry }: { state: { status: string; turns: unknown[] }; onReconnect: () => void; onRetry: () => void }) => (
     <div data-transcript>
       {state.status === "error" ? <button onClick={onReconnect} type="button">Reconnect from the transcript</button> : null}
+      {state.turns.length === 2 ? <button onClick={onRetry} type="button">Retry from the transcript</button> : null}
     </div>
   ),
 }));
@@ -56,6 +59,28 @@ describe("a disconnected agent", () => {
     act(() => useAcp.setState({ loading: { s1: true }, sessions: { s1: { ...initialSessionState("s1", "claude"), status: "connecting" } } }));
     expect(screen.queryByRole("button", { name: "Reconnect from the transcript" })).toBeNull();
     expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it("hands focus to the composer when the transcript's own Retry resubmits and goes", async () => {
+    const user = userEvent.setup();
+    const submit = vi.fn(async () => undefined);
+    useComposer.setState({ submit } as never);
+    const failed = {
+      ...initialSessionState("s1", "claude"),
+      status: "idle" as const,
+      turns: [
+        { id: "t1", role: "user", startedAt: 0, parts: [{ type: "text", text: "hello" }] },
+        { id: "t2", role: "agent", startedAt: 0, parts: [{ type: "error", message: "boom" }] },
+      ],
+    };
+    useAcp.setState({ sessions: { s1: failed as never } });
+    render(<SessionView session={SESSION} />);
+    await user.click(screen.getByRole("button", { name: "Retry from the transcript" }));
+    expect(submit).toHaveBeenCalledWith("s1", "hello", [{ type: "text", text: "hello" }]);
+    // The resubmit appends a turn: Retry goes with the last turn, and focus is not on the page.
+    act(() => useAcp.setState({ sessions: { s1: { ...failed, status: "running", turns: [...failed.turns, { id: "t3", role: "user", startedAt: 0, parts: [] }] } as never } }));
+    expect(screen.queryByRole("button", { name: "Retry from the transcript" })).toBeNull();
+    expect(screen.getByLabelText("Prompt")).toHaveFocus();
   });
 
   it("says so above the disabled composer and reconnects from there", async () => {

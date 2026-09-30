@@ -239,8 +239,9 @@ the rule is about.
 - **Focus is handed on whenever the control under it unmounts, and a refused
   action keeps focus on its control.** A permission answer goes to the
   composer, a refused one stays on the card; rename's Enter and Escape go to
-  the title button; every Reconnect or Retry on the session screen goes
-  through `reconnectFromBar`; leaving Settings goes to the composer
+  the title button; every Reconnect or Retry on the session screen, the
+  transcript's included, goes through `handToComposer` (`reconnectFromBar` and
+  `retry` in `SessionView.tsx` both start with it); leaving Settings goes to the composer
   (`focusSessionHome`, `src/renderer/app/pane-focus.ts`, where `PANE_HOMES` is
   shared with F6); a pane that collapses under focus hands it to its toggle.
 - **Every route has exactly one `main`.** The shell's session, Settings and the

@@ -1180,8 +1180,9 @@ toggle (the separator reads its width through `aria-valuetext`). A
 disconnected session's Reconnect bar goes away with its button, so focus waits
 on the composer's row and goes into the box once the agent is back; every
 Reconnect, Retry, Install and sign-in retry on the session screen, the
-transcript's included, goes through `reconnectFromBar`
-(`features/session/SessionView.tsx`) for the same reason. Leaving Settings
+transcript's included, goes through the composer handoff, `handToComposer`
+(`features/session/SessionView.tsx`; `reconnectFromBar` is it plus the load, and the
+transcript's Retry is it plus the resubmit), for the same reason. Leaving Settings
 unmounts the button that had focus, so `focusSessionHome` (`app/pane-focus.ts`)
 puts it in the composer, waiting one frame for the editor to mount. The
 context ring takes focus into its panel on open and gets it back on close.
