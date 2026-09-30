@@ -98,6 +98,17 @@ describe("updater", () => {
     updater.stopUpdater();
   });
 
+  it("a second Restart while the first install is under way does not quit and install again", async () => {
+    const updater = await load();
+    autoUpdater.emit("update-downloaded", { version: "2.0.0" });
+    // MacUpdater with Squirrel still fetching: quitAndInstall returns, nothing quits.
+    mocks.quitAndInstall.mockImplementation(() => undefined);
+    updater.installUpdate();
+    updater.installUpdate();
+    expect(mocks.quitAndInstall).toHaveBeenCalledTimes(1);
+    updater.stopUpdater();
+  });
+
   it("an install that is refused puts the scheduled checks back", async () => {
     const updater = await load();
     await vi.advanceTimersByTimeAsync(10_000);

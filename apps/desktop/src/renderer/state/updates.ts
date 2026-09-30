@@ -32,10 +32,15 @@ export const useUpdates = create<UpdatesState>((set) => {
     toast.error("Could not reach the updater", { description: message });
   };
 
-  const run = async (action: () => Promise<UpdateStatus>) => {
+  // `action` answers with the status, except Restart, which answers with
+  // nothing: the app is about to quit, and a refused install arrives as a push.
+  const run = async (action: () => Promise<UpdateStatus | void>) => {
     set({ busy: true });
     try {
-      set({ status: await action() });
+      const status = await action();
+      if (status) {
+        set({ status });
+      }
     } catch (error) {
       fail(error);
     } finally {
@@ -63,7 +68,9 @@ export const useUpdates = create<UpdatesState>((set) => {
     // pushes, which is why this store is not just a promise.
     download: () => run(() => window.textToCad.app.downloadUpdate()),
 
-    install: () => window.textToCad.app.installUpdate(),
+    // Through `run` like the others: `busy` is what keeps a second press off
+    // the button while main is starting the quit.
+    install: () => run(() => window.textToCad.app.installUpdate()),
 
     receive: (status) => set({ status }),
   };

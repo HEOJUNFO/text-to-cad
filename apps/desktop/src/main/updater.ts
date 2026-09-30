@@ -216,7 +216,10 @@ export async function downloadUpdate(): Promise<UpdateStatus> {
  * to quit and install nothing quits and installs nothing, loudly.
  */
 export function installUpdate() {
-  if (status.state !== "downloaded") {
+  // A second press while the first is under way: MacUpdater would add a second
+  // `update-downloaded` listener and a second install while Squirrel is still
+  // fetching, and BaseUpdater's second `install` resets its own guard.
+  if (status.state !== "downloaded" || installing) {
     return;
   }
   stopUpdater();

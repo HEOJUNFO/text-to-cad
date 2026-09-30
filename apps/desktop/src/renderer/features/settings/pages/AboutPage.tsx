@@ -164,7 +164,7 @@ function UpdateRow() {
             size="sm"
             variant={status.state === "downloaded" ? "default" : "secondary"}
           >
-            {action.label}
+            {busy && status.state === "downloaded" ? "Restarting…" : action.label}
           </Button>
         ) : (
           <span className="text-sm text-muted-foreground">
