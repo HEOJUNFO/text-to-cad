@@ -124,6 +124,9 @@ export function isTabFocusChord(event: KeyboardEvent): boolean {
   return event.ctrlKey && event.shiftKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === "m";
 }
 
+/** Shells being spawned, by tab, until the tab has their id (or the spawn failed). */
+const spawning = new Map<string, Promise<unknown>>();
+
 export function TerminalTab({
   tabId,
   sessionId,
@@ -168,29 +171,30 @@ export function TerminalTab({
     }).catch(error => toast.error(String(error)));
   };
 
-  // Spawn once, when the tab has no pty yet. `starting` guards React's double
-  // effect invocation in development, which would otherwise leave an orphan
-  // shell running for every terminal tab opened.
-  const starting = useRef(false);
+  // Spawn once, when the tab has no pty yet. The spawn is `spawning`'s, by tab and not by
+  // instance: React's double effect in development and a body that unmounts and mounts again
+  // (a tab picked away and back) while `create` is still in flight would each start a shell
+  // for the one tab, and the loser would be an orphan counting toward the agent's 16.
   useEffect(() => {
-    if (ptyId || starting.current) {
+    if (ptyId) {
       return;
     }
-    starting.current = true;
-    void window.textToCad.terminal
-      .create({ sessionId, projectId: project.id, ...(cwd ? { cwd } : {}), ...(agent ? { agent } : {}) })
-      .then((info) => {
+    let spawn = spawning.get(tabId);
+    if (!spawn) {
+      spawn = window.textToCad.terminal
+        .create({ sessionId, projectId: project.id, ...(cwd ? { cwd } : {}), ...(agent ? { agent } : {}) })
         // A shell can finish spawning after the person changes sessions.
-        void updateSessionTab(sessionId, tabId, { ptyId: info.id, cwd: info.cwd })
-          .catch(() => window.textToCad.terminal.kill({ id: info.id, sessionId }));
-      })
-      .catch((caught: unknown) => {
-        setError(caught instanceof Error ? caught.message : String(caught));
-      })
-      .finally(() => {
-        starting.current = false;
-      });
-  }, [ptyId, sessionId, project.id, cwd, agent, tabId, update]);
+        .then((info) => updateSessionTab(sessionId, tabId, { ptyId: info.id, cwd: info.cwd })
+          .catch(() => window.textToCad.terminal.kill({ id: info.id, sessionId }).catch(() => {})))
+        .finally(() => {
+          spawning.delete(tabId);
+        });
+      spawning.set(tabId, spawn);
+    }
+    void spawn.catch((caught: unknown) => {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    });
+  }, [ptyId, sessionId, project.id, cwd, agent, tabId]);
 
   useEffect(() => {
     const host = hostRef.current;
