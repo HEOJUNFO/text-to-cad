@@ -1277,7 +1277,10 @@ export class FileWatchers {
     const links = this.aliases.get(root);
     const stamped = await Promise.all(changes.map(async (change) => {
       if ((change.kind !== "changed" && change.kind !== "added") || change.directory) return change;
-      if (!known?.has(change.path) && !links?.has(change.path)) return change;
+      // A held path whose identity a removal dropped (a checkout away and
+      // back) is taken again when it reappears.
+      const retaken = change.kind === "added" && !known?.has(change.path) && this.holds.get(root)?.has(change.path);
+      if (!known?.has(change.path) && !links?.has(change.path) && !retaken) return change;
       const absolute = path.join(realRoot, change.path);
       // A link's identity is its own inode, taken again when it is still a
       // link: `ln -sfn` re-points it as a new link under the same name, and
@@ -1293,6 +1296,7 @@ export class FileWatchers {
       const stats = await fs.stat(absolute).catch(() => null);
       if (!stats?.isFile()) return change;
       if (known?.has(change.path) && !known.get(change.path)?.link) known.set(change.path, { dev: stats.dev, ino: stats.ino });
+      else if (retaken) this.identities.get(root)?.set(change.path, { dev: stats.dev, ino: stats.ino });
       if (change.kind !== "changed" || stats.size > MAX_TEXT_BYTES) return change;
       const content = await fs.readFile(absolute).catch(() => null);
       return content ? { ...change, revision: revisionOf(content) } : change;

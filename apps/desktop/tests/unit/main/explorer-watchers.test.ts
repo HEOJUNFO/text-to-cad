@@ -275,6 +275,30 @@ describe("following an open file", () => {
     expect(emit.mock.calls[0]![1]).toHaveLength(2);
   });
 
+  it("keeps following an open file that was deleted and restored under its name", async () => {
+    await fs.writeFile(path.join(root, "notes.txt"), "draft\n");
+    await watchers.watch(root);
+    await watchers.watchEntry(root, await statFile(root, "notes.txt"));
+    // `git checkout other && git checkout -`: gone, then back, with the tab open.
+    await fs.rm(path.join(realRoot, "notes.txt"));
+    on("unlink")("notes.txt");
+    elapse();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(1));
+    await fs.writeFile(path.join(realRoot, "notes.txt"), "draft\n");
+    on("add")("notes.txt");
+    elapse();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(2));
+    // Then the agent's `mv`.
+    await fs.rename(path.join(realRoot, "notes.txt"), path.join(realRoot, "renamed.txt"));
+    on("unlink")("notes.txt");
+    on("add")("renamed.txt");
+    elapse();
+    await vi.waitFor(() => expect(emit).toHaveBeenCalledTimes(3));
+    expect(emit.mock.calls[2]![1]).toEqual([
+      { kind: "moved", previousPath: "notes.txt", path: "renamed.txt", directory: false },
+    ]);
+  });
+
   it("follows a file moved after the app saved it", async () => {
     await fs.writeFile(path.join(root, "notes.txt"), "draft\n");
     await watchers.watch(root);
