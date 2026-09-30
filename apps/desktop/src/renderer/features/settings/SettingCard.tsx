@@ -78,12 +78,15 @@ export function SettingCard({
 export function SettingRow({
   title,
   description,
+  live,
   keywords,
   control,
   children,
 }: {
   title: string;
   description?: string;
+  /** The description is a status that changes under the person's hands: announced when it does. */
+  live?: boolean;
   /** Words that should find this row without being printed on it. */
   keywords?: string;
   /** Toggle, select, segmented control, field or button. */
@@ -101,7 +104,12 @@ export function SettingRow({
         <div className="min-w-0">
           <p className="text-[13px] leading-5">{title}</p>
           {description ? (
-            <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{description}</p>
+            <p
+              className="mt-0.5 text-xs leading-snug text-muted-foreground"
+              role={live ? "status" : undefined}
+            >
+              {description}
+            </p>
           ) : null}
         </div>
         {control ? <div className="flex shrink-0 items-center gap-2">{control}</div> : null}

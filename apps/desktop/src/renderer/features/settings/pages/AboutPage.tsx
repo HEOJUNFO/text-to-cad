@@ -10,6 +10,7 @@ import { RefreshCw } from "lucide-react";
 import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 
 import { Button } from "@renderer/components/ui/button";
+import { Progress } from "@renderer/components/ui/progress";
 import {
   ActionRow,
   SettingCard,
@@ -150,7 +151,9 @@ function UpdateRow() {
     },
     downloaded: {
       description: `Version${version} is ready. Restarting installs it.`,
-      action: { label: "Restart", onClick: install },
+      // The visible word stays the start of the name (label in name); the
+      // version says which build the button installs.
+      action: { label: "Restart", name: `Restart to install${version}`, onClick: install },
     },
     error: {
       description: clamp(status.message ?? "The update check failed."),
@@ -164,6 +167,7 @@ function UpdateRow() {
         action ? (
           <Button
             className="h-8"
+            aria-label={busy ? undefined : action.name}
             disabled={busy}
             onClick={() => void action.onClick()}
             size="sm"
@@ -179,8 +183,21 @@ function UpdateRow() {
       }
       description={description}
       keywords="update download install restart version"
+      live
       title="Software update"
-    />
+    >
+      {status.state === "downloading" ? (
+        // The vendored Progress draws `value` but does not hand it to Radix's
+        // root, which would then announce an indeterminate bar: the reading is
+        // passed as the ARIA attribute as well.
+        <Progress
+          aria-label="Update download progress"
+          aria-valuenow={Math.round(status.percent ?? 0)}
+          className="h-1"
+          value={Math.round(status.percent ?? 0)}
+        />
+      ) : null}
+    </SettingRow>
   );
 }
 

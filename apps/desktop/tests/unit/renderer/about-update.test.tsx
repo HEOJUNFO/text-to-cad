@@ -54,4 +54,24 @@ describe("About › Software update", () => {
     const text = screen.getByText(/^e+…$/).textContent ?? "";
     expect(text.length).toBeLessThanOrEqual(160);
   });
+
+  it("announces the state in a live region", () => {
+    useUpdates.setState({ status: { state: "available", version: "2.0.0" } });
+    renderAbout();
+    expect(screen.getByRole("status")).toHaveTextContent("Version 2.0.0 is available");
+  });
+
+  it("exposes the download as a named progress bar", () => {
+    useUpdates.setState({ status: { state: "downloading", version: "2.0.0", percent: 40 } });
+    renderAbout();
+    const bar = screen.getByRole("progressbar", { name: /download/i });
+    expect(bar).toHaveAttribute("aria-valuenow", "40");
+    expect(bar).toHaveAttribute("aria-valuemin", "0");
+    expect(bar).toHaveAttribute("aria-valuemax", "100");
+  });
+
+  it("names Restart for the version it installs", () => {
+    renderAbout();
+    expect(screen.getByRole("button", { name: /Restart.*2\.0\.0/ })).toBeInTheDocument();
+  });
 });
