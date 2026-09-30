@@ -1,5 +1,5 @@
 /** BrowserTab's address bar and navigation row, against a mounted-but-empty native page. */
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { BrowserTab } from "@renderer/features/explorer/BrowserTab";
 import { useBrowser } from "@renderer/state/browser";
@@ -33,4 +33,16 @@ it("does not navigate on the Enter that commits an IME composition", () => {
   expect(navigate).not.toHaveBeenCalled();
   fireEvent.keyDown(input, { key: "Enter" });
   expect(navigate).toHaveBeenCalledWith(expect.anything(), { url: "https://example.org" });
+});
+
+it("keeps a half-typed address when the page's URL changes under it, and resyncs once focus leaves", () => {
+  renderTab();
+  const input = screen.getByRole("textbox", { name: "Address" });
+  fireEvent.focus(input);
+  fireEvent.change(input, { target: { value: "exam" } });
+  // A pushState, redirect or agent navigation while the person types.
+  act(() => useBrowser.setState({ targets: { page: { ...target, url: "https://example.com/next" } } }));
+  expect(input).toHaveValue("exam");
+  fireEvent.blur(input);
+  expect(input).toHaveValue("https://example.com/next");
 });
