@@ -5,6 +5,9 @@ import type { Terminals } from "../../explorer/terminal";
 import type { ExplorerTab } from "../../../shared/types";
 import fs from "node:fs/promises";
 
+/** Terminals one session may hold: each keeps up to 512 KB of scrollback until its tab is closed. */
+export const MAX_TERMINALS_PER_SESSION = 16;
+
 /**
  * `runtimePath` is the session's runtime launchers (`sessionRuntimePath`), put
  * in front of a created terminal's PATH as they are in front of the agent's:
@@ -28,7 +31,7 @@ export function createTerminalActions(deps: ActionDeps, commands: RendererComman
       if (!(await fs.stat(location.absolute)).isDirectory()) throw new Error("terminal cwd must be a directory");
       signal?.throwIfAborted();
       const info = await terminals().create({ sessionId: session.sessionId, projectId: session.projectId, cwd: location.absolute,
-        pathPrefix: runtimePath() });
+        pathPrefix: runtimePath(), maxPerSession: MAX_TERMINALS_PER_SESSION });
       try {
         signal?.throwIfAborted();
         if (!deps.sessionRoot(session)) throw new Error("This session is no longer active.");

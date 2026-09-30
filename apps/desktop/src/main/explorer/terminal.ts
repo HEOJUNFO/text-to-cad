@@ -45,6 +45,13 @@ export type TerminalOptions = {
    * terminal an agent creates, so the `cadgen` its skill promises is there.
    */
   pathPrefix?: readonly string[];
+  /**
+   * Refuse when the session already has this many ptys, stopped ones included
+   * (each keeps its scrollback until its tab is closed). Set for a terminal an
+   * agent creates; the person's own are not counted against it by anything but
+   * the total.
+   */
+  maxPerSession?: number;
 };
 
 export type TerminalInfo = {
@@ -251,6 +258,12 @@ export class Terminals {
 
   async create(options: TerminalOptions): Promise<TerminalInfo> {
     const nodePty = await this.pty();
+    // Checked after the last await and before the pty is registered, so
+    // concurrent creates cannot each see room for one more.
+    if (options.maxPerSession !== undefined && options.sessionId !== undefined &&
+        [...this.sessions.values()].filter((session) => session.sessionId === options.sessionId).length >= options.maxPerSession) {
+      throw new Error(`this session already has ${options.maxPerSession} terminals; close one before opening another`);
+    }
     const shell = options.shell ?? loginShell();
     const cols = options.cols ?? DEFAULT_COLS;
     const rows = options.rows ?? DEFAULT_ROWS;

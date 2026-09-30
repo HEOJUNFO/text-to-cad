@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { RendererCommands } from '@main/integrations/actions';
-import { createTerminalActions } from '@main/integrations/terminals/actions';
+import { MAX_TERMINALS_PER_SESSION, createTerminalActions } from '@main/integrations/terminals/actions';
 import { Terminals } from '@main/explorer/terminal';
 import type { BridgeSession } from '@main/integrations/mcp-bridge';
 import type { IntegrationCommand } from '@shared/ipc/integrations';
@@ -107,5 +107,17 @@ it('puts the session runtime in front of a created terminal\'s PATH, as it is fo
   const env = spawn.mock.calls[0]![2].env as Record<string, string>;
   const key = Object.keys(env).find(name => name.toUpperCase() === 'PATH')!;
   expect(env[key]!.split(path.delimiter)[0]).toBe('/app/runtime/launchers');
+  f.terminals.killAll();
+});
+it('refuses a terminal past the per-session cap, counting concurrent requests', async () => {
+  const f = fixture();
+  await Promise.all(Array.from({ length: MAX_TERMINALS_PER_SESSION }, () => f.actions.create_terminal!(f.session, {})));
+  expect(f.terminals.list()).toHaveLength(MAX_TERMINALS_PER_SESSION);
+  await expect(f.actions.create_terminal!(f.session, {})).rejects.toThrow(`already has ${MAX_TERMINALS_PER_SESSION} terminals`);
+  await expect(Promise.all([f.actions.create_terminal!(f.session, {}), f.actions.create_terminal!(f.session, {})])).rejects.toThrow('already has');
+  expect(f.terminals.list()).toHaveLength(MAX_TERMINALS_PER_SESSION);
+  // Another session's shells do not count against this one.
+  await f.terminals.create({ cwd: directory, projectId: 'project', sessionId: 'other' });
+  expect(f.terminals.list()).toHaveLength(MAX_TERMINALS_PER_SESSION + 1);
   f.terminals.killAll();
 });
