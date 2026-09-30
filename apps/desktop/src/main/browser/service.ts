@@ -25,8 +25,8 @@ export function browserURL(value: string) {
 
 /** Owns live pages independently of whichever project or tab is painted. */
 export class BrowserService {
-  /** `opened` / `closed`, one listener pair per scoped CDP connection (they leave with it), so more than ten sessions' clients are ordinary. */
-  readonly events = new EventEmitter().setMaxListeners(0);
+  /** `opened` / `closed`, one listener pair per scoped CDP connection (they leave with it), so more than ten sessions' clients are ordinary. A finite cap, not 0: a listener leak past a hundred connections should still warn. */
+  readonly events = new EventEmitter().setMaxListeners(100);
   private targets = new Map<string, Target>();
   /** App windows whose own reload/crash hides the pages they present. */
   private readonly watchedOwners = new WeakSet<BrowserWindow>();
