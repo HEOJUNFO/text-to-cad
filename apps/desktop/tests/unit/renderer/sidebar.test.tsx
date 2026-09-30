@@ -318,9 +318,10 @@ describe("Sidebar", () => {
       activeId: null,
     });
     wrap(<Sidebar />);
-    expect(screen.getByLabelText("Working")).toBeInTheDocument();
-    expect(screen.getByLabelText("Waiting for you")).toBeInTheDocument();
-    expect(screen.getByLabelText("Failed")).toBeInTheDocument();
+    // The glyph is drawn only; its word is the title button's description.
+    expect(screen.getByRole("button", { name: "Busy" })).toHaveAccessibleDescription("Working");
+    expect(screen.getByRole("button", { name: "Asked" })).toHaveAccessibleDescription("Waiting for you");
+    expect(screen.getByRole("button", { name: "Broken" })).toHaveAccessibleDescription("Failed");
     expect(screen.getByLabelText(/^Worktree/)).toBeInTheDocument();
     expect(screen.getByLabelText("main")).toBeInTheDocument();
   });
@@ -333,7 +334,7 @@ describe("Sidebar", () => {
       activeId: null,
     });
     wrap(<Sidebar />);
-    const glyph = screen.getByLabelText("Waiting for you");
+    const glyph = document.querySelector('[data-session-glyph="waiting"] svg')!;
     expect(glyph.getAttribute("class")).toContain("text-info");
     expect(glyph.getAttribute("class")).not.toContain("warning");
   });

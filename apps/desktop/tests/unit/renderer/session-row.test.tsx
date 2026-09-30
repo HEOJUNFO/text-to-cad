@@ -79,3 +79,16 @@ describe("the actions button", () => {
     expect(screen.getByRole("button", { name: "Bracket actions" })).toHaveClass("focus-visible:opacity-100");
   });
 });
+
+describe("the row's state", () => {
+  // The glyph precedes the title button and is not a tab stop, so a screen-reader user landing on the
+  // row heard only "Bracket". The word now rides on the button as its description.
+  it("is the title button's accessible description when the agent needs you", () => {
+    render(
+      <TooltipProvider>
+        <SessionRow onSelect={() => {}} selected={false} session={{ ...SESSION, status: "waiting" }} showBranch={false} />
+      </TooltipProvider>,
+    );
+    expect(screen.getByRole("button", { name: "Bracket" })).toHaveAccessibleDescription(/Needs you|Waiting/);
+  });
+});

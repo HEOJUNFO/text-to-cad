@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
   Archive,
   ArchiveRestore,
@@ -70,6 +70,9 @@ export function SessionRow({
   const remove = useSessions((state) => state.remove);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(session.title);
+  const statusId = useId();
+  // Idle is the absence of news; saying it on every quiet row would be noise.
+  const statusText = sessionGlyphFor(session.status) === "idle" ? null : SESSION_GLYPH_LABELS[sessionGlyphFor(session.status)];
 
   const startRename = () => {
     setDraft(session.title);
@@ -127,6 +130,11 @@ export function SessionRow({
           data-status={session.status}
         >
           <StateGlyph status={session.status} />
+          {statusText ? (
+            <span className="sr-only" id={statusId}>
+              {statusText}
+            </span>
+          ) : null}
           {editing ? (
             <input
               aria-label="Session title"
@@ -149,6 +157,9 @@ export function SessionRow({
               <button
                 // The session on screen, said as well as tinted.
                 aria-current={selected ? "page" : undefined}
+                // The state glyph sits before this button and is not a tab stop, so its word rides
+                // here: read as the row's description, it is heard from the one place focus lands.
+                aria-describedby={statusText ? statusId : undefined}
                 className="min-w-0 flex-1 truncate text-left text-[13px] focus-visible:outline-none"
                 data-session-row-title
                 onClick={onSelect}
@@ -209,11 +220,11 @@ export function SessionRow({
  * for a thread with nothing to say, a pulsing dot while a turn streams, an
  * accent-coloured ringed dot when the agent is blocked on the person ("needs
  * you" — not a warning; nothing is wrong) and a red triangle when the last
- * turn failed (`lib/sidebar.ts` owns the mapping).
+ * turn failed (`lib/sidebar.ts` owns the mapping). Drawn only; the row's title
+ * button says the same in words (`aria-describedby`), so the two are not both read.
  */
 function StateGlyph({ status }: { status: SessionStatus }) {
   const glyph = sessionGlyphFor(status);
-  const label = SESSION_GLYPH_LABELS[glyph];
   // A 16px box the row centres; `leading-none` so the SVG has no line box to
   // sit low in — the glyphs are small, and a pixel off centre shows.
   const box = "flex size-4 shrink-0 items-center justify-center self-center leading-none";
@@ -221,35 +232,31 @@ function StateGlyph({ status }: { status: SessionStatus }) {
     case "running":
       return (
         <span className={box} data-session-glyph="running">
-          <span
-            aria-label={label}
-            className="size-1.5 animate-pulse rounded-full bg-primary"
-            role="img"
-          />
+          <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-primary" />
         </span>
       );
     case "waiting":
       return (
         <span className={box} data-session-glyph="waiting">
-          <CircleDot aria-label={label} className="size-3 text-info" />
+          <CircleDot aria-hidden className="size-3 text-info" />
         </span>
       );
     case "error":
       return (
         <span className={box} data-session-glyph="error">
-          <TriangleAlert aria-label={label} className="size-3 text-destructive" />
+          <TriangleAlert aria-hidden className="size-3 text-destructive" />
         </span>
       );
     case "connecting":
       return (
         <span className={box} data-session-glyph="connecting">
-          <LoaderCircle aria-label={label} className="size-2.5 animate-spin text-muted-foreground/50" />
+          <LoaderCircle aria-hidden className="size-2.5 animate-spin text-muted-foreground/50" />
         </span>
       );
     case "idle":
       return (
         <span className={box} data-session-glyph="idle">
-          <Circle aria-label={label} className="size-2 text-muted-foreground/60" />
+          <Circle aria-hidden className="size-2 text-muted-foreground/60" />
         </span>
       );
   }
