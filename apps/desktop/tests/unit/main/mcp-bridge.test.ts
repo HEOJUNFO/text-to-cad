@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -280,6 +281,23 @@ describe("the actions", () => {
     commands.reply({ requestId: "r", ok: true, result: { tabs: [] } });
     await listed;
     expect(sent[0]).toMatchObject({ kind: "list-tabs", rootDirectory: real, rootAliases: [link] });
+  });
+
+  it.skipIf(process.platform === "win32")("refuses a snapshot swapped for a link out of the workspace after its path was checked", async () => {
+    const root = tempDir("text-to-cad-proj-");
+    const outside = path.join(tempDir("text-to-cad-secret-"), "id_rsa");
+    fs.writeFileSync(outside, "PRIVATE KEY");
+    fs.writeFileSync(path.join(root, "x.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const sessionRoot = () => ({ directory: root, root: null });
+    const actions = createActions({ sessionRoot, send: () => {}, newId: () => "r" }, new RendererCommands({ sessionRoot, send: () => {}, newId: () => "r" }));
+    // The swap lands after the path was resolved and before the file is opened.
+    const access = fsp.access.bind(fsp);
+    vi.spyOn(fsp, "access").mockImplementationOnce(async (target, mode) => {
+      await access(target, mode);
+      fs.rmSync(path.join(root, "x.png"));
+      fs.symlinkSync(outside, path.join(root, "x.png"));
+    });
+    await expect(actions.attach_snapshot!({ sessionId: "s", projectId: "p", cwd: root }, { path: "x.png" })).rejects.toThrow(/changed while it was being read/);
   });
 
   it.skipIf(process.platform === "win32")("refuses a snapshot that is a FIFO rather than blocking on it", { timeout: 2000 }, async () => {
