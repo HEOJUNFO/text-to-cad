@@ -81,6 +81,9 @@ it("a send that is rejected keeps the files, so the retry sends them", async () 
   await view.pick(pasted("retried"));
   await view.send();
   await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+  // The refusal puts the file back once the rejection lands; a retry sent before
+  // that would carry nothing, so wait for the chip the way a person sees it.
+  await waitFor(() => expect(view.container.querySelector("[aria-label='Remove']")).not.toBeNull());
   await view.send();
   await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
   expect(sentImages(onSubmit, 1)).toEqual(["retried"]);
