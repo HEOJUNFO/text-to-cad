@@ -506,9 +506,13 @@ export function applyPerspectiveSnapshot(runtime, perspective, { scheduleIdle = 
     runtime.camera.updateProjectionMatrix?.();
   }
   runtime.camera.lookAt(runtime.controls.target);
-  // A drag's damping momentum would carry the camera off the pose just set.
+  // A drag's damping momentum would carry the camera off the pose just set, and so would a
+  // bare update() with the Preview orbit playing: it ticks auto-rotate one step.
   stopOrbitMomentum(runtime.controls);
+  const autoRotateBeforeApply = runtime.controls.autoRotate;
+  runtime.controls.autoRotate = false;
   runtime.controls.update();
+  runtime.controls.autoRotate = autoRotateBeforeApply;
   if (scheduleIdle) {
     runtime.scheduleIdleQuality?.();
   }
