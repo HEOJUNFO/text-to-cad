@@ -189,6 +189,8 @@ describe("Disconnect agent", () => {
     expect(held?.status).toBe("closed");
     // Kept, not cleared: the same turns, the one that was streaming now ended.
     expect(held?.turns.map((turn) => turn.id)).toEqual(turns.map((turn) => turn.id));
+    // Turns that had already ended keep their identity across the close: no re-render of the history.
+    expect(held?.turns[0]).toBe(turns[0]);
     expect(held?.turns.at(-1)?.endedAt).not.toBeNull();
   });
 
