@@ -167,8 +167,10 @@ the rule is about.
   carries a `focus-visible:opacity-100` twin, and a button that takes
   `outline-none` draws the kit's ring (`focus-visible:ring-[3px]
   focus-visible:ring-ring/50`). `tests/unit/renderer/a11y-source.test.ts` scans
-  `src/renderer` for both; an override made elsewhere goes on its allowlist
-  with the reason.
+  `src/renderer` for both (named groups and prefixed `focus-visible:outline-none`
+  included; a focus tint or a `hover:ring` is not a ring); an override made
+  elsewhere goes on its allowlist, keyed by file and a snippet of the site, with
+  the reason.
 - **The agent table on a warm launch is the last launch's.** `agents.list`
   answers from the `__agents` settings row with every row `probing`; a caller
   that would act on a row (refuse an agent as not installed, hand a binary to a
