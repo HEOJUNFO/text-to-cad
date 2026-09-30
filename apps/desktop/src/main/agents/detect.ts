@@ -40,6 +40,14 @@ export type DetectorProbes = {
 const EXEC_TIMEOUT_MS = 10_000;
 
 /**
+ * How long anything that must not act on the last launch's rows waits for this
+ * launch's probe: a cold `agents.list`, a session that would refuse an agent
+ * as "not installed". The probe starts with the window, so it is usually done
+ * or nearly; this bounds a login shell that never returns.
+ */
+export const PROBE_WAIT_MS = 3_000;
+
+/**
  * Where the last table is kept between launches (`./cache.ts`). Read once, at
  * the first question; written after every finished probe. A cache that cannot
  * be read or written is no cache: neither may fail a probe.
@@ -219,6 +227,28 @@ export class AgentDetector {
     }
     this.seed();
     return this.probed ? Promise.resolve(this.statuses) : this.refresh(false);
+  }
+
+  /**
+   * This launch's table, or null when no probe has finished within `waitMs`
+   * (a hung login shell, or a probe that failed). For a caller about to act on
+   * a row — refuse an agent as not installed, hand its binary to a login —
+   * where the last launch's rows are a guess: the CLI may have been installed
+   * since. Null means "unknown", never "absent".
+   */
+  async freshWithin(waitMs: number): Promise<AgentStatus[] | null> {
+    if (this.probed) {
+      return this.statuses;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const bound = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), waitMs);
+    });
+    try {
+      return await Promise.race([this.settled().catch(() => null), bound]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** The environment the last probe used, for spawning agents. */

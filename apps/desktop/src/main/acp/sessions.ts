@@ -37,7 +37,7 @@ import type { IpcEventChannel, IpcEventPayload } from "../../shared/ipc";
 import type { Launch } from "../../shared/agents";
 import type { GitMode, Session, SessionStatus } from "../../shared/types";
 import type { Event as TelemetryEvent } from "../telemetry";
-import type { AgentDetector } from "../agents/detect";
+import { PROBE_WAIT_MS, type AgentDetector } from "../agents/detect";
 import { agentProvider } from "../agents/registry";
 import { adapterOptionsKey, SessionConnection, type SessionConnectionOptions } from "./connection";
 import { LiveConnections } from "./live";
@@ -1200,7 +1200,7 @@ export class SessionManager {
     if (!provider) {
       throw new Error(`unknown agent: ${session.agentId}`);
     }
-    const status = this.deps.detector.list().find((candidate) => candidate.id === provider.id);
+    let status = this.deps.detector.list().find((candidate) => candidate.id === provider.id);
     // With a launch override in force every provider is the same test process
     // and the machine's PATH says nothing about it — the same reasoning the
     // options probe states above. Without this an agent whose adapter is a
@@ -1208,7 +1208,14 @@ export class SessionManager {
     // any machine that has not installed it, fake agent or not.
     const overridden = Boolean(this.deps.launchOverride?.(provider.id));
     if (!overridden && !provider.launchWithoutBinary && status && !status.installed) {
-      throw new Error(`${provider.name} is not installed`);
+      // "Not installed" is only a verdict from this launch's probe: the last launch's row may
+      // predate an install, and a restored session auto-loads before the probe lands. Wait for
+      // it; past the bound the spawn's own failure says what is missing.
+      const fresh = await this.deps.detector.freshWithin(PROBE_WAIT_MS);
+      status = fresh?.find((candidate) => candidate.id === provider.id);
+      if (status && !status.installed) {
+        throw new Error(`${provider.name} is not installed`);
+      }
     }
     // A worktree removed from Settings, or from a terminal, while its thread
     // was closed. The adapter would fail to spawn with an ENOENT naming an

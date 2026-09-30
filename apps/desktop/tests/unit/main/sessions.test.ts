@@ -1085,6 +1085,54 @@ describe("SessionManager", () => {
   });
 
   /**
+   * A warm launch holds the last launch's table until the probe lands, and a
+   * restored session auto-loads before that. An `installed: false` in it is a
+   * guess (the CLI may have been installed since), not a reason to refuse.
+   */
+  it("does not refuse an agent as not installed on the last launch's row before this launch's probe lands", async () => {
+    const gemini = AGENT_PROVIDERS.find((provider) => provider.id === "gemini-cli")!;
+    const staleRow = {
+      ...gemini,
+      installed: false,
+      binaryPath: null,
+      version: null,
+      auth: "unknown" as const,
+      checkedAt: 1,
+    };
+    // The shell answers only once the load is under way; this launch finds the CLI.
+    let release: () => void = () => {};
+    const shell = new Promise<{ PATH: string }>((resolve) => {
+      release = () => resolve({ PATH: "/usr/local/bin" });
+    });
+    const detector = new AgentDetector(
+      [gemini],
+      {
+        env: () => shell,
+        isExecutable: async (file) => file === "/usr/local/bin/gemini",
+        exists: async () => false,
+        exec: async () => ({ stdout: "1.0.0", stderr: "", code: 0 }),
+        homeDir: () => os.homedir(),
+        platform: process.platform,
+      },
+      { read: () => [staleRow], write: () => {} },
+    );
+    // The row is made by a manager with a settled detector, and loaded by one that is still warming.
+    const { manager: creator, repo, cwd } = await setup();
+    const session = await creator.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    creator.close(session.id);
+    repo.upsert({ ...repo.get(session.id)!, agentId: "gemini-cli" });
+    await rm(cwd, { recursive: true, force: true });
+    const { manager } = await setup({ detector, repo });
+
+    // Past the refusal the missing directory is the next thing `connect` says; no agent starts.
+    const loading = manager.load(session.id).catch((error: unknown) => error);
+    release();
+    const failure = await loading;
+    expect(String(failure)).not.toMatch(/not installed/);
+    expect(String(failure)).toMatch(/directory no longer exists/);
+  });
+
+  /**
    * Closing kills the adapter, and the SDK then rejects the turn that was
    * running. That rejection is the closed connection's, not the session's:
    * the row stays `closed` (so the next click reconnects), its place in the

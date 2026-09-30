@@ -10,7 +10,7 @@ import { IpcError, broadcast, type IpcContext } from "./register";
 import type { IpcHandlers } from "../../shared/ipc";
 import type { agentsContract } from "../../shared/ipc/agents";
 import { settingsAgentsCache } from "../agents/cache";
-import { AgentDetector } from "../agents/detect";
+import { AgentDetector, PROBE_WAIT_MS } from "../agents/detect";
 import { appVersion } from "../app-paths";
 import { settings } from "../db/repositories";
 import { JobRunner } from "../agents/jobs";
@@ -36,7 +36,7 @@ const jobs = new JobRunner(
  * with the window (`prewarmAgents` in `./acp.ts`), so by the time the renderer
  * asks it is usually done or nearly; this bounds a slow login shell.
  */
-export const COLD_LIST_WAIT_MS = 3_000;
+export const COLD_LIST_WAIT_MS = PROBE_WAIT_MS;
 
 export const agentsHandlers = {
   agents: {
@@ -63,7 +63,10 @@ export const agentsHandlers = {
         throw new IpcError(`unknown agent: ${agentId}`);
       }
       const env = await detector.environment();
-      const status = detector.list().find((candidate) => candidate.id === agentId);
+      // Not the last launch's row: a CLI installed since has no `binaryPath` there. Past the wait
+      // the stale row is all there is, and the login starts from the argv as before.
+      const table = (await detector.freshWithin(COLD_LIST_WAIT_MS)) ?? detector.list();
+      const status = table.find((candidate) => candidate.id === agentId);
       try {
         const job = startLogin(jobs, provider, status?.binaryPath ?? null, env);
         return { jobId: job.id };
