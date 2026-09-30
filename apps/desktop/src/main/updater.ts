@@ -242,7 +242,7 @@ export async function downloadUpdate(): Promise<UpdateStatus> {
     await autoUpdater.downloadUpdate();
     return status;
   } catch (error) {
-    return setStatus({ state: "error", message: message(error) });
+    return setStatus({ state: "error", message: message(error, "download") });
   }
 }
 
@@ -290,15 +290,21 @@ const UNREACHABLE = /net::ERR_|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIME
  * production release exists", so the known cases get a sentence of their own
  * and anything else keeps its first line and nothing after it.
  */
-function message(error: unknown): string {
+function message(error: unknown, doing: "check" | "download" = "check"): string {
   const raw = error instanceof Error ? error.message : String(error);
-  if (UNREACHABLE.test(raw)) {
-    return "Could not reach GitHub to check for updates.";
+  const firstLine = raw.split(/\r?\n/, 1)[0]!.trim();
+  // The first line and the error's own code, not the whole text: a feed that
+  // merely mentions ECONNRESET further down is not a dropped connection.
+  const code = (error as { code?: unknown } | null)?.code;
+  if (UNREACHABLE.test(firstLine) || (typeof code === "string" && UNREACHABLE.test(code))) {
+    return doing === "download"
+      ? "Could not reach GitHub to download the update."
+      : "Could not reach GitHub to check for updates.";
   }
   if (/unable to find latest version on github/i.test(raw)) {
     // The provider wraps every failure in that sentence; only a 404 is "there
     // is no release". A 5xx or a 429 is GitHub having a bad minute.
     return /HttpError: 404\b/.test(raw) ? "No release is published yet." : "GitHub did not answer the update check.";
   }
-  return raw.split(/\r?\n/, 1)[0]!.trim();
+  return firstLine;
 }

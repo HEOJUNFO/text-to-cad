@@ -184,6 +184,27 @@ describe("updater", () => {
     updater.stopUpdater();
   });
 
+  it("words a failed download as a download, not a check", async () => {
+    const updater = await load();
+    autoUpdater.emit("update-available", { version: "2.0.0" });
+    mocks.downloadUpdate.mockRejectedValue(new Error("net::ERR_CONNECTION_RESET"));
+    expect(await updater.downloadUpdate()).toEqual({
+      state: "error",
+      message: "Could not reach GitHub to download the update.",
+    });
+    updater.stopUpdater();
+  });
+
+  it("reads the first line and the code for a dropped connection, not the whole text", async () => {
+    const updater = await load();
+    autoUpdater.emit("error", new Error("The feed was not valid\n    at parse (ECONNRESET.js:1:1)"));
+    expect(updater.updateStatus()).toEqual({ state: "error", message: "The feed was not valid" });
+
+    autoUpdater.emit("error", Object.assign(new Error("read failed"), { code: "ECONNRESET" }));
+    expect(updater.updateStatus().message).toBe("Could not reach GitHub to check for updates.");
+    updater.stopUpdater();
+  });
+
   it("a background check that fails leaves the offered update on offer", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const updater = await load();
