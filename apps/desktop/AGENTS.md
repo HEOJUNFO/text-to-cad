@@ -356,6 +356,13 @@ the rule is about.
   when the create made a fresh worktree and not when it was handed one
   (`New session in this worktree`); `boot` and `abandonCreate` release only
   the worktrees that flag names.
+- **A relayed command reports possible completion on abort or timeout.**
+  Once `RendererCommands.request` has sent a command the window may have
+  applied it, so a timeout says the command "may still complete", an abort
+  after the send says it "may already have been applied", and the bridge says
+  "was applied, but the request was aborted before the reply" for a handler
+  that finished first; none reads as a failure with nothing done
+  (`tests/unit/main/mcp-bridge.test.ts`).
 - **The terminals an agent can create are capped, and the cap is checked
   before the pty is registered.** `Terminals.create` takes `maxPerSession`
   (16 for `create_terminal`, counting every pty of the session, the person's

@@ -1207,7 +1207,13 @@ PDF.js's real worker, text selection and capture in Playwright's Chromium.
 A file tab keeps its `file` kind and chooses a renderer: CAD, PDF, Markdown,
 code, image or unsupported. The `documents` integration reads the live text
 buffer, including unsaved typing, and requires its revision before replacing
-or saving it. Tab/session switches retain drafts and inactive read snapshots;
+or saving it. `read_document` returns at most 2 MiB of characters
+(`MAX_DOCUMENT_CHARS`, held equal to the renderer's `MAX_BRIDGE_DOCUMENT_CHARS`
+by `live-documents.test.ts`); past that `truncated` and `note` lead the JSON,
+ahead of `content`, so a client that clips the tail keeps them, the cut backs
+off a split surrogate pair, and the revision still names the whole buffer. A
+buffer over the cap cannot be edited through the bridge — the edit is refused
+and the person edits it in the editor. Tab/session switches retain drafts and inactive read snapshots;
 reactivate a text file before editing or saving. A text file over 4 MiB
 (`MAX_TEXT_BYTES` in `src/main/explorer/fs.ts`) opens read-only, cut at the
 cap, and one whose bytes are not UTF-8 opens read-only too — a save would
@@ -1225,7 +1231,9 @@ process or lose its scrollback. The `terminals` integration creates, reads,
 writes and stops those same PTYs through scoped tab IDs. Reads return an output
 sequence and input revision; writes require both, preventing a tool from racing
 new output or user typing. Closing a terminal releases its process; stopping
-it leaves the output available until close. A provider's own shell tool has
+it leaves the output available until close. `stop_terminal` signals the shell
+and waits up to two seconds: `exited: true` with the `exitCode`, or `exited:
+false` when the program is still running. A provider's own shell tool has
 separate process IDs and does not automatically create a text-to-cad terminal tab.
 A session holds at most 16 ptys, stopped ones and the person's own included
 (each keeps its scrollback until its tab closes); `create_terminal` refuses past
