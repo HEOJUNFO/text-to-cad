@@ -10,8 +10,9 @@
  *
  * Local only: the listener is 127.0.0.1 on an OS-assigned port, and a request
  * without a live session's token is refused before its body is read. A token
- * is minted per session (`tokenFor`) and forgotten when the session is
- * deleted, so a server left running by a dead agent cannot act on a later one.
+ * is minted per session and integration (`tokenFor`) and forgotten when the
+ * session is archived, closed or deleted (`revoke`), so a server left running
+ * by a dead agent cannot act on a later one.
  */
 import { randomBytes } from "node:crypto";
 import http from "node:http";
