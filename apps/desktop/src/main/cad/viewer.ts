@@ -234,6 +234,12 @@ export class ViewerManager extends EventEmitter {
     if (!resolved) {
       return { origin: null, reason: "runtime-not-ready" };
     }
+    // A stop while the runtime resolved (a probe can take seconds) already
+    // let the next ask start its own launch; spawning here too would race it
+    // and overwrite its `launching` child.
+    if (generation !== this.stopGeneration(root)) {
+      return { origin: null, reason: "viewer-failed", message: new StoppedWhileLaunching(root).message };
+    }
     try {
       const entry = await this.start(root, resolved, 0, generation);
       return { origin: entry.origin };
