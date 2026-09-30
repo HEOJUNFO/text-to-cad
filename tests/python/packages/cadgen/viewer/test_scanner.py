@@ -18,6 +18,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from cadgen.viewer import scanner
 from cadgen.viewer.scanner import (
     CAD_CATALOG_SCHEMA_VERSION,
     is_served_cad_asset,
@@ -107,13 +108,6 @@ class ArtifactsOnly(ScannerTestCase):
     def test_the_schema_version_is_4(self):
         self.assertEqual(scan_cad_directory(self.root)["schemaVersion"], 4)
         self.assertEqual(CAD_CATALOG_SCHEMA_VERSION, 4)
-
-    def test_a_depth_bound_scan_lists_only_that_many_levels(self):
-        # A viewer rooted at a model's own folder must not walk what is below it.
-        self.write("top.dxf", "0\nSECTION\n")
-        self.write("nested/deeper.dxf", "0\nSECTION\n")
-        self.assertEqual(sorted(entry["file"] for entry in scan_cad_directory(self.root)["entries"]), ["nested/deeper.dxf", "top.dxf"])
-        self.assertEqual([entry["file"] for entry in scan_cad_directory(self.root, max_depth=0)["entries"]], ["top.dxf"])
 
     def test_a_falsy_root_raises_and_a_missing_one_scans_empty(self):
         with self.assertRaises(ValueError):
@@ -563,6 +557,44 @@ class WalkRules(ScannerTestCase):
         for name in ("j.json", "k.js", "l.txt", "m.py", "n", "o.stepx"):
             self.write(name, "x")
         self.assertEqual(len(self.scan()), 9)
+
+
+class ListingCache(ScannerTestCase):
+    """A walk reads a directory again only when the directory has changed."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        scanner._LISTINGS.clear()
+
+    def settle(self, *relatives: str) -> None:
+        """Directories last written long ago, whose listings a walk may remember."""
+        for relative in ("", *relatives):
+            os.utime(os.path.join(self.root, relative), ns=(1_000_000_000, 1_000_000_000))
+
+    def test_an_unchanged_directory_is_not_read_again(self):
+        self.write("parts/a.stl", "x")
+        self.settle("parts")
+        self.files()
+        with mock.patch("cadgen.viewer.scanner.os.scandir", wraps=os.scandir) as scandir:
+            self.assertEqual(self.files(), ["parts/a.stl"])
+        self.assertEqual(scandir.call_count, 0)
+
+    def test_a_change_to_a_directory_is_seen(self):
+        self.write("parts/a.stl", "x")
+        self.settle("parts")
+        self.files()
+        self.write("parts/b.stl", "x")
+        self.assertEqual(self.files(), ["parts/a.stl", "parts/b.stl"])
+
+    def test_a_listing_read_just_after_a_change_is_not_remembered(self):
+        # A coarse clock gives a second change in the same tick the same mtime.
+        self.write("parts/a.stl", "x")
+        folder = os.path.join(self.root, "parts")
+        stamp = os.stat(folder).st_mtime_ns
+        self.files()
+        self.write("parts/b.stl", "x")
+        os.utime(folder, ns=(stamp, stamp))
+        self.assertEqual(self.files(), ["parts/a.stl", "parts/b.stl"])
 
 
 class NaturalOrder(ScannerTestCase):

@@ -19,8 +19,9 @@ FIDELITY NOTES (each one is a place a "natural" Python spelling diverges)
   match.
 * Directory symlinks are followed ON PURPOSE. ``Dirent.isDirectory()`` is false
   for a link, which is why link targets get an explicit follow-stat here too;
-  loops terminate on a set of visited REAL directory paths, with the depth cap
-  as the outer guard.
+  loops terminate on a set of visited directories -- each one's (device, inode),
+  which names the directory a real path would -- with the depth cap as the outer
+  guard.
 * Walk order is ``readdir`` sorted by JS string comparison, which is UTF-16
   CODE-UNIT order. Python's ``sorted`` is code-POINT order and the two disagree
   above U+E000, so names sort on their UTF-16-BE encoding. This leaks into the
@@ -42,6 +43,7 @@ import os
 import re
 import stat as stat_module
 import threading
+import time
 
 
 from .content_types import extension_of
@@ -63,8 +65,10 @@ __all__ = [
     "VIEWER_SKIPPED_DIRECTORIES",
     "asset_for_path",
     "catalog_input_fingerprint",
+    "catalog_lists",
     "is_hidden_name",
     "is_served_cad_asset",
+    "list_cad_directory",
     "path_is_inside",
     "node_basename",
     "path_relative",
@@ -73,6 +77,7 @@ __all__ = [
     "relative_path_stays_inside_root",
     "repo_relative_path",
     "scan_cad_directory",
+    "scan_cad_files",
     "sort_catalog_entries",
     "source_format_for_path",
     "step_kind_from_topology",
@@ -357,55 +362,107 @@ def _node_decoded_name(name: str) -> str:
     return name
 
 
-def _collect_cad_source_files(
-    root_path: str, result: list, visited=None, depth: int = 0, max_depth: int = SCAN_MAX_DEPTH
-) -> list:
-    if depth > max_depth:
-        return result
+# A directory's walkable children, remembered by the directory's own (device,
+# inode, mtime): an entry is added, removed or renamed only by writing its
+# directory, which moves that mtime. The catalog is polled every 2 s and walked
+# twice a poll, so an unchanged directory costs one stat instead of a read.
+# Links are the exception: kept as links and resolved on every walk, because a
+# link's target can change kind without its directory changing. A listing read
+# within _RACY_NS of its directory's last change is not remembered: a change in
+# that same tick of a coarse clock (FAT keeps mtimes to 2 s) would leave the mtime
+# where it was, and a listing cached across it would miss the change for good.
+_LISTINGS: dict[str, tuple[tuple[int, int, int], tuple[tuple[str, str], ...]]] = {}
+_LISTINGS_LIMIT = 65536
+_LISTINGS_LOCK = threading.Lock()
+_RACY_NS = 2_000_000_000
+
+
+def _directory_listing(path: str, st) -> tuple[tuple[str, str], ...] | None:
+    """``(name, kind)`` for what a walk of ``path`` visits, in walk order.
+
+    ``kind`` is ``directory``, ``file`` or ``link``; skipped directories, hidden
+    and non-CAD files are left out, links (whose kind a walk decides) are not.
+    """
+    stamp = (st.st_dev, st.st_ino, st.st_mtime_ns)
+    with _LISTINGS_LOCK:
+        cached = _LISTINGS.get(path)
+    if cached is not None and cached[0] == stamp:
+        return cached[1]
+    listed_at = time.time_ns()
     try:
-        real_root = os.path.realpath(root_path, strict=True)
-    except (OSError, ValueError):
-        return result
-    if visited is None:
-        visited = set()
-    if real_root in visited:
-        # An earlier-sorted alias of a directory therefore HIDES the real one.
-        # That is the flip side of the loop guard, not a separate rule.
-        return result
-    visited.add(real_root)
-    try:
-        with os.scandir(root_path) as scan:
+        with os.scandir(path) as scan:
             # Node sorts the DECODED names, so decode first and sort on that.
             entries = sorted(
                 ((_node_decoded_name(entry.name), entry) for entry in scan),
                 key=lambda pair: _walk_sort_key(pair[0]),
             )
     except (OSError, ValueError):
-        return result
+        return None
+    children = []
     for name, entry in entries:
-        entry_path = os.path.join(root_path, name)
         try:
-            is_directory = entry.is_dir(follow_symlinks=False)
-            is_file = entry.is_file(follow_symlinks=False)
-            is_symlink = entry.is_symlink()
+            if entry.is_symlink():
+                kind = "link"
+            elif entry.is_dir(follow_symlinks=False):
+                kind = None if _should_skip_directory(name) else "directory"
+            elif entry.is_file(follow_symlinks=False):
+                kind = "file" if _is_listed_file(name) else None
+            else:
+                kind = None
         except OSError:
             continue
-        if is_symlink:
+        if kind is not None:
+            children.append((name, kind))
+    listing = tuple(children)
+    if listed_at - st.st_mtime_ns > _RACY_NS:
+        with _LISTINGS_LOCK:
+            if len(_LISTINGS) >= _LISTINGS_LIMIT:
+                _LISTINGS.clear()
+            _LISTINGS[path] = (stamp, listing)
+    return listing
+
+
+def _is_listed_file(name: str) -> bool:
+    return not is_hidden_name(name) and extension_of(name) in SOURCE_EXTENSIONS
+
+
+def _directory_identity(path: str, st) -> tuple:
+    # Some Windows filesystems report no file index; their real path names them instead.
+    return (st.st_dev, st.st_ino) if st.st_ino else ("path", os.path.normcase(os.path.realpath(path)))
+
+
+def _collect_cad_source_files(root_path: str, result: list, visited=None, depth: int = 0) -> list:
+    if depth > SCAN_MAX_DEPTH:
+        return result
+    try:
+        st = os.stat(root_path)
+    except (OSError, ValueError):
+        return result
+    if visited is None:
+        visited = set()
+    identity = _directory_identity(root_path, st)
+    if identity in visited:
+        # An earlier-sorted alias of a directory therefore HIDES the real one.
+        # That is the flip side of the loop guard, not a separate rule.
+        return result
+    visited.add(identity)
+    listing = _directory_listing(root_path, st)
+    if listing is None:
+        return result
+    for name, kind in listing:
+        entry_path = os.path.join(root_path, name)
+        if kind == "link":
             try:
                 target = os.stat(entry_path)
             except (OSError, ValueError):
                 continue  # broken link
-            is_directory = stat_module.S_ISDIR(target.st_mode)
-            is_file = stat_module.S_ISREG(target.st_mode)
-        if is_directory:
-            if not _should_skip_directory(name):
-                _collect_cad_source_files(entry_path, result, visited, depth + 1, max_depth)
-            continue
-        if not is_file:
-            continue
-        if is_hidden_name(name):
-            continue
-        if extension_of(name) in SOURCE_EXTENSIONS:
+            if stat_module.S_ISDIR(target.st_mode):
+                kind = "directory" if not _should_skip_directory(name) else ""
+            elif stat_module.S_ISREG(target.st_mode) and _is_listed_file(name):
+                kind = "file"
+        if kind == "directory":
+            _collect_cad_source_files(entry_path, result, visited, depth + 1)
+        elif kind == "file":
             result.append(entry_path)
     return result
 
@@ -736,18 +793,19 @@ def is_served_cad_asset(file_path) -> bool:
 # --- public scan API ------------------------------------------------------
 
 
-def scan_cad_directory(
-    repo_root, *, preferred_file=None, defer_unpreferred=False, max_depth: int = SCAN_MAX_DEPTH
-) -> dict:
-    """Scan one directory. It is its own root — a viewer serves exactly one.
+def _catalog_entry(repo_root, root_path: str, source_path: str) -> dict:
+    extension = extension_of(source_path)
+    if extension in (".step", ".stp"):
+        return _create_step_entry(repo_root, root_path, source_path, extension)
+    return _create_single_asset_entry(repo_root, root_path, source_path, extension)
 
-    ``max_depth`` bounds how many directory levels below the root are walked
-    (0: the root's own files only).
-    """
+
+def scan_cad_directory(repo_root, *, preferred_file=None, defer_unpreferred=False) -> dict:
+    """Scan one directory. It is its own root — a viewer serves exactly one."""
     if not repo_root:
         raise ValueError("repoRoot is required")
     root_path = os.path.abspath(repo_root)
-    source_files = _collect_cad_source_files(root_path, [], max_depth=max_depth)
+    source_files = _collect_cad_source_files(root_path, [])
     preferred_path = None
     if preferred_file:
         preferred_text = str(preferred_file).replace("\\", os.sep)
@@ -762,14 +820,70 @@ def scan_cad_directory(
                 "catalogPending": True,
             })
             continue
-        extension = extension_of(source_path)
-        if extension in (".step", ".stp"):
-            entries.append(_create_step_entry(repo_root, root_path, source_path, extension))
-        else:
-            entries.append(
-                _create_single_asset_entry(repo_root, root_path, source_path, extension)
-            )
+        entries.append(_catalog_entry(repo_root, root_path, source_path))
     return {
         "schemaVersion": CAD_CATALOG_SCHEMA_VERSION,
         "entries": sort_catalog_entries(entries),
     }
+
+
+def catalog_lists(root_path, file_path) -> bool:
+    """Whether a catalog of ``root_path`` lists ``file_path``: a CAD file inside it,
+    with no folder between them that the walk skips, within the walk's depth."""
+    folder = real_path_or(os.path.dirname(os.path.abspath(file_path)))
+    relative = path_relative(real_path_or(os.path.abspath(root_path)), folder)
+    if not relative_path_stays_inside_root(relative) or not _is_listed_file(node_basename(str(file_path))):
+        return False
+    folders = relative.split(os.sep) if relative else []
+    return len(folders) <= SCAN_MAX_DEPTH and not any(_should_skip_directory(part) for part in folders)
+
+
+def scan_cad_files(repo_root, files) -> dict:
+    """The catalog of ``files`` alone: each one under ``repo_root`` that is a CAD file.
+
+    For a root too big to walk -- a whole filesystem -- whose catalog is only the
+    files a view is showing. A file under a hidden or skipped folder is listed:
+    it was named, not found.
+    """
+    root_path = os.path.abspath(repo_root)
+    entries = []
+    for file in files:
+        text = str(file or "").replace("\\", os.sep)
+        if not text:
+            continue
+        source_path = os.path.abspath(text if os.path.isabs(text) else os.path.join(root_path, text))
+        if path_is_inside(source_path, root_path) and _is_listed_file(node_basename(source_path)) \
+                and _file_stats(source_path) is not None:
+            entries.append(_catalog_entry(repo_root, root_path, source_path))
+    return {
+        "schemaVersion": CAD_CATALOG_SCHEMA_VERSION,
+        "entries": sort_catalog_entries(entries),
+    }
+
+
+# A file chooser's rule rather than a catalog's: every folder is there to open,
+# except hidden ones and the ones cadgen and Python keep caches in.
+_UNLISTED_FOLDERS = frozenset({"__cadgen__", "__pycache__"})
+
+
+def list_cad_directory(directory: str) -> list[dict]:
+    """The folders and CAD files directly in ``directory``, as ``{name, kind}``, in walk order.
+
+    Links are followed; broken ones and hidden names are left out. Raises
+    ``OSError`` for a directory that cannot be read.
+    """
+    listed = []
+    with os.scandir(directory) as scan:
+        entries = sorted(((_node_decoded_name(entry.name), entry) for entry in scan), key=lambda pair: _walk_sort_key(pair[0]))
+    for name, entry in entries:
+        if is_hidden_name(name):
+            continue
+        try:
+            if entry.is_dir():
+                if name not in _UNLISTED_FOLDERS:
+                    listed.append({"name": name, "kind": "directory"})
+            elif entry.is_file() and extension_of(name) in SOURCE_EXTENSIONS:
+                listed.append({"name": name, "kind": "file"})
+        except OSError:
+            continue
+    return listed
