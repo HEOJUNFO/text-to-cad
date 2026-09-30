@@ -520,7 +520,13 @@ blockmaps and `latest*.yml` feeds as peer assets. None of those build outputs
 is committed. `src/main/updater.ts` checks ten seconds after
 launch and every six hours, with `autoDownload` off: the app says an update
 exists and downloads when asked. Settings › About and updates is the whole UI.
-Development builds report `unsupported` and check nothing.
+Development builds report `unsupported` and check nothing; so does an install the
+updater is inactive for (an AppImage run without `APPIMAGE`, a snap), whose check
+answers with no result. `idle` means the feed said there is nothing newer.
+Restart pushes an `installing` status (the row reads "Restarting…" and stays
+off) until the quit; if neither the quit nor an installer error arrives within a
+minute the status becomes an `error` that keeps the staged version, and Restart
+can be pressed again.
 
 electron-updater reads the latest *published* Release, so one without a
 platform's feed would strand every installed app on that platform. A run whose

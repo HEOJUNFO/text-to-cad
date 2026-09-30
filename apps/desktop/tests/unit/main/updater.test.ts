@@ -33,6 +33,8 @@ vi.mock("electron-updater", async () => {
 vi.mock("@main/ipc", () => ({ broadcast: mocks.broadcast }));
 vi.mock("@main/db/repositories", () => ({ settings: { get: () => mocks.settings } }));
 
+const INSTALL_DEADLINE_MS = 60_000;
+
 async function load() {
   // The fake updaters outlive `resetModules`: without this, an earlier test's
   // module would still be listening to them.
@@ -128,6 +130,27 @@ describe("updater", () => {
     updater.stopUpdater();
   });
 
+  it("an install that neither quits nor errors is called stuck after a minute, and Restart can be pressed again", async () => {
+    const updater = await load();
+    autoUpdater.emit("update-downloaded", { version: "2.0.0" });
+    mocks.quitAndInstall.mockImplementation(() => undefined);
+    updater.installUpdate();
+    expect(updater.updateStatus()).toEqual({ state: "installing", version: "2.0.0" });
+    await vi.advanceTimersByTimeAsync(INSTALL_DEADLINE_MS - 1);
+    expect(updater.updateStatus().state).toBe("installing");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(updater.updateStatus()).toEqual({
+      state: "error",
+      message: "The update did not start; try Restart again.",
+      version: "2.0.0",
+    });
+
+    updater.installUpdate();
+    expect(mocks.quitAndInstall).toHaveBeenCalledTimes(2);
+    expect(updater.updateStatus().state).toBe("installing");
+    updater.stopUpdater();
+  });
+
   it("shows one line of an error, never its stack", async () => {
     const updater = await load();
     autoUpdater.emit("error", new Error("x\n    at foo (file:1:1)"));
@@ -149,6 +172,48 @@ describe("updater", () => {
     updater.stopUpdater();
   });
 
+  it("does not call a GitHub 5xx 'no release is published yet'", async () => {
+    const updater = await load();
+    autoUpdater.emit(
+      "error",
+      new Error(
+        "Unable to find latest version on GitHub (https://github.com/o/r/releases/latest), please ensure a production release exists: HttpError: 503 Service Unavailable\n    at x",
+      ),
+    );
+    expect(updater.updateStatus()).toEqual({ state: "error", message: "GitHub did not answer the update check." });
+    updater.stopUpdater();
+  });
+
+  it("words a failed download as a download, not a check", async () => {
+    const updater = await load();
+    autoUpdater.emit("update-available", { version: "2.0.0" });
+    mocks.downloadUpdate.mockRejectedValue(new Error("net::ERR_CONNECTION_RESET"));
+    expect(await updater.downloadUpdate()).toEqual({
+      state: "error",
+      message: "Could not reach GitHub to download the update.",
+    });
+    updater.stopUpdater();
+  });
+
+  it("reads the first line and the code for a dropped connection, not the whole text", async () => {
+    const updater = await load();
+    autoUpdater.emit("error", new Error("The feed was not valid\n    at parse (ECONNRESET.js:1:1)"));
+    expect(updater.updateStatus()).toEqual({ state: "error", message: "The feed was not valid" });
+
+    autoUpdater.emit("error", Object.assign(new Error("read failed"), { code: "ECONNRESET" }));
+    expect(updater.updateStatus().message).toBe("Could not reach GitHub to check for updates.");
+    updater.stopUpdater();
+  });
+
+  it("a check the updater answers with nothing is unsupported, not up to date", async () => {
+    const updater = await load();
+    mocks.check.mockResolvedValue(null);
+    const answer = await updater.checkForUpdates();
+    expect(answer.state).toBe("unsupported");
+    expect(answer.message).toMatch(/no update channel/);
+    updater.stopUpdater();
+  });
+
   it("a background check that fails leaves the offered update on offer", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const updater = await load();
@@ -162,6 +227,36 @@ describe("updater", () => {
     autoUpdater.emit("update-not-available", { version: "1.0.0" });
     expect(updater.updateStatus()).toEqual({ state: "idle" });
     warn.mockRestore();
+    updater.stopUpdater();
+  });
+
+  /** An offered 2.0.0 whose download is under way, as a check that started earlier is still pending. */
+  async function downloading() {
+    const updater = await load();
+    autoUpdater.emit("update-available", { version: "2.0.0" });
+    mocks.downloadUpdate.mockImplementation(() => new Promise<undefined>(() => undefined));
+    void updater.downloadUpdate();
+    autoUpdater.emit("download-progress", { percent: 10 });
+    return updater;
+  }
+
+  it("a check that fails while a download runs leaves the download running", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const updater = await downloading();
+    autoUpdater.emit("error", new Error("net::ERR_INTERNET_DISCONNECTED"));
+    expect(updater.updateStatus()).toEqual({ state: "downloading", version: "2.0.0", percent: 10 });
+    autoUpdater.emit("download-progress", { percent: 20 });
+    expect(updater.updateStatus()).toEqual({ state: "downloading", version: "2.0.0", percent: 20 });
+    warn.mockRestore();
+    updater.stopUpdater();
+  });
+
+  it("a check that finds nothing while a download runs leaves the download running", async () => {
+    const updater = await downloading();
+    autoUpdater.emit("update-not-available", { version: "1.0.0" });
+    expect(updater.updateStatus()).toEqual({ state: "downloading", version: "2.0.0", percent: 10 });
+    autoUpdater.emit("download-progress", { percent: 20 });
+    expect(updater.updateStatus()).toEqual({ state: "downloading", version: "2.0.0", percent: 20 });
     updater.stopUpdater();
   });
 

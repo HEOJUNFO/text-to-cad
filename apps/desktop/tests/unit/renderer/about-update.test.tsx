@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
@@ -39,6 +39,21 @@ describe("About › Software update", () => {
     expect(restart).toHaveTextContent("Restarting…");
   });
 
+  it("Restart stays disabled and reads Restarting… after main has answered, until the quit or an error", async () => {
+    app().installUpdate = vi.fn(async () => undefined);
+    renderAbout();
+    await userEvent.click(screen.getByRole("button", { name: /Restart/ }));
+    const restarting = await screen.findByRole("button", { name: "Restarting…" });
+    expect(restarting).toBeDisabled();
+    expect(useUpdates.getState().busy).toBe(false);
+
+    // main gave up on it: the row is an error again, with Restart to retry.
+    act(() => {
+      useUpdates.getState().receive({ state: "error", message: "The update did not start; try Restart again.", version: "2.0.0" });
+    });
+    expect(screen.getByRole("button", { name: /Restart/ })).toBeEnabled();
+  });
+
   it("a failing install lands as an error status instead of an unhandled rejection", async () => {
     app().installUpdate = vi.fn(async () => {
       throw new Error("ipc went away");
@@ -65,6 +80,10 @@ describe("About › Software update", () => {
   it("exposes the download as a named progress bar", () => {
     useUpdates.setState({ status: { state: "downloading", version: "2.0.0", percent: 40 } });
     renderAbout();
+    // The live region is not rewritten by every progress event.
+    expect(screen.getByRole("status")).toHaveTextContent("Downloading 2.0.0…");
+    expect(screen.getByRole("status").textContent).not.toMatch(/\d+%/);
+    expect(screen.getByText("40%")).toBeInTheDocument();
     const bar = screen.getByRole("progressbar", { name: /download/i });
     expect(bar).toHaveAttribute("aria-valuenow", "40");
     expect(bar).toHaveAttribute("aria-valuemin", "0");
@@ -76,13 +95,19 @@ describe("About › Software update", () => {
     expect(screen.getByRole("button", { name: /Restart.*2\.0\.0/ })).toBeInTheDocument();
   });
 
-  it("a check that finds nothing says so, without claiming the build is up to date", async () => {
+  it("a check that finds nothing says the build is up to date", async () => {
     app().checkForUpdates = vi.fn(async () => ({ state: "idle" as const }));
     useUpdates.setState({ status: { state: "idle" } });
     renderAbout();
     await userEvent.click(screen.getByRole("button", { name: "Check now" }));
     await waitFor(() => expect(app().checkForUpdates).toHaveBeenCalled());
-    expect(screen.getByRole("status")).toHaveTextContent("No update found.");
-    expect(screen.queryByText(/up to date/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("text-to-cad is up to date.");
+  });
+
+  it("an install the updater is inactive for does not claim to run from a checkout", () => {
+    useUpdates.setState({ status: { state: "unsupported", message: "This install has no update channel, so updates are not available." } });
+    renderAbout();
+    expect(screen.getByRole("status")).toHaveTextContent("This install has no update channel");
+    expect(screen.getByRole("status")).not.toHaveTextContent(/checkout/i);
   });
 });

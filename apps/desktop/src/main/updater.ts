@@ -35,8 +35,15 @@ const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 let status: UpdateStatus = { state: "unsupported" };
 let timers: NodeJS.Timeout[] = [];
-/** Between `installUpdate` and either the quit or the install's `error`. */
-let installing = false;
+/**
+ * How long a Restart may take before it is called stuck. Squirrel can need
+ * seconds on macOS; past a minute nothing is going to quit, and the row would
+ * otherwise say "Restarting…" until the next launch.
+ */
+export const INSTALL_DEADLINE_MS = 60_000;
+let installDeadline: NodeJS.Timeout | undefined;
+/** The version `update-downloaded` staged: what a retried Restart installs. */
+let staged: string | undefined;
 
 /** The last known status. Never asks the feed. */
 export function updateStatus(): UpdateStatus {
@@ -93,12 +100,18 @@ export function initUpdater() {
     if (status.state === "downloading") {
       return;
     }
-    if (status.state === "downloaded" && status.version === info.version) {
+    if ((status.state === "downloaded" || status.state === "installing") && status.version === info.version) {
       return;
     }
     setStatus({ state: "available", version: info.version });
   });
-  autoUpdater.on("update-not-available", () => setStatus({ state: "idle" }));
+  autoUpdater.on("update-not-available", () => {
+    // A check that overlaps a download (the six-hourly one, answering after
+    // the Download press) finds nothing for the version already on its way.
+    if (!busyWithUpdate()) {
+      setStatus({ state: "idle" });
+    }
+  });
   autoUpdater.on("download-progress", (progress) =>
     setStatus({
       state: "downloading",
@@ -108,16 +121,17 @@ export function initUpdater() {
       percent: Math.min(100, Math.max(0, Math.round(progress.percent))),
     }),
   );
-  autoUpdater.on("update-downloaded", (info) =>
-    setStatus({ state: "downloaded", version: info.version }),
-  );
+  autoUpdater.on("update-downloaded", (info) => {
+    staged = info.version;
+    setStatus({ state: "downloaded", version: info.version });
+  });
   autoUpdater.on("error", (error) => {
+    const refusedInstall = status.state === "installing";
     failed(error);
     // An install that was refused (an unsigned or unverifiable update on
     // macOS, a failed installer spawn) did not quit, so the app carries on —
     // and so must its scheduled checks, which `installUpdate` stopped.
-    if (installing) {
-      installing = false;
+    if (refusedInstall) {
       scheduleChecks();
     }
   });
@@ -143,8 +157,10 @@ function scheduleChecks() {
   }
 }
 
-/** Stop the scheduled checks. Called on quit; safe to call twice. */
+/** Stop the scheduled checks and the install deadline. Called on quit; safe to call twice. */
 export function stopUpdater() {
+  clearTimeout(installDeadline);
+  installDeadline = undefined;
   for (const timer of timers) {
     clearTimeout(timer);
     clearInterval(timer);
@@ -167,9 +183,11 @@ export async function checkForUpdates(): Promise<UpdateStatus> {
     const result = await autoUpdater.checkForUpdates();
     // A check that finds nothing fires `update-not-available`, which has
     // already set the status; returning it rather than inventing one keeps the
-    // event stream and the answer identical.
+    // event stream and the answer identical. No result at all is the updater
+    // being inactive for this install (an AppImage run without APPIMAGE, a
+    // snap): that is not "up to date", it is "cannot be updated from here".
     if (!result) {
-      return setStatus({ state: "idle" });
+      return setStatus({ state: "unsupported", message: "This install has no update channel, so updates are not available." });
     }
     return status;
   } catch (error) {
@@ -177,9 +195,9 @@ export async function checkForUpdates(): Promise<UpdateStatus> {
   }
 }
 
-/** True while an update is downloading or downloaded and waiting for Restart. */
+/** True while an update is downloading, downloaded and waiting for Restart, or being installed. */
 function busyWithUpdate() {
-  return status.state === "downloading" || status.state === "downloaded";
+  return status.state === "downloading" || status.state === "downloaded" || status.state === "installing";
 }
 
 /**
@@ -194,6 +212,14 @@ export function isMissingFeedFile(error: unknown): boolean {
 }
 
 function failed(error: unknown): UpdateStatus {
+  // A check that fails while a download runs must not replace it: the
+  // download's own rejection sets its error (`downloadUpdate`), and the next
+  // progress event would otherwise restore `downloading` with no version. An
+  // install the updater refuses is the one error that does belong here.
+  if (busyWithUpdate() && status.state !== "installing") {
+    console.warn("[updater] ignoring an error while an update is in progress:", message(error));
+    return status;
+  }
   // `available` is only ever left by an answer or by `downloadUpdate`, which
   // moves to `downloading` first: an error here is a background check that
   // failed, and the update it found earlier is still there to download.
@@ -218,7 +244,7 @@ export async function downloadUpdate(): Promise<UpdateStatus> {
     await autoUpdater.downloadUpdate();
     return status;
   } catch (error) {
-    return setStatus({ state: "error", message: message(error) });
+    return setStatus({ state: "error", message: message(error, "download") });
   }
 }
 
@@ -229,12 +255,23 @@ export async function downloadUpdate(): Promise<UpdateStatus> {
 export function installUpdate() {
   // A second press while the first is under way: MacUpdater would add a second
   // `update-downloaded` listener and a second install while Squirrel is still
-  // fetching, and BaseUpdater's second `install` resets its own guard.
-  if (status.state !== "downloaded" || installing) {
+  // fetching, and BaseUpdater's second `install` resets its own guard. Once the
+  // deadline has called the first one stuck, the same press is a retry: the
+  // error carries the staged version.
+  const retry = status.state === "error" && staged !== undefined && status.version === staged;
+  if (status.state !== "downloaded" && !retry) {
     return;
   }
   stopUpdater();
-  installing = true;
+  // Pushed, so the row says "Restarting…" for as long as it is true instead of
+  // for the length of the IPC round trip.
+  setStatus({ state: "installing", version: staged });
+  installDeadline = setTimeout(() => {
+    installDeadline = undefined;
+    setStatus({ state: "error", message: INSTALL_STUCK, version: staged });
+    scheduleChecks();
+  }, INSTALL_DEADLINE_MS);
+  installDeadline.unref();
   // `isSilent` false: show the installer on Windows. BaseUpdater passes
   // `isSilent ? isForceRunAfter : autoRunAppAfterInstall` on to the installer,
   // so here the second argument does nothing and coming back up afterwards is
@@ -242,6 +279,8 @@ export function installUpdate() {
   // through Squirrel.
   autoUpdater.quitAndInstall(false, true);
 }
+
+const INSTALL_STUCK = "The update did not start; try Restart again.";
 
 /** What a socket says when GitHub could not be reached at all. */
 const UNREACHABLE = /net::ERR_|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH/;
@@ -253,13 +292,21 @@ const UNREACHABLE = /net::ERR_|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIME
  * production release exists", so the known cases get a sentence of their own
  * and anything else keeps its first line and nothing after it.
  */
-function message(error: unknown): string {
+function message(error: unknown, doing: "check" | "download" = "check"): string {
   const raw = error instanceof Error ? error.message : String(error);
-  if (UNREACHABLE.test(raw)) {
-    return "Could not reach GitHub to check for updates.";
+  const firstLine = raw.split(/\r?\n/, 1)[0]!.trim();
+  // The first line and the error's own code, not the whole text: a feed that
+  // merely mentions ECONNRESET further down is not a dropped connection.
+  const code = (error as { code?: unknown } | null)?.code;
+  if (UNREACHABLE.test(firstLine) || (typeof code === "string" && UNREACHABLE.test(code))) {
+    return doing === "download"
+      ? "Could not reach GitHub to download the update."
+      : "Could not reach GitHub to check for updates.";
   }
   if (/unable to find latest version on github/i.test(raw)) {
-    return "No release is published yet.";
+    // The provider wraps every failure in that sentence; only a 404 is "there
+    // is no release". A 5xx or a 429 is GitHub having a bad minute.
+    return /HttpError: 404\b/.test(raw) ? "No release is published yet." : "GitHub did not answer the update check.";
   }
-  return raw.split(/\r?\n/, 1)[0]!.trim();
+  return firstLine;
 }

@@ -29,6 +29,15 @@ describe("updates store", () => {
     expect(toast.error).toHaveBeenCalledTimes(1);
   });
 
+  it("shows the handler's sentence once, not Electron's invoke wrapper, on the row and not again in the toast", async () => {
+    app().checkForUpdates = vi.fn(async () => {
+      throw new Error("Error invoking remote method 'app.checkForUpdates': Error: GitHub did not answer the update check.");
+    });
+    await useUpdates.getState().check();
+    expect(useUpdates.getState().status).toEqual({ state: "error", message: "GitHub did not answer the update check." });
+    expect(toast.error).toHaveBeenCalledWith("Could not reach the updater");
+  });
+
   it("a rejected first read lands as an error status too", async () => {
     app().updateStatus = vi.fn(async () => {
       throw new Error("no handler");

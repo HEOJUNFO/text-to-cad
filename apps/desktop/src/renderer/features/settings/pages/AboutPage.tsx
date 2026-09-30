@@ -133,13 +133,14 @@ function UpdateRow() {
 
   const { description, action } = {
     unsupported: {
-      description: "Updates are delivered to installed builds; this one runs from a checkout.",
+      description: status.message ?? "Updates are delivered to installed builds; this one runs from a checkout.",
       action: null,
     },
     idle: {
-      // Also what a check answers when the updater is inactive or the feed is
-      // still being uploaded: "no update found" is true of all of them.
-      description: "No update found.",
+      // Also a release whose feed for this platform is still being uploaded:
+      // nothing newer is published for this build. An inactive updater is
+      // `unsupported`, not this.
+      description: "text-to-cad is up to date.",
       action: { label: "Check now", onClick: check },
     },
     checking: { description: "Checking GitHub Releases…", action: null },
@@ -148,7 +149,10 @@ function UpdateRow() {
       action: { label: "Download", onClick: download },
     },
     downloading: {
-      description: `Downloading${version}… ${Math.round(status.percent ?? 0)}%`,
+      // No number here: this is a polite live region, and a percentage that
+      // changes every second would be read out every second. The reading is the
+      // progress bar's (and is printed beside it, outside the region).
+      description: `Downloading${version}…`,
       action: null,
     },
     downloaded: {
@@ -157,9 +161,17 @@ function UpdateRow() {
       // version says which build the button installs.
       action: { label: "Restart", name: `Restart to install${version}`, onClick: install },
     },
+    // Main's state, not the IPC round trip: the button stays off for as long as
+    // the install is under way (a minute, at most — then it is an error).
+    installing: { description: `Restarting to install${version}…`, action: { label: "Restarting…", onClick: install, pending: true } },
     error: {
       description: clamp(status.message ?? "The update check failed."),
-      action: { label: "Try again", onClick: check },
+      // An install that did not start leaves the download staged: the retry is
+      // Restart, not another check.
+      action:
+        status.version !== undefined
+          ? { label: "Restart", name: `Restart to install${version}`, onClick: install }
+          : { label: "Try again", onClick: check },
     },
   }[status.state];
 
@@ -169,17 +181,21 @@ function UpdateRow() {
         action ? (
           <Button
             className="h-8"
-            aria-label={busy ? undefined : action.name}
-            disabled={busy}
+            aria-label={busy || action.pending ? undefined : action.name}
+            disabled={busy || action.pending}
             onClick={() => void action.onClick()}
             size="sm"
-            variant={status.state === "downloaded" ? "default" : "secondary"}
+            variant={status.state === "downloaded" || status.state === "installing" ? "default" : "secondary"}
           >
-            {busy && status.state === "downloaded" ? "Restarting…" : action.label}
+            {busy && action.onClick === install ? "Restarting…" : action.label}
           </Button>
         ) : (
           <span className="text-sm text-muted-foreground">
-            {status.state === "checking" || status.state === "downloading" ? "…" : "—"}
+            {status.state === "downloading"
+              ? `${Math.round(status.percent ?? 0)}%`
+              : status.state === "checking"
+                ? "…"
+                : "—"}
           </span>
         )
       }
