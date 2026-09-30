@@ -7,11 +7,11 @@ vi.mock("@renderer/state/drawings", () => ({ deleteDrawingScene: vi.fn() }));
 vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { error: vi.fn(), success: vi.fn(), dismiss: vi.fn() }) }));
 vi.mock("@renderer/state/live-documents", async (importOriginal) => {
   const actual = await importOriginal<typeof LiveDocuments>();
-  return { ...actual, hasDirtyDocument: vi.fn(actual.hasDirtyDocument) };
+  return { ...actual, hasDirtyDocument: vi.fn(actual.hasDirtyDocument), releaseDocumentTab: vi.fn(actual.releaseDocumentTab) };
 });
 
 import { toast } from "sonner";
-import { desktopLiveDocuments, hasDirtyDocument } from "@renderer/state/live-documents";
+import { desktopLiveDocuments, hasDirtyDocument, releaseDocumentTab } from "@renderer/state/live-documents";
 import type * as LiveDocuments from "@renderer/state/live-documents";
 
 import { PersistedExplorerTabSchema } from "@shared/types";
@@ -324,6 +324,17 @@ describe("the explorer strip", () => {
     const result = dedupeFileTabs(tabs, "t2");
     expect(result.tabs.map((tab: { id: string }) => tab.id)).toEqual(["t1", "t3", "t4"]);
     expect(result.activeId).toBe("t1");
+  });
+
+  it("disposes the tab a move leaves as a duplicate, as a close would", () => {
+    const { openFile } = useExplorer.getState();
+    const first = openFile("a.txt")!;
+    const second = openFile("b.txt")!;
+    vi.mocked(releaseDocumentTab).mockClear();
+    // a.txt was renamed over b.txt, which is open: one tab is left for the file.
+    useExplorer.getState().receiveChanges(PROJECT, null, [{ kind: "moved", previousPath: "a.txt", path: "b.txt", directory: false }]);
+    expect(useExplorer.getState().tabs.map((tab) => tab.id)).toEqual([first.id]);
+    expect(releaseDocumentTab).toHaveBeenCalledWith(second.id);
   });
 
   it("fills the blank tab the + button made instead of stacking one", () => {

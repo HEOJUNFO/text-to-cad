@@ -361,14 +361,16 @@ function saveStrip(sessionId: string, strip: Strip): void {
  * restore, a drag — a second tab for a path already in it is dropped, and a
  * selection that pointed at the dropped one moves to the survivor, so the
  * strip can never show two tabs for one file. Blank file tabs (`path`
- * null) are slots, not files, and are left alone.
+ * null) are slots, not files, and are left alone. The dropped tabs are
+ * returned: a caller that published the strip disposes them, as a close would.
  */
 export function dedupeFileTabs(
   tabs: ExplorerTab[],
   activeId: string | null,
-): { tabs: ExplorerTab[]; activeId: string | null } {
+): { tabs: ExplorerTab[]; activeId: string | null; dropped: ExplorerTab[] } {
   const seen = new Map<string, string>();
   const dropped = new Map<string, string>();
+  const gone: ExplorerTab[] = [];
   const kept = tabs.filter((tab) => {
     if (tab.kind !== "file" || tab.path === null) {
       return true;
@@ -377,12 +379,13 @@ export function dedupeFileTabs(
     const survivor = seen.get(key);
     if (survivor) {
       dropped.set(tab.id, survivor);
+      gone.push(tab);
       return false;
     }
     seen.set(key, tab.id);
     return true;
   });
-  return { tabs: kept, activeId: activeId && dropped.has(activeId) ? (dropped.get(activeId) ?? null) : activeId };
+  return { tabs: kept, activeId: activeId && dropped.has(activeId) ? (dropped.get(activeId) ?? null) : activeId, dropped: gone };
 }
 
 /** Renumber, publish, and schedule the write. The one mutation path. */
@@ -404,6 +407,7 @@ function commit(
     cadAnnotation: stillTargets(current.cadAnnotation) ? current.cadAnnotation : null });
   if (sessionId) saveStrip(sessionId, { tabs: ordered, activeId: unique.activeId,
     trees: current.trees, reveal: current.reveal, collapsed: current.collapsed, width: current.width });
+  for (const tab of unique.dropped) disposeTab(tab);
 }
 
 /** The watcher for one root, started and stopped with the binding. */
@@ -873,6 +877,7 @@ function updateSessionStrip(sessionId: string, strip: Strip): void {
   const active = useExplorer.getState().sessionId === sessionId && useExplorer.getState().ready;
   if (active) useExplorer.setState({ ...next, cadSelection: null, cadCapture: null, cadAnnotation: null });
   saveStrip(sessionId, next);
+  for (const tab of unique.dropped) disposeTab(tab);
 }
 
 function disposeTab(tab: ExplorerTab, discard = false, preserveDocuments = false): void {
