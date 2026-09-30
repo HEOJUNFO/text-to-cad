@@ -1434,8 +1434,8 @@ export class SessionManager {
         }
         this.onEvent(session.id, event);
       },
-      onTerminalOutput: (terminalId, data, exit) =>
-        this.deps.broadcast("terminal.output", { sessionId: session.id, terminalId, data, exit }),
+      onTerminalOutput: (terminalId, data, exit, silent) =>
+        this.deps.broadcast("terminal.output", { sessionId: session.id, terminalId, data, exit, ...(silent ? { silent } : {}) }),
       onFilesChanged: (paths) => {
         // The same gate as `onEvent`: a retired connection's late writes
         // would count into a tally, and ask the explorer to re-read, for a

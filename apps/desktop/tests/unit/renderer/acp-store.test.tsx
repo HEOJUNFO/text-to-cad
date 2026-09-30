@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useAcp } from "@renderer/state/acp";
 import { useSessions } from "@renderer/state/sessions";
-import { initialSessionState } from "@shared/acp/types";
+import { initialSessionState, type SessionState } from "@shared/acp/types";
 import type { Session } from "@shared/types";
 
 describe("the acp store", () => {
@@ -46,6 +46,35 @@ describe("the acp store", () => {
     const tail = useAcp.getState().terminalOutput["s1/t1"]!;
     expect(tail.length).toBe(64 * 1024);
     expect(tail.endsWith("b")).toBe(true);
+  });
+
+  // A state landed while the command ran (a reload, a background reconnect): its output so far is unknown,
+  // so it is cold. An exit seen here with nothing ever written makes it silent after all; one that had
+  // written something (before this store looked) stays "not kept".
+  it("un-colds a terminal seen to exit having written nothing, and only that one", () => {
+    const withTerminals = (state: SessionState): SessionState => ({
+      ...state,
+      turns: [
+        {
+          id: "a1",
+          role: "agent",
+          parts: ["t1", "t2"].map((terminalId) => ({
+            type: "tool_call" as const,
+            id: `call-${terminalId}`,
+            title: "run",
+            kind: "execute" as const,
+            status: "in_progress" as const,
+            content: [{ type: "terminal" as const, terminalId }],
+            children: [],
+          })),
+        },
+      ] as unknown as SessionState["turns"],
+    });
+    useAcp.getState().receiveState("s1", withTerminals(initialSessionState("s1", "codex")));
+    expect(Object.keys(useAcp.getState().coldTerminals).sort()).toEqual(["s1/t1", "s1/t2"]);
+    useAcp.getState().receiveTerminalOutput("s1", "t1", "", true);
+    useAcp.getState().receiveTerminalOutput("s1", "t2", "", false);
+    expect(useAcp.getState().coldTerminals).toEqual({ "s1/t2": true });
   });
 
   it("ignores terminal output for a session it does not hold, or has let go of", () => {

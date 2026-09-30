@@ -128,6 +128,8 @@ export const acpEvents = {
     data: z.string(),
     /** Set once on exit. */
     exit: z.object({ exitCode: z.number().nullable(), signal: z.string().nullable() }).nullable(),
+    /** On the exit chunk: the command wrote nothing, ever. */
+    silent: z.boolean().optional(),
   }),
   // An agent's `fs/write_text_file` is announced on the explorer's
   // `files.changed` (src/shared/ipc/explorer.ts), which owns that event.
