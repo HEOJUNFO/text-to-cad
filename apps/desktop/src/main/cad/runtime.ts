@@ -314,6 +314,32 @@ export function mainCheckoutOfWorktree(root: string): string | null {
   return at === -1 ? null : gitdir.slice(0, at);
 }
 
+/**
+ * The log is cut back to its last `RUNTIME_LOG_KEEP_BYTES` when it passes
+ * `RUNTIME_LOG_MAX_BYTES`. The daemon holds an append fd on this file, so it
+ * is rewritten in place (write the tail at the start, then `ftruncate`);
+ * renaming it away would leave the daemon writing to an unlinked inode.
+ */
+export const RUNTIME_LOG_MAX_BYTES = 4 * 1024 * 1024;
+export const RUNTIME_LOG_KEEP_BYTES = 1024 * 1024;
+
+async function trimRuntimeLog(file: string): Promise<void> {
+  const size = (await fsp.stat(file).catch(() => null))?.size ?? 0;
+  if (size <= RUNTIME_LOG_MAX_BYTES) return;
+  const handle = await fsp.open(file, "r+");
+  try {
+    const tail = Buffer.alloc(RUNTIME_LOG_KEEP_BYTES);
+    const { bytesRead } = await handle.read(tail, 0, tail.length, size - tail.length);
+    // Begin at a line, not in the middle of one. Lines the daemon appends between this read and the truncate are lost.
+    const from = tail.subarray(0, bytesRead).indexOf(0x0a) + 1;
+    const kept = tail.subarray(from, bytesRead);
+    await handle.write(kept, 0, kept.length, 0);
+    await handle.truncate(kept.length);
+  } finally {
+    await handle.close();
+  }
+}
+
 /** The runtime log: every failed probe and every viewer launch that did not come up. */
 export function runtimeLogPath(userData: string): string {
   return path.join(userData, "cad-runtime.log");
@@ -622,6 +648,7 @@ export class CadRuntime {
     this.logQueue = this.logQueue.then(async () => {
       try {
         await fsp.mkdir(path.dirname(file), { recursive: true });
+        await trimRuntimeLog(file);
         await fsp.appendFile(file, `${new Date().toISOString()} ${line}\n`);
       } catch {
         /* see above */

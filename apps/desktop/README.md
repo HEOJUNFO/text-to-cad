@@ -1606,7 +1606,7 @@ that probe is not cached — the next status asks again.
 A CAD tab whose runtime did not start shows the interpreter's words, Try
 again, and Reveal log — `runtime.revealLog` shows the log
 (`userData/cad-runtime.log`: every failed probe, every viewer launch that did
-not come up, the viewer's stderr) in the file manager. The request carries no
+not come up, the viewer's stderr; cut back in place to its last 1 MB whenever it passes 4 MB) in the file manager. The request carries no
 path: main names the one file, and answers `{ revealed: false }` when it does
 not exist yet. The tab never asks the person to set anything up.
 
