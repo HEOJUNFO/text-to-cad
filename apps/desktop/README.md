@@ -1880,7 +1880,10 @@ Three things learned from the real adapters that the code now depends on:
   `CLAUDE_TMPDIR`, `CLAUDE_PLUGIN_DATA`, `CLAUDE_AGENT_SDK_*`,
   `CLAUDE_PREVIEW_*` — and `ANTHROPIC_BASE_URL`; without the marker a user's
   own `ANTHROPIC_BASE_URL` (a proxy) stays, and `CLAUDE_CONFIG_DIR` always
-  stays, being the person's own choice. The Claude fixture on this machine is the auth-failure exchange for
+  stays, being the person's own choice. The login shell starts from
+  `stripHostSession(processEnv())` and nothing is stripped from the environment
+  it prints, so the person's own rc exports (a `CLAUDE_CODE_OAUTH_TOKEN`, say)
+  survive. The Claude fixture on this machine is the auth-failure exchange for
   that reason (`claude-code-auth-required.jsonl`); a machine with a signed-in
   `claude` (`claude auth status` → `loggedIn: true`) records a full session.
   Until one is recorded, the fake agent's `claude-code` profile

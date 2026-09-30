@@ -31,7 +31,9 @@ const SHELL_ONLY = new Set(["_", "SHLVL", "PWD", "OLDPWD", "PS1", "PROMPT", "TER
  * nested `claude` then reports itself logged out and the Claude adapter
  * answers every prompt with "Authentication required". Verified on this
  * machine 2026-09-06. Strip them whenever `CLAUDECODE` marks a host session;
- * a user's own `ANTHROPIC_BASE_URL` (a proxy) is left alone otherwise.
+ * a user's own `ANTHROPIC_BASE_URL` (a proxy) is left alone otherwise. The
+ * login shell starts from `stripHostSession(processEnv())` and nothing is
+ * stripped from what it prints, so the person's own rc exports survive.
  */
 const HOST_SESSION_MARKER = "CLAUDECODE";
 // `CLAUDE_TMPDIR` and `CLAUDE_PLUGIN_DATA` are the host's scratch and plugin
