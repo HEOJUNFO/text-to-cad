@@ -44,7 +44,8 @@ vi.mock("@main/ipc/integrations", () => ({ integrationHandlers: {} }));
 vi.mock("@main/ipc/cad", () => ({ cadHandlers: {} }));
 vi.mock("@main/ipc/clipboard", () => ({ clipboardHandlers: {} }));
 vi.mock("@main/ipc/browser", () => ({ browserHandlers: {} }));
-vi.mock("@main/ipc/dialogs", () => ({ dialogsHandlers: {} }));
+// `existingPath` is the rule under test, so it stays real; the handlers are not needed.
+vi.mock(import("@main/ipc/dialogs"), async (importOriginal) => ({ ...(await importOriginal()), dialogsHandlers: {} as never }));
 vi.mock("@main/ipc/git", () => ({ gitHandlers: {} }));
 vi.mock("@main/ipc/onboarding", () => ({ onboardingHandlers: {} }));
 vi.mock("@main/ipc/skills", () => ({ skillsHandlers: {} }));
