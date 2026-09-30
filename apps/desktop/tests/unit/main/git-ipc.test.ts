@@ -225,3 +225,18 @@ test("a create does not wait on the keep-limit sweep, which runs once the row ex
   expect(await exists(recent.path)).toBe(true);
   expect(await exists(created.cwd)).toBe(true);
 }, 40_000);
+
+test("a worktree whose folder was deleted by hand lists as deletable, not as unchecked", async () => {
+  const project = await repository("a", path.join(base, "robot-arm"));
+  const created = await git.createWorktree({
+    repoPath: project.path,
+    parentDir: projectWorktreeDir({ worktreeRoot: state.worktreeRoot }, project),
+    name: "wrist",
+  });
+  await rm(created.path, { recursive: true, force: true });
+
+  const rows = await gitHandlers.git.worktrees({ projectId: project.id });
+  expect(rows.map((row) => [row.path, row.dirty])).toEqual([[created.path, false]]);
+  await gitHandlers.git.removeWorktree({ projectId: project.id, path: created.path });
+  expect(await gitHandlers.git.worktrees({ projectId: project.id })).toEqual([]);
+});

@@ -1453,7 +1453,7 @@ export async function removeWorktree(
  * folder that may still hold work, and throws: reading "could not look" as
  * "deleted by hand" is how a removal unregisters somebody's checkout.
  */
-async function folderGone(folder: string): Promise<boolean> {
+export async function folderGone(folder: string): Promise<boolean> {
   try {
     await fsp.stat(folder);
     return false;

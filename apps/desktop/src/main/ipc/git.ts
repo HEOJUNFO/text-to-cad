@@ -111,8 +111,14 @@ async function worktreesOf(project: Project): Promise<Worktree[]> {
       branch: worktree.branch,
       lastUsedAt: lastUsedAt === null ? null : Math.round(lastUsedAt),
       openSessions: open.filter((session) => git.samePath(session.cwd, worktree.path)).length,
-      // Ignored files count: removing the worktree would delete them too.
-      dirty: await git.hasUnsavedWork(worktree.path),
+      // Ignored files count: removing the worktree would delete them too. A
+      // folder deleted by hand has nothing left to lose — git cannot be asked
+      // about it (`hasUnsavedWork` would say null and pin Delete off for good),
+      // and `removeWorktree` unregisters it — so it is clean. A folder that
+      // could not be read is unknown, as before.
+      dirty: (await git.folderGone(worktree.path).catch(() => null)) === true
+        ? false
+        : await git.hasUnsavedWork(worktree.path),
       locked: worktree.locked,
     });
   }
