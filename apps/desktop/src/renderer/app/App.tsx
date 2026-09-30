@@ -12,9 +12,19 @@ import { useApplyTheme } from "@renderer/hooks/use-theme";
 import { Toaster } from "@renderer/components/ui/sonner";
 import { TooltipProvider } from "@renderer/components/ui/tooltip";
 import { hydrate, subscribeToMain } from "@renderer/state/bridge";
+import { useActiveSession } from "@renderer/state/sessions";
 import { useSettings } from "@renderer/state/settings";
 import { useShowWelcome } from "@renderer/state/onboarding";
 import { useUi } from "@renderer/state/ui";
+
+/** What the window is called, in the Window menu and to a screen reader: the route, or the session. */
+function useDocumentTitle(route: string, showWelcome: boolean): void {
+  const sessionTitle = useActiveSession()?.title.trim() || null;
+  const page = route === "settings" ? "Settings" : showWelcome ? "Welcome" : sessionTitle;
+  useEffect(() => {
+    document.title = page ? `text-to-cad — ${page}` : "text-to-cad";
+  }, [page]);
+}
 
 /**
  * Leaving Settings unmounts the button that was focused, and the shell mounts fresh: focus
@@ -42,6 +52,7 @@ export function App() {
   // translucent sidebar are tokens on <html> (Settings › Appearance).
   useApplyAppearance();
   useSettingsShortcuts();
+  useDocumentTitle(route, showWelcome);
   useFocusAfterSettings(route);
   const reduceMotion = useSettings((state) => state.settings?.reduceMotion ?? false);
 
