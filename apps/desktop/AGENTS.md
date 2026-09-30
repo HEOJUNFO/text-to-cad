@@ -150,7 +150,8 @@ the rule is about.
   that would act on a row (refuse an agent as not installed, hand a binary to a
   login) waits for `AgentDetector.freshWithin(PROBE_WAIT_MS)` and treats null
   as unknown, never as absent. A screen must not say "signed out" for a
-  `probing` row (README, "ACP").
+  `probing` row: the welcome, the setup cards and the drawer say "Checking…",
+  and the Agents page's dot stays idle (README, "ACP").
 - **Nothing is installed into an agent's configuration.** text-to-cad's skills
   and its tools are given to each session — the skills root as an additional
   directory on `session/new` and `session/load` (both spellings) plus a

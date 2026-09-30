@@ -1841,7 +1841,15 @@ when it was written by the same app version and holds every provider. Then:
   flagged `probing`, and the probe replaces it through `agents.status` (a row
   from a probe never carries the flag). Settings and the new-session screen
   draw a probing row's unauthenticated state as "Checking…" rather than "Not
-  signed in".
+  signed in". The welcome's Continue reads a disabled "Checking…" while any row
+  is probing, the setup cards and the drawer show "Checking…" where a cached
+  "not installed" would draw Install, and the Agents page's dot stays idle (not
+  green) beside "checking sign-in…" until the probe confirms.
+- **Install and Sign in** are disabled while their job runs. The running job for
+  an agent and kind is read from `useAgents.jobs` by `useJob(agentId, kind)`
+  (`features/settings/AgentDrawer.tsx`), not from component state, so a drawer
+  closed and reopened, or a welcome left for Settings and back, finds the
+  installer under way and attaches its log instead of offering a second one.
 - A **cold launch** (no usable cache) waits for the first probe for at most
   `PROBE_WAIT_MS` (3 s), then answers with whatever it has, which may be empty.
 - If the probe fails while the table is still the last launch's, or has none and the
