@@ -1,3 +1,4 @@
+import { stopOrbitMomentum } from "./orbitControls.js";
 // The camera of a viewport runtime: zoom percent against the authored framing,
 // projection and lens sync, serializable perspective snapshots, eased
 // transitions, fit-to-bounds and recentring. Every function takes the runtime
@@ -505,6 +506,8 @@ export function applyPerspectiveSnapshot(runtime, perspective, { scheduleIdle = 
     runtime.camera.updateProjectionMatrix?.();
   }
   runtime.camera.lookAt(runtime.controls.target);
+  // A drag's damping momentum would carry the camera off the pose just set.
+  stopOrbitMomentum(runtime.controls);
   runtime.controls.update();
   if (scheduleIdle) {
     runtime.scheduleIdleQuality?.();

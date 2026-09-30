@@ -5,6 +5,7 @@ import {
   orbitControlsDeltaSeconds,
   PREVIEW_AUTO_ROTATE_SPEED,
   PREVIEW_ORBIT_SECONDS_PER_TURN,
+  stopOrbitMomentum,
   updateOrbitControls
 } from "./orbitControls.js";
 
@@ -55,4 +56,15 @@ test("updateOrbitControls resets timing when auto-rotate is inactive", () => {
   assert.equal(updateOrbitControls(controls, 1032, state), false);
   assert.deepEqual(updateArgs, [[]]);
   assert.equal(state.orbitControlsLastTimestamp, 0);
+});
+
+test("stopOrbitMomentum drops the drag momentum damping would keep adding on update", () => {
+  const spherical = { theta: 0.2, phi: -0.1, radius: 0, set(r, p, t) { this.radius = r; this.phi = p; this.theta = t; } };
+  const pan = { x: 3, y: 0, z: -2, set(x, y, z) { this.x = x; this.y = y; this.z = z; } };
+  const controls = { _sphericalDelta: spherical, _panOffset: pan, _scale: 1.2 };
+  assert.equal(stopOrbitMomentum(controls), true);
+  assert.deepEqual([spherical.theta, spherical.phi, spherical.radius], [0, 0, 0]);
+  assert.deepEqual([pan.x, pan.y, pan.z], [0, 0, 0]);
+  assert.equal(controls._scale, 1);
+  assert.equal(stopOrbitMomentum(null), false);
 });
