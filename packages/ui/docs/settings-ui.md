@@ -37,7 +37,9 @@ Hosts cannot start or observe Preview, and there are no notification props.
 The host's file browsing does not hide the renderer's toolbar, tools, Display
 settings or Preview controls.
 
-- **File navigation.** A browsing host places leading content, breadcrumbs,
+- **File navigation.** Paths deeper than four segments show the first directory,
+  an ancestor overflow menu, the immediate parent and the file; hidden ancestors
+  remain browsable. Mobile retains its filename-only breadcrumb. A browsing host places leading content, breadcrumbs,
   file actions and its file-tree toggle in the shared navigation row. FileViewer
   portals renderer actions, status and renderer-panel
   toggles into host targets when supplied. Otherwise they float at the top

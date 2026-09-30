@@ -60,9 +60,27 @@ import { FileIcon, FolderIcon } from "./icons.jsx";
  * @param {(path: string, entry: ListingEntry) => void} props.onOpen
  */
 export function Breadcrumbs({ crumbs, source, activePath, onOpen }) {
+  // Keep the first directory, immediate parent and filename. Intermediate
+  // ancestors remain browsable through the overflow menu, without crowding
+  // the document name or changing the host's navigation layout.
+  const hidden = crumbs.length > 4 ? crumbs.slice(1, -2) : [];
   return (
     <>
       {crumbs.map((crumb, index) => {
+        if (hidden.length && index > 0 && index < crumbs.length - 2) {
+          if (index !== 1) return null;
+          return <span key="ancestors" className="flex shrink-0 items-center gap-1">
+            <span className="text-muted-foreground/60" aria-hidden>›</span>
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger asChild><button type="button" aria-label="Browse hidden folders" data-crumb="ellipsis"
+                className="rounded-sm px-0.5 text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">…</button></DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-max min-w-44 max-w-80" sideOffset={6}>
+                {hidden.map(ancestor => <DirectorySubMenu key={ancestor.path} directory={ancestor.path} label={ancestor.label}
+                  activePath={activePath} onOpen={onOpen} source={source} marked />)}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </span>;
+        }
         const last = index === crumbs.length - 1;
         const rename = crumb.kind === "file" ? source.renderRename?.({ crumb }) : null;
         return (

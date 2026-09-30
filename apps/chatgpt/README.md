@@ -41,7 +41,8 @@ views supply its optional `browser` capability. FileViewer owns the same
 `FileNavRow`, breadcrumb menus, `FileTree` and exclusive resizable panel column
 as the standalone viewer; apps do not recompose this layout. The app owns browsing location,
 expansion and navigation; the document viewer retains its separate absolute-path
-source. The explorer starts collapsed, reveals the open file when expanded and
+source. The file viewer uses the compact C mark and has no Open Model picker action;
+that action belongs exclusively to the home page. The explorer starts collapsed, reveals the open file when expanded and
 keeps its location when switching models. Browse location offers Project folder
 when supplied, Computer, Home and Up one folder. A model outside the current
 location still renders; its filename can reveal it under Computer.
@@ -186,7 +187,7 @@ opening remains an explicit alternative; invoking both creates a second view. Se
 | File selection | Open Model uses the native OS file picker. Recent models open inside the CAD page. Custom views also offer shared folder browsing; native registered views omit duplicate navigation. |
 | Breadcrumbs and file explorer | Shared components in custom views, app-owned browsing context and MCP directory access. Registered file views keep host chrome. |
 | Theme selector | Follows the host theme. |
-| Brand, version and community links | The library shows the full CAD logo plus version, GitHub and Discord links. Custom views also show the wordmark in their navigation row; registered views retain document controls. |
+| Brand, version and community links | The library shows the full CAD logo plus version, GitHub and Discord links. Custom views show the compact C in their navigation row; registered views retain document controls. |
 | Reveal in file manager and server reload | Omitted; these standalone host actions are not exposed through MCP. |
 
 Model controls, geometry selection, measurements, display settings, snapshots and

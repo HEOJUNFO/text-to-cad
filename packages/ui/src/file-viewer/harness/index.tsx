@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { unavailablePromptContext } from "@text-to-cad/core/prompt";
 import { FileText } from "lucide-react";
 import { FileViewer, defineFileRenderer } from "../index.js";
-import type { FileBrowserSource, FileActions, FileMetadata, FileRendererProps, FileBrowserState, JsonValue, TextDocument } from "../types.js";
+import type { FileBrowserSource, FileActions, FileEntry, FileMetadata, FileRendererProps, FileBrowserState, JsonValue, TextDocument } from "../types.js";
 
 const events: string[] = [];
 // Every file the viewer asked its host to open, with how: the host contract under test.
@@ -16,7 +16,7 @@ const renders: Record<string, number> = {};
 function memorySource(id: string) {
   const files = new Map<string, TextDocument>([["notes.txt", { content: `${id} original`, revision: "1" }], ["next.txt", { content: `${id} next`, revision: "1" }], ["slow.txt", { content: `${id} slow`, revision: "1" }], ["readonly.txt", { content: "truncated", revision: "1", truncated: true }]]);
   const listeners = new Set<Parameters<NonNullable<FileBrowserSource["subscribe"]>>[0]>();
-  const metadata = (path: string): FileMetadata => ({ path, name: path, kind: "file", extension: "txt", size: 20, mediaType: "text" });
+  const metadata = (path: string): FileMetadata => ({ path, name: path.split('/').pop()!, kind: "file", extension: "txt", size: 20, mediaType: "text" });
   let failWrite = false;
   let holdWrites = false;
   let holdFirstListing = id === "root-a" && new URLSearchParams(window.location.search).has("initialList");
@@ -25,13 +25,22 @@ function memorySource(id: string) {
   const source: FileBrowserSource = {
     id, rootName: id,
     stat: async (path) => metadata(path),
-    list: async (_directory, { signal }) => {
+    list: async (directory, { signal }) => {
       events.push(`${id}:list`);
       if (holdFirstListing) {
         holdFirstListing = false;
         await new Promise<void>((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
       }
-      return [...files.keys()].map(metadata);
+      const prefix = directory ? `${directory}/` : '';
+      const entries = new Map<string, FileEntry>();
+      for (const path of files.keys()) {
+        if (!path.startsWith(prefix)) continue;
+        const rest = path.slice(prefix.length);
+        const name = rest.split('/')[0];
+        const child = `${prefix}${name}`;
+        entries.set(child, rest.includes('/') ? { path: child, name, kind: 'directory' } : metadata(path));
+      }
+      return [...entries.values()];
     },
     paths: async () => [...files.keys()],
     readText: async (path, { signal }) => {

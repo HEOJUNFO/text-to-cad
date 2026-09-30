@@ -279,10 +279,19 @@ test("host breadcrumb policy stays scoped to the active document", async () => {
   await reset();
   await page.evaluate(() => { window.harness.a.add('nested/deep/file.txt'); window.harness.open('nested/deep/file.txt'); });
   await waitValue('added');
-  // Every folder is its own crumb on a desktop-width viewer: there is no folding into one ellipsis.
+  // Shallow paths stay unchanged; deeper paths keep ancestors in a shared overflow menu.
   assert.equal(await page.getByRole('button', { name: /…/ }).count(), 0);
   await page.getByRole('button', { name: 'Browse nested', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Browse deep', exact: true }).waitFor();
+  await page.evaluate(() => { window.harness.a.add('nested/deep/more/parent/file.txt'); window.harness.open('nested/deep/more/parent/file.txt'); });
+  await waitValue('added');
+  await page.getByRole('button', { name: 'Browse hidden folders', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'more', exact: true }).hover();
+  await page.getByRole('menuitem', { name: 'parent', exact: true }).hover();
+  await page.getByRole('menuitem', { name: 'file.txt', exact: true }).click();
+  await page.getByRole('button', { name: 'Browse parent', exact: true }).waitFor();
+  assert.equal(await page.locator('[data-crumb="directory"]').count(), 2);
+
   await page.evaluate(() => window.harness.open('next.txt'));
   await waitValue('root-a next');
   await page.evaluate(() => window.harness.navigationPath(null));

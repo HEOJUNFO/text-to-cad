@@ -351,9 +351,12 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     // the MCP process runs elsewhere and must not choose its own cwd as root.
     await page.goto(`http://127.0.0.1:${address.port}/?custom`);
     await expect(viewer.getByRole('navigation', { name: 'Breadcrumb', exact: true })).toContainText('fixture.step');
-    await viewer.getByRole('button', { name: 'Browse location', exact: true }).click();
-    await expect(viewer.getByRole('menuitem', { name: 'Project folder', exact: true })).toBeVisible();
-    await viewer.getByRole('menuitem', { name: 'Project folder', exact: true }).click();
+    await expect(viewer.getByRole('button', { name: 'Open Model', exact: true })).toHaveCount(0);
+    const compactLogo = await viewer.getByRole('img', { name: 'CAD', exact: true }).boundingBox();
+    assert.equal(compactLogo?.width, 20);
+    assert.equal(compactLogo?.height, 20);
+    // The first listing must already be rooted in the thread project; no menu correction.
+    await expect(viewer.getByRole('button', { name: 'Browse location', exact: true })).toHaveAttribute('title', path.basename(documents));
     await viewer.getByRole('button', { name: 'Show files', exact: true }).click();
     await expect(viewer.getByRole('treeitem', { name: 'fixture.step', exact: true })).toHaveAttribute('aria-selected', 'true');
     await expect(viewer.getByRole('treeitem', { name: 'related.step', exact: true })).toBeVisible();

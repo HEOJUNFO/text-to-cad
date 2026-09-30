@@ -53,7 +53,7 @@ function paint() {
     const props = { client, document: opened.document, promptContext: composer.port, colorScheme, library };
     if (opened.resourceUri) root.render(<Viewer key={opened.document.id} {...props} />);
     else root.render(<BrowserFrame bridge={app} path={opened.document.path} initialRoot={opened.browseRoot ?? null}
-      onOpen={openPath} onChooseFile={backend?.filePicker.supported ? () => openPath() : undefined}
+      onOpen={openPath}
       onHome={libraryHome ? () => { const home = libraryHome!; libraryHome = undefined; open(home); } : undefined}>
       {layout => <Viewer key={props.document.id} {...props} {...layout} />}
     </BrowserFrame>);
