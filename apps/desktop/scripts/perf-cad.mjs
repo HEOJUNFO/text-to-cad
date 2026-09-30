@@ -389,7 +389,10 @@ const PERF_NAMES = { tessellate: "cad:tessellate", hoverPick: "cad:hover-pick", 
 
 async function launchApp(userData, cacheEnv) {
   const { CAD_DESKTOP_PYTHON: _unset, ...inherited } = process.env;
-  const env = { ...inherited, NODE_ENV: "test", ...cacheEnv };
+  // NODE_ENV=test turns the project-open pre-warm off (src/main/ipc/cad.ts);
+  // the "viewer up after add" and "daemon warming after add" columns measure
+  // that pre-warm, so this run asks for it back.
+  const env = { ...inherited, NODE_ENV: "test", TEXT_TO_CAD_PREWARM: "1", ...cacheEnv };
   const stdoutLines = [];
   const started = performance.now();
   const app = await electron.launch({
@@ -702,6 +705,13 @@ async function measureApp(options, scratch) {
       const closing = performance.now();
       await launched.app.close();
       launch.quitMs = round(performance.now() - closing, 0);
+    }
+    // `resolvePython` has already thrown on a machine with no runtime, so a
+    // null here is a pre-warm that did not happen, not a missing runtime; a
+    // column of dashes would pass for a result. (The daemon column may be null
+    // on its own: `CADGEN_DAEMON=0` or a CAD kernel that cannot start it.)
+    if (result.launches.at(-1).viewerWarmMs === null) {
+      throw new Error(`launch "${label}": no "[viewer] started|reused" line after the project was added; the project-open pre-warm did not run (does ${repoRoot} still hold a .step/.glb near its top, the condition for warming?)`);
     }
   };
 
