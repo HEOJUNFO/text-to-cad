@@ -135,5 +135,6 @@ it("does not tag or create a Release in a cancelled run", () => {
   const condition = String(job("tag-release").if ?? "");
   expect(condition, "tag-release if").not.toMatch(/\balways\(\)/);
   expect(condition, "tag-release if").toMatch(/!cancelled\(\)/);
-  expect(condition, "tag-release if").toMatch(/needs\.desktop\.result != 'cancelled'/);
+  // A desktop leg's timeout-minutes expiry reads `cancelled` in needs; testing it would let a hung leg prevent the tag.
+  expect(condition, "tag-release if").not.toMatch(/needs\.desktop\.result/);
 });

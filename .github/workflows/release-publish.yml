@@ -477,7 +477,10 @@ jobs:
       - desktop
     # A cancelled run tags nothing: `always()` would run this job through a
     # cancellation, pushing the tag and creating a draft the operator meant to stop.
-    if: ${{ !cancelled() && needs.desktop.result != 'cancelled' && needs.publish.result == 'success' && needs.publish.outputs.should_publish == 'true' && needs.publish.outputs.is_main == 'true' }}
+    # `desktop.result` is deliberately not tested: a leg that hits its
+    # timeout-minutes reports `cancelled` there without the run being cancelled, and
+    # that hung leg delays the tag like any failed one.
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.publish.outputs.should_publish == 'true' && needs.publish.outputs.is_main == 'true' }}
     runs-on: ubuntu-latest
 
     steps:
