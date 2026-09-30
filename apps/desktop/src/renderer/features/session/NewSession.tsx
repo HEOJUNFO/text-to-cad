@@ -11,7 +11,7 @@ import {
   useProviderMode,
   useProviderModels,
 } from "@renderer/state/agent-options";
-import { useAgents, useInstalledAgents } from "@renderer/state/agents";
+import { useAgents, useAgentsProbing, useInstalledAgents } from "@renderer/state/agents";
 import { newSessionKey, useComposer, type TakenDraft } from "@renderer/state/composer";
 import { useProjects } from "@renderer/state/projects";
 import { useSessions } from "@renderer/state/sessions";
@@ -66,6 +66,7 @@ export function NewSession({ project }: { project: Project }) {
   const agents = useAgents((state) => state.agents);
   const installed = useInstalledAgents();
   const detected = useAgents((state) => state.ready);
+  const tableProbing = useAgentsProbing();
   const listError = useAgents((state) => state.loadError);
   const reloadAgents = useAgents((state) => state.load);
   const offered = useOfferedAgents();
@@ -323,10 +324,12 @@ export function NewSession({ project }: { project: Project }) {
   // credentials file to go by (Copilot and Kiro always; Claude Code in the
   // keychain), and such an agent may well work. So only "unauthenticated"
   // counts against an agent here, the same test the default pick above uses.
+  // A table still `probing` is the last launch's: its "signed out" is not yet
+  // an answer, and the chips draw from it meanwhile.
   // A list that could not be read is not a list of signed-out agents: it
   // says what failed and offers the read again, rather than asking for a
   // sign-in nobody can see a reason for.
-  const noAgent = detected && !listError && !installed.some((candidate) => candidate.auth !== "unauthenticated");
+  const noAgent = detected && !listError && !tableProbing && !installed.some((candidate) => candidate.auth !== "unauthenticated");
   // Either way nothing can start a session from here, so the chips are shown
   // as they are and not offered, and a send says why instead of going out.
   const unavailable = listError ? "The agent list could not be read" : noAgent ? "No agent ready — sign in to one first" : undefined;

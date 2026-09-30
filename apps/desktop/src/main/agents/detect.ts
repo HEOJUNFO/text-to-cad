@@ -39,6 +39,16 @@ export type DetectorProbes = {
 
 const EXEC_TIMEOUT_MS = 10_000;
 
+/**
+ * Where the last table is kept between launches (`./cache.ts`). Read once, at
+ * the first question; written after every finished probe. A cache that cannot
+ * be read or written is no cache: neither may fail a probe.
+ */
+export type AgentsCache = {
+  read: () => AgentStatus[] | null;
+  write: (statuses: AgentStatus[]) => void;
+};
+
 /** What an auth probe prints when the person is signed out (`Not logged in`, `{"loggedIn":false}`). */
 const SIGNED_OUT = /not (logged|signed) in|logged out|signed out|"loggedIn"\s*:\s*false|not authenticated|unauthenticated|login required/i;
 
@@ -116,18 +126,52 @@ export class AgentDetector {
   private inflight: Promise<AgentStatus[]> | null = null;
   private readonly listeners = new Set<(statuses: AgentStatus[]) => void>();
   private env: Env | null = null;
+  /** This run has finished a probe; until then any rows held are the last launch's. */
+  private probed = false;
+  private seeded = false;
 
   constructor(
     private readonly providers: readonly AgentProvider[] = AGENT_PROVIDERS,
     private readonly probes: DetectorProbes = nodeProbes,
+    private readonly cache: AgentsCache | null = null,
   ) {}
 
-  /** The cached table; empty (not blocking) before the first probe finishes. */
+  /**
+   * The table: this run's once a probe has finished, the last launch's before
+   * that (a machine's agents rarely change between launches, and a wrong
+   * `installed` for a second is better than none — an empty table reads as "not
+   * installed" to the session manager); empty on a first launch.
+   */
   list(): AgentStatus[] {
-    if (this.statuses.length === 0 && !this.inflight) {
+    this.seed();
+    if (!this.probed && !this.inflight) {
       void this.refresh();
     }
     return this.statuses;
+  }
+
+  /** The last launch's table, once, unless a probe has answered first. */
+  private seed() {
+    if (this.seeded) {
+      return;
+    }
+    this.seeded = true;
+    try {
+      const cached = this.cache?.read();
+      if (cached && this.statuses.length === 0) {
+        this.statuses = cached;
+      }
+    } catch (error) {
+      console.info(`[agents] the cached table was not read: ${String(error)}`);
+    }
+  }
+
+  private persist() {
+    try {
+      this.cache?.write(this.statuses);
+    } catch (error) {
+      console.info(`[agents] the table was not cached: ${String(error)}`);
+    }
   }
 
   /**
@@ -138,9 +182,17 @@ export class AgentDetector {
    * on every cold launch. A probe that hangs past the bound (a login shell
    * that never returns) still gets the old answer, empty, and the broadcast
    * follows as before.
+   *
+   * A warm launch answers at once instead: the last launch's table, every row
+   * marked `probing`, while the probe runs. The fresh table replaces it on
+   * `agents.status` (a row from the probe never carries the mark), so what a
+   * screen draws from this answer is provisional and says so.
    */
   async listWithin(waitMs: number): Promise<AgentStatus[]> {
     const cached = this.list();
+    if (!this.probed && cached.length > 0) {
+      return cached.map((status) => ({ ...status, probing: true }));
+    }
     const inflight = this.inflight;
     if (cached.length > 0 || !inflight) {
       return cached;
@@ -165,7 +217,8 @@ export class AgentDetector {
     if (this.inflight) {
       return this.inflight;
     }
-    return this.statuses.length > 0 ? Promise.resolve(this.statuses) : this.refresh(false);
+    this.seed();
+    return this.probed ? Promise.resolve(this.statuses) : this.refresh(false);
   }
 
   /** The environment the last probe used, for spawning agents. */
@@ -196,6 +249,10 @@ export class AgentDetector {
     if (!provider) {
       return null;
     }
+    if (!this.probed && this.statuses.length > 0) {
+      // The rows held are the last launch's: fold this one into the fresh table, not into them.
+      await this.settled().catch(() => undefined);
+    }
     const env = await this.probes.env(true);
     this.env = env;
     const status = await this.probe(provider, env);
@@ -204,17 +261,29 @@ export class AgentDetector {
         (candidate.id === agentId ? status : this.statuses.find((s) => s.id === candidate.id)) ??
         missing(candidate),
     );
+    this.persist();
     this.emit();
     return status;
   }
 
   private async probeAll(force: boolean): Promise<AgentStatus[]> {
-    const env = await this.probes.env(force);
-    this.env = env;
-    const statuses = await Promise.all(this.providers.map((provider) => this.probe(provider, env)));
-    this.statuses = statuses;
+    try {
+      const env = await this.probes.env(force);
+      this.env = env;
+      const statuses = await Promise.all(this.providers.map((provider) => this.probe(provider, env)));
+      this.statuses = statuses;
+    } catch (error) {
+      if (!this.probed && this.statuses.length > 0) {
+        // No fresh table is coming: the last launch's rows would stay "probing" for good.
+        this.statuses = [];
+        this.emit();
+      }
+      throw error;
+    }
+    this.probed = true;
+    this.persist();
     this.emit();
-    return statuses;
+    return this.statuses;
   }
 
   private async probe(provider: AgentProvider, env: Env): Promise<AgentStatus> {

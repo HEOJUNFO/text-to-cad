@@ -148,6 +148,12 @@ export const AgentStatusSchema = AgentProviderSchema.extend({
   auth: AuthStateSchema,
   /** Unix ms of the probe that produced this row. */
   checkedAt: z.number(),
+  /**
+   * Set on a row that is the last launch's answer, given before this launch's
+   * probe has finished. Provisional: `agents.status` follows with rows that
+   * lack it, and a screen must not treat `auth` here as final.
+   */
+  probing: z.boolean().optional(),
 });
 export type AgentStatus = z.infer<typeof AgentStatusSchema>;
 

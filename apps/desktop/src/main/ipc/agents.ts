@@ -9,14 +9,19 @@
 import { IpcError, broadcast, type IpcContext } from "./register";
 import type { IpcHandlers } from "../../shared/ipc";
 import type { agentsContract } from "../../shared/ipc/agents";
+import { settingsAgentsCache } from "../agents/cache";
 import { AgentDetector } from "../agents/detect";
+import { appVersion } from "../app-paths";
+import { settings } from "../db/repositories";
 import { JobRunner } from "../agents/jobs";
 import { startInstall } from "../agents/install";
 import { startLogin } from "../agents/auth";
 import { agentProvider } from "../agents/registry";
 import { spawnJobPty } from "../acp/pty-backend";
 
-export const detector = new AgentDetector();
+// The last launch's table answers a warm launch's first `agents.list` at once
+// (`AgentDetector.listWithin`); the probe the window starts replaces it.
+export const detector = new AgentDetector(undefined, undefined, settingsAgentsCache(settings, appVersion));
 detector.onChange((statuses) => broadcast("agents.status", statuses));
 
 const jobs = new JobRunner(
@@ -27,7 +32,7 @@ const jobs = new JobRunner(
 );
 
 /**
- * How long a cold `agents.list` waits for the first probe. The probe starts
+ * How long a cold `agents.list` — one with no cached table — waits for the first probe. The probe starts
  * with the window (`prewarmAgents` in `./acp.ts`), so by the time the renderer
  * asks it is usually done or nearly; this bounds a slow login shell.
  */

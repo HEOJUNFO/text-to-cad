@@ -184,7 +184,7 @@ function AgentRow({ agent, onOpen }: { agent: AgentStatus; onOpen: () => void })
   }
 
   const tone: Tone = agent.installed
-    ? agent.auth === "unauthenticated"
+    ? agent.auth === "unauthenticated" && !agent.probing
       ? "warn"
       : "ok"
     : "idle";
@@ -193,7 +193,7 @@ function AgentRow({ agent, onOpen }: { agent: AgentStatus; onOpen: () => void })
         agent.version ? `v${agent.version}` : null,
         // The CLI's version is the person's; the adapter's is the app's pin.
         agent.adapter ? `adapter ${agent.adapter.version}` : null,
-        agent.auth === "unauthenticated" ? "not signed in" : null,
+        agent.auth === "unauthenticated" ? (agent.probing ? "checking sign-in…" : "not signed in") : null,
       ]
         .filter(Boolean)
         .join(" · ") || "installed"
