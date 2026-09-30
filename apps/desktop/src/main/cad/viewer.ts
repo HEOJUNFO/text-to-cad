@@ -373,7 +373,7 @@ export class ViewerManager extends EventEmitter {
           return { origin: null, reason: "viewer-failed", message: error.message };
         }
         const message = error instanceof Error ? error.message : String(error);
-          this.log(`restart failed for ${root}: ${message}`);
+        this.log(`restart failed for ${root}: ${message}`);
         void this.restart(root, resolved, attempt + 1);
         return { origin: null, reason: "viewer-failed", message };
       })
