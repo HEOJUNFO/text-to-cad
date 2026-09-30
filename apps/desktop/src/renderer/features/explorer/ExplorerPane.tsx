@@ -42,7 +42,6 @@ export function ExplorerPane() {
   const open = useExplorer((state) => state.open);
   const active = useActiveTab();
 
-  useExplorerShortcuts();
   useIdlePreload();
 
   // `Shell` does not mount this pane without a session — the strip belongs to
@@ -167,6 +166,10 @@ function useIdlePreload() {
  * The "new tab" chords are here too, and they are the same ones the `+`
  * menu prints beside its rows (`src/renderer/lib/shortcuts.ts` is the table
  * both read).
+ *
+ * Mounted by `Shell`, not by the pane: the pane is not rendered while it is
+ * collapsed, which is how every session starts, and a chord that asks for a
+ * tab is exactly what has to work then (`open` reveals the pane).
  */
 /**
  * Every chord here is the person asking for a tab, so the keyboard follows it
@@ -177,10 +180,14 @@ function focusOpened(tab: ExplorerTab | null) {
   if (tab) focusTabBody(tab.id);
 }
 
-function useExplorerShortcuts() {
+export function useExplorerShortcuts() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      const { tabs, activeId, closeActive, selectIndex, open } = useExplorer.getState();
+      const { tabs, activeId, closeActive, selectIndex, open, sessionId } = useExplorer.getState();
+      // No session, no strip: the chords are left to the menu (Cmd+W closes the window).
+      if (sessionId === null) {
+        return;
+      }
 
       // `⌃\`` is Control on macOS as well: it is the chord a person already
       // has in their fingers for a terminal, and it is the same one on the

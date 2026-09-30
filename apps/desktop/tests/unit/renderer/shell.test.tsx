@@ -88,7 +88,7 @@ describe("Explorer", () => {
 
   it("opens a file tab on Mod+T without the menu", async () => {
     withSession();
-    wrap(<ExplorerPane />);
+    wrap(<Shell />);
     fireEvent.keyDown(window, { key: "t", metaKey: true, ctrlKey: true });
     expect(useExplorer.getState().tabs).toHaveLength(1);
     expect(useExplorer.getState().tabs[0]?.kind).toBe("file");

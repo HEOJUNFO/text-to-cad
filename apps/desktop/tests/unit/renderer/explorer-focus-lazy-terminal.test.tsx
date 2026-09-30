@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
-import { ExplorerPane } from "@renderer/features/explorer/ExplorerPane";
+import { ExplorerPane, useExplorerShortcuts } from "@renderer/features/explorer/ExplorerPane";
 import { claimFocus } from "@renderer/features/explorer/focus";
 import { useExplorer } from "@renderer/state/explorer";
 import { useProjects } from "@renderer/state/projects";
@@ -48,6 +48,12 @@ vi.mock("@renderer/features/explorer/FileTab", () => ({
   FileTab: ({ tabId }: { tabId: string }) => <input aria-label={`Editor ${tabId}`} />,
 }));
 
+// `Shell` mounts the chords; this suite has no shell around the pane.
+function Pane() {
+  useExplorerShortcuts();
+  return <ExplorerPane />;
+}
+
 const PROJECT = { id: "lazy-focus-project", name: "Project", path: "/repo", createdAt: 0 };
 const fileTab: ExplorerTab = { id: "f1", kind: "file", sessionId: "s1", projectId: PROJECT.id, order: 0,
   root: null, panel: null, path: "f1.ts" } as ExplorerTab;
@@ -67,7 +73,7 @@ beforeEach(() => {
 const afterSettle = () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 
 it("the first terminal picked in a window takes the keyboard when its chunk lands after focus settled", async () => {
-  render(<TooltipProvider><ExplorerPane /></TooltipProvider>);
+  render(<TooltipProvider><Pane /></TooltipProvider>);
   screen.getByRole("textbox", { name: "Editor f1" }).focus();
   fireEvent.keyDown(window, { key: "2", metaKey: true, ctrlKey: true });
   expect(useExplorer.getState().activeId).toBe("t1");
@@ -89,7 +95,7 @@ it("picking the active terminal's tab focuses it then, and leaves no claim for a
   chunk.release();
   focused.count = 0;
   useExplorer.setState({ activeId: "t1" });
-  render(<TooltipProvider><ExplorerPane /></TooltipProvider>);
+  render(<TooltipProvider><Pane /></TooltipProvider>);
   await waitFor(() => expect(screen.queryByText("Opening terminal…")).toBeNull());
   expect(focused.count).toBe(0);
 
