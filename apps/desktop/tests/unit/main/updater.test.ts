@@ -33,6 +33,8 @@ vi.mock("electron-updater", async () => {
 vi.mock("@main/ipc", () => ({ broadcast: mocks.broadcast }));
 vi.mock("@main/db/repositories", () => ({ settings: { get: () => mocks.settings } }));
 
+const INSTALL_DEADLINE_MS = 60_000;
+
 async function load() {
   // The fake updaters outlive `resetModules`: without this, an earlier test's
   // module would still be listening to them.
@@ -125,6 +127,27 @@ describe("updater", () => {
     expect(mocks.check).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
     expect(mocks.check).toHaveBeenCalledTimes(3);
+    updater.stopUpdater();
+  });
+
+  it("an install that neither quits nor errors is called stuck after a minute, and Restart can be pressed again", async () => {
+    const updater = await load();
+    autoUpdater.emit("update-downloaded", { version: "2.0.0" });
+    mocks.quitAndInstall.mockImplementation(() => undefined);
+    updater.installUpdate();
+    expect(updater.updateStatus()).toEqual({ state: "installing", version: "2.0.0" });
+    await vi.advanceTimersByTimeAsync(INSTALL_DEADLINE_MS - 1);
+    expect(updater.updateStatus().state).toBe("installing");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(updater.updateStatus()).toEqual({
+      state: "error",
+      message: "The update did not start; try Restart again.",
+      version: "2.0.0",
+    });
+
+    updater.installUpdate();
+    expect(mocks.quitAndInstall).toHaveBeenCalledTimes(2);
+    expect(updater.updateStatus().state).toBe("installing");
     updater.stopUpdater();
   });
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
@@ -37,6 +37,21 @@ describe("About › Software update", () => {
     await userEvent.click(restart);
     expect(installUpdate).toHaveBeenCalledTimes(1);
     expect(restart).toHaveTextContent("Restarting…");
+  });
+
+  it("Restart stays disabled and reads Restarting… after main has answered, until the quit or an error", async () => {
+    app().installUpdate = vi.fn(async () => undefined);
+    renderAbout();
+    await userEvent.click(screen.getByRole("button", { name: /Restart/ }));
+    const restarting = await screen.findByRole("button", { name: "Restarting…" });
+    expect(restarting).toBeDisabled();
+    expect(useUpdates.getState().busy).toBe(false);
+
+    // main gave up on it: the row is an error again, with Restart to retry.
+    act(() => {
+      useUpdates.getState().receive({ state: "error", message: "The update did not start; try Restart again.", version: "2.0.0" });
+    });
+    expect(screen.getByRole("button", { name: /Restart/ })).toBeEnabled();
   });
 
   it("a failing install lands as an error status instead of an unhandled rejection", async () => {

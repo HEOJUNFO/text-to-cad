@@ -23,7 +23,7 @@ type UpdatesState = {
   receive: (status: UpdateStatus) => void;
 };
 
-export const useUpdates = create<UpdatesState>((set) => {
+export const useUpdates = create<UpdatesState>((set, get) => {
   // A rejected IPC call is the updater being unreachable, not a state main
   // pushed: say so on the row the way a refused answer would, and in a toast.
   const fail = (error: unknown) => {
@@ -68,9 +68,17 @@ export const useUpdates = create<UpdatesState>((set) => {
     // pushes, which is why this store is not just a promise.
     download: () => run(() => window.textToCad.app.downloadUpdate()),
 
-    // Through `run` like the others: `busy` is what keeps a second press off
-    // the button while main is starting the quit.
-    install: () => run(() => window.textToCad.app.installUpdate()),
+    // Through `run` like the others. `busy` only spans the round trip, and main
+    // answers as soon as it has asked Electron to quit, so the row is held by
+    // `installing` — pushed by main, and set here for the case where the answer
+    // wins the race. A refusal that has already been pushed is not overwritten.
+    install: async () => {
+      await run(() => window.textToCad.app.installUpdate());
+      const { status } = get();
+      if (status.state === "downloaded" || (status.state === "error" && status.version !== undefined)) {
+        set({ status: { state: "installing", version: status.version } });
+      }
+    },
 
     receive: (status) => set({ status }),
   };

@@ -28,7 +28,11 @@ import { invoke } from "./define";
  *   (`autoDownload` is off; downloading is the user's decision).
  * - `downloading` — with `percent`.
  * - `downloaded` — staged; restarting installs it.
- * - `error` — with a `message` safe to show.
+ * - `installing` — Restart was pressed and the quit has not happened yet.
+ *   Ends in the quit, in an `error` from the installer, or in an `error` when
+ *   a minute passes without either.
+ * - `error` — with a `message` safe to show. An error that still carries the
+ *   `version` of a staged download can be answered with Restart again.
  */
 export const UpdateStatusSchema = z.object({
   state: z.enum([
@@ -38,6 +42,7 @@ export const UpdateStatusSchema = z.object({
     "available",
     "downloading",
     "downloaded",
+    "installing",
     "error",
   ]),
   /** The version the state is about, when there is one. */
