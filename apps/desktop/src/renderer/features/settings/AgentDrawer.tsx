@@ -40,7 +40,7 @@ import {
 } from "@renderer/features/settings/settings-value";
 import { useSkills } from "@renderer/features/settings/use-skills";
 import { useAgents } from "@renderer/state/agents";
-import type { AgentStatus, AuthState, Platform } from "@shared/agents";
+import type { AgentJobOutput, AgentStatus, AuthState, Platform } from "@shared/agents";
 
 const AUTH_TONE: Record<AuthState, Tone> = {
   authenticated: "ok",
@@ -182,7 +182,7 @@ function InstallationSection({ agent, platform }: { agent: AgentStatus; platform
   const methods = agent.install[platform];
   const [index, setIndex] = useState(0);
   const install = useAgents((state) => state.install);
-  const { jobId, output, running, start } = useJob();
+  const { jobId, output, running, start } = useJob(agent.id, "install");
 
   if (agent.installed) {
     return (
@@ -264,7 +264,7 @@ const PLATFORM_NAMES: Record<Platform, string> = {
 
 function AuthenticationSection({ agent }: { agent: AgentStatus }) {
   const login = useAgents((state) => state.login);
-  const { jobId, output, running, start } = useJob();
+  const { jobId, output, running, start } = useJob(agent.id, "login");
 
   const cliLogin = agent.authMethods.find((method) => method.type === "cli-login");
   const apiKey = agent.authMethods.find((method) => method.type === "api-key");
@@ -504,9 +504,21 @@ export function formatEnv(env: Record<string, string>): string {
  * The job id comes back from the IPC call and the output arrives on
  * `agents.output` afterwards, so the component has to remember the id to know
  * which stream is its own — two drawers open on two agents share one store.
+ * The remembered id dies with the component, though the installer does not: a
+ * job of this agent and kind still running in the store is this one's too, so a
+ * drawer closed and reopened (or a welcome left for Settings and back) finds
+ * the install under way instead of offering to start a second.
  */
-export function useJob() {
-  const [jobId, setJobId] = useState<string | null>(null);
+export function useJob(agentId: string, kind: AgentJobOutput["kind"]) {
+  const [startedId, setStartedId] = useState<string | null>(null);
+  const runningId = useAgents(
+    (state) =>
+      Object.keys(state.jobs).find((id) => {
+        const other = state.jobs[id];
+        return other?.agentId === agentId && other.kind === kind && other.exitCode === null;
+      }) ?? null,
+  );
+  const jobId = runningId ?? startedId;
   const job = useAgents((state) => (jobId ? state.jobs[jobId] : undefined));
   const starting = useRef(false);
 
@@ -516,7 +528,7 @@ export function useJob() {
     }
     starting.current = true;
     try {
-      setJobId(await run());
+      setStartedId(await run());
     } finally {
       starting.current = false;
     }
