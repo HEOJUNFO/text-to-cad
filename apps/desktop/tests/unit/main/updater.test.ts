@@ -172,6 +172,18 @@ describe("updater", () => {
     updater.stopUpdater();
   });
 
+  it("does not call a GitHub 5xx 'no release is published yet'", async () => {
+    const updater = await load();
+    autoUpdater.emit(
+      "error",
+      new Error(
+        "Unable to find latest version on GitHub (https://github.com/o/r/releases/latest), please ensure a production release exists: HttpError: 503 Service Unavailable\n    at x",
+      ),
+    );
+    expect(updater.updateStatus()).toEqual({ state: "error", message: "GitHub did not answer the update check." });
+    updater.stopUpdater();
+  });
+
   it("a background check that fails leaves the offered update on offer", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const updater = await load();

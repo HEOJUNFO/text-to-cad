@@ -296,7 +296,9 @@ function message(error: unknown): string {
     return "Could not reach GitHub to check for updates.";
   }
   if (/unable to find latest version on github/i.test(raw)) {
-    return "No release is published yet.";
+    // The provider wraps every failure in that sentence; only a 404 is "there
+    // is no release". A 5xx or a 429 is GitHub having a bad minute.
+    return /HttpError: 404\b/.test(raw) ? "No release is published yet." : "GitHub did not answer the update check.";
   }
   return raw.split(/\r?\n/, 1)[0]!.trim();
 }
