@@ -57,8 +57,10 @@ export function createDesktopFileSource({ sessionId, projectId, projectName, roo
     async stat(path, { signal }) {
       // The viewer stats a file as it opens it: this is the one stat that counts as an open
       // (file_opened) and watches the entry. Attachments and integrations stat without it.
+      // Only the first stat of a path says so: main takes one hold per open-stat and this
+      // record gives back one per path, so a reload's restat is a plain stat.
       signal.throwIfAborted();
-      const stat = await window.textToCad.explorer.stat({ ...at, path, intent: "open" });
+      const stat = await window.textToCad.explorer.stat({ ...at, path, ...(opened.has(path) ? {} : { intent: "open" as const }) });
       // Counted before the abort check: main counted it when it answered.
       if (stat.kind === "file") opened.add(stat.path);
       signal.throwIfAborted();

@@ -93,6 +93,18 @@ test("a file restatted on every reload is given back once, however many times it
   expect(unwatch.mock.calls[0]![0].paths!.length).toBeLessThanOrEqual(1);
 });
 
+test("only the first stat of a path is an open: main holds once, and one unwatch path gives it back", async () => {
+  const files = source();
+  const stat = { path: "a.txt", name: "a.txt", kind: "file" as const, size: 1, modifiedAt: 0, symlink: false, fileKind: "text" as const, mime: "text/plain", extension: "txt" };
+  const statCall = vi.mocked(window.textToCad.explorer.stat).mockClear().mockResolvedValue(stat);
+  for (let index = 0; index < 3; index += 1) await files.stat("a.txt", { signal: signal() });
+  expect(statCall.mock.calls.filter(([request]) => request.intent === "open")).toHaveLength(1);
+  const unwatch = vi.mocked(window.textToCad.explorer.unwatch).mockClear();
+  files.subscribe!(() => {})();
+  expect(unwatch).toHaveBeenCalledTimes(1);
+  expect(unwatch.mock.calls[0]![0].paths).toEqual(["a.txt"]);
+});
+
 test("Copy reference preserves clipboard text and uses the injected draft destination", async () => {
   const deliver = vi.fn<PromptContextPort["deliver"]>(async () => ({ status: "added" as const, partIds: ["reference"] }));
   const writeText = vi.fn(async () => {});

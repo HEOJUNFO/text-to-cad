@@ -512,7 +512,8 @@ export const explorerHandlers = {
         await watchers?.watchEntry(root, entry);
         // `file_opened`: opening a file tab is renderer state, and its stat is
         // the call main sees for an open. A tab's reload after an on-disk
-        // change stats again and counts again. Only the extension leaves:
+        // change stats again without the intent, so it is neither held nor
+        // counted twice. Only the extension leaves:
         // never the path or the name (README, "Telemetry").
         if (entry.kind === "file") {
           track({ name: "file_opened", extension: fileExtension(entry.path) });
