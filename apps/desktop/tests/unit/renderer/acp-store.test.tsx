@@ -179,3 +179,38 @@ describe("Disconnect agent", () => {
     });
   });
 });
+
+describe("opening a session main has just created", () => {
+  const sessionsApi = window.textToCad.sessions as unknown as Record<string, unknown>;
+  const live = () => ({ ...initialSessionState("s1", "codex"), status: "idle" as const });
+
+  beforeEach(() => {
+    useAcp.setState({ sessions: {}, terminalOutput: {}, loading: {}, reconnecting: {}, loadErrors: {} });
+  });
+
+  /**
+   * A new session's first `session.state` broadcast reaches the renderer while the open's own
+   * snapshot request is still on the way, so the session is held before that answers. The answer
+   * says main's connection is live: nothing to reconnect. A `load` there marks the session
+   * `reconnecting` — every turn event is dropped until its reply — and repaints from a snapshot
+   * older than the prompt sent meanwhile, so that prompt never showed (CI, the full-access spec's
+   * second prompt).
+   */
+  it("does not reconnect a live session that a broadcast painted while its snapshot was on the way", async () => {
+    let answer!: (value: unknown) => void;
+    sessionsApi.state = vi.fn(() => new Promise((resolve) => (answer = resolve)));
+    sessionsApi.load = vi.fn(async () => live());
+
+    const opening = useAcp.getState().ensureLoaded("s1");
+    useAcp.getState().receiveState("s1", live());
+    answer({ state: live(), live: true });
+    await opening;
+
+    expect(sessionsApi.load).not.toHaveBeenCalled();
+    expect(useAcp.getState().reconnecting).toEqual({});
+    expect(useAcp.getState().loading).toEqual({});
+    // So the turn that starts right after is kept.
+    useAcp.getState().receiveEvent("s1", { type: "prompt/start", turnId: "t1", content: [{ type: "text", text: "hi" }], at: 1 });
+    expect(useAcp.getState().sessions.s1?.turns).toHaveLength(2);
+  });
+});
