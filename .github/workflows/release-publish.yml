@@ -443,16 +443,18 @@ jobs:
     # PyPI release untagged (Deploy Docs can be re-run on its own).
     #
     # `desktop` is a need so the installers exist by the time this uploads them, but
-    # deliberately NOT a condition: `always()` plus an explicit test of `publish`
-    # means a desktop build that failed on one platform delays the tag rather than
-    # preventing it -- the wheel is already on PyPI at that point, and an untagged
-    # release is the worse outcome. The upload step below tolerates whatever is or
+    # deliberately NOT a success condition: `!cancelled()` plus an explicit test of
+    # `publish` means a desktop build that failed on one platform delays the tag
+    # rather than preventing it -- the wheel is already on PyPI at that point, and an
+    # untagged release is the worse outcome. The upload step below tolerates whatever is or
     # is not there, except that a release missing the macOS or Windows update feed
     # is tagged as a DRAFT (see that step).
     needs:
       - publish
       - desktop
-    if: ${{ always() && needs.publish.result == 'success' && needs.publish.outputs.should_publish == 'true' && needs.publish.outputs.is_main == 'true' }}
+    # A cancelled run tags nothing: `always()` would run this job through a
+    # cancellation, pushing the tag and creating a draft the operator meant to stop.
+    if: ${{ !cancelled() && needs.desktop.result != 'cancelled' && needs.publish.result == 'success' && needs.publish.outputs.should_publish == 'true' && needs.publish.outputs.is_main == 'true' }}
     runs-on: ubuntu-latest
 
     steps:

@@ -21,7 +21,7 @@ interface Step {
   run?: string;
 }
 interface Workflow {
-  jobs: Record<string, { steps: Step[]; strategy?: { matrix: { include: { name: string }[] } } }>;
+  jobs: Record<string, { if?: string; steps: Step[]; strategy?: { matrix: { include: { name: string }[] } } }>;
 }
 
 const workflow = load(readFileSync(path.join(repo, ".github", "workflows", "release-publish.yml"), "utf8"));
@@ -96,4 +96,11 @@ describe("the release gate", () => {
   it("stops at a tag whose Release is published", () => {
     expect(shouldPublish("false"), "tag, published Release").toBe("false");
   });
+});
+
+it("does not tag or create a Release in a cancelled run", () => {
+  const condition = String(job("tag-release").if ?? "");
+  expect(condition, "tag-release if").not.toMatch(/\balways\(\)/);
+  expect(condition, "tag-release if").toMatch(/!cancelled\(\)/);
+  expect(condition, "tag-release if").toMatch(/needs\.desktop\.result != 'cancelled'/);
 });
