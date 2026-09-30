@@ -91,8 +91,9 @@ export function SessionView({ session }: { session: Session }) {
       : "ready";
 
   // "Disconnect agent" (SessionHeader), or the keep-alive evicting the
-  // adapter: nothing is coming back on its own — `ensureLoaded` runs on a
-  // session switch, not here — so the way back is a button. A disconnect by
+  // adapter: nothing is coming back on its own — `ensureLoaded` runs when
+  // this view opens a session (the effect above), not when its state closes
+  // — so the way back is a button. A disconnect by
   // hand keeps the transcript, marked closed (`close` in state/acp.ts); a
   // closed session let go of is one this view was showing that now has no
   // state and a closed row, not a first open still waiting on
