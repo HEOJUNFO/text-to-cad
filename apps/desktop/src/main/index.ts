@@ -19,7 +19,7 @@ import { shutdownAgents } from "./ipc/agents";
 import { disposeExplorerServices } from "./ipc/explorer";
 import { installMenu } from "./menu";
 import { armQuitDeadline } from "./quit-deadline";
-import { isQuitting } from "./quitting";
+import { isQuitting, markQuitting } from "./quitting";
 import { disposeSettingsEffects } from "./settings-effects";
 import { initTelemetry, track } from "./telemetry";
 import { initUpdater, stopUpdater } from "./updater";
@@ -229,14 +229,36 @@ if (!app.requestSingleInstanceLock()) {
     console.error("[main] unhandled rejection:", reason);
   });
 
-  // An exception nobody caught raises Electron's modal error dialog, which
-  // nobody is there to dismiss once the app is quitting: it would hold the
-  // process before `will-quit` ever runs. Log it; while quitting, leave now.
+  // One teardown step, guarded: a throw (or a rejection) is logged and the
+  // steps after it still run. Shared by the startup-failure path and the quit.
+  const step = (phase: string, name: string, run: () => unknown) => {
+    try {
+      const result = run();
+      if (result instanceof Promise) {
+        result.catch((stepError: unknown) => console.error(`[main] ${phase} ${name}:`, stepError));
+      }
+    } catch (stepError) {
+      console.error(`[main] ${phase} ${name}:`, stepError);
+    }
+  };
+
+  // Electron raises its modal "A JavaScript error occurred" dialog for an
+  // exception nobody caught only while no listener exists, and this listener
+  // exists: so outside a quit it shows the box itself (a packaged app has no
+  // console to read), and while quitting nobody is there to dismiss one — it
+  // would hold the process before `will-quit` ever runs — so it logs and
+  // leaves now.
   process.on("uncaughtException", (error) => {
     console.error("[main] uncaught exception:", error);
     if (isQuitting()) {
       killTrackedChildren();
       app.exit(1);
+    } else if (app.isReady() && process.env.NODE_ENV !== "test") {
+      try {
+        dialog.showErrorBox("A JavaScript error occurred in the main process", error instanceof Error ? error.stack ?? error.message : String(error));
+      } catch (dialogError) {
+        console.error("[main] could not show the uncaught exception:", dialogError);
+      }
     }
   });
 
@@ -294,20 +316,10 @@ if (!app.requestSingleInstanceLock()) {
     // here: what initCad and initIntegrations may already have started (the
     // runtime probe, a viewer, the bridge) must not outlive this process.
     // Each step is guarded — one failing must not keep the next from running.
-    const step = (name: string, run: () => unknown) => {
-      try {
-        const result = run();
-        if (result instanceof Promise) {
-          result.catch((stepError: unknown) => console.error(`[main] startup teardown ${name}:`, stepError));
-        }
-      } catch (stepError) {
-        console.error(`[main] startup teardown ${name}:`, stepError);
-      }
-    };
-    step("cad", shutdownCad);
-    step("integrations", shutdownIntegrations);
-    step("database", closeDb);
-    step("children", killTrackedChildren);
+    step("startup teardown", "cad", shutdownCad);
+    step("startup teardown", "integrations", shutdownIntegrations);
+    step("startup teardown", "database", closeDb);
+    step("startup teardown", "children", killTrackedChildren);
     app.exit(1);
   });
 
@@ -339,33 +351,42 @@ if (!app.requestSingleInstanceLock()) {
     }
   };
   app.on("before-quit", () => {
+    // Before anything that can throw: menu.ts's own before-quit listener is
+    // registered later and runs after this one, so a throw below would
+    // otherwise leave `isQuitting()` false and the window guards asking.
+    markQuitting();
     const started = Date.now();
     quitStartedAt = started;
-    stopUpdater();
-    // The viewers this app started, the bridge, and any tool call still
-    // waiting on a window.
-    void shutdownCad();
-    void shutdownIntegrations();
-    // Database writes on the way out, in this order and all before closeDb():
-    // the ACP snapshot flush (closeAll → flushAll; each adapter's `closed`
-    // status is dispatched synchronously and its later exit is ignored), then
-    // the window geometry. Nothing after closeDb() may reach for the database.
-    shutdownAcp();
-    shutdownAgents();
-    disposeSettingsEffects();
-    browserService.dispose();
-    disposeExplorerServices();
-    // Before the database closes: the windows' own `close` saves come after
-    // this handler, and must not reopen it (src/main/window-state.ts).
-    flushWindowStates();
-    closeDb();
-    endTrackedChildren();
-    console.info(`[quit] teardown ${Date.now() - started}ms`);
-    // Everything this app owns is saved and closed, and nothing can take the
-    // quit back (no handler cancels it; the unload guard lets it through), so
-    // the deadline starts here: a window that never acks its unload, or a
-    // main-process error dialog, sits between `before-quit` and `will-quit`.
-    armDeadline();
+    // Each step is guarded, and the deadline armed whatever happens: one
+    // failing teardown must not skip the rest, the database close among them.
+    try {
+      step("quit teardown", "updater", stopUpdater);
+      // The viewers this app started, the bridge, and any tool call still
+      // waiting on a window.
+      step("quit teardown", "cad", shutdownCad);
+      step("quit teardown", "integrations", shutdownIntegrations);
+      // Database writes on the way out, in this order and all before closeDb():
+      // the ACP snapshot flush (closeAll → flushAll; each adapter's `closed`
+      // status is dispatched synchronously and its later exit is ignored), then
+      // the window geometry. Nothing after closeDb() may reach for the database.
+      step("quit teardown", "acp", shutdownAcp);
+      step("quit teardown", "agents", shutdownAgents);
+      step("quit teardown", "settings effects", disposeSettingsEffects);
+      step("quit teardown", "browser", () => browserService.dispose());
+      step("quit teardown", "explorer", disposeExplorerServices);
+      // Before the database closes: the windows' own `close` saves come after
+      // this handler, and must not reopen it (src/main/window-state.ts).
+      step("quit teardown", "window state", flushWindowStates);
+      step("quit teardown", "database", closeDb);
+      step("quit teardown", "children", endTrackedChildren);
+      console.info(`[quit] teardown ${Date.now() - started}ms`);
+    } finally {
+      // Everything this app owns is saved and closed, and nothing can take the
+      // quit back (no handler cancels it; the unload guard lets it through), so
+      // the deadline starts here: a window that never acks its unload, or a
+      // main-process error dialog, sits between `before-quit` and `will-quit`.
+      armDeadline();
+    }
   });
 
   // Whatever ignored its signal is not going to stop on its own — and
