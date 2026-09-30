@@ -86,7 +86,9 @@ export function SessionView({ session }: { session: Session }) {
   // A reconnect behind a painted transcript is not the composer's business:
   // a prompt sent now is queued against the load and goes out when it lands
   // (`ensureLive` in src/main/acp/sessions.ts), so the box stays live and the
-  // row under it says what is happening instead.
+  // row under it says what is happening instead. Only for a transcript painted
+  // from a snapshot: one the person Disconnected by hand is `closed`, and its
+  // box stays disabled through the Reconnect until the agent is back.
   // The row can still say `connecting` over a state that reads idle: a session being created is
   // promptable from `session/new`, but its model and mode are not settled until `create` returns.
   const connecting = state?.status === "connecting" || (session.status === "connecting" && !reconnecting);

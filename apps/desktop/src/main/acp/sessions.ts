@@ -375,8 +375,11 @@ export class SessionManager {
     this.boot();
     const connection = this.live.get(id);
     // `acpSessionId`, not merely `alive`: a connection that is spawned but
-    // still replaying holds an empty state, and the snapshot is a better
-    // picture of the session than the beginning of its own reload.
+    // has not answered `session/new` holds an empty state, and the snapshot is
+    // a better picture than that. A `loadSession` dispatches `session/connected`
+    // first, so a replaying connection is `live: true` here — `connecting`, with
+    // the transcript replayed so far — and the renderer drops its events until
+    // the load's own state lands (`reconnecting` in `state/acp.ts`).
     if (connection?.alive && connection.acpSessionId) {
       // A create still in its preferences and marks: the reducer says idle from
       // `session/new`, but the row says `connecting` until `create` returns,
