@@ -810,12 +810,32 @@ describe("SessionManager", () => {
    * a reason to fail a turn, nor to hold one back for long: past five seconds
    * the commit stands in for the tree.
    */
-  it("falls back to HEAD when a turn's snapshot takes longer than five seconds", async () => {
+  it("keeps the previous mark when a turn's snapshot takes longer than five seconds", async () => {
     const { repo, manager, cwd } = await setup({
       head: async () => "the-commit",
       snapshot: (_cwd, mark) => (mark.endsWith("/turn") ? new Promise<string>(() => undefined) : Promise.resolve("tree")),
     });
     const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    // A none-mode create marks the session, and that is the turn's mark until a turn moves it.
+    expect(repo.get(session.id)?.turnHead).toBe("tree");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const turn = manager.prompt(session.id, [{ type: "text", text: "hello" }]);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(turn).resolves.toMatchObject({ stopReason: "end_turn" });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(repo.get(session.id)?.turnHead).toBe("tree");
+  });
+
+  it("falls back to HEAD when a turn's snapshot takes longer than five seconds and there is no previous mark", async () => {
+    const { repo, manager, cwd } = await setup({
+      head: async () => "the-commit",
+      snapshot: (_cwd, mark) => (mark.endsWith("/turn") ? new Promise<string>(() => undefined) : Promise.resolve("tree")),
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    repo.upsert({ ...repo.get(session.id)!, turnHead: null });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
       const turn = manager.prompt(session.id, [{ type: "text", text: "hello" }]);
@@ -825,6 +845,85 @@ describe("SessionManager", () => {
       vi.useRealTimers();
     }
     expect(repo.get(session.id)?.turnHead).toBe("the-commit");
+  });
+
+  it("takes one snapshot at a time per mark, so turns behind a slow one do not stack another", async () => {
+    const releases: ((tree: string) => void)[] = [];
+    let started = 0;
+    const { manager, cwd } = await setup({
+      snapshot: (_cwd, mark) => {
+        if (!mark.endsWith("/turn")) return Promise.resolve("tree");
+        started++;
+        return new Promise<string>((resolve) => releases.push(resolve));
+      },
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      for (let turn = 0; turn < 2; turn++) {
+        const running = manager.prompt(session.id, [{ type: "text", text: `turn ${turn}` }]);
+        await vi.advanceTimersByTimeAsync(5_000);
+        await running;
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(started).toBe(1);
+    releases[0]!("late-tree");
+  });
+
+  /**
+   * The snapshot goes on after the wait, and pins `<id>/turn` when it lands:
+   * after a delete has unpinned the marks that ref would be nobody's.
+   */
+  it("drops the ref a late turn snapshot pins after the session was deleted", async () => {
+    const { head, snapshotTree, dropMarks } = await import("@main/projects/git");
+    const { execFileSync } = await import("node:child_process");
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let reached = false;
+    let landed!: () => void;
+    const snapshotted = new Promise<void>((resolve) => (landed = resolve));
+    const { manager, cwd } = await setup({
+      head,
+      dropMarks,
+      snapshot: async (dir, mark) => {
+        if (mark.endsWith("/turn")) {
+          reached = true;
+          await gate;
+        }
+        const tree = await snapshotTree(dir, mark);
+        if (mark.endsWith("/turn")) landed();
+        return tree;
+      },
+    });
+    const run = (...args: string[]) =>
+      execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" }).trim();
+    run("init", "-q");
+    await writeFile(path.join(cwd, "base.txt"), "base\n");
+    run("add", "-A");
+    run("commit", "-q", "-m", "base");
+
+    const session = await manager.create({ projectId: cwd, agentId: "claude-code", cwd, gitMode: "none" });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const turn = manager.prompt(session.id, [{ type: "text", text: "one" }]);
+      turn.catch(() => undefined);
+      while (!reached) await Promise.resolve();
+      await manager.delete(session.id);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(turn).rejects.toThrow(/no such session/);
+    } finally {
+      vi.useRealTimers();
+    }
+    release();
+    await snapshotted;
+    // The ref exists now; the drop is a git call away. Give it ticks, bounded,
+    // and let the assertion say which side it is on.
+    for (let tick = 0; tick < 300 && run("for-each-ref", "refs/text-to-cad/") !== ""; tick++) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    expect(run("for-each-ref", "refs/text-to-cad/")).toBe("");
   });
 
   it("spawns the adapter without waiting for the creating session's snapshot", async () => {

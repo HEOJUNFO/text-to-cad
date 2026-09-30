@@ -422,9 +422,10 @@ export class SessionManager {
     // Started now and settled after `session/new`: the marks are of the tree
     // before the first prompt, which cannot go out until this create has
     // returned, so they overlap the spawn rather than delay it.
+    const owner = { id, projectId: input.projectId, cwd: workspace.cwd };
     const marks: Promise<[string | null, string | null]> = fresh
-      ? Promise.all([this.headOf(workspace.cwd), this.markWithin(workspace.cwd, `${id}/turn`)])
-      : this.markWithin(workspace.cwd, `${id}/session`).then((head) => [head, head]);
+      ? Promise.all([this.headOf(workspace.cwd), this.markWithin(owner, "turn")])
+      : this.markWithin(owner, "session").then((head) => [head, head]);
     const now = Date.now();
     const session: Session = {
       id,
@@ -925,10 +926,10 @@ export class SessionManager {
       }
       // The turn's starting point, read before the agent can move it. This is
       // what the review's `Last turn` scope diffs against; taking it afterwards
-      // would measure the turn against its own result. A read that failed
-      // (a lock, a timeout) keeps the previous mark: a wider `Last turn` is
-      // still a review, where a null would unmark it altogether.
-      const turnHead = await this.markWithin(session.cwd, `${id}/turn`);
+      // would measure the turn against its own result. A snapshot that takes
+      // too long keeps the previous mark: a wider `Last turn` is still a
+      // review, where a null would unmark it altogether.
+      const turnHead = await this.markWithin(session, "turn", current.turnHead);
       // Deleted while the snapshot ran: `delete` unpinned before this mark
       // was pinned, and nothing else would ever drop the ref it just made.
       if (!this.deps.repo.get(id)) {
@@ -1151,40 +1152,80 @@ export class SessionManager {
   }
 
   /** Unpin the snapshot marks a session took, in the project and in its own directory. */
-  private async unpinMarks(session: Session): Promise<void> {
+  private async unpinMarks(session: Pick<Session, "id" | "projectId" | "cwd">): Promise<void> {
     for (const repository of new Set([session.projectId, session.cwd])) {
       await this.deps.dropMarks?.(repository, session.id).catch(() => undefined);
     }
   }
 
+  /** The snapshots running, per mark: a second `git add -A` of the same tree waits for the first. */
+  private readonly snapshotting = new Map<string, Promise<string | null>>();
+
   /**
-   * The working tree as it stands, pinned under `mark`; the commit it is at
-   * where no snapshot can be taken (no `snapshot` dep, or git failed).
+   * The working tree as it stands, pinned under `<id>/<kind>`; null where no
+   * snapshot can be taken (no `snapshot` dep, or git failed).
+   *
+   * One at a time per mark: a snapshot past `MARK_WAIT_MS` is still running
+   * when the next turn asks for its own, and a second one would stack another
+   * `add -A` on a tree that is already slow, and could land after the first
+   * and re-point the ref away from the tree the newer mark stored. The second
+   * asker takes the first's result.
    */
-  private async markOf(cwd: string, mark: string): Promise<string | null> {
-    const tree = await this.deps.snapshot?.(cwd, mark).catch(() => null);
-    return tree ?? this.headOf(cwd);
+  private snapshotOf(cwd: string, mark: string): Promise<string | null> {
+    if (!this.deps.snapshot) {
+      return Promise.resolve(null);
+    }
+    const key = `${cwd}\0${mark}`;
+    const running = this.snapshotting.get(key);
+    if (running) {
+      return running;
+    }
+    const flight: Promise<string | null> = this.deps.snapshot(cwd, mark)
+      .catch(() => null)
+      .finally(() => {
+        if (this.snapshotting.get(key) === flight) this.snapshotting.delete(key);
+      });
+    this.snapshotting.set(key, flight);
+    return flight;
   }
 
   /**
-   * `markOf`, but only up to `MARK_WAIT_MS`: a `git add` in a huge or locked
-   * tree can take a minute, and a turn — or a new session — waits for its
-   * mark on the way out. Past the wait the commit stands in for the tree, the
-   * same fallback a git failure gets, and the late snapshot's result is
-   * dropped.
+   * The working tree, as `snapshotOf` takes it, but only up to `MARK_WAIT_MS`:
+   * a `git add` in a huge or locked tree can take a minute, and a turn — or a
+   * new session — waits for its mark on the way out. Past the wait, or where no
+   * snapshot can be taken, `fallback` stands in for the tree — the previous
+   * mark where the caller has one (a wider `Last turn` than the turn, never a
+   * different one), the commit where it has not.
+   *
+   * The late snapshot goes on running and pins its ref when it lands. A
+   * session deleted (or a create that failed) in the meantime has already
+   * unpinned its marks, so a result that finds no row unpins them again.
    */
-  private async markWithin(cwd: string, mark: string): Promise<string | null> {
+  private async markWithin(
+    owner: Pick<Session, "id" | "projectId" | "cwd">,
+    kind: "turn" | "session",
+    fallback?: string | null,
+  ): Promise<string | null> {
+    const flight = this.snapshotOf(owner.cwd, `${owner.id}/${kind}`);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const expired = new Promise<typeof EXPIRED>((resolve) => {
       timer = setTimeout(() => resolve(EXPIRED), MARK_WAIT_MS);
     });
     try {
-      const tree = await Promise.race([this.markOf(cwd, mark), expired]);
-      if (tree !== EXPIRED) {
-        return tree;
+      const tree = await Promise.race([flight, expired]);
+      if (tree === EXPIRED) {
+        console.warn(`[acp] mark fell back after ${MARK_WAIT_MS / 1000} s`);
+        void flight.then(async (late) => {
+          if (late !== null && !this.deps.repo.get(owner.id)) {
+            await this.unpinMarks(owner);
+          }
+        });
       }
-      console.warn(`[acp] mark fell back to HEAD after ${MARK_WAIT_MS / 1000} s`);
-      return this.headOf(cwd);
+      if (tree === EXPIRED) {
+        return fallback ?? (await this.headOf(owner.cwd));
+      }
+      // No snapshot to take (or git failed): the commit is what the tree is at.
+      return tree ?? (await this.headOf(owner.cwd));
     } finally {
       clearTimeout(timer);
     }
