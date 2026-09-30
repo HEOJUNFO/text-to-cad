@@ -728,7 +728,30 @@ describe("status", () => {
     expect(status.message).toContain("/nowhere/python");
   });
 
-  it("does not remember a failed probe, and repair probes again", async () => {
+  it("runs a failing doctor once per window; repair() and the window's end ask again", async () => {
+    const m = machine({ bundle: true });
+    let now = 1_000;
+    (m.host as { now?: () => number }).now = () => now;
+    (m.host as { exec: RuntimeHost["exec"] }).exec = async (file, args) => {
+      m.execs.push({ file, args, env: {} });
+      return { stdout: "", stderr: "ImportError: dlopen failed", code: 1 };
+    };
+    const runtime = new CadRuntime(m.host);
+    for (let bind = 0; bind < 5; bind += 1) {
+      expect(await runtime.daemonReady()).toBeNull();
+      expect(await runtime.ready()).toBeNull();
+    }
+    expect(m.execs).toHaveLength(1);
+    await runtime.repair();
+    expect(m.execs).toHaveLength(2);
+    await runtime.ready();
+    expect(m.execs).toHaveLength(2);
+    now += 61_000;
+    await runtime.ready();
+    expect(m.execs).toHaveLength(3);
+  });
+
+  it("does not remember a failed probe past repair, which probes again", async () => {
     const m = machine({ bundle: true });
     const python = bundledPaths(m.resources, "darwin", "arm64").python;
     // First the bundle answers with an error; then it is fixed.

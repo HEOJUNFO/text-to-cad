@@ -1602,7 +1602,11 @@ DXF still open — and a STEP build that fails then quotes those words in its
 recovery line. Only `missing` and `unsupported` keep the build daemon from
 being warmed on it (`DAEMON_BLOCKING_KERNEL` in `src/main/cad/runtime.ts`); a
 `timeout` says nothing about the kernel, so the daemon is still warmed, and
-that probe is not cached — the next status asks again.
+that probe is not cached — the next status asks again. A probe that *fails*
+(no interpreter, cadgen not importable, a kernel that fails to load) is
+remembered for a minute, because `cad.warm` asks on every session bind and a
+broken interpreter would otherwise run a doctor per bind; Repair and an
+override change clear it at once.
 A CAD tab whose runtime did not start shows the interpreter's words, Try
 again, and Reveal log — `runtime.revealLog` shows the log
 (`userData/cad-runtime.log`: every failed probe, every viewer launch that did
