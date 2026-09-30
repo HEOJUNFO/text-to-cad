@@ -259,6 +259,13 @@ export class SessionManager {
   private readonly tallies = new Map<string, ChangeTally>();
   /** The `load` in flight per session, so two callers wait on one spawn. */
   private readonly loads = new Map<string, Promise<SessionState>>();
+  /**
+   * The `create` still spawning per session, settled when it succeeds or fails.
+   * The row is in the index (and in the sidebar) from before `session/new`, so
+   * a click on it — or a prompt — arrives while the row has no agent session
+   * id yet, and `load` waits here rather than say it never connected.
+   */
+  private readonly creating = new Map<string, Promise<void>>();
   /** An agent may announce its title before session/new tells us its session id. */
   private readonly pendingTitles = new Map<string, Map<string, string>>();
   private readonly snapshots: SessionSnapshotWriter | null;
@@ -424,50 +431,57 @@ export class SessionManager {
     } finally {
       this.deps.workspaceSettled?.(workspace);
     }
-    this.broadcastIndex();
-
-    const timer = createTimer();
-    let warmed = false;
-    let connection: SessionConnection;
+    let created!: () => void;
+    this.creating.set(id, new Promise<void>((resolve) => (created = resolve)));
     try {
-      connection = await this.connect(session, {
-        onWarm: () => {
-          warmed = true;
-        },
-      });
-      timer.mark("spawn");
-      await connection.initialize();
-      timer.mark("initialize");
-      await connection.newSession();
-      timer.mark("session/new");
-      console.info(
-        `[acp] create ${session.id.slice(0, 8)} ${session.agentId} warm=${warmed ? "yes" : "no"} ${timer.format()}`,
-      );
-    } catch (error) {
-      // A row with no agent session id can never be loaded; the renderer
-      // shows the failure (sign in, install) and the user creates again.
-      this.retire(session.id);
-      this.pendingTitles.delete(session.id);
-      this.deps.repo.remove(session.id);
       this.broadcastIndex();
-      await this.unpinMarks(session);
-      // The worktree this create made goes with the row. Not one it was given
-      // (`New session in this worktree`): that directory was there before.
-      if (workspace.worktreePath && !input.cwd) {
-        await this.deps.releaseWorkspace?.(session, { abandoned: true }).catch(() => undefined);
+
+      const timer = createTimer();
+      let warmed = false;
+      let connection: SessionConnection;
+      try {
+        connection = await this.connect(session, {
+          onWarm: () => {
+            warmed = true;
+          },
+        });
+        timer.mark("spawn");
+        await connection.initialize();
+        timer.mark("initialize");
+        await connection.newSession();
+        timer.mark("session/new");
+        console.info(
+          `[acp] create ${session.id.slice(0, 8)} ${session.agentId} warm=${warmed ? "yes" : "no"} ${timer.format()}`,
+        );
+      } catch (error) {
+        // A row with no agent session id can never be loaded; the renderer
+        // shows the failure (sign in, install) and the user creates again.
+        this.retire(session.id);
+        this.pendingTitles.delete(session.id);
+        this.deps.repo.remove(session.id);
+        this.broadcastIndex();
+        await this.unpinMarks(session);
+        // The worktree this create made goes with the row. Not one it was given
+        // (`New session in this worktree`): that directory was there before.
+        if (workspace.worktreePath && !input.cwd) {
+          await this.deps.releaseWorkspace?.(session, { abandoned: true }).catch(() => undefined);
+        }
+        throw error;
       }
-      throw error;
+      // What the person last chose for this agent — the model, the effort and
+      // the mode. Never a reason for the session to fail: a refused
+      // `set_config_option` leaves the session at the agent's own defaults,
+      // which is a working session.
+      await this.applyPreferences(session, connection);
+      const updated = this.update(session.id, { acpSessionId: connection.acpSessionId, status: "idle" });
+      this.deps.broadcast("session.state", { sessionId: session.id, state: connection.state });
+      // The registry id and nothing else — no directory, project or prompt.
+      this.deps.track?.({ name: "session_created", agent: session.agentId });
+      return updated;
+    } finally {
+      this.creating.delete(id);
+      created();
     }
-    // What the person last chose for this agent — the model, the effort and
-    // the mode. Never a reason for the session to fail: a refused
-    // `set_config_option` leaves the session at the agent's own defaults,
-    // which is a working session.
-    await this.applyPreferences(session, connection);
-    const updated = this.update(session.id, { acpSessionId: connection.acpSessionId, status: "idle" });
-    this.deps.broadcast("session.state", { sessionId: session.id, state: connection.state });
-    // The registry id and nothing else — no directory, project or prompt.
-    this.deps.track?.({ name: "session_created", agent: session.agentId });
-    return updated;
   }
 
   /**
@@ -645,6 +659,10 @@ export class SessionManager {
    */
   async load(id: string): Promise<SessionState> {
     this.boot();
+    const creation = this.creating.get(id);
+    if (creation) {
+      return creation.then(() => this.load(id));
+    }
     // One load per session at a time. The renderer starts one behind the
     // painted snapshot, and a prompt typed into that snapshot's composer
     // arrives while it is still running — two spawns for one session, and a

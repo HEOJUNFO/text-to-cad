@@ -658,6 +658,24 @@ describe("SessionManager", () => {
     expect(JSON.parse(store.rows.get(session.id)!).turns).toHaveLength(2);
   });
 
+  /**
+   * The row is in the sidebar from before `session/new` answers, and the
+   * spawn takes one to three seconds: a click in that window is a `load` of a
+   * session with no agent session id yet.
+   */
+  it("joins a create still in session/new when the row is loaded", async () => {
+    const { repo, manager, cwd } = await setup({
+      launchOverride: () => ({ ...fakeProvider.launch, args: [FAKE_AGENT, "--new-delay", "150"] }),
+    });
+    const creating = manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    const row = await until(() => repo.list()[0]);
+    expect(row.acpSessionId).toBeNull();
+    const state = await manager.load(row.id);
+    expect(state.status).toBe("idle");
+    expect((await creating).acpSessionId).toBe("fake-session-1");
+    expect(manager.state(row.id)?.live).toBe(true);
+  });
+
   it("has no snapshot for a session that never connected, so the spinner stays", async () => {
     const { manager } = await setup({ snapshots: memorySnapshots() });
     expect(manager.state("session-does-not-exist")).toBeNull();
