@@ -378,8 +378,11 @@ export class SessionManager {
     // has not answered `session/new` holds an empty state, and the snapshot is
     // a better picture than that. A `loadSession` dispatches `session/connected`
     // first, so a replaying connection is `live: true` here — `connecting`, with
-    // the transcript replayed so far — and the renderer drops its events until
-    // the load's own state lands (`reconnecting` in `state/acp.ts`).
+    // the transcript replayed so far. The renderer that started the load drops
+    // that connection's events until the load's own state lands (`reconnecting`
+    // in `state/acp.ts`); one that reloaded mid-load paints this state from
+    // `ensureLoaded` and reduces the replay's events as they come, which the
+    // load's final `session.state` then replaces.
     if (connection?.alive && connection.acpSessionId) {
       // A create still in its preferences and marks: the reducer says idle from
       // `session/new`, but the row says `connecting` until `create` returns,
