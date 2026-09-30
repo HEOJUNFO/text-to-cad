@@ -37,7 +37,9 @@ import { defaultSettings, type Session } from "@shared/types";
 /**
  * The session's interface hints are the kit's `TooltipHint`, never a native `title`
  * (packages/ui/README.md): a native tooltip cannot be styled, ignores the 400ms hint delay and
- * reads twice to a screen reader beside the label. One pass over every control the session draws.
+ * reads twice to a screen reader beside the label. One pass over every control the session draws,
+ * and over the other desktop screens the rule covers: the sidebar, Settings and the agent drawer,
+ * the explorer's tab strip (`TabStrip`) and the review tab (`ReviewTab`). A new screen is added here.
  */
 
 // Monaco draws nothing readable in jsdom; the review's diff is stood in for.

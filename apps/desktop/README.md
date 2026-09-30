@@ -705,8 +705,8 @@ in-memory composer draft; its group appears only when a session is created. A se
 circle idle, a pulsing dot while a turn streams, an amber triangle waiting on
 a permission, a red one after a failure, a spinner ring connecting —
 `lib/sidebar.ts`), the title, git's own glyph when the thread runs in a
-worktree or on a branch of its own, and a `…` on hover for pin, rename,
-archive and delete. `Pinned` is the first section when anything is pinned,
+worktree or on a branch of its own, and a `…` on hover or when it takes
+keyboard focus, for pin, rename, archive and delete. `Pinned` is the first section when anything is pinned,
 and a pinned thread lives **only** there — never twice.
 
 The filter menu is global, and it is opened from the panel's own header:
@@ -847,7 +847,12 @@ box as it was taken, behind any put back before it, so the box reads in queue
 order, and the queue goes on. A new session's first prompt refused this way
 goes back into that session's box — the session was created and selected
 before the prompt went out (`NewSession.tsx`); only a create that fails keeps
-the new-session screen, with the error and Try again.
+the new-session screen, with the error and Try again. A create that fails with
+the person elsewhere (on another thread, or another project's new-session
+screen) shows a toast with the error and Try again, which returns to the
+new-session screen that holds the restored draft. A create that outlasts a
+click on another thread or project does not pull them back to the session it
+made.
 
 Image attachments show a contained thumbnail beside the filename, with an always-visible remove control. Click the thumbnail (or focus it and press Enter) to inspect the full image. Escape, Close or the backdrop dismisses the preview and returns focus to the thumbnail; the draft is unchanged. Explorer tabs use a bordered active state and visible keyboard focus on selection and close controls.
 
@@ -1097,14 +1102,17 @@ otherwise cover. The selected session row and Settings' current page carry
 `aria-current="page"`. A session row's keyboard focus ring is drawn around the
 whole row (`has-[[data-session-row-title]:focus-visible]` in
 `features/sidebar/SessionRow.tsx`), not around the title button inside it. The
-command palette leaves out its Sessions group when there is no open session.
+command palette leaves out its Sessions group when there is no open session. A
+session row is searched on its title, its project's name and its branch, and a
+project row on the project's name only; ids and paths are not text to match
+(`scoredOnKeywords` in `app/CommandPalette.tsx`).
 
 ## The explorer strip
 
 The strip's `+` is one button and a menu of the five kinds, each with its
 binding — ⌘T file, ⇧⌘R review, ⇧⌘B browser, ⌃` terminal, ⇧⌘D drawing
-(`lib/shortcuts.ts` is the table the menu prints and `ExplorerPane` answers
-to). It sits **after the last tab, inside the scrolling row**, and is
+(`lib/shortcuts.ts` is the table the menu prints and `useExplorerShortcuts`
+in `ExplorerPane.tsx` answers to). It sits **after the last tab, inside the scrolling row**, and is
 `position: sticky` at its right edge: it slides along with the tabs until the
 row is longer than the pane, and then stops at the pane's edge with the tabs
 passing underneath it. In the flow alone it was the button that scrolled off
@@ -1977,6 +1985,9 @@ when it was written by the same app version and holds every provider. Then:
   (`features/settings/AgentDrawer.tsx`), not from component state, so a drawer
   closed and reopened, or a welcome left for Settings and back, finds the
   installer under way and attaches its log instead of offering a second one.
+  A job is in that store from the moment main names it, not from its first byte
+  (`seedJob` in `state/agents.ts`), so a row remounted while a silent install
+  is still quiet finds it.
   A failed run's "Install failed (exit N)" / "Sign in failed (exit N)" is worded
   only while the step is undone (`useJob`'s `done`: installed, signed in), and a
   newer job of the kind replaces the failed one a mount started.

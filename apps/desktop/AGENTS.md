@@ -154,6 +154,11 @@ the rule is about.
   the open-a-tab chords are the exception because `open` reveals the pane.
   `event.repeat` is swallowed, and non-mac plain Ctrl chords are skipped inside
   `[data-terminal-body]` (`src/renderer/features/explorer/ExplorerPane.tsx`).
+- **The no-native-title rule covers the desktop screens its test renders.**
+  Interface hints are the kit's `TooltipHint`, never a `title` attribute
+  (`packages/ui/README.md`), and `tests/unit/renderer/no-native-title.test.tsx`
+  renders the session, the sidebar, Settings, the agent drawer, the tab strip
+  and the review. A new screen is added to that test.
 - **The agent table on a warm launch is the last launch's.** `agents.list`
   answers from the `__agents` settings row with every row `probing`; a caller
   that would act on a row (refuse an agent as not installed, hand a binary to a
