@@ -37,6 +37,15 @@ traverse(parse(source, { sourceType: 'module', plugins: ['jsx'] }), {
   }
 });
 assert.ok(resetCommand, 'the shell exposes a live resetCamera');
+let atRestCommand;
+traverse(parse(source, { sourceType: 'module', plugins: ['jsx'] }), {
+  ObjectProperty(path) {
+    if (path.node.key.name !== 'atRest' || path.node.value.type !== 'ArrowFunctionExpression') return;
+    assert.equal(atRestCommand, undefined, 'one live atRest');
+    atRestCommand = Function('scope', `with (scope) { return (${source.slice(path.node.value.start, path.node.value.end)})(); }`);
+  }
+});
+assert.ok(atRestCommand, 'the shell exposes a live atRest for the binding\'s capture');
 
 function harness(displaySettings, viewer = null) {
   const result = { applied: null, display: displaySettings, perspective: null, recorded: null, moving: false };
@@ -146,4 +155,13 @@ test('a setCamera while Preview\'s orbit plays reads back on every frame after i
   assert.deepEqual(readback, [true, true, true, true, true], 'the applied camera reads back on frames 1-5');
   const moved = viewer.getPerspective();
   assert.equal(committed({ camera: { ...moved, position: [moved.position[0], moved.position[1], moved.position[2] + 1] } }), false, 'a different height is not the applied camera');
+});
+
+test('atRest is false while the viewer\'s camera is transitioning and true otherwise, so a capture waits', () => {
+  let moving = true;
+  const scope = { viewerRef: { current: { isCameraTransitioning: () => moving } } };
+  assert.equal(atRestCommand(scope), false, 'an eased move is under way');
+  moving = false;
+  assert.equal(atRestCommand(scope), true, 'the camera has come to rest');
+  assert.equal(atRestCommand({ viewerRef: { current: null } }), true, 'no viewer, nothing to wait for');
 });
