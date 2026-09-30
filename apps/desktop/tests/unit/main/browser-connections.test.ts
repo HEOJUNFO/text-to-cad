@@ -78,3 +78,19 @@ it("disposePages from a superseded workspace change cannot close the pages of th
   // B's late completion would keep B and close C's pages.
   expect(service.disposeSession.mock.calls).toEqual([["session", { sessionId: "session", projectId: "project", root: "/work-c" }]]);
 });
+it("the newest disposePages still wins when each call follows a revoke, as the bridge's tokenFor does", async () => {
+  const { service } = fixture();
+  const dirs = ["/work-b", "/work-c"];
+  const connections = new BrowserConnections({ sessionRoot: () => ({ directory: dirs.shift()!, root: null }) }, { request: vi.fn() }, path.join(directory, "artifacts"), service as unknown as BrowserService);
+  let resolveB!: (value: string) => void;
+  const realpath = vi.spyOn(fs, "realpath").mockImplementation((async (target: string) => target === "/work-b" ? new Promise<string>(resolve => { resolveB = resolve; }) : target) as typeof fs.realpath);
+  try {
+    connections.revoke(session.sessionId);
+    const first = connections.disposePages(session);
+    connections.revoke(session.sessionId);
+    await connections.disposePages(session);
+    resolveB("/work-b");
+    await first;
+  } finally { realpath.mockRestore(); }
+  expect(service.disposeSession.mock.calls).toEqual([["session", { sessionId: "session", projectId: "project", root: "/work-c" }]]);
+});

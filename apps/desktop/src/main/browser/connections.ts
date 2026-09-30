@@ -9,7 +9,11 @@ import { browserSessionKey } from "./storage";
 /** Session lifetime and renderer-owned tabs are the only app-specific pieces. */
 export class BrowserConnections {
   private readonly entries = new Map<string, Promise<ScopedBrowserCdp>>();
-  /** The newest `disposePages` call per session. */
+  /**
+   * The newest `disposePages` call per session. Monotonic: the bridge revokes
+   * before every call, so a `revoke` that reset it would restart each call at 1
+   * and let a superseded one pass the guard.
+   */
   private readonly disposals = new Map<string, number>();
   constructor(private readonly deps: Pick<ActionDeps, "sessionRoot">, private readonly commands: Pick<RendererCommands, "request">,
     private readonly artifacts: string, private readonly service: BrowserService = browserService) {}
@@ -50,7 +54,7 @@ export class BrowserConnections {
     return { endpoint: await endpoint.start(), root, outputDir };
   }
   revoke(sessionId: string) {
-    const pending = this.entries.get(sessionId); this.entries.delete(sessionId); this.disposals.delete(sessionId);
+    const pending = this.entries.get(sessionId); this.entries.delete(sessionId);
     void pending?.then(endpoint => endpoint.dispose()).catch(() => {});
   }
   /**
@@ -69,7 +73,7 @@ export class BrowserConnections {
     this.service.disposeSession(session.sessionId, root === null ? undefined : { sessionId: session.sessionId, projectId: session.projectId, root });
   }
   async dispose() {
-    const pending = [...this.entries.values()]; this.entries.clear();
+    const pending = [...this.entries.values()]; this.entries.clear(); this.disposals.clear();
     await Promise.allSettled(pending.map(async entry => (await entry).dispose()));
   }
 }
