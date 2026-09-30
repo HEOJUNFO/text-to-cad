@@ -165,8 +165,8 @@ export const acpHandlers = {
     rename: ({ id, title }) => surfacing(() => sessionManager.rename(id, title)),
     // The row first, as `delete` does: an archive that throws leaves the session
     // active with its tokens, pages and shells, not half torn down.
-    archive: ({ id, archived }) => surfacing(() => {
-      const session = sessionManager.archive(id, archived);
+    archive: ({ id, archived }) => surfacing(async () => {
+      const session = await sessionManager.archive(id, archived);
       if (archived) {
         forgetSession(id);
         browserService.disposeSession(id);

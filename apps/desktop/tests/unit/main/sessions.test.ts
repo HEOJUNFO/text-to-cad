@@ -442,6 +442,32 @@ describe("SessionManager", () => {
     expect(manager.list().map((session) => session.id)).toEqual(["real"]);
   });
 
+  it("releases the worktree of a dead create at boot only when that create cut it", async () => {
+    const repo = memoryRepo();
+    const base = { projectId: "p1", agentId: "claude-code", cwd: "/x", gitMode: "worktree", title: "New session", titleSource: "prompt", createdAt: 1, updatedAt: 100, changedFiles: 0, insertions: 0, deletions: 0, archived: false, pinned: false, status: "connecting", acpSessionId: null } as const;
+    repo.upsert({ ...base, id: "cut", worktreePath: "/wt/cut", worktreeOwned: true } as Session);
+    repo.upsert({ ...base, id: "given", worktreePath: "/wt/given" } as Session);
+    const released: { path: string | undefined; abandoned: boolean | undefined }[] = [];
+    const { manager } = await setup({
+      repo,
+      releaseWorkspace: async (session, options) => {
+        released.push({ path: session.worktreePath, abandoned: options?.abandoned });
+      },
+    });
+    expect(manager.list()).toEqual([]);
+    expect(released).toEqual([{ path: "/wt/cut", abandoned: true }]);
+  });
+
+  it("records that a create cut its worktree, and that one it was handed is not its own", async () => {
+    const { manager, cwd } = await setup({
+      workspace: async (input) => (input.cwd ? { cwd: input.cwd, worktreePath: input.cwd } : { cwd, worktreePath: `${cwd}/wt` }),
+    });
+    const cut = await manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "worktree" });
+    const given = await manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "worktree", cwd });
+    expect(cut.worktreeOwned).toBe(true);
+    expect(given.worktreeOwned).toBeUndefined();
+  });
+
   it("refuses an answer to a permission request the agent is no longer waiting on", async () => {
     const { manager, cwd } = await setup();
     const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
@@ -723,6 +749,43 @@ describe("SessionManager", () => {
     expect(state.status).toBe("idle");
     expect((await creating).acpSessionId).toBe("fake-session-1");
     expect(manager.state(row.id)?.live).toBe(true);
+  });
+
+  /**
+   * `archive` used to `close` the connection under `session/new`: `newSession`
+   * rejected, `create` removed the row and the worktree, and the person had
+   * archived a thread that no longer existed and been shown a create error.
+   */
+  it("archives a row that is still in session/new once its create has settled", async () => {
+    const { repo, manager, cwd } = await setup({
+      launchOverride: () => ({ ...fakeProvider.launch, args: [FAKE_AGENT, "--new-delay", "150"] }),
+    });
+    const creating = manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    const row = await until(() => repo.list()[0]);
+    expect(row.acpSessionId).toBeNull();
+    const archived = await manager.archive(row.id, true);
+    expect((await creating).id).toBe(row.id);
+    expect(archived).toMatchObject({ id: row.id, archived: true, status: "closed" });
+    expect(repo.get(row.id)).toMatchObject({ archived: true, acpSessionId: "fake-session-1" });
+  });
+
+  /**
+   * A `close` while the preferences and the marks are pending set `closed`,
+   * and `create` wrote `idle` over it and announced a live state for a
+   * connection that was gone.
+   */
+  it("leaves a row closed during the marks closed, and announces no live state for it", async () => {
+    let release!: (tree: string) => void;
+    const { repo, manager, broadcasts, cwd } = await setup({
+      snapshot: () => new Promise<string>((resolve) => (release = resolve)),
+    });
+    const creating = manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    const id = (await until(() => (repo.list()[0]?.acpSessionId ? repo.list()[0] : undefined))).id;
+    manager.close(id);
+    release("tree");
+    await creating;
+    expect(repo.get(id)?.status).toBe("closed");
+    expect(broadcasts.some((b) => b.channel === "session.state" && (b.payload as { sessionId: string }).sessionId === id)).toBe(false);
   });
 
   /**
@@ -1488,7 +1551,7 @@ describe("SessionManager", () => {
     expect(recorder.remembered.at(-1)?.modes).toEqual(["default", "plan", "auto", "full"]);
   });
 
-  it("settles a row whose create failed after session/new instead of leaving it connecting", async () => {
+  it("resolves a create whose setup failed after session/new: one idle row, the failure told to the index", async () => {
     const recorder = optionRecorder({ model: null });
     const deps = {
       ...recorder.deps,
@@ -1499,11 +1562,34 @@ describe("SessionManager", () => {
       },
     };
     const { repo, manager, broadcasts, cwd } = await setup({ agentOptions: deps });
-    await expect(manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" })).rejects.toThrow("SQLITE_BUSY");
+    const created = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
     const id = "session-1";
-    expect(repo.get(id)).not.toBeNull();
-    expect(repo.get(id)?.status).not.toBe("connecting");
+    expect(created).toMatchObject({ id, status: "idle", acpSessionId: "fake-session-1" });
+    expect(repo.list()).toHaveLength(1);
+    expect(repo.get(id)?.status).toBe("idle");
     expect(broadcasts.some((b) => b.channel === "session.state" && (b.payload as { sessionId: string }).sessionId === id)).toBe(true);
+    const note = broadcasts.find((b) => b.channel === "session.status" && (b.payload as { error: string | null }).error);
+    expect((note?.payload as { error: string }).error).toContain("SQLITE_BUSY");
+  });
+
+  it("rejects a create whose adapter died after session/new, and leaves no row behind", async () => {
+    const recorder = optionRecorder({ model: null });
+    const made = {} as Awaited<ReturnType<typeof setup>>;
+    const deps = {
+      ...recorder.deps,
+      remember: (...args: Parameters<typeof recorder.deps.remember>) => {
+        if (recorder.remembered.length >= 1) {
+          // The adapter is gone without anyone closing it (a crash), so the row is still `connecting`.
+          const live = (made.manager as unknown as { live: { get(id: string): object | undefined } }).live.get("session-1");
+          Object.defineProperty(live, "alive", { get: () => false });
+          throw new Error("SQLITE_BUSY");
+        }
+        recorder.deps.remember(...args);
+      },
+    };
+    Object.assign(made, await setup({ agentOptions: deps }));
+    await expect(made.manager.create({ projectId: "p1", agentId: "claude-code", cwd: made.cwd, gitMode: "none" })).rejects.toThrow("SQLITE_BUSY");
+    expect(made.repo.list()).toHaveLength(0);
   });
 
   /**
