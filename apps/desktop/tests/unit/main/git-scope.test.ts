@@ -349,6 +349,20 @@ describe("snapshot marks", () => {
   });
 });
 
+describe("commits ahead", () => {
+  it("a repository with no remote is not walked for unpushed commits", async () => {
+    const cwd = await unbornRepo();
+    const sh = (...args: string[]) => run("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { cwd });
+    await sh("add", "-A");
+    await sh("commit", "-q", "-m", "base");
+    execa.mockClear();
+    expect((await git.status(cwd)).ahead).toBe(0);
+    expect((await git.pushState(cwd)).ahead).toBe(0);
+    const walked = execa.mock.calls.some((call) => (call[1] as string[] | undefined)?.[0] === "rev-list");
+    expect(walked).toBe(false);
+  });
+});
+
 describe("unifiedDiff of a file that stopped changing", () => {
   it("is empty for a tracked file reverted since it was listed, not a new-file patch", async () => {
     const cwd = await unbornRepo();

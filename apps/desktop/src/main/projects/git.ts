@@ -510,11 +510,12 @@ async function commitsAhead(root: string, porcelain: ReturnType<typeof parsePorc
   if (porcelain.upstream || porcelain.unborn || !porcelain.branch) {
     return porcelain.ahead;
   }
-  const [remotes, count] = await Promise.all([
-    tryGit(root, ["remote"]),
-    tryGit(root, ["rev-list", "--count", "HEAD", "--not", "--remotes"]),
-  ]);
-  return remotes?.trim() ? Number(count?.trim()) || 0 : 0;
+  // Without a remote there is nothing to be ahead of, and the walk below covers
+  // the whole history — a poll would pay for it every time.
+  if (!(await tryGit(root, ["remote"]))?.trim()) {
+    return 0;
+  }
+  return Number((await tryGit(root, ["rev-list", "--count", "HEAD", "--not", "--remotes"]))?.trim()) || 0;
 }
 
 /** What `Commit` would take and what `Push` would send, in one status read. */
