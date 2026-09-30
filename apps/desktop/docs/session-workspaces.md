@@ -63,8 +63,8 @@ any retained file tab owns that root. Switching sessions or collapsing the pane
 unmounts the viewport without discarding those caches. Closing the last owner or
 discarding its session releases the client; camera and selection remain per tab.
 
-Archive closes live session resources but retains the session row and its
-persisted tabs. Delete removes that session and its children only. A
+Archive writes the session row first, then closes live session resources; it
+retains the session row and its persisted tabs. Delete removes that session and its children only. A
 session's worktree goes only when Settings' auto-delete is on: deleting the
 session then removes it (never forced), and after each new worktree's row is
 written a keep-limit sweep removes the oldest past the limit — never one a

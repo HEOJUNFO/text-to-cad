@@ -1083,6 +1083,9 @@ immutable CAD geometry caches can still be reused. Archiving/deleting a session
 releases live browser/terminal/drawing/CAD resources. Archive keeps unsaved
 text drafts in window memory for restoration (quitting still discards drafts), flushes and
 retains ordinary tab metadata for restoration; deleting the session removes it.
+Both write the session row first and tear the tools down after, so a write that
+throws (a locked database, a missing row) leaves the session active with its
+tokens, pages and shells intact.
 Failed tab restoration displays a retry action without replacing stored tabs.
 
 ### Drawings
@@ -1593,6 +1596,9 @@ receives the root in both `additionalDirectories` and `_meta.additionalRoots`;
 adapters read whichever spelling they understand. Claude Code and Codex use
 their native skill-root mechanisms. Other adapters retain the concise first
 prompt preamble; workspace `list_skills` and `read_skill` read the same root.
+`session/new` sets the preamble and the first `session/prompt` the agent takes
+consumes it: a prompt the agent rejects puts it back, so the retry still
+carries it. `loadSession` never sets it; a resumed session's history has it.
 These are discovery options, not a requirement to load every skill on a turn.
 
 **MCP servers.** The registry supplies separate `text-to-cad-workspace`,

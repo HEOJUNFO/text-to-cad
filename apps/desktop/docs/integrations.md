@@ -56,8 +56,8 @@ resource.
 
 ## Lifetimes and conflict behavior
 
-Archiving/deleting a session revokes its integration credentials and releases
-its native app resources. Unsaved text drafts remain in memory on archive so
+Archiving/deleting a session changes its row first, then revokes its
+integration credentials and releases its native app resources. Unsaved text drafts remain in memory on archive so
 restoring the session can recover them; deletion discards them. Switching tabs or sessions does not close resources.
 Each session starts with an empty explorer. All commands carry the authenticated
 session ID chosen by main, never supplied by the model. Open/show/close updates
@@ -127,8 +127,9 @@ The registry supplies browser, PDF, documents, terminals, drawings and the
 embedded `cad-viewer` skill. Other repository CAD authoring skills still ship;
 the standalone viewer-launching skill is replaced by the embedded handoff.
 Native skill loaders receive the root on session creation/load, while other
-adapters receive the concise existing skill preamble and workspace skill-read
-tools. Vendored upstream skills retain their license and provenance.
+adapters receive the concise existing skill preamble, kept until a
+`session/prompt` is taken (a rejected first prompt restores it, and
+`loadSession` never sets it), and workspace skill-read tools. Vendored upstream skills retain their license and provenance.
 
 A provider's built-in filesystem and shell tools still work on disk. They are
 not the live-document API and cannot observe an unsaved editor buffer. Likewise,
