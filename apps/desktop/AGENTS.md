@@ -206,6 +206,14 @@ the rule is about.
   text-to-cad has no CAD runtime … Reinstall the app"; a checkout keeps the
   list of interpreters it looked for (`missingMessage` in
   `src/main/cad/runtime.ts`).
+- **The updater's Restart is a pushed `installing` state with a deadline.**
+  `installUpdate` (`src/main/updater.ts`) pushes `installing` before it asks
+  Electron to quit and sets `INSTALL_DEADLINE_MS`; past it the status is an
+  `error` that keeps the staged version, the scheduled checks resume, and the
+  same button retries. An offer survives a background check, a check never
+  overwrites a downloading, downloaded or installing state, and an updater that
+  is inactive for the install (development, an AppImage without `APPIMAGE`, a
+  snap) is `unsupported`, never `idle`.
 - **`package.json` stays at version `0.0.0`.** The repository's `VERSION` is
   the canonical release version; `scripts/app-version.mjs` reads it and both
   the build and `scripts/package.mjs` stamp it. Do not hand-edit it.

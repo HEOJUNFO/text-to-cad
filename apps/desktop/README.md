@@ -554,7 +554,28 @@ launch and every six hours, with `autoDownload` off: the app says an update
 exists and downloads when asked. Settings › About and updates is the whole UI.
 Development builds report `unsupported` and check nothing; so does an install the
 updater is inactive for (an AppImage run without `APPIMAGE`, a snap), whose check
-answers with no result. `idle` means the feed said there is nothing newer.
+answers with no result. `idle` means the feed said there is nothing newer; it
+is also what a release that lacks this platform's feed file (`latest-mac.yml`
+and the like, while the assets are still uploading) reads as, logged rather than
+shown as an error.
+
+An offer survives a background check. A check started from `available` does not
+swap the Download button for a spinner: `update-available` refreshes the
+offer, `update-not-available` retires it to `idle`, and a check that fails
+leaves it on offer. A check is refused while an update is downloading,
+downloaded or installing (`busyWithUpdate`): the answer is the current status,
+and the feed's own events cannot knock `downloaded` back to `available`.
+A failure is one sentence, never the library's text: a socket error
+(`ERR_`, `ENOTFOUND`, `ECONNRESET` and the like, by the first line or the
+error's code) reads "Could not reach GitHub to check for updates." (or "…to
+download the update." for a download), a 404 from the provider "No release is
+published yet.", any other GitHub failure "GitHub did not answer the update
+check.", and anything else its first line. The renderer's own `fail`
+(`state/updates.ts`), for a rejected IPC call, strips Electron's "Error
+invoking remote method" wrapper to main's sentence, keeps it on the row and
+toasts only the headline "Could not reach the updater". The About row is a
+`role="status"` region; the download's percentage is drawn outside it, beside
+the progress bar, so a number that changes every second is not read out.
 Restart pushes an `installing` status (the row reads "Restarting…" and stays
 off) until the quit; if neither the quit nor an installer error arrives within a
 minute the status becomes an `error` that keeps the staged version, and Restart
@@ -1681,7 +1702,7 @@ also gets `CADGEN_NODE`: cadgen's DXF and mesh-export builders run in Node,
 an app launched from the Finder has no `node` on its PATH, and the one Node
 a packaged app is sure to have is its own Electron binary run as Node.
 
-There is nothing to install and no "installing" state. Settings › About and
+There is nothing to install and no CAD-runtime install state. Settings › About and
 updates carries a read-only block — the runtime (source and interpreter),
 cadgen's version against the app's, the viewer backend, the skills root
 every session is handed — and Repair, which forgets the probe and looks again.
