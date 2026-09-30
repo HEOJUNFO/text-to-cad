@@ -16,7 +16,8 @@ import { DisplaySettingsSection } from "../view-settings/DisplaySettingsSection.
 import { useAppliedViewSettings } from "../view-settings/useAppliedViewSettings.js";
 import { useViewSettings } from "../view-settings/useViewSettings.js";
 import { cameraForViewSettings, viewerDisplaySettingsForCamera } from "../view-settings/viewerDisplaySettings.js";
-import { attachLiveBinding, cameraReadsBack } from "./liveBinding.js";
+import { attachLiveBinding } from "./liveBinding.js";
+import { cameraReadsBack } from "./liveReadback.js";
 import { shellLoadReport } from "./loadReport.js";
 import { createViewPromptContext, promptDeliveryError } from "./promptContext.js";
 import { fileViewsEqual, plainShellCamera, readFileView, readFileViewSlices, scopeShellCamera, shellPresentationKey, writeFileView } from "./fileView.js";
@@ -436,17 +437,20 @@ export function useRendererShell({
       const nextDisplay = viewerDisplaySettingsForCamera(viewSettingsStore.getSnapshot().display, camera);
       const requested = clonePerspectiveSnapshot(camera);
       // The viewport is handed a camera DERIVED from the request (the configured projection
-      // and lens), and what it reads back is that camera in the STORED coordinate system
-      // (`getPerspective` is scoped), so neither the request nor the handed camera is what
-      // reads back: the reply waits for the scoped camera, at rest.
+      // and lens), and its controls may move it again (the distance is clamped to the model's
+      // range), so neither the request nor the handed camera is what reads back. What the
+      // viewport shows AFTER applying it, scoped the way `getPerspective` reads it, is the
+      // camera to record and to wait for: a request beyond the clamp replies with the clamped
+      // state instead of never reading back.
+      const appliedCamera = fallback => viewerRef.current?.getPerspective?.() ?? scopeShellCamera(fallback, modelKey, sceneScaleMode);
       const settled = applied => state => !viewerRef.current?.isCameraTransitioning?.() && cameraReadsBack(state.camera, applied);
       if (previewing) {
         if (!viewerRef.current?.setPerspective?.(requested)) throw new Error("The viewer could not apply this camera.");
-        return settled(scopeShellCamera(requested, modelKey, sceneScaleMode));
+        return settled(appliedCamera(requested));
       }
       const snapshot = cameraForViewSettings(requested, nextDisplay, { lightingQuality: "preview" });
       if (!snapshot || !viewerRef.current?.setPerspective?.(snapshot, { resetZoomBaseline: true })) throw new Error("The viewer could not apply this camera.");
-      const scoped = scopeShellCamera(snapshot, modelKey, sceneScaleMode);
+      const scoped = appliedCamera(snapshot);
       viewSettingsStore.restore(nextDisplay);
       setViewerPerspective(scoped);
       handlePerspectiveChange(scoped);

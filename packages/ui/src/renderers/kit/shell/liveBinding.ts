@@ -2,6 +2,7 @@ import type { PromptReference, ResourceRef } from '@text-to-cad/core/prompt';
 import type { JsonValue } from '../../../file-viewer/types.js';
 import { normalizeViewSettings, resolveViewSettings } from '@text-to-cad/core/common/viewSettings.js';
 import { mergeViewerDisplaySettings } from '../view-settings/viewerDisplaySettings.js';
+import { cameraReadsBack } from './liveReadback.js';
 
 // The live command surface: what an app-owned tool (an agent, a test) may ask of
 // the viewport that is actually mounted. The base commands mean the same thing
@@ -87,13 +88,6 @@ export interface LiveBindingOptions {
 export const HOST_LIVE_COMMANDS = Object.freeze(['select', 'clearSelection'] as const);
 
 const settleFrame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-// The camera reads back what was asked when position and target agree to a part in ten thousand
-// of their size (a float32 round trip through the viewport's matrices is well inside that).
-export const near = (actual: readonly number[], asked: readonly number[]) =>
-  actual.length === asked.length && asked.every((value, index) => Math.abs((actual[index] ?? Number.NaN) - value) <= 1e-4 * Math.max(1, Math.abs(value)));
-/** The camera on screen reads back as `asked` in position and target. */
-export const cameraReadsBack = (camera: LiveCameraSnapshot | null | undefined, asked: { position: readonly number[]; target: readonly number[] }) =>
-  Boolean(camera) && near(camera!.position, asked.position) && near(camera!.target, asked.target);
 const scopeKey = (state: { resource: ResourceRef; revision: string }) => JSON.stringify([state.resource, state.revision]);
 
 /** Mounted-view adapter. It never retains a scene after detach. */
