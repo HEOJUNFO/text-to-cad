@@ -263,3 +263,16 @@ describe("snapshot marks", () => {
     expect(await sh(cwd, "status", "--porcelain")).toBe("A  staged.txt\n?? loose.txt");
   });
 });
+
+describe("unifiedDiff of a file that stopped changing", () => {
+  it("is empty for a tracked file reverted since it was listed, not a new-file patch", async () => {
+    const cwd = await unbornRepo();
+    const sh = (...args: string[]) => run("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { cwd });
+    await sh("add", "-A");
+    await sh("commit", "-q", "-m", "base");
+    await writeFile(path.join(cwd, "part.py"), "changed\n");
+    expect((await git.status(cwd, { kind: "working-tree" })).files.map((file) => file.path)).toEqual(["part.py"]);
+    await writeFile(path.join(cwd, "part.py"), "one\ntwo\n");
+    expect(await git.unifiedDiff(cwd, "part.py", { kind: "working-tree" })).toBe("");
+  });
+});

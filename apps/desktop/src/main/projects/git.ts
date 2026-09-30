@@ -829,6 +829,11 @@ export async function unifiedDiff(
     return patch;
   }
   // An untracked file has no patch against HEAD; `--no-index` produces one.
+  // A tracked file with no patch is unchanged (reverted since it was listed),
+  // and diffing it against nothing would present it as a new file.
+  if ((await tryGit(root, ["ls-files", "--error-unmatch", "--", filePath])) !== null) {
+    return "";
+  }
   return (await gitNoIndex(root, ["--patch"], filePath)) ?? "";
 }
 
