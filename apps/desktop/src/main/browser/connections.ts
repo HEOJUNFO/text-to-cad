@@ -9,6 +9,8 @@ import { browserSessionKey } from "./storage";
 /** Session lifetime and renderer-owned tabs are the only app-specific pieces. */
 export class BrowserConnections {
   private readonly entries = new Map<string, Promise<ScopedBrowserCdp>>();
+  /** The newest `disposePages` call per session. */
+  private readonly disposals = new Map<string, number>();
   constructor(private readonly deps: Pick<ActionDeps, "sessionRoot">, private readonly commands: Pick<RendererCommands, "request">,
     private readonly artifacts: string, private readonly service: BrowserService = browserService) {}
   async connect(session: BridgeSession, signal?: AbortSignal) {
@@ -48,7 +50,7 @@ export class BrowserConnections {
     return { endpoint: await endpoint.start(), root, outputDir };
   }
   revoke(sessionId: string) {
-    const pending = this.entries.get(sessionId); this.entries.delete(sessionId);
+    const pending = this.entries.get(sessionId); this.entries.delete(sessionId); this.disposals.delete(sessionId);
     void pending?.then(endpoint => endpoint.dispose()).catch(() => {});
   }
   /**
@@ -57,8 +59,13 @@ export class BrowserConnections {
    * the person's explorer tabs too, and nothing tells their renderer a page went.
    */
   async disposePages(session: BridgeSession) {
+    // Quick changes A to B to C can finish out of order; B's late `realpath`
+    // must not keep B and close C's pages, so only the newest call acts.
+    const generation = (this.disposals.get(session.sessionId) ?? 0) + 1;
+    this.disposals.set(session.sessionId, generation);
     const workspace = this.deps.sessionRoot(session);
     const root = workspace ? await fs.realpath(workspace.directory).catch(() => null) : null;
+    if (this.disposals.get(session.sessionId) !== generation) return;
     this.service.disposeSession(session.sessionId, root === null ? undefined : { sessionId: session.sessionId, projectId: session.projectId, root });
   }
   async dispose() {
