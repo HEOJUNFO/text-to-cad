@@ -9,8 +9,8 @@ import {
 import { cn } from "@renderer/lib/utils";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
-import { math } from "@streamdown/math";
 import { mermaid } from "@renderer/lib/mermaid";
+import { useMathPlugin } from "@renderer/lib/math";
 import { BrainIcon, ChevronDownIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import {
@@ -213,10 +213,13 @@ export type ReasoningContentProps = ComponentProps<
   rehypePlugins?: StreamdownProps["rehypePlugins"];
 };
 
-const streamdownPlugins = { cjk, code, math, mermaid };
+const streamdownPlugins = { cjk, code, mermaid };
 
 export const ReasoningContent = memo(
-  ({ className, children, components, rehypePlugins, ...props }: ReasoningContentProps) => (
+  ({ className, children, components, rehypePlugins, ...props }: ReasoningContentProps) => {
+    const math = useMathPlugin(children);
+    const plugins = useMemo(() => (math ? { ...streamdownPlugins, math } : streamdownPlugins), [math]);
+    return (
     <CollapsibleContent
       className={cn(
         "mt-4 text-sm",
@@ -225,11 +228,12 @@ export const ReasoningContent = memo(
       )}
       {...props}
     >
-      <Streamdown components={components} plugins={streamdownPlugins} {...(rehypePlugins ? { rehypePlugins } : {})}>
+      <Streamdown components={components} plugins={plugins} {...(rehypePlugins ? { rehypePlugins } : {})}>
         {children}
       </Streamdown>
     </CollapsibleContent>
-  )
+    );
+  }
 );
 
 Reasoning.displayName = "Reasoning";
