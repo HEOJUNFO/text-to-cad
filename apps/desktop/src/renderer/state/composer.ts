@@ -496,6 +496,12 @@ async function send(sessionId: string, content: PromptBlock[], item?: QueuedProm
     // sent from the box rejects so the composer puts the draft back.
     const refusedUnseen = useComposer.getState().sending[sessionId] === token;
     clearSending(sessionId, token);
+    // The row was deleted while the prompt was out (`forget` has run, and took `sending` with it,
+    // so the unseen refusal below is already out of reach): a refusal's put-back written now
+    // would be a draft for a session nothing will forget again. Before the index has loaded a
+    // missing row proves nothing, as in the bridge's `session.state`.
+    const index = useSessions.getState();
+    if (index.ready && !index.sessions.some((row) => row.id === sessionId)) return;
     // Refused for what it holds — a block the agent did not say it takes — and not because the
     // agent is gone: no turn began, nothing failed, and a Retry or a Reconnect would change
     // nothing. The reason is said the way `refuseSend`'s is, and what was written is not spent:
