@@ -290,7 +290,7 @@ describe("RendererCommands", () => {
       const saveFailed = expect(save).rejects.toThrow(/within 30 s/);
       await vi.advanceTimersByTimeAsync(20_000);
       await saveFailed;
-      await expect(save).rejects.not.toThrow(/window open/);
+      await expect(save).rejects.toThrow(/did not answer within 30 s \(is one open\?\)/);
     } finally {
       vi.useRealTimers();
     }
@@ -311,6 +311,30 @@ describe("RendererCommands and the viewer's own bound", () => {
       vi.useRealTimers();
     }
   });
+
+  // The viewer's own bound is ten seconds; the relay waits two more so its answer wins the race
+  // (REPLY_TIMEOUT_MS / VIEWER_REPLY_TIMEOUT_MS in actions.ts). A kind left on the 10 s path would
+  // time out the relay at the same instant as the viewer and report a window that DID answer as gone.
+  it.each(["select-reference", "cad-clear-selection", "cad-camera", "cad-reset-camera", "cad-render-mode"] as const)(
+    "gives %s twelve seconds: still waiting at 11.999, timed out at 12",
+    async (kind) => {
+      vi.useFakeTimers();
+      try {
+        const commands = new RendererCommands({ sessionRoot: () => ({ directory: "/proj", root: null }), send: () => {}, newId: () => "r1" });
+        let settled: string | null = null;
+        const pending = commands.request({ sessionId: "s1", kind, projectId: "p1" } as never);
+        const outcome = expect(pending).rejects.toThrow(/did not answer within 12 s/);
+        pending.then(() => { settled = "answered"; }, () => { settled = "rejected"; });
+        await vi.advanceTimersByTimeAsync(11_999);
+        expect(settled).toBeNull();
+        await vi.advanceTimersByTimeAsync(1);
+        await outcome;
+        expect(settled).toBe("rejected");
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 });
 
 describe("the actions", () => {
