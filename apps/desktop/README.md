@@ -1179,6 +1179,14 @@ sequence and input revision; writes require both, preventing a tool from racing
 new output or user typing. Closing a terminal releases its process; stopping
 it leaves the output available until close. A provider's own shell tool has
 separate process IDs and does not automatically create a text-to-cad terminal tab.
+A session holds at most 16 ptys, stopped ones and the person's own included
+(each keeps its scrollback until its tab closes); `create_terminal` refuses past
+that, checked before the pty is registered so concurrent calls cannot overshoot.
+`explorer.loadTabs` releases a saved `ptyId` that no live pty of the session
+answers to, so a restored terminal starts a fresh shell instead of attaching to
+one that died with the app; a live pty (a renderer reload) keeps its id. A tab
+the agent opened carries `agent: true`, and its respawn through
+`terminal.create` puts the runtime launchers in front of `PATH` again.
 
 Over IPC (`terminal.*`, `src/shared/ipc/explorer.ts`), `terminal.create` takes
 the project, the session, an optional `cwd` (checked against the project and

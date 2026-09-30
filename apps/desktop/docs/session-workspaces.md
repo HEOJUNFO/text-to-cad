@@ -46,6 +46,9 @@ Persisted tabs are keyed by `session_id`, with a foreign key to sessions.
 `explorer.loadTabs` and `saveTabs` name that session; saving checks every tab's
 owner and directory before replacing anything. A failed write is atomic.
 Drawings stay in memory and are never included in the persisted strip.
+`loadTabs` releases a saved terminal `ptyId` that no live pty of the session
+answers to (ptys die with the app), so the tab starts a fresh shell; an
+`agent: true` tab respawns with the runtime `PATH`.
 
 MCP credentials bind the immutable session id and working directory. Renderer
 commands, browser/CDP targets and terminals enforce that same owner. An agent
