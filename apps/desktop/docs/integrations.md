@@ -103,7 +103,10 @@ two seconds for it to exit: it returns `exited: true` with the `exitCode`, or
 
 Commands the renderer performs are relayed (`RendererCommands` in
 `src/main/integrations/actions.ts`) and wait ten seconds for the window's
-reply, thirty for the slow ones: `document-save`, `capture-view`,
+reply, twelve for the viewer's live commands (`select-reference`,
+`cad-clear-selection`, `cad-camera`, `cad-reset-camera`, `cad-render-mode`; the
+clock starts before the IPC send, so they need more than the viewer's own ten),
+thirty for the slow ones: `document-save`, `capture-view`,
 `drawing-capture` and `pdf-capture`, which wait on the disk or on a frame and
 an encode. A relayed command reports that it may have completed when the wait
 ends without a reply: a timeout says "the command may still complete, so check
@@ -120,8 +123,10 @@ clamped or the lens/projection is derived; `resetCamera` the eased move at rest;
 `setDisplaySettings` and `setRenderMode` the store's commit, so a Render chunk
 that fails to load leaves the store at "render" while the screen shows
 "inspect"; a renderer's own command returns its own), once it holds, bounded at
-ten seconds, then "The viewer did not finish applying this command." A capture
-waits for the camera to rest.
+ten seconds, then "The viewer did not finish applying this command.", which
+reaches the agent as written because the relay waits twelve for these commands
+(the "text-to-cad window did not answer within 12 s" message means no window
+replied at all). A capture waits for the camera to rest.
 
 The PDF renderer and its agent tools share one real Mozilla PDF.js document,
 worker and text layer. Page reads are bounded to 50 pages/one million

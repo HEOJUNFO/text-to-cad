@@ -405,7 +405,10 @@ the rule is about.
   differs from the request when the camera is clamped or the lens/projection
   is derived; `resetCamera` = the eased move at rest; `clearSelection` =
   selection empty; a renderer command's own), until it holds — at most ten
-  seconds, then "The viewer did not finish applying this command." A reply on
+  seconds, then "The viewer did not finish applying this command." That sentence
+  reaches the agent because main's relay waits 12 s (`VIEWER_REPLY_TIMEOUT_MS`) for
+  the viewer commands, its clock starting before the IPC send; "the text-to-cad window
+  did not answer within 12 s" means no window replied. A reply on
   the call returning would hand an agent a state the command had not produced
   yet. A capture waits for the camera to rest first.
 - **Every capture goes through `imageResult`.** It redraws an image over

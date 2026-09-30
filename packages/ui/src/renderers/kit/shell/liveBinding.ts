@@ -28,7 +28,7 @@ import { cameraReadsBack } from './liveReadback.js';
 // settled frame is its answer. `capture` waits for the camera to rest before it takes the
 // image. The wait is bounded at ten seconds, then it throws "The viewer did not
 // finish applying this command." rather than answer with a state the command did
-// not produce. Commands set from an IPC handler render on a macrotask, which is
+// not produce (desktop main's relay waits longer, 12 s, so this sentence is what the agent reads). Commands set from an IPC handler render on a macrotask, which is
 // why one frame is not the answer.
 
 export interface LiveCameraSnapshot {
