@@ -160,8 +160,8 @@ Main answers the two things that are not settings, over `onboarding.*`
   not overwritten. The copy is staged as `<target>.copying` (a stale one is
   discarded first) and renamed into place, so the target holds files only once
   it holds all of them. A rename that fails with EPERM, EBUSY or EACCES (Windows
-  antivirus or the indexer holding the new tree) is retried five times with a
-  short backoff, then the staging tree is copied into place; a copy that dies
+  antivirus or the indexer holding the new tree) is attempted five times (one try
+  and four retries) with a short backoff, then the staging tree is copied into place; a copy that dies
   there clears the target, so no half-sample is left to be taken for the
   person's own.
 
