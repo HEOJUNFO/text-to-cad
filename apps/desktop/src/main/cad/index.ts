@@ -103,6 +103,7 @@ export async function initCad(): Promise<void> {
       appVersion: appVersion(),
       resourcesDir: resourcesDir(),
       appRoot: appRoot(),
+      packaged: app.isPackaged,
       overrideSetting: () => settings.get().cadPythonOverride,
     }),
   );

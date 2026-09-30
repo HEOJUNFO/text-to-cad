@@ -138,6 +138,7 @@ function machine(options: {
     resourcesDir: resources,
     appRoot,
     nodeBinary: "/apps/text-to-cad.app/Contents/MacOS/text-to-cad",
+    packaged: false,
     env: options.env ?? {},
     overrideSetting: () => options.override ?? null,
     exec: async (file, args, execOptions): Promise<ExecResult> => {
@@ -371,6 +372,16 @@ describe("status", () => {
     expect(status).toMatchObject({ state: "missing", python: null, source: null, cadgenVersion: null });
     expect(status.message).toContain(bundledPaths(m.resources, "darwin", "arm64").root);
     expect(status.message).toContain("not running from a checkout");
+  });
+
+  it("tells an installed copy to reinstall, without naming a build script; a checkout keeps the pointer", async () => {
+    const m = machine({});
+    (m.host as { packaged: boolean }).packaged = true;
+    const packaged = (await new CadRuntime(m.host).status()).message;
+    expect(packaged).toContain("Reinstall");
+    expect(packaged).not.toContain("scripts/");
+    m.host.packaged = false;
+    expect((await new CadRuntime(m.host).status()).message).toContain("scripts/bundle-runtime.mjs");
   });
 
   it("is ready with the bundle's version and viewer flag, probed once", async () => {

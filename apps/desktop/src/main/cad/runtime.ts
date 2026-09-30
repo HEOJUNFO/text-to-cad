@@ -72,6 +72,8 @@ export type RuntimeHost = {
   resourcesDir: string;
   /** Where the app's code lives; the checkout search starts here. */
   appRoot: string;
+  /** `app.isPackaged`: a copy a person installed, as opposed to a build run from a checkout. */
+  packaged: boolean;
   /** The Node cadgen's builders run under: this Electron binary, as Node. */
   nodeBinary: string;
   env: Record<string, string | undefined>;
@@ -187,6 +189,7 @@ export function nodeHost(options: {
   appVersion: string;
   resourcesDir: string;
   appRoot: string;
+  packaged: boolean;
   overrideSetting: () => string | null;
 }): RuntimeHost {
   return {
@@ -895,6 +898,11 @@ export class CadRuntime {
 
   private missingMessage(): string {
     const bundled = this.bundled();
+    // The card shows this as written. Someone who installed the app cannot act
+    // on a build script; the developer running from a checkout can.
+    if (this.host.packaged) {
+      return `This copy of text-to-cad has no CAD runtime, so models cannot be shown. Reinstall the app to restore it. (Looked for it at ${bundled.root}.)`;
+    }
     const checkout = this.checkout();
     const looked = [
       `no bundled runtime at ${bundled.root}`,
