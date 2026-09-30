@@ -77,8 +77,10 @@ export function Transcript({
     <Conversation className="min-h-0 min-w-0 flex-1" data-transcript>
       <ConversationContent className="mx-auto min-w-0 w-full max-w-[720px] gap-4 px-6 pt-6 pb-4">
         {/* A box of its own, with the column's gap: a `display: contents` element has been dropped
-            from Chromium's accessibility tree, and the silence would go with it. */}
-        <div aria-live="off" className="flex min-w-0 w-full flex-col gap-4" data-earlier-region>
+            from Chromium's accessibility tree, and the silence would go with it. Empty it is
+            `hidden` (`EarlierTurns` draws nothing for a transcript that opened whole): a
+            childless flex item would still take the column's gap above the first turn. */}
+        <div aria-live="off" className="flex min-w-0 w-full flex-col gap-4 empty:hidden" data-earlier-region>
           <EarlierTurns count={start} onMount={() => setUnmounted(Math.max(0, start - TRANSCRIPT_WINDOW))} />
           {state.turns.slice(start, boundary).map((item, offset) => draw(item, start + offset))}
         </div>

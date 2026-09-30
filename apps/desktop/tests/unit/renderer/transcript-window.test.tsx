@@ -210,6 +210,14 @@ describe("a long transcript mounts its latest turns", () => {
     expect(region.querySelectorAll("[data-turn]")).toHaveLength(TRANSCRIPT_WINDOW);
   });
 
+  it("collapses the on-demand region when nothing is in it, so the column's gap is not spent on it", () => {
+    render(view(session(turns(5))));
+    const region = document.querySelector<HTMLElement>("[data-earlier-region]")!;
+    // jsdom applies no stylesheet: the region is empty, and says what an empty one does.
+    expect(region.childElementCount).toBe(0);
+    expect(region.className.split(" ")).toContain("empty:hidden");
+  });
+
   it("mounts the next window from the sentinel's button", () => {
     render(view(session(turns(40))));
     fireEvent.click(screen.getByRole("button", { name: `Show ${40 - TRANSCRIPT_WINDOW} earlier turns` }));
