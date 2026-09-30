@@ -558,7 +558,10 @@ is involved) and deletes the branch. The merged commit is THE release commit.
 1. `check-version.sh`, then the gate: `VERSION` must be past the latest release
    tag (either spelling — `scripts/release/release-tags.sh` is the one place
    that knows `v0.5.0` and the bare `0.4.28` before it, and it compares
-   versions, not tag strings), or equal to it with the tag missing.
+   versions, not tag strings), or equal to it with the tag missing, or with
+   the tag naming this very commit and its Release missing or still a draft.
+   A tag on another commit skips with a warning, and a `gh` error other than
+   "release not found" (or a 404) fails the gate rather than guessing.
 2. `bundle.sh --clean` — which is where cadgen's whole runtime comes into
    existence, Node builders, snapshot bundle and Viewer client alike, because
    the release commit carries none of it — then `check-builds.sh`, the docs and
@@ -577,9 +580,11 @@ is involved) and deletes the branch. The merged commit is THE release commit.
 5. **On `main` only:** PyPI upload (`skip-existing`, so a rerun is a no-op),
    `Deploy Docs`, then the `v<VERSION>` tag and GitHub Release. The tag job
    attaches the wheel, sdist and all completed desktop artifacts through one
-   create/resume path; it does not rebuild them. A failed desktop platform does
-   not leave an already published Python release untagged, but failures to
-   download existing artifacts fail the job. Nothing is committed or pushed
+   create/resume path; it does not rebuild them. A failed desktop platform, or
+   a leg that hits its timeout, delays the tag rather than preventing it (the
+   job runs on `!cancelled()` and tests only the publish job's result), but
+   a cancelled run tags nothing, and failures to download existing artifacts
+   fail the job. Nothing is committed or pushed
    to `main` after the release PR merge: the tag points at the source commit.
 
 ### Resuming and republishing
@@ -593,7 +598,9 @@ gh workflow run release-publish.yml --ref main            # or -f publish=false 
 It runs against the current head. A run that uploaded the wheel and failed
 before the tag or the docs deploy is finished this way — the PyPI upload is
 idempotent and the tag is still missing, so the gate lets it through. A head
-whose version is already tagged skips at the gate. There is no `bump=none`: a
+whose version is tagged resumes too when the tag names that commit and its
+Release is missing or a draft; a tag on another commit, or a published
+Release, skips at the gate. There is no `bump=none`: a
 version that needs re-preparing goes through `Prepare Release` again.
 
 ### Rehearsing on `build-test`

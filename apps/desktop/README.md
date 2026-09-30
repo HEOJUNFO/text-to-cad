@@ -495,6 +495,10 @@ on the tagged commit. A later push with the same version, or a published
 Release, stops at the gate; a `gh` error other than "release not found" fails
 the gate rather than guessing.
 
+The tag job runs on `!cancelled()` and tests only the publish job's result, so
+a desktop platform that fails, or a leg that hits its timeout, delays the tag
+rather than preventing it, while a cancelled run tags nothing.
+
 ### What is bundled
 
 `resources/runtime/<os>-<arch>/` (the CAD runtime: a pinned Python with
