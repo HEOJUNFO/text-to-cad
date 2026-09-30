@@ -378,6 +378,13 @@ export class SessionManager {
     // still replaying holds an empty state, and the snapshot is a better
     // picture of the session than the beginning of its own reload.
     if (connection?.alive && connection.acpSessionId) {
+      // A create still in its preferences and marks: the reducer says idle from
+      // `session/new`, but the row says `connecting` until `create` returns,
+      // and the composer follows the row (the model chip would be overwritten
+      // by `applyPreferences`). The end of `create` broadcasts the real state.
+      if (this.creating.has(id) && connection.state.status === "idle") {
+        return { state: { ...connection.state, status: "connecting" }, live: true };
+      }
       return { state: connection.state, live: true };
     }
     const stored = this.snapshots?.read(id) ?? null;

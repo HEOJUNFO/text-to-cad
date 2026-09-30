@@ -793,6 +793,17 @@ describe("SessionManager", () => {
     expect(repo.get(id)?.turnHead).toBe("turn-tree");
   });
 
+  it("reports a session still being created as connecting, live, until create returns", async () => {
+    const { repo, manager, broadcasts, cwd } = await setup({
+      snapshot: () => new Promise<string>(() => undefined),
+    });
+    const creating = manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    creating.catch(() => undefined);
+    await until(() => (connectedCount(broadcasts) > 0 ? true : undefined));
+    const id = repo.list()[0]!.id;
+    expect(manager.state(id)).toMatchObject({ live: true, state: { status: "connecting" } });
+  });
+
   it("writes the agent session id as soon as session/new answers, before the marks land", async () => {
     const { repo, manager, broadcasts, cwd } = await setup({
       snapshot: () => new Promise<string>(() => undefined),

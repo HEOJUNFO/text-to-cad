@@ -53,6 +53,9 @@ export function SessionView({ session }: { session: Session }) {
   const setMode = useAcp((store) => store.setMode);
   const setConfigOption = useAcp((store) => store.setConfigOption);
   const submit = useComposer((store) => store.submit);
+  // A prompt sent with no `prompt/start` for it yet: held behind a create or a reconnect in main,
+  // or on its way. The box was emptied for it, so it has to say so.
+  const sending = useComposer((store) => session.id in store.sending);
   const agents = useAgents((store) => store.agents);
   const agent = agents.find((candidate) => candidate.id === session.agentId) ?? null;
   // The CLI is gone: Reconnect would fail the same way forever, so the
@@ -84,9 +87,12 @@ export function SessionView({ session }: { session: Session }) {
   // a prompt sent now is queued against the load and goes out when it lands
   // (`ensureLive` in src/main/acp/sessions.ts), so the box stays live and the
   // row under it says what is happening instead.
+  // The row can still say `connecting` over a state that reads idle: a session being created is
+  // promptable from `session/new`, but its model and mode are not settled until `create` returns.
+  const connecting = state?.status === "connecting" || (session.status === "connecting" && !reconnecting);
   const composerStatus: "ready" | "submitted" | "streaming" = running
     ? "streaming"
-    : (state?.status === "connecting" || loading) && !reconnecting
+    : ((connecting || loading) && !reconnecting) || sending
       ? "submitted"
       : "ready";
 
@@ -149,8 +155,8 @@ export function SessionView({ session }: { session: Session }) {
     // failed or closed session the chips are shown as they were and not offered.
     // A snapshot painted while the agent reconnects can say `idle`; it is not live until the load lands.
     const status = state?.status ?? "closed";
-    const live = !reconnecting && (status === "idle" || status === "running" || status === "waiting");
-    const unavailable = live ? undefined : reconnecting ? "Reconnecting…" : status === "connecting" ? "Connecting…" : "Agent disconnected";
+    const live = !reconnecting && !connecting && (status === "idle" || status === "running" || status === "waiting");
+    const unavailable = live ? undefined : reconnecting ? "Reconnecting…" : status === "connecting" || connecting ? "Connecting…" : "Agent disconnected";
     return {
       leading: mode ? (
         <ModeChip currentModeId={mode.currentModeId} disabledReason={unavailable} modes={mode.modes} onChange={chooseMode} />
@@ -187,13 +193,13 @@ export function SessionView({ session }: { session: Session }) {
         </>
       ),
     };
-  }, [state, chipSource, reconnecting, session.id, session.agentId, agent?.icon, agent?.name, setMode, setConfigOption]);
+  }, [state, chipSource, reconnecting, connecting, session.id, session.agentId, agent?.icon, agent?.name, setMode, setConfigOption]);
 
   const plan = state ? planClock(state) : null;
   // A failed prompt is already in the transcript with its Retry; the banner
   // is for a connection that died with nothing to attach the message to.
   const lastAgentTurn = state?.turns.findLast((turn) => turn.role === "agent") ?? null;
-  const composerDisabled = !state || state.status === "connecting" || state.status === "closed";
+  const composerDisabled = !state || connecting || state.status === "closed";
   // A bar's Reconnect goes with its bar, and the composer is disabled until the agent is back:
   // focus waits on the composer's row (a group, so it is somewhere) and goes into the box when it
   // opens. Left alone it fell to the page, where no key reaches anything.
