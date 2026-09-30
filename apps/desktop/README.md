@@ -1497,7 +1497,8 @@ side waits for every child it holds a pipe to, so `src/main/children.ts`
 registers every process main spawns — the viewer, the adapters, the
 terminals' backends, the probes, `git` — and `before-quit` kills the probes
 outright, sends a git write (commit, push, worktree add/remove) SIGTERM so it
-can drop its `index.lock`, and detaches the rest; `will-quit` kills whatever
+can drop its `index.lock` (signalled, not waited for: the write may outlive
+the quit and finish, or be killed at `will-quit`), and detaches the rest; `will-quit` kills whatever
 ignored its signal. Before that, a cadgen version probe (sixty-second timeout) still
 importing OCP held the exit for sixty seconds, and chokidar's `close()` over
 this repository blocked for most of a second, so the watchers are not closed
@@ -2120,7 +2121,10 @@ and pinned under `refs/text-to-cad/<session id>/` so `gc` cannot prune it; the
 refs go when the session is deleted). An untracked file over 8 MiB
 (`SNAPSHOT_MAX_BYTES`) is left out of the tree, so a large CAD export beside the
 source is not hashed into `.git/objects` every turn; under `Last turn` it reads
-as untracked, as if added since the mark. `Last turn` / `This session` compare that
+as untracked, as if added since the mark. The pinned refs are ordinary refs:
+`git push --mirror` would send `refs/text-to-cad/*`, and with them the trees of
+untracked, non-ignored files not yet pushed, so anything that must not leave the
+machine belongs in `.gitignore`. `Last turn` / `This session` compare that
 tree with a snapshot of the working tree as it is now, so an edit the agent has
 not committed is in the answer and work from before the turn began is not. A
 session that cut a fresh worktree keeps that worktree's base commit as its
