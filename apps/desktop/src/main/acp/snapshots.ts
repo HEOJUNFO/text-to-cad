@@ -7,12 +7,19 @@
  * back — costs a spawn, an `initialize` and a replay (README, "Opening a
  * session"). So every reduced `SessionState` main sees is written here,
  * debounced, and the renderer paints *that* the moment a row is clicked
- * while the real load runs behind it.
+ * while the real load runs behind it. Nothing is filed while the connection is
+ * `connecting` (`SessionManager.onEvent`): a replay's transcript is the
+ * beginning of its own reload and would replace the whole stored one. A reload
+ * that fails `discard`s the pending write for the same reason, and `loadNow`
+ * flushes first, so the connection it replaces is written before that.
  *
  * It is a cache and it is treated as one: a row that no longer parses is
  * dropped and the session falls back to the spinner, exactly as a session
  * created before this feature does. Nothing is ever read back into a live
- * connection — the live state is the agent's, and this is a picture of it.
+ * connection's state — the live state is the agent's, and this is a picture of
+ * it. The one read a load makes is `loadNow`'s, for the title the replay does
+ * not send again and for `answered` (whether an agent turn stored there says the
+ * first prompt was read), both handed to `loadSession`.
  *
  * Two caps, because a transcript is not a bounded thing:
  *

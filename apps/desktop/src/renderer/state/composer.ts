@@ -20,7 +20,9 @@ import type { PromptReference } from "@text-to-cad/core/prompt";
  * even when the session pane has re-rendered or the user has moved on to
  * another session. The queue is driven from the bridge only: it hands every
  * `prompt/start`, `prompt/end` and `prompt/error` to `turnEvent`, and a turn
- * that ends is what sends the next queued prompt (plus the reconnect below).
+ * that ends is what sends the next queued prompt (plus the reconnect below, and
+ * a `session.update` of any other kind that takes the status from non-idle to
+ * idle: a permission asked outside a turn and answered ends with no `prompt/end`).
  * The `prompt` reply does not drain — it arrives after main has already broadcast `prompt/end`, so a
  * second drain there would send the prompt after the one the bridge just sent,
  * and main runs whatever turns it is handed.
@@ -34,7 +36,8 @@ import type { PromptReference } from "@text-to-cad/core/prompt";
  * The one other driver is a reconnect: an agent evicted or disconnected with
  * prompts queued comes back through a `session.state` snapshot, never a
  * `prompt/end`, so the bridge drains when a snapshot says the session is idle
- * (`drain` is a no-op when a prompt is already in flight). A prompt submitted
+ * (`drain` is a no-op when a prompt is already in flight), as it does when a
+ * `session.update` leaves the status idle after it was not. A prompt submitted
  * behind that queue while the agent is gone joins it and asks the agent back
  * (`ensureLoaded`), so the reconnect sends the queue in the order it was typed;
  * if the agent does not come back, the queue's head is sent anyway so it fails
