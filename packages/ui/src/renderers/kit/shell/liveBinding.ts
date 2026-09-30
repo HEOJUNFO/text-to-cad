@@ -92,13 +92,16 @@ export function attachLiveBinding<State extends LiveViewState, Controller extend
     if (!active) throw new Error('The model tab closed while its viewer command was running.');
     if (scopeKey(readRuntime().readState()) !== scope) throw new Error('The displayed model revision changed while its viewer command was running.');
   };
-  const mutate = async (apply: (runtime: LiveViewRuntime<State>) => void,
+  const mutate = async (apply: (runtime: LiveViewRuntime<State>) => void | ((state: State) => boolean),
     committed?: (state: State) => boolean): Promise<State> => {
     const { runtime, scope } = admit();
-    apply(runtime);
+    // A command may hand back the predicate that says when ITS effect is on screen.
+    committed = apply(runtime) || committed;
     const deadline = Date.now() + 10_000;
     // A mode switch can suspend while the Render chunk loads. The first RAF
     // may precede its React commit, so observe the actual destination state.
+    // The wait is bounded at ten seconds of wall clock, then it throws rather than
+    // returning a state the command did not produce.
     do {
       await settle();
       checkScope(scope);
@@ -144,10 +147,15 @@ export function attachLiveBinding<State extends LiveViewState, Controller extend
   };
   for (const name of commands) {
     if (name in controller) throw new Error(`The live command "${name}" is already part of every renderer's base set.`);
+    // Commands set from an IPC handler, outside a React event, render on a macrotask: one frame
+    // can precede the commit, so a reply must wait for its own effect. Clearing is committed
+    // once nothing is selected; `select` (and any renderer command) returns its own predicate.
     controller[name] = (...args: unknown[]) => mutate(runtime => {
       const command = (runtime as unknown as Record<string, unknown>)[name];
       if (typeof command !== 'function') throw new Error(`This renderer declared the live command "${name}" but its mounted view does not answer it.`);
-      command.apply(runtime, args);
+      const committed = command.apply(runtime, args);
+      if (typeof committed === 'function') return committed as (state: State) => boolean;
+      return name === 'clearSelection' ? (state: State) => state.selection.length === 0 : undefined;
     });
   }
   for (const [name, reason] of Object.entries(declined)) {

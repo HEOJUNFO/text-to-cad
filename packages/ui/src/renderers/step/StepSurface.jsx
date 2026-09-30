@@ -3284,6 +3284,10 @@ function StepSurfaceBody({ view, data }) {
       setSelectedRenderPartIdByAssemblyPartId(current => Object.fromEntries(parts.map(id => [id, renderPartIdForAssemblySelection(id, current[id])]).filter(([, id]) => id)));
       const last = selections[selections.length - 1];
       revealStepTreeNode(last.kind === 'part' ? last.id : findStepTreeTopologyNodeIdForReference(displayStepTreeRoot, last.id) || referencePartId(effectiveActiveReferenceMap.get(last.id)), { source: 'reference' });
+      // Committed once the live selection holds what was resolved: something selected, and every
+      // resolved reference among the selected ones (part ids are re-mapped for the viewer).
+      return state => state.selection.length > 0
+        && references.every(id => state.selectedReferenceIds.includes(id));
     },
     clearSelection() {
       setSelectedPartIds([]);
