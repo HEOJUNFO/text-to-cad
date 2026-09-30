@@ -138,6 +138,12 @@ function EarlierTurns({ count, onMount }: { count: number; onMount: () => void }
     const reach = () => {
       reached.current = true;
     };
+    // Only a press on the pane itself, which is its scrollbar: a press on a
+    // button or a turn inside it, or on the pane while it is still opening, is
+    // not a reach for what is above.
+    const pointer = (event: PointerEvent) => {
+      if (event.target === scroller) reach();
+    };
     const wheel = (event: WheelEvent) => {
       if (event.deltaY < 0) reach();
     };
@@ -146,12 +152,12 @@ function EarlierTurns({ count, onMount }: { count: number; onMount: () => void }
     };
     scroller.addEventListener("wheel", wheel, { passive: true });
     scroller.addEventListener("touchmove", reach, { passive: true });
-    scroller.addEventListener("pointerdown", reach, { passive: true });
+    scroller.addEventListener("pointerdown", pointer, { passive: true });
     scroller.addEventListener("keydown", key);
     return () => {
       scroller.removeEventListener("wheel", wheel);
       scroller.removeEventListener("touchmove", reach);
-      scroller.removeEventListener("pointerdown", reach);
+      scroller.removeEventListener("pointerdown", pointer);
       scroller.removeEventListener("keydown", key);
     };
   }, [scrollRef]);

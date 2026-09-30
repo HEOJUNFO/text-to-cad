@@ -119,6 +119,33 @@ describe("a long transcript mounts its latest turns", () => {
     expect(screen.getByRole("button", { name: `Show ${48 - TRANSCRIPT_WINDOW} earlier turns` })).toBeTruthy();
   });
 
+  it("mounts a second window only for a press on the pane itself, its scrollbar", async () => {
+    render(view(session(turns(48))));
+    const pane = scroller();
+    tall(pane);
+    // Off the bottom, as the opening's clamp leaves it, with no reach behind it.
+    for (const top of [500, 100]) {
+      pane.scrollTop = top;
+      fireEvent.scroll(pane);
+      await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    }
+    // A press on a turn is a click on the page, not a reach for what is above.
+    act(() => {
+      fireEvent.pointerDown(document.querySelector("[data-turn]")!);
+    });
+    act(() => intersect(true));
+    expect(mounted()).toHaveLength(TRANSCRIPT_WINDOW);
+
+    // A press on the pane itself is its scrollbar being dragged.
+    act(() => {
+      fireEvent.pointerDown(pane);
+    });
+    // The drag scrolls, and the sentinel comes into reach again on the way up.
+    act(() => intersect(false));
+    act(() => intersect(true));
+    expect(mounted().length).toBeGreaterThan(TRANSCRIPT_WINDOW);
+  });
+
   it("mounts the next window from the sentinel's button", () => {
     render(view(session(turns(40))));
     fireEvent.click(screen.getByRole("button", { name: `Show ${40 - TRANSCRIPT_WINDOW} earlier turns` }));
