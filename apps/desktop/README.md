@@ -1241,6 +1241,16 @@ text when the shell asked for it; the Cmd/Ctrl+V branch of the handler only
 returns false so Ctrl+V does not reach the shell as `^V`, and writes nothing (a
 second write ran a pasted command twice, once unbracketed).
 
+A terminal an agent asks for through ACP's `terminal/*` (`src/main/acp/terminals.ts`)
+is separate from those ptys, and its output reaches the transcript's activity row
+as `terminal.output`. A released one hands over nothing more: no chunk and no
+exit. A process that exits having written nothing sends its exit chunk with
+`silent`, and the store (`receiveTerminalOutput` in `state/acp.ts`) then clears
+that terminal's cold mark, so the row reads `(no output)`. A terminal already in
+a state when the store took it (a snapshot, a reload, a background session's
+reconnect) is cold: a finished command whose output the store never held reads
+"Output not kept after reload" instead.
+
 Over IPC (`terminal.*`, `src/shared/ipc/explorer.ts`), `terminal.create` takes
 the project, the session, an optional `cwd` (checked against the project and
 its worktrees) and the size — never a shell or its arguments: every tab runs the person's login

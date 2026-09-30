@@ -59,7 +59,26 @@ because Playwright uses them as main-frame identities; app tab IDs are mapped
 inside the adapter. Each client gets independent native debugger sessions.
 When the session's cwd or project changes, the bridge revokes the endpoint and
 calls `BrowserConnections.disposePages`, which closes only the pages the new
-workspace no longer names.
+workspace no longer names. Each call takes the next number of a per-session
+generation that only rises (a revoke does not reset it), and after its
+`realpath` only the newest call acts: changes A to B to C can finish out of
+order, and B's late answer must not keep B's pages and close C's.
+
+A tab id can be re-opened over new contents (archive, then a quick unarchive)
+before Chromium reports the old ones destroyed. So the service's `destroyed`
+handler ignores a target that a later page has replaced under the same id, and
+the adapter keys its bookkeeping to the owning contents: a session bound to a
+destroyed page is not the re-opened tab's, and the tab's live target id is kept
+apart from the old page's until that one's detach is heard. When the debugger
+detaches (DevTools taking the page over, or its contents closing) the adapter
+forwards `Target.detachedFromTarget` for the native sessions of those contents,
+so the client is told rather than left waiting; a crashed renderer does not
+detach, and the client hears `Inspector.targetCrashed`. `service.events`, the
+`opened` and `closed` stream, carries one listener pair per scoped CDP
+connection and has a cap of 100 before Node warns of a leak. The console reads
+`console-message`'s event details (`level`, `message`) and falls back to the
+deprecated positional arguments. Closing a tab drops the `closed` listener it
+put on the window presenting it.
 
 Electron exposes PDF printing through `WebContents.printToPDF`, so the adapter
 bridges that one operation with bounded in-memory CDP streams.
@@ -126,6 +145,13 @@ an IP literal or `word:port` as an address; anything else is a search. It adds
 and 8443, and `https://` otherwise. `word:port` is an address because
 docker-compose services, hosts aliases and MagicDNS names are far more common here
 than searches shaped like `note:1`.
+
+The field holds a draft while the person types, and the draft outlives blur, as
+in Chrome and Safari. It is dropped by Escape, or by the page's URL moving while
+the field is not focused; while the field is focused a URL change under it
+never disturbs it. Enter commits: the resolved address then shows until the
+page moves on to another URL, and an Enter that picks a candidate during input
+method composition is ignored.
 
 ## Adding page context to a prompt
 
