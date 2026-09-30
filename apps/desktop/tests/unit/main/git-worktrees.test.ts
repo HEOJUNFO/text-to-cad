@@ -141,6 +141,8 @@ describe("isUnder and samePath", () => {
     expect(git.isUnder("/a/b", "/a/b")).toBe(false);
     expect(git.isUnder("/a/b", "/a/bc")).toBe(false);
     expect(git.isUnder("/a/b", "/a")).toBe(false);
+    expect(git.isUnder("/a/b", "/a/b/..keep")).toBe(true);
+    expect(git.isUnder("/a/b", "/a/b/../escape")).toBe(false);
     expect(git.samePath("/a/b/", "/a/b")).toBe(true);
     expect(git.samePath("/a/b", "/a/c")).toBe(false);
   });
