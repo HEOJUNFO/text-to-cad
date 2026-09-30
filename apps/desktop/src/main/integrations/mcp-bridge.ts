@@ -57,7 +57,7 @@ export class McpBridge {
     private readonly resources?: {
       revoke(sessionId: string): void;
       /** The session's open pages: what a workspace change strands, though the session lives on. */
-      disposePages?(sessionId: string): void;
+      disposePages?(session: BridgeSession): void | Promise<void>;
       dispose(): Promise<void>;
     },
   ) {}
@@ -107,9 +107,10 @@ export class McpBridge {
       // The cwd or project can change across a resume; the token does not.
       if (existing.session.cwd !== session.cwd || existing.session.projectId !== session.projectId) {
         this.resources?.revoke(session.sessionId);
-        // Its pages and their partition were opened in the old scope; nothing
-        // reaches them any more, and they would outlive it until archive.
-        this.resources?.disposePages?.(session.sessionId);
+        // Pages opened in a scope the new workspace does not name are out of
+        // reach of the person's tabs and the agent alike, and would outlive it
+        // until archive; the ones in a scope it still names stay.
+        void this.resources?.disposePages?.(session);
         for (const [controller, active] of this.inFlight) if (active.sessionId === session.sessionId) controller.abort(new Error("Session workspace changed"));
       }
       existing.session = session;

@@ -49,11 +49,17 @@ it("cancellation prevents resource creation, including after renderer admission"
   expect(service.open).not.toHaveBeenCalled();
   await connections.dispose();
 });
+it("disposePages closes every page when the workspace is gone", async () => {
+  const { service } = fixture();
+  const connections = new BrowserConnections({ sessionRoot: () => null }, { request: vi.fn() }, path.join(directory, "artifacts"), service as unknown as BrowserService);
+  await connections.disposePages(session);
+  expect(service.disposeSession).toHaveBeenCalledWith("session", undefined);
+});
 it("disposePages closes the session's native pages but keeps its endpoint", async () => {
   const { connections, service } = fixture();
   await connections.connect(session);
-  connections.disposePages(session.sessionId);
-  expect(service.disposeSession).toHaveBeenCalledWith("session");
+  await connections.disposePages(session);
+  expect(service.disposeSession).toHaveBeenCalledWith("session", { sessionId: "session", projectId: "project", root: directory });
   expect(endpoints[0]!.dispose).not.toHaveBeenCalled();
   await connections.dispose();
 });

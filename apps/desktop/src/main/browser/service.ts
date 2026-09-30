@@ -210,8 +210,11 @@ export class BrowserService {
     if (target.owner && !target.owner.isDestroyed()) target.owner.contentView.removeChildView(target.view);
     target.view.webContents.close({ waitForBeforeUnload: false });
   }
-  disposeSession(sessionId: string) {
-    for (const target of [...this.targets.values()]) if (target.scope.sessionId === sessionId) this.close(target.scope, target.id);
+  /** Close a session's pages; `keep` is a scope whose pages stay (the one its workspace still names). */
+  disposeSession(sessionId: string, keep?: BrowserScope) {
+    for (const target of [...this.targets.values()]) {
+      if (target.scope.sessionId === sessionId && !(keep && browserScopeKey(target.scope) === browserScopeKey(keep))) this.close(target.scope, target.id);
+    }
   }
   dispose() { for (const target of [...this.targets.values()]) this.close(target.scope, target.id); }
   async invoke(method: BrowserMethod, scope: BrowserScope, raw: unknown): Promise<unknown> {

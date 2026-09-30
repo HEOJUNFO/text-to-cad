@@ -169,3 +169,16 @@ it("hands a key from the focused page to its own app window, and only from there
     { type: "keyUp", ...key },
   ]);
 });
+
+it("disposeSession keeps the pages of the scope it is told to keep, and closes the session's others", async () => {
+  const other = { ...scope, root: "/elsewhere" };
+  await service.open(scope, { tabId: "kept", url: "https://example.com/" });
+  await service.open(other, { tabId: "gone", url: "https://example.com/" });
+  await service.open({ ...scope, sessionId: "session-b" }, { tabId: "foreign", url: "https://example.com/" });
+  service.disposeSession(scope.sessionId, scope);
+  expect(service.list(scope).map(tab => tab.tabId)).toEqual(["kept"]);
+  expect(service.list(other)).toEqual([]);
+  expect(service.list({ ...scope, sessionId: "session-b" })).toHaveLength(1);
+  service.disposeSession(scope.sessionId);
+  expect(service.list(scope)).toEqual([]);
+});

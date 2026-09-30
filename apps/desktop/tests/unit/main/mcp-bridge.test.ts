@@ -163,7 +163,7 @@ describe("McpBridge", () => {
     bridge.tokenFor({ ...SESSION });
     expect(disposePages).not.toHaveBeenCalled();
     bridge.tokenFor({ ...SESSION, cwd: "/elsewhere" });
-    expect(disposePages).toHaveBeenCalledExactlyOnceWith(SESSION.sessionId);
+    expect(disposePages).toHaveBeenCalledExactlyOnceWith({ ...SESSION, cwd: "/elsewhere" });
   });
 
   it("takes the largest document edit_document's schema accepts, in its worst-case JSON", async () => {

@@ -51,8 +51,16 @@ export class BrowserConnections {
     const pending = this.entries.get(sessionId); this.entries.delete(sessionId);
     void pending?.then(endpoint => endpoint.dispose()).catch(() => {});
   }
-  /** A workspace change: the pages opened in the old scope go, the session stays. */
-  disposePages(sessionId: string) { this.service.disposeSession(sessionId); }
+  /**
+   * A workspace change: the pages opened in a scope the session's workspace no
+   * longer names go, the session stays. Pages in the scope it still names are
+   * the person's explorer tabs too, and nothing tells their renderer a page went.
+   */
+  async disposePages(session: BridgeSession) {
+    const workspace = this.deps.sessionRoot(session);
+    const root = workspace ? await fs.realpath(workspace.directory).catch(() => null) : null;
+    this.service.disposeSession(session.sessionId, root === null ? undefined : { sessionId: session.sessionId, projectId: session.projectId, root });
+  }
   async dispose() {
     const pending = [...this.entries.values()]; this.entries.clear();
     await Promise.allSettled(pending.map(async entry => (await entry).dispose()));
