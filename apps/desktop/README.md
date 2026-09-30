@@ -2313,6 +2313,13 @@ inside the workspace (`climbsOut`, so a folder named `..keep` is fine) and name
 the file the handle holds (same device and inode); a path swapped for a link out
 of the root between the check and the open is refused.
 
+The captures the app makes itself (`capture_view`, `capture_drawing`,
+`capture_pdf`) all pass through `imageResult` (`src/renderer/state/image-result.ts`):
+one over the same limit is redrawn smaller (up to six passes, a side never
+below 64 px), or refused. A shrunk result carries `scaled: true`, `scale` (how
+much each side shrank) and, for a PNG source, `scaledFrom: {width, height}`, so
+an agent can map a pixel it reads off the picture back to the original.
+
 ### CAD references and session drafts
 
 Viewer references and captures always enter the draft of the session that owns
