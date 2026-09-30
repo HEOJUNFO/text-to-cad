@@ -149,6 +149,22 @@ describe("updater", () => {
     updater.stopUpdater();
   });
 
+  it("a background check that fails leaves the offered update on offer", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const updater = await load();
+    autoUpdater.emit("update-available", { version: "2.0.0" });
+    autoUpdater.emit("checking-for-update");
+    expect(updater.updateStatus()).toEqual({ state: "available", version: "2.0.0" });
+    autoUpdater.emit("error", new Error("net::ERR_INTERNET_DISCONNECTED"));
+    expect(updater.updateStatus()).toEqual({ state: "available", version: "2.0.0" });
+
+    autoUpdater.emit("checking-for-update");
+    autoUpdater.emit("update-not-available", { version: "1.0.0" });
+    expect(updater.updateStatus()).toEqual({ state: "idle" });
+    warn.mockRestore();
+    updater.stopUpdater();
+  });
+
   it("skips the six-hourly check while downloaded or downloading", async () => {
     const updater = await load();
     autoUpdater.emit("update-downloaded", { version: "2.0.0" });

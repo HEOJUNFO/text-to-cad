@@ -81,7 +81,11 @@ export function initUpdater() {
   nativeUpdater.on("before-quit-for-update", markQuittingForUpdate);
 
   autoUpdater.on("checking-for-update", () => {
-    if (!busyWithUpdate()) {
+    // An offered update stays offered while the feed is asked again (the
+    // scheduled check runs from `available`): the Download button is not
+    // swapped for a spinner, and the answer — `update-available` refreshes it,
+    // `update-not-available` retires it — is what moves the status.
+    if (!busyWithUpdate() && status.state !== "available") {
       setStatus({ state: "checking" });
     }
   });
@@ -190,6 +194,13 @@ export function isMissingFeedFile(error: unknown): boolean {
 }
 
 function failed(error: unknown): UpdateStatus {
+  // `available` is only ever left by an answer or by `downloadUpdate`, which
+  // moves to `downloading` first: an error here is a background check that
+  // failed, and the update it found earlier is still there to download.
+  if (status.state === "available") {
+    console.warn("[updater] check failed while an update is on offer:", message(error));
+    return status;
+  }
   if (isMissingFeedFile(error)) {
     console.warn("[updater] release has no update feed for this platform yet:", message(error));
     return status.state === "idle" ? status : setStatus({ state: "idle" });
