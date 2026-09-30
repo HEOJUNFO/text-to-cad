@@ -682,13 +682,45 @@ describe("reduce: content that arrives after prompt/end", () => {
     expect(state.turns.at(-1)?.parts.length).toBeGreaterThan(0);
   });
 
-  it("joins a late chunk onto the text the last turn ended with", () => {
+  it("gives a late chunk a text part of its own, and joins the chunks behind it to that one", () => {
     let state = started(connected());
-    state = update(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "done" } });
+    state = update(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "First answer." } });
     state = reduce(state, { type: "prompt/end", stopReason: "end_turn", usage: null, at });
-    state = update(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "!" } });
-    expect(state.turns.at(-1)?.parts).toEqual([{ type: "text", text: "done!" }]);
+    state = update(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Background task " } });
+    expect(state.turns.at(-1)?.parts).toEqual([
+      { type: "text", text: "First answer." },
+      { type: "text", text: "Background task " },
+    ]);
+    state = update(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "finished." } });
+    expect(state.turns.at(-1)?.parts).toEqual([
+      { type: "text", text: "First answer." },
+      { type: "text", text: "Background task finished." },
+    ]);
     expect(state.turns.at(-1)?.endedAt).not.toBeNull();
+  });
+
+  it("starts a late chunk's own part again after the next turn", () => {
+    let state = started(connected());
+    state = reduce(state, { type: "prompt/end", stopReason: "end_turn", usage: null, at });
+    state = update(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "late one" } });
+    state = reduce(state, { type: "prompt/start", turnId: "t2", content: [{ type: "text", text: "again" }], at });
+    state = update(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "answer" } });
+    state = reduce(state, { type: "prompt/end", stopReason: "end_turn", usage: null, at });
+    state = update(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "late two" } });
+    expect(state.turns.at(-1)?.parts).toEqual([
+      { type: "text", text: "answer" },
+      { type: "text", text: "late two" },
+    ]);
+  });
+
+  it("does not open a turn for a subagent spawned behind prompt/end", () => {
+    let state = started(connected());
+    state = reduce(state, { type: "prompt/end", stopReason: "end_turn", usage: null, at });
+    const before = state.turns.length;
+    state = update(state, { sessionUpdate: "subagent_spawned", subagentSessionId: "kid", name: "explorer" });
+    expect(state.turns).toHaveLength(before);
+    expect(state.turns.at(-1)?.endedAt).not.toBeNull();
+    expect(state.subagentSessionIds).toContain("kid");
   });
 
   it("gives a chunk behind a session's closed user turn a closed agent turn of its own", () => {
@@ -698,6 +730,19 @@ describe("reduce: content that arrives after prompt/end", () => {
     state = update(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "late" } });
     expect(state.turns.map((turn) => turn.role)).toEqual(["user", "agent"]);
     expect(state.turns[1]?.endedAt).not.toBeNull();
+  });
+});
+
+describe("reduce: a crash mid-turn", () => {
+  it("puts the error in the turn it ended, whichever of the status and the rejection comes first", () => {
+    let state = started(connected());
+    state = update(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "working" } });
+    state = reduce(state, { type: "status", status: "error", error: "adapter died", at });
+    state = reduce(state, { type: "prompt/error", message: "adapter died", at });
+    expect(state.turns.map((turn) => turn.role)).toEqual(["user", "agent"]);
+    expect(state.turns.at(-1)?.parts.at(-1)).toEqual({ type: "error", message: "adapter died" });
+    expect(state.turns.at(-1)?.endedAt).not.toBeNull();
+    expect(state.status).toBe("error");
   });
 });
 

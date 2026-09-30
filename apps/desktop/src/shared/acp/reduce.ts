@@ -44,7 +44,8 @@
  *   - Content after its turn ended (a chunk or a call behind `prompt/end`)
  *     rides on the last agent turn, or a closed one of its own; it never
  *     opens a turn nothing would end. A replay, which has no `prompt/start`,
- *     still opens its own.
+ *     still opens its own. Late text is a part of its own, never glued onto
+ *     the answer the turn ended with; the chunks behind its first join it.
  *   - A cancelled or failed turn settles what was still pending or running
  *     in it; an ordinary end does not (a background command can outlive it).
  */
@@ -100,7 +101,8 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
       return { ...closeOpenTurn(state, event.at, replayedEnd(state)), status: "idle" };
 
     case "prompt/start": {
-      const closed = closeOpenTurn(state, event.at, null);
+      const { lateChunk: _late, ...settled } = state;
+      const closed = closeOpenTurn(settled, event.at, null);
       const userTurn: Turn = {
         id: event.turnId,
         role: "user",
@@ -147,10 +149,14 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
     }
 
     case "prompt/error": {
-      const withError = withRootParts(state, event.at, (parts) => [
-        ...parts,
-        { type: "error", message: event.message },
-      ]);
+      const addError = (parts: Part[]) => [...parts, { type: "error", message: event.message } as Part];
+      // A turn already ended (a crash reports `status: error` before the SDK's rejection arrives,
+      // and that ends it) keeps its error: a new turn for it would leave the real one without.
+      const last = state.turns.at(-1);
+      const withError =
+        last && last.endedAt !== null
+          ? withClosedParts(state, event.at, addError)
+          : withRootParts(state, event.at, addError);
       const closed = closeOpenTurn(withError, event.at, null, { tool: "failed", subagent: "failed" });
       return {
         ...closed,
@@ -277,7 +283,17 @@ function applyUpdate(
       if (!part) {
         return state;
       }
-      return withUpdateOrLate(state, acpSessionId, u, at, (parts) => appendChunk(parts, part));
+      // Behind `prompt/end` the first chunk is a part of its own, not the tail of the answer the
+      // turn ended with ("First answer.Background task finished."); the chunks that follow it join.
+      const join = state.lateChunk === true;
+      return withUpdateOrLate(
+        state,
+        acpSessionId,
+        u,
+        at,
+        (parts) => appendChunk(parts, part),
+        (parts) => (join ? appendChunk(parts, part) : [...parts, part]),
+      );
     }
 
     case "tool_call":
@@ -418,7 +434,8 @@ function applyUpdate(
         state: "running",
       parts: [],
       };
-      const next = withSessionParts(state, acpSessionId, at, (parts) =>
+      // Not `create`: a spawn behind `prompt/end` must not open a turn nothing would end.
+      const next = withUpdateOrLate(state, acpSessionId, u, at, (parts) =>
         findSubagent(parts, childId) ? parts : [...parts, part],
       );
       return unpark(
@@ -556,7 +573,7 @@ function park(state: SessionState, acpSessionId: string, update: RawSessionUpdat
 
 /** The state without what the reducer holds for itself: what a snapshot should store. */
 export function withoutParked(state: SessionState): SessionState {
-  const { parked: _parked, parkedDropWarned: _warned, ...rest } = state;
+  const { parked: _parked, parkedDropWarned: _warned, lateChunk: _late, ...rest } = state;
   return rest;
 }
 
@@ -691,13 +708,19 @@ function withUpdateOrLate(
   update: Record<string, unknown>,
   at: number,
   fn: (parts: Part[]) => Part[],
+  late?: (parts: Part[]) => Part[],
 ): SessionState {
   const last = state.turns.at(-1);
   if (!last || last.endedAt === null || state.status === "connecting") {
     return withUpdateTarget(state, acpSessionId, update, at, fn);
   }
   const placed = withUpdateTarget(state, acpSessionId, update, at, fn, false);
-  return placed === state ? withClosedParts(state, at, fn) : placed;
+  if (placed !== state) {
+    return placed;
+  }
+  // `late` is how content that lands on a closed turn is added, where that differs from `fn`.
+  const closed = withClosedParts(state, at, late ?? fn);
+  return late ? { ...closed, lateChunk: true } : closed;
 }
 
 function claudeParentToolUseId(update: Record<string, unknown>): string | null {

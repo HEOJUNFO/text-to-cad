@@ -1693,8 +1693,18 @@ export class SessionManager {
     if (!connection) {
       return;
     }
+    // A connection still connecting has only the beginning of its own reload (the rule in
+    // `onEvent`); one that was not is filed as `close` leaves it.
+    const connecting = connection.state.status === "connecting";
     connection.close();
     if (announce) {
+      // Its own `closed` event was dropped by the owner check above (it is out of `live`), so
+      // `onEvent` never saw the state that ended the turn: without this the stored snapshot is
+      // the last one before the close, an open turn with its calls running and its card
+      // pending, and a repaint from it shows the session still streaming.
+      if (!connecting && this.deps.repo.get(id)) {
+        this.snapshots?.save(id, connection.state);
+      }
       this.announceClosed(id);
     }
   }

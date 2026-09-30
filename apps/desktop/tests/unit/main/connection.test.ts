@@ -143,6 +143,23 @@ describe("SessionConnection against the fake agent", () => {
     expect(lastAgentText(connection.state)).toBe("ok");
   });
 
+  it("answers a request still pending when the prompt resolves, as the transcript already shows it", async () => {
+    const events: SessionEvent[] = [];
+    const connection = connect({ cwd: await scratch(), onEvent: (event) => events.push(event) });
+    await connection.newSession();
+    void connection.client.requestPermission({
+      sessionId: connection.state.acpSessionId!,
+      toolCall: { toolCallId: "late-1", title: "Run ls?" },
+      options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+    });
+    expect(connection.client.pendingPermissionIds).toHaveLength(1);
+
+    await connection.prompt([{ type: "text", text: "thought then ok" }]);
+    expect(connection.client.pendingPermissionIds).toEqual([]);
+    expect(events.filter((event) => event.type === "permission/resolve")).toHaveLength(1);
+    expect(connection.state.pendingPermissions).toEqual([]);
+  });
+
   /**
    * The only way nothing is asked. The client answers no request on
    * anybody's behalf, so a turn with no permission request in it is a turn

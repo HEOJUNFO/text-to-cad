@@ -597,6 +597,10 @@ export class SessionConnection {
           ...content.map(toContentBlock),
         ],
       });
+      // The reducer cancels every card when a turn ends (`prompt/end`), so main has to answer the
+      // same requests: left in the client's map they would wait for a `cancel()` or `dispose()`
+      // that may never come, with the UI showing them cancelled.
+      this.client.cancelPendingPermissions();
       this.dispatch({
         type: "prompt/end",
         stopReason: response.stopReason,

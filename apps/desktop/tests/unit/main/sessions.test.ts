@@ -1911,6 +1911,26 @@ describe("SessionManager", () => {
   });
 
   /**
+   * `retire` takes the connection out of `live` before it closes, so the
+   * `closed` event that ends the turn never reaches `onEvent`; the snapshot
+   * `close` flushes has to be the closed connection's state, not the last
+   * one before it.
+   */
+  it("a close during a running turn files the snapshot with the turn ended", async () => {
+    const store = memorySnapshots();
+    const { repo, manager, cwd } = await setup({ snapshots: store });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    const turn = manager.prompt(session.id, [{ type: "text", text: "slow" }]).catch((error: unknown) => error);
+    await until(() => (repo.get(session.id)?.status === "running" ? true : undefined));
+
+    manager.close(session.id);
+    await turn;
+    const stored = JSON.parse(store.rows.get(session.id)!) as { turns: { role: string; endedAt: number | null }[] };
+    expect(stored.turns.at(-1)?.role).toBe("agent");
+    expect(stored.turns.at(-1)?.endedAt).not.toBeNull();
+  });
+
+  /**
    * A session still in `session/load` is not a candidate for eviction:
    * closing it would reject the load, and with it a prompt waiting on that
    * load in `ensureLive`.
