@@ -129,3 +129,16 @@ it("Ctrl+W and Mod+2 leave a collapsed explorer's hidden tabs alone, and the men
   expect(useExplorer.getState().collapsed).toBe(true);
   expect(useExplorer.getState().activeId).toBe("t1");
 });
+
+it("Ctrl+Shift+R with the focus in a terminal still opens a review tab; the plain chords stay the shell's", async () => {
+  const terminal = { id: "t1", kind: "terminal", sessionId: "s1", projectId: PROJECT.id, order: 2, ptyId: null, cwd: null, readOnly: false } as ExplorerTab;
+  useExplorer.setState({ tabs: [fileTab("f1", 0), terminal], activeId: "t1" });
+  pane();
+  const input = await screen.findByLabelText("Terminal input");
+  input.focus();
+  fireEvent.keyDown(input, { key: "R", shiftKey: true, ctrlKey: true });
+  expect(useExplorer.getState().tabs.map((tab) => tab.kind)).toEqual(["file", "terminal", "review"]);
+  const before = useExplorer.getState().tabs.length;
+  fireEvent.keyDown(input, { key: "t", ctrlKey: true });
+  expect(useExplorer.getState().tabs).toHaveLength(before);
+});

@@ -261,14 +261,6 @@ export function useExplorerShortcuts() {
       if (!modifier || event.altKey) {
         return;
       }
-      // Control is the shell's on Windows and Linux: Ctrl+W deletes a word, Ctrl+T
-      // transposes, Ctrl+1..9 are typed. With the focus in a terminal the terminal
-      // keeps them — it forwards Ctrl+K/C/V itself (`TerminalTab`) — and the strip's
-      // chords wait for the focus to leave. Cmd is no shell's key, so macOS keeps them.
-      if (!isMac && event.target instanceof Element && event.target.closest("[data-terminal-body]")) {
-        return;
-      }
-
       const key = event.key.toLowerCase();
       if (event.shiftKey) {
         // Secondary tab kinds. `Mod+B` is the sidebar,
@@ -281,6 +273,15 @@ export function useExplorerShortcuts() {
         }
         return;
       }
+      // Control is the shell's on Windows and Linux: Ctrl+W deletes a word, Ctrl+T
+      // transposes, Ctrl+1..9 are typed. With the focus in a terminal the terminal
+      // keeps them — it forwards Ctrl+K/C/V itself (`TerminalTab`) — and the strip's
+      // plain chords wait for the focus to leave. Cmd is no shell's key, so macOS keeps them.
+      // The Shift chords above are no shell's, so they run from a terminal too and this waits.
+      if (!isMac && event.target instanceof Element && event.target.closest("[data-terminal-body]")) {
+        return;
+      }
+
       if (key === "t") {
         event.preventDefault();
         if (!event.repeat) focusOpened(open("file"));
