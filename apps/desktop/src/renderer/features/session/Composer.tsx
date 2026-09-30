@@ -291,7 +291,7 @@ export function Composer({
                       <QueueItemContent>{item.text || "(attachments)"}</QueueItemContent>
                       <QueueItemActions>
                         <QueueItemAction
-                          aria-label="Remove from queue"
+                          aria-label={`Remove from queue: ${(item.text || "attachments").slice(0, 40)}`}
                           onClick={() => {
                             const removed = dequeue(sessionId, item.id);
                             if (removed?.draft) {

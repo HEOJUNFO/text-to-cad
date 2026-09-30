@@ -47,3 +47,24 @@ describe("a prompt sent with no turn started yet", () => {
     await vi.waitFor(() => expect(useComposer.getState().queues.s1).toHaveLength(1));
   });
 });
+
+describe("the queued prompts' remove buttons", () => {
+  const queued = (id: string, text: string) => ({ id, text, content: [{ type: "text" as const, text }] });
+
+  // Each row once wore the same name, so a screen reader's button list read "Remove from queue" twice
+  // with nothing to tell the rows apart; the prompt's own words now ride in the name.
+  it("are named for their prompt, so two rows are not the same button", () => {
+    useComposer.setState({ queues: { s1: [queued("a", "add a fillet"), queued("b", "export the STEP")] } });
+    const { getByRole } = render(<SessionView session={SESSION} />);
+    getByRole("button", { name: "Remove from queue: add a fillet" });
+    getByRole("button", { name: "Remove from queue: export the STEP" });
+  });
+
+  // jsdom lays nothing out, so the class string is the check: the button rests at opacity-0 until the
+  // row is hovered, and a keyboard person tabbing onto it would be focused on something invisible.
+  it("show themselves when they take keyboard focus", () => {
+    useComposer.setState({ queues: { s1: [queued("a", "add a fillet")] } });
+    const { getByRole } = render(<SessionView session={SESSION} />);
+    expect(getByRole("button", { name: /^Remove from queue/ }).className).toContain("focus-visible:opacity-100");
+  });
+});
