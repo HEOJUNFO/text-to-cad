@@ -207,6 +207,8 @@ export function SessionView({ session }: { session: Session }) {
   // opens. Left alone it fell to the page, where no key reaches anything.
   const composerRow = useRef<HTMLDivElement | null>(null);
   const focusOnReconnect = useRef(false);
+  // Every Reconnect / Retry on this screen, the full-screen ones too: each goes with its panel once
+  // the load starts, and a button that unmounts under focus drops it to the page.
   const reconnectFromBar = () => {
     focusOnReconnect.current = true;
     composerRow.current?.focus();
@@ -233,14 +235,14 @@ export function SessionView({ session }: { session: Session }) {
       ) : loadError ? (
         notInstalled(loadError) ? (
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <AgentMissing agent={agent} agentId={session.agentId} message={loadError} onRetry={() => void load(session.id)} />
+            <AgentMissing agent={agent} agentId={session.agentId} message={loadError} onRetry={reconnectFromBar} />
           </div>
         ) : isAuthError(loadError) || agent?.auth === "unauthenticated" ? (
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <AuthPrompt agent={agent} message={loadError} onRetry={() => void load(session.id)} />
+            <AuthPrompt agent={agent} message={loadError} onRetry={reconnectFromBar} />
           </div>
         ) : (
-          <LoadFailed message={loadError} onRetry={() => void load(session.id)} />
+          <LoadFailed message={loadError} onRetry={reconnectFromBar} />
         )
       ) : disconnected ? (
         <div className="min-h-0 flex-1" />
@@ -251,7 +253,7 @@ export function SessionView({ session }: { session: Session }) {
       <div className="shrink-0 px-6 pb-4">
         <div aria-label="Composer" className="mx-auto flex w-full max-w-[720px] flex-col gap-2 outline-none" ref={composerRow} role="group" tabIndex={-1}>
           {showErrorBanner && state?.error && !isAuthError(state.error) ? (
-            <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-[13px] leading-5" role="status">
+            <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-[13px] leading-5" role="alert">
               <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
               <span className="min-w-0 flex-1 whitespace-pre-wrap">{state.error}</span>
               <Button className="h-6 gap-1 px-2 text-[12px]" onClick={reconnectFromBar} size="sm" variant="outline">
@@ -261,18 +263,18 @@ export function SessionView({ session }: { session: Session }) {
             </div>
           ) : null}
           {showErrorBanner && state?.error && isAuthError(state.error) ? (
-            <AuthPrompt agent={agent} message={state.error} onRetry={() => void load(session.id)} />
+            <AuthPrompt agent={agent} message={state.error} onRetry={reconnectFromBar} />
           ) : null}
           {/* A reconnect that failed behind a painted transcript: the
               transcript is still worth reading, so the failure is a line
               above the composer rather than a screen in place of it. */}
           {state && loadError && !loading ? (
             notInstalled(loadError) ? (
-              <AgentMissing agent={agent} agentId={session.agentId} message={loadError} onRetry={() => void load(session.id)} />
+              <AgentMissing agent={agent} agentId={session.agentId} message={loadError} onRetry={reconnectFromBar} />
             ) : isAuthError(loadError) ? (
-              <AuthPrompt agent={agent} message={loadError} onRetry={() => void load(session.id)} />
+              <AuthPrompt agent={agent} message={loadError} onRetry={reconnectFromBar} />
             ) : (
-              <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-[13px] leading-5" data-reconnect-failed role="status">
+              <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-[13px] leading-5" data-reconnect-failed role="alert">
                 <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
                 <span className="min-w-0 flex-1 whitespace-pre-wrap">{loadError}</span>
                 <Button className="h-6 gap-1 px-2 text-[12px]" onClick={reconnectFromBar} size="sm" variant="outline">
@@ -354,7 +356,7 @@ function Reconnecting() {
 function Connecting({ agentName }: { agentName: string }) {
   const reducedMotion = useSettings((state) => state.settings?.reduceMotion ?? false);
   return (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center" data-connecting>
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center" data-connecting role="status">
       <LoadingIcon size={64} reducedMotion={reducedMotion} />
       <p className="text-[13px] text-muted-foreground">Connecting to {agentName}…</p>
     </div>
@@ -363,7 +365,7 @@ function Connecting({ agentName }: { agentName: string }) {
 
 function LoadFailed({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center" data-load-failed>
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center" data-load-failed role="alert">
       <AlertCircle className="size-4 text-destructive" />
       <p className="max-w-[480px] text-[13px] leading-5 whitespace-pre-wrap text-muted-foreground">{message}</p>
       <Button className="h-7 gap-1.5 text-[12px]" onClick={onRetry} size="sm" variant="outline">
