@@ -54,9 +54,11 @@ export interface DocumentSource {
   writeText?: (path: string, options: { content: string; expectedRevision?: string; signal: AbortSignal }) => Promise<WriteResult>;
   subscribe?: (listener: (change: FileChanges) => void) => () => void;
 }
-/** Optional filesystem browsing composed outside FileViewer. */
-export interface FileBrowserSource extends DocumentSource {
+/** Directory access independent of document loading and rendering. */
+export interface DirectorySource {
+  id: string;
   rootName: string;
+  subscribe?: DocumentSource["subscribe"];
   list: (directory: string, options: { signal: AbortSignal }) => Promise<readonly FileEntry[]>;
   paths?: (options: { signal: AbortSignal }) => Promise<readonly string[]>;
   rename?: (path: string, options: { name: string; signal: AbortSignal }) => Promise<FileMutationResult>;
@@ -64,6 +66,8 @@ export interface FileBrowserSource extends DocumentSource {
   duplicate?: (path: string, options: { signal: AbortSignal }) => Promise<FileMutationResult>;
   trash?: (path: string, options: { signal: AbortSignal }) => Promise<FileMutationResult>;
 }
+/** Hosts may provide document access and browsing through the same adapter. */
+export interface FileBrowserSource extends DocumentSource, DirectorySource {}
 /** Compatibility adapter shape. New hosts should name the narrow or browsing contract directly. */
 export interface FileSource extends DocumentSource {
   rootName?: string;
@@ -84,7 +88,7 @@ export interface FileViewerState {
    */
   renderers?: Record<string, JsonValue>;
 }
-/** Browser navigation state composed around the document viewer. */
+/** Host-owned browsing state for the shared file-tab layout. */
 export interface FileBrowserState extends FileViewerState {
   expandedDirectories?: readonly string[];
 }
@@ -176,12 +180,23 @@ export interface RendererRegistration {
   fallback?: boolean;
   prepare: (context: PrepareContext) => Promise<PreparedRenderer>;
 }
+/** Optional browsing capability; document-only hosts omit it. The shared viewer owns its layout. */
+export interface FileBrowser {
+  source: DirectorySource;
+  actions?: FileActions;
+  path: string | null;
+  onOpenFile: (path: string, options?: { target: "current" | "new"; panel?: string }) => void;
+  leading?: ReactNode;
+  navigationActions?: ReactNode;
+  notice?: ReactNode;
+}
 export interface FileViewerProps {
   file: string | FileMetadata | null;
   host: ViewerHost;
   renderers: readonly RendererRegistration[];
-  state: FileViewerState;
-  onStateChange: (next: FileViewerState) => void;
+  state: FileBrowserState;
+  onStateChange: (next: FileBrowserState) => void;
+  browser?: FileBrowser;
   /** Optional host targets for document status and actions; otherwise controls float over the document. */
   navigationTargets?: { status?: HTMLElement | null; actions?: HTMLElement | null };
   /** Use a surrounding frame's responsive measurement when it also owns a side panel. */

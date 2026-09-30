@@ -33,12 +33,12 @@ const restingCamera = async page => {
   }, null, { polling: 'raf' });
 };
 /** The last thing the viewport actually DREW. */
-const frame = async (pane) => { await settle(pane.page()); return PNG.sync.read(await pane.locator('[aria-busy] > div > canvas').first().screenshot({ style: '[data-slot=popover-content], [data-slot=dropdown-menu-content], [data-slot=dropdown-menu-sub-content], [data-cad-tool-groups] { visibility: hidden !important; }' })); };
+const frame = async (pane) => { await settle(pane.page()); return PNG.sync.read(await pane.locator('[aria-busy] > div > canvas').first().screenshot({ style: '[data-slot=popover-content], [data-slot=dropdown-menu-content], [data-slot=dropdown-menu-sub-content], [data-cad-tool-groups], [aria-label="View cube"] { visibility: hidden !important; }' })); };
 // A canvas screenshot also catches what is drawn OVER the canvas: the tool strip
 // along the top, the tool stack's panels under it (hidden for the shot: they change with
-// every tool and selection) and the view cube in the bottom-right corner. None is the
-// model, so every measurement of the picture is taken in the band between them (the
-// harness page is `VIEWPORT`, 800 × 600: an 800 × 564 canvas, the cube's top at ~445). Pixel
+// every tool and selection) and the top-right view cube (also hidden for the shot). None is the
+// model. Measurements keep the original model band of the 800 × 600 harness
+// (an 800 × 564 canvas), so control placement cannot affect part-color counts. Pixel
 // counts below are for this band, 385 × 800: half what the tests once measured at 1200 × 720.
 const MODEL = { y0: 55, y1: 440 };
 function differing(left, right, { x0 = 0, y0 = 0, x1 = left.width, y1 = left.height } = MODEL) {

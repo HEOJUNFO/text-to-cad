@@ -89,7 +89,7 @@ export function createBridgeFetch(bridge: ToolBridge, document: CadDocument): ty
 }
 
 export interface CadDocument { id: string; path: string; name: string; revision: string }
-export interface OpenFile { document: CadDocument | null; resourceUri?: string }
+export interface OpenFile { document: CadDocument | null; resourceUri?: string; browseRoot?: string | null }
 export function isDocumentPath(path: unknown): path is string {
   if (typeof path !== 'string' || path.includes('\0')) return false;
   const prefix = path.match(/^(?:\/|[A-Za-z]:[\\/])/);
@@ -101,7 +101,10 @@ export function isDocumentPath(path: unknown): path is string {
 export function readOpenFile(value: unknown): OpenFile | null {
   if (!value || typeof value !== 'object') return null;
   const item = value as Record<string, unknown>;
-  const resource = typeof item.resourceUri === 'string' ? { resourceUri: item.resourceUri } : {};
+  const resource = {
+    ...(typeof item.resourceUri === 'string' ? { resourceUri: item.resourceUri } : {}),
+    ...(item.browseRoot === null || typeof item.browseRoot === 'string' ? { browseRoot: item.browseRoot } : {}),
+  };
   if (item.document === null) return { document: null, ...resource };
   const document = item.document as Record<string, unknown> | undefined;
   if (!document || typeof document.id !== 'string' || !document.id || !isDocumentPath(document.path)

@@ -1,8 +1,8 @@
 import { FileText } from 'lucide-react';
-import { EmptyState, FileNavRow } from '@text-to-cad/ui/navigation';
+import { EmptyState } from '@text-to-cad/ui/navigation';
 import { StrictMode, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
-import { FileViewer, type FileSource } from '@text-to-cad/ui/file-viewer';
+import { FileViewer, type FileBrowserSource } from '@text-to-cad/ui/file-viewer';
 import { ViewerLoadingOverlay } from '@text-to-cad/ui/file-viewer/presentation';
 import { createCadClient } from '@text-to-cad/core/client';
 import { unavailablePromptContext } from '@text-to-cad/core/prompt';
@@ -25,23 +25,22 @@ const tabStore = createTabStore(sessionTabRecord(window.sessionStorage));
 function StartingView({ error }: { error?: Error }) {
   const file = readCadParam() || readDefaultCadParam() || null;
   const { state, onStateChange } = useTabViewerState(tabStore, 'starting');
-  const source = useMemo<FileSource>(() => {
+  const source = useMemo<FileBrowserSource>(() => {
     const pending = <T,>(signal: AbortSignal): Promise<T> => new Promise((_, reject) => {
       if (error) { reject(error); return; }
       if (signal.aborted) { reject(signal.reason); return; }
       signal.addEventListener('abort', () => reject(signal.reason), { once: true });
     });
-    return { id: 'starting', stat: (_path, {signal}) => pending(signal) };
+    return { id: 'starting', rootName: 'This directory', stat: (_path, {signal}) => pending(signal), list: (_path, {signal}) => pending(signal) };
   }, [error]);
   const { colorScheme } = useTabAppearance(tabStore);
   const host = useMemo<ViewerHost>(() => ({
     files: source, clipboard: browserClipboard, promptContext: unavailablePromptContext,
     environment: { colorScheme },
   }), [source, colorScheme]);
-  return <div className="flex h-svh flex-col overflow-hidden">
-    <FileNavRow activePath={null} crumbs={[]} source={{ useListing: () => null }} onOpen={() => {}}
-      leading={<ViewerBrand />} trailing={<ViewerLinks />} />
-    <div className="min-h-0 flex-1"><FileViewer file={file} host={host} renderers={[]} state={state} onStateChange={onStateChange}
+  return <div className="flex h-svh flex-col overflow-hidden"><div className="min-h-0 flex-1">
+    <FileViewer file={file} host={host} renderers={[]} state={state} onStateChange={onStateChange}
+      browser={{ source, path: null, onOpenFile: () => {}, leading: <ViewerBrand />, navigationActions: <ViewerLinks /> }}
       presentation={{loading:<div className="relative h-full"><ViewerLoadingOverlay viewerLoading /></div>, error:() => <div className="relative h-full"><EmptyState icon={FileText} title="No file open" description="Pick one from the tree on the right, or filter by name." /></div>}} />
   </div></div>;
 }

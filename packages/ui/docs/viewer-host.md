@@ -32,7 +32,7 @@ are for reading and maintaining the contracts.
 | Contract | Definition | Public entry point |
 | --- | --- | --- |
 | `ViewerHost`, `ClipboardPort` | [Host types](../src/host/types.ts) | `@text-to-cad/ui/host` |
-| `DocumentSource`, `FileBrowserSource`, `FileActions`, mutation receipts, `FileViewerState` | [File viewer types](../src/file-viewer/types.ts) | `@text-to-cad/ui/file-viewer` |
+| `DocumentSource`, `DirectorySource`, `FileBrowserSource`, `FileActions`, mutation receipts, `FileViewerState` | [File viewer types](../src/file-viewer/types.ts) | `@text-to-cad/ui/file-viewer` |
 | `createCadFileSource` (browsed catalog), `createCadDocumentSource` (one absolute document) | [CAD sources](../src/file-viewer/cadFileSource.ts) | `@text-to-cad/ui/file-viewer` |
 | `PromptContextPort`, bundles, references and delivery receipts | [Prompt types](../../core/src/prompt/types.ts) | `@text-to-cad/core/prompt` |
 | `CadService`, `CadResourceProvider`, worker tickets | [CAD service types](../../core/src/client/types.ts) | `@text-to-cad/core/client` |
@@ -52,9 +52,12 @@ browser lifetimes. Shared component tests can
 use the [explicit fake host](../src/host/testing/host.ts).
 The [MCP App composition](../../../apps/chatgpt/src/App.tsx) uses the same
 FileViewer with `createCadDocumentSource` for one host-opened absolute file.
-That source supplies no listing or path discovery, so FileViewer places its
-document actions over the viewport. Its transport and composer delivery stay under
-`apps/chatgpt/`.
+That source supplies no listing or path discovery. The custom MCP view supplies FileViewer
+with an optional `browser` capability and separate `DirectorySource`; registered
+native file views omit that capability. FileViewer owns the same navigation row,
+responsive layout and exclusive explorer/renderer panel column used by web. Directory location can change without replacing
+the document service. Transport, initial-root selection and composer delivery stay
+under `apps/chatgpt/`.
 
 ## What a CAD renderer does not use
 
@@ -84,7 +87,8 @@ file's routine plays on entry only when its Autoplay is on. The rules are in
 
 A renderer can publish `FileNavigationAction[]` through
 `RendererViewProps.onNavigationActionsChange`. FileViewer shows these before its
-renderer-panel toggles. Without external targets they occupy a compact top-center
+renderer-panel toggles in the shared browsing row. Without browsing or external
+targets they occupy a compact top-center
 overlay, absent when there are no actions, status or panels. A host can provide
 `navigationTargets` to put them in its own navigation row. Each action declares its icon, accessible label, an
 optional shorter hover `hint`, disabled state and invocation callback. Registration belongs to the mounted
@@ -222,6 +226,12 @@ releases its component closure and retains only its final snapshot with
 Hosts may cache that inactive snapshot without retaining a scene or moving focus.
 
 ## Files, state and shutdown
+
+`DirectorySource` contains directory browsing independently of document access.
+`FileBrowserSource` combines it with `DocumentSource` for hosts backed by one
+catalog. `useFileNavigation` accepts the narrower directory contract. When `paths`
+is absent, filtering uses loaded file listings and is labeled “Filter loaded files”;
+it does not recursively discover paths on the host's behalf.
 
 `DocumentSource` contains open-document storage operations and may identify
 that file for prompt handoff through `resourceRef(file)`. `FileBrowserSource`

@@ -21,6 +21,7 @@ from .ui_resources import UI_TEMPLATE, UiResources
 from .library import RecentLibrary
 from .documents import describe_document, resolve_document
 from .picker import FilePicker, PickerError, picker_capability
+from .browsing import browse_directory, directory_path
 
 UI_MIME_TYPE = "text/html;profile=mcp-app"
 API_VERSION = 2
@@ -177,7 +178,7 @@ def create_server(*, ui_path: str | Path | None = None,
 
     @server.tool(
         name="cad_open", title="CAD", icons=[icon],
-        description="Open an existing STEP, STL, GLB or 3MF in the CAD viewer. Use an absolute local CAD file path or a previously opened documentId. No workspace directory is required.",
+        description="Open an existing STEP, STL, GLB or 3MF in the CAD viewer. Use an absolute local CAD file path or a previously opened documentId. Pass the current thread's project/worktree directory as browseRoot when known; it only sets the file explorer's location and never restricts the model path. No workspace directory is required.",
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False),
         meta={
             "ui": {"resourceUri": ui_uri},
@@ -189,9 +190,10 @@ def create_server(*, ui_path: str | Path | None = None,
     )
     async def cad_open(ctx: Context, path: str | None = None, file: FileInput | None = None,
                        documentId: str | None = None, document: DocumentInput | None = None,
-                       apiVersion: int | None = None) -> CallToolResult:
+                       apiVersion: int | None = None, browseRoot: str | None = None) -> CallToolResult:
         try:
             _check_version(apiVersion)
+            browse_root = await asyncio.to_thread(directory_path, browseRoot) if browseRoot is not None else None
             if sum(value is not None for value in (path, file, documentId, document)) > 1:
                 raise ValueError("Open an absolute path, document descriptor, documentId or host file input, not multiple inputs")
             if document is not None:
@@ -204,7 +206,23 @@ def create_server(*, ui_path: str | Path | None = None,
                 if selected is None and path is None and documentId is None:
                     selected = _resource_path(ctx)
                 opened = await asyncio.to_thread(describe_document, selected) if selected is not None else None
-            return await open_result(opened, **({"resourceUri": file.resourceUri} if file is not None else {}))
+            return await open_result(opened, browseRoot=browse_root,
+                                     **({"resourceUri": file.resourceUri} if file is not None else {}))
+        except Exception as error:
+            return _error(error)
+
+    @server.tool(
+        name="cad_browse", title="Browse CAD files",
+        description="List one local directory's immediate folders and CAD files. No recursive scan; browsing context never restricts document access.",
+        annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False),
+        meta={"ui": {"visibility": ["app"]}},
+    )
+    async def cad_browse(browseRoot: str | None = None, directory: str | None = None,
+                         includeHidden: bool = False, apiVersion: int = API_VERSION) -> CallToolResult:
+        try:
+            _check_version(apiVersion)
+            return _result(await asyncio.to_thread(browse_directory, browseRoot, directory,
+                                                  include_hidden=includeHidden))
         except Exception as error:
             return _error(error)
 

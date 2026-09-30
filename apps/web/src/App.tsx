@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { FileViewer, createCadFileSource, useFileNavigation, useViewerMobileMeasure } from '@text-to-cad/ui/file-viewer';
+import { FileViewer, createCadFileSource } from '@text-to-cad/ui/file-viewer';
 import type { ViewerHost } from '@text-to-cad/ui/host';
-import { buildCrumbs, clampPanelWidth, EmptyState, FILE_PANEL_TREE, FileNavRow, FilePanelColumn, FileTree, nextOpenPanel, PanelToggle, PANEL_DEFAULT_WIDTH, treePanel } from '@text-to-cad/ui/navigation';
+import { EmptyState } from '@text-to-cad/ui/navigation';
 import { FileText } from 'lucide-react';
 import { createStepRenderer } from '@text-to-cad/ui/renderers/step';
 import { createDxfRenderer } from '@text-to-cad/ui/renderers/dxf';
@@ -99,55 +99,21 @@ function RootView({ client, server, tabStore }: { client: CadClient; server: Cad
     setPanel(options?.panel ?? null);
     return { status: 'opened' as const };
   }, [client, setPanel]);
-  const [frameRef, mobile] = useViewerMobileMeasure();
-  const [bodyElement, setBodyElement] = useState<HTMLDivElement | null>(null);
-  const [statusTarget, setStatusTarget] = useState<HTMLDivElement | null>(null);
-  const [actionsTarget, setActionsTarget] = useState<HTMLDivElement | null>(null);
-  const [mobilePanel, setMobilePanel] = useState<string | null>(null);
-  useEffect(() => { setMobilePanel(null); }, [file, mobile]);
   const navigationPath = selectedEntry ? normalizeCadFileQueryParam(cadFileParamForEntry(selectedEntry)) : catalog.hydrated ? normalizeCadFileQueryParam(file) || null : null;
-  const navigation = useFileNavigation({ source, actions: fileActions, state, onStateChange,
-    onOpenFile: (path, options) => { open(path, options); }, path: navigationPath, onError: error => console.error(error) });
-  const crumbs = useMemo(() => {
-    const all = buildCrumbs({ path: navigationPath });
-    return mobile ? all.slice(-1) : all;
-  }, [navigationPath, mobile]);
-  const requestedPanel = mobile ? mobilePanel ?? (!file ? null : '') : state.panel;
-  const openTree = requestedPanel === FILE_PANEL_TREE || (requestedPanel === null && !file);
-  const tree = treePanel(openTree ? FILE_PANEL_TREE : '', { empty: !file });
-  const setTreeOpen = useCallback((next: string) => {
-    if (mobile) setMobilePanel(next);
-    else onStateChange({ ...state, panel: next });
-  }, [mobile, onStateChange, state]);
   const host = useMemo<ViewerHost>(() => ({
     files: source, clipboard: browserClipboard, promptContext,
     navigation: { openFile: path => open(path) }, environment: { colorScheme: appearance.colorScheme, platform: keyboardPlatform() },
   }), [source, promptContext, open, appearance.colorScheme]);
   const empty = <div className="pointer-events-auto absolute inset-0 z-10 bg-background"><EmptyState icon={FileText} title="No file open" description="Pick one from the tree on the right, or filter by name." /></div>;
   // Unselected while the catalog resolves the file; once it has, a missing file is named by its crumbs.
-  return <div className="flex h-svh flex-col overflow-hidden" ref={frameRef}>
-    <FileNavRow activePath={navigationPath} crumbs={crumbs} leading={<ViewerBrand />}
-      onOpen={(path) => { open(path); }} source={navigation.crumbs}
-      status={<div ref={setStatusTarget} className={mobile ? 'ml-1 shrink-0' : 'ml-2 min-w-0 overflow-hidden'} data-file-navigation-status="" />}
-      trailing={<><ViewerLinks /><div ref={setActionsTarget} className="flex items-center gap-0.5" /><PanelToggle id={FILE_PANEL_TREE}
-        active={openTree} icon={tree.icon} label={tree.label} testId="tree-toggle"
-        onClick={() => setTreeOpen(nextOpenPanel(openTree ? FILE_PANEL_TREE : '', FILE_PANEL_TREE))} /></>} />
-    <div ref={setBodyElement} className="relative flex min-h-0 flex-1 overflow-hidden">
-      <div className="min-w-0 flex-1 overflow-hidden"><FileViewer file={file || null} host={host} renderers={renderers} state={state} onStateChange={onStateChange}
-      mobileLayout={mobile} navigationTargets={{ status: statusTarget, actions: actionsTarget }}
+  return <div className="flex h-svh flex-col overflow-hidden"><div className="min-h-0 flex-1">
+    <FileViewer file={file || null} host={host} renderers={renderers} state={state} onStateChange={onStateChange}
+      browser={{ source, actions: fileActions, path: navigationPath, onOpenFile: open, leading: <ViewerBrand />, navigationActions: <ViewerLinks /> }}
       displayActions={<ViewerAppearance colorSchemePreference={appearance.preference} resolvedColorSchemeMode={appearance.colorScheme} onColorSchemePreferenceChange={changeColorScheme} />}
       onError={error => console.error(error)} presentation={{
         empty: <div className="relative h-full">{empty}</div>,
         loading: <div className="relative h-full"><ViewerLoadingOverlay viewerLoading /></div>,
         error: () => <div className="relative h-full">{catalog.error ? empty : <EmptyCadBackdrop colorScheme={appearance.colorScheme}><MissingFileAlert missingFileRef={file} rootPath={server.rootPath} /></EmptyCadBackdrop>}</div>,
-      }} /></div>
-      {openTree ? <FilePanelColumn mobile={mobile} portalContainer={bodyElement} onDismiss={() => setTreeOpen('')}
-        id={FILE_PANEL_TREE} label="Files" width={clampPanelWidth(state.panelWidth)}
-        onWidthChange={width => onStateChange({ ...state, panelWidth: clampPanelWidth(width) })}
-        onCollapse={() => onStateChange({ ...state, panel: '', panelWidth: PANEL_DEFAULT_WIDTH })}>
-        <FileTree key={source.id} source={navigation.tree} activePath={navigationPath} edit={navigation.edit}
-          onOpen={path => { if (mobile) setMobilePanel(''); open(path, { panel: FILE_PANEL_TREE }); }} />
-      </FilePanelColumn> : null}
-    </div>
-  </div>;
+      }} />
+  </div></div>;
 }

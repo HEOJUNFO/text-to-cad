@@ -3,8 +3,7 @@ import { createPortal } from "react-dom";
 import { useEffect, useMemo, useState } from "react";
 import { unavailablePromptContext } from "@text-to-cad/core/prompt";
 import { FileText } from "lucide-react";
-import { FileViewer, defineFileRenderer, useFileNavigation, useViewerMobileMeasure } from "../index.js";
-import { buildCrumbs, clampPanelWidth, FILE_PANEL_TREE, FileNavRow, FilePanelColumn, FileTree, nextOpenPanel, PanelToggle, PANEL_DEFAULT_WIDTH, treePanel } from "../navigation/index.js";
+import { FileViewer, defineFileRenderer } from "../index.js";
 import type { FileBrowserSource, FileActions, FileMetadata, FileRendererProps, FileBrowserState, JsonValue, TextDocument } from "../types.js";
 
 const events: string[] = [];
@@ -108,39 +107,11 @@ function App() {
   };
   const primaryHost = useMemo(() => host(root, (path, options) => openFile(path, options)), [root]);
   const presentedHost = useMemo(() => overlay ? { ...primaryHost, files: { ...root.source, list: undefined, paths: undefined } } : primaryHost, [overlay, primaryHost, root]);
-  const [frameRef, mobile] = useViewerMobileMeasure();
-  const [bodyElement, setBodyElement] = useState<HTMLDivElement | null>(null);
-  const [statusTarget, setStatusTarget] = useState<HTMLDivElement | null>(null);
-  const [actionsTarget, setActionsTarget] = useState<HTMLDivElement | null>(null);
-  const [mobilePanel, setMobilePanel] = useState<string | null>(null);
-  useEffect(() => { setMobilePanel(null); }, [file, mobile]);
   const selectedPath = navigationPath === undefined ? file : navigationPath;
-  const navigation = useFileNavigation({ source: root.source, actions: root.actions, state, onStateChange: setState,
-    onOpenFile: (path, options) => { openFile(path, options); }, path: selectedPath });
-  const allCrumbs = buildCrumbs({ path: selectedPath });
-  const crumbs = mobile ? allCrumbs.slice(-1) : allCrumbs;
-  const requestedPanel = mobile ? mobilePanel ?? (file ? '' : null) : state.panel;
-  const openTree = requestedPanel === FILE_PANEL_TREE || (requestedPanel === null && !file);
-  const tree = treePanel(openTree ? FILE_PANEL_TREE : '', { empty: !file });
-  const setTreeOpen = (next: string) => { if (mobile) setMobilePanel(next); else setState(previous => ({ ...previous, panel: next })); };
   return <div style={{ width: "1000px", height: "650px" }}>
-    <section data-testid="primary" ref={frameRef} style={{ height: "400px", display: "flex", flexDirection: "column" }}>
-      {/* A host that shows one file at a time: an open moves this view to the file, with the panel it was opened with, or the file's own default. */}
-      {!overlay ? <FileNavRow activePath={selectedPath} crumbs={crumbs} source={navigation.crumbs} onOpen={path => { openFile(path, { target: 'current' }); }}
-        status={<div ref={setStatusTarget} data-file-navigation-status="" />}
-        trailing={<><div ref={setActionsTarget} /><PanelToggle id={FILE_PANEL_TREE} icon={tree.icon} label={tree.label} active={openTree}
-          testId="tree-toggle" onClick={() => setTreeOpen(nextOpenPanel(openTree ? FILE_PANEL_TREE : '', FILE_PANEL_TREE))} /></>} /> : null}
-      <div ref={setBodyElement} className="relative flex min-h-0 flex-1 overflow-hidden">
-        <div className="min-w-0 flex-1 overflow-hidden"><FileViewer file={file} host={presentedHost} renderers={renderers} state={state} onStateChange={setState}
-          mobileLayout={mobile} navigationTargets={overlay ? undefined : { status: statusTarget, actions: actionsTarget }} /></div>
-        {!overlay && openTree ? <FilePanelColumn mobile={mobile} portalContainer={bodyElement} onDismiss={() => setTreeOpen('')}
-          id={FILE_PANEL_TREE} label="Files" width={clampPanelWidth(state.panelWidth)}
-          onWidthChange={width => setState(previous => ({ ...previous, panelWidth: clampPanelWidth(width) }))}
-          onCollapse={() => setState(previous => ({ ...previous, panel: '', panelWidth: PANEL_DEFAULT_WIDTH }))}>
-          <FileTree key={root.source.id} source={navigation.tree} activePath={selectedPath} edit={navigation.edit}
-            onOpen={path => { if (mobile) setMobilePanel(''); openFile(path, { target: 'new', panel: FILE_PANEL_TREE }); }} />
-        </FilePanelColumn> : null}
-      </div>
+    <section data-testid="primary" style={{ height: "400px" }}>
+      <FileViewer file={file} host={presentedHost} renderers={renderers} state={state} onStateChange={setState}
+        browser={overlay ? undefined : { source: root.source, actions: root.actions, path: selectedPath, onOpenFile: openFile }} />
     </section>
     {second ? <section data-testid="secondary" style={{ height: "240px" }}><FileViewer file="notes.txt" host={host(b, () => ({ status: 'opened' }))} renderers={renderers} state={otherState} onStateChange={setOtherState} /></section> : null}
   </div>;

@@ -12,6 +12,7 @@ import { createComposerContext } from './promptContext';
 import { createFileHandoff } from './handoff';
 import { createRecentLibrary } from './library';
 import RecentHome from './RecentHome';
+import BrowserFrame from './BrowserFrame';
 
 const root = createRoot(document.getElementById('root')!, { onUncaughtError: error => showError(asError(error)) });
 const app = new McpApp({ name: 'CAD', version }, {}, { autoResize: false });
@@ -32,15 +33,15 @@ async function openPath(path?: string) {
   const generation = ++navigationGeneration;
   const result = await app.callServerTool(path === undefined
     ? { name: 'cad_pick_file', arguments: { apiVersion: CAD_API_VERSION } }
-    : { name: 'cad_open', arguments: { apiVersion: CAD_API_VERSION, path } },
+    : { name: 'cad_open', arguments: { apiVersion: CAD_API_VERSION, path, browseRoot: opened?.browseRoot ?? null } },
   { signal: lifetime.signal, timeout: path === undefined ? 150_000 : 30_000 });
   if (disposed || generation !== navigationGeneration) return;
   const data = toolData(result);
   if (path === undefined && data.cancelled === true && data.document === null) return;
   const value = readOpenFile(data);
   if (!value?.document) throw new Error('Could not open this model.');
-  libraryHome = opened;
-  open(value, true);
+  if (!opened?.document) libraryHome = opened;
+  open({ ...value, browseRoot: opened?.browseRoot ?? value.browseRoot }, true);
 }
 function paint() {
   if (!opened || disposed) return;
@@ -48,10 +49,15 @@ function paint() {
     const result = await app.openLink({ url }, { signal: lifetime.signal, timeout: 15_000 });
     if (result.isError) throw new Error('Codex could not open this link.');
   }} />);
-  else if (client && composer) root.render(<>
-    <Viewer key={opened.document.id} client={client} document={opened.document} promptContext={composer.port} colorScheme={colorScheme} library={library} />
-    {libraryHome && <Button size="sm" variant="secondary" className="cad-recent-back" onClick={() => { const home = libraryHome!; libraryHome = undefined; open(home); }}>Back to models</Button>}
-  </>);
+  else if (client && composer) {
+    const props = { client, document: opened.document, promptContext: composer.port, colorScheme, library };
+    if (opened.resourceUri) root.render(<Viewer key={opened.document.id} {...props} />);
+    else root.render(<BrowserFrame bridge={app} path={opened.document.path} initialRoot={opened.browseRoot ?? null}
+      onOpen={openPath} onChooseFile={backend?.filePicker.supported ? () => openPath() : undefined}
+      onHome={libraryHome ? () => { const home = libraryHome!; libraryHome = undefined; open(home); } : undefined}>
+      {layout => <Viewer key={props.document.id} {...props} {...layout} />}
+    </BrowserFrame>);
+  }
 }
 function open(value: OpenFile, fromHome = false) {
   if (disposed) return;

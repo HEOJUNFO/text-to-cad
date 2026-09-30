@@ -37,7 +37,11 @@ the standalone HTTP viewer's directory-containment behavior is unchanged.
 
 - `cad_open` takes `apiVersion: 2` and one `path`, `document`, or native
   `{file: {name, resourceUri}}`, or no selection for home. It returns
-  `{apiVersion, document: descriptor | null}` and echoes native `resourceUri`.
+  `{apiVersion, document: descriptor | null, browseRoot: string | null}` and
+  echoes native `resourceUri`. Optional `browseRoot` is an absolute directory
+  used only as initial explorer context. The caller supplies the thread's
+  project/worktree directory when known; the server never infers it from its
+  process directory. A model outside that folder opens normally.
   A native file input resolves only through host-injected
   `_meta["openai/resource"]["path"]`; an opaque URI or name is not a disk path.
   An initial unresolved native input returns null so the app can resolve it
@@ -45,6 +49,18 @@ the standalone HTTP viewer's directory-containment behavior is unchanged.
   host metadata. History writes are best effort: failure adds
   `warnings: [{code: "HISTORY_UNAVAILABLE", message, retryable: true}]` while
   preserving the successful document result.
+- `cad_browse` is app-only. It takes `{apiVersion: 2, browseRoot?, directory?,
+  includeHidden?: false}` and lists only immediate folders and supported CAD
+  files. Paths are absolute; omitted `directory` selects the browsing root.
+  Omitted `browseRoot` means Computer (`/` on Unix, a virtual drives list on
+  Windows). It returns `{root: {path, name}, directory, entries, parent, home}`;
+  each entry is `{path, name, kind: "directory" | "file"}`. `parent` is the
+  browsing root's parent, or null at Computer/a drive root; `home` is the user's
+  home directory. Directory symlink paths retain their lexical ancestry,
+  while document opens canonicalize identity. Explicit navigation outside a
+  supplied root switches the returned root to Computer. This is browsing
+  context, not an access boundary. Hidden names are omitted unless requested.
+  No recursive catalog scan, model compilation, or history initialization runs.
 - `cad_pick_file({apiVersion: 2})` is app-only and opens the operating system's
   native **Open Model** file chooser after an explicit user action. Selection
   returns `{apiVersion, cancelled: false, document}` with the same validated

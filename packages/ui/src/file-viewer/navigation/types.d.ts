@@ -150,6 +150,7 @@ export type TreeEdit = TreeEditRequest & { nonce: number };
  * the standalone viewer's walks its catalog.
  */
 export type FileTreeSource = {
+  filterLabel?: string;
   /** Named in the "… is empty" line. */
   rootName: string;
   expanded: ReadonlySet<string>;

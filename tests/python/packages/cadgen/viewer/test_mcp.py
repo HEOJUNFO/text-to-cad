@@ -396,9 +396,9 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(tool.meta["openai/ui"]["entrypoints"], [{"type": "global"},
                 {"type": "file", "extensions": [".step", ".stp", ".stl", ".glb", ".3mf"]}])
             home = await client.call_tool("cad_open", {})
-            self.assertEqual(home.structuredContent, {"apiVersion": 2, "document": None})
+            self.assertEqual(home.structuredContent, {"apiVersion": 2, "document": None, "browseRoot": None})
             opaque = await client.call_tool("cad_open", {"file": {"name": "part.stl", "resourceUri": "file://opaque"}})
-            self.assertEqual(opaque.structuredContent, {"apiVersion": 2, "document": None, "resourceUri": "file://opaque"})
+            self.assertEqual(opaque.structuredContent, {"apiVersion": 2, "document": None, "browseRoot": None, "resourceUri": "file://opaque"})
             for path, hint in (("relative.stl", "absolute local"), (str(self.root / "source.py"), "supported format"),
                                (str(self.root / "missing.stl"), "missing or unreadable")):
                 result = await client.call_tool("cad_open", {"path": path})
@@ -412,6 +412,56 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(resource.meta["ui"]["permissions"], {"clipboardWrite": {}})
             self.assertEqual(resource.meta["ui"]["csp"], {"connectDomains": ["data:", "blob:"], "resourceDomains": ["data:", "blob:"]})
             self.assertEqual((await client.list_resources()).resources[0].icons, tool.icons)
+
+    async def test_browsing_is_lazy_and_independent_of_document_access(self):
+        project = self.root / "project"
+        project.mkdir()
+        nested = project / "nested"
+        nested.mkdir()
+        (nested / "deep.stl").write_bytes(b"deep")
+        (project / "part.STEP").write_bytes(b"part")
+        (project / "program.py").write_text("raise AssertionError('never run')")
+        (project / ".hidden").mkdir()
+        alias = project / "alias"
+        alias.symlink_to(nested, target_is_directory=True)
+        outside = self.root / "outside.stl"
+        outside.write_bytes(b"outside")
+        server = create_server(ui_path=self.ui)
+        real_scandir = os.scandir
+        async with create_connected_server_and_client_session(server) as client:
+            tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+            self.assertEqual(tools["cad_browse"].meta["ui"]["visibility"], ["app"])
+            with mock.patch("cadgen.mcp.browsing.os.scandir", wraps=real_scandir) as scan:
+                listed = await client.call_tool("cad_browse", {"apiVersion": 2, "browseRoot": str(project)})
+            scan.assert_called_once_with(str(project))
+            payload = listed.structuredContent
+            self.assertEqual(payload["root"], {"path": str(project), "name": "project"})
+            self.assertEqual(payload["parent"], str(self.root))
+            self.assertEqual(payload["home"], str(Path.home()))
+            self.assertEqual(payload["entries"], [
+                {"path": str(alias), "name": "alias", "kind": "directory"},
+                {"path": str(nested), "name": "nested", "kind": "directory"},
+                {"path": str(project / "part.STEP"), "name": "part.STEP", "kind": "file"},
+            ])
+            child = await client.call_tool("cad_browse", {"browseRoot": str(project), "directory": str(alias)})
+            self.assertEqual(child.structuredContent["root"], payload["root"])
+            self.assertEqual(child.structuredContent["entries"][0]["path"], str(alias / "deep.stl"))
+            opened = await client.call_tool("cad_open", {"apiVersion": 2, "path": str(outside), "browseRoot": str(project)})
+            self.assertFalse(opened.isError)
+            self.assertEqual(opened.structuredContent["document"]["path"], str(outside))
+            self.assertEqual(opened.structuredContent["browseRoot"], str(project))
+            for bad in ("relative", str(project / "missing"), str(outside)):
+                with self.subTest(root=bad):
+                    rejected = await client.call_tool("cad_browse", {"browseRoot": bad})
+                    self.assertTrue(rejected.isError)
+                    rejected_open = await client.call_tool("cad_open", {"path": str(outside), "browseRoot": bad})
+                    self.assertTrue(rejected_open.isError)
+            # Computer selection makes no implicit scan of a project or HOME.
+            with mock.patch("cadgen.mcp.browsing.os.scandir", return_value=mock.MagicMock()) as scan:
+                computer = await client.call_tool("cad_browse", {})
+            if os.name != "nt":
+                scan.assert_called_once_with("/")
+                self.assertEqual(computer.structuredContent["root"], {"path": "/", "name": "Computer"})
 
     async def test_v2_document_access_and_handshake_do_not_require_history(self):
         file = self.root / "part.stl"
@@ -524,7 +574,7 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
             async with ClientSession(read, write) as client:
                 await client.initialize()
                 home = await client.call_tool("cad_open", {})
-                self.assertEqual(home.structuredContent, {"apiVersion": 2, "document": None})
+                self.assertEqual(home.structuredContent, {"apiVersion": 2, "document": None, "browseRoot": None})
 
     async def test_ui_resource_cache_key_tracks_content_and_serves_immutable_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:

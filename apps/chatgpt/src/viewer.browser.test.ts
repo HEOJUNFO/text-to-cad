@@ -84,6 +84,7 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     import { z } from 'zod';
     const frame = document.querySelector('iframe');
     const homeMode = new URLSearchParams(location.search).has('home');
+    const customMode = new URLSearchParams(location.search).has('custom');
     const bridge = new AppBridge(null, {name:'CAD test host',version:'1.0.0'}, {
       serverTools:{}, updateModelContext:{text:{}, image:{}, structuredContent:{}},
       experimental:{'openai/modelContext':{}, ...(!new URLSearchParams(location.search).has('fallback') ? {'openai/files':{}} : {})}
@@ -104,8 +105,8 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     };
     bridge.onupdatemodelcontext = async params => { window.attachments = params.content || []; return {}; };
     bridge.oninitialized = async () => {
-      await bridge.sendToolInput({arguments:homeMode ? {} : {file:{name:'fixture.step',resourceUri:'host-resource://fixture'}}});
-      await bridge.sendToolResult(homeMode ? ${JSON.stringify(home)} : await (await fetch('/initial-open', {method:'POST'})).json());
+      await bridge.sendToolInput({arguments:homeMode ? {} : customMode ? {path:${JSON.stringify(source)},browseRoot:${JSON.stringify(documents)}} : {file:{name:'fixture.step',resourceUri:'host-resource://fixture'}}});
+      await bridge.sendToolResult(homeMode ? ${JSON.stringify(home)} : await (await fetch(customMode ? '/project-open' : '/initial-open', {method:'POST'})).json());
     };
     await bridge.connect(new PostMessageTransport(frame.contentWindow, frame.contentWindow));
     window.setTheme = theme => bridge.setHostContext({theme, platform:'desktop'});
@@ -124,6 +125,10 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
         // A model opening precedes native host metadata; both retain the same document.
         const result = await client.callTool({ name: 'cad_open', arguments: { path: source } });
         initialOpen = result.structuredContent as typeof initialOpen;
+        response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(result));
+      }
+      else if (request.url === '/project-open' && request.method === 'POST') {
+        const result = await client.callTool({ name: 'cad_open', arguments: { path: source, browseRoot: documents } });
         response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(result));
       }
       else if (request.url === '/open-related' && request.method === 'POST') {
@@ -305,6 +310,14 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     await viewer.getByRole('button', { name: 'Open related.step', exact: true }).click();
     await viewer.getByRole('region', { name: 'Features', exact: true }).waitFor();
     await expect.poll(() => viewer.locator('body').evaluate(body => body.ownerDocument.title)).toBe('related.step · CAD');
+    await expect(viewer.getByRole('navigation', { name: 'Breadcrumb', exact: true })).toContainText('related.step');
+    await expect(viewer.getByRole('tree')).toHaveCount(0);
+    await viewer.getByRole('button', { name: 'Show files', exact: true }).click();
+    await expect(viewer.getByRole('treeitem', { name: 'related.step', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await viewer.getByRole('treeitem', { name: 'fixture.step', exact: true }).click();
+    await expect.poll(() => viewer.locator('body').evaluate(body => body.ownerDocument.title)).toBe('fixture.step · CAD');
+    await viewer.getByRole('region', { name: 'Features', exact: true }).waitFor();
+    await expect(viewer.getByRole('treeitem', { name: 'fixture.step', exact: true })).toHaveAttribute('aria-selected', 'true');
     assert.equal(await page.evaluate(() => (window as any).openedNative), null, 'home opens the actual renderer without creating a hidden host tab');
     await viewer.getByRole('button', { name: 'Back to models', exact: true }).click();
     await expect(viewer.getByRole('heading', { name: 'Recent', exact: true })).toBeVisible();
@@ -334,6 +347,18 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     await viewer.getByRole('button', { name: 'Back to models', exact: true }).click();
     await expect(viewer.getByRole('heading', { name: 'Recent', exact: true })).toBeVisible();
     assert.equal(await page.evaluate(() => (window as any).openedNative), null);
+    // Agent-opened views receive the thread's project directory explicitly;
+    // the MCP process runs elsewhere and must not choose its own cwd as root.
+    await page.goto(`http://127.0.0.1:${address.port}/?custom`);
+    await expect(viewer.getByRole('navigation', { name: 'Breadcrumb', exact: true })).toContainText('fixture.step');
+    await viewer.getByRole('button', { name: 'Browse location', exact: true }).click();
+    await expect(viewer.getByRole('menuitem', { name: 'Project folder', exact: true })).toBeVisible();
+    await viewer.getByRole('menuitem', { name: 'Project folder', exact: true }).click();
+    await viewer.getByRole('button', { name: 'Show files', exact: true }).click();
+    await expect(viewer.getByRole('treeitem', { name: 'fixture.step', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(viewer.getByRole('treeitem', { name: 'related.step', exact: true })).toBeVisible();
+    await expect(viewer.getByRole('treeitem', { name: 'plugin', exact: true })).toHaveCount(0);
+    if (process.env.CAD_EXTENSION_BROWSER_SCREENSHOT) await page.screenshot({ path: process.env.CAD_EXTENSION_BROWSER_SCREENSHOT });
     assert.deepEqual(errors, []);
   } catch (error) {
     throw new Error(`${String(error)}\nBrowser errors: ${errors.join('\n')}\nCatalog states: ${JSON.stringify(catalogStates.slice(-3))}\nMCP stderr: ${stderr.slice(-3000)}\n${await page.frameLocator('iframe').locator('body').innerText()}`, { cause: error });

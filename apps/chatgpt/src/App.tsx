@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { FileViewer, createCadDocumentSource } from '@text-to-cad/ui/file-viewer';
+import { FileViewer, createCadDocumentSource, type FileViewerProps } from '@text-to-cad/ui/file-viewer';
 import { type ViewerHost, type ClipboardPort } from '@text-to-cad/ui/host';
 import { createStepRenderer } from '@text-to-cad/ui/renderers/step';
 import { createGlbRenderer } from '@text-to-cad/ui/renderers/glb';
@@ -16,8 +16,9 @@ const clipboard: ClipboardPort = {
   async readText() { if (!navigator.clipboard?.readText) throw new Error('Clipboard is unavailable.'); return navigator.clipboard.readText(); },
   async writeImage(image) { if (!navigator.clipboard?.write || !globalThis.ClipboardItem) throw new Error('Image clipboard is unavailable.'); await navigator.clipboard.write([new ClipboardItem({ 'image/png': image })]); },
 };
-export default function App({ client, document, promptContext, colorScheme, library }: {
+export default function App({ client, document, promptContext, colorScheme, library, browser, browserState, onBrowserStateChange }: {
   client: CadService; document: CadDocument; promptContext: PromptContextPort; colorScheme: 'light' | 'dark'; library: RecentLibrary;
+  browser?: FileViewerProps['browser']; browserState?: FileViewerProps['state']; onBrowserStateChange?: FileViewerProps['onStateChange'];
 }) {
   const source = useMemo(() => createCadDocumentSource(client, document), [client, document.id, document.path, document.name, document.revision]);
   const tabStore = useMemo(() => createTabStore({ read: () => undefined, write: () => {} }), []);
@@ -31,5 +32,5 @@ export default function App({ client, document, promptContext, colorScheme, libr
     files: source, clipboard, promptContext,
     environment: { colorScheme, platform: /Mac|iPhone|iPad/.test(navigator.platform) ? 'darwin' : 'linux' },
   }), [source, promptContext, colorScheme]);
-  return <FileViewer file={document.path} host={host} renderers={renderers} state={state} onStateChange={onStateChange} />;
+  return <FileViewer file={document.path} host={host} renderers={renderers} browser={browser} state={browserState ? { ...state, ...browserState, renderers: state.renderers } : state} onStateChange={next => { onStateChange(next); onBrowserStateChange?.(next); }} />;
 }

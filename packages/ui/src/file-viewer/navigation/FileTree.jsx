@@ -51,6 +51,7 @@ import { InlineName } from "./InlineName.jsx";
  *
  * @typedef {object} FileTreeSource
  * @property {string} rootName Named in the "… is empty" line.
+ * @property {string} [filterLabel] Describes the host's search scope.
  * @property {ReadonlySet<string>} expanded Which directories are open.
  * @property {(update: (current: ReadonlySet<string>) => ReadonlySet<string>) => void} setExpanded
  * @property {Record<string, readonly TreeEntry[]>} listings
@@ -518,10 +519,10 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
   return (
     <div className="flex h-full min-h-0 flex-col bg-sidebar/40">
       <TreeFilterInput data-mobile-panel-top-row=""
-        label="Filter files"
+        label={source.filterLabel ?? "Filter files"}
         onChange={setQuery}
         onKeyDown={onKeyDown}
-        placeholder="Filter files…"
+        placeholder={`${source.filterLabel ?? "Filter files"}…`}
         value={query}
       />
 

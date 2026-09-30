@@ -10,10 +10,11 @@ This app is the browser host of `@text-to-cad/ui/file-viewer`, not the owner of
 the shared CAD interface.
 
 **Owns:** URL selection, browser history, document title/appearance, catalog
-file-source adapter, breadcrumb and tree navigation, browser persistence, and
-this app's branding, appearance and release links. `src/App.tsx` composes the
-shared navigation primitives around a document-focused `FileViewer`, an
-explicit `ViewerHost`, and one renderer per file family. The catalog
+file-source adapter, navigation callbacks and browser persistence, and
+this app's branding, appearance and release links. `src/App.tsx` supplies
+`FileViewer` with an optional `browser` capability, an explicit `ViewerHost`,
+and one renderer per file family. The shared viewer owns the navbar, explorer
+and their responsive panel layout, preserving the web design across hosts. The catalog
 exposes CAD artifacts only, and the web app has no file-writing endpoints.
 Follow the [shared host contract](../../packages/ui/docs/viewer-host.md) when
 adding viewer features; browser effects belong in this app's adapters.

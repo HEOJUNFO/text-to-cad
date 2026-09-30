@@ -40,3 +40,12 @@ test('typed directory moves preserve expansion and navigate the current file; de
   expect([...result.current.tree.expanded]).toEqual(['']);
   expect(result.current.tree.listings['new/deep']).toBeUndefined();
 });
+
+test('directory-only sources filter loaded files without recursive discovery', async () => {
+  const files = { id: 'lazy', rootName: 'Computer', list: vi.fn(async () => [entry('a.step'), { path: 'folder', name: 'folder', kind: 'directory' as const }]) };
+  const { result } = renderHook(() => useFileNavigation({ source: files, state: initialState, onStateChange: vi.fn(), onOpenFile: vi.fn(), path: null }));
+  await waitFor(() => expect(result.current.tree.listings['']).toHaveLength(2));
+  expect(result.current.tree.filterLabel).toBe('Filter loaded files');
+  expect(await result.current.tree.paths()).toEqual(['a.step']);
+  expect(files.list).toHaveBeenCalledTimes(1);
+});

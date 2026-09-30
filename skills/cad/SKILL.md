@@ -174,21 +174,22 @@ After creating or updating STEP/STP, STL, 3MF or GLB files, open the saved artif
 for review. Snapshots and validation do not replace this step. Use the same
 handoff to open an existing file.
 
-Prefer the host's native file-opening tool when it can open the artifact with
-CAD. In Codex, use `open_in_codex` with a `file` target and the absolute path.
-Use one opening route per artifact: also calling `cad_open` creates a second,
-inline viewer. Native file-access consent belongs to the host; a queued open
-or a consent screen does not confirm that the model rendered.
+Prefer the CAD extension's `cad_open` tool when available. Supply the saved
+artifact's absolute path in `path` and, when the thread has a known local project
+or worktree folder, supply that actual folder as `browseRoot`. Never use the
+plugin installation directory or guess a project from the model filename.
+The custom viewer provides shared breadcrumbs and a collapsible explorer;
+without `browseRoot`, browsing starts at Computer. Files open by absolute path
+independently of that browsing location. Opening with no path shows the global
+recent-model home.
 
-When native file opening is unavailable, or the user requests an inline preview,
-use the CAD extension's `cad_open` tool with the existing artifact's absolute
-path in `path`. Files can be anywhere the local process can read; opening does
-not depend on the chat's project or a served workspace. For a host-supplied
-file, retain its trusted input; never invent a `resourceUri`.
-Opening with no path shows the extension's recent-model home. The per-file view
-provides CAD controls and prompt references; the host provides file navigation.
-Do not also launch a standalone viewer unless requested or needed after an
-explicit extension failure.
+Use one opening route per artifact. Do not also call the host's native file
+opening tool, which creates another view. Use native opening when the user
+explicitly asks for it or the extension tool is unavailable. For a host-supplied
+file, retain its trusted input; never invent a `resourceUri`. Native file-access
+consent belongs to the host; a queued open or a consent screen does not confirm
+that the model rendered. Do not also launch a standalone viewer unless requested
+or needed after an explicit extension failure.
 
 Otherwise, **run the command below and return live links**, even if a standalone
 viewer is already running.

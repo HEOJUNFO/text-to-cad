@@ -5,7 +5,8 @@ import type { ErrorInfo, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "../primitives/button.jsx";
 import { Spinner } from "../primitives/spinner.js";
-import { clampPanelWidth, EmptyState, FilePanelColumn, nextOpenPanel, PanelToggle, PANEL_DEFAULT_WIDTH, resolveOpenPanel } from "./navigation/index.js";
+import { buildCrumbs, FILE_PANEL_TREE, FileNavRow, FileTree, treePanel, clampPanelWidth, EmptyState, FilePanelColumn, nextOpenPanel, PanelToggle, PANEL_DEFAULT_WIDTH, resolveOpenPanel } from "./navigation/index.js";
+import { useFileNavigation } from "./hooks/useFileNavigation.js";
 import { useFileDocument } from "./hooks/useFileDocument.js";
 import type { FileNavigationAction, FileViewerProps, JsonValue, FileViewerState } from "./types.js";
 import { ViewerMobileContext, useViewerMobileMeasure } from "./responsive.js";
@@ -19,8 +20,16 @@ class RenderBoundary extends Component<{ children: ReactNode; onError?: (error: 
   render() { return this.state.error ? <EmptyState icon={FileText} title="Could not display that file" description={this.state.error.message} tone="warn" /> : this.props.children; }
 }
 
-/** One open document and its renderer controls. Filesystem browsing belongs to the host. */
-export function FileViewer({ file, host, renderers, state, onStateChange, navigationTargets, mobileLayout, displayActions, onError, presentation }: FileViewerProps) {
+/** Apps supply browsing capabilities; this shared frame preserves the file-tab layout. */
+export function FileViewer(props: FileViewerProps) {
+  return props.browser ? <BrowsingViewer {...props} /> : <DocumentViewer {...props} />;
+}
+function BrowsingViewer(props: FileViewerProps) {
+  const browser = props.browser!;
+  const navigation = useFileNavigation({ ...browser, state: props.state, onStateChange: props.onStateChange, onError: props.onError });
+  return <DocumentViewer {...props} browserNavigation={navigation} />;
+}
+function DocumentViewer({ file, host, renderers, state, onStateChange, navigationTargets, mobileLayout, displayActions, onError, presentation, browser, browserNavigation }: FileViewerProps & { browserNavigation?: ReturnType<typeof useFileNavigation> }) {
   const source = host.files;
   const [navigationFailure, setNavigationFailure] = useState<string | null>(null);
   const openFromRenderer = useMemo(() => host.navigation ? async (next: string, options?: { target: "current" | "new" }) => {
@@ -79,7 +88,7 @@ export function FileViewer({ file, host, renderers, state, onStateChange, naviga
   const onReady = useCallback((ready: boolean) => { if (currentKey.current === key) setReadiness((previous) => previous?.key === key && previous.ready === ready ? previous : { key, ready }); }, [key]);
   const ready = loaded.status === "ready" && (readiness?.key === key ? readiness.ready : true);
   const declared = (open: string) => loaded.status === "ready" ? loaded.prepared.panels?.({ open, ready, file: loaded.file }) ?? [] : [];
-  const panelsAt = (open: string) => declared(open);
+  const panelsAt = (open: string) => [...declared(open), ...(browser ? [treePanel(open, { empty: loaded.status === "empty" })] : [])];
   const requestedPanel = mobile ? mobilePanel ?? (loaded.status === "empty" ? null : "") : state.panel;
   const openId = resolveOpenPanel(panelsAt(requestedPanel ?? ""), requestedPanel)?.id ?? "";
   const panels = panelsAt(openId);
@@ -87,6 +96,10 @@ export function FileViewer({ file, host, renderers, state, onStateChange, naviga
   const collapsePanel = useCallback(() => changeState(previous => ({ ...previous, panel: "", panelWidth: PANEL_DEFAULT_WIDTH })), [changeState]);
   // A desktop viewer is at least the breakpoint wide, so the column's own range is the only bound.
   const panelWidth = clampPanelWidth(state.panelWidth);
+  const crumbs = useMemo(() => {
+    const all = buildCrumbs({ path: browser?.path ?? null });
+    return mobile ? all.slice(-1) : all;
+  }, [browser?.path, mobile]);
   const rendererStateKey = loaded.status === "ready" ? JSON.stringify([loaded.file.path, loaded.renderer.id]) : "";
   // A departing renderer flushes its last per-file state during unmount. That
   // write belongs to its own key even after another file in this root opens.
@@ -119,11 +132,16 @@ export function FileViewer({ file, host, renderers, state, onStateChange, naviga
   else if (loaded.status === "error") body = presentation?.error?.(loaded.message) ?? <EmptyState icon={FileText} title="Could not open that file" description={loaded.message} tone="warn" />;
   else body = rendererBody;
   const registeredActions = navActions?.key === key && ready ? navActions.actions : [];
-  const actionButtons = <>{registeredActions.map(({ id, label, hint, icon: Icon, disabled, active, onInvoke }) => <TooltipHint key={id} content={hint ?? label}><Button type="button" variant="ghost" size="icon-xs" className="size-6 text-muted-foreground aria-pressed:bg-accent aria-pressed:text-accent-foreground" aria-label={label} disabled={disabled} aria-pressed={active} onClick={() => { try { void Promise.resolve(onInvoke()).catch(error => onError?.(error)); } catch (error) { onError?.(error instanceof Error ? error : new Error(String(error))); } }}><Icon className="size-3.5" aria-hidden="true" /></Button></TooltipHint>)}{panels.map((panel) => <PanelToggle key={panel.id} id={panel.id} active={panel.id === openId} icon={panel.icon} label={panel.label} onClick={() => setPanel(nextOpenPanel(openId, panel.id))} />)}</>;
+  const actionButtons = <>{registeredActions.map(({ id, label, hint, icon: Icon, disabled, active, onInvoke }) => <TooltipHint key={id} content={hint ?? label}><Button type="button" variant="ghost" size="icon-xs" className="size-6 text-muted-foreground aria-pressed:bg-accent aria-pressed:text-accent-foreground" aria-label={label} disabled={disabled} aria-pressed={active} onClick={() => { try { void Promise.resolve(onInvoke()).catch(error => onError?.(error)); } catch (error) { onError?.(error instanceof Error ? error : new Error(String(error))); } }}><Icon className="size-3.5" aria-hidden="true" /></Button></TooltipHint>)}{panels.map((panel) => <PanelToggle key={panel.id} id={panel.id} active={panel.id === openId} icon={panel.icon} label={panel.label} onClick={() => setPanel(nextOpenPanel(openId, panel.id))} testId={panel.id === FILE_PANEL_TREE ? "tree-toggle" : undefined} />)}</>;
   const hasOverlayActions = registeredActions.length > 0 || panels.length > 0 || !!document?.dirty;
   const statusSlot = navigationTargets ? null : <div ref={setInternalStatusSlot} className={hasOverlayActions ? "min-w-0 empty:hidden" : "pointer-events-auto absolute left-1/2 top-2 z-30 max-w-[calc(100%-1rem)] -translate-x-1/2 rounded-md bg-background/95 px-1 py-0.5 text-foreground shadow-sm empty:hidden"} data-file-navigation-status="" />;
   const dirtyStatus = document?.dirty ? <TooltipHint content="Unsaved changes"><span aria-label="Unsaved changes" className="ml-1 size-1.5 shrink-0 rounded-full bg-foreground/60" /></TooltipHint> : null;
   return <ViewerMobileContext.Provider value={mobile}><ViewerHostContext.Provider value={host}><ViewerElementContext.Provider value={viewerElement}><div className="text-to-cad-file-viewer text-ui font-normal flex h-full min-h-0 min-w-0 flex-col overflow-hidden" ref={bindElement} data-viewer-layout={mobile ? "mobile" : "desktop"} tabIndex={-1}>
+    {browser && browserNavigation ? <FileNavRow activePath={browser.path} crumbs={crumbs} leading={browser.leading}
+      onOpen={next => browser.onOpenFile(next, { target: "current" })} source={browserNavigation.crumbs}
+      status={<>{dirtyStatus}<div ref={setInternalStatusSlot} className={mobile ? "ml-1 shrink-0" : "ml-2 min-w-0 overflow-hidden"} data-file-navigation-status="" /></>}
+      trailing={<>{browser.navigationActions}{actionButtons}</>} /> : null}
+    {browser?.notice}
     {navigationTargets?.status && dirtyStatus ? createPortal(dirtyStatus, navigationTargets.status) : null}
     {navigationTargets?.actions && (registeredActions.length || panels.length) ? createPortal(actionButtons, navigationTargets.actions) : null}
     {document?.stale ? <div className="flex shrink-0 items-center gap-2 border-b bg-amber-500/10 px-3 py-1.5 text-xs text-amber-700 dark:text-amber-400" role="status">
@@ -138,12 +156,15 @@ export function FileViewer({ file, host, renderers, state, onStateChange, naviga
       {navigationFailure ? <div className="absolute left-1/2 top-12 z-40 flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-2 rounded-md border border-destructive/30 bg-background px-3 py-2 text-xs text-destructive shadow-md" role="alert">
         <span>{navigationFailure}</span><Button type="button" variant="ghost" size="sm" onClick={() => setNavigationFailure(null)}>Dismiss</Button>
       </div> : null}
-      {!navigationTargets ? hasOverlayActions
+      {!browser && !navigationTargets ? hasOverlayActions
         ? <div className="pointer-events-auto absolute left-1/2 top-2 z-30 flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-1 rounded-md border border-border bg-background/95 px-1 py-0.5 text-foreground shadow-sm" role="toolbar" aria-label="File actions" data-file-navigation-overlay="">{dirtyStatus}{statusSlot}{actionButtons}</div>
         : statusSlot : null}
       <div className="min-w-0 flex-1 overflow-hidden">{body}</div>
       {openPanel && openPanel.content !== "body" ? <FilePanelColumn mobile={mobile} portalContainer={bodyElement} onDismiss={() => setPanel("")} id={openPanel.id} label={openPanel.label} width={panelWidth} onWidthChange={(nextWidth) => changeState((previous) => ({ ...previous, panelWidth: clampPanelWidth(nextWidth) }))} onCollapse={collapsePanel}>
-        <div className="h-full min-h-0" ref={setPanelSlot} />
+        {openPanel.content === "tree" && browser && browserNavigation
+          ? <FileTree key={browser.source.id} source={browserNavigation.tree} activePath={browser.path} edit={browserNavigation.edit}
+              onOpen={next => { if (mobile) setMobilePanel(""); browser.onOpenFile(next, { target: "new", panel: FILE_PANEL_TREE }); }} />
+          : <div className="h-full min-h-0" ref={setPanelSlot} />}
       </FilePanelColumn> : null}
     </div>
   </div></ViewerElementContext.Provider></ViewerHostContext.Provider></ViewerMobileContext.Provider>;

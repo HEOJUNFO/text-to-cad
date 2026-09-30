@@ -5,8 +5,11 @@ its renderer, actions, status, renderer panels, loading and error states, and
 common edit/save/reload lifecycle. `apps/web` and
 `apps/chatgpt` consume this component through the package's compiled exports;
 a host's project, file browsing, session and window layout remain application
-code. Web composes the reusable breadcrumb, tree, menu and panel primitives
-around FileViewer. Hosts can supply `navigationTargets` to place document
+code. Browsing hosts supply the optional `browser` capability to FileViewer. The shared
+viewer owns the existing breadcrumb row and explorer layout, including a single
+exclusive panel column for file browsing and renderer panels. Apps supply directory
+access, navigation callbacks and named branding/action slots; they do not rebuild
+the navigation layout. Hosts can supply `navigationTargets` to place document
 actions and status in their own navigation row; otherwise they float over the
 document. CAD model update status stays in the shared viewport toolbar row
 regardless of the host's navigation targets.
@@ -283,8 +286,9 @@ Model reference section shows their properties. There is no Materials editor or
 persisted material override. See [View styles](docs/render-mode.md) and
 [progressive detail](docs/lod.md).
 
-FileViewer keeps renderer actions and status in a compact top-center overlay
-unless the host supplies navigation targets. An error
+FileViewer keeps renderer actions and status in its breadcrumb row when browsing
+is supplied, or in a compact top-center overlay for document-only views unless the
+host supplies navigation targets. An error
 appears as a card over the viewport;
 a failed update the model survives can be dismissed, leaving the previous
 version to inspect. Try again reloads only the selected renderer.

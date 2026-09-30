@@ -3,8 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { createCadClient } from '@text-to-cad/core/client';
-import { FileViewer, useFileNavigation } from '../../../dist/file-viewer/index.js';
-import { FILE_PANEL_TREE, FilePanelColumn, FileTree, PanelToggle, treePanel } from '../../../dist/file-viewer/navigation/index.js';
+import { FileViewer } from '../../../dist/file-viewer/index.js';
 import { createRobotRenderer } from '../../../dist/renderers/robot/index.js';
 // Loaded with the file, not inside the first test: the registration imports it lazily.
 import '../../../dist/renderers/robot/RobotRenderer.js';
@@ -102,16 +101,9 @@ async function openRobot() {
   // The tab's state, held as a host holds it: the panel the person opened is the host's.
   function Pane() {
     const [state, setState] = useState<any>({ panel: null, panelWidth: 280, expandedDirectories: [''], renderers: {} });
-    const navigation = useFileNavigation({ source: host.files, state, onStateChange: setState, onOpenFile: noop, path: FILE });
-    const openTree = state.panel === FILE_PANEL_TREE;
-    const tree = treePanel(openTree ? FILE_PANEL_TREE : '');
     return <section data-testid="one">
-      <PanelToggle id={FILE_PANEL_TREE} icon={tree.icon} label={tree.label} active={openTree}
-        onClick={() => setState({ ...state, panel: openTree ? '' : FILE_PANEL_TREE })} />
-      <FileViewer file={FILE} host={host as any} renderers={renderers} state={state} onStateChange={setState} />
-      {openTree ? <FilePanelColumn id={FILE_PANEL_TREE} label="Files" width={state.panelWidth} onWidthChange={width => setState({ ...state, panelWidth: width })}>
-        <FileTree source={navigation.tree} activePath={FILE} edit={navigation.edit} onOpen={noop} />
-      </FilePanelColumn> : null}
+      <FileViewer file={FILE} host={host as any} renderers={renderers} state={state} onStateChange={setState}
+        browser={{ source: host.files as any, path: FILE, onOpenFile: noop }} />
     </section>;
   }
   render(<Pane />);
@@ -216,7 +208,7 @@ it('robot Links and Position are each their tool\'s panel, and no pick or tool o
   robot.open('Select');
   expect(robot.panels()).toEqual(['Show files:false']);
   fireEvent.click(robot.pane.querySelector('[data-file-panel="tree"]')!);
-  await waitFor(() => expect(within(robot.pane).getByPlaceholderText('Filter files…')).toBeTruthy());
+  await waitFor(() => expect(within(robot.pane).getByPlaceholderText('Filter loaded files…')).toBeTruthy());
   expect(robot.panels()).toEqual(['Hide files:true']);
   robot.tapUpperArm();
   await waitFor(() => expect(robot.pressedRows()).toHaveLength(1));

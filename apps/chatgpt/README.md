@@ -36,12 +36,30 @@ create a tab outside the visible page without confirming the model rendered.
 File tabs opened independently by Codex still use the registered file entrypoint.
 Failed opens remain visible and retryable.
 
-Opened STEP/STP, STL, GLB and 3MF files use the shared document-only `FileViewer`.
-There is no explorer, file picker, breadcrumbs or second filename bar. Model
-controls, snapshots and selection are shared; the app injects file services,
-composer delivery and lifecycle. Existing skills and standalone web navigation
-remain independent. File subscriptions resolve the displayed path before polling,
-so requests remain file-scoped.
+Opened STEP/STP, STL, GLB and 3MF files use the shared `FileViewer`. Custom
+views supply its optional `browser` capability. FileViewer owns the same
+`FileNavRow`, breadcrumb menus, `FileTree` and exclusive resizable panel column
+as the standalone viewer; apps do not recompose this layout. The app owns browsing location,
+expansion and navigation; the document viewer retains its separate absolute-path
+source. The explorer starts collapsed, reveals the open file when expanded and
+keeps its location when switching models. Browse location offers Project folder
+when supplied, Computer, Home and Up one folder. A model outside the current
+location still renders; its filename can reveal it under Computer.
+
+`cad_open({path, browseRoot})` accepts the thread's actual project/worktree folder
+as optional browsing context. The skill supplies it explicitly: the extension
+does not infer it from the MCP server's current directory. Without context the
+root is Computer (`/` on POSIX, drives on Windows). `cad_browse` reads one requested
+directory at a time, including hidden entries so paths inside worktrees can be
+revealed. Filtering searches loaded files only, with an explicit label; it never
+recursively scans the computer. Returning focus refreshes loaded directories.
+Folder failures remain retryable without replacing the model. Changing browsing
+location does not remount the renderer or change document identity.
+
+Native registered file views, identified by their host resource URI, omit this
+composition because Codex already supplies their navigation row. Both routes
+reuse the same renderers, tools and prompt delivery. No shared component detects
+which application hosts it.
 
 Thumbnails come from the mounted shared renderer's live capture after complete
 geometry presentation and a stable opening camera, scaled to at most 320 pixels
@@ -61,7 +79,7 @@ unreachable runtime produces a visible reconnect instruction. Tool errors and
 malformed results cannot silently leave the interface waiting. Teardown aborts
 pending work; bounded request deadlines do not automatically replay mutations.
 
-`cad_open` returns `{apiVersion: 2, document: {id, path, name, revision} | null}`.
+`cad_open` returns `{apiVersion: 2, document: {id, path, name, revision} | null, browseRoot: string | null}`.
 The path is canonical and absolute, with an ID derived from that path. The whole
 descriptor travels with document requests, so viewing does not depend on history
 storage or a registry created by a different MCP process. A null document shows
@@ -155,8 +173,9 @@ The global page's outer text heading is also host chrome. The full CAD wordmark
 belongs at the upper-left of this app's content. Setting the iframe document title
 helps browser accessibility but does not rename native Codex tabs. The host also
 owns composer placement and Context chip presentation.
-The home opens documents within its own view. Agent-initiated file opens can use
-the native file entrypoint; also calling `cad_open` would create a second view. See the official
+The home opens documents within its own view. Agent-initiated opens prefer
+`cad_open` with absolute `path` and optional thread `browseRoot`. Native file
+opening remains an explicit alternative; invoking both creates a second view. See the official
 [extension guide](https://developers.openai.com/plugins/build/extensions) and
 [plugin reference](https://developers.openai.com/plugins/reference).
 
@@ -164,10 +183,10 @@ the native file entrypoint; also calling `cad_open` would create a second view. 
 
 | Standalone web control | Extension behavior |
 | --- | --- |
-| File selection | Open Model uses the native OS file picker. Recent models open inside the CAD page. Per-file views have no explorer or picker. |
-| URL navigation, filename bar and browser history | Omitted; shared tools stay over the viewport, with one Add To Prompt action below the viewport. |
+| File selection | Open Model uses the native OS file picker. Recent models open inside the CAD page. Custom views also offer shared folder browsing; native registered views omit duplicate navigation. |
+| Breadcrumbs and file explorer | Shared components in custom views, app-owned browsing context and MCP directory access. Registered file views keep host chrome. |
 | Theme selector | Follows the host theme. |
-| Brand, version and community links | The library shows the full CAD logo plus version, GitHub and Discord links. Per-file views retain only document controls. |
+| Brand, version and community links | The library shows the full CAD logo plus version, GitHub and Discord links. Custom views also show the wordmark in their navigation row; registered views retain document controls. |
 | Reveal in file manager and server reload | Omitted; these standalone host actions are not exposed through MCP. |
 
 Model controls, geometry selection, measurements, display settings, snapshots and

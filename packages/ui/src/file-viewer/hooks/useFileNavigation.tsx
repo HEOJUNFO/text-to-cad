@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "../../primitives/dropdown-menu.jsx";
 import { EntryContextMenu, EntryMenuItems, FILE_PANEL_TREE, InlineName, parentOf, useEntryMenuFocusGuard } from "../navigation/index.js";
 import type { CrumbSource, EntryAction, FileTreeSource, MenuEntryTarget, TreeEdit, TreeEditRequest } from "../navigation/index.js";
-import type { FileActions, FileBrowserSource, FileBrowserState, FileChange, FileEntry, FileMutationResult, FileViewerProps } from "../types.js";
+import type { FileActions, DirectorySource, FileBrowserState, FileChange, FileEntry, FileMutationResult, FileViewerProps } from "../types.js";
 import { movedFilePath, reconcileFileTree } from "../fileChanges.js";
 import { errorMessage } from "./useFileDocument.js";
 
@@ -26,7 +26,7 @@ function CrumbActions({ entry, capabilities, platform, onAction }: {
 
 /** One shared cache feeds breadcrumb menus and tree rows for this mounted root. */
 export function useFileNavigation({ source, actions, state, onStateChange, onOpenFile, path, onError }: {
-  source: FileBrowserSource; actions?: FileActions; state: FileBrowserState; onStateChange: (next: FileBrowserState) => void;
+  source: DirectorySource; actions?: FileActions; state: FileBrowserState; onStateChange: (next: FileBrowserState) => void;
   onOpenFile: (path: string, options?: { target: "current" | "new"; panel?: string }) => void; path: string | null; onError?: FileViewerProps["onError"];
 }) {
   const [cache, setCache] = useState<{ id: string; listings: Record<string, readonly FileEntry[]>; revision: number }>({ id: source.id, listings: {}, revision: 0 });
@@ -153,11 +153,11 @@ export function useFileNavigation({ source, actions, state, onStateChange, onOpe
   const paths = useCallback(async () => {
     const controller = new AbortController();
     searches.current.add(controller);
-    try { const paths = await source.paths?.({ signal: controller.signal }) ?? []; return !controller.signal.aborted && current.current.source === source ? paths : []; }
+    try { const paths = await source.paths?.({ signal: controller.signal }) ?? Object.values(current.current.listings).flatMap(entries => entries.filter(entry => entry.kind === "file").map(entry => entry.path)); return !controller.signal.aborted && current.current.source === source ? paths : []; }
     catch (error) { if (!controller.signal.aborted) report(error); return []; }
     finally { searches.current.delete(controller); }
   }, [source, report]);
-  const tree: FileTreeSource = { rootName: source.rootName, expanded, setExpanded, listings, load, revision, paths, platform, capabilities, onAction,
+  const tree: FileTreeSource = { rootName: source.rootName, filterLabel: source.paths ? "Filter files" : "Filter loaded files", expanded, setExpanded, listings, load, revision, paths, platform, capabilities, onAction,
     rename: source.rename ? rename : undefined, create: source.create ? create : undefined, trash: source.trash ? trash : undefined };
   const crumbs: CrumbSource = {
     useListing(directory) {
