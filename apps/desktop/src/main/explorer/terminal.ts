@@ -99,6 +99,8 @@ class Session {
   /** Chunks written so far. See the note on `TerminalEvent`. */
   private emitted = 0;
   exitCode: number | null = null;
+  /** Woken by the pty's exit, for `Terminals.exited`. */
+  readonly exitWaiters = new Set<() => void>();
   inputRevision = 0;
   inputPending = false;
 
@@ -286,6 +288,7 @@ export class Terminals {
     });
     child.onExit(({ exitCode, signal }) => {
       session.exitCode = exitCode;
+      for (const wake of [...session.exitWaiters]) wake();
       this.emit({ id, type: "exit", exitCode, signal });
     });
 
@@ -345,6 +348,22 @@ export class Terminals {
     const session = this.sessions.get(id);
     if (!session) throw new Error("terminal no longer exists");
     if (session.exitCode === null) session.process.kill();
+  }
+
+  /**
+   * The exit code once the shell has exited, or null if it is still up after
+   * `timeoutMs`: `stop` only signals, and a program that ignores SIGHUP
+   * outlives it.
+   */
+  exited(id: string, timeoutMs: number): Promise<number | null> {
+    const session = this.sessions.get(id);
+    if (!session) return Promise.resolve(null);
+    if (session.exitCode !== null) return Promise.resolve(session.exitCode);
+    return new Promise((resolve) => {
+      const wake = () => { clearTimeout(timer); session.exitWaiters.delete(wake); resolve(session.exitCode); };
+      const timer = setTimeout(wake, timeoutMs);
+      session.exitWaiters.add(wake);
+    });
   }
 
   resize(id: string, cols: number, rows: number): void {

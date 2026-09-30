@@ -63,8 +63,10 @@ it('honors cursor limits and guarded input and leaves stopped output available',
   await expect(f.actions.write_terminal!(f.session, { tabId: 'tab', data: 'x\n', expectedSequence: 1, expectedInputRevision: 0 })).rejects.toThrow('changed');
   expect(await f.actions.write_terminal!(f.session, { tabId: 'tab', data: 'x\n', expectedSequence: 2, expectedInputRevision: 0 })).toMatchObject({ inputRevision: 1 });
   expect(f.process.write).toHaveBeenCalledExactlyOnceWith('x\n');
-  expect(await f.actions.stop_terminal!(f.session, { tabId: 'tab' })).toEqual({ stopped: true, id: info.id });
+  const stopping = f.actions.stop_terminal!(f.session, { tabId: 'tab' });
+  await vi.waitFor(() => expect(f.process.kill).toHaveBeenCalledOnce());
   (f.process.onExit.mock.calls[0]![0] as (event: { exitCode: number }) => void)({ exitCode: 143 });
+  expect(await stopping).toEqual({ stopped: true, id: info.id, exited: true, exitCode: 143 });
   expect(await f.actions.read_terminal!(f.session, { tabId: 'tab' })).toMatchObject({ data: 'oldernewer', info: { exitCode: 143 } });
   expect(f.terminals.list()).toHaveLength(1); f.terminals.killAll();
 });
@@ -120,4 +122,19 @@ it('refuses a terminal past the per-session cap, counting concurrent requests', 
   await f.terminals.create({ cwd: directory, projectId: 'project', sessionId: 'other' });
   expect(f.terminals.list()).toHaveLength(MAX_TERMINALS_PER_SESSION + 1);
   f.terminals.killAll();
+});
+it('reports stop_terminal as exited only once the pty has, and as not exited when it ignores the signal', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = fixture(); const info = await f.terminals.create({ cwd: directory, projectId: 'project', sessionId: 's' });
+    f.answer({ id: 'tab', kind: 'terminal', root: directory, ptyId: info.id });
+    const stopping = f.actions.stop_terminal!(f.session, { tabId: 'tab' });
+    await vi.waitFor(() => expect(f.process.kill).toHaveBeenCalledOnce());
+    // The signal is delivered but the program does not exit.
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(await stopping).toEqual({ stopped: true, id: info.id, exited: false });
+    f.terminals.killAll();
+  } finally {
+    vi.useRealTimers();
+  }
 });

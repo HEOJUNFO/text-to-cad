@@ -7,6 +7,8 @@ import fs from "node:fs/promises";
 
 /** Terminals one session may hold: each keeps up to 512 KB of scrollback until its tab is closed. */
 export const MAX_TERMINALS_PER_SESSION = 16;
+/** How long `stop_terminal` waits for the shell to exit before saying it has not. */
+const STOP_WAIT_MS = 2_000;
 
 /**
  * `runtimePath` is the session's runtime launchers (`sessionRuntimePath`), put
@@ -46,7 +48,11 @@ export function createTerminalActions(deps: ActionDeps, commands: RendererComman
       return terminals().read(id);
     },
     stop_terminal: async (session, params, signal) => {
-      const id = await resolve(session, params, signal); terminals().stop(id); return { stopped: true, id };
+      const id = await resolve(session, params, signal);
+      terminals().stop(id);
+      // `stop` only signals; report the exit if it comes, not before it has.
+      const exitCode = await terminals().exited(id, STOP_WAIT_MS);
+      return exitCode === null ? { stopped: true, id, exited: false } : { stopped: true, id, exited: true, exitCode };
     },
   };
 }
