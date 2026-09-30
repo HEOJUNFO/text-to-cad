@@ -8,7 +8,7 @@
  * per project listing the worktrees that exist right now, with the two actions
  * that make sense on one.
  */
-import { useCallback, useEffect, useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Folder, Loader2, TriangleAlert } from "lucide-react";
 import { Alert, AlertDescription } from "@text-to-cad/ui/primitives/alert";
 
@@ -24,9 +24,11 @@ import {
   useDraft,
 } from "@renderer/features/settings/SettingCard";
 import {
+  useSettingsFallbacks,
   useSettingsPatch,
   useSettingsValue,
 } from "@renderer/features/settings/settings-value";
+import { ensureWorktrees, useWorktreeCache } from "@renderer/features/settings/worktree-cache";
 import { runUiCommand } from "@renderer/state/bridge";
 import { useProjects } from "@renderer/state/projects";
 import type { Worktree } from "@shared/ipc/git";
@@ -63,19 +65,8 @@ export function GitPage() {
   // A prefix stored before git's rules were checked, which main reads as the
   // default (`settings.fallbacks`): asked again whenever settings change, so
   // the note goes once a prefix is set.
-  const [storedPrefix, setStoredPrefix] = useState<string | null>(null);
-  useEffect(() => {
-    let current = true;
-    void window.textToCad.settings
-      .fallbacks()
-      .then(({ branchPrefix }) => {
-        if (current) setStoredPrefix(branchPrefix ?? null);
-      })
-      .catch(() => {});
-    return () => {
-      current = false;
-    };
-  }, [settings]);
+  const fallbacks = useSettingsFallbacks();
+  const storedPrefix = fallbacks.branchPrefix ?? null;
 
   return (
     <>
@@ -139,6 +130,7 @@ export function GitPage() {
               })
               .then((chosen) => chosen && patch({ worktreeRoot: chosen.path }));
           }}
+          note={fallbacks.worktreeRoot ? "This folder no longer exists; it is created again with the next worktree." : undefined}
           onClear={() => patch({ worktreeRoot: null })}
           placeholder="~/.text-to-cad/worktrees"
           title="Worktree root"
@@ -153,7 +145,7 @@ export function GitPage() {
         />
         <SwitchRow
           checked={settings.autoDeleteWorktrees}
-          description="Remove the oldest worktrees once there are more than the limit below. Only ones text-to-cad created."
+          description="After a new worktree is created, remove the oldest idle ones beyond the limit below. Only worktrees text-to-cad created, and never one that is in use, locked or holds uncommitted work."
           keywords="prune clean remove old"
           onChange={(autoDeleteWorktrees) => patch({ autoDeleteWorktrees })}
           title="Auto-delete old worktrees"
@@ -161,8 +153,8 @@ export function GitPage() {
         <SelectRow
           description={
             settings.autoDeleteWorktrees
-              ? "How many worktrees per project survive the sweep."
-              : "How many worktrees per project survive the sweep. Nothing is swept while Auto-delete old worktrees is off."
+              ? "How many idle worktrees per project the sweep keeps. In-use, locked and unsaved ones are not counted and never removed."
+              : "How many idle worktrees per project the sweep keeps. Nothing is swept while Auto-delete old worktrees is off."
           }
           disabled={!settings.autoDeleteWorktrees}
           keywords="limit count retain"
@@ -236,25 +228,23 @@ function ProjectWorktrees() {
 
 function ProjectWorktreeCard({ project }: { project: Project }) {
   const cardId = useId();
-  const [worktrees, setWorktrees] = useState<Worktree[] | null>(null);
+  const worktrees = useWorktreeCache((state) => state.lists[project.id]) ?? null;
+  const epoch = useWorktreeCache((state) => state.epoch);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const read = useCallback(() => {
-    void window.textToCad.git
-      .worktrees({ projectId: project.id })
-      .then(setWorktrees)
-      .catch(() => setWorktrees([]));
-  }, [project.id]);
-
-  useEffect(read, [read]);
+  // Read once per Settings visit (`worktree-cache.ts`); `epoch` reads again
+  // after an invalidation.
+  useEffect(() => {
+    void ensureWorktrees(project.id);
+  }, [project.id, epoch]);
 
   const remove = async (worktree: Worktree) => {
     setBusy(worktree.path);
     setError(null);
     try {
       await window.textToCad.git.removeWorktree({ projectId: project.id, path: worktree.path });
-      read();
+      useWorktreeCache.getState().invalidate();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -293,10 +283,10 @@ function ProjectWorktreeCard({ project }: { project: Project }) {
                 </Button>
                 <Button
                   className="h-8"
-                  // A worktree with uncommitted work, or with a thread still
+                  // A worktree with uncommitted work, a lock, or a thread still
                   // open on it, is not deleted from here: main refuses the
-                  // first, and the second would pull the directory out from
-                  // under a running agent.
+                  // first, git the second, and the third would pull the
+                  // directory out from under a running agent.
                   //
                   // A disabled button takes no hover and no hint, so the reason
                   // is its accessible description rather than a native title
@@ -351,6 +341,9 @@ function ProjectWorktreeCard({ project }: { project: Project }) {
 
 /** Why a worktree's Delete is off, or null when it is not. */
 function keptBecause(worktree: Worktree): string | null {
+  if (worktree.locked) {
+    return "This worktree is locked (git worktree lock), so it is kept until it is unlocked.";
+  }
   if (worktree.dirty === null) {
     return "Git could not check this worktree for uncommitted changes or ignored files, so it is kept.";
   }
@@ -384,8 +377,11 @@ function describe(worktree: Worktree): string {
   }
   if (worktree.openSessions > 0) {
     parts.push(
-      `${worktree.openSessions} open session${worktree.openSessions === 1 ? "" : "s"}`,
+      `${worktree.openSessions} open session${worktree.openSessions === 1 ? "" : "s"} (in use)`,
     );
+  }
+  if (worktree.locked) {
+    parts.push("locked");
   }
   if (worktree.dirty) {
     parts.push("uncommitted or ignored files");

@@ -74,7 +74,7 @@ describe("Settings search", () => {
     const user = userEvent.setup();
     wrap(<SettingsRoute />);
     await user.type(screen.getByPlaceholderText("Search settings"), "zzzzz");
-    expect(await screen.findByText("No matching settings.")).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent("No matching settings.");
   });
 
   it("forgets the last search's pages: General is not in the nav for a query it has nothing for", async () => {

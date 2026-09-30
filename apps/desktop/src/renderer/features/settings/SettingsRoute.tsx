@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Search } from "lucide-react";
 import { cn } from "cn";
 
@@ -7,6 +7,7 @@ import { Input } from "@renderer/components/ui/input";
 import { ScrollArea } from "@renderer/components/ui/scroll-area";
 import { SettingsPage } from "@renderer/features/settings/pages";
 import { SettingsSearchProvider } from "@renderer/features/settings/search";
+import { useWorktreeCache } from "@renderer/features/settings/worktree-cache";
 import {
   SETTINGS_SECTIONS,
   SETTINGS_SECTION_LABELS,
@@ -33,6 +34,17 @@ export function SettingsRoute() {
   const close = useUi((state) => state.closeSettings);
   const [query, setQuery] = useState("");
   const searching = query.trim() !== "";
+
+  // The worktree lists are kept for this visit (`worktree-cache.ts`): a session
+  // opening or closing changes a row's "in use", and closing Settings drops them.
+  useEffect(() => {
+    const { invalidate } = useWorktreeCache.getState();
+    const off = window.textToCad.on("sessions.changed", invalidate);
+    return () => {
+      off();
+      invalidate();
+    };
+  }, []);
 
   // Which sections have a card that matched, so the nav can drop the ones that
   // did not. Cards report; a section with no reports has nothing to show.
@@ -116,7 +128,9 @@ export function SettingsRoute() {
               />
             ))}
             {searching && navSections.length === 0 ? (
-              <p className="px-2 py-3 text-xs text-muted-foreground">No matching settings.</p>
+              <p className="px-2 py-3 text-xs text-muted-foreground" role="status">
+                No matching settings.
+              </p>
             ) : null}
           </div>
         </nav>

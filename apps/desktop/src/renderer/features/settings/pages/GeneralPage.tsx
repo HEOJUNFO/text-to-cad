@@ -17,6 +17,7 @@ import {
 } from "@renderer/features/settings/SettingCard";
 import { playNotificationSound } from "@renderer/features/settings/sound";
 import {
+  useSettingsFallbacks,
   useSettingsPatch,
   useSettingsValue,
 } from "@renderer/features/settings/settings-value";
@@ -45,6 +46,7 @@ const TELEMETRY_EVENTS: [string, string][] = [
 export function GeneralPage() {
   const settings = useSettingsValue();
   const patch = useSettingsPatch();
+  const fallbacks = useSettingsFallbacks();
 
   return (
     <>
@@ -60,6 +62,7 @@ export function GeneralPage() {
               })
               .then((chosen) => chosen && patch({ defaultProjectFolder: chosen.path }));
           }}
+          note={fallbacks.defaultProjectFolder ? "This folder no longer exists, so the chooser opens in your home folder." : undefined}
           onClear={() => patch({ defaultProjectFolder: null })}
           placeholder="Your home folder"
           title="Default project folder"
@@ -149,7 +152,7 @@ export function GeneralPage() {
         />
         <PathRow
           chooseLabel="Choose…"
-          description="An aiff, wav, mp3 or m4a file. Empty plays text-to-cad's own chime."
+          description="An aiff, wav, mp3, m4a or ogg file. Empty plays text-to-cad's own chime."
           keywords="audio file custom"
           onChoose={() => {
             void window.textToCad.dialogs
