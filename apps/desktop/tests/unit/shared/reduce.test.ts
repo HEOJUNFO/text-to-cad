@@ -691,6 +691,16 @@ describe("reduce: content that arrives after prompt/end", () => {
     expect(state.turns.at(-1)?.endedAt).not.toBeNull();
   });
 
+  it("does not open a turn for a subagent spawned behind prompt/end", () => {
+    let state = started(connected());
+    state = reduce(state, { type: "prompt/end", stopReason: "end_turn", usage: null, at });
+    const before = state.turns.length;
+    state = update(state, { sessionUpdate: "subagent_spawned", subagentSessionId: "kid", name: "explorer" });
+    expect(state.turns).toHaveLength(before);
+    expect(state.turns.at(-1)?.endedAt).not.toBeNull();
+    expect(state.subagentSessionIds).toContain("kid");
+  });
+
   it("gives a chunk behind a session's closed user turn a closed agent turn of its own", () => {
     let state = connected();
     state = reduce(state, { type: "prompt/start", turnId: "t1", content: [{ type: "text", text: "hi" }], at });

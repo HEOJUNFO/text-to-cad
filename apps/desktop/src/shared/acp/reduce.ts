@@ -422,7 +422,8 @@ function applyUpdate(
         state: "running",
       parts: [],
       };
-      const next = withSessionParts(state, acpSessionId, at, (parts) =>
+      // Not `create`: a spawn behind `prompt/end` must not open a turn nothing would end.
+      const next = withUpdateOrLate(state, acpSessionId, u, at, (parts) =>
         findSubagent(parts, childId) ? parts : [...parts, part],
       );
       return unpark(
