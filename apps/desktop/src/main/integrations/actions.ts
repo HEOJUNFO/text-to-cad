@@ -28,7 +28,9 @@ import { climbsOut, resolveInRoot, toRelative } from "../explorer/fs";
 import type { BridgeActions, BridgeSession } from "./mcp-bridge";
 
 const REPLY_TIMEOUT_MS = 10_000;
-const MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024;
+// The model rejects an image over 5 MB, and a rejected tool result stays in the
+// transcript for good, so the ceiling is the model's rather than memory's.
+const MAX_SNAPSHOT_BYTES = 5 * 1024 * 1024;
 
 const IMAGE_TYPES: Record<string, string> = {
   ".png": "image/png",
@@ -37,6 +39,15 @@ const IMAGE_TYPES: Record<string, string> = {
   ".webp": "image/webp",
   ".gif": "image/gif",
 };
+
+/** Whether `head` opens like the image type the extension claims. */
+const SIGNATURES: Record<string, (head: Buffer) => boolean> = {
+  "image/png": (head) => head.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])),
+  "image/jpeg": (head) => head.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff])),
+  "image/gif": (head) => head.subarray(0, 4).toString("latin1") === "GIF8",
+  "image/webp": (head) => head.subarray(0, 4).toString("latin1") === "RIFF" && head.subarray(8, 12).toString("latin1") === "WEBP",
+};
+const IMAGE_NAMES: Record<string, string> = { "image/png": "PNG", "image/jpeg": "JPEG", "image/gif": "GIF", "image/webp": "WebP" };
 
 export type ActionDeps = {
   /**
@@ -172,7 +183,7 @@ export async function workspaceDirectory(directory: string): Promise<{ rootDirec
  * open the path is resolved again and must still be inside `directory` and
  * name the very file the handle holds (device and inode).
  */
-async function readSnapshot(directory: string, absolute: string, target: string, signal?: AbortSignal): Promise<Buffer> {
+async function readSnapshot(directory: string, absolute: string, target: string, mimeType: string, signal?: AbortSignal): Promise<Buffer> {
   const handle = await fsp.open(absolute, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0));
   try {
     const opened = await handle.stat();
@@ -183,7 +194,9 @@ async function readSnapshot(directory: string, absolute: string, target: string,
     if (!there || climbsOut(relative) || there.dev !== opened.dev || there.ino !== opened.ino) {
       throw new Error(`${target} changed while it was being read; only files inside the workspace can be shown`);
     }
-    const buffer = Buffer.allocUnsafe(MAX_SNAPSHOT_BYTES + 1);
+    if (opened.size > MAX_SNAPSHOT_BYTES) throw new Error(`${target} is over 5 MB; snapshots that large are not attached`);
+    // Sized from the stat, plus the one byte that shows a file grown since.
+    const buffer = Buffer.allocUnsafe(Math.min(opened.size, MAX_SNAPSHOT_BYTES) + 1);
     let length = 0;
     while (length < buffer.length) {
       signal?.throwIfAborted();
@@ -191,7 +204,10 @@ async function readSnapshot(directory: string, absolute: string, target: string,
       if (bytesRead === 0) break;
       length += bytesRead;
     }
-    if (length > MAX_SNAPSHOT_BYTES) throw new Error("snapshots over 8 MB are not attached");
+    if (length > MAX_SNAPSHOT_BYTES) throw new Error(`${target} is over 5 MB; snapshots that large are not attached`);
+    // The extension is the agent's word for it; the bytes are what the model will decode.
+    if (length === 0) throw new Error(`${target} is empty`);
+    if (!SIGNATURES[mimeType]!(buffer.subarray(0, length))) throw new Error(`${target} is not a ${IMAGE_NAMES[mimeType]} image`);
     return buffer.subarray(0, length);
   } finally {
     await handle.close();
@@ -232,7 +248,7 @@ export function createActions(deps: ActionDeps, commands: RendererCommands): Bri
     const resolved = await resolveForSession(deps, session, target);
     const mimeType = IMAGE_TYPES[path.extname(resolved.absolute).toLowerCase()];
     if (!mimeType) throw new Error(`${target} is not a PNG, JPEG, WebP or GIF`);
-    return { path: resolved.relative, mimeType, base64: (await readSnapshot(resolved.directory, resolved.absolute, target, signal)).toString("base64") };
+    return { path: resolved.relative, mimeType, base64: (await readSnapshot(resolved.directory, resolved.absolute, target, mimeType, signal)).toString("base64") };
   };
   return actions;
 }

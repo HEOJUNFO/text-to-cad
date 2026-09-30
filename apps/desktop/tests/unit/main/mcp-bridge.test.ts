@@ -320,6 +320,24 @@ describe("the actions", () => {
     await expect(actions.attach_snapshot!(session, { path: "notes.txt" })).rejects.toThrow("not a PNG");
   });
 
+  it("refuses an attach_snapshot whose bytes are not the image its extension claims, or that is empty or over 5 MB", async () => {
+    const root = tempDir("text-to-cad-proj-");
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    fs.writeFileSync(path.join(root, "page.png"), "<html><body>not an image</body></html>");
+    fs.writeFileSync(path.join(root, "empty.png"), "");
+    fs.writeFileSync(path.join(root, "big.png"), Buffer.concat([png, Buffer.alloc(6 * 1024 * 1024)]));
+    fs.writeFileSync(path.join(root, "photo.jpg"), png);
+    fs.writeFileSync(path.join(root, "ok.png"), png);
+    const sessionRoot = () => ({ directory: root, root: null });
+    const actions = createActions({ sessionRoot, send: () => {}, newId: () => "r" }, new RendererCommands({ sessionRoot, send: () => {}, newId: () => "r" }));
+    const session: BridgeSession = { sessionId: "s", projectId: "p", cwd: root };
+    await expect(actions.attach_snapshot!(session, { path: "page.png" })).rejects.toThrow(/not a PNG/);
+    await expect(actions.attach_snapshot!(session, { path: "empty.png" })).rejects.toThrow(/empty/);
+    await expect(actions.attach_snapshot!(session, { path: "big.png" })).rejects.toThrow(/5 MB/);
+    await expect(actions.attach_snapshot!(session, { path: "photo.jpg" })).rejects.toThrow(/not a JPEG/);
+    await expect(actions.attach_snapshot!(session, { path: "ok.png" })).resolves.toMatchObject({ mimeType: "image/png", base64: png.toString("base64") });
+  });
+
   describe("attach_snapshot re-checks the handle against a fresh realpath", () => {
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
     function actionsFor(root: string) {
