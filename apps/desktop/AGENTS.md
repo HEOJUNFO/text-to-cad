@@ -393,8 +393,9 @@ the rule is about.
 - **A live viewer command replies only once its effect is committed.**
   `attachLiveBinding` (`packages/ui/src/renderers/kit/shell/liveBinding.ts`)
   waits a settled frame and, where the command has a committed predicate
-  (display settings, render mode, `clearSelection` = selection empty, a
-  renderer command's own), until it holds — at most ten seconds, then "The
+  (display settings, render mode, `setCamera` = position and target read
+  back as asked, `resetCamera` = the eased move at rest, `clearSelection` =
+  selection empty, a renderer command's own), until it holds — at most ten seconds, then "The
   viewer did not finish applying this command." A reply on the call returning
   would hand an agent a state the command had not produced yet.
 - **Every capture goes through `imageResult`.** It redraws an image over

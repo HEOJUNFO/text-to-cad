@@ -447,9 +447,11 @@ export function useRendererShell({
       handlePerspectiveChange(scoped);
     },
     // Frame the model again, without turning the camera. The name is the host
-    // protocol's ("cad-reset-camera"); the viewport calls the same act resetZoom.
+    // protocol's ("cad-reset-camera"); the viewport calls the same act resetZoom. It eases, so
+    // the reply waits for the camera to come to rest, not for the first frame of the move.
     resetCamera() {
       if (!viewerRef.current?.resetZoom?.()) throw new Error("The viewer camera is unavailable.");
+      return () => !viewerRef.current?.isCameraTransitioning?.();
     },
     setDisplaySettings(patch) { viewSettingsStore.patch(patch); },
     setRenderMode(enabled) { viewSettingsStore.selectPreset(enabled ? "render" : "solid"); },

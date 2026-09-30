@@ -36,6 +36,32 @@ describe('live CAD viewer binding', () => {
     expect((await view.controller.setRenderMode(true)).renderMode).toBe('render');
     expect((await view.controller.setRenderMode(false)).renderMode).toBe('inspect');
   });
+  it('answers setCamera once the camera reads back as asked, not on the first frame after the call', async () => {
+    let frames = 0;
+    const view = harness(async () => {
+      if (++frames === 3) view.update({ ...state(), camera: { position: [4, 5, 6], target: [0, 0, 1], up: [0, 0, 1] } });
+    });
+    const asked = { position: [4, 5, 6], target: [0, 0, 1], up: [0, 0, 1] } as const;
+    const reply = await view.controller.setCamera({ position: [...asked.position], target: [...asked.target], up: [...asked.up] });
+    expect(reply.camera?.position).toEqual([4, 5, 6]);
+    expect(frames).toBe(3);
+  });
+  it('does not take a camera elsewhere for the one asked for', async () => {
+    const view = harness();
+    view.commands.setCamera.mockImplementation(() => view.update({ ...state(), camera: { position: [9, 9, 9], target: [0, 0, 0], up: [0, 0, 1] } }));
+    const now = vi.spyOn(Date, 'now').mockReturnValueOnce(0).mockReturnValue(10_001);
+    try { await expect(view.controller.setCamera({ position: [4, 5, 6], target: [0, 0, 0], up: [0, 0, 1] })).rejects.toThrow('did not finish'); }
+    finally { now.mockRestore(); }
+  });
+  it('answers resetCamera once the eased move has come to rest, not on its first frame', async () => {
+    let frames = 0;
+    let moving = true;
+    const view = harness(async () => { if (++frames === 3) moving = false; });
+    view.commands.resetCamera.mockImplementation(() => () => !moving);
+    await view.controller.resetCamera();
+    expect(frames).toBe(3);
+    expect(moving).toBe(false);
+  });
   it('answers clearSelection once the selection is empty, though React renders it after the next frame', async () => {
     // An IPC handler sets state outside a React event: the render lands on a later task than the frame.
     const view = harness();

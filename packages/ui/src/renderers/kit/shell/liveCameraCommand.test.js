@@ -24,6 +24,15 @@ traverse(parse(source, { sourceType: 'module', plugins: ['jsx'] }), {
   }
 });
 assert.ok(cameraCommand, 'the shell exposes a live setCamera');
+let resetCommand;
+traverse(parse(source, { sourceType: 'module', plugins: ['jsx'] }), {
+  ObjectMethod(path) {
+    if (path.node.key.name !== 'resetCamera') return;
+    assert.equal(resetCommand, undefined, 'one live reset command');
+    resetCommand = Function('scope', `with (scope) { return (function() ${source.slice(path.node.body.start, path.node.body.end)})(); }`);
+  }
+});
+assert.ok(resetCommand, 'the shell exposes a live resetCamera');
 
 function harness(displaySettings) {
   const result = { applied: null, display: displaySettings, perspective: null, recorded: null };
@@ -66,4 +75,14 @@ test('an invalid camera is refused before the viewport or the stored display is 
   assert.equal(view.result.applied, null, 'nothing reached the viewport');
   assert.equal(view.result.display, current, 'the display is as it was');
   assert.equal(view.result.recorded, null, 'and nothing was recorded');
+});
+
+test('resetCamera is committed when the eased move has come to rest, not when it has begun', () => {
+  let moving = true;
+  const committed = resetCommand({ viewerRef: { current: { resetZoom: () => true, isCameraTransitioning: () => moving } } });
+  assert.equal(typeof committed, 'function', 'the reset hands the binding its predicate');
+  assert.equal(committed(), false, 'still under way');
+  moving = false;
+  assert.equal(committed(), true, 'at rest');
+  assert.throws(() => resetCommand({ viewerRef: { current: { resetZoom: () => false } } }), /unavailable/);
 });

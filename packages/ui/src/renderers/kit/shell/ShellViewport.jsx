@@ -372,6 +372,8 @@ const ShellViewport = forwardRef(function ShellViewport({
     },
     activateViewPlaneFace,
     requestRender() { runtimeRef.current?.requestRender?.(); },
+    // An eased camera move (the fit, a view-cube face) is still under way.
+    isCameraTransitioning() { return Boolean(runtimeRef.current?.cameraTransition); },
     getPerspective() {
       return readScopedPerspectiveSnapshot(runtimeRef.current, {
         modelKey, sceneScaleMode: normalizedSceneScaleMode, coordinateSystem: STORED_CAMERA_COORDINATES
