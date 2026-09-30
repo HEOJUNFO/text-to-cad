@@ -20,6 +20,7 @@ from .backend import SUPPORTED_EXTENSIONS, ViewerDocuments
 from .ui_resources import UI_TEMPLATE, UiResources
 from .library import RecentLibrary
 from .documents import describe_document, resolve_document
+from .picker import FilePicker, PickerError, picker_capability
 
 UI_MIME_TYPE = "text/html;profile=mcp-app"
 API_VERSION = 2
@@ -52,7 +53,7 @@ def _check_version(api_version: int | None):
 
 
 def _error(error: Exception) -> CallToolResult:
-    if isinstance(error, ApiError):
+    if isinstance(error, (ApiError, PickerError)):
         code, retryable = error.code, error.retryable
     elif isinstance(error, OSError):
         code, retryable = ("FILE_NOT_FOUND" if isinstance(error, FileNotFoundError) else "INVALID_DOCUMENT"), False
@@ -98,6 +99,7 @@ def create_server(*, ui_path: str | Path | None = None,
     ui = UiResources(html_path.read_bytes())
     ui_uri = ui.uri
     documents = ViewerDocuments()
+    picker = FilePicker()
     # Constructing/discovering CAD must not touch optional history storage.
     library = None
     library_lock = threading.Lock()
@@ -117,6 +119,15 @@ def create_server(*, ui_path: str | Path | None = None,
             return getattr(history(), method)(*args, **kwargs)
         except (sqlite3.Error, OSError) as error:
             raise ApiError("HISTORY_UNAVAILABLE", f"CAD history is unavailable: {error}. Documents can still be opened by absolute path.", retryable=True) from error
+
+    async def open_result(opened: dict | None, **extra) -> CallToolResult:
+        result = {"document": opened, **extra}
+        if opened is not None:
+            try:
+                await asyncio.to_thread(history_call, "record", opened["path"])
+            except Exception as error:
+                result["warnings"] = [{"code": "HISTORY_UNAVAILABLE", "message": str(error), "retryable": True}]
+        return _result(result, "CAD viewer opened.")
 
     @asynccontextmanager
     async def lifespan(_server):
@@ -160,7 +171,7 @@ def create_server(*, ui_path: str | Path | None = None,
             _check_version(apiVersion)
             return _result({"supportedApiVersions": [1, API_VERSION], "documentTransport": "descriptor",
                             "serverVersion": version("cadgen"), "uiDigest": ui.digest, "uiResourceUri": ui_uri,
-                            "uiCacheAvailable": ui.cache_error is None})
+                            "uiCacheAvailable": ui.cache_error is None, "filePicker": picker_capability()})
         except Exception as error:
             return _error(error)
 
@@ -193,15 +204,24 @@ def create_server(*, ui_path: str | Path | None = None,
                 if selected is None and path is None and documentId is None:
                     selected = _resource_path(ctx)
                 opened = await asyncio.to_thread(describe_document, selected) if selected is not None else None
-            result = {"document": opened}
-            if file is not None:
-                result["resourceUri"] = file.resourceUri
-            if opened is not None:
-                try:
-                    await asyncio.to_thread(history_call, "record", opened["path"])
-                except Exception as error:
-                    result["warnings"] = [{"code": "HISTORY_UNAVAILABLE", "message": str(error), "retryable": True}]
-            return _result(result, "CAD viewer opened.")
+            return await open_result(opened, **({"resourceUri": file.resourceUri} if file is not None else {}))
+        except Exception as error:
+            return _error(error)
+
+    @server.tool(
+        name="cad_pick_file", title="Open Model",
+        description="Open the operating system's native file chooser for one local CAD model. Only invoke for an explicit user Open Model action.",
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False),
+        meta={"ui": {"visibility": ["app"]}},
+    )
+    async def cad_pick_file(apiVersion: int = API_VERSION) -> CallToolResult:
+        try:
+            _check_version(apiVersion)
+            selected = await picker.choose()
+            if selected is None:
+                return _result({"cancelled": True, "document": None})
+            opened = await asyncio.to_thread(describe_document, selected)
+            return await open_result(opened, cancelled=False)
         except Exception as error:
             return _error(error)
 

@@ -14,7 +14,8 @@ HTTP has no remote authentication and is not a public hosting configuration.
 
 The app starts with `cad_handshake({apiVersion: 2})`. The response includes
 `apiVersion`, `supportedApiVersions`, `documentTransport: "descriptor"`,
-`serverVersion`, `uiDigest`, `uiResourceUri` and `uiCacheAvailable`. Unsupported
+`serverVersion`, `uiDigest`, `uiResourceUri`, `uiCacheAvailable` and
+`filePicker: {supported, reason?}`. Unsupported
 versions return `API_VERSION_UNSUPPORTED` with a reconnect instruction. A host
 connected to an older server without this tool must reconnect to the updated
 server; the app must not silently continue with a guessed protocol.
@@ -44,6 +45,12 @@ the standalone HTTP viewer's directory-containment behavior is unchanged.
   host metadata. History writes are best effort: failure adds
   `warnings: [{code: "HISTORY_UNAVAILABLE", message, retryable: true}]` while
   preserving the successful document result.
+- `cad_pick_file({apiVersion: 2})` is app-only and opens the operating system's
+  native **Open Model** file chooser after an explicit user action. Selection
+  returns `{apiVersion, cancelled: false, document}` with the same validated
+  descriptor and optional history warnings as `cad_open`. User cancellation
+  returns `{apiVersion, cancelled: true, document: null}` without changing
+  history. The tool takes no filename or command arguments.
 - `cad_request` is app-only. It takes `{apiVersion: 2, document, path, method,
   body?}` and returns `{apiVersion, status, headers, body}`. Both bodies are
   base64. Catalogs contain only the selected file, named absolutely, and use
@@ -82,6 +89,26 @@ API-1 viewers retain their historical ID as catalog/server `scopeId`, so an
 upgrade does not silently replace the identity of their live caches. New apps
 must use descriptors. Earlier workspace-root interfaces are not advertised as
 compatible; cached old apps must reconnect and load the current bundle.
+
+## Native file chooser
+
+The chooser runs locally on the MCP server's graphical desktop. macOS uses
+`osascript` with AppKit's `NSOpenPanel`, without scripting another application
+or adding dependencies. Windows uses a PowerShell STA process with the system
+Windows Forms file dialog. Linux uses installed `zenity` or `kdialog` and needs
+`DISPLAY` or `WAYLAND_DISPLAY`. Handshake availability reports detected platform,
+tool and display support; a desktop-session failure still returns an actionable
+`FILE_PICKER_FAILED` error. Unsupported environments return
+`FILE_PICKER_UNAVAILABLE`, never a fake browser path input.
+
+Only one dialog runs per MCP process. A concurrent request returns
+`FILE_PICKER_BUSY`. Each subprocess has a 120-second dialog timeout; the app
+should allow a slightly longer tool timeout and pass its cancellation signal.
+Cancellation and timeout terminate and reap the child, escalating to a kill if
+it does not exit. Timeout returns `FILE_PICKER_TIMEOUT`. Picker failures use the
+same structured error format as other tools and are never automatically retried.
+File selection still validates the supported CAD extension and readability;
+a dialog cannot bypass the document resolver or import the CAD kernel.
 
 ## Selected assets and viewer reuse
 

@@ -19,7 +19,7 @@ export function toolData(result: ToolResult): Record<string, unknown> {
   if (!object) throw new CadBackendError('CAD returned an invalid response. Reopen the extension to reconnect.', 'INVALID_RESPONSE');
   return object;
 }
-export interface BackendInfo { apiVersion: number; version: string; uiResourceUri: string }
+export interface BackendInfo { apiVersion: number; version: string; uiResourceUri: string; filePicker: { supported: boolean; reason?: string } }
 export async function connectBackend(bridge: ToolBridge, signal?: AbortSignal): Promise<BackendInfo> {
   let result: ToolResult;
   try {
@@ -32,7 +32,11 @@ export async function connectBackend(bridge: ToolBridge, signal?: AbortSignal): 
   if (data.apiVersion !== CAD_API_VERSION || data.documentTransport !== 'descriptor') {
     throw new CadBackendError('The CAD interface and runtime are incompatible. Reconnect the CAD plugin or restart Codex to load the installed version.', 'API_VERSION_UNSUPPORTED');
   }
-  return { apiVersion: CAD_API_VERSION, version: typeof data.serverVersion === 'string' ? data.serverVersion : 'unknown', uiResourceUri: typeof data.uiResourceUri === 'string' ? data.uiResourceUri : 'unknown' };
+  const picker = data.filePicker as { supported?: unknown; reason?: unknown } | undefined;
+  const filePicker = picker?.supported === true ? { supported: true } : {
+    supported: false, reason: typeof picker?.reason === 'string' ? picker.reason : 'Reconnect the CAD plugin to enable the native file picker.',
+  };
+  return { apiVersion: CAD_API_VERSION, version: typeof data.serverVersion === 'string' ? data.serverVersion : 'unknown', uiResourceUri: typeof data.uiResourceUri === 'string' ? data.uiResourceUri : 'unknown', filePicker };
 }
 export const CAD_ORIGIN = 'http://cad.local';
 export function encodeBytes(bytes: Uint8Array): string {

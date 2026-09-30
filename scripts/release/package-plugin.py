@@ -4,12 +4,14 @@
 The normal archive resolves cadgen[mcp] from the matching published version. The
 local-review archive contains the very wheel passed here. Portable MCP metadata
 uses the Agent Plugins PLUGIN_ROOT placeholder; Codex's native compatibility
-metadata resolves the wheel relative to the installed plugin root.
+metadata resolves the wheel relative to the installed plugin root. Its wheel
+directory includes the wheel's SHA-256 so a rebuilt wheel changes the launcher.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -80,6 +82,8 @@ def main() -> None:
     with zipfile.ZipFile(wheel) as archive:
         if f"cadgen-{version}.dist-info/METADATA" not in archive.namelist():
             parser.error("wheel metadata does not match VERSION")
+    wheel_bytes = wheel.read_bytes()
+    wheel_member = f"runtime/sha256-{hashlib.sha256(wheel_bytes).hexdigest()}/{wheel.name}"
 
     members = read_plugin_files()
     mcp = json.loads(members["mcp.json"])
@@ -99,17 +103,17 @@ def main() -> None:
     local_members = dict(members)
     local_mcp = json.loads(local_members["mcp.json"])
     local_mcp["mcpServers"]["cad_viewer"]["args"][2] = (
-        f"${{PLUGIN_ROOT}}/runtime/{wheel.name}[mcp]"
+        f"${{PLUGIN_ROOT}}/{wheel_member}[mcp]"
     )
     local_members["mcp.json"] = (json.dumps(local_mcp, indent=2) + "\n").encode("utf-8")
     local_native_mcp = json.loads(local_members[".mcp.json"])
     local_native_mcp["mcpServers"]["cad_viewer"]["args"][2] = (
-        f"./runtime/{wheel.name}[mcp]"
+        f"./{wheel_member}[mcp]"
     )
     local_members[".mcp.json"] = (
         json.dumps(local_native_mcp, indent=2) + "\n"
     ).encode("utf-8")
-    local_members[f"runtime/{wheel.name}"] = wheel.read_bytes()
+    local_members[wheel_member] = wheel_bytes
     local = args.out_dir / f"cad-{version}-plugin-local-review.zip"
     write_zip(local, local_members)
     print(f"Packaged {normal} and {local}")

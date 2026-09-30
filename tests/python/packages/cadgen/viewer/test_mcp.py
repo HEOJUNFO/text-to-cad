@@ -1,6 +1,7 @@
 """MCP protocol and shared-viewer contract, with tiny test-owned documents."""
 from __future__ import annotations
 
+import asyncio
 import base64
 from contextlib import closing
 import hashlib
@@ -447,6 +448,74 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(invalid.structuredContent["error"]["code"], "INVALID_DOCUMENT")
             history = await client.call_tool("cad_library", {"apiVersion": 2})
             self.assertEqual(history.structuredContent["error"]["code"], "HISTORY_UNAVAILABLE")
+
+    async def test_native_picker_returns_document_cancel_and_actionable_error(self):
+        from cadgen.mcp.picker import PickerError
+        file = self.root / "picked.stl"
+        file.write_bytes(b"solid picked")
+        server = create_server(ui_path=self.ui)
+        async with create_connected_server_and_client_session(server) as client:
+            tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+            self.assertEqual(tools["cad_pick_file"].meta["ui"]["visibility"], ["app"])
+            with mock.patch("cadgen.mcp.server.picker_capability", return_value={"supported": True}):
+                handshake = await client.call_tool("cad_handshake", {"apiVersion": 2})
+                self.assertTrue(handshake.structuredContent["filePicker"]["supported"])
+            with mock.patch("cadgen.mcp.server.FilePicker.choose", new=mock.AsyncMock(return_value=str(file))):
+                selected = await client.call_tool("cad_pick_file", {"apiVersion": 2})
+            self.assertFalse(selected.isError)
+            self.assertFalse(selected.structuredContent["cancelled"])
+            self.assertEqual(selected.structuredContent["document"]["path"], str(file))
+            with mock.patch("cadgen.mcp.server.FilePicker.choose", new=mock.AsyncMock(return_value=None)):
+                cancelled = await client.call_tool("cad_pick_file", {"apiVersion": 2})
+            self.assertEqual(cancelled.structuredContent, {"apiVersion": 2, "cancelled": True, "document": None})
+            with mock.patch("cadgen.mcp.server.FilePicker.choose", new=mock.AsyncMock(side_effect=PickerError("FILE_PICKER_UNAVAILABLE", "Install a chooser"))):
+                failed = await client.call_tool("cad_pick_file", {"apiVersion": 2})
+            self.assertTrue(failed.isError)
+            self.assertEqual(failed.structuredContent["error"]["code"], "FILE_PICKER_UNAVAILABLE")
+            with mock.patch("cadgen.mcp.server.FilePicker.choose", new=mock.AsyncMock(return_value=str(self.root / "source.py"))):
+                invalid = await client.call_tool("cad_pick_file", {"apiVersion": 2})
+            self.assertEqual(invalid.structuredContent["error"]["code"], "INVALID_DOCUMENT")
+
+    async def test_picker_cancellation_timeout_and_single_active_dialog_reap_children(self):
+        from cadgen.mcp.picker import FilePicker, PickerError
+        picker = FilePicker()
+        spawned = asyncio.Event()
+        processes = []
+        create_process = asyncio.create_subprocess_exec
+        async def start(*args, **kwargs):
+            process = await create_process(*args, **kwargs)
+            processes.append(process)
+            spawned.set()
+            return process
+        # Test the real child lifecycle without opening an interactive test UI.
+        with mock.patch("cadgen.mcp.picker._command", return_value=([sys.executable, "-c", "import time; time.sleep(60)"], True)), mock.patch("cadgen.mcp.picker.asyncio.create_subprocess_exec", side_effect=start):
+            operation = asyncio.create_task(picker.choose())
+            await spawned.wait()
+            with self.assertRaises(PickerError) as busy:
+                await picker.choose()
+            self.assertEqual(busy.exception.code, "FILE_PICKER_BUSY")
+            operation.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await operation
+            self.assertIsNotNone(processes[0].returncode)
+            with mock.patch("cadgen.mcp.picker.PICKER_TIMEOUT_SECONDS", 0):
+                with self.assertRaises(PickerError) as timed_out:
+                    await picker.choose()
+                self.assertEqual(timed_out.exception.code, "FILE_PICKER_TIMEOUT")
+            self.assertIsNotNone(processes[1].returncode)
+        with mock.patch("cadgen.mcp.picker._command", side_effect=PickerError("FILE_PICKER_UNAVAILABLE", "No desktop")):
+            with self.assertRaises(PickerError) as unavailable:
+                await picker.choose()
+            self.assertEqual(unavailable.exception.code, "FILE_PICKER_UNAVAILABLE")
+        with mock.patch("cadgen.mcp.picker._command", return_value=(["missing-chooser"], True)), mock.patch("cadgen.mcp.picker.asyncio.create_subprocess_exec", new=mock.AsyncMock(side_effect=FileNotFoundError("missing executable"))):
+            with self.assertRaises(PickerError) as missing:
+                await picker.choose()
+            self.assertEqual(missing.exception.code, "FILE_PICKER_FAILED")
+        from cadgen.mcp.picker import picker_capability
+        with mock.patch("cadgen.mcp.picker.sys.platform", "linux"), mock.patch.dict(os.environ, {}, clear=True):
+            capability = picker_capability()
+            self.assertFalse(capability["supported"])
+            self.assertIn("graphical desktop", capability["reason"])
 
     async def test_real_stdio_protocol(self):
         params = StdioServerParameters(command=sys.executable, args=["-m", "cadgen.cli.mcp", "--ui", str(self.ui)],

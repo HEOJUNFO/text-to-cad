@@ -533,7 +533,9 @@ Where the built things live instead:
   the wheel installed from PyPI supplies its UI. A second local-review ZIP
   contains the exact built wheel. Portable metadata resolves it through
   `${PLUGIN_ROOT}`; Codex's native config resolves it relative to the installed
-  plugin root. Both configs can be tested before PyPI has that version. Both ZIPs are workflow
+  plugin root. The wheel lives under a SHA-256-named directory so rebuilding
+  the same version also changes the local-review launcher path. Both configs
+  can be tested before PyPI has that version. Both ZIPs are workflow
   artifacts; the PyPI-backed ZIP is also a GitHub Release asset.
 - **A checkout** builds its own: run `scripts/bundle/bundle.sh` once after
   cloning (and after pulling changes to `packages/core`); a missing runtime

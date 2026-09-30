@@ -11,50 +11,52 @@ import { Button } from '@text-to-cad/ui/primitives/button';
 import { createComposerContext } from './promptContext';
 import { createFileHandoff } from './handoff';
 import { createRecentLibrary } from './library';
-import { createNativeFiles } from './nativeFiles';
 import RecentHome from './RecentHome';
 
 const root = createRoot(document.getElementById('root')!, { onUncaughtError: error => showError(asError(error)) });
 const app = new McpApp({ name: 'CAD', version }, {}, { autoResize: false });
 const library = createRecentLibrary(app);
-const nativeFiles = createNativeFiles(app);
 let disposed = false;
 const lifetime = new AbortController();
 let backend: BackendInfo | undefined;
 let hostConnected = false;
 let recovering = false;
 let navigationGeneration = 0;
-let previewHome: OpenFile | undefined;
+let libraryHome: OpenFile | undefined;
 let client: CadClient | undefined;
 let composer: ReturnType<typeof createComposerContext> | undefined;
 let opened: OpenFile | undefined;
 let colorScheme: 'light' | 'dark' = 'light';
 let hostContext: Record<string, unknown> = {};
-async function openPath(path: string) {
+async function openPath(path?: string) {
   const generation = ++navigationGeneration;
-  if (nativeFiles.available()) { await nativeFiles.open(path); return; }
-  const result = await app.callServerTool({ name: 'cad_open', arguments: { apiVersion: CAD_API_VERSION, path } }, { signal: lifetime.signal, timeout: 30_000 });
+  const result = await app.callServerTool(path === undefined
+    ? { name: 'cad_pick_file', arguments: { apiVersion: CAD_API_VERSION } }
+    : { name: 'cad_open', arguments: { apiVersion: CAD_API_VERSION, path } },
+  { signal: lifetime.signal, timeout: path === undefined ? 150_000 : 30_000 });
   if (disposed || generation !== navigationGeneration) return;
-  const value = readOpenFile(toolData(result));
+  const data = toolData(result);
+  if (path === undefined && data.cancelled === true && data.document === null) return;
+  const value = readOpenFile(data);
   if (!value?.document) throw new Error('Could not open this model.');
-  previewHome = opened;
+  libraryHome = opened;
   open(value, true);
 }
 function paint() {
   if (!opened || disposed) return;
-  if (!opened.document) root.render(<RecentHome library={library} nativeOpenAvailable={nativeFiles.available()} onOpen={openPath} onOpenLink={async url => {
+  if (!opened.document) root.render(<RecentHome library={library} onChooseFile={backend?.filePicker.supported ? () => openPath() : undefined} filePickerUnavailableReason={backend?.filePicker.reason} onOpen={openPath} onOpenLink={async url => {
     const result = await app.openLink({ url }, { signal: lifetime.signal, timeout: 15_000 });
     if (result.isError) throw new Error('Codex could not open this link.');
   }} />);
   else if (client && composer) root.render(<>
     <Viewer key={opened.document.id} client={client} document={opened.document} promptContext={composer.port} colorScheme={colorScheme} library={library} />
-    {previewHome && <button className="cad-recent-back" onClick={() => { const home = previewHome!; previewHome = undefined; open(home); }}>Back to recent models</button>}
+    {libraryHome && <Button size="sm" variant="secondary" className="cad-recent-back" onClick={() => { const home = libraryHome!; libraryHome = undefined; open(home); }}>Back to models</Button>}
   </>);
 }
 function open(value: OpenFile, fromHome = false) {
   if (disposed) return;
   navigationGeneration++;
-  if (!fromHome) previewHome = undefined;
+  if (!fromHome) libraryHome = undefined;
   if (!value.document || opened?.document?.id !== value.document.id || !client) {
     client?.dispose(); composer?.dispose(); client = undefined; composer = undefined;
     if (value.document) {

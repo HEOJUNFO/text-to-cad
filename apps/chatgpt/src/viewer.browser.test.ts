@@ -19,7 +19,7 @@ const run = promisify(execFile);
 const repo = fileURLToPath(new URL('../../../', import.meta.url));
 const appDir = path.join(repo, 'apps/chatgpt');
 
-test('built UI views STEP revisions and provides persistent recents, real thumbnails, native opening and preview fallback', { timeout: 120_000 }, async t => {
+test('built UI views STEP revisions and provides persistent recents, real thumbnails, native picker results and in-page opening', { timeout: 120_000 }, async t => {
   const temporary = await realpath(await mkdtemp(path.join(tmpdir(), 'cad-mcp-browser-')));
   let closeBrowser = async () => {};
   let closeServer = () => {};
@@ -62,6 +62,8 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
   const catalogRequests: string[] = [];
   const catalogStates: unknown[] = [];
   const homeRequests: unknown[] = [];
+  let pickerResult: 'cancel' | 'error' | 'select' = 'cancel';
+  let pickerCalls = 0;
   let hostFile = source;
   const tool = async (params: Record<string, unknown>) => {
     calls.push(String(params.name));
@@ -89,7 +91,6 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     window.attachments = [];
     window.openedNative = null;
     bridge.setRequestHandler(z.object({method:z.literal('openai/files/open'),params:z.object({path:z.string()})}), async request => {
-      if (window.failNativeOpen) throw new Error('File opening unavailable');
       window.openedNative = request.params.path; return {};
     });
     window.openRelated = async () => {
@@ -134,7 +135,16 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
         const chunks = []; for await (const chunk of request) chunks.push(chunk);
         const params = JSON.parse(Buffer.concat(chunks).toString());
         homeRequests.push(params);
-        const result = await client.callTool(params);
+        // The OS dialog itself is covered by the backend adapter tests. A browser
+        // worker must never launch a dialog on the CI machine. Keep document
+        // validation, transport and rendering real after the picker returns.
+        const result = params.name === 'cad_pick_file' ? (++pickerCalls, pickerResult === 'select'
+          ? await client.callTool({ name: 'cad_open', arguments: { path: source, apiVersion: 2 } })
+          : { isError: pickerResult === 'error', structuredContent: pickerResult === 'error'
+            ? { error: { code: 'FILE_PICKER_FAILED', message: 'Could not open the system file picker.' } }
+            : { apiVersion: 2, cancelled: true, document: null } })
+          : await client.callTool(params);
+        if (params.name === 'cad_handshake') (result.structuredContent as any).filePicker = { supported: true };
         response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(result));
       }
       else if (request.url === '/tool') {
@@ -171,29 +181,20 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     if (process.env.CAD_EXTENSION_EMPTY_SCREENSHOT) await page.screenshot({ path: process.env.CAD_EXTENSION_EMPTY_SCREENSHOT });
     const openModel = viewer.getByRole('button', { name: 'Open Model', exact: true });
     await openModel.click();
-    const modelPath = viewer.getByRole('textbox', { name: 'Model path', exact: true });
-    await expect(modelPath).toBeFocused();
-    await modelPath.fill('fixture.step');
-    await modelPath.press('Enter');
-    await expect(viewer.getByRole('alert')).toHaveText('Enter the full absolute path to the model.');
-    assert.equal(await page.evaluate(() => (window as any).openedNative), null);
-    await modelPath.fill(path.join(documents, 'notes.txt'));
-    await modelPath.press('Enter');
-    await expect(viewer.getByRole('alert')).toHaveText('Choose a STEP, STL, GLB or 3MF model.');
-    await modelPath.press('Escape');
-    await expect(openModel).toBeFocused();
+    await expect.poll(() => pickerCalls).toBe(1);
+    await expect(openModel).toBeEnabled();
+    await expect(viewer.getByRole('textbox', { name: 'Model path', exact: true })).toHaveCount(0);
+    await expect(viewer.getByRole('heading', { name: 'Recent', exact: true })).toBeVisible();
+    pickerResult = 'error';
     await openModel.click();
-    await modelPath.fill(`"${source}"`);
-    if (process.env.CAD_EXTENSION_OPEN_MODEL_SCREENSHOT) await page.screenshot({ path: process.env.CAD_EXTENSION_OPEN_MODEL_SCREENSHOT });
-    await page.evaluate(() => { (window as any).failNativeOpen = true; });
-    await modelPath.press('Enter');
-    await expect(viewer.getByRole('alert')).toContainText('File opening unavailable');
-    await expect(modelPath).toHaveValue(`"${source}"`);
-    await page.evaluate(() => { (window as any).failNativeOpen = false; });
-    await modelPath.press('Enter');
-    await expect(modelPath).toHaveCount(0);
-    assert.equal(await page.evaluate(() => (window as any).openedNative), source);
-    assert.ok(homeRequests.every((request: any) => ['cad_handshake', 'cad_library'].includes(request.name)));
+    await expect(viewer.getByRole('alert')).toContainText('Could not open the system file picker.');
+    pickerResult = 'cancel';
+    await openModel.click();
+    await expect.poll(() => pickerCalls).toBe(3);
+    await expect(openModel).toBeEnabled();
+    await expect(viewer.getByRole('alert')).toHaveCount(0);
+    assert.equal(await page.evaluate(() => (window as any).openedNative), null);
+    assert.ok(homeRequests.every((request: any) => ['cad_handshake', 'cad_library', 'cad_pick_file'].includes(request.name)));
     await page.setViewportSize({ width: 1000, height: 760 });
     await page.goto(`http://127.0.0.1:${address.port}`);
     await viewer.getByRole('region', { name: 'Features', exact: true }).waitFor();
@@ -302,11 +303,14 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     await viewer.getByRole('searchbox', { name: 'Search models' }).fill('');
     await expect(viewer.getByRole('region', { name: 'Recent', exact: true }).getByRole('button', { name: 'Open related.step', exact: true })).toHaveCount(0);
     await viewer.getByRole('button', { name: 'Open related.step', exact: true }).click();
-    await page.waitForFunction(() => (window as any).openedNative?.endsWith('/related.step'));
+    await viewer.getByRole('region', { name: 'Features', exact: true }).waitFor();
+    await expect.poll(() => viewer.locator('body').evaluate(body => body.ownerDocument.title)).toBe('related.step · CAD');
+    assert.equal(await page.evaluate(() => (window as any).openedNative), null, 'home opens the actual renderer without creating a hidden host tab');
+    await viewer.getByRole('button', { name: 'Back to models', exact: true }).click();
+    await expect(viewer.getByRole('heading', { name: 'Recent', exact: true })).toBeVisible();
     assert.equal(await viewer.getByRole('tree').count(), 0);
     assert.equal(await viewer.locator('input[type="file"]').count(), 0);
     assert.equal(await viewer.getByRole('navigation').count(), 0);
-    assert.ok(homeRequests.every((request: any) => ['cad_handshake', 'cad_library'].includes(request.name)), 'home reads extension history without requesting a cwd catalog');
     await viewer.getByRole('searchbox', { name: 'Search models' }).fill('');
     if (process.env.CAD_EXTENSION_HOME_SCREENSHOT) await page.screenshot({ path: process.env.CAD_EXTENSION_HOME_SCREENSHOT });
     await page.evaluate(() => (window as any).setTheme('dark'));
@@ -320,18 +324,16 @@ test('built UI views STEP revisions and provides persistent recents, real thumbn
     await expect(viewer.getByRole('button', { name: 'Open later.step', exact: true })).toBeVisible({ timeout: 15_000 });
     await viewer.getByRole('button', { name: 'Remove later.step from recents', exact: true }).click();
     await expect(viewer.getByRole('button', { name: 'Open later.step', exact: true })).toHaveCount(0);
-    // Hosts lacking native file opening get an explicitly labeled local preview.
+    // Picker success uses the same renderer even when the host has no native tabs.
     await page.goto(`http://127.0.0.1:${address.port}/?home&fallback`);
-    await viewer.getByRole('button', { name: 'Preview related.step here', exact: true }).click();
-    await viewer.getByRole('region', { name: 'Features', exact: true }).waitFor();
-    await expect(viewer.getByRole('button', { name: 'Back to recent models', exact: true })).toBeVisible();
-    await viewer.getByRole('button', { name: 'Back to recent models', exact: true }).click();
-    await expect(viewer.getByRole('heading', { name: 'Recent', exact: true })).toBeVisible();
+    pickerResult = 'select';
     await openModel.click();
-    await modelPath.fill(source);
-    await modelPath.press('Enter');
     await viewer.getByRole('region', { name: 'Features', exact: true }).waitFor();
-    await expect(viewer.getByRole('button', { name: 'Back to recent models', exact: true })).toBeVisible();
+    await expect.poll(() => viewer.locator('body').evaluate(body => body.ownerDocument.title)).toBe('fixture.step · CAD');
+    await expect(viewer.getByRole('button', { name: 'Back to models', exact: true })).toBeVisible();
+    await viewer.getByRole('button', { name: 'Back to models', exact: true }).click();
+    await expect(viewer.getByRole('heading', { name: 'Recent', exact: true })).toBeVisible();
+    assert.equal(await page.evaluate(() => (window as any).openedNative), null);
     assert.deepEqual(errors, []);
   } catch (error) {
     throw new Error(`${String(error)}\nBrowser errors: ${errors.join('\n')}\nCatalog states: ${JSON.stringify(catalogStates.slice(-3))}\nMCP stderr: ${stderr.slice(-3000)}\n${await page.frameLocator('iframe').locator('body').innerText()}`, { cause: error });

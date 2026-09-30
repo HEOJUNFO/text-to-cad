@@ -157,15 +157,19 @@ def main() -> None:
             fail("production native MCP config has wrong runtime or timeout")
         if any((production_root / "runtime").rglob("*.whl")):
             fail("production plugin unexpectedly contains a wheel")
-        bundled = local_root / "runtime" / wheel.name
-        if not bundled.is_file() or bundled.read_bytes() != wheel.read_bytes():
+        wheel_bytes = wheel.read_bytes()
+        wheel_member = f"runtime/sha256-{hashlib.sha256(wheel_bytes).hexdigest()}/{wheel.name}"
+        bundled = local_root / wheel_member
+        if not bundled.is_file() or bundled.read_bytes() != wheel_bytes:
             fail("local-review plugin does not contain the exact verified wheel")
+        if [path for path in (local_root / "runtime").rglob("*.whl")] != [bundled]:
+            fail("local-review plugin contains an unexpected wheel")
         expected_local = required.copy()
-        expected_local[2] = f"${{PLUGIN_ROOT}}/runtime/{wheel.name}[mcp]"
+        expected_local[2] = f"${{PLUGIN_ROOT}}/{wheel_member}[mcp]"
         if local_portable != {"type": "stdio", "command": "uvx", "args": expected_local}:
             fail("local-review plugin does not resolve its packaged wheel")
         expected_native = expected_local.copy()
-        expected_native[2] = f"./runtime/{wheel.name}[mcp]"
+        expected_native[2] = f"./{wheel_member}[mcp]"
         if local_server != {"command": "uvx", "args": expected_native, "cwd": ".",
                             "startup_timeout_sec": 300}:
             fail("local-review native MCP config has wrong wheel path or timeout")

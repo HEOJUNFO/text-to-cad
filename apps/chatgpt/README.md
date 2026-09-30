@@ -23,18 +23,18 @@ refreshes when its window regains focus or becomes visible, and polls every five
 seconds while visible so changes from other CAD views appear automatically.
 Requests are coalesced; polling stops when hidden or unmounted.
 
-**Open Model** on the home page accepts a full absolute model path, including
-paths copied with surrounding quotes. The host exposes opening a known path,
-not a native file chooser. This home-only control uses the same opening flow
-as a recent model; it does not upload or copy the file. Validation and failed
-requests remain in the form for correction and retry.
+**Open Model** launches the operating system's file picker through the local
+`cad_pick_file` MCP tool. Cancelling leaves the library unchanged. The backend
+validates the selected file and returns its absolute document descriptor; no
+file upload or temporary copy is involved. The handshake advertises picker
+availability, and unsupported environments show a disabled action with a reason.
 
-A model requests a native file tab only when the host advertises
-`experimental["openai/files"]`, through `openai/files/open` with its saved absolute
-path. The acknowledgement means the host accepted the request, not that rendering
-finished. Hosts without that capability show an explicit **Preview here** action,
-which opens the saved absolute path using `cad_open(path)` and offers a return
-to the recent-model home. Failed opens remain visible and retryable.
+Both choosing a file and clicking a recent model display the shared viewer
+**in the current CAD page**, with **Back to models** to return to the library.
+The home does not hand off to `openai/files/open`: its acknowledgement could
+create a tab outside the visible page without confirming the model rendered.
+File tabs opened independently by Codex still use the registered file entrypoint.
+Failed opens remain visible and retryable.
 
 Opened STEP/STP, STL, GLB and 3MF files use the shared document-only `FileViewer`.
 There is no explorer, file picker, breadcrumbs or second filename bar. Model
@@ -98,8 +98,7 @@ action with a reason. Reference clipboard commands remain available in shared to
 `cad_library` supplies `list`, `pin`, `remove` and revision-checked `thumbnail`
 operations keyed by `documentId`. Recent entries expose one absolute `path`, with
 folder labels derived for display only. List and mutations are serialized, so late responses cannot overwrite
-newer pin/removal results. Library requests are cancelled on teardown. Native or
-preview opening keeps a generation guard so a late open cannot replace a newer
+newer pin/removal results. Library requests are cancelled on teardown. Opening from the library keeps a generation guard so a late open cannot replace a newer
 host selection. The library and immutable UI cache tests use isolated state dirs.
 
 Theme comes from the host context. View settings live in memory for the mounted
@@ -151,8 +150,8 @@ The global page's outer text heading is also host chrome. The full CAD wordmark
 belongs at the upper-left of this app's content. Setting the iframe document title
 helps browser accessibility but does not rename native Codex tabs. The host also
 owns composer placement and Context chip presentation.
-Use one handoff route: native file opening when available, or the `cad_open` inline
-fallback. Invoking both creates duplicate views. See the official
+The home opens documents within its own view. Agent-initiated file opens can use
+the native file entrypoint; also calling `cad_open` would create a second view. See the official
 [extension guide](https://developers.openai.com/plugins/build/extensions) and
 [plugin reference](https://developers.openai.com/plugins/reference).
 
@@ -160,7 +159,7 @@ fallback. Invoking both creates duplicate views. See the official
 
 | Standalone web control | Extension behavior |
 | --- | --- |
-| File selection | The recent-model home requests native file tabs when supported, with explicit local preview fallback. Per-file views have no explorer or picker. |
+| File selection | Open Model uses the native OS file picker. Recent models open inside the CAD page. Per-file views have no explorer or picker. |
 | URL navigation, filename bar and browser history | Omitted; shared tools stay over the viewport, with one Add To Prompt action below the viewport. |
 | Theme selector | Follows the host theme. |
 | Brand, version and community links | The library shows the full CAD logo plus version, GitHub and Discord links. Per-file views retain only document controls. |

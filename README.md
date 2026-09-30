@@ -137,10 +137,11 @@ The plugin launcher always uses its pinned release, including when the plugin
 is installed from a source checkout. For prepublication testing, the packaging
 job also produces `cad-<version>-plugin-local-review.zip`: it includes the exact
 built wheel and points the same MCP launcher at that wheel through the plugin
-root. That archive still downloads third-party dependencies on first use. A
-new release's normal plugin package becomes runnable after its wheel reaches
-PyPI. A browser-only ChatGPT connection uses a reachable MCP HTTP endpoint
-registered in developer mode; this local stdio configuration does not provide
+root. Its wheel path includes a content hash, so a rebuilt wheel of the same
+version has a distinct launcher path. That archive still downloads third-party
+dependencies on first use. A new release's normal plugin package becomes
+runnable after its wheel reaches PyPI. A browser-only ChatGPT connection uses a
+reachable MCP HTTP endpoint registered in developer mode; this local stdio configuration does not provide
 one. See [CONTRIBUTING.md](CONTRIBUTING.md#plugin-packaging-and-review) for the
 archive checks and public review requirements.
 
