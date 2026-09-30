@@ -1938,6 +1938,20 @@ the connection tests. Re-record after bumping an adapter's pinned version
 (below); never run the harness against this repository, use a scratch
 directory.
 
+The reducer (`src/shared/acp/reduce.ts`) treats a permission request that finds
+no turn open — the prompt ended or was cancelled and the adapter asked late — as
+history, not as a turn: it rides on the last agent turn, or on a closed turn of
+its own, and the session reads `waiting` until it is answered. Answering a
+request changes only the turn that holds it; every other turn keeps its
+identity, so a long transcript does not re-render. A `closed` or `error` status
+marks every card still pending `cancelled`, since whoever would take the answer
+is gone. In the renderer, `receiveState` (`state/acp.ts`) clears a session's
+`loadErrors` once the state it takes says the agent is up (`idle`, `running` or
+`waiting`). In main, an `initialize` failure goes through `describe`
+(`src/main/acp/connection.ts`) as `session/new`, `session/load` and
+`session/prompt` failures do: the method and the agent's message with a
+sign-in hint, or, when the adapter has exited, which agent stopped and when.
+
 Three things learned from the real adapters that the code now depends on:
 
 - Each adapter is pinned to an exact version in `src/main/agents/registry.ts`
