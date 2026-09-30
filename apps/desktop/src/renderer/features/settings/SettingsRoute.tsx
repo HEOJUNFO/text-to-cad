@@ -49,24 +49,25 @@ export function SettingsRoute() {
   }, []);
 
   // Which sections have a card that matched, so the nav can drop the ones that
-  // did not. Cards report; a section with no reports has nothing to show.
+  // did not, and how many rows each card matched, for the status line. Cards
+  // report; a section with no reports has nothing to show.
   //
   // Cards report by a `useId` that is stable for as long as they are mounted,
   // so a card that stops matching says so, and a card that unmounts withdraws
   // its match (`SettingCard`). The unprefixed entries written while no query
   // is active are not about a search at all, and `isSection` discards those.
-  const [matches, setMatches] = useState<Record<string, boolean>>({});
-  const reportCard = useCallback((id: string, matched: boolean) => {
-    setMatches((current) => (current[id] === matched ? current : { ...current, [id]: matched }));
+  const [matches, setMatches] = useState<Record<string, number>>({});
+  const reportCard = useCallback((id: string, rows: number) => {
+    setMatches((current) => (current[id] === rows ? current : { ...current, [id]: rows }));
   }, []);
 
   const matchedSections = useMemo(() => {
     const found = new Set<SettingsSection>();
-    for (const [id, matched] of Object.entries(matches)) {
+    for (const [id, rows] of Object.entries(matches)) {
       const candidate = id.split("|")[0];
       // Reports made while not searching are unprefixed; they are about a card
       // that is not part of this query and are not a section name either.
-      if (matched && isSection(candidate)) {
+      if (rows > 0 && isSection(candidate)) {
         found.add(candidate);
       }
     }
@@ -75,7 +76,11 @@ export function SettingsRoute() {
 
   // How many rows the query matched, for the status line: the page below is seven pages
   // stacked, and a count is the one thing that says whether the typing found anything.
-  const matchedRows = Object.entries(matches).filter(([id, matched]) => matched && isSection(id.split("|")[0]) && id.includes("|")).length;
+  // Rows, not cards: a card is a group of rows and "sound" finds three in one.
+  const matchedRows = Object.entries(matches).reduce(
+    (total, [id, rows]) => (isSection(id.split("|")[0]) && id.includes("|") ? total + rows : total),
+    0,
+  );
 
   const navSections = searching
     ? SETTINGS_SECTIONS.filter((candidate) => matchedSections.has(candidate))
@@ -188,12 +193,12 @@ function SearchedSection({
   section: SettingsSection;
   query: string;
   hidden: boolean;
-  reportCard: (id: string, matched: boolean) => void;
+  reportCard: (id: string, rows: number) => void;
 }) {
   // Cards report by their own `useId`, which is unique per tree; prefixing with
   // the section is what lets the route count matches per page.
   const report = useCallback(
-    (id: string, matched: boolean) => reportCard(`${section}|${id}`, matched),
+    (id: string, rows: number) => reportCard(`${section}|${id}`, rows),
     [reportCard, section],
   );
 
