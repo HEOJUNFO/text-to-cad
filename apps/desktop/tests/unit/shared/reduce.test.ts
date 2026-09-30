@@ -667,6 +667,20 @@ describe("reduce: turn endings settle what was still running", () => {
   });
 });
 
+describe("reduce: a settled call stays settled", () => {
+  it("does not let a late in_progress bring a failed call back to life", () => {
+    let state = started(connected());
+    state = update(state, { sessionUpdate: "tool_call", toolCallId: "r1", title: "sleep", kind: "execute", status: "in_progress" });
+    state = reduce(state, { type: "prompt/error", message: "boom", at });
+    expect(allToolCalls(state)[0]?.status).toBe("failed");
+    state = update(state, { sessionUpdate: "tool_call_update", toolCallId: "r1", status: "in_progress" });
+    expect(allToolCalls(state)[0]?.status).toBe("failed");
+    // The agent saying how it ended still lands.
+    state = update(state, { sessionUpdate: "tool_call_update", toolCallId: "r1", status: "completed" });
+    expect(allToolCalls(state)[0]?.status).toBe("completed");
+  });
+});
+
 describe("reduce: tool call updates across turns", () => {
   it("updates a closed turn's call in place instead of opening a phantom turn", () => {
     let state = started(connected());

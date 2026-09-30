@@ -818,8 +818,11 @@ function mergeToolCall(part: ToolCallPart, update: Record<string, unknown>): Too
   const delta = streamedOutput(update);
   const joined = delta === null ? part.stream : part.stream + delta;
   const truncated = joined.length > STREAM_TAIL;
-  // A call its turn settled as cancelled stays so unless the agent says it finished.
-  const settled = part.status === "cancelled" && (status === "pending" || status === "in_progress");
+  // A call its turn settled (cancelled or failed), or that finished, stays so unless the agent
+  // says how it ended: a late `in_progress` must not bring it back to life.
+  const settled =
+    (part.status === "cancelled" || part.status === "failed" || part.status === "completed") &&
+    (status === "pending" || status === "in_progress");
   return {
     ...part,
     kind: kind ?? part.kind,
