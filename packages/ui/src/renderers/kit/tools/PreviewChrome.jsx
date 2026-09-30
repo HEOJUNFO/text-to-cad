@@ -1,13 +1,18 @@
 import { useEffect, useState } from "react";
 import { ToolbarTooltipScope } from "@text-to-cad/ui/primitives/toolbar-button";
-import { VIEWPORT_INSET_PX, VIEWPORT_TOP_BAR_PX } from "../shell/viewportLayout.js";
+import { VIEWPORT_CUBE_SIZE, VIEWPORT_INSET_PX, VIEWPORT_TOP_BAR_PX } from "../shell/viewportLayout.js";
+import { useViewerMobile } from "../../../file-viewer/responsive.js";
 
 export const PREVIEW_CHROME_IDLE_MS = 1000;
 // A browser test on a slow software renderer stretches the idle (`window.__cadPreviewChromeIdleMs`)
 // so the chrome is not put away between two of its steps.
 const previewChromeIdleMs = () => Number(globalThis.window?.__cadPreviewChromeIdleMs) || PREVIEW_CHROME_IDLE_MS;
 
-const BAR_POSITION = Object.freeze({ top: `${VIEWPORT_INSET_PX}px`, right: `${VIEWPORT_INSET_PX}px`, height: VIEWPORT_TOP_BAR_PX });
+const BAR_POSITION = Object.freeze({
+  top: `calc(${VIEWPORT_CUBE_SIZE} + ${VIEWPORT_INSET_PX * 2}px)`,
+  right: VIEWPORT_INSET_PX, width: VIEWPORT_CUBE_SIZE, height: VIEWPORT_TOP_BAR_PX,
+});
+const MOBILE_BAR_POSITION = Object.freeze({ top: VIEWPORT_INSET_PX, right: VIEWPORT_INSET_PX, height: VIEWPORT_TOP_BAR_PX });
 
 /**
  * The viewer's chrome around preview mode. `children` — the tool strip and its stack, everything
@@ -27,6 +32,7 @@ const BAR_POSITION = Object.freeze({ top: `${VIEWPORT_INSET_PX}px`, right: `${VI
  *   open state to (Playback settings sits at the playbar's right end).
  */
 export default function PreviewChrome({ active, surface, hold = false, actions, playbar, children }) {
+  const mobile = useViewerMobile();
   const [visible, setVisible] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const held = menuOpen || hold;
@@ -76,8 +82,8 @@ export default function PreviewChrome({ active, surface, hold = false, actions, 
       data-visible={shown} inert={!shown}
       className="pointer-events-none absolute inset-0 z-30 transition-opacity duration-150"
       style={{ opacity: shown ? 1 : 0 }}>
-      <div data-preview-hover-hold="" data-viewport-actions="" style={BAR_POSITION}
-        className="pointer-events-auto absolute flex items-center justify-end gap-0.5">
+      <div data-preview-hover-hold="" data-viewport-actions="" style={mobile ? MOBILE_BAR_POSITION : BAR_POSITION}
+        className="pointer-events-auto absolute flex items-center justify-center gap-0.5">
         {actions?.(setMenuOpen)}
       </div>
       {active ? (typeof playbar === "function" ? playbar(setMenuOpen) : playbar) : null}

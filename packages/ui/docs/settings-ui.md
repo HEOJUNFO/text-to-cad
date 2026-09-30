@@ -45,15 +45,17 @@ settings or Preview controls.
   and Preview controls. With no actions, status or panels, no empty toolbar
   appears. A CAD file declares no renderer panel.
 - **Toolbar** at top-left, 8px in — the gap between it and the stack under it.
-  At top-right, 8px in and level with it, a bar of small transparent icon
-  buttons: **Display settings** (sliders) then **Preview** (a play icon). In
-  preview the same bar, in the same place, reads **Display settings**, then an
+  At top-right, 8px in, the view cube sits above a centred bar of small
+  transparent icon buttons: **Reset view**, **Display settings** (sliders),
+  then **Preview** (a play icon). Mobile omits the cube and keeps the bar at
+  the top inset. In preview the same bar, in the same place, keeps Reset and Display, then an
   X where Preview was; **Playback settings** is the cog at the playbar's right
   end, and its menu opens upward.
 - **Tool stack** beneath the toolbar: the panels of the tool in hand and of the
   effects a person keeps (see [The tool stack](#the-tool-stack)).
-- **View cube** at top-right, one 8px gap below the Display/Preview bar: enlarged face/edge/corner hit areas, neutral
-  hover and XYZ guides, and nothing around it (no arrows, Home or Reset). Mobile
+- **View cube** at top-right, 8px in, with one 8px gap before the action bar below
+  its 7rem area: enlarged face/edge/corner hit areas and neutral hover and XYZ
+  guides. Mobile
   and preview omit it.
 - **Bottom action** and **playbar** sit near bottom-centre, independent of the
   cube. One white **Add To Prompt** button captures the current view and adds
@@ -61,9 +63,16 @@ settings or Preview controls.
   host's prompt destination. It stays visible across tools and without a
   selection. Preview hides it completely.
 - **Model update status** sits at top-centre of the viewport, vertically centred
-  in the same 34px row as the toolbar and Display/Preview buttons in every host.
+  in the same 34px row as the top-left toolbar in every host.
   It is renderer chrome, independent of the host's navigation status slot.
   On mobile it is a tappable progress icon whose popover names what is loading.
+
+**Reset view** restores the opening orientation and fits the complete model,
+returns Position to its default pose, clears selection, measurements and ink,
+disables Clip and Explode, restores hidden parts, and returns to Select. It
+keeps appearance preferences. This is distinct from Zoom to fit, which retains
+the camera orientation. Renderer-specific tool state is reset through a callback
+to the shared shell; no host or file-format branch belongs in the button.
 
 ## Tools and lifecycle
 
@@ -463,7 +472,7 @@ host's navigation row, when present, and beside the host's column, which stays a
 and can still be opened and shut; the toolbar, the tool stack and its resize
 handles, joint handles, cube, bottom action and context menu are gone. It starts
 orbiting, unless the file's Playback settings turned its orbit off. Its top-right bar is the tools view's bar in the same place:
-**Display settings** and an X ("Exit preview") where Preview was. **Playback
+**Reset view**, **Display settings** and an X ("Exit preview") where Preview was. **Playback
 settings** (a cog; `PlaybackMenu`) ends the playbar under the model and opens
 upward. It holds, for a file with routines, **Animation** — the Routine (with more than one), Speed, Loop and
 Autoplay — then **Orbit**: on or off, and its speed. Under the model, an
@@ -527,7 +536,7 @@ pressed in while focus is on the page. Editable targets keep their own keys.
 Every hint is a `TooltipHint`: compact text, one surface and arrow, a 400ms
 delay. No native `title` anywhere in chrome. Prefer one or two words; show a
 full technical name only when it is truncated (`overflowOnly`). The top-right
-bar's buttons are hinted by name (Display settings, Preview, Playback settings);
+bar's buttons are hinted by name (Reset view, Display settings, Preview, Playback settings);
 there is no hint on Exit, X, the transport, drawing tools or labelled text buttons. A
 disabled, selected or expanded control has none; pressing or leaving cancels a
 pending one. A hint appears on focus only for keyboard navigation (a Tab), never

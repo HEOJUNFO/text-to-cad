@@ -302,6 +302,25 @@ test('a file opens framed at 100% of its own ruler: the open fit is the fit, wha
   await page.evaluate(() => window.cadHarness.a.controller.resetCamera());
   const recovered = await settleInk(ink => ink > 0.05, 'Zoom to Fit frames the plate after panning away');
   assert.ok(recovered > lost * 5);
+  const fitted = await page.evaluate(() => window.__cadCamera());
+  assert.ok(Math.hypot(fitted.position[0] - fitted.target[0], fitted.position[1] - fitted.target[1]) / Math.abs(fitted.position[2] - fitted.target[2]) < 0.001,
+    'Zoom to fit retains the top-view orientation');
+  await pane.getByRole('button', { name: 'Reset view', exact: true }).click();
+  const defaultDirection = new THREE.Vector3(...DEFAULT_VIEW_DIRECTION).normalize().toArray();
+  await page.waitForFunction(expectedDirection => {
+    const camera = window.__cadCamera();
+    const delta = camera.position.map((value, index) => value - camera.target[index]);
+    const length = Math.hypot(...delta);
+    return delta.every((value, index) => Math.abs(value / length - expectedDirection[index]) < 1e-5)
+      && Math.abs(camera.zoomPercent - 100) < 0.01;
+  }, defaultDirection);
+  const reset = await page.evaluate(() => window.__cadCamera());
+  assert.ok(Math.abs(reset.halfHeight - opened.halfHeight) / opened.halfHeight < 0.01,
+    'Reset restores the opening orientation and fitted zoom');
+  await pane.getByRole('button', { name: 'Preview', exact: true }).click();
+  await pane.getByRole('button', { name: 'Exit preview', exact: true }).waitFor();
+  await pane.getByRole('button', { name: 'Reset view', exact: true }).click();
+  await pane.getByRole('button', { name: 'Preview', exact: true }).waitFor();
   assert.deepEqual(errors, []);
 });
 
@@ -437,8 +456,10 @@ test('a renderer says more about its load than a download: finding the file, edi
   const topActions = pane.locator('[data-viewport-actions]');
   const actionsBox = await topActions.boundingBox();
   const cubeBox = await pane.getByLabel('View cube', { exact: true }).boundingBox();
-  assert.ok(cubeBox.y >= actionsBox.y + actionsBox.height && cubeBox.y < canvas.y + 100,
-    'the view cube occupies the top-right corner below the action buttons');
+  assert.ok(cubeBox.y < canvas.y + 16 && actionsBox.y >= cubeBox.y + cubeBox.height,
+    'the view cube occupies the top-right corner above the action buttons');
+  assert.ok(Math.abs(cubeBox.x + cubeBox.width / 2 - actionsBox.x - actionsBox.width / 2) < 1,
+    'the buttons are centred underneath the cube');
   assert.ok(cubeBox.x + cubeBox.width > canvas.x + canvas.width - 20,
     'the view cube stays against the right edge');
 
@@ -467,8 +488,6 @@ test('a renderer says more about its load than a download: finding the file, edi
   const updateBox = await updating.boundingBox();
   const toolsBox = await pane.getByRole('group', { name: 'Interaction tools' }).boundingBox();
   const middleY = box => box.y + box.height / 2;
-  assert.ok(Math.abs(middleY(updateBox) - middleY(actionsBox)) < 1,
-    'model update status is vertically centred with Display and Preview');
   assert.ok(Math.abs(middleY(updateBox) - middleY(toolsBox)) < 1,
     `model update status is vertically centred with the tool strip: ${JSON.stringify({ updateBox, toolsBox, actionsBox })}`);
   assert.equal(await pane.locator('[data-file-navigation-status] [data-view-update-status]').count(), 0,

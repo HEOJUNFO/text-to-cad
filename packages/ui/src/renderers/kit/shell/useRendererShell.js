@@ -152,6 +152,7 @@ const EMPTY = Object.freeze({});
  *   previewing, when the renderer holds that state itself: a renderer that must answer "is what is on screen
  *   the document I asked for" before this hook runs — a live preview deciding whether its own result has
  *   landed (`presentationIsPending` with `shellPresentationKey(modelKey, revisionKey)`). Omitted: the shell holds it.
+ * @param {() => void} [options.onResetView] Reset renderer-owned inspection state and pose before fitting.
  * @param {string} [options.sceneScaleMode]
  */
 export function useRendererShell({
@@ -160,7 +161,7 @@ export function useRendererShell({
   animation = null, live = EMPTY, promptReferences = null, promptContext = createViewPromptContext,
   escape = EMPTY, rendererState = null,
   onCameraSettled = null, preserveInteractionPixelRatio = false, runtimeLifecycle = null,
-  onRuntimeAlert = null, presentationReport = null,
+  onRuntimeAlert = null, presentationReport = null, onResetView = null,
   sceneScaleMode = VIEWER_SCENE_SCALE.CAD
 }) {
   const host = useViewerHost();
@@ -331,6 +332,27 @@ export function useRendererShell({
   const selectDefaultTool = useCallback(() => setToolMode(toolModes ? toolModes.defaultMode : ""), [toolModes, setToolMode]);
   const drawing = useDrawingSession(drawToolActive, CAD_DRAWING_DEFAULTS);
 
+  const resetRendererRef = useRef(onResetView);
+  resetRendererRef.current = onResetView;
+  const [resetGeneration, setResetGeneration] = useState(0);
+  const resetView = useCallback(() => {
+    try {
+      resetRendererRef.current?.();
+      drawing.clear();
+      setPreviewing(false);
+      selectDefaultTool();
+      viewSettingsStore.resetTools();
+      setResetGeneration(value => value + 1);
+    } catch (error) { reportActionError(error); }
+  }, [drawing.clear, setPreviewing, selectDefaultTool, viewSettingsStore, reportActionError]);
+  useLayoutEffect(() => {
+    if (!resetGeneration) return;
+    // Child viewport layout effects first restore Preview's saved camera and
+    // adopt the renderer's reset scene; now fit that committed state once.
+    if (!viewerRef.current?.resetView()) reportActionError(new Error("The viewer is not ready to reset."));
+    scheduleSessionSave();
+  }, [resetGeneration]);
+
   // ---- prompt snapshots, clipboard ------------------------------------------
   const showPromptResult = useCallback((result) => reportActionError(promptDeliveryError(result)), [reportActionError]);
   const deliverPrompt = useCallback((context) => {
@@ -480,7 +502,7 @@ export function useRendererShell({
 
   return {
     // Renderer-facing.
-    toolMode, selectTool, selectDefaultTool, tools, idle, previewing, setPreviewing,
+    toolMode, selectTool, selectDefaultTool, resetView, tools, idle, previewing, setPreviewing,
     // Preview's Playback settings, the file's own: orbit and its speed, Autoplay, and the routine's chosen speed and loop.
     autoplay, setAutoplay, playback, setPlayback,
     // Deliver a prompt context through the host, reporting a failure as the viewport's alert.

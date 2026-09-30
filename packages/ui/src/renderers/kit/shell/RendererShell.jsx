@@ -1,6 +1,6 @@
 import { VIEWPORT_BOTTOM_CENTER, VIEWPORT_INSET_PX, VIEWPORT_TOP_BAR_PX } from "./viewportLayout.js";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Play, Pause, X } from "lucide-react";
+import { Play, Pause, RotateCcw, X } from "lucide-react";
 import { ToolbarButton } from "@text-to-cad/ui/primitives/toolbar-button";
 import PreviewChrome from "../tools/PreviewChrome.jsx";
 import { useViewerMobile } from "../../../file-viewer/responsive.js";
@@ -224,6 +224,9 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
                   pause), with Playback settings' cog at its right end. */}
               <PreviewChrome active={previewing} surface={frame.hostElement} hold={displayOpen}
                 actions={() => <>
+                  <ToolbarButton label="Reset view" className={BAR_BUTTON_CLASS} disabled={shell.idle} onClick={shell.resetView}>
+                    <RotateCcw className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
+                  </ToolbarButton>
                   <DisplayPopover open={displayOpen} onOpenChange={setDisplayOpen} disabled={shell.idle}>{frame.display}</DisplayPopover>
                   {previewing
                     ? <ToolbarButton key="exit" tooltip={false} label="Exit preview" className={BAR_BUTTON_CLASS} onClick={leavePreview}>

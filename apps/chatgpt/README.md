@@ -102,7 +102,12 @@ newer pin/removal results. Library requests are cancelled on teardown. Opening f
 host selection. The library and immutable UI cache tests use isolated state dirs.
 
 Theme comes from the host context. View settings live in memory for the mounted
-app instance. Document changes dispose the previous document service and prompt
+app instance. The global page and a file opened in a conversation mount the same
+`App` and shared FileViewer; they do not use different renderers or control styles.
+Each mount owns its camera and tool state, and framing responds to its viewport
+size. Codex supplies the surrounding page heading, file chrome and conversation
+tabs. Add To Prompt updates composer context; it does not submit a message or
+create a conversation tab. Document changes dispose the previous document service and prompt
 port; host teardown and pagehide release the viewer and workers.
 
 ## Build and validation
