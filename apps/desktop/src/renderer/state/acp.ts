@@ -305,11 +305,14 @@ export const useAcp = create<AcpState>((set, get) => ({
     await window.textToCad.sessions.close({ id: sessionId });
     // Kept, marked closed: the turns and the plan stay on screen under the Reconnect bar, the way
     // `ensureLoaded` expects a hand-disconnected session to be held. Leaving it lets it go.
+    // And the setup note goes: the setup is moot once the adapter is gone, and the note's own
+    // Reconnect would sit beside the bar's.
     set((current) => {
+      const setupNotes = sessionId in current.setupNotes ? withoutError(current.setupNotes, sessionId) : current.setupNotes;
       const held = current.sessions[sessionId];
-      if (!held || held.status === "closed") return current;
+      if (!held || held.status === "closed") return setupNotes === current.setupNotes ? current : { setupNotes };
       const closed = reduce(held, { type: "status", status: "closed", error: null, at: Date.now() });
-      return { sessions: { ...current.sessions, [sessionId]: closed } };
+      return { sessions: { ...current.sessions, [sessionId]: closed }, setupNotes };
     });
   },
 

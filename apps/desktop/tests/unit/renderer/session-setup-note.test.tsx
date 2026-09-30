@@ -97,4 +97,15 @@ describe("the note a failed setup leaves", () => {
     await user.click(screen.getByRole("button", { name: "Retry setup" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Setting it up again failed"));
   });
+
+  it("goes when the session is disconnected by hand, leaving one Reconnect", async () => {
+    render(<SessionView session={SESSION} />);
+    emitNote(NOTE);
+    expect(screen.getByRole("alert")).toHaveTextContent(NOTE);
+    await act(() => useAcp.getState().close("s1"));
+    expect(close).toHaveBeenCalledWith({ id: "s1" });
+    expect(useAcp.getState().setupNotes).toEqual({});
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getAllByRole("button", { name: /Reconnect|Retry setup/ })).toHaveLength(1);
+  });
 });
