@@ -147,7 +147,7 @@ export const ipcContract = defineIpc({
      * of, by field — a branch prefix git refuses, written before the check
      * existed — so the page that shows the field can say so.
      */
-    fallbacks: invoke(z.void(), z.object({ branchPrefix: z.string().optional() })),
+    fallbacks: invoke(z.void(), z.record(z.string(), z.string())),
   },
 
   window: {

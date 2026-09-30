@@ -19,6 +19,7 @@ vi.mock("@main/db/index", () => ({
 }));
 
 import { settings } from "@main/db/repositories";
+import { defaultSettings } from "@shared/types";
 
 afterEach(() => {
   rows.clear();
@@ -41,4 +42,16 @@ it("reads a refused stored prefix as the default, logs it once, and keeps it unt
   settings.set({ branchPrefix: "me/" });
   expect(settings.fallbacks()).toEqual({});
   expect(settings.get().branchPrefix).toBe("me/");
+});
+
+it("reads one unparsable field as its own default without throwing, and lists it", () => {
+  rows.set("sidebar", JSON.stringify({ status: "bogus" }));
+  rows.set("theme", JSON.stringify("dark"));
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+
+  const read = settings.get();
+  expect(read.sidebar).toEqual(defaultSettings().sidebar);
+  expect(read.theme).toBe("dark");
+  expect(Object.keys(settings.fallbacks())).toEqual(["sidebar"]);
+  expect(() => settings.set({ theme: "light" })).not.toThrow();
 });

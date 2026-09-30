@@ -507,14 +507,42 @@ function writeRaw(values: Record<string, unknown>) {
   write();
 }
 
+const SETTINGS_FIELDS = SettingsSchema.shape as unknown as Record<string, z.ZodType>;
+
 /**
- * Stored values the read refused and answered with the default in place of
- * (`.catch` in `SettingsSchema`): today a branch prefix git refuses, written
- * before the check existed.
+ * Stored values the read refused and answered with the default in place of,
+ * by field name: a branch prefix git refuses (`.catch` in `SettingsSchema`),
+ * or any other field whose stored JSON no longer parses. The value is the
+ * stored text, so the page that says so can quote it.
  */
-function fallbacksOf(raw: Record<string, unknown>): { branchPrefix?: string } {
-  const stored = raw.branchPrefix;
-  return stored !== undefined && !BranchPrefixSchema.safeParse(stored).success ? { branchPrefix: String(stored) } : {};
+function fallbacksOf(raw: Record<string, unknown>): Record<string, string> {
+  const refused: Record<string, string> = {};
+  for (const [key, field] of Object.entries(SETTINGS_FIELDS)) {
+    const stored = raw[key];
+    if (stored === undefined) {
+      continue;
+    }
+    const accepted = key === "branchPrefix" ? BranchPrefixSchema.safeParse(stored).success : field.safeParse(stored).success;
+    if (!accepted) {
+      refused[key] = typeof stored === "string" ? stored : JSON.stringify(stored);
+    }
+  }
+  return refused;
+}
+
+/**
+ * The row, one field at a time. A field that no longer parses (an older or
+ * newer build's shape, a hand-edited value) takes its own default and leaves
+ * the rest alone: `settings.get` runs at boot for the theme, and one bad
+ * `sidebar` must not take every setting, and the window, down with it.
+ */
+function parseFields(raw: Record<string, unknown>): Settings {
+  const fields: Record<string, unknown> = {};
+  for (const [key, field] of Object.entries(SETTINGS_FIELDS)) {
+    const parsed = field.safeParse(raw[key]);
+    fields[key] = parsed.success ? parsed.data : field.parse(undefined);
+  }
+  return fields as Settings;
 }
 
 /** Each refused stored value is said once a run, not on every settings read. */
@@ -523,12 +551,17 @@ const loggedFallbacks = new Set<string>();
 export const settings = {
   get(): Settings {
     const raw = readRaw();
-    const { branchPrefix } = fallbacksOf(raw);
-    if (branchPrefix !== undefined && !loggedFallbacks.has(branchPrefix)) {
-      loggedFallbacks.add(branchPrefix);
-      console.warn(`[settings] the stored branch prefix “${branchPrefix}” is one git refuses; using the default until another is set`);
+    for (const [key, stored] of Object.entries(fallbacksOf(raw))) {
+      if (!loggedFallbacks.has(`${key}:${stored}`)) {
+        loggedFallbacks.add(`${key}:${stored}`);
+        console.warn(
+          key === "branchPrefix"
+            ? `[settings] the stored branch prefix “${stored}” is one git refuses; using the default until another is set`
+            : `[settings] the stored ${key} (${stored}) is not valid; using its default until it is set again`,
+        );
+      }
     }
-    return SettingsSchema.parse(raw);
+    return parseFields(raw);
   },
 
   /**
@@ -538,12 +571,12 @@ export const settings = {
    * stored value with its fallback without anyone having set it.
    */
   set(patch: Partial<Settings>): Settings {
-    const next = SettingsSchema.parse({ ...readRaw(), ...patch });
+    const next = parseFields({ ...readRaw(), ...patch });
     writeRaw(Object.fromEntries(Object.keys(patch).map((key) => [key, next[key as keyof Settings]])));
     return next;
   },
 
-  fallbacks(): { branchPrefix?: string } {
+  fallbacks(): Record<string, string> {
     return fallbacksOf(readRaw());
   },
 
