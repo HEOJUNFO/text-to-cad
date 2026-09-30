@@ -109,6 +109,16 @@ it("spawns one shell for a tab whose body unmounts and mounts again while create
   spawned(info(null));
 });
 
+it("labels a terminal the agent opened, and only that one", async () => {
+  terminal().attach = vi.fn(async () => ({ info: info(null), scrollback: "", seq: 0 }));
+  const { unmount } = renderTab("pty-old", true);
+  expect(await screen.findByText("agent")).toBeInTheDocument();
+  unmount();
+  renderTab("pty-old", false);
+  await waitFor(() => expect(terminals).toHaveLength(2));
+  expect(screen.queryByText("agent")).toBeNull();
+});
+
 it("releases the old pty id on Try again too", async () => {
   terminal().attach = vi.fn(async () => null);
   renderTab();

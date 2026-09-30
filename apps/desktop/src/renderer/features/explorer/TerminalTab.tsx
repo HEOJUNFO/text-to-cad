@@ -419,7 +419,7 @@ export function TerminalTab({
       <div className="min-h-0 flex-1 overflow-hidden px-2 pt-2" data-selectable data-terminal-body ref={hostRef} />
       <div className="flex h-6 shrink-0 items-center gap-2 border-t px-3 text-[11px] text-muted-foreground">
         <span className="truncate">{cwd ?? project.path}</span>
-        {readOnly ? <span className="shrink-0 rounded-sm bg-muted px-1">agent</span> : null}
+        {agent ? <span className="shrink-0 rounded-sm bg-muted px-1">agent</span> : null}
         <span className="flex-1" />
         {/* Said when it changes, since the key that changes it draws nothing else. */}
         <span className="shrink-0" role="status">{tabMoves ? "Tab moves focus" : ""}</span>

@@ -335,11 +335,15 @@ export const TerminalTabSchema = z.object({
    * runs in a worktree (§9) points its terminals at that instead.
    */
   cwd: z.string().nullable().default(null),
-  /** Agent-created ACP terminals are shown read-only with a label. */
+  /**
+   * A terminal that cannot be typed into (the widget disables stdin). Nothing sets it today: an
+   * agent's terminal is marked by `agent` below, and a person can type into it.
+   */
   readOnly: z.boolean().default(false),
   /**
    * Opened by the agent (`create_terminal`). Its shell gets the runtime
    * launchers on PATH, and a respawn after a relaunch must give it the same.
+   * The tab's footer labels it "agent".
    */
   agent: z.boolean().default(false),
 });
