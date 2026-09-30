@@ -2,7 +2,7 @@
  * The writes in `src/main/projects/git.ts` — commit and push — against real
  * repositories: what their failures say, and what they do with the remote.
  */
-import { mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import fsp, { mkdtemp, readFile, realpath, rm, stat, truncate, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -85,5 +85,37 @@ describe("a commit in flight at quit", () => {
       if (pid > 0) process.kill(pid, "SIGKILL");
       killTrackedChildren();
     }
+  });
+});
+
+describe("counting an untracked file", () => {
+  it("does not read a huge one whole on every status", async () => {
+    const root = await repository();
+    // 50 MB of nothing: a sparse file costs no disk, and a whole read costs 50 MB of memory.
+    const big = path.join(root, "part.step");
+    await truncate(big, 50 * 1024 * 1024).catch(async () => {
+      await writeFile(big, "");
+      await truncate(big, 50 * 1024 * 1024);
+    });
+    const text = path.join(root, "notes.txt");
+    await writeFile(text, "line\n".repeat(300_000));
+    const reads = vi.spyOn(fsp, "readFile");
+    try {
+      const status = await git.status(root);
+      const byPath = new Map(status.files.map((file) => [file.path, file]));
+
+      expect(reads.mock.calls.map(([file]) => String(file)).filter((file) => /part\.step$|notes\.txt$/.test(file))).toEqual([]);
+      expect(byPath.get("part.step")).toMatchObject({ binary: true });
+      expect(byPath.get("notes.txt")).toMatchObject({ insertions: 300_000, binary: false });
+    } finally {
+      reads.mockRestore();
+    }
+  });
+
+  it("refuses to load a file past the viewer's size into a diff editor", async () => {
+    const root = await repository();
+    await writeFile(path.join(root, "export.txt"), "row\n".repeat(1_500_000));
+
+    await expect(git.fileDiff(root, "export.txt")).rejects.toThrow(/too large/);
   });
 });

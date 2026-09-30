@@ -24,7 +24,7 @@ import { execa, type Options } from "execa";
 
 import { diffScopeFor, ReviewScopeSchema } from "../../shared/types";
 import { trackChild, type ChildKind, type Trackable } from "../children";
-import { climbsOut, resolveInRoot } from "../explorer/fs";
+import { climbsOut, MAX_TEXT_BYTES, resolveInRoot } from "../explorer/fs";
 
 /* -------------------------------------------------------------------------- */
 /* Types                                                                       */
@@ -558,10 +558,21 @@ async function workingTreeFiles(
  * count, and "binary" is the same NUL-byte test git itself uses.
  */
 async function countUntracked(root: string, filePath: string) {
+  const none = { insertions: 0, deletions: 0, binary: false };
   const absolute = await pathInRepository(root, filePath).catch(() => null);
-  const buffer = absolute ? await readWorkingBytes(absolute) : null;
+  const stat = absolute ? await fsp.lstat(absolute).catch(() => null) : null;
+  if (!absolute || !stat) {
+    return none;
+  }
+  // The status poll asks again every half second: a file is read whole only
+  // when it is small, and a STEP export of hundreds of megabytes is streamed
+  // once and remembered until it changes.
+  if (stat.isFile() && stat.size > SMALL_FILE_BYTES) {
+    return countLargeUntracked(absolute, stat);
+  }
+  const buffer = await readWorkingBytes(absolute);
   if (!buffer) {
-    return { insertions: 0, deletions: 0, binary: false };
+    return none;
   }
   const sample = buffer.subarray(0, Math.min(buffer.byteLength, 8000));
   if (sample.includes(0)) {
@@ -578,6 +589,67 @@ async function countUntracked(root: string, filePath: string) {
     lines += 1;
   }
   return { insertions: lines, deletions: 0, binary: false };
+}
+
+/** Untracked files up to this size are read whole to be counted. */
+const SMALL_FILE_BYTES = 1024 * 1024;
+/** git's own `core.bigFileThreshold`: past it git treats a file as binary and does not diff it. */
+const BIG_FILE_BYTES = 512 * 1024 * 1024;
+
+const largeCounts = new Map<string, { size: number; mtimeMs: number; counts: { insertions: number; deletions: number; binary: boolean } }>();
+
+/**
+ * Counts for an untracked file too big to read into memory: the NUL test on
+ * its first 8000 bytes, then its newlines counted a megabyte at a time.
+ * Remembered by size and mtime, so the next poll does not read it again.
+ */
+async function countLargeUntracked(absolute: string, stat: { size: number; mtimeMs: number }) {
+  const cached = largeCounts.get(absolute);
+  if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) {
+    return cached.counts;
+  }
+  let counts = { insertions: 0, deletions: 0, binary: stat.size > BIG_FILE_BYTES };
+  if (!counts.binary) {
+    const handle = await fsp.open(absolute, "r").catch(() => null);
+    if (!handle) {
+      return counts;
+    }
+    try {
+      const chunk = Buffer.allocUnsafe(SMALL_FILE_BYTES);
+      let lines = 0;
+      let last = 0x0a;
+      let first = true;
+      for (;;) {
+        const { bytesRead } = await handle.read(chunk, 0, chunk.byteLength, null);
+        if (bytesRead === 0) {
+          break;
+        }
+        if (first && chunk.subarray(0, Math.min(bytesRead, 8000)).includes(0)) {
+          counts = { insertions: 0, deletions: 0, binary: true };
+          break;
+        }
+        first = false;
+        for (let index = 0; index < bytesRead; index += 1) {
+          if (chunk[index] === 0x0a) {
+            lines += 1;
+          }
+        }
+        last = chunk[bytesRead - 1] ?? last;
+      }
+      if (!counts.binary) {
+        counts = { insertions: lines + (last === 0x0a ? 0 : 1), deletions: 0, binary: false };
+      }
+    } catch {
+      return counts;
+    } finally {
+      await handle.close().catch(() => undefined);
+    }
+  }
+  if (largeCounts.size >= 64) {
+    largeCounts.clear();
+  }
+  largeCounts.set(absolute, { size: stat.size, mtimeMs: stat.mtimeMs, counts });
+  return counts;
 }
 
 async function rangeFiles(
@@ -839,7 +911,12 @@ function scopeTip(scope: DiffScope): string {
   return scope.kind === "range" && scope.to ? scope.to : "HEAD";
 }
 
+/** A working-tree file as text, up to what the file tab's own viewer opens (`MAX_TEXT_BYTES`). */
 async function readWorkingCopy(absolute: string): Promise<string> {
+  const stat = await fsp.lstat(absolute).catch(() => null);
+  if (stat?.isFile() && stat.size > MAX_TEXT_BYTES) {
+    throw new GitError(`that file is ${(stat.size / 1024 / 1024).toFixed(1)} MB, too large to show a diff of here`);
+  }
   return (await readWorkingBytes(absolute))?.toString("utf8") ?? "";
 }
 
