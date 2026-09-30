@@ -25,7 +25,7 @@ import {
   sessionStates,
   settings,
 } from "../db/repositories";
-import { emptyTreeIfUnborn, head, isUnder, samePath } from "../projects/git";
+import { emptyTreeIfUnborn, head, sessionsUsing } from "../projects/git";
 import { releaseWorkspace } from "../projects/workspace";
 import { sessionWorkspace, sessionWorkspaceSettled } from "./git";
 import { browserService } from "../browser/service";
@@ -120,8 +120,7 @@ export const sessionManager: SessionManager = new SessionManager({
 
   releaseWorkspace: async (session, options) => {
     const worktree = session.worktreePath;
-    if (worktree && sessions.list().some(other => other.id !== session.id &&
-        [other.cwd, other.worktreePath].some(root => root && (samePath(root, worktree) || isUnder(worktree, root))))) {
+    if (worktree && sessionsUsing(sessions.list().filter(other => other.id !== session.id), worktree).length > 0) {
       return { removed: false, reason: "another session still uses it" };
     }
     return releaseWorkspace(session, settings.get(), options);

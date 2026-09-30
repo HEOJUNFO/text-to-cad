@@ -1757,6 +1757,22 @@ export async function lastWrittenAt(worktreePath: string): Promise<number | null
   );
 }
 
+/**
+ * The sessions that are using `worktree`: not archived, and running in it or
+ * in a folder inside it, or recorded as its worktree. The one answer behind
+ * Settings' "open sessions" count, Delete's refusal, the keep-limit sweep and
+ * a session's release of its own worktree — an archived thread is not open,
+ * and a thread in a subfolder is as much in the worktree as one at its root.
+ */
+export function sessionsUsing<T extends { cwd: string; worktreePath?: string | undefined; archived: boolean }>(
+  all: readonly T[],
+  worktree: string,
+): T[] {
+  return all.filter((session) =>
+    !session.archived &&
+    [session.cwd, session.worktreePath].some((root) => root && (samePath(root, worktree) || isUnder(worktree, root))));
+}
+
 /** True when `child` is inside `parent` — the test that keeps the sweep in its own root. */
 export function isUnder(parent: string, child: string): boolean {
   const relative = path.relative(path.normalize(parent), path.normalize(child));

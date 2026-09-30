@@ -260,3 +260,29 @@ test("a push that failed after its commit is retried by asking again, without 'n
   expect((await run("git", ["rev-parse", "main"], { cwd: remote })).stdout.trim()).toBe(committed);
   expect(await gitHandlers.git.status({ projectId: project.id })).toMatchObject({ ahead: 0 });
 });
+
+test("an archived thread does not hold a worktree, and one in a subfolder does", async () => {
+  const project = await repository("a", path.join(base, "robot-arm"));
+  const created = await git.createWorktree({
+    repoPath: project.path,
+    parentDir: projectWorktreeDir({ worktreeRoot: state.worktreeRoot }, project),
+    name: "wrist",
+  });
+  const listed = async () => (await gitHandlers.git.worktrees({ projectId: project.id })).map((row) => [row.openSessions, row.dirty]);
+
+  // Archived: not open, so Delete is on offer and main agrees.
+  state.sessions.push({ id: "old", projectId: project.id, cwd: created.path, worktreePath: created.path, archived: true });
+  expect(await listed()).toEqual([[0, false]]);
+
+  // In a folder inside it: open in the list, and refused in main.
+  await mkdir(path.join(created.path, "parts"));
+  state.sessions.push({ id: "deep", projectId: project.id, cwd: path.join(created.path, "parts"), archived: false });
+  expect(await listed()).toEqual([[1, false]]);
+  await expect(gitHandlers.git.removeWorktree({ projectId: project.id, path: created.path })).rejects.toMatchObject({
+    message: "1 session is still using that worktree",
+  });
+
+  state.sessions = state.sessions.filter((row) => row.id === "old");
+  await gitHandlers.git.removeWorktree({ projectId: project.id, path: created.path });
+  expect(await exists(created.path)).toBe(false);
+});
