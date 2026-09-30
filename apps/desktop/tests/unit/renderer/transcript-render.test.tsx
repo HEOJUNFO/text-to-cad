@@ -52,6 +52,27 @@ beforeEach(() => {
   drawn.length = 0;
 });
 
+describe("the transcript's live region", () => {
+  it("is busy while a turn streams and not once it has ended", () => {
+    const open: SessionState = {
+      ...initialSessionState("s1", "codex"),
+      status: "running",
+      turns: [agent("t1", [{ type: "text", text: "Now" }], null)],
+    };
+    const { container, rerender } = render(view(open));
+    expect(container.querySelector('[role="log"]')?.getAttribute("aria-busy")).toBe("true");
+    rerender(view({ ...open, status: "idle", turns: [agent("t1", [{ type: "text", text: "Now" }], 2)] }));
+    expect(container.querySelector('[role="log"]')?.getAttribute("aria-busy")).not.toBe("true");
+  });
+
+  it("is not busy while the turn waits on a permission answer", () => {
+    const { container } = render(
+      view({ ...initialSessionState("s1", "codex"), status: "waiting", turns: [agent("t1", [], null)] }),
+    );
+    expect(container.querySelector('[role="log"]')?.getAttribute("aria-busy")).not.toBe("true");
+  });
+});
+
 describe("the transcript while the last turn streams", () => {
   it("draws the streaming turn again and leaves the earlier ones alone", () => {
     const first = agent("t1", [{ type: "text", text: "Done." }, call("e1", { kind: "edit" })], 2);

@@ -692,7 +692,8 @@ against the project and refuses anything else (`src/main/ipc/explorer.ts`).
 The session's own header menu, the `…` beside its title
 (`features/session/SessionHeader.tsx`), is Rename, Copy path, Reveal in
 Finder, then **Disconnect agent** — main closes the adapter and the
-transcript stays on screen, marked closed, under a Reconnect bar — or, for a
+transcript stays on screen, marked closed, under a Reconnect bar (a turn
+that was streaming ends there, its running tool calls cancelled) — or, for a
 session already disconnected, **Reconnect** in its place; then Archive and
 Delete.
 There are no project rename or delete actions: these
@@ -878,7 +879,10 @@ entries; pending captures are bounded to 16. Bundles accept at most
 128 parts. Attachments must be supported images or UTF-8 text, at most
 20 MiB each and 40 MiB together. Ordinary clipboard effects use the validated
 `clipboard` IPC branch for plain text and PNGs up to 16 MiB; the renderer never accesses
-Electron's native clipboard directly.
+Electron's native clipboard directly. A copy button on the page (the vendored
+components', Copy path, the terminal's selection) writes plain text with the web
+`navigator.clipboard.writeText`, which the app's permission handler allows as
+`clipboard-sanitized-write`.
 
 Incoming CAD selection and capture requests bind the project, tab, path and root
 at request time. Only that active document receives them; replacing or closing
@@ -2206,7 +2210,9 @@ A turn holding a pending permission request, in a tool call or a subagent, is
 always mounted together with every turn after it, and answering the request
 does not hand those turns back. The turns mounted above where the window began
 sit in an `aria-live="off"` container, so a screen reader does not announce old
-turns as news while a turn that arrives below is announced. Measured on
+turns as news while a turn that arrives below is announced. The log region is
+`aria-busy` while an agent turn streams (not while it waits on a permission
+answer), so the per-word streaming is not read token by token. Measured on
 a 40-turn session switched to seven times: the median switch went from 90
 to 45 ms and the transcript from about 1 900 nodes to about 580.
 `content-visibility: auto` was tried first and measured slightly worse — the

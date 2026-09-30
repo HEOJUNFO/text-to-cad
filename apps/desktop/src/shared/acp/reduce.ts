@@ -41,6 +41,10 @@
  *   - A tool call id is looked up across every turn: a late update (after a
  *     cancel, a background command) updates the row where it is, and an
  *     update for an unknown id never opens a turn when none is open.
+ *   - Content after its turn ended (a chunk or a call behind `prompt/end`)
+ *     rides on the last agent turn, or a closed one of its own; it never
+ *     opens a turn nothing would end. A replay, which has no `prompt/start`,
+ *     still opens its own.
  *   - A cancelled or failed turn settles what was still pending or running
  *     in it; an ordinary end does not (a background command can outlive it).
  */
@@ -130,10 +134,14 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
       );
       return {
         ...next,
+        // A turn that ends takes its unanswered permission requests with it, whatever the stop
+        // reason: main resolves them on a cancel, but an `end_turn` or a `refusal` with a request
+        // still open sends no resolve, and the card would stay clickable (and the transcript
+        // pulled down to it) with nobody to take the answer.
+        turns: cancelPendingCards(next.turns),
         status: "idle",
         lastTurnUsage: event.usage ?? next.lastTurnUsage,
         sessionUsage: event.usage ? addTurnUsage(next.sessionUsage, event.usage) : next.sessionUsage,
-        // A cancelled turn takes its unanswered permission requests with it.
         pendingPermissions: [],
       };
     }
@@ -143,8 +151,10 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
         ...parts,
         { type: "error", message: event.message },
       ]);
+      const closed = closeOpenTurn(withError, event.at, null, { tool: "failed", subagent: "failed" });
       return {
-        ...closeOpenTurn(withError, event.at, null, { tool: "failed", subagent: "failed" }),
+        ...closed,
+        turns: cancelPendingCards(closed.turns),
         status: "error",
         error: event.message,
         pendingPermissions: [],
@@ -166,11 +176,11 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
       // ended, or was cancelled, and the adapter asked late) must not open one
       // — nothing would ever end it, and the resolve below would call the
       // session running. It rides on the last turn, or on a closed one.
-      const next =
-        withSessionParts(state, request.acpSessionId, event.at, (parts) => [...parts, part], false);
+      const add = (parts: Part[]) => [...parts, part];
+      const next = withSessionParts(state, request.acpSessionId, event.at, add, false);
       if (next === state) {
         return {
-          ...withClosedParts(state, event.at, [part]),
+          ...withClosedParts(state, event.at, add),
           status: "waiting",
           pendingPermissions: [...state.pendingPermissions, request],
         };
@@ -214,20 +224,22 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
 
     case "status":
       if (event.status === "closed" || event.status === "error") {
-        // The adapter is gone, and with it whoever would take the answer:
-        // `retire` drops the connection's own resolve before it can be
-        // dispatched, so a card left pending here would stay answerable.
-        const turns = state.turns.map((turn) => {
-          const parts = mapPartsDeep(turn.parts, (part) =>
-            part.type === "permission_request" && part.outcome.state === "pending"
-              ? { ...part, outcome: { state: "cancelled" } }
-              : part,
-          );
-          return parts === turn.parts ? turn : { ...turn, parts };
-        });
+        // The adapter is gone, and with it whoever would take an answer or end a turn: `retire`
+        // drops the connection's own resolve before it can be dispatched, and a Disconnect
+        // mid-turn gets neither a `prompt/end` (the adapter is dead) nor a `prompt/error`
+        // (`prompt()` skips it while `closing`). So the open turn ends here, its unfinished work
+        // settled, and a card left pending would stay answerable.
+        const closed = closeOpenTurn(
+          state,
+          event.at,
+          event.status === "closed" && hasOpenAgentTurn(state) ? "cancelled" : null,
+          event.status === "closed"
+            ? { tool: "cancelled", subagent: "cancelled" }
+            : { tool: "failed", subagent: "failed" },
+        );
         return {
-          ...state,
-          turns: turns.every((turn, index) => turn === state.turns[index]) ? state.turns : turns,
+          ...closed,
+          turns: cancelPendingCards(closed.turns),
           pendingPermissions: [],
           status: event.status,
           error: event.error,
@@ -265,7 +277,7 @@ function applyUpdate(
       if (!part) {
         return state;
       }
-      return withUpdateTarget(state, acpSessionId, u, at, (parts) => appendChunk(parts, part));
+      return withUpdateOrLate(state, acpSessionId, u, at, (parts) => appendChunk(parts, part));
     }
 
     case "tool_call":
@@ -291,7 +303,7 @@ function applyUpdate(
           return state;
         }
       }
-      return withUpdateTarget(state, acpSessionId, u, at, (parts) => upsertToolCall(parts, id, u));
+      return withUpdateOrLate(state, acpSessionId, u, at, (parts) => upsertToolCall(parts, id, u));
     }
 
     case "plan": {
@@ -497,6 +509,19 @@ function settleParts(parts: Part[], settle: Settle): Part[] {
   });
 }
 
+/** Every permission card still pending, in any turn, marked cancelled; the same array back where none was. */
+function cancelPendingCards(turns: Turn[]): Turn[] {
+  const next = turns.map((turn) => {
+    const parts = mapPartsDeep(turn.parts, (part) =>
+      part.type === "permission_request" && part.outcome.state === "pending"
+        ? { ...part, outcome: { state: "cancelled" } }
+        : part,
+    );
+    return parts === turn.parts ? turn : { ...turn, parts };
+  });
+  return next.every((turn, index) => turn === turns[index]) ? turns : next;
+}
+
 /** How many updates, and how many bytes of them, are held for not-yet-spawned subagents; the oldest go first. */
 const PARKED_LIMIT = 200;
 /** In UTF-8 bytes, what the entries weigh on the wire. */
@@ -583,15 +608,15 @@ function withRootParts(
 }
 
 /** Parts for a moment when no turn is open: the last agent turn takes them, or a closed one of their own. */
-function withClosedParts(state: SessionState, at: number, added: Part[]): SessionState {
+function withClosedParts(state: SessionState, at: number, fn: (parts: Part[]) => Part[]): SessionState {
   const last = state.turns.at(-1);
   if (last?.role === "agent") {
-    return { ...state, turns: [...state.turns.slice(0, -1), { ...last, parts: [...last.parts, ...added] }] };
+    return { ...state, turns: [...state.turns.slice(0, -1), { ...last, parts: fn(last.parts) }] };
   }
   const turn: Turn = {
     id: `t${state.turns.length + 1}`,
     role: "agent",
-    parts: added,
+    parts: fn([]),
     startedAt: at,
     endedAt: at,
     stopReason: null,
@@ -633,10 +658,11 @@ function withUpdateTarget(
   update: Record<string, unknown>,
   at: number,
   fn: (parts: Part[]) => Part[],
+  create = true,
 ): SessionState {
   const parentId = claudeParentToolUseId(update);
   if (!parentId) {
-    return withSessionParts(state, acpSessionId, at, fn);
+    return withSessionParts(state, acpSessionId, at, fn, create);
   }
   let found = false;
   const turns = state.turns.map((turn) => {
@@ -649,7 +675,29 @@ function withUpdateTarget(
     });
     return parts === turn.parts ? turn : { ...turn, parts };
   });
-  return found ? { ...state, turns } : withSessionParts(state, acpSessionId, at, fn);
+  return found ? { ...state, turns } : withSessionParts(state, acpSessionId, at, fn, create);
+}
+
+/**
+ * `withUpdateTarget`, except that content arriving after its turn ended (a chunk or a call the
+ * adapter sent behind `prompt/end`) does not open a turn: nothing would ever end it, and the
+ * last turn would keep its streaming cursor with the session idle. It rides on the last agent
+ * turn, or on a closed one of its own. A replay (`connecting`) has no `prompt/start` and opens
+ * its own turns, and a session that has had no turn yet opens one as before.
+ */
+function withUpdateOrLate(
+  state: SessionState,
+  acpSessionId: string,
+  update: Record<string, unknown>,
+  at: number,
+  fn: (parts: Part[]) => Part[],
+): SessionState {
+  const last = state.turns.at(-1);
+  if (!last || last.endedAt === null || state.status === "connecting") {
+    return withUpdateTarget(state, acpSessionId, update, at, fn);
+  }
+  const placed = withUpdateTarget(state, acpSessionId, update, at, fn, false);
+  return placed === state ? withClosedParts(state, at, fn) : placed;
 }
 
 function claudeParentToolUseId(update: Record<string, unknown>): string | null {
@@ -818,8 +866,11 @@ function mergeToolCall(part: ToolCallPart, update: Record<string, unknown>): Too
   const delta = streamedOutput(update);
   const joined = delta === null ? part.stream : part.stream + delta;
   const truncated = joined.length > STREAM_TAIL;
-  // A call its turn settled as cancelled stays so unless the agent says it finished.
-  const settled = part.status === "cancelled" && (status === "pending" || status === "in_progress");
+  // A call its turn settled (cancelled or failed), or that finished, stays so unless the agent
+  // says how it ended: a late `in_progress` must not bring it back to life.
+  const settled =
+    (part.status === "cancelled" || part.status === "failed" || part.status === "completed") &&
+    (status === "pending" || status === "in_progress");
   return {
     ...part,
     kind: kind ?? part.kind,

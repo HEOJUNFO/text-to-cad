@@ -18,7 +18,16 @@ type MermaidInstance = ReturnType<DiagramPlugin["getMermaid"]>;
 type StreamdownConfig = Parameters<MermaidInstance["initialize"]>[0];
 
 let loading: Promise<StockPlugin> | undefined;
-const load = () => (loading ??= import("@streamdown/mermaid").then((module) => module.mermaid));
+const load = () =>
+  (loading ??= import("@streamdown/mermaid").then(
+    (module) => module.mermaid,
+    (error: unknown) => {
+      // A failed import (a chunk that did not load) is retried by the next diagram, like math.ts's,
+      // not remembered for the life of the window; this render still fails.
+      loading = undefined;
+      throw error;
+    },
+  ));
 
 /** A config set before the real instance exists; `undefined` once it has been handed over. */
 let pending: StreamdownConfig | undefined;
