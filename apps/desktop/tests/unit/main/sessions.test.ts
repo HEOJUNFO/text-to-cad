@@ -765,6 +765,34 @@ describe("SessionManager", () => {
     expect(repo.get(worktree.id)?.cwd).toBe(`${cwd}/wt`);
   });
 
+  it("marks the working tree, uncommitted work included, when each turn begins, and unpins the marks on delete", async () => {
+    const { head, snapshotTree, dropMarks, status } = await import("@main/projects/git");
+    const { resolveDiffScope } = await import("@shared/types");
+    const { execFileSync } = await import("node:child_process");
+    const { repo, manager, cwd } = await setup({ head, snapshot: snapshotTree, dropMarks });
+    const run = (...args: string[]) =>
+      execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" }).trim();
+    run("init", "-q");
+    await writeFile(path.join(cwd, "base.txt"), "base\n");
+    run("add", "-A");
+    run("commit", "-q", "-m", "base");
+
+    const session = await manager.create({ projectId: cwd, agentId: "claude-code", cwd, gitMode: "none" });
+    // The first turn leaves a.txt uncommitted; the second starts after it.
+    await writeFile(path.join(cwd, "a.txt"), "turn one\n");
+    await manager.prompt(session.id, [{ type: "text", text: "one" }]);
+    await manager.prompt(session.id, [{ type: "text", text: "two" }]);
+    await writeFile(path.join(cwd, "b.txt"), "turn two\n");
+    // Turn two began with a.txt already there, so only b.txt is the turn's.
+    const row = repo.get(session.id);
+    const last = await status(cwd, resolveDiffScope({ kind: "turn" }, row));
+    expect(last.files.map((file) => file.path)).toEqual(["b.txt"]);
+
+    expect(run("for-each-ref", "refs/text-to-cad/")).toContain(`refs/text-to-cad/${session.id}/turn`);
+    await manager.delete(session.id);
+    expect(run("for-each-ref", "refs/text-to-cad/")).toBe("");
+  });
+
   it("marks where the working tree was when each turn began", async () => {
     let head = "before-the-turn";
     const { repo, manager, cwd } = await setup({ head: async () => head });

@@ -2111,10 +2111,17 @@ worktree it made, and then only while it still points where it was cut
 (`deleteBranchAtBase`; with no recorded head, only if `git branch -d` would
 take it) — a checkout can be recreated, the commits on it cannot.
 
-The review's scopes are the other half of this. Main records HEAD when a
-session is created and again at the start of every turn (`sessions.sessionHead`
-and `turnHead`), and `Last turn` / `This session` are `git diff <sha>` against
-the *working tree*, so an edit the agent has not committed is in the answer.
+The review's scopes are the other half of this. Main records a snapshot
+of the working tree when a session is created and again at the start of every
+turn (`sessions.sessionHead` and `turnHead`: a tree made from a throwaway copy
+of the index with `add -A`, so untracked files are in and `.gitignore` applies,
+and pinned under `refs/text-to-cad/<session id>/` so `gc` cannot prune it; the
+refs go when the session is deleted). `Last turn` / `This session` compare that
+tree with a snapshot of the working tree as it is now, so an edit the agent has
+not committed is in the answer and work from before the turn began is not. A
+worktree session's `sessionHead` stays the commit it was cut from, which is also
+what its branch is deleted against; marks recorded as commits by older builds
+still work as `git diff <sha>` against the working tree.
 Those two scopes also move the whole read into the session's directory, which
 for a worktree thread is not the project's checkout.
 
