@@ -130,7 +130,11 @@ A first run opens on a welcome over the whole window instead of the shell
 what the app is, **Connect an agent** (Claude Code and Codex, with Install and
 Sign in running the same jobs as Settings › Agents, and a link there for the
 rest), and a start step that offers **Try the sample** or **Open a folder…**.
-Finishing or skipping sets `onboardingCompleted`. After it, the sidebar shows a
+Finishing or skipping sets `onboardingCompleted`. The welcome's current step is
+`step` in `state/onboarding.ts`, not component state, because Settings replaces
+the welcome the way it replaces the shell: "Use a different agent in Settings ›
+Agents", Cmd+, or Back to app returns to the step the person left (it is held
+for the window, not saved). After it, the sidebar shows a
 **Getting started** checklist (`features/onboarding/GettingStarted.tsx`) whose
 four items tick themselves from what the person has done — an agent installed
 and signed in, a folder open, a session, a CAD file reaching the viewer
@@ -153,7 +157,13 @@ Main answers the two things that are not settings, over `onboarding.*`
   broadcasts no `ui.directorySelected` for it). No channel takes a directory by name. The sample is copied, never opened in
   place — a signed bundle must not be written into, and the agent will edit
   it — and a folder there that already has files in it is reused as it is,
-  not overwritten.
+  not overwritten. The copy is staged as `<target>.copying` (a stale one is
+  discarded first) and renamed into place, so the target holds files only once
+  it holds all of them. A rename that fails with EPERM, EBUSY or EACCES (Windows
+  antivirus or the indexer holding the new tree) is retried five times with a
+  short backoff, then the staging tree is copied into place; a copy that dies
+  there clears the target, so no half-sample is left to be taken for the
+  person's own.
 
 ## Checks
 
@@ -204,7 +214,9 @@ Shiki under `@streamdown/code` was ~230 grammars and themes emitted twice).
 build and fails when two chunks share a base name and a size. Without a build,
 or with one older than the config, it logs why and passes; CI's Desktop job
 runs it again after the build step with `TEXT_TO_CAD_BUNDLE_CHECK=1`, under
-which a missing bundle fails and the age guard is skipped.
+which a missing bundle fails, an assets directory with no js, css or wasm
+chunks fails (an empty list of twins would call a failed build clean), and the
+age guard is skipped. A plain run stands aside for both.
 
 The unit suite caps workers at four; Electron uses one worker and no automatic
 retries. The git and workspace suites take their repositories from
