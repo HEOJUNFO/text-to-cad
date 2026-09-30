@@ -122,8 +122,9 @@ function EarlierTurns({ count, onMount }: { count: number; onMount: () => void }
   const sentinel = useRef<HTMLDivElement | null>(null);
   const fromBottom = useRef<number | null>(null);
   const [inReach, setInReach] = useState(false);
-  // Whether the person has reached for the scroll since the pane was last at the bottom.
-  const reached = useRef(false);
+  // Whether the person has reached for the scroll since the pane was last at the bottom. State,
+  // not a ref: a reach that lands while the sentinel is already in reach is what mounts.
+  const [reached, setReached] = useState(false);
   const present = count > 0;
 
   const mountMore = () => {
@@ -154,9 +155,7 @@ function EarlierTurns({ count, onMount }: { count: number; onMount: () => void }
   useEffect(() => {
     const scroller = scrollRef.current;
     if (!scroller) return;
-    const reach = () => {
-      reached.current = true;
-    };
+    const reach = () => setReached(true);
     // Only a press on the pane itself, which is its scrollbar: a press on a
     // button or a turn inside it, or on the pane while it is still opening, is
     // not a reach for what is above.
@@ -180,18 +179,21 @@ function EarlierTurns({ count, onMount }: { count: number; onMount: () => void }
       scroller.removeEventListener("keydown", key);
     };
   }, [scrollRef]);
-  useEffect(() => {
-    if (isAtBottom) reached.current = false;
-  }, [isAtBottom]);
+  // Back at the bottom, the reach is spent: adjusted as the render sees the flip, not in an effect.
+  const [wasAtBottom, setWasAtBottom] = useState(isAtBottom);
+  if (isAtBottom !== wasAtBottom) {
+    setWasAtBottom(isAtBottom);
+    if (isAtBottom) setReached(false);
+  }
 
   const mountIfInReach = useEffectEvent(() => {
     const scroller = scrollRef.current;
     const scrolls = !!scroller && scroller.scrollHeight > scroller.clientHeight;
-    if (present && inReach && ((!isAtBottom && reached.current) || !scrolls)) {
+    if (present && inReach && ((!isAtBottom && reached) || !scrolls)) {
       mountMore();
     }
   });
-  useEffect(() => mountIfInReach(), [present, inReach, isAtBottom]);
+  useEffect(() => mountIfInReach(), [present, inReach, isAtBottom, reached]);
 
   useLayoutEffect(() => {
     const scroller = scrollRef.current;

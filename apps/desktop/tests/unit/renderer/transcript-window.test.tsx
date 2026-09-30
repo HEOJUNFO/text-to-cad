@@ -146,6 +146,26 @@ describe("a long transcript mounts its latest turns", () => {
     expect(mounted().length).toBeGreaterThan(TRANSCRIPT_WINDOW);
   });
 
+  it("mounts the next window for a reach that lands with the sentinel already in reach, off the bottom", async () => {
+    render(view(session(turns(48))));
+    const pane = scroller();
+    tall(pane);
+    // Off the bottom with no reach behind it, the sentinel in reach: nothing mounts.
+    for (const top of [500, 100]) {
+      pane.scrollTop = top;
+      fireEvent.scroll(pane);
+    }
+    await screen.findByRole("button", { name: "Jump to latest" });
+    act(() => intersect(true));
+    expect(mounted()).toHaveLength(TRANSCRIPT_WINDOW);
+
+    // The wheel up is the reach, and nothing else changes: the window mounts for it.
+    act(() => {
+      fireEvent.wheel(pane, { deltaY: -120 });
+    });
+    expect(mounted().length).toBeGreaterThan(TRANSCRIPT_WINDOW);
+  });
+
   it("keeps the turns an early permission request pulled in once it is answered", () => {
     const request = (state: "pending" | "cancelled"): Turn["parts"][number] => ({
       type: "permission_request",
