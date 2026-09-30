@@ -1,5 +1,6 @@
-import { PanelsTopLeft, Plus } from "lucide-react";
-import { lazy, Suspense, useEffect } from "react";
+import { PanelsTopLeft, Plus, SquareTerminal } from "lucide-react";
+import { Component, lazy, Suspense, useEffect, useState } from "react";
+import type { ComponentProps, ComponentType, ReactNode } from "react";
 
 import { Button } from "@renderer/components/ui/button";
 import { isMac } from "@renderer/lib/platform";
@@ -15,14 +16,64 @@ import { FileTab } from "./FileTab";
 import { EXPLORER_TABPANEL_ID, TabStrip, explorerTabDomId } from "./TabStrip";
 import { focusTabBody } from "./focus";
 import { loadTerminal, preloadTerminal } from "./load-terminal";
+import type { ReviewTab as ReviewTabBody } from "./ReviewTab";
+import type { TerminalTab as TerminalTabBody } from "./TerminalTab";
 import { desktopCadConnectionForTab } from "./adapters/cadRuntime";
 
 // The review draws with Monaco (~9.6 MB of the window's first chunk when it was
 // imported here) and the terminal with xterm; both load with the first tab of
 // their kind, the way the drawing surface and the file renderers already do. The
 // terminal's is also fetched at idle and on a new-terminal request (`./load-terminal`).
-const ReviewTab = lazy(() => import("./ReviewTab").then((module) => ({ default: module.ReviewTab })));
-const TerminalTab = lazy(() => loadTerminal().then((module) => ({ default: module.TerminalTab })));
+//
+// A chunk that fails to load (a dropped fetch, an update replacing the files under a
+// running window) leaves `lazy` rejected for good, so each tab kind is drawn through
+// `LazyTab`: a boundary where the failure lands, and a Try again that builds a new `lazy`.
+const ReviewTab = lazyTab<ComponentProps<typeof ReviewTabBody>>(() => import("./ReviewTab").then((module) => ({ default: module.ReviewTab })));
+const TerminalTab = lazyTab<ComponentProps<typeof TerminalTabBody>>(() => loadTerminal().then((module) => ({ default: module.TerminalTab })));
+
+/** A lazy component that can be replaced with a fresh one after its import failed. */
+function lazyTab<P extends object>(load: () => Promise<{ default: ComponentType<P> }>) {
+  let current = lazy(load);
+  return { get: () => current, retry: () => { current = lazy(load); } };
+}
+
+class TabBoundary extends Component<{ children: ReactNode; failed: (retry: () => void) => ReactNode; onRetry: () => void }, { error: boolean }> {
+  override state = { error: false };
+  static getDerivedStateFromError() {
+    return { error: true };
+  }
+  override render() {
+    return this.state.error ? this.props.failed(() => this.props.onRetry()) : this.props.children;
+  }
+}
+
+/**
+ * A lazy tab body with its fallback and the place its chunk's failure is drawn. Without the
+ * boundary a rejected import unmounts the whole window (`main.tsx` has no boundary of its own).
+ */
+function LazyTab<P extends object>({ tab, props, opening, what }: {
+  tab: ReturnType<typeof lazyTab<P>>; props: P; opening: string; what: string;
+}) {
+  const [attempt, setAttempt] = useState(0);
+  // Held in state: the component is replaced by a retry, never made during a render.
+  const [Body, setBody] = useState(() => tab.get());
+  return (
+    <TabBoundary
+      failed={(retry) => (
+        <div role="alert">
+          <EmptyState action={<Button onClick={retry} size="sm" variant="secondary">Try again</Button>}
+            description={`The code for the ${what} did not load.`} icon={SquareTerminal} title={`Could not open the ${what}`} tone="warn" />
+        </div>
+      )}
+      key={attempt}
+      onRetry={() => { tab.retry(); setBody(tab.get()); setAttempt((count) => count + 1); }}
+    >
+      <Suspense fallback={<TabLoading label={opening} />}>
+        <Body {...props} />
+      </Suspense>
+    </TabBoundary>
+  );
+}
 
 /**
  * The explorer: one tab strip and whatever the selected tab renders.
@@ -104,14 +155,8 @@ function TabBody({ tab, project }: {
       );
     case "review":
       return (
-        <Suspense fallback={<TabLoading label="Opening review…" />}>
-          <ReviewTab
-            project={project}
-            scope={tab.scope}
-            sessionId={tab.sessionId}
-            tabId={tab.id}
-          />
-        </Suspense>
+        <LazyTab opening="Opening review…" tab={ReviewTab} what="review"
+          props={{ project, scope: tab.scope, sessionId: tab.sessionId, tabId: tab.id }} />
       );
     case "drawing":
       return <DrawingTab sessionId={tab.sessionId} project={project} root={tab.root} tabId={tab.id} title={tab.title} />;
@@ -119,17 +164,8 @@ function TabBody({ tab, project }: {
       return <BrowserTab sessionId={tab.sessionId} projectId={project.id} root={tab.root} tabId={tab.id} url={tab.url} />;
     case "terminal":
       return (
-        <Suspense fallback={<TabLoading label="Opening terminal…" />}>
-          <TerminalTab
-            sessionId={tab.sessionId}
-            cwd={tab.cwd}
-            project={project}
-            ptyId={tab.ptyId}
-            readOnly={tab.readOnly}
-            agent={tab.agent}
-            tabId={tab.id}
-          />
-        </Suspense>
+        <LazyTab opening="Opening terminal…" tab={TerminalTab} what="terminal"
+          props={{ sessionId: tab.sessionId, cwd: tab.cwd, project, ptyId: tab.ptyId, readOnly: tab.readOnly, agent: tab.agent, tabId: tab.id }} />
       );
   }
 }

@@ -15,12 +15,14 @@ import type { ExplorerTab } from "@shared/types";
  * with xterm stood in for (jsdom has no canvas) and counting its `focus()`.
  */
 const chunk = vi.hoisted(() => {
-  let release: () => void = () => {};
-  const landed = new Promise<void>((resolve) => { release = resolve; });
-  return { landed, release: () => release() };
+  const state = { gate: Promise.resolve(), release: () => {}, fail: false };
+  const hold = () => { state.gate = new Promise<void>((resolve) => { state.release = resolve; }); };
+  hold();
+  return { state, hold, release: () => state.release() };
 });
 vi.mock("@renderer/features/explorer/TerminalTab", async (importOriginal) => {
-  await chunk.landed;
+  await chunk.state.gate;
+  if (chunk.state.fail) throw new Error("Failed to fetch dynamically imported module");
   return importOriginal();
 });
 const focused = vi.hoisted(() => ({ count: 0 }));
@@ -67,6 +69,31 @@ beforeEach(() => {
   const terminal = window.textToCad.terminal as unknown as Record<string, ReturnType<typeof vi.fn>>;
   terminal.attach = vi.fn(async () => ({ info: { id: "pty-test", cwd: "/repo", shell: "/bin/zsh", cols: 80, rows: 24, exitCode: null }, scrollback: "", seq: 0 }));
   terminal.resize = vi.fn(async () => {});
+});
+
+/**
+ * A chunk that fails to load must not take the window with it: `lazy` stays rejected, so the tab
+ * draws an alert with a Try again that builds a new `lazy`. This runs first, and ends with the
+ * retry waiting on the gate again, so the tests below still see the chunk arrive late.
+ */
+it("a terminal chunk that fails to load draws an alert with Try again, and Try again asks for it anew", async () => {
+  const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  chunk.state.fail = true;
+  useExplorer.setState({ activeId: "t1" });
+  render(<TooltipProvider><Pane /></TooltipProvider>);
+  chunk.release();
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent("Could not open the terminal");
+  fireEvent.keyDown(window, { key: "1", metaKey: true, ctrlKey: true });
+  expect(useExplorer.getState().activeId).toBe("f1");
+  fireEvent.keyDown(window, { key: "2", metaKey: true, ctrlKey: true });
+
+  chunk.state.fail = false;
+  chunk.hold();
+  fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+  expect(await screen.findByText("Opening terminal…")).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).toBeNull();
+  logged.mockRestore();
 });
 
 /** Two frames after this call's: `focusTabBody` has settled by then, for better or worse. */

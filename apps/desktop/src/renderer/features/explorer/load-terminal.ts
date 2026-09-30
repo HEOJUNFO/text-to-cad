@@ -10,7 +10,10 @@
  */
 export const loadTerminal = () => import("./TerminalTab");
 
-/** Start the terminal's chunk without waiting for it; `lazy` reports a failure where the tab is drawn. */
+/**
+ * Start the terminal's chunk without waiting for it. A failure is not reported here: the tab
+ * draws through `lazy` inside a boundary (`ExplorerPane`), which shows it with a Try again.
+ */
 export function preloadTerminal(): void {
   void loadTerminal().catch(() => {});
 }
