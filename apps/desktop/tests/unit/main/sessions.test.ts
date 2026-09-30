@@ -18,6 +18,7 @@ import type { SnapshotStore } from "@main/acp/snapshots";
 import type { SessionEvent } from "@shared/acp/types";
 import type { AgentProvider } from "@shared/agents";
 import type { IpcEventChannel } from "@shared/ipc";
+import { DELETED_WHILE_STARTING } from "@shared/ipc/errors";
 import type { Session } from "@shared/types";
 
 import { cleanTempDirs, tempDir } from "./temp-dirs";
@@ -767,6 +768,45 @@ describe("SessionManager", () => {
     expect((await creating).id).toBe(row.id);
     expect(archived).toMatchObject({ id: row.id, archived: true, status: "closed" });
     expect(repo.get(row.id)).toMatchObject({ archived: true, acpSessionId: "fake-session-1" });
+  });
+
+  /**
+   * `initialize` and `session/new` have no timeout, and `archive` waits for
+   * the create: a hung agent left the sidebar's archive click dead.
+   */
+  it("archives a hung create after the wait, by abandoning it: the row is removed", async () => {
+    const timers: (() => void)[] = [];
+    const { repo, manager, cwd } = await setup({
+      launchOverride: () => ({ ...fakeProvider.launch, args: [FAKE_AGENT, "--new-delay", "600000"] }),
+      startTimer: (_ms, fire) => (timers.push(fire), () => undefined),
+    });
+    const creating = manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    const settled = creating.then(() => "resolved", (error: Error) => error.message);
+    const row = await until(() => repo.list()[0]);
+    const archiving = manager.archive(row.id, true);
+    expect(timers).toHaveLength(1);
+    timers[0]!();
+    await expect(archiving).resolves.toMatchObject({ id: row.id, archived: true, status: "closed" });
+    expect(await settled).not.toBe("resolved");
+    await until(() => (repo.get(row.id) ? undefined : true));
+  });
+
+  /**
+   * `NewSession` sends the first prompt as the create returns; with an archive
+   * in between, `prompt -> ensureLive -> load` reconnected the archived row
+   * and ran a turn in it.
+   */
+  it("refuses a prompt to a row archived during its create, and reconnects nothing", async () => {
+    const { repo, manager, cwd } = await setup({
+      launchOverride: () => ({ ...fakeProvider.launch, args: [FAKE_AGENT, "--new-delay", "150"] }),
+    });
+    const creating = manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    const row = await until(() => repo.list()[0]);
+    await manager.archive(row.id, true);
+    await creating;
+    await expect(manager.prompt(row.id, [{ type: "text", text: "hello" }])).rejects.toThrow(/archived; unarchive it first/);
+    expect(manager.state(row.id)?.live).toBeFalsy();
+    expect(repo.get(row.id)).toMatchObject({ archived: true, status: "closed" });
   });
 
   /**
@@ -1570,6 +1610,38 @@ describe("SessionManager", () => {
     expect(broadcasts.some((b) => b.channel === "session.state" && (b.payload as { sessionId: string }).sessionId === id)).toBe(true);
     const note = broadcasts.find((b) => b.channel === "session.status" && (b.payload as { error: string | null }).error);
     expect((note?.payload as { error: string }).error).toContain("SQLITE_BUSY");
+  });
+
+  it("abandons a create whose settle fails too, rather than leave a live connection on a connecting row", async () => {
+    const recorder = optionRecorder({ model: null });
+    const deps = {
+      ...recorder.deps,
+      remember: (...args: Parameters<typeof recorder.deps.remember>) => {
+        if (recorder.remembered.length >= 1) throw new Error("SQLITE_BUSY");
+        recorder.deps.remember(...args);
+      },
+    };
+    const { repo, manager, cwd } = await setup({ agentOptions: deps });
+    const upsert = repo.upsert;
+    // The store is down for good: nothing goes idle.
+    repo.upsert = (session) => {
+      if (session.status === "idle") throw new Error("SQLITE_BUSY");
+      return upsert(session);
+    };
+    await expect(manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" })).rejects.toThrow("SQLITE_BUSY");
+    expect(repo.list()).toHaveLength(0);
+    expect((manager as unknown as { live: { get(id: string): unknown } }).live.get("session-1")).toBeUndefined();
+  });
+
+  it("rejects a create whose row was deleted under it with the error the renderer swallows", async () => {
+    let release!: (tree: string) => void;
+    const { repo, manager, cwd } = await setup({ snapshot: () => new Promise<string>((resolve) => (release = resolve)) });
+    const creating = manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    const id = (await until(() => (repo.list()[0]?.acpSessionId ? repo.list()[0] : undefined))).id;
+    await manager.delete(id);
+    release("tree");
+    await expect(creating).rejects.toThrow(DELETED_WHILE_STARTING);
+    expect(repo.list()).toHaveLength(0);
   });
 
   it("rejects a create whose adapter died after session/new, and leaves no row behind", async () => {

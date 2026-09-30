@@ -19,6 +19,7 @@ import { useSessions } from "@renderer/state/sessions";
 import { useSettings } from "@renderer/state/settings";
 import { useUi } from "@renderer/state/ui";
 import type { PromptBlock } from "@shared/acp/types";
+import { isDeletedWhileStarting } from "@shared/ipc/errors";
 import type { GitMode, Project } from "@shared/types";
 
 import { AgentSetupCard, useOfferedAgents } from "./agent-setup";
@@ -233,6 +234,12 @@ export function NewSession({ project }: { project: Project }) {
       });
     } catch (error) {
       const message = errorMessage(error);
+      if (isDeletedWhileStarting(message)) {
+        // The person deleted the connecting row: nothing failed, so no card and no toast. The
+        // composer puts the draft back on the false.
+        if (mounted.current) setBusy(false);
+        return false;
+      }
       if (!mounted.current) {
         // The person is elsewhere (the connecting row, or another thread): say so where they are.
         // The composer has already put the draft back (`restoreDraft`), so Try again is the way
@@ -254,10 +261,21 @@ export function NewSession({ project }: { project: Project }) {
       return false;
     }
     failedAttempt.current = null;
+    // Archived while the create ran: the person put the thread away, so it is
+    // neither opened nor sent to (main refuses the prompt to a row it would
+    // have to reconnect). What was written waits in that thread's box, which
+    // an archived row keeps.
+    if (useSessions.getState().sessions.find((row) => row.id === sessionId)?.archived) {
+      useComposer.getState().restoreDraft(sessionId, draft);
+      setBusy(false);
+      return true;
+    }
     // Only from the screen the person is still on (or the connecting row this create made): a
-    // create that outlasted a click on another thread does not pull them back.
+    // create that outlasted a click on another thread does not pull them back, nor does one
+    // that outlasted a move to another project's new-session screen (`activeId` is null there
+    // too, with this screen unmounted).
     const activeNow = useSessions.getState().activeId;
-    if (activeNow === null || activeNow === sessionId) {
+    if (activeNow === sessionId || (activeNow === null && mounted.current)) {
       setActiveSession(sessionId);
     }
     setBusy(false);

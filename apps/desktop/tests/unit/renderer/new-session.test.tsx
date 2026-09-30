@@ -440,6 +440,50 @@ describe("a create that outlasts the screen that asked for it", () => {
     expect(useSessions.getState().activeId).toBe("B");
   });
 
+  it("shows no card and no toast for a create the person deleted while it started", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<string>();
+    create.mockReturnValueOnce(pending.promise);
+    render(<NewSession project={PROJECT} />);
+    vi.mocked(toast.error).mockClear();
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await act(async () => pending.reject(new Error("Error invoking remote method 'text-to-cad:sessions.create': Error: This session was deleted while it was starting.")));
+    expect(screen.queryByText(/deleted while it was starting/)).toBeNull();
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+  });
+
+  it("does not pull the person off another project's new-session screen", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<string>();
+    create.mockReturnValueOnce(pending.promise);
+    useSessions.setState({ activeId: null, sessions: [] });
+    const screenView = render(<NewSession project={PROJECT} />);
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    // Project B's new-session screen: no thread is active, and this screen is gone.
+    screenView.unmount();
+    act(() => useProjects.getState().setActive("B"));
+    await act(async () => pending.resolve("s1"));
+    expect(useSessions.getState().activeId).toBeNull();
+  });
+
+  it("sends nothing to a thread archived while it was created, and keeps the draft in its box", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<string>();
+    create.mockReturnValueOnce(pending.promise);
+    useComposer.setState({ drafts: { "__new__:p1": "make a cube" } });
+    useSessions.setState({ activeId: null, sessions: [] });
+    render(<NewSession project={PROJECT} />);
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    // The sidebar archived the connecting row; the index now says so.
+    useSessions.setState({ sessions: [{ id: "s1", projectId: "p1", archived: true }] } as never);
+    await act(async () => pending.resolve("s1"));
+    expect(submit).not.toHaveBeenCalled();
+    expect(useComposer.getState().drafts.s1).toBe("make a cube");
+    expect(useSessions.getState().activeId).toBeNull();
+    useSessions.setState({ sessions: [] });
+  });
+
   it("selects the new session when the person is still on it, or on nothing", async () => {
     const user = userEvent.setup();
     create.mockResolvedValueOnce("s1");

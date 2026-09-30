@@ -4,7 +4,7 @@
  * unmounted and remounted, has to find the job still running rather than
  * offer to start a second one.
  */
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@renderer/components/ui/tooltip";
@@ -90,6 +90,31 @@ describe("a job that ended badly", () => {
     useAgents.getState().receiveOutput({ jobId: "j2", agentId: "codex", kind: "login", data: "", exitCode: 2 });
     render(drawer(installed));
     expect(screen.getByText("Sign in failed (exit 2)")).toBeInTheDocument();
+  });
+
+  it("says nothing of an install that failed once the agent is installed", () => {
+    useAgents.getState().receiveOutput({ jobId: "j1", agentId: "codex", kind: "install", data: "EACCES\n", exitCode: 1 });
+    render(drawer({ ...codex, installed: true, binaryPath: "/bin/codex" } as AgentStatus));
+    expect(screen.queryByText(/Install failed/)).toBeNull();
+  });
+
+  it("says nothing of a sign-in that failed once the agent is signed in", () => {
+    const signedIn = { ...codex, installed: true, auth: "authenticated", authMethods: [{ type: "cli-login", label: "Sign in with Codex" }] } as unknown as AgentStatus;
+    useAgents.getState().receiveOutput({ jobId: "j2", agentId: "codex", kind: "login", data: "", exitCode: 2 });
+    render(drawer(signedIn));
+    expect(screen.queryByText(/Sign in failed/)).toBeNull();
+  });
+
+  it("does not bring back the failed run this mount started after a later run succeeded", async () => {
+    vi.mocked(window.textToCad.agents.install).mockResolvedValue({ jobId: "j1" });
+    render(drawer(codex));
+    fireEvent.click(screen.getByRole("button", { name: "Install" }));
+    await screen.findByText("Waiting for output…");
+    act(() => useAgents.getState().receiveOutput({ jobId: "j1", agentId: "codex", kind: "install", data: "EACCES\n", exitCode: 1 }));
+    expect(screen.getByText("Install failed (exit 1)")).toBeInTheDocument();
+    // Another mount (the welcome card) ran it again, and that run worked.
+    act(() => useAgents.getState().receiveOutput({ jobId: "j2", agentId: "codex", kind: "install", data: "ok\n", exitCode: 0 }));
+    expect(screen.queryByText(/Install failed/)).toBeNull();
   });
 
   it("says nothing of a job that exited cleanly", () => {

@@ -34,6 +34,7 @@ import type {
   SessionState,
 } from "../../shared/acp/types";
 import type { IpcEventChannel, IpcEventPayload } from "../../shared/ipc";
+import { DELETED_WHILE_STARTING } from "../../shared/ipc/errors";
 import type { Launch } from "../../shared/agents";
 import type { GitMode, Session, SessionStatus } from "../../shared/types";
 import type { Event as TelemetryEvent } from "../telemetry";
@@ -216,6 +217,12 @@ export type SessionManagerDeps = {
    * that a session was created, and with which agent.
    */
   track?: (event: TelemetryEvent) => void;
+
+  /**
+   * Start a timer that calls `fire` after `ms`; returns its cancel. The clock
+   * for the archive's wait on a create, injected so a test fires it by hand.
+   */
+  startTimer?: (ms: number, fire: () => void) => () => void;
 };
 
 /** A provisional title until the agent supplies one, trimmed to fit a sidebar row. */
@@ -241,7 +248,12 @@ type ChangeTally = { files: Set<string>; baseFiles: number; insertions: number; 
 
 /** How long a turn (or a create) waits for the working tree to be snapshotted. */
 const MARK_WAIT_MS = 5_000;
-const EXPIRED = Symbol("mark wait expired");
+const EXPIRED = Symbol("mark wait expired");/** How long an archive waits for a create still running before it abandons that create. */
+const ARCHIVE_WAIT_MS = 10_000;
+const defaultTimer = (ms: number, fire: () => void) => {
+  const timer = setTimeout(fire, ms);
+  return () => clearTimeout(timer);
+};
 
 /** How long a config-option probe may take before it is abandoned. */
 const PROBE_TIMEOUT_MS = 60_000;
@@ -516,8 +528,10 @@ export class SessionManager {
       } catch (error) {
         // A row with no agent session id can never be loaded; the renderer
         // shows the failure (sign in, install) and the user creates again.
+        // Unless the person deleted it: that is not a failure to show.
+        const deleted = !this.deps.repo.get(session.id);
         await this.abandonCreate(session, input, workspace, marks);
-        throw error;
+        throw deleted ? new Error(DELETED_WHILE_STARTING) : error;
       }
       // What the person last chose for this agent — the model, the effort and
       // the mode. Never a reason for the session to fail: a refused
@@ -554,10 +568,19 @@ export class SessionManager {
         if (row && row.status !== "connecting") return row; // closed under this create: that state stands
         if (!row || !connection.alive) {
           await this.abandonCreate(session, input, workspace, marks);
-          throw error;
+          // A row gone under the create is a delete, not a failure to show.
+          throw row ? error : new Error(DELETED_WHILE_STARTING);
         }
         console.warn(`[acp] create ${session.id.slice(0, 8)} finished with a warning: ${String(error)}`);
-        return this.settleAfterFailedCreate(session, connection, marks, error);
+        try {
+          return await this.settleAfterFailedCreate(session, connection, marks, error);
+        } catch (settleError) {
+          // The store refused the settle too (the same SQLITE_BUSY, persistent). Nothing may stay
+          // `connecting` with a live connection and no owner: retire it and take the row.
+          console.warn(`[acp] create ${session.id.slice(0, 8)} could not settle: ${String(settleError)}`);
+          await this.abandonCreate(session, input, workspace, marks);
+          throw error;
+        }
       }
     } finally {
       if (setup) this.held.delete(setup);
@@ -989,7 +1012,19 @@ export class SessionManager {
   }
 
   async prompt(id: string, content: PromptBlock[]): Promise<{ stopReason: string; refused?: string }> {
+    this.require(id);
+    // An archive that landed during a create closed the connection once the
+    // create settled, and the first prompt (`NewSession` sends it as the
+    // create returns) would reconnect the archived row and run a turn in a
+    // thread the person put away. Wait the create out, then look.
+    await this.creating.get(id)?.catch(() => undefined);
     const session = this.require(id);
+    // Only a row with nothing live is refused: an archived transcript the
+    // person opened and Reconnected is theirs to continue, and it has a
+    // connection. What `prompt` must not do is be the reconnect.
+    if (session.archived && !this.live.get(id)?.alive) {
+      throw new Error("This thread is archived; unarchive it first.");
+    }
     const connection = await this.ensureLive(session);
     // A block the agent did not say it takes (`promptCapabilities`) is
     // refused before anything moves — the turn mark, the title, the
@@ -1115,14 +1150,38 @@ export class SessionManager {
    * for it. The create runs to its end (the row goes idle), then this closes it.
    */
   async archive(id: string, archived: boolean): Promise<Session> {
-    this.require(id);
+    const session = this.require(id);
     if (archived) {
-      await this.creating.get(id)?.catch(() => undefined);
+      const creation = this.creating.get(id);
+      if (creation && !(await this.settlesWithin(creation, ARCHIVE_WAIT_MS))) {
+        // A create that never answers (`initialize` and `session/new` have no
+        // timeout of their own) would leave the sidebar's archive click dead.
+        // Past the limit, the old way: close under it. `session/new` rejects,
+        // `create` removes the row and its worktree and rejects to its caller,
+        // so the thread is gone, not archived; this answers with the row as it
+        // stood.
+        console.warn(`[acp] archive ${id.slice(0, 8)}: create still running after ${ARCHIVE_WAIT_MS / 1000} s, abandoning it`);
+        this.close(id);
+        return this.deps.repo.get(id) ? this.update(id, { archived }) : { ...session, archived, status: "closed" };
+      }
       // A create that failed took the row with it: there is nothing left to archive.
       this.require(id);
       this.close(id);
     }
     return this.update(id, { archived });
+  }
+
+  /** Whether `work` settled (either way) before `ms` passed. */
+  private async settlesWithin(work: Promise<unknown>, ms: number): Promise<boolean> {
+    let cancel = () => {};
+    const expired = new Promise<false>((resolve) => {
+      cancel = (this.deps.startTimer ?? defaultTimer)(ms, () => resolve(false));
+    });
+    try {
+      return await Promise.race([work.then(() => true, () => true), expired]);
+    } finally {
+      cancel();
+    }
   }
 
   /**

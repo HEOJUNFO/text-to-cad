@@ -1922,6 +1922,9 @@ when it was written by the same app version and holds every provider. Then:
   (`features/settings/AgentDrawer.tsx`), not from component state, so a drawer
   closed and reopened, or a welcome left for Settings and back, finds the
   installer under way and attaches its log instead of offering a second one.
+  A failed run's "Install failed (exit N)" / "Sign in failed (exit N)" is worded
+  only while the step is undone (`useJob`'s `done`: installed, signed in), and a
+  newer job of the kind replaces the failed one a mount started.
 - A **cold launch** (no usable cache) waits for the first probe for at most
   `PROBE_WAIT_MS` (3 s), then answers with whatever it has, which may be empty.
 - If the probe fails while the table is still the last launch's, or has none and the
@@ -2015,11 +2018,26 @@ before the preferences and the marks — so a crash while those are pending does
 not take a connected session with it. A create that fails before that answer
 removes the row and, for a worktree it cut, the worktree. One that fails after
 it keeps the row and settles it (`settleAfterFailedCreate`): `idle` while the
-connection is alive, `error` when it is not. `boot()`, on the first call after
+connection is alive, `error` when it is not; when the store refuses that settle too,
+the create is abandoned like one that failed before the answer (connection retired,
+row removed), so nothing stays `connecting` behind a live connection. A create whose
+row the person deleted while it started rejects with `DELETED_WHILE_STARTING`
+(`shared/ipc/errors.ts`), which `NewSession` swallows: no failure card, no toast.
+`boot()`, on the first call after
 launch, removes every row with no `acpSessionId` that no create in this run
 owns — a create cut short by a quit, which can never be loaded — and unpins its
 marks. A row whose directory is missing or unmounted is not of that kind: it is
 never deleted for that.
+
+An archive during a create waits for the create to settle, then closes the row;
+past ten seconds (a hung `initialize` or `session/new`) it closes under the
+create instead, which removes the row and its worktree and rejects.
+`prompt` does not reconnect an archived row (it rejects with "This thread is
+archived; unarchive it first."): the first prompt a `NewSession` sends as its
+create returns would otherwise run a turn in the thread that was put away, and
+`NewSession` skips the send for a row the index says is archived, leaving the
+draft in that thread's box. An archived transcript the person opened and
+Reconnected has a connection, and is prompted as any other.
 
 ### Opening a session
 

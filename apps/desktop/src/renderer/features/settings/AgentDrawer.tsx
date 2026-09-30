@@ -183,7 +183,7 @@ function InstallationSection({ agent, platform }: { agent: AgentStatus; platform
   const methods = agent.install[platform];
   const [index, setIndex] = useState(0);
   const install = useAgents((state) => state.install);
-  const { jobId, output, running, failure, start } = useJob(agent.id, "install");
+  const { jobId, output, running, failure, start } = useJob(agent.id, "install", agent.installed);
 
   if (agent.installed) {
     return (
@@ -274,7 +274,7 @@ const PLATFORM_NAMES: Record<Platform, string> = {
 
 function AuthenticationSection({ agent }: { agent: AgentStatus }) {
   const login = useAgents((state) => state.login);
-  const { jobId, output, running, failure, start } = useJob(agent.id, "login");
+  const { jobId, output, running, failure, start } = useJob(agent.id, "login", agent.auth === "authenticated");
 
   const cliLogin = agent.authMethods.find((method) => method.type === "cli-login");
   const apiKey = agent.authMethods.find((method) => method.type === "api-key");
@@ -556,8 +556,11 @@ export function formatEnv(env: Record<string, string>): string {
  * job of this agent and kind still running in the store is this one's too, so a
  * drawer closed and reopened (or a welcome left for Settings and back) finds
  * the install under way instead of offering to start a second.
+ *
+ * `done` is whether the step the job is for has been achieved (installed, or
+ * signed in): a failure of an earlier run is then history and is not worded.
  */
-export function useJob(agentId: string, kind: AgentJobOutput["kind"]) {
+export function useJob(agentId: string, kind: AgentJobOutput["kind"], done = false) {
   const [startedId, setStartedId] = useState<string | null>(null);
   // This agent and kind's latest job in the store (insertion order): running, it is this
   // one's whoever started it; finished with a non-zero code, it stays to say so on a remount.
@@ -569,8 +572,14 @@ export function useJob(agentId: string, kind: AgentJobOutput["kind"]) {
   );
   const latest = useAgents((state) => (latestId ? state.jobs[latestId] : undefined));
   const remembered = latest && (latest.exitCode === null || latest.exitCode !== 0) ? latestId : null;
+  // The job this mount started, once a newer one of this agent and kind is in the store: it is
+  // history (a failed run must not return after a later run succeeded), and `remembered` says
+  // what the newer one left. Until the started job has reached the store it is the newest.
+  const startedIsOld = useAgents(
+    (state) => startedId !== null && startedId in state.jobs && startedId !== latestId,
+  );
   // A job still running anywhere in the store beats the id this mount remembers.
-  const jobId = (latest?.exitCode === null ? latestId : null) ?? startedId ?? remembered;
+  const jobId = (latest?.exitCode === null ? latestId : null) ?? (startedIsOld ? null : startedId) ?? remembered;
   const job = useAgents((state) => (jobId ? state.jobs[jobId] : undefined));
   const starting = useRef(false);
 
@@ -593,7 +602,7 @@ export function useJob(agentId: string, kind: AgentJobOutput["kind"]) {
     running: jobId !== null && (job?.exitCode ?? null) === null,
     // A finished job's non-zero code, in words; the log above it is the why.
     failure:
-      job && job.exitCode !== null && job.exitCode !== 0
+      !done && job && job.exitCode !== null && job.exitCode !== 0
         ? `${kind === "install" ? "Install" : "Sign in"} failed (exit ${job.exitCode})`
         : null,
     start,
