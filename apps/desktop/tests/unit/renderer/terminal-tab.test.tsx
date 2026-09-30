@@ -91,6 +91,13 @@ it("respawns an agent-opened tab as the agent's, and a person's without that", a
   expect(create.mock.calls[0]![0]).not.toHaveProperty("agent");
 });
 
+it("marks its host as a terminal body, which the strip's chords read to leave Ctrl+W to the shell", async () => {
+  terminal().attach = vi.fn(async () => ({ info: info(null), scrollback: "", seq: 0 }));
+  const { container } = renderTab();
+  await waitFor(() => expect(terminals).toHaveLength(1));
+  expect(container.querySelector("[data-terminal-body]")).not.toBeNull();
+});
+
 it("releases the old pty id on Try again too", async () => {
   terminal().attach = vi.fn(async () => null);
   renderTab();

@@ -412,7 +412,7 @@ export function TerminalTab({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="min-h-0 flex-1 overflow-hidden px-2 pt-2" data-selectable ref={hostRef} />
+      <div className="min-h-0 flex-1 overflow-hidden px-2 pt-2" data-selectable data-terminal-body ref={hostRef} />
       <div className="flex h-6 shrink-0 items-center gap-2 border-t px-3 text-[11px] text-muted-foreground">
         <span className="truncate">{cwd ?? project.path}</span>
         {readOnly ? <span className="shrink-0 rounded-sm bg-muted px-1">agent</span> : null}

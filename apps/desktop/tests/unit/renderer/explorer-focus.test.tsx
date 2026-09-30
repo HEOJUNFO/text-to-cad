@@ -2,9 +2,11 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
+import { CommandPalette } from "@renderer/app/CommandPalette";
 import { Shell } from "@renderer/app/Shell";
 import { useExplorer } from "@renderer/state/explorer";
 import { useProjects } from "@renderer/state/projects";
+import { useUi } from "@renderer/state/ui";
 import type { ExplorerTab } from "@shared/types";
 
 /**
@@ -16,7 +18,16 @@ vi.mock("@renderer/features/explorer/FileTab", () => ({
 }));
 vi.mock("@renderer/features/sidebar/Sidebar", () => ({ Sidebar: () => null }));
 vi.mock("@renderer/features/session/SessionPane", () => ({ SessionPane: () => null }));
+// A terminal body as TerminalTab marks it (`terminal-tab.test.tsx` holds the marker itself).
+vi.mock("@renderer/features/explorer/TerminalTab", () => ({
+  TerminalTab: () => <div data-terminal-body><textarea aria-label="Terminal input" /></div>,
+}));
 vi.mock("@renderer/features/explorer/ReviewTab", () => ({ ReviewTab: () => <p>Review body</p> }));
+
+// Windows and Linux: Control is the shell's there. The other tests press Meta and Control together.
+vi.mock("@renderer/lib/platform", async (importOriginal) => ({ ...(await importOriginal<object>()), isMac: false,
+  isPrimaryModifier: (event: KeyboardEvent) => event.ctrlKey,
+}));
 
 const PROJECT = { id: "focus-project", name: "Project", path: "/repo", createdAt: 0 };
 const fileTab = (id: string, order: number): ExplorerTab =>
@@ -52,6 +63,23 @@ it("Mod+2 from an editor hands focus to the picked tab, and Mod+1 back into its 
   expect(document.activeElement).toBe(stripTab("r1"));
   fireEvent.keyDown(window, { key: "1", metaKey: true, ctrlKey: true });
   await waitFor(() => expect(document.activeElement).toBe(stripTab("f1")));
+});
+
+it("Ctrl+W with the focus in a terminal is the shell's, not the strip's; Ctrl+K still reaches the palette", async () => {
+  const terminal = { id: "t1", kind: "terminal", sessionId: "s1", projectId: PROJECT.id, order: 2, ptyId: null, cwd: null, readOnly: false } as ExplorerTab;
+  useExplorer.setState({ tabs: [fileTab("f1", 0), terminal], activeId: "t1" });
+  useUi.setState({ commandPaletteOpen: false });
+  render(<TooltipProvider><Shell /><CommandPalette /></TooltipProvider>);
+  await screen.findByLabelText("Terminal input");
+  const input = screen.getByLabelText("Terminal input");
+  input.focus();
+  fireEvent.keyDown(input, { key: "w", ctrlKey: true });
+  expect(useExplorer.getState().tabs.map((tab) => tab.id)).toEqual(["f1", "t1"]);
+  fireEvent.keyDown(input, { key: "k", ctrlKey: true });
+  expect(useUi.getState().commandPaletteOpen).toBe(true);
+  // Out of the terminal the same chord closes the tab.
+  fireEvent.keyDown(window, { key: "w", ctrlKey: true });
+  expect(useExplorer.getState().tabs.map((tab) => tab.id)).toEqual(["f1"]);
 });
 
 it("Ctrl+` opens a terminal and reveals the pane while the explorer is collapsed, the default", () => {
