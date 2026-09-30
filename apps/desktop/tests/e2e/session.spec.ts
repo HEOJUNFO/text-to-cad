@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
 import type { TextToCadApi } from "../../src/shared/ipc";
-import { chooseDirectory, launch, scratch, settledLayout } from "./launch";
+import { chooseDirectory, launch, scratch, setTheme as setThemeIn, settledLayout, shoot as shootInto } from "./launch";
 
 /**
  * The session UI against the fake agent (plan §12): new session → prompt →
@@ -737,7 +737,7 @@ async function completeContextTurn(prompt: "context" | "limits") {
 }
 
 async function shoot(name: string) {
-  await page.screenshot({ path: test.info().outputPath(name), animations: "disabled" });
+  await shootInto(page, name, test.info());
 }
 
 /**
@@ -785,8 +785,7 @@ async function settled() {
 }
 
 async function setTheme(theme: "dark" | "light") {
-  await page.evaluate((value) => window.textToCad.settings.set({ theme: value }), theme);
-  await expect(page.locator("html")).toHaveClass(theme === "dark" ? /\bdark\b/ : /^(?!.*\bdark\b).*$/);
+  await setThemeIn(page, theme);
 }
 
 async function resizeWindow(width: number, height: number) {

@@ -5,7 +5,7 @@ import { expect, test, type ElectronApplication, type Page } from "@playwright/t
 
 import { TITLEBAR_HEIGHT, TRAFFIC_LIGHTS_INSET, trafficLightPosition } from "../../src/shared/titlebar";
 import { PANE_LIMITS } from "../../src/shared/types";
-import { chooseDirectory, dragSeparator, launch, mod, scratch, setContentSize, shoot as shootInto } from "./launch";
+import { chooseDirectory, dragSeparator, launch, mod, newTab as newTabIn, scratch, setContentSize, setTheme as setThemeIn, shoot as shootInto } from "./launch";
 import { selectFixtureSession } from "./session-fixture";
 
 /**
@@ -491,14 +491,11 @@ async function open(label: string) {
 }
 
 async function newTab(label: "File" | "Terminal") {
-  await page.getByRole("button", { name: "New tab", exact: true }).click();
-  await page.getByRole("menuitem", { name: label }).click();
-  await expect(page.getByRole("menu")).toHaveCount(0);
+  await newTabIn(page, label);
 }
 
 async function setTheme(theme: "dark" | "light") {
-  await page.evaluate((value) => window.textToCad.settings.set({ theme: value }), theme);
-  await expect(page.locator("html")).toHaveClass(theme === "dark" ? /\bdark\b/ : /^(?!.*\bdark\b).*$/);
+  await setThemeIn(page, theme);
 }
 
 /** No frame since the last drain disagreed with the expected scheme; waits for sampled frames. */

@@ -157,6 +157,19 @@ export async function settleTerminal(page: Page) {
     .toBe(true);
 }
 
+/** `+` is a menu of the tab kinds; a closing Radix menu can swallow the next click, so wait it out. */
+export async function newTab(page: Page, label: string) {
+  await page.getByRole("button", { name: "New tab", exact: true }).click();
+  await page.getByRole("menuitem", { name: label }).click();
+  await expect(page.getByRole("menu")).toHaveCount(0);
+}
+
+/** Set the theme through the settings and wait for the document to wear it. */
+export async function setTheme(page: Page, theme: "dark" | "light") {
+  await page.evaluate((value) => (window as unknown as { textToCad: { settings: { set(patch: { theme: string }): Promise<unknown> } } }).textToCad.settings.set({ theme: value }), theme);
+  await expect(page.locator("html")).toHaveClass(theme === "dark" ? /\bdark\b/ : /^(?!.*\bdark\b).*$/);
+}
+
 /** Screenshot with transitions finished, into the test's output directory. */
 export async function shoot(target: Page | Locator, name: string, testInfo: { outputPath(name: string): string }) {
   await target.screenshot({ path: testInfo.outputPath(name), animations: "disabled" });
