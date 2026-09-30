@@ -6,6 +6,7 @@
  * `shell`, `ui`, `window`) answered here — `registerIpc` refuses to start if
  * the two disagree.
  */
+import { stat } from "node:fs/promises";
 import { BrowserWindow, app, dialog, shell } from "electron";
 
 import { ipcContract, type IpcContract } from "../../shared/ipc";
@@ -51,9 +52,10 @@ const handlers = {
 
     add: async (_request: void, ctx: IpcContext) => {
       const window = BrowserWindow.fromWebContents(ctx.sender);
+      const options = { ...openProjectDialog, ...(await defaultPathOption()) };
       const result = window
-        ? await dialog.showOpenDialog(window, openProjectDialog)
-        : await dialog.showOpenDialog(openProjectDialog);
+        ? await dialog.showOpenDialog(window, options)
+        : await dialog.showOpenDialog(options);
       const directory = result.canceled ? undefined : result.filePaths[0];
       if (!directory) {
         return null;
@@ -159,6 +161,21 @@ const openProjectDialog = {
   buttonLabel: "Open folder",
   properties: ["openDirectory", "createDirectory"],
 } as const satisfies Electron.OpenDialogOptions;
+
+// Settings › General › "Where the Open folder chooser opens". A folder that
+// has since been moved or deleted is left out, so the chooser opens where the
+// OS would have put it rather than on an error.
+async function defaultPathOption(): Promise<{ defaultPath?: string }> {
+  const folder = settings.get().defaultProjectFolder;
+  if (!folder) {
+    return {};
+  }
+  try {
+    return (await stat(folder)).isDirectory() ? { defaultPath: folder } : {};
+  } catch {
+    return {};
+  }
+}
 
 export function registerIpcHandlers() {
   // The watcher and the pty manager push events, so they are handed the
