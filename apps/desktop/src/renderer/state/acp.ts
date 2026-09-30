@@ -194,11 +194,20 @@ export const useAcp = create<AcpState>((set, get) => ({
           return;
         }
         // A load that started while this was in flight owns the session now.
-        if (painted && !get().sessions[sessionId] && !get().loading[sessionId]) {
+        if (get().loading[sessionId]) {
+          return;
+        }
+        const current = get().sessions[sessionId];
+        if (painted && !current) {
           get().receiveState(sessionId, painted.state);
-          if (painted.live) {
-            return;
-          }
+        }
+        // Main's connection is live: what is held — painted here, or by the `session.state`
+        // main broadcast while this was in flight (a session just created) — is current, and
+        // there is nothing to reconnect. A `load` here would mark the session `reconnecting`,
+        // which drops every turn event until its reply, then repaint from a snapshot older
+        // than the turn sent in the meantime: that prompt would never appear.
+        if (painted?.live && current?.status !== "closed") {
+          return;
         }
       } catch {
         /* no snapshot: the spinner, as before */
