@@ -318,6 +318,10 @@ test("the app quits with everything running and leaves no child behind", async (
   // into main and the 25 ms poll are inside it; the watchdog's part is QUIT_DEADLINE_MS plus the
   // quarter second the kill takes to land (quit-deadline.ts), which leaves the rest of the budget as slack.
   const quitMs = Date.now() - quitAt;
+  // Printed whether it passes or not (launch.ts has no CI marker), so a CI log shows how much of the
+  // budget a run used; the assertion below is unchanged.
+  console.info(`[quit-budget] app.quit() to pid gone: ${quitMs} ms of ${QUIT_BUDGET_MS} ms (deadline ${QUIT_DEADLINE_MS} ms)`);
+  test.info().annotations.push({ type: "quit-ms", description: String(quitMs) });
   expect(quitMs, `the app took ${quitMs} ms to quit (deadline ${QUIT_DEADLINE_MS} ms, budget ${QUIT_BUDGET_MS} ms)`).toBeLessThan(QUIT_BUDGET_MS);
   // `before-quit` ran its teardown and `will-quit` arrived (the lines land as the pipe drains).
   await expect.poll(() => lines.filter((line) => /^\[quit\] (will-quit|teardown \d+ms)$/.test(line.trim())).length).toBeGreaterThanOrEqual(2);
