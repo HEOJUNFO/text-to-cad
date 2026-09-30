@@ -177,7 +177,8 @@ export const gitIpc = {
       z.object({ patch: z.string() }),
     ),
     commit: invoke(
-      InProject.extend({ message: z.string().min(1), push: z.boolean().optional() }),
+      // Empty only for a push of commits already made (main refuses an empty commit message).
+      InProject.extend({ message: z.string(), push: z.boolean().optional() }),
       z.object({ sha: z.string() }),
     ),
     /**

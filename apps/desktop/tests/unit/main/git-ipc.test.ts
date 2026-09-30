@@ -240,3 +240,23 @@ test("a worktree whose folder was deleted by hand lists as deletable, not as unc
   await gitHandlers.git.removeWorktree({ projectId: project.id, path: created.path });
   expect(await gitHandlers.git.worktrees({ projectId: project.id })).toEqual([]);
 });
+
+test("a push that failed after its commit is retried by asking again, without 'nothing to commit'", async () => {
+  const project = await repository("a", path.join(base, "robot-arm"));
+  const remote = path.join(base, "remote.git");
+  await run("git", ["init", "--quiet", "--bare", "--initial-branch=main", remote], { env: process.env });
+  await run("git", ["remote", "add", "origin", path.join(base, "not-there.git")], { cwd: project.path });
+  await writeFile(path.join(project.path, "wrist.txt"), "wrist\n");
+
+  // The commit lands, the push does not: a clean tree with a commit nobody has.
+  await expect(gitHandlers.git.commit({ projectId: project.id, message: "add wrist", push: true })).rejects.toThrow();
+  const committed = await git.head(project.path);
+  // Two: the fixture's first commit was never pushed either.
+  expect(await gitHandlers.git.status({ projectId: project.id })).toMatchObject({ workingFiles: 0, ahead: 2 });
+
+  await run("git", ["remote", "set-url", "origin", remote], { cwd: project.path });
+  const retried = await gitHandlers.git.commit({ projectId: project.id, message: "", push: true });
+  expect(retried.sha).toBe(committed);
+  expect((await run("git", ["rev-parse", "main"], { cwd: remote })).stdout.trim()).toBe(committed);
+  expect(await gitHandlers.git.status({ projectId: project.id })).toMatchObject({ ahead: 0 });
+});

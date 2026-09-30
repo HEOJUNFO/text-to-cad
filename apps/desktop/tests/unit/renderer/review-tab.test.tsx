@@ -430,3 +430,20 @@ it("a write the watcher reports under a project inside the repository re-reads t
   await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
   expect(await screen.findByText("v2")).toBeInTheDocument();
 });
+
+it("a clean tree with commits the remote lacks offers Push, which sends them without a message", async () => {
+  const user = userEvent.setup();
+  gitInfo = { hasRemote: true, hasGh: false };
+  git.commit.mockResolvedValue({ sha: "0123456789abcdef0123456789abcdef01234567" });
+  scoped.mockResolvedValue({ ...repo("main"), ahead: 1, workingFiles: 0 });
+  renderReview();
+
+  const trigger = await screen.findByRole("button", { name: "Push" });
+  await vi.waitFor(() => expect(trigger).toBeEnabled());
+  await user.click(trigger);
+  const panel = screen.getByRole("region", { name: "Commit changes" });
+  expect(within(panel).getByText("1 commit not pushed")).toBeInTheDocument();
+  await user.click(within(panel).getByRole("button", { name: "Push" }));
+  await vi.waitFor(() => expect(toast.success).toHaveBeenCalledWith("Pushed 0123456"));
+  expect(git.commit).toHaveBeenCalledWith(expect.objectContaining({ message: "", push: true }));
+});

@@ -293,6 +293,16 @@ export const gitHandlers = {
     commit: ({ projectId, sessionId, message, push }) =>
       fsCall(async () => {
         const cwd = cwdFor({ projectId, ...(sessionId ? { sessionId } : {}) });
+        // A push that failed after its commit leaves a clean tree and commits
+        // the remote lacks; asking again with `push` sends them rather than
+        // failing on "nothing to commit".
+        if (push) {
+          const state = await git.pushState(cwd);
+          if (!state.dirty && state.ahead > 0) {
+            await git.push(cwd);
+            return { sha: (await git.head(cwd)) ?? "" };
+          }
+        }
         const result = await git.commitAll(cwd, message);
         if (push) {
           await git.push(cwd);

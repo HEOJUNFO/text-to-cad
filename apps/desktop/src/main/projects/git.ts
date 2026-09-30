@@ -280,6 +280,8 @@ export function parsePorcelainStatus(output: string): {
   unborn: boolean;
   ahead: number;
   behind: number;
+  /** The branch tracks something (`main...origin/main`), so `ahead` is measured against it. */
+  upstream: boolean;
   files: Omit<ChangedFile, "insertions" | "deletions" | "binary">[];
 } {
   const records = output.split("\0");
@@ -287,6 +289,7 @@ export function parsePorcelainStatus(output: string): {
   let unborn = false;
   let ahead = 0;
   let behind = 0;
+  let upstream = false;
   const files: Omit<ChangedFile, "insertions" | "deletions" | "binary">[] = [];
 
   for (let index = 0; index < records.length; index += 1) {
@@ -313,6 +316,7 @@ export function parsePorcelainStatus(output: string): {
       }
       const [names, tracking] = splitOnce(header, " ");
       branch = splitOnce(names, "...")[0] || null;
+      upstream = names.includes("...");
       ahead = Number(/ahead (\d+)/.exec(tracking ?? "")?.[1] ?? 0);
       behind = Number(/behind (\d+)/.exec(tracking ?? "")?.[1] ?? 0);
       continue;
@@ -341,7 +345,7 @@ export function parsePorcelainStatus(output: string): {
     files.push({ path: filePath, status });
   }
 
-  return { branch, unborn, ahead, behind, files };
+  return { branch, unborn, ahead, behind, upstream, files };
 }
 
 /**
@@ -435,6 +439,7 @@ export async function status(cwd: string, scope: DiffScope = { kind: "working-tr
   const porcelain = parsePorcelainStatus(
     await git(root, ["status", "--porcelain=v1", "-z", "--branch", "--untracked-files=all"]),
   );
+  const ahead = await commitsAhead(root, porcelain);
   // `--show-toplevel` is a real path; the directory asked about is compared as one too.
   const inside = path.relative(root, await fsp.realpath(cwd).catch(() => path.resolve(cwd)));
   const prefix = !inside || climbsOut(inside) ? "" : `${inside.split(path.sep).join("/")}/`;
@@ -444,7 +449,7 @@ export async function status(cwd: string, scope: DiffScope = { kind: "working-tr
       isRepository: true,
       branch: porcelain.branch,
       unborn: porcelain.unborn,
-      ahead: porcelain.ahead,
+      ahead,
       behind: porcelain.behind,
       files: [],
       insertions: 0,
@@ -466,7 +471,7 @@ export async function status(cwd: string, scope: DiffScope = { kind: "working-tr
     isRepository: true,
     branch: porcelain.branch,
     unborn: porcelain.unborn,
-    ahead: porcelain.ahead,
+    ahead,
     behind: porcelain.behind,
     files,
     insertions: files.reduce((total, file) => total + file.insertions, 0),
@@ -475,6 +480,39 @@ export async function status(cwd: string, scope: DiffScope = { kind: "working-tr
     prefix,
     ...(scope.kind === "unmarked" ? { fromStart: true as const } : {}),
   };
+}
+
+/**
+ * Commits the remote does not have: what a `Push` would send.
+ *
+ * Porcelain's `[ahead N]` only exists for a branch that tracks something. A
+ * first push that failed (a wrong remote, no network) leaves a committed
+ * branch tracking nothing, and reading that as "0 ahead" left the work with
+ * no way to be pushed again. So without an upstream, and with a remote to
+ * push to, the commits on no remote branch are the unpushed ones — for a
+ * fresh worktree branch, those made since it left its base.
+ */
+async function commitsAhead(root: string, porcelain: ReturnType<typeof parsePorcelainStatus>): Promise<number> {
+  if (porcelain.upstream || porcelain.unborn || !porcelain.branch) {
+    return porcelain.ahead;
+  }
+  const [remotes, count] = await Promise.all([
+    tryGit(root, ["remote"]),
+    tryGit(root, ["rev-list", "--count", "HEAD", "--not", "--remotes"]),
+  ]);
+  return remotes?.trim() ? Number(count?.trim()) || 0 : 0;
+}
+
+/** What `Commit` would take and what `Push` would send, in one status read. */
+export async function pushState(cwd: string): Promise<{ dirty: boolean; ahead: number }> {
+  const root = await repositoryRoot(cwd);
+  if (!root) {
+    throw new GitError("not a git repository");
+  }
+  const porcelain = parsePorcelainStatus(
+    await git(root, ["status", "--porcelain=v1", "-z", "--branch", "--untracked-files=all"]),
+  );
+  return { dirty: porcelain.files.length > 0, ahead: await commitsAhead(root, porcelain) };
 }
 
 async function workingTreeFiles(
