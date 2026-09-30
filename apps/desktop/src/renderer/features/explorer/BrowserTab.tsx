@@ -98,6 +98,8 @@ export function BrowserTab({ sessionId, projectId, root, tabId, url }: { session
           onChange={(event) => setAddress(event.target.value)}
           onFocus={(event) => event.currentTarget.select()}
           onKeyDown={(event) => {
+            // The Enter that picks a candidate in an input method belongs to it (229: Safari-era keyCode).
+            if (event.nativeEvent.isComposing || event.keyCode === 229) return;
             if (event.key === "Enter") {
               navigate(event.currentTarget.value);
             }

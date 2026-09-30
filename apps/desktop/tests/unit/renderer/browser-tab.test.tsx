@@ -24,3 +24,13 @@ it("names its icon-only buttons, and says whether the console is open", () => {
   fireEvent.click(console);
   expect(screen.getByRole("button", { name: /^console$/i })).toHaveAttribute("aria-pressed", "true");
 });
+
+it("does not navigate on the Enter that commits an IME composition", () => {
+  renderTab();
+  const input = screen.getByRole("textbox", { name: "Address" });
+  fireEvent.change(input, { target: { value: "example.org" } });
+  fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+  expect(navigate).not.toHaveBeenCalled();
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(navigate).toHaveBeenCalledWith(expect.anything(), { url: "https://example.org" });
+});
