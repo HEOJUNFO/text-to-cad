@@ -709,6 +709,31 @@ describe("SessionManager", () => {
   });
 
   /**
+   * `create` waits on its marks (up to five seconds) after `session/new`, with
+   * the connection idle: a second create past the limit closed it, and the
+   * first then wrote `idle` over the eviction's `closed` and returned a dead
+   * session.
+   */
+  it("does not evict a new session while its create waits on the marks", async () => {
+    let release!: (tree: string) => void;
+    let gated = false;
+    const { manager, broadcasts, cwd } = await setup({
+      keepAlive: 1,
+      snapshot: (_cwd, _mark) => {
+        if (gated) return Promise.resolve("tree");
+        gated = true;
+        return new Promise<string>((resolve) => (release = resolve));
+      },
+    });
+    const a = manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    await until(() => (connectedCount(broadcasts) > 0 ? true : undefined));
+    await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    release("tree");
+    const created = await a;
+    expect(manager.state(created.id)?.live).toBe(true);
+  });
+
+  /**
    * A snapshot of a huge or locked tree can take a minute. The mark is never
    * a reason to fail a turn, nor to hold one back for long: past five seconds
    * the commit stands in for the tree.
@@ -1728,6 +1753,13 @@ describe("what a session is given", () => {
     expect(prompts[1]!.params.prompt).toEqual([{ type: "text", text: "second" }]);
   });
 });
+
+/** How many `session/connected` events have been broadcast: `session/new` has answered that many times. */
+function connectedCount(broadcasts: { channel: IpcEventChannel; payload: unknown }[]): number {
+  return broadcasts.filter(
+    (b) => b.channel === "session.update" && (b.payload as { event: { type: string } }).event.type === "session/connected",
+  ).length;
+}
 
 async function until<T>(probe: () => T | undefined, timeoutMs = 5_000): Promise<T> {
   const started = Date.now();

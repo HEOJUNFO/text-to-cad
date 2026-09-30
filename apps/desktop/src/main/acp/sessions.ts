@@ -459,6 +459,11 @@ export class SessionManager {
     }
     let created!: () => void;
     this.creating.set(id, new Promise<void>((resolve) => (created = resolve)));
+    // The connection this create is still setting up, in `held` from `connect`
+    // until it returns: idle through the preferences and the marks (up to five
+    // seconds), it is not `busy` to the keep-alive limit, and another create or
+    // load past the limit would close it under this one.
+    let setup: SessionConnection | undefined;
     try {
       this.broadcastIndex();
 
@@ -472,6 +477,8 @@ export class SessionManager {
           },
         });
         timer.mark("spawn");
+        this.held.add(connection);
+        setup = connection;
         await connection.initialize();
         timer.mark("initialize");
         await connection.newSession();
@@ -514,6 +521,7 @@ export class SessionManager {
       this.deps.track?.({ name: "session_created", agent: session.agentId });
       return updated;
     } finally {
+      if (setup) this.held.delete(setup);
       this.creating.delete(id);
       created();
     }
