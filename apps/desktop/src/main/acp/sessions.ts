@@ -336,6 +336,11 @@ export class SessionManager {
    * "needs you" glyph outlives the agent that needed you. Lazy rather than in
    * the constructor, which runs before the database is open; `updatedAt` is
    * kept so the sidebar's order does not change.
+   *
+   * A row with no agent session id is a `create` that never reached
+   * `session/new`'s answer — the app quit mid-spawn, and `create`'s cleanup
+   * cannot run once the database is closed. It can never be loaded, so it is
+   * removed rather than left in the sidebar as a "New session" nobody made.
    */
   private booted = false;
   private boot(): void {
@@ -344,6 +349,11 @@ export class SessionManager {
     }
     this.booted = true;
     for (const session of this.deps.repo.list()) {
+      if (!session.acpSessionId && !this.creating.has(session.id)) {
+        this.deps.repo.remove(session.id);
+        void this.unpinMarks(session);
+        continue;
+      }
       const stale =
         session.status === "running" || session.status === "waiting" || session.status === "connecting";
       if (stale && !this.live.get(session.id)?.alive) {

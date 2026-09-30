@@ -417,6 +417,17 @@ describe("SessionManager", () => {
     expect(manager.list().every((session) => session.updatedAt === 100)).toBe(true);
   });
 
+  it("drops the row of a create that never reached session/new's answer when the app next starts", async () => {
+    // `closeAll` in the middle of a create closes the database under it, and
+    // the create's own cleanup then throws: the row is what is left.
+    const repo = memoryRepo();
+    const base = { projectId: "p1", agentId: "claude-code", cwd: "/x", gitMode: "none", title: "New session", titleSource: "prompt", createdAt: 1, updatedAt: 100, changedFiles: 0, insertions: 0, deletions: 0, archived: false, pinned: false } as const;
+    repo.upsert({ ...base, id: "phantom", status: "connecting", acpSessionId: null } as Session);
+    repo.upsert({ ...base, id: "real", status: "closed", acpSessionId: "acp-real" } as Session);
+    const { manager } = await setup({ repo });
+    expect(manager.list().map((session) => session.id)).toEqual(["real"]);
+  });
+
   it("refuses an answer to a permission request the agent is no longer waiting on", async () => {
     const { manager, cwd } = await setup();
     const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
