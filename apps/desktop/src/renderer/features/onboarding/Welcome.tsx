@@ -6,6 +6,7 @@ import { AgentRow, isAgentReady, useOfferedAgents } from "@renderer/features/ses
 import { useOpenFolder } from "@renderer/hooks/use-open-folder";
 import { cn } from "@renderer/lib/utils";
 import { useAgents } from "@renderer/state/agents";
+import { useOnboarding } from "@renderer/state/onboarding";
 import { useProjects } from "@renderer/state/projects";
 import { useSessions } from "@renderer/state/sessions";
 import { useSettings } from "@renderer/state/settings";
@@ -18,7 +19,8 @@ import textToCadMark from "@renderer/assets/brand/text-to-cad-star.svg";
  * Getting started checklist picks up from there.
  */
 export function Welcome() {
-  const [step, setStep] = useState(0);
+  const step = useOnboarding((state) => state.step);
+  const setStep = useOnboarding((state) => state.setStep);
   const patch = useSettings((state) => state.patch);
   const finish = () => void patch({ onboardingCompleted: true });
   // On the agent step, Continue says what it means when nothing can run yet:

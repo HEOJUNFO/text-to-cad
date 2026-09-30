@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Welcome } from "@renderer/features/onboarding/Welcome";
 import { useAgents } from "@renderer/state/agents";
+import { useOnboarding } from "@renderer/state/onboarding";
 import { useProjects } from "@renderer/state/projects";
 import { useSessions } from "@renderer/state/sessions";
 import { useSettings } from "@renderer/state/settings";
@@ -30,6 +31,7 @@ async function toAgentStep() {
 }
 
 beforeEach(() => {
+  useOnboarding.setState({ step: 0 });
   useAgents.setState({ agents: [], ready: false, loadError: null, jobs: {} });
 });
 
