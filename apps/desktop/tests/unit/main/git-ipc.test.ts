@@ -225,3 +225,64 @@ test("a create does not wait on the keep-limit sweep, which runs once the row ex
   expect(await exists(recent.path)).toBe(true);
   expect(await exists(created.cwd)).toBe(true);
 }, 40_000);
+
+test("a worktree whose folder was deleted by hand lists as deletable, not as unchecked", async () => {
+  const project = await repository("a", path.join(base, "robot-arm"));
+  const created = await git.createWorktree({
+    repoPath: project.path,
+    parentDir: projectWorktreeDir({ worktreeRoot: state.worktreeRoot }, project),
+    name: "wrist",
+  });
+  await rm(created.path, { recursive: true, force: true });
+
+  const rows = await gitHandlers.git.worktrees({ projectId: project.id });
+  expect(rows.map((row) => [row.path, row.dirty])).toEqual([[created.path, false]]);
+  await gitHandlers.git.removeWorktree({ projectId: project.id, path: created.path });
+  expect(await gitHandlers.git.worktrees({ projectId: project.id })).toEqual([]);
+});
+
+test("a push that failed after its commit is retried by asking again, without 'nothing to commit'", async () => {
+  const project = await repository("a", path.join(base, "robot-arm"));
+  const remote = path.join(base, "remote.git");
+  await run("git", ["init", "--quiet", "--bare", "--initial-branch=main", remote], { env: process.env });
+  await run("git", ["remote", "add", "origin", path.join(base, "not-there.git")], { cwd: project.path });
+  await writeFile(path.join(project.path, "wrist.txt"), "wrist\n");
+
+  // The commit lands, the push does not: a clean tree with a commit nobody has.
+  await expect(gitHandlers.git.commit({ projectId: project.id, message: "add wrist", push: true })).rejects.toThrow();
+  const committed = await git.head(project.path);
+  // Two: the fixture's first commit was never pushed either.
+  expect(await gitHandlers.git.status({ projectId: project.id })).toMatchObject({ workingFiles: 0, ahead: 2 });
+
+  await run("git", ["remote", "set-url", "origin", remote], { cwd: project.path });
+  const retried = await gitHandlers.git.commit({ projectId: project.id, message: "", push: true });
+  expect(retried.sha).toBe(committed);
+  expect((await run("git", ["rev-parse", "main"], { cwd: remote })).stdout.trim()).toBe(committed);
+  expect(await gitHandlers.git.status({ projectId: project.id })).toMatchObject({ ahead: 0 });
+});
+
+test("an archived thread does not hold a worktree, and one in a subfolder does", async () => {
+  const project = await repository("a", path.join(base, "robot-arm"));
+  const created = await git.createWorktree({
+    repoPath: project.path,
+    parentDir: projectWorktreeDir({ worktreeRoot: state.worktreeRoot }, project),
+    name: "wrist",
+  });
+  const listed = async () => (await gitHandlers.git.worktrees({ projectId: project.id })).map((row) => [row.openSessions, row.dirty]);
+
+  // Archived: not open, so Delete is on offer and main agrees.
+  state.sessions.push({ id: "old", projectId: project.id, cwd: created.path, worktreePath: created.path, archived: true });
+  expect(await listed()).toEqual([[0, false]]);
+
+  // In a folder inside it: open in the list, and refused in main.
+  await mkdir(path.join(created.path, "parts"));
+  state.sessions.push({ id: "deep", projectId: project.id, cwd: path.join(created.path, "parts"), archived: false });
+  expect(await listed()).toEqual([[1, false]]);
+  await expect(gitHandlers.git.removeWorktree({ projectId: project.id, path: created.path })).rejects.toMatchObject({
+    message: "1 session is still using that worktree",
+  });
+
+  state.sessions = state.sessions.filter((row) => row.id === "old");
+  await gitHandlers.git.removeWorktree({ projectId: project.id, path: created.path });
+  expect(await exists(created.path)).toBe(false);
+});

@@ -382,15 +382,19 @@ function ReviewBody({
           // work from earlier, and a scope full of committed history beside a
           // clean tree.
           fileCount={status.workingFiles}
+          // A push that failed after its commit leaves a clean tree and
+          // commits the remote lacks: the same button sends them.
+          ahead={status.ahead}
           onToggle={() => setCommitting((current) => !current)}
           panelId={commitPanelId}
-          open={committing && status.workingFiles > 0}
+          open={committing && (status.workingFiles > 0 || status.ahead > 0)}
           ref={commitTrigger}
         />
       </header>
 
-      {committing && status.workingFiles > 0 ? (
+      {committing && (status.workingFiles > 0 || status.ahead > 0) ? (
         <CommitPanel
+          ahead={status.ahead}
           canOpenPullRequest={Boolean(info?.hasGh && info.hasRemote)}
           canPush={Boolean(info?.hasRemote)}
           fileCount={status.workingFiles}
@@ -785,6 +789,7 @@ function FileSection({
  * and the panel do not show two filled Commit buttons one above the other.
  */
 function CommitTrigger({
+  ahead,
   canPush,
   fileCount,
   open,
@@ -792,6 +797,8 @@ function CommitTrigger({
   panelId,
   ref,
 }: {
+  /** Commits the remote lacks. */
+  ahead: number;
   canPush: boolean;
   fileCount: number;
   open: boolean;
@@ -805,14 +812,14 @@ function CommitTrigger({
       aria-controls={panelId}
       aria-expanded={open}
       className="h-6 gap-1.5 px-2 text-[12px]"
-      disabled={fileCount === 0}
+      disabled={fileCount === 0 && ahead === 0}
       onClick={onToggle}
       ref={ref}
       size="sm"
       variant={open ? "outline" : "default"}
     >
       <GitCommitHorizontal className="size-3.5" />
-      {canPush ? "Commit or push" : "Commit"}
+      {fileCount === 0 && ahead > 0 ? "Push" : canPush ? "Commit or push" : "Commit"}
     </Button>
   );
 }
@@ -835,6 +842,7 @@ function CommitTrigger({
  * has no upstream, choosing the base, the draft setting — main does.
  */
 function CommitPanel({
+  ahead,
   request,
   session,
   fileCount,
@@ -844,6 +852,8 @@ function CommitPanel({
   onClose,
   onDone,
 }: {
+  /** Commits the remote lacks: with a clean tree, the panel's one job is to push them. */
+  ahead: number;
   request: ReviewRequest;
   session: Session | null;
   /** Files in the working tree — what `Commit` takes, not what the scope shows. */
@@ -879,12 +889,14 @@ function CommitPanel({
   };
 
   const commit = (push: boolean) => {
-    if (message.trim() === "") {
+    if (message.trim() === "" && fileCount > 0) {
       return;
     }
     void run(async () => {
       const { sha } = await window.textToCad.git.commit({ ...request, message: message.trim(), push });
-      toast.success(`${push ? "Committed and pushed" : "Committed"} ${sha.slice(0, 7)}`);
+      toast.success(
+        fileCount === 0 ? `Pushed ${sha.slice(0, 7)}` : `${push ? "Committed and pushed" : "Committed"} ${sha.slice(0, 7)}`,
+      );
     });
   };
 
@@ -923,20 +935,27 @@ function CommitPanel({
       }}
     >
       <p className="mb-2 text-[12px] font-medium">
-        Commit {fileCount} {fileCount === 1 ? "file" : "files"}
+        {fileCount === 0
+          ? `${ahead} ${ahead === 1 ? "commit" : "commits"} not pushed`
+          : `Commit ${fileCount} ${fileCount === 1 ? "file" : "files"}`}
       </p>
-      <Textarea
-        aria-label="Commit message"
-        autoFocus
-        className="min-h-16 text-[13px]"
-        onChange={(event) => setMessage(event.target.value)}
-        placeholder={settings?.commitInstructions?.trim() || "Message"}
-        value={message}
-      />
-      {settings?.commitInstructions?.trim() ? (
-        <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
-          {settings.commitInstructions.trim()}
-        </p>
+      {/* Pushing commits already made needs no message; the box stays only as a pull request's title. */}
+      {fileCount > 0 || canOpenPullRequest ? (
+        <>
+        <Textarea
+          aria-label="Commit message"
+          autoFocus
+          className="min-h-16 text-[13px]"
+          onChange={(event) => setMessage(event.target.value)}
+          placeholder={settings?.commitInstructions?.trim() || "Message"}
+          value={message}
+        />
+        {settings?.commitInstructions?.trim() ? (
+          <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+            {settings.commitInstructions.trim()}
+          </p>
+        ) : null}
+        </>
       ) : null}
       {error ? <p className="mt-2 text-[11px] text-destructive">{error}</p> : null}
       <div className="mt-2.5 flex items-center gap-1.5">
@@ -956,28 +975,37 @@ function CommitPanel({
         <Button className="h-7 text-xs" onClick={onClose} size="sm" variant="ghost">
           Cancel
         </Button>
-        <Button
-          className="h-7 text-xs"
-          disabled={busy || message.trim() === ""}
-          onClick={() => commit(false)}
-          size="sm"
-          // With no remote this is the panel's one action, so it takes the fill.
-          variant={canPush ? "secondary" : "default"}
-        >
-          {busy && !canPush ? <Spinner className="size-3" /> : null}
-          Commit
-        </Button>
-        {canPush ? (
-          <Button
-            className="h-7 text-xs"
-            disabled={busy || message.trim() === ""}
-            onClick={() => commit(true)}
-            size="sm"
-          >
+        {fileCount === 0 ? (
+          <Button className="h-7 text-xs" disabled={busy} onClick={() => commit(true)} size="sm">
             {busy ? <Spinner className="size-3" /> : null}
-            Commit and push
+            Push
           </Button>
-        ) : null}
+        ) : (
+          <>
+            <Button
+              className="h-7 text-xs"
+              disabled={busy || message.trim() === ""}
+              onClick={() => commit(false)}
+              size="sm"
+              // With no remote this is the panel's one action, so it takes the fill.
+              variant={canPush ? "secondary" : "default"}
+            >
+              {busy && !canPush ? <Spinner className="size-3" /> : null}
+              Commit
+            </Button>
+            {canPush ? (
+              <Button
+                className="h-7 text-xs"
+                disabled={busy || message.trim() === ""}
+                onClick={() => commit(true)}
+                size="sm"
+              >
+                {busy ? <Spinner className="size-3" /> : null}
+                Commit and push
+              </Button>
+            ) : null}
+          </>
+        )}
       </div>
       {canOpenPullRequest ? (
         <p className="mt-2 text-[11px] leading-snug text-muted-foreground">

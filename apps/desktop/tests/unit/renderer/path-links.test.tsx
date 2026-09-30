@@ -18,10 +18,10 @@ import { scopeKey, usePathLinks } from "@renderer/state/path-links";
 
 describe("the path grammar", () => {
   it("recognises relative paths and file names, not versions, URLs or absolute paths", () => {
-    for (const yes of ["models/bracket.step", "README.md", "src/", "src/main", "apps/desktop/AGENTS.md", "Makefile.in", "a.b/c"]) {
+    for (const yes of ["models/bracket.step", "README.md", "src/", "src/main", "apps/desktop/AGENTS.md", "Makefile.in", "a.b/c", "v1..v2.txt", "..keep/a.txt"]) {
       expect(looksLikePath(yes), yes).toBe(true);
     }
-    for (const no of ["0.5.0", "3.14", "https://x.y/z", "/etc/hosts", "~/x", "C:\\x", "foo:", "a..b", "hello", "."]) {
+    for (const no of ["0.5.0", "3.14", "https://x.y/z", "/etc/hosts", "~/x", "C:\\x", "foo:", "../x", "a/../b", "hello", "."]) {
       expect(looksLikePath(no), no).toBe(false);
     }
   });
@@ -94,6 +94,10 @@ describe("pathTarget", () => {
     expect(pathTarget("https://example.com/x.step")).toBeNull();
     expect(pathTarget("mailto:a@b.c")).toBeNull();
     expect(pathTarget("/../etc")).toBeNull();
+    expect(pathTarget("../x")).toBeNull();
+    expect(pathTarget("docs/..%2Fx")).toBeNull();
+    expect(pathTarget("v1..v2.txt")).toMatchObject({ path: "v1..v2.txt" });
+    expect(pathTarget("..keep/a.txt")).toMatchObject({ path: "..keep/a.txt" });
   });
 });
 

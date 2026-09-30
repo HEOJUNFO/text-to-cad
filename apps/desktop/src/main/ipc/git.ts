@@ -95,7 +95,9 @@ function cwdFor(request: { projectId: string; sessionId?: string }): string {
  */
 async function worktreesOf(project: Project): Promise<Worktree[]> {
   const parents = projectWorktreeDirs(settings.get(), project);
-  const open = sessions.list(project.id);
+  // Every project's sessions, as Delete's refusal counts them: a session of
+  // another project can be running in this one's worktree.
+  const open = sessions.list();
 
   const rows: Worktree[] = [];
   // Listed by the project's own repository, so a worktree in the shared
@@ -110,9 +112,15 @@ async function worktreesOf(project: Project): Promise<Worktree[]> {
       path: worktree.path,
       branch: worktree.branch,
       lastUsedAt: lastUsedAt === null ? null : Math.round(lastUsedAt),
-      openSessions: open.filter((session) => git.samePath(session.cwd, worktree.path)).length,
-      // Ignored files count: removing the worktree would delete them too.
-      dirty: await git.hasUnsavedWork(worktree.path),
+      openSessions: git.sessionsUsing(open, worktree.path).length,
+      // Ignored files count: removing the worktree would delete them too. A
+      // folder deleted by hand has nothing left to lose — git cannot be asked
+      // about it (`hasUnsavedWork` would say null and pin Delete off for good),
+      // and `removeWorktree` unregisters it — so it is clean. A folder that
+      // could not be read is unknown, as before.
+      dirty: (await git.folderGone(worktree.path).catch(() => null)) === true
+        ? false
+        : await git.hasUnsavedWork(worktree.path),
       locked: worktree.locked,
     });
   }
@@ -164,7 +172,8 @@ export async function pruneProjectWorktrees(project: Project): Promise<void> {
       // Read again before each removal, so a create that began after the
       // sweep did is protected too.
       protectedPaths: () => [
-        ...sessions.list().flatMap((session) =>
+        // An archived thread is not open: it does not hold a worktree.
+        ...sessions.list().filter((session) => !session.archived).flatMap((session) =>
           [session.cwd, session.projectId, session.worktreePath].filter((root): root is string => Boolean(root))),
         ...creating.keys(),
       ],
@@ -287,6 +296,16 @@ export const gitHandlers = {
     commit: ({ projectId, sessionId, message, push }) =>
       fsCall(async () => {
         const cwd = cwdFor({ projectId, ...(sessionId ? { sessionId } : {}) });
+        // A push that failed after its commit leaves a clean tree and commits
+        // the remote lacks; asking again with `push` sends them rather than
+        // failing on "nothing to commit".
+        if (push) {
+          const state = await git.pushState(cwd);
+          if (!state.dirty && state.ahead > 0) {
+            await git.push(cwd);
+            return { sha: (await git.head(cwd)) ?? "" };
+          }
+        }
         const result = await git.commitAll(cwd, message);
         if (push) {
           await git.push(cwd);
@@ -329,9 +348,7 @@ export const gitHandlers = {
         }
         // Not even forced: pulling the directory out from under a session
         // leaves an agent running in a folder that no longer exists.
-        const using = sessions.list().filter(session =>
-          git.samePath(session.cwd, requested) || git.isUnder(requested, session.cwd) ||
-          (session.worktreePath !== undefined && git.samePath(session.worktreePath, requested)));
+        const using = git.sessionsUsing(sessions.list(), requested);
         if (using.length > 0) {
           throw new IpcError(
             `${using.length} session${using.length === 1 ? " is" : "s are"} still using that worktree`,

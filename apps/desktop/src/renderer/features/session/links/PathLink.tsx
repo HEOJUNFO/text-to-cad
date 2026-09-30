@@ -45,7 +45,8 @@ export function pathTarget(href: string | undefined): PathTarget | null {
     return null;
   }
   path = path.replace(/^(\.\/|\/)+/, "").replace(/\/+$/, "");
-  if (!path || path.includes("..")) {
+  // A `..` segment climbs out; `v1..v2.txt` and `..keep/a.txt` are only names.
+  if (!path || path.split(/[\\/]/).includes("..")) {
     return null;
   }
   return { path, selector: selector && isSelectorList(selector) ? selector : "" };

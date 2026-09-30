@@ -26,7 +26,7 @@ import { execa, type Options } from "execa";
 
 import { diffScopeFor, ReviewScopeSchema } from "../../shared/types";
 import { trackChild, type ChildKind, type Trackable } from "../children";
-import { climbsOut, resolveInRoot } from "../explorer/fs";
+import { climbsOut, MAX_TEXT_BYTES, resolveInRoot } from "../explorer/fs";
 
 /* -------------------------------------------------------------------------- */
 /* Types                                                                       */
@@ -131,22 +131,48 @@ const GIT_OPTIONS: Options = {
 
 /**
  * Every process this module starts goes through the child registry
- * (`../children`): a read or a commit in flight is not worth waiting for at
- * quit, and a `fetch` against a slow remote would otherwise hold the exit
- * open. execa's subprocess is a promise with `pid` and `kill` mixed in,
- * which is the shape the registry tracks. `gh pr create` is the one call
- * worth finishing, so it is a service — left alone until `will-quit`.
+ * (`../children`): a read in flight is not worth waiting for at quit, and a
+ * `fetch` against a slow remote would otherwise hold the exit open. execa's
+ * subprocess is a promise with `pid` and `kill` mixed in, which is the shape
+ * the registry tracks. A write (`commit`, `push`, `worktree add/remove`) is
+ * not a read: SIGKILLed mid-way it leaves an `index.lock` or a half-made
+ * worktree, so it is a `write` and gets SIGTERM, which git cleans up after.
+ * `gh pr create` is the one call worth finishing, so it is a service — left
+ * alone until `will-quit`.
  */
 function tracked<T extends Trackable>(subprocess: T, kind: ChildKind = "probe"): T {
   return trackChild(subprocess, kind);
 }
 
-async function git(cwd: string, args: string[]): Promise<string> {
+/**
+ * Commit, push and the pre-commit hooks a commit runs are the calls that can
+ * legitimately outlast the reads' minute: a hook that lints a repository, a
+ * push of a large branch over a slow link. Killed at sixty seconds they left
+ * a half-run hook and a blank error, so they get this instead.
+ */
+const WRITE_TIMEOUT = 10 * 60_000;
+const WRITE = { timeout: WRITE_TIMEOUT, kind: "write" } as const;
+
+/** The last lines of a git command's output — a hook can print a page before the reason. */
+function tail(output: string, lines = 20): string {
+  return output.trim().split(/\r?\n/).slice(-lines).join("\n");
+}
+
+async function git(cwd: string, args: string[], options: { timeout?: number; kind?: ChildKind } = {}): Promise<string> {
+  const timeout = options.timeout ?? GIT_OPTIONS.timeout;
   const env = readIndex.getStore();
-  const result = await tracked(execa("git", args, env ? { ...GIT_OPTIONS, cwd, env: { ...GIT_OPTIONS.env, ...env } } : { ...GIT_OPTIONS, cwd }));
+  const result = await tracked(execa("git", args, env ? { ...GIT_OPTIONS, timeout, cwd, env: { ...GIT_OPTIONS.env, ...env } } : { ...GIT_OPTIONS, timeout, cwd }), options.kind);
   if (result.failed || result.exitCode !== 0) {
-    const stderr = typeof result.stderr === "string" ? result.stderr.trim() : "";
-    throw new GitError(stderr || `git ${args[0]} failed`);
+    if (result.timedOut) {
+      const minutes = Number(timeout) / 60_000;
+      throw new GitError(`git ${args[0]} was stopped after ${minutes >= 1 ? `${minutes} minute${minutes === 1 ? "" : "s"}` : `${Number(timeout) / 1000} seconds`} without finishing`);
+    }
+    // `git commit` says "nothing to commit" on stdout, and a hook's reason
+    // ("no console.log") is whatever the hook echoed: stderr alone is blank
+    // for both.
+    const stderr = typeof result.stderr === "string" ? tail(result.stderr) : "";
+    const stdout = typeof result.stdout === "string" ? tail(result.stdout) : "";
+    throw new GitError(stderr || stdout || `git ${args[0]} failed`);
   }
   return typeof result.stdout === "string" ? result.stdout : "";
 }
@@ -261,6 +287,8 @@ export function parsePorcelainStatus(output: string): {
   unborn: boolean;
   ahead: number;
   behind: number;
+  /** The branch tracks something (`main...origin/main`), so `ahead` is measured against it. */
+  upstream: boolean;
   files: Omit<ChangedFile, "insertions" | "deletions" | "binary">[];
 } {
   const records = output.split("\0");
@@ -268,6 +296,7 @@ export function parsePorcelainStatus(output: string): {
   let unborn = false;
   let ahead = 0;
   let behind = 0;
+  let upstream = false;
   const files: Omit<ChangedFile, "insertions" | "deletions" | "binary">[] = [];
 
   for (let index = 0; index < records.length; index += 1) {
@@ -294,6 +323,7 @@ export function parsePorcelainStatus(output: string): {
       }
       const [names, tracking] = splitOnce(header, " ");
       branch = splitOnce(names, "...")[0] || null;
+      upstream = names.includes("...");
       ahead = Number(/ahead (\d+)/.exec(tracking ?? "")?.[1] ?? 0);
       behind = Number(/behind (\d+)/.exec(tracking ?? "")?.[1] ?? 0);
       continue;
@@ -322,7 +352,7 @@ export function parsePorcelainStatus(output: string): {
     files.push({ path: filePath, status });
   }
 
-  return { branch, unborn, ahead, behind, files };
+  return { branch, unborn, ahead, behind, upstream, files };
 }
 
 /**
@@ -416,6 +446,7 @@ export async function status(cwd: string, scope: DiffScope = { kind: "working-tr
   const porcelain = parsePorcelainStatus(
     await git(root, ["status", "--porcelain=v1", "-z", "--branch", "--untracked-files=all"]),
   );
+  const ahead = await commitsAhead(root, porcelain);
   // `--show-toplevel` is a real path; the directory asked about is compared as one too.
   const inside = path.relative(root, await fsp.realpath(cwd).catch(() => path.resolve(cwd)));
   const prefix = !inside || climbsOut(inside) ? "" : `${inside.split(path.sep).join("/")}/`;
@@ -425,7 +456,7 @@ export async function status(cwd: string, scope: DiffScope = { kind: "working-tr
       isRepository: true,
       branch: porcelain.branch,
       unborn: porcelain.unborn,
-      ahead: porcelain.ahead,
+      ahead,
       behind: porcelain.behind,
       files: [],
       insertions: 0,
@@ -447,7 +478,7 @@ export async function status(cwd: string, scope: DiffScope = { kind: "working-tr
     isRepository: true,
     branch: porcelain.branch,
     unborn: porcelain.unborn,
-    ahead: porcelain.ahead,
+    ahead,
     behind: porcelain.behind,
     files,
     insertions: files.reduce((total, file) => total + file.insertions, 0),
@@ -456,6 +487,39 @@ export async function status(cwd: string, scope: DiffScope = { kind: "working-tr
     prefix,
     ...(scope.kind === "unmarked" ? { fromStart: true as const } : {}),
   };
+}
+
+/**
+ * Commits the remote does not have: what a `Push` would send.
+ *
+ * Porcelain's `[ahead N]` only exists for a branch that tracks something. A
+ * first push that failed (a wrong remote, no network) leaves a committed
+ * branch tracking nothing, and reading that as "0 ahead" left the work with
+ * no way to be pushed again. So without an upstream, and with a remote to
+ * push to, the commits on no remote branch are the unpushed ones — for a
+ * fresh worktree branch, those made since it left its base.
+ */
+async function commitsAhead(root: string, porcelain: ReturnType<typeof parsePorcelainStatus>): Promise<number> {
+  if (porcelain.upstream || porcelain.unborn || !porcelain.branch) {
+    return porcelain.ahead;
+  }
+  const [remotes, count] = await Promise.all([
+    tryGit(root, ["remote"]),
+    tryGit(root, ["rev-list", "--count", "HEAD", "--not", "--remotes"]),
+  ]);
+  return remotes?.trim() ? Number(count?.trim()) || 0 : 0;
+}
+
+/** What `Commit` would take and what `Push` would send, in one status read. */
+export async function pushState(cwd: string): Promise<{ dirty: boolean; ahead: number }> {
+  const root = await repositoryRoot(cwd);
+  if (!root) {
+    throw new GitError("not a git repository");
+  }
+  const porcelain = parsePorcelainStatus(
+    await git(root, ["status", "--porcelain=v1", "-z", "--branch", "--untracked-files=all"]),
+  );
+  return { dirty: porcelain.files.length > 0, ahead: await commitsAhead(root, porcelain) };
 }
 
 async function workingTreeFiles(
@@ -497,10 +561,21 @@ async function workingTreeFiles(
  * count, and "binary" is the same NUL-byte test git itself uses.
  */
 async function countUntracked(root: string, filePath: string) {
+  const none = { insertions: 0, deletions: 0, binary: false };
   const absolute = await pathInRepository(root, filePath).catch(() => null);
-  const buffer = absolute ? await readWorkingBytes(absolute) : null;
+  const stat = absolute ? await fsp.lstat(absolute).catch(() => null) : null;
+  if (!absolute || !stat) {
+    return none;
+  }
+  // The status poll asks again every half second: a file is read whole only
+  // when it is small, and a STEP export of hundreds of megabytes is streamed
+  // once and remembered until it changes.
+  if (stat.isFile() && stat.size > SMALL_FILE_BYTES) {
+    return countLargeUntracked(absolute, stat);
+  }
+  const buffer = await readWorkingBytes(absolute);
   if (!buffer) {
-    return { insertions: 0, deletions: 0, binary: false };
+    return none;
   }
   const sample = buffer.subarray(0, Math.min(buffer.byteLength, 8000));
   if (sample.includes(0)) {
@@ -517,6 +592,67 @@ async function countUntracked(root: string, filePath: string) {
     lines += 1;
   }
   return { insertions: lines, deletions: 0, binary: false };
+}
+
+/** Untracked files up to this size are read whole to be counted. */
+const SMALL_FILE_BYTES = 1024 * 1024;
+/** git's own `core.bigFileThreshold`: past it git treats a file as binary and does not diff it. */
+const BIG_FILE_BYTES = 512 * 1024 * 1024;
+
+const largeCounts = new Map<string, { size: number; mtimeMs: number; counts: { insertions: number; deletions: number; binary: boolean } }>();
+
+/**
+ * Counts for an untracked file too big to read into memory: the NUL test on
+ * its first 8000 bytes, then its newlines counted a megabyte at a time.
+ * Remembered by size and mtime, so the next poll does not read it again.
+ */
+async function countLargeUntracked(absolute: string, stat: { size: number; mtimeMs: number }) {
+  const cached = largeCounts.get(absolute);
+  if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) {
+    return cached.counts;
+  }
+  let counts = { insertions: 0, deletions: 0, binary: stat.size > BIG_FILE_BYTES };
+  if (!counts.binary) {
+    const handle = await fsp.open(absolute, "r").catch(() => null);
+    if (!handle) {
+      return counts;
+    }
+    try {
+      const chunk = Buffer.allocUnsafe(SMALL_FILE_BYTES);
+      let lines = 0;
+      let last = 0x0a;
+      let first = true;
+      for (;;) {
+        const { bytesRead } = await handle.read(chunk, 0, chunk.byteLength, null);
+        if (bytesRead === 0) {
+          break;
+        }
+        if (first && chunk.subarray(0, Math.min(bytesRead, 8000)).includes(0)) {
+          counts = { insertions: 0, deletions: 0, binary: true };
+          break;
+        }
+        first = false;
+        for (let index = 0; index < bytesRead; index += 1) {
+          if (chunk[index] === 0x0a) {
+            lines += 1;
+          }
+        }
+        last = chunk[bytesRead - 1] ?? last;
+      }
+      if (!counts.binary) {
+        counts = { insertions: lines + (last === 0x0a ? 0 : 1), deletions: 0, binary: false };
+      }
+    } catch {
+      return counts;
+    } finally {
+      await handle.close().catch(() => undefined);
+    }
+  }
+  if (largeCounts.size >= 64) {
+    largeCounts.clear();
+  }
+  largeCounts.set(absolute, { size: stat.size, mtimeMs: stat.mtimeMs, counts });
+  return counts;
 }
 
 async function rangeFiles(
@@ -790,7 +926,12 @@ function scopeTip(scope: DiffScope): string {
   return scope.kind === "range" && scope.to ? scope.to : "HEAD";
 }
 
+/** A working-tree file as text, up to what the file tab's own viewer opens (`MAX_TEXT_BYTES`). */
 async function readWorkingCopy(absolute: string): Promise<string> {
+  const stat = await fsp.lstat(absolute).catch(() => null);
+  if (stat?.isFile() && stat.size > MAX_TEXT_BYTES) {
+    throw new GitError(`that file is ${(stat.size / 1024 / 1024).toFixed(1)} MB, too large to show a diff of here`);
+  }
   return (await readWorkingBytes(absolute))?.toString("utf8") ?? "";
 }
 
@@ -855,8 +996,8 @@ export async function commitAll(cwd: string, message: string): Promise<{ sha: st
   if (message.trim() === "") {
     throw new GitError("a commit needs a message");
   }
-  await git(root, ["add", "-A"]);
-  await git(root, ["commit", "-m", message]);
+  await git(root, ["add", "-A"], WRITE);
+  await git(root, ["commit", "-m", message], WRITE);
   const sha = (await git(root, ["rev-parse", "HEAD"])).trim();
   return { sha };
 }
@@ -872,7 +1013,23 @@ export async function push(cwd: string): Promise<void> {
     throw new GitError("cannot push a detached HEAD");
   }
   const upstream = await tryGit(root, ["rev-parse", "--abbrev-ref", `${branch}@{upstream}`]);
-  await git(root, upstream ? ["push"] : ["push", "--set-upstream", "origin", branch]);
+  await git(root, upstream ? ["push"] : ["push", "--set-upstream", await remoteToPush(root, branch), branch], WRITE);
+}
+
+/**
+ * Where a branch with no upstream goes: the remote it is configured for
+ * (`branch.<name>.remote`), else the only remote there is, else `origin` —
+ * the name a clone gives its own, and the one git will complain about by
+ * name if it is not there. A repository whose one remote is called `fork`
+ * used to fail here on an `origin` it never had.
+ */
+async function remoteToPush(root: string, branch: string): Promise<string> {
+  const configured = (await tryGit(root, ["config", "--get", `branch.${branch}.remote`]))?.trim();
+  if (configured && configured !== ".") {
+    return configured;
+  }
+  const remotes = ((await tryGit(root, ["remote"])) ?? "").split("\n").map((name) => name.trim()).filter(Boolean);
+  return remotes.length === 1 ? (remotes[0] as string) : "origin";
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1426,7 +1583,7 @@ export async function createWorktree(options: CreateWorktreeOptions): Promise<Cr
   await fsp.mkdir(options.parentDir, { recursive: true });
   // `--no-track`: a branch cut from `origin/main` would otherwise track it,
   // and the review's `Push` would then aim at main instead of its own name.
-  await git(root, ["worktree", "add", "--no-track", "-b", branch, directory, base]);
+  await git(root, ["worktree", "add", "--no-track", "-b", branch, directory, base], { kind: "write" });
 
   return {
     path: path.normalize(directory),
@@ -1559,7 +1716,7 @@ export async function removeWorktree(
   // reappeared between the two reads.
   const missing = gone && target.prunable;
   if (missing) {
-    await git(root, ["worktree", "remove", target.path]);
+    await git(root, ["worktree", "remove", target.path], { kind: "write" });
     return;
   }
   const unchecked = (error: unknown) => {
@@ -1575,7 +1732,7 @@ export async function removeWorktree(
       throw new GitError(`that worktree has ignored files that removing it would delete: ${named}`);
     }
   }
-  await git(root, ["worktree", "remove", ...(options.force ? ["--force"] : []), worktreePath]);
+  await git(root, ["worktree", "remove", ...(options.force ? ["--force"] : []), worktreePath], { kind: "write" });
 }
 
 /**
@@ -1584,7 +1741,7 @@ export async function removeWorktree(
  * folder that may still hold work, and throws: reading "could not look" as
  * "deleted by hand" is how a removal unregisters somebody's checkout.
  */
-async function folderGone(folder: string): Promise<boolean> {
+export async function folderGone(folder: string): Promise<boolean> {
   try {
     await fsp.stat(folder);
     return false;
@@ -1745,6 +1902,22 @@ export async function lastWrittenAt(worktreePath: string): Promise<number | null
     Number.isFinite(seconds) ? seconds * 1000 : 0,
     ...stats.map((stat) => stat?.mtimeMs ?? 0),
   );
+}
+
+/**
+ * The sessions that are using `worktree`: not archived, and running in it or
+ * in a folder inside it, or recorded as its worktree. The one answer behind
+ * Settings' "open sessions" count, Delete's refusal, the keep-limit sweep and
+ * a session's release of its own worktree — an archived thread is not open,
+ * and a thread in a subfolder is as much in the worktree as one at its root.
+ */
+export function sessionsUsing<T extends { cwd: string; worktreePath?: string | undefined; archived: boolean }>(
+  all: readonly T[],
+  worktree: string,
+): T[] {
+  return all.filter((session) =>
+    !session.archived &&
+    [session.cwd, session.worktreePath].some((root) => root && (samePath(root, worktree) || isUnder(worktree, root))));
 }
 
 /** True when `child` is inside `parent` — the test that keeps the sweep in its own root. */

@@ -1496,8 +1496,9 @@ owns and nothing is awaited. Electron waits for the Node side, and the Node
 side waits for every child it holds a pipe to, so `src/main/children.ts`
 registers every process main spawns — the viewer, the adapters, the
 terminals' backends, the probes, `git` — and `before-quit` kills the probes
-outright and detaches the rest; `will-quit` kills whatever ignored its
-signal. Before that, a cadgen version probe (sixty-second timeout) still
+outright, sends a git write (commit, push, worktree add/remove) SIGTERM so it
+can drop its `index.lock`, and detaches the rest; `will-quit` kills whatever
+ignored its signal. Before that, a cadgen version probe (sixty-second timeout) still
 importing OCP held the exit for sixty seconds, and chokidar's `close()` over
 this repository blocked for most of a second, so the watchers are not closed
 at all — an fsevents handle dies with the process.
