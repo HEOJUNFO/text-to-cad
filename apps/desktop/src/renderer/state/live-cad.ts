@@ -30,8 +30,10 @@ export async function performCadViewerCommand(kind: string, params: Record<strin
   if (kind === "cad-render-mode") return controller.setRenderMode(params.mode === "render");
   if (kind === "cad-camera") return controller.setCamera(params.camera as Parameters<CadLiveController['setCamera']>[0]);
   if (kind === "capture-view") {
-    const state = controller.readState();
+    // The state is read AFTER the capture, which waits for the camera to rest: the image and the
+    // camera it reports are the same moment.
     const blob = await controller.capture();
+    const state = controller.readState();
     return imageResult(blob, { tabId, ...state });
   }
   throw new Error(`Unknown CAD operation: ${kind}`);

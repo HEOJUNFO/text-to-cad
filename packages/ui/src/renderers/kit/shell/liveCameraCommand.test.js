@@ -6,6 +6,9 @@ import traverseModule from '@babel/traverse';
 import { clonePerspectiveSnapshot } from '@text-to-cad/core/lib/perspective.js';
 import { cameraForViewSettings, viewerDisplaySettingsForCamera } from '../view-settings/viewerDisplaySettings.js';
 import { createViewSettingsStore } from '../view-settings/viewSettingsStore.js';
+import { applyPerspectiveSnapshot, readScopedPerspectiveSnapshot } from '../camera/runtimeCamera.js';
+import { createRealOrbitRuntime } from '../camera/harness/realOrbit.js';
+import { cameraReadsBack } from './liveReadback.js';
 
 // The live `setCamera` a host or an agent drives is the SHELL's, for every renderer on it. It
 // is exercised here on its own, lifted out of the hook with its real collaborators, because
@@ -34,18 +37,15 @@ traverse(parse(source, { sourceType: 'module', plugins: ['jsx'] }), {
 });
 assert.ok(resetCommand, 'the shell exposes a live resetCamera');
 
-function harness(displaySettings) {
+function harness(displaySettings, viewer = null) {
   const result = { applied: null, display: displaySettings, perspective: null, recorded: null, moving: false };
   const viewSettingsStore = createViewSettingsStore(displaySettings);
   viewSettingsStore.subscribe(() => { result.display = viewSettingsStore.getSnapshot().display; });
-  // What the binding exports for the readback (`liveBinding.ts`), in the shape the lifted body calls it.
-  const near = (actual, asked) => actual.length === asked.length && asked.every((value, index) => Math.abs(actual[index] - value) <= 1e-4 * Math.max(1, Math.abs(value)));
-  const cameraReadsBack = (camera, asked) => Boolean(camera) && near(camera.position, asked.position) && near(camera.target, asked.target);
   const scope = {
     viewSettingsStore, clonePerspectiveSnapshot, cameraForViewSettings, viewerDisplaySettingsForCamera, cameraReadsBack,
     previewing: false, modelKey: 'part.step', sceneScaleMode: 'cad',
     scopeShellCamera: camera => camera,
-    viewerRef: { current: { setPerspective(camera) { result.applied = camera; return true; }, isCameraTransitioning: () => result.moving } },
+    viewerRef: { current: viewer || { setPerspective(camera) { result.applied = camera; return true; }, isCameraTransitioning: () => result.moving } },
     setViewerPerspective: camera => { result.perspective = camera; },
     handlePerspectiveChange: camera => { result.recorded = camera; }
   };
@@ -102,4 +102,21 @@ test('resetCamera is committed when the eased move has come to rest, not when it
   moving = false;
   assert.equal(committed(), true, 'at rest');
   assert.throws(() => resetCommand({ viewerRef: { current: { resetZoom: () => false } } }), /unavailable/);
+});
+
+test('a setCamera beyond the controls\' distance clamp replies with the clamped camera, not one that never reads back', () => {
+  // The REAL controls clamp the radius in `update()`; the viewport's own readback is the truth.
+  const runtime = createRealOrbitRuntime({ maxDistance: 20 });
+  const viewer = {
+    setPerspective: camera => applyPerspectiveSnapshot(runtime, camera),
+    getPerspective: () => readScopedPerspectiveSnapshot(runtime, { modelKey: 'part.step', sceneScaleMode: 'cad', coordinateSystem: 'stored' }),
+    isCameraTransitioning: () => Boolean(runtime.cameraTransition)
+  };
+  const view = harness({ mode: 'solid' }, viewer);
+  const committed = view.apply({ position: [200, 0, 0], target: [0, 0, 0], up: [0, 0, 1] });
+  const onScreen = viewer.getPerspective();
+  assert.ok(Math.abs(Math.hypot(...onScreen.position) - 20) < 1e-6, 'the viewport clamped the distance to maxDistance');
+  assert.deepEqual(view.result.recorded, onScreen, 'the file records the camera on screen, not the request');
+  assert.equal(committed({ camera: onScreen }), true, 'the clamped camera is the one the reply waits for');
+  assert.equal(cameraReadsBack(onScreen, { position: [200, 0, 0], target: [0, 0, 0] }), false, 'the request itself never reads back');
 });

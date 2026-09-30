@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { createRealOrbitRuntime } from "./harness/realOrbit.js";
 import {
   orbitControlsDeltaSeconds,
   PREVIEW_AUTO_ROTATE_SPEED,
@@ -59,12 +60,23 @@ test("updateOrbitControls resets timing when auto-rotate is inactive", () => {
 });
 
 test("stopOrbitMomentum drops the drag momentum damping would keep adding on update", () => {
-  const spherical = { theta: 0.2, phi: -0.1, radius: 0, set(r, p, t) { this.radius = r; this.phi = p; this.theta = t; } };
-  const pan = { x: 3, y: 0, z: -2, set(x, y, z) { this.x = x; this.y = y; this.z = z; } };
-  const controls = { _sphericalDelta: spherical, _panOffset: pan, _scale: 1.2 };
-  assert.equal(stopOrbitMomentum(controls), true);
-  assert.deepEqual([spherical.theta, spherical.phi, spherical.radius], [0, 0, 0]);
-  assert.deepEqual([pan.x, pan.y, pan.z], [0, 0, 0]);
-  assert.equal(controls._scale, 1);
+  // Real OrbitControls: the fields it reaches into are three's own, and a rename must fail here.
+  for (const field of ["_sphericalDelta", "_panOffset", "_scale"]) {
+    assert.ok(field in createRealOrbitRuntime().controls, `three's OrbitControls still has ${field}`);
+  }
+  for (const drag of [runtime => runtime.drag(90, 30), runtime => runtime.drag(40, 25, { pan: true })]) {
+    const runtime = createRealOrbitRuntime();
+    drag(runtime);
+    const held = [runtime.camera.position.x, runtime.camera.position.y, runtime.camera.position.z];
+    assert.equal(stopOrbitMomentum(runtime.controls), true);
+    runtime.controls.update();
+    // (a spherical round trip moves the last bits, never more)
+    assert.ok(runtime.camera.position.toArray().every((value, index) => Math.abs(value - held[index]) < 1e-9), "the next update adds nothing");
+    // Without it the same update would have kept coasting.
+    const coasting = createRealOrbitRuntime();
+    drag(coasting);
+    coasting.controls.update();
+    assert.ok(coasting.camera.position.toArray().some((value, index) => Math.abs(value - held[index]) > 1e-3), "it coasts on without it");
+  }
   assert.equal(stopOrbitMomentum(null), false);
 });
