@@ -11,6 +11,7 @@ const calls = vi.hoisted(() => ({
   forgetSession: vi.fn(),
   disposePages: vi.fn(),
   disposeShells: vi.fn(),
+  forgetCad: vi.fn(),
 }));
 
 vi.stubGlobal("__APP_VERSION__", "0.0.0");
@@ -21,7 +22,7 @@ vi.mock("@main/acp/pty-backend", () => ({ spawnPtyTerminal: () => {} }));
 vi.mock("@main/acp/agent-options", () => ({ AgentOptionStore: class {} }));
 vi.mock("@main/acp/sessions", () => ({ SessionManager: class { archive = calls.archive; } }));
 vi.mock("@main/integrations", () => ({ forgetSession: calls.forgetSession, mcpServersFor: () => [], sessionPreamble: () => null, skillsRoot: () => null }));
-vi.mock("@main/cad", () => ({ forgetCadSession: () => {}, sessionRuntimePath: () => [] }));
+vi.mock("@main/cad", () => ({ forgetCadSession: calls.forgetCad, sessionRuntimePath: () => [] }));
 vi.mock("@main/telemetry", () => ({ track: () => {} }));
 vi.mock("@main/db/repositories", () => ({ agentOptions: {}, projects: {}, sessions: {}, sessionStates: {}, settings: {} }));
 vi.mock("@main/projects/git", () => ({ emptyTreeIfUnborn: () => {}, head: () => {}, isUnder: () => false, samePath: () => false }));
@@ -53,6 +54,18 @@ test("an archive that lands tears the session's tools down; an unarchive does no
   expect(calls.disposePages).toHaveBeenCalledWith("s");
   expect(calls.disposeShells).toHaveBeenCalledWith("s");
   calls.forgetSession.mockClear();
+  calls.forgetCad.mockClear();
   await archive({ id: "s", archived: false });
   expect(calls.forgetSession).not.toHaveBeenCalled();
+  expect(calls.forgetCad).not.toHaveBeenCalled();
+});
+
+test("an archive stops the CAD viewer of the session's worktree; a session without one has none to stop", async () => {
+  calls.archive.mockReturnValue({ id: "s", worktreePath: "/wt" });
+  await archive({ id: "s", archived: true });
+  expect(calls.forgetCad).toHaveBeenCalledWith("s", "/wt");
+  calls.forgetCad.mockClear();
+  calls.archive.mockReturnValue({ id: "s" });
+  await archive({ id: "s", archived: true });
+  expect(calls.forgetCad).toHaveBeenCalledWith("s", null);
 });

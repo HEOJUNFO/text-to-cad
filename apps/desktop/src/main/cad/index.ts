@@ -102,7 +102,11 @@ export async function initCad(): Promise<void> {
   });
 
 }
+/**
+ * A session's worktree viewer stops with its last open user; an archived
+ * thread is not open (`sessionsUsing`), so it does not keep the viewer alive.
+ */
 export function forgetCadSession(sessionId: string, worktreePath?: string | null): void {
-  if (worktreePath && !sessions.list().some(other => other.id !== sessionId && git.samePath(other.cwd, worktreePath))) viewersInstance?.stop(viewerRoot(worktreePath));
+  if (worktreePath && git.sessionsUsing(sessions.list().filter(other => other.id !== sessionId), worktreePath).length === 0) viewersInstance?.stop(viewerRoot(worktreePath));
 }
 export async function shutdownCad(): Promise<void> { viewersInstance?.stopAll(); }
