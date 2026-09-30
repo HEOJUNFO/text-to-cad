@@ -1,7 +1,8 @@
 import { MotionConfig } from "motion/react";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { CommandPalette } from "@renderer/app/CommandPalette";
+import { focusSessionHome } from "@renderer/app/pane-focus";
 import { Shell } from "@renderer/app/Shell";
 import { Welcome } from "@renderer/features/onboarding/Welcome";
 import { SettingsRoute } from "@renderer/features/settings/SettingsRoute";
@@ -14,6 +15,18 @@ import { hydrate, subscribeToMain } from "@renderer/state/bridge";
 import { useSettings } from "@renderer/state/settings";
 import { useShowWelcome } from "@renderer/state/onboarding";
 import { useUi } from "@renderer/state/ui";
+
+/**
+ * Leaving Settings unmounts the button that was focused, and the shell mounts fresh: focus
+ * goes to the session's composer rather than to the page.
+ */
+function useFocusAfterSettings(route: string): void {
+  const previous = useRef(route);
+  useEffect(() => {
+    if (previous.current === "settings" && route !== "settings") focusSessionHome();
+    previous.current = route;
+  }, [route]);
+}
 
 /**
  * The window. Three full-window routes — the three-pane shell, Settings and
@@ -29,6 +42,7 @@ export function App() {
   // translucent sidebar are tokens on <html> (Settings › Appearance).
   useApplyAppearance();
   useSettingsShortcuts();
+  useFocusAfterSettings(route);
   const reduceMotion = useSettings((state) => state.settings?.reduceMotion ?? false);
 
   useEffect(() => {

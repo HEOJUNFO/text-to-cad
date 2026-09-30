@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { PANE_HOMES, TABBABLE } from "@renderer/app/pane-focus";
 import { PaneSeparator } from "@renderer/app/PaneSeparator";
 import { ExplorerPane, useExplorerShortcuts } from "@renderer/features/explorer/ExplorerPane";
 import { SessionPane } from "@renderer/features/session/SessionPane";
@@ -244,19 +245,6 @@ function useShellShortcuts(): void {
 
 /** The panes F6 visits, in order; a collapsed one is not in the document and is skipped. */
 const PANE_IDS = ["sidebar", "session", "explorer"] as const;
-
-/**
- * Where focus lands in a pane it has not been in yet: the sidebar's current
- * session, the composer, the explorer's strip tab — each pane's one stop
- * worth arriving at — else the pane's first control.
- */
-const PANE_HOMES: Record<(typeof PANE_IDS)[number], string> = {
-  sidebar: "[aria-current=page], [aria-current=true]",
-  session: "[data-composer-input][contenteditable=true], [data-composer-input]:not([disabled])",
-  explorer: '[role=tab][tabindex="0"]',
-};
-
-const TABBABLE = 'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), [contenteditable=true], [tabindex]:not([tabindex="-1"])';
 
 /**
  * F6 and Shift+F6: the next and the previous pane, the way a browser's F6
