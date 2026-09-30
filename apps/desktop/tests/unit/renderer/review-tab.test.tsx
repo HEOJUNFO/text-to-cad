@@ -473,3 +473,20 @@ it("offers no Push for commits ahead of an upstream when there is no remote to p
   expect(trigger).toBeDisabled();
   expect(screen.queryByRole("button", { name: "Push" })).not.toBeInTheDocument();
 });
+
+it("Refresh says it is busy while the read is out, not only by spinning", async () => {
+  const user = userEvent.setup();
+  const again = deferred<GitStatus>();
+  scoped.mockResolvedValueOnce(repo("main")).mockReturnValueOnce(again.promise);
+  renderReview();
+  await screen.findByText("main");
+  const refresh = screen.getByRole("button", { name: "Refresh" });
+  expect(refresh).toHaveAttribute("aria-busy", "false");
+
+  await user.click(refresh);
+  expect(refresh).toHaveAttribute("aria-busy", "true");
+  expect(screen.getByRole("status")).toHaveTextContent("Refreshing…");
+
+  await act(async () => again.resolve(repo("main")));
+  expect(refresh).toHaveAttribute("aria-busy", "false");
+});

@@ -371,7 +371,12 @@ function ReviewBody({
           </TooltipHint>
         ) : null}
 
+        {/* Always mounted, so the words arriving in it are announced; the spinner is only drawn. */}
+        <span aria-live="polite" className="sr-only" role="status">
+          {loading ? "Refreshing…" : ""}
+        </span>
         <Button
+          aria-busy={loading}
           aria-label="Refresh"
           className="size-6 text-muted-foreground"
           onClick={refresh}
