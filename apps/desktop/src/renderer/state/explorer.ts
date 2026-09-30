@@ -145,7 +145,7 @@ type TabInit = {
   file: Partial<Pick<FileTab, "path" | "root" | "panel">>;
   review: Partial<Pick<ReviewTab, "scope">>;
   browser: Partial<Pick<BrowserTab, "url" | "root">>;
-  terminal: Partial<Pick<TerminalTab, "cwd" | "readOnly" | "ptyId">>;
+  terminal: Partial<Pick<TerminalTab, "cwd" | "readOnly" | "ptyId" | "agent">>;
   drawing: Partial<Pick<DrawingTab, "root" | "title">>;
 };
 
@@ -303,6 +303,7 @@ function blankTab(
         ptyId: null,
         cwd: null,
         readOnly: false,
+        agent: false,
         ...init,
       } as TerminalTab;
   }

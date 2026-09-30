@@ -67,8 +67,8 @@ beforeEach(() => {
   terminal().resize = vi.fn(async () => {});
 });
 
-function renderTab() {
-  return render(<TerminalTab tabId="tab" sessionId="session" project={project} ptyId="pty-old" cwd={project.path} readOnly={false} />);
+function renderTab(ptyId: string | null = "pty-old", agent = false) {
+  return render(<TerminalTab tabId="tab" sessionId="session" project={project} ptyId={ptyId} cwd={project.path} readOnly={false} agent={agent} />);
 }
 
 it("kills the exited pty before restarting, so its scrollback is not kept for a tab that moved on", async () => {
@@ -77,6 +77,17 @@ it("kills the exited pty before restarting, so its scrollback is not kept for a 
   fireEvent.click(await screen.findByRole("button", { name: "restart" }));
   expect(terminal().kill).toHaveBeenCalledWith({ id: "pty-old", sessionId: "session" });
   expect(update).toHaveBeenCalledWith("tab", { ptyId: null });
+});
+
+it("respawns an agent-opened tab as the agent's, and a person's without that", async () => {
+  terminal().create = vi.fn(async () => info(null));
+  terminal().attach = vi.fn(async () => null);
+  renderTab(null, true).unmount();
+  expect(terminal().create).toHaveBeenCalledWith(expect.objectContaining({ agent: true }));
+  terminal().create.mockClear();
+  renderTab(null, false);
+  await waitFor(() => expect(terminal().create).toHaveBeenCalled());
+  expect(terminal().create.mock.calls[0]![0]).not.toHaveProperty("agent");
 });
 
 it("releases the old pty id on Try again too", async () => {

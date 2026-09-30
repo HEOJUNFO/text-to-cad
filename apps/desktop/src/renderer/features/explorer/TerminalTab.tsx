@@ -131,6 +131,7 @@ export function TerminalTab({
   ptyId,
   cwd,
   readOnly,
+  agent = false,
 }: {
   tabId: string;
   sessionId: string;
@@ -138,6 +139,8 @@ export function TerminalTab({
   ptyId: string | null;
   cwd: string | null;
   readOnly: boolean;
+  /** Opened by the agent: a respawned shell gets the runtime launchers on PATH again. */
+  agent?: boolean;
 }) {
   const update = useExplorer((state) => state.update);
   const mode = useResolvedTheme();
@@ -175,7 +178,7 @@ export function TerminalTab({
     }
     starting.current = true;
     void window.textToCad.terminal
-      .create({ sessionId, projectId: project.id, ...(cwd ? { cwd } : {}) })
+      .create({ sessionId, projectId: project.id, ...(cwd ? { cwd } : {}), ...(agent ? { agent } : {}) })
       .then((info) => {
         // A shell can finish spawning after the person changes sessions.
         void updateSessionTab(sessionId, tabId, { ptyId: info.id, cwd: info.cwd })
@@ -187,7 +190,7 @@ export function TerminalTab({
       .finally(() => {
         starting.current = false;
       });
-  }, [ptyId, sessionId, project.id, cwd, tabId, update]);
+  }, [ptyId, sessionId, project.id, cwd, agent, tabId, update]);
 
   useEffect(() => {
     const host = hostRef.current;

@@ -163,7 +163,7 @@ describe("McpBridge", () => {
     bridge.tokenFor({ ...SESSION });
     expect(disposePages).not.toHaveBeenCalled();
     bridge.tokenFor({ ...SESSION, cwd: "/elsewhere" });
-    expect(disposePages).toHaveBeenCalledExactlyOnceWith(SESSION.sessionId);
+    expect(disposePages).toHaveBeenCalledExactlyOnceWith({ ...SESSION, cwd: "/elsewhere" });
   });
 
   it("takes the largest document edit_document's schema accepts, in its worst-case JSON", async () => {
@@ -350,6 +350,15 @@ describe("the actions", () => {
       fs.symlinkSync(outside, path.join(root, "x.png"));
     });
     await expect(actions.attach_snapshot!({ sessionId: "s", projectId: "p", cwd: root }, { path: "x.png" })).rejects.toThrow(/changed while it was being read/);
+  });
+
+  it("attaches a snapshot in a top-level folder whose name starts with two dots", async () => {
+    const root = tempDir("text-to-cad-proj-");
+    fs.mkdirSync(path.join(root, "..shots"));
+    fs.writeFileSync(path.join(root, "..shots", "x.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const sessionRoot = () => ({ directory: root, root: null });
+    const actions = createActions({ sessionRoot, send: () => {}, newId: () => "r" }, new RendererCommands({ sessionRoot, send: () => {}, newId: () => "r" }));
+    await expect(actions.attach_snapshot!({ sessionId: "s", projectId: "p", cwd: root }, { path: "..shots/x.png" })).resolves.toMatchObject({ mimeType: "image/png" });
   });
 
   it.skipIf(process.platform === "win32")("refuses a snapshot that is a FIFO rather than blocking on it", { timeout: 2000 }, async () => {

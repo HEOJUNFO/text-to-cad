@@ -48,8 +48,8 @@ export type TerminalOptions = {
   /**
    * Refuse when the session already has this many ptys, stopped ones included
    * (each keeps its scrollback until its tab is closed). Set for a terminal an
-   * agent creates; the person's own are not counted against it by anything but
-   * the total.
+   * agent creates, but the count is of every pty of the session: the person's
+   * own terminals count toward the agent's 16.
    */
   maxPerSession?: number;
 };

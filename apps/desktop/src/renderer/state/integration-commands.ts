@@ -148,7 +148,7 @@ export async function performIntegrationCommand(command: IntegrationCommand, sig
       return { tabId: tab.id, closed: true };
     }
     case "terminal-open": {
-      const tab = await openSessionTab(command.sessionId, command.projectId, scope.root, "terminal", { cwd: String(params.cwd ?? command.rootDirectory), ptyId: String(params.ptyId) }, signal);
+      const tab = await openSessionTab(command.sessionId, command.projectId, scope.root, "terminal", { cwd: String(params.cwd ?? command.rootDirectory), ptyId: String(params.ptyId), agent: true }, signal);
       if (!tab) throw new Error("the explorer could not open a terminal tab");
       return { tabId: tab.id, ptyId: params.ptyId, cwd: params.cwd };
     }

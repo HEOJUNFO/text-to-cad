@@ -43,22 +43,21 @@ const HOST_SESSION_EXTRA = new Set(["ANTHROPIC_BASE_URL"]);
 
 /**
  * Drop the variables a host Claude Code session injected. Exported for the
- * tests.
+ * tests. A no-op unless `CLAUDECODE` marks the environment as a host's.
  *
- * `host` is the process environment the variables came from. Given it, only a
- * variable whose value is the host's is dropped: an `ANTHROPIC_BASE_URL` or a
- * `CLAUDE_CODE_OAUTH_TOKEN` the person exports in their own rc file differs
- * from the host's (or is one the host never had) and is theirs to keep. Without
- * it, `env` is the host's own and everything matching goes.
+ * It cannot tell a host's `CLAUDE_CODE_OAUTH_TOKEN` from the same one exported
+ * in the person's rc file — the host terminal inherited it from that rc, so
+ * the values match. The login shell is therefore started from an environment
+ * already stripped (`captureLoginEnv`): whatever it prints afterwards was set
+ * by the rc itself and stays.
  */
-export function stripHostSession(env: Env, host?: Env): Env {
-  if (!(HOST_SESSION_MARKER in (host ?? env))) {
+export function stripHostSession(env: Env): Env {
+  if (!(HOST_SESSION_MARKER in env)) {
     return env;
   }
   const clean: Env = {};
   for (const [key, value] of Object.entries(env)) {
-    const injected = HOST_SESSION_PATTERN.test(key) || HOST_SESSION_EXTRA.has(key);
-    if (!injected || (host !== undefined && host[key] !== value)) {
+    if (!HOST_SESSION_PATTERN.test(key) && !HOST_SESSION_EXTRA.has(key)) {
       clean[key] = value;
     }
   }
@@ -97,9 +96,8 @@ export function loginEnv(options: { force?: boolean; timeoutMs?: number; shell?:
         console.warn(
           `[shell-env] could not read the login shell's environment (${reason}); using the process environment, so agents on the shell's PATH may look not installed`,
         );
-        return processEnv();
-      })
-      .then((env) => stripHostSession(env, processEnv()));
+        return stripHostSession(processEnv());
+      });
   }
   return cached;
 }
@@ -117,8 +115,11 @@ export function processEnv(): Env {
 
 /** Run `$SHELL -ilc` and read its environment. Exported for the tests. */
 export async function captureLoginEnv(timeoutMs: number, shell = process.env.SHELL || "/bin/sh"): Promise<Env> {
+  // The shell starts from the process environment minus a host session's
+  // variables, so the rc can only add back what it exports itself.
+  const base = stripHostSession(processEnv());
   if (process.platform === "win32") {
-    return processEnv();
+    return base;
   }
   const started = Date.now();
   const output = await new Promise<string>((resolve, reject) => {
@@ -127,7 +128,7 @@ export async function captureLoginEnv(timeoutMs: number, shell = process.env.SHE
     trackChild(execFile(
       shell,
       ["-ilc", CAPTURE_COMMAND],
-      { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, env: process.env, encoding: "utf8" },
+      { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, env: base, encoding: "utf8" },
       (error, stdout) => {
         if (error) {
           reject(error.killed ? new Error(`${shell} -ilc took longer than ${timeoutMs} ms`) : error);
@@ -145,7 +146,7 @@ export async function captureLoginEnv(timeoutMs: number, shell = process.env.SHE
   if (!parsed.PATH) {
     throw new Error("login shell printed no PATH");
   }
-  return { ...processEnv(), ...parsed };
+  return { ...base, ...parsed };
 }
 
 /**
