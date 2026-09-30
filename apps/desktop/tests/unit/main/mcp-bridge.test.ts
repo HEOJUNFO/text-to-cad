@@ -199,6 +199,19 @@ describe("McpBridge", () => {
     expect(disposePages).toHaveBeenCalledExactlyOnceWith({ ...SESSION, cwd: "/elsewhere" });
   });
 
+  it("closes its listener even when disposing the resources rejects, and reports the rejection", async () => {
+    const { calls: _calls, ...actions } = recordingActions();
+    const bridge = new McpBridge(actions, () => ({ command: "/electron", args: ["/server.mjs"], env: {} }), {
+      revoke: vi.fn(),
+      dispose: async () => { throw new Error("pages would not close"); },
+    });
+    const url = await bridge.start();
+    expect((await fetch(`${url}/rpc`, { method: "POST" })).status).toBeGreaterThan(0);
+    await expect(bridge.stop()).rejects.toThrow("pages would not close");
+    // Gone from the loopback, not just forgotten by the bridge.
+    await expect(fetch(`${url}/rpc`, { method: "POST" })).rejects.toThrow();
+  });
+
   it("takes the largest document edit_document's schema accepts, in its worst-case JSON", async () => {
     const edits: unknown[] = [];
     const recorded = Object.assign(recordingActions(), {

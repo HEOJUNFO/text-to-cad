@@ -93,9 +93,14 @@ export class McpBridge {
     for (const controller of this.inFlight.keys()) controller.abort(new Error("text-to-cad is shutting down"));
     this.tokens.clear();
     this.byToken.clear();
-    await this.resources?.dispose();
-    if (server) {
-      await new Promise<void>((resolve) => { server.close(() => resolve()); server.closeAllConnections(); });
+    try {
+      await this.resources?.dispose();
+    } finally {
+      // The listener closes whatever the disposal did: a rejection is surfaced to the caller, not
+      // a reason to leave a loopback port open.
+      if (server) {
+        await new Promise<void>((resolve) => { server.close(() => resolve()); server.closeAllConnections(); });
+      }
     }
   }
 
