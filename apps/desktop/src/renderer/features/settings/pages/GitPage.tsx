@@ -153,7 +153,7 @@ export function GitPage() {
         />
         <SwitchRow
           checked={settings.autoDeleteWorktrees}
-          description="Remove the oldest worktrees once there are more than the limit below. Only ones text-to-cad created."
+          description="After a new worktree is created, remove the oldest idle ones beyond the limit below. Only worktrees text-to-cad created, and never one that is in use, locked or holds uncommitted work."
           keywords="prune clean remove old"
           onChange={(autoDeleteWorktrees) => patch({ autoDeleteWorktrees })}
           title="Auto-delete old worktrees"
@@ -161,8 +161,8 @@ export function GitPage() {
         <SelectRow
           description={
             settings.autoDeleteWorktrees
-              ? "How many worktrees per project survive the sweep."
-              : "How many worktrees per project survive the sweep. Nothing is swept while Auto-delete old worktrees is off."
+              ? "How many idle worktrees per project the sweep keeps. In-use, locked and unsaved ones are not counted and never removed."
+              : "How many idle worktrees per project the sweep keeps. Nothing is swept while Auto-delete old worktrees is off."
           }
           disabled={!settings.autoDeleteWorktrees}
           keywords="limit count retain"
@@ -387,8 +387,11 @@ function describe(worktree: Worktree): string {
   }
   if (worktree.openSessions > 0) {
     parts.push(
-      `${worktree.openSessions} open session${worktree.openSessions === 1 ? "" : "s"}`,
+      `${worktree.openSessions} open session${worktree.openSessions === 1 ? "" : "s"} (in use)`,
     );
+  }
+  if (worktree.locked) {
+    parts.push("locked");
   }
   if (worktree.dirty) {
     parts.push("uncommitted or ignored files");

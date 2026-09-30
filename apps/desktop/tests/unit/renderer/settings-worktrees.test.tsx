@@ -41,3 +41,17 @@ it("does not offer Delete on a locked worktree, and names the lock", async () =>
   expect(remove).toBeDisabled();
   expect(remove).toHaveAccessibleDescription(/locked/);
 });
+
+it("says on the row why a worktree is kept: in use, locked", async () => {
+  vi.mocked(window.textToCad.git.worktrees).mockResolvedValue([
+    worktree({ path: "/w/p/busy", branch: "busy", openSessions: 1 }),
+    worktree({ path: "/w/p/held", branch: "held", locked: true }),
+  ]);
+  render(
+    <TooltipProvider>
+      <GitPage />
+    </TooltipProvider>,
+  );
+  expect(await screen.findByText(/busy · 1 open session \(in use\)/)).toBeInTheDocument();
+  expect(screen.getByText(/held · locked/)).toBeInTheDocument();
+});
