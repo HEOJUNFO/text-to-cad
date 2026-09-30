@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -112,6 +113,44 @@ describe("McpBridge", () => {
     await started;
     bridge.revoke(SESSION.sessionId);
     expect((await pending).body).toMatchObject({ ok: false, error: "Session authorization revoked" });
+  });
+
+  /** POST a body in two halves; `between` runs once the server has authorised the request and before the rest is sent. */
+  async function slowRpc(bridge: McpBridge, url: string, token: string, body: unknown, between: () => void) {
+    const byToken = (bridge as unknown as { byToken: Map<string, unknown> }).byToken;
+    const get = byToken.get.bind(byToken);
+    let authorised!: () => void;
+    const seen = new Promise<void>(resolve => { authorised = resolve; });
+    const spy = vi.spyOn(byToken, "get").mockImplementation((key: string) => { authorised(); return get(key); });
+    const text = JSON.stringify(body);
+    return new Promise<{ status: number; body: { ok: boolean; error?: string } }>((resolve, reject) => {
+      const request = http.request(`${url}/rpc`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" } }, response => {
+        const chunks: Buffer[] = [];
+        response.on("data", chunk => chunks.push(chunk));
+        response.on("end", () => { spy.mockRestore(); resolve({ status: response.statusCode!, body: JSON.parse(Buffer.concat(chunks).toString()) }); });
+      });
+      request.on("error", reject);
+      request.write(text.slice(0, 10));
+      void seen.then(() => { between(); request.end(text.slice(10)); });
+    });
+  }
+
+  it("does not reject an upload because another serverFor re-recorded its token while the body was arriving", async () => {
+    const { bridge, url } = await startBridge();
+    const token = bridge.tokenFor(SESSION);
+    const answer = await slowRpc(bridge, url, token, { method: "open_file", params: { path: "a.step" } },
+      () => { bridge.serverFor({ ...SESSION }); });
+    expect(answer).toMatchObject({ status: 200, body: { ok: true } });
+  });
+
+  it("still rejects an upload whose token was revoked, or whose workspace moved, while the body was arriving", async () => {
+    const { bridge, url } = await startBridge();
+    const revoked = await slowRpc(bridge, url, bridge.tokenFor(SESSION), { method: "open_file", params: { path: "a.step" } },
+      () => bridge.revoke(SESSION.sessionId));
+    expect(revoked).toMatchObject({ status: 401, body: { error: "session authorization changed" } });
+    const moved = await slowRpc(bridge, url, bridge.tokenFor(SESSION), { method: "open_file", params: { path: "a.step" } },
+      () => { bridge.tokenFor({ ...SESSION, cwd: "/elsewhere" }); });
+    expect(moved).toMatchObject({ status: 401, body: { error: "session authorization changed" } });
   });
 
   it("takes the largest document edit_document's schema accepts, in its worst-case JSON", async () => {

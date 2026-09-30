@@ -54,7 +54,10 @@ export class McpBridge {
   constructor(
     private readonly actions: BridgeActions,
     private readonly serverScript: () => { command: string; args: string[]; env: Record<string, string> },
-    private readonly resources?: { revoke(sessionId: string): void; dispose(): Promise<void> },
+    private readonly resources?: {
+      revoke(sessionId: string): void;
+      dispose(): Promise<void>;
+    },
   ) {}
 
   /** Listen. Idempotent. */
@@ -182,8 +185,12 @@ export class McpBridge {
       if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("expected an object");
       parsed = value;
     } catch { send(400, { ok: false, error: "malformed JSON object" }); return; }
-    // Revocation can happen while a client is still sending its body.
-    if (this.byToken.get(token) !== authorization) { send(401, { ok: false, error: "session authorization changed" }); return; }
+    // Revocation can happen while a client is still sending its body. `tokenFor`
+    // re-records the entry on every `serverFor`, so the entry is not compared:
+    // the token must still be live and still name the workspace the request
+    // began in.
+    const current = this.byToken.get(token)?.session;
+    if (!current || current.cwd !== session.cwd || current.projectId !== session.projectId) { send(401, { ok: false, error: "session authorization changed" }); return; }
     const method = parsed.method;
     if (typeof method !== "string" || !(BRIDGE_METHODS as readonly string[]).includes(method)) {
       send(400, { ok: false, error: `unknown method ${String(method)}` });
