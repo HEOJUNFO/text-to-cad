@@ -18,6 +18,7 @@
  * fiddly, and they are the part worth a unit test.
  */
 import fsp from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 import { execa, type Options } from "execa";
@@ -529,9 +530,12 @@ async function rangeFiles(
   const nameStatus = await git(root, ["diff", "--name-status", "-z", "-M", "--end-of-options", base]);
   const statuses = parseNameStatus(nameStatus);
 
+  // A snapshot mark is compared with a snapshot, where an untracked file is
+  // simply added; the review still calls it untracked, as it does in "All".
+  const untracked = new Set(porcelain.files.filter((file) => file.status === "untracked").map((file) => file.path));
   const files: ChangedFile[] = [...numstat.entries()].map(([filePath, counted]) => ({
     path: filePath,
-    status: statuses.get(filePath) ?? "modified",
+    status: statuses.get(filePath) === "added" && untracked.has(filePath) ? "untracked" : (statuses.get(filePath) ?? "modified"),
     insertions: counted.insertions,
     deletions: counted.deletions,
     binary: counted.binary,
@@ -543,7 +547,9 @@ async function rangeFiles(
   // file git has never seen. Without this a "since this turn began" review of
   // a turn whose whole output was new files shows nothing at all, which is the
   // one case the scope exists for.
-  if (openEnded(scope)) {
+  // (A snapshot mark is already compared with a snapshot: those files are in
+  // the numstat, and the untracked ones from before the mark must stay out.)
+  if (openEnded(scope) && !base.includes("..")) {
     for (const file of porcelain.files) {
       if (file.status === "untracked" && !numstat.has(file.path)) {
         files.push({ ...file, ...(await countUntracked(root, file.path)) });
@@ -558,7 +564,7 @@ async function rangeFiles(
  * A scope's revisions are renderer input and become bare git argv, where
  * `--output=/any/file` is an option, not a revision. The only revisions a
  * review is taken against are the session's recorded marks — full SHAs from
- * `rev-parse HEAD` — and the only `since` values are the review header's
+ * `rev-parse HEAD` or `write-tree` — and the only `since` values are the review header's
  * presets, so anything else is refused before git starts. `--end-of-options`
  * at each call site is the second lock on the same door.
  */
@@ -641,7 +647,21 @@ export function parseNameStatus(output: string): Map<string, ChangeStatus> {
 /** The revision a scope is measured from. */
 async function baseRevision(root: string, scope: DiffScope): Promise<string | null> {
   if (scope.kind === "range") {
-    return scope.to ? `${scope.from}..${scope.to}` : scope.from;
+    if (scope.to) {
+      return `${scope.from}..${scope.to}`;
+    }
+    // A snapshot mark is a tree, and `git diff <tree>` against the working
+    // tree reads an untracked file that was already there as deleted (the
+    // tree has it, the index does not). So the far side is a snapshot of the
+    // working tree too, and the two trees are compared: untracked files are
+    // in both, or in one, which is exactly added and removed.
+    if ((await tryGit(root, ["cat-file", "-t", "--end-of-options", scope.from]))?.trim() === "tree") {
+      const now = await snapshotTree(root);
+      if (now) {
+        return `${scope.from}..${now}`;
+      }
+    }
+    return scope.from;
   }
   if (scope.kind === "since") {
     // The newest commit at or before that time. Nothing there means the whole
@@ -964,6 +984,76 @@ async function defaultBranchOf(root: string): Promise<string | null> {
 export async function head(cwd: string): Promise<string | null> {
   const sha = await tryGit(cwd, ["rev-parse", "HEAD"]);
   return sha?.trim() || null;
+}
+
+/** Where a session's marks are kept alive: `refs/text-to-cad/<session id>/<mark>`. */
+const MARK_REF = /^[A-Za-z0-9_-]+\/[a-z]+$/;
+
+/**
+ * The working tree as it is right now, as a tree object — the mark `Last turn`
+ * and `This session` are measured from.
+ *
+ * `HEAD` is not the working tree: until something is committed, a range from
+ * HEAD is "all changes", including work from before the turn began. So the
+ * tree is taken the way `git add -A && git write-tree` would take it — the
+ * ignore rules apply, untracked files are in — but against a throwaway copy of
+ * the index, which leaves the person's staging untouched and, seeded from the
+ * real index, only re-hashes what changed since it was last written.
+ *
+ * `mark` (`<session id>/turn`) pins the tree under `refs/text-to-cad/`: an
+ * unreferenced object is `gc`'s to prune after two weeks, and a session can
+ * be older than that. `dropMarks` unpins them when the session is deleted.
+ * Null when git cannot answer — never a reason to fail a turn.
+ */
+export async function snapshotTree(cwd: string, mark?: string): Promise<string | null> {
+  if (mark !== undefined && !MARK_REF.test(mark)) {
+    return null;
+  }
+  const root = await repositoryRoot(cwd);
+  if (!root) {
+    return null;
+  }
+  const scratch = await fsp.mkdtemp(path.join(os.tmpdir(), "text-to-cad-index-"));
+  try {
+    const index = path.join(scratch, "index");
+    const live = (await tryGit(root, ["rev-parse", "--path-format=absolute", "--git-path", "index"]))?.trim();
+    if (live) {
+      await fsp.copyFile(live, index).catch(() => undefined);
+    }
+    const options = { ...GIT_OPTIONS, cwd: root, env: { ...GIT_OPTIONS.env, GIT_INDEX_FILE: index } };
+    const added = await tracked(execa("git", ["add", "-A"], options));
+    if (added.failed || added.exitCode !== 0) {
+      return null;
+    }
+    const written = await tracked(execa("git", ["write-tree"], options));
+    const tree = written.failed || written.exitCode !== 0 || typeof written.stdout !== "string" ? "" : written.stdout.trim();
+    if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(tree)) {
+      return null;
+    }
+    if (mark !== undefined && (await tryGit(root, ["update-ref", `refs/text-to-cad/${mark}`, tree])) === null) {
+      return null;
+    }
+    return tree;
+  } catch {
+    return null;
+  } finally {
+    await fsp.rm(scratch, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+/** Unpin every mark a session took (`snapshotTree`'s refs). */
+export async function dropMarks(cwd: string, sessionId: string): Promise<void> {
+  if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) {
+    return;
+  }
+  const root = await repositoryRoot(cwd);
+  if (!root) {
+    return;
+  }
+  const refs = (await tryGit(root, ["for-each-ref", "--format=%(refname)", `refs/text-to-cad/${sessionId}/`])) ?? "";
+  for (const ref of refs.split("\n").filter(Boolean)) {
+    await tryGit(root, ["update-ref", "-d", ref]);
+  }
 }
 
 /** How a git run ended: the exit code is undefined when git was killed or never started. */

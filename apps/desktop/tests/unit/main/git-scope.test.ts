@@ -193,3 +193,73 @@ describe("emptyTreeIfUnborn", () => {
     expect(await git.emptyTreeIfUnborn(cwd, detached)).toBeNull();
   });
 });
+
+/**
+ * `Last turn` and `This session` are measured from the working tree as it
+ * stood, not from HEAD: until something is committed a range from HEAD is
+ * "all changes", and the turn would include everything before it.
+ */
+describe("snapshot marks", () => {
+  const sh = (cwd: string, ...args: string[]) =>
+    run("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", ...args], { cwd }).then((r) => r.stdout.trim());
+
+  async function committedRepo(): Promise<string> {
+    const cwd = await unbornRepo();
+    await sh(cwd, "add", "-A");
+    await sh(cwd, "commit", "-q", "-m", "base");
+    return cwd;
+  }
+
+  it("Last turn lists only what the turn changed, not earlier uncommitted work", async () => {
+    const cwd = await committedRepo();
+    // Turn one begins, and writes a.txt; turn two begins, and writes b.txt.
+    const session = await git.snapshotTree(cwd, "s1/session");
+    await git.snapshotTree(cwd, "s1/turn");
+    await writeFile(path.join(cwd, "a.txt"), "from turn one\n");
+    const turn2 = await git.snapshotTree(cwd, "s1/turn");
+    await writeFile(path.join(cwd, "b.txt"), "from turn two\n");
+    const marks = { turnHead: turn2, sessionHead: session };
+
+    const last = await git.status(cwd, resolveDiffScope({ kind: "turn" }, marks));
+    expect(last.files.map((file) => file.path)).toEqual(["b.txt"]);
+    expect(last.files[0]).toMatchObject({ status: "untracked", insertions: 1 });
+    // This session began before turn one, so it has both.
+    const whole = await git.status(cwd, resolveDiffScope({ kind: "session" }, marks));
+    expect(whole.files.map((file) => file.path)).toEqual(["a.txt", "b.txt"]);
+    // The patch and both sides of a file agree with the list.
+    expect(await git.unifiedDiff(cwd, "b.txt", resolveDiffScope({ kind: "turn" }, marks))).toContain("+from turn two");
+    expect((await git.fileDiff(cwd, "b.txt", resolveDiffScope({ kind: "turn" }, marks))).after).toBe("from turn two\n");
+  });
+
+  it("a file modified in the turn is M against the snapshot, and one deleted is D", async () => {
+    const cwd = await committedRepo();
+    await writeFile(path.join(cwd, "part.py"), "one\ntwo\n three\n");
+    await writeFile(path.join(cwd, "gone.txt"), "x\ny\n");
+    const turn = await git.snapshotTree(cwd, "s2/turn");
+    await writeFile(path.join(cwd, "part.py"), "one\ntwo\n three\nfour\n");
+    await rm(path.join(cwd, "gone.txt"));
+    const scope = resolveDiffScope({ kind: "turn" }, { turnHead: turn, sessionHead: turn });
+    const listed = await git.status(cwd, scope);
+    expect(listed.files).toEqual([
+      expect.objectContaining({ path: "gone.txt", status: "deleted", insertions: 0, deletions: 2 }),
+      expect.objectContaining({ path: "part.py", status: "modified", insertions: 1, deletions: 0 }),
+    ]);
+  });
+
+  it("pins the tree under a ref, and dropMarks unpins it", async () => {
+    const cwd = await committedRepo();
+    const tree = await git.snapshotTree(cwd, "s3/turn");
+    expect(await sh(cwd, "for-each-ref", "--format=%(refname) %(objectname)", "refs/text-to-cad/")).toBe(`refs/text-to-cad/s3/turn ${tree}`);
+    await git.dropMarks(cwd, "s3");
+    expect(await sh(cwd, "for-each-ref", "refs/text-to-cad/")).toBe("");
+  });
+
+  it("leaves the person's index and staging alone", async () => {
+    const cwd = await committedRepo();
+    await writeFile(path.join(cwd, "staged.txt"), "s\n");
+    await sh(cwd, "add", "staged.txt");
+    await writeFile(path.join(cwd, "loose.txt"), "l\n");
+    await git.snapshotTree(cwd);
+    expect(await sh(cwd, "status", "--porcelain")).toBe("A  staged.txt\n?? loose.txt");
+  });
+});

@@ -161,6 +161,18 @@ export type SessionManagerDeps = {
   head?: (cwd: string) => Promise<string | null>;
 
   /**
+   * P7: the working tree as a tree object, pinned under `mark`
+   * (`<session id>/turn`). When present it is the turn mark — and the session
+   * mark outside a worktree — because `head` is where the last commit was,
+   * not where the work stood: until a commit lands, a range from HEAD is
+   * everything. Null falls back to `head`.
+   */
+  snapshot?: (cwd: string, mark: string) => Promise<string | null>;
+
+  /** P7: unpin a session's snapshot marks when it is deleted. */
+  dropMarks?: (cwd: string, sessionId: string) => Promise<void>;
+
+  /**
    * P7: the empty tree's id when `cwd` is a repository with no commits, else
    * null. Asked only after `head` answered null, and it must prove the
    * repository unborn — `head`'s null also means "git failed".
@@ -370,10 +382,18 @@ export class SessionManager {
     }
 
     const workspace = await this.workspaceFor(input);
-    const startHead = await this.headOf(workspace.cwd);
+    const id = this.deps.newId();
+    // A worktree is cut clean, so its start is a commit, and that commit is
+    // also the base its branch is deleted against (`releaseWorkspace`). A
+    // checkout can hold anything already, so the start is the tree as it is.
+    const startHead =
+      input.gitMode === "worktree"
+        ? await this.headOf(workspace.cwd)
+        : await this.markOf(workspace.cwd, `${id}/session`);
+    const turnStart = input.gitMode === "worktree" ? await this.markOf(workspace.cwd, `${id}/turn`) : startHead;
     const now = Date.now();
     const session: Session = {
-      id: this.deps.newId(),
+      id,
       projectId: input.projectId,
       agentId: input.agentId,
       cwd: workspace.cwd,
@@ -391,11 +411,11 @@ export class SessionManager {
       deletions: 0,
       archived: false,
       pinned: false,
-      // Both scopes start here. `turnHead` is the session's head until the
+      // Both scopes start here. `turnHead` is the session's mark until the
       // first turn moves it, so a review taken before any prompt shows what
       // the person changed by hand rather than nothing at all.
       sessionHead: startHead,
-      turnHead: startHead,
+      turnHead: turnStart,
     };
     try {
       this.deps.repo.upsert(session);
@@ -428,6 +448,7 @@ export class SessionManager {
       this.pendingTitles.delete(session.id);
       this.deps.repo.remove(session.id);
       this.broadcastIndex();
+      await this.unpinMarks(session);
       // The worktree this create made goes with the row. Not one it was given
       // (`New session in this worktree`): that directory was there before.
       if (workspace.worktreePath && !input.cwd) {
@@ -831,7 +852,7 @@ export class SessionManager {
     // would measure the turn against its own result. A read that failed
     // (a lock, a timeout) keeps the previous mark: a wider `Last turn` is
     // still a review, where a null would unmark it altogether.
-    const turnHead = await this.headOf(session.cwd);
+    const turnHead = await this.markOf(session.cwd, `${id}/turn`);
     this.update(id, turnHead === null ? {} : { turnHead });
     try {
       const response = await connection.prompt(content, `${id}:${Date.now()}`);
@@ -983,6 +1004,8 @@ export class SessionManager {
     this.broadcastIndex();
     await options.beforeRelease?.(session);
     if (session) {
+      // Before the worktree goes: the refs live in the repository it shares.
+      await this.unpinMarks(session);
       const released = await this.deps.releaseWorkspace?.(session).catch((error: unknown) => ({
         removed: false,
         reason: error instanceof Error ? error.message : String(error),
@@ -1040,6 +1063,22 @@ export class SessionManager {
       throw new Error("a session needs a working directory");
     }
     return { cwd: input.cwd };
+  }
+
+  /** Unpin the snapshot marks a session took, in the project and in its own directory. */
+  private async unpinMarks(session: Session): Promise<void> {
+    for (const repository of new Set([session.projectId, session.cwd])) {
+      await this.deps.dropMarks?.(repository, session.id).catch(() => undefined);
+    }
+  }
+
+  /**
+   * The working tree as it stands, pinned under `mark`; the commit it is at
+   * where no snapshot can be taken (no `snapshot` dep, or git failed).
+   */
+  private async markOf(cwd: string, mark: string): Promise<string | null> {
+    const tree = await this.deps.snapshot?.(cwd, mark).catch(() => null);
+    return tree ?? this.headOf(cwd);
   }
 
   /** The commit a directory is at, or null — never a reason to fail a turn. */

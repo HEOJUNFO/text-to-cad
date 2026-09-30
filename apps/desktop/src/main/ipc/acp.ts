@@ -25,7 +25,7 @@ import {
   sessionStates,
   settings,
 } from "../db/repositories";
-import { emptyTreeIfUnborn, head, isUnder, samePath } from "../projects/git";
+import { dropMarks, emptyTreeIfUnborn, head, isUnder, samePath, snapshotTree } from "../projects/git";
 import { releaseWorkspace } from "../projects/workspace";
 import { sessionWorkspace, sessionWorkspaceSettled } from "./git";
 import { browserService } from "../browser/service";
@@ -116,6 +116,8 @@ export const sessionManager: SessionManager = new SessionManager({
   workspaceSettled: sessionWorkspaceSettled,
 
   head: (cwd) => head(cwd),
+  snapshot: (cwd, mark) => snapshotTree(cwd, mark),
+  dropMarks: (cwd, sessionId) => dropMarks(cwd, sessionId),
   emptyTree: (cwd) => emptyTreeIfUnborn(cwd),
 
   releaseWorkspace: async (session, options) => {

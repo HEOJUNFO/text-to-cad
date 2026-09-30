@@ -117,7 +117,9 @@ test("a checkout session runs in the project, and the review shows the agent's a
 
   await newTab("Review");
   // All changes is the working tree against HEAD; This session and Last turn are measured from
-  // the recorded revisions, and nothing has been committed since, so they agree.
+  // snapshots of the working tree taken when the session and the turn began. The tree was clean
+  // then, and both edits came after, so all three scopes list both files. (That the scopes
+  // differ once earlier work is uncommitted is held by sessions.test.ts, without a launch.)
   await expect(page.getByRole("button", { name: /All changes/ })).toBeVisible();
   await expectReviewShowsBoth();
   await shoot("git-review-all.png");
