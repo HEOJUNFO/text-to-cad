@@ -20,6 +20,12 @@ beforeEach(() => {
 });
 
 describe("the command palette", () => {
+  it("opens empty after Settings was opened from it with something typed", () => {
+    useUi.getState().setCommandPaletteQuery("x");
+    useUi.getState().openSettings();
+    expect(useUi.getState().commandPaletteQuery).toBe("");
+  });
+
   it("uses one string for its placeholder and its description", () => {
     render(<CommandPalette />);
     expect(screen.getByPlaceholderText(COMMAND_PALETTE_PROMPT)).toBeInTheDocument();
