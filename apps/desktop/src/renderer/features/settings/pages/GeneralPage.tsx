@@ -62,7 +62,7 @@ export function GeneralPage() {
               })
               .then((chosen) => chosen && patch({ defaultProjectFolder: chosen.path }));
           }}
-          note={fallbacks.defaultProjectFolder ? "This folder no longer exists, so the chooser opens in your home folder." : undefined}
+          note={fallbacks.defaultProjectFolder ? "This folder no longer exists, so the chooser opens where it last did." : undefined}
           onClear={() => patch({ defaultProjectFolder: null })}
           placeholder="Your home folder"
           title="Default project folder"

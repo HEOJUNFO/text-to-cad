@@ -40,6 +40,6 @@ describe("Settings › General", () => {
     useSettings.setState({ settings: { ...defaultSettings(), defaultProjectFolder: "/gone" }, ready: true });
     vi.mocked(window.textToCad.settings.fallbacks).mockResolvedValue({ defaultProjectFolder: "/gone" });
     render(<TooltipProvider><SettingsRoute /></TooltipProvider>);
-    expect(await screen.findByText(/no longer exists, so the chooser opens in your home folder/)).toBeInTheDocument();
+    expect(await screen.findByText(/no longer exists, so the chooser opens where it last did/)).toBeInTheDocument();
   });
 });
