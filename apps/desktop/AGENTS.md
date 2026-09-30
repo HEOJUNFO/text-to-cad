@@ -116,7 +116,8 @@ the rule is about.
   and AI Elements registries. It is excluded from eslint (not from the
   typechecker). These deliberate edits are in it: the `ai` package's types are
   replaced by `./types` (`components/ai-elements/types.ts`), about nine
-  index accesses are guarded for `noUncheckedIndexedAccess`, `shimmer.tsx`
+  index accesses are guarded for `noUncheckedIndexedAccess`, `sonner.tsx` moves the toast hotkey from
+  Alt+T (Option+T types a dagger on a Mac) to Mod+Alt+T, `shimmer.tsx`
   sweeps a foreground-coloured band rather than a background-coloured one
   (the stock band erases the letters it passes over) and stands still under
   `useReducedMotionConfig` (motion's own reduced-motion setting skips a background-position), and `reasoning.tsx`'s
