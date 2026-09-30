@@ -88,6 +88,8 @@ export interface LiveBindingOptions {
 export const HOST_LIVE_COMMANDS = Object.freeze(['select', 'clearSelection'] as const);
 
 const settleFrame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+const LIVE_COMMAND_TIMEOUT_MS = 10_000;
+const UNFINISHED = 'The viewer did not finish applying this command.';
 const scopeKey = (state: { resource: ResourceRef; revision: string }) => JSON.stringify([state.resource, state.revision]);
 
 /** Mounted-view adapter. It never retains a scene after detach. */
@@ -113,23 +115,35 @@ export function attachLiveBinding<State extends LiveViewState, Controller extend
     if (!active) throw new Error('The model tab closed while its viewer command was running.');
     if (scopeKey(readRuntime().readState()) !== scope) throw new Error('The displayed model revision changed while its viewer command was running.');
   };
+  // The wait is bounded at ten seconds of wall clock, then it throws rather than returning a
+  // state the command did not produce. The bound is a timer raced against each frame, not a
+  // check after one: a frame that never comes (a hidden window, a paused rAF) must still end it.
+  const settleBefore = (deadline: number) => new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(UNFINISHED)), Math.max(0, deadline - Date.now()));
+    settle().then(() => { clearTimeout(timer); resolve(); }, error => { clearTimeout(timer); reject(error); });
+  });
+  const untilCommitted = async (scope: string, committed: () => boolean) => {
+    const deadline = Date.now() + LIVE_COMMAND_TIMEOUT_MS;
+    do {
+      await settleBefore(deadline);
+      checkScope(scope);
+      if (committed()) return;
+    } while (Date.now() < deadline);
+    throw new Error(UNFINISHED);
+  };
   const mutate = async (apply: (runtime: LiveViewRuntime<State>) => void | ((state: State) => boolean),
     committed?: (state: State) => boolean): Promise<State> => {
     const { runtime, scope } = admit();
     // A command may hand back the predicate that says when ITS effect is on screen.
     committed = apply(runtime) || committed;
-    const deadline = Date.now() + 10_000;
     // A mode switch can suspend while the Render chunk loads. The first RAF
     // may precede its React commit, so observe the actual destination state.
-    // The wait is bounded at ten seconds of wall clock, then it throws rather than
-    // returning a state the command did not produce.
-    do {
-      await settle();
-      checkScope(scope);
-      const state = readState();
-      if (!committed || committed(state)) return state;
-    } while (Date.now() < deadline);
-    throw new Error('The viewer did not finish applying this command.');
+    let state!: State;
+    await untilCommitted(scope, () => {
+      state = readState();
+      return !committed || committed(state);
+    });
+    return state;
   };
   const controller: LiveViewController<State> & Record<string, unknown> = {
     readState,
