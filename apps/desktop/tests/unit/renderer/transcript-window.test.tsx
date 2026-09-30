@@ -200,6 +200,16 @@ describe("a long transcript mounts its latest turns", () => {
     expect(silent("new")).toBeNull();
   });
 
+  it("draws the silent live region as a box, not as display: contents", () => {
+    render(view(session(turns(2 * TRANSCRIPT_WINDOW))));
+    fireEvent.click(screen.getByRole("button", { name: `Show ${TRANSCRIPT_WINDOW} earlier turns` }));
+    // `display: contents` has left Chromium's accessibility tree, and `aria-live` with it.
+    const region = document.querySelector<HTMLElement>('[data-earlier-region][aria-live="off"]')!;
+    expect(region.className.split(" ")).not.toContain("contents");
+    // Wraps the turns mounted on demand, and not the window the transcript opened with.
+    expect(region.querySelectorAll("[data-turn]")).toHaveLength(TRANSCRIPT_WINDOW);
+  });
+
   it("mounts the next window from the sentinel's button", () => {
     render(view(session(turns(40))));
     fireEvent.click(screen.getByRole("button", { name: `Show ${40 - TRANSCRIPT_WINDOW} earlier turns` }));
