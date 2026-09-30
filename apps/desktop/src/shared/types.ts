@@ -83,6 +83,13 @@ export const SessionSchema = z.object({
    * that nothing is ever allowed to delete.
    */
   worktreePath: z.string().optional(),
+  /**
+   * True when the create that wrote this row cut `worktreePath` itself, rather than being
+   * pointed at one that was already there (`New session in this worktree`). Only an owned
+   * worktree is released when `boot` finds the create dead; absent on rows from before
+   * migration 12, which are treated as given.
+   */
+  worktreeOwned: z.boolean().optional(),
   /** Agent-provided name, first-prompt fallback, or an explicit user rename. */
   title: z.string(),
   /** A user rename takes precedence over subsequent agent title updates. */

@@ -340,7 +340,8 @@ export class SessionManager {
    * A row with no agent session id is a `create` that never reached
    * `session/new`'s answer — the app quit mid-spawn, and `create`'s cleanup
    * cannot run once the database is closed. It can never be loaded, so it is
-   * removed rather than left in the sidebar as a "New session" nobody made.
+   * removed rather than left in the sidebar as a "New session" nobody made,
+   * and the worktree it cut (`worktreeOwned`) is released with it.
    */
   private booted = false;
   private boot(): void {
@@ -352,6 +353,11 @@ export class SessionManager {
       if (!session.acpSessionId && !this.creating.has(session.id)) {
         this.deps.repo.remove(session.id);
         void this.unpinMarks(session);
+        // The worktree the dead create cut goes with it; one it was handed was
+        // there before and stays.
+        if (session.worktreeOwned && session.worktreePath) {
+          void Promise.resolve(this.deps.releaseWorkspace?.(session, { abandoned: true })).catch(() => undefined);
+        }
         continue;
       }
       const stale =
@@ -448,6 +454,9 @@ export class SessionManager {
       gitMode: input.gitMode,
       branch: workspace.branch ?? input.branch,
       ...(workspace.worktreePath ? { worktreePath: workspace.worktreePath } : {}),
+      // Recorded for `boot`, which cannot tell a worktree this create cut from
+      // one it was handed.
+      ...(workspace.worktreePath && fresh ? { worktreeOwned: true } : {}),
       title: "New session",
       titleSource: "prompt",
       createdAt: now,

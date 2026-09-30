@@ -442,6 +442,32 @@ describe("SessionManager", () => {
     expect(manager.list().map((session) => session.id)).toEqual(["real"]);
   });
 
+  it("releases the worktree of a dead create at boot only when that create cut it", async () => {
+    const repo = memoryRepo();
+    const base = { projectId: "p1", agentId: "claude-code", cwd: "/x", gitMode: "worktree", title: "New session", titleSource: "prompt", createdAt: 1, updatedAt: 100, changedFiles: 0, insertions: 0, deletions: 0, archived: false, pinned: false, status: "connecting", acpSessionId: null } as const;
+    repo.upsert({ ...base, id: "cut", worktreePath: "/wt/cut", worktreeOwned: true } as Session);
+    repo.upsert({ ...base, id: "given", worktreePath: "/wt/given" } as Session);
+    const released: { path: string | undefined; abandoned: boolean | undefined }[] = [];
+    const { manager } = await setup({
+      repo,
+      releaseWorkspace: async (session, options) => {
+        released.push({ path: session.worktreePath, abandoned: options?.abandoned });
+      },
+    });
+    expect(manager.list()).toEqual([]);
+    expect(released).toEqual([{ path: "/wt/cut", abandoned: true }]);
+  });
+
+  it("records that a create cut its worktree, and that one it was handed is not its own", async () => {
+    const { manager, cwd } = await setup({
+      workspace: async (input) => (input.cwd ? { cwd: input.cwd, worktreePath: input.cwd } : { cwd, worktreePath: `${cwd}/wt` }),
+    });
+    const cut = await manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "worktree" });
+    const given = await manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "worktree", cwd });
+    expect(cut.worktreeOwned).toBe(true);
+    expect(given.worktreeOwned).toBeUndefined();
+  });
+
   it("refuses an answer to a permission request the agent is no longer waiting on", async () => {
     const { manager, cwd } = await setup();
     const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
