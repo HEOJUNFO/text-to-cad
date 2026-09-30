@@ -40,7 +40,8 @@ worktree the row records as cut by that create (`worktreeOwned`; a handed-in
 worktree is left alone). `acpSessionId` is stored right after `session/new`,
 before the preferences and the marks; a create that fails after that point
 while the connection is alive resolves, the row `idle` with the failure as a
-note in `session.status.error`. When the connection is dead or the row is
+note in `session.status.error` (the renderer shows it above the composer, which
+stays sendable, until the next load). When the connection is dead or the row is
 gone, `abandonCreate` removes the row, retires the connection and releases the
 worktree that create cut, and `create` rejects.
 

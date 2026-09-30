@@ -47,6 +47,7 @@ export function SessionView({ session }: { session: Session }) {
   const loading = useAcp((store) => store.loading[session.id] ?? false);
   const reconnecting = useAcp((store) => store.reconnecting[session.id] ?? false);
   const loadError = useAcp((store) => store.loadErrors[session.id] ?? null);
+  const setupNote = useAcp((store) => store.setupNotes[session.id] ?? null);
   const ensureLoaded = useAcp((store) => store.ensureLoaded);
   const load = useAcp((store) => store.load);
   const cancel = useAcp((store) => store.cancel);
@@ -292,6 +293,18 @@ export function SessionView({ session }: { session: Session }) {
                 </Button>
               </div>
             )
+          ) : null}
+          {/* The session started but setting it up failed (`session.status.error`): the box is
+              live, so this is a line above it with the way to try the setup again. */}
+          {setupNote && !loadError && !loading ? (
+            <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-[13px] leading-5" data-setup-failed role="alert">
+              <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
+              <span className="min-w-0 flex-1 whitespace-pre-wrap">{setupNote}</span>
+              <Button className="h-6 gap-1 px-2 text-[12px]" onClick={reconnectFromBar} size="sm" variant="outline">
+                <RotateCcw className="size-3" />
+                Reconnect
+              </Button>
+            </div>
           ) : null}
           {disconnected ? (
             <div className="flex items-center gap-2 rounded-xl border px-3 py-2 text-[13px] leading-5" data-disconnected role="status">

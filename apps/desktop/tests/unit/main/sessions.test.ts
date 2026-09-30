@@ -1612,6 +1612,19 @@ describe("SessionManager", () => {
     expect((note?.payload as { error: string }).error).toContain("SQLITE_BUSY");
   });
 
+  it("broadcasts a status only when it changed or carries a note", async () => {
+    const { manager, broadcasts, cwd } = await setup();
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    const setStatus = (status: string, error?: string) =>
+      (manager as unknown as { setStatus: (id: string, status: string, error?: string) => void }).setStatus(session.id, status, error);
+    const statuses = () => broadcasts.filter((b) => b.channel === "session.status").map((b) => b.payload);
+    broadcasts.length = 0;
+    setStatus("idle");
+    expect(statuses()).toEqual([]);
+    setStatus("idle", "a note");
+    expect(statuses()).toEqual([{ sessionId: session.id, status: "idle", error: "a note" }]);
+  });
+
   it("abandons a create whose settle fails too, rather than leave a live connection on a connecting row", async () => {
     const recorder = optionRecorder({ model: null });
     const deps = {

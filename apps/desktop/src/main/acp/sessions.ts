@@ -1879,7 +1879,9 @@ export class SessionManager {
   private setStatus(id: string, status: SessionStatus, error: string | null = null) {
     const session = this.deps.repo.get(id);
     if (!session || session.status === status) {
-      if (session) {
+      // Unchanged and with nothing to say: the index already says so, and a renderer that took the
+      // repeat could not tell it from a note.
+      if (session && error) {
         this.deps.broadcast("session.status", { sessionId: id, status, error });
       }
       return;

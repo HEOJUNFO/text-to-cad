@@ -2199,7 +2199,11 @@ not take a connected session with it. A create that fails before that answer
 removes the row and, for a worktree it cut, the worktree. One that fails after
 it while the connection is alive resolves: the row goes `idle`, the composer
 opens, and the failure is a note in `session.status.error`
-(`settleAfterFailedCreate`). One whose connection is dead, or whose row is gone,
+(`settleAfterFailedCreate`). The renderer keeps it in `setupNotes` (`state/acp.ts`,
+fed by `bridge.ts`) and shows it as an alert above the composer with a Reconnect
+button; the composer stays sendable, because the session did start. The next
+`load` or a forget clears it; it is not persisted, so a window reload drops it.
+One whose connection is dead, or whose row is gone,
 is abandoned (`abandonCreate`): the connection is retired, the row removed, the
 worktree that create cut released, and `create` rejects. The same happens when
 the store refuses the settle too, so nothing stays `connecting` behind a live
