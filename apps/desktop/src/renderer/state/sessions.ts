@@ -18,8 +18,11 @@ import { useSettings, useSidebarSettings } from "./settings";
  *
  * `activeId === null` is the new-session state for the active project. Every
  * mutation is an IPC call and the `sessions.changed` event that follows is
- * what updates the list, so a rename from the header and one from the
- * sidebar's menu land in the same place.
+ * what updates the list, so a pin or an archive from the header and one from
+ * the sidebar's menu land in the same place. A rename is the exception: it
+ * writes the new title into the list at once, and rolls it back with a toast
+ * if main refuses (unless a `sessions.changed` has written another title
+ * meanwhile, which stands).
  */
 type SessionsState = {
   sessions: Session[];

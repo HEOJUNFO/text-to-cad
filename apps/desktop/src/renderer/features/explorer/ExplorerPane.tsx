@@ -211,6 +211,15 @@ function useIdlePreload() {
 }
 
 /**
+ * Every chord here is the person asking for a tab, so the keyboard follows it
+ * (`./focus`): into the body, or onto the tab. Left where it was, the focus of
+ * a body the chord just unmounted — an editor, a tree row — fell to the page.
+ */
+function focusOpened(tab: ExplorerTab | null) {
+  if (tab) focusTabBody(tab.id);
+}
+
+/**
  * The strip's keyboard.
  *
  * On the window rather than on the strip, because the chords have to work
@@ -226,16 +235,20 @@ function useIdlePreload() {
  * Mounted by `Shell`, not by the pane: the pane is not rendered while it is
  * collapsed, which is how every session starts, and a chord that asks for a
  * tab is exactly what has to work then (`open` reveals the pane).
+ *
+ * What runs when:
+ *   - No session: nothing; every chord falls through to the menu.
+ *   - Open-a-tab chords (`Ctrl+\``, `Mod+T`, `Mod+Shift+R/B/D`) run whether the
+ *     pane is collapsed or not, because `open` reveals it.
+ *   - Collapsed pane: `Mod+W` and `Mod+1..9` act on tabs nobody can see, so they
+ *     fall through to the menu (`Mod+W` closes the window).
+ *   - `event.repeat` is swallowed: a held chord opens or closes one tab, not a
+ *     dozen. A held `Mod+W` is swallowed even after the last tab is gone, so it
+ *     does not go on to close the window.
+ *   - On Windows and Linux the plain `Ctrl` chords (`Ctrl+T`, `Ctrl+W`,
+ *     `Ctrl+1..9`) are skipped inside `[data-terminal-body]`, where they are the
+ *     shell's; `Ctrl+Shift` chords and `Ctrl+\`` still run there.
  */
-/**
- * Every chord here is the person asking for a tab, so the keyboard follows it
- * (`./focus`): into the body, or onto the tab. Left where it was, the focus of
- * a body the chord just unmounted — an editor, a tree row — fell to the page.
- */
-function focusOpened(tab: ExplorerTab | null) {
-  if (tab) focusTabBody(tab.id);
-}
-
 export function useExplorerShortcuts() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

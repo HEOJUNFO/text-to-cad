@@ -35,10 +35,14 @@ the group. Archived sessions remain available in Settings and can be restored
 without recreating a project. Missing or unmounted directories never cause
 their session index entries to be deleted. The rows that are removed are the
 ones with no `acpSessionId`: `boot()` deletes each that no create in this run
-owns (a create cut short by a quit) and unpins its marks. `acpSessionId` is
-stored right after `session/new`, before the preferences and the marks; a
-create that fails after that point keeps its row and settles it `idle` while
-the connection is alive, `error` when it is not.
+owns (a create cut short by a quit), unpins its marks, and releases the
+worktree the row records as cut by that create (`worktreeOwned`; a handed-in
+worktree is left alone). `acpSessionId` is stored right after `session/new`,
+before the preferences and the marks; a create that fails after that point
+while the connection is alive resolves, the row `idle` with the failure as a
+note in `session.status.error`. When the connection is dead or the row is
+gone, `abandonCreate` removes the row, retires the connection and releases the
+worktree that create cut, and `create` rejects.
 
 ## Explorer and tool ownership
 
@@ -109,7 +113,8 @@ the normal profile. Use the same profile when relaunching a user's preview.
 The startup `[db]` log identifies the actual database.
 
 Before upgrading an existing schema, the app writes a consistent SQLite
-backup beside it: `text-to-cad.db.before-v<version>-<timestamp>.bak`. `VACUUM INTO`
+backup beside it: `text-to-cad.db.before-v<newest migration>-<timestamp>.bak`, named
+by the version the upgrade goes to, not the one it leaves. `VACUUM INTO`
 includes committed WAL contents; copying only the main database file would
 not. A backup or migration error aborts the open, never resets the database.
 After an upgrade succeeds only the newest three backups are kept and older
@@ -125,8 +130,14 @@ without any session remain recoverable from the pre-upgrade backup while it is
 among the three kept. No tabs
 are copied into sessions subsequently created in the same directory.
 
+Migration 12 adds `sessions.worktree_owned`: whether the create that wrote a row
+cut its worktree or was handed it (`New session in this worktree`). `boot`
+releases only the first kind when it purges a create the app quit in. Existing
+rows read as given, so a worktree nobody can vouch for is left alone.
+
 Schema migrations are append-only. Validate changes against an existing
 database fixture as well as an empty database. The native regression suite
 `tests/e2e/session-storage.spec.ts` covers upgrade, restart, backup contents,
-ownership rejection and deletion isolation; `persistence.spec.ts` covers
+ownership rejection and deletion isolation (it finds the backup by the newest
+migration's version, `MIGRATIONS.at(-1)`, so a new migration does not break it); `persistence.spec.ts` covers
 agent naming and persisted user overrides.

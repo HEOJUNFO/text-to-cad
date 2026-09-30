@@ -139,12 +139,26 @@ the rule is about.
 - **The renderer's first chunk stays small.** Monaco (the review tab), xterm
   (the terminal tab), the CAD client, Mermaid and KaTeX load with their first
   use; do not import them statically from the shell. A lazy tab's fallback
-  carries `data-focus-pending` so `features/explorer/focus.ts` waits for it. The
+  carries `data-focus-pending` so `features/explorer/focus.ts` waits for it, and
+  its failure lands in the tab's own boundary: "Could not open the …" with Try
+  again only for a chunk that did not load (`ChunkLoadError`, which builds a
+  fresh `lazy`), "This tab hit an error" and no retry for a body that threw. The
   packages that must resolve to one copy are in `resolve.dedupe` in
   `electron.vite.config.ts`, and `tests/unit/main/renderer-bundle.test.ts`
   fails on duplicate chunks in a built bundle (CI runs it after the build with
   `TEXT_TO_CAD_BUNDLE_CHECK=1`; a local run without a fresh build passes).
   (README, "Development".)
+- **A chord that acts on a hidden tab never runs while the pane is collapsed.**
+  `useExplorerShortcuts` (mounted by `Shell`) lets `Mod+W` and `Mod+1..9` fall
+  through to the menu when the explorer is collapsed or there is no session;
+  the open-a-tab chords are the exception because `open` reveals the pane.
+  `event.repeat` is swallowed, and non-mac plain Ctrl chords are skipped inside
+  `[data-terminal-body]` (`src/renderer/features/explorer/ExplorerPane.tsx`).
+- **The no-native-title rule covers the desktop screens its test renders.**
+  Interface hints are the kit's `TooltipHint`, never a `title` attribute
+  (`packages/ui/README.md`), and `tests/unit/renderer/no-native-title.test.tsx`
+  renders the session, the sidebar, Settings, the agent drawer, the tab strip
+  and the review. A new screen is added to that test.
 - **The agent table on a warm launch is the last launch's.** `agents.list`
   answers from the `__agents` settings row with every row `probing`; a caller
   that would act on a row (refuse an agent as not installed, hand a binary to a
@@ -175,8 +189,11 @@ the rule is about.
   resolved right after an explicit override; a packaged app downloads and
   installs nothing, and `scripts/package.mjs` refuses to package without it.
   Do not add a first-launch install, a progress state, or a Settings page for
-  it back: a runtime that is not there is a failure the CAD tab reports with
-  the interpreter's words, not a state the person is asked to fix.
+  it back: a runtime that is not there is a failure the CAD tab reports, not a
+  state the person is asked to fix. A packaged build says "This copy of
+  text-to-cad has no CAD runtime … Reinstall the app"; a checkout keeps the
+  list of interpreters it looked for (`missingMessage` in
+  `src/main/cad/runtime.ts`).
 - **`package.json` stays at version `0.0.0`.** The repository's `VERSION` is
   the canonical release version; `scripts/app-version.mjs` reads it and both
   the build and `scripts/package.mjs` stamp it. Do not hand-edit it.
@@ -262,10 +279,18 @@ the rule is about.
   snapshot is the only copy of the history and stays whole
   (`src/main/acp/snapshots.ts`).
 - **A row's `connecting` has an exit on every path.** `create` ends it in
-  success (`idle`), in `settleAfterFailedCreate` (`idle` while the connection
-  is alive, else `error`), or by removing the row when it failed before
-  `session/new` answered; `loadNow`'s catch sets `error`; `boot` makes a stale
-  one `closed`. A row left at `connecting` is a box that never opens.
+  success (`idle`), in `settleAfterFailedCreate` (`idle` again, the failure a
+  note in `session.status.error`, while the connection is alive), or by
+  removing the row (`abandonCreate`) when the adapter is dead or the row is
+  gone; a row closed under the create keeps that state (`stillConnecting`
+  guards the write of `idle`). `loadNow`'s catch sets `error`; `boot` makes a
+  stale one `closed`. A row left at `connecting` is a box that never opens.
+- **A `create` that reached `session/new` resolves with its live session.**
+  Only a dead adapter or a deleted row rejects, and it takes the row, the
+  connection and the worktree that create cut with it (`abandonCreate`); a
+  delete rejects with `DELETED_WHILE_STARTING`, which `NewSession` swallows.
+  The renderer adopts the row a resolved create returns and offers no second
+  create for it.
 - **The composer follows the row and the connection together.**
   `src/renderer/features/session/SessionView.tsx` reads a session as
   `connecting` when the state says so or when the row does and no reconnect
@@ -281,8 +306,25 @@ the rule is about.
 - **"In use" for a worktree is one function, `sessionsUsing`**
   (`src/main/projects/git.ts`): sessions that are not archived and run in the
   worktree, under it, or record it. Settings' count, Delete's refusal, the
-  keep-limit sweep and a session's release all ask it; an archived session holds
-  no worktree.
+  keep-limit sweep, a session's release and the CAD viewer's stop (archive and
+  delete, `forgetCadSession`) all ask it; an archived session holds no worktree.
+- **The viewer warm is gated by a model in the root; the daemon is not.**
+  `warmCad` starts a root's viewer only when `hasCadFile` finds a model in it,
+  and warms the build daemon on every bind (unless the kernel is `missing` or
+  `unsupported`). At most three viewers run, and the least recently asked-for
+  is stopped for a fourth unless a CAD tab is open on its root (`openCadRoots`,
+  non-archived sessions), so the bound is exceeded rather than a tab's viewer
+  evicted.
+- **A viewer launch checks its generation after every await, and every stop
+  bumps it.** `ViewerManager` compares the root's stop generation after the
+  runtime resolves, when the launcher announces and when a restart's backoff
+  ends; `stop` and `stopAll` bump it, so a stop that lands mid-launch is
+  never overtaken by the launch or the restart that was already under way
+  (`tests/unit/main/viewer.test.ts`).
+- **Every capture goes through `imageResult`.** It redraws an image over
+  `MAX_IMAGE_BYTES` smaller and refuses it only when it cannot be made to fit,
+  so no tool result larger than the model takes enters a transcript
+  (`src/renderer/state/image-result.ts`).
 - **A git write child is signalled at quit, never killed first.**
   `endTrackedChildren` sends a commit, push or worktree add/remove SIGTERM so
   git drops its `index.lock`; `will-quit` kills what is left
@@ -298,6 +340,23 @@ the rule is about.
   and an Enter during input-method composition is not a commit
   (`src/renderer/features/explorer/BrowserTab.tsx`).
 
+- **A migration's backup is named by the newest version.** `db()` writes
+  `before-v<latest>-<ms>.bak` with `latest` the last entry of `MIGRATIONS`, and
+  `tests/e2e/session-storage.spec.ts` derives the name from `MIGRATIONS.at(-1)`
+  rather than typing a number; a new migration edits neither.
+- **A watch is returned with the root it was taken with.** A file source gives
+  its opened paths back through the project and root it was created for
+  (`requestAt`, `adapters/fileSource.ts`), and the store unwatches the root it
+  had bound (`previous.root`), never the root the explorer has since moved to.
+- **A terminal spawns once per tab.** `spawning` in `TerminalTab` is keyed by
+  tab id, not by component instance, so a double effect or a body that unmounts
+  and mounts while `terminal.create` is in flight cannot start a second shell
+  that would be an orphan counting toward the agent's 16.
+- **A deduped tab is disposed like a close.** `dedupeFileTabs` returns the tabs
+  it drops, and the two writers of a strip (`commit` and `updateSessionStrip`,
+  `state/explorer.ts`) run `disposeTab` on them, the function `close` uses, so
+  a dropped duplicate's document record, CAD state and tab store are released
+  as a close releases them.
 - **Path containment is `climbsOut`/`isInside`** (`src/main/explorer/fs.ts`),
   never a `startsWith("..")` on a `path.relative`: a folder named `..keep` is an
   ordinary name and climbs nowhere (`tests/unit/main/git-paths.test.ts`,
@@ -311,7 +370,9 @@ the rule is about.
 - **A job's running state comes from the store.** `useJob(agentId, kind)`
   (`features/settings/AgentDrawer.tsx`) reads the running job from
   `useAgents.jobs`, not from component state, so a drawer or welcome that
-  remounts finds the installer under way and disables Install and Sign in.
+  remounts finds the installer under way and disables Install and Sign in. The
+  job is seeded in the store when main names it (`seedJob`, `state/agents.ts`),
+  not on its first byte, so a silent install is found too.
 - **A draft that resyncs from the store compares the normalised value.**
   `useDraft` (`features/settings/SettingCard.tsx`) takes a `same()` predicate;
   a field whose text is parsed on the way in (the Advanced environment) says
@@ -320,7 +381,21 @@ the rule is about.
 - **The row changes before the teardown.** Archive and delete write the
   session row first and revoke tokens, dispose pages and kill shells after, so
   a write that throws leaves the session whole with its tools
-  (`tests/unit/main/acp-archive-order.test.ts`).
+  (`tests/unit/main/acp-archive-order.test.ts`). Archive first joins an
+  in-flight create, bounded at `ARCHIVE_WAIT_MS`, so it closes a session that
+  exists rather than one about to be removed; `prompt` and `NewSession` never
+  reconnect an archived row.
+- **A row records whether its create cut the worktree.** `worktreeOwned` is set
+  when the create made a fresh worktree and not when it was handed one
+  (`New session in this worktree`); `boot` and `abandonCreate` release only
+  the worktrees that flag names.
+- **A relayed command reports possible completion on abort or timeout.**
+  Once `RendererCommands.request` has sent a command the window may have
+  applied it, so a timeout says the command "may still complete", an abort
+  after the send says it "may already have been applied", and the bridge says
+  "was applied, but the request was aborted before the reply" for a handler
+  that finished first; none reads as a failure with nothing done
+  (`tests/unit/main/mcp-bridge.test.ts`).
 - **The terminals an agent can create are capped, and the cap is checked
   before the pty is registered.** `Terminals.create` takes `maxPerSession`
   (16 for `create_terminal`, counting every pty of the session, the person's

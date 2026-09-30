@@ -8,7 +8,13 @@
  * main pushes a `integrations.command` carrying a request id, the renderer's bridge
  * (`src/renderer/state/bridge.ts`) performs it against the stores and answers
  * on `integrations.reply`. A command nobody answers times out rather than hanging the
- * agent's tool call.
+ * agent's tool call: after `REPLY_TIMEOUT_MS`, or `SLOW_REPLY_TIMEOUT_MS` for
+ * `document-save`, `capture-view`, `drawing-capture` and `pdf-capture`. Both
+ * the timeout and an abort after the send reject with a message that says the
+ * command may have been applied ("may still complete", "may already have been
+ * applied"): the window has the command by then, so the agent is told to
+ * check before retrying. A handler that finished before an abort is reported
+ * by the bridge as applied (`mcp-bridge.ts`).
  *
  * Paths are resolved against the session's root — its worktree when it has
  * one (plan §9), else the project directory — and refused outside it, with

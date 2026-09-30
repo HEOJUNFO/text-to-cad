@@ -44,9 +44,13 @@ import { preloadTerminal } from "./load-terminal";
  * in a 45% pane. Sticky is both.
  *
  * Reordering is a plain HTML5 drag, not a library. What a tab strip needs is
- * "pick up a tab, drop it between two others"; `dragover` on a tab and an
- * index swap is the whole behaviour, and a drag-and-drop library here would be
- * 40 KB to do the same thing with more state.
+ * "pick up a tab, drop it between two others", and a drag-and-drop library
+ * here would be 40 KB to do the same thing with more state. `dragover` on a
+ * chip only moves the insertion line: before the chip on its left half, after
+ * it (`dropAfter`) on its right half, so the last position is reachable. The
+ * move happens on `onDrop`; `onDragEnd` fires for a dropped and a cancelled
+ * drag alike and only puts the strip back, so a cancelled drag reorders
+ * nothing.
  *
  * Neither of Codex's far-right controls is here. Fullscreen is gone: it was
  * the one thing in the app that could take the session pane away, and the

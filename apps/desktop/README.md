@@ -63,7 +63,7 @@ These environment variables matter in development:
 | --- | --- |
 | `TEXT_TO_CAD_APTABASE_KEY` | Read at BUILD time and compiled in (see Telemetry). Unset means no network call is ever attempted. |
 | `CAD_DESKTOP_PYTHON` | An interpreter with cadgen installed, used instead of the bundled runtime (see CAD runtime below). A developer's knob; the e2e suite breaks and clears the equivalent setting on purpose. |
-| `TEXT_TO_CAD_PREWARM` | Under `NODE_ENV=test` both pre-warms are off — the project's (viewer child + cadgen daemon on project open) and the agents' (one idle adapter per agent in the index, see "Opening a session"); `1` turns them on, as `tests/e2e/cad.spec.ts` and `tests/e2e/persistence.spec.ts` do. The launch's agent probe ("Which agents are installed", under ACP) is not gated: it starts no agent. |
+| `TEXT_TO_CAD_PREWARM` | Under `NODE_ENV=test` both pre-warms are off — the project's (viewer child, only for a root that holds a model, + cadgen daemon on project open) and the agents' (one idle adapter per agent in the index, see "Opening a session"); `1` turns them on, as `tests/e2e/cad.spec.ts` and `tests/e2e/persistence.spec.ts` do. The launch's agent probe ("Which agents are installed", under ACP) is not gated: it starts no agent. |
 | `TEXT_TO_CAD_FAKE_AGENT` | Launch this stdio ACP agent instead of whatever the registry says, for every provider. The session and git suites point it at `tests/fake-agent/index.mjs`; a session needs an agent to exist at all, and a real one would make the suite a test of somebody's login state. |
 | `TEXT_TO_CAD_FAKE_AGENT_ARGS` | Extra arguments for that fake agent, split on spaces (`src/main/ipc/acp.ts`). `tests/e2e/launch.ts` passes them as `fakeArgs`; `persistence.spec.ts` uses `--load-delay` to hold `session/load`. The flags are listed at the top of `tests/fake-agent/index.mjs`. |
 | `FAKE_AGENT_PROFILE` | Read by `tests/fake-agent/index.mjs` from its own environment, never by the app. `claude-code` makes the fake agent answer in the Claude adapter's shape (see "ACP"). `tests/unit/main/connection.test.ts` passes it in the connection's `env`; for a dev run, set it beside `TEXT_TO_CAD_FAKE_AGENT` — main's environment reaches the agent through the login-shell capture (`src/main/agents/shell-env.ts` runs `$SHELL -ilc` with it). |
@@ -232,6 +232,9 @@ the import lands). While a lazy tab's chunk loads, `ExplorerPane` draws a
 `TabLoading` placeholder that carries `data-focus-pending`; `focusTabBody`
 (`features/explorer/focus.ts`) waits on that marker instead of falling back to
 the strip tab, so the first terminal a window opens still takes the keyboard.
+A chunk that fails to load is drawn by the tab's own boundary as "Could not
+open the review/terminal" with Try again (`lazyTab`, `TabBoundary`); a body
+that throws shows "This tab hit an error" with no retry.
 `electron.vite.config.ts` lists the packages Rollup must resolve to one copy in
 `resolve.dedupe` — React, and Shiki with its `@shikijs/*` packages (a second
 Shiki under `@streamdown/code` was ~230 grammars and themes emitted twice).
@@ -702,8 +705,8 @@ in-memory composer draft; its group appears only when a session is created. A se
 circle idle, a pulsing dot while a turn streams, an amber triangle waiting on
 a permission, a red one after a failure, a spinner ring connecting —
 `lib/sidebar.ts`), the title, git's own glyph when the thread runs in a
-worktree or on a branch of its own, and a `…` on hover for pin, rename,
-archive and delete. `Pinned` is the first section when anything is pinned,
+worktree or on a branch of its own, and a `…` on hover or when it takes
+keyboard focus, for pin, rename, archive and delete. `Pinned` is the first section when anything is pinned,
 and a pinned thread lives **only** there — never twice.
 
 The filter menu is global, and it is opened from the panel's own header:
@@ -844,7 +847,12 @@ box as it was taken, behind any put back before it, so the box reads in queue
 order, and the queue goes on. A new session's first prompt refused this way
 goes back into that session's box — the session was created and selected
 before the prompt went out (`NewSession.tsx`); only a create that fails keeps
-the new-session screen, with the error and Try again.
+the new-session screen, with the error and Try again. A create that fails with
+the person elsewhere (on another thread, or another project's new-session
+screen) shows a toast with the error and Try again, which returns to the
+new-session screen that holds the restored draft. A create that outlasts a
+click on another thread or project does not pull them back to the session it
+made.
 
 Image attachments show a contained thumbnail beside the filename, with an always-visible remove control. Click the thumbnail (or focus it and press Enter) to inspect the full image. Escape, Close or the backdrop dismisses the preview and returns focus to the thumbnail; the draft is unchanged. Explorer tabs use a bordered active state and visible keyboard focus on selection and close controls.
 
@@ -1094,21 +1102,53 @@ otherwise cover. The selected session row and Settings' current page carry
 `aria-current="page"`. A session row's keyboard focus ring is drawn around the
 whole row (`has-[[data-session-row-title]:focus-visible]` in
 `features/sidebar/SessionRow.tsx`), not around the title button inside it. The
-command palette leaves out its Sessions group when there is no open session.
+command palette leaves out its Sessions group when there is no open session. A
+session row is searched on its title, its project's name and its branch, and a
+project row on the project's name only; ids and paths are not text to match
+(`scoredOnKeywords` in `app/CommandPalette.tsx`).
 
 ## The explorer strip
 
 The strip's `+` is one button and a menu of the five kinds, each with its
 binding — ⌘T file, ⇧⌘R review, ⇧⌘B browser, ⌃` terminal, ⇧⌘D drawing
-(`lib/shortcuts.ts` is the table the menu prints and `ExplorerPane` answers
-to). It sits **after the last tab, inside the scrolling row**, and is
+(`lib/shortcuts.ts` is the table the menu prints and `useExplorerShortcuts`
+in `ExplorerPane.tsx` answers to). It sits **after the last tab, inside the scrolling row**, and is
 `position: sticky` at its right edge: it slides along with the tabs until the
 row is longer than the pane, and then stops at the pane's edge with the tabs
 passing underneath it. In the flow alone it was the button that scrolled off
 at six tabs in a 45% pane; pinned outside the row it was always reachable and
 never part of it. The file tree's open folders and its listings live in the explorer
 store, not in the file tab, because opening a file makes a tab and the pane
-mounts one tab at a time.
+mounts one tab at a time. `listDirectory` stats a directory's entries 64 at a
+time (`LIST_STAT_BATCH` in `src/main/explorer/fs.ts`).
+
+The strip's chords are `useExplorerShortcuts` (`ExplorerPane.tsx`), mounted by
+`Shell` because the pane is not rendered while collapsed. With no session every
+chord falls through to the menu. The open-a-tab chords run with the pane
+collapsed, because `open` reveals it; ⌘W and ⌘1..9 act on tabs the person
+cannot see then, so they fall through to the menu too (⌘W closes the window).
+A held key (`event.repeat`) is swallowed rather than repeated, ⌘W included even
+once the last tab is closed, so it does not go on to close the window. On
+Windows and Linux the plain Ctrl chords are skipped while the focus is inside a
+terminal (`[data-terminal-body]`), where they are the shell's; the Ctrl+Shift
+chords and Ctrl+` still run there.
+
+A tab is reordered by dragging its chip (a plain HTML5 drag). The insertion
+line is drawn before the chip under the pointer on its left half and after it on
+its right half, so the last position is reachable. The move happens when the
+chip is dropped; a drag that ends any other way (Escape, a release outside the
+strip) reorders nothing. A file tab's tooltip is its path, always; any other
+tab's tooltip is its title, shown only when the chip clips it. A terminal the
+agent opened (`tab.agent`) shows an "agent" badge in its footer; the tab's
+`readOnly` field is stored as false and nothing sets it.
+
+The review and terminal bodies are lazy tabs (`lazyTab` and `LazyTab` in
+`ExplorerPane.tsx`). A chunk that fails to load lands in the tab's boundary
+(`TabBoundary`) as a `ChunkLoadError`: "Could not open the review" or "Could not
+open the terminal", with Try again, which builds a fresh `lazy` and fetches the
+chunk again. A body that throws while rendering shows "This tab hit an error"
+with the error's message and no Try again, because fetching its chunk again
+would throw again.
 
 Every session owns its own explorer tabs, active tab, expanded folders and pane
 width/collapse state. A new session starts empty, including another session in
@@ -1207,7 +1247,13 @@ PDF.js's real worker, text selection and capture in Playwright's Chromium.
 A file tab keeps its `file` kind and chooses a renderer: CAD, PDF, Markdown,
 code, image or unsupported. The `documents` integration reads the live text
 buffer, including unsaved typing, and requires its revision before replacing
-or saving it. Tab/session switches retain drafts and inactive read snapshots;
+or saving it. `read_document` returns at most 2 MiB of characters
+(`MAX_DOCUMENT_CHARS`, held equal to the renderer's `MAX_BRIDGE_DOCUMENT_CHARS`
+by `live-documents.test.ts`); past that `truncated` and `note` lead the JSON,
+ahead of `content`, so a client that clips the tail keeps them, the cut backs
+off a split surrogate pair, and the revision still names the whole buffer. A
+buffer over the cap cannot be edited through the bridge — the edit is refused
+and the person edits it in the editor. Tab/session switches retain drafts and inactive read snapshots;
 reactivate a text file before editing or saving. A text file over 4 MiB
 (`MAX_TEXT_BYTES` in `src/main/explorer/fs.ts`) opens read-only, cut at the
 cap, and one whose bytes are not UTF-8 opens read-only too — a save would
@@ -1225,7 +1271,9 @@ process or lose its scrollback. The `terminals` integration creates, reads,
 writes and stops those same PTYs through scoped tab IDs. Reads return an output
 sequence and input revision; writes require both, preventing a tool from racing
 new output or user typing. Closing a terminal releases its process; stopping
-it leaves the output available until close. A provider's own shell tool has
+it leaves the output available until close. `stop_terminal` signals the shell
+and waits up to two seconds: `exited: true` with the `exitCode`, or `exited:
+false` when the program is still running. A provider's own shell tool has
 separate process IDs and does not automatically create a text-to-cad terminal tab.
 A session holds at most 16 ptys, stopped ones and the person's own included
 (each keeps its scrollback until its tab closes); `create_terminal` refuses past
@@ -1281,7 +1329,9 @@ a batch that removes an open file waits `MOVE_WAIT_MS` (250 ms) for the
 addition, and a removal and an arrival with the same inode become one `moved`
 change: the tab follows the file to its new name, and its holds go with it.
 The app's own save is an atomic rename, a new inode at the same path, so the
-inode is taken again whenever the file changes under its name. An opened link
+inode is taken again whenever the file changes under its name. A removal drops
+the path's inode; when a path a tab still holds reappears (a checkout away and
+back), the inode is taken again on its arrival. An opened link
 is an alias: its target's directory is watched and the target's changes are
 repeated under the link's name; the link's own inode is its identity. When
 `ln -sfn` re-points it, the inode is taken again and the alias moves to the
@@ -1606,8 +1656,12 @@ that probe is not cached — the next status asks again. A probe that *fails*
 (no interpreter, cadgen not importable, a kernel that fails to load) is
 remembered for a minute, because `cad.warm` asks on every session bind and a
 broken interpreter would otherwise run a doctor per bind; Repair and an
-override change clear it at once.
-A CAD tab whose runtime did not start shows the interpreter's words, Try
+override change clear it at once, and so does the runtime card's Try again in a
+CAD tab, which calls `runtime.repair()` and then reloads the viewer.
+A CAD tab whose runtime did not start shows the failure's words — for a
+missing runtime, "This copy of text-to-cad has no CAD runtime … Reinstall the
+app" in a packaged build and the list of interpreters it looked for in a
+checkout (`missingMessage`) — with Try
 again, and Reveal log — `runtime.revealLog` shows the log
 (`userData/cad-runtime.log`: every failed probe, every viewer launch that did
 not come up, the viewer's stderr; cut back in place to its last 1 MB whenever it passes 4 MB) in the file manager. The request carries no
@@ -1616,13 +1670,22 @@ not exist yet. The tab never asks the person to set anything up.
 
 `src/main/cad/viewer.ts` runs one `python -m cadgen.viewer --api-only --host
 127.0.0.1 --json` per project root (cwd = the root, the launcher's contract),
-parses its JSON line, keeps the child, restarts it on a crash with backoff,
-stops a worktree's viewer when the last session in that worktree is
-deleted (`forgetCadSession` in `src/main/cad/index.ts`), keeps at most three
-of its own running (opening a fourth stops the least recently asked-for one
-whose root has no CAD tab open) and stops all of them on quit — and never kills an
+parses its JSON line, keeps the child, restarts it on a crash with backoff
+(1 s doubling to 30 s), and gives up after five crashes in a row; an instance
+that stays up five minutes resets the count, and a viewer asked for again after
+giving up launches afresh. Every launch, restart and stop shares a generation
+per root: a stop bumps it, a launch or restart checks it after each await, so a
+stop during the backoff or the launch stays a stop, and `stopAll` also stops
+roots still launching. A worktree's viewer stops when the last open session in
+that worktree is archived or deleted (`forgetCadSession` in
+`src/main/cad/index.ts`, asking `sessionsUsing` over the other sessions). At
+most three of its own run: opening a fourth stops the least recently asked-for
+one whose root has no CAD tab open (`openCadRoots`: the persisted strips of
+sessions that are not archived), and when every other has one the bound is
+exceeded rather than a tab's viewer stopped. All stop on quit. It never kills an
 instance the launcher reported as `reused`, because that one is somebody
-else's. `cad.viewerOrigin` is how the file tab gets the origin.
+else's. The manager's injectables are `spawn`, `probe`, `delay`, `now`,
+`inUse` and `maxLive`. `cad.viewerOrigin` is how the file tab gets the origin.
 
 The viewer does not wait for the first CAD file. When the explorer binds to
 a project (or a session's worktree), the renderer calls `cad.warm`, and main
@@ -1636,7 +1699,7 @@ bind repeats it; any other root gets its viewer when a CAD tab opens). The daemo
 (`src/main/cad/daemon.ts` spawns `python -m cadgen.daemon`, the registered
 command a cadgen client spawns for itself, detached and never stopped — it is
 the person's daemon, shared with every terminal, and it retires on its own
-idle timeout). Once per interpreter per app run, and never when
+idle timeout; it starts in `userData`, so it holds no project folder open). Once per interpreter per app run, and never when
 `CADGEN_DAEMON=0`. Measured with `scripts/perf-cad.mjs`: the first STEP open
 after launch had paid 0.9 s for the probe and the viewer and ~3 s for the
 daemon's start inside its first compile; warmed at project open both are done
@@ -1922,6 +1985,9 @@ when it was written by the same app version and holds every provider. Then:
   (`features/settings/AgentDrawer.tsx`), not from component state, so a drawer
   closed and reopened, or a welcome left for Settings and back, finds the
   installer under way and attaches its log instead of offering a second one.
+  A job is in that store from the moment main names it, not from its first byte
+  (`seedJob` in `state/agents.ts`), so a row remounted while a silent install
+  is still quiet finds it.
   A failed run's "Install failed (exit N)" / "Sign in failed (exit N)" is worded
   only while the step is undone (`useJob`'s `done`: installed, signed in), and a
   newer job of the kind replaces the failed one a mount started.
@@ -2017,16 +2083,22 @@ and its `acpSessionId` is stored on its own right after `session/new` returns �
 before the preferences and the marks — so a crash while those are pending does
 not take a connected session with it. A create that fails before that answer
 removes the row and, for a worktree it cut, the worktree. One that fails after
-it keeps the row and settles it (`settleAfterFailedCreate`): `idle` while the
-connection is alive, `error` when it is not; when the store refuses that settle too,
-the create is abandoned like one that failed before the answer (connection retired,
-row removed), so nothing stays `connecting` behind a live connection. A create whose
-row the person deleted while it started rejects with `DELETED_WHILE_STARTING`
-(`shared/ipc/errors.ts`), which `NewSession` swallows: no failure card, no toast.
+it while the connection is alive resolves: the row goes `idle`, the composer
+opens, and the failure is a note in `session.status.error`
+(`settleAfterFailedCreate`). One whose connection is dead, or whose row is gone,
+is abandoned (`abandonCreate`): the connection is retired, the row removed, the
+worktree that create cut released, and `create` rejects. The same happens when
+the store refuses the settle too, so nothing stays `connecting` behind a live
+connection. A create whose row the person deleted while it started rejects with
+`DELETED_WHILE_STARTING` (`shared/ipc/errors.ts`), which `NewSession` swallows:
+no failure card, no toast. A row closed under the create keeps that state; only
+a row still `connecting` is written `idle` (`stillConnecting`).
 `boot()`, on the first call after
 launch, removes every row with no `acpSessionId` that no create in this run
-owns — a create cut short by a quit, which can never be loaded — and unpins its
-marks. A row whose directory is missing or unmounted is not of that kind: it is
+owns — a create cut short by a quit, which can never be loaded — unpins its
+marks, and, when the row records `worktreeOwned` and a `worktreePath`, releases
+the worktree that create cut (`releaseWorkspace(…, { abandoned: true })`); a
+worktree the create was handed is left alone. A row whose directory is missing or unmounted is not of that kind: it is
 never deleted for that.
 
 An archive during a create waits for the create to settle, then closes the row;
@@ -2189,7 +2261,8 @@ A worktree that belongs to a session is deleted automatically only when
 auto-delete is on. The exception is a create that fails: its row goes, and the
 worktree that create made goes with it whatever the setting
 (`releaseWorkspace(…, { abandoned: true })` in `src/main/projects/workspace.ts`,
-called from `SessionManager.create`) — never a worktree it was handed by `New
+called from `SessionManager.create` through `abandonCreate`, and from `boot` for
+a dead create's row) — never a worktree it was handed by `New
 session in this worktree`. With auto-delete on, deleting a session removes its
 worktree, never forced (`releaseWorkspace`), and the keep-limit sweep
 (`pruneProjectWorktrees` in `src/main/ipc/git.ts`) starts once a new
@@ -2306,8 +2379,8 @@ worktrees.
   thread is active starts there (`TerminalTab.cwd`). A review's
   `All changes` uses its owning session's directory. The CAD tab
   asks `cad.viewerOrigin` for its root, and main runs one `cadgen viewer`
-  per root — a worktree gets its own, stopped when its last session is
-  deleted.
+  per root — a worktree gets its own, stopped when its last open session is
+  archived or deleted.
 - Every filesystem `explorer.*` request names `{ projectId, root? }`, and main's
   `rootOf` (`src/main/ipc/explorer.ts`) resolves the pair: first any `cwd` or
   `worktreePath` a session of the project records (handed on in the recorded
@@ -2335,7 +2408,9 @@ of the root between the check and the open is refused.
 The captures the app makes itself (`capture_view`, `capture_drawing`,
 `capture_pdf`) all pass through `imageResult` (`src/renderer/state/image-result.ts`):
 one over the same limit is redrawn smaller (up to six passes, a side never
-below 64 px), or refused. A shrunk result carries `scaled: true`, `scale` (how
+below 64 px), or refused when it cannot fit. `capture_view` also rejects with
+"the viewer's WebGL context is lost; try again once it restores" while the
+GPU context is gone. A shrunk result carries `scaled: true`, `scale` (how
 much each side shrank) and, for a PNG source, `scaledFrom: {width, height}`, so
 an agent can map a pixel it reads off the picture back to the original.
 

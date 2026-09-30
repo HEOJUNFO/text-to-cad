@@ -6,8 +6,10 @@ import { errorMessage } from "@shared/ipc/errors";
 
 /**
  * The agent table — registry rows with what the detector found — and the
- * output of any install or login job in flight. P6's Agents page reads
- * this; the composer's agent chip reads `installed`.
+ * output of the install and login jobs. A job is in `jobs` from the moment
+ * main names it (`seedJob`), not from its first byte, so a screen that
+ * remounts finds it running. P6's Agents page reads this; the composer's
+ * agent chip reads `installed`.
  */
 type AgentsState = {
   agents: AgentStatus[];

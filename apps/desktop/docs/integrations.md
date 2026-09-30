@@ -97,7 +97,19 @@ instructions. Playwright MCP includes page evaluation and short Playwright scrip
 in its stdio subprocess; native target scope is enforced by the host adapter.
 It is not an OS sandbox for agent code (see [browser](browser.md)). Terminal writes require the
 observed output sequence and input revision; new output or intervening user
-input requires another read.
+input requires another read. `stop_terminal` signals the shell and waits up to
+two seconds for it to exit: it returns `exited: true` with the `exitCode`, or
+`exited: false` when the program is still running.
+
+Commands the renderer performs are relayed (`RendererCommands` in
+`src/main/integrations/actions.ts`) and wait ten seconds for the window's
+reply, thirty for the slow ones: `document-save`, `capture-view`,
+`drawing-capture` and `pdf-capture`, which wait on the disk or on a frame and
+an encode. A relayed command reports that it may have completed when the wait
+ends without a reply: a timeout says "the command may still complete, so check
+before retrying", and an abort after the command was sent says it "may already
+have been applied". A handler that finished before the abort reports "was
+applied, but the request was aborted before the reply".
 
 The PDF renderer and its agent tools share one real Mozilla PDF.js document,
 worker and text layer. Page reads are bounded to 50 pages/one million
