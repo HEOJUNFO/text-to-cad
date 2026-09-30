@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { PANE_HOMES, TABBABLE } from "@renderer/app/pane-focus";
 import { PaneSeparator } from "@renderer/app/PaneSeparator";
 import { ExplorerPane, useExplorerShortcuts } from "@renderer/features/explorer/ExplorerPane";
 import { SessionPane } from "@renderer/features/session/SessionPane";
@@ -246,19 +247,6 @@ function useShellShortcuts(): void {
 const PANE_IDS = ["sidebar", "session", "explorer"] as const;
 
 /**
- * Where focus lands in a pane it has not been in yet: the sidebar's current
- * session, the composer, the explorer's strip tab — each pane's one stop
- * worth arriving at — else the pane's first control.
- */
-const PANE_HOMES: Record<(typeof PANE_IDS)[number], string> = {
-  sidebar: "[aria-current=page], [aria-current=true]",
-  session: "[data-composer-input][contenteditable=true], [data-composer-input]:not([disabled])",
-  explorer: '[role=tab][tabindex="0"]',
-};
-
-const TABBABLE = 'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), [contenteditable=true], [tabindex]:not([tabindex="-1"])';
-
-/**
  * F6 and Shift+F6: the next and the previous pane, the way a browser's F6
  * moves between its toolbar and the page. Without it the only way from the
  * explorer back to the sidebar was every Tab stop in between — and none at
@@ -315,7 +303,10 @@ function useFocusSurvivesCollapse(sidebarCollapsed: boolean, explorerCollapsed: 
   useEffect(() => {
     const note = (event: Event) => {
       const target = event.target instanceof Element ? event.target : null;
-      lastPane.current = target ? (PANE_IDS.find((id) => document.getElementById(id)?.contains(target)) ?? null) : null;
+      // A pane's separator is outside the pane (it sits between two), but it is that pane's: Enter
+      // on it closes the pane, and the toggle is where focus belongs after.
+      const separated = target?.closest<HTMLElement>("[data-separator]")?.dataset.separator ?? null;
+      lastPane.current = separated ?? (target ? (PANE_IDS.find((id) => document.getElementById(id)?.contains(target)) ?? null) : null);
     };
     document.addEventListener("focusin", note);
     document.addEventListener("pointerdown", note, true);

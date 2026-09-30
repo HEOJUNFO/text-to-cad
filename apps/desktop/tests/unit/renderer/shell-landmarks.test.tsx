@@ -84,3 +84,20 @@ it("hands focus to the session's sidebar toggle when Mod+B closes the sidebar it
   expect(screen.queryByRole("complementary", { name: "Sidebar" })).toBeNull();
   expect(screen.getByRole("button", { name: "Toggle sidebar" })).toHaveFocus();
 });
+
+it("hands focus to the sidebar's toggle when Enter on its separator closes the pane", async () => {
+  render(<Shell />);
+  const separator = screen.getAllByRole("separator")[0]!;
+  separator.focus();
+  fireEvent.keyDown(separator, { key: "Enter" });
+  expect(screen.queryByRole("complementary", { name: "Sidebar" })).toBeNull();
+  await waitFor(() => expect(screen.getByRole("button", { name: "Toggle sidebar" })).toHaveFocus());
+});
+
+it("reads a separator's value in words and draws its focus wider than the 1px line", () => {
+  render(<Shell />);
+  const [sidebar, explorer] = screen.getAllByRole("separator");
+  expect(sidebar).toHaveAttribute("aria-valuetext", expect.stringMatching(/^sidebar \d+ pixels$/));
+  expect(explorer).toHaveAttribute("aria-valuetext", "explorer 500 pixels");
+  expect(sidebar!.className).toContain("focus-visible:shadow-");
+});

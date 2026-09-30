@@ -116,9 +116,11 @@ the rule is about.
   and AI Elements registries. It is excluded from eslint (not from the
   typechecker). These deliberate edits are in it: the `ai` package's types are
   replaced by `./types` (`components/ai-elements/types.ts`), about nine
-  index accesses are guarded for `noUncheckedIndexedAccess`, `shimmer.tsx`
+  index accesses are guarded for `noUncheckedIndexedAccess`, `sonner.tsx` moves the toast hotkey from
+  Alt+T (Option+T types a dagger on a Mac) to Mod+Alt+T, `shimmer.tsx`
   sweeps a foreground-coloured band rather than a background-coloured one
-  (the stock band erases the letters it passes over), and `reasoning.tsx`'s
+  (the stock band erases the letters it passes over) and stands still under
+  `useReducedMotionConfig` (motion's own reduced-motion setting skips a background-position), and `reasoning.tsx`'s
   `ReasoningContent` takes Streamdown `components` (and `rehypePlugins`), so
   a thought draws links and images through the transcript's own (a stock thought fetches any
   `https:` image on paint), and its `Reasoning` does not auto-close one the
@@ -159,6 +161,12 @@ the rule is about.
   (`packages/ui/README.md`), and `tests/unit/renderer/no-native-title.test.tsx`
   renders the session, the sidebar, Settings, the agent drawer, the tab strip
   and the review. A new screen is added to that test.
+- **Keyboard focus is visible.** A control revealed by `group-hover:opacity-100`
+  carries a `focus-visible:opacity-100` twin, and a button that takes
+  `outline-none` draws the kit's ring (`focus-visible:ring-[3px]
+  focus-visible:ring-ring/50`). `tests/unit/renderer/a11y-source.test.ts` scans
+  `src/renderer` for both; an override made elsewhere goes on its allowlist
+  with the reason.
 - **The agent table on a warm launch is the last launch's.** `agents.list`
   answers from the `__agents` settings row with every row `probing`; a caller
   that would act on a row (refuse an agent as not installed, hand a binary to a

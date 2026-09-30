@@ -73,6 +73,10 @@ export function SettingsRoute() {
     return found;
   }, [matches]);
 
+  // How many rows the query matched, for the status line: the page below is seven pages
+  // stacked, and a count is the one thing that says whether the typing found anything.
+  const matchedRows = Object.entries(matches).filter(([id, matched]) => matched && isSection(id.split("|")[0]) && id.includes("|")).length;
+
   const navSections = searching
     ? SETTINGS_SECTIONS.filter((candidate) => matchedSections.has(candidate))
     : SETTINGS_SECTIONS;
@@ -102,7 +106,7 @@ export function SettingsRoute() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <nav className="flex w-[232px] shrink-0 flex-col gap-2 border-r px-3 py-2">
+        <nav aria-label="Settings" className="flex w-[232px] shrink-0 flex-col gap-2 border-r px-3 py-2">
           <div className="relative">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
             {/* `pl-8!`, not `pl-8`: `cn` keeps the vendored Input's `px-3`
@@ -129,26 +133,33 @@ export function SettingsRoute() {
                 }}
               />
             ))}
-            {searching && navSections.length === 0 ? (
-              <p className="px-2 py-3 text-xs text-muted-foreground" role="status">
-                No matching settings.
-              </p>
-            ) : null}
+            {/* One live region, there before the first keystroke so the count is announced.
+                Nothing matching is said on the page; a count is for the ear. */}
+            <p
+              className={cn(searching && matchedRows === 0 ? "px-2 py-3 text-xs text-muted-foreground" : "sr-only")}
+              role="status"
+            >
+              {!searching ? "" : matchedRows === 0 ? "No matching settings." : `${matchedRows} ${matchedRows === 1 ? "row matches" : "rows match"}`}
+            </p>
           </div>
         </nav>
 
         <ScrollArea className="min-h-0 flex-1">
-          <div className="mx-auto w-full max-w-[720px] px-8 py-8">
+          <main className="mx-auto w-full max-w-[720px] px-8 py-8">
             {searching ? (
-              SETTINGS_SECTIONS.map((candidate) => (
-                <SearchedSection
-                  hidden={!matchedSections.has(candidate)}
-                  key={candidate}
-                  query={query}
-                  reportCard={reportCard}
-                  section={candidate}
-                />
-              ))
+              <>
+                {/* The page's one h1 while searching; each page's heading is an h2 under it. */}
+                <h1 className="sr-only">Search results</h1>
+                {SETTINGS_SECTIONS.map((candidate) => (
+                  <SearchedSection
+                    hidden={!matchedSections.has(candidate)}
+                    key={candidate}
+                    query={query}
+                    reportCard={reportCard}
+                    section={candidate}
+                  />
+                ))}
+              </>
             ) : (
               <SettingsSearchProvider query="" reportCard={reportCard} section={section}>
                 <h1 className="mb-6 text-xl font-semibold tracking-tight">
@@ -157,7 +168,7 @@ export function SettingsRoute() {
                 <SettingsPage section={section} />
               </SettingsSearchProvider>
             )}
-          </div>
+          </main>
         </ScrollArea>
       </div>
     </div>
@@ -188,9 +199,9 @@ function SearchedSection({
 
   return (
     <section hidden={hidden}>
-      <h1 className="mb-6 text-xl font-semibold tracking-tight">
+      <h2 className="mb-6 text-xl font-semibold tracking-tight">
         {SETTINGS_SECTION_LABELS[section]}
-      </h1>
+      </h2>
       <SettingsSearchProvider query={query} reportCard={report} section={section}>
         <SettingsPage section={section} />
       </SettingsSearchProvider>

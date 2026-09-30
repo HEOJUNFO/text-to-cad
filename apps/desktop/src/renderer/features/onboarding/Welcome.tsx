@@ -40,7 +40,7 @@ export function Welcome() {
   // A new step takes focus to its heading, which is read out with the step. The button that moved
   // it can go with the step (Continue is not on the last) or be disabled by it (Continue while
   // detection runs), and focus on either fell to the page.
-  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const bodyRef = useRef<HTMLElement | null>(null);
   const shownStep = useRef(step);
   useEffect(() => {
     if (shownStep.current === step) return;
@@ -60,7 +60,7 @@ export function Welcome() {
       />
       {/* The block's top is pinned, not centred: the steps are different
           heights, and a centred block moved its heading ~70px each step. */}
-      <div className="flex min-h-0 flex-1 justify-center overflow-auto px-6 pt-[22vh] pb-10" data-onboarding-body ref={bodyRef}>
+      <main className="flex min-h-0 flex-1 justify-center overflow-auto px-6 pt-[22vh] pb-10" data-onboarding-body ref={bodyRef}>
         <div className="w-full max-w-md">
           {step === 0 ? <WelcomeStep /> : step === 1 ? <AgentStep /> : <StartStep onDone={finish} />}
 
@@ -84,7 +84,7 @@ export function Welcome() {
             </div>
           </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

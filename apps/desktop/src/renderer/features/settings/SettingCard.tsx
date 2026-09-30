@@ -89,15 +89,22 @@ export function SettingRow({
   live?: boolean;
   /** Words that should find this row without being printed on it. */
   keywords?: string;
-  /** Toggle, select, segmented control, field or button. */
-  control?: React.ReactNode;
+  /**
+   * Toggle, select, segmented control, field or button. A function gets the id of the
+   * description (or undefined when the row has none) to hang on the control as
+   * `aria-describedby`, so a screen reader reads the sentence with the control rather than
+   * beside it.
+   */
+  control?: React.ReactNode | ((describedBy: string | undefined) => React.ReactNode);
   /** Rendered under the row, full width — an editor, a log, a preview. */
   children?: React.ReactNode;
 }) {
   const matched = useRowMatch(title, description, keywords);
+  const descriptionId = useId();
   if (!matched) {
     return null;
   }
+  const describedBy = description ? descriptionId : undefined;
   return (
     <div className="px-4 py-3">
       <div className="flex items-center justify-between gap-6">
@@ -106,13 +113,16 @@ export function SettingRow({
           {description ? (
             <p
               className="mt-0.5 text-xs leading-snug text-muted-foreground"
+              id={descriptionId}
               role={live ? "status" : undefined}
             >
               {description}
             </p>
           ) : null}
         </div>
-        {control ? <div className="flex shrink-0 items-center gap-2">{control}</div> : null}
+        {control ? (
+          <div className="flex shrink-0 items-center gap-2">{typeof control === "function" ? control(describedBy) : control}</div>
+        ) : null}
       </div>
       {children ? <div className="mt-3">{children}</div> : null}
     </div>
@@ -158,8 +168,9 @@ export function SwitchRow({
 }) {
   return (
     <SettingRow
-      control={
+      control={(describedBy) => (
         <Switch
+          aria-describedby={describedBy}
           aria-label={title}
           // The vendored switch's off track is `bg-input` with a transparent
           // border, which on the light theme's white card is next to
@@ -169,7 +180,7 @@ export function SwitchRow({
           disabled={disabled}
           onCheckedChange={onChange}
         />
-      }
+      )}
       description={description}
       keywords={keywords}
       title={title}
@@ -204,9 +215,9 @@ export function SelectRow<T extends string>({
 }) {
   return (
     <SettingRow
-      control={
+      control={(describedBy) => (
         <Select disabled={disabled} onValueChange={(next) => onChange(next as T)} value={value}>
-          <SelectTrigger aria-label={title} className={width} size="sm">
+          <SelectTrigger aria-describedby={describedBy} aria-label={title} className={width} size="sm">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -217,7 +228,7 @@ export function SelectRow<T extends string>({
             ))}
           </SelectContent>
         </Select>
-      }
+      )}
       description={description}
       keywords={
         // The option labels are part of what the row is about: someone
@@ -360,9 +371,9 @@ export function TextRow({
   );
   return (
     <SettingRow
-      control={
+      control={(describedBy) => (
         <Input
-          aria-describedby={refused ? problemId : undefined}
+          aria-describedby={[refused ? problemId : undefined, describedBy].filter(Boolean).join(" ") || undefined}
           aria-invalid={refused ? true : undefined}
           aria-label={title}
           className={cn("h-8", width)}
@@ -378,7 +389,7 @@ export function TextRow({
           type={type}
           value={draft.value}
         />
-      }
+      )}
       description={description}
       keywords={keywords}
       title={title}
@@ -394,6 +405,11 @@ export function TextRow({
       ) : null}
     </SettingRow>
   );
+}
+
+/** "Default project folder" → "default project folder", but "Git root" keeps its capital. */
+function lowerFirst(text: string): string {
+  return /^[A-Z][a-z]/.test(text) ? text.charAt(0).toLowerCase() + text.slice(1) : text;
 }
 
 /**
@@ -430,7 +446,7 @@ export function PathRow({
 }) {
   return (
     <SettingRow
-      control={
+      control={(describedBy) => (
         <>
           <TooltipHint content={value ?? placeholder} overflowOnly>
             <span
@@ -443,17 +459,26 @@ export function PathRow({
               {value ?? placeholder}
             </span>
           </TooltipHint>
-          <Button className="h-8 gap-1.5" onClick={onChoose} size="sm" variant="secondary">
+          {/* Two rows of buttons named "Choose…" and "Reset" are a list a screen reader cannot
+              tell apart: the row's title finishes each name. */}
+          <Button
+            aria-describedby={describedBy}
+            aria-label={`${chooseLabel.replace(/…$/, "")} ${lowerFirst(title)}`}
+            className="h-8 gap-1.5"
+            onClick={onChoose}
+            size="sm"
+            variant="secondary"
+          >
             <Folder className="size-3.5" />
             {chooseLabel}
           </Button>
           {onClear && value ? (
-            <Button className="h-8" onClick={onClear} size="sm" variant="ghost">
+            <Button aria-describedby={describedBy} aria-label={`Reset ${lowerFirst(title)}`} className="h-8" onClick={onClear} size="sm" variant="ghost">
               Reset
             </Button>
           ) : null}
         </>
-      }
+      )}
       description={description}
       keywords={keywords}
       title={title}
@@ -485,8 +510,9 @@ export function ActionRow({
 }) {
   return (
     <SettingRow
-      control={
+      control={(describedBy) => (
         <Button
+          aria-describedby={describedBy}
           className="h-8 gap-1"
           disabled={disabled}
           onClick={onClick}
@@ -496,7 +522,7 @@ export function ActionRow({
           {label}
           {chevron ? <ChevronRight className="size-3.5" /> : null}
         </Button>
-      }
+      )}
       description={description}
       keywords={keywords}
       title={title}

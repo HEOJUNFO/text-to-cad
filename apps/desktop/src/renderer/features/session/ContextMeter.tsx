@@ -19,7 +19,10 @@ import type { ContextUsage, RateLimit, TokenTotals, TurnUsage } from "@shared/ac
  * The panel opens on **click** and stays open — hover does nothing. It is
  * something to read and to compare rows in, not a thing to glance at: a
  * popover that closes when the pointer leaves cannot be read down its
- * length. Escape, a click outside, or the ring again dismisses it.
+ * length. Escape, a click outside, or the ring again dismisses it. Focus moves
+ * into the panel on open (Enter on the ring would otherwise leave it on the
+ * trigger, with the panel in a portal Tab cannot reach) and back to the ring
+ * on close; the ring shows the kit's focus ring meanwhile.
  *
  * Three things are in it, in the order somebody wants them: the window,
  * the account's plan limits when the agent reports any, and — behind
@@ -74,7 +77,7 @@ export function ContextMeter({
         <TooltipHint content={`${formatTokens(usage.used)} / ${formatTokens(usage.size)} (${percent}%)`} side="left">
           <button
             aria-label={`Context ${percent}% used`}
-            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent data-[state=open]:bg-accent"
+            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 data-[state=open]:bg-accent"
             data-context-trigger
             type="button"
           >
@@ -86,7 +89,6 @@ export function ContextMeter({
         align="end"
         className="w-80 p-3"
         data-context-popover
-        onOpenAutoFocus={(event) => event.preventDefault()}
         side="top"
         sideOffset={8}
       >

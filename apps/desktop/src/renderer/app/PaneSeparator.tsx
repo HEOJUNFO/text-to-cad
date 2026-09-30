@@ -10,7 +10,10 @@
  *
  * The keyboard does the same two things: the arrows resize, Enter and Space
  * close. It is a `role=separator` with `aria-valuenow`, which is how the
- * platform describes a splitter.
+ * platform describes a splitter. Its value is read in words ("sidebar 280
+ * pixels"), and focus on it is drawn wider than the line — a 1px rule is no
+ * focus indicator. Enter closes the pane and the shell hands focus to that
+ * pane's toggle (`useFocusSurvivesCollapse`).
  */
 import { useEffect, useRef } from "react";
 import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
@@ -148,7 +151,8 @@ export function PaneSeparator({
       aria-valuemax={max}
       aria-valuemin={min}
       aria-valuenow={width}
-      className="app-no-drag relative z-20 w-px shrink-0 cursor-col-resize bg-border after:absolute after:inset-y-0 after:-left-1 after:w-[9px] after:content-[''] hover:bg-ring/60 focus-visible:bg-ring focus-visible:outline-hidden"
+      aria-valuetext={`${pane} ${width} pixels`}
+      className="app-no-drag relative z-20 w-px shrink-0 cursor-col-resize bg-border after:absolute after:inset-y-0 after:-left-1 after:w-[9px] after:content-[''] hover:bg-ring/60 focus-visible:bg-ring focus-visible:shadow-[0_0_0_2px_var(--ring)] focus-visible:outline-hidden"
       data-separator={pane}
       onDoubleClick={onCollapse}
       onKeyDown={(event) => {

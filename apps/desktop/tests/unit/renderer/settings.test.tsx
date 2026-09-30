@@ -404,7 +404,7 @@ describe("the branch prefix row", () => {
     await user.clear(box);
     await user.type(box, "a b/{Enter}");
     expect(screen.getByRole("alert")).toHaveTextContent("Git refuses spaces in a branch name.");
-    expect(box).toHaveAccessibleDescription("Git refuses spaces in a branch name.");
+    expect(box).toHaveAccessibleDescription(/^Git refuses spaces in a branch name\./);
     await user.tab();
     expect(window.textToCad.settings.set).not.toHaveBeenCalled();
   });
