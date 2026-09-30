@@ -494,6 +494,25 @@ describe("the skills root and the preamble", () => {
     expect(started[0]).toMatchObject({ content: [{ type: "text", text: "hello" }] });
   });
 
+  it("carries the preamble again when the first prompt was rejected", async () => {
+    const frames: RecordedFrame[] = [];
+    const connection = connect({
+      cwd: await scratch(),
+      skillsRoot: "/data/skills/1.2.3",
+      preamble: "The skills are at /data/skills/1.2.3.",
+      record: (frame) => frames.push(frame),
+    });
+    await connection.newSession();
+    vi.spyOn(connection.agent, "prompt").mockRejectedValueOnce(new Error("agent refused the turn"));
+    await expect(connection.prompt([{ type: "text", text: "hello" }])).rejects.toThrow();
+    await connection.prompt([{ type: "text", text: "again" }]);
+
+    expect(allSent(frames, "session/prompt")[0]!.prompt).toEqual([
+      { type: "text", text: "The skills are at /data/skills/1.2.3." },
+      { type: "text", text: "again" },
+    ]);
+  });
+
   it("never sends the preamble on a resumed session — the transcript already has it", async () => {
     const frames: RecordedFrame[] = [];
     const connection = connect({
