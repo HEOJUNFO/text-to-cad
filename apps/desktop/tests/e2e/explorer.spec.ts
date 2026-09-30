@@ -436,7 +436,7 @@ async function openFromTree(target: string) {
   const filter = page.getByLabel("Filter files");
   await filter.fill(target);
   await page.getByRole("option", { name: target, exact: false }).first().click();
-  await expect(page.getByRole("tablist", { name: "Explorer tabs" }).locator('[role="tab"][aria-selected="true"]')).toHaveAttribute("title", target);
+  await expect(page.getByRole("tablist", { name: "Explorer tabs" }).locator('[role="tab"][aria-selected="true"]')).toHaveAttribute("data-tab-path", target);
   if (await filter.isVisible()) await filter.fill("");
 }
 

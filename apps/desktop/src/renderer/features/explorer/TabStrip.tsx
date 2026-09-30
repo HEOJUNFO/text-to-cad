@@ -491,6 +491,8 @@ function TabButton({
           aria-selected={active}
           className="peer flex h-full min-w-0 flex-1 items-center gap-1.5 pl-2 outline-none"
           data-tab={tab.id}
+          // The path a file tab shows, for the e2e suite: the hint above carries it for people.
+          data-tab-path={tab.kind === "file" && tab.path ? tab.path : undefined}
           id={explorerTabDomId(tab.id)}
           onFocus={(event) => {
             if (event.target === event.currentTarget) onFocus();
