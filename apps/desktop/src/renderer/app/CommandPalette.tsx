@@ -1,3 +1,4 @@
+import { defaultFilter } from "cmdk";
 import { useEffect } from "react";
 import {
   ChevronLeft,
@@ -72,6 +73,13 @@ const NEW_TAB_ROWS: readonly { kind: ExplorerTabKind; label: string; value: stri
  * this one is the one that works when the menu is hidden. Both end at the same
  * store action.
  */
+/**
+ * cmdk scores `value` and `keywords` together. A row that names its keywords is searched on
+ * those alone (its `value` is a key for selection, not text); every other row is scored as usual.
+ */
+const scoredOnKeywords = (value: string, search: string, keywords?: string[]): number =>
+  defaultFilter(keywords?.length ? keywords.join(" ") : value, search);
+
 export function CommandPalette() {
   const open = useUi((state) => state.commandPaletteOpen);
   const setOpen = useUi((state) => state.setCommandPaletteOpen);
@@ -132,6 +140,7 @@ export function CommandPalette() {
       // the list under the box grows or shrinks, so the box jumps as you type.
       className="top-[20%] translate-y-0"
       description={COMMAND_PALETTE_PROMPT}
+      filter={scoredOnKeywords}
       label={COMMAND_PALETTE_LABEL}
       {...returnFocus}
       onOpenChange={setOpen}
@@ -159,9 +168,11 @@ export function CommandPalette() {
                 <CommandItem
                   key={session.id}
                   onSelect={show(() => selectSession(session.id))}
-                  // cmdk keys selection by value: two "New session" rows in one
-                  // folder would otherwise be one row twice over.
-                  value={`${session.title} ${project?.name ?? ""} ${session.branch ?? ""} ${session.id}`}
+                  // cmdk keys selection by value, so it is the id: two "New session" rows in one
+                  // folder would otherwise be one row twice over. What is searched is the
+                  // keywords (`scoredOnKeywords`), so a hex id is not text to match "dead" or "ace".
+                  keywords={[session.title, project?.name ?? "", session.branch ?? ""]}
+                  value={session.id}
                 >
                   <MessageSquare className="size-4" />
                   <span className="truncate">{session.title}</span>
@@ -181,7 +192,9 @@ export function CommandPalette() {
             <CommandItem
               key={project.id}
               onSelect={show(() => { setActiveProject(project.id); setActiveSession(null); })}
-              value={`${project.name} ${project.path}`}
+              // The name is searched, not the path: every project under ~/code matches "code".
+              keywords={[project.name]}
+              value={project.id}
             >
               <Folder className="size-4" />
               <span className="truncate">{project.name}</span>

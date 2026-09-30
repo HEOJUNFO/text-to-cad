@@ -5,12 +5,13 @@
  * filters).
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { toast } from "sonner";
 
 import { COMMAND_PALETTE_LABEL, COMMAND_PALETTE_PROMPT, CommandPalette } from "@renderer/app/CommandPalette";
 import { useOnboarding } from "@renderer/state/onboarding";
+import { useProjects } from "@renderer/state/projects";
 import { useSessions } from "@renderer/state/sessions";
 import { useSettings } from "@renderer/state/settings";
 import { useUi } from "@renderer/state/ui";
@@ -134,5 +135,39 @@ describe("the command palette", () => {
     act(() => useUi.getState().setCommandPaletteOpen(false));
     view.rerender(<CommandPalette />);
     expect(screen.queryByText("Command palette")).toBeNull();
+  });
+});
+
+describe("what the palette searches", () => {
+  const thread = (id: string, title: string, projectId = "p1") =>
+    ({ id, projectId, title, archived: false }) as unknown as Session;
+
+  it("does not match a session by the hex of its id", async () => {
+    const user = userEvent.setup();
+    useSessions.setState({ sessions: [thread("0dead0beef", "Alpha"), thread("0f00d0cafe", "Beta")], activeId: null });
+    render(<CommandPalette />);
+    await user.type(screen.getByRole("combobox"), "dead");
+    expect(screen.queryByText("Alpha")).toBeNull();
+    expect(screen.queryByText("Beta")).toBeNull();
+  });
+
+  it("still finds a session by its title, and two of one title stay two rows", async () => {
+    const user = userEvent.setup();
+    useSessions.setState({ sessions: [thread("a1", "New session"), thread("b2", "New session"), thread("c3", "Beta")], activeId: null });
+    render(<CommandPalette />);
+    const group = () => within(screen.getByText("Sessions").closest("[cmdk-group]") as HTMLElement);
+    expect(group().getAllByText("New session")).toHaveLength(2);
+    await user.type(screen.getByRole("combobox"), "beta");
+    expect(group().getByText("Beta")).toBeInTheDocument();
+    expect(group().queryByText("New session")).toBeNull();
+  });
+
+  it("scores a project on its name, not its path", async () => {
+    const user = userEvent.setup();
+    useProjects.setState({ projects: [{ id: "p1", name: "bracket", path: "/Users/amy/code/bracket", createdAt: 0 }] } as never);
+    useSessions.setState({ sessions: [thread("a1", "Alpha")], activeId: null });
+    render(<CommandPalette />);
+    await user.type(screen.getByRole("combobox"), "code");
+    expect(screen.queryByText("/Users/amy/code/bracket")).toBeNull();
   });
 });
