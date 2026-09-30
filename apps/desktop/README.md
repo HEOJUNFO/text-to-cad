@@ -1202,6 +1202,11 @@ answers to, so a restored terminal starts a fresh shell instead of attaching to
 one that died with the app; a live pty (a renderer reload) keeps its id. A tab
 the agent opened carries `agent: true`, and its respawn through
 `terminal.create` puts the runtime launchers in front of `PATH` again.
+`TerminalTab`'s key handler copies a selection on Cmd/Ctrl+C and passes Cmd/Ctrl+K
+to the command palette. Paste is xterm's own paste listener, which brackets the
+text when the shell asked for it; the Cmd/Ctrl+V branch of the handler only
+returns false so Ctrl+V does not reach the shell as `^V`, and writes nothing (a
+second write ran a pasted command twice, once unbracketed).
 
 Over IPC (`terminal.*`, `src/shared/ipc/explorer.ts`), `terminal.create` takes
 the project, the session, an optional `cwd` (checked against the project and
@@ -2122,6 +2127,13 @@ worktrees.
 worktree session writes a file, calls `open_file` through the MCP server,
 and the tab, the breadcrumb, the tree and a new terminal all root at the
 worktree; starting a new session opens an independent, empty explorer.
+
+The agent's `attach_snapshot` reads an image (PNG, JPEG, WebP, GIF, at most 8 MB)
+in main from one handle, opened non-blocking and checked with `fstat`. Once it is
+open the path is resolved again with a fresh `realpath`, which must still be
+inside the workspace (`climbsOut`, so a folder named `..keep` is fine) and name
+the file the handle holds (same device and inode); a path swapped for a link out
+of the root between the check and the open is refused.
 
 ### CAD references and session drafts
 

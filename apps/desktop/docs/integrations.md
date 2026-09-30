@@ -54,6 +54,13 @@ Paths on disk are resolved against the session's project/worktree using main's
 normal realpath boundary. A matching filename in another root is not the same
 resource.
 
+`attach_snapshot` reads an image (PNG, JPEG, WebP, GIF, at most 8 MB)
+in main from one handle, opened non-blocking and checked with `fstat`. Once it is
+open the path is resolved again with a fresh `realpath`, which must still be
+inside the workspace (`climbsOut`, so a folder named `..keep` is fine) and name
+the file the handle holds (same device and inode); a path swapped for a link out
+of the root between the check and the open is refused.
+
 ## Lifetimes and conflict behavior
 
 Archiving/deleting a session changes its row first, then revokes its
