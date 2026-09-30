@@ -19,6 +19,7 @@ import { useSessions } from "@renderer/state/sessions";
 import { useSettings } from "@renderer/state/settings";
 import { useUi } from "@renderer/state/ui";
 import type { PromptBlock } from "@shared/acp/types";
+import { isDeletedWhileStarting } from "@shared/ipc/errors";
 import type { GitMode, Project } from "@shared/types";
 
 import { AgentSetupCard, useOfferedAgents } from "./agent-setup";
@@ -233,6 +234,12 @@ export function NewSession({ project }: { project: Project }) {
       });
     } catch (error) {
       const message = errorMessage(error);
+      if (isDeletedWhileStarting(message)) {
+        // The person deleted the connecting row: nothing failed, so no card and no toast. The
+        // composer puts the draft back on the false.
+        if (mounted.current) setBusy(false);
+        return false;
+      }
       if (!mounted.current) {
         // The person is elsewhere (the connecting row, or another thread): say so where they are.
         // The composer has already put the draft back (`restoreDraft`), so Try again is the way

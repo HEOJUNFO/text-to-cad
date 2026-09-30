@@ -2018,7 +2018,12 @@ before the preferences and the marks — so a crash while those are pending does
 not take a connected session with it. A create that fails before that answer
 removes the row and, for a worktree it cut, the worktree. One that fails after
 it keeps the row and settles it (`settleAfterFailedCreate`): `idle` while the
-connection is alive, `error` when it is not. `boot()`, on the first call after
+connection is alive, `error` when it is not; when the store refuses that settle too,
+the create is abandoned like one that failed before the answer (connection retired,
+row removed), so nothing stays `connecting` behind a live connection. A create whose
+row the person deleted while it started rejects with `DELETED_WHILE_STARTING`
+(`shared/ipc/errors.ts`), which `NewSession` swallows: no failure card, no toast.
+`boot()`, on the first call after
 launch, removes every row with no `acpSessionId` that no create in this run
 owns — a create cut short by a quit, which can never be loaded — and unpins its
 marks. A row whose directory is missing or unmounted is not of that kind: it is

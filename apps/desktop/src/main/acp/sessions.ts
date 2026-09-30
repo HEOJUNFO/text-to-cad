@@ -34,6 +34,7 @@ import type {
   SessionState,
 } from "../../shared/acp/types";
 import type { IpcEventChannel, IpcEventPayload } from "../../shared/ipc";
+import { DELETED_WHILE_STARTING } from "../../shared/ipc/errors";
 import type { Launch } from "../../shared/agents";
 import type { GitMode, Session, SessionStatus } from "../../shared/types";
 import type { Event as TelemetryEvent } from "../telemetry";
@@ -527,8 +528,10 @@ export class SessionManager {
       } catch (error) {
         // A row with no agent session id can never be loaded; the renderer
         // shows the failure (sign in, install) and the user creates again.
+        // Unless the person deleted it: that is not a failure to show.
+        const deleted = !this.deps.repo.get(session.id);
         await this.abandonCreate(session, input, workspace, marks);
-        throw error;
+        throw deleted ? new Error(DELETED_WHILE_STARTING) : error;
       }
       // What the person last chose for this agent — the model, the effort and
       // the mode. Never a reason for the session to fail: a refused
@@ -565,10 +568,19 @@ export class SessionManager {
         if (row && row.status !== "connecting") return row; // closed under this create: that state stands
         if (!row || !connection.alive) {
           await this.abandonCreate(session, input, workspace, marks);
-          throw error;
+          // A row gone under the create is a delete, not a failure to show.
+          throw row ? error : new Error(DELETED_WHILE_STARTING);
         }
         console.warn(`[acp] create ${session.id.slice(0, 8)} finished with a warning: ${String(error)}`);
-        return this.settleAfterFailedCreate(session, connection, marks, error);
+        try {
+          return await this.settleAfterFailedCreate(session, connection, marks, error);
+        } catch (settleError) {
+          // The store refused the settle too (the same SQLITE_BUSY, persistent). Nothing may stay
+          // `connecting` with a live connection and no owner: retire it and take the row.
+          console.warn(`[acp] create ${session.id.slice(0, 8)} could not settle: ${String(settleError)}`);
+          await this.abandonCreate(session, input, workspace, marks);
+          throw error;
+        }
       }
     } finally {
       if (setup) this.held.delete(setup);

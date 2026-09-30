@@ -440,6 +440,19 @@ describe("a create that outlasts the screen that asked for it", () => {
     expect(useSessions.getState().activeId).toBe("B");
   });
 
+  it("shows no card and no toast for a create the person deleted while it started", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<string>();
+    create.mockReturnValueOnce(pending.promise);
+    render(<NewSession project={PROJECT} />);
+    vi.mocked(toast.error).mockClear();
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await act(async () => pending.reject(new Error("Error invoking remote method 'text-to-cad:sessions.create': Error: This session was deleted while it was starting.")));
+    expect(screen.queryByText(/deleted while it was starting/)).toBeNull();
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+  });
+
   it("does not pull the person off another project's new-session screen", async () => {
     const user = userEvent.setup();
     const pending = deferred<string>();

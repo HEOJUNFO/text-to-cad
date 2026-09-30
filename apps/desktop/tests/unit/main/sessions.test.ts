@@ -18,6 +18,7 @@ import type { SnapshotStore } from "@main/acp/snapshots";
 import type { SessionEvent } from "@shared/acp/types";
 import type { AgentProvider } from "@shared/agents";
 import type { IpcEventChannel } from "@shared/ipc";
+import { DELETED_WHILE_STARTING } from "@shared/ipc/errors";
 import type { Session } from "@shared/types";
 
 import { cleanTempDirs, tempDir } from "./temp-dirs";
@@ -1609,6 +1610,38 @@ describe("SessionManager", () => {
     expect(broadcasts.some((b) => b.channel === "session.state" && (b.payload as { sessionId: string }).sessionId === id)).toBe(true);
     const note = broadcasts.find((b) => b.channel === "session.status" && (b.payload as { error: string | null }).error);
     expect((note?.payload as { error: string }).error).toContain("SQLITE_BUSY");
+  });
+
+  it("abandons a create whose settle fails too, rather than leave a live connection on a connecting row", async () => {
+    const recorder = optionRecorder({ model: null });
+    const deps = {
+      ...recorder.deps,
+      remember: (...args: Parameters<typeof recorder.deps.remember>) => {
+        if (recorder.remembered.length >= 1) throw new Error("SQLITE_BUSY");
+        recorder.deps.remember(...args);
+      },
+    };
+    const { repo, manager, cwd } = await setup({ agentOptions: deps });
+    const upsert = repo.upsert;
+    // The store is down for good: nothing goes idle.
+    repo.upsert = (session) => {
+      if (session.status === "idle") throw new Error("SQLITE_BUSY");
+      return upsert(session);
+    };
+    await expect(manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" })).rejects.toThrow("SQLITE_BUSY");
+    expect(repo.list()).toHaveLength(0);
+    expect((manager as unknown as { live: { get(id: string): unknown } }).live.get("session-1")).toBeUndefined();
+  });
+
+  it("rejects a create whose row was deleted under it with the error the renderer swallows", async () => {
+    let release!: (tree: string) => void;
+    const { repo, manager, cwd } = await setup({ snapshot: () => new Promise<string>((resolve) => (release = resolve)) });
+    const creating = manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    const id = (await until(() => (repo.list()[0]?.acpSessionId ? repo.list()[0] : undefined))).id;
+    await manager.delete(id);
+    release("tree");
+    await expect(creating).rejects.toThrow(DELETED_WHILE_STARTING);
+    expect(repo.list()).toHaveLength(0);
   });
 
   it("rejects a create whose adapter died after session/new, and leaves no row behind", async () => {
