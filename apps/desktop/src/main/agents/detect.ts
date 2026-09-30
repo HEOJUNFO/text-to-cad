@@ -199,7 +199,8 @@ export class AgentDetector {
   async listWithin(waitMs: number): Promise<AgentStatus[]> {
     const cached = this.list();
     if (!this.probed && cached.length > 0) {
-      return cached.map((status) => ({ ...status, probing: true }));
+      // A retry after a failed probe starts over: the failure's mark is not this run's.
+      return cached.map((status) => ({ ...status, probing: true, probeFailed: undefined }));
     }
     const inflight = this.inflight;
     if (cached.length > 0 || !inflight) {
@@ -304,8 +305,9 @@ export class AgentDetector {
       this.statuses = statuses;
     } catch (error) {
       if (!this.probed && this.statuses.length > 0) {
-        // No fresh table is coming: the last launch's rows would stay "probing" for good.
-        this.statuses = [];
+        // No fresh table is coming: the last launch's rows would stay "probing" for good. They stay,
+        // unmarked but flagged: an empty table would read as "no agent ready — sign in", the wrong cause.
+        this.statuses = this.statuses.map((status) => ({ ...status, probing: undefined, probeFailed: true }));
         this.emit();
       }
       throw error;

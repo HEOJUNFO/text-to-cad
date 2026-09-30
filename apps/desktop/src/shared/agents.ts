@@ -154,6 +154,12 @@ export const AgentStatusSchema = AgentProviderSchema.extend({
    * lack it, and a screen must not treat `auth` here as final.
    */
   probing: z.boolean().optional(),
+  /**
+   * Set on every row when this launch's probe failed and the rows are the last
+   * launch's, kept because an empty table would say "no agent ready" — the
+   * wrong cause. The renderer reads it as "could not check", not as a verdict.
+   */
+  probeFailed: z.boolean().optional(),
 });
 export type AgentStatus = z.infer<typeof AgentStatusSchema>;
 
