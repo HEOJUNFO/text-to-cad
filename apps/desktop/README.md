@@ -2123,8 +2123,10 @@ source is not hashed into `.git/objects` every turn; under `Last turn` it reads
 as untracked, as if added since the mark. `Last turn` / `This session` compare that
 tree with a snapshot of the working tree as it is now, so an edit the agent has
 not committed is in the answer and work from before the turn began is not. A
-worktree session's `sessionHead` stays the commit it was cut from, which is also
-what its branch is deleted against; marks recorded as commits by older builds
+session that cut a fresh worktree keeps that worktree's base commit as its
+`sessionHead`, which is also what its branch is deleted against; one that opens
+an existing worktree (`New session in this worktree`) marks the tree as it is,
+since earlier uncommitted work may be in it; marks recorded as commits by older builds
 still work as `git diff <sha>` against the working tree.
 Those two scopes also move the whole read into the session's directory, which
 for a worktree thread is not the project's checkout.
