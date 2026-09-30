@@ -2298,7 +2298,7 @@ worktree session writes a file, calls `open_file` through the MCP server,
 and the tab, the breadcrumb, the tree and a new terminal all root at the
 worktree; starting a new session opens an independent, empty explorer.
 
-The agent's `attach_snapshot` reads an image (PNG, JPEG, WebP, GIF, at most 5 MB, and only when the file's first bytes are that image type)
+The agent's `attach_snapshot` reads an image (PNG, JPEG, WebP, GIF, at most 3.75 MB of file so the base64 stays under the model's 5 MB, and only when the file's first bytes are that image type)
 in main from one handle, opened non-blocking and checked with `fstat`. Once it is
 open the path is resolved again with a fresh `realpath`, which must still be
 inside the workspace (`climbsOut`, so a folder named `..keep` is fine) and name

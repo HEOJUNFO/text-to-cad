@@ -34,8 +34,11 @@ const REPLY_TIMEOUT_MS = 10_000;
 const SLOW_REPLY_TIMEOUT_MS = 30_000;
 const SLOW_KINDS: ReadonlySet<IntegrationCommandKind> = new Set(["document-save", "capture-view", "drawing-capture", "pdf-capture"]);
 // The model rejects an image over 5 MB, and a rejected tool result stays in the
-// transcript for good, so the ceiling is the model's rather than memory's.
-const MAX_SNAPSHOT_BYTES = 5 * 1024 * 1024;
+// transcript for good, so the ceiling is the model's rather than memory's. It
+// measures the base64 the image travels as, which is 4/3 of the file: the cap
+// on the file's own bytes is the 5 MiB divided by that.
+const MAX_SNAPSHOT_BYTES = Math.floor(5 * 1024 * 1024 * 3 / 4);
+const OVER_SNAPSHOT_CAP = "is over the model's 5 MB image limit, which counts the encoded size (about 3.75 MB of file); snapshots that large are not attached";
 
 const IMAGE_TYPES: Record<string, string> = {
   ".png": "image/png",
@@ -47,7 +50,7 @@ const IMAGE_TYPES: Record<string, string> = {
 
 /** Whether `head` opens like the image type the extension claims. */
 const SIGNATURES: Record<string, (head: Buffer) => boolean> = {
-  "image/png": (head) => head.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])),
+  "image/png": (head) => head.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
   "image/jpeg": (head) => head.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff])),
   "image/gif": (head) => head.subarray(0, 4).toString("latin1") === "GIF8",
   "image/webp": (head) => head.subarray(0, 4).toString("latin1") === "RIFF" && head.subarray(8, 12).toString("latin1") === "WEBP",
@@ -200,7 +203,7 @@ async function readSnapshot(directory: string, absolute: string, target: string,
     if (!there || climbsOut(relative) || there.dev !== opened.dev || there.ino !== opened.ino) {
       throw new Error(`${target} changed while it was being read; only files inside the workspace can be shown`);
     }
-    if (opened.size > MAX_SNAPSHOT_BYTES) throw new Error(`${target} is over 5 MB; snapshots that large are not attached`);
+    if (opened.size > MAX_SNAPSHOT_BYTES) throw new Error(`${target} ${OVER_SNAPSHOT_CAP}`);
     // Sized from the stat, plus the one byte that shows a file grown since.
     const buffer = Buffer.allocUnsafe(Math.min(opened.size, MAX_SNAPSHOT_BYTES) + 1);
     let length = 0;
@@ -210,7 +213,10 @@ async function readSnapshot(directory: string, absolute: string, target: string,
       if (bytesRead === 0) break;
       length += bytesRead;
     }
-    if (length > MAX_SNAPSHOT_BYTES) throw new Error(`${target} is over 5 MB; snapshots that large are not attached`);
+    if (length > MAX_SNAPSHOT_BYTES) throw new Error(`${target} ${OVER_SNAPSHOT_CAP}`);
+    // More bytes than the stat promised: the file grew during the read, and what
+    // is in the buffer is a cut of it, not the image.
+    if (length > opened.size) throw new Error(`${target} changed while it was being read`);
     // The extension is the agent's word for it; the bytes are what the model will decode.
     if (length === 0) throw new Error(`${target} is empty`);
     if (!SIGNATURES[mimeType]!(buffer.subarray(0, length))) throw new Error(`${target} is not a ${IMAGE_NAMES[mimeType]} image`);
