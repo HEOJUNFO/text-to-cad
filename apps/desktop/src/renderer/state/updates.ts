@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import { create } from "zustand";
 
 import type { UpdateStatus } from "@shared/ipc/app";
@@ -23,10 +24,20 @@ type UpdatesState = {
 };
 
 export const useUpdates = create<UpdatesState>((set) => {
+  // A rejected IPC call is the updater being unreachable, not a state main
+  // pushed: say so on the row the way a refused answer would, and in a toast.
+  const fail = (error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    set({ status: { state: "error", message } });
+    toast.error("Could not reach the updater", { description: message });
+  };
+
   const run = async (action: () => Promise<UpdateStatus>) => {
     set({ busy: true });
     try {
       set({ status: await action() });
+    } catch (error) {
+      fail(error);
     } finally {
       set({ busy: false });
     }
@@ -39,7 +50,11 @@ export const useUpdates = create<UpdatesState>((set) => {
     busy: false,
 
     load: async () => {
-      set({ status: await window.textToCad.app.updateStatus() });
+      try {
+        set({ status: await window.textToCad.app.updateStatus() });
+      } catch (error) {
+        fail(error);
+      }
     },
 
     check: () => run(() => window.textToCad.app.checkForUpdates()),
