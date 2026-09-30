@@ -220,12 +220,22 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
 
     case "status":
       if (event.status === "closed" || event.status === "error") {
-        // The adapter is gone, and with it whoever would take the answer:
-        // `retire` drops the connection's own resolve before it can be
-        // dispatched, so a card left pending here would stay answerable.
+        // The adapter is gone, and with it whoever would take an answer or end a turn: `retire`
+        // drops the connection's own resolve before it can be dispatched, and a Disconnect
+        // mid-turn gets neither a `prompt/end` (the adapter is dead) nor a `prompt/error`
+        // (`prompt()` skips it while `closing`). So the open turn ends here, its unfinished work
+        // settled, and a card left pending would stay answerable.
+        const closed = closeOpenTurn(
+          state,
+          event.at,
+          event.status === "closed" && hasOpenAgentTurn(state) ? "cancelled" : null,
+          event.status === "closed"
+            ? { tool: "cancelled", subagent: "cancelled" }
+            : { tool: "failed", subagent: "failed" },
+        );
         return {
-          ...state,
-          turns: cancelPendingCards(state.turns),
+          ...closed,
+          turns: cancelPendingCards(closed.turns),
           pendingPermissions: [],
           status: event.status,
           error: event.error,

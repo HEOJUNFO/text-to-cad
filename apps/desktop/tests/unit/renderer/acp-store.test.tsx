@@ -187,7 +187,9 @@ describe("Disconnect agent", () => {
 
     const held = useAcp.getState().sessions.s1;
     expect(held?.status).toBe("closed");
-    expect(held?.turns).toBe(turns);
+    // Kept, not cleared: the same turns, the one that was streaming now ended.
+    expect(held?.turns.map((turn) => turn.id)).toEqual(turns.map((turn) => turn.id));
+    expect(held?.turns.at(-1)?.endedAt).not.toBeNull();
   });
 
   describe("during a Reconnect", () => {

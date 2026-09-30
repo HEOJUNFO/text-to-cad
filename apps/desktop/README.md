@@ -692,7 +692,8 @@ against the project and refuses anything else (`src/main/ipc/explorer.ts`).
 The session's own header menu, the `…` beside its title
 (`features/session/SessionHeader.tsx`), is Rename, Copy path, Reveal in
 Finder, then **Disconnect agent** — main closes the adapter and the
-transcript stays on screen, marked closed, under a Reconnect bar — or, for a
+transcript stays on screen, marked closed, under a Reconnect bar (a turn
+that was streaming ends there, its running tool calls cancelled) — or, for a
 session already disconnected, **Reconnect** in its place; then Archive and
 Delete.
 There are no project rename or delete actions: these

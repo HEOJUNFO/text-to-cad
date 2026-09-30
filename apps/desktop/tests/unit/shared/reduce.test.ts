@@ -852,6 +852,26 @@ describe("reduce: a permission request outside an open turn", () => {
 describe("reduce: a permission card when the adapter goes away", () => {
   const ask = { requestId: "perm-1", acpSessionId: root, toolCallId: "c1", title: null, description: null, kind: null, input: null, options: [] };
 
+  it("ends the open turn and settles its running work when the adapter closes mid-turn", () => {
+    let state = started(connected());
+    state = update(state, { sessionUpdate: "tool_call", toolCallId: "r1", title: "sleep", kind: "execute", status: "in_progress" });
+    state = update(state, { sessionUpdate: "subagent_spawned", subagentSessionId: "kid", name: "explorer" });
+    state = reduce(state, { type: "status", status: "closed", error: null, at });
+    expect(state.turns.at(-1)?.endedAt).not.toBeNull();
+    expect(state.turns.at(-1)?.stopReason).toBe("cancelled");
+    expect(allToolCalls(state)[0]?.status).toBe("cancelled");
+    expect(state.turns.at(-1)?.parts.find((part) => part.type === "subagent")).toMatchObject({ state: "cancelled" });
+  });
+
+  it("fails the running work, and ends the turn, when the adapter errors mid-turn", () => {
+    let state = started(connected());
+    state = update(state, { sessionUpdate: "tool_call", toolCallId: "r1", title: "sleep", kind: "execute", status: "in_progress" });
+    state = reduce(state, { type: "status", status: "error", error: "adapter died", at });
+    expect(state.turns.at(-1)?.endedAt).not.toBeNull();
+    expect(allToolCalls(state)[0]?.status).toBe("failed");
+    expect(state.error).toBe("adapter died");
+  });
+
   it.each(["closed", "error"] as const)("marks a pending card cancelled on status %s", (status) => {
     let state = started(connected());
     state = reduce(state, { type: "permission/request", request: ask, at });
