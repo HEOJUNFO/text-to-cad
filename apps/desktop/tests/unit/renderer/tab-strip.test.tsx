@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 
@@ -164,4 +164,39 @@ it("draws the Terminal shortcut's backtick as a keycap and names it, not as a ha
   expect(terminal).toHaveTextContent(/backtick/);
   // The others are glyphs and letters, left as they are.
   expect((await screen.findByRole("menuitem", { name: /Review/ })).querySelector("kbd")).toBeNull();
+});
+
+// The chip is the drag handle and the drop target; the tab in it is what names it.
+const chip = (id: string) => document.querySelector(`[data-tab="${id}"]`)!.closest<HTMLElement>("[draggable]")!;
+const order = () => useExplorer.getState().tabs.map((candidate) => candidate.id);
+const dataTransfer = () => ({ effectAllowed: "", dropEffect: "none" });
+
+it("leaves the order alone when a drag ends without a drop (Escape, released outside)", () => {
+  strip();
+  fireEvent.dragStart(chip("a"), { dataTransfer: dataTransfer() });
+  fireEvent.dragOver(chip("c"), { dataTransfer: dataTransfer() });
+  fireEvent.dragEnd(chip("a"), { dataTransfer: dataTransfer() });
+  expect(order()).toEqual(["a", "b", "c"]);
+});
+
+it("drops a tab dragged forward where the line was drawn, before the tab it was over", () => {
+  strip();
+  fireEvent.dragStart(chip("a"), { dataTransfer: dataTransfer() });
+  fireEvent.dragOver(chip("c"), { dataTransfer: dataTransfer() });
+  expect(chip("c").className).toContain("before:w-0.5");
+  fireEvent.drop(chip("c"), { dataTransfer: dataTransfer() });
+  fireEvent.dragEnd(chip("a"), { dataTransfer: dataTransfer() });
+  expect(order()).toEqual(["b", "a", "c"]);
+});
+
+it("drops a tab dragged back before the tab it was over, and takes the line away when the drag leaves the strip", () => {
+  strip();
+  fireEvent.dragStart(chip("c"), { dataTransfer: dataTransfer() });
+  fireEvent.dragOver(chip("a"), { dataTransfer: dataTransfer() });
+  fireEvent.dragLeave(chip("a"), { relatedTarget: document.body });
+  expect(chip("a").className).not.toContain("before:w-0.5");
+  fireEvent.dragOver(chip("b"), { dataTransfer: dataTransfer() });
+  fireEvent.drop(chip("b"), { dataTransfer: dataTransfer() });
+  fireEvent.dragEnd(chip("c"), { dataTransfer: dataTransfer() });
+  expect(order()).toEqual(["a", "c", "b"]);
 });
