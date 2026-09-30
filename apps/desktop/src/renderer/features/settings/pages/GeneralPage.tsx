@@ -126,7 +126,7 @@ export function GeneralPage() {
           title="Notifications"
         />
         <SettingRow
-          control={
+          control={(describedBy) => (
             <>
               <Button
                 className="h-8 gap-1.5"
@@ -139,13 +139,14 @@ export function GeneralPage() {
                 Preview
               </Button>
               <Switch
+                aria-describedby={describedBy}
                 aria-label="Sound"
                 checked={settings.notificationSound}
                 disabled={!settings.notificationsEnabled}
                 onCheckedChange={(notificationSound) => patch({ notificationSound })}
               />
             </>
-          }
+          )}
           description="Play a sound with the notification."
           keywords="audio chime"
           title="Sound"
