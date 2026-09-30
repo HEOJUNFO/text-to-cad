@@ -18,7 +18,8 @@ import { cameraReadsBack } from './liveReadback.js';
 // Render chunk that fails to load leaves the store at "render" while the screen
 // still shows "inspect". `setCamera` waits for the shell's APPLIED camera (the
 // request with the configured projection and lens, after the controls' clamps)
-// to read back, scoped, with no camera move under way, which differs from the
+// to read back, scoped, with no camera move under way (while Preview's orbit plays, up to its turn
+// about the up axis: same target, distance and height), which differs from the
 // request whenever the camera is clamped or the lens is derived. `clearSelection`
 // waits for an empty selection, and a renderer's own command (such as `select`)
 // returns its predicate; the shell's `resetCamera` returns the camera being at
@@ -27,7 +28,7 @@ import { cameraReadsBack } from './liveReadback.js';
 // settled frame is its answer. `capture` waits for the camera to rest before it takes the
 // image. The wait is bounded at ten seconds, then it throws "The viewer did not
 // finish applying this command." rather than answer with a state the command did
-// not produce. Commands set from an IPC handler render on a macrotask, which is
+// not produce (desktop main's relay waits longer, 12 s, so this sentence is what the agent reads). Commands set from an IPC handler render on a macrotask, which is
 // why one frame is not the answer.
 
 export interface LiveCameraSnapshot {

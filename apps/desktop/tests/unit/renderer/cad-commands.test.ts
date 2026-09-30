@@ -83,11 +83,10 @@ it("asks the active CAD tab to open an annotation, once, and forgets it when the
   expect(source.getSnapshot().openAnnotation).toBeNull();
 });
 
-async function captureWith(capture: () => Promise<Blob>) {
+async function captureWith(capture: () => Promise<Blob>, readState: () => object = () => ({ active: true, resource: { path: "a.step" } })) {
   const scope = { projectId: "project", root: null };
-  const state = { active: true, resource: { path: "a.step" } };
-  desktopCadLive("cap-tab", scope).bind({ readState: () => state, capture } as unknown as CadLiveController);
-  return performCadViewerCommand("capture-view", { tabId: "cap-tab" }, { ...scope, path: "a.step" }) as Promise<{ base64: string; scaled?: boolean }>;
+  desktopCadLive("cap-tab", scope).bind({ readState, capture } as unknown as CadLiveController);
+  return performCadViewerCommand("capture-view", { tabId: "cap-tab" }, { ...scope, path: "a.step" }) as Promise<{ base64: string; scaled?: boolean; camera?: unknown }>;
 }
 it("scales a viewer capture over the model image limit down, and says so", async () => {
   const big = new Blob([new Uint8Array(4 * 1024 * 1024)], { type: "image/png" });
@@ -106,4 +105,10 @@ it("passes a capture already under the limit through untouched", async () => {
 });
 it("rejects a viewer capture that fails, so the agent gets an error and not an image", async () => {
   await expect(captureWith(async () => { throw new Error("the viewer's WebGL context is lost; try again once it restores"); })).rejects.toThrow(/WebGL context is lost/);
+});
+it("reports the state AFTER the capture resolves, since the capture waits for the camera to rest", async () => {
+  let camera = "mid-flight";
+  const result = await captureWith(async () => { camera = "at rest"; return new Blob([new Uint8Array([137, 80, 78, 71])], { type: "image/png" }); },
+    () => ({ active: true, resource: { path: "a.step" }, camera }));
+  expect(result.camera).toBe("at rest");
 });

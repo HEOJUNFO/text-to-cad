@@ -284,6 +284,22 @@ describe("RendererCommands", () => {
   });
 });
 
+describe("RendererCommands and the viewer's own bound", () => {
+  it("relays the viewer's 'did not finish' sentence when it answers at its ten seconds, not the relay's own timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const commands = new RendererCommands({ sessionRoot: () => ({ directory: "/proj", root: null }), send: () => {}, newId: () => "r1" });
+      const camera = commands.request({ sessionId: "s1", kind: "cad-camera", projectId: "p1" });
+      const outcome = expect(camera).rejects.toThrow("The viewer did not finish applying this command.");
+      await vi.advanceTimersByTimeAsync(10_000);
+      commands.reply({ requestId: "r1", ok: false, error: "The viewer did not finish applying this command." });
+      await outcome;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("the actions", () => {
   it("resolve paths against the session cwd, inside the project, and answer project-relative", async () => {
     const root = tempDir("text-to-cad-proj-");

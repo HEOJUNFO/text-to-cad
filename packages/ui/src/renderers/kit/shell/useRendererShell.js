@@ -17,7 +17,7 @@ import { useAppliedViewSettings } from "../view-settings/useAppliedViewSettings.
 import { useViewSettings } from "../view-settings/useViewSettings.js";
 import { cameraForViewSettings, viewerDisplaySettingsForCamera } from "../view-settings/viewerDisplaySettings.js";
 import { attachLiveBinding } from "./liveBinding.js";
-import { cameraReadsBack } from "./liveReadback.js";
+import { cameraReadsBack, orbitReadsBack } from "./liveReadback.js";
 import { shellLoadReport } from "./loadReport.js";
 import { createViewPromptContext, promptDeliveryError } from "./promptContext.js";
 import { fileViewsEqual, plainShellCamera, readFileView, readFileViewSlices, scopeShellCamera, shellPresentationKey, writeFileView } from "./fileView.js";
@@ -443,7 +443,11 @@ export function useRendererShell({
       // camera to record and to wait for: a request beyond the clamp replies with the clamped
       // state instead of never reading back.
       const appliedCamera = fallback => viewerRef.current?.getPerspective?.() ?? scopeShellCamera(fallback, modelKey, sceneScaleMode);
-      const settled = applied => state => !viewerRef.current?.isCameraTransitioning?.() && cameraReadsBack(state.camera, applied);
+      // With Preview's orbit playing the camera turns about its up axis every frame (a drag does
+      // not stop it), so the applied camera reads back up to that turn: same target, distance and
+      // height, azimuth free. The camera recorded is the applied one.
+      const settled = applied => state => !viewerRef.current?.isCameraTransitioning?.()
+        && (viewerRef.current?.isOrbiting?.() ? orbitReadsBack(state.camera, applied) : cameraReadsBack(state.camera, applied));
       if (previewing) {
         if (!viewerRef.current?.setPerspective?.(requested)) throw new Error("The viewer could not apply this camera.");
         return settled(appliedCamera(requested));

@@ -8,8 +8,9 @@
  * main pushes a `integrations.command` carrying a request id, the renderer's bridge
  * (`src/renderer/state/bridge.ts`) performs it against the stores and answers
  * on `integrations.reply`. A command nobody answers times out rather than hanging the
- * agent's tool call: after `REPLY_TIMEOUT_MS`, or `SLOW_REPLY_TIMEOUT_MS` for
- * `document-save`, `capture-view`, `drawing-capture` and `pdf-capture`. Both
+ * agent's tool call: after `REPLY_TIMEOUT_MS`, `VIEWER_REPLY_TIMEOUT_MS` for the
+ * live viewer commands (the viewer's own ten-second bound must be able to answer first), or
+ * `SLOW_REPLY_TIMEOUT_MS` for `document-save`, `capture-view`, `drawing-capture` and `pdf-capture`. Both
  * the timeout and an abort after the send reject with a message that says the
  * command may have been applied ("may still complete", "may already have been
  * applied"): the window has the command by then, so the agent is told to
@@ -35,6 +36,13 @@ import { climbsOut, resolveInRoot, toRelative } from "../explorer/fs";
 import type { BridgeActions, BridgeSession } from "./mcp-bridge";
 
 const REPLY_TIMEOUT_MS = 10_000;
+// The viewer's live commands (`liveBinding.ts`) wait up to ten seconds for their effect to be on
+// screen and then answer "The viewer did not finish applying this command.". This clock starts
+// before the IPC send, so at the same ten seconds it would always fire first and the agent would
+// read "did not answer" (is a window open?) for a window that DID answer; the margin lets the
+// binding's own sentence arrive. Keep it strictly above the binding's bound.
+const VIEWER_REPLY_TIMEOUT_MS = 12_000;
+const VIEWER_KINDS: ReadonlySet<IntegrationCommandKind> = new Set(["select-reference", "cad-clear-selection", "cad-camera", "cad-reset-camera", "cad-render-mode"]);
 // A save waits on the disk and a capture on a frame and a PNG encode; a
 // timeout there reports failure for work that then finishes, and the retry
 // finds it already done (or conflicts with it).
@@ -90,7 +98,7 @@ export class RendererCommands {
   request(command: Omit<IntegrationCommand, "requestId">, signal?: AbortSignal): Promise<unknown> {
     signal?.throwIfAborted();
     const requestId = this.deps.newId();
-    const timeoutMs = this.deps.timeoutMs ?? (SLOW_KINDS.has(command.kind) ? SLOW_REPLY_TIMEOUT_MS : REPLY_TIMEOUT_MS);
+    const timeoutMs = this.deps.timeoutMs ?? (SLOW_KINDS.has(command.kind) ? SLOW_REPLY_TIMEOUT_MS : VIEWER_KINDS.has(command.kind) ? VIEWER_REPLY_TIMEOUT_MS : REPLY_TIMEOUT_MS);
     return new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         cleanup();
