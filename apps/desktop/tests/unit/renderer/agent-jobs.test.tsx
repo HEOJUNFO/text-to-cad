@@ -5,10 +5,11 @@
  * offer to start a second one.
  */
 import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@renderer/components/ui/tooltip";
 import { AgentDrawer } from "@renderer/features/settings/AgentDrawer";
+import { AgentsPage } from "@renderer/features/settings/pages/AgentsPage";
 import { useAgents } from "@renderer/state/agents";
 import { useSettings } from "@renderer/state/settings";
 import { defaultSettings } from "@shared/types";
@@ -59,5 +60,22 @@ describe("a row the last launch left", () => {
       </TooltipProvider>,
     );
     expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
+  });
+});
+
+describe("the Agents page's status dot", () => {
+  it("is not green beside 'checking sign-in…' for a row the last launch left signed out", async () => {
+    const row = { ...codex, installed: true, auth: "unauthenticated", probing: true } as AgentStatus;
+    vi.mocked(window.textToCad.agents.list).mockResolvedValue([row]);
+    useAgents.setState({ agents: [row], ready: true, loadError: null });
+    render(
+      <TooltipProvider>
+        <AgentsPage />
+      </TooltipProvider>,
+    );
+    const line = await screen.findByText(/checking sign-in…/);
+    const dot = line.closest("[data-agent-row]")!.querySelector("span.rounded-full")!;
+    expect(dot).not.toHaveClass("bg-emerald-500");
+    expect(dot).toHaveClass("bg-muted-foreground/50");
   });
 });
