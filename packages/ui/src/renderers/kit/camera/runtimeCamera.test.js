@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createRealOrbitRuntime } from "./harness/realOrbit.js";
-import { applyPerspectiveSnapshot } from "./runtimeCamera.js";
+import { applyPerspectiveSnapshot, stepCameraTransition, transitionCameraToPerspectiveSnapshot, transitionCameraToViewPreset } from "./runtimeCamera.js";
 
 // The camera a host hands the viewport is driven through a REAL three OrbitControls, so a
 // three change to what `update()` does to a pose is caught here rather than in the browser.
@@ -19,3 +19,27 @@ test("applyPerspectiveSnapshot leaves the camera where it was put while the Prev
   assert.equal(runtime.controls.autoRotate, true, "and the orbit is still playing afterwards");
 });
 
+// One frame of the viewer's loop (`useViewerRuntime.renderFrame`): the transition steps, then
+// the controls update.
+const frameAtStart = runtime => {
+  stepCameraTransition(runtime, runtime.cameraTransition.startTime);
+  runtime.controls.update();
+};
+
+test("an eased fit starts from where the camera was, not from a drag's leftover momentum", () => {
+  const runtime = createRealOrbitRuntime();
+  runtime.drag(120, 40);
+  const start = vectorOf(runtime.camera.position);
+  assert.equal(transitionCameraToPerspectiveSnapshot(runtime, { position: [60, 0, 0], target: [0, 0, 0], up: [0, 0, 1] }), true);
+  frameAtStart(runtime);
+  assert.ok(closeTo(vectorOf(runtime.camera.position), start), `first frame ${vectorOf(runtime.camera.position)} is the lerp at progress 0 (${start})`);
+});
+
+test("an eased view-plane move starts from where the camera was, not from a drag's leftover momentum", () => {
+  const runtime = createRealOrbitRuntime();
+  runtime.drag(-90, 70);
+  const start = vectorOf(runtime.camera.position);
+  assert.equal(transitionCameraToViewPreset(runtime, { direction: [1, 0, 0], up: [0, 0, 1] }), true);
+  frameAtStart(runtime);
+  assert.ok(closeTo(vectorOf(runtime.camera.position), start), `first frame ${vectorOf(runtime.camera.position)} is the lerp at progress 0 (${start})`);
+});

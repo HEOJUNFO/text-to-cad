@@ -573,6 +573,9 @@ export function transitionCameraToPerspectiveSnapshot(runtime, perspective, {
     resetZoomBaselineOnComplete,
     easing
   };
+  // Damping goes off for the move, and the next update() would then apply a drag's WHOLE
+  // remaining momentum at once: a one-frame pop before the eased pose. Drop it first.
+  stopOrbitMomentum(runtime.controls);
   runtime.controls.enableDamping = false;
   runtime.beginInteraction?.();
   runtime.requestRender?.();
@@ -794,6 +797,8 @@ export function transitionCameraToViewPreset(runtime, preset) {
     startUp: runtime.camera.up.clone(),
     endUp: nextUp
   };
+  // As in the eased fit: damping off would turn a drag's leftover momentum into one jump.
+  stopOrbitMomentum(runtime.controls);
   runtime.controls.enableDamping = false;
   runtime.beginInteraction?.();
   runtime.requestRender?.();
