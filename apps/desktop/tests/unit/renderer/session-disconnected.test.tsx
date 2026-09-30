@@ -15,7 +15,14 @@ vi.mock("@renderer/features/session/Composer", () => ({
   Composer: ({ disabled }: { disabled: boolean }) => <textarea aria-label="Prompt" data-composer-input disabled={disabled} />,
 }));
 vi.mock("@renderer/features/session/SessionHeader", () => ({ SessionHeader: () => null }));
-vi.mock("@renderer/features/session/Transcript", () => ({ Transcript: () => <div data-transcript /> }));
+// The error part's Reconnect lives in the transcript; the mock draws it for a session in error.
+vi.mock("@renderer/features/session/Transcript", () => ({
+  Transcript: ({ state, onReconnect }: { state: { status: string }; onReconnect: () => void }) => (
+    <div data-transcript>
+      {state.status === "error" ? <button onClick={onReconnect} type="button">Reconnect from the transcript</button> : null}
+    </div>
+  ),
+}));
 vi.mock("@renderer/features/session/ContextMeter", () => ({ ContextMeter: () => null }));
 
 const SESSION = {
@@ -41,6 +48,16 @@ beforeEach(() => {
 });
 
 describe("a disconnected agent", () => {
+  it("keeps focus off the page after the transcript's own Reconnect unmounts", async () => {
+    const user = userEvent.setup();
+    useAcp.setState({ sessions: { s1: { ...initialSessionState("s1", "claude"), status: "error", error: "boom" } } });
+    render(<SessionView session={SESSION} />);
+    await user.click(screen.getByRole("button", { name: "Reconnect from the transcript" }));
+    act(() => useAcp.setState({ loading: { s1: true }, sessions: { s1: { ...initialSessionState("s1", "claude"), status: "connecting" } } }));
+    expect(screen.queryByRole("button", { name: "Reconnect from the transcript" })).toBeNull();
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
   it("says so above the disabled composer and reconnects from there", async () => {
     const user = userEvent.setup();
     useAcp.setState({ sessions: { s1: { ...initialSessionState("s1", "claude"), status: "closed" } } });

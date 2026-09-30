@@ -44,16 +44,16 @@ export function SettingCard({
   const id = useId();
   const query = useSettingsQuery();
   const { report: reportSection } = useSectionReport();
-  const { anyMatched, report } = useMatchSet();
+  const { anyMatched, matchedCount, report } = useMatchSet();
   const hidden = query !== "" && !anyMatched;
 
   useEffect(() => {
-    reportSection(id, !hidden);
+    reportSection(id, hidden ? 0 : matchedCount);
     // Withdrawn when the card goes: clearing the box unmounts every searched
     // page, and the next search mounts its cards under new ids — a match left
     // behind would keep a page in the nav that has nothing to show.
-    return () => reportSection(id, false);
-  }, [reportSection, id, hidden]);
+    return () => reportSection(id, 0);
+  }, [reportSection, id, hidden, matchedCount]);
 
   return (
     <CardMatchProvider report={report}>

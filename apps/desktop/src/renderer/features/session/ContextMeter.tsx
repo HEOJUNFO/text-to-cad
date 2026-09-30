@@ -258,7 +258,7 @@ function ContextPanel({
         <div className="flex flex-col gap-2 border-t pt-2.5">
           <button
             aria-expanded={detailed}
-            className="-mx-1 flex items-center gap-1 rounded-sm px-1 py-0.5 text-left text-muted-foreground outline-none hover:text-foreground focus-visible:text-foreground"
+            className="-mx-1 flex items-center gap-1 rounded-sm px-1 py-0.5 text-left text-muted-foreground outline-none hover:text-foreground focus-visible:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
             data-context-detail-toggle
             onClick={() => onDetailed(!detailed)}
             type="button"

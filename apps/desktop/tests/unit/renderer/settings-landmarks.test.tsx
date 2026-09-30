@@ -30,3 +30,11 @@ it("keeps one h1 while searching, with each page's heading under it, and counts 
   expect(screen.getByRole("heading", { level: 2, name: "Git and worktrees" })).toBeInTheDocument();
   expect(await screen.findByRole("status")).toHaveTextContent(/^1 row matches$/);
 });
+
+it("counts rows, not the cards that hold them", async () => {
+  const user = userEvent.setup();
+  open();
+  // "sound" matches three rows on the General page, all in one card.
+  await user.type(screen.getByRole("textbox", { name: "Search settings" }), "sound");
+  expect(await screen.findByRole("status")).toHaveTextContent(/^3 rows match$/);
+});

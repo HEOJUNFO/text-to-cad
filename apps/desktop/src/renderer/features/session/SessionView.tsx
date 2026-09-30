@@ -230,7 +230,7 @@ export function SessionView({ session }: { session: Session }) {
 
       {state ? (
         <TranscriptScopeContext.Provider value={scope}>
-          <Transcript onReconnect={() => void load(session.id)} onRetry={retry} state={state} />
+          <Transcript onReconnect={reconnectFromBar} onRetry={retry} state={state} />
         </TranscriptScopeContext.Provider>
       ) : loadError ? (
         notInstalled(loadError) ? (

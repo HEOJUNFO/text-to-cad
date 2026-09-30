@@ -117,7 +117,9 @@ the rule is about.
   typechecker). These deliberate edits are in it: the `ai` package's types are
   replaced by `./types` (`components/ai-elements/types.ts`), about nine
   index accesses are guarded for `noUncheckedIndexedAccess`, `sonner.tsx` moves the toast hotkey from
-  Alt+T (Option+T types a dagger on a Mac) to Mod+Alt+T, `shimmer.tsx`
+  Alt+T (Option+T types a dagger on a Mac) to Cmd+Option+T on a Mac and Ctrl+Shift+T elsewhere
+  (Ctrl+Alt+T is GNOME's terminal and AltGr arrives as Ctrl+Alt), names the region "Notifications"
+  through `customAriaLabel`, and holds the hotkey in a module constant, `shimmer.tsx`
   sweeps a foreground-coloured band rather than a background-coloured one
   (the stock band erases the letters it passes over) and stands still under
   `useReducedMotionConfig` (motion's own reduced-motion setting skips a background-position), and `reasoning.tsx`'s
@@ -165,8 +167,10 @@ the rule is about.
   carries a `focus-visible:opacity-100` twin, and a button that takes
   `outline-none` draws the kit's ring (`focus-visible:ring-[3px]
   focus-visible:ring-ring/50`). `tests/unit/renderer/a11y-source.test.ts` scans
-  `src/renderer` for both; an override made elsewhere goes on its allowlist
-  with the reason.
+  `src/renderer` for both (named groups and prefixed `focus-visible:outline-none`
+  included; a focus tint or a `hover:ring` is not a ring); an override made
+  elsewhere goes on its allowlist, keyed by file and a snippet of the site, with
+  the reason.
 - **The agent table on a warm launch is the last launch's.** `agents.list`
   answers from the `__agents` settings row with every row `probing`; a caller
   that would act on a row (refuse an agent as not installed, hand a binary to a
