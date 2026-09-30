@@ -63,7 +63,7 @@ These environment variables matter in development:
 | --- | --- |
 | `TEXT_TO_CAD_APTABASE_KEY` | Read at BUILD time and compiled in (see Telemetry). Unset means no network call is ever attempted. |
 | `CAD_DESKTOP_PYTHON` | An interpreter with cadgen installed, used instead of the bundled runtime (see CAD runtime below). A developer's knob; the e2e suite breaks and clears the equivalent setting on purpose. |
-| `TEXT_TO_CAD_PREWARM` | Under `NODE_ENV=test` both pre-warms are off — the project's (viewer child + cadgen daemon on project open) and the agents' (one idle adapter per agent in the index, see "Opening a session"); `1` turns them on, as `tests/e2e/cad.spec.ts` and `tests/e2e/persistence.spec.ts` do. |
+| `TEXT_TO_CAD_PREWARM` | Under `NODE_ENV=test` both pre-warms are off — the project's (viewer child + cadgen daemon on project open) and the agents' (one idle adapter per agent in the index, see "Opening a session"); `1` turns them on, as `tests/e2e/cad.spec.ts` and `tests/e2e/persistence.spec.ts` do. The launch's agent probe ("Which agents are installed", under ACP) is not gated: it starts no agent. |
 | `TEXT_TO_CAD_FAKE_AGENT` | Launch this stdio ACP agent instead of whatever the registry says, for every provider. The session and git suites point it at `tests/fake-agent/index.mjs`; a session needs an agent to exist at all, and a real one would make the suite a test of somebody's login state. |
 | `TEXT_TO_CAD_FAKE_AGENT_ARGS` | Extra arguments for that fake agent, split on spaces (`src/main/ipc/acp.ts`). `tests/e2e/launch.ts` passes them as `fakeArgs`; `persistence.spec.ts` uses `--load-delay` to hold `session/load`. The flags are listed at the top of `tests/fake-agent/index.mjs`. |
 | `FAKE_AGENT_PROFILE` | Read by `tests/fake-agent/index.mjs` from its own environment, never by the app. `claude-code` makes the fake agent answer in the Claude adapter's shape (see "ACP"). `tests/unit/main/connection.test.ts` passes it in the connection's `env`; for a dev run, set it beside `TEXT_TO_CAD_FAKE_AGENT` — main's environment reaches the agent through the login-shell capture (`src/main/agents/shell-env.ts` runs `$SHELL -ilc` with it). |
@@ -181,8 +181,36 @@ bundles their lazy renderers, CSS, assets and workers. Run
 `npm run build:packages` from the repository root after shared code changes;
 app source continues to use HMR. Tests consume the same exports.
 
+**The renderer's first chunk is kept small on purpose.** Five heavy modules
+load with their first use rather than with the window: the review tab's Monaco
+(`ReviewTab`, `React.lazy` in `features/explorer/ExplorerPane.tsx`),
+xterm with the first terminal tab (`load-terminal.ts`, also fetched once the
+window is idle and again when a new terminal is asked for), the CAD client
+(`adapters/cadRuntime.tsx` imports `@text-to-cad/core/client` when a file's
+connection is first acquired; a chunk that does not load surfaces as a
+`CadRuntimeError` with reason `viewer-failed`, so the tab shows the "CAD
+viewer did not start" card), Mermaid (`src/renderer/lib/mermaid.ts`, on the
+first diagram) and KaTeX (`src/renderer/lib/math.ts`: `hasMath` says whether a
+text may hold a formula, `useMathPlugin` imports the plugin and KaTeX's
+stylesheet together on the first one, and that text is drawn untypeset until
+the import lands). While a lazy tab's chunk loads, `ExplorerPane` draws a
+`TabLoading` placeholder that carries `data-focus-pending`; `focusTabBody`
+(`features/explorer/focus.ts`) waits on that marker instead of falling back to
+the strip tab, so the first terminal a window opens still takes the keyboard.
+`electron.vite.config.ts` lists the packages Rollup must resolve to one copy in
+`resolve.dedupe` — React, and Shiki with its `@shikijs/*` packages (a second
+Shiki under `@streamdown/code` was ~230 grammars and themes emitted twice).
+`tests/unit/main/renderer-bundle.test.ts` reads `out/renderer/assets` after a
+build and fails when two chunks share a base name and a size. Without a build,
+or with one older than the config, it logs why and passes; CI's Desktop job
+runs it again after the build step with `TEXT_TO_CAD_BUNDLE_CHECK=1`, under
+which a missing bundle fails and the age guard is skipped.
+
 The unit suite caps workers at four; Electron uses one worker and no automatic
-retries. CAD integration tests use `tests/fixtures/cad/import-smoke.step` and
+retries. The git and workspace suites take their repositories from
+`tests/unit/main/git-fixtures.ts`: each shape (committed, pushed, pushed with a
+remote a commit ahead) is built once per test file in a template directory and
+copied per test, with `origin` repointed at the copy's own remote. CAD integration tests use `tests/fixtures/cad/import-smoke.step` and
 private caches beneath their temporary user-data directories. CAD profiles use
 short temporary paths on POSIX so Python's Unix sockets stay within platform
 limits. They disable the shared build daemon (except its explicit prewarm test)
@@ -1004,7 +1032,10 @@ session's Reconnect bar goes away with its button, so focus waits on the
 composer's row and goes into the box once the agent is back. Toasts sit top
 right under the title strip (`app/App.tsx`), clear of the composer they would
 otherwise cover. The selected session row and Settings' current page carry
-`aria-current="page"`.
+`aria-current="page"`. A session row's keyboard focus ring is drawn around the
+whole row (`has-[[data-session-row-title]:focus-visible]` in
+`features/sidebar/SessionRow.tsx`), not around the title button inside it. The
+command palette leaves out its Sessions group when there is no open session.
 
 ## The explorer strip
 
@@ -1149,7 +1180,10 @@ support determines what opens in the file tab; it never hides a tree row.
 Unknown types open with **Not supported**. Listings are lazy and complete for
 each expanded directory. The bounded fuzzy index visits project content before
 dependency caches so cache files do not crowd generated CAD outputs out of the
-search budget. Background recursive watching respects the root's Git ignore
+search budget. `listPaths` reads the next 16 directories (`LIST_READ_AHEAD`)
+while it takes the current one apart, and consumes them in the order they were
+found, so a capped walk returns the same paths a serial one would
+(`scripts/bench/explorer-list-paths/` compares the two, manually). Background recursive watching respects the root's Git ignore
 rules and excludes dependency caches so packaged runtimes do not create tens
 of thousands of watchers. Every browsed directory and every opened file's
 parent receives a direct watch, including Git-ignored outputs. Those files stay
@@ -1619,7 +1653,8 @@ src/main/                 the Electron main process: everything with a side effe
   db/                     sqlite: migrations.ts (runner + schema), repositories.ts (rows <-> types)
   ipc/                    register.ts (validating registration) + index.ts (the handlers)
   agents/                 registry.ts (the provider table), detect.ts (login-shell PATH, which,
-                          versions, auth), shell-env.ts, install.ts + auth.ts (pty jobs via jobs.ts)
+                          versions, auth, and the launch-probe order — see ACP), cache.ts (its table between
+                          launches), shell-env.ts, install.ts + auth.ts (pty jobs via jobs.ts)
   acp/                    connection.ts (adapter process + SDK + stream tap + reducer),
                           client.ts (fs/terminal/permission), terminals.ts (+ pty/process backends),
                           sessions.ts (index + live connections),
@@ -1678,6 +1713,7 @@ src/renderer/
   app/                    Shell (three panes in a flex row), App, CommandPalette
     PaneSeparator.tsx     one pane divider: drag, arrow keys, and the overshoot collapse
     PaneToggles.tsx       the sidebar's and explorer's toggles, and back/forward
+  lib/mermaid.ts, lib/math.ts  Streamdown's Mermaid and KaTeX plugins, imported on first use
   lib/panes.ts            the pane geometry: clamps, the overshoot rule, what fits (pure)
   features/sidebar        projects as sections, their sessions flat, Pinned, the filter menu
   lib/sidebar.ts          which sections exist and what is in them: the status/environment
@@ -1744,6 +1780,36 @@ Every session is one adapter process driven by `@agentclientprotocol/sdk`
 (`src/main/acp/connection.ts`). The provider table in
 `src/main/agents/registry.ts` says how each agent is launched, installed and
 signed in; the detector probes the user's login-shell PATH for them.
+
+**Which agents are installed** is a probe (`AgentDetector` in
+`src/main/agents/detect.ts`): the login shell's environment, `which` for each
+provider's binaries, a `--version` run and an auth check, all in parallel across
+providers. `prewarmAgents` (`src/main/ipc/acp.ts`) starts it at launch,
+ungated, so it overlaps the renderer's load; `hydrate()` in `state/bridge.ts`
+starts the renderer's `agents.list` beside the settings and session loads but
+does not put it in front of restoring the explorer. Every finished probe is
+written to the settings table under the key `__agents`
+(`src/main/agents/cache.ts`), and the table is trusted on the next launch only
+when it was written by the same app version and holds every provider. Then:
+
+- A **warm launch** answers `agents.list` at once with that table, every row
+  flagged `probing`, and the probe replaces it through `agents.status` (a row
+  from a probe never carries the flag). Settings and the new-session screen
+  draw a probing row's unauthenticated state as "Checking…" rather than "Not
+  signed in".
+- A **cold launch** (no usable cache) waits for the first probe for at most
+  `PROBE_WAIT_MS` (3 s), then answers with whatever it has, which may be empty.
+- If the probe fails while the table is still the last launch's, its rows stay
+  but carry `probeFailed` instead of `probing`; when every row has it the
+  renderer treats it as a failed read, and the new-session screen shows "Could
+  not check for agents" with a retry rather than "No agent ready".
+- Anything that would act on a row waits for this launch's probe, through
+  `freshWithin(PROBE_WAIT_MS)`: `agents.login` (a CLI installed since has no
+  binary path in last launch's row) and the check that refuses a session as
+  "not installed". Past the wait, `login` starts from the stale row and the
+  session goes on to spawn, whose own failure says what is missing. The
+  idle-adapter pre-warm waits on `settled()`, the first table, and shares the
+  probe rather than starting a second one.
 
 ```sh
 node scripts/acp-harness.mjs codex /tmp/scratch "Reply with exactly: ok"
@@ -1833,7 +1899,14 @@ beside `sessions.ts`:
   screen, so switching back is a paint with no load at all. The oldest
   beyond four is closed and its row goes to `closed`, which is what makes
   the next click on it reconnect. A turn in flight is never evicted — the
-  limit is exceeded until it ends.
+  limit is exceeded until it ends. `ensureLoaded` (`state/acp.ts`) does
+  nothing for a session the renderer holds whose status is not `closed`, and
+  for one it does not hold it asks main for the stored state
+  (`sessions.state`, which also says whether main's connection is `live`): a
+  live connection is painted and left alone, so a just-created session is not
+  reconnected (a reconnect drops turn events until it answers, and would
+  repaint from a snapshot older than the prompt just sent). Only a `closed` or
+  absent connection with no live counterpart in main starts a `load`.
 - **The warm pool** (`acp/warm.ts`). A second and a half after launch, one
   idle adapter per agent the index says is in use is spawned and
   `initialize`d, and the first `create` or `load` for that agent adopts it
@@ -1859,9 +1932,21 @@ one.
 With no load at all, what a switch costs is React mounting the transcript,
 and a turn is some sixty nodes. So `features/session/Transcript.tsx` mounts
 the last 12 turns (`TRANSCRIPT_WINDOW`) when it opens and the rest a window
-at a time as the person scrolls up to them, keeping what they were reading
-where it was; a turn that arrives is added and nothing mounted is dropped,
-and an unanswered permission request is mounted wherever it is. Measured on
+at a time (a `Show N earlier turns` button at the top, with a sentinel
+`EarlierTurns` mounts the next window from once it is within a screen), keeping
+what they were reading where it was. The window is set when the transcript
+opens and only grows: a turn that arrives is added and nothing mounted is
+dropped. The sentinel acts only after the person has reached for earlier turns
+since the pane was last at the bottom (`reached`: an upward wheel, a touch
+move, ArrowUp, PageUp, Home or Shift+Space, or a press on the pane itself,
+which is its scrollbar) or when the pane is too short to scroll, because the
+pane starts at the top and animates down, so the sentinel is in reach for a
+moment on every switch.
+A turn holding a pending permission request, in a tool call or a subagent, is
+always mounted together with every turn after it, and answering the request
+does not hand those turns back. The turns mounted above where the window began
+sit in an `aria-live="off"` container, so a screen reader does not announce old
+turns as news while a turn that arrives below is announced. Measured on
 a 40-turn session switched to seven times: the median switch went from 90
 to 45 ms and the transcript from about 1 900 nodes to about 580.
 `content-visibility: auto` was tried first and measured slightly worse — the
@@ -2052,7 +2137,8 @@ registrations load shared implementations lazily. The package supplies compiled
 ESM, declarations, CSS and workers; consumer source aliases, copied tokens,
 JSX loaders and handwritten viewer declarations are removed.
 
-The explorer owns one lazy CAD connection per root with open file tabs. Tab
+The explorer owns one lazy CAD connection per root with open file tabs; the
+client module behind it is imported when the connection is first acquired. Tab
 switches borrow that connection, preserving catalog and bounded cache work while
 the inactive viewport is unmounted. Closing the root's last file tab or leaving
 the project disposes the connection and cancels its pending work. Each acquisition

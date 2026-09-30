@@ -136,6 +136,21 @@ the rule is about.
   list until `src/renderer/lib/math.ts` (`useMathPlugin`) has loaded it for a
   text with a formula in it, so KaTeX is not in the window's first chunk. Re-vendoring a component means
   redoing those.
+- **The renderer's first chunk stays small.** Monaco (the review tab), xterm
+  (the terminal tab), the CAD client, Mermaid and KaTeX load with their first
+  use; do not import them statically from the shell. A lazy tab's fallback
+  carries `data-focus-pending` so `features/explorer/focus.ts` waits for it. The
+  packages that must resolve to one copy are in `resolve.dedupe` in
+  `electron.vite.config.ts`, and `tests/unit/main/renderer-bundle.test.ts`
+  fails on duplicate chunks in a built bundle (CI runs it after the build with
+  `TEXT_TO_CAD_BUNDLE_CHECK=1`; a local run without a fresh build passes).
+  (README, "Development".)
+- **The agent table on a warm launch is the last launch's.** `agents.list`
+  answers from the `__agents` settings row with every row `probing`; a caller
+  that would act on a row (refuse an agent as not installed, hand a binary to a
+  login) waits for `AgentDetector.freshWithin(PROBE_WAIT_MS)` and treats null
+  as unknown, never as absent. A screen must not say "signed out" for a
+  `probing` row (README, "ACP").
 - **Nothing is installed into an agent's configuration.** text-to-cad's skills
   and its tools are given to each session — the skills root as an additional
   directory on `session/new` and `session/load` (both spellings) plus a
@@ -148,7 +163,8 @@ the rule is about.
   (`tests/unit/main/agent-config-untouched.test.ts`.)
 - **Adapter versions are pinned exactly.** `CLAUDE_ADAPTER` and
   `CODEX_ADAPTER` in `src/main/agents/registry.ts` name one version each,
-  launched through `npm exec --prefer-offline --package=<pkg>@<version>` and
+  launched through `npm exec --yes --prefer-offline --no-audit --no-fund
+  --no-update-notifier --package=<pkg>@<version>` and
   never a global install (`tests/unit/main/registry.test.ts`). Bump by the
   recipe: `npm view <package> version`, change the constant, run
   `scripts/acp-harness.mjs` for that agent in a scratch directory, re-record

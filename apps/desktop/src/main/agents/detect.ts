@@ -3,7 +3,9 @@
  *
  * Probes every provider's binaries along the login-shell PATH, reads a
  * version, and asks the CLI (or the environment, or a credential file)
- * whether the user is signed in. Results are cached; `refresh()` re-runs
+ * whether the user is signed in. The table is kept in memory and, through
+ * `./cache.ts`, between launches, where the next launch answers from it (rows
+ * flagged `probing`) until its own probe lands; `refresh()` re-runs
  * everything and `onChange` fans the new table out. Nothing here spawns an
  * agent — the Agents page must be able to show state without starting
  * anything.
