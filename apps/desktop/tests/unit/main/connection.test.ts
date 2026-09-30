@@ -550,6 +550,31 @@ describe("the skills root and the preamble", () => {
     expect(next.mock.calls[0]![0].prompt).toEqual([{ type: "text", text: "again" }]);
   });
 
+  it("carries the preamble again when the only update heard before the turn failed was housekeeping", async () => {
+    const frames: RecordedFrame[] = [];
+    const connection = connect({
+      cwd: await scratch(),
+      skillsRoot: "/data/skills/1.2.3",
+      preamble: "The skills are at /data/skills/1.2.3.",
+      record: (frame) => frames.push(frame),
+    });
+    await connection.newSession();
+    // The agent announces a title (an update that says nothing of having read
+    // the prompt), and then the turn fails.
+    const real = connection.agent.prompt.bind(connection.agent);
+    vi.spyOn(connection.agent, "prompt").mockImplementationOnce(async (params) => {
+      await real(params);
+      throw new Error("agent died before reading");
+    });
+    await expect(connection.prompt([{ type: "text", text: `session-title ${JSON.stringify({ title: "Named" })}` }])).rejects.toThrow();
+    await connection.prompt([{ type: "text", text: "again" }]);
+
+    expect(allSent(frames, "session/prompt")[1]!.prompt).toEqual([
+      { type: "text", text: "The skills are at /data/skills/1.2.3." },
+      { type: "text", text: "again" },
+    ]);
+  });
+
   it("never sends the preamble on a resumed session — the transcript already has it", async () => {
     const frames: RecordedFrame[] = [];
     const connection = connect({

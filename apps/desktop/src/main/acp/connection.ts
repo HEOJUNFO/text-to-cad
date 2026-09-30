@@ -241,7 +241,12 @@ export class SessionConnection {
   private initializeResponse: InitializeResponse | null = null;
   /** The preamble, until the first prompt has carried it. */
   private pendingPreamble: string | null = null;
-  /** `session/update`s heard since the last prompt started: an agent that streamed took the turn. */
+  /**
+   * Content `session/update`s heard since the last prompt started: an agent
+   * that streamed took the turn. Not the housekeeping an adapter pushes
+   * without having read the prompt (`available_commands_update`,
+   * `session_info_update`, `usage_update`, a mode or config change).
+   */
   private updatesHeard = 0;
   private closing = false;
   private exit: ProcessExit | null = null;
@@ -756,7 +761,7 @@ export class SessionConnection {
           this.options.record?.({ dir: "in", at: Date.now(), msg });
           const update = sessionUpdateOf(msg);
           if (update) {
-            this.updatesHeard += 1;
+            if (TURN_UPDATE_KINDS.has(update.update.sessionUpdate)) this.updatesHeard += 1;
             this.dispatch({
               type: "session/update",
               acpSessionId: update.sessionId,
@@ -785,6 +790,15 @@ export class SessionConnection {
     return { readable, writable: outbound.writable };
   }
 }
+
+/** The updates only an agent that is working on a prompt sends. */
+const TURN_UPDATE_KINDS: ReadonlySet<string> = new Set([
+  "agent_message_chunk",
+  "agent_thought_chunk",
+  "tool_call",
+  "tool_call_update",
+  "plan",
+]);
 
 function sessionUpdateOf(msg: unknown): { sessionId: string; update: RawSessionUpdate } | null {
   if (typeof msg !== "object" || msg === null) {
