@@ -793,6 +793,26 @@ describe("SessionManager", () => {
     expect(run("for-each-ref", "refs/text-to-cad/")).toBe("");
   });
 
+  it("a session that opens an existing worktree starts from the tree as it is, not from a commit", async () => {
+    const { head, snapshotTree, dropMarks, status } = await import("@main/projects/git");
+    const { resolveDiffScope } = await import("@shared/types");
+    const { execFileSync } = await import("node:child_process");
+    const { repo, manager, cwd } = await setup({ head, snapshot: snapshotTree, dropMarks });
+    const run = (...args: string[]) =>
+      execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" }).trim();
+    run("init", "-q");
+    await writeFile(path.join(cwd, "base.txt"), "base\n");
+    run("add", "-A");
+    run("commit", "-q", "-m", "base");
+    // Earlier work in the worktree, uncommitted, before this session exists.
+    await writeFile(path.join(cwd, "earlier.txt"), "before\n");
+
+    const session = await manager.create({ projectId: cwd, agentId: "claude-code", cwd, gitMode: "worktree" });
+    await writeFile(path.join(cwd, "mine.txt"), "after\n");
+    const listed = await status(cwd, resolveDiffScope({ kind: "session" }, repo.get(session.id)));
+    expect(listed.files.map((file) => file.path)).toEqual(["mine.txt"]);
+  });
+
   it("marks where the working tree was when each turn began", async () => {
     let head = "before-the-turn";
     const { repo, manager, cwd } = await setup({ head: async () => head });

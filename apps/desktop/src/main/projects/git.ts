@@ -18,6 +18,8 @@
  * fiddly, and they are the part worth a unit test.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash } from "node:crypto";
+import { rmSync } from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -472,7 +474,7 @@ export async function status(cwd: string, scope: DiffScope = { kind: "working-tr
   const files =
     scope.kind === "working-tree" || scope.kind === "unmarked"
       ? await workingTreeFiles(root, porcelain)
-      : await withReadIndex(root, scope, () => rangeFiles(root, scope, porcelain));
+      : await withReadIndex(root, scope, () => rangeFiles(root, scope, porcelain), untrackedOf(porcelain));
 
   return {
     isRepository: true,
@@ -489,6 +491,11 @@ export async function status(cwd: string, scope: DiffScope = { kind: "working-tr
   };
 }
 
+/** The untracked paths of a porcelain read. */
+function untrackedOf(porcelain: ReturnType<typeof parsePorcelainStatus>): string[] {
+  return porcelain.files.filter((file) => file.status === "untracked").map((file) => file.path);
+}
+
 /**
  * Commits the remote does not have: what a `Push` would send.
  *
@@ -503,11 +510,12 @@ async function commitsAhead(root: string, porcelain: ReturnType<typeof parsePorc
   if (porcelain.upstream || porcelain.unborn || !porcelain.branch) {
     return porcelain.ahead;
   }
-  const [remotes, count] = await Promise.all([
-    tryGit(root, ["remote"]),
-    tryGit(root, ["rev-list", "--count", "HEAD", "--not", "--remotes"]),
-  ]);
-  return remotes?.trim() ? Number(count?.trim()) || 0 : 0;
+  // Without a remote there is nothing to be ahead of, and the walk below covers
+  // the whole history — a poll would pay for it every time.
+  if (!(await tryGit(root, ["remote"]))?.trim()) {
+    return 0;
+  }
+  return Number((await tryGit(root, ["rev-list", "--count", "HEAD", "--not", "--remotes"]))?.trim()) || 0;
 }
 
 /** What `Commit` would take and what `Push` would send, in one status read. */
@@ -1165,6 +1173,12 @@ const MARK_REF = /^[A-Za-z0-9_-]+\/[a-z]+$/;
  * unreferenced object is `gc`'s to prune after two weeks, and a session can
  * be older than that. `dropMarks` unpins them when the session is deleted.
  * Null when git cannot answer — never a reason to fail a turn.
+ *
+ * An untracked file over `SNAPSHOT_MAX_BYTES` is left out of the tree: `add`
+ * would hash it into a loose object on every turn (a CAD export beside the
+ * source is easily hundreds of megabytes, and `gc` is weeks away), and in an
+ * LFS repository run its clean filter as well. Under `Last turn` such a file
+ * reads as untracked, as if added since the mark, whether or not it changed.
  */
 export async function snapshotTree(cwd: string, mark?: string): Promise<string | null> {
   if (mark !== undefined && !MARK_REF.test(mark)) {
@@ -1176,7 +1190,16 @@ export async function snapshotTree(cwd: string, mark?: string): Promise<string |
   }
   return withTempIndex(root, async (env) => {
     const options = { ...GIT_OPTIONS, cwd: root, env: { ...GIT_OPTIONS.env, ...env } };
-    const added = await tracked(execa("git", ["add", "-A"], options));
+    const big = await bigUntracked(root);
+    const added = await tracked(execa(
+      "git",
+      big.length === 0
+        ? ["add", "-A"]
+        : ["add", "-A", "--pathspec-from-file=-", "--pathspec-file-nul"],
+      big.length === 0
+        ? options
+        : { ...options, input: [".", ...big.map((file) => `:(exclude,literal)${file}`)].join("\0") },
+    ));
     if (added.failed || added.exitCode !== 0) {
       return null;
     }
@@ -1190,6 +1213,27 @@ export async function snapshotTree(cwd: string, mark?: string): Promise<string |
     }
     return tree;
   }).catch(() => null);
+}
+
+/** Above this an untracked file stays out of a snapshot (`snapshotTree`). */
+export const SNAPSHOT_MAX_BYTES = 8 * 1024 * 1024;
+
+/** The untracked, non-ignored files over `SNAPSHOT_MAX_BYTES`, repository-relative. */
+async function bigUntracked(root: string): Promise<string[]> {
+  const listed = parsePorcelainStatus(
+    (await tryGit(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"])) ?? "",
+  );
+  const big: string[] = [];
+  for (const file of listed.files) {
+    if (file.status !== "untracked") {
+      continue;
+    }
+    const stat = await fsp.lstat(path.join(root, file.path)).catch(() => null);
+    if (stat?.isFile() && stat.size > SNAPSHOT_MAX_BYTES) {
+      big.push(file.path);
+    }
+  }
+  return big;
 }
 
 /** The environment of the read in flight: a temp index that lists the untracked files too. */
@@ -1218,25 +1262,147 @@ async function withTempIndex<T>(
  *
  * A snapshot mark is a tree, and `git diff <tree>` against the working tree
  * reads an untracked file that was already there as deleted (the tree has it,
- * the index does not). `add -A --intent-to-add` puts every such path in a
- * throwaway index without writing a single blob, so the diff finds the file
- * unchanged, or added when it is new since the mark. A read runs every half
- * second while an agent writes: it must not write objects (`write-tree` does,
- * a loose blob per changed file per poll), which only a mark may.
+ * the index does not). `add --intent-to-add` of just the untracked paths puts
+ * them in a throwaway index without writing a single blob, so the diff finds
+ * the file unchanged, or added when it is new since the mark. A read runs every
+ * half second while an agent writes: it must not write objects (`write-tree`
+ * does, a loose blob per changed file per poll), which only a mark may.
+ *
+ * The throwaway index is shared by the reads that would build the same one
+ * (`acquireReadIndex`): a review of forty files opens sections that each read
+ * with the same untracked files. `untracked` is the caller's list when it has
+ * the porcelain already; without one it is asked for.
+ *
+ * A temp index that cannot be built fails the read. Falling back to the real
+ * index would show every untracked file from before the mark as deleted.
  */
-async function withReadIndex<T>(root: string, scope: DiffScope, work: () => Promise<T>): Promise<T> {
+async function withReadIndex<T>(
+  root: string,
+  scope: DiffScope,
+  work: () => Promise<T>,
+  untracked?: string[],
+): Promise<T> {
   if (scope.kind !== "range" || scope.to || readIndex.getStore() ||
       (await tryGit(root, ["cat-file", "-t", "--end-of-options", scope.from]))?.trim() !== "tree") {
     return work();
   }
-  return withTempIndex(root, async (env) => {
-    const options = { ...GIT_OPTIONS, cwd: root, env: { ...GIT_OPTIONS.env, ...env } };
-    const added = await tracked(execa("git", ["add", "-A", "--intent-to-add"], options));
-    if (added.failed || added.exitCode !== 0) {
-      return work();
+  const paths = untracked ?? (await git(root, ["ls-files", "--others", "--exclude-standard", "-z"])).split("\0").filter(Boolean);
+  const entry = await acquireReadIndex(root, paths);
+  try {
+    return await readIndex.run({ GIT_INDEX_FILE: entry.index }, work);
+  } finally {
+    releaseReadIndex(entry);
+  }
+}
+
+type ReadIndexEntry = {
+  root: string;
+  key: string;
+  scratch: string;
+  index: string;
+  /** Settles when the index is built; rejects when it could not be. */
+  ready: Promise<void>;
+  users: number;
+  retired: boolean;
+  idle?: NodeJS.Timeout;
+};
+
+/** The newest temp index per repository root; an older one goes when its last reader does. */
+const readIndexes = new Map<string, ReadIndexEntry>();
+/** How long an unused temp index is kept for the next poll. */
+const READ_INDEX_IDLE_MS = 30_000;
+let readIndexExitHook = false;
+
+function retireReadIndex(entry: ReadIndexEntry): void {
+  entry.retired = true;
+  clearTimeout(entry.idle);
+  if (readIndexes.get(entry.root) === entry) {
+    readIndexes.delete(entry.root);
+  }
+  if (entry.users === 0) {
+    void fsp.rm(entry.scratch, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+function releaseReadIndex(entry: ReadIndexEntry): void {
+  entry.users -= 1;
+  if (entry.users > 0) {
+    return;
+  }
+  if (entry.retired) {
+    retireReadIndex(entry);
+    return;
+  }
+  entry.idle = setTimeout(() => retireReadIndex(entry), READ_INDEX_IDLE_MS);
+  entry.idle.unref();
+}
+
+/**
+ * A temp index seeded from the real one, with the untracked `paths` added
+ * intent-to-add. Reused while the real index (inode, mtime, size) and the
+ * untracked set are the same, which is when it would be built identically.
+ */
+async function acquireReadIndex(root: string, paths: string[]): Promise<ReadIndexEntry> {
+  const live = (await tryGit(root, ["rev-parse", "--path-format=absolute", "--git-path", "index"]))?.trim();
+  const stat = live ? await fsp.stat(live).catch(() => null) : null;
+  const key = [
+    stat ? `${stat.ino}:${stat.mtimeMs}:${stat.size}` : "none",
+    createHash("sha1").update(paths.join("\0")).digest("hex"),
+  ].join("/");
+
+  let entry = readIndexes.get(root);
+  if (entry?.key !== key) {
+    if (entry) {
+      retireReadIndex(entry);
     }
-    return readIndex.run(env, work);
-  });
+    entry = await startReadIndex(root, key, live, paths);
+  }
+  entry.users += 1;
+  clearTimeout(entry.idle);
+  try {
+    await entry.ready;
+  } catch (error) {
+    releaseReadIndex(entry);
+    throw error;
+  }
+  return entry;
+}
+
+async function startReadIndex(root: string, key: string, live: string | undefined, paths: string[]): Promise<ReadIndexEntry> {
+  if (!readIndexExitHook) {
+    readIndexExitHook = true;
+    process.once("exit", () => {
+      for (const entry of readIndexes.values()) {
+        rmSync(entry.scratch, { recursive: true, force: true });
+      }
+    });
+  }
+  const scratch = await fsp.mkdtemp(path.join(os.tmpdir(), "text-to-cad-index-"));
+  const index = path.join(scratch, "index");
+  const build = async () => {
+    if (live) {
+      await fsp.copyFile(live, index).catch(() => undefined);
+    }
+    if (paths.length === 0) {
+      return;
+    }
+    const added = await tracked(execa("git", ["add", "--intent-to-add", "--pathspec-from-file=-", "--pathspec-file-nul"], {
+      ...GIT_OPTIONS,
+      cwd: root,
+      env: { ...GIT_OPTIONS.env, GIT_INDEX_FILE: index },
+      input: paths.map((file) => `:(literal)${file}`).join("\0"),
+    }));
+    if (added.failed || added.exitCode !== 0) {
+      throw new GitError(
+        (typeof added.stderr === "string" && tail(added.stderr)) || "git could not list the untracked files for this review",
+      );
+    }
+  };
+  const entry: ReadIndexEntry = { root, key, scratch, index, ready: build(), users: 0, retired: false };
+  readIndexes.set(root, entry);
+  // A failed build is nobody's to reuse; its readers see the rejection.
+  entry.ready.catch(() => retireReadIndex(entry));
+  return entry;
 }
 
 /** Unpin every mark a session took (`snapshotTree`'s refs). */

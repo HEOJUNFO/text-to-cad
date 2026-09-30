@@ -383,14 +383,16 @@ export class SessionManager {
 
     const workspace = await this.workspaceFor(input);
     const id = this.deps.newId();
-    // A worktree is cut clean, so its start is a commit, and that commit is
-    // also the base its branch is deleted against (`releaseWorkspace`). A
-    // checkout can hold anything already, so the start is the tree as it is.
-    const startHead =
-      input.gitMode === "worktree"
-        ? await this.headOf(workspace.cwd)
-        : await this.markOf(workspace.cwd, `${id}/session`);
-    const turnStart = input.gitMode === "worktree" ? await this.markOf(workspace.cwd, `${id}/turn`) : startHead;
+    // A worktree this create cut is clean, so its start is a commit, and that
+    // commit is also the base its branch is deleted against
+    // (`releaseWorkspace`). A checkout can hold anything already, and so can a
+    // worktree the caller named (`New session in this worktree`, which sends
+    // `cwd`), so the start of those is the tree as it is.
+    const fresh = input.gitMode === "worktree" && !input.cwd;
+    const startHead = fresh
+      ? await this.headOf(workspace.cwd)
+      : await this.markOf(workspace.cwd, `${id}/session`);
+    const turnStart = fresh ? await this.markOf(workspace.cwd, `${id}/turn`) : startHead;
     const now = Date.now();
     const session: Session = {
       id,

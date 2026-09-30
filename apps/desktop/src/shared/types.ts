@@ -114,17 +114,21 @@ export const SessionSchema = z.object({
    */
   pinned: z.boolean().default(false),
   /**
-   * The commit the working tree was at when the session was created, and when
-   * the newest turn began (plan §2, the review's `Last Turn ▾`).
+   * The revision the working tree was at when the session was created, and
+   * when the newest turn began (plan §2, the review's `Last Turn ▾`): a
+   * snapshot tree of the working tree, or the base commit for the session mark
+   * of a worktree main cut fresh.
    *
-   * The review's `This session` and `Last turn` scopes are `git diff <sha>`
+   * The review's `This session` and `Last turn` scopes are `git diff <rev>`
    * against the working tree, so what they need is a revision, recorded at the
    * moment the scope starts. Timestamps cannot do this job: two commits can
    * share a second, and `--before=` picks a commit, not a moment. A repository
-   * with no commits yet has no revision to record, and main answers its scopes
-   * from the working tree instead (`fromStart`).
+   * with no commits yet is marked with the empty tree, so its scopes stay a
+   * range once the first commit lands.
    *
-   * Null when the session's directory is not a repository, or has no commits.
+   * Null when the session's directory is not a repository, or git could not
+   * answer; main then reads the scope as unmarked rather than as the working
+   * tree.
    */
   sessionHead: z.string().nullable().default(null),
   turnHead: z.string().nullable().default(null),

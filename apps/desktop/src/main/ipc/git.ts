@@ -303,7 +303,8 @@ export const gitHandlers = {
           const state = await git.pushState(cwd);
           if (!state.dirty && state.ahead > 0) {
             await git.push(cwd);
-            return { sha: (await git.head(cwd)) ?? "" };
+            // Said aloud: a message typed for files that were gone by now was not used.
+            return { sha: (await git.head(cwd)) ?? "", pushedOnly: true, pushed: state.ahead };
           }
         }
         const result = await git.commitAll(cwd, message);

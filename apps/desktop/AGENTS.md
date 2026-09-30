@@ -237,10 +237,13 @@ the rule is about.
   that already exists — and main checks it is the project or one of that
   project's own worktrees before running anything in it.
 - **A review's `Last turn` and `This session` are revisions, not times.** Main
-  records HEAD when a session is created and again at the start of every turn
-  (`sessions.sessionHead` / `turnHead`); the renderer sends the scope's *name*
-  and main resolves it. Two commits can share a second, and `--before=` picks a
-  commit rather than a moment, so a timestamp cannot do this job.
+  records a snapshot tree of the working tree when a session is created and
+  again at the start of every turn (`sessions.sessionHead` / `turnHead`;
+  `snapshotTree` in `src/main/projects/git.ts`) — only the session mark of a
+  worktree main cut fresh is a commit; the renderer sends the scope's *name*
+  and main resolves it. Uncommitted work from before the turn is in the tree,
+  so it is not the turn's. Two commits can share a second, and `--before=`
+  picks a commit rather than a moment, so a timestamp cannot do this job.
 
 - **Path containment is `climbsOut`/`isInside`** (`src/main/explorer/fs.ts`),
   never a `startsWith("..")` on a `path.relative`: a folder named `..keep` is an

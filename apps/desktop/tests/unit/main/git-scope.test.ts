@@ -4,7 +4,7 @@
  * write wherever it names, so a scope is checked before git is started at all.
  */
 import { execFile } from "node:child_process";
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, open, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -272,6 +272,73 @@ describe("snapshot marks", () => {
     expect(await sh(cwd, "for-each-ref", "refs/text-to-cad/")).toBe("");
   });
 
+  it("leaves an untracked file over the size limit out of the tree, and it still reads as untracked", async () => {
+    const cwd = await committedRepo();
+    const big = path.join(cwd, "part.step");
+    const handle = await open(big, "w");
+    await handle.truncate(20 * 1024 * 1024); // sparse: no disk, but git would hash all of it
+    await handle.close();
+    await writeFile(path.join(cwd, "small.txt"), "s\n");
+    const blob = await sh(cwd, "hash-object", "part.step");
+    const turn = await git.snapshotTree(cwd, "s5/turn");
+    // `cat-file -e` fails for an object that was never written.
+    await expect(sh(cwd, "cat-file", "-e", blob)).rejects.toThrow();
+    expect(await sh(cwd, "ls-tree", "-r", "--name-only", turn ?? "")).toBe("part.py\nsmall.txt");
+    const scope = resolveDiffScope({ kind: "turn" }, { turnHead: turn, sessionHead: turn });
+    const listed = await git.status(cwd, scope);
+    expect(listed.files).toEqual([expect.objectContaining({ path: "part.step", status: "untracked" })]);
+  });
+
+  /** The `git add` calls the spy has seen since it was last cleared. */
+  const adds = () =>
+    execa.mock.calls
+      .filter((call) => (call[1] as string[] | undefined)?.[0] === "add")
+      .map((call) => ({ args: call[1] as string[], input: (call[2] as { input?: string } | undefined)?.input }));
+
+  it("a read adds only the untracked paths to its index, and reads with the same index reuse it", async () => {
+    const cwd = await committedRepo();
+    await writeFile(path.join(cwd, "old.txt"), "there at the mark\n");
+    await writeFile(path.join(cwd, "older.txt"), "so was this\n");
+    const turn = await git.snapshotTree(cwd, "s6/turn");
+    const scope = resolveDiffScope({ kind: "turn" }, { turnHead: turn, sessionHead: turn });
+
+    execa.mockClear();
+    await git.status(cwd, scope);
+    expect(adds()).toHaveLength(1);
+    expect(adds()[0]?.args).not.toContain("-A");
+    expect(adds()[0]?.input?.split("\0")).toEqual([":(literal)old.txt", ":(literal)older.txt"]);
+
+    // Two more sections open on the same, unchanged repository.
+    execa.mockClear();
+    await git.fileDiff(cwd, "old.txt", scope);
+    await git.unifiedDiff(cwd, "older.txt", scope);
+    await git.status(cwd, scope);
+    expect(adds()).toEqual([]);
+
+    // A new untracked file is a different index.
+    await writeFile(path.join(cwd, "new.txt"), "n\n");
+    await git.status(cwd, scope);
+    expect(adds()).toHaveLength(1);
+  });
+
+  it("a read whose index cannot be built fails, rather than reading earlier untracked files as deleted", async () => {
+    const cwd = await committedRepo();
+    await writeFile(path.join(cwd, "old.txt"), "there at the mark\n");
+    const turn = await git.snapshotTree(cwd, "s7/turn");
+    const scope = resolveDiffScope({ kind: "turn" }, { turnHead: turn, sessionHead: turn });
+    const actual = await vi.importActual<typeof Execa>("execa");
+    execa.mockImplementation(((file: string, args: string[], options: object) =>
+      args[0] === "add"
+        ? Promise.resolve({ failed: true, exitCode: 128, stdout: "", stderr: "fatal: unable to write new index file" })
+        : actual.execa(file, args, options)) as never);
+    try {
+      await expect(git.status(cwd, scope)).rejects.toThrow(/unable to write new index file/);
+      await expect(git.fileDiff(cwd, "old.txt", scope)).rejects.toThrow(git.GitError);
+    } finally {
+      execa.mockImplementation(actual.execa);
+    }
+  });
+
   it("leaves the person's index and staging alone", async () => {
     const cwd = await committedRepo();
     await writeFile(path.join(cwd, "staged.txt"), "s\n");
@@ -279,6 +346,20 @@ describe("snapshot marks", () => {
     await writeFile(path.join(cwd, "loose.txt"), "l\n");
     await git.snapshotTree(cwd);
     expect(await sh(cwd, "status", "--porcelain")).toBe("A  staged.txt\n?? loose.txt");
+  });
+});
+
+describe("commits ahead", () => {
+  it("a repository with no remote is not walked for unpushed commits", async () => {
+    const cwd = await unbornRepo();
+    const sh = (...args: string[]) => run("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { cwd });
+    await sh("add", "-A");
+    await sh("commit", "-q", "-m", "base");
+    execa.mockClear();
+    expect((await git.status(cwd)).ahead).toBe(0);
+    expect((await git.pushState(cwd)).ahead).toBe(0);
+    const walked = execa.mock.calls.some((call) => (call[1] as string[] | undefined)?.[0] === "rev-list");
+    expect(walked).toBe(false);
   });
 });
 

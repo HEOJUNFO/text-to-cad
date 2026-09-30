@@ -447,3 +447,29 @@ it("a clean tree with commits the remote lacks offers Push, which sends them wit
   await vi.waitFor(() => expect(toast.success).toHaveBeenCalledWith("Pushed 0123456"));
   expect(git.commit).toHaveBeenCalledWith(expect.objectContaining({ message: "", push: true }));
 });
+
+it("a commit whose files were committed elsewhere in the meantime says it only pushed", async () => {
+  const user = userEvent.setup();
+  gitInfo = { hasRemote: true, hasGh: false };
+  git.commit.mockResolvedValue({ sha: "0123456789abcdef0123456789abcdef01234567", pushedOnly: true, pushed: 2 });
+  scoped.mockResolvedValue({ ...repo("main"), ahead: 0, workingFiles: 1 });
+  renderReview();
+
+  const trigger = await screen.findByRole("button", { name: "Commit or push" });
+  await vi.waitFor(() => expect(trigger).toBeEnabled());
+  await user.click(trigger);
+  const panel = screen.getByRole("region", { name: "Commit changes" });
+  await user.type(within(panel).getByRole("textbox", { name: "Commit message" }), "add wrist");
+  await user.click(within(panel).getByRole("button", { name: "Commit and push" }));
+  await vi.waitFor(() => expect(toast.success).toHaveBeenCalledWith("Nothing new to commit; pushed 2 commits"));
+});
+
+it("offers no Push for commits ahead of an upstream when there is no remote to push to", async () => {
+  gitInfo = { hasRemote: false, hasGh: false };
+  scoped.mockResolvedValue({ ...repo("main"), ahead: 1, workingFiles: 0 });
+  renderReview();
+
+  const trigger = await screen.findByRole("button", { name: "Commit" });
+  expect(trigger).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "Push" })).not.toBeInTheDocument();
+});

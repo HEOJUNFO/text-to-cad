@@ -1497,7 +1497,8 @@ side waits for every child it holds a pipe to, so `src/main/children.ts`
 registers every process main spawns — the viewer, the adapters, the
 terminals' backends, the probes, `git` — and `before-quit` kills the probes
 outright, sends a git write (commit, push, worktree add/remove) SIGTERM so it
-can drop its `index.lock`, and detaches the rest; `will-quit` kills whatever
+can drop its `index.lock` (signalled, not waited for: the write may outlive
+the quit and finish, or be killed at `will-quit`), and detaches the rest; `will-quit` kills whatever
 ignored its signal. Before that, a cadgen version probe (sixty-second timeout) still
 importing OCP held the exit for sixty seconds, and chokidar's `close()` over
 this repository blocked for most of a second, so the watchers are not closed
@@ -2117,12 +2118,24 @@ of the working tree when a session is created and again at the start of every
 turn (`sessions.sessionHead` and `turnHead`: a tree made from a throwaway copy
 of the index with `add -A`, so untracked files are in and `.gitignore` applies,
 and pinned under `refs/text-to-cad/<session id>/` so `gc` cannot prune it; the
-refs go when the session is deleted). `Last turn` / `This session` compare that
+refs go when the session is deleted). An untracked file over 8 MiB
+(`SNAPSHOT_MAX_BYTES`) is left out of the tree, so a large CAD export beside the
+source is not hashed into `.git/objects` every turn; under `Last turn` it reads
+as untracked, as if added since the mark. The pinned refs are ordinary refs:
+`git push --mirror` would send `refs/text-to-cad/*`, and with them the trees of
+untracked, non-ignored files not yet pushed, so anything that must not leave the
+machine belongs in `.gitignore`. `Last turn` / `This session` compare that
 tree with a snapshot of the working tree as it is now, so an edit the agent has
 not committed is in the answer and work from before the turn began is not. A
-worktree session's `sessionHead` stays the commit it was cut from, which is also
-what its branch is deleted against; marks recorded as commits by older builds
+session that cut a fresh worktree keeps that worktree's base commit as its
+`sessionHead`, which is also what its branch is deleted against; one that opens
+an existing worktree (`New session in this worktree`) marks the tree as it is,
+since earlier uncommitted work may be in it; marks recorded as commits by older builds
 still work as `git diff <sha>` against the working tree.
+A read of either scope lists the untracked files in a throwaway copy of the
+index (`add --intent-to-add` of just those paths, no objects written), and the
+reads of one review share it while the real index and the untracked set stay the
+same.
 Those two scopes also move the whole read into the session's directory, which
 for a worktree thread is not the project's checkout.
 
