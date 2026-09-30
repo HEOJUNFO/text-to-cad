@@ -83,6 +83,16 @@ test("a tab gives back the files it opened when it leaves, follows their moves, 
   expect(unwatch).toHaveBeenLastCalledWith({ projectId: "p", paths: ["a.txt", "c.txt"] });
 });
 
+test("a file restatted on every reload is given back once, however many times it was opened", async () => {
+  const files = source();
+  const stat = { path: "a.txt", name: "a.txt", kind: "file" as const, size: 1, modifiedAt: 0, symlink: false, fileKind: "text" as const, mime: "text/plain", extension: "txt" };
+  vi.mocked(window.textToCad.explorer.stat).mockResolvedValue(stat);
+  for (let index = 0; index < 10_001; index += 1) await files.stat("a.txt", { signal: signal() });
+  const unwatch = vi.mocked(window.textToCad.explorer.unwatch).mockClear();
+  files.subscribe!(() => {})();
+  expect(unwatch.mock.calls[0]![0].paths!.length).toBeLessThanOrEqual(1);
+});
+
 test("Copy reference preserves clipboard text and uses the injected draft destination", async () => {
   const deliver = vi.fn<PromptContextPort["deliver"]>(async () => ({ status: "added" as const, partIds: ["reference"] }));
   const writeText = vi.fn(async () => {});

@@ -188,8 +188,8 @@ export const explorerIpc = {
      */
     watch: invoke(InRoot.extend({ paths: z.array(z.string()).max(10_000).optional() }), z.void()),
     /**
-     * Leave it. `paths` are the files the leaving tab opened, once per open
-     * stat: main forgets what it kept to follow them (`FileWatchers.unwatch`).
+     * Leave it. `paths` are the files the leaving tab opened, once per
+     * distinct path: main forgets what it kept to follow them (`FileWatchers.unwatch`).
      */
     unwatch: invoke(InRoot.extend({ paths: z.array(z.string()).max(10_000).optional() }), z.void()),
 
