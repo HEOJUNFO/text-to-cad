@@ -3,6 +3,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
 import { ExplorerPane } from "@renderer/features/explorer/ExplorerPane";
+import { claimFocus } from "@renderer/features/explorer/focus";
 import { useExplorer } from "@renderer/state/explorer";
 import { useProjects } from "@renderer/state/projects";
 import type { ExplorerTab } from "@shared/types";
@@ -78,4 +79,22 @@ it("the first terminal picked in a window takes the keyboard when its chunk land
   await waitFor(() => expect(focused.count).toBe(1));
   const stripTab = document.querySelector('[data-tab-strip] [data-tab="t1"]');
   expect(document.activeElement).not.toBe(stripTab);
+});
+
+/**
+ * A terminal already mounted has used its one claim. Picking its tab again names it wanted, and
+ * nothing is left to consume that: it is focused then, and not by the next rebuild of its widget.
+ */
+it("picking the active terminal's tab focuses it then, and leaves no claim for a later rebuild", async () => {
+  chunk.release();
+  focused.count = 0;
+  useExplorer.setState({ activeId: "t1" });
+  render(<TooltipProvider><ExplorerPane /></TooltipProvider>);
+  await waitFor(() => expect(screen.queryByText("Opening terminal…")).toBeNull());
+  expect(focused.count).toBe(0);
+
+  fireEvent.keyDown(window, { key: "2", metaKey: true, ctrlKey: true });
+  await afterSettle();
+  expect(focused.count).toBe(1);
+  expect(claimFocus("t1")).toBe(false);
 });

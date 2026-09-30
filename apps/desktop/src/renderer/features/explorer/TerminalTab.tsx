@@ -149,7 +149,7 @@ export function TerminalTab({
   const tabMoves = useTabMovesFocus();
   // Focus is taken when the person opened or picked this tab (`./focus`), never
   // on every mount: a session switch, Back or a theme change remounts it too.
-  useEffect(() => (readOnly ? undefined : holdFocusClaim(tabId)), [tabId, readOnly]);
+  useEffect(() => (readOnly ? undefined : holdFocusClaim(tabId, () => termRef.current?.focus())), [tabId, readOnly]);
   // A rebuild of this same terminal (the theme changed) keeps focus it had.
   const hadFocus = useRef(false);
 
