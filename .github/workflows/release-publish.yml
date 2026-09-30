@@ -185,7 +185,7 @@ jobs:
             cadgen/_runtime/browser/render.html \
             cadgen/_runtime/node/mesh-export.mjs \
             cadgen/_runtime/viewer/index.html \
-            cadgen/_runtime/codex/index.html; do
+            cadgen/_runtime/mcp/index.html; do
             if ! printf '%s\n' "$listing" | grep -qF " $required"; then
               echo "$(basename "$wheel") does not contain $required" >&2
               echo "scripts/bundle/bundle.sh produces it; [tool.setuptools.package-data] ships it." >&2

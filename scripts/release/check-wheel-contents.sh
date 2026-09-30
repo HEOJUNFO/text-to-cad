@@ -84,7 +84,7 @@ REQUIRED=(
   "cadgen/cli/mcp.py"
   "cadgen/mcp/server.py"
   "cadgen/mcp/tunnel.py"
-  "cadgen/_runtime/codex/index.html"
+  "cadgen/_runtime/mcp/index.html"
 )
 
 echo "Building cadgen wheel for content check..."

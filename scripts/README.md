@@ -31,7 +31,7 @@ where those files ship, so these scripts are what produces them.
   `check-builds.sh`, the pre-commit hook.
 - `cadgen-runtime.sh` — builds the four runtime stages: `--node` (esbuilt Node
   builders), `--browser` (snapshot browser bundle), `--viewer` (vite build of
-  `apps/web`), `--codex` (vite build of `apps/codex`, one `index.html`).
+  `apps/web`), `--mcp` (vite build of `apps/mcp`, one `index.html`).
   `--print-outputs` lists the two directories a bundle always produces; `--check`
   skips the viewer and codex stages, which need the apps' `node_modules` and which
   nothing in a checkout reads. Called by `bundle.sh`,
@@ -138,7 +138,7 @@ where those files ship, so these scripts are what produces them.
 - `install-skills.sh`, `uninstall-skills.sh` — symlink `skills/*` into an agent's
   skill directory (`--agent codex|claude|...`, `--all`, `--dry-run`). Developer
   step in `CONTRIBUTING.md`.
-- `codex-dev-plugin.sh` — builds `apps/codex` and installs this checkout into the
+- `codex-dev-plugin.sh` — builds `apps/mcp` and installs this checkout into the
   Codex app as `cad@earthtojake-dev` (skills copied, server run by `.venv`,
   serving a copy of the page taken at install); `--restart` reopens the app,
   `--uninstall` removes it. Developer step in `CONTRIBUTING.md` ("CAD In Codex").
