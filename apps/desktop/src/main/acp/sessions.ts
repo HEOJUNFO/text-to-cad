@@ -744,6 +744,10 @@ export class SessionManager {
     const session = this.require(id);
     const disconnectsAtStart = this.disconnects.get(id) ?? 0;
     const overtaken = () => (this.disconnects.get(id) ?? 0) !== disconnectsAtStart;
+    // What the connection this replaces last said, written now: a reload that
+    // fails `discard`s the pending write below, and the dead connection's
+    // final state (a crashed turn's, queued 750 ms out) is the only copy of it.
+    this.snapshots?.flush(id);
     if (!session.acpSessionId) {
       throw new Error("this session never connected; create it again");
     }

@@ -641,6 +641,30 @@ describe("SessionManager", () => {
     expect(JSON.parse(store.rows.get(session.id)!).turns).toHaveLength(2);
   });
 
+  /**
+   * The crashed turn's `prompt/error` queues a save, 750 ms out; a reconnect
+   * that fails inside that window used to `discard` it, and with it the only
+   * copy of the turns since the last write.
+   */
+  it("writes the crashed connection's final snapshot when the reconnect fails at once", async () => {
+    let launchArgs = [FAKE_AGENT];
+    const store = memorySnapshots();
+    const { manager, cwd } = await setup({
+      snapshots: store,
+      launchOverride: () => ({ ...fakeProvider.launch, args: launchArgs }),
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    await manager.prompt(session.id, [{ type: "text", text: "hello there" }]);
+    await expect(manager.prompt(session.id, [{ type: "text", text: "please crash" }])).rejects.toThrow();
+
+    launchArgs = [FAKE_AGENT, "--load-error"];
+    await expect(manager.load(session.id)).rejects.toThrow();
+    manager.closeAll();
+    const stored = store.rows.get(session.id);
+    expect(stored).toContain("hello there");
+    expect(stored).toContain("please crash");
+  });
+
   it("keeps the stored transcript when the app quits in the middle of a reconnect's replay", async () => {
     let launchArgs = [FAKE_AGENT];
     const store = memorySnapshots();
