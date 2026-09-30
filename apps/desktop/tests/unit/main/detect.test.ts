@@ -254,6 +254,21 @@ describe("AgentDetector on a cold table", () => {
       process.off("unhandledRejection", onUnhandled);
     }
   });
+
+  it("says a probe that failed with no last launch to fall back on: every row flagged, not an empty table", async () => {
+    const detector = new AgentDetector(providers, {
+      ...machine({}),
+      env: async () => {
+        throw new Error("the login shell went away");
+      },
+    });
+    const seen: AgentStatus[][] = [];
+    detector.onChange((statuses) => seen.push(statuses));
+    await detector.refresh(false).catch(() => undefined);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.map((row) => row.probeFailed)).toEqual([true, true]);
+    expect(seen[0]!.some((row) => row.probing)).toBe(false);
+  });
 });
 
 describe("the login shell environment", () => {

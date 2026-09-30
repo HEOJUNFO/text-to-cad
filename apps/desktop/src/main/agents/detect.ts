@@ -293,11 +293,11 @@ export class AgentDetector {
     const env = await this.probes.env(true);
     this.env = env;
     const status = await this.probe(provider, env);
-    // A provider with no row yet (a probe that failed cold) is left out rather than drawn as
-    // "not installed", and never cached as such.
+    // A provider with no row yet, or only the registry's placeholder for a probe that failed cold
+    // (`checkedAt` 0), is left out rather than drawn as "not installed", and never cached as such.
     this.statuses = this.providers.flatMap((candidate) => {
       const row = candidate.id === agentId ? status : this.statuses.find((s) => s.id === candidate.id);
-      return row ? [row] : [];
+      return row && row.checkedAt > 0 ? [row] : [];
     });
     this.persist();
     this.emit();
@@ -311,10 +311,14 @@ export class AgentDetector {
       const statuses = await Promise.all(this.providers.map((provider) => this.probe(provider, env)));
       this.statuses = statuses;
     } catch (error) {
-      if (!this.probed && this.statuses.length > 0) {
+      if (!this.probed) {
         // No fresh table is coming: the last launch's rows would stay "probing" for good. They stay,
         // unmarked but flagged: an empty table would read as "no agent ready — sign in", the wrong cause.
-        this.statuses = this.statuses.map((status) => ({ ...status, probing: undefined, probeFailed: true }));
+        // With no last launch's either, the flagged rows are the registry's, so the failure reaches
+        // the renderer as one all the same and not as a list that is still on its way.
+        this.statuses = (this.statuses.length > 0 ? this.statuses : this.providers.map(missing)).map(
+          (status) => ({ ...status, probing: undefined, probeFailed: true }),
+        );
         this.emit();
       }
       throw error;
@@ -389,4 +393,15 @@ export class AgentDetector {
       listener(this.statuses);
     }
   }
+}
+
+function missing(provider: AgentProvider): AgentStatus {
+  return {
+    ...provider,
+    installed: false,
+    binaryPath: null,
+    version: null,
+    auth: "unknown",
+    checkedAt: 0,
+  };
 }
