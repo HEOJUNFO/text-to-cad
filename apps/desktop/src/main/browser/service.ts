@@ -84,7 +84,14 @@ export class BrowserService {
     wc.on("before-mouse-event", (_event, mouse) => { if (mouse.type === "mouseDown") target.userInputAt = Date.now(); });
     wc.on("will-navigate", guard);
     wc.on("will-redirect", guard);
-    wc.on("console-message", (_event, level, message) => { this.log(target, level >= 3 ? "error" : level === 2 ? "warn" : "log", message); });
+    // The event carries `level` ("info" | "warning" | "error" | "debug") and
+    // `message`; the positional (numeric level, message) form is deprecated but
+    // read as a fallback.
+    wc.on("console-message", ((event: { level?: unknown; message?: unknown }, level?: number, message?: string) => {
+      const severity = typeof event.level === "string" ? (event.level === "error" ? "error" : event.level === "warning" ? "warn" : "log")
+        : (level ?? 0) >= 3 ? "error" : level === 2 ? "warn" : "log";
+      this.log(target, severity, typeof event.message === "string" ? event.message : message ?? "");
+    }) as never);
     // `close()` has already dropped the target, and the id may be a newer page's
     // by the time Chromium reports this one destroyed (archive, then a quick unarchive).
     wc.on("destroyed", () => {
