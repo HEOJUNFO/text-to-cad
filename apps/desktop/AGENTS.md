@@ -29,7 +29,7 @@ phase is not an oversight — it is the seam.
 | P7 (done) | `src/main/projects` (`git.ts`, `workspace.ts`, `index.ts`), `src/{shared,main}/ipc/git.ts`, `src/renderer/lib/git-mode.ts`, the review tab's scopes and commit strip, Git and worktrees' per-project cards, `tests/e2e/git.spec.ts` |
 | P8 (done) | `electron-builder.yml`, `build/`, `resources/brand`, `scripts/{package,make-icons,make-brand,app-version}.mjs`, `src/main/{updater,telemetry}.ts`, `src/{shared,main}/ipc/app.ts`, the CI jobs |
 | Browser | the embedded browser P3's tab kind grew into: `src/main/browser/`, `src/shared/browser.ts`, `src/{shared,main}/ipc/browser.ts`, `features/explorer/BrowserTab.tsx`, `docs/browser.md` |
-| Clipboard | `src/{shared,main}/ipc/clipboard.ts` — the one door to the native clipboard; renderer callers go through `window.textToCad.clipboard` |
+| Clipboard | `src/{shared,main}/ipc/clipboard.ts` — the one door to Electron's native clipboard (main-side text and PNG reads and writes, validated); renderer callers of that go through `window.textToCad.clipboard`. A copy button on the page — the vendored `terminal.tsx`, `code-block.tsx` and Streamdown's, Copy path, the terminal's selection — writes plain text with the web `navigator.clipboard.writeText`, which `clipboard-sanitized-write` in `src/main/index.ts` permits; that is not a second door to the native clipboard, and the vendored components are not rewritten to use the IPC one |
 | P9 (onboarding) | `src/main/onboarding.ts`, `src/{shared,main}/ipc/onboarding.ts`, `src/renderer/features/onboarding`, `src/renderer/state/onboarding.ts`, `resources/sample/`, the `onboarding*` settings fields |
 
 Work outside your phase's directories only where the seam requires it — a new

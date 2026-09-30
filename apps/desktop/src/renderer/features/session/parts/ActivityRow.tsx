@@ -373,8 +373,8 @@ export function ToolDetail({ part, sessionId, id }: { part: ToolCallPart; sessio
 
 function TerminalBody({ output, isStreaming }: { output: string; isStreaming: boolean }) {
   // The AI Elements Terminal renders ANSI through its own content; this
-  // body keeps its context (copy button, streaming cursor) but sizes to the
-  // transcript.
+  // body keeps its context (the streaming cursor; the transcript's Terminal
+  // draws no copy button) but sizes to the transcript.
   return (
     <pre className="break-words whitespace-pre-wrap">
       {output}
