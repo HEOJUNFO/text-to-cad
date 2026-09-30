@@ -183,9 +183,11 @@ export async function checkForUpdates(): Promise<UpdateStatus> {
     const result = await autoUpdater.checkForUpdates();
     // A check that finds nothing fires `update-not-available`, which has
     // already set the status; returning it rather than inventing one keeps the
-    // event stream and the answer identical.
+    // event stream and the answer identical. No result at all is the updater
+    // being inactive for this install (an AppImage run without APPIMAGE, a
+    // snap): that is not "up to date", it is "cannot be updated from here".
     if (!result) {
-      return setStatus({ state: "idle" });
+      return setStatus({ state: "unsupported", message: "This install has no update channel, so updates are not available." });
     }
     return status;
   } catch (error) {

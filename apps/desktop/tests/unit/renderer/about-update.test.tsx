@@ -95,13 +95,19 @@ describe("About › Software update", () => {
     expect(screen.getByRole("button", { name: /Restart.*2\.0\.0/ })).toBeInTheDocument();
   });
 
-  it("a check that finds nothing says so, without claiming the build is up to date", async () => {
+  it("a check that finds nothing says the build is up to date", async () => {
     app().checkForUpdates = vi.fn(async () => ({ state: "idle" as const }));
     useUpdates.setState({ status: { state: "idle" } });
     renderAbout();
     await userEvent.click(screen.getByRole("button", { name: "Check now" }));
     await waitFor(() => expect(app().checkForUpdates).toHaveBeenCalled());
-    expect(screen.getByRole("status")).toHaveTextContent("No update found.");
-    expect(screen.queryByText(/up to date/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("text-to-cad is up to date.");
+  });
+
+  it("an install the updater is inactive for does not claim to run from a checkout", () => {
+    useUpdates.setState({ status: { state: "unsupported", message: "This install has no update channel, so updates are not available." } });
+    renderAbout();
+    expect(screen.getByRole("status")).toHaveTextContent("This install has no update channel");
+    expect(screen.getByRole("status")).not.toHaveTextContent(/checkout/i);
   });
 });

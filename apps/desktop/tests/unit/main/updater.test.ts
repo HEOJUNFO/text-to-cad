@@ -205,6 +205,15 @@ describe("updater", () => {
     updater.stopUpdater();
   });
 
+  it("a check the updater answers with nothing is unsupported, not up to date", async () => {
+    const updater = await load();
+    mocks.check.mockResolvedValue(null);
+    const answer = await updater.checkForUpdates();
+    expect(answer.state).toBe("unsupported");
+    expect(answer.message).toMatch(/no update channel/);
+    updater.stopUpdater();
+  });
+
   it("a background check that fails leaves the offered update on offer", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const updater = await load();

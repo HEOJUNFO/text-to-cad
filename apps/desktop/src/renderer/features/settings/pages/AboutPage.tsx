@@ -133,13 +133,14 @@ function UpdateRow() {
 
   const { description, action } = {
     unsupported: {
-      description: "Updates are delivered to installed builds; this one runs from a checkout.",
+      description: status.message ?? "Updates are delivered to installed builds; this one runs from a checkout.",
       action: null,
     },
     idle: {
-      // Also what a check answers when the updater is inactive or the feed is
-      // still being uploaded: "no update found" is true of all of them.
-      description: "No update found.",
+      // Also a release whose feed for this platform is still being uploaded:
+      // nothing newer is published for this build. An inactive updater is
+      // `unsupported`, not this.
+      description: "text-to-cad is up to date.",
       action: { label: "Check now", onClick: check },
     },
     checking: { description: "Checking GitHub Releases…", action: null },
