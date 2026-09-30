@@ -254,7 +254,12 @@ export function NewSession({ project }: { project: Project }) {
       return false;
     }
     failedAttempt.current = null;
-    setActiveSession(sessionId);
+    // Only from the screen the person is still on (or the connecting row this create made): a
+    // create that outlasted a click on another thread does not pull them back.
+    const activeNow = useSessions.getState().activeId;
+    if (activeNow === null || activeNow === sessionId) {
+      setActiveSession(sessionId);
+    }
     setBusy(false);
     // The prompt goes to the session just made, whose box is the one on screen from here on. An
     // agent that refuses it (an image it cannot take), or main refusing it before any turn (the

@@ -429,6 +429,17 @@ describe("a create that outlasts the screen that asked for it", () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
+  it("does not pull the person back from the thread they moved to", async () => {
+    const user = userEvent.setup();
+    const pending = deferred<string>();
+    create.mockReturnValueOnce(pending.promise);
+    render(<NewSession project={PROJECT} />);
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    act(() => useSessions.getState().setActive("B"));
+    await act(async () => pending.resolve("s1"));
+    expect(useSessions.getState().activeId).toBe("B");
+  });
+
   it("selects the new session when the person is still on it, or on nothing", async () => {
     const user = userEvent.setup();
     create.mockResolvedValueOnce("s1");
