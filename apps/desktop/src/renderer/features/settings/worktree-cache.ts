@@ -4,49 +4,100 @@
  * Searching mounts every page and clearing the query unmounts all but the open
  * one, so type, clear, type would read every project's worktrees (a `git
  * worktree list` plus three git calls per worktree for its date) each time the
- * Git page came back. The lists live here instead, and go when Settings closes,
- * when a session opens or closes (`openSessions` is part of a row), and when a
- * worktree is deleted.
+ * Git page came back. The lists live here instead, and go when Settings closes. When a session opens, closes or moves
+ * (`openSessions` is part of a row) or a worktree is deleted, the list stays on
+ * the page, marked old, until the fresh read replaces it: a card that vanished
+ * and came back on every broadcast would flicker, and each broadcast would cost
+ * a `git worktree list` plus three git calls per worktree.
  */
 import { create } from "zustand";
 
 import type { Worktree } from "@shared/ipc/git";
+import type { Session } from "@shared/types";
 
 type WorktreeCache = {
   lists: Record<string, Worktree[]>;
+  /** The epoch each list was read at; a list from an older epoch is shown, and read again. */
+  readAt: Record<string, number>;
   /** Bumped by every invalidation: the cards mounted at the time read again. */
   epoch: number;
+  /** Mark every list old; they stay visible until their re-read lands. */
   invalidate: () => void;
+  /** Forget every list: Settings closed. */
+  clear: () => void;
 };
 
 export const useWorktreeCache = create<WorktreeCache>((set) => ({
   lists: {},
+  readAt: {},
   epoch: 0,
-  invalidate: () => set((state) => ({ lists: {}, epoch: state.epoch + 1 })),
+  invalidate: () => set((state) => ({ epoch: state.epoch + 1 })),
+  clear: () => set((state) => ({ lists: {}, readAt: {}, epoch: state.epoch + 1 })),
 }));
 
+/** Reads under way, one per project and epoch: a read begun before an invalidation is not the answer to the next. */
 const inflight = new Map<string, Promise<void>>();
 
-/** Read a project's worktrees unless the visit already has them. A failed read is not kept. */
+/** Read a project's worktrees unless the visit already has a current list. A failed read is not kept. */
 export function ensureWorktrees(projectId: string): Promise<void> {
-  if (useWorktreeCache.getState().lists[projectId]) {
+  const { epoch, readAt } = useWorktreeCache.getState();
+  if (readAt[projectId] === epoch) {
     return Promise.resolve();
   }
-  const running = inflight.get(projectId);
+  const key = `${projectId}:${epoch}`;
+  const running = inflight.get(key);
   if (running) {
     return running;
   }
-  const { epoch } = useWorktreeCache.getState();
   const read = window.textToCad.git
     .worktrees({ projectId })
     .then((list) => {
-      // An invalidation since the read began means the answer is already old.
+      // An invalidation since the read began means the answer is already old,
+      // and the card's effect has started the read that replaces it.
       if (useWorktreeCache.getState().epoch === epoch) {
-        useWorktreeCache.setState((state) => ({ lists: { ...state.lists, [projectId]: list } }));
+        useWorktreeCache.setState((state) => ({
+          lists: { ...state.lists, [projectId]: list },
+          readAt: { ...state.readAt, [projectId]: epoch },
+        }));
       }
     })
     .catch(() => {})
-    .finally(() => inflight.delete(projectId));
-  inflight.set(projectId, read);
+    .finally(() => inflight.delete(key));
+  inflight.set(key, read);
   return read;
+}
+
+/**
+ * What a worktree row depends on in the session list: which sessions there are,
+ * where each runs, and whether it is archived (`sessionsUsing`). Status, title
+ * and diff counts change with every turn and say nothing about a row.
+ */
+function usageOf(sessions: readonly Session[]): string {
+  return sessions
+    .map((session) => `${session.id}\0${session.cwd}\0${session.worktreePath ?? ""}\0${session.archived}`)
+    .sort()
+    .join("\n");
+}
+
+let usage: string | null = null;
+
+/** Note the session list Settings opened with, so the first broadcast has something to differ from. */
+export function seedSessions(sessions: readonly Session[]): void {
+  usage = usageOf(sessions);
+}
+
+/** A `sessions.changed`: mark the lists old only when it changed what a row says. */
+export function noteSessions(sessions: readonly Session[]): void {
+  const next = usageOf(sessions);
+  if (next !== usage) {
+    usage = next;
+    useWorktreeCache.getState().invalidate();
+  }
+}
+
+/** Forget every read and the remembered session usage: the module's state outlives a test's store reset. */
+export function resetForTests(): void {
+  inflight.clear();
+  usage = null;
+  useWorktreeCache.setState({ lists: {}, readAt: {}, epoch: 0 });
 }

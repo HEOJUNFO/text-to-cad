@@ -26,14 +26,17 @@ export function useSettingsPatch(): (patch: Partial<Settings>) => void {
   return (next) => void patch(next);
 }
 
+type SettingsFallbacks = { refused: Record<string, string>; gone: Record<string, string> };
+const NO_FALLBACKS: SettingsFallbacks = { refused: {}, gone: {} };
+
 /**
  * What main read as a default instead of the stored value, or found gone
- * (`settings.fallbacks`), by field: asked again whenever settings change, so a
+ * (`settings.fallbacks`: `refused`, and `gone` for a remembered folder), by field: asked again whenever settings change, so a
  * note goes once the field is set.
  */
-export function useSettingsFallbacks(): Record<string, string> {
+export function useSettingsFallbacks(): SettingsFallbacks {
   const settings = useSettingsValue();
-  const [fallbacks, setFallbacks] = useState<Record<string, string>>({});
+  const [fallbacks, setFallbacks] = useState<SettingsFallbacks>(NO_FALLBACKS);
   useEffect(() => {
     let current = true;
     void window.textToCad.settings

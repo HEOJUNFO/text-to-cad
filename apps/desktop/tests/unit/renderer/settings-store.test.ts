@@ -5,13 +5,14 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 
-import { useSettings } from "@renderer/state/settings";
+import { resetForTests, useSettings } from "@renderer/state/settings";
 import { defaultSettings, type Settings } from "@shared/types";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), dismiss: vi.fn(), info: vi.fn() } }));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetForTests();
   useSettings.setState({ settings: defaultSettings(), ready: true });
 });
 

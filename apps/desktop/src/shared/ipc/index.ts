@@ -145,9 +145,17 @@ export const ipcContract = defineIpc({
     /**
      * Stored values the read refused and answered with the default in place
      * of, by field — a branch prefix git refuses, written before the check
-     * existed — so the page that shows the field can say so.
+     * existed — so the page that shows the field can say so; and, apart from
+     * those, the remembered folders that are gone.
      */
-    fallbacks: invoke(z.void(), z.record(z.string(), z.string())),
+    fallbacks: invoke(
+      z.void(),
+      z.object({
+        refused: z.record(z.string(), z.string()),
+        /** Remembered folders (`defaultProjectFolder`, `worktreeRoot`) that no longer exist: stored fine, just gone. */
+        gone: z.record(z.string(), z.string()),
+      }),
+    ),
   },
 
   window: {

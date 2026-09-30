@@ -14,6 +14,7 @@ import { projects, settings } from "../db/repositories";
 import { viewers } from "../cad";
 import { changedSettingsKeys, track } from "../telemetry";
 import { applySettingsEffects } from "../settings-effects";
+import { settingsFallbacks } from "./settings-fallbacks";
 import { takeQueuedCommands } from "../menu";
 import { acpHandlers } from "./acp";
 import { agentOptionsHandlers } from "./agent-options";
@@ -23,7 +24,7 @@ import { integrationHandlers } from "./integrations";
 import { cadHandlers } from "./cad";
 import { clipboardHandlers } from "./clipboard";
 import { browserHandlers } from "./browser";
-import { dialogsHandlers, existingPath } from "./dialogs";
+import { dialogsHandlers } from "./dialogs";
 import { explorerHandlers, initExplorerServices, revealProjectDirectory } from "./explorer";
 import { gitHandlers } from "./git";
 import { refreshRuntimeAfterOverride, runtimeHandlers } from "./runtime";
@@ -118,20 +119,7 @@ const handlers = {
       }
       return next;
     },
-    // The refused stored values, plus the two remembered folders that are gone:
-    // neither is replaced (the chooser just stops opening there), but the page
-    // that shows the path says so, and this is the one channel it already asks.
-    fallbacks: async () => {
-      const stored = settings.get();
-      const gone: Record<string, string> = {};
-      for (const key of ["defaultProjectFolder", "worktreeRoot"] as const) {
-        const folder = stored[key];
-        if (folder && (await existingPath(folder)) === undefined) {
-          gone[key] = folder;
-        }
-      }
-      return { ...settings.fallbacks(), ...gone };
-    },
+    fallbacks: settingsFallbacks,
   },
 
   window: {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
@@ -38,8 +38,16 @@ describe("Settings › General", () => {
 
   it("notes a default project folder that no longer exists", async () => {
     useSettings.setState({ settings: { ...defaultSettings(), defaultProjectFolder: "/gone" }, ready: true });
-    vi.mocked(window.textToCad.settings.fallbacks).mockResolvedValue({ defaultProjectFolder: "/gone" });
+    vi.mocked(window.textToCad.settings.fallbacks).mockResolvedValue({ refused: {}, gone: { defaultProjectFolder: "/gone" } });
     render(<TooltipProvider><SettingsRoute /></TooltipProvider>);
-    expect(await screen.findByText(/no longer exists, so the chooser opens in your home folder/)).toBeInTheDocument();
+    expect(await screen.findByText(/no longer exists, so the chooser opens where it last did/)).toBeInTheDocument();
+  });
+
+  it("does not call a refused (wrong-typed) default project folder gone", async () => {
+    vi.mocked(window.textToCad.settings.fallbacks).mockResolvedValue({ refused: { defaultProjectFolder: "7" }, gone: {} });
+    render(<TooltipProvider><SettingsRoute /></TooltipProvider>);
+    await screen.findByText("Default project folder");
+    await waitFor(() => expect(window.textToCad.settings.fallbacks).toHaveBeenCalled());
+    expect(screen.queryByText(/no longer exists/)).not.toBeInTheDocument();
   });
 });

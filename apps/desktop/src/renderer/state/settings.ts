@@ -28,6 +28,12 @@ type Pending = { id: number; value: unknown; base: unknown };
 const pending = new Map<keyof Settings, Pending>();
 let writeSeq = 0;
 
+/** Forget every in-flight write: the module's maps outlive a test's store reset. */
+export function resetForTests(): void {
+  pending.clear();
+  writeSeq = 0;
+}
+
 /** What main reported, with this window's in-flight writes laid over it. */
 function overlay(reported: Settings): Settings {
   if (pending.size === 0) {
