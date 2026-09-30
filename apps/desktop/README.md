@@ -184,7 +184,9 @@ drops one that is now a file, so it agrees with `projects.add`. A remembered
 folder that is gone gets a quiet note on its row: General's Default project
 folder ("This folder no longer exists, so the chooser opens where it last
 did.") and Git and worktrees' Worktree folder ("…it is created again with the
-next worktree.").
+next worktree."). A remembered path that is now a file gets its own wording
+("This is a file, not a folder, …") and no promise of being created again,
+since a folder cannot be made there.
 
 **Settings persist optimistically** (`state/settings.ts`). A write moves the
 store at once and goes out over IPC; the reply, the whole object, is the
@@ -201,9 +203,12 @@ parses takes its default and leaves the others alone. `settings.fallbacks()`
 (`src/main/ipc/settings-fallbacks.ts`, read by `useSettingsFallbacks`, asked
 again whenever settings change) returns `{ refused, gone }`: `refused` is every
 top-level field that failed its own parse, field to stored text; `gone` is a
-remembered `defaultProjectFolder` or `worktreeRoot` that parses but no longer
-exists as a folder. A folder of the wrong type is `refused`, never `gone`: the
-note for `gone` says the folder no longer exists, which would be untrue. The
+remembered `defaultProjectFolder` or `worktreeRoot` that parses but is no
+longer a folder, field to `{ path, reason }` with `reason` `missing` (nothing
+there) or `file` (a file is). A stored value of the wrong JSON type is
+`refused`, never `gone`: the note for `gone` says the folder no longer exists,
+which would be untrue; a path that is a file is `gone` with the `file` reason,
+and its note says so. The
 Git page keeps its worktree lists for the visit (`worktree-cache.ts`): a card
 that mounts reads afresh over the kept list, only a change in which sessions
 run where (id, cwd, worktreePath, archived) invalidates on `sessions.changed`,
@@ -2365,8 +2370,9 @@ writes nothing. One stored before that check existed is read as the default
 (`text-to-cad/`), and `settings.fallbacks()` (`src/shared/ipc/index.ts`,
 handler in `src/main/ipc/settings-fallbacks.ts`) returns `{ refused, gone }`:
 `refused` holds the stored text of every top-level field that failed its own
-parse, `gone` the remembered `defaultProjectFolder` or `worktreeRoot` that no
-longer exists (a wrong-typed folder is `refused`, never `gone`). The Git page
+parse, `gone` the remembered `defaultProjectFolder` or `worktreeRoot` that is no
+longer a folder, with `reason` `missing` or `file` (a wrong-typed value is
+`refused`, never `gone`). The Git page
 (`GitPage.tsx`) flags a refused `branchPrefix` in a warning beside the field
 with **Use default**, which stores the default over it; a gone folder shows a
 quiet note on its row.

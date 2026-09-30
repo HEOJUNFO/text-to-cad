@@ -373,8 +373,10 @@ the rule is about.
 - **One bad stored settings field never breaks the others.** Each field parses
   alone (`parseFields` in `src/main/db/repositories.ts`) and a refused one takes
   its default; `settings.fallbacks` reports it in `refused`, field to stored
-  text. A folder of the wrong type is `refused`, never `gone`: `gone` is only a
-  remembered folder that parses and no longer exists, and its note says so.
+  text. A stored value of the wrong JSON type is `refused`, never `gone`; a path
+  that is a file is `gone` with the reason `file`, and a path with nothing at
+  it with `missing` — the row says "a file, not a folder" for the one and
+  "no longer exists" for the other.
 - **The viewer warm is gated by a model in the root; the daemon is not.**
   `warmCad` starts a root's viewer only when `hasCadFile` finds a model in it,
   and warms the build daemon on every bind (unless the kernel is `missing` or

@@ -38,9 +38,17 @@ describe("Settings › General", () => {
 
   it("notes a default project folder that no longer exists", async () => {
     useSettings.setState({ settings: { ...defaultSettings(), defaultProjectFolder: "/gone" }, ready: true });
-    vi.mocked(window.textToCad.settings.fallbacks).mockResolvedValue({ refused: {}, gone: { defaultProjectFolder: "/gone" } });
+    vi.mocked(window.textToCad.settings.fallbacks).mockResolvedValue({ refused: {}, gone: { defaultProjectFolder: { path: "/gone", reason: "missing" } } });
     render(<TooltipProvider><SettingsRoute /></TooltipProvider>);
     expect(await screen.findByText(/no longer exists, so the chooser opens where it last did/)).toBeInTheDocument();
+  });
+
+  it("says a default project folder that is now a file is a file, not a missing folder", async () => {
+    useSettings.setState({ settings: { ...defaultSettings(), defaultProjectFolder: "/a-file" }, ready: true });
+    vi.mocked(window.textToCad.settings.fallbacks).mockResolvedValue({ refused: {}, gone: { defaultProjectFolder: { path: "/a-file", reason: "file" } } });
+    render(<TooltipProvider><SettingsRoute /></TooltipProvider>);
+    expect(await screen.findByText(/is a file, not a folder, so the chooser opens where it last did/)).toBeInTheDocument();
+    expect(screen.queryByText(/no longer exists/)).not.toBeInTheDocument();
   });
 
   it("does not call a refused (wrong-typed) default project folder gone", async () => {

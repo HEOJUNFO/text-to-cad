@@ -26,7 +26,7 @@ export function useSettingsPatch(): (patch: Partial<Settings>) => void {
   return (next) => void patch(next);
 }
 
-type SettingsFallbacks = { refused: Record<string, string>; gone: Record<string, string> };
+type SettingsFallbacks = { refused: Record<string, string>; gone: Record<string, { path: string; reason: "missing" | "file" }> };
 const NO_FALLBACKS: SettingsFallbacks = { refused: {}, gone: {} };
 
 /**

@@ -68,6 +68,31 @@ it("says on the row why a worktree is kept: in use, locked", async () => {
   expect(screen.getByText(/held · locked/)).toBeInTheDocument();
 });
 
+it("words a worktree root that is now a file as a file, and drops \"created again\" for it", async () => {
+  useSettings.setState({ settings: { ...defaultSettings(), worktreeRoot: "/a-file" }, ready: true });
+  vi.mocked(window.textToCad.git.worktrees).mockResolvedValue([]);
+  vi.mocked(window.textToCad.settings.fallbacks).mockResolvedValue({ refused: {}, gone: { worktreeRoot: { path: "/a-file", reason: "file" } } });
+  render(
+    <TooltipProvider>
+      <GitPage />
+    </TooltipProvider>,
+  );
+  expect(await screen.findByText(/is a file, not a folder, so worktrees cannot be made here/)).toBeInTheDocument();
+  expect(screen.queryByText(/created again/)).not.toBeInTheDocument();
+});
+
+it("keeps \"created again with the next worktree\" for a worktree root that is missing", async () => {
+  useSettings.setState({ settings: { ...defaultSettings(), worktreeRoot: "/gone" }, ready: true });
+  vi.mocked(window.textToCad.git.worktrees).mockResolvedValue([]);
+  vi.mocked(window.textToCad.settings.fallbacks).mockResolvedValue({ refused: {}, gone: { worktreeRoot: { path: "/gone", reason: "missing" } } });
+  render(
+    <TooltipProvider>
+      <GitPage />
+    </TooltipProvider>,
+  );
+  expect(await screen.findByText(/no longer exists; it is created again with the next worktree/)).toBeInTheDocument();
+});
+
 it("reads afresh each time the search mounts the Git page, and keeps the list on the page meanwhile", async () => {
   const user = userEvent.setup();
   vi.mocked(window.textToCad.git.worktrees).mockClear();
