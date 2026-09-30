@@ -620,7 +620,16 @@ export const explorerHandlers = {
         await services().watchers.unwatch(directory, paths);
       }),
 
-    loadTabs: ({ sessionId }: { sessionId: string }) => explorerTabs.list(sessionId),
+    // A saved terminal tab names a pty of the run that saved it. Ptys die with
+    // the app, so an id no live pty of this session answers to is released here
+    // and the tab starts a fresh shell; left in, every restored terminal would
+    // say "no longer running" until Try again. An agent's read-only terminal is
+    // not restarted (nobody is driving it): it keeps the id and says so.
+    loadTabs: ({ sessionId }: { sessionId: string }) => {
+      const { terminals: live } = services();
+      return explorerTabs.list(sessionId).map(tab =>
+        tab.kind === "terminal" && tab.ptyId && !tab.readOnly && !live.owns(tab.ptyId, sessionId) ? { ...tab, ptyId: null } : tab);
+    },
 
     saveTabs: ({ sessionId, tabs }: { sessionId: string; tabs: ExplorerTab[] }) => {
       explorerTabs.replace(sessionId, tabs);

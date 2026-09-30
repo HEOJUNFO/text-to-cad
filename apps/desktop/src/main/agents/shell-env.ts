@@ -41,14 +41,24 @@ const HOST_SESSION_PATTERN =
   /^(CLAUDECODE|CLAUDE_CODE_|CLAUDE_PID$|CLAUDE_EFFORT$|CLAUDE_TMPDIR$|CLAUDE_PLUGIN_DATA$|CLAUDE_AGENT_SDK_|CLAUDE_PREVIEW_)/;
 const HOST_SESSION_EXTRA = new Set(["ANTHROPIC_BASE_URL"]);
 
-/** Drop the variables a host Claude Code session injected. Exported for the tests. */
-export function stripHostSession(env: Env): Env {
-  if (!(HOST_SESSION_MARKER in env)) {
+/**
+ * Drop the variables a host Claude Code session injected. Exported for the
+ * tests.
+ *
+ * `host` is the process environment the variables came from. Given it, only a
+ * variable whose value is the host's is dropped: an `ANTHROPIC_BASE_URL` or a
+ * `CLAUDE_CODE_OAUTH_TOKEN` the person exports in their own rc file differs
+ * from the host's (or is one the host never had) and is theirs to keep. Without
+ * it, `env` is the host's own and everything matching goes.
+ */
+export function stripHostSession(env: Env, host?: Env): Env {
+  if (!(HOST_SESSION_MARKER in (host ?? env))) {
     return env;
   }
   const clean: Env = {};
   for (const [key, value] of Object.entries(env)) {
-    if (!HOST_SESSION_PATTERN.test(key) && !HOST_SESSION_EXTRA.has(key)) {
+    const injected = HOST_SESSION_PATTERN.test(key) || HOST_SESSION_EXTRA.has(key);
+    if (!injected || (host !== undefined && host[key] !== value)) {
       clean[key] = value;
     }
   }
@@ -89,7 +99,7 @@ export function loginEnv(options: { force?: boolean; timeoutMs?: number; shell?:
         );
         return processEnv();
       })
-      .then(stripHostSession);
+      .then((env) => stripHostSession(env, processEnv()));
   }
   return cached;
 }

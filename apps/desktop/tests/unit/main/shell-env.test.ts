@@ -66,6 +66,25 @@ describe.skipIf(process.platform === "win32")("capturing the login shell", () =>
     }
   });
 
+  it("drops a host Claude Code session's variables but keeps the ones the login shell set itself", async () => {
+    vi.stubEnv("CLAUDECODE", "1");
+    vi.stubEnv("CLAUDE_CODE_OAUTH_TOKEN", "host");
+    vi.stubEnv("CLAUDE_CODE_ENTRYPOINT", "cli");
+    const shell = fakeShell(
+      'env -i PATH=/fake/bin:/usr/bin:/bin CLAUDE_CODE_OAUTH_TOKEN=mine ANTHROPIC_BASE_URL=https://proxy.example /bin/sh -c "$2"',
+    );
+    try {
+      const env = await loginEnv({ force: true, timeoutMs: 5_000, shell });
+      // The rc's own value survives; the host's, inherited unchanged, does not.
+      expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("mine");
+      expect(env.ANTHROPIC_BASE_URL).toBe("https://proxy.example");
+      expect(env).not.toHaveProperty("CLAUDE_CODE_ENTRYPOINT");
+      expect(env).not.toHaveProperty("CLAUDECODE");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("falls back to process.env with a warning when the shell is too slow", async () => {
     const shell = fakeShell("sleep 5");
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

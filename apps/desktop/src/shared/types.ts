@@ -321,7 +321,10 @@ export const BrowserTabSchema = z.object({
 export const TerminalTabSchema = z.object({
   ...ExplorerTabBase,
   kind: z.literal("terminal"),
-  /** Set once the pty exists; null after a restart, when it is respawned. */
+  /**
+   * Set once the pty exists; null after a restart, when it is respawned
+   * (`loadTabs` releases an id no live pty answers to).
+   */
   ptyId: z.string().nullable(),
   /**
    * Absolute working directory. Null means the project root — a session that

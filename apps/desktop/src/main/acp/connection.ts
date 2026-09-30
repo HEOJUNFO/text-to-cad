@@ -577,6 +577,10 @@ export class SessionConnection {
       });
       return response;
     } catch (error) {
+      // A turn the agent did not take carried nothing: the retry, or the next
+      // message, is the first the agent actually reads, and the only place a
+      // preamble-only agent hears where the skills are.
+      this.pendingPreamble ??= preamble;
       const described = this.describe(error, "session/prompt");
       // After `close` the rejection is the SDK tearing down the turn we
       // killed, not a failure of it: `closed` was the last word.

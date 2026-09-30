@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 
-const fixture = vi.hoisted(() => ({ root: "" }));
+const fixture = vi.hoisted(() => ({ root: "", tabs: [] as unknown[] }));
 const spawn = vi.hoisted(() => vi.fn());
 const pty = vi.hoisted(() => ({ write: vi.fn(), kill: vi.fn(), resize: vi.fn(), onData: vi.fn(), onExit: vi.fn() }));
 vi.mock("node-pty", () => ({ spawn }));
@@ -24,7 +24,7 @@ vi.mock("@main/db/repositories", () => {
     },
     sessions: { get: session, list: () => [session("owner"), session("intruder")] },
     settings: { get: () => ({}) },
-    explorerTabs: {},
+    explorerTabs: { list: () => fixture.tabs },
   };
 });
 // The real `realDirectory`: `explorer/fs` resolves new paths through it, and an
@@ -84,4 +84,14 @@ test("create ignores a shell or arguments the renderer names", async () => {
   const [shell, args] = spawn.mock.calls[0] as [string, string[]];
   expect(shell).not.toBe("/bin/evil");
   expect(args).not.toEqual(["-c", "x"]);
+});
+
+test("loadTabs releases a terminal tab's pty id when no live pty of the session answers to it", async () => {
+  const { id } = await terminal.create({ projectId: "project", sessionId: "owner" });
+  const tab = (tabId: string, ptyId: string | null, readOnly = false) => ({ id: tabId, kind: "terminal", ptyId, readOnly });
+  fixture.tabs = [tab("live", id), tab("dead", "pty-old"), tab("agent", "pty-agent", true), { id: "file", kind: "file" }];
+  const loaded = explorerHandlers.explorer.loadTabs({ sessionId: "owner" }) as Array<{ id: string; ptyId?: string | null }>;
+  expect(loaded.map(t => [t.id, t.ptyId])).toEqual([["live", id], ["dead", null], ["agent", "pty-agent"], ["file", undefined]]);
+  // Another session's live pty is no more this session's than a dead one.
+  expect((explorerHandlers.explorer.loadTabs({ sessionId: "intruder" }) as Array<{ id: string; ptyId?: string | null }>)[0]!.ptyId).toBeNull();
 });

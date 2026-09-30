@@ -165,11 +165,24 @@ export async function workspaceDirectory(directory: string): Promise<{ rootDirec
  * thread in `open` for good, and a file checked by path and then read by path
  * can be swapped or grown in between. The read stops one byte past the cap,
  * so a file that grew after the check is still refused rather than read whole.
+ *
+ * The path was resolved inside `directory` some awaits ago, and `open` follows
+ * links: an agent that swaps `x.png` (or a folder above it) for a link to
+ * `~/.ssh/id_rsa` in between would be read as the app. So once the handle is
+ * open the path is resolved again and must still be inside `directory` and
+ * name the very file the handle holds (device and inode).
  */
-async function readSnapshot(absolute: string, target: string, signal?: AbortSignal): Promise<Buffer> {
+async function readSnapshot(directory: string, absolute: string, target: string, signal?: AbortSignal): Promise<Buffer> {
   const handle = await fsp.open(absolute, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0));
   try {
-    if (!(await handle.stat()).isFile()) throw new Error(`${target} is not a file`);
+    const opened = await handle.stat();
+    if (!opened.isFile()) throw new Error(`${target} is not a file`);
+    const now = await fsp.realpath(absolute).catch(() => null);
+    const there = now && await fsp.stat(now).catch(() => null);
+    const relative = now ? path.relative(directory, now) : "";
+    if (!there || relative.startsWith("..") || path.isAbsolute(relative) || there.dev !== opened.dev || there.ino !== opened.ino) {
+      throw new Error(`${target} changed while it was being read; only files inside the workspace can be shown`);
+    }
     const buffer = Buffer.allocUnsafe(MAX_SNAPSHOT_BYTES + 1);
     let length = 0;
     while (length < buffer.length) {
@@ -219,7 +232,7 @@ export function createActions(deps: ActionDeps, commands: RendererCommands): Bri
     const resolved = await resolveForSession(deps, session, target);
     const mimeType = IMAGE_TYPES[path.extname(resolved.absolute).toLowerCase()];
     if (!mimeType) throw new Error(`${target} is not a PNG, JPEG, WebP or GIF`);
-    return { path: resolved.relative, mimeType, base64: (await readSnapshot(resolved.absolute, target, signal)).toString("base64") };
+    return { path: resolved.relative, mimeType, base64: (await readSnapshot(resolved.directory, resolved.absolute, target, signal)).toString("base64") };
   };
   return actions;
 }
