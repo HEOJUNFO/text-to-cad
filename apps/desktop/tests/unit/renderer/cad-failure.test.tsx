@@ -49,3 +49,13 @@ it("a failing override interpreter is named, not blamed on the runtime that ship
   expect(screen.getByText(/CAD_DESKTOP_PYTHON or the cadPythonOverride setting/)).toBeInTheDocument();
   expect(screen.queryByText(/ships with text-to-cad could not run cadgen/)).toBeNull();
 });
+
+it("Try again on a runtime card forgets the failed probe before it reloads", async () => {
+  const reload = vi.fn();
+  vi.mocked(window.textToCad.runtime.repair).mockResolvedValueOnce({ state: "ready", python: "/py", source: "bundled", cadgenVersion: "1", viewerBuilt: true, log: null, message: null } as never);
+  render(<DesktopCadFailure answer={{ origin: null, reason: "runtime-not-ready", message: "cadgen: not found" } as never} onReady={() => {}} reload={reload} />);
+  await userEvent.setup().click(screen.getByRole("button", { name: "Try again" }));
+  await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+  expect(window.textToCad.runtime.repair).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(window.textToCad.runtime.repair).mock.invocationCallOrder[0]).toBeLessThan(reload.mock.invocationCallOrder[0]!);
+});

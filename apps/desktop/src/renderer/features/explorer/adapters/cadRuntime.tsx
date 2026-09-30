@@ -239,6 +239,13 @@ export function DesktopCadFailure({ answer, onReady, reload }: { answer: ViewerO
   useEffect(() => {
     if (reason === "runtime-not-ready") void useRuntime.getState().load().catch(() => {});
   }, [reason]);
+  // The runtime probe remembers a failure for a minute, and `reload` only asks the viewer again —
+  // which reads that cached rejection. A runtime card's Try again forgets the probe first (what
+  // Settings › About › Repair does), so a fixed override or a reinstalled bundle is seen at once.
+  const retry = () => {
+    if (reason !== "runtime-not-ready") return reload();
+    void useRuntime.getState().repair().catch(() => {}).finally(reload);
+  };
   const override = reason === "runtime-not-ready" && runtime?.source === "override" && runtime.state !== "ready" && runtime.python ? runtime.python : null;
   return <EmptyState icon={Box} title={TITLES[reason]} description={override ? overrideReason(override) : REASONS[reason]} tone="warn" action={reason === "no-project" ?
     <div className="flex items-center gap-2" data-cad-failure={reason}>
@@ -247,7 +254,7 @@ export function DesktopCadFailure({ answer, onReady, reload }: { answer: ViewerO
     <div className="flex flex-col items-center gap-2" data-cad-failure={reason}>
       {answer.message ? <pre className="max-h-40 max-w-[420px] overflow-auto rounded-lg border bg-muted/40 px-3 py-2 text-left font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground"><code data-selectable>{answer.message}</code></pre> : null}
       <div className="flex items-center gap-2">
-        <Button className="h-7 gap-1.5 text-xs" onClick={reload} size="sm" variant="secondary"><RefreshCw className="size-3.5" />Try again</Button>
+        <Button className="h-7 gap-1.5 text-xs" onClick={retry} size="sm" variant="secondary"><RefreshCw className="size-3.5" />Try again</Button>
         <Button className="h-7 gap-1.5 text-xs" onClick={() => openSettings("about")} size="sm" variant="ghost"><Settings2 className="size-3.5" />Runtime status</Button>
         {answer.log ? <Button className="h-7 gap-1.5 text-xs" onClick={revealLog} size="sm" variant="ghost"><FolderOpen className="size-3.5" />Reveal log</Button> : null}
       </div>
