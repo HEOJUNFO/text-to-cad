@@ -24,6 +24,7 @@ const VALUE_ALLOWLIST = new Set([
   "terminal-replies",
   "titlebar",
   "ipc/errors",
+  "image-cap",
 ]);
 
 function sources(dir: string): string[] {

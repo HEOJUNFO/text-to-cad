@@ -75,7 +75,7 @@ the rule is about.
   types and pure, dependency-free modules** (zod aside) — never anything that
   touches Node, Electron or the file system. The modules it takes values from
   today: `types.ts` (the schemas, `PANE_LIMITS`), `acp/options.ts`,
-  `acp/reduce.ts`, `cad-refs.ts`, `terminal-replies.ts`, `titlebar.ts` and
+  `acp/reduce.ts`, `cad-refs.ts`, `image-cap.ts`, `terminal-replies.ts`, `titlebar.ts` and
   `ipc/errors.ts`. A shared module that grows a Node import stops
   qualifying. Its one way off the page is `window.textToCad`, built from the
   contract in `src/shared/ipc/index.ts`.
