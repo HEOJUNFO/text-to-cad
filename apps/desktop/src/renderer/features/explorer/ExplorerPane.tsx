@@ -266,6 +266,13 @@ export function useExplorerShortcuts() {
         if (!event.repeat) focusOpened(open("file"));
         return;
       }
+      // The chords above open a tab, and opening reveals the pane. Close and pick act on tabs
+      // the person cannot see while the explorer is collapsed, so they are left to the menu
+      // (Cmd+W closes the window, as it did before there was a strip): closing a hidden tab
+      // would kill its shell, and picking one would change what the next reveal shows.
+      if (useExplorer.getState().collapsed) {
+        return;
+      }
       // A held key repeats: it is swallowed, not acted on again. Holding Cmd+T would open
       // tabs by the dozen, and holding Cmd+W would close them all and then, with none left,
       // fall through to the menu's Close and close the window.
