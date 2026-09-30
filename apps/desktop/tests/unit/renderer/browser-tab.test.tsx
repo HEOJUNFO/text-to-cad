@@ -46,3 +46,24 @@ it("keeps a half-typed address when the page's URL changes under it, and resyncs
   fireEvent.blur(input);
   expect(input).toHaveValue("https://example.com/next");
 });
+
+it("keeps a half-typed address across blur", () => {
+  renderTab();
+  const input = screen.getByRole("textbox", { name: "Address" });
+  fireEvent.focus(input);
+  fireEvent.change(input, { target: { value: "exam" } });
+  fireEvent.blur(input);
+  expect(input).toHaveValue("exam");
+});
+
+it("drops a half-typed address on Escape, so the page's next URL shows", () => {
+  renderTab();
+  const input = screen.getByRole("textbox", { name: "Address" });
+  fireEvent.focus(input);
+  fireEvent.change(input, { target: { value: "exam" } });
+  fireEvent.keyDown(input, { key: "Escape" });
+  fireEvent.blur(input);
+  expect(input).toHaveValue("https://example.com/");
+  act(() => useBrowser.setState({ targets: { page: { ...target, url: "https://example.com/next" } } }));
+  expect(input).toHaveValue("https://example.com/next");
+});

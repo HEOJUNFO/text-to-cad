@@ -28,6 +28,7 @@ export function BrowserTab({ sessionId, projectId, root, tabId, url }: { session
   const [adding, setAdding] = useState(false);
   const [promptStatus, setPromptStatus] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ value: string; source: string | null; committed: boolean } | null>(null);
+  const [focused, setFocused] = useState(false);
   // In the store, not local state: the poll only carries console lines while
   // the panel is open.
   const showConsole = useBrowser(state => Boolean(state.consoles[tabId]));
@@ -41,10 +42,12 @@ export function BrowserTab({ sessionId, projectId, root, tabId, url }: { session
   useEffect(() => {
     if (viewRef.current) return mount({ sessionId, projectId, root, tabId }, initialURL.current, viewRef.current);
   }, [mount, sessionId, projectId, root, tabId]);
-  // What is being typed outlives the page's URL changing under it (a pushState,
-  // a redirect, an agent's navigation) and goes on blur; what was committed is
-  // shown only until the page moves on.
-  const address = draft && (!draft.committed || draft.source === current) ? draft.value : current ?? "";
+  // What is being typed outlives blur, as in Chrome and Safari, and goes on
+  // Escape, on commit, or once the page's URL moves while the field is not
+  // focused; while it is focused a URL change under it does not disturb it.
+  // What was committed is shown only until the page moves on.
+  const address = draft && (draft.committed ? draft.source === current : focused || draft.source === current) ? draft.value : current ?? "";
+  if (!focused && draft && !draft.committed && draft.source !== current) setDraft(null);
   const setAddress = (value: string) => setDraft({ value, source: current, committed: false });
   const navigate = useCallback((raw: string) => {
     const resolved = resolveAddress(raw);
@@ -99,8 +102,8 @@ export function BrowserTab({ sessionId, projectId, root, tabId, url }: { session
           aria-label="Address"
           className="mx-1 h-6 min-w-0 flex-1 rounded-md bg-muted/60 px-2.5 text-[12px] outline-none placeholder:text-muted-foreground focus:bg-muted"
           onChange={(event) => setAddress(event.target.value)}
-          onBlur={() => setDraft(previous => (previous?.committed ? previous : null))}
-          onFocus={(event) => event.currentTarget.select()}
+          onBlur={() => setFocused(false)}
+          onFocus={(event) => { setFocused(true); event.currentTarget.select(); }}
           onKeyDown={(event) => {
             // The Enter that picks a candidate in an input method belongs to it (229: Safari-era keyCode).
             if (event.nativeEvent.isComposing || event.keyCode === 229) return;
@@ -108,7 +111,7 @@ export function BrowserTab({ sessionId, projectId, root, tabId, url }: { session
               navigate(event.currentTarget.value);
             }
             if (event.key === "Escape") {
-              setAddress(current ?? "");
+              setDraft(null);
               event.currentTarget.blur();
             }
           }}

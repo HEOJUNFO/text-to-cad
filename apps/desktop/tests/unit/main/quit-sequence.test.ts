@@ -28,6 +28,8 @@ const h = vi.hoisted(() => ({
   app: null as unknown as EventEmitter,
   manager: null as { closeAll(): void } | null,
   cadFails: false,
+  /** The database handle's `close()` throws. */
+  dbCloseFails: false,
   ready: false,
   /** `app.isReady()` at each call of Aptabase's `initialize`. */
   aptabaseInitReady: [] as boolean[],
@@ -104,6 +106,9 @@ vi.mock("better-sqlite3", () => ({
     close() {
       h.order.push("closeDb");
       h.teardown.push("database");
+      if (h.dbCloseFails) {
+        throw new Error("close failed");
+      }
     }
   },
 }));
@@ -146,7 +151,7 @@ vi.mock("@main/cad", () => ({
 vi.mock("@main/browser/service", () => ({ browserService: { dispose: () => undefined } }));
 vi.mock("@main/children", async (importOriginal) => ({
   ...(await importOriginal<typeof Children>()),
-  endTrackedChildren: () => undefined,
+  endTrackedChildren: () => void h.teardown.push("ended"),
   killTrackedChildren: () => void h.teardown.push("children"),
 }));
 vi.mock("@main/ipc", () => ({ broadcast: () => undefined, registerIpcHandlers: () => undefined }));
@@ -337,6 +342,7 @@ describe("quit sequence", () => {
     h.windows.length = 0;
     h.teardown.length = 0;
     h.cadFails = false;
+    h.dbCloseFails = false;
     h.ready = false;
     h.arm.mockClear();
     // The app emitter outlives resetModules: earlier imports' listeners go.
@@ -382,6 +388,39 @@ describe("quit sequence", () => {
     uncaught(new Error("x"));
     expect(h.teardown).toEqual(["children", "exit"]);
     expect(h.electron.app.exit).toHaveBeenCalledWith(1);
+    main.restore();
+  });
+
+  it("an uncaught exception outside a quit shows Electron's error box, since the listener took its dialog away", async () => {
+    const main = await freshMain();
+    const uncaught = main.handlers.get("uncaughtException")!;
+    h.electron.dialog.showErrorBox.mockClear();
+    // Under NODE_ENV=test a box would hold a suite run.
+    uncaught(new Error("boom"));
+    expect(h.electron.dialog.showErrorBox).not.toHaveBeenCalled();
+
+    const mode = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      uncaught(new Error("boom"));
+    } finally {
+      process.env.NODE_ENV = mode;
+    }
+    expect(h.electron.dialog.showErrorBox).toHaveBeenCalledWith(expect.any(String), expect.stringContaining("boom"));
+    main.restore();
+  });
+
+  it("a teardown step that throws does not skip the rest of the quit: it is marked, the later steps run and the deadline is armed", async () => {
+    const main = await freshMain();
+    const { isQuitting } = await import("@main/quitting");
+    h.teardown.length = 0;
+    h.dbCloseFails = true;
+    expect(() => h.app.emit("before-quit")).not.toThrow();
+    expect(isQuitting()).toBe(true);
+    // closeDb threw; the children still ended, and the deadline is armed.
+    expect(h.teardown).toContain("ended");
+    expect(h.arm).toHaveBeenCalledTimes(1);
+    expect(main.error).toHaveBeenCalledWith("[main] quit teardown database:", expect.any(Error));
     main.restore();
   });
 });

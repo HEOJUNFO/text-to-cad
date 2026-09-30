@@ -223,3 +223,13 @@ it("lets more than ten CDP connections listen on its events without a MaxListene
   } finally { process.off("warning", warn); }
   expect(warn).not.toHaveBeenCalled();
 });
+
+it("still warns about a listener leak, past a finite cap", async () => {
+  const warn = vi.fn();
+  process.on("warning", warn);
+  try {
+    for (let listener = 0; listener < 101; listener += 1) service.events.on("opened", () => {});
+    await new Promise(resolve => setImmediate(resolve));
+  } finally { process.off("warning", warn); service.events.removeAllListeners("opened"); }
+  expect(warn).toHaveBeenCalledWith(expect.objectContaining({ name: "MaxListenersExceededWarning" }));
+});
