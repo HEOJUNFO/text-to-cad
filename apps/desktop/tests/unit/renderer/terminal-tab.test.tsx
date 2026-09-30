@@ -80,14 +80,15 @@ it("kills the exited pty before restarting, so its scrollback is not kept for a 
 });
 
 it("respawns an agent-opened tab as the agent's, and a person's without that", async () => {
-  terminal().create = vi.fn(async () => info(null));
+  const create = vi.fn(async (_input: { agent?: boolean }) => info(null));
+  terminal().create = create;
   terminal().attach = vi.fn(async () => null);
   renderTab(null, true).unmount();
-  expect(terminal().create).toHaveBeenCalledWith(expect.objectContaining({ agent: true }));
-  terminal().create.mockClear();
+  expect(create).toHaveBeenCalledWith(expect.objectContaining({ agent: true }));
+  create.mockClear();
   renderTab(null, false);
-  await waitFor(() => expect(terminal().create).toHaveBeenCalled());
-  expect(terminal().create.mock.calls[0]![0]).not.toHaveProperty("agent");
+  await waitFor(() => expect(create).toHaveBeenCalled());
+  expect(create.mock.calls[0]![0]).not.toHaveProperty("agent");
 });
 
 it("releases the old pty id on Try again too", async () => {
