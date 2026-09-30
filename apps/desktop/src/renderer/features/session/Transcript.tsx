@@ -42,6 +42,12 @@ export function Transcript({
   // unanswered permission request is mounted wherever it is, and with it
   // every turn after it, so the transcript stays in order.
   const pending = state.turns.findIndex((turn) => turn.role === "agent" && awaitsAnswer(turn.parts));
+  // Answering it must not hand those turns back: the window only grows, so a
+  // request that pulled it down keeps what it pulled in (a state set while
+  // drawing is React's own way to derive this from the props).
+  if (pending !== -1 && pending < unmounted) {
+    setUnmounted(pending);
+  }
   const start = Math.min(unmounted, Math.max(0, state.turns.length - TRANSCRIPT_WINDOW), pending === -1 ? Infinity : pending);
 
   return (

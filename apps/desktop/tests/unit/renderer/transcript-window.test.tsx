@@ -146,6 +146,27 @@ describe("a long transcript mounts its latest turns", () => {
     expect(mounted().length).toBeGreaterThan(TRANSCRIPT_WINDOW);
   });
 
+  it("keeps the turns an early permission request pulled in once it is answered", () => {
+    const request = (state: "pending" | "cancelled"): Turn["parts"][number] => ({
+      type: "permission_request",
+      requestId: "r1",
+      toolCallId: "c1",
+      title: "Edit car.py",
+      description: null,
+      options: [],
+      outcome: { state },
+    });
+    const list = turns(40);
+    list[5] = agent("t5", [request("pending")]);
+    const { rerender } = render(view(session(list)));
+    expect(mounted()[0]).toBe("t5");
+    const answered = [...list];
+    answered[5] = agent("t5", [request("cancelled")]);
+    rerender(view(session(answered)));
+    expect(mounted()[0]).toBe("t5");
+    expect(mounted()).toHaveLength(35);
+  });
+
   it("mounts the next window from the sentinel's button", () => {
     render(view(session(turns(40))));
     fireEvent.click(screen.getByRole("button", { name: `Show ${40 - TRANSCRIPT_WINDOW} earlier turns` }));
