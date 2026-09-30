@@ -795,6 +795,23 @@ describe("reduce: permission/resolve status", () => {
   });
 });
 
+describe("reduce: permission/resolve identity", () => {
+  it("keeps every turn that does not hold the request", () => {
+    let state = started(connected());
+    state = reduce(state, { type: "prompt/end", stopReason: "end_turn", usage: null, at });
+    state = started(state);
+    state = reduce(state, {
+      type: "permission/request",
+      request: { requestId: "perm-1", acpSessionId: root, toolCallId: "c1", title: null, description: null, kind: null, input: null, options: [] },
+      at,
+    });
+    const before = state.turns;
+    const after = reduce(state, { type: "permission/resolve", requestId: "perm-1", outcome: { state: "cancelled" }, at }).turns;
+    expect(after[0]).toBe(before[0]);
+    expect(after.at(-1)).not.toBe(before.at(-1));
+  });
+});
+
 describe("reduce: a permission request outside an open turn", () => {
   const late = { requestId: "perm-1", acpSessionId: root, toolCallId: "c1", title: null, description: null, kind: null, input: null, options: [] };
 

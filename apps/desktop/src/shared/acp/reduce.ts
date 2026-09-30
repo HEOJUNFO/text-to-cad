@@ -186,14 +186,16 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
       const pendingPermissions = state.pendingPermissions.filter(
         (pending) => pending.requestId !== event.requestId,
       );
-      const turns = state.turns.map((turn) => ({
-        ...turn,
-        parts: mapPartsDeep(turn.parts, (part) =>
+      // A turn without the request keeps its identity, so answering one does not re-render every
+      // turn of a long transcript (`mapPartsDeep` returns the same array where nothing changed).
+      const turns = state.turns.map((turn) => {
+        const parts = mapPartsDeep(turn.parts, (part) =>
           part.type === "permission_request" && part.requestId === event.requestId
             ? { ...part, outcome: event.outcome }
             : part,
-        ),
-      }));
+        );
+        return parts === turn.parts ? turn : { ...turn, parts };
+      });
       return {
         ...state,
         turns,
