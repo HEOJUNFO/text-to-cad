@@ -1684,9 +1684,13 @@ kills the app and its helpers at an absolute deadline, 1.2 seconds from
 (and again, harmlessly, at `will-quit`), so a stall between the two — a
 window that never acks its unload, a main-process error dialog (an
 `uncaughtException` while quitting exits at once) — is bounded too. It counts
-teardown and watchdog startup toward the same budget. On POSIX it kills only the
-children in the app's own process group (Chromium's helpers); a `detached` child
-— the warm daemon, a reused viewer — has a group of its own and is left running. A quit that finishes
+teardown and watchdog startup toward the same budget. On POSIX it kills every
+direct child except the warm daemon, which it spares by pid (the app hands it
+`daemonPids()` from `src/main/cad/daemon.ts`; sparing by process group would
+also spare the app-owned viewer, which is `detached` too). A child that leads a
+group of its own, like the viewer, is killed as a group, so its compile workers
+go with it; Chromium's helpers are killed singly. (A viewer reused from another
+run is not a child of this app and is never touched.) A quit that finishes
 on its own — half a second without WebGL —
 gives it nothing to do.
 

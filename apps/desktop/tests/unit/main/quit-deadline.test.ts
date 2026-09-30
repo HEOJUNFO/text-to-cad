@@ -30,9 +30,9 @@ const alive = (pid: number) => {
   }
 };
 
-const runWatchdog = (pid: number, deadlineMs: number) =>
+const runWatchdog = (pid: number, deadlineMs: number, spare: number[] = []) =>
   new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
-    spawn(process.execPath, ["-e", watchdogScript(pid, deadlineMs)], { stdio: "ignore" }).once("exit", (code, signal) =>
+    spawn(process.execPath, ["-e", watchdogScript(pid, deadlineMs, process.platform, Date.now(), true, spare)], { stdio: "ignore" }).once("exit", (code, signal) =>
       resolve({ code, signal }),
     ),
   );
@@ -62,30 +62,33 @@ describe("the quit deadline's watchdog", () => {
     expect(signaled).toEqual([200, 201, 123]);
   });
 
-  it("spares a detached child, which has a process group of its own", async () => {
-    // The app's shape: one child in its group (a Chromium helper), one spawned `detached`, as the
-    // warm daemon and a reused viewer are (src/main/cad/daemon.ts). Both are direct children.
+  it("spares the daemon by pid, and kills a detached child and its group like any other", async () => {
+    // The app's shape: a Chromium helper (attached), the app-owned viewer (`detached`, its own group,
+    // with a compile worker in it) and the warm daemon (`detached`, spared by pid). All are direct children.
     const target = spawn(process.execPath, ["-e", `
 const { spawn } = require("node:child_process");
-const launch = (detached) => new Promise((resolve) => {
-  const child = spawn(process.execPath, ["-e", "process.send(process.pid); setInterval(() => {}, 1000)"], {
-    detached, stdio: ["ignore", "ignore", "ignore", "ipc"],
-  });
-  child.once("message", resolve);
+const worker = "require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }).once('spawn', function () { process.send(this.pid); }); setInterval(() => {}, 1000)";
+const launch = (detached, code) => new Promise((resolve) => {
+  const child = spawn(process.execPath, ["-e", code], { detached, stdio: ["ignore", "ignore", "ignore", "ipc"] });
+  child.once("message", (grandchild) => resolve({ pid: child.pid, grandchild }));
   child.unref();
 });
-Promise.all([launch(false), launch(true)]).then(([attached, detached]) => process.send({ attached, detached }));
+const idle = "process.send(0); setInterval(() => {}, 1000)";
+Promise.all([launch(false, idle), launch(true, worker), launch(true, idle)])
+  .then(([attached, viewer, daemon]) => process.send({ attached: attached.pid, viewer: viewer.pid, worker: viewer.grandchild, daemon: daemon.pid }));
 setInterval(() => {}, 1000);
 `], { stdio: ["ignore", "ignore", "pipe", "ipc"] });
-    let pids: { attached: number; detached: number } | undefined;
+    let pids: { attached: number; viewer: number; worker: number; daemon: number } | undefined;
     try {
       const [ready] = await once(target, "message");
-      pids = ready as { attached: number; detached: number };
-      await expect(runWatchdog(target.pid!, 0)).resolves.toEqual({ code: 0, signal: null });
-      await expect.poll(() => [target.pid!, pids!.attached].filter(alive), { timeout: 5_000 }).toEqual([]);
-      expect(alive(pids.detached), "the detached child is left running").toBe(true);
+      pids = ready as typeof pids;
+      await expect(runWatchdog(target.pid!, 0, [pids!.daemon])).resolves.toEqual({ code: 0, signal: null });
+      await expect
+        .poll(() => [target.pid!, pids!.attached, pids!.viewer, pids!.worker].filter(alive), { timeout: 5_000 })
+        .toEqual([]);
+      expect(alive(pids!.daemon), "the spared daemon is left running").toBe(true);
     } finally {
-      for (const pid of [target.pid, pids?.attached, pids?.detached]) {
+      for (const pid of [target.pid, pids?.attached, pids?.viewer, pids?.worker, pids?.daemon]) {
         if (pid) {
           try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ }
         }
@@ -189,6 +192,10 @@ setInterval(() => {}, 1000);
       return String(spawned.mock.calls.at(-1)![1]![1]);
     };
     expect(armed("linux")).toContain("pgrep");
+    // The app hands the watchdog the daemon's pid (src/main/cad/daemon.ts) to spare.
+    spawned.mockImplementationOnce((() => ({ unref: () => undefined })) as never);
+    armQuitDeadline(0, 4242, 0, "linux", true, [777]);
+    expect(String(spawned.mock.calls.at(-1)![1]![1])).toContain("[777]");
     expect(armed("win32")).toContain('"/T"');
     markQuittingForUpdate();
     expect(armed("linux")).not.toContain("pgrep");
