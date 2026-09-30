@@ -66,7 +66,7 @@ export function GitPage() {
   // default (`settings.fallbacks`): asked again whenever settings change, so
   // the note goes once a prefix is set.
   const fallbacks = useSettingsFallbacks();
-  const storedPrefix = fallbacks.branchPrefix ?? null;
+  const storedPrefix = fallbacks.refused.branchPrefix ?? null;
 
   return (
     <>
@@ -130,7 +130,7 @@ export function GitPage() {
               })
               .then((chosen) => chosen && patch({ worktreeRoot: chosen.path }));
           }}
-          note={fallbacks.worktreeRoot ? "This folder no longer exists; it is created again with the next worktree." : undefined}
+          note={fallbacks.gone.worktreeRoot ? "This folder no longer exists; it is created again with the next worktree." : undefined}
           onClear={() => patch({ worktreeRoot: null })}
           placeholder="~/.text-to-cad/worktrees"
           title="Worktree root"

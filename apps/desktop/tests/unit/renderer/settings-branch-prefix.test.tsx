@@ -23,7 +23,7 @@ beforeEach(() => {
 });
 
 it("notes a stored prefix main refused and read as the default", async () => {
-  vi.mocked(window.textToCad.settings.fallbacks).mockResolvedValue({ branchPrefix: "a b/" });
+  vi.mocked(window.textToCad.settings.fallbacks).mockResolvedValue({ refused: { branchPrefix: "a b/" }, gone: {} });
   wrap(<GitPage />);
   expect(await screen.findByText(/The stored prefix “a b\/” is not one git accepts/)).toHaveTextContent(
     "Git refuses spaces in a branch name.",
@@ -31,7 +31,7 @@ it("notes a stored prefix main refused and read as the default", async () => {
 });
 
 it("draws the stored prefix's note in the kit's warning tone, not as a muted description", async () => {
-  vi.mocked(window.textToCad.settings.fallbacks).mockResolvedValue({ branchPrefix: "feature..x/" });
+  vi.mocked(window.textToCad.settings.fallbacks).mockResolvedValue({ refused: { branchPrefix: "feature..x/" }, gone: {} });
   wrap(<GitPage />);
   const note = await screen.findByText(/The stored prefix “feature\.\.x\/” is not one git accepts/);
   expect(note).not.toHaveClass("text-muted-foreground");
@@ -41,7 +41,7 @@ it("draws the stored prefix's note in the kit's warning tone, not as a muted des
 
 it("stores the default over a bad stored prefix from Use default, which retyping it cannot", async () => {
   const user = userEvent.setup();
-  vi.mocked(window.textToCad.settings.fallbacks).mockResolvedValueOnce({ branchPrefix: "feature..x/" }).mockResolvedValue({});
+  vi.mocked(window.textToCad.settings.fallbacks).mockResolvedValueOnce({ refused: { branchPrefix: "feature..x/" }, gone: {} }).mockResolvedValue({ refused: {}, gone: {} });
   vi.mocked(window.textToCad.settings.set).mockImplementation(async (patch) => ({ ...defaultSettings(), ...(patch as object) }));
   wrap(<GitPage />);
   await screen.findByText(/The stored prefix “feature\.\.x\/”/);
@@ -53,7 +53,7 @@ it("stores the default over a bad stored prefix from Use default, which retyping
 });
 
 it("says a refused prefix was not saved when Settings closes on it", async () => {
-  vi.mocked(window.textToCad.settings.fallbacks).mockResolvedValue({});
+  vi.mocked(window.textToCad.settings.fallbacks).mockResolvedValue({ refused: {}, gone: {} });
   const user = userEvent.setup();
   const page = wrap(<GitPage />);
   const box = screen.getByRole("textbox", { name: "Branch prefix" });
