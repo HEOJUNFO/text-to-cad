@@ -179,7 +179,9 @@ export const gitIpc = {
     commit: invoke(
       // Empty only for a push of commits already made (main refuses an empty commit message).
       InProject.extend({ message: z.string(), push: z.boolean().optional() }),
-      z.object({ sha: z.string() }),
+      // `pushedOnly`: the tree was clean by the time the request arrived, so nothing was
+      // committed and only the `pushed` commits already made were sent.
+      z.object({ sha: z.string(), pushedOnly: z.boolean().optional(), pushed: z.number().optional() }),
     ),
     /**
      * `gh pr create`, pushing first when the branch has no upstream. Answers

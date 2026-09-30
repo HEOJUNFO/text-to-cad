@@ -319,6 +319,10 @@ function ReviewBody({
     );
   }
 
+  // Commits a Push would send: none when there is nowhere to push them (an
+  // upstream that is a local branch counts them as ahead all the same).
+  const pushable = info?.hasRemote ? status.ahead : 0;
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex h-9 shrink-0 items-center gap-2 border-b px-2">
@@ -384,17 +388,17 @@ function ReviewBody({
           fileCount={status.workingFiles}
           // A push that failed after its commit leaves a clean tree and
           // commits the remote lacks: the same button sends them.
-          ahead={status.ahead}
+          ahead={pushable}
           onToggle={() => setCommitting((current) => !current)}
           panelId={commitPanelId}
-          open={committing && (status.workingFiles > 0 || status.ahead > 0)}
+          open={committing && (status.workingFiles > 0 || pushable > 0)}
           ref={commitTrigger}
         />
       </header>
 
-      {committing && (status.workingFiles > 0 || status.ahead > 0) ? (
+      {committing && (status.workingFiles > 0 || pushable > 0) ? (
         <CommitPanel
-          ahead={status.ahead}
+          ahead={pushable}
           canOpenPullRequest={Boolean(info?.hasGh && info.hasRemote)}
           canPush={Boolean(info?.hasRemote)}
           fileCount={status.workingFiles}
@@ -893,7 +897,13 @@ function CommitPanel({
       return;
     }
     void run(async () => {
-      const { sha } = await window.textToCad.git.commit({ ...request, message: message.trim(), push });
+      const { sha, pushedOnly, pushed } = await window.textToCad.git.commit({ ...request, message: message.trim(), push });
+      // The files this message was for were committed by someone else between
+      // the last read and this request: say nothing was committed.
+      if (pushedOnly && fileCount > 0) {
+        toast.success(`Nothing new to commit; pushed ${pushed ?? 0} ${pushed === 1 ? "commit" : "commits"}`);
+        return;
+      }
       toast.success(
         fileCount === 0 ? `Pushed ${sha.slice(0, 7)}` : `${push ? "Committed and pushed" : "Committed"} ${sha.slice(0, 7)}`,
       );

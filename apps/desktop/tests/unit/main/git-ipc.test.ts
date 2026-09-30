@@ -256,7 +256,7 @@ test("a push that failed after its commit is retried by asking again, without 'n
 
   await run("git", ["remote", "set-url", "origin", remote], { cwd: project.path });
   const retried = await gitHandlers.git.commit({ projectId: project.id, message: "", push: true });
-  expect(retried.sha).toBe(committed);
+  expect(retried).toMatchObject({ sha: committed, pushedOnly: true, pushed: 2 });
   expect((await run("git", ["rev-parse", "main"], { cwd: remote })).stdout.trim()).toBe(committed);
   expect(await gitHandlers.git.status({ projectId: project.id })).toMatchObject({ ahead: 0 });
 });
