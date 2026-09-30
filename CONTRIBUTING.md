@@ -534,7 +534,11 @@ Where the built things live instead:
   contains the exact built wheel. Portable metadata resolves it through
   `${PLUGIN_ROOT}`; Codex's native config resolves it relative to the installed
   plugin root. The wheel lives under a SHA-256-named directory so rebuilding
-  the same version also changes the local-review launcher path. Both configs
+  the same runtime version also changes the local-review launcher path. Review
+  manifests use a generated `<VERSION>-dev.g<content-hash>` plugin version, so
+  each build is identifiable in its own cache directory. Codex can prune previous
+  versions during installation; it does not hot-reload running MCP sessions. Release
+  metadata and the wheel keep canonical `VERSION`. Both configs
   can be tested before PyPI has that version. Both ZIPs are workflow
   artifacts; the PyPI-backed ZIP is also a GitHub Release asset.
 - **A checkout** builds its own: run `scripts/bundle/bundle.sh` once after
@@ -654,7 +658,14 @@ dependencies on first use. It launches from outside the repository and uses
 temporary CAD history/cache paths. The production ZIP remains pinned to PyPI;
 its runtime cannot be tested against an unpublished version. To try unreleased
 plugin code, install the local-review ZIP instead of replacing the installed
-`cadgen` executable on `PATH`.
+`cadgen` executable on `PATH`. A new review install does not hot-reload existing
+Codex MCP sessions, and the installer can remove the cache directory their
+launcher still references. **Quit Codex before installing a review update, then
+reopen it.** Do not repeatedly install builds over a running app: an existing
+process can keep serving old UI while a new connection fails to start. A changed
+plugin version or UI digest does not invalidate every host-side connection.
+After reopening, verify the tool schema includes `browseRoot` and the UI digest
+from `cad_handshake` matches the build before claiming the live app was updated.
 
 ### Plugin packaging and review
 

@@ -149,6 +149,12 @@ def main() -> None:
         checked_archive(local, local_root)
         prod_portable, prod_server = server_config(production_root)
         local_portable, local_server = server_config(local_root)
+        production_version = json.loads((production_root / ".codex-plugin/plugin.json").read_text())["version"]
+        review_version = json.loads((local_root / ".codex-plugin/plugin.json").read_text())["version"]
+        if production_version != version or not review_version.startswith(f"{version}-dev.g"):
+            fail("review installs must have a distinct content-derived cache version")
+        if json.loads((local_root / ".claude-plugin/plugin.json").read_text())["version"] != review_version:
+            fail("review provider manifests disagree on installation version")
         required = ["--isolated", "--from", f"cadgen[mcp]=={version}", "cadgen", "mcp"]
         if prod_portable != {"type": "stdio", "command": "uvx", "args": required}:
             fail("production plugin does not pin cadgen[mcp] to wheel version")

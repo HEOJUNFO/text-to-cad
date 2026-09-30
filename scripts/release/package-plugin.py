@@ -6,6 +6,9 @@ local-review archive contains the very wheel passed here. Portable MCP metadata
 uses the Agent Plugins PLUGIN_ROOT placeholder; Codex's native compatibility
 metadata resolves the wheel relative to the installed plugin root. Its wheel
 directory includes the wheel's SHA-256 so a rebuilt wheel changes the launcher.
+Review bundles also have a content-derived plugin version so development
+builds are identifiable. Codex must be restarted after updating: its installer
+may prune previous versions while running sessions retain their old launcher.
 """
 
 from __future__ import annotations
@@ -114,6 +117,25 @@ def main() -> None:
         json.dumps(local_native_mcp, indent=2) + "\n"
     ).encode("utf-8")
     local_members[wheel_member] = wheel_bytes
+    # Codex caches plugins by manifest version and retains launch configurations
+    # in running sessions. Changing only the wheel path under the same version
+    # replaces that directory, leaving those configurations pointing at nothing.
+    # A distinct version identifies the update; it does not promise hot reload or
+    # old-version retention by the host installer (see CONTRIBUTING.md).
+    content = json.dumps([(name, hashlib.sha256(data).hexdigest())
+                          for name, data in sorted(local_members.items())]).encode()
+    review_version = f"{version}-dev.g{hashlib.sha256(content).hexdigest()[:16]}"
+    for name in (".codex-plugin/plugin.json", ".claude-plugin/plugin.json"):
+        manifest = json.loads(local_members[name])
+        manifest["version"] = review_version
+        local_members[name] = (json.dumps(manifest, indent=2) + "\n").encode()
+    marketplace = json.loads(local_members[".claude-plugin/marketplace.json"])
+    marketplace["version"] = review_version
+    for plugin in marketplace["plugins"]:
+        plugin["version"] = review_version
+    local_members[".claude-plugin/marketplace.json"] = (
+        json.dumps(marketplace, indent=2) + "\n"
+    ).encode()
     local = args.out_dir / f"cad-{version}-plugin-local-review.zip"
     write_zip(local, local_members)
     print(f"Packaged {normal} and {local}")
