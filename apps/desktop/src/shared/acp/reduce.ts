@@ -130,10 +130,14 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
       );
       return {
         ...next,
+        // A turn that ends takes its unanswered permission requests with it, whatever the stop
+        // reason: main resolves them on a cancel, but an `end_turn` or a `refusal` with a request
+        // still open sends no resolve, and the card would stay clickable (and the transcript
+        // pulled down to it) with nobody to take the answer.
+        turns: cancelPendingCards(next.turns),
         status: "idle",
         lastTurnUsage: event.usage ?? next.lastTurnUsage,
         sessionUsage: event.usage ? addTurnUsage(next.sessionUsage, event.usage) : next.sessionUsage,
-        // A cancelled turn takes its unanswered permission requests with it.
         pendingPermissions: [],
       };
     }
@@ -143,8 +147,10 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
         ...parts,
         { type: "error", message: event.message },
       ]);
+      const closed = closeOpenTurn(withError, event.at, null, { tool: "failed", subagent: "failed" });
       return {
-        ...closeOpenTurn(withError, event.at, null, { tool: "failed", subagent: "failed" }),
+        ...closed,
+        turns: cancelPendingCards(closed.turns),
         status: "error",
         error: event.message,
         pendingPermissions: [],
@@ -217,17 +223,9 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
         // The adapter is gone, and with it whoever would take the answer:
         // `retire` drops the connection's own resolve before it can be
         // dispatched, so a card left pending here would stay answerable.
-        const turns = state.turns.map((turn) => {
-          const parts = mapPartsDeep(turn.parts, (part) =>
-            part.type === "permission_request" && part.outcome.state === "pending"
-              ? { ...part, outcome: { state: "cancelled" } }
-              : part,
-          );
-          return parts === turn.parts ? turn : { ...turn, parts };
-        });
         return {
           ...state,
-          turns: turns.every((turn, index) => turn === state.turns[index]) ? state.turns : turns,
+          turns: cancelPendingCards(state.turns),
           pendingPermissions: [],
           status: event.status,
           error: event.error,
@@ -495,6 +493,19 @@ function settleParts(parts: Part[], settle: Settle): Part[] {
     }
     return part;
   });
+}
+
+/** Every permission card still pending, in any turn, marked cancelled; the same array back where none was. */
+function cancelPendingCards(turns: Turn[]): Turn[] {
+  const next = turns.map((turn) => {
+    const parts = mapPartsDeep(turn.parts, (part) =>
+      part.type === "permission_request" && part.outcome.state === "pending"
+        ? { ...part, outcome: { state: "cancelled" } }
+        : part,
+    );
+    return parts === turn.parts ? turn : { ...turn, parts };
+  });
+  return next.every((turn, index) => turn === turns[index]) ? turns : next;
 }
 
 /** How many updates, and how many bytes of them, are held for not-yet-spawned subagents; the oldest go first. */

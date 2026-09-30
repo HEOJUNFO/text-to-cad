@@ -861,6 +861,23 @@ describe("reduce: a permission card when the adapter goes away", () => {
   });
 });
 
+describe("reduce: a turn that ends with a request unanswered", () => {
+  const ask = { requestId: "perm-1", acpSessionId: root, toolCallId: "c1", title: null, description: null, kind: null, input: null, options: [] };
+
+  it.each([
+    ["prompt/error", { type: "prompt/error", message: "boom", at }],
+    ["prompt/end end_turn", { type: "prompt/end", stopReason: "end_turn", usage: null, at }],
+    ["prompt/end refusal", { type: "prompt/end", stopReason: "refusal", usage: null, at }],
+  ] as const)("cancels the pending card on %s", (_name, end) => {
+    let state = started(connected());
+    state = reduce(state, { type: "permission/request", request: ask, at });
+    state = reduce(state, end);
+    const cards = state.turns.flatMap((turn) => turn.parts).filter((part) => part.type === "permission_request");
+    expect(cards).toMatchObject([{ outcome: { state: "cancelled" } }]);
+    expect(state.pendingPermissions).toEqual([]);
+  });
+});
+
 describe("reduce: embedded resources", () => {
   const resource = { type: "resource" as const, uri: "attachment:///notes%20v2.md", text: "# notes", mimeType: "text/markdown" };
 
