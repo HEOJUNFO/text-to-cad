@@ -1130,7 +1130,7 @@ poor thing to put in front of them.
 Every shortcut is a row in `src/renderer/lib/shortcuts.ts`, which Settings ›
 Keyboard shortcuts prints, but one: the toast chord (Cmd+Option+T on a Mac,
 Ctrl+Shift+T elsewhere, `components/ui/sonner.tsx`) differs by platform, and a
-row holds one portable binding. The ones the app menu also declares are its accelerators, so
+row holds one portable binding, so the page closes with a footnote naming it. The ones the app menu also declares are its accelerators, so
 they work with focus inside a webview (see "Rules that are easy to break" in
 AGENTS.md). The menu's New Session and Settings… with no window open one and
 hold the command until its page calls `ui.ready` (`src/main/menu.ts`): pushed

@@ -9,8 +9,11 @@
  * one a person reads and the menu is the one Electron reads — and
  * `tests/unit/main/shortcuts-menu.test.ts` holds them to the same keys: every
  * menu accelerator is a row here, and every Application row with a modifier
- * is a menu accelerator. The development build's `Reload App` (Mod+Alt+R) is
- * the one accelerator left out, because a packaged app does not have it.
+ * is a menu accelerator. Two bindings are left out. The development build's
+ * `Reload App` (Mod+Alt+R), because a packaged app does not have it; and the
+ * toast chord (`components/ui/sonner.tsx`: Cmd+Option+T on a Mac, Ctrl+Shift+T
+ * elsewhere), because a row holds one portable binding and this one differs by
+ * platform — the Settings page prints it as a footnote instead.
  *
  * A binding is written once, in the portable form (`Mod+K`), and rendered per
  * platform: `Mod` is ⌘ on macOS and Ctrl everywhere else, which is the only

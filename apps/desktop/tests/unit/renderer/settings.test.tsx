@@ -16,6 +16,7 @@ import { SettingCard, SettingRow } from "@renderer/features/settings/SettingCard
 import { SettingsRoute } from "@renderer/features/settings/SettingsRoute";
 import { AgentsPage } from "@renderer/features/settings/pages/AgentsPage";
 import { GitPage } from "@renderer/features/settings/pages/GitPage";
+import { ShortcutsPage } from "@renderer/features/settings/pages/ShortcutsPage";
 import { SettingsSearchProvider, matchesQuery } from "@renderer/features/settings/search";
 import { AgentDrawer, authLabel, parseEnv, formatEnv } from "@renderer/features/settings/AgentDrawer";
 import { agentIcon, agentIconIds } from "@renderer/lib/agent-icons";
@@ -131,6 +132,13 @@ describe("shortcuts", () => {
     expect(shortcutsIn("Session").length).toBeGreaterThan(0);
     expect(shortcutsIn("Explorer").length).toBeGreaterThan(0);
     expect(new Set(SHORTCUTS.map((shortcut) => shortcut.id)).size).toBe(SHORTCUTS.length);
+  });
+});
+
+describe("the shortcuts page", () => {
+  it("names the toast chord, which no row holds", () => {
+    wrap(<ShortcutsPage />);
+    expect(screen.getByText("Toasts: ⌘⌥T on macOS, Ctrl+Shift+T elsewhere.")).toBeInTheDocument();
   });
 });
 
