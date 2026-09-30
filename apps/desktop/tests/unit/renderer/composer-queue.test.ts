@@ -387,3 +387,21 @@ it("a prompt main refuses after its turn began is the transcript's to show, not 
   expect(useComposer.getState().queues[SESSION] ?? []).toEqual([]);
   expect(useAcp.getState().loadErrors[SESSION]).toBeUndefined();
 });
+
+it("drains the queue when a permission asked outside any turn is answered", async () => {
+  useAcp.setState({ sessions: { [SESSION]: { ...initialSessionState(SESSION, "claude"), status: "idle" } } });
+  emit({
+    type: "permission/request",
+    request: { requestId: "perm-1", acpSessionId: "", toolCallId: "c1", title: null, description: null, kind: null, input: null, options: [] },
+  });
+  expect(useAcp.getState().sessions[SESSION]?.status).toBe("waiting");
+  void useComposer.getState().submit(SESSION, "after", block("after"));
+  await settle();
+  expect(inFlight(), "queued behind the waiting session").toEqual([]);
+  expect(useComposer.getState().queues[SESSION]?.map(item => item.text)).toEqual(["after"]);
+
+  // No `prompt/end` follows: the answer alone returns the session to idle.
+  emit({ type: "permission/resolve", requestId: "perm-1", outcome: { state: "selected", optionId: "x" } });
+  await settle();
+  expect(inFlight()).toEqual(["after"]);
+});

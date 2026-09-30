@@ -1629,11 +1629,15 @@ export class SessionManager {
         this.setStatus(id, "waiting");
         this.deps.broadcast("session.permission", { sessionId: id, request: event.request });
         break;
-      case "permission/resolve":
-        if (this.live.get(id)?.state.status === "running") {
-          this.setStatus(id, "running");
+      case "permission/resolve": {
+        // Running when a turn is open; idle when the request came after the turn had closed and
+        // there is no `prompt/end` still to come to say so.
+        const status = this.live.get(id)?.state.status;
+        if (status === "running" || status === "idle") {
+          this.setStatus(id, status);
         }
         break;
+      }
       case "prompt/start":
         this.setStatus(id, "running");
         break;

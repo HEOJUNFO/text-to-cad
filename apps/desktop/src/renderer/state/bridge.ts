@@ -64,11 +64,17 @@ export function subscribeToMain(): () => void {
       if (state.status === "idle") void useComposer.getState().drain(sessionId);
     }),
     window.textToCad.on("session.update", ({ sessionId, event }) => {
+      const before = useAcp.getState().sessions[sessionId]?.status;
       useAcp.getState().receiveEvent(sessionId, event);
-      // A turn's lifecycle drives the prompt queue, from here only: a turn
-      // that ends sends the next queued prompt (`state/composer.ts`).
+      // A turn's lifecycle drives the prompt queue: a turn that ends sends
+      // the next queued prompt (`state/composer.ts`).
       if (event.type === "prompt/start" || event.type === "prompt/end" || event.type === "prompt/error") {
         useComposer.getState().turnEvent(sessionId, event.type);
+      } else if (before !== "idle" && useAcp.getState().sessions[sessionId]?.status === "idle") {
+        // The other way to idle: a permission asked outside a turn and answered leaves the
+        // session waiting, then idle, with no `prompt/end` to say so (`drain` is a no-op when
+        // there is nothing queued or a prompt is in flight).
+        void useComposer.getState().drain(sessionId);
       }
     }),
     window.textToCad.on("terminal.output", ({ sessionId, terminalId, data }) => {
