@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 import { useSessions } from "./sessions";
 
-import { reduce } from "@shared/acp/reduce";
+import { allToolCalls, reduce } from "@shared/acp/reduce";
 import { errorMessage } from "@shared/ipc/errors";
 import type {
   PendingPermission,
@@ -24,6 +24,12 @@ type AcpState = {
   sessions: Record<string, SessionState>;
   /** The most recent chunk per agent-created terminal, keyed `sessionId/terminalId`. */
   terminalOutput: Record<string, string>;
+  /**
+   * Terminals already in a state when this store took it (a snapshot, a reload, a background
+   * session's reconnect) whose chunks it never saw, keyed like `terminalOutput`. A command with
+   * no output held is silent when it ran here and unknown when it is in this set.
+   */
+  coldTerminals: Record<string, true>;
   /** Sessions whose `load` is in flight. */
   loading: Record<string, true>;
   /**
@@ -92,6 +98,7 @@ const TERMINAL_TAIL = 64 * 1024;
 export const useAcp = create<AcpState>((set, get) => ({
   sessions: {},
   terminalOutput: {},
+  coldTerminals: {},
   loading: {},
   reconnecting: {},
   loadErrors: {},
@@ -103,7 +110,16 @@ export const useAcp = create<AcpState>((set, get) => ({
       // for nobody. Taking the broadcast would paint the pane connected again.
       const load = loadsInFlight.get(sessionId);
       if (load && load.asked !== generationOf(sessionId)) return current;
-      return { sessions: { ...current.sessions, [sessionId]: state } };
+      let coldTerminals = current.coldTerminals;
+      for (const call of allToolCalls(state)) {
+        for (const content of call.content) {
+          const key = content.type === "terminal" ? `${sessionId}/${content.terminalId}` : null;
+          if (key && !(key in current.terminalOutput) && !(key in coldTerminals)) {
+            coldTerminals = { ...coldTerminals, [key]: true };
+          }
+        }
+      }
+      return { sessions: { ...current.sessions, [sessionId]: state }, coldTerminals };
     }),
 
   receiveEvent: (sessionId, event) =>
@@ -291,7 +307,8 @@ function without(current: AcpState, sessionId: string): Partial<AcpState> {
   delete reconnecting[sessionId];
   const prefix = `${sessionId}/`;
   const terminalOutput = Object.fromEntries(Object.entries(current.terminalOutput).filter(([key]) => !key.startsWith(prefix)));
-  return { sessions, loadErrors, reconnecting, terminalOutput };
+  const coldTerminals = Object.fromEntries(Object.entries(current.coldTerminals).filter(([key]) => !key.startsWith(prefix)));
+  return { sessions, loadErrors, reconnecting, terminalOutput, coldTerminals };
 }
 
 /** Whether a closed session's state is still wanted: it is on screen, or a load is bringing it back. */

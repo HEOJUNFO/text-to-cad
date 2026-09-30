@@ -262,6 +262,9 @@ export function ToolDetail({ part, sessionId, id }: { part: ToolCallPart; sessio
   const terminalRef = part.content.find((content) => content.type === "terminal");
   const terminalKey = terminalRef?.type === "terminal" ? `${sessionId}/${terminalRef.terminalId}` : null;
   const liveOutput = useAcp((state) => (terminalKey ? (state.terminalOutput[terminalKey] ?? null) : null));
+  // A finished command with nothing to draw: silent, or its output was never held here (a
+  // reload, a background session, a session let go of) — the two are not the same sentence.
+  const notKept = useAcp((state) => (terminalKey ? state.coldTerminals[terminalKey] === true : false));
   const texts = part.content.filter((content) => content.type === "text");
   const images = part.content.filter((content) => content.type === "image");
   const links = part.content.filter((content) => content.type === "resource_link");
@@ -275,6 +278,7 @@ export function ToolDetail({ part, sessionId, id }: { part: ToolCallPart; sessio
       ? capToolBody(liveOutput ?? (part.stream || outputText(part.output)), { keep: "tail" })
       : null;
   const terminalText = terminalBody?.text ?? null;
+  const silence = notKept ? "Output not kept after reload" : "(no output)";
 
   return (
     <div className="ui-reveal mt-1 mb-2 ml-6 flex min-w-0 flex-col gap-2 text-[13px]" data-tool-detail id={id}>
@@ -301,7 +305,7 @@ export function ToolDetail({ part, sessionId, id }: { part: ToolCallPart; sessio
         <Terminal
           className="min-w-0 border bg-muted/40 text-foreground dark:bg-black/30"
           isStreaming={running}
-          output={terminalText || (running ? "" : "(no output)")}
+          output={terminalText || (running ? "" : silence)}
         >
           <div className="max-h-72 overflow-auto px-3 py-2 font-mono text-[12px] leading-5">
             {(part.streamTruncated && liveOutput === null && part.stream) || (terminalBody?.hidden ?? 0) > 0 ? (
@@ -311,7 +315,7 @@ export function ToolDetail({ part, sessionId, id }: { part: ToolCallPart; sessio
                 Earlier output trimmed
               </p>
             ) : null}
-            <TerminalBody isStreaming={running} output={terminalText} />
+            <TerminalBody isStreaming={running} output={terminalText || (running ? "" : silence)} />
           </div>
         </Terminal>
       ) : null}

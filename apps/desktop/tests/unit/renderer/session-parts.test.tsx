@@ -14,6 +14,7 @@ import { PlanCard } from "@renderer/features/session/PlanCard";
 import { activityRow, foldSummary } from "@renderer/features/session/view";
 import { useAcp } from "@renderer/state/acp";
 import { useSessions } from "@renderer/state/sessions";
+import { initialSessionState } from "@shared/acp/types";
 import type { PermissionRequestPart, ToolCallPart } from "@shared/acp/types";
 
 const wrap = (ui: React.ReactNode) => render(<TooltipProvider>{ui}</TooltipProvider>);
@@ -36,7 +37,7 @@ function call(overrides: Partial<ToolCallPart> & { id: string }): ToolCallPart {
 }
 
 beforeEach(() => {
-  useAcp.setState({ sessions: {}, terminalOutput: {}, loading: {}, loadErrors: {} });
+  useAcp.setState({ sessions: {}, terminalOutput: {}, coldTerminals: {}, loading: {}, loadErrors: {} });
   useSessions.setState({ sessions: [], ready: true, activeId: null });
 });
 
@@ -153,6 +154,30 @@ describe("ActivityGroup", () => {
     wrap(<ActivityGroup item={{ kind: "activity", key: "g", rows: [activityRow({ ...part, streamTruncated: false })], summary: null }} sessionId="s1" />);
     await user.click(screen.getByRole("button", { name: /make/ }));
     expect(screen.queryByText("Earlier output trimmed")).toBeNull();
+  });
+
+  describe("a finished command with no output on screen", () => {
+    const finished = () =>
+      call({ id: "c1", kind: "execute", title: "make", input: { command: "make" }, content: [{ type: "terminal", terminalId: "t1" }] });
+    const open = async () => {
+      const rows = [activityRow(finished())];
+      wrap(<ActivityGroup item={{ kind: "activity", key: "g", rows, summary: null }} sessionId="s1" />);
+      await userEvent.setup().click(screen.getByRole("button", { name: /make/ }));
+    };
+
+    it("says the output was not kept when the store took the session with the command already in it", async () => {
+      const state = { ...initialSessionState("s1", "claude"), status: "idle" as const };
+      state.turns = [{ id: "t", role: "agent", parts: [finished()], startedAt: 0, endedAt: 1, stopReason: "end_turn" }];
+      act(() => useAcp.getState().receiveState("s1", state));
+      await open();
+      expect(screen.getByText("Output not kept after reload")).toBeInTheDocument();
+      expect(screen.queryByText("(no output)")).toBeNull();
+    });
+
+    it("says no output for a command that ran here and printed nothing", async () => {
+      await open();
+      expect(screen.getByText("(no output)")).toBeInTheDocument();
+    });
   });
 
   it("opens a command row to its output", async () => {
