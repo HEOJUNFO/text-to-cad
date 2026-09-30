@@ -33,7 +33,12 @@ export type SpawnTerminal = (options: {
   env: Record<string, string>;
 }) => TerminalProcess;
 
-export type TerminalOutputListener = (terminalId: string, data: string, exit: TerminalExit | null) => void;
+/**
+ * `silent` rides on the exit chunk: the process ended having written nothing at all. The
+ * renderer that only learned of the command after it began can tell "silent" from "output I
+ * missed" by it.
+ */
+export type TerminalOutputListener = (terminalId: string, data: string, exit: TerminalExit | null, silent?: boolean) => void;
 
 type Terminal = {
   id: string;
@@ -107,7 +112,7 @@ export class TerminalManager {
       terminal.exit = exit;
       resolveExit(exit);
       if (!terminal.released) {
-        this.onOutput(id, "", exit);
+        this.onOutput(id, "", exit, terminal.buffer.length === 0);
       }
     });
     return id;

@@ -43,7 +43,7 @@ type AcpState = {
 
   receiveState: (sessionId: string, state: SessionState) => void;
   receiveEvent: (sessionId: string, event: SessionEvent) => void;
-  receiveTerminalOutput: (sessionId: string, terminalId: string, data: string) => void;
+  receiveTerminalOutput: (sessionId: string, terminalId: string, data: string, silent?: boolean) => void;
   forget: (sessionId: string) => void;
 
   create: (input: {
@@ -150,7 +150,7 @@ export const useAcp = create<AcpState>((set, get) => ({
       return { sessions: { ...current.sessions, [sessionId]: next } };
     }),
 
-  receiveTerminalOutput: (sessionId, terminalId, data) =>
+  receiveTerminalOutput: (sessionId, terminalId, data, silent) =>
     set((current) => {
       // A session the store let go of (Disconnect, delete, archive) or never
       // held: its terminals' chunks are not kept, or `without` would have
@@ -160,6 +160,12 @@ export const useAcp = create<AcpState>((set, get) => ({
       }
       const key = `${sessionId}/${terminalId}`;
       const next = ((current.terminalOutput[key] ?? "") + data).slice(-TERMINAL_TAIL);
+      // A command that exited having written nothing, seen to exit here: silent, not unknown, even
+      // when a state landed while it ran and marked it cold.
+      if (silent && key in current.coldTerminals) {
+        const { [key]: _seen, ...coldTerminals } = current.coldTerminals;
+        return { terminalOutput: { ...current.terminalOutput, [key]: next }, coldTerminals };
+      }
       return { terminalOutput: { ...current.terminalOutput, [key]: next } };
     }),
 

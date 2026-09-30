@@ -378,8 +378,11 @@ export class SessionManager {
     // has not answered `session/new` holds an empty state, and the snapshot is
     // a better picture than that. A `loadSession` dispatches `session/connected`
     // first, so a replaying connection is `live: true` here — `connecting`, with
-    // the transcript replayed so far — and the renderer drops its events until
-    // the load's own state lands (`reconnecting` in `state/acp.ts`).
+    // the transcript replayed so far. The renderer that started the load drops
+    // that connection's events until the load's own state lands (`reconnecting`
+    // in `state/acp.ts`); one that reloaded mid-load paints this state from
+    // `ensureLoaded` and reduces the replay's events as they come, which the
+    // load's final `session.state` then replaces.
     if (connection?.alive && connection.acpSessionId) {
       // A create still in its preferences and marks: the reducer says idle from
       // `session/new`, but the row says `connecting` until `create` returns,
@@ -523,22 +526,51 @@ export class SessionManager {
       // the mode. Never a reason for the session to fail: a refused
       // `set_config_option` leaves the session at the agent's own defaults,
       // which is a working session.
-      await this.applyPreferences(session, connection);
-      const [sessionHead, turnHead] = await marks;
-      const updated = this.update(session.id, {
-        status: "idle",
-        sessionHead,
-        turnHead,
-      });
-      this.deps.broadcast("session.state", { sessionId: session.id, state: connection.state });
-      // The registry id and nothing else — no directory, project or prompt.
-      this.deps.track?.({ name: "session_created", agent: session.agentId });
-      return updated;
+      let settled = false;
+      try {
+        await this.applyPreferences(session, connection);
+        const [sessionHead, turnHead] = await marks;
+        const updated = this.update(session.id, {
+          status: "idle",
+          sessionHead,
+          turnHead,
+        });
+        settled = true;
+        this.deps.broadcast("session.state", { sessionId: session.id, state: connection.state });
+        // The registry id and nothing else — no directory, project or prompt.
+        this.deps.track?.({ name: "session_created", agent: session.agentId });
+        return updated;
+      } finally {
+        // A throw between `session/new` and the row going idle (the store
+        // refusing `remember`, say) rejects `create`, but the connection is
+        // live and the row is kept: left at `connecting` it is a box that
+        // never opens and no bar to retry from, and `boot` only runs at
+        // launch. Settle the row on what the connection can do.
+        if (!settled) await this.settleAfterFailedCreate(session, connection, marks);
+      }
     } finally {
       if (setup) this.held.delete(setup);
       this.creating.delete(id);
       created();
     }
+  }
+
+  /** The row a failed `create` leaves behind: idle if its connection can take a prompt, `error` if not. */
+  private async settleAfterFailedCreate(
+    session: Session,
+    connection: SessionConnection,
+    marks: Promise<[string | null, string | null]>,
+  ): Promise<void> {
+    if (this.deps.repo.get(session.id)?.status !== "connecting") return;
+    const [sessionHead, turnHead] = await marks.catch(() => [null, null] as const);
+    if (connection.alive) {
+      this.update(session.id, { status: "idle", sessionHead, turnHead });
+      this.deps.broadcast("session.state", { sessionId: session.id, state: connection.state });
+      return;
+    }
+    const message = "The agent stopped while the session was being created.";
+    this.update(session.id, { status: "error", sessionHead, turnHead });
+    this.deps.broadcast("session.status", { sessionId: session.id, status: "error", error: message });
   }
 
   /**
@@ -1402,8 +1434,8 @@ export class SessionManager {
         }
         this.onEvent(session.id, event);
       },
-      onTerminalOutput: (terminalId, data, exit) =>
-        this.deps.broadcast("terminal.output", { sessionId: session.id, terminalId, data, exit }),
+      onTerminalOutput: (terminalId, data, exit, silent) =>
+        this.deps.broadcast("terminal.output", { sessionId: session.id, terminalId, data, exit, ...(silent ? { silent } : {}) }),
       onFilesChanged: (paths) => {
         // The same gate as `onEvent`: a retired connection's late writes
         // would count into a tally, and ask the explorer to re-read, for a

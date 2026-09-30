@@ -77,8 +77,8 @@ export function subscribeToMain(): () => void {
         void useComposer.getState().drain(sessionId);
       }
     }),
-    window.textToCad.on("terminal.output", ({ sessionId, terminalId, data }) => {
-      useAcp.getState().receiveTerminalOutput(sessionId, terminalId, data);
+    window.textToCad.on("terminal.output", ({ sessionId, terminalId, data, silent }) => {
+      useAcp.getState().receiveTerminalOutput(sessionId, terminalId, data, silent);
     }),
     window.textToCad.on("agents.status", (agents) => {
       useAgents.getState().receive(agents);
