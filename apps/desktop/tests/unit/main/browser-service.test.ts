@@ -24,7 +24,8 @@ const electron = await vi.hoisted(async () => {
     async loadURL(url: string) { this.url = url; }
     getURL() { return this.url; } getTitle() { return ""; } isLoading() { return false; }
     isDestroyed() { return this.destroyed; } isFocused() { return this.focused; }
-    close() { this.destroyed = true; this.emit("destroyed"); }
+    // Chromium reports `destroyed` after close() returns; a test can hold it back.
+    close() { this.destroyed = true; if (!electron.state.deferDestroy) this.emit("destroyed"); }
     stop() {}
   }
   class WebContentsView {
@@ -32,7 +33,7 @@ const electron = await vi.hoisted(async () => {
     setBounds = vi.fn(); setVisible = vi.fn();
     constructor(options: { webPreferences: { partition: string } }) { this.webContents = new FakeContents(partitionSession(options.webPreferences.partition)); }
   }
-  return { sessions, FakeContents, WebContentsView };
+  return { sessions, FakeContents, WebContentsView, state: { deferDestroy: false } };
 });
 vi.mock("electron", () => ({ WebContentsView: electron.WebContentsView, app: {}, session: {} }));
 import { BrowserService } from "@main/browser/service";
@@ -46,7 +47,7 @@ function owner() {
   return Object.assign(new EventEmitter(), { webContents, focused: true, isFocused() { return this.focused; }, isDestroyed: () => false, contentView: { addChildView: vi.fn(), removeChildView: vi.fn() } }) as unknown as Electron.BrowserWindow & { webContents: EventEmitter };
 }
 let service: BrowserService;
-beforeEach(() => { service = new BrowserService(); electron.sessions.clear(); });
+beforeEach(() => { service = new BrowserService(); electron.sessions.clear(); electron.state.deferDestroy = false; });
 const contents = (tabId: string) => service.contents(scope, tabId) as unknown as Contents;
 
 it("hides every page an app window presented when that window reloads or its renderer dies", async () => {
@@ -181,4 +182,44 @@ it("disposeSession keeps the pages of the scope it is told to keep, and closes t
   expect(service.list({ ...scope, sessionId: "session-b" })).toHaveLength(1);
   service.disposeSession(scope.sessionId);
   expect(service.list(scope)).toEqual([]);
+});
+
+it("does not evict a page re-opened under the same id when the old one reports destroyed late", async () => {
+  electron.state.deferDestroy = true;
+  await service.open(scope, { tabId: "x", url: "https://example.com/" });
+  const old = contents("x");
+  service.close(scope, "x");
+  await service.open(scope, { tabId: "x", url: "https://example.com/again" });
+  old.emit("destroyed");
+  expect(service.list(scope).map(tab => tab.tabId)).toEqual(["x"]);
+});
+
+it("reads console messages from the details event, and still from the deprecated positional form", async () => {
+  await service.open(scope, { tabId: "log", url: "https://example.com/" });
+  contents("log").emit("console-message", { level: "warning", message: "from details" });
+  contents("log").emit("console-message", { level: "error", message: "boom" });
+  contents("log").emit("console-message", {}, 3, "positional");
+  expect(service.metadata(scope, "log").logs).toEqual([
+    { level: "warn", message: "from details" }, { level: "error", message: "boom" }, { level: "error", message: "positional" },
+  ]);
+});
+
+it("drops its app-window `closed` listener when the page closes", async () => {
+  const window = owner();
+  await service.open(scope, { tabId: "w", url: "https://example.com/" });
+  service.present(scope, "w", window, "lease", bounds);
+  expect(window.listenerCount("closed")).toBe(1);
+  service.close(scope, "w");
+  expect(window.listenerCount("closed")).toBe(0);
+});
+
+it("lets more than ten CDP connections listen on its events without a MaxListeners warning", async () => {
+  const warn = vi.fn();
+  process.on("warning", warn);
+  try {
+    // Each scoped CDP connection adds one `opened` and one `closed` listener.
+    for (let connection = 0; connection < 12; connection += 1) { service.events.on("opened", () => {}); service.events.on("closed", () => {}); }
+    await new Promise(resolve => setImmediate(resolve));
+  } finally { process.off("warning", warn); }
+  expect(warn).not.toHaveBeenCalled();
 });

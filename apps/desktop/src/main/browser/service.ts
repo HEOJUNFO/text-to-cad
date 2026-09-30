@@ -8,7 +8,7 @@ import { browserPartition, browserScopeKey, type BrowserScope } from "./storage"
 export { browserScopeKey, type BrowserScope };
 type Target = {
   scope: BrowserScope; id: string; view: WebContentsView; harness: ReturnType<typeof browserHarness>;
-  owner?: BrowserWindow; lease?: string; generation: number; visible: boolean; ready: Promise<void>; logs: BrowserTarget["logs"];
+  owner?: BrowserWindow; lease?: string; dropOwnerClosed?: () => void; generation: number; visible: boolean; ready: Promise<void>; logs: BrowserTarget["logs"];
   /** Last key or mouse press that reached the page, and last one an agent sent over CDP (ms). */
   userInputAt: number; automatedInputAt: number;
 };
@@ -25,7 +25,8 @@ export function browserURL(value: string) {
 
 /** Owns live pages independently of whichever project or tab is painted. */
 export class BrowserService {
-  readonly events = new EventEmitter();
+  /** `opened` / `closed`, one listener pair per scoped CDP connection (they leave with it), so more than ten sessions' clients are ordinary. */
+  readonly events = new EventEmitter().setMaxListeners(0);
   private targets = new Map<string, Target>();
   /** App windows whose own reload/crash hides the pages they present. */
   private readonly watchedOwners = new WeakSet<BrowserWindow>();
@@ -84,8 +85,22 @@ export class BrowserService {
     wc.on("before-mouse-event", (_event, mouse) => { if (mouse.type === "mouseDown") target.userInputAt = Date.now(); });
     wc.on("will-navigate", guard);
     wc.on("will-redirect", guard);
-    wc.on("console-message", (_event, level, message) => { this.log(target, level >= 3 ? "error" : level === 2 ? "warn" : "log", message); });
-    wc.on("destroyed", () => { this.targets.delete(id); this.events.emit("closed", { ...scope, tabId: id }); });
+    // The event carries `level` ("info" | "warning" | "error" | "debug") and
+    // `message`; the positional (numeric level, message) form is deprecated but
+    // read as a fallback.
+    wc.on("console-message", ((event: { level?: unknown; message?: unknown }, level?: number, message?: string) => {
+      const severity = typeof event.level === "string" ? (event.level === "error" ? "error" : event.level === "warning" ? "warn" : "log")
+        : (level ?? 0) >= 3 ? "error" : level === 2 ? "warn" : "log";
+      this.log(target, severity, typeof event.message === "string" ? event.message : message ?? "");
+    }) as never);
+    // `close()` has already dropped the target, and the id may be a newer page's
+    // by the time Chromium reports this one destroyed (archive, then a quick unarchive).
+    wc.on("destroyed", () => {
+      const current = this.targets.get(id);
+      if (current && current !== target) return;
+      this.targets.delete(id);
+      this.events.emit("closed", { ...scope, tabId: id });
+    });
     this.events.emit("opened", { ...scope, tabId: id });
     target.ready = (async () => {
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -112,9 +127,12 @@ export class BrowserService {
     for (const other of this.targets.values()) if (other.owner === owner && other !== target) this.hide(other);
     if (target.owner !== owner) {
       this.hide(target);
+      target.dropOwnerClosed?.();
       target.owner = owner;
       owner.contentView.addChildView(target.view);
-      owner.once("closed", () => { if (this.targets.get(id) === target && target.owner === owner) this.close(scope, id); });
+      const onClosed = () => { if (this.targets.get(id) === target && target.owner === owner) this.close(scope, id); };
+      owner.once("closed", onClosed);
+      target.dropOwnerClosed = () => { owner.off("closed", onClosed); };
       this.watchOwner(owner);
     }
     const zoom = owner.webContents.getZoomFactor();
@@ -207,6 +225,7 @@ export class BrowserService {
   close(scope: BrowserScope, id: string) {
     const target = this.get(scope, id);
     this.targets.delete(id);
+    target.dropOwnerClosed?.();
     if (target.owner && !target.owner.isDestroyed()) target.owner.contentView.removeChildView(target.view);
     target.view.webContents.close({ waitForBeforeUnload: false });
   }

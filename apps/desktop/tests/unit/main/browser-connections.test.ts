@@ -63,3 +63,18 @@ it("disposePages closes the session's native pages but keeps its endpoint", asyn
   expect(endpoints[0]!.dispose).not.toHaveBeenCalled();
   await connections.dispose();
 });
+it("disposePages from a superseded workspace change cannot close the pages of the newer one", async () => {
+  const { service } = fixture();
+  const dirs = ["/work-b", "/work-c"];
+  const connections = new BrowserConnections({ sessionRoot: () => ({ directory: dirs.shift()!, root: null }) }, { request: vi.fn() }, path.join(directory, "artifacts"), service as unknown as BrowserService);
+  let resolveB!: (value: string) => void;
+  const realpath = vi.spyOn(fs, "realpath").mockImplementation((async (target: string) => target === "/work-b" ? new Promise<string>(resolve => { resolveB = resolve; }) : target) as typeof fs.realpath);
+  try {
+    const first = connections.disposePages(session);
+    await connections.disposePages(session);
+    resolveB("/work-b");
+    await first;
+  } finally { realpath.mockRestore(); }
+  // B's late completion would keep B and close C's pages.
+  expect(service.disposeSession.mock.calls).toEqual([["session", { sessionId: "session", projectId: "project", root: "/work-c" }]]);
+});
