@@ -106,6 +106,8 @@ const fakeProvider: AgentProvider = {
 
 const managers: SessionManager[] = [];
 afterEach(() => {
+  // A test that faked timers and hung must not leave them faked for the next.
+  vi.useRealTimers();
   for (const manager of managers.splice(0)) {
     manager.closeAll();
   }

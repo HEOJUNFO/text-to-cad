@@ -62,6 +62,19 @@ function scratch() {
   return tempDir("text-to-cad-conn-");
 }
 
+/**
+ * Event-loop ticks until `done`, so nothing here waits on the clock; the cap
+ * is a hang turned into a failure that says what never happened.
+ */
+async function ticksUntil(done: () => boolean, what: string): Promise<void> {
+  for (let tick = 0; !done(); tick++) {
+    if (tick >= 1_000_000) {
+      throw new Error(`gave up waiting for ${what}`);
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
 describe("SessionConnection against the fake agent", () => {
   it("initializes, opens a session, and runs a turn to end_turn", async () => {
     const events: SessionEvent[] = [];
@@ -538,9 +551,7 @@ describe("the skills root and the preamble", () => {
     });
     await connection.newSession();
     const turn = connection.prompt([{ type: "text", text: "slow" }]).catch((error: unknown) => error);
-    while (lastAgentText(connection.state) !== "working") {
-      await new Promise((resolve) => setImmediate(resolve));
-    }
+    await ticksUntil(() => lastAgentText(connection.state) === "working", "the agent's first chunk");
     connection.process.kill("SIGKILL");
     expect(await turn).toBeInstanceOf(Error);
 
@@ -620,9 +631,10 @@ describe("the skills root and the preamble", () => {
     const connection = connect({ cwd: await scratch(), onEvent: (event) => events.push(event) });
     await connection.newSession();
     const turn = connection.prompt([{ type: "text", text: "slow" }]).catch((error: unknown) => error);
-    while (connection.state.status !== "running" || lastAgentText(connection.state) !== "working") {
-      await new Promise((resolve) => setImmediate(resolve));
-    }
+    await ticksUntil(
+      () => connection.state.status === "running" && lastAgentText(connection.state) === "working",
+      "the turn running with the agent's first chunk",
+    );
     connection.close();
     expect(await turn).toBeInstanceOf(Error);
     expect(events.at(-1)).toMatchObject({ type: "status", status: "closed" });
@@ -657,9 +669,7 @@ describe("the skills root and the preamble", () => {
     });
     open.push(connection);
     await connection.exited;
-    while (!events.some((event) => event.type === "status")) {
-      await new Promise((resolve) => setImmediate(resolve));
-    }
+    await ticksUntil(() => events.some((event) => event.type === "status"), "a status event");
 
     expect(lines).toHaveLength(1);
     expect(lines[0]!.length).toBeLessThanOrEqual(8 * 1024 + 1);
@@ -692,9 +702,7 @@ describe("the skills root and the preamble", () => {
     open.push(connection);
     await connection.exited;
     // `onProcessExit` runs on the exit promise's own continuation.
-    while (!events.some((event) => event.type === "status")) {
-      await new Promise((resolve) => setImmediate(resolve));
-    }
+    await ticksUntil(() => events.some((event) => event.type === "status"), "a status event");
 
     expect(lines).toEqual(["first half second half", "next line", "partial tail"]);
     const exit = events.find((event) => event.type === "status");
