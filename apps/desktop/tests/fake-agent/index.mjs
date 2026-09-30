@@ -50,6 +50,10 @@
  *                 units (`utilization` 0…1, `resetsAt` epoch seconds) — so
  *                 the panel's plan rows have something to draw
  *   "thought"     an agent_thought_chunk first
+ *   "late-frames" answer the turn (a call that failed, then "First answer."),
+ *                 and only then — behind the prompt response — send one more
+ *                 text chunk and an `in_progress` update for the failed call,
+ *                 the way a background task's report lands after `prompt/end`
  *   "slow"        wait until cancelled
  *   "crash"       exit(3) mid-turn
  *   "showcase"    a Codex-shaped turn for the session UI's e2e: thoughts,
@@ -678,6 +682,18 @@ async function script(conn, params) {
     ]) {
       await send({ sessionUpdate: "usage_update", used: 292_300, size: 1_000_000, _meta: { "_claude/rateLimit": rateLimit } });
     }
+  }
+
+  if (text.includes("late-frames")) {
+    await send({ sessionUpdate: "tool_call", toolCallId: "late-1", title: "Background task", kind: "execute", status: "in_progress" });
+    await send({ sessionUpdate: "tool_call_update", toolCallId: "late-1", status: "failed" });
+    await send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "First answer." } });
+    // A timer, not an await: the response goes out when this returns, and these are the frames behind it.
+    setTimeout(() => {
+      void send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Background task finished." } });
+      void send({ sessionUpdate: "tool_call_update", toolCallId: "late-1", status: "in_progress" });
+    }, 20);
+    return { stopReason: "end_turn" };
   }
 
   if (text.includes("slow")) {

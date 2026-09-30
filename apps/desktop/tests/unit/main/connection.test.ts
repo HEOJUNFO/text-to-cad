@@ -161,6 +161,41 @@ describe("SessionConnection against the fake agent", () => {
   });
 
   /**
+   * The reducer's rules for frames behind `prompt/end` (src/shared/acp/reduce.ts): late content
+   * rides on the last agent turn as a part of its own and opens no turn nothing would end, and a
+   * late `in_progress` does not bring a failed call back. They were unit-only; this is the wire.
+   */
+  it("settles the turn, then takes the frames behind prompt/end by the reducer's rules", async () => {
+    const events: SessionEvent[] = [];
+    const connection = connect({ cwd: await scratch(), onEvent: (event) => events.push(event) });
+    await connection.newSession();
+    const response = await connection.prompt([{ type: "text", text: "late-frames" }]);
+    expect(response.stopReason).toBe("end_turn");
+    const settled = connection.state.turns.length;
+    expect(connection.state.status).toBe("idle");
+
+    // Both late frames, which arrive after the response: the text chunk and the call's update.
+    const updates = () => events.filter((event) => event.type === "session/update").length;
+    const before = updates();
+    await ticksUntil(() => updates() >= before + 2, "the frames behind prompt/end");
+
+    const state = connection.state;
+    expect(state.status).toBe("idle");
+    // Opened no turn, and left the last one ended rather than streaming.
+    expect(state.turns).toHaveLength(settled);
+    const turn = state.turns.at(-1)!;
+    expect(turn.role).toBe("agent");
+    expect(turn.endedAt).not.toBeNull();
+    // A part of its own, not glued onto the answer ("First answer.Background task finished.").
+    expect(turn.parts.filter((part) => part.type === "text").map((part) => (part as { text: string }).text)).toEqual([
+      "First answer.",
+      "Background task finished.",
+    ]);
+    // And the call the turn failed stays failed.
+    expect(allToolCalls(state).find((call) => call.id === "late-1")?.status).toBe("failed");
+  });
+
+  /**
    * The only way nothing is asked. The client answers no request on
    * anybody's behalf, so a turn with no permission request in it is a turn
    * the agent chose not to ask about — here because the session is in the
