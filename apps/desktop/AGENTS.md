@@ -139,12 +139,21 @@ the rule is about.
 - **The renderer's first chunk stays small.** Monaco (the review tab), xterm
   (the terminal tab), the CAD client, Mermaid and KaTeX load with their first
   use; do not import them statically from the shell. A lazy tab's fallback
-  carries `data-focus-pending` so `features/explorer/focus.ts` waits for it. The
+  carries `data-focus-pending` so `features/explorer/focus.ts` waits for it, and
+  its failure lands in the tab's own boundary: "Could not open the …" with Try
+  again only for a chunk that did not load (`ChunkLoadError`, which builds a
+  fresh `lazy`), "This tab hit an error" and no retry for a body that threw. The
   packages that must resolve to one copy are in `resolve.dedupe` in
   `electron.vite.config.ts`, and `tests/unit/main/renderer-bundle.test.ts`
   fails on duplicate chunks in a built bundle (CI runs it after the build with
   `TEXT_TO_CAD_BUNDLE_CHECK=1`; a local run without a fresh build passes).
   (README, "Development".)
+- **A chord that acts on a hidden tab never runs while the pane is collapsed.**
+  `useExplorerShortcuts` (mounted by `Shell`) lets `Mod+W` and `Mod+1..9` fall
+  through to the menu when the explorer is collapsed or there is no session;
+  the open-a-tab chords are the exception because `open` reveals the pane.
+  `event.repeat` is swallowed, and non-mac plain Ctrl chords are skipped inside
+  `[data-terminal-body]` (`src/renderer/features/explorer/ExplorerPane.tsx`).
 - **The agent table on a warm launch is the last launch's.** `agents.list`
   answers from the `__agents` settings row with every row `probing`; a caller
   that would act on a row (refuse an agent as not installed, hand a binary to a

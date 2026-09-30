@@ -232,6 +232,9 @@ the import lands). While a lazy tab's chunk loads, `ExplorerPane` draws a
 `TabLoading` placeholder that carries `data-focus-pending`; `focusTabBody`
 (`features/explorer/focus.ts`) waits on that marker instead of falling back to
 the strip tab, so the first terminal a window opens still takes the keyboard.
+A chunk that fails to load is drawn by the tab's own boundary as "Could not
+open the review/terminal" with Try again (`lazyTab`, `TabBoundary`); a body
+that throws shows "This tab hit an error" with no retry.
 `electron.vite.config.ts` lists the packages Rollup must resolve to one copy in
 `resolve.dedupe` — React, and Shiki with its `@shikijs/*` packages (a second
 Shiki under `@streamdown/code` was ~230 grammars and themes emitted twice).
@@ -1108,7 +1111,36 @@ passing underneath it. In the flow alone it was the button that scrolled off
 at six tabs in a 45% pane; pinned outside the row it was always reachable and
 never part of it. The file tree's open folders and its listings live in the explorer
 store, not in the file tab, because opening a file makes a tab and the pane
-mounts one tab at a time.
+mounts one tab at a time. `listDirectory` stats a directory's entries 64 at a
+time (`LIST_STAT_BATCH` in `src/main/explorer/fs.ts`).
+
+The strip's chords are `useExplorerShortcuts` (`ExplorerPane.tsx`), mounted by
+`Shell` because the pane is not rendered while collapsed. With no session every
+chord falls through to the menu. The open-a-tab chords run with the pane
+collapsed, because `open` reveals it; ⌘W and ⌘1..9 act on tabs the person
+cannot see then, so they fall through to the menu too (⌘W closes the window).
+A held key (`event.repeat`) is swallowed rather than repeated, ⌘W included even
+once the last tab is closed, so it does not go on to close the window. On
+Windows and Linux the plain Ctrl chords are skipped while the focus is inside a
+terminal (`[data-terminal-body]`), where they are the shell's; the Ctrl+Shift
+chords and Ctrl+` still run there.
+
+A tab is reordered by dragging its chip (a plain HTML5 drag). The insertion
+line is drawn before the chip under the pointer on its left half and after it on
+its right half, so the last position is reachable. The move happens when the
+chip is dropped; a drag that ends any other way (Escape, a release outside the
+strip) reorders nothing. A file tab's tooltip is its path, always; any other
+tab's tooltip is its title, shown only when the chip clips it. A terminal the
+agent opened (`tab.agent`) shows an "agent" badge in its footer; the tab's
+`readOnly` field is stored as false and nothing sets it.
+
+The review and terminal bodies are lazy tabs (`lazyTab` and `LazyTab` in
+`ExplorerPane.tsx`). A chunk that fails to load lands in the tab's boundary
+(`TabBoundary`) as a `ChunkLoadError`: "Could not open the review" or "Could not
+open the terminal", with Try again, which builds a fresh `lazy` and fetches the
+chunk again. A body that throws while rendering shows "This tab hit an error"
+with the error's message and no Try again, because fetching its chunk again
+would throw again.
 
 Every session owns its own explorer tabs, active tab, expanded folders and pane
 width/collapse state. A new session starts empty, including another session in
@@ -1289,7 +1321,9 @@ a batch that removes an open file waits `MOVE_WAIT_MS` (250 ms) for the
 addition, and a removal and an arrival with the same inode become one `moved`
 change: the tab follows the file to its new name, and its holds go with it.
 The app's own save is an atomic rename, a new inode at the same path, so the
-inode is taken again whenever the file changes under its name. An opened link
+inode is taken again whenever the file changes under its name. A removal drops
+the path's inode; when a path a tab still holds reappears (a checkout away and
+back), the inode is taken again on its arrival. An opened link
 is an alias: its target's directory is watched and the target's changes are
 repeated under the link's name; the link's own inode is its identity. When
 `ln -sfn` re-points it, the inode is taken again and the alias moves to the
