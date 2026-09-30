@@ -103,6 +103,8 @@ function EarlierTurns({ count, onMount }: { count: number; onMount: () => void }
   const sentinel = useRef<HTMLDivElement | null>(null);
   const fromBottom = useRef<number | null>(null);
   const [inReach, setInReach] = useState(false);
+  // Whether the person has reached for the scroll since the pane was last at the bottom.
+  const reached = useRef(false);
   const present = count > 0;
 
   const mountMore = () => {
@@ -130,10 +132,37 @@ function EarlierTurns({ count, onMount }: { count: number; onMount: () => void }
     // sentinel still in reach after a window mounted is known to be.
   }, [present, count, scrollRef]);
 
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    const reach = () => {
+      reached.current = true;
+    };
+    const wheel = (event: WheelEvent) => {
+      if (event.deltaY < 0) reach();
+    };
+    const key = (event: KeyboardEvent) => {
+      if (["ArrowUp", "PageUp", "Home"].includes(event.key) || (event.key === " " && event.shiftKey)) reach();
+    };
+    scroller.addEventListener("wheel", wheel, { passive: true });
+    scroller.addEventListener("touchmove", reach, { passive: true });
+    scroller.addEventListener("pointerdown", reach, { passive: true });
+    scroller.addEventListener("keydown", key);
+    return () => {
+      scroller.removeEventListener("wheel", wheel);
+      scroller.removeEventListener("touchmove", reach);
+      scroller.removeEventListener("pointerdown", reach);
+      scroller.removeEventListener("keydown", key);
+    };
+  }, [scrollRef]);
+  useEffect(() => {
+    if (isAtBottom) reached.current = false;
+  }, [isAtBottom]);
+
   const mountIfInReach = useEffectEvent(() => {
     const scroller = scrollRef.current;
     const scrolls = !!scroller && scroller.scrollHeight > scroller.clientHeight;
-    if (present && inReach && (!isAtBottom || !scrolls)) {
+    if (present && inReach && ((!isAtBottom && reached.current) || !scrolls)) {
       mountMore();
     }
   });

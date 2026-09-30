@@ -102,6 +102,23 @@ describe("a long transcript mounts its latest turns", () => {
     expect(mounted()[0]).toBe("t0");
   });
 
+  it("does not mount a second window for a scroll the person did not make", async () => {
+    render(view(session(turns(48))));
+    const pane = scroller();
+    tall(pane);
+    // Opening, the pane's content settles and its offset is clamped down: a
+    // scroll event moving up, which the library reads as an escape from the
+    // bottom. No wheel, key or touch was behind it.
+    for (const top of [500, 100]) {
+      pane.scrollTop = top;
+      fireEvent.scroll(pane);
+      await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    }
+    act(() => intersect(true));
+    expect(mounted()).toHaveLength(TRANSCRIPT_WINDOW);
+    expect(screen.getByRole("button", { name: `Show ${48 - TRANSCRIPT_WINDOW} earlier turns` })).toBeTruthy();
+  });
+
   it("mounts the next window from the sentinel's button", () => {
     render(view(session(turns(40))));
     fireEvent.click(screen.getByRole("button", { name: `Show ${40 - TRANSCRIPT_WINDOW} earlier turns` }));
