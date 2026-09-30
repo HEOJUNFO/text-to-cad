@@ -85,7 +85,14 @@ export class BrowserService {
     wc.on("will-navigate", guard);
     wc.on("will-redirect", guard);
     wc.on("console-message", (_event, level, message) => { this.log(target, level >= 3 ? "error" : level === 2 ? "warn" : "log", message); });
-    wc.on("destroyed", () => { this.targets.delete(id); this.events.emit("closed", { ...scope, tabId: id }); });
+    // `close()` has already dropped the target, and the id may be a newer page's
+    // by the time Chromium reports this one destroyed (archive, then a quick unarchive).
+    wc.on("destroyed", () => {
+      const current = this.targets.get(id);
+      if (current && current !== target) return;
+      this.targets.delete(id);
+      this.events.emit("closed", { ...scope, tabId: id });
+    });
     this.events.emit("opened", { ...scope, tabId: id });
     target.ready = (async () => {
       let timer: ReturnType<typeof setTimeout> | undefined;

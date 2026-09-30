@@ -24,7 +24,8 @@ const electron = await vi.hoisted(async () => {
     async loadURL(url: string) { this.url = url; }
     getURL() { return this.url; } getTitle() { return ""; } isLoading() { return false; }
     isDestroyed() { return this.destroyed; } isFocused() { return this.focused; }
-    close() { this.destroyed = true; this.emit("destroyed"); }
+    // Chromium reports `destroyed` after close() returns; a test can hold it back.
+    close() { this.destroyed = true; if (!electron.state.deferDestroy) this.emit("destroyed"); }
     stop() {}
   }
   class WebContentsView {
@@ -32,7 +33,7 @@ const electron = await vi.hoisted(async () => {
     setBounds = vi.fn(); setVisible = vi.fn();
     constructor(options: { webPreferences: { partition: string } }) { this.webContents = new FakeContents(partitionSession(options.webPreferences.partition)); }
   }
-  return { sessions, FakeContents, WebContentsView };
+  return { sessions, FakeContents, WebContentsView, state: { deferDestroy: false } };
 });
 vi.mock("electron", () => ({ WebContentsView: electron.WebContentsView, app: {}, session: {} }));
 import { BrowserService } from "@main/browser/service";
@@ -46,7 +47,7 @@ function owner() {
   return Object.assign(new EventEmitter(), { webContents, focused: true, isFocused() { return this.focused; }, isDestroyed: () => false, contentView: { addChildView: vi.fn(), removeChildView: vi.fn() } }) as unknown as Electron.BrowserWindow & { webContents: EventEmitter };
 }
 let service: BrowserService;
-beforeEach(() => { service = new BrowserService(); electron.sessions.clear(); });
+beforeEach(() => { service = new BrowserService(); electron.sessions.clear(); electron.state.deferDestroy = false; });
 const contents = (tabId: string) => service.contents(scope, tabId) as unknown as Contents;
 
 it("hides every page an app window presented when that window reloads or its renderer dies", async () => {
@@ -181,4 +182,14 @@ it("disposeSession keeps the pages of the scope it is told to keep, and closes t
   expect(service.list({ ...scope, sessionId: "session-b" })).toHaveLength(1);
   service.disposeSession(scope.sessionId);
   expect(service.list(scope)).toEqual([]);
+});
+
+it("does not evict a page re-opened under the same id when the old one reports destroyed late", async () => {
+  electron.state.deferDestroy = true;
+  await service.open(scope, { tabId: "x", url: "https://example.com/" });
+  const old = contents("x");
+  service.close(scope, "x");
+  await service.open(scope, { tabId: "x", url: "https://example.com/again" });
+  old.emit("destroyed");
+  expect(service.list(scope).map(tab => tab.tabId)).toEqual(["x"]);
 });
