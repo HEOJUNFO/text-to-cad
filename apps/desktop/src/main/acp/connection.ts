@@ -241,6 +241,8 @@ export class SessionConnection {
   private initializeResponse: InitializeResponse | null = null;
   /** The preamble, until the first prompt has carried it. */
   private pendingPreamble: string | null = null;
+  /** `session/update`s heard since the last prompt started: an agent that streamed took the turn. */
+  private updatesHeard = 0;
   private closing = false;
   private exit: ProcessExit | null = null;
   private readonly stderrTail: string[] = [];
@@ -570,6 +572,7 @@ export class SessionConnection {
     // AGENT gets, once, in front of it.
     const preamble = this.pendingPreamble;
     this.pendingPreamble = null;
+    this.updatesHeard = 0;
     this.dispatch({ type: "prompt/start", turnId, content, at: Date.now() });
     try {
       const response = await this.agent.prompt({
@@ -598,8 +601,11 @@ export class SessionConnection {
     } catch (error) {
       // A turn the agent did not take carried nothing: the retry, or the next
       // message, is the first the agent actually reads, and the only place a
-      // preamble-only agent hears where the skills are.
-      this.pendingPreamble ??= preamble;
+      // preamble-only agent hears where the skills are. One that streamed
+      // before it failed did read it.
+      if (this.updatesHeard === 0) {
+        this.pendingPreamble ??= preamble;
+      }
       const described = this.describe(error, "session/prompt");
       // After `close` the rejection is the SDK tearing down the turn we
       // killed, not a failure of it: `closed` was the last word.
@@ -750,6 +756,7 @@ export class SessionConnection {
           this.options.record?.({ dir: "in", at: Date.now(), msg });
           const update = sessionUpdateOf(msg);
           if (update) {
+            this.updatesHeard += 1;
             this.dispatch({
               type: "session/update",
               acpSessionId: update.sessionId,

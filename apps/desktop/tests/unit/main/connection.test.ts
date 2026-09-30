@@ -530,6 +530,26 @@ describe("the skills root and the preamble", () => {
     ]);
   });
 
+  it("does not carry the preamble again when the first prompt streamed and then died", async () => {
+    const connection = connect({
+      cwd: await scratch(),
+      skillsRoot: "/data/skills/1.2.3",
+      preamble: "The skills are at /data/skills/1.2.3.",
+    });
+    await connection.newSession();
+    const turn = connection.prompt([{ type: "text", text: "slow" }]).catch((error: unknown) => error);
+    while (lastAgentText(connection.state) !== "working") {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    connection.process.kill("SIGKILL");
+    expect(await turn).toBeInstanceOf(Error);
+
+    // The dead adapter cannot answer; what matters is what the next prompt is built from.
+    const next = vi.spyOn(connection.agent, "prompt").mockResolvedValue({ stopReason: "end_turn" });
+    await connection.prompt([{ type: "text", text: "again" }]);
+    expect(next.mock.calls[0]![0].prompt).toEqual([{ type: "text", text: "again" }]);
+  });
+
   it("never sends the preamble on a resumed session — the transcript already has it", async () => {
     const frames: RecordedFrame[] = [];
     const connection = connect({
