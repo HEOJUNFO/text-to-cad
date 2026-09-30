@@ -122,7 +122,9 @@ export function ComposerEditor({
           class: "composer-editor max-h-[180px] min-h-10 overflow-y-auto px-3 py-2.5 text-[13px] leading-5 outline-none",
           role: "textbox",
           "aria-multiline": "true",
-          "aria-label": placeholder,
+          // The placeholder changes mid-turn ("Send another message…"); a name that did would be
+          // re-announced as a different control, so the name is fixed and the placeholder stays visual.
+          "aria-label": "Prompt",
           // What Playwright's `getByPlaceholder` and a person read; the
           // Placeholder extension draws it.
           placeholder,

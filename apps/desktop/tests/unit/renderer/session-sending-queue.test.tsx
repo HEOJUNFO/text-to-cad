@@ -1,4 +1,4 @@
-import { act, render } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SessionView } from "@renderer/features/session/SessionView";
@@ -66,5 +66,17 @@ describe("the queued prompts' remove buttons", () => {
     useComposer.setState({ queues: { s1: [queued("a", "add a fillet")] } });
     const { getByRole } = render(<SessionView session={SESSION} />);
     expect(getByRole("button", { name: /^Remove from queue/ }).className).toContain("focus-visible:opacity-100");
+  });
+});
+
+describe("the composer's accessible name", () => {
+  // It was the placeholder, so it read "Do anything" at rest and "Send another message — it goes next"
+  // the moment a turn started: the same box announced as two different controls.
+  it("is the same while a turn runs as when idle", () => {
+    const { rerender } = render(<SessionView session={SESSION} />);
+    expect(screen.getByRole("textbox", { name: "Prompt" })).toBeInTheDocument();
+    act(() => useAcp.setState({ sessions: { s1: { ...initialSessionState("s1", "claude"), status: "running" } } }));
+    rerender(<SessionView session={SESSION} />);
+    expect(screen.getByRole("textbox", { name: "Prompt" })).toHaveAttribute("placeholder", "Send another message — it goes next");
   });
 });
