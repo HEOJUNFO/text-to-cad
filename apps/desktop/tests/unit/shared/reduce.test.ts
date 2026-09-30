@@ -667,6 +667,40 @@ describe("reduce: turn endings settle what was still running", () => {
   });
 });
 
+describe("reduce: content that arrives after prompt/end", () => {
+  it.each([
+    ["an agent_message_chunk", { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "late" } }],
+    ["an agent_thought_chunk", { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "late" } }],
+    ["a tool_call", { sessionUpdate: "tool_call", toolCallId: "late", title: "ls", kind: "execute", status: "in_progress" }],
+  ])("does not open a turn nothing ends for %s", (_name, late) => {
+    let state = started(connected());
+    state = reduce(state, { type: "prompt/end", stopReason: "end_turn", usage: null, at });
+    const turns = state.turns.length;
+    state = update(state, late);
+    expect(state.turns).toHaveLength(turns);
+    expect(state.turns.at(-1)?.endedAt).not.toBeNull();
+    expect(state.turns.at(-1)?.parts.length).toBeGreaterThan(0);
+  });
+
+  it("joins a late chunk onto the text the last turn ended with", () => {
+    let state = started(connected());
+    state = update(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "done" } });
+    state = reduce(state, { type: "prompt/end", stopReason: "end_turn", usage: null, at });
+    state = update(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "!" } });
+    expect(state.turns.at(-1)?.parts).toEqual([{ type: "text", text: "done!" }]);
+    expect(state.turns.at(-1)?.endedAt).not.toBeNull();
+  });
+
+  it("gives a chunk behind a session's closed user turn a closed agent turn of its own", () => {
+    let state = connected();
+    state = reduce(state, { type: "prompt/start", turnId: "t1", content: [{ type: "text", text: "hi" }], at });
+    state = { ...state, turns: state.turns.slice(0, 1) }; // the agent turn is gone: only the user's, closed
+    state = update(state, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "late" } });
+    expect(state.turns.map((turn) => turn.role)).toEqual(["user", "agent"]);
+    expect(state.turns[1]?.endedAt).not.toBeNull();
+  });
+});
+
 describe("reduce: a settled call stays settled", () => {
   it("does not let a late in_progress bring a failed call back to life", () => {
     let state = started(connected());
@@ -960,9 +994,10 @@ describe("reduce: a tool call id belongs to its session", () => {
     state = update(state, { sessionUpdate: "tool_call", toolCallId: "c1", title: "again", kind: "execute", status: "completed" });
     expect(state.turns).toHaveLength(2);
     expect(allToolCalls(state).map((call) => `${call.title}:${call.status}`)).toEqual(["again:completed"]);
-    // An announcement for an id no row has still opens a turn for it.
+    // An announcement for an id no row has rides on the last, closed turn: a new one nothing ends is worse.
     state = update(state, { sessionUpdate: "tool_call", toolCallId: "c2", title: "new", kind: "execute", status: "in_progress" });
-    expect(state.turns).toHaveLength(3);
+    expect(state.turns).toHaveLength(2);
+    expect(state.turns.at(-1)?.endedAt).not.toBeNull();
     expect(allToolCalls(state).map((call) => call.id)).toEqual(["c1", "c2"]);
   });
 });

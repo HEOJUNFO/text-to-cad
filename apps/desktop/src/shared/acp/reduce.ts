@@ -41,6 +41,10 @@
  *   - A tool call id is looked up across every turn: a late update (after a
  *     cancel, a background command) updates the row where it is, and an
  *     update for an unknown id never opens a turn when none is open.
+ *   - Content after its turn ended (a chunk or a call behind `prompt/end`)
+ *     rides on the last agent turn, or a closed one of its own; it never
+ *     opens a turn nothing would end. A replay, which has no `prompt/start`,
+ *     still opens its own.
  *   - A cancelled or failed turn settles what was still pending or running
  *     in it; an ordinary end does not (a background command can outlive it).
  */
@@ -172,11 +176,11 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
       // ended, or was cancelled, and the adapter asked late) must not open one
       // — nothing would ever end it, and the resolve below would call the
       // session running. It rides on the last turn, or on a closed one.
-      const next =
-        withSessionParts(state, request.acpSessionId, event.at, (parts) => [...parts, part], false);
+      const add = (parts: Part[]) => [...parts, part];
+      const next = withSessionParts(state, request.acpSessionId, event.at, add, false);
       if (next === state) {
         return {
-          ...withClosedParts(state, event.at, [part]),
+          ...withClosedParts(state, event.at, add),
           status: "waiting",
           pendingPermissions: [...state.pendingPermissions, request],
         };
@@ -273,7 +277,7 @@ function applyUpdate(
       if (!part) {
         return state;
       }
-      return withUpdateTarget(state, acpSessionId, u, at, (parts) => appendChunk(parts, part));
+      return withUpdateOrLate(state, acpSessionId, u, at, (parts) => appendChunk(parts, part));
     }
 
     case "tool_call":
@@ -299,7 +303,7 @@ function applyUpdate(
           return state;
         }
       }
-      return withUpdateTarget(state, acpSessionId, u, at, (parts) => upsertToolCall(parts, id, u));
+      return withUpdateOrLate(state, acpSessionId, u, at, (parts) => upsertToolCall(parts, id, u));
     }
 
     case "plan": {
@@ -604,15 +608,15 @@ function withRootParts(
 }
 
 /** Parts for a moment when no turn is open: the last agent turn takes them, or a closed one of their own. */
-function withClosedParts(state: SessionState, at: number, added: Part[]): SessionState {
+function withClosedParts(state: SessionState, at: number, fn: (parts: Part[]) => Part[]): SessionState {
   const last = state.turns.at(-1);
   if (last?.role === "agent") {
-    return { ...state, turns: [...state.turns.slice(0, -1), { ...last, parts: [...last.parts, ...added] }] };
+    return { ...state, turns: [...state.turns.slice(0, -1), { ...last, parts: fn(last.parts) }] };
   }
   const turn: Turn = {
     id: `t${state.turns.length + 1}`,
     role: "agent",
-    parts: added,
+    parts: fn([]),
     startedAt: at,
     endedAt: at,
     stopReason: null,
@@ -654,10 +658,11 @@ function withUpdateTarget(
   update: Record<string, unknown>,
   at: number,
   fn: (parts: Part[]) => Part[],
+  create = true,
 ): SessionState {
   const parentId = claudeParentToolUseId(update);
   if (!parentId) {
-    return withSessionParts(state, acpSessionId, at, fn);
+    return withSessionParts(state, acpSessionId, at, fn, create);
   }
   let found = false;
   const turns = state.turns.map((turn) => {
@@ -670,7 +675,29 @@ function withUpdateTarget(
     });
     return parts === turn.parts ? turn : { ...turn, parts };
   });
-  return found ? { ...state, turns } : withSessionParts(state, acpSessionId, at, fn);
+  return found ? { ...state, turns } : withSessionParts(state, acpSessionId, at, fn, create);
+}
+
+/**
+ * `withUpdateTarget`, except that content arriving after its turn ended (a chunk or a call the
+ * adapter sent behind `prompt/end`) does not open a turn: nothing would ever end it, and the
+ * last turn would keep its streaming cursor with the session idle. It rides on the last agent
+ * turn, or on a closed one of its own. A replay (`connecting`) has no `prompt/start` and opens
+ * its own turns, and a session that has had no turn yet opens one as before.
+ */
+function withUpdateOrLate(
+  state: SessionState,
+  acpSessionId: string,
+  update: Record<string, unknown>,
+  at: number,
+  fn: (parts: Part[]) => Part[],
+): SessionState {
+  const last = state.turns.at(-1);
+  if (!last || last.endedAt === null || state.status === "connecting") {
+    return withUpdateTarget(state, acpSessionId, update, at, fn);
+  }
+  const placed = withUpdateTarget(state, acpSessionId, update, at, fn, false);
+  return placed === state ? withClosedParts(state, at, fn) : placed;
 }
 
 function claudeParentToolUseId(update: Record<string, unknown>): string | null {
