@@ -303,6 +303,20 @@ describe("ViewerManager", () => {
     expect(m.viewers.list()).toEqual([]);
   });
 
+  it("stopAll stops a root still launching, so the next ask starts its own", async () => {
+    const m = manager();
+    const first = m.viewers.originFor("/p");
+    await new Promise((resolve) => setImmediate(resolve));
+    m.viewers.stopAll();
+    const second = m.viewers.originFor("/p");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(m.children).toHaveLength(2);
+    expect(m.children[0]!.child.killed).toBe(true);
+    m.children[1]!.child.say('{"url":"http://127.0.0.1:3252/","port":3252,"action":"started"}');
+    expect(await second).toEqual({ origin: "http://127.0.0.1:3252" });
+    expect(await first).toMatchObject({ origin: null, reason: "viewer-failed" });
+  });
+
   describe("the bound on live viewers", () => {
     const settle = () => new Promise((resolve) => setImmediate(resolve));
     async function bring(m: ReturnType<typeof manager>, root: string, port: number) {

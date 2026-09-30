@@ -429,7 +429,10 @@ export class ViewerManager extends EventEmitter {
   /** On quit. */
   stopAll(): void {
     this.stopsAll += 1;
-    for (const root of [...this.entries.keys()]) {
+    // A root still launching has no entry: its pending launch and its child
+    // are found by their own maps, or the next ask would join a stopped launch.
+    const roots = new Set([...this.entries.keys(), ...this.pending.keys(), ...this.launching.keys()]);
+    for (const root of roots) {
       this.stop(root);
     }
   }
