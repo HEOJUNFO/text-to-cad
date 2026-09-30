@@ -5,7 +5,10 @@ The UI and the session's browser tools operate on that same page. Unmounting a
 browser tab hides its native view; it does not navigate, destroy or recreate the
 page. Form values, page JavaScript, history and scroll therefore survive tab and
 session switches. Closing a browser tab destroys its page. Session archive/deletion and
-app shutdown dispose all affected pages. App restarts restore saved URLs; live
+app shutdown dispose all affected pages. A change of the session's cwd or project
+disposes the pages whose scope (session, project, real root) the new workspace no
+longer names; pages in a scope it still names survive, and with no workspace left
+all of the session's pages close. App restarts restore saved URLs; live
 form state is not serialized across restarts.
 
 Every page carries its immutable session ID, directory identity and canonical
@@ -54,6 +57,9 @@ unguessable path and rejects browser-origin handshakes. Production never enables
 Electron's process-wide remote-debugging port. Chromium target IDs remain intact
 because Playwright uses them as main-frame identities; app tab IDs are mapped
 inside the adapter. Each client gets independent native debugger sessions.
+When the session's cwd or project changes, the bridge revokes the endpoint and
+calls `BrowserConnections.disposePages`, which closes only the pages the new
+workspace no longer names.
 
 Electron exposes PDF printing through `WebContents.printToPDF`, so the adapter
 bridges that one operation with bounded in-memory CDP streams.
