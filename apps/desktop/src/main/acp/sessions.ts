@@ -483,6 +483,10 @@ export class SessionManager {
         timer.mark("initialize");
         await connection.newSession();
         timer.mark("session/new");
+        // On its own, before the preferences and the marks: the row is what
+        // `boot` purges when it has no agent session id, and a crash while
+        // the marks are pending must not take a connected session with it.
+        this.update(session.id, { acpSessionId: connection.acpSessionId });
         console.info(
           `[acp] create ${session.id.slice(0, 8)} ${session.agentId} warm=${warmed ? "yes" : "no"} ${timer.format()}`,
         );
@@ -511,7 +515,6 @@ export class SessionManager {
       await this.applyPreferences(session, connection);
       const [sessionHead, turnHead] = await marks;
       const updated = this.update(session.id, {
-        acpSessionId: connection.acpSessionId,
         status: "idle",
         sessionHead,
         turnHead,
@@ -1225,6 +1228,11 @@ export class SessionManager {
    * `session/load`.
    */
   private async ensureLive(session: Session): Promise<SessionConnection> {
+    // The connection of a create is live from `session/new`, but the create
+    // has not written the row's marks yet: a turn run in that window has its
+    // mark written over by the create's (and a crash in it leaves the row
+    // unmarked). It goes out after the create has returned.
+    await this.creating.get(session.id);
     const inflight = this.loads.get(session.id);
     if (inflight) {
       await inflight;

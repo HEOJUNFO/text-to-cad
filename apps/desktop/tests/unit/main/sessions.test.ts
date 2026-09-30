@@ -734,6 +734,54 @@ describe("SessionManager", () => {
   });
 
   /**
+   * The sidebar's "New session" row is promptable from `session/connected`, and
+   * `ensureLive` used to hand the connection over then: the turn ran inside
+   * `create`'s window and `create` wrote its session mark over the turn's.
+   */
+  it("holds a prompt until the create that made the session has returned", async () => {
+    let release!: (tree: string) => void;
+    let turnMarked = false;
+    const { repo, manager, broadcasts, cwd } = await setup({
+      snapshot: (_cwd, mark) => {
+        if (mark.endsWith("/turn")) {
+          turnMarked = true;
+          return Promise.resolve("turn-tree");
+        }
+        return new Promise<string>((resolve) => (release = () => resolve("session-tree")));
+      },
+    });
+    const order: string[] = [];
+    const creating = manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    void creating.then(() => order.push("created"));
+    await until(() => (connectedCount(broadcasts) > 0 ? true : undefined));
+    const id = repo.list()[0]!.id;
+    const turn = manager.prompt(id, [{ type: "text", text: "hello" }]);
+    void turn.then(() => order.push("prompted"));
+    // A prompt that is going to run has taken its mark within a few ticks.
+    for (let tick = 0; tick < 50 && !turnMarked; tick++) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    release("session-tree");
+    await Promise.all([creating, turn]);
+    expect(order).toEqual(["created", "prompted"]);
+    expect(repo.get(id)?.turnHead).toBe("turn-tree");
+  });
+
+  it("writes the agent session id as soon as session/new answers, before the marks land", async () => {
+    const { repo, manager, broadcasts, cwd } = await setup({
+      snapshot: () => new Promise<string>(() => undefined),
+    });
+    const creating = manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    creating.catch(() => undefined);
+    await until(() => (connectedCount(broadcasts) > 0 ? true : undefined));
+    const row = await until(() => {
+      const found = repo.list()[0];
+      return found?.acpSessionId ? found : undefined;
+    }, 500);
+    expect(row.acpSessionId).toBe("fake-session-1");
+  });
+
+  /**
    * A snapshot of a huge or locked tree can take a minute. The mark is never
    * a reason to fail a turn, nor to hold one back for long: past five seconds
    * the commit stands in for the tree.
