@@ -167,6 +167,19 @@ describe("a long transcript mounts its latest turns", () => {
     expect(mounted()).toHaveLength(35);
   });
 
+  it("mounts earlier turns inside a silent live region, and a new turn outside it", () => {
+    const list = turns(2 * TRANSCRIPT_WINDOW);
+    const { rerender } = render(view(session(list)));
+    fireEvent.click(screen.getByRole("button", { name: `Show ${TRANSCRIPT_WINDOW} earlier turns` }));
+    const silent = (id: string) => document.querySelector(`[data-turn="${id}"]`)!.closest('[aria-live="off"]');
+    // The transcript is `role=log`, live by default: what the person scrolled up to is not news.
+    expect(silent("t0")).not.toBeNull();
+    expect(silent(`t${TRANSCRIPT_WINDOW - 1}`)).not.toBeNull();
+    expect(silent(`t${2 * TRANSCRIPT_WINDOW - 1}`)).toBeNull();
+    rerender(view(session([...list, agent("new")])));
+    expect(silent("new")).toBeNull();
+  });
+
   it("mounts the next window from the sentinel's button", () => {
     render(view(session(turns(40))));
     fireEvent.click(screen.getByRole("button", { name: `Show ${40 - TRANSCRIPT_WINDOW} earlier turns` }));

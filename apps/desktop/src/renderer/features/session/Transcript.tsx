@@ -49,26 +49,39 @@ export function Transcript({
     setUnmounted(pending);
   }
   const start = Math.min(unmounted, Math.max(0, state.turns.length - TRANSCRIPT_WINDOW), pending === -1 ? Infinity : pending);
+  // Where the window began when the transcript opened. The conversation is a
+  // live region (`role=log`), and the turns mounted above that line arrive by
+  // the person's own scroll or click: a screen reader must not read a window
+  // of old turns aloud as if they were news. They sit in a container that is
+  // there from the start and says `aria-live="off"`, so mounting into it is
+  // silent while a turn that arrives later, below the line, is announced.
+  const [opened] = useState(start);
+  const draw = (item: Turn, index: number) => {
+    // Only the last turn is handed the callbacks (they are fresh
+    // closures per render), so every other turn's props are equal from
+    // one token to the next and `TurnView`'s memo holds.
+    const last = index === state.turns.length - 1;
+    return (
+      <TurnView
+        key={item.id}
+        onReconnect={last && state.status === "error" ? onReconnect : undefined}
+        onRetry={last ? onRetry : undefined}
+        sessionId={state.sessionId}
+        turn={item}
+      />
+    );
+  };
+  const boundary = Math.max(start, opened);
 
   return (
     <Conversation className="min-h-0 min-w-0 flex-1" data-transcript>
       <ConversationContent className="mx-auto min-w-0 w-full max-w-[720px] gap-4 px-6 pt-6 pb-4">
-        <EarlierTurns count={start} onMount={() => setUnmounted(Math.max(0, start - TRANSCRIPT_WINDOW))} />
-        {state.turns.slice(start).map((turn, offset) => {
-          // Only the last turn is handed the callbacks (they are fresh
-          // closures per render), so every other turn's props are equal from
-          // one token to the next and `TurnView`'s memo holds.
-          const last = start + offset === state.turns.length - 1;
-          return (
-            <TurnView
-              key={turn.id}
-              onReconnect={last && state.status === "error" ? onReconnect : undefined}
-              onRetry={last ? onRetry : undefined}
-              sessionId={state.sessionId}
-              turn={turn}
-            />
-          );
-        })}
+        {/* `contents`: the turns stay the column's own children, and its gap between them. */}
+        <div aria-live="off" className="contents" data-earlier-region>
+          <EarlierTurns count={start} onMount={() => setUnmounted(Math.max(0, start - TRANSCRIPT_WINDOW))} />
+          {state.turns.slice(start, boundary).map((item, offset) => draw(item, start + offset))}
+        </div>
+        {state.turns.slice(boundary).map((item, offset) => draw(item, boundary + offset))}
         {status ? <StatusLine active={state.status !== "waiting"} text={status} /> : null}
       </ConversationContent>
       <JumpToLatest />
