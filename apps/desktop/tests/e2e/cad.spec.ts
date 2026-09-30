@@ -323,6 +323,8 @@ test("the app quits with everything running and leaves no child behind", async (
   await expect.poll(() => lines.filter((line) => /^\[quit\] (will-quit|teardown \d+ms)$/.test(line.trim())).length).toBeGreaterThanOrEqual(2);
   await expect.poll(() => tree.filter((entry) => alive(entry.pid)).map((entry) => ({ ...entry, current: processState(entry.pid) })), { timeout: 5_000 }).toEqual([]);
   await exited;
+  // What the watchdog and the teardown leave: the shared warm daemon is detached by design (README, "Quitting").
+  if (daemonPid !== null) expect(alive(daemonPid), "the warm daemon outlives the app").toBe(true);
 });
 
 function alive(pid: number): boolean {

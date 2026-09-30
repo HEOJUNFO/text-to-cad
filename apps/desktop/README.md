@@ -1684,7 +1684,9 @@ kills the app and its helpers at an absolute deadline, 1.2 seconds from
 (and again, harmlessly, at `will-quit`), so a stall between the two — a
 window that never acks its unload, a main-process error dialog (an
 `uncaughtException` while quitting exits at once) — is bounded too. It counts
-teardown and watchdog startup toward the same budget. A quit that finishes
+teardown and watchdog startup toward the same budget. On POSIX it kills only the
+children in the app's own process group (Chromium's helpers); a `detached` child
+— the warm daemon, a reused viewer — has a group of its own and is left running. A quit that finishes
 on its own — half a second without WebGL —
 gives it nothing to do.
 

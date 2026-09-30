@@ -33,6 +33,12 @@ export const QUIT_DEADLINE_MS = 1_200;
  * killed before the parent. Our own children are already gone by then; what
  * `pgrep -P` finds is Chromium's helpers.
  *
+ * Only the children in the app's own process group are killed: the shared warm
+ * daemon and a reused external viewer are spawned `detached` (their own
+ * session, so their own group) and outlive the app by design; Chromium's
+ * helpers are spawned into the app's group. If the groups cannot be read,
+ * only the app is killed.
+ *
  * Except when the quit is an update's (`tree` false): electron-updater has
  * just spawned the NSIS installer, or the new AppImage, as a child of this
  * process, and a tree kill would take it down mid-install. Then only the app
@@ -54,8 +60,18 @@ export function watchdogScript(
         ? `const cp = require("node:child_process");
 let children = [];
 try { children = cp.execFileSync("pgrep", ["-P", "${pid}"], { encoding: "utf8" }).trim().split(/\\s+/).filter(Boolean); } catch {}
+const groups = new Map();
+try {
+  const listed = cp.execFileSync("ps", ["-o", "pid=", "-o", "pgid=", "-p", ["${pid}", ...children].join(",")], { encoding: "utf8" });
+  for (const line of listed.trim().split("\\n")) {
+    const [member, group] = line.trim().split(/\\s+/).map(Number);
+    groups.set(member, group);
+  }
+} catch {}
+const own = groups.get(${pid});
 for (const child of children) {
   if (Number(child) === process.pid) continue;
+  if (own === undefined || groups.get(Number(child)) !== own) continue;
   try { process.kill(Number(child), "SIGKILL"); } catch {}
 }
 try { process.kill(${pid}, "SIGKILL"); } catch {}`

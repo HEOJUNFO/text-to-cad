@@ -56,10 +56,41 @@ describe("the quit deadline's watchdog", () => {
     runInNewContext(watchdogScript(123, 0, "darwin"), {
       Date,
       process: { pid: 321, kill: (pid: number, signal?: string) => { if (signal) { signaled.push(pid); } } },
-      require: () => ({ execFileSync: () => "200\n321\n201\n" }),
+      require: () => ({ execFileSync: (file: string) => (file === "pgrep" ? "200\n321\n201\n" : "123 50\n200 50\n321 50\n201 50\n") }),
       setTimeout: (callback: () => void) => callback(),
     });
     expect(signaled).toEqual([200, 201, 123]);
+  });
+
+  it("spares a detached child, which has a process group of its own", async () => {
+    // The app's shape: one child in its group (a Chromium helper), one spawned `detached`, as the
+    // warm daemon and a reused viewer are (src/main/cad/daemon.ts). Both are direct children.
+    const target = spawn(process.execPath, ["-e", `
+const { spawn } = require("node:child_process");
+const launch = (detached) => new Promise((resolve) => {
+  const child = spawn(process.execPath, ["-e", "process.send(process.pid); setInterval(() => {}, 1000)"], {
+    detached, stdio: ["ignore", "ignore", "ignore", "ipc"],
+  });
+  child.once("message", resolve);
+  child.unref();
+});
+Promise.all([launch(false), launch(true)]).then(([attached, detached]) => process.send({ attached, detached }));
+setInterval(() => {}, 1000);
+`], { stdio: ["ignore", "ignore", "pipe", "ipc"] });
+    let pids: { attached: number; detached: number } | undefined;
+    try {
+      const [ready] = await once(target, "message");
+      pids = ready as { attached: number; detached: number };
+      await expect(runWatchdog(target.pid!, 0)).resolves.toEqual({ code: 0, signal: null });
+      await expect.poll(() => [target.pid!, pids!.attached].filter(alive), { timeout: 5_000 }).toEqual([]);
+      expect(alive(pids.detached), "the detached child is left running").toBe(true);
+    } finally {
+      for (const pid of [target.pid, pids?.attached, pids?.detached]) {
+        if (pid) {
+          try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ }
+        }
+      }
+    }
   });
 
   it("a target-owned watchdog kills the target and helpers without killing itself first", async () => {
