@@ -2210,7 +2210,9 @@ A turn holding a pending permission request, in a tool call or a subagent, is
 always mounted together with every turn after it, and answering the request
 does not hand those turns back. The turns mounted above where the window began
 sit in an `aria-live="off"` container, so a screen reader does not announce old
-turns as news while a turn that arrives below is announced. Measured on
+turns as news while a turn that arrives below is announced. The log region is
+`aria-busy` while an agent turn streams (not while it waits on a permission
+answer), so the per-word streaming is not read token by token. Measured on
 a 40-turn session switched to seven times: the median switch went from 90
 to 45 ms and the transcript from about 1 900 nodes to about 580.
 `content-visibility: auto` was tried first and measured slightly worse — the

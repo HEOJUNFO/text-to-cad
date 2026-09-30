@@ -73,8 +73,14 @@ export function Transcript({
   };
   const boundary = Math.max(start, opened);
 
+  // Streamdown animates a reply word by word, so every token is a DOM addition in a polite
+  // live region; `aria-busy` holds the announcements back until the turn settles and then reads
+  // what arrived once. Not while it waits on the person: a permission card must be announced.
+  const last = state.turns.at(-1);
+  const streaming = last?.role === "agent" && last.endedAt === null && state.status !== "waiting";
+
   return (
-    <Conversation className="min-h-0 min-w-0 flex-1" data-transcript>
+    <Conversation aria-busy={streaming} className="min-h-0 min-w-0 flex-1" data-transcript>
       <ConversationContent className="mx-auto min-w-0 w-full max-w-[720px] gap-4 px-6 pt-6 pb-4">
         {/* A box of its own, with the column's gap: a `display: contents` element has been dropped
             from Chromium's accessibility tree, and the silence would go with it. Empty it is
