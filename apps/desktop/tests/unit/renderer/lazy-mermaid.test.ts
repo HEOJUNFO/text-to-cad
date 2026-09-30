@@ -55,3 +55,20 @@ it("hands a later config over with the next render", async () => {
   expect(real.initialize).toHaveBeenCalledWith({ theme: "default" });
   expect(mermaid).toMatchObject({ name: "mermaid", type: "diagram", language: "mermaid" });
 });
+
+it("retries the import after a failure instead of remembering it", async () => {
+  vi.resetModules();
+  let attempts = 0;
+  vi.doMock("@streamdown/mermaid", () => {
+    attempts += 1;
+    if (attempts === 1) {
+      throw new Error("Failed to fetch dynamically imported module");
+    }
+    return { mermaid: { name: "mermaid", type: "diagram", language: "mermaid", getMermaid: () => real } };
+  });
+  const { mermaid } = await import("@renderer/lib/mermaid");
+  const instance = mermaid.getMermaid();
+  await expect(instance.render("d4", "graph TD; G-->H")).rejects.toThrow();
+  await expect(instance.render("d5", "graph TD; I-->J")).resolves.toEqual({ svg: '<svg id="d5">graph TD; I-->J</svg>' });
+  expect(attempts).toBe(2);
+});
