@@ -2,15 +2,16 @@
  * The writes in `src/main/projects/git.ts` — commit and push — against real
  * repositories: what their failures say, and what they do with the remote.
  */
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { endTrackedChildren, killTrackedChildren } from "@main/children";
 import * as git from "@main/projects/git";
 
-import { cleanGitTemplates, committedRepository, GIT_ENV } from "./git-fixtures";
+import { cleanGitTemplates, committedRepository, GIT_ENV, gitIn } from "./git-fixtures";
 
 const previousEnv = { ...process.env };
 const temporary: string[] = [];
@@ -52,5 +53,37 @@ describe("commitAll's errors", () => {
     const root = await repository();
 
     await expect(git.commitAll(root, "nothing")).rejects.toThrow(/nothing to commit/);
+  });
+});
+
+describe("a commit in flight at quit", () => {
+  it("is asked to stop, so it drops its index.lock instead of leaving one", async () => {
+    const root = await repository();
+    const pidFile = path.join(root, "..", "filter.pid");
+    const script = path.join(root, "..", "slow-clean.sh");
+    // `git add -A` holds .git/index.lock while it runs a clean filter, so a
+    // filter that never finishes is a commit caught with the lock in hand.
+    await writeFile(script, `#!/bin/sh\necho $$ > "${pidFile}"\nexec sleep 60\n`, { mode: 0o755 });
+    await gitIn(root, "config", "filter.slow.clean", script);
+    await writeFile(path.join(root, ".gitattributes"), "*.txt filter=slow\n");
+    await writeFile(path.join(root, "a.txt"), "a\n");
+    const lock = path.join(root, ".git", "index.lock");
+
+    const committing = git.commitAll(root, "add a").catch((error: unknown) => error);
+    try {
+      await vi.waitFor(async () => {
+        await readFile(pidFile, "utf8");
+        await stat(lock);
+      }, { timeout: 15_000 });
+
+      endTrackedChildren();
+      await committing;
+
+      await expect(stat(lock)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      const pid = Number((await readFile(pidFile, "utf8").catch(() => "")).trim());
+      if (pid > 0) process.kill(pid, "SIGKILL");
+      killTrackedChildren();
+    }
   });
 });

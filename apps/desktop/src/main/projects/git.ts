@@ -129,11 +129,14 @@ const GIT_OPTIONS: Options = {
 
 /**
  * Every process this module starts goes through the child registry
- * (`../children`): a read or a commit in flight is not worth waiting for at
- * quit, and a `fetch` against a slow remote would otherwise hold the exit
- * open. execa's subprocess is a promise with `pid` and `kill` mixed in,
- * which is the shape the registry tracks. `gh pr create` is the one call
- * worth finishing, so it is a service — left alone until `will-quit`.
+ * (`../children`): a read in flight is not worth waiting for at quit, and a
+ * `fetch` against a slow remote would otherwise hold the exit open. execa's
+ * subprocess is a promise with `pid` and `kill` mixed in, which is the shape
+ * the registry tracks. A write (`commit`, `push`, `worktree add/remove`) is
+ * not a read: SIGKILLed mid-way it leaves an `index.lock` or a half-made
+ * worktree, so it is a `write` and gets SIGTERM, which git cleans up after.
+ * `gh pr create` is the one call worth finishing, so it is a service — left
+ * alone until `will-quit`.
  */
 function tracked<T extends Trackable>(subprocess: T, kind: ChildKind = "probe"): T {
   return trackChild(subprocess, kind);
@@ -146,15 +149,16 @@ function tracked<T extends Trackable>(subprocess: T, kind: ChildKind = "probe"):
  * a half-run hook and a blank error, so they get this instead.
  */
 const WRITE_TIMEOUT = 10 * 60_000;
+const WRITE = { timeout: WRITE_TIMEOUT, kind: "write" } as const;
 
 /** The last lines of a git command's output — a hook can print a page before the reason. */
 function tail(output: string, lines = 20): string {
   return output.trim().split(/\r?\n/).slice(-lines).join("\n");
 }
 
-async function git(cwd: string, args: string[], options: { timeout?: number } = {}): Promise<string> {
+async function git(cwd: string, args: string[], options: { timeout?: number; kind?: ChildKind } = {}): Promise<string> {
   const timeout = options.timeout ?? GIT_OPTIONS.timeout;
-  const result = await tracked(execa("git", args, { ...GIT_OPTIONS, timeout, cwd }));
+  const result = await tracked(execa("git", args, { ...GIT_OPTIONS, timeout, cwd }), options.kind);
   if (result.failed || result.exitCode !== 0) {
     if (result.timedOut) {
       const minutes = Number(timeout) / 60_000;
@@ -891,8 +895,8 @@ export async function commitAll(cwd: string, message: string): Promise<{ sha: st
   if (message.trim() === "") {
     throw new GitError("a commit needs a message");
   }
-  await git(root, ["add", "-A"], { timeout: WRITE_TIMEOUT });
-  await git(root, ["commit", "-m", message], { timeout: WRITE_TIMEOUT });
+  await git(root, ["add", "-A"], WRITE);
+  await git(root, ["commit", "-m", message], WRITE);
   const sha = (await git(root, ["rev-parse", "HEAD"])).trim();
   return { sha };
 }
@@ -908,7 +912,7 @@ export async function push(cwd: string): Promise<void> {
     throw new GitError("cannot push a detached HEAD");
   }
   const upstream = await tryGit(root, ["rev-parse", "--abbrev-ref", `${branch}@{upstream}`]);
-  await git(root, upstream ? ["push"] : ["push", "--set-upstream", "origin", branch], { timeout: WRITE_TIMEOUT });
+  await git(root, upstream ? ["push"] : ["push", "--set-upstream", "origin", branch], WRITE);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1355,7 +1359,7 @@ export async function createWorktree(options: CreateWorktreeOptions): Promise<Cr
   await fsp.mkdir(options.parentDir, { recursive: true });
   // `--no-track`: a branch cut from `origin/main` would otherwise track it,
   // and the review's `Push` would then aim at main instead of its own name.
-  await git(root, ["worktree", "add", "--no-track", "-b", branch, directory, base]);
+  await git(root, ["worktree", "add", "--no-track", "-b", branch, directory, base], { kind: "write" });
 
   return {
     path: path.normalize(directory),
@@ -1488,7 +1492,7 @@ export async function removeWorktree(
   // reappeared between the two reads.
   const missing = gone && target.prunable;
   if (missing) {
-    await git(root, ["worktree", "remove", target.path]);
+    await git(root, ["worktree", "remove", target.path], { kind: "write" });
     return;
   }
   const unchecked = (error: unknown) => {
@@ -1504,7 +1508,7 @@ export async function removeWorktree(
       throw new GitError(`that worktree has ignored files that removing it would delete: ${named}`);
     }
   }
-  await git(root, ["worktree", "remove", ...(options.force ? ["--force"] : []), worktreePath]);
+  await git(root, ["worktree", "remove", ...(options.force ? ["--force"] : []), worktreePath], { kind: "write" });
 }
 
 /**
