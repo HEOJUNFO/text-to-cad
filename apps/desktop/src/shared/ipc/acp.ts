@@ -91,6 +91,11 @@ export const acpContract = {
       }),
       z.void(),
     ),
+    /**
+     * Run the setup a create reported as failed (`session.status.error`) again on the live
+     * session: null when it went through, else the note. Never a reconnect.
+     */
+    retrySetup: invoke(Id, z.object({ error: z.string().nullable() })),
     /** Override the agent's title with a user-supplied name that later notifications preserve. */
     rename: invoke(Id.extend({ title: z.string().min(1).max(200) }), SessionSchema),
     /** Hide from (or restore to) the sidebar. Archiving closes the adapter. */

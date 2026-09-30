@@ -2207,9 +2207,14 @@ removes the row and, for a worktree it cut, the worktree. One that fails after
 it while the connection is alive resolves: the row goes `idle`, the composer
 opens, and the failure is a note in `session.status.error`
 (`settleAfterFailedCreate`). The renderer keeps it in `setupNotes` (`state/acp.ts`,
-fed by `bridge.ts`) and shows it as an alert above the composer with a Reconnect
-button; the composer stays sendable, because the session did start. The next
-`load` or a forget clears it; it is not persisted, so a window reload drops it.
+fed by `bridge.ts`) and shows it as an alert above the composer with a Retry
+setup button; the composer stays sendable, because the session did start. Retry
+setup is `sessions.retrySetup` (`SessionManager.retrySetup`): it re-runs the
+same `applyPreferences` a create runs on the live, idle connection, and answers
+with the new note or null, which drops it. It is not a `load`: a `load` on a live
+connection only re-broadcasts its state and retries nothing. The next `load`, a
+disconnect (`close`) or a forget clears the note; it is not persisted, so a window
+reload drops it.
 One whose connection is dead, or whose row is gone,
 is abandoned (`abandonCreate`): the connection is retired, the row removed, the
 worktree that create cut released, and `create` rejects. The same happens when

@@ -53,6 +53,7 @@ describe("the contract", () => {
       "sessions.setMode",
       "sessions.setConfigOption",
       "sessions.respondPermission",
+      "sessions.retrySetup",
       "sessions.rename",
       "sessions.archive",
       "sessions.setPinned",

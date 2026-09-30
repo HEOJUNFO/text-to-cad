@@ -74,6 +74,11 @@ type AcpState = {
   setConfigOption: (sessionId: string, configId: string, value: string | boolean) => Promise<void>;
   respondPermission: (sessionId: string, requestId: string, optionId: string | null) => Promise<void>;
   close: (sessionId: string) => Promise<void>;
+  /**
+   * The setup note's retry: main runs the setup again on the live session and answers with the
+   * new note or null. Not a `load` — that would only re-broadcast a live connection's state.
+   */
+  retrySetup: (sessionId: string) => Promise<void>;
 };
 
 const TERMINAL_TAIL = 64 * 1024;
@@ -306,6 +311,21 @@ export const useAcp = create<AcpState>((set, get) => ({
       const closed = reduce(held, { type: "status", status: "closed", error: null, at: Date.now() });
       return { sessions: { ...current.sessions, [sessionId]: closed } };
     });
+  },
+
+  retrySetup: async (sessionId) => {
+    const asked = generationOf(sessionId);
+    let note: string | null;
+    try {
+      note = (await window.textToCad.sessions.retrySetup({ id: sessionId })).error;
+    } catch (error) {
+      note = errorMessage(error);
+    }
+    // Forgotten or disconnected meanwhile: the setup is moot, and so is its answer.
+    if (generationOf(sessionId) !== asked) return;
+    set((current) => ({
+      setupNotes: note === null ? withoutError(current.setupNotes, sessionId) : { ...current.setupNotes, [sessionId]: note },
+    }));
   },
 }));
 

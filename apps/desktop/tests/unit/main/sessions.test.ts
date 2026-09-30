@@ -1612,6 +1612,34 @@ describe("SessionManager", () => {
     expect((note?.payload as { error: string }).error).toContain("SQLITE_BUSY");
   });
 
+  it("retrySetup re-runs the setup on the live session and, when it goes through, says no note remains", async () => {
+    const recorder = optionRecorder({ model: null });
+    let failing = true;
+    const deps = {
+      ...recorder.deps,
+      remember: (...args: Parameters<typeof recorder.deps.remember>) => {
+        if (failing && recorder.remembered.length >= 1) throw new Error("SQLITE_BUSY");
+        recorder.deps.remember(...args);
+      },
+    };
+    const { manager, broadcasts, cwd } = await setup({ agentOptions: deps });
+    const created = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    const notes = () => broadcasts.filter((b) => b.channel === "session.status" && (b.payload as { error: string | null }).error);
+    expect(notes()).toHaveLength(1);
+    const remembered = recorder.remembered.length;
+
+    // Still failing: the steps ran again (not a load), and the failure is told again as the note.
+    await expect(manager.retrySetup(created.id)).resolves.toEqual({ error: expect.stringContaining("SQLITE_BUSY") });
+    expect(notes()).toHaveLength(2);
+
+    failing = false;
+    broadcasts.length = 0;
+    await expect(manager.retrySetup(created.id)).resolves.toEqual({ error: null });
+    expect(recorder.remembered.length).toBe(remembered + 1);
+    expect(notes()).toHaveLength(0);
+    expect(manager.state(created.id)?.state.status).toBe("idle");
+  });
+
   it("broadcasts a status only when it changed or carries a note", async () => {
     const { manager, broadcasts, cwd } = await setup();
     const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
