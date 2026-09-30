@@ -489,6 +489,12 @@ leaves the Release a draft (installed apps keep the previous feed); re-running
 the failed desktop jobs re-runs the publish and releases it. Linux is
 best-effort, so `latest-linux.yml` is not required.
 
+A run resumes a version that is already tagged only when the tag points at the
+commit being run and its Release is a draft or missing: dispatch the workflow
+on the tagged commit. A later push with the same version, or a published
+Release, stops at the gate; a `gh` error other than "release not found" fails
+the gate rather than guessing.
+
 ### What is bundled
 
 `resources/runtime/<os>-<arch>/` (the CAD runtime: a pinned Python with

@@ -6,6 +6,9 @@ name: Publish Release
 # the rehearsal branch. Manual dispatch republishes or resumes the current head of a
 # branch: a run that uploaded the wheel and died before the tag is finished by
 # dispatching this on main again (PyPI's skip-existing makes the re-upload a no-op).
+# A tagged version resumes only when the tag points at the commit being run and its
+# Release is still a draft or missing; a tag on another commit, or a published
+# Release, ends the run at the gate.
 #
 # Two kinds of step. Everything up to and including the artifact upload runs on both
 # branches. The IRREVERSIBLE steps -- PyPI upload, docs deploy, tag + GitHub Release --
@@ -92,7 +95,7 @@ jobs:
             echo "No release tag yet; publishing $current_version."
             exit 0
           fi
-          if scripts/release/check-version.sh --incremented-from "refs/tags/$latest_tag" >/tmp/publish-tag-version-check.log 2>&1; then
+          if scripts/release/check-version.sh --incremented-from "refs/tags/$latest_tag" >"${RUNNER_TEMP:-${TMPDIR:-/tmp}}/publish-tag-version-check.log" 2>&1; then
             echo "should_publish=true" >> "$GITHUB_OUTPUT"
             echo "Release version $current_version advanced past $latest_tag; publishing."
             exit 0
@@ -104,9 +107,29 @@ jobs:
           fi
           # publish-github-release.sh pushes the tag before it creates the Release and
           # attaches the files, so a tag alone is not a finished release: only a
-          # published Release ends the resume. One that cannot be read is treated as
-          # absent -- the publish is idempotent, a skipped one is not.
-          if [ "$(gh release view "$current_tag" --json isDraft --jq .isDraft 2>/dev/null || true)" != "false" ]; then
+          # published Release ends the resume. And only THIS commit resumes it: the tag
+          # names the commit the installers were built from, so a later push to main
+          # (or a dispatch of another head) with the same version must not rebuild and
+          # re-upload over it.
+          tag_commit="$(git rev-list -n1 "refs/tags/$current_tag")"
+          if [ "$tag_commit" != "$GITHUB_SHA" ]; then
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Version $current_version is tagged ($current_tag) at $tag_commit, not at this commit ($GITHUB_SHA); not publishing. Dispatch the workflow on the tagged commit to resume it."
+            exit 0
+          fi
+          # Only gh's "release not found" means the Release is absent. Any other
+          # failure (rate limit, 5xx) says nothing about it, and guessing "absent"
+          # would upload over a published Release's installers and update feeds.
+          if release_state="$(gh release view "$current_tag" --json isDraft --jq .isDraft 2>&1)"; then
+            :
+          elif printf '%s\n' "$release_state" | grep -Eq 'release not found|HTTP 404'; then
+            release_state=absent
+          else
+            echo "::error::Could not read the Release for $current_tag:"
+            printf '%s\n' "$release_state" >&2
+            exit 1
+          fi
+          if [ "$release_state" != "false" ]; then
             echo "should_publish=true" >> "$GITHUB_OUTPUT"
             echo "Version $current_version is tagged ($current_tag) but its Release is not published; resuming publish."
             exit 0
@@ -454,7 +477,10 @@ jobs:
       - desktop
     # A cancelled run tags nothing: `always()` would run this job through a
     # cancellation, pushing the tag and creating a draft the operator meant to stop.
-    if: ${{ !cancelled() && needs.desktop.result != 'cancelled' && needs.publish.result == 'success' && needs.publish.outputs.should_publish == 'true' && needs.publish.outputs.is_main == 'true' }}
+    # `desktop.result` is deliberately not tested: a leg that hits its
+    # timeout-minutes reports `cancelled` there without the run being cancelled, and
+    # that hung leg delays the tag like any failed one.
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.publish.outputs.should_publish == 'true' && needs.publish.outputs.is_main == 'true' }}
     runs-on: ubuntu-latest
 
     steps:

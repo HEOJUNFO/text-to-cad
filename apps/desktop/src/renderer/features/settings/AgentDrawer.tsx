@@ -421,7 +421,13 @@ function AdvancedSection({ agent }: { agent: AgentStatus }) {
     patch({ agentOverrides: overrides });
   };
   const extraArgs = useDraft((override?.extraArgs ?? []).join(" "), (next) => save(next, typed.current.env));
-  const env = useDraft(formatEnv(override?.env ?? {}), (next) => save(typed.current.extraArgs, next));
+  // The saved record is the parse of the text, so the text is still the field's
+  // when it parses to what the store holds: comments and malformed lines stay.
+  const env = useDraft(
+    formatEnv(override?.env ?? {}),
+    (next) => save(typed.current.extraArgs, next),
+    sameEnv,
+  );
   useEffect(() => {
     typed.current = { extraArgs: extraArgs.value, env: env.value };
   });
@@ -525,6 +531,11 @@ export function droppedEnvLines(text: string): number[] {
   return text
     .split("\n")
     .flatMap((line, index) => (envEntry(line) === "malformed" ? [index + 1] : []));
+}
+
+/** Whether `draft` is a spelling of the env text `value` (a `formatEnv` result). */
+function sameEnv(draft: string, value: string): boolean {
+  return formatEnv(parseEnv(draft)) === value;
 }
 
 export function formatEnv(env: Record<string, string>): string {

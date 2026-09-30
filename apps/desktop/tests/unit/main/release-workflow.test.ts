@@ -3,7 +3,7 @@
  * thing that cannot be run to see whether it works, so what it hands each
  * build is checked against what the build reads.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "..");
+// js-yaml is not a direct dependency: it is in the tree because electron-updater needs it.
 const require = createRequire(import.meta.url);
 const { load } = require("js-yaml") as { load: (text: string) => Workflow };
 
@@ -57,44 +58,76 @@ describe("the release gate", () => {
   const gate = job("publish").steps.find((step) => step.name === "Evaluate release gate")?.run ?? "";
 
   /**
-   * The gate's own script, run in a throwaway repository whose only release
-   * is the current version, tagged. `release` is what `gh release view
-   * --json isDraft --jq .isDraft` prints, or `absent` when it fails.
+   * The gate's own script, run like CI runs it (`bash -eo pipefail`) in a
+   * throwaway repository whose only release is the current version, tagged.
+   * `stub` is the body of the fake `gh`; `tag` says whether the tag sits on
+   * the commit being run or on an earlier one. Returns should_publish, or the
+   * gate's exit status and stderr when it fails.
    */
-  function shouldPublish(release: "false" | "true" | "absent"): string {
+  function runGate(stub: string, tag: "head" | "earlier" = "head"): { publish: string; status: number; stderr: string } {
+    expect(gate.trim(), "extracted gate script").not.toBe("");
     const dir = mkdtempSync(path.join(tmpdir(), "release-gate-"));
     try {
       cpSync(path.join(repo, "scripts", "release"), path.join(dir, "scripts", "release"), { recursive: true });
       mkdirSync(path.join(dir, "skills"));
       mkdirSync(path.join(dir, "bin"));
       writeFileSync(path.join(dir, "VERSION"), "0.5.0\n");
-      const stub = release === "absent" ? "exit 1" : `echo ${release}`;
       writeFileSync(path.join(dir, "bin", "gh"), `#!/bin/sh\n${stub}\n`, { mode: 0o755 });
       const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: "pipe" });
+      const commit = (message: string) =>
+        git("-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", message);
       git("init", "-q");
       git("add", "-A");
-      git("-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "release");
-      git("tag", "v0.5.0");
+      commit("release");
+      if (tag === "earlier") {
+        git("tag", "v0.5.0");
+        commit("unrelated push");
+      } else {
+        git("tag", "v0.5.0");
+      }
+      const sha = git("rev-parse", "HEAD").toString().trim();
       const output = path.join(dir, "out");
       writeFileSync(output, "");
-      execFileSync("bash", ["-c", gate], {
+      const result = spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", gate], {
         cwd: dir,
-        stdio: "pipe",
-        env: { PATH: `${path.join(dir, "bin")}:${process.env.PATH}`, GITHUB_OUTPUT: output, GITHUB_REF: "refs/heads/main", GITHUB_REF_NAME: "main", HOME: dir },
+        encoding: "utf8",
+        env: {
+          PATH: `${path.join(dir, "bin")}:${process.env.PATH}`,
+          GITHUB_OUTPUT: output,
+          GITHUB_REF: "refs/heads/main",
+          GITHUB_REF_NAME: "main",
+          GITHUB_SHA: sha,
+          RUNNER_TEMP: dir,
+          HOME: dir,
+        },
       });
-      return /^should_publish=(\w+)$/m.exec(readFileSync(output, "utf8"))?.[1] ?? "";
+      const publish = /^should_publish=(\w+)$/m.exec(readFileSync(output, "utf8"))?.[1] ?? "";
+      return { publish, status: result.status ?? -1, stderr: result.stderr };
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   }
+  const draft = (isDraft: "true" | "false") => `echo ${isDraft}`;
+  const notFound = 'echo "release not found" >&2; exit 1';
 
-  it("resumes a tag whose Release was never created or is still a draft", () => {
-    expect(shouldPublish("absent"), "tag, no Release").toBe("true");
-    expect(shouldPublish("true"), "tag, draft Release").toBe("true");
+  it("resumes the tagged commit whose Release was never created or is still a draft", () => {
+    expect(runGate(notFound).publish, "tag on HEAD, no Release").toBe("true");
+    expect(runGate(draft("true")).publish, "tag on HEAD, draft Release").toBe("true");
+  });
+
+  it("does not rebuild a tagged version from a later commit", () => {
+    expect(runGate(draft("true"), "earlier").publish, "tag on an earlier commit, draft Release").toBe("false");
+    expect(runGate(notFound, "earlier").publish, "tag on an earlier commit, no Release").toBe("false");
   });
 
   it("stops at a tag whose Release is published", () => {
-    expect(shouldPublish("false"), "tag, published Release").toBe("false");
+    expect(runGate(draft("false")).publish, "tag, published Release").toBe("false");
+  });
+
+  it("fails on a gh error that is not 'release not found'", () => {
+    const result = runGate('echo "HTTP 502" >&2; exit 1');
+    expect(result.status, "gate exit status").not.toBe(0);
+    expect(result.stderr, "gate stderr").toContain("HTTP 502");
   });
 });
 
@@ -102,5 +135,6 @@ it("does not tag or create a Release in a cancelled run", () => {
   const condition = String(job("tag-release").if ?? "");
   expect(condition, "tag-release if").not.toMatch(/\balways\(\)/);
   expect(condition, "tag-release if").toMatch(/!cancelled\(\)/);
-  expect(condition, "tag-release if").toMatch(/needs\.desktop\.result != 'cancelled'/);
+  // A desktop leg's timeout-minutes expiry reads `cancelled` in needs; testing it would let a hung leg prevent the tag.
+  expect(condition, "tag-release if").not.toMatch(/needs\.desktop\.result/);
 });

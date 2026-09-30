@@ -63,3 +63,15 @@ it("says which environment lines have no KEY= and will not be saved, and keeps t
     agentOverrides: { codex: { extraArgs: [], env: { GOOD: "1" } } },
   });
 });
+
+it("keeps a comment and a malformed line in the field after the blur that saves its KEY= lines", async () => {
+  const user = userEvent.setup();
+  render(drawer());
+  const env = await screen.findByLabelText("Environment", { selector: "textarea" });
+  await user.type(env, "# my note{Enter}GOOD=1{Enter}oops");
+  await user.tab();
+  // The store now holds { GOOD: "1" }, which formats to a different text than
+  // the draft; that must not be written back over what was typed.
+  expect(env).toHaveValue("# my note\nGOOD=1\noops");
+  expect(screen.getByRole("status")).toHaveTextContent("Line 3 has no KEY=value and will not be saved.");
+});

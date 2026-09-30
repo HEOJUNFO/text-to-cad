@@ -234,17 +234,27 @@ export function SelectRow<T extends string>({
  * not let in; once the edit is over, the store's value is the field's again.
  * A draft still open when the row unmounts — Settings closed mid-sentence —
  * is committed then.
+ *
+ * `same` says when the store's value is the draft, in the store's own terms:
+ * a field whose text normalises on the way in (comments and malformed lines
+ * dropped) would otherwise be rewritten to the normal form the moment its
+ * edit committed, erasing what the person typed.
  */
-export function useDraft(value: string, commit: (value: string) => void) {
+export function useDraft(
+  value: string,
+  commit: (value: string) => void,
+  same: (draft: string, value: string) => boolean = (draft, next) => draft === next,
+) {
   const [draft, setDraft] = useState(value);
   const editing = useRef(false);
-  const latest = useRef({ draft: value, committed: value, commit });
+  const latest = useRef({ draft: value, committed: value, commit, same });
   useEffect(() => {
     latest.current.commit = commit;
-  }, [commit]);
+    latest.current.same = same;
+  }, [commit, same]);
 
   useEffect(() => {
-    if (!editing.current) {
+    if (!editing.current && !latest.current.same(latest.current.draft, value)) {
       latest.current.draft = value;
       latest.current.committed = value;
       setDraft(value);
