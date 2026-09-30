@@ -67,12 +67,15 @@ jobs:
         run: scripts/release/check-version.sh
 
       # Publish only when the version is new: past the latest release tag (either
-      # spelling), or equal to it with the tag missing (a run that uploaded the wheel
-      # and died before tagging; a rerun resumes it). On build-test the same
+      # spelling), or equal to it with the tag missing or its Release unpublished (a
+      # run that uploaded the wheel and died before tagging, or tagged and died
+      # before the Release had its files; a rerun resumes it). On build-test the same
       # comparison runs against the same real tags -- a rehearsal bump passes the
       # gate exactly as it would on main, and an unbumped build-test push skips.
       - name: Evaluate release gate
         id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           current_version="$(tr -d '[:space:]' < VERSION)"
           echo "version=$current_version" >> "$GITHUB_OUTPUT"
@@ -99,8 +102,17 @@ jobs:
             echo "Version $current_version has no tag ($current_tag) yet; resuming publish."
             exit 0
           fi
+          # publish-github-release.sh pushes the tag before it creates the Release and
+          # attaches the files, so a tag alone is not a finished release: only a
+          # published Release ends the resume. One that cannot be read is treated as
+          # absent -- the publish is idempotent, a skipped one is not.
+          if [ "$(gh release view "$current_tag" --json isDraft --jq .isDraft 2>/dev/null || true)" != "false" ]; then
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+            echo "Version $current_version is tagged ($current_tag) but its Release is not published; resuming publish."
+            exit 0
+          fi
           echo "should_publish=false" >> "$GITHUB_OUTPUT"
-          echo "Nothing to publish: version $current_version is already tagged ($current_tag)."
+          echo "Nothing to publish: version $current_version is already released ($current_tag)."
 
       - name: Set up dependencies
         if: steps.gate.outputs.should_publish == 'true'
@@ -237,9 +249,10 @@ jobs:
   # release is a package that does not exist yet.
   #
   # Signing is decided by the environment inside scripts/package.mjs and nowhere else:
-  # the CSC_*/APPLE_* secrets below are empty until they are added, and an empty secret
-  # is an unsigned build with CSC_IDENTITY_AUTO_DISCOVERY=false. Adding the secrets is
-  # the entire act of turning signing on.
+  # the CSC_*/APPLE_*/WIN_CSC_* secrets below are empty until they are added, and an
+  # empty secret is an unsigned build with CSC_IDENTITY_AUTO_DISCOVERY=false. Adding
+  # the secrets is the entire act of turning signing on: each leg is handed the ones
+  # its os reads (SIGNING_SECRETS in scripts/package.mjs).
   desktop:
     name: Desktop (${{ matrix.name }})
     needs: publish
@@ -381,6 +394,8 @@ jobs:
           APPLE_ID: ${{ matrix.name == 'macOS' && secrets.APPLE_ID || '' }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.name == 'macOS' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ matrix.name == 'macOS' && secrets.APPLE_TEAM_ID || '' }}
+          WIN_CSC_LINK: ${{ matrix.name == 'Windows' && secrets.WIN_CSC_LINK || '' }}
+          WIN_CSC_KEY_PASSWORD: ${{ matrix.name == 'Windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
           TEXT_TO_CAD_APTABASE_KEY: ${{ secrets.TEXT_TO_CAD_APTABASE_KEY }}
           # electron-builder's own GitHub client reads this; `--publish never` means it
           # never uses it, and leaving it unset avoids any ambiguity about that.
@@ -428,16 +443,18 @@ jobs:
     # PyPI release untagged (Deploy Docs can be re-run on its own).
     #
     # `desktop` is a need so the installers exist by the time this uploads them, but
-    # deliberately NOT a condition: `always()` plus an explicit test of `publish`
-    # means a desktop build that failed on one platform delays the tag rather than
-    # preventing it -- the wheel is already on PyPI at that point, and an untagged
-    # release is the worse outcome. The upload step below tolerates whatever is or
+    # deliberately NOT a success condition: `!cancelled()` plus an explicit test of
+    # `publish` means a desktop build that failed on one platform delays the tag
+    # rather than preventing it -- the wheel is already on PyPI at that point, and an
+    # untagged release is the worse outcome. The upload step below tolerates whatever is or
     # is not there, except that a release missing the macOS or Windows update feed
     # is tagged as a DRAFT (see that step).
     needs:
       - publish
       - desktop
-    if: ${{ always() && needs.publish.result == 'success' && needs.publish.outputs.should_publish == 'true' && needs.publish.outputs.is_main == 'true' }}
+    # A cancelled run tags nothing: `always()` would run this job through a
+    # cancellation, pushing the tag and creating a draft the operator meant to stop.
+    if: ${{ !cancelled() && needs.desktop.result != 'cancelled' && needs.publish.result == 'success' && needs.publish.outputs.should_publish == 'true' && needs.publish.outputs.is_main == 'true' }}
     runs-on: ubuntu-latest
 
     steps:

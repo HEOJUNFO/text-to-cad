@@ -105,8 +105,11 @@ check_tree_has_no_symlinks() {
 
 check_shipped_trees_have_no_lfs_paths() {
   local hits
-  hits="$(git -C "$REPO_ROOT" ls-files skills apps/desktop/resources | git -C "$REPO_ROOT" check-attr --stdin filter |
-    sed -n 's/: filter: lfs$//p')"
+  # NUL-separated both ways: without -z git quotes a non-ASCII path ("r\303\251sum\303\251.step"),
+  # and check-attr then looks up the quoted spelling, which matches nothing. Its -z
+  # output is path, attribute, value triples, one field per line here.
+  hits="$(git -C "$REPO_ROOT" ls-files -z skills apps/desktop/resources | git -C "$REPO_ROOT" check-attr --stdin -z filter |
+    tr '\0' '\n' | sed -n 'N;N;s/^\(.*\)\nfilter\nlfs$/\1/p')"
   if [ -n "$hits" ]; then
     echo "LFS-tracked paths under skills/ or apps/desktop/resources/ (installers and the release checkout have no git-lfs):" >&2
     printf '%s\n' "$hits" | sed 's/^/  /' >&2

@@ -16,7 +16,8 @@
  * is not applied there — a build restored from cache keeps its old times
  * under a fresh checkout's, and the cache key is the build's inputs.
  */
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
@@ -44,8 +45,14 @@ function bundleTwins(options: { assets: string; config: string; required: boolea
     return null;
   }
   const seen = new Map<string, string[]>();
-  for (const file of readdirSync(options.assets)) {
-    if (!/\.(js|css|wasm)$/.test(file)) continue;
+  const chunks = readdirSync(options.assets).filter((file) => /\.(js|css|wasm)$/.test(file));
+  // No chunks is no bundle, and an empty list of twins would call it clean.
+  if (chunks.length === 0) {
+    if (options.required) throw new Error(`renderer-bundle: ${options.assets} holds no js, css or wasm chunks`);
+    console.info(`renderer-bundle: ${options.assets} holds no chunks; run \`npm run build\` to check the bundle`);
+    return null;
+  }
+  for (const file of chunks) {
     const key = `${baseName(file)} ${statSync(path.join(options.assets, file)).size}`;
     seen.set(key, [...(seen.get(key) ?? []), file]);
   }
@@ -62,4 +69,20 @@ it("fails without a bundle when the run requires one, and stands aside when it d
   const missing = path.join(app, "out", "no-such-renderer", "assets");
   expect(() => bundleTwins({ assets: missing, config, required: true })).toThrow(/no .*no-such-renderer/);
   expect(bundleTwins({ assets: missing, config, required: false })).toBeNull();
+});
+
+it("fails an empty assets directory when the run requires a bundle, and stands aside when it does not", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "renderer-bundle-"));
+  try {
+    const empty = path.join(dir, "assets");
+    mkdirSync(empty);
+    writeFileSync(path.join(empty, "index.html"), "");
+    expect(() => bundleTwins({ assets: empty, config, required: true })).toThrow(/holds no js, css or wasm chunks/);
+    expect(bundleTwins({ assets: empty, config, required: false })).toBeNull();
+    writeFileSync(path.join(empty, "a-B7h4dtBh.js"), "x");
+    writeFileSync(path.join(empty, "a-C8i5euCi.js"), "x");
+    expect(bundleTwins({ assets: empty, config, required: true })).toEqual(["a-B7h4dtBh.js = a-C8i5euCi.js"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
