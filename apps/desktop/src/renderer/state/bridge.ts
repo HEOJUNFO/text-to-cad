@@ -57,6 +57,8 @@ export function subscribeToMain(): () => void {
       const held = sessionId in useAcp.getState().sessions;
       if ((row?.archived || (!row && index.ready)) && !held) return;
       useAcp.getState().receiveState(sessionId, state);
+      // Dropped by the store (a load a Disconnect has since overtaken): nothing came back to drain into.
+      if (useAcp.getState().sessions[sessionId] !== state) return;
       // A reconnect lands here rather than as a turn event: an agent that came back idle with
       // prompts queued behind its disconnect sends the next one (`state/composer.ts`).
       if (state.status === "idle") void useComposer.getState().drain(sessionId);

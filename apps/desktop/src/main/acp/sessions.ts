@@ -634,8 +634,18 @@ export class SessionManager {
     return work;
   }
 
+  /**
+   * How many times each session was closed by a person. A load that began before one is for
+   * nobody: a close that lands while `connect` is still reading the shell environment finds no
+   * connection to retire, and the load would go on to make the row `idle` again — or `error`, if
+   * the close is what made it fail.
+   */
+  private readonly disconnects = new Map<string, number>();
+
   private async loadNow(id: string): Promise<SessionState> {
     const session = this.require(id);
+    const disconnectsAtStart = this.disconnects.get(id) ?? 0;
+    const overtaken = () => (this.disconnects.get(id) ?? 0) !== disconnectsAtStart;
     if (!session.acpSessionId) {
       throw new Error("this session never connected; create it again");
     }
@@ -658,6 +668,7 @@ export class SessionManager {
         replay,
       });
     } catch (error) {
+      if (overtaken()) throw error;
       const message = error instanceof Error ? error.message : String(error);
       this.setStatus(id, "error", message);
       if (!this.shuttingDown) {
@@ -668,6 +679,7 @@ export class SessionManager {
       }
       throw error;
     }
+    if (overtaken()) return this.abandon(id, connection);
     timer.mark("spawn");
     // session/load replays the whole history, edits included, through
     // `tallyUpdate`: start the count again rather than add a second copy of
@@ -700,8 +712,11 @@ export class SessionManager {
       // detached connection's and dropped (`onEvent`), and the row keeps
       // the error.
       const reported = connection.state.status === "error";
-      this.live.delete(id);
+      // Closed by the person mid-load: the failure is the close's, and the row keeps `closed`.
+      const closed = overtaken();
+      if (this.live.get(id) === connection) this.live.delete(id);
       connection.close();
+      if (closed) throw error;
       const message = error instanceof Error ? error.message : String(error);
       this.setStatus(id, "error", message);
       // A failure the connection already put on `session.update` (an agent
@@ -719,6 +734,7 @@ export class SessionManager {
     } finally {
       replay.onReplayUpdate = undefined;
     }
+    if (overtaken()) return this.abandon(id, connection);
     timer.mark("replay");
     console.info(
       `[acp] load ${id.slice(0, 8)} ${session.agentId} warm=${warmed ? "yes" : "no"} ${timer.format()}`,
@@ -726,6 +742,13 @@ export class SessionManager {
     this.update(id, { status: "idle" });
     this.deps.broadcast("session.state", { sessionId: id, state: connection.state });
     return connection.state;
+  }
+
+  /** A load a person's close overtook: its connection goes, and nothing is written over the `closed` row or broadcast over the pane. */
+  private abandon(id: string, connection: SessionConnection): never {
+    if (this.live.get(id) === connection) this.live.delete(id);
+    connection.close();
+    throw new Error("the session was disconnected while it loaded");
   }
 
   /**
@@ -901,6 +924,7 @@ export class SessionManager {
   }
 
   close(id: string): void {
+    this.disconnects.set(id, (this.disconnects.get(id) ?? 0) + 1);
     this.retire(id);
     this.pendingTitles.delete(id);
     // The transcript as it stood, written now rather than in a second: the

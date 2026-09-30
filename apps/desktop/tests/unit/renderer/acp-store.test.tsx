@@ -167,6 +167,19 @@ describe("Disconnect agent", () => {
       expect(useAcp.getState().sessions.s1?.status).toBe("closed");
     });
 
+    it("is not painted ready by the state main broadcasts at the end of the load", async () => {
+      const answer = deferred<unknown>();
+      sessionsApi.load = vi.fn(() => answer.promise);
+      const reconnecting = useAcp.getState().load("s1");
+      await useAcp.getState().close("s1");
+      // The bridge's `session.state`, which main sends ahead of the load's reply.
+      useAcp.getState().receiveState("s1", { ...initialSessionState("s1", "codex"), status: "idle" as const });
+      expect(useAcp.getState().sessions.s1?.status).toBe("closed");
+      answer.resolve({ ...initialSessionState("s1", "codex"), status: "idle" as const });
+      await reconnecting;
+      expect(useAcp.getState().sessions.s1?.status).toBe("closed");
+    });
+
     it("is not given the load's failure", async () => {
       const answer = deferred<unknown>();
       sessionsApi.load = vi.fn(() => answer.promise);

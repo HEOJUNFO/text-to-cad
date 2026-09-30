@@ -97,7 +97,14 @@ export const useAcp = create<AcpState>((set, get) => ({
   loadErrors: {},
 
   receiveState: (sessionId, state) =>
-    set((current) => ({ sessions: { ...current.sessions, [sessionId]: state } })),
+    set((current) => {
+      // Main broadcasts `session.state` at the end of a load, ahead of the load's reply — and a
+      // Disconnect (or a forget) that landed since the load began has already made that reply
+      // for nobody. Taking the broadcast would paint the pane connected again.
+      const load = loadsInFlight.get(sessionId);
+      if (load && load.asked !== generationOf(sessionId)) return current;
+      return { sessions: { ...current.sessions, [sessionId]: state } };
+    }),
 
   receiveEvent: (sessionId, event) =>
     set((current) => {
@@ -150,6 +157,8 @@ export const useAcp = create<AcpState>((set, get) => ({
       };
     });
     const asked = generationOf(sessionId);
+    const flight = { asked };
+    loadsInFlight.set(sessionId, flight);
     try {
       const state = await window.textToCad.sessions.load({ id: sessionId });
       // Forgotten while it loaded — archived, deleted, disconnected: the answer is for nobody.
@@ -159,6 +168,7 @@ export const useAcp = create<AcpState>((set, get) => ({
         set((current) => ({ loadErrors: { ...current.loadErrors, [sessionId]: errorMessage(error) } }));
       }
     } finally {
+      if (loadsInFlight.get(sessionId) === flight) loadsInFlight.delete(sessionId);
       set((current) => {
         const loading = { ...current.loading };
         delete loading[sessionId];
@@ -260,6 +270,9 @@ export const useAcp = create<AcpState>((set, get) => ({
  */
 const forgotten = new Map<string, number>();
 const generationOf = (sessionId: string) => forgotten.get(sessionId) ?? 0;
+
+/** The generation each in-flight `load` began under, so a state main broadcasts for it can be judged the same way its reply is. */
+const loadsInFlight = new Map<string, { asked: number }>();
 
 /** Everything held for one session, taken out: its state, its load's leftovers, its terminals' tails. */
 function without(current: AcpState, sessionId: string): Partial<AcpState> {

@@ -448,6 +448,45 @@ describe("SessionManager", () => {
     expect(manager.state(session.id)).toBeNull();
   });
 
+  /**
+   * `connect` waits on the shell environment before the connection is in the live set, so a
+   * Disconnect that lands then has nothing to retire: the load is what has to notice it.
+   */
+  describe("a Disconnect that lands while a load is still connecting", () => {
+    async function held() {
+      const { repo, broadcasts, manager, cwd } = await setup();
+      const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+      manager.close(session.id);
+      broadcasts.length = 0;
+      const detector = (manager as unknown as { deps: { detector: { environment: () => Promise<Record<string, string>> } } }).deps.detector;
+      let release!: { resolve: () => void; reject: (error: Error) => void };
+      const gate = new Promise<void>((resolve, reject) => (release = { resolve, reject }));
+      detector.environment = async () => {
+        await gate;
+        return { PATH: process.env.PATH ?? "" };
+      };
+      const loading = manager.load(session.id);
+      const settled = loading.then(() => "loaded", () => "refused");
+      manager.close(session.id);
+      return { repo, broadcasts, session, release, settled };
+    }
+
+    it("does not leave the row error when the connect fails", async () => {
+      const { repo, session, release, settled } = await held();
+      release.reject(new Error("the login shell went away"));
+      expect(await settled).toBe("refused");
+      expect(repo.get(session.id)?.status).toBe("closed");
+    });
+
+    it("does not make the row idle, or broadcast a state, when the connect goes on to succeed", async () => {
+      const { repo, broadcasts, session, release, settled } = await held();
+      release.resolve();
+      expect(await settled).toBe("refused");
+      expect(repo.get(session.id)?.status).toBe("closed");
+      expect(broadcasts.filter((sent) => sent.channel === "session.state")).toEqual([]);
+    });
+  });
+
   /* ------------------------------------------------------------------ */
   /* Opening a session: the snapshot, the keep-alive, the warm adapter   */
   /* ------------------------------------------------------------------ */
