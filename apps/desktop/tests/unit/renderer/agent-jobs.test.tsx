@@ -4,7 +4,7 @@
  * unmounted and remounted, has to find the job still running rather than
  * offer to start a second one.
  */
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@renderer/components/ui/tooltip";
@@ -49,6 +49,24 @@ describe("a job that outlives the component that started it", () => {
     );
     expect(screen.getByRole("button", { name: "Install" })).toBeDisabled();
     expect(screen.getByText("fetching…")).toBeInTheDocument();
+  });
+});
+
+describe("a job that has printed nothing yet", () => {
+  it("is still found running by a drawer remounted before the first chunk", async () => {
+    vi.mocked(window.textToCad.agents.install).mockResolvedValue({ jobId: "j1" });
+    const drawer = (
+      <TooltipProvider>
+        <AgentDrawer agent={codex} onOpenChange={() => {}} open platform="macos" />
+      </TooltipProvider>
+    );
+    const first = render(drawer);
+    fireEvent.click(screen.getByRole("button", { name: "Install" }));
+    await screen.findByText("Waiting for output…");
+    first.unmount();
+    render(drawer);
+    expect(screen.getByRole("button", { name: "Install" })).toBeDisabled();
+    expect(screen.getByText("Waiting for output…")).toBeInTheDocument();
   });
 });
 

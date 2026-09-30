@@ -37,6 +37,23 @@ const JOB_TAIL = 64 * 1024;
 const probeFailure = (agents: AgentStatus[]): string | null =>
   agents.length > 0 && agents.every((agent) => agent.probeFailed === true) ? "the check did not finish" : null;
 
+/**
+ * The job exists from the moment main names it, not from its first byte: a silent
+ * `npm i -g` can sit seconds before printing, and a row remounted in that gap has
+ * to find the job running instead of offering a second one. `receiveOutput` merges
+ * into this, so an exit chunk that got here first is kept.
+ */
+function seedJob(
+  set: (fn: (state: AgentsState) => Partial<AgentsState>) => void,
+  jobId: string,
+  agentId: string,
+  kind: AgentJobOutput["kind"],
+): void {
+  set((state) =>
+    state.jobs[jobId] ? {} : { jobs: { ...state.jobs, [jobId]: { agentId, kind, output: "", exitCode: null } } },
+  );
+}
+
 export const useAgents = create<AgentsState>((set) => ({
   agents: [],
   ready: false,
@@ -75,11 +92,13 @@ export const useAgents = create<AgentsState>((set) => ({
 
   install: async (agentId, index = 0) => {
     const { jobId } = await window.textToCad.agents.install({ agentId, index });
+    seedJob(set, jobId, agentId, "install");
     return jobId;
   },
 
   login: async (agentId) => {
     const { jobId } = await window.textToCad.agents.login({ agentId });
+    seedJob(set, jobId, agentId, "login");
     return jobId;
   },
 
