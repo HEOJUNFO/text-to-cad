@@ -1989,6 +1989,7 @@ src/renderer/
   app/                    Shell (three panes in a flex row), App, CommandPalette
     PaneSeparator.tsx     one pane divider: drag, arrow keys, and the overshoot collapse
     PaneToggles.tsx       the sidebar's and explorer's toggles, and back/forward
+    pane-focus.ts         PANE_HOMES (where focus lands in a pane) for F6 and the return from Settings
   lib/mermaid.ts, lib/math.ts  Streamdown's Mermaid and KaTeX plugins, imported on first use
   lib/panes.ts            the pane geometry: clamps, the overshoot rule, what fits (pure)
   features/sidebar        projects as sections, their sessions flat, Pinned, the filter menu
