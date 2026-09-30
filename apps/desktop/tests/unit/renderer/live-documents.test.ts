@@ -84,3 +84,19 @@ test('a reload or close with an unsaved draft anywhere is refused; main turns th
   discardDocumentTab('unload-tab');
   expect(unload()).toBe(false);
 });
+
+test('read_document cuts a buffer over the edit cap and flags it; edit_document refuses such a buffer', async () => {
+  const scope = { projectId: 'project', root: null };
+  const host = desktopLiveDocuments('big-tab', scope);
+  const big: LiveTextSnapshot = { content: 'x'.repeat(3 * 1024 * 1024), revision: 'live-1', dirty: false, readOnly: false, stale: false };
+  let replaced = false;
+  const release = host.documents!.bind({ sourceId: 'root', path: 'big.txt', read: () => big, replace: () => { replaced = true; return big; }, save: async () => ({ status: 'unavailable' }) });
+  const read = await performDocumentCommand('document-read', { tabId: 'big-tab' }, scope) as unknown as { content: string; truncated?: boolean; note?: string; revision: string };
+  expect(read.truncated).toBe(true);
+  expect(read.content.length).toBe(2 * 1024 * 1024);
+  expect(read.note).toMatch(/too large to edit/);
+  expect(read.revision).toBe('live-1');
+  await expect(performDocumentCommand('document-edit', { tabId: 'big-tab', expectedRevision: 'live-1', content: 'short' }, scope)).rejects.toThrow(/too large to edit through the bridge/);
+  expect(replaced).toBe(false);
+  release(); discardDocumentTab('big-tab');
+});
