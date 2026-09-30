@@ -194,8 +194,10 @@ export function useExplorerShortcuts() {
       // machine they came from.
       if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key === "`") {
         event.preventDefault();
-        preloadTerminal();
-        focusOpened(open("terminal"));
+        if (!event.repeat) {
+          preloadTerminal();
+          focusOpened(open("terminal"));
+        }
         return;
       }
 
@@ -219,18 +221,21 @@ export function useExplorerShortcuts() {
         const kind = key === "r" ? "review" : key === "b" ? "browser" : key === "d" ? "drawing" : null;
         if (kind) {
           event.preventDefault();
-          focusOpened(open(kind));
+          if (!event.repeat) focusOpened(open(kind));
         }
         return;
       }
       if (key === "t") {
         event.preventDefault();
-        focusOpened(open("file"));
+        if (!event.repeat) focusOpened(open("file"));
         return;
       }
-      if (key === "w" && activeId) {
+      // A held key repeats: it is swallowed, not acted on again. Holding Cmd+T would open
+      // tabs by the dozen, and holding Cmd+W would close them all and then, with none left,
+      // fall through to the menu's Close and close the window.
+      if (key === "w" && (activeId || event.repeat)) {
         event.preventDefault();
-        closeActive();
+        if (!event.repeat) closeActive();
         return;
       }
       if (/^[1-9]$/.test(event.key) && tabs.length > 0) {

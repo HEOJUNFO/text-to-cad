@@ -91,3 +91,21 @@ it("Ctrl+` opens a terminal and reveals the pane while the explorer is collapsed
   expect(useExplorer.getState().collapsed).toBe(false);
   expect(document.getElementById("explorer")).not.toBeNull();
 });
+
+it("a held Mod+T or Mod+W repeats nothing, and the repeat is still kept from the menu's Close", () => {
+  useExplorer.setState({ tabs: [fileTab("f1", 0)], activeId: "f1" });
+  pane();
+  const held = (key: string) => {
+    const event = new KeyboardEvent("keydown", { key, ctrlKey: true, repeat: true, bubbles: true, cancelable: true });
+    window.dispatchEvent(event);
+    return event;
+  };
+  expect(held("t").defaultPrevented).toBe(true);
+  expect(useExplorer.getState().tabs).toHaveLength(1);
+  expect(held("w").defaultPrevented).toBe(true);
+  expect(useExplorer.getState().tabs).toHaveLength(1);
+  fireEvent.keyDown(window, { key: "w", ctrlKey: true });
+  expect(useExplorer.getState().tabs).toHaveLength(0);
+  // Nothing left to close: the repeat still does not reach the menu, which would close the window.
+  expect(held("w").defaultPrevented).toBe(true);
+});
