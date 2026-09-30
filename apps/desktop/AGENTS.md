@@ -150,7 +150,8 @@ the rule is about.
   that would act on a row (refuse an agent as not installed, hand a binary to a
   login) waits for `AgentDetector.freshWithin(PROBE_WAIT_MS)` and treats null
   as unknown, never as absent. A screen must not say "signed out" for a
-  `probing` row (README, "ACP").
+  `probing` row: the welcome, the setup cards and the drawer say "Checking…",
+  and the Agents page's dot stays idle (README, "ACP").
 - **Nothing is installed into an agent's configuration.** text-to-cad's skills
   and its tools are given to each session — the skills root as an additional
   directory on `session/new` and `session/load` (both spellings) plus a
@@ -240,5 +241,43 @@ the rule is about.
   (`sessions.sessionHead` / `turnHead`); the renderer sends the scope's *name*
   and main resolves it. Two commits can share a second, and `--before=` picks a
   commit rather than a moment, so a timestamp cannot do this job.
+
+- **Path containment is `climbsOut`/`isInside`** (`src/main/explorer/fs.ts`),
+  never a `startsWith("..")` on a `path.relative`: a folder named `..keep` is an
+  ordinary name and climbs nowhere (`tests/unit/main/git-paths.test.ts`,
+  `client.test.ts`, and `mcp-bridge.test.ts` for `attach_snapshot`).
+- **A check that is followed by an open re-checks the handle.** `readSnapshot`
+  (`src/main/integrations/actions.ts`) opens the file, then resolves the path
+  again with a fresh `realpath`, which must still be inside the workspace and
+  name the very file the handle holds (`fstat` device and inode). A path is a
+  claim about the moment it was checked; a link swapped in after it is not
+  followed out of the root (`tests/unit/main/mcp-bridge.test.ts`).
+- **A job's running state comes from the store.** `useJob(agentId, kind)`
+  (`features/settings/AgentDrawer.tsx`) reads the running job from
+  `useAgents.jobs`, not from component state, so a drawer or welcome that
+  remounts finds the installer under way and disables Install and Sign in.
+- **A draft that resyncs from the store compares the normalised value.**
+  `useDraft` (`features/settings/SettingCard.tsx`) takes a `same()` predicate;
+  a field whose text is parsed on the way in (the Advanced environment) says
+  when the store's value is its text, or the blur that saves it rewrites what
+  the person typed (`tests/unit/renderer/agent-advanced.test.tsx`).
+- **The row changes before the teardown.** Archive and delete write the
+  session row first and revoke tokens, dispose pages and kill shells after, so
+  a write that throws leaves the session whole with its tools
+  (`tests/unit/main/acp-archive-order.test.ts`).
+- **The terminals an agent can create are capped, and the cap is checked
+  before the pty is registered.** `Terminals.create` takes `maxPerSession`
+  (16 for `create_terminal`, counting every pty of the session, the person's
+  own and stopped ones included), so concurrent calls cannot each see room
+  (`tests/unit/main/terminal-actions.test.ts`).
+- **A persisted id of a live resource is released on load unless a live one
+  answers to it.** `explorer.loadTabs` nulls a terminal tab's `ptyId` that no
+  pty of the session owns, because ptys die with the app
+  (`tests/unit/main/terminal-ipc.test.ts`).
+- **Nothing lands on its final path until it is complete.** A save writes a
+  temporary sibling and renames it (`src/main/explorer/fs.ts`); the onboarding
+  sample is copied to `<target>.copying` and renamed into place, so a copy that
+  dies leaves staging for the next run to discard, never a half-sample that
+  reads as the person's own (`tests/unit/main/onboarding.test.ts`).
 
 Domain MCP servers and focused skills are composed by `src/main/integrations/registry.mjs`. Read [the integration contract](docs/integrations.md) before adding session-to-app capabilities.

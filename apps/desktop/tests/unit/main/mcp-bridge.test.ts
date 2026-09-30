@@ -320,6 +320,44 @@ describe("the actions", () => {
     await expect(actions.attach_snapshot!(session, { path: "notes.txt" })).rejects.toThrow("not a PNG");
   });
 
+  describe("attach_snapshot re-checks the handle against a fresh realpath", () => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    function actionsFor(root: string) {
+      const sessionRoot = () => ({ directory: root, root: null });
+      const commands = new RendererCommands({ sessionRoot, send: () => {}, newId: () => "r" });
+      return createActions({ sessionRoot, send: () => {}, newId: () => "r" }, commands);
+    }
+
+    it("accepts a folder whose name only starts with dots", async () => {
+      const root = fs.realpathSync(tempDir("text-to-cad-proj-"));
+      fs.mkdirSync(path.join(root, "..keep"));
+      fs.writeFileSync(path.join(root, "..keep", "a.png"), png);
+      const snapshot = await actionsFor(root).attach_snapshot!({ sessionId: "s", projectId: "p", cwd: root }, { path: "..keep/a.png" });
+      expect(snapshot).toMatchObject({ path: "..keep/a.png", base64: png.toString("base64") });
+    });
+
+    it.skipIf(process.platform === "win32")("refuses a path swapped for a link out of the root after the check", async () => {
+      const root = fs.realpathSync(tempDir("text-to-cad-proj-"));
+      const outside = fs.realpathSync(tempDir("text-to-cad-out-"));
+      fs.writeFileSync(path.join(root, "a.png"), png);
+      // A hard link, so the handle's device and inode still match the outside
+      // path: only the containment half of the re-check can refuse this.
+      fs.linkSync(path.join(root, "a.png"), path.join(outside, "a.png"));
+      const realOpen = fsp.open.bind(fsp);
+      const spy = vi.spyOn(fsp, "open").mockImplementation(async (...args: Parameters<typeof fsp.open>) => {
+        fs.rmSync(path.join(root, "a.png"));
+        fs.symlinkSync(path.join(outside, "a.png"), path.join(root, "a.png"));
+        return realOpen(...args);
+      });
+      try {
+        await expect(actionsFor(root).attach_snapshot!({ sessionId: "s", projectId: "p", cwd: root }, { path: "a.png" }))
+          .rejects.toThrow("changed while it was being read");
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
+
   it.skipIf(process.platform === "win32")("names the session's recorded spelling of its directory beside the real path", async () => {
     const real = fs.realpathSync(tempDir("text-to-cad-proj-"));
     const link = path.join(tempDir("text-to-cad-link-"), "checkout");

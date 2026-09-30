@@ -130,7 +130,11 @@ A first run opens on a welcome over the whole window instead of the shell
 what the app is, **Connect an agent** (Claude Code and Codex, with Install and
 Sign in running the same jobs as Settings › Agents, and a link there for the
 rest), and a start step that offers **Try the sample** or **Open a folder…**.
-Finishing or skipping sets `onboardingCompleted`. After it, the sidebar shows a
+Finishing or skipping sets `onboardingCompleted`. The welcome's current step is
+`step` in `state/onboarding.ts`, not component state, because Settings replaces
+the welcome the way it replaces the shell: "Use a different agent in Settings ›
+Agents", Cmd+, or Back to app returns to the step the person left (it is held
+for the window, not saved). After it, the sidebar shows a
 **Getting started** checklist (`features/onboarding/GettingStarted.tsx`) whose
 four items tick themselves from what the person has done — an agent installed
 and signed in, a folder open, a session, a CAD file reaching the viewer
@@ -153,7 +157,38 @@ Main answers the two things that are not settings, over `onboarding.*`
   broadcasts no `ui.directorySelected` for it). No channel takes a directory by name. The sample is copied, never opened in
   place — a signed bundle must not be written into, and the agent will edit
   it — and a folder there that already has files in it is reused as it is,
-  not overwritten.
+  not overwritten. The copy is staged as `<target>.copying` (a stale one is
+  discarded first) and renamed into place, so the target holds files only once
+  it holds all of them. A rename that fails with EPERM, EBUSY or EACCES (Windows
+  antivirus or the indexer holding the new tree) is retried five times with a
+  short backoff, then the staging tree is copied into place; a copy that dies
+  there clears the target, so no half-sample is left to be taken for the
+  person's own.
+
+## Settings
+
+Settings replaces the shell (`app/App.tsx`) and is a route, so opening it
+unmounts everything under the shell. `openSettings` in `state/ui.ts` closes the
+command palette and clears its query, as every other way of closing it does, so
+Cmd+K after Settings opens empty.
+
+General's **Default project folder** (`defaultProjectFolder` in `SettingsSchema`,
+`features/settings/pages/GeneralPage.tsx`) is where the Open folder chooser
+opens (`projects.add` passes it as `defaultPath` when it is still a directory);
+Clear returns the choice to the OS.
+
+The Settings search hides a row through `useRowMatch`. The Agents page's group
+headings ("Installed (4)") count the rows that search leaves, by the same row
+text (`agentRowText` in `features/settings/pages/AgentsPage.tsx`), so a heading
+never claims rows the search hid.
+
+The agent drawer's Advanced fields, Extra arguments and Environment, are drafts
+(`useDraft`): written on blur, and on unmount for an edit the drawer closed on
+(Esc) before any blur. Environment saves as `KEY=value` records, so `useDraft`
+takes a `same` predicate and the field compares the parse of its text with the
+store's value; comments and malformed lines the person typed stay in the box
+after the blur that saved them. A line with no `KEY=` is not saved, and the
+field says which lines ("Line 3 has no KEY=value and will not be saved").
 
 ## Checks
 
@@ -204,7 +239,9 @@ Shiki under `@streamdown/code` was ~230 grammars and themes emitted twice).
 build and fails when two chunks share a base name and a size. Without a build,
 or with one older than the config, it logs why and passes; CI's Desktop job
 runs it again after the build step with `TEXT_TO_CAD_BUNDLE_CHECK=1`, under
-which a missing bundle fails and the age guard is skipped.
+which a missing bundle fails, an assets directory with no js, css or wasm
+chunks fails (an empty list of twins would call a failed build clean), and the
+age guard is skipped. A plain run stands aside for both.
 
 The unit suite caps workers at four; Electron uses one worker and no automatic
 retries. The git and workspace suites take their repositories from
@@ -494,6 +531,10 @@ commit being run and its Release is a draft or missing: dispatch the workflow
 on the tagged commit. A later push with the same version, or a published
 Release, stops at the gate; a `gh` error other than "release not found" fails
 the gate rather than guessing.
+
+The tag job runs on `!cancelled()` and tests only the publish job's result, so
+a desktop platform that fails, or a leg that hits its timeout, delays the tag
+rather than preventing it, while a cancelled run tags nothing.
 
 ### What is bundled
 
@@ -938,7 +979,13 @@ worked in, which is the newest `updatedAt` of any of their sessions
 (`lib/projects.ts`, over the index, because a project has no `lastUsedAt` of
 its own and should not grow one) — a check on the one this screen is for,
 then `Open folder…`: the native folder chooser, followed by that folder's
-new-session screen (`hooks/use-open-folder.ts`). Codex's shape, minus its
+new-session screen (`hooks/use-open-folder.ts`). The palette, the session pane
+and the chip use `useOpenFolderOrToast`, which says a chooser or `projects.add`
+that rejects in a "Could not open that folder" toast and reads as a cancelled
+chooser; the welcome keeps its own inline line on the plain `useOpenFolder`. The
+chooser opens at Settings › General's Default project folder
+(`defaultProjectFolder`, empty for the OS's choice) when that folder still
+exists as a directory; a moved or deleted one is left out. Codex's shape, minus its
 `No folder` row: a session here always belongs to a folder. There is no
 `Add project` button, because adding a folder *is* choosing one. The one
 state with no chip to open — no folder at all — is the "Choose a folder to
@@ -1079,6 +1126,9 @@ immutable CAD geometry caches can still be reused. Archiving/deleting a session
 releases live browser/terminal/drawing/CAD resources. Archive keeps unsaved
 text drafts in window memory for restoration (quitting still discards drafts), flushes and
 retains ordinary tab metadata for restoration; deleting the session removes it.
+Both write the session row first and tear the tools down after, so a write that
+throws (a locked database, a missing row) leaves the session active with its
+tokens, pages and shells intact.
 Failed tab restoration displays a retry action without replacing stored tabs.
 
 ### Drawings
@@ -1175,6 +1225,19 @@ sequence and input revision; writes require both, preventing a tool from racing
 new output or user typing. Closing a terminal releases its process; stopping
 it leaves the output available until close. A provider's own shell tool has
 separate process IDs and does not automatically create a text-to-cad terminal tab.
+A session holds at most 16 ptys, stopped ones and the person's own included
+(each keeps its scrollback until its tab closes); `create_terminal` refuses past
+that, checked before the pty is registered so concurrent calls cannot overshoot.
+`explorer.loadTabs` releases a saved `ptyId` that no live pty of the session
+answers to, so a restored terminal starts a fresh shell instead of attaching to
+one that died with the app; a live pty (a renderer reload) keeps its id. A tab
+the agent opened carries `agent: true`, and its respawn through
+`terminal.create` puts the runtime launchers in front of `PATH` again.
+`TerminalTab`'s key handler copies a selection on Cmd/Ctrl+C and passes Cmd/Ctrl+K
+to the command palette. Paste is xterm's own paste listener, which brackets the
+text when the shell asked for it; the Cmd/Ctrl+V branch of the handler only
+returns false so Ctrl+V does not reach the shell as `^V`, and writes nothing (a
+second write ran a pasted command twice, once unbracketed).
 
 Over IPC (`terminal.*`, `src/shared/ipc/explorer.ts`), `terminal.create` takes
 the project, the session, an optional `cwd` (checked against the project and
@@ -1581,6 +1644,9 @@ receives the root in both `additionalDirectories` and `_meta.additionalRoots`;
 adapters read whichever spelling they understand. Claude Code and Codex use
 their native skill-root mechanisms. Other adapters retain the concise first
 prompt preamble; workspace `list_skills` and `read_skill` read the same root.
+`session/new` sets the preamble and the first `session/prompt` the agent takes
+consumes it: a prompt the agent rejects puts it back, so the retry still
+carries it. `loadSession` never sets it; a resumed session's history has it.
 These are discovery options, not a requirement to load every skill on a turn.
 
 **MCP servers.** The registry supplies separate `text-to-cad-workspace`,
@@ -1806,7 +1872,15 @@ when it was written by the same app version and holds every provider. Then:
   flagged `probing`, and the probe replaces it through `agents.status` (a row
   from a probe never carries the flag). Settings and the new-session screen
   draw a probing row's unauthenticated state as "Checking…" rather than "Not
-  signed in".
+  signed in". The welcome's Continue reads a disabled "Checking…" while any row
+  is probing, the setup cards and the drawer show "Checking…" where a cached
+  "not installed" would draw Install, and the Agents page's dot stays idle (not
+  green) beside "checking sign-in…" until the probe confirms.
+- **Install and Sign in** are disabled while their job runs. The running job for
+  an agent and kind is read from `useAgents.jobs` by `useJob(agentId, kind)`
+  (`features/settings/AgentDrawer.tsx`), not from component state, so a drawer
+  closed and reopened, or a welcome left for Settings and back, finds the
+  installer under way and attaches its log instead of offering a second one.
 - A **cold launch** (no usable cache) waits for the first probe for at most
   `PROBE_WAIT_MS` (3 s), then answers with whatever it has, which may be empty.
 - If the probe fails while the table is still the last launch's, or has none and the
@@ -1868,7 +1942,10 @@ Three things learned from the real adapters that the code now depends on:
   `CLAUDE_TMPDIR`, `CLAUDE_PLUGIN_DATA`, `CLAUDE_AGENT_SDK_*`,
   `CLAUDE_PREVIEW_*` — and `ANTHROPIC_BASE_URL`; without the marker a user's
   own `ANTHROPIC_BASE_URL` (a proxy) stays, and `CLAUDE_CONFIG_DIR` always
-  stays, being the person's own choice. The Claude fixture on this machine is the auth-failure exchange for
+  stays, being the person's own choice. The login shell starts from
+  `stripHostSession(processEnv())` and nothing is stripped from the environment
+  it prints, so the person's own rc exports (a `CLAUDE_CODE_OAUTH_TOKEN`, say)
+  survive. The Claude fixture on this machine is the auth-failure exchange for
   that reason (`claude-code-auth-required.jsonl`); a machine with a signed-in
   `claude` (`claude auth status` → `loggedIn: true`) records a full session.
   Until one is recorded, the fake agent's `claude-code` profile
@@ -2089,6 +2166,13 @@ worktrees.
 worktree session writes a file, calls `open_file` through the MCP server,
 and the tab, the breadcrumb, the tree and a new terminal all root at the
 worktree; starting a new session opens an independent, empty explorer.
+
+The agent's `attach_snapshot` reads an image (PNG, JPEG, WebP, GIF, at most 8 MB)
+in main from one handle, opened non-blocking and checked with `fstat`. Once it is
+open the path is resolved again with a fresh `realpath`, which must still be
+inside the workspace (`climbsOut`, so a folder named `..keep` is fine) and name
+the file the handle holds (same device and inode); a path swapped for a link out
+of the root between the check and the open is refused.
 
 ### CAD references and session drafts
 

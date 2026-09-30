@@ -46,6 +46,9 @@ Persisted tabs are keyed by `session_id`, with a foreign key to sessions.
 `explorer.loadTabs` and `saveTabs` name that session; saving checks every tab's
 owner and directory before replacing anything. A failed write is atomic.
 Drawings stay in memory and are never included in the persisted strip.
+`loadTabs` releases a saved terminal `ptyId` that no live pty of the session
+answers to (ptys die with the app), so the tab starts a fresh shell; an
+`agent: true` tab respawns with the runtime `PATH`.
 
 MCP credentials bind the immutable session id and working directory. Renderer
 commands, browser/CDP targets and terminals enforce that same owner. An agent
@@ -60,8 +63,8 @@ any retained file tab owns that root. Switching sessions or collapsing the pane
 unmounts the viewport without discarding those caches. Closing the last owner or
 discarding its session releases the client; camera and selection remain per tab.
 
-Archive closes live session resources but retains the session row and its
-persisted tabs. Delete removes that session and its children only. A
+Archive writes the session row first, then closes live session resources; it
+retains the session row and its persisted tabs. Delete removes that session and its children only. A
 session's worktree goes only when Settings' auto-delete is on: deleting the
 session then removes it (never forced), and after each new worktree's row is
 written a keep-limit sweep removes the oldest past the limit — never one a

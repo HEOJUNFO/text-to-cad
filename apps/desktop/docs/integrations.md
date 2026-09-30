@@ -54,10 +54,17 @@ Paths on disk are resolved against the session's project/worktree using main's
 normal realpath boundary. A matching filename in another root is not the same
 resource.
 
+`attach_snapshot` reads an image (PNG, JPEG, WebP, GIF, at most 8 MB)
+in main from one handle, opened non-blocking and checked with `fstat`. Once it is
+open the path is resolved again with a fresh `realpath`, which must still be
+inside the workspace (`climbsOut`, so a folder named `..keep` is fine) and name
+the file the handle holds (same device and inode); a path swapped for a link out
+of the root between the check and the open is refused.
+
 ## Lifetimes and conflict behavior
 
-Archiving/deleting a session revokes its integration credentials and releases
-its native app resources. Unsaved text drafts remain in memory on archive so
+Archiving/deleting a session changes its row first, then revokes its
+integration credentials and releases its native app resources. Unsaved text drafts remain in memory on archive so
 restoring the session can recover them; deletion discards them. Switching tabs or sessions does not close resources.
 Each session starts with an empty explorer. All commands carry the authenticated
 session ID chosen by main, never supplied by the model. Open/show/close updates
@@ -72,7 +79,7 @@ Browser targets/storage partitions and PTYs carry the same session owner.
 | PDF | Retains the last page/selection snapshot, marked inactive; page extraction/capture/navigation requires the mounted document. | Releases worker, loading task, text layer and capability. |
 | CAD | Retains serializable last-view state, marked inactive; viewport changes and capture require the mounted model. | Releases controller registration and inactive snapshot; shared CAD cache policy remains separate. |
 | Browser | Main retains the actual page and its navigation state; presentation can detach without destroying it. Tools address that page even in the background. | Destroys the app-owned page. |
-| Terminal | The PTY and bounded output buffer continue independently of the mounted xterm view. | Releases the app-owned process and terminal resources. Stop keeps its output available until close. |
+| Terminal | The PTY and bounded output buffer continue independently of the mounted xterm view. A session holds at most 16 PTYs, the person's own and stopped ones included; `create_terminal` refuses past that. | Releases the app-owned process and terminal resources. Stop keeps its output available until close. |
 | Drawing | Renderer memory retains the serialized scene. | Discards the sketch. Drawings are also discarded on reload or app exit. |
 
 Text's live revision is an opaque buffer token, separate from `diskRevision`.
@@ -127,12 +134,15 @@ The registry supplies browser, PDF, documents, terminals, drawings and the
 embedded `cad-viewer` skill. Other repository CAD authoring skills still ship;
 the standalone viewer-launching skill is replaced by the embedded handoff.
 Native skill loaders receive the root on session creation/load, while other
-adapters receive the concise existing skill preamble and workspace skill-read
-tools. Vendored upstream skills retain their license and provenance.
+adapters receive the concise existing skill preamble, kept until a
+`session/prompt` is taken (a rejected first prompt restores it, and
+`loadSession` never sets it), and workspace skill-read tools. Vendored upstream skills retain their license and provenance.
 
 A provider's built-in filesystem and shell tools still work on disk. They are
 not the live-document API and cannot observe an unsaved editor buffer. Likewise,
-a provider-owned terminal/process ID is not an app-owned PTY ID. Use document
+a provider-owned terminal/process ID is not an app-owned PTY ID. A restored
+terminal tab whose saved PTY id no live PTY answers to starts a fresh shell, and
+one the agent opened (`agent: true`) respawns with the runtime on `PATH`. Use document
 integration tools when the task concerns the person's live draft; use the
 provider's disk tools for ordinary repository work, then open completed results
 through workspace tools. Watchers reconcile changed disk artifacts with views.
