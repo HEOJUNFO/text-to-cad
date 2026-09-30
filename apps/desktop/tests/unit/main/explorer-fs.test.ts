@@ -104,6 +104,26 @@ describe("listing a directory", () => {
     expect(detectType("dist/output.unsupported").kind).toBe("binary");
   });
 
+  it("stats a wide directory's entries concurrently, not one round trip after another", async () => {
+    const wide = await fs.mkdtemp(path.join(os.tmpdir(), "text-to-cad-wide-"));
+    outsideDirectories.push(wide);
+    await Promise.all(Array.from({ length: 200 }, (_, index) => fs.writeFile(path.join(wide, `frame-${index}.png`), "x")));
+    const stat = fs.stat.bind(fs);
+    let inFlight = 0;
+    let widest = 0;
+    const spy = vi.spyOn(fs, "stat").mockImplementation(async (...args: Parameters<typeof fs.stat>) => {
+      inFlight += 1;
+      widest = Math.max(widest, inFlight);
+      try { return await stat(...args); } finally { inFlight -= 1; }
+    });
+    try {
+      expect(await listDirectory(wide, "")).toHaveLength(200);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(widest).toBeGreaterThan(1);
+  });
+
   it("puts directories first, then natural order", () => {
     const rows = sortEntries([
       row("b.txt", "file"),
