@@ -241,7 +241,12 @@ export class SessionConnection {
   private initializeResponse: InitializeResponse | null = null;
   /** The preamble, until the first prompt has carried it. */
   private pendingPreamble: string | null = null;
-  /** `session/update`s heard since the last prompt started: an agent that streamed took the turn. */
+  /**
+   * Content `session/update`s heard since the last prompt started: an agent
+   * that streamed took the turn. Not the housekeeping an adapter pushes
+   * without having read the prompt (`available_commands_update`,
+   * `session_info_update`, `usage_update`, a mode or config change).
+   */
   private updatesHeard = 0;
   private closing = false;
   private exit: ProcessExit | null = null;
@@ -464,8 +469,18 @@ export class SessionConnection {
   /**
    * `title` is the one the app already knew for this session: the replay
    * sends no `session_info_update`, so the reloaded state starts from it.
+   *
+   * `answered` is the caller's word that the agent has already answered a
+   * prompt in this session (the stored transcript has an agent turn with
+   * something in it): an adapter that resumes but replays nothing leaves this
+   * connection's own transcript without the user turn that carried the
+   * preamble, and it must not be sent a second time.
    */
-  async loadSession(acpSessionId: string, title: string | null = null): Promise<LoadSessionResponse> {
+  async loadSession(
+    acpSessionId: string,
+    title: string | null = null,
+    answered = false,
+  ): Promise<LoadSessionResponse> {
     const init = await this.initialize();
     if (!init.agentCapabilities?.loadSession) {
       throw new Error(`${this.options.agentId} cannot resume sessions (no loadSession capability)`);
@@ -511,7 +526,7 @@ export class SessionConnection {
     // A session that was created and never prompted has no transcript to hold
     // the preamble: the replay carried no user turn, and the first prompt on
     // this connection is the first the agent will read.
-    this.pendingPreamble = this.stateValue.turns.some((turn) => turn.role === "user")
+    this.pendingPreamble = answered || this.stateValue.turns.some((turn) => turn.role === "user")
       ? null
       : (this.options.preamble ?? null);
     return response;
@@ -756,7 +771,7 @@ export class SessionConnection {
           this.options.record?.({ dir: "in", at: Date.now(), msg });
           const update = sessionUpdateOf(msg);
           if (update) {
-            this.updatesHeard += 1;
+            if (TURN_UPDATE_KINDS.has(update.update.sessionUpdate)) this.updatesHeard += 1;
             this.dispatch({
               type: "session/update",
               acpSessionId: update.sessionId,
@@ -785,6 +800,15 @@ export class SessionConnection {
     return { readable, writable: outbound.writable };
   }
 }
+
+/** The updates only an agent that is working on a prompt sends. */
+const TURN_UPDATE_KINDS: ReadonlySet<string> = new Set([
+  "agent_message_chunk",
+  "agent_thought_chunk",
+  "tool_call",
+  "tool_call_update",
+  "plan",
+]);
 
 function sessionUpdateOf(msg: unknown): { sessionId: string; update: RawSessionUpdate } | null {
   if (typeof msg !== "object" || msg === null) {

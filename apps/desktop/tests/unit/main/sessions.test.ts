@@ -106,6 +106,8 @@ const fakeProvider: AgentProvider = {
 
 const managers: SessionManager[] = [];
 afterEach(() => {
+  // A test that faked timers and hung must not leave them faked for the next.
+  vi.useRealTimers();
   for (const manager of managers.splice(0)) {
     manager.closeAll();
   }
@@ -641,6 +643,30 @@ describe("SessionManager", () => {
     expect(JSON.parse(store.rows.get(session.id)!).turns).toHaveLength(2);
   });
 
+  /**
+   * The crashed turn's `prompt/error` queues a save, 750 ms out; a reconnect
+   * that fails inside that window used to `discard` it, and with it the only
+   * copy of the turns since the last write.
+   */
+  it("writes the crashed connection's final snapshot when the reconnect fails at once", async () => {
+    let launchArgs = [FAKE_AGENT];
+    const store = memorySnapshots();
+    const { manager, cwd } = await setup({
+      snapshots: store,
+      launchOverride: () => ({ ...fakeProvider.launch, args: launchArgs }),
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    await manager.prompt(session.id, [{ type: "text", text: "hello there" }]);
+    await expect(manager.prompt(session.id, [{ type: "text", text: "please crash" }])).rejects.toThrow();
+
+    launchArgs = [FAKE_AGENT, "--load-error"];
+    await expect(manager.load(session.id)).rejects.toThrow();
+    manager.closeAll();
+    const stored = store.rows.get(session.id);
+    expect(stored).toContain("hello there");
+    expect(stored).toContain("please crash");
+  });
+
   it("keeps the stored transcript when the app quits in the middle of a reconnect's replay", async () => {
     let launchArgs = [FAKE_AGENT];
     const store = memorySnapshots();
@@ -709,16 +735,109 @@ describe("SessionManager", () => {
   });
 
   /**
+   * `create` waits on its marks (up to five seconds) after `session/new`, with
+   * the connection idle: a second create past the limit closed it, and the
+   * first then wrote `idle` over the eviction's `closed` and returned a dead
+   * session.
+   */
+  it("does not evict a new session while its create waits on the marks", async () => {
+    let release!: (tree: string) => void;
+    let gated = false;
+    const { manager, broadcasts, cwd } = await setup({
+      keepAlive: 1,
+      snapshot: (_cwd, _mark) => {
+        if (gated) return Promise.resolve("tree");
+        gated = true;
+        return new Promise<string>((resolve) => (release = resolve));
+      },
+    });
+    const a = manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    await until(() => (connectedCount(broadcasts) > 0 ? true : undefined));
+    await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    release("tree");
+    const created = await a;
+    expect(manager.state(created.id)?.live).toBe(true);
+  });
+
+  /**
+   * The sidebar's "New session" row is promptable from `session/connected`, and
+   * `ensureLive` used to hand the connection over then: the turn ran inside
+   * `create`'s window and `create` wrote its session mark over the turn's.
+   */
+  it("holds a prompt until the create that made the session has returned", async () => {
+    let release!: (tree: string) => void;
+    let turnMarked = false;
+    const { repo, manager, broadcasts, cwd } = await setup({
+      snapshot: (_cwd, mark) => {
+        if (mark.endsWith("/turn")) {
+          turnMarked = true;
+          return Promise.resolve("turn-tree");
+        }
+        return new Promise<string>((resolve) => (release = () => resolve("session-tree")));
+      },
+    });
+    const order: string[] = [];
+    const creating = manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    void creating.then(() => order.push("created"));
+    await until(() => (connectedCount(broadcasts) > 0 ? true : undefined));
+    const id = repo.list()[0]!.id;
+    const turn = manager.prompt(id, [{ type: "text", text: "hello" }]);
+    void turn.then(() => order.push("prompted"));
+    // A prompt that is going to run has taken its mark within a few ticks.
+    for (let tick = 0; tick < 50 && !turnMarked; tick++) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    release("session-tree");
+    await Promise.all([creating, turn]);
+    expect(order).toEqual(["created", "prompted"]);
+    expect(repo.get(id)?.turnHead).toBe("turn-tree");
+  });
+
+  it("writes the agent session id as soon as session/new answers, before the marks land", async () => {
+    const { repo, manager, broadcasts, cwd } = await setup({
+      snapshot: () => new Promise<string>(() => undefined),
+    });
+    const creating = manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    creating.catch(() => undefined);
+    await until(() => (connectedCount(broadcasts) > 0 ? true : undefined));
+    const row = await until(() => {
+      const found = repo.list()[0];
+      return found?.acpSessionId ? found : undefined;
+    }, 500);
+    expect(row.acpSessionId).toBe("fake-session-1");
+  });
+
+  /**
    * A snapshot of a huge or locked tree can take a minute. The mark is never
    * a reason to fail a turn, nor to hold one back for long: past five seconds
    * the commit stands in for the tree.
    */
-  it("falls back to HEAD when a turn's snapshot takes longer than five seconds", async () => {
+  it("keeps the previous mark when a turn's snapshot takes longer than five seconds", async () => {
     const { repo, manager, cwd } = await setup({
       head: async () => "the-commit",
       snapshot: (_cwd, mark) => (mark.endsWith("/turn") ? new Promise<string>(() => undefined) : Promise.resolve("tree")),
     });
     const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    // A none-mode create marks the session, and that is the turn's mark until a turn moves it.
+    expect(repo.get(session.id)?.turnHead).toBe("tree");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const turn = manager.prompt(session.id, [{ type: "text", text: "hello" }]);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(turn).resolves.toMatchObject({ stopReason: "end_turn" });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(repo.get(session.id)?.turnHead).toBe("tree");
+  });
+
+  it("falls back to HEAD when a turn's snapshot takes longer than five seconds and there is no previous mark", async () => {
+    const { repo, manager, cwd } = await setup({
+      head: async () => "the-commit",
+      snapshot: (_cwd, mark) => (mark.endsWith("/turn") ? new Promise<string>(() => undefined) : Promise.resolve("tree")),
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    repo.upsert({ ...repo.get(session.id)!, turnHead: null });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
       const turn = manager.prompt(session.id, [{ type: "text", text: "hello" }]);
@@ -728,6 +847,85 @@ describe("SessionManager", () => {
       vi.useRealTimers();
     }
     expect(repo.get(session.id)?.turnHead).toBe("the-commit");
+  });
+
+  it("takes one snapshot at a time per mark, so turns behind a slow one do not stack another", async () => {
+    const releases: ((tree: string) => void)[] = [];
+    let started = 0;
+    const { manager, cwd } = await setup({
+      snapshot: (_cwd, mark) => {
+        if (!mark.endsWith("/turn")) return Promise.resolve("tree");
+        started++;
+        return new Promise<string>((resolve) => releases.push(resolve));
+      },
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      for (let turn = 0; turn < 2; turn++) {
+        const running = manager.prompt(session.id, [{ type: "text", text: `turn ${turn}` }]);
+        await vi.advanceTimersByTimeAsync(5_000);
+        await running;
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(started).toBe(1);
+    releases[0]!("late-tree");
+  });
+
+  /**
+   * The snapshot goes on after the wait, and pins `<id>/turn` when it lands:
+   * after a delete has unpinned the marks that ref would be nobody's.
+   */
+  it("drops the ref a late turn snapshot pins after the session was deleted", async () => {
+    const { head, snapshotTree, dropMarks } = await import("@main/projects/git");
+    const { execFileSync } = await import("node:child_process");
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let reached = false;
+    let landed!: () => void;
+    const snapshotted = new Promise<void>((resolve) => (landed = resolve));
+    const { manager, cwd } = await setup({
+      head,
+      dropMarks,
+      snapshot: async (dir, mark) => {
+        if (mark.endsWith("/turn")) {
+          reached = true;
+          await gate;
+        }
+        const tree = await snapshotTree(dir, mark);
+        if (mark.endsWith("/turn")) landed();
+        return tree;
+      },
+    });
+    const run = (...args: string[]) =>
+      execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", ...args], { cwd, encoding: "utf8" }).trim();
+    run("init", "-q");
+    await writeFile(path.join(cwd, "base.txt"), "base\n");
+    run("add", "-A");
+    run("commit", "-q", "-m", "base");
+
+    const session = await manager.create({ projectId: cwd, agentId: "claude-code", cwd, gitMode: "none" });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const turn = manager.prompt(session.id, [{ type: "text", text: "one" }]);
+      turn.catch(() => undefined);
+      while (!reached) await Promise.resolve();
+      await manager.delete(session.id);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(turn).rejects.toThrow(/no such session/);
+    } finally {
+      vi.useRealTimers();
+    }
+    release();
+    await snapshotted;
+    // The ref exists now; the drop is a git call away. Give it ticks, bounded,
+    // and let the assertion say which side it is on.
+    for (let tick = 0; tick < 300 && run("for-each-ref", "refs/text-to-cad/") !== ""; tick++) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    expect(run("for-each-ref", "refs/text-to-cad/")).toBe("");
   });
 
   it("spawns the adapter without waiting for the creating session's snapshot", async () => {
@@ -1727,7 +1925,37 @@ describe("what a session is given", () => {
     ]);
     expect(prompts[1]!.params.prompt).toEqual([{ type: "text", text: "second" }]);
   });
+
+  it("does not send it again on the reload of an answered session whose adapter replays nothing", async () => {
+    const file = path.join(await tempDir("text-to-cad-record-"), "frames.jsonl");
+    let launchArgs = [FAKE_AGENT];
+    const { manager, cwd } = await setup({
+      snapshots: memorySnapshots(),
+      launchOverride: () => ({ ...fakeProvider.launch, args: launchArgs, env: { FAKE_AGENT_RECORD: file } }),
+      skills: { root: () => "/data/skills/1.2.3", preamble: () => "SKILLS: /data/skills/1.2.3" },
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "gemini-cli", cwd, gitMode: "none" });
+    await manager.prompt(session.id, [{ type: "text", text: "first" }]);
+    manager.close(session.id);
+    // The reload replays no transcript; the stored one is the evidence.
+    launchArgs = [FAKE_AGENT, "--load-empty"];
+    await manager.prompt(session.id, [{ type: "text", text: "second" }]);
+    const prompts = (await readFile(file, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { kind: string; params: Record<string, unknown> })
+      .filter((line) => line.kind === "prompt");
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]!.params.prompt).toEqual([{ type: "text", text: "second" }]);
+  });
 });
+
+/** How many `session/connected` events have been broadcast: `session/new` has answered that many times. */
+function connectedCount(broadcasts: { channel: IpcEventChannel; payload: unknown }[]): number {
+  return broadcasts.filter(
+    (b) => b.channel === "session.update" && (b.payload as { event: { type: string } }).event.type === "session/connected",
+  ).length;
+}
 
 async function until<T>(probe: () => T | undefined, timeoutMs = 5_000): Promise<T> {
   const started = Date.now();
