@@ -315,7 +315,10 @@ function useFocusSurvivesCollapse(sidebarCollapsed: boolean, explorerCollapsed: 
   useEffect(() => {
     const note = (event: Event) => {
       const target = event.target instanceof Element ? event.target : null;
-      lastPane.current = target ? (PANE_IDS.find((id) => document.getElementById(id)?.contains(target)) ?? null) : null;
+      // A pane's separator is outside the pane (it sits between two), but it is that pane's: Enter
+      // on it closes the pane, and the toggle is where focus belongs after.
+      const separated = target?.closest<HTMLElement>("[data-separator]")?.dataset.separator ?? null;
+      lastPane.current = separated ?? (target ? (PANE_IDS.find((id) => document.getElementById(id)?.contains(target)) ?? null) : null);
     };
     document.addEventListener("focusin", note);
     document.addEventListener("pointerdown", note, true);
