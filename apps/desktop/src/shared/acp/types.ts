@@ -486,6 +486,12 @@ export type SessionState = z.infer<typeof SessionStateSchema> & {
   parked?: ParkedUpdate[];
   /** Set once the reducer has said it dropped parked updates, so it says so once. */
   parkedDropWarned?: boolean;
+  /**
+   * A chunk behind `prompt/end` opened the trailing part of the last turn, so the chunks after it
+   * are its continuation and join it; the first one starts a part of its own. Cleared by
+   * `prompt/start`.
+   */
+  lateChunk?: boolean;
 };
 
 export function initialSessionState(sessionId: string, agentId: string): SessionState {
