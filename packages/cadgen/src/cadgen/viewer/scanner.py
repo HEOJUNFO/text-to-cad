@@ -357,8 +357,10 @@ def _node_decoded_name(name: str) -> str:
     return name
 
 
-def _collect_cad_source_files(root_path: str, result: list, visited=None, depth: int = 0) -> list:
-    if depth > SCAN_MAX_DEPTH:
+def _collect_cad_source_files(
+    root_path: str, result: list, visited=None, depth: int = 0, max_depth: int = SCAN_MAX_DEPTH
+) -> list:
+    if depth > max_depth:
         return result
     try:
         real_root = os.path.realpath(root_path, strict=True)
@@ -397,7 +399,7 @@ def _collect_cad_source_files(root_path: str, result: list, visited=None, depth:
             is_file = stat_module.S_ISREG(target.st_mode)
         if is_directory:
             if not _should_skip_directory(name):
-                _collect_cad_source_files(entry_path, result, visited, depth + 1)
+                _collect_cad_source_files(entry_path, result, visited, depth + 1, max_depth)
             continue
         if not is_file:
             continue
@@ -734,12 +736,18 @@ def is_served_cad_asset(file_path) -> bool:
 # --- public scan API ------------------------------------------------------
 
 
-def scan_cad_directory(repo_root, *, preferred_file=None, defer_unpreferred=False) -> dict:
-    """Scan one directory. It is its own root — a viewer serves exactly one."""
+def scan_cad_directory(
+    repo_root, *, preferred_file=None, defer_unpreferred=False, max_depth: int = SCAN_MAX_DEPTH
+) -> dict:
+    """Scan one directory. It is its own root — a viewer serves exactly one.
+
+    ``max_depth`` bounds how many directory levels below the root are walked
+    (0: the root's own files only).
+    """
     if not repo_root:
         raise ValueError("repoRoot is required")
     root_path = os.path.abspath(repo_root)
-    source_files = _collect_cad_source_files(root_path, [])
+    source_files = _collect_cad_source_files(root_path, [], max_depth=max_depth)
     preferred_path = None
     if preferred_file:
         preferred_text = str(preferred_file).replace("\\", os.sep)
