@@ -10,7 +10,9 @@ import { useUi } from "@renderer/state/ui";
 import { defaultSettings, type Session } from "@shared/types";
 
 /** The window's title says where you are: nothing set it before, so every route was "text-to-cad". */
-vi.mock("@renderer/app/Shell", () => ({ Shell: () => null }));
+// Counts Shell's renders: App renders it unmemoised, so every App render is one of these.
+let renders = 0;
+vi.mock("@renderer/app/Shell", () => ({ Shell: () => { renders += 1; return null; } }));
 vi.mock("@renderer/app/CommandPalette", () => ({ CommandPalette: () => null }));
 vi.mock("@renderer/features/onboarding/Welcome", () => ({ Welcome: () => null }));
 vi.mock("@renderer/features/settings/SettingsRoute", () => ({ SettingsRoute: () => null }));
@@ -47,4 +49,14 @@ it("names the active session, and is plain with none", () => {
   expect(document.title).toBe("text-to-cad — Bracket");
   act(() => useSessions.setState({ activeId: null }));
   expect(document.title).toBe("text-to-cad");
+});
+
+it("does not re-render the window when the active session changes but its title does not", () => {
+  renders = 0;
+  act(() => useSessions.setState({ sessions: [BRACKET], activeId: "s1" }));
+  render(<App />);
+  const before = renders;
+  expect(before).toBeGreaterThan(0);
+  act(() => useSessions.setState({ sessions: [{ ...BRACKET, status: "running" }] }));
+  expect(renders).toBe(before);
 });

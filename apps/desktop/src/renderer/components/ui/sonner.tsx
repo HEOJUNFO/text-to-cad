@@ -13,6 +13,10 @@ import { Toaster as Sonner, type ToasterProps } from "sonner"
 import { useResolvedTheme } from "@renderer/hooks/use-theme"
 import { isMac } from "@renderer/lib/platform"
 
+// A module constant: sonner's keydown effect depends on the array, so a fresh one per
+// render had it remove and re-add its listener every time the Toaster re-rendered.
+const HOTKEY = [isMac ? "metaKey" : "ctrlKey", "altKey", "KeyT"]
+
 const Toaster = ({ ...props }: ToasterProps) => {
   const theme = useResolvedTheme()
 
@@ -23,7 +27,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       // Deliberate edit to the vendored component: stock is Alt+T, and Option+T types "†" on a
       // Mac keyboard, so the toast list stole focus from a sentence being typed. Mod+Alt+T types
       // nothing, and sits beside Mod+Alt+B (toggle explorer).
-      hotkey={[isMac ? "metaKey" : "ctrlKey", "altKey", "KeyT"]}
+      hotkey={HOTKEY}
       icons={{
         success: <CircleCheckIcon className="size-4" />,
         info: <InfoIcon className="size-4" />,
