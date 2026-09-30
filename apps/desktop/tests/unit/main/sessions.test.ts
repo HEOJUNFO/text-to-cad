@@ -726,6 +726,43 @@ describe("SessionManager", () => {
   });
 
   /**
+   * `archive` used to `close` the connection under `session/new`: `newSession`
+   * rejected, `create` removed the row and the worktree, and the person had
+   * archived a thread that no longer existed and been shown a create error.
+   */
+  it("archives a row that is still in session/new once its create has settled", async () => {
+    const { repo, manager, cwd } = await setup({
+      launchOverride: () => ({ ...fakeProvider.launch, args: [FAKE_AGENT, "--new-delay", "150"] }),
+    });
+    const creating = manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    const row = await until(() => repo.list()[0]);
+    expect(row.acpSessionId).toBeNull();
+    const archived = await manager.archive(row.id, true);
+    expect((await creating).id).toBe(row.id);
+    expect(archived).toMatchObject({ id: row.id, archived: true, status: "closed" });
+    expect(repo.get(row.id)).toMatchObject({ archived: true, acpSessionId: "fake-session-1" });
+  });
+
+  /**
+   * A `close` while the preferences and the marks are pending set `closed`,
+   * and `create` wrote `idle` over it and announced a live state for a
+   * connection that was gone.
+   */
+  it("leaves a row closed during the marks closed, and announces no live state for it", async () => {
+    let release!: (tree: string) => void;
+    const { repo, manager, broadcasts, cwd } = await setup({
+      snapshot: () => new Promise<string>((resolve) => (release = resolve)),
+    });
+    const creating = manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    const id = (await until(() => (repo.list()[0]?.acpSessionId ? repo.list()[0] : undefined))).id;
+    manager.close(id);
+    release("tree");
+    await creating;
+    expect(repo.get(id)?.status).toBe("closed");
+    expect(broadcasts.some((b) => b.channel === "session.state" && (b.payload as { sessionId: string }).sessionId === id)).toBe(false);
+  });
+
+  /**
    * The turn mark waits on git while the connection is idle; a second session
    * opened in that window is what the keep-alive limit evicts the oldest for.
    */

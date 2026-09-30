@@ -530,13 +530,18 @@ export class SessionManager {
       try {
         await this.applyPreferences(session, connection);
         const [sessionHead, turnHead] = await marks;
-        const updated = this.update(session.id, {
-          status: "idle",
-          sessionHead,
-          turnHead,
-        });
+        // Only a row still `connecting` goes idle. A `close` during the
+        // preferences or the marks has set `closed` over a retired connection,
+        // and writing `idle` back would draw a live composer on a dead one.
+        const stillConnecting = this.deps.repo.get(session.id)?.status === "connecting";
+        const updated = this.update(
+          session.id,
+          stillConnecting ? { status: "idle", sessionHead, turnHead } : { sessionHead, turnHead },
+        );
         settled = true;
-        this.deps.broadcast("session.state", { sessionId: session.id, state: connection.state });
+        if (stillConnecting) {
+          this.deps.broadcast("session.state", { sessionId: session.id, state: connection.state });
+        }
         // The registry id and nothing else — no directory, project or prompt.
         this.deps.track?.({ name: "session_created", agent: session.agentId });
         return updated;
@@ -1067,10 +1072,20 @@ export class SessionManager {
     return this.update(id, { title: title.trim(), titleSource: "user" });
   }
 
-  /** Hide the row from the sidebar. The adapter is closed; `load` still resumes it later. */
-  archive(id: string, archived: boolean): Session {
+  /**
+   * Hide the row from the sidebar. The adapter is closed; `load` still resumes it later.
+   *
+   * A row still being created is archived once its create has settled: `close`
+   * under it would reject `session/new`, and `create` would then remove the row
+   * and its worktree — an "archived" thread destroyed, and a create error shown
+   * for it. The create runs to its end (the row goes idle), then this closes it.
+   */
+  async archive(id: string, archived: boolean): Promise<Session> {
     this.require(id);
     if (archived) {
+      await this.creating.get(id)?.catch(() => undefined);
+      // A create that failed took the row with it: there is nothing left to archive.
+      this.require(id);
       this.close(id);
     }
     return this.update(id, { archived });
