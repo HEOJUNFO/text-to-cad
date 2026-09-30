@@ -4,11 +4,18 @@
  * Searching mounts every page and clearing the query unmounts all but the open
  * one, so type, clear, type would read every project's worktrees (a `git
  * worktree list` plus three git calls per worktree for its date) each time the
- * Git page came back. The lists live here instead, and go when Settings closes. When a session opens, closes or moves
- * (`openSessions` is part of a row) or a worktree is deleted, the list stays on
- * the page, marked old, until the fresh read replaces it: a card that vanished
- * and came back on every broadcast would flicker, and each broadcast would cost
- * a `git worktree list` plus three git calls per worktree.
+ * Git page came back. The lists live here instead, and go when Settings closes.
+ *
+ * A card that mounts reads afresh over the kept list (`ensureWorktrees` with
+ * `fresh`): a file removed on disk makes a worktree clean, and coming back to
+ * the page has to show it. Between mounts only an invalidation reads again: a
+ * worktree deleted from the page, or a `sessions.changed` that changed the
+ * usage string (`usageOf`: each session's id, cwd, worktreePath and archived
+ * flag, which is all a row's "in use" depends on). Status, title and diff
+ * counts change with every turn and invalidate nothing. The list stays on the
+ * page, marked old, until the fresh read replaces it: a card that vanished and
+ * came back on every broadcast would flicker, and each broadcast would cost a
+ * `git worktree list` plus three git calls per worktree.
  */
 import { create } from "zustand";
 

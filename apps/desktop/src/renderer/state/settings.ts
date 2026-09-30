@@ -21,6 +21,11 @@ import {
  * or `agentOverrides` write carries the whole object (the IPC patch is only
  * top-level partial), so `setLayout`/`setSidebar` build it from that same
  * optimistic state rather than from a copy an old reply just reverted.
+ *
+ * A write main refuses or fails comes back as no reply at all. The catch then
+ * rolls back each key this write still owns to what main last reported (a key
+ * a newer write owns keeps that write's value) and toasts "Could not save the
+ * setting" with main's sentence.
  */
 type Pending = { id: number; value: unknown; base: unknown };
 

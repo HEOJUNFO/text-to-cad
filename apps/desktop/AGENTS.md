@@ -25,7 +25,7 @@ phase is not an oversight — it is the seam.
 | P4 (done) | `@text-to-cad/ui` CAD renderer and explicit `@text-to-cad/core/client`; FileTab hosts the shared FileViewer through `src/renderer/features/explorer/host/` and `src/renderer/state/{live-cad,cad-draft}.ts` |
 | P5 (done) | `src/main/cad`, `src/main/integrations` (but `integrations/drawings/`), `src/{shared,main}/ipc/{cad,integrations,runtime,skills}.ts`, `resources/{cadgen,runtime,skills,text-to-cad-mcp}`, `skills/`, `scripts/{build,build-skills,build-mcp,cad-resources,bundle-runtime,perf-cad}.mjs`, `src/renderer/state/integration-commands.ts`, the `reveal` field of the explorer store and tree |
 | Drawings | the drawing tab kind: `src/renderer/features/explorer/DrawingTab.tsx`, `src/renderer/features/explorer/drawing/`, `src/renderer/state/drawings.ts`, `src/main/integrations/drawings/` |
-| P6 | `src/renderer/features/settings` — the pages' contents — and the choosers its path rows use, `src/{shared,main}/ipc/dialogs.ts` |
+| P6 | `src/renderer/features/settings` — the pages' contents — and the choosers its path rows use, `src/{shared,main}/ipc/dialogs.ts`, `src/main/ipc/settings-fallbacks.ts` |
 | P7 (done) | `src/main/projects` (`git.ts`, `workspace.ts`, `index.ts`), `src/{shared,main}/ipc/git.ts`, `src/renderer/lib/git-mode.ts`, the review tab's scopes and commit strip, Git and worktrees' per-project cards, `tests/e2e/git.spec.ts` |
 | P8 (done) | `electron-builder.yml`, `build/`, `resources/brand`, `scripts/{package,make-icons,make-brand,app-version}.mjs`, `src/main/{updater,telemetry}.ts`, `src/{shared,main}/ipc/app.ts`, the CI jobs |
 | Browser | the embedded browser P3's tab kind grew into: `src/main/browser/`, `src/shared/browser.ts`, `src/{shared,main}/ipc/browser.ts`, `features/explorer/BrowserTab.tsx`, `docs/browser.md` |
@@ -320,6 +320,20 @@ the rule is about.
   worktree, under it, or record it. Settings' count, Delete's refusal, the
   keep-limit sweep, a session's release and the CAD viewer's stop (archive and
   delete, `forgetCadSession`) all ask it; an archived session holds no worktree.
+  Delete from Settings is refused on two grounds, in use and locked
+  (`git worktree lock`), and the row says which (`keptBecause`,
+  `features/settings/pages/GitPage.tsx`).
+- **A settings write main refuses is rolled back and said, and a key with a
+  write in flight keeps its value until that write settles.** `patch`
+  (`src/renderer/state/settings.ts`) puts back what main last reported for the
+  keys it owns and toasts; an older reply or `settings.changed` never moves a
+  key a newer write owns, and `setLayout`/`setSidebar` build their whole object
+  from the optimistic state.
+- **One bad stored settings field never breaks the others.** Each field parses
+  alone (`parseFields` in `src/main/db/repositories.ts`) and a refused one takes
+  its default; `settings.fallbacks` reports it in `refused`, field to stored
+  text. A folder of the wrong type is `refused`, never `gone`: `gone` is only a
+  remembered folder that parses and no longer exists, and its note says so.
 - **The viewer warm is gated by a model in the root; the daemon is not.**
   `warmCad` starts a root's viewer only when `hasCadFile` finds a model in it,
   and warms the build daemon on every bind (unless the kernel is `missing` or

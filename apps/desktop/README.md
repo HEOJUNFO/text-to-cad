@@ -174,8 +174,40 @@ Cmd+K after Settings opens empty.
 
 General's **Default project folder** (`defaultProjectFolder` in `SettingsSchema`,
 `features/settings/pages/GeneralPage.tsx`) is where the Open folder chooser
-opens (`projects.add` passes it as `defaultPath` when it is still a directory);
-Clear returns the choice to the OS.
+opens (`projects.add` passes it as `defaultPath` when it is still a directory,
+`defaultPathOption` in `src/main/ipc/index.ts`); Clear returns the choice to
+the OS. The choosers Settings' own path rows open (`dialogs.chooseDirectory`
+and `dialogs.chooseFile`, `src/main/ipc/dialogs.ts`) start from the row's
+value through `existingPath`, which drops a `defaultPath` that is missing, so
+the sheet opens where the OS would have put it; for the folder chooser it also
+drops one that is now a file, so it agrees with `projects.add`. A remembered
+folder that is gone gets a quiet note on its row: General's Default project
+folder ("This folder no longer exists, so the chooser opens where it last
+did.") and Git and worktrees' Worktree folder ("…it is created again with the
+next worktree.").
+
+**Settings persist optimistically** (`state/settings.ts`). A write moves the
+store at once and goes out over IPC; the reply, the whole object, is the
+correction. A write main refuses or fails brings no reply: the keys it owns go
+back to what main last reported and a "Could not save the setting" toast says
+why. Ownership is per key: while a write is in flight its value wins over an
+older reply and over a `settings.changed` event, and a key a newer write owns
+keeps that write's value when an older one fails. `layout`, `sidebar` and
+`agentOverrides` travel as whole objects (the patch is only top-level
+partial), so `setLayout` and `setSidebar` build theirs from the optimistic
+state, never from a copy an old reply just reverted. On the way out main
+parses each stored field on its own (`parseFields`), so one that no longer
+parses takes its default and leaves the others alone. `settings.fallbacks()`
+(`src/main/ipc/settings-fallbacks.ts`, read by `useSettingsFallbacks`, asked
+again whenever settings change) returns `{ refused, gone }`: `refused` is every
+top-level field that failed its own parse, field to stored text; `gone` is a
+remembered `defaultProjectFolder` or `worktreeRoot` that parses but no longer
+exists as a folder. A folder of the wrong type is `refused`, never `gone`: the
+note for `gone` says the folder no longer exists, which would be untrue. The
+Git page keeps its worktree lists for the visit (`worktree-cache.ts`): a card
+that mounts reads afresh over the kept list, only a change in which sessions
+run where (id, cwd, worktreePath, archived) invalidates on `sessions.changed`,
+a deleted worktree invalidates, and closing Settings clears the cache.
 
 The Settings search hides a row through `useRowMatch`. The Agents page's group
 headings ("Installed (4)") count the rows that search leaves, by the same row
@@ -1854,6 +1886,7 @@ src/main/                 the Electron main process: everything with a side effe
   ipc/agent-options.ts    agentOptions.*: the cache, the probe and the stored defaults
   ipc/{skills,runtime}.ts   the skills root and CAD runtime branches (P5's bodies, P6's shape)
   ipc/dialogs.ts          the native folder and file choosers Settings' path rows use
+  ipc/settings-fallbacks.ts  settings.fallbacks: { refused, gone } — stored values read as defaults
   ipc/{explorer,cad}.ts   files, terminals; cad.viewerOrigin + cad.warm
   ipc/integrations.ts    scoped integration command/reply relay
   ipc/browser.ts          browser.*: the embedded browser's pages, scoped to a live session
@@ -1936,6 +1969,8 @@ src/renderer/
                           GettingStarted.tsx (the sidebar checklist after it) — see Onboarding
   features/settings       the Settings route, the card-grouped rows, the agent drawer, and
                           pages/ — one module per page; search is done by the rows themselves
+    settings-value.ts     the page's read and write path over the store, and useSettingsFallbacks
+    worktree-cache.ts     the Git page's worktree lists, kept for the Settings visit
   lib/shortcuts.ts        the keyboard-shortcut table the Shortcuts page prints
   lib/git-mode.ts         the sidebar glyph, the composer chip's labels and which
                           modes a project can offer — one answer, two features
@@ -2264,10 +2299,14 @@ so a text-to-cad worktree session is resumable from a terminal later.
 
 A branch prefix git would refuse cannot be typed in: the field says why and
 writes nothing. One stored before that check existed is read as the default
-(`text-to-cad/`), and `settings.fallbacks()` (`src/shared/ipc/index.ts`)
-reports the stored value, so the Git page (`GitPage.tsx`) flags it in a
-warning beside the field with **Use default**, which stores the default over
-it.
+(`text-to-cad/`), and `settings.fallbacks()` (`src/shared/ipc/index.ts`,
+handler in `src/main/ipc/settings-fallbacks.ts`) returns `{ refused, gone }`:
+`refused` holds the stored text of every top-level field that failed its own
+parse, `gone` the remembered `defaultProjectFolder` or `worktreeRoot` that no
+longer exists (a wrong-typed folder is `refused`, never `gone`). The Git page
+(`GitPage.tsx`) flags a refused `branchPrefix` in a warning beside the field
+with **Use default**, which stores the default over it; a gone folder shows a
+quiet note on its row.
 
 A worktree that belongs to a session is deleted automatically only when
 auto-delete is on. The exception is a create that fails: its row goes, and the
@@ -2291,7 +2330,13 @@ disposable cache (`hasUnsavedWork`). An archived session holds no worktree.
 sessions that are not archived and run in the worktree, in a folder inside it,
 or record it as their `worktreePath`. It answers Settings' open-session count,
 Delete's refusal, and a session's release of its own worktree; the sweep's
-`protectedPaths` applies the same not-archived filter. The limit counts only unlocked, unheld
+`protectedPaths` applies the same not-archived filter. Settings' Delete is
+refused on two grounds: a worktree in use (main answers "N sessions are still
+using that worktree", and the row says "A session is still open in this
+worktree.") and a locked one (`git worktree lock`; the row says it is kept
+until it is unlocked). The row disables Delete and gives the reason through
+`keptBecause` in `GitPage.tsx`, which also covers uncommitted changes or
+ignored files and a worktree git could not check. The limit counts only unlocked, unheld
 worktrees in the project's worktree folders; one with unsaved work counts
 toward it and is then kept. A branch is deleted only when a failed create abandons the
 worktree it made, and then only while it still points where it was cut
