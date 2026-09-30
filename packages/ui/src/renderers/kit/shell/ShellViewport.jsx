@@ -51,6 +51,7 @@ import { IDLE_PIXEL_RATIO_CAP, INTERACTION_IDLE_DELAY_MS, INTERACTION_PIXEL_RATI
 import { disposeSceneObject } from "../viewport/sceneObjects.js";
 import { useViewerRuntime } from "../viewport/useViewerRuntime.js";
 import ViewportError from "../status/ViewportError.jsx";
+import { VIEWPORT_INSET_PX, VIEWPORT_TOP_BAR_PX } from "./viewportLayout.js";
 
 const VIEW_PLANE_CONTROL_SIZE = "7rem";
 const STORED_CAMERA_COORDINATES = "cad-z-up-v1";
@@ -997,7 +998,7 @@ const ShellViewport = forwardRef(function ShellViewport({
         meshData={scene}
         // Close into the corner: the cube's box is larger than the cube, whose labels overhang it.
         viewPlaneOffsetRight={4}
-        viewPlaneOffsetBottom={12}
+        viewPlaneOffsetTop={VIEWPORT_INSET_PX * 2 + VIEWPORT_TOP_BAR_PX}
         viewPlaneSize={VIEW_PLANE_CONTROL_SIZE}
         compact={false}
         activeViewPlaneFace={activeViewPlaneFace}

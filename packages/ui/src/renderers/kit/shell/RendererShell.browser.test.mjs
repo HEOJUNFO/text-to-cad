@@ -434,6 +434,14 @@ test('a renderer says more about its load than a download: finding the file, edi
   assert.equal(await card.count(), 0, 'and raises nothing');
   await page.waitForFunction(() => window.cadHarness.a.controller.readState().loading === false);
 
+  const topActions = pane.locator('[data-viewport-actions]');
+  const actionsBox = await topActions.boundingBox();
+  const cubeBox = await pane.getByLabel('View cube', { exact: true }).boundingBox();
+  assert.ok(cubeBox.y >= actionsBox.y + actionsBox.height && cubeBox.y < canvas.y + 100,
+    'the view cube occupies the top-right corner below the action buttons');
+  assert.ok(cubeBox.x + cubeBox.width > canvas.x + canvas.width - 20,
+    'the view cube stays against the right edge');
+
   // A retained scene is visible during an update, but live consumers must wait
   // until its displayed revision and camera have settled before capturing it.
   await stage('updating');
@@ -456,6 +464,15 @@ test('a renderer says more about its load than a download: finding the file, edi
   assert.equal(await card.count(), 0);
   await updating.waitFor();
   assert.match(await updating.innerText(), /Updating model/);
+  const updateBox = await updating.boundingBox();
+  const toolsBox = await pane.getByRole('group', { name: 'Interaction tools' }).boundingBox();
+  const middleY = box => box.y + box.height / 2;
+  assert.ok(Math.abs(middleY(updateBox) - middleY(actionsBox)) < 1,
+    'model update status is vertically centred with Display and Preview');
+  assert.ok(Math.abs(middleY(updateBox) - middleY(toolsBox)) < 1,
+    `model update status is vertically centred with the tool strip: ${JSON.stringify({ updateBox, toolsBox, actionsBox })}`);
+  assert.equal(await pane.locator('[data-file-navigation-status] [data-view-update-status]').count(), 0,
+    'host navigation targets do not relocate model update status');
 
   // THE PREVIEW ENDS IT: the result is on screen, so the wait is over even though the
   // write is not.

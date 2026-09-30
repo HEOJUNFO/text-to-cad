@@ -52,7 +52,7 @@ settings or Preview controls.
   end, and its menu opens upward.
 - **Tool stack** beneath the toolbar: the panels of the tool in hand and of the
   effects a person keeps (see [The tool stack](#the-tool-stack)).
-- **View cube** at bottom-right: enlarged face/edge/corner hit areas, neutral
+- **View cube** at top-right, one 8px gap below the Display/Preview bar: enlarged face/edge/corner hit areas, neutral
   hover and XYZ guides, and nothing around it (no arrows, Home or Reset). Mobile
   and preview omit it.
 - **Bottom action** and **playbar** sit near bottom-centre, independent of the
@@ -60,9 +60,10 @@ settings or Preview controls.
   the file, selected references when present, and the screenshot through the
   host's prompt destination. It stays visible across tools and without a
   selection. Preview hides it completely.
-- **Loading status** sits after the filename in the default row or in the
-  navigation overlay; on mobile it is a tappable progress icon whose popover
-  names what is loading.
+- **Model update status** sits at top-centre of the viewport, vertically centred
+  in the same 34px row as the toolbar and Display/Preview buttons in every host.
+  It is renderer chrome, independent of the host's navigation status slot.
+  On mobile it is a tappable progress icon whose popover names what is loading.
 
 ## Tools and lifecycle
 

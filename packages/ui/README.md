@@ -8,7 +8,8 @@ a host's project, file browsing, session and window layout remain application
 code. Web composes the reusable breadcrumb, tree, menu and panel primitives
 around FileViewer. Hosts can supply `navigationTargets` to place document
 actions and status in their own navigation row; otherwise they float over the
-document.
+document. CAD model update status stays in the shared viewport toolbar row
+regardless of the host's navigation targets.
 
 The viewer's tools, tool stack, settings, tooltips and keyboard follow one
 binding [design system](docs/settings-ui.md) across hosts. A change to

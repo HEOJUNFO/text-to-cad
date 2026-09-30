@@ -1,5 +1,4 @@
-import { createPortal } from "react-dom";
-import { VIEWPORT_BOTTOM_CENTER, VIEWPORT_INSET_PX } from "./viewportLayout.js";
+import { VIEWPORT_BOTTOM_CENTER, VIEWPORT_INSET_PX, VIEWPORT_TOP_BAR_PX } from "./viewportLayout.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Play, Pause, X } from "lucide-react";
 import { ToolbarButton } from "@text-to-cad/ui/primitives/toolbar-button";
@@ -261,8 +260,12 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
               {/* One place says the view is catching up: a newer revision of the file loading behind the
                   model on screen, or a Display change being prepared — the latter's failure first, since
                   it is the one with something to retry. */}
-              {view.navigationStatusSlot ? createPortal(<ViewUpdateStatus status={frame.loading.updating && !frame.viewUpdate.status.error
-                ? MODEL_UPDATE_STATUS : frame.viewUpdate.status} onRetry={frame.viewUpdate.retry} />, view.navigationStatusSlot) : null}
+              <div className="pointer-events-none absolute left-1/2 z-30 flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center"
+                style={{ top: VIEWPORT_INSET_PX, height: VIEWPORT_TOP_BAR_PX }} data-viewport-status="">
+                <ViewUpdateStatus status={frame.loading.updating && !frame.viewUpdate.status.error
+                  ? MODEL_UPDATE_STATUS : frame.viewUpdate.status} onRetry={frame.viewUpdate.retry}
+                  className="rounded-md bg-background/95 px-1 py-0.5 shadow-sm" />
+              </div>
               <ViewerLoadingOverlay
                 loading={frame.presentationState?.file === frame.modelKey && frame.presentationState?.covering ? null : frame.loading}
                 operationKey={frame.modelKey}
