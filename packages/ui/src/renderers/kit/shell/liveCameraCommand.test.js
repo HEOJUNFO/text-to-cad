@@ -8,7 +8,8 @@ import { cameraForViewSettings, viewerDisplaySettingsForCamera } from '../view-s
 import { createViewSettingsStore } from '../view-settings/viewSettingsStore.js';
 import { applyPerspectiveSnapshot, readScopedPerspectiveSnapshot } from '../camera/runtimeCamera.js';
 import { createRealOrbitRuntime } from '../camera/harness/realOrbit.js';
-import { cameraReadsBack } from './liveReadback.js';
+import { cameraReadsBack, orbitReadsBack } from './liveReadback.js';
+import { updateOrbitControls, PREVIEW_AUTO_ROTATE_SPEED } from '../camera/orbitControls.js';
 
 // The live `setCamera` a host or an agent drives is the SHELL's, for every renderer on it. It
 // is exercised here on its own, lifted out of the hook with its real collaborators, because
@@ -42,8 +43,8 @@ function harness(displaySettings, viewer = null) {
   const viewSettingsStore = createViewSettingsStore(displaySettings);
   viewSettingsStore.subscribe(() => { result.display = viewSettingsStore.getSnapshot().display; });
   const scope = {
-    viewSettingsStore, clonePerspectiveSnapshot, cameraForViewSettings, viewerDisplaySettingsForCamera, cameraReadsBack,
-    previewing: false, modelKey: 'part.step', sceneScaleMode: 'cad',
+    viewSettingsStore, clonePerspectiveSnapshot, cameraForViewSettings, viewerDisplaySettingsForCamera, cameraReadsBack, orbitReadsBack,
+    previewing: false, modelKey: 'model.bin', sceneScaleMode: 'cad',
     scopeShellCamera: camera => camera,
     viewerRef: { current: viewer || { setPerspective(camera) { result.applied = camera; return true; }, isCameraTransitioning: () => result.moving } },
     setViewerPerspective: camera => { result.perspective = camera; },
@@ -109,7 +110,7 @@ test('a setCamera beyond the controls\' distance clamp replies with the clamped 
   const runtime = createRealOrbitRuntime({ maxDistance: 20 });
   const viewer = {
     setPerspective: camera => applyPerspectiveSnapshot(runtime, camera),
-    getPerspective: () => readScopedPerspectiveSnapshot(runtime, { modelKey: 'part.step', sceneScaleMode: 'cad', coordinateSystem: 'stored' }),
+    getPerspective: () => readScopedPerspectiveSnapshot(runtime, { modelKey: 'model.bin', sceneScaleMode: 'cad', coordinateSystem: 'stored' }),
     isCameraTransitioning: () => Boolean(runtime.cameraTransition)
   };
   const view = harness({ mode: 'solid' }, viewer);
@@ -119,4 +120,30 @@ test('a setCamera beyond the controls\' distance clamp replies with the clamped 
   assert.deepEqual(view.result.recorded, onScreen, 'the file records the camera on screen, not the request');
   assert.equal(committed({ camera: onScreen }), true, 'the clamped camera is the one the reply waits for');
   assert.equal(cameraReadsBack(onScreen, { position: [200, 0, 0], target: [0, 0, 0] }), false, 'the request itself never reads back');
+});
+
+test('a setCamera while Preview\'s orbit plays reads back on every frame after it, up to the orbit\'s turn', () => {
+  const runtime = createRealOrbitRuntime({ autoRotate: true });
+  runtime.controls.autoRotateSpeed = PREVIEW_AUTO_ROTATE_SPEED;
+  const loop = { orbitControlsLastTimestamp: 0 };
+  updateOrbitControls(runtime.controls, 1000, loop);
+  const viewer = {
+    setPerspective: camera => applyPerspectiveSnapshot(runtime, camera),
+    getPerspective: () => readScopedPerspectiveSnapshot(runtime, { modelKey: 'model.bin', sceneScaleMode: 'cad', coordinateSystem: 'stored' }),
+    isCameraTransitioning: () => Boolean(runtime.cameraTransition),
+    isOrbiting: () => Boolean(runtime.controls.autoRotate)
+  };
+  const view = harness({ mode: 'solid' }, viewer);
+  const committed = view.apply({ position: [30, -20, 15], target: [1, 2, 3], up: [0, 0, 1] });
+  const applied = viewer.getPerspective();
+  assert.deepEqual(view.result.recorded, applied, 'the file records the camera that was applied');
+  const readback = [];
+  for (let frame = 1; frame <= 5; frame += 1) {
+    updateOrbitControls(runtime.controls, 1000 + frame * 16.7, loop);
+    readback.push(committed({ camera: viewer.getPerspective() }));
+  }
+  assert.ok(!cameraReadsBack(viewer.getPerspective(), applied), 'the orbit really did turn the camera');
+  assert.deepEqual(readback, [true, true, true, true, true], 'the applied camera reads back on frames 1-5');
+  const moved = viewer.getPerspective();
+  assert.equal(committed({ camera: { ...moved, position: [moved.position[0], moved.position[1], moved.position[2] + 1] } }), false, 'a different height is not the applied camera');
 });

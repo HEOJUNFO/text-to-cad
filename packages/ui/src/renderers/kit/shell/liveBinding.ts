@@ -18,7 +18,8 @@ import { cameraReadsBack } from './liveReadback.js';
 // Render chunk that fails to load leaves the store at "render" while the screen
 // still shows "inspect". `setCamera` waits for the shell's APPLIED camera (the
 // request with the configured projection and lens, after the controls' clamps)
-// to read back, scoped, with no camera move under way, which differs from the
+// to read back, scoped, with no camera move under way (while Preview's orbit plays, up to its turn
+// about the up axis: same target, distance and height), which differs from the
 // request whenever the camera is clamped or the lens is derived. `clearSelection`
 // waits for an empty selection, and a renderer's own command (such as `select`)
 // returns its predicate; the shell's `resetCamera` returns the camera being at

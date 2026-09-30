@@ -10,3 +10,18 @@ export const near = (actual, asked) =>
 /** The camera on screen reads back as `asked` in position and target. */
 export const cameraReadsBack = (camera, asked) =>
   Boolean(camera) && near(camera.position, asked.position) && near(camera.target, asked.target);
+
+/**
+ * The same, while Preview's orbit is playing: every frame turns the camera about its up axis, so
+ * the applied camera is on screen when the target, the distance and the height along up agree and
+ * the azimuth is free. (The orbit never stops for a drag, so no frame reads back exactly.)
+ */
+export const orbitReadsBack = (camera, asked) => {
+  if (!camera || !near(camera.target, asked.target)) return false;
+  const up = asked.up;
+  const upLength = Math.hypot(...up) || 1;
+  const offset = position => position.map((value, index) => value - asked.target[index]);
+  const height = position => offset(position).reduce((sum, value, index) => sum + value * up[index] / upLength, 0);
+  return near([Math.hypot(...offset(camera.position))], [Math.hypot(...offset(asked.position))])
+    && near([height(camera.position)], [height(asked.position)]);
+};
