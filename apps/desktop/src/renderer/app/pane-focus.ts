@@ -19,14 +19,18 @@ export const TABBABLE = 'button:not([disabled]), [href], input:not([disabled]), 
 /**
  * Put focus where the session's work is: the composer, else the pane's first control. For a
  * route that just closed (Settings) whose button took its focus with it. The pane mounts in the
- * same commit, but its composer can arrive a frame later, so one retry.
+ * same commit, but the composer's editor does not (`immediatelyRender: false`), so it is absent
+ * on the first try and arrives a frame later. Only the composer is tried first, so the header's
+ * buttons are not focused, and announced, on the way to it; the pane's first control is the
+ * fallback after that frame, for a session with no composer to land on.
  */
 export function focusSessionHome(): void {
-  const attempt = () => {
-    const pane = document.getElementById("session");
-    const target = pane?.querySelector<HTMLElement>(PANE_HOMES.session) ?? pane?.querySelector<HTMLElement>(TABBABLE);
-    target?.focus();
-    return Boolean(target);
-  };
-  if (!attempt()) window.requestAnimationFrame(attempt);
+  const pane = () => document.getElementById("session");
+  const composer = () => pane()?.querySelector<HTMLElement>(PANE_HOMES.session) ?? null;
+  const first = composer();
+  if (first) {
+    first.focus();
+    return;
+  }
+  window.requestAnimationFrame(() => (composer() ?? pane()?.querySelector<HTMLElement>(TABBABLE))?.focus());
 }
