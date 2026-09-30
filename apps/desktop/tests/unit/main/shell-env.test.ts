@@ -85,6 +85,42 @@ describe.skipIf(process.platform === "win32")("capturing the login shell", () =>
     }
   });
 
+  it("keeps a Claude variable the rc exports even when the host session inherited the same value from it", async () => {
+    // The usual shape: the person's rc exports the token, the terminal that
+    // started the host Claude Code session ran that rc, so both hold "same".
+    vi.stubEnv("CLAUDECODE", "1");
+    vi.stubEnv("CLAUDE_CODE_OAUTH_TOKEN", "same");
+    vi.stubEnv("ANTHROPIC_BASE_URL", "https://proxy.example");
+    const shell = fakeShell(
+      'CLAUDE_CODE_OAUTH_TOKEN=same ANTHROPIC_BASE_URL=https://proxy.example /bin/sh -c "$2"',
+    );
+    try {
+      const env = await loginEnv({ force: true, timeoutMs: 5_000, shell });
+      expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("same");
+      expect(env.ANTHROPIC_BASE_URL).toBe("https://proxy.example");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("strips a host variable the rc does not set, and CLAUDECODE unless the rc sets it", async () => {
+    vi.stubEnv("CLAUDECODE", "1");
+    vi.stubEnv("CLAUDE_CODE_ENTRYPOINT", "cli");
+    vi.stubEnv("ANTHROPIC_BASE_URL", "https://host.example");
+    // A shell that passes its inherited environment through untouched.
+    const plain = fakeShell('/bin/sh -c "$2"');
+    const sets = fakeShell('CLAUDECODE=rc /bin/sh -c "$2"');
+    try {
+      const env = await loginEnv({ force: true, timeoutMs: 5_000, shell: plain });
+      expect(env).not.toHaveProperty("CLAUDE_CODE_ENTRYPOINT");
+      expect(env).not.toHaveProperty("ANTHROPIC_BASE_URL");
+      expect(env).not.toHaveProperty("CLAUDECODE");
+      expect((await loginEnv({ force: true, timeoutMs: 5_000, shell: sets })).CLAUDECODE).toBe("rc");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("falls back to process.env with a warning when the shell is too slow", async () => {
     const shell = fakeShell("sleep 5");
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
