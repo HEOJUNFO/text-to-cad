@@ -61,6 +61,7 @@ export class ScopedBrowserCdp {
       targetIds.set(targetInfo.targetId, tabId);
       return { targetId: targetInfo.targetId, browserContextId: "text-to-cad-workspace", type: "page", title: target.title, url: target.url || "about:blank", attached: true, canAccessOpener: false };
     };
+    const targetIdOf = (tabId: string) => [...targetIds].find(([, id]) => id === tabId)?.[0];
     const attaching = new Map<string, Promise<string>>();
     const attachPage = async (tabId: string) => {
       const targetInfo = await info(tabId);
@@ -94,8 +95,19 @@ export class ScopedBrowserCdp {
       };
       const protocol = contents.debugger;
       protocol.on("message", onMessage);
+      // A crashed renderer, or DevTools taking the page over, ends the debugger
+      // and every native session with it; the client is told, not left waiting.
+      const onDetach = () => {
+        const targetId = targetIdOf(tabId);
+        for (const [id, page] of sessions) if (page.contents === contents) {
+          cleanups.get(id)?.(); cleanups.delete(id); sessions.delete(id);
+          event("Target.detachedFromTarget", { sessionId: id, targetId });
+        }
+      };
+      protocol.on("detach", onDetach);
       cleanups.set(sessionId, () => {
         protocol.off("message", onMessage);
+        protocol.off("detach", onDetach);
         if (!contents.isDestroyed() && contents.debugger.isAttached())
           void contents.debugger.sendCommand("Target.detachFromTarget", { sessionId: nativeSession }).catch(() => {});
       });
@@ -121,9 +133,9 @@ export class ScopedBrowserCdp {
       if (browserScopeKey(target) !== browserScopeKey(this.scope)) return;
       for (const [id, page] of sessions) if (page.tabId === target.tabId) {
         cleanups.get(id)?.(); cleanups.delete(id); sessions.delete(id);
-        event("Target.detachedFromTarget", { sessionId: id, targetId: [...targetIds].find(([, id]) => id === target.tabId)?.[0] });
+        event("Target.detachedFromTarget", { sessionId: id, targetId: targetIdOf(target.tabId) });
       }
-      event("Target.targetDestroyed", { targetId: [...targetIds].find(([, id]) => id === target.tabId)?.[0] });
+      event("Target.targetDestroyed", { targetId: targetIdOf(target.tabId) });
     };
     this.service.events.on("opened", opened);
     this.service.events.on("closed", closed);

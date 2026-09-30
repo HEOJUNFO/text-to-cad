@@ -52,3 +52,32 @@ it("refuses Page.setDownloadBehavior as well as Browser.setDownloadBehavior on a
   expect(service.noteAutomatedInput).toHaveBeenCalledWith(scope, "tab");
   socket.close();
 });
+
+/** A connected client: `call` for commands, `events` for what the endpoint pushes. */
+async function client() {
+  endpoint = new ScopedBrowserCdp(service, scope, tabs);
+  const socket = new WebSocket(await endpoint.start());
+  await new Promise(resolve => socket.once("open", resolve));
+  let id = 0;
+  const events: { method: string; params: Record<string, unknown>; sessionId?: string }[] = [];
+  const call = (method: string, params: Record<string, unknown> = {}, sessionId?: string) => new Promise<{ result?: Record<string, unknown>; error?: { message: string } }>(resolve => {
+    const message = { id: ++id, method, params, ...(sessionId ? { sessionId } : {}) };
+    const listener = (bytes: Buffer) => { const reply = JSON.parse(bytes.toString()); if (reply.id === message.id) { socket.off("message", listener); resolve(reply); } };
+    socket.on("message", listener);
+    socket.send(JSON.stringify(message));
+  });
+  socket.on("message", bytes => { const value = JSON.parse(bytes.toString()); if (value.method) events.push(value); });
+  return { socket, call, events };
+}
+
+it("tells the client its page sessions are gone when Electron's debugger detaches", async () => {
+  const { socket, call, events } = await client();
+  await call("Target.getTargets");
+  const attached = await call("Target.attachToTarget", { targetId: "native-target", flatten: true });
+  const sessionId = String(attached.result?.sessionId);
+  // A renderer crash, or DevTools taking the page over.
+  contents.debugger.emit("detach", {}, "target closed");
+  await vi.waitFor(() => expect(events.find(item => item.method === "Target.detachedFromTarget")?.params).toEqual({ sessionId, targetId: "native-target" }));
+  expect((await call("Page.enable", {}, sessionId)).error?.message).toBe("Unknown browser session");
+  socket.close();
+});
