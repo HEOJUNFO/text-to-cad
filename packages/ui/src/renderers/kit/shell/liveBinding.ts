@@ -17,8 +17,8 @@ import { mergeViewerDisplaySettings } from '../view-settings/viewerDisplaySettin
 // `clearSelection` for an empty selection, and a renderer's own command (such
 // as `select`) returns its predicate; the shell's `resetCamera` returns the
 // camera being at rest, since a reset is an eased transition that a single
-// frame cannot tell from its end. A renderer whose reset is instant (DXF)
-// returns none, and a settled frame is its answer. The wait is bounded at ten seconds, then
+// frame cannot tell from its end. A renderer whose reset is instant (a flat
+// drawing) returns none, and a settled frame is its answer. The wait is bounded at ten seconds, then
 // it throws "The viewer did not finish applying this command." rather than
 // answer with a state the command did not produce. Commands set from an IPC
 // handler render on a macrotask, which is why one frame is not the answer.
