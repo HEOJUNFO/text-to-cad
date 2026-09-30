@@ -10,8 +10,9 @@
  *
  * Local only: the listener is 127.0.0.1 on an OS-assigned port, and a request
  * without a live session's token is refused before its body is read. A token
- * is minted per session (`tokenFor`) and forgotten when the session is
- * deleted, so a server left running by a dead agent cannot act on a later one.
+ * is minted per session and integration (`tokenFor`) and forgotten when the
+ * session is archived, closed or deleted (`revoke`), so a server left running
+ * by a dead agent cannot act on a later one.
  */
 import { randomBytes } from "node:crypto";
 import http from "node:http";
@@ -216,7 +217,12 @@ export class McpBridge {
       const handler = this.actions[method];
       if (!handler) throw new Error(`Integration method is unavailable: ${method}`);
       const result = await handler(session, validated.data, controller.signal);
-      controller.signal.throwIfAborted();
+      // The handler has finished: a write_terminal or edit_document is done,
+      // and "revoked" alone would read as if it were not. Say which it is.
+      if (controller.signal.aborted) {
+        const why = controller.signal.reason instanceof Error ? controller.signal.reason.message : "cancelled";
+        throw new Error(`${method} was applied, but the session's workspace changed before the reply (${why}); check the result before retrying`);
+      }
       if (!response.destroyed) send(200, { ok: true, result });
     } catch (error) {
       if (!response.destroyed) send(200, { ok: false, error: error instanceof Error ? error.message : String(error) });

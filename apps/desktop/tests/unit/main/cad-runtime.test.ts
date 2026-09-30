@@ -405,6 +405,23 @@ describe("status", () => {
     expect(status.viewerBuilt).toBe(false);
   });
 
+  it("cuts the runtime log back in place once it passes its cap, keeping the newest lines", async () => {
+    const m = machine({});
+    const log = runtimeLogPath(m.userData);
+    const line = `${"x".repeat(1023)}\n`;
+    fs.writeFileSync(log, line.repeat(4 * 1024 + 8));
+    const before = fs.statSync(log).ino;
+    const runtime = new CadRuntime(m.host);
+    await runtime.log("newest line");
+    expect(fs.statSync(log).size).toBeLessThanOrEqual(4 * 1024 * 1024);
+    expect(fs.statSync(log).size).toBeLessThanOrEqual(1024 * 1024 + 128);
+    // The same file, so the daemon's append fd is still on it.
+    expect(fs.statSync(log).ino).toBe(before);
+    const text = fs.readFileSync(log, "utf8");
+    expect(text.endsWith("newest line\n")).toBe(true);
+    expect(text.startsWith("x")).toBe(true);
+  });
+
   it("is an error, with the interpreter's words and the log, when cadgen does not import", async () => {
     const m = machine({ override: "/setting/python" });
     fs.writeFileSync(path.join(m.userData, "python"), "");

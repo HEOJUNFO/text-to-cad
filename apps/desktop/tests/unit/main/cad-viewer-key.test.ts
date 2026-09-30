@@ -12,7 +12,7 @@ import { afterAll, beforeAll, expect, test, vi } from "vitest";
 const fixture = vi.hoisted(() => ({
   root: "",
   project: "",
-  sessions: [] as { id: string; projectId: string; cwd: string; worktreePath?: string }[],
+  sessions: [] as { id: string; projectId: string; cwd: string; worktreePath?: string; archived?: boolean }[],
   started: [] as string[],
   stopped: [] as string[],
 }));
@@ -68,4 +68,21 @@ test("a viewer started for a symlinked worktree is stopped by the same key when 
 
   expect(fixture.started).toEqual([linked]);
   expect(fixture.stopped).toEqual(fixture.started);
+});
+
+test("an archived thread on the same worktree does not keep its viewer alive", async () => {
+  const worktree = path.join(fixture.root, "shared-worktree");
+  await fs.mkdir(worktree, { recursive: true });
+  fixture.stopped.length = 0;
+  fixture.sessions = [
+    { id: "s2", projectId: "project", cwd: worktree, worktreePath: worktree },
+    { id: "old", projectId: "project", cwd: worktree, worktreePath: worktree, archived: true },
+  ];
+  forgetCadSession("s2", worktree);
+  expect(fixture.stopped).toEqual([worktree]);
+  // An open one still holds it.
+  fixture.stopped.length = 0;
+  fixture.sessions = [{ id: "s2", projectId: "project", cwd: worktree }, { id: "s3", projectId: "project", cwd: worktree }];
+  forgetCadSession("s2", worktree);
+  expect(fixture.stopped).toEqual([]);
 });

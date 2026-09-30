@@ -1606,7 +1606,7 @@ that probe is not cached — the next status asks again.
 A CAD tab whose runtime did not start shows the interpreter's words, Try
 again, and Reveal log — `runtime.revealLog` shows the log
 (`userData/cad-runtime.log`: every failed probe, every viewer launch that did
-not come up, the viewer's stderr) in the file manager. The request carries no
+not come up, the viewer's stderr; cut back in place to its last 1 MB whenever it passes 4 MB) in the file manager. The request carries no
 path: main names the one file, and answers `{ revealed: false }` when it does
 not exist yet. The tab never asks the person to set anything up.
 
@@ -2298,7 +2298,7 @@ worktree session writes a file, calls `open_file` through the MCP server,
 and the tab, the breadcrumb, the tree and a new terminal all root at the
 worktree; starting a new session opens an independent, empty explorer.
 
-The agent's `attach_snapshot` reads an image (PNG, JPEG, WebP, GIF, at most 8 MB)
+The agent's `attach_snapshot` reads an image (PNG, JPEG, WebP, GIF, at most 5 MB, and only when the file's first bytes are that image type)
 in main from one handle, opened non-blocking and checked with `fstat`. Once it is
 open the path is resolved again with a fresh `realpath`, which must still be
 inside the workspace (`climbsOut`, so a folder named `..keep` is fine) and name

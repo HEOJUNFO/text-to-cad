@@ -115,6 +115,25 @@ describe("McpBridge", () => {
     expect((await pending).body).toMatchObject({ ok: false, error: "Session authorization revoked" });
   });
 
+  it("says an action applied when the session was revoked after the handler finished", async () => {
+    const actions = recordingActions();
+    let began!: () => void;
+    const started = new Promise<void>(resolve => { began = resolve; });
+    let finish!: () => void;
+    // Ignores the signal, as write_terminal and edit_document do: it completes.
+    actions.open_file = async () => {
+      began();
+      await new Promise<void>(resolve => { finish = resolve; });
+      return { done: "open_file" };
+    };
+    const { bridge, url } = await startBridge(actions);
+    const pending = rpc(url, bridge.tokenFor(SESSION), { method: "open_file", params: { path: "a.txt" } });
+    await started;
+    bridge.revoke(SESSION.sessionId);
+    finish();
+    expect((await pending).body).toMatchObject({ ok: false, error: expect.stringMatching(/applied/) });
+  });
+
   /** POST a body in two halves; `between` runs once the server has authorised the request and before the rest is sent. */
   async function slowRpc(bridge: McpBridge, url: string, token: string, body: unknown, between: () => void) {
     const byToken = (bridge as unknown as { byToken: Map<string, unknown> }).byToken;
@@ -229,6 +248,26 @@ describe("RendererCommands", () => {
     await expect(refused).rejects.toThrow("no such tab");
     await expect(commands.request({ sessionId: "s1", kind: "list-tabs", projectId: "p1" })).rejects.toThrow("did not answer");
   });
+
+  it("names the timeout, says the command may still complete, and gives a save longer than a tab list", async () => {
+    vi.useFakeTimers();
+    try {
+      const commands = new RendererCommands({ sessionRoot: () => ({ directory: "/proj", root: null }), send: () => {}, newId: () => "r1" });
+      const list = commands.request({ sessionId: "s1", kind: "list-tabs", projectId: "p1" });
+      const save = commands.request({ sessionId: "s1", kind: "document-save", projectId: "p1" });
+      const listFailed = expect(list).rejects.toThrow(/within 10 s.*may still complete/);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await listFailed;
+      const outcome = await Promise.race([save.then(() => "answered", () => "rejected"), Promise.resolve("waiting")]);
+      expect(outcome).toBe("waiting");
+      const saveFailed = expect(save).rejects.toThrow(/within 30 s/);
+      await vi.advanceTimersByTimeAsync(20_000);
+      await saveFailed;
+      await expect(save).rejects.not.toThrow(/window open/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("the actions", () => {
@@ -318,6 +357,24 @@ describe("the actions", () => {
     const snapshot = await actions.attach_snapshot!(session, { path: "tmp/review.png" });
     expect(snapshot).toEqual({ path: "tmp/review.png", mimeType: "image/png", base64: Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString("base64") });
     await expect(actions.attach_snapshot!(session, { path: "notes.txt" })).rejects.toThrow("not a PNG");
+  });
+
+  it("refuses an attach_snapshot whose bytes are not the image its extension claims, or that is empty or over 5 MB", async () => {
+    const root = tempDir("text-to-cad-proj-");
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    fs.writeFileSync(path.join(root, "page.png"), "<html><body>not an image</body></html>");
+    fs.writeFileSync(path.join(root, "empty.png"), "");
+    fs.writeFileSync(path.join(root, "big.png"), Buffer.concat([png, Buffer.alloc(6 * 1024 * 1024)]));
+    fs.writeFileSync(path.join(root, "photo.jpg"), png);
+    fs.writeFileSync(path.join(root, "ok.png"), png);
+    const sessionRoot = () => ({ directory: root, root: null });
+    const actions = createActions({ sessionRoot, send: () => {}, newId: () => "r" }, new RendererCommands({ sessionRoot, send: () => {}, newId: () => "r" }));
+    const session: BridgeSession = { sessionId: "s", projectId: "p", cwd: root };
+    await expect(actions.attach_snapshot!(session, { path: "page.png" })).rejects.toThrow(/not a PNG/);
+    await expect(actions.attach_snapshot!(session, { path: "empty.png" })).rejects.toThrow(/empty/);
+    await expect(actions.attach_snapshot!(session, { path: "big.png" })).rejects.toThrow(/5 MB/);
+    await expect(actions.attach_snapshot!(session, { path: "photo.jpg" })).rejects.toThrow(/not a JPEG/);
+    await expect(actions.attach_snapshot!(session, { path: "ok.png" })).resolves.toMatchObject({ mimeType: "image/png", base64: png.toString("base64") });
   });
 
   describe("attach_snapshot re-checks the handle against a fresh realpath", () => {

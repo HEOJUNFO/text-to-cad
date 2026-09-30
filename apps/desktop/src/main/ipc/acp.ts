@@ -171,6 +171,8 @@ export const acpHandlers = {
         forgetSession(id);
         browserService.disposeSession(id);
         explorerTerminals().disposeSession(id);
+        // An archived thread is not open: its worktree's viewer stops with the last open one.
+        forgetCadSession(id, session.worktreePath ?? null);
       }
       return session;
     }),

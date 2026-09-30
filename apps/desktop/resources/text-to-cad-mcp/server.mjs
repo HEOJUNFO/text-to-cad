@@ -4,9 +4,13 @@
  * text-to-cad passes it in `session/new`'s `mcpServers`.
  *
  * The server knows nothing about Electron. It reads four environment
- * variables for the bridge URL, a scoped token, session metadata and integration ID,
- * and forwards app-owned tool calls to main as `POST <bridge>/rpc` (see
- * `src/main/integrations/mcp-bridge.ts`). Main does the work; this file is the
+ * variables: `TEXT_TO_CAD_BRIDGE_URL` and `TEXT_TO_CAD_BRIDGE_TOKEN` (the
+ * bridge and the scoped token that names one session), `TEXT_TO_CAD_INTEGRATION`
+ * (which integration's tools it serves, "workspace" when unset) and
+ * `TEXT_TO_CAD_SKILLS_ROOT` (the skills the app materialised). It forwards
+ * app-owned tool calls to main as `POST <bridge>/rpc` (see
+ * `src/main/integrations/mcp-bridge.ts`, whose `BRIDGE_ENV` also sets the
+ * session id and cwd; the token already names both, so they are not read here). Main does the work; this file is the
  * agent-facing description of it. The browser entry instead bootstraps a
  * scoped native connection and runs the upstream Playwright MCP server.
  *

@@ -99,15 +99,28 @@ function target<T>(map: Map<string, Binding<T>>, params: Record<string, unknown>
 function requiredString(params: Record<string, unknown>, key: string) {
   const value = params[key]; if (typeof value !== 'string') throw new Error(`${key} must be a string.`); return value;
 }
+// The longest buffer the bridge reads or replaces, in UTF-16 units. The same
+// number as MAX_DOCUMENT_CHARS in main's documents/module.mjs (the renderer
+// cannot import it: change both).
+const MAX_BRIDGE_DOCUMENT_CHARS = 2 * 1024 * 1024;
+const TOO_LARGE_TO_EDIT = 'The buffer is too large to edit through the bridge; edit it in the editor.';
+/** A read result cut at the cap, flagged and noted in the text the agent sees; the revision still names the whole buffer. */
+function boundedRead(snapshot: LiveTextSnapshot) {
+  if (snapshot.content.length <= MAX_BRIDGE_DOCUMENT_CHARS) return snapshot;
+  return { ...snapshot, content: snapshot.content.slice(0, MAX_BRIDGE_DOCUMENT_CHARS), truncated: true,
+    note: `Only the first ${MAX_BRIDGE_DOCUMENT_CHARS} of ${snapshot.content.length} characters are shown; this buffer is too large to edit through the bridge.` };
+}
 export async function performDocumentCommand(kind: string, params: Record<string, unknown>, scope: LiveDocumentScope) {
   if (kind === 'document-read' && !text.has(String(params.tabId))) {
     const snapshot = target(inactiveText, params, scope);
     const binding = inactiveText.get(String(params.tabId))!;
-    return { ...snapshot, tabId: String(params.tabId), sourceId: binding.sourceId, path: binding.path, active: false };
+    return { ...boundedRead(snapshot), tabId: String(params.tabId), sourceId: binding.sourceId, path: binding.path, active: false };
   }
   const document = target(text, params, scope);
-  if (kind === 'document-read') return { ...document.read(), tabId: String(params.tabId), sourceId: document.sourceId, path: document.path, active: true };
+  if (kind === 'document-read') return { ...boundedRead(document.read()), tabId: String(params.tabId), sourceId: document.sourceId, path: document.path, active: true };
   const expected = requiredString(params, 'expectedRevision');
+  // A replacement is the whole buffer: over the cap the agent has only seen a cut read, and its content would drop the rest.
+  if (kind === 'document-edit' && document.read().content.length > MAX_BRIDGE_DOCUMENT_CHARS) throw new Error(TOO_LARGE_TO_EDIT);
   if (kind === 'document-edit') return document.replace(requiredString(params, 'content'), expected);
   if (kind === 'document-save') return document.save(expected);
   throw new Error(`Unknown document command: ${kind}`);
