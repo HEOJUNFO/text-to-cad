@@ -137,7 +137,9 @@ function UpdateRow() {
       action: null,
     },
     idle: {
-      description: "text-to-cad is up to date.",
+      // Also what a check answers when the updater is inactive or the feed is
+      // still being uploaded: "no update found" is true of all of them.
+      description: "No update found.",
       action: { label: "Check now", onClick: check },
     },
     checking: { description: "Checking GitHub Releases…", action: null },

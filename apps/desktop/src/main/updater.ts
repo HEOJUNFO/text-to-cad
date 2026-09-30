@@ -235,8 +235,11 @@ export function installUpdate() {
   }
   stopUpdater();
   installing = true;
-  // `isSilent` false, `isForceRunAfter` true: show the installer on Windows,
-  // and come back up afterwards on every platform.
+  // `isSilent` false: show the installer on Windows. BaseUpdater passes
+  // `isSilent ? isForceRunAfter : autoRunAppAfterInstall` on to the installer,
+  // so here the second argument does nothing and coming back up afterwards is
+  // the wizard's "run after finish" box (`oneClick: false`); macOS relaunches
+  // through Squirrel.
   autoUpdater.quitAndInstall(false, true);
 }
 

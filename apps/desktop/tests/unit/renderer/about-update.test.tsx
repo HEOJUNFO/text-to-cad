@@ -19,6 +19,7 @@ beforeEach(() => {
 
 afterEach(() => {
   delete app().installUpdate;
+  delete app().checkForUpdates;
 });
 
 function renderAbout() {
@@ -73,5 +74,15 @@ describe("About › Software update", () => {
   it("names Restart for the version it installs", () => {
     renderAbout();
     expect(screen.getByRole("button", { name: /Restart.*2\.0\.0/ })).toBeInTheDocument();
+  });
+
+  it("a check that finds nothing says so, without claiming the build is up to date", async () => {
+    app().checkForUpdates = vi.fn(async () => ({ state: "idle" as const }));
+    useUpdates.setState({ status: { state: "idle" } });
+    renderAbout();
+    await userEvent.click(screen.getByRole("button", { name: "Check now" }));
+    await waitFor(() => expect(app().checkForUpdates).toHaveBeenCalled());
+    expect(screen.getByRole("status")).toHaveTextContent("No update found.");
+    expect(screen.queryByText(/up to date/i)).not.toBeInTheDocument();
   });
 });
