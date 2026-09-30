@@ -1526,6 +1526,18 @@ teardown and watchdog startup toward the same budget. A quit that finishes
 on its own — half a second without WebGL —
 gives it nothing to do.
 
+`before-quit` in `src/main/index.ts` calls `markQuitting()` first, before any
+step that can throw; the listener in `src/main/menu.ts` is registered later
+and keeps a mark of its own. Every teardown step after it (updater, CAD,
+integrations, ACP, agents, settings effects, browser, explorer, window state,
+database, children) runs under its own `try`, so one that throws is logged and
+the rest still run, the database close among them, and the deadline is armed
+in a `finally`. `will-quit` logs `[quit] will-quit`, kills what ignored its
+signal and arms the deadline if `before-quit` did not. Outside a quit, an
+`uncaughtException` shows `dialog.showErrorBox` once the app is ready, unless
+`NODE_ENV=test`, so a packaged app with no console still says what broke;
+during a quit it logs, kills the tracked children and exits at once.
+
 An update's quit is different. electron-updater spawns the NSIS installer
 (Windows) or the new AppImage (Linux) as a child of the app and then quits,
 so `before-quit-for-update` marks the quit as an update's
@@ -1964,6 +1976,18 @@ Three things learned from the real adapters that the code now depends on:
   the 129-command list after `session/new`, mid-turn and after
   `session/load`, a title sent live only.
 
+A new session's row is written before its adapter answers, at `connecting`,
+and its `acpSessionId` is stored on its own right after `session/new` returns —
+before the preferences and the marks — so a crash while those are pending does
+not take a connected session with it. A create that fails before that answer
+removes the row and, for a worktree it cut, the worktree. One that fails after
+it keeps the row and settles it (`settleAfterFailedCreate`): `idle` while the
+connection is alive, `error` when it is not. `boot()`, on the first call after
+launch, removes every row with no `acpSessionId` that no create in this run
+owns — a create cut short by a quit, which can never be loaded — and unpins its
+marks. A row whose directory is missing or unmounted is not of that kind: it is
+never deleted for that.
+
 ### Opening a session
 
 The agent owns the transcript, so a session that is not connected has
@@ -1999,15 +2023,27 @@ beside `sessions.ts`:
   nothing: four adapters stay alive behind the sessions that are not on
   screen, so switching back is a paint with no load at all. The oldest
   beyond four is closed and its row goes to `closed`, which is what makes
-  the next click on it reconnect. A turn in flight is never evicted — the
-  limit is exceeded until it ends. `ensureLoaded` (`state/acp.ts`) does
+  the next click on it reconnect. A busy connection is never evicted — the
+  limit is exceeded until it is not: a turn in flight (`running`, `waiting`),
+  one still `connecting`, and anything in `held` — a create from its spawn
+  until it returns, a prompt from its refusal check until its turn ends (idle
+  through the turn mark, which waits on git). `ensureLoaded` (`state/acp.ts`) does
   nothing for a session the renderer holds whose status is not `closed`, and
   for one it does not hold it asks main for the stored state
   (`sessions.state`, which also says whether main's connection is `live`): a
   live connection is painted and left alone, so a just-created session is not
   reconnected (a reconnect drops turn events until it answers, and would
   repaint from a snapshot older than the prompt just sent). Only a `closed` or
-  absent connection with no live counterpart in main starts a `load`.
+  absent connection with no live counterpart in main starts a `load`. A
+  session's `create` is in `creating` from before `session/new` until it
+  returns; `load` and a prompt (`ensureLive`) wait on it, and `state()` reports
+  `connecting` for a live idle connection whose create is still open, since
+  the row says `connecting` until the preferences and marks have landed. The
+  renderer gates the composer on the row and the connection together
+  (`SessionView.tsx`): `connecting` is `state.status === "connecting"` or
+  `row.status === "connecting" && !reconnecting`, and the composer reads
+  `submitted` when `(connecting || loading) && !reconnecting` or when the
+  composer store has a prompt `sending`.
 - **The warm pool** (`acp/warm.ts`). A second and a half after launch, one
   idle adapter per agent the index says is in use is spawned and
   `initialize`d, and the first `create` or `load` for that agent adopts it

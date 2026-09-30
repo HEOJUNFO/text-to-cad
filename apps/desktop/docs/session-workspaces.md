@@ -33,7 +33,12 @@ or delete operation. Sidebar groups contain sessions matching the current
 filters; empty groups are omitted. Archiving the last visible session hides
 the group. Archived sessions remain available in Settings and can be restored
 without recreating a project. Missing or unmounted directories never cause
-their session index entries to be deleted.
+their session index entries to be deleted. The rows that are removed are the
+ones with no `acpSessionId`: `boot()` deletes each that no create in this run
+owns (a create cut short by a quit) and unpins its marks. `acpSessionId` is
+stored right after `session/new`, before the preferences and the marks; a
+create that fails after that point keeps its row and settles it `idle` while
+the connection is alive, `error` when it is not.
 
 ## Explorer and tool ownership
 
