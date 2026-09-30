@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   Archive,
   ArchiveRestore,
@@ -74,6 +74,17 @@ export function SessionRow({
   // Idle is the absence of news; saying it on every quiet row would be noise.
   const statusText = sessionGlyphFor(session.status) === "idle" ? null : SESSION_GLYPH_LABELS[sessionGlyphFor(session.status)];
 
+  // Enter and Escape end the edit by unmounting the box that had focus, which left it on the page;
+  // the title button takes it back. A blur that ends the edit (a click elsewhere) must not.
+  const titleButton = useRef<HTMLButtonElement | null>(null);
+  const refocusTitle = useRef(false);
+  useEffect(() => {
+    if (!editing && refocusTitle.current) {
+      refocusTitle.current = false;
+      titleButton.current?.focus();
+    }
+  }, [editing]);
+
   const startRename = () => {
     setDraft(session.title);
     setEditing(true);
@@ -144,8 +155,13 @@ export function SessionRow({
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
+                  // Not let through: the keypress that follows would land on the title button, which has
+                  // the focus by then, and click it straight back into the box.
+                  event.preventDefault();
+                  refocusTitle.current = true;
                   commitRename();
                 } else if (event.key === "Escape") {
+                  refocusTitle.current = true;
                   setEditing(false);
                 }
               }}
@@ -162,6 +178,7 @@ export function SessionRow({
                 aria-describedby={statusText ? statusId : undefined}
                 className="min-w-0 flex-1 truncate text-left text-[13px] focus-visible:outline-none"
                 data-session-row-title
+                ref={titleButton}
                 onClick={onSelect}
                 onDoubleClick={startRename}
                 type="button"

@@ -1,5 +1,5 @@
 import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Archive, Copy, FolderOpen, MoreHorizontal, Pencil, RotateCcw, Trash2, Unplug } from "lucide-react";
 
 import { ExplorerToggle, HistoryNav, SidebarToggle } from "@renderer/app/PaneToggles";
@@ -60,6 +60,17 @@ export function SessionHeader({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
 
+  // Enter and Escape end the edit by unmounting the box that had focus, which left it on the page;
+  // the title button takes it back. A blur that ends the edit (a click elsewhere) must not.
+  const titleButton = useRef<HTMLButtonElement | null>(null);
+  const refocusTitle = useRef(false);
+  useEffect(() => {
+    if (!editing && refocusTitle.current) {
+      refocusTitle.current = false;
+      titleButton.current?.focus();
+    }
+  }, [editing]);
+
   const startEditing = () => {
     if (session) {
       setDraft(title);
@@ -99,8 +110,13 @@ export function SessionHeader({
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") {
+                // Not let through: the keypress that follows would land on the title button, which has
+                // the focus by then, and click it straight back into the box.
+                event.preventDefault();
+                refocusTitle.current = true;
                 commit();
               } else if (event.key === "Escape") {
+                refocusTitle.current = true;
                 setEditing(false);
               }
             }}
@@ -113,6 +129,7 @@ export function SessionHeader({
               data-session-title
               disabled={!session}
               onClick={startEditing}
+              ref={titleButton}
               type="button"
             >
               {title}

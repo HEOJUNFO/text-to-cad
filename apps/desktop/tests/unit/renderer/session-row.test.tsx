@@ -72,6 +72,24 @@ describe("the rename box", () => {
   });
 });
 
+describe("after the rename box closes", () => {
+  // Enter and Escape unmount the input that held focus; without a hand-off it fell to the page.
+  it("Enter puts focus on the title button", () => {
+    row();
+    const input = editBox();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Bracket" }));
+  });
+
+  it("Escape leaves the title as it was and puts focus on the title button", () => {
+    row();
+    const input = editBox();
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(rename).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Bracket" }));
+  });
+});
+
 describe("the actions button", () => {
   it("shows itself when the keyboard reaches it, not only on hover", () => {
     row();
