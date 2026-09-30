@@ -66,6 +66,34 @@ describe("createSampleProject", () => {
     expect(fs.readFileSync(path.join(target, "second.py"), "utf8")).toBe("print('also bundled')\n");
   });
 
+  const busy = () => Object.assign(new Error("EPERM: operation not permitted, rename"), { code: "EPERM" });
+
+  it("retries a rename that Windows refuses while something still holds the fresh copy", () => {
+    const rename = vi.spyOn(fs, "renameSync").mockImplementationOnce(() => {
+      throw busy();
+    });
+    try {
+      expect(createSampleProject(target, source, () => {})).toBe(target);
+    } finally {
+      rename.mockRestore();
+    }
+    expect(fs.readFileSync(path.join(target, "part.py"), "utf8")).toBe("print('bundled')\n");
+    expect(fs.existsSync(`${target}.copying`)).toBe(false);
+  });
+
+  it("copies the finished staging folder into place when the rename never goes through", () => {
+    const rename = vi.spyOn(fs, "renameSync").mockImplementation(() => {
+      throw busy();
+    });
+    try {
+      expect(createSampleProject(target, source, () => {})).toBe(target);
+    } finally {
+      rename.mockRestore();
+    }
+    expect(fs.readFileSync(path.join(target, "part.py"), "utf8")).toBe("print('bundled')\n");
+    expect(fs.existsSync(`${target}.copying`)).toBe(false);
+  });
+
   it("says so when the build has no sample", () => {
     expect(() => createSampleProject(target, path.join(directory, "missing"))).toThrow(/sample project is missing/);
   });
