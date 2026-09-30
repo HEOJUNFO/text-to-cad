@@ -751,6 +751,10 @@ export class SessionManager {
       const closed = overtaken();
       if (this.live.get(id) === connection) this.live.delete(id);
       connection.close();
+      // The error state has no transcript (the reload never replayed one), and
+      // its pending write would put that over the stored one 750 ms later —
+      // the previous snapshot is the only copy of the session's history.
+      this.snapshots?.discard(id);
       if (closed) throw error;
       const message = error instanceof Error ? error.message : String(error);
       this.setStatus(id, "error", message);
@@ -1413,9 +1417,13 @@ export class SessionManager {
     this.deps.broadcast("session.update", { sessionId: id, event });
     // Every state main sees is a state the next click could paint from
     // (`./snapshots.ts`). Debounced there, so a streaming turn is one write
-    // when it stops rather than one per token.
+    // when it stops rather than one per token. Not while the connection is
+    // still connecting — in `session/new`, or replaying `session/load`: its
+    // transcript is the beginning of its own reload, and filed now (a quit, a
+    // Disconnect) it would replace the whole one stored. `session/loaded`
+    // ends the replay, and its state is the one worth keeping.
     const current = this.live.get(id)?.state;
-    if (current && this.deps.repo.get(id)) {
+    if (current && current.status !== "connecting" && this.deps.repo.get(id)) {
       this.snapshots?.save(id, current);
     }
     // Every time the agent tells us what a session can be configured with —

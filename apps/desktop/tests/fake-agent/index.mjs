@@ -152,6 +152,11 @@ const modeAsOption = args.includes("--mode-option");
  */
 const loadDelayMs = args.includes("--load-delay") ? Number(args[args.indexOf("--load-delay") + 1]) : 0;
 
+/** `session/load` answers with an error (an agent that lost the session), after `--load-delay` if any. */
+const loadError = args.includes("--load-error");
+/** How long `session/new` takes to answer: a real adapter spends one to three seconds on it. */
+const newDelayMs = args.includes("--new-delay") ? Number(args[args.indexOf("--new-delay") + 1]) : 0;
+
 const stream = ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin));
 
 /**
@@ -402,6 +407,9 @@ new AgentSideConnection((conn) => ({
 
   async newSession(params) {
     record("session/new", { ...params, PATH: process.env.PATH ?? null });
+    if (newDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, newDelayMs));
+    }
     if (fixture?.newSession) {
       return fixture.newSession;
     }
@@ -437,6 +445,9 @@ new AgentSideConnection((conn) => ({
     mcpServers = Array.isArray(params?.mcpServers) ? params.mcpServers : [];
     if (loadDelayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, loadDelayMs));
+    }
+    if (loadError) {
+      throw new Error("session not found");
     }
     if (fixture?.load) {
       await replay(conn, fixture.load.frames, params.sessionId);

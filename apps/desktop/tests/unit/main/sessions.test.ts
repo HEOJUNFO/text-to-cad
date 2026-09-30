@@ -606,6 +606,58 @@ describe("SessionManager", () => {
     expect(stopReason).toBe("end_turn");
   });
 
+  /**
+   * A reconnect's state is the beginning of its own replay: turns empty until
+   * `session/load` has streamed them. Filed over the stored transcript — by a
+   * failed load's debounce, or by a quit in the first second — it destroys the
+   * only copy of the history.
+   */
+  it("keeps the stored transcript when a reconnect's session/load is refused", async () => {
+    let launchArgs = [FAKE_AGENT];
+    const store = memorySnapshots();
+    const { manager, cwd } = await setup({
+      snapshots: store,
+      launchOverride: () => ({ ...fakeProvider.launch, args: launchArgs }),
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    await manager.prompt(session.id, [{ type: "text", text: "hello there" }]);
+    manager.close(session.id);
+    expect(JSON.parse(store.rows.get(session.id)!).turns).toHaveLength(2);
+
+    launchArgs = [FAKE_AGENT, "--load-error"];
+    await expect(manager.load(session.id)).rejects.toThrow();
+    manager.closeAll(); // flushAll: whatever was still pending is written now
+    expect(JSON.parse(store.rows.get(session.id)!).turns).toHaveLength(2);
+  });
+
+  it("keeps the stored transcript when the app quits in the middle of a reconnect's replay", async () => {
+    let launchArgs = [FAKE_AGENT];
+    const store = memorySnapshots();
+    const { broadcasts, manager, cwd } = await setup({
+      snapshots: store,
+      launchOverride: () => ({ ...fakeProvider.launch, args: launchArgs }),
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    await manager.prompt(session.id, [{ type: "text", text: "hello there" }]);
+    manager.close(session.id);
+
+    launchArgs = [FAKE_AGENT, "--load-delay", "60000"];
+    broadcasts.length = 0;
+    const loading = manager.load(session.id);
+    loading.catch(() => undefined);
+    // `session/load` is on the wire, and the state is the empty beginning of it.
+    await until(() =>
+      broadcasts.some(
+        (b) => b.channel === "session.update" && (b.payload as { event: { type: string } }).event.type === "session/connected",
+      )
+        ? true
+        : undefined,
+    );
+    manager.closeAll();
+    await expect(loading).rejects.toThrow();
+    expect(JSON.parse(store.rows.get(session.id)!).turns).toHaveLength(2);
+  });
+
   it("has no snapshot for a session that never connected, so the spinner stays", async () => {
     const { manager } = await setup({ snapshots: memorySnapshots() });
     expect(manager.state("session-does-not-exist")).toBeNull();
