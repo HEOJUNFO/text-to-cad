@@ -39,6 +39,7 @@ function page() {
 
 beforeEach(() => {
   fixture.gone = false;
+  fixture.root = "/projects/demo";
   initExplorerServices(() => {});
   watchers.watch.mockReset().mockImplementation(async () => {});
   watchers.unwatch.mockReset().mockImplementation(async () => {});
@@ -106,4 +107,18 @@ test("an unwatch after the project row is deleted still gives the watch back", a
   fixture.gone = true;
   await explorerHandlers.explorer.unwatch({ projectId: "project" }, ctx);
   expect(watchers.unwatch).toHaveBeenCalledTimes(1);
+});
+
+test("one request that resolved to two roots gives each watch's own root back, oldest first", async () => {
+  const { ctx } = page();
+  await explorerHandlers.explorer.watch({ projectId: "project" }, ctx);
+  // The session's worktree changed under the same (project, root) request.
+  fixture.root = "/projects/demo-worktree";
+  await explorerHandlers.explorer.watch({ projectId: "project" }, ctx);
+  await explorerHandlers.explorer.unwatch({ projectId: "project" }, ctx);
+  await explorerHandlers.explorer.unwatch({ projectId: "project" }, ctx);
+  expect((watchers.unwatch.mock.calls as unknown as string[][]).map(([directory]) => directory)).toEqual(["/projects/demo", "/projects/demo-worktree"]);
+  // Nothing is left to give back, and no stale entry answers for the request.
+  fixture.gone = true;
+  await expect(explorerHandlers.explorer.unwatch({ projectId: "project" }, ctx)).rejects.toThrow();
 });
