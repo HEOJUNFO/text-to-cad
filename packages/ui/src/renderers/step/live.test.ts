@@ -36,6 +36,25 @@ describe('live CAD viewer binding', () => {
     expect((await view.controller.setRenderMode(true)).renderMode).toBe('render');
     expect((await view.controller.setRenderMode(false)).renderMode).toBe('inspect');
   });
+  it('answers clearSelection once the selection is empty, though React renders it after the next frame', async () => {
+    // An IPC handler sets state outside a React event: the render lands on a later task than the frame.
+    const view = harness();
+    const held = { resource: state().resource, target: { kind: 'whole-resource' as const } };
+    view.update({ ...state(), selection: [held] });
+    view.commands.clearSelection.mockImplementation(() => {
+      queueMicrotask(() => queueMicrotask(() => view.update(state())));
+    });
+    expect((await view.controller.clearSelection()).selection).toEqual([]);
+  });
+  it('answers select with the renderer\'s own committed predicate, not the state it replaced', async () => {
+    const view = harness();
+    const whole = { resource: state().resource, target: { kind: 'whole-resource' as const } };
+    view.commands.select.mockImplementation(() => {
+      queueMicrotask(() => queueMicrotask(() => view.update({ ...state(), selection: [whole] })));
+      return (next: CadLiveState) => next.selection.length > 0;
+    });
+    expect((await view.controller.select({ selectors: ['model.step'] })).selection).toEqual([whole]);
+  });
   it('reads the actual latest view and returns detached pure snapshots', async () => {
     const view = harness();
     view.update({ ...state(), selectedReferenceIds: ['f1'], camera: { position: [1, 2, 3], target: [0, 0, 0], up: [0, 0, 1] } });
