@@ -71,3 +71,11 @@ describe("the rename box", () => {
     expect(rename).toHaveBeenCalledWith("s1", "Renamed");
   });
 });
+
+describe("the actions button", () => {
+  it("shows itself when the keyboard reaches it, not only on hover", () => {
+    row();
+    // jsdom has no :focus-visible to evaluate, so the class is the only signal there is to check.
+    expect(screen.getByRole("button", { name: "Bracket actions" })).toHaveClass("focus-visible:opacity-100");
+  });
+});

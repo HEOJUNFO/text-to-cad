@@ -184,7 +184,7 @@ export function SessionRow({
             <DropdownMenuTrigger asChild>
               <Button
                 aria-label={`${session.title} actions`}
-                className="size-5 shrink-0 text-muted-foreground opacity-0 group-hover/session:opacity-100 data-[state=open]:opacity-100"
+                className="size-5 shrink-0 text-muted-foreground opacity-0 group-hover/session:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
                 size="icon-xs"
                 variant="ghost"
               >
