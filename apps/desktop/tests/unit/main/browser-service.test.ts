@@ -203,3 +203,12 @@ it("reads console messages from the details event, and still from the deprecated
     { level: "warn", message: "from details" }, { level: "error", message: "boom" }, { level: "error", message: "positional" },
   ]);
 });
+
+it("drops its app-window `closed` listener when the page closes", async () => {
+  const window = owner();
+  await service.open(scope, { tabId: "w", url: "https://example.com/" });
+  service.present(scope, "w", window, "lease", bounds);
+  expect(window.listenerCount("closed")).toBe(1);
+  service.close(scope, "w");
+  expect(window.listenerCount("closed")).toBe(0);
+});

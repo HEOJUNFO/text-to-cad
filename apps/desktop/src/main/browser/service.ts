@@ -8,7 +8,7 @@ import { browserPartition, browserScopeKey, type BrowserScope } from "./storage"
 export { browserScopeKey, type BrowserScope };
 type Target = {
   scope: BrowserScope; id: string; view: WebContentsView; harness: ReturnType<typeof browserHarness>;
-  owner?: BrowserWindow; lease?: string; generation: number; visible: boolean; ready: Promise<void>; logs: BrowserTarget["logs"];
+  owner?: BrowserWindow; lease?: string; dropOwnerClosed?: () => void; generation: number; visible: boolean; ready: Promise<void>; logs: BrowserTarget["logs"];
   /** Last key or mouse press that reached the page, and last one an agent sent over CDP (ms). */
   userInputAt: number; automatedInputAt: number;
 };
@@ -126,9 +126,12 @@ export class BrowserService {
     for (const other of this.targets.values()) if (other.owner === owner && other !== target) this.hide(other);
     if (target.owner !== owner) {
       this.hide(target);
+      target.dropOwnerClosed?.();
       target.owner = owner;
       owner.contentView.addChildView(target.view);
-      owner.once("closed", () => { if (this.targets.get(id) === target && target.owner === owner) this.close(scope, id); });
+      const onClosed = () => { if (this.targets.get(id) === target && target.owner === owner) this.close(scope, id); };
+      owner.once("closed", onClosed);
+      target.dropOwnerClosed = () => { owner.off("closed", onClosed); };
       this.watchOwner(owner);
     }
     const zoom = owner.webContents.getZoomFactor();
@@ -221,6 +224,7 @@ export class BrowserService {
   close(scope: BrowserScope, id: string) {
     const target = this.get(scope, id);
     this.targets.delete(id);
+    target.dropOwnerClosed?.();
     if (target.owner && !target.owner.isDestroyed()) target.owner.contentView.removeChildView(target.view);
     target.view.webContents.close({ waitForBeforeUnload: false });
   }
