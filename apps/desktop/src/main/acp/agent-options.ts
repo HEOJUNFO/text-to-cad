@@ -49,7 +49,7 @@ export type AgentOptionsDeps = {
    * One it would refuse is not asked: that refusal is the rule, not a failure
    * worth a log line on every launch.
    */
-  probeable?: (agentId: string) => boolean;
+  probeable?: (agentId: string) => boolean | Promise<boolean>;
   onChange(all: AgentOptions[]): void;
   /** Failures land here rather than anywhere a person can see them. */
   onProbeFailed?: (agentId: string, error: unknown) => void;
@@ -170,7 +170,7 @@ export class AgentOptionStore {
     if (this.deps.get(agentId)?.options.length || this.failed.has(agentId)) {
       return;
     }
-    if (this.deps.probeable && !this.deps.probeable(agentId)) {
+    if (this.deps.probeable && !(await this.deps.probeable(agentId))) {
       return;
     }
     const running = this.probes.get(agentId);

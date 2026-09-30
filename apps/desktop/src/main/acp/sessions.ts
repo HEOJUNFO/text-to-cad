@@ -528,8 +528,12 @@ export class SessionManager {
    * process. `launchWithoutBinary` is not enough — it says the adapter can
    * run without the CLI, which a session the person asked for may use, not
    * that a speculative probe should fetch it (see `probeOptions`).
+   *
+   * "Not installed" is a verdict only from this launch's probe: a warm launch's first table is
+   * the last launch's, and a CLI installed since is on this machine now. A row that says absent
+   * waits for the fresh table, with the bound `connect` uses, before it refuses.
    */
-  canProbe(agentId: string): boolean {
+  async canProbe(agentId: string): Promise<boolean> {
     const provider = agentProvider(agentId);
     if (!provider) {
       return false;
@@ -537,7 +541,12 @@ export class SessionManager {
     if (this.deps.launchOverride?.(provider.id)) {
       return true;
     }
-    return this.deps.detector.list().find((candidate) => candidate.id === provider.id)?.installed === true;
+    const held = this.deps.detector.list().find((candidate) => candidate.id === provider.id);
+    if (held?.installed === true) {
+      return true;
+    }
+    const fresh = await this.deps.detector.freshWithin(PROBE_WAIT_MS);
+    return (fresh ?? this.deps.detector.list()).find((candidate) => candidate.id === provider.id)?.installed === true;
   }
 
   /**
@@ -570,7 +579,7 @@ export class SessionManager {
     // nobody asked for. So: the CLI is on this machine, or nothing. (With a
     // launch override in force every provider is the same test process, and
     // the machine's PATH says nothing about it.)
-    if (!this.canProbe(provider.id)) {
+    if (!(await this.canProbe(provider.id))) {
       throw new Error(`${provider.name} is not installed`);
     }
     if (!existsSync(input.cwd)) {

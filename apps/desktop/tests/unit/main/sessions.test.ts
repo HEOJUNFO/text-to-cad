@@ -1090,9 +1090,32 @@ describe("SessionManager", () => {
   });
 
   it("says which agents a probe would run for: an installed CLI, or a launch override", async () => {
-    expect((await setup()).manager.canProbe("claude-code")).toBe(false);
-    expect((await setup({ launchOverride: () => fakeProvider.launch })).manager.canProbe("claude-code")).toBe(true);
-    expect((await setup()).manager.canProbe("no-such-agent")).toBe(false);
+    expect(await (await setup()).manager.canProbe("claude-code")).toBe(false);
+    expect(await (await setup({ launchOverride: () => fakeProvider.launch })).manager.canProbe("claude-code")).toBe(true);
+    expect(await (await setup()).manager.canProbe("no-such-agent")).toBe(false);
+  });
+
+  it("does not call an agent absent on the last launch's row: the CLI may have been installed since", async () => {
+    const stale = { ...fakeProvider, installed: false, binaryPath: null, version: null, auth: "not-required", checkedAt: 1 } as const;
+    let probeStarts!: () => void;
+    const held = new Promise<void>((resolve) => (probeStarts = resolve));
+    const detector = new AgentDetector([fakeProvider], {
+      env: async () => {
+        await held;
+        return { PATH: "/bin" };
+      },
+      isExecutable: async (file) => file === "/bin/fake",
+      exists: async () => false,
+      exec: async () => ({ stdout: "1.0.0", stderr: "", code: 0 }),
+      homeDir: () => os.homedir(),
+      platform: process.platform,
+    }, { read: () => [stale], write: () => {} });
+    // A warm launch: the table held is the last launch's, and this launch's probe has not landed.
+    expect(detector.list()[0]?.installed).toBe(false);
+    const { manager } = await setup({ detector });
+    const asked = manager.canProbe("claude-code");
+    probeStarts();
+    expect(await asked).toBe(true);
   });
 
   it("refuses to probe an agent whose CLI is not on the machine", async () => {
