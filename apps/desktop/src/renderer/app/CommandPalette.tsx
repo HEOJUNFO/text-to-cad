@@ -25,7 +25,7 @@ import {
   CommandItem,
   CommandList,
 } from "@renderer/components/ui/command";
-import { useOpenFolder } from "@renderer/hooks/use-open-folder";
+import { useOpenFolderOrToast } from "@renderer/hooks/use-open-folder";
 import { useReturnFocus } from "@renderer/hooks/use-return-focus";
 import { isPrimaryModifier } from "@renderer/lib/platform";
 import { useExplorer } from "@renderer/state/explorer";
@@ -82,7 +82,7 @@ export function CommandPalette() {
   const closeSettings = useUi((state) => state.closeSettings);
   const projects = useProjects((state) => state.projects);
   const setActiveProject = useProjects((state) => state.setActive);
-  const openFolder = useOpenFolder();
+  const openFolder = useOpenFolderOrToast();
   const sessions = useSessions((state) => state.sessions);
   const selectSession = useSessions((state) => state.select);
   const setActiveSession = useSessions((state) => state.setActive);

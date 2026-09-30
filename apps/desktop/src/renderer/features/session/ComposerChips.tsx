@@ -23,7 +23,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@renderer/components/ui/dropdown-menu";
-import { useOpenFolder } from "@renderer/hooks/use-open-folder";
+import { useOpenFolderOrToast } from "@renderer/hooks/use-open-folder";
 import { agentIcon } from "@renderer/lib/agent-icons";
 import { GIT_MODE_LABELS, gitModeAvailability, localGitMode } from "@renderer/lib/git-mode";
 import { recentProjects } from "@renderer/lib/projects";
@@ -202,7 +202,7 @@ const openOnChecked = {
 export function ProjectChip({ project, onChange }: { project: Project | null; onChange: (id: string) => void }) {
   const projects = useProjects((state) => state.projects);
   const sessions = useSessions((state) => state.sessions);
-  const openFolder = useOpenFolder();
+  const openFolder = useOpenFolderOrToast();
   // The folder this draft is in is listed whether or not a session has run there yet, first when
   // it has none: a menu that leaves out its own check mark reads as a different folder.
   const recent = useMemo(() => {

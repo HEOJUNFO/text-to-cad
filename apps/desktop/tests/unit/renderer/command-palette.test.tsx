@@ -7,6 +7,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { toast } from "sonner";
 
 import { COMMAND_PALETTE_LABEL, COMMAND_PALETTE_PROMPT, CommandPalette } from "@renderer/app/CommandPalette";
 import { useOnboarding } from "@renderer/state/onboarding";
@@ -15,11 +16,25 @@ import { useSettings } from "@renderer/state/settings";
 import { useUi } from "@renderer/state/ui";
 import { defaultSettings, type Session } from "@shared/types";
 
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), dismiss: vi.fn(), info: vi.fn() } }));
+
 beforeEach(() => {
   useUi.setState({ route: "app", commandPaletteOpen: true, commandPaletteQuery: "" });
 });
 
 describe("the command palette", () => {
+  it("says so in a toast when the folder chooser fails", async () => {
+    const user = userEvent.setup();
+    vi.mocked(window.textToCad.projects.add).mockRejectedValue(new Error("the chooser is unavailable"));
+    render(<CommandPalette />);
+    await user.click(screen.getByRole("option", { name: /Open folder/ }));
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith("Could not open that folder", {
+        description: "the chooser is unavailable",
+      }),
+    );
+  });
+
   it("opens empty after Settings was opened from it with something typed", () => {
     useUi.getState().setCommandPaletteQuery("x");
     useUi.getState().openSettings();
