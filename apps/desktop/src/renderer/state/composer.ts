@@ -120,6 +120,8 @@ export type AcceptedContext = {
 
 type ComposerState = {
   focusRequest: { key: string; nonce: number } | null;
+  /** Put the caret in that box, for a control that answers something and then leaves the page. */
+  requestFocus: (key: string) => void;
   /**
    * A send asked for from outside the composer — the new-session state's Try again — so what goes
    * out is what the box holds now, attachments included, exactly as Enter would send it. The
@@ -197,6 +199,7 @@ let sequence = 0;
 
 export const useComposer = create<ComposerState>((set, get) => ({
   focusRequest: null,
+  requestFocus: (key) => set({ focusRequest: { key, nonce: ++sequence } }),
   submitRequest: null,
   requestSubmit: (key) => set({ submitRequest: { key, nonce: ++sequence } }),
   consumeSubmit: (nonce) => set((state) => state.submitRequest?.nonce === nonce ? { submitRequest: null } : state),

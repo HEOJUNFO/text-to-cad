@@ -10,6 +10,7 @@ import {
   ConfirmationTitle,
 } from "@renderer/components/ai-elements/confirmation";
 import { useAcp } from "@renderer/state/acp";
+import { useComposer } from "@renderer/state/composer";
 import { errorMessage } from "@shared/ipc/errors";
 import type { PermissionOption, PermissionRequestPart } from "@shared/acp/types";
 
@@ -93,8 +94,11 @@ export function PermissionCard({ part, sessionId }: { part: PermissionRequestPar
               className="h-7 px-2.5 text-[12px]"
               onClick={() => {
                 setRefusal(null);
-                respond(sessionId, part.requestId, option.optionId).catch((error: unknown) =>
-                  setRefusal(errorMessage(error) || EXPIRED),
+                // The answered card folds to a line and takes the button that was pressed with it,
+                // which left focus on the page; an answer goes back to the box the next word is typed in.
+                respond(sessionId, part.requestId, option.optionId).then(
+                  () => useComposer.getState().requestFocus(sessionId),
+                  (error: unknown) => setRefusal(errorMessage(error) || EXPIRED),
                 );
               }}
               variant={variantFor(option)}
