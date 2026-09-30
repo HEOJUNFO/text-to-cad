@@ -153,7 +153,7 @@ export function GitPage() {
         <SelectRow
           description={
             settings.autoDeleteWorktrees
-              ? "How many idle worktrees per project the sweep keeps. In-use, locked and unsaved ones are not counted and never removed."
+              ? "How many idle worktrees per project the sweep keeps. In-use and locked ones are not counted; one with unsaved work is counted, then kept."
               : "How many idle worktrees per project the sweep keeps. Nothing is swept while Auto-delete old worktrees is off."
           }
           disabled={!settings.autoDeleteWorktrees}
