@@ -4,7 +4,7 @@
  * unmounted and remounted, has to find the job still running rather than
  * offer to start a second one.
  */
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@renderer/components/ui/tooltip";
@@ -49,6 +49,53 @@ describe("a job that outlives the component that started it", () => {
     );
     expect(screen.getByRole("button", { name: "Install" })).toBeDisabled();
     expect(screen.getByText("fetching…")).toBeInTheDocument();
+  });
+});
+
+describe("a job that has printed nothing yet", () => {
+  it("is still found running by a drawer remounted before the first chunk", async () => {
+    vi.mocked(window.textToCad.agents.install).mockResolvedValue({ jobId: "j1" });
+    const drawer = (
+      <TooltipProvider>
+        <AgentDrawer agent={codex} onOpenChange={() => {}} open platform="macos" />
+      </TooltipProvider>
+    );
+    const first = render(drawer);
+    fireEvent.click(screen.getByRole("button", { name: "Install" }));
+    await screen.findByText("Waiting for output…");
+    first.unmount();
+    render(drawer);
+    expect(screen.getByRole("button", { name: "Install" })).toBeDisabled();
+    expect(screen.getByText("Waiting for output…")).toBeInTheDocument();
+  });
+});
+
+describe("a job that ended badly", () => {
+  const drawer = (agent: AgentStatus) => (
+    <TooltipProvider>
+      <AgentDrawer agent={agent} onOpenChange={() => {}} open platform="macos" />
+    </TooltipProvider>
+  );
+
+  it("is labelled with its exit code, and still is when the drawer is opened again", () => {
+    useAgents.getState().receiveOutput({ jobId: "j1", agentId: "codex", kind: "install", data: "EACCES\n", exitCode: 1 });
+    render(drawer(codex));
+    expect(screen.getByText("Install failed (exit 1)")).toBeInTheDocument();
+    expect(screen.getByText("EACCES")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Install" })).toBeEnabled();
+  });
+
+  it("names a failed sign-in as one", () => {
+    const installed = { ...codex, installed: true, auth: "unauthenticated", authMethods: [{ type: "cli-login", label: "Sign in with Codex" }] } as unknown as AgentStatus;
+    useAgents.getState().receiveOutput({ jobId: "j2", agentId: "codex", kind: "login", data: "", exitCode: 2 });
+    render(drawer(installed));
+    expect(screen.getByText("Sign in failed (exit 2)")).toBeInTheDocument();
+  });
+
+  it("says nothing of a job that exited cleanly", () => {
+    useAgents.getState().receiveOutput({ jobId: "j3", agentId: "codex", kind: "install", data: "done\n", exitCode: 0 });
+    render(drawer(codex));
+    expect(screen.queryByText(/failed/)).toBeNull();
   });
 });
 

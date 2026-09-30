@@ -1,7 +1,9 @@
 import { useMemo } from "react";
+import { toast } from "sonner";
 import { create } from "zustand";
 
 import { sidebarSections, type SidebarSection } from "@renderer/lib/sidebar";
+import { errorMessage } from "@shared/ipc/errors";
 import type { GitMode, Session } from "@shared/types";
 
 import { useAgents } from "./agents";
@@ -86,6 +88,7 @@ export const useSessions = create<SessionsState>((set, get) => ({
     if (!trimmed) {
       return;
     }
+    const before = get().sessions.find((session) => session.id === id)?.title;
     // Optimistic: the header's inline edit should not flash the old title
     // back while the round trip completes. `sessions.changed` corrects it.
     set((state) => ({
@@ -93,7 +96,20 @@ export const useSessions = create<SessionsState>((set, get) => ({
         session.id === id ? { ...session, title: trimmed } : session,
       ),
     }));
-    await window.textToCad.sessions.rename({ id, title: trimmed });
+    try {
+      await window.textToCad.sessions.rename({ id, title: trimmed });
+    } catch (error) {
+      // Main refused: put the old title back — unless a `sessions.changed` has since
+      // written another one, which is main's word and stays.
+      if (before !== undefined) {
+        set((state) => ({
+          sessions: state.sessions.map((session) =>
+            session.id === id && session.title === trimmed ? { ...session, title: before } : session,
+          ),
+        }));
+      }
+      toast.error(`Could not rename the thread: ${errorMessage(error)}`);
+    }
   },
 
   archive: async (id, archived) => {
