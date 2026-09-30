@@ -123,3 +123,45 @@ it("puts refused queued prompts back in the order they were queued, a Retry's wi
   await waitFor(() => expect(useComposer.getState().drafts[SESSION]).toBe("first\n\nsecond\n\nagain"));
   expect(useComposer.getState().queues[SESSION]).toEqual([]);
 });
+
+const submitFromBox = (text: string, content: PromptBlock[], draft: Parameters<ReturnType<typeof useComposer.getState>["submit"]>[3]) =>
+  useComposer.getState().submit(SESSION, text, content, draft);
+
+it("empties the attachment strip when the message is accepted, not when its turn ends", async () => {
+  URL.createObjectURL ??= () => "blob:composer-attachments";
+  URL.revokeObjectURL ??= () => {};
+  // The turn never ends in this test: `prompt` is a reply that arrives at the end of the turn.
+  prompt.mockImplementation(() => new Promise(() => {}));
+  const photo = new File(["png"], "bracket.png", { type: "image/png" });
+  const view = render(createElement(Composer, { sessionId: SESSION, chips: null, commands: [], status: "ready", onSubmit: submitFromBox }));
+  act(() => useComposer.getState().attachFile(SESSION, photo));
+  await waitFor(() => expect(view.getByText("bracket.png")).toBeInTheDocument());
+  useComposer.getState().setDraft(SESSION, "look at this");
+  act(() => useComposer.getState().requestSubmit(SESSION));
+
+  await waitFor(() => expect(prompt).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(view.queryByText("bracket.png")).toBeNull());
+
+  // A message typed meanwhile is queued behind the turn and carries no file.
+  useComposer.getState().setDraft(SESSION, "and thicker");
+  act(() => useComposer.getState().requestSubmit(SESSION));
+  await waitFor(() => expect(useComposer.getState().queues[SESSION]).toHaveLength(1));
+  const queued = useComposer.getState().queues[SESSION]![0]!;
+  expect(queued.content.map((block) => block.type)).toEqual(["text"]);
+  expect(queued.draft?.files).toBeUndefined();
+});
+
+it("puts the attachments back in the strip when the message it emptied it for is refused", async () => {
+  URL.createObjectURL ??= () => "blob:composer-attachments";
+  URL.revokeObjectURL ??= () => {};
+  const photo = new File(["png"], "bracket.png", { type: "image/png" });
+  const view = render(createElement(Composer, { sessionId: SESSION, chips: null, commands: [], status: "ready", onSubmit: submitFromBox }));
+  act(() => useComposer.getState().attachFile(SESSION, photo));
+  await waitFor(() => expect(view.getByText("bracket.png")).toBeInTheDocument());
+  useComposer.getState().setDraft(SESSION, "look at this");
+  act(() => useComposer.getState().requestSubmit(SESSION));
+
+  // `prompt` answers `refused` (the default in `beforeEach`): the text and the photo come back.
+  await waitFor(() => expect(useComposer.getState().drafts[SESSION]).toBe("look at this"));
+  await waitFor(() => expect(view.getByText("bracket.png")).toBeInTheDocument());
+});

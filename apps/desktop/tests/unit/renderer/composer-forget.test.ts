@@ -1,7 +1,9 @@
 import { beforeEach, expect, it } from "vitest";
 
+import { useAcp } from "@renderer/state/acp";
 import { useComposer } from "@renderer/state/composer";
 import { useSessions } from "@renderer/state/sessions";
+import { initialSessionState } from "@shared/acp/types";
 import type { Session } from "@shared/types";
 
 /**
@@ -35,4 +37,30 @@ it("lets go of everything held for a deleted session, and keeps an archived one'
     expect(Object.keys(held)).toEqual(["s2"]);
   }
   expect(Object.values(state.acceptedContexts).map(context => context.key)).toEqual(["s2"]);
+});
+
+it("puts nothing back for a session whose row went while its queued prompt was out and was then refused", async () => {
+  const bridge = window.textToCad as unknown as { sessions: object };
+  const saved = bridge.sessions;
+  let refuse!: (reply: { stopReason: string; refused: string }) => void;
+  bridge.sessions = { ...saved, prompt: () => new Promise((resolve) => (refuse = resolve)) };
+  try {
+    useAcp.setState({ sessions: { s1: { ...initialSessionState("s1", "codex"), status: "idle" } }, loadErrors: {} });
+    const composer = useComposer.getState();
+    composer.enqueue("s1", "look", [{ type: "text", text: "look" }], { text: "look", annotations: [] });
+    const drained = composer.drain("s1");
+    expect(useComposer.getState().sending).toHaveProperty("s1");
+
+    // The row is deleted while main holds the prompt; main then refuses it.
+    useSessions.getState().receive([row("s2")]);
+    refuse({ stopReason: "refused", refused: "Codex cannot take an image in a prompt." });
+    await drained;
+
+    const state = useComposer.getState();
+    for (const held of [state.queues, state.drafts, state.paused, state.sending]) {
+      expect(Object.keys(held)).toEqual([]);
+    }
+  } finally {
+    bridge.sessions = saved;
+  }
 });

@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 import { useSessions } from "./sessions";
 
-import { reduce } from "@shared/acp/reduce";
+import { allToolCalls, reduce } from "@shared/acp/reduce";
 import { errorMessage } from "@shared/ipc/errors";
 import type {
   PendingPermission,
@@ -24,6 +24,12 @@ type AcpState = {
   sessions: Record<string, SessionState>;
   /** The most recent chunk per agent-created terminal, keyed `sessionId/terminalId`. */
   terminalOutput: Record<string, string>;
+  /**
+   * Terminals already in a state when this store took it (a snapshot, a reload, a background
+   * session's reconnect) whose chunks it never saw, keyed like `terminalOutput`. A command with
+   * no output held is silent when it ran here and unknown when it is in this set.
+   */
+  coldTerminals: Record<string, true>;
   /** Sessions whose `load` is in flight. */
   loading: Record<string, true>;
   /**
@@ -92,6 +98,7 @@ const TERMINAL_TAIL = 64 * 1024;
 export const useAcp = create<AcpState>((set, get) => ({
   sessions: {},
   terminalOutput: {},
+  coldTerminals: {},
   loading: {},
   reconnecting: {},
   loadErrors: {},
@@ -103,7 +110,21 @@ export const useAcp = create<AcpState>((set, get) => ({
       // for nobody. Taking the broadcast would paint the pane connected again.
       const load = loadsInFlight.get(sessionId);
       if (load && load.asked !== generationOf(sessionId)) return current;
-      return { sessions: { ...current.sessions, [sessionId]: state } };
+      let coldTerminals = current.coldTerminals;
+      for (const call of allToolCalls(state)) {
+        for (const content of call.content) {
+          const key = content.type === "terminal" ? `${sessionId}/${content.terminalId}` : null;
+          if (key && !(key in current.terminalOutput) && !(key in coldTerminals)) {
+            coldTerminals = { ...coldTerminals, [key]: true };
+          }
+        }
+      }
+      // A state that says the agent is up is a reconnect that worked, by hand or on its own
+      // (`ensureLive` in main): the "Reconnect failed" line above the box is over. Left, it
+      // outlived the recovery and sat above a working session until a prompt was refused.
+      const up = state.status === "idle" || state.status === "running" || state.status === "waiting";
+      const loadErrors = up && sessionId in current.loadErrors ? withoutError(current.loadErrors, sessionId) : current.loadErrors;
+      return { sessions: { ...current.sessions, [sessionId]: state }, coldTerminals, loadErrors };
     }),
 
   receiveEvent: (sessionId, event) =>
@@ -280,6 +301,11 @@ const generationOf = (sessionId: string) => forgotten.get(sessionId) ?? 0;
 /** The generation each in-flight `load` began under, so a state main broadcasts for it can be judged the same way its reply is. */
 const loadsInFlight = new Map<string, { asked: number }>();
 
+function withoutError(errors: Record<string, string>, sessionId: string): Record<string, string> {
+  const { [sessionId]: _cleared, ...rest } = errors;
+  return rest;
+}
+
 /** Everything held for one session, taken out: its state, its load's leftovers, its terminals' tails. */
 function without(current: AcpState, sessionId: string): Partial<AcpState> {
   forgotten.set(sessionId, generationOf(sessionId) + 1);
@@ -291,7 +317,8 @@ function without(current: AcpState, sessionId: string): Partial<AcpState> {
   delete reconnecting[sessionId];
   const prefix = `${sessionId}/`;
   const terminalOutput = Object.fromEntries(Object.entries(current.terminalOutput).filter(([key]) => !key.startsWith(prefix)));
-  return { sessions, loadErrors, reconnecting, terminalOutput };
+  const coldTerminals = Object.fromEntries(Object.entries(current.coldTerminals).filter(([key]) => !key.startsWith(prefix)));
+  return { sessions, loadErrors, reconnecting, terminalOutput, coldTerminals };
 }
 
 /** Whether a closed session's state is still wanted: it is on screen, or a load is bringing it back. */

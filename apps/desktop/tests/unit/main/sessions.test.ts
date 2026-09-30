@@ -15,6 +15,7 @@ import {
   type SessionRepository,
 } from "@main/acp/sessions";
 import type { SnapshotStore } from "@main/acp/snapshots";
+import type { SessionEvent } from "@shared/acp/types";
 import type { AgentProvider } from "@shared/agents";
 import type { IpcEventChannel } from "@shared/ipc";
 import type { Session } from "@shared/types";
@@ -184,6 +185,17 @@ describe("SessionManager", () => {
     expect(manager.get(session.id)?.status).toBe("waiting");
     manager.respondPermission(session.id, requestId, "allow-once");
     await turn;
+    expect(manager.get(session.id)?.status).toBe("idle");
+  });
+
+  it("returns the row to idle when a permission asked after the turn closed is answered", async () => {
+    const { manager, cwd } = await setup();
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    const connection = (manager as unknown as { live: Map<string, { dispatch: (event: SessionEvent) => void }> }).live.get(session.id)!;
+    const request = { requestId: "late-1", acpSessionId: "fake-session-1", toolCallId: "c1", title: null, description: null, kind: null, input: null, options: [] };
+    connection.dispatch({ type: "permission/request", request, at: Date.now() });
+    expect(manager.get(session.id)?.status).toBe("waiting");
+    connection.dispatch({ type: "permission/resolve", requestId: "late-1", outcome: { state: "cancelled" }, at: Date.now() });
     expect(manager.get(session.id)?.status).toBe("idle");
   });
 
@@ -791,6 +803,17 @@ describe("SessionManager", () => {
     await Promise.all([creating, turn]);
     expect(order).toEqual(["created", "prompted"]);
     expect(repo.get(id)?.turnHead).toBe("turn-tree");
+  });
+
+  it("reports a session still being created as connecting, live, until create returns", async () => {
+    const { repo, manager, broadcasts, cwd } = await setup({
+      snapshot: () => new Promise<string>(() => undefined),
+    });
+    const creating = manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    creating.catch(() => undefined);
+    await until(() => (connectedCount(broadcasts) > 0 ? true : undefined));
+    const id = repo.list()[0]!.id;
+    expect(manager.state(id)).toMatchObject({ live: true, state: { status: "connecting" } });
   });
 
   it("writes the agent session id as soon as session/new answers, before the marks land", async () => {

@@ -837,7 +837,9 @@ refused by main before any turn starts (`refused` on the `sessions.prompt`
 reply, `src/main/acp/sessions.ts`): the session stays idle, the composer keeps
 the draft, and a toast says why — naming the agent and what to do ("Codex
 cannot take an image in a prompt. Remove the attachment to send.",
-`SessionConnection.refusal`). A queued prompt main refuses goes back into the
+`SessionConnection.refusal`). The attachment strip empties with the text when
+the message is accepted, not when its turn ends (`prompt` settles at the end
+of the turn); a prompt refused afterwards puts its files back in the strip. A queued prompt main refuses goes back into the
 box as it was taken, behind any put back before it, so the box reads in queue
 order, and the queue goes on. A new session's first prompt refused this way
 goes back into that session's box — the session was created and selected

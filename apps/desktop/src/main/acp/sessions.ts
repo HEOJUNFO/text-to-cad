@@ -375,9 +375,19 @@ export class SessionManager {
     this.boot();
     const connection = this.live.get(id);
     // `acpSessionId`, not merely `alive`: a connection that is spawned but
-    // still replaying holds an empty state, and the snapshot is a better
-    // picture of the session than the beginning of its own reload.
+    // has not answered `session/new` holds an empty state, and the snapshot is
+    // a better picture than that. A `loadSession` dispatches `session/connected`
+    // first, so a replaying connection is `live: true` here — `connecting`, with
+    // the transcript replayed so far — and the renderer drops its events until
+    // the load's own state lands (`reconnecting` in `state/acp.ts`).
     if (connection?.alive && connection.acpSessionId) {
+      // A create still in its preferences and marks: the reducer says idle from
+      // `session/new`, but the row says `connecting` until `create` returns,
+      // and the composer follows the row (the model chip would be overwritten
+      // by `applyPreferences`). The end of `create` broadcasts the real state.
+      if (this.creating.has(id) && connection.state.status === "idle") {
+        return { state: { ...connection.state, status: "connecting" }, live: true };
+      }
       return { state: connection.state, live: true };
     }
     const stored = this.snapshots?.read(id) ?? null;
@@ -1622,11 +1632,15 @@ export class SessionManager {
         this.setStatus(id, "waiting");
         this.deps.broadcast("session.permission", { sessionId: id, request: event.request });
         break;
-      case "permission/resolve":
-        if (this.live.get(id)?.state.status === "running") {
-          this.setStatus(id, "running");
+      case "permission/resolve": {
+        // Running when a turn is open; idle when the request came after the turn had closed and
+        // there is no `prompt/end` still to come to say so.
+        const status = this.live.get(id)?.state.status;
+        if (status === "running" || status === "idle") {
+          this.setStatus(id, status);
         }
         break;
+      }
       case "prompt/start":
         this.setStatus(id, "running");
         break;
