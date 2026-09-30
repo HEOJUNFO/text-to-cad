@@ -107,6 +107,15 @@ export function disposeExplorerServices() {
  * a page released at the start would keep living with its watches gone.
  */
 const leases = new Map<number, Map<string, number>>();
+/**
+ * The root each of a page's watch requests resolved to when it took the
+ * lease, by the request's own (project, root). An unwatch returns the lease
+ * this names rather than resolving the request again: a project or session
+ * deleted since the watch has no row for `rootOf` to read, and the unwatch
+ * that follows a delete would throw before it gave anything back.
+ */
+const leased = new Map<number, Map<string, string>>();
+const requestKey = (projectId: string, root: string | undefined) => `${projectId}\0${root ?? ""}`;
 /** Per page, how many documents it has shown; a watch is credited to the one that asked. */
 const documents = new Map<number, number>();
 
@@ -123,6 +132,7 @@ function documentOf(sender: WebContents | undefined): number | undefined {
   const release = () => {
     const roots = leases.get(id);
     leases.delete(id);
+    leased.delete(id);
     documents.set(id, (documents.get(id) ?? 0) + 1);
     for (const [directory, count] of roots ?? []) {
       for (let index = 0; index < count; index += 1) void watchers?.unwatch(directory).catch(() => {});
@@ -140,9 +150,15 @@ function documentOf(sender: WebContents | undefined): number | undefined {
 }
 
 /** False when the document that asked is gone: the watch is its own to give back. */
-function lease(sender: WebContents | undefined, root: string, document: number | undefined): boolean {
+function lease(sender: WebContents | undefined, root: string, document: number | undefined, request: string): boolean {
   if (!sender) return true;
   if (documents.get(sender.id) !== document) return false;
+  let names = leased.get(sender.id);
+  if (!names) {
+    names = new Map();
+    leased.set(sender.id, names);
+  }
+  names.set(request, root);
   let held = leases.get(sender.id);
   if (!held) {
     held = new Map();
@@ -607,13 +623,13 @@ export const explorerHandlers = {
         await watchLanded(ctx?.sender, directory, (async () => {
           await service.watch(directory, paths);
           // The page moved on while the watch was set up: nothing will give it back.
-          if (!lease(ctx?.sender, directory, document)) await service.unwatch(directory, paths);
+          if (!lease(ctx?.sender, directory, document, requestKey(projectId, root))) await service.unwatch(directory, paths);
         })());
       }),
 
     unwatch: ({ projectId, root, paths }: { projectId: string; root?: string; paths?: string[] }, ctx?: IpcContext) =>
       fsCall(async () => {
-        const directory = rootOf(projectId, root);
+        const directory = (ctx && leased.get(ctx.sender.id)?.get(requestKey(projectId, root))) || rootOf(projectId, root);
         // Behind the page's watches of this root still on their way (`settingUp`).
         if (ctx) await Promise.allSettled([...settingUp.get(pageRoot(ctx.sender, directory)) ?? []]);
         // A page's unwatch after its leases went with a reload is already counted.

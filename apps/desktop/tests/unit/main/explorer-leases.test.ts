@@ -8,7 +8,7 @@ import { EventEmitter } from "node:events";
 import { beforeEach, expect, test, vi } from "vitest";
 import type { WebContents } from "electron";
 
-const fixture = vi.hoisted(() => ({ root: "/projects/demo" }));
+const fixture = vi.hoisted(() => ({ root: "/projects/demo", gone: false }));
 const watchers = vi.hoisted(() => ({ watch: vi.fn(async () => {}), unwatch: vi.fn(async () => {}) }));
 vi.mock("@main/telemetry", () => ({ track: () => {}, fileExtension: () => "none" }));
 vi.mock("electron", () => ({ BrowserWindow: {}, dialog: {}, ipcMain: {}, shell: {} }));
@@ -21,7 +21,7 @@ vi.mock("@main/explorer/fs", async (importOriginal) => ({
 }));
 vi.mock("@main/db/repositories", () => ({
   projects: {
-    get: (id: string) => id === "project" ? { id, name: "demo", path: fixture.root } : null,
+    get: (id: string) => id === "project" && !fixture.gone ? { id, name: "demo", path: fixture.root } : null,
     list: () => [{ id: "project", name: "demo", path: fixture.root }],
   },
   sessions: { get: () => null, list: () => [] },
@@ -38,6 +38,7 @@ function page() {
 }
 
 beforeEach(() => {
+  fixture.gone = false;
   initExplorerServices(() => {});
   watchers.watch.mockReset().mockImplementation(async () => {});
   watchers.unwatch.mockReset().mockImplementation(async () => {});
@@ -96,4 +97,13 @@ test("an unwatch that overtakes its page's watch still gives that watch back", a
   await Promise.all([pending, unwatch]);
   expect(watchers.unwatch).toHaveBeenCalledTimes(1);
   expect(watchers.unwatch).toHaveBeenCalledWith(fixture.root, ["a.txt"]);
+});
+
+test("an unwatch after the project row is deleted still gives the watch back", async () => {
+  const { ctx } = page();
+  await explorerHandlers.explorer.watch({ projectId: "project" }, ctx);
+  // The delete landed first: rootOf has no project to resolve the request against.
+  fixture.gone = true;
+  await explorerHandlers.explorer.unwatch({ projectId: "project" }, ctx);
+  expect(watchers.unwatch).toHaveBeenCalledTimes(1);
 });
