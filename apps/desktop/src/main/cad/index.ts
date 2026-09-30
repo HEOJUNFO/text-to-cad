@@ -82,7 +82,7 @@ export async function warmCad(root: string): Promise<void> {
  * persisted strips (the tab's own root, or its project's directory). The
  * viewer manager never evicts one of these to stay within its bound.
  */
-function openCadRoots(): string[] {
+export function openCadRoots(): string[] {
   const roots = new Set<string>();
   for (const session of sessions.list()) {
     if (session.archived) continue;

@@ -1626,7 +1626,7 @@ else's. `cad.viewerOrigin` is how the file tab gets the origin.
 
 The viewer does not wait for the first CAD file. When the explorer binds to
 a project (or a session's worktree), the renderer calls `cad.warm`, and main,
-if the root holds a `.step`/`.stp`/`.glb`/`.gltf` file within three folders
+if the root holds a `.step`/`.stp`/`.stl`/`.3mf`/`.glb`/`.gltf`/`.dxf`/`.urdf`/`.srdf`/`.sdf` file within three folders
 (`hasCadFile`, a bounded scan; any other root gets its viewer when a CAD tab opens), starts what the first CAD file would have paid for on its own clock: the
 runtime probe, the viewer for that root, and cadgen's warm build daemon
 (`src/main/cad/daemon.ts` spawns `python -m cadgen.daemon`, the registered

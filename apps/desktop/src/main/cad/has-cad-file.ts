@@ -11,8 +11,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-/** The models a viewer serves. */
-export const CAD_FILE = /\.(?:step|stp|glb|gltf)$/i;
+/**
+ * The files the viewer client opens: core's `isCadFile` set (`RENDER_FORMAT`
+ * and its `stp`/`gltf` spellings) — STEP, the meshes, DXF and the robot
+ * descriptions. Main does not import core, so `has-cad-file.test.ts` pins this
+ * list to it.
+ */
+export const CAD_FILE = /\.(?:step|stp|stl|3mf|glb|gltf|dxf|urdf|srdf|sdf)$/i;
 const SKIPPED_DIRECTORIES = new Set(["node_modules"]);
 const MAX_DEPTH = 3;
 const MAX_DIRECTORIES = 400;
