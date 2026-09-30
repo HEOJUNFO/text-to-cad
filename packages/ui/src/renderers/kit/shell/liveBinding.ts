@@ -63,7 +63,12 @@ export interface LiveViewBinding<Controller = LiveViewController> {
 /** What the mounted renderer answers with. Extra commands are own properties, found by name. */
 export interface LiveViewRuntime<State extends LiveViewState = LiveViewState> {
   readState(): Omit<State, 'active'>;
-  setCamera(snapshot: LiveCameraSnapshot): void;
+  /**
+   * May hand back the predicate that says the camera it APPLIED is on screen: a shell derives
+   * the applied camera from the request (view settings, scene scale), so the request itself
+   * is not what reads back. Without one, the binding waits for the request to read back.
+   */
+  setCamera(snapshot: LiveCameraSnapshot): void | ((state: State) => boolean);
   /** May hand back the predicate that says the camera has come to rest (an eased reset has not, a frame later). */
   resetCamera(): void | ((state: State) => boolean);
   setDisplaySettings(patch: { [key: string]: JsonValue }): void;
@@ -84,8 +89,11 @@ export const HOST_LIVE_COMMANDS = Object.freeze(['select', 'clearSelection'] as 
 const settleFrame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
 // The camera reads back what was asked when position and target agree to a part in ten thousand
 // of their size (a float32 round trip through the viewport's matrices is well inside that).
-const near = (actual: readonly number[], asked: readonly number[]) =>
+export const near = (actual: readonly number[], asked: readonly number[]) =>
   actual.length === asked.length && asked.every((value, index) => Math.abs((actual[index] ?? Number.NaN) - value) <= 1e-4 * Math.max(1, Math.abs(value)));
+/** The camera on screen reads back as `asked` in position and target. */
+export const cameraReadsBack = (camera: LiveCameraSnapshot | null | undefined, asked: { position: readonly number[]; target: readonly number[] }) =>
+  Boolean(camera) && near(camera!.position, asked.position) && near(camera!.target, asked.target);
 const scopeKey = (state: { resource: ResourceRef; revision: string }) => JSON.stringify([state.resource, state.revision]);
 
 /** Mounted-view adapter. It never retains a scene after detach. */
@@ -131,8 +139,7 @@ export function attachLiveBinding<State extends LiveViewState, Controller extend
   };
   const controller: LiveViewController<State> & Record<string, unknown> = {
     readState,
-    setCamera: snapshot => mutate(runtime => runtime.setCamera(snapshot),
-      state => Boolean(state.camera) && near(state.camera!.position, snapshot.position) && near(state.camera!.target, snapshot.target)),
+    setCamera: snapshot => mutate(runtime => runtime.setCamera(snapshot), state => cameraReadsBack(state.camera, snapshot)),
     resetCamera: () => mutate(runtime => runtime.resetCamera()),
     setDisplaySettings: async patch => {
       const normalized = normalizeViewSettings(patch);

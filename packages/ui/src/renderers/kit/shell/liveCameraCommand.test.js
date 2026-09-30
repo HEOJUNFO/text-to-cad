@@ -35,14 +35,17 @@ traverse(parse(source, { sourceType: 'module', plugins: ['jsx'] }), {
 assert.ok(resetCommand, 'the shell exposes a live resetCamera');
 
 function harness(displaySettings) {
-  const result = { applied: null, display: displaySettings, perspective: null, recorded: null };
+  const result = { applied: null, display: displaySettings, perspective: null, recorded: null, moving: false };
   const viewSettingsStore = createViewSettingsStore(displaySettings);
   viewSettingsStore.subscribe(() => { result.display = viewSettingsStore.getSnapshot().display; });
+  // What the binding exports for the readback (`liveBinding.ts`), in the shape the lifted body calls it.
+  const near = (actual, asked) => actual.length === asked.length && asked.every((value, index) => Math.abs(actual[index] - value) <= 1e-4 * Math.max(1, Math.abs(value)));
+  const cameraReadsBack = (camera, asked) => Boolean(camera) && near(camera.position, asked.position) && near(camera.target, asked.target);
   const scope = {
-    viewSettingsStore, clonePerspectiveSnapshot, cameraForViewSettings, viewerDisplaySettingsForCamera,
+    viewSettingsStore, clonePerspectiveSnapshot, cameraForViewSettings, viewerDisplaySettingsForCamera, cameraReadsBack,
     previewing: false, modelKey: 'part.step', sceneScaleMode: 'cad',
     scopeShellCamera: camera => camera,
-    viewerRef: { current: { setPerspective(camera) { result.applied = camera; return true; } } },
+    viewerRef: { current: { setPerspective(camera) { result.applied = camera; return true; }, isCameraTransitioning: () => result.moving } },
     setViewerPerspective: camera => { result.perspective = camera; },
     handlePerspectiveChange: camera => { result.recorded = camera; }
   };
@@ -75,6 +78,20 @@ test('an invalid camera is refused before the viewport or the stored display is 
   assert.equal(view.result.applied, null, 'nothing reached the viewport');
   assert.equal(view.result.display, current, 'the display is as it was');
   assert.equal(view.result.recorded, null, 'and nothing was recorded');
+});
+
+test('setCamera is committed when the camera the shell APPLIED reads back at rest, not the request', () => {
+  // The applied camera carries the configured lens and, through the scene scale, need not equal
+  // the request; a binding that waited for the request would wait forever.
+  const view = harness({ mode: 'render' });
+  view.result.moving = true;
+  const committed = view.apply(pose);
+  assert.equal(typeof committed, 'function', 'the command hands the binding its predicate');
+  const onScreen = { position: [...pose.position], target: [...pose.target], up: [...pose.up] };
+  assert.equal(committed({ camera: onScreen }), false, 'still easing into place');
+  view.result.moving = false;
+  assert.equal(committed({ camera: { ...onScreen, position: [1, 2, 3] } }), false, 'a different camera on screen');
+  assert.equal(committed({ camera: onScreen }), true, 'the applied camera, at rest');
 });
 
 test('resetCamera is committed when the eased move has come to rest, not when it has begun', () => {

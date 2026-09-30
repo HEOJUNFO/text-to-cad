@@ -16,7 +16,7 @@ import { DisplaySettingsSection } from "../view-settings/DisplaySettingsSection.
 import { useAppliedViewSettings } from "../view-settings/useAppliedViewSettings.js";
 import { useViewSettings } from "../view-settings/useViewSettings.js";
 import { cameraForViewSettings, viewerDisplaySettingsForCamera } from "../view-settings/viewerDisplaySettings.js";
-import { attachLiveBinding } from "./liveBinding.js";
+import { attachLiveBinding, cameraReadsBack } from "./liveBinding.js";
 import { shellLoadReport } from "./loadReport.js";
 import { createViewPromptContext, promptDeliveryError } from "./promptContext.js";
 import { fileViewsEqual, plainShellCamera, readFileView, readFileViewSlices, scopeShellCamera, shellPresentationKey, writeFileView } from "./fileView.js";
@@ -435,9 +435,14 @@ export function useRendererShell({
       }
       const nextDisplay = viewerDisplaySettingsForCamera(viewSettingsStore.getSnapshot().display, camera);
       const requested = clonePerspectiveSnapshot(camera);
+      // The viewport is handed a camera DERIVED from the request (the configured projection
+      // and lens), and what it reads back is that camera in the STORED coordinate system
+      // (`getPerspective` is scoped), so neither the request nor the handed camera is what
+      // reads back: the reply waits for the scoped camera, at rest.
+      const settled = applied => state => !viewerRef.current?.isCameraTransitioning?.() && cameraReadsBack(state.camera, applied);
       if (previewing) {
         if (!viewerRef.current?.setPerspective?.(requested)) throw new Error("The viewer could not apply this camera.");
-        return;
+        return settled(scopeShellCamera(requested, modelKey, sceneScaleMode));
       }
       const snapshot = cameraForViewSettings(requested, nextDisplay, { lightingQuality: "preview" });
       if (!snapshot || !viewerRef.current?.setPerspective?.(snapshot, { resetZoomBaseline: true })) throw new Error("The viewer could not apply this camera.");
@@ -445,6 +450,7 @@ export function useRendererShell({
       viewSettingsStore.restore(nextDisplay);
       setViewerPerspective(scoped);
       handlePerspectiveChange(scoped);
+      return settled(scoped);
     },
     // Frame the model again, without turning the camera. The name is the host
     // protocol's ("cad-reset-camera"); the viewport calls the same act resetZoom. It eases, so
