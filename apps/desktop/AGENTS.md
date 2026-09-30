@@ -365,6 +365,13 @@ the rule is about.
   ends; `stop` and `stopAll` bump it, so a stop that lands mid-launch is
   never overtaken by the launch or the restart that was already under way
   (`tests/unit/main/viewer.test.ts`).
+- **A live viewer command replies only once its effect is committed.**
+  `attachLiveBinding` (`packages/ui/src/renderers/kit/shell/liveBinding.ts`)
+  waits a settled frame and, where the command has a committed predicate
+  (display settings, render mode, `clearSelection` = selection empty, a
+  renderer command's own), until it holds — at most ten seconds, then "The
+  viewer did not finish applying this command." A reply on the call returning
+  would hand an agent a state the command had not produced yet.
 - **Every capture goes through `imageResult`.** It redraws an image over
   `MAX_IMAGE_BYTES` smaller and refuses it only when it cannot be made to fit,
   so no tool result larger than the model takes enters a transcript
