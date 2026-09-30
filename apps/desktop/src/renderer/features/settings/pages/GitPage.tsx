@@ -293,10 +293,10 @@ function ProjectWorktreeCard({ project }: { project: Project }) {
                 </Button>
                 <Button
                   className="h-8"
-                  // A worktree with uncommitted work, or with a thread still
+                  // A worktree with uncommitted work, a lock, or a thread still
                   // open on it, is not deleted from here: main refuses the
-                  // first, and the second would pull the directory out from
-                  // under a running agent.
+                  // first, git the second, and the third would pull the
+                  // directory out from under a running agent.
                   //
                   // A disabled button takes no hover and no hint, so the reason
                   // is its accessible description rather than a native title
@@ -351,6 +351,9 @@ function ProjectWorktreeCard({ project }: { project: Project }) {
 
 /** Why a worktree's Delete is off, or null when it is not. */
 function keptBecause(worktree: Worktree): string | null {
+  if (worktree.locked) {
+    return "This worktree is locked (git worktree lock), so it is kept until it is unlocked.";
+  }
   if (worktree.dirty === null) {
     return "Git could not check this worktree for uncommitted changes or ignored files, so it is kept.";
   }
