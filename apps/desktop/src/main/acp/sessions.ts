@@ -523,22 +523,51 @@ export class SessionManager {
       // the mode. Never a reason for the session to fail: a refused
       // `set_config_option` leaves the session at the agent's own defaults,
       // which is a working session.
-      await this.applyPreferences(session, connection);
-      const [sessionHead, turnHead] = await marks;
-      const updated = this.update(session.id, {
-        status: "idle",
-        sessionHead,
-        turnHead,
-      });
-      this.deps.broadcast("session.state", { sessionId: session.id, state: connection.state });
-      // The registry id and nothing else — no directory, project or prompt.
-      this.deps.track?.({ name: "session_created", agent: session.agentId });
-      return updated;
+      let settled = false;
+      try {
+        await this.applyPreferences(session, connection);
+        const [sessionHead, turnHead] = await marks;
+        const updated = this.update(session.id, {
+          status: "idle",
+          sessionHead,
+          turnHead,
+        });
+        settled = true;
+        this.deps.broadcast("session.state", { sessionId: session.id, state: connection.state });
+        // The registry id and nothing else — no directory, project or prompt.
+        this.deps.track?.({ name: "session_created", agent: session.agentId });
+        return updated;
+      } finally {
+        // A throw between `session/new` and the row going idle (the store
+        // refusing `remember`, say) rejects `create`, but the connection is
+        // live and the row is kept: left at `connecting` it is a box that
+        // never opens and no bar to retry from, and `boot` only runs at
+        // launch. Settle the row on what the connection can do.
+        if (!settled) await this.settleAfterFailedCreate(session, connection, marks);
+      }
     } finally {
       if (setup) this.held.delete(setup);
       this.creating.delete(id);
       created();
     }
+  }
+
+  /** The row a failed `create` leaves behind: idle if its connection can take a prompt, `error` if not. */
+  private async settleAfterFailedCreate(
+    session: Session,
+    connection: SessionConnection,
+    marks: Promise<[string | null, string | null]>,
+  ): Promise<void> {
+    if (this.deps.repo.get(session.id)?.status !== "connecting") return;
+    const [sessionHead, turnHead] = await marks.catch(() => [null, null] as const);
+    if (connection.alive) {
+      this.update(session.id, { status: "idle", sessionHead, turnHead });
+      this.deps.broadcast("session.state", { sessionId: session.id, state: connection.state });
+      return;
+    }
+    const message = "The agent stopped while the session was being created.";
+    this.update(session.id, { status: "error", sessionHead, turnHead });
+    this.deps.broadcast("session.status", { sessionId: session.id, status: "error", error: message });
   }
 
   /**

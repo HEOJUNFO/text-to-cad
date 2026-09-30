@@ -1488,6 +1488,24 @@ describe("SessionManager", () => {
     expect(recorder.remembered.at(-1)?.modes).toEqual(["default", "plan", "auto", "full"]);
   });
 
+  it("settles a row whose create failed after session/new instead of leaving it connecting", async () => {
+    const recorder = optionRecorder({ model: null });
+    const deps = {
+      ...recorder.deps,
+      // The first call is the store settling on the agent's defaults during session/new; the second is applyPreferences.
+      remember: (...args: Parameters<typeof recorder.deps.remember>) => {
+        if (recorder.remembered.length >= 1) throw new Error("SQLITE_BUSY");
+        recorder.deps.remember(...args);
+      },
+    };
+    const { repo, manager, broadcasts, cwd } = await setup({ agentOptions: deps });
+    await expect(manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" })).rejects.toThrow("SQLITE_BUSY");
+    const id = "session-1";
+    expect(repo.get(id)).not.toBeNull();
+    expect(repo.get(id)?.status).not.toBe("connecting");
+    expect(broadcasts.some((b) => b.channel === "session.state" && (b.payload as { sessionId: string }).sessionId === id)).toBe(true);
+  });
+
   /**
    * The mode the person left this agent in wins over the auto preset: the
    * new-session screen's chip is a default like the model and the effort,
