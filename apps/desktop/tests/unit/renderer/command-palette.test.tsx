@@ -46,6 +46,19 @@ describe("the command palette", () => {
     expect(screen.getByText("Create")).toBeInTheDocument();
   });
 
+  it("draws no Sessions heading over an empty group", () => {
+    // Nothing to list, or only what is archived: a heading with no rows under it.
+    useSessions.setState({ sessions: [], activeId: null });
+    const { unmount } = render(<CommandPalette />);
+    expect(screen.queryByText("Sessions")).toBeNull();
+    expect(screen.getByText("Projects")).toBeTruthy();
+    unmount();
+    const archived = { id: "s2", projectId: "/p", title: "Old", archived: true } as unknown as Session;
+    useSessions.setState({ sessions: [archived], activeId: null });
+    render(<CommandPalette />);
+    expect(screen.queryByText("Sessions")).toBeNull();
+  });
+
   it("leaves Settings for a session chosen behind it, and the welcome too", async () => {
     const session = {
       id: "s1", projectId: "/p", agentId: "claude-code", cwd: "/p", gitMode: "none", title: "Bracket",

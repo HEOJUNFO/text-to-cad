@@ -346,6 +346,17 @@ describe("Sidebar", () => {
     expect(screen.getByRole("button", { name: "One" })).not.toHaveAttribute("aria-current");
   });
 
+  it("rings the row for keyboard focus, not the title button inside it", () => {
+    withProject();
+    useSessions.setState({ sessions: [session({ id: "s1", title: "One" })], ready: true, activeId: null });
+    wrap(<Sidebar />);
+    const row = document.querySelector('[data-session-row="s1"]')!;
+    const title = screen.getByRole("button", { name: "One" });
+    expect(row.getAttribute("class")).toContain("has-[[data-session-title]:focus-visible]:ring-2");
+    expect(title.getAttribute("class")).not.toContain("ring");
+    expect(title.getAttribute("class")).toContain("focus-visible:outline-none");
+  });
+
   it("shows what a thread changed and opens that thread's review from it", async () => {
     const user = userEvent.setup();
     withProject();

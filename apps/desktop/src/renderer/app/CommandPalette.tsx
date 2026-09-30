@@ -104,6 +104,8 @@ export function CommandPalette() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [toggle]);
 
+  const openSessions = sessions.filter((session) => !session.archived);
+
   const run = (action: () => void) => () => {
     setOpen(false);
     action();
@@ -149,28 +151,30 @@ export function CommandPalette() {
         {/* Threads first: the box is most often a thread's name, and a
             project's search glyph seeds it with the project's, which every
             one of these rows carries. */}
-        <CommandGroup heading="Sessions">
-          {sessions.filter(session => !session.archived).map((session) => {
-            const project = projects.find((candidate) => candidate.id === session.projectId);
-            return (
-              <CommandItem
-                key={session.id}
-                onSelect={show(() => selectSession(session.id))}
-                // cmdk keys selection by value: two "New session" rows in one
-                // folder would otherwise be one row twice over.
-                value={`${session.title} ${project?.name ?? ""} ${session.branch ?? ""} ${session.id}`}
-              >
-                <MessageSquare className="size-4" />
-                <span className="truncate">{session.title}</span>
-                {project ? (
-                  <span className="ml-auto truncate text-xs text-muted-foreground">
-                    {project.name}
-                  </span>
+        {openSessions.length > 0 ? (
+          <CommandGroup heading="Sessions">
+            {openSessions.map((session) => {
+              const project = projects.find((candidate) => candidate.id === session.projectId);
+              return (
+                <CommandItem
+                  key={session.id}
+                  onSelect={show(() => selectSession(session.id))}
+                  // cmdk keys selection by value: two "New session" rows in one
+                  // folder would otherwise be one row twice over.
+                  value={`${session.title} ${project?.name ?? ""} ${session.branch ?? ""} ${session.id}`}
+                >
+                  <MessageSquare className="size-4" />
+                  <span className="truncate">{session.title}</span>
+                  {project ? (
+                    <span className="ml-auto truncate text-xs text-muted-foreground">
+                      {project.name}
+                    </span>
                 ) : null}
               </CommandItem>
             );
           })}
         </CommandGroup>
+        ) : null}
 
         <CommandGroup heading="Projects">
           {projects.filter(project => sessions.some(session => session.projectId === project.id && !session.archived)).map((project) => (
