@@ -1,5 +1,7 @@
 /**
- * Whether the app is on its way out. Set by `before-quit` (`./menu.ts`) and,
+ * Whether the app is on its way out. Set by `before-quit`: the listener in
+ * `./index.ts` calls `markQuitting` first, before any step that can throw, and
+ * the one in `./menu.ts` keeps a later mark of its own. Set also,
  * for an update, earlier by `before-quit-for-update` (`./updater.ts`): the
  * install's quit closes every window BEFORE it emits `before-quit`, so without
  * the early mark a window with an unsaved draft would ask Discard/Cancel — and

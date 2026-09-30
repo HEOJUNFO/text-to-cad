@@ -1241,6 +1241,16 @@ text when the shell asked for it; the Cmd/Ctrl+V branch of the handler only
 returns false so Ctrl+V does not reach the shell as `^V`, and writes nothing (a
 second write ran a pasted command twice, once unbracketed).
 
+A terminal an agent asks for through ACP's `terminal/*` (`src/main/acp/terminals.ts`)
+is separate from those ptys, and its output reaches the transcript's activity row
+as `terminal.output`. A released one hands over nothing more: no chunk and no
+exit. A process that exits having written nothing sends its exit chunk with
+`silent`, and the store (`receiveTerminalOutput` in `state/acp.ts`) then clears
+that terminal's cold mark, so the row reads `(no output)`. A terminal already in
+a state when the store took it (a snapshot, a reload, a background session's
+reconnect) is cold: a finished command whose output the store never held reads
+"Output not kept after reload" instead.
+
 Over IPC (`terminal.*`, `src/shared/ipc/explorer.ts`), `terminal.create` takes
 the project, the session, an optional `cwd` (checked against the project and
 its worktrees) and the size — never a shell or its arguments: every tab runs the person's login
@@ -1525,6 +1535,18 @@ window that never acks its unload, a main-process error dialog (an
 teardown and watchdog startup toward the same budget. A quit that finishes
 on its own — half a second without WebGL —
 gives it nothing to do.
+
+`before-quit` in `src/main/index.ts` calls `markQuitting()` first, before any
+step that can throw; the listener in `src/main/menu.ts` is registered later
+and keeps a mark of its own. Every teardown step after it (updater, CAD,
+integrations, ACP, agents, settings effects, browser, explorer, window state,
+database, children) runs under its own `try`, so one that throws is logged and
+the rest still run, the database close among them, and the deadline is armed
+in a `finally`. `will-quit` logs `[quit] will-quit`, kills what ignored its
+signal and arms the deadline if `before-quit` did not. Outside a quit, an
+`uncaughtException` shows `dialog.showErrorBox` once the app is ready, unless
+`NODE_ENV=test`, so a packaged app with no console still says what broke;
+during a quit it logs, kills the tracked children and exits at once.
 
 An update's quit is different. electron-updater spawns the NSIS installer
 (Windows) or the new AppImage (Linux) as a child of the app and then quits,
@@ -1926,6 +1948,20 @@ the connection tests. Re-record after bumping an adapter's pinned version
 (below); never run the harness against this repository, use a scratch
 directory.
 
+The reducer (`src/shared/acp/reduce.ts`) treats a permission request that finds
+no turn open — the prompt ended or was cancelled and the adapter asked late — as
+history, not as a turn: it rides on the last agent turn, or on a closed turn of
+its own, and the session reads `waiting` until it is answered. Answering a
+request changes only the turn that holds it; every other turn keeps its
+identity, so a long transcript does not re-render. A `closed` or `error` status
+marks every card still pending `cancelled`, since whoever would take the answer
+is gone. In the renderer, `receiveState` (`state/acp.ts`) clears a session's
+`loadErrors` once the state it takes says the agent is up (`idle`, `running` or
+`waiting`). In main, an `initialize` failure goes through `describe`
+(`src/main/acp/connection.ts`) as `session/new`, `session/load` and
+`session/prompt` failures do: the method and the agent's message with a
+sign-in hint, or, when the adapter has exited, which agent stopped and when.
+
 Three things learned from the real adapters that the code now depends on:
 
 - Each adapter is pinned to an exact version in `src/main/agents/registry.ts`
@@ -1964,6 +2000,18 @@ Three things learned from the real adapters that the code now depends on:
   the 129-command list after `session/new`, mid-turn and after
   `session/load`, a title sent live only.
 
+A new session's row is written before its adapter answers, at `connecting`,
+and its `acpSessionId` is stored on its own right after `session/new` returns —
+before the preferences and the marks — so a crash while those are pending does
+not take a connected session with it. A create that fails before that answer
+removes the row and, for a worktree it cut, the worktree. One that fails after
+it keeps the row and settles it (`settleAfterFailedCreate`): `idle` while the
+connection is alive, `error` when it is not. `boot()`, on the first call after
+launch, removes every row with no `acpSessionId` that no create in this run
+owns — a create cut short by a quit, which can never be loaded — and unpins its
+marks. A row whose directory is missing or unmounted is not of that kind: it is
+never deleted for that.
+
 ### Opening a session
 
 The agent owns the transcript, so a session that is not connected has
@@ -1999,15 +2047,27 @@ beside `sessions.ts`:
   nothing: four adapters stay alive behind the sessions that are not on
   screen, so switching back is a paint with no load at all. The oldest
   beyond four is closed and its row goes to `closed`, which is what makes
-  the next click on it reconnect. A turn in flight is never evicted — the
-  limit is exceeded until it ends. `ensureLoaded` (`state/acp.ts`) does
+  the next click on it reconnect. A busy connection is never evicted — the
+  limit is exceeded until it is not: a turn in flight (`running`, `waiting`),
+  one still `connecting`, and anything in `held` — a create from its spawn
+  until it returns, a prompt from its refusal check until its turn ends (idle
+  through the turn mark, which waits on git). `ensureLoaded` (`state/acp.ts`) does
   nothing for a session the renderer holds whose status is not `closed`, and
   for one it does not hold it asks main for the stored state
   (`sessions.state`, which also says whether main's connection is `live`): a
   live connection is painted and left alone, so a just-created session is not
   reconnected (a reconnect drops turn events until it answers, and would
   repaint from a snapshot older than the prompt just sent). Only a `closed` or
-  absent connection with no live counterpart in main starts a `load`.
+  absent connection with no live counterpart in main starts a `load`. A
+  session's `create` is in `creating` from before `session/new` until it
+  returns; `load` and a prompt (`ensureLive`) wait on it, and `state()` reports
+  `connecting` for a live idle connection whose create is still open, since
+  the row says `connecting` until the preferences and marks have landed. The
+  renderer gates the composer on the row and the connection together
+  (`SessionView.tsx`): `connecting` is `state.status === "connecting"` or
+  `row.status === "connecting" && !reconnecting`, and the composer reads
+  `submitted` when `(connecting || loading) && !reconnecting` or when the
+  composer store has a prompt `sending`.
 - **The warm pool** (`acp/warm.ts`). A second and a half after launch, one
   idle adapter per agent the index says is in use is spawned and
   `initialize`d, and the first `create` or `load` for that agent adopts it
@@ -2109,11 +2169,17 @@ worktree, never forced (`releaseWorkspace`), and the keep-limit sweep
 worktree's session row is written (`sessionWorkspaceSettled`), unawaited, so
 the new one is already protected and the session's start never waits. It
 also clears a worktree whose folder was deleted by hand, which has nothing
-left to lose (`folderGone` in `src/main/projects/git.ts`). It never removes a worktree outside the project's
-worktree folders, a locked one, one that holds any session row's `cwd`,
-`projectId` or `worktreePath` — archived sessions included — or a create still
+left to lose (`folderGone` in `src/main/projects/git.ts`); Settings lists such
+a worktree as clean, so Delete there is open to it. It never removes a worktree outside the project's
+worktree folders, a locked one, one that holds the `cwd`, `projectId` or
+`worktreePath` of a session row that is not archived, or a create still
 in flight, or one with uncommitted changes or ignored files that are not a
-disposable cache (`hasUnsavedWork`). The limit counts only unlocked, unheld
+disposable cache (`hasUnsavedWork`). An archived session holds no worktree.
+"In use" is one function, `sessionsUsing` in `src/main/projects/git.ts`: the
+sessions that are not archived and run in the worktree, in a folder inside it,
+or record it as their `worktreePath`. It answers Settings' open-session count,
+Delete's refusal, and a session's release of its own worktree; the sweep's
+`protectedPaths` applies the same not-archived filter. The limit counts only unlocked, unheld
 worktrees in the project's worktree folders; one with unsaved work counts
 toward it and is then kept. A branch is deleted only when a failed create abandons the
 worktree it made, and then only while it still points where it was cut
@@ -2139,10 +2205,30 @@ session that cut a fresh worktree keeps that worktree's base commit as its
 an existing worktree (`New session in this worktree`) marks the tree as it is,
 since earlier uncommitted work may be in it; marks recorded as commits by older builds
 still work as `git diff <sha>` against the working tree.
+A mark never fails or delays a turn or a create past `MARK_WAIT_MS` (5 s, in
+`src/main/acp/sessions.ts`). Past it a turn keeps the previous `turnHead` and a
+session mark falls back to the commit (`HEAD`, or the empty tree in a
+repository with no commits), and the snapshot goes on running. There is one
+snapshot at a time per `<session id>/<kind>`: a second asker, the next turn's
+say, takes the first's result rather than stacking another `add -A` that could
+land after it and re-point the ref. A snapshot that lands for a row that is gone
+(deleted, or a create that failed) unpins the marks it just made; the create's
+own marks are started before the spawn and settled after `session/new`, so they
+run alongside it.
 A read of either scope lists the untracked files in a throwaway copy of the
 index (`add --intent-to-add` of just those paths, no objects written), and the
 reads of one review share it while the real index and the untracked set stay the
-same.
+same. That index is kept per repository root, keyed by the real index's
+`inode:mtime:size` and a hash of the untracked paths; an unused one lives 30
+seconds for the next poll and every one is removed at exit. A build that fails
+fails the read: falling back to the real index would show every untracked file
+from before the mark as deleted.
+Counting an untracked file for the review reads it whole up to 1 MiB; a larger
+one is streamed a megabyte at a time (after the NUL test on its first 8000
+bytes) and its counts are remembered by size and mtime, so the half-second
+status poll does not read it again. Past 512 MiB, git's own
+`core.bigFileThreshold`, it counts as binary without being read. A diff of a
+working-tree file is refused past 4 MiB (`MAX_TEXT_BYTES`, `readWorkingCopy`).
 Those two scopes also move the whole read into the session's directory, which
 for a worktree thread is not the project's checkout.
 
@@ -2153,6 +2239,20 @@ validates them before git starts (`assertSafeScope` in
 a review scope's revision also puts `--end-of-options` in front of it, so a
 value shaped like `--output=…` is a revision git rejects, never an option.
 That flag needs git 2.24 or newer.
+
+The commit strip's button reads **Push** when the tree has no changed files and
+the branch is ahead (`pushState` answers `{ dirty, ahead }` in one status
+read), **Commit or push** when a remote exists, else **Commit**. A `Commit or
+push` that finds a clean tree with commits ahead pushes them and reports that it
+only pushed, rather than failing on "nothing to commit" after a push that
+failed. `ahead` is porcelain's count for a branch with an upstream; without one
+(a first push that failed) `commitsAhead` counts the commits on no remote
+branch, and skips that walk, answering 0, when the repository has no remote. A
+branch with no upstream pushes with `--set-upstream` to its
+`branch.<name>.remote`, else the only remote there is, else `origin`. A git
+write (commit, push, worktree add or remove) times out after 10 minutes and a
+read after 60 seconds; a failure reads as the last 20 lines of stderr, or of
+stdout when stderr is blank (a commit hook's reason, "nothing to commit").
 
 ### The explorer's root
 
