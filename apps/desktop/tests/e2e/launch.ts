@@ -65,6 +65,18 @@ export const test = base.extend<{ failureEvidence: void }>({
   ],
 });
 
+/**
+ * Put an app this suite started itself (a spec that bundles its own main entry
+ * or must control the launch) under the same failure trace as `launch()`'s:
+ * call it right after `electron.launch`, and import `test` from this file.
+ */
+export async function traceApp(app: ElectronApplication): Promise<void> {
+  await app.context().tracing.start({ screenshots: true, snapshots: true, sources: false });
+  await app.context().tracing.startChunk().catch(() => undefined);
+  traced.add(app);
+  app.on("close", () => traced.delete(app));
+}
+
 export type Launched = { app: ElectronApplication; page: Page; lines: string[] };
 
 export async function launch(options: {
@@ -94,10 +106,7 @@ export async function launch(options: {
   const lines: string[] = [];
   app.process().stdout?.on("data", (chunk: Buffer) => lines.push(...String(chunk).split("\n")));
   app.process().stderr?.on("data", (chunk: Buffer) => lines.push(...String(chunk).split("\n")));
-  await app.context().tracing.start({ screenshots: true, snapshots: true, sources: false });
-  await app.context().tracing.startChunk().catch(() => undefined);
-  traced.add(app);
-  app.on("close", () => traced.delete(app));
+  await traceApp(app);
   const page = await app.firstWindow();
   page.on("pageerror", (error) => console.error(`[renderer] ${error.message}`));
   await page.waitForLoadState("domcontentloaded");
