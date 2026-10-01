@@ -52,7 +52,7 @@ export interface ViewSync {
  * event, a moving build) is followed by the next sooner.
  */
 export function createViewSync(server: Pick<Server, 'sync' | 'reply'>,
-  view: { id: string; surface: string; model(): string | null; hidden?(): boolean }, handlers: ViewSyncHandlers): ViewSync {
+  view: { id: string; surface: string; model(): string | null }, handlers: ViewSyncHandlers): ViewSync {
   let watched: ViewSyncWatch | null = null;
   // The catalog revision a refresh was started for, so one change reads the catalog once.
   let requested = '';
@@ -115,9 +115,8 @@ export function createViewSync(server: Pick<Server, 'sync' | 'reply'>,
       void (async () => {
         let failures = 0;
         while (!signal.aborted && !closed) {
-          // A page no one can see watches nothing (the server scans no catalog for it) and still
-          // hears the agent; shown again, its next sync catches up on what moved.
-          const watch = view.hidden?.() ? null : watched;
+          // Every view watches, seen or not: a tab in the background is current when it is shown.
+          const watch = watched;
           const files = watch ? [...previews.keys()] : [];
           const state = changedState();
           const touched = focused;

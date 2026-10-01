@@ -1373,7 +1373,11 @@ channel via `GET /__cad/preview`, validates transitive object availability, and
 fetches geometry from the existing object routes. The server
 does no kernel work and exposes no source/closure/model record. Without an
 available preview, the viewer resolves the saved bytes with the topology and
-annotations that belong to them. It reports an incomplete or failed update as
+annotations that belong to them. A preview stands in for the file only while
+the catalog holds the file its build started from or one it saved: a file that
+changed without this feed -- built by another installation, or after the daemon
+that ran the last build exited; a checkout; a STEP written by hand -- is shown
+from the catalog, as any other update. It reports an incomplete or failed update as
 such, and never announces a background file write it did not perform. Preview kinematics are
 resolved against the preview tree; the saved sidecar is resolved separately against the read-back
 tree and bound to the saved bytes. Within one build, successful authored-tree

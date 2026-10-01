@@ -26,3 +26,22 @@ it('keeps its state across repeated identical failures and identical updates', (
   act(() => update({ epoch: 'e1', revision: 1, state: 'ready' }));
   expect(result.current.state).toBe(ready);
 });
+
+// The case the feed cannot see: the file it last built is rewritten by something else (another
+// cadgen, a checkout). The catalog has the new revision, and the view must follow it.
+it('lets the catalog win once the file moves on without the feed', () => {
+  let update: (next: unknown) => void = () => {};
+  const client = { observeEditingPreview: (_file: string, onUpdate: any) => { update = onUpdate; return () => {}; } };
+  const before = { file: '/p/part.step', kind: 'part', hash: 'before', documentHash: 'bytes-0' };
+  const { result, rerender } = renderHook(({ entry }) => useEditingPreview('part.step', { enabled: true, client, catalogEntry: entry }),
+    { initialProps: { entry: before } });
+  act(() => update({ epoch: 'e1', revision: 1, state: 'building' }));
+  act(() => update({ epoch: 'e1', revision: 1, state: 'done', preview: { tree: 'preview-1', url: '/preview-1', sequence: 1 },
+    saved: { tree: 'saved-1', documentHash: 'bytes-1' } }));
+  expect(result.current.entry?.hash).toBe('preview-1');
+  rerender({ entry: { ...before, hash: 'saved-1', documentHash: 'bytes-1' } });
+  expect(result.current.entry?.hash).toBe('preview-1');
+  act(() => update({ state: 'disconnected' }));
+  rerender({ entry: { ...before, hash: 'elsewhere', documentHash: 'bytes-2' } });
+  expect(result.current.entry).toBeNull();
+});

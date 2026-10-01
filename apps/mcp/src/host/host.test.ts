@@ -135,10 +135,9 @@ describe('a view\'s one call each second', () => {
         { catalog: { revision: 'r2' }, previews: [{ file: 'a.step', state: 'done', feedCursor: 'k2' }] as SyncReply['previews'] },
       ]);
       let applied = 'r1';
-      let hidden = false;
       const refreshes: (string | null)[] = [];
       const stop = new AbortController();
-      const sync = createViewSync(server, { id: 'v1', surface: 'tab', model: () => '/p/a.step', hidden: () => hidden },
+      const sync = createViewSync(server, { id: 'v1', surface: 'tab', model: () => '/p/a.step' },
         { show() {}, capture: async () => new Blob(), state: () => ({}) });
       sync.watch({ root: { kind: 'workspace', path: '/p' }, file: () => 'a.step', revision: () => applied,
         refresh: async file => { refreshes.push(file); applied = 'r2'; } });
@@ -159,13 +158,6 @@ describe('a view\'s one call each second', () => {
       await vi.advanceTimersByTimeAsync(NEWS_MS);
       expect(requests).toHaveLength(4);
       expect(refreshes).toEqual(['a.step']);
-      // A hidden page still syncs (the agent may want it) but watches nothing until it is shown.
-      hidden = true;
-      await vi.advanceTimersByTimeAsync(SYNC_MS);
-      expect(requests.at(-1)?.watch).toBeUndefined();
-      hidden = false;
-      await vi.advanceTimersByTimeAsync(SYNC_MS);
-      expect(requests.at(-1)?.watch).toMatchObject({ file: 'a.step' });
       stop.abort();
     } finally { vi.useRealTimers(); }
   });

@@ -114,7 +114,7 @@ export default function App({ bridge, server, launch: initial, presentation = 't
   const shown = useRef<{ model: string | null; resolvePath: (resource: ResourceRef) => string }>({ model: null, resolvePath: unresolved });
   // This view's one call to the server each second: what it shows, the agent's requests for it,
   // and what changed in what it watches (`host/sync.ts`).
-  const sync = useMemo(() => createViewSync(server, { id: view, surface, model: () => shown.current.model, hidden: () => document.visibilityState === 'hidden' }, {
+  const sync = useMemo(() => createViewSync(server, { id: view, surface, model: () => shown.current.model }, {
     show: launch => setShowing(previous => ({ launch, sequence: previous.sequence + 1 })),
     capture: async () => {
       const controller = live.current();

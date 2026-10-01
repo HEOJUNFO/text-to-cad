@@ -7,6 +7,8 @@ export function initialEditingPreview() {
     previewUnavailable: false,
     saved: null,
     retainedSaved: null,
+    // The catalog's tree when this revision was first heard: the file its build started from.
+    startedFrom: "",
     state: "disconnected",
     phase: "",
     detail: "",
@@ -20,7 +22,10 @@ export function previewGeometryChanged(previous, next) {
     (previous.preview || next.preview));
 }
 
-export function reduceEditingPreview(current, next) {
+// `catalogTree` is the catalog's tree for the file as this update lands. A revision keeps the first
+// one it saw, so a preview can tell the catalog not having caught up with its save (still the file
+// it started from) from the file having moved on without this feed.
+export function reduceEditingPreview(current, next, { catalogTree = "" } = {}) {
   if (!next || typeof next !== "object") return current;
   if (!next.epoch) {
     return {
@@ -61,6 +66,7 @@ export function reduceEditingPreview(current, next) {
     previewUnavailable,
     saved: next.saved || null,
     retainedSaved: next.saved || previous.saved || previous.retainedSaved || null,
+    startedFrom: same ? previous.startedFrom || catalogTree : catalogTree,
     state,
     phase,
     detail,
@@ -87,6 +93,13 @@ export function editingPreviewEntry(state, catalogEntry) {
   if (savedMatchesCatalog && (
     state.previewUnavailable === true || state.preview.revision !== state.revision
   )) return null;
+  // The file moved on without this feed: built by another cadgen, or after the daemon that ran
+  // this build exited; a checkout; a STEP written by hand. The catalog holds neither the file
+  // this build started from nor one it saved, so the preview describes nothing on disk, and the
+  // catalog's revision is shown instead -- loaded behind the model on screen like any update.
+  const catalogTree = String(catalogEntry?.hash || "");
+  if (catalogTree && state.startedFrom && catalogTree !== state.startedFrom &&
+    catalogTree !== state.saved?.tree && catalogTree !== state.retainedSaved?.tree) return null;
   const previewAppearance = state.preview.appearance || null;
   const previewAnimation = state.preview.animation || null;
   const previewMetadataKey = `${Number(state.preview.revision) || 0}:${Number(state.preview.sequence) || 0}`;
