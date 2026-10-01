@@ -176,7 +176,7 @@ setInterval(() => {}, 1000);
     try {
       const started = Date.now();
       const done = runWatchdog(app.target.pid!, QUIT_DEADLINE_MS, [], undefined, stub.env);
-      await expect.poll(() => alive(app.target.pid!), { timeout: 10_000, intervals: [10] }).toBe(false);
+      await expect.poll(() => alive(app.target.pid!), { timeout: 10_000, interval: 10 }).toBe(false);
       const elapsed = Date.now() - started;
       await done;
       expect(elapsed, `the app was killed ${elapsed} ms after the watchdog started; allowed ${formula}`).toBeLessThanOrEqual(allowed);
