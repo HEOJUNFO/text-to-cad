@@ -185,6 +185,32 @@ const failure = (error) => ({
 });
 
 /**
+ * One sentence for a call whose arguments the schema refused, in place of the SDK's "MCP error
+ * -32602 … Invalid arguments" and a dump of the validator's issues. A tool may carry its own
+ * `usage` sentence; a refinement's own message is used as written; otherwise the sentence names
+ * the arguments the tool needs and the first one that was wrong.
+ */
+export function argumentSentence(definition, error) {
+  const issues = error.issues ?? [];
+  const custom = issues.find((issue) => issue.code === "custom");
+  if (custom) return custom.message;
+  if (definition.usage) return definition.usage;
+  const shape = definition.inputSchema.shape ?? {};
+  const required = Object.keys(shape).filter((key) => !shape[key].safeParse(undefined).success);
+  const takes = Object.keys(shape);
+  const unknown = issues.find((issue) => issue.code === "unrecognized_keys");
+  if (unknown) {
+    const keys = unknown.keys.map((key) => `"${key}"`).join(", ");
+    return `${definition.name} takes ${takes.length ? takes.join(", ") : "no arguments"}; it does not take ${keys}.`;
+  }
+  const first = issues[0];
+  const where = first?.path?.join(".") ?? "";
+  const missing = first && /received undefined/.test(first.message);
+  const problem = !where ? "" : missing ? `; ${where} is missing` : `; ${where} is not valid`;
+  return `${definition.name} needs ${required.length ? required.join(", ") : "no arguments"}${problem}.`;
+}
+
+/**
  * Build the server over a bridge function `(method, params) => result`.
  *
  * The descriptions are written for the agent reading them, because that is
@@ -221,6 +247,19 @@ export function createServer(bridge, options = {}) {
       } catch (error) { return failure(error); }
     });
   }
+  // The SDK validates before the handler runs and words a refusal as a JSON-RPC error with the
+  // validator's dump; say it in one sentence instead (same refusal, same isError result).
+  const validate = server.validateToolInput.bind(server);
+  server.validateToolInput = async (registered, args, name) => {
+    try {
+      return await validate(registered, args, name);
+    } catch (error) {
+      const definition = integration.tools.find((candidate) => candidate.name === name);
+      const parsed = definition?.inputSchema.safeParse(args ?? {});
+      if (!definition || !parsed || parsed.success) throw error;
+      throw new Error(argumentSentence(definition, parsed.error), { cause: error });
+    }
+  };
   return server;
 }
 

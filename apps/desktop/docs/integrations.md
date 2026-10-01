@@ -124,6 +124,30 @@ command reaches nobody, and is refused at once rather than after the wait:
 retrying is safe; `send` reports how many windows received the command, and
 zero is that refusal.
 
+### Refusals an agent reads
+
+A call whose arguments the schema refuses is answered by the MCP server with one sentence and
+`isError`, never the validator's JSON: `open_file needs path; path is missing.`, or
+`open_file takes path; it does not take "mode".`, or the tool's own `usage` sentence
+(`set_camera needs position, target and up as three numbers each`). The bridge is not
+called. Past that, these are the sentences the layers answer with:
+
+| Sentence | Where |
+| --- | --- |
+| "unknown session token" | the loopback bridge, 401: the token was never issued or has been revoked |
+| "session authorization changed" | the bridge, 401: the session's directory or project is no longer the one the token was issued for |
+| "method is outside this integration" | the bridge, 403: the token's integration does not own the method |
+| "request too large" | the bridge, 413 |
+| "malformed JSON object" | the bridge, 400 |
+| "this session's project is no longer open in text-to-cad" | main's actions: the session's project was removed |
+| "This session is no longer active." | the renderer: the session is archived or deleted |
+| "that tab is closed or belongs to another workspace" | the renderer: the tab ID is not in this session's strip |
+| "this tab does not contain a CAD model" | the renderer: a CAD tool addressed a tab that is not a CAD file |
+| "Show the model tab before controlling its viewer." | the viewer has no mounted model to control; `show_tab` it |
+| "No CAD viewer state in this workspace. Open the model first." | no CAD viewer has shown a model for this workspace |
+| "Wait for the requested model to finish loading." | the viewer still holds another file |
+| "Save or explicitly discard the document before closing its tab." | `close_tab` on a dirty document; no tool discards, so save it first |
+
 The window's reply is itself made only once the effect is on screen, and a
 viewer command that cannot get there says "The viewer did not finish applying
 this command." after ten seconds. The relay's tiers nest around that bound:

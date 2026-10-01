@@ -255,6 +255,30 @@ describe("the skills tools", () => {
   });
 });
 
+describe("a malformed call", () => {
+  const said = async (name: string, args: Record<string, unknown>, integration = "workspace") => {
+    const { bridge, calls } = fakeBridge();
+    const client = await connect(bridge, { integration });
+    const result = await client.callTool({ name, arguments: args });
+    expect(result.isError).toBe(true);
+    expect(calls).toEqual([]);
+    return (result.content as Array<{ text: string }>)[0]!.text;
+  };
+
+  it("names the missing argument in one sentence, not the validator's dump", async () => {
+    expect(await said("open_file", {})).toBe("open_file needs path; path is missing.");
+  });
+
+  it("names an argument the tool does not take", async () => {
+    expect(await said("open_file", { path: "a.step", mode: "x" })).toBe('open_file takes path; it does not take "mode".');
+  });
+
+  it("uses a tool's own usage sentence where it has one", async () => {
+    expect(await said("set_camera", { tabId: "t", camera: { position: [0, 0], target: [0, 0, 0], up: [0, 0, 1] } }, "cad"))
+      .toBe("set_camera needs position, target and up as three numbers each");
+  });
+});
+
 describe("a skills root the app could not make", () => {
   it("tells list_skills and read_skill why, instead of an empty list or 'no skills root'", async () => {
     const client = await connect(fakeBridge().bridge, { skillsRoot: null, skillsError: "EACCES: permission denied, mkdir '/ro/skills'" });
