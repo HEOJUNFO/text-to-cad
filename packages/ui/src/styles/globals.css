@@ -56,9 +56,14 @@
 .dark .cad-library { --cad-library-card: color-mix(in oklab, var(--background) 88%, white); --cad-library-line: oklch(1 0 0 / 8%); }
 .cad-library-content { box-sizing: border-box; width: 100%; max-width: 1128px; margin: 0 auto; padding: 44px 24px calc(40px + var(--cad-host-bottom-inset, 0px)); }
 .cad-library-wordmark { display: block; width: auto; height: 64px; margin: 0 auto; user-select: none; -webkit-user-drag: none; }
+/* The byline: the claim in the text colour, the promise in the wordmark's blue (its top faces in the dark, its deeper side in the light). */
+.cad-library-byline { margin: 10px 0 0; text-align: center; font-size: 13px; line-height: 18px; font-weight: 500; color: var(--foreground); }
+.cad-library-byline > span { color: #258cc5; }
+.dark .cad-library-byline { color: #fff; }
+.dark .cad-library-byline > span { color: #94d9fa; }
 .cad-library-links { display: flex; align-items: center; justify-content: center; gap: 2px; margin: 12px 0 40px; }
 .cad-library-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
-.cad-library-heading { margin: 0; font-size: var(--text-base, 1rem); line-height: 24px; font-weight: 600; color: var(--foreground); }
+.cad-library-heading { margin: 0; font-size: 1.25rem; line-height: 28px; font-weight: 600; color: var(--foreground); }
 .cad-library-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .cad-library-search { position: relative; width: 200px; }
 .cad-library-search > svg { position: absolute; left: 10px; top: 50%; width: 14px; height: 14px; transform: translateY(-50%); color: var(--muted-foreground); pointer-events: none; }

@@ -138,8 +138,8 @@ function Placeholders({ layout }: { layout: LibraryLayout }) {
 
 /**
  * The host's home: the models opened before, from every view, to open again. It has no navbar
- * over it: the CAD wordmark is centred at its top over the host's links — its update, only when
- * there is one, then X, Discord, GitHub and Feedback — then "Files" with its search, its grid/list switch and, where
+ * over it: the CAD wordmark is centred at its top over its byline and the host's links — its update, only when
+ * there is one, then X, Discord, GitHub and Feedback — then "Recent Files" with its search, its grid/list switch and, where
  * the host has a chooser, Open; then the models, pinned first, as solid cards (a picture over the
  * name and when the file was edited) or as rows. A card can be pinned (its pin filled); a row can
  * also be removed. With none yet, one empty card opens the host's chooser. It is drawn on the
@@ -262,13 +262,14 @@ export function ModelLibrary<Model extends LibraryModel>({ library, layout = "gr
   return <ScrollArea className="cad-library h-full text-ui" viewportClassName="cad-library-viewport" data-library-layout={layout}>
     <main className="cad-library-content" aria-label="CAD models">
       <img className="cad-library-wordmark" src={wordmark} alt="CAD" />
+      <p className="cad-library-byline">Build anything. <span>100% open source and free.</span></p>
       {links ? <nav className="cad-library-links" aria-label="CAD links">
         {clipboard ? <UpdateButton links={links} clipboard={clipboard} onError={onError} align="center" /> : null}
         <CommunityLinks links={links} onError={onError} />
         <FeedbackLink links={links} platform={platform} onError={onError} />
       </nav> : null}
       <div className="cad-library-toolbar">
-        <h1 className="cad-library-heading">Files</h1>
+        <h1 className="cad-library-heading">Recent Files</h1>
         <div className="cad-library-controls">
           {all.length > 0 ? <div className="cad-library-search">
             <Search aria-hidden="true" />
