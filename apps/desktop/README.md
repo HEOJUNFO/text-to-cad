@@ -768,7 +768,9 @@ There are no project rename or delete actions: these
 are directory groups derived from sessions, not saved project records. A
 directory with no matching sessions has no sidebar header. Archiving or
 deleting its last active session removes its active group; archived sessions
-remain available in Settings and the Archived filter. Worktree sessions group
+leave the sidebar and come back through the filter menu's `Status` → Archived, where a row's `…` offers Unarchive
+(Settings has no list of them). Archiving, from the row or the session header, toasts "Thread archived." with an
+**Undo** that unarchives it. Worktree sessions group
 under their original checkout directory. Selecting a new folder opens an
 in-memory composer draft; its group appears only when a session is created. A session row is its **state** as a leading glyph (a hollow
 circle idle, a pulsing dot while a turn streams, an amber triangle waiting on

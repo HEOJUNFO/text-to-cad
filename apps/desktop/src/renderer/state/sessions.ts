@@ -128,6 +128,12 @@ export const useSessions = create<SessionsState>((set, get) => ({
     if (archived && get().activeId === id) {
       set({ activeId: null });
     }
+    if (archived) {
+      // The way back otherwise is Sidebar filter, Status, Archived, then Unarchive.
+      toast.success("Thread archived.", {
+        action: { label: "Undo", onClick: () => void get().archive(id, false) },
+      });
+    }
   },
 
   setPinned: async (id, pinned) => {

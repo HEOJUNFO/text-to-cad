@@ -44,3 +44,24 @@ describe("a refused menu write", () => {
     expect(useSessions.getState().activeId).toBe("s1");
   });
 });
+
+describe("an archive", () => {
+  it("offers Undo, which unarchives the thread", async () => {
+    vi.mocked(toast.success).mockClear();
+    vi.mocked(window.textToCad.sessions.archive).mockClear();
+    await useSessions.getState().archive("s1", true);
+    const [text, options] = vi.mocked(toast.success).mock.calls[0]!;
+    expect(text).toBe("Thread archived.");
+    expect(options?.action).toMatchObject({ label: "Undo" });
+    (options!.action as { onClick: () => void }).onClick();
+    expect(window.textToCad.sessions.archive).toHaveBeenLastCalledWith({ id: "s1", archived: false });
+  });
+
+  it("offers none for an unarchive, and none when main refuses", async () => {
+    vi.mocked(toast.success).mockClear();
+    await useSessions.getState().archive("s1", false);
+    vi.mocked(window.textToCad.sessions.archive).mockRejectedValueOnce(new Error("no"));
+    await useSessions.getState().archive("s1", true);
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+});
