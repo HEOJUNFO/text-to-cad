@@ -66,7 +66,7 @@ def _cmd_info(as_json: bool) -> int:
         "output": "output entries (path -> model)",
         "component": "component entries",
         "surface": "surface entries",
-        "bounds": "bounding boxes",
+        "bounds": "bounding boxes and leaf layouts",
         "mesh": "mesh entries",
         "drawing": "drawing render payloads",
     }

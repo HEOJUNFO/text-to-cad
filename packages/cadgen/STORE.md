@@ -82,7 +82,12 @@ leaf's BinTools digest, the placement it is measured in, the measuring
 algorithm, and the loaded kernel's versions (build123d, OCP and its
 distribution); the value is six numbers, inline. A box is a pure function of
 that key, so a hit can never differ from a measurement, and an unknown kernel
-build just measures. Nothing in the index holds a value
+build just measures. Beside the boxes, keyed the same way by a component's
+codec and BREP object, it holds that component's **leaf layout** — how many
+leaves the encoded shape has and whether every one sits at the prototype's
+own placement — which canonical publication records as it measures those
+leaves, and which tree composition (§3) reads to name the exact per-leaf box
+keys without decoding the shape. Nothing in the index holds a value
 computed while a model runs (README law 18): a model's own checks and
 operations always execute.
 
@@ -312,6 +317,40 @@ identity. A real one (`link_arm`: a bar plus two placements of a pin model):
   again; known damaged closures and forced builds derive all canonical
   components. Current authored PBR is rebound after readback, without consulting
   source records, output indexes or staged sidecars.
+
+  **Tree composition.** A child's read-back is context-free. The parent's
+  STEP places each child's prototypes from the same bytes the child's own save
+  emitted, every group at the identity and every leaf at its flattened world
+  transform, so the components, hierarchy, names, colours and the linear part
+  of every leaf placement the parent's STEP reads back are exactly those in
+  the child's own document tree; only each leaf's translation is new, and it
+  is the number the parent's descriptor handed the writer, as its STEP text
+  round trip (`store/_compose_readback.py`, `written_real`). A saved build of
+  a parent whose fresh bytes have no indexed tree therefore composes its
+  document tree from its children's document trees instead of parsing the
+  STEP it just wrote, when all of this holds, checked exactly: the result is
+  links only (no geometry of its own); every link is a pure translation (its
+  linear part exactly the identity) with no link colour, and every link and
+  group name survives the label round trip; every link's child record still
+  pins the tree the parent used, with a complete `documentTree` whose root is
+  an assembly, whose components are all native and whose every node is named;
+  every leaf box the canonical bounds path would take is already in
+  `index/bounds` from the child's publication, under a leaf layout (§2)
+  whose leaves all sit at the prototype's placement; and the writer emulation
+  reproduces every translation in each child's own document from that
+  child's descriptor. Anything else — a rotated or coloured link, a part
+  child, a parent with geometry of its own, a child rebuilt since the parent
+  called it, a missing object or box — takes the ordinary read-back of the
+  written bytes, as does a composed tree that fails the authored-to-written
+  correspondence. The composed tree is published and captured exactly as an
+  indexed read-back of already-seen bytes is, so the correspondence check,
+  the canonical maps and the restore are the same code, and `index/document`
+  receives a tree equal to the cold compile of the bytes. The build reports
+  which path it took as `documentReadback` (`composed`, `indexed`, `parsed`);
+  `CADGEN_VERIFY_READBACK=1` (§10) proves a corpus by parsing as well and
+  failing the build on any difference. This adds no staleness class: the gate
+  decides whether the parent runs by its sources, and what it publishes for
+  its bytes is the same tree either way.
 
   Finishes that STEP does not carry persist in the schema-9 sidecar's named
   `appearance.materials` library and `appearance.assignments` map, keyed by
@@ -1333,6 +1372,13 @@ supersession does not cancel their exports.
   isolated and returns a newly parsed flattened view to every caller.
   Components carry `brep`, `codec` and `faceColors`; display SURF resolves
   separately through `store.surfaces` and `index/surface`.
+- `CADGEN_VERIFY_READBACK=1` makes every saved build that reuses a document
+  tree — composed from its children's (§3) or taken from the document index
+  for already-seen bytes — parse the written STEP as well, and fail with the
+  first difference: the tree hashes, the top-level keys that differ, the
+  first differing occurrence, the canonical maps. It is for a maintainer's
+  manual check over a corpus; it doubles the read-back's cost and nothing in
+  cadgen sets it.
 - `cadgen store info` sizes the store. `cadgen store gc --dry-run` lists what
   a sweep would remove.
 - **Resets, smallest first.** `python model.py --force` rebuilds one model
