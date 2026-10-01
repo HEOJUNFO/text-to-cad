@@ -1953,9 +1953,23 @@ async function uniqueName(
  */
 export async function removeWorktree(
   worktreePath: string,
-  options: { force?: boolean; repoPath?: string } = {},
+  options: {
+    force?: boolean;
+    repoPath?: string;
+    /**
+     * Asked once more, right before git removes anything: the checks above
+     * are several git calls, and a session can open on the folder in between.
+     * `false` keeps the worktree.
+     */
+    stillEligible?: () => boolean;
+  } = {},
 ): Promise<void> {
   const gone = await folderGone(worktreePath);
+  const lastLook = () => {
+    if (options.stillEligible && !options.stillEligible()) {
+      throw new GitError("a session started in that worktree while it was being checked, so it was kept");
+    }
+  };
   const root = gone && options.repoPath
     ? await repositoryRoot(options.repoPath)
     : await repositoryRoot(worktreePath);
@@ -1976,6 +1990,7 @@ export async function removeWorktree(
   // reappeared between the two reads.
   const missing = gone && target.prunable;
   if (missing) {
+    lastLook();
     await git(root, ["worktree", "remove", target.path], { kind: "write" });
     return;
   }
@@ -1996,6 +2011,7 @@ export async function removeWorktree(
       throw new GitError(`that worktree has work removing it would lose: ${stranded}`);
     }
   }
+  lastLook();
   await git(root, ["worktree", "remove", ...(options.force ? ["--force"] : []), worktreePath], { kind: "write" });
 }
 
@@ -2114,11 +2130,17 @@ export async function pruneWorktrees(options: PruneOptions): Promise<{ removed: 
     if (gone === null || (!gone && (await hasUnsavedWork(candidate.path)) !== false)) {
       continue;
     }
-    await removeWorktree(candidate.path, { repoPath: options.repoPath }).then(
+    // And again: the checks above are git calls, and a "New session in this
+    // worktree" that began during them is protected only if it is asked now.
+    // `removeWorktree` asks once more itself, right before it deletes.
+    if (held(candidate.path)) {
+      continue;
+    }
+    await removeWorktree(candidate.path, { repoPath: options.repoPath, stillEligible: () => !held(candidate.path) }).then(
       () => removed.push(candidate.path),
       // One worktree that will not go must not stop the sweep: the next launch
       // would meet the same one and the limit would never be enforced.
-      () => undefined,
+      (error) => console.warn(`[git] the sweep kept ${candidate.path}: ${error instanceof Error ? error.message : String(error)}`),
     );
   }
   return { removed };

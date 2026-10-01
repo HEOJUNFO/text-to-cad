@@ -206,6 +206,24 @@ describe("pruneWorktrees", () => {
     expect(left.map((worktree) => worktree.path).sort()).toEqual([made[2], outside.path].sort());
   });
 
+  it("asks again whether a session took the worktree while the sweep was checking it", async () => {
+    const { root, worktrees } = await repository();
+    const busy = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "busy" });
+    // A "New session in this worktree" lands after the sweep's own checks:
+    // the first answers say nobody holds it, the later ones say someone does.
+    let asked = 0;
+    const { removed } = await git.pruneWorktrees({
+      repoPath: root,
+      parentDir: worktrees,
+      keep: 0,
+      protectedPaths: () => (++asked <= 3 ? [] : [busy.path]),
+    });
+
+    expect(removed).toEqual([]);
+    expect(await readdir(busy.path)).toContain("README.md");
+    expect((await git.listWorktrees(root)).map((worktree) => worktree.path)).toContain(busy.path);
+  });
+
   it("orders by the newest file written, not the folder's own mtime", async () => {
     const { root, worktrees } = await repository();
     await mkdir(path.join(root, "src"));

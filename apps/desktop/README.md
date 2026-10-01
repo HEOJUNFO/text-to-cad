@@ -2504,7 +2504,7 @@ revert or bisect left half done (`strandedWork`). An archived session holds no w
 sessions that are not archived and run in the worktree, in a folder inside it,
 or record it as their `worktreePath`. It answers Settings' open-session count,
 Delete's refusal, and a session's release of its own worktree; the sweep's
-`protectedPaths` applies the same not-archived filter. Settings' Delete is
+`protectedPaths` applies the same not-archived filter. The sweep asks it again right before `git worktree remove` (`stillEligible` on `removeWorktree`), so a session that opened during the checks keeps its folder; a worktree it could not remove is logged. Settings' Delete is
 refused on two grounds: a worktree in use (main answers "N sessions are still
 using that worktree", and the row says "A session is still open in this
 worktree.") and a locked one (`git worktree lock`; the row says it is kept
