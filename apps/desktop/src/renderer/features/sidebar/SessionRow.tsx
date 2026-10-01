@@ -85,11 +85,17 @@ export function SessionRow({
     }
   }, [editing]);
 
+  // Enter and Escape settle the edit themselves; a blur that follows (some browsers blur an input
+  // as it unmounts) must commit nothing: Escape never renames, and Enter must not rename twice.
+  const settled = useRef(false);
   const startRename = () => {
+    settled.current = false;
     setDraft(session.title);
     setEditing(true);
   };
   const commitRename = () => {
+    if (settled.current) return;
+    settled.current = true;
     setEditing(false);
     if (draft.trim() && draft.trim() !== session.title) {
       void rename(session.id, draft);
@@ -162,6 +168,7 @@ export function SessionRow({
                   commitRename();
                 } else if (event.key === "Escape") {
                   refocusTitle.current = true;
+                  settled.current = true;
                   setEditing(false);
                 }
               }}

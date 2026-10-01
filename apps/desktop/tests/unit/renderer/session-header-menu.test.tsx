@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -50,6 +50,27 @@ describe("the session menu's agent item", () => {
 });
 
 describe("the header's rename box", () => {
+  it("a blur that follows Escape commits nothing", async () => {
+    const rename = vi.fn(async () => undefined);
+    useSessions.setState({ rename } as never);
+    const user = userEvent.setup();
+    render(
+      <TooltipProvider>
+        <SessionHeader session={SESSION} title="Bracket" />
+      </TooltipProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "Bracket" }));
+    const input = screen.getByRole("textbox", { name: "Session title" });
+    await user.clear(input);
+    await user.type(input, "Renamed");
+    // One act, so the box is still mounted when the blur lands, as when a browser blurs it on removal.
+    act(() => {
+      fireEvent.keyDown(input, { key: "Escape" });
+      fireEvent.blur(input);
+    });
+    expect(rename).not.toHaveBeenCalled();
+  });
+
   // Enter and Escape unmount the input that held focus; without a hand-off it fell to the page.
   it("hands focus back to the title button on Enter, and on Escape without saving", async () => {
     const rename = vi.fn(async () => undefined);

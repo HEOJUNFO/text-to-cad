@@ -1221,7 +1221,8 @@ palette and Settings' agent drawer hand focus back to what had it when they
 close (`hooks/use-return-focus.ts`), since neither has a trigger for Radix to
 return it to. A permission answer goes to the composer; one main refuses keeps
 focus on the card, which says why. Rename's Enter or Escape goes to the title
-button. Enter on a pane separator closes the pane and hands focus to that pane's
+button, and settles the edit for good: a blur that follows (a browser may blur the
+box as it unmounts) commits nothing, so Escape never renames. Enter on a pane separator closes the pane and hands focus to that pane's
 toggle (the separator reads its width through `aria-valuetext`). A
 disconnected session's Reconnect bar goes away with its button, so focus waits
 on the composer's row and goes into the box once the agent is back; every
