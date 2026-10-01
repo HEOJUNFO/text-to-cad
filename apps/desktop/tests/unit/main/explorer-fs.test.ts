@@ -487,6 +487,12 @@ describe("symlinks as doors and as rows", () => {
     expect(paths).not.toContain("links/vendor/a.txt");
   });
 
+  it("lists a linked directory's children under the link's path, not the target's", async () => {
+    const entries = await listDirectory(root, "links/vendor");
+    expect(entries.map(entry => entry.path)).toEqual(["links/vendor/a.txt"]);
+    expect((await listDirectory(root, "links/shared")).map(entry => entry.path)).toEqual(["links/shared/a.txt"]);
+  });
+
   it("refuses to write a new file through a linked directory that leaves the root", async () => {
     const door = await outsideDirectory();
     await fs.symlink(door, path.join(links, "door"));

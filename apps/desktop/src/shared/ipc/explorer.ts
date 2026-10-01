@@ -261,6 +261,16 @@ export const explorerEvents = {
     changes: z.array(FileChangeSchema),
   }),
   /**
+   * A file watcher died or could not start (on Linux, usually the inotify
+   * limit): the tree, Review and the external-edit banner stop updating.
+   * `message` is the sentence to show.
+   */
+  "files.watch-error": z.object({
+    projectId: z.string(),
+    root: z.string().nullable(),
+    message: z.string(),
+  }),
+  /**
    * One pty's output, with its index in that pty's stream.
    *
    * A tab attaching to a running shell reads the same bytes twice — once in

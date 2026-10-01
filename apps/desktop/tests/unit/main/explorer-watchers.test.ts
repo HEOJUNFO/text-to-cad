@@ -499,3 +499,21 @@ describe("following an open file", () => {
     }
   });
 });
+
+describe("a watcher that fails", () => {
+  const errorHandler = (mock: { mock: { calls: unknown[][] } }) =>
+    mock.mock.calls.find(([event]) => event === "error")![1] as (error: unknown) => void;
+
+  it("reports the reason instead of only logging it, and the next watch builds it again", async () => {
+    const failure = vi.fn<(root: string, reason: string) => void>();
+    watchers = new FileWatchers(emit, undefined, failure);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await watchers.watch(root);
+    errorHandler(recursive.on)(new Error("ENOSPC: System limit for number of file watchers reached"));
+    expect(failure).toHaveBeenCalledWith(root, "ENOSPC: System limit for number of file watchers reached");
+    expect(driver.recursive).toHaveBeenCalledTimes(1);
+    await watchers.watch(root);
+    expect(driver.recursive).toHaveBeenCalledTimes(2);
+    expect(recursive.close).toHaveBeenCalledTimes(1);
+  });
+});

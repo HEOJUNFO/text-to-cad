@@ -348,6 +348,10 @@ export async function listDirectory(
 
   const dirents = await fs.readdir(absolute, { withFileTypes: true });
   const entries: DirEntry[] = [];
+  // Children are named under the path that was asked for: a link to a folder
+  // lists `links/vendor/a.txt`, not the target's `shared/a.txt`, so the two
+  // never collide as rows. They are read through the real path all the same.
+  const listed = toRelative(realRoot, path.resolve(realRoot, directory));
 
   // Every row needs its size and mtime, which the dirent does not carry, so
   // each is stat'ed; a folder of twenty thousand frames is twenty thousand
@@ -362,7 +366,7 @@ export async function listDirectory(
         return null;
       }
       return {
-        path: toRelative(realRoot, child),
+        path: listed === "" ? dirent.name : `${listed}/${dirent.name}`,
         name: dirent.name,
         kind: stats.isDirectory() ? "directory" : "file",
         size: stats.isDirectory() ? 0 : stats.size,
@@ -860,6 +864,8 @@ type WatchedRoot = {
   watcher: Watcher | null;
   direct: Map<string, FSWatcher>;
   refs: number;
+  /** A watcher on this root died; the next `watch` builds it again. */
+  failed?: boolean;
 };
 
 /**
@@ -938,7 +944,15 @@ export class FileWatchers {
   constructor(
     private readonly emit: (root: string, changes: FileChange[]) => void,
     private readonly schedule: Schedule = timer,
+    /** A watch that died or could not start, for a sentence the person sees (the log alone says nothing). */
+    private readonly onFailure: (root: string, reason: string) => void = () => {},
   ) {}
+
+  private fail(root: string, error: unknown) {
+    const owner = this.watchers.get(root);
+    if (owner) owner.failed = true;
+    this.onFailure(root, error instanceof Error ? error.message : String(error));
+  }
 
   /**
    * Take one watch of the root. `paths` are files a tab opened and gave back
@@ -965,14 +979,23 @@ export class FileWatchers {
   }
 
   private async watchRoot(root: string): Promise<void> {
-    const existing = this.watchers.get(root);
+    let existing = this.watchers.get(root);
+    let refs = 1;
+    if (existing?.failed) {
+      // A dead watcher is rebuilt by the next watch: the re-arm the failure sentence promises.
+      refs += existing.refs;
+      this.watchers.delete(root);
+      for (const direct of existing.direct.values()) direct.close();
+      await existing.watcher?.close().catch(() => {});
+      existing = undefined;
+    }
     if (existing) {
       existing.refs += 1;
       return;
     }
     // Register the owner before async setup: a directory listing or a second
     // tab may arrive while chokidar is loading.
-    const owner: WatchedRoot = { watcher: null, direct: new Map(), refs: 1 };
+    const owner: WatchedRoot = { watcher: null, direct: new Map(), refs };
     this.watchers.set(root, owner);
     // Imported here rather than at module scope so this file stays loadable in
     // a plain Node test without pulling chokidar's fsevents binding in.
@@ -1010,7 +1033,10 @@ export class FileWatchers {
       .on("unlinkDir", record("removed", true))
       // A watcher that dies silently leaves a stale tree, which looks like a
       // bug in the tree. Say so instead.
-      .on("error", (error: unknown) => console.error(`[explorer] watch ${root}`, error));
+      .on("error", (error: unknown) => {
+        console.error(`[explorer] watch ${root}`, error);
+        if (this.watchers.get(root) === owner) this.fail(root, error);
+      });
 
     owner.watcher = watcher;
     await Promise.all([...(this.listedDirectories.get(root) ?? [])].map((directory) =>
@@ -1164,11 +1190,13 @@ export class FileWatchers {
       direct.on("error", (error: unknown) => {
         console.error(`[explorer] watch ${absolute}`, error);
         disarm(direct);
+        this.fail(root, error);
       });
       owner.direct.set(relative, direct);
     } catch (error) {
       // A failed watch must not make the directory disappear from browsing.
       console.error(`[explorer] watch ${absolute}`, error);
+      this.fail(root, error);
     }
   }
 

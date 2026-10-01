@@ -1495,17 +1495,20 @@ shell (`src/main/explorer/terminal.ts`). After that a pty is named by
 main refuses a request whose session does not own the pty, so one session's
 renderer state cannot type into another session's shell.
 
-Directory listings show every regular file and directory, including dotfiles,
+Directory listings show every regular file and directory, including every
+dotfile except `.git` (the tree and the filter leave out Git's own folder, or
+the `.git` file of a worktree, unless the open file is inside it),
 Git-ignored outputs, dependency folders and unsupported formats. Renderer
 support determines what opens in the file tab; it never hides a tree row.
-Unknown types open with **Not supported**. Previews that cannot be shown keep the same way out:
+Unknown types open with **Not supported**. Trashing a folder closes every open tab under it; a tab with unsaved changes stays open and is named in a toast ("Moved to Trash, but 1 open tab could not be closed: <path> (<reason>)"), and the other tabs still close. A linked directory lists its children under the link's own path (`links/vendor/a.txt`), read through the real one, so a link and its target never produce the same row twice. Previews that cannot be shown keep the same way out:
 an image or PDF over the 24 MB preview limit (`PREVIEW_LIMIT_BYTES` in `FileLoadError.tsx`, which
 `file-preview-errors.test.tsx` holds equal to `MAX_BINARY_BYTES` in `src/main/explorer/fs.ts`) reads
 "This file is too large to preview" with "<name> is <size>; previews open files up to 24 MB.", an
 image the browser cannot decode reads "This image could not be decoded.", and a PDF that PDF.js
 refuses reads "This PDF could not be opened: <reason>." with no page toolbar. Each offers Open
 externally when the host has it. Listings are lazy and complete for
-each expanded directory. The bounded fuzzy index visits project content before
+each expanded directory. The filter lists at most 200 matches and the index holds at most 20,000 files; when either
+cap cuts something it says "Showing the first 200 of N matches; the index stopped at 20,000 files" (or "The index stopped at 20,000 files; some matches may be missing"), and an index that cannot be read says "Could not search the files: <reason>". The bounded fuzzy index visits project content before
 dependency caches so cache files do not crowd generated CAD outputs out of the
 search budget. `listPaths` reads the next 16 directories (`LIST_READ_AHEAD`)
 while it takes the current one apart, and consumes them in the order they were
@@ -1536,6 +1539,13 @@ tab that remounts gives its paths back and takes them again; a release that
 overtakes the watch it follows is counted (`arriving`, `owed`) and given back
 once that watch holds, so no hold is left behind.
 
+A watcher that dies, or cannot start (on Linux, usually the inotify limit),
+is not left silent: main publishes `files.watch-error` and the renderer toasts
+"Live updates stopped: <reason>. Reload the tab to re-arm them." once per root
+(`reportWatchFailure` in `state/explorer.ts`); a `watch` that is rejected says
+"Live updates did not start: <reason>. Reload the tab to re-arm them." The next
+`watch` of that root closes the dead watcher and builds it again.
+
 ### The file tab's nav
 
 One row: the breadcrumb, with the unsaved dot and the file's loading or update
@@ -1562,7 +1572,23 @@ open file, paired by inode in the watcher (above) — remap every matching tab
 and cached/expanded subtree;
 delete events prune descendant listings. A bounded mutation-receipt history
 prevents the broadcast and initiating caller's receipt from applying a move
-twice. External edits preserve dirty drafts and refresh clean documents.
+twice. External edits preserve dirty drafts and refresh clean documents. A dirty
+draft whose file changed on disk shows "This file changed on disk since you
+opened it." with Reload and Keep mine; Keep mine adopts the disk's current
+revision, so the next Save writes your text over it. A dirty draft whose file
+was deleted shows "This file was deleted on disk; Save will create it again."
+and Save, after Keep mine, creates the file.
+
+A failed IPC call reaches every renderer caller as the handler's own sentence:
+the preload bridge (`src/preload/index.ts`) strips Electron's `Error invoking
+remote method '…': IpcError:` wrapper once, with `errorMessage`
+(`src/shared/ipc/errors.ts`), so the viewer says "that file is gone" and not
+the wrapper around it.
+
+A directory that cannot be listed (a deleted root, a permission error, a
+worktree gone on restore) says why where its rows would be, with a Retry:
+"Reading…" is only ever the wait for an answer. A refresh that fails on a
+directory already drawn keeps its rows and toasts instead.
 
 **Every crumb is a menu of its neighbours** (`@text-to-cad/ui/navigation`'s
 `Breadcrumbs.jsx`, the model in its `crumbs.js`), the way the CAD Viewer's

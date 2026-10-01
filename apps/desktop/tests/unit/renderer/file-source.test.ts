@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { toast } from "sonner";
+import { desktopLiveDocuments } from "@renderer/state/live-documents";
 import type { PromptContextPort } from "@text-to-cad/core/prompt";
 import type { FileChanges } from "@text-to-cad/ui/file-viewer";
 import type { FileMutationResult } from "@shared/ipc/explorer";
 import { createDesktopFileActions, createDesktopFileSource } from "@renderer/features/explorer/adapters/fileSource";
 import { readSessionStrip, useExplorer, treeKey } from "@renderer/state/explorer";
+
+vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { error: vi.fn(), success: vi.fn(), dismiss: vi.fn() }) }));
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -175,4 +179,20 @@ test("opening a terminal after async path resolution cannot target a different s
   expect((await readSessionStrip("file-source-owner")).tabs).toEqual(expect.arrayContaining([expect.objectContaining({ sessionId: "file-source-owner", kind: "terminal", cwd: "/workspace/src" })]));
   expect(useExplorer.getState().sessionId).toBe("terminal-other-session");
   expect(useExplorer.getState().tabs).toEqual([]);
+});
+
+test("trashing a folder closes every tab under it, and names the one with unsaved changes that stayed open", async () => {
+  const files = source();
+  const dirty = useExplorer.getState().openFile("a/dirty.txt", null)!;
+  const clean = useExplorer.getState().openFile("a/clean.txt", null)!;
+  const elsewhere = useExplorer.getState().openFile("b/other.txt", null)!;
+  desktopLiveDocuments(dirty.id, { projectId: "p", root: null }).documents!.drafts
+    .put(JSON.stringify(["desktop", "p", null]), "a/dirty.txt", { base: { content: "x", revision: "r1" }, value: "unsaved", stale: false });
+  vi.mocked(window.textToCad.explorer.trash).mockResolvedValueOnce({ status: "committed", path: "a", change: { kind: "removed", path: "a", directory: true, mutationId: "trash-1" } });
+  await files.trash!("a", { signal: signal() });
+  await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
+  const ids = useExplorer.getState().tabs.map(tab => tab.id);
+  expect(ids).not.toContain(clean.id);
+  expect(ids).toContain(elsewhere.id);
+  expect(vi.mocked(toast.error).mock.calls[0]![0]).toBe("Moved to Trash, but 1 open tab could not be closed: a/dirty.txt (Save or explicitly discard the document before closing its tab.)");
 });

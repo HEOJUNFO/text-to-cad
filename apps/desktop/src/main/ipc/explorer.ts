@@ -72,6 +72,15 @@ export function initExplorerServices(broadcast: Broadcast) {
     if (owner) {
       broadcast("files.changed", { projectId: owner.project.id, root: owner.root, changes });
     }
+  }, undefined, (root, reason) => {
+    const owner = projectOfRoot(root);
+    if (owner) {
+      broadcast("files.watch-error", {
+        projectId: owner.project.id,
+        root: owner.root,
+        message: `Live updates stopped: ${reason}. Reload the tab to re-arm them.`,
+      });
+    }
   });
   terminals ??= new Terminals((event) => {
     if (event.type === "data") {
