@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   broadcast: vi.fn(),
   check: vi.fn(async (): Promise<unknown> => ({})),
   quitAndInstall: vi.fn(),
-  downloadUpdate: vi.fn(async () => undefined),
+  downloadUpdate: vi.fn(async (_token?: { cancelled: boolean }): Promise<undefined> => undefined),
   settings: { checkUpdatesOnLaunch: true },
   native: null as unknown as EventEmitter,
 }));
@@ -25,10 +25,17 @@ vi.mock("electron-updater", async () => {
     autoInstallOnAppQuit: true,
     logger: undefined as unknown,
     checkForUpdates: () => mocks.check(),
-    downloadUpdate: () => mocks.downloadUpdate(),
+    downloadUpdate: (token?: { cancelled: boolean }) => mocks.downloadUpdate(token),
     quitAndInstall: (...args: unknown[]) => mocks.quitAndInstall(...args),
   });
-  return { default: { autoUpdater } };
+  // electron-updater re-exports builder-util-runtime's token: `cancel()` flips `cancelled`.
+  class CancellationToken {
+    cancelled = false;
+    cancel() {
+      this.cancelled = true;
+    }
+  }
+  return { default: { autoUpdater, CancellationToken } };
 });
 vi.mock("@main/ipc", () => ({ broadcast: mocks.broadcast }));
 vi.mock("@main/db/repositories", () => ({ settings: { get: () => mocks.settings } }));
@@ -255,6 +262,44 @@ describe("updater", () => {
     expect((await updater.checkForUpdates()).state).toBe("available");
   });
 
+  it("cancels the stalled download, so Try again starts a fresh one rather than re-attaching to the hung one", async () => {
+    const updater = await downloading();
+    const first = mocks.downloadUpdate.mock.calls[0]![0]!;
+    expect(first.cancelled).toBe(false);
+
+    vi.advanceTimersByTime(60_000);
+    expect(first.cancelled, "the stalled download's token is cancelled").toBe(true);
+
+    feedAnnounces("2.0.0");
+    await updater.checkForUpdates();
+    void updater.downloadUpdate();
+    expect(mocks.downloadUpdate).toHaveBeenCalledTimes(2);
+    const second = mocks.downloadUpdate.mock.calls[1]![0]!;
+    expect(second, "a new token, not the cancelled one").not.toBe(first);
+    expect(second.cancelled).toBe(false);
+    expect(updater.updateStatus().state).toBe("downloading");
+  });
+
+  it("ignores progress and the rejection that a cancelled stalled download delivers late", async () => {
+    mocks.downloadUpdate.mockReset();
+    const updater = await load();
+    autoUpdater.emit("update-available", { version: "2.0.0" });
+    let reject!: (error: Error) => void;
+    mocks.downloadUpdate.mockImplementation(() => new Promise<undefined>((_resolve, fail) => { reject = fail; }));
+    const pending = updater.downloadUpdate();
+    autoUpdater.emit("download-progress", { percent: 10 });
+    vi.advanceTimersByTime(60_000);
+    const stalled = { state: "error", message: "The download stalled; try again." };
+    expect(updater.updateStatus()).toEqual(stalled);
+
+    autoUpdater.emit("download-progress", { percent: 11 });
+    expect(updater.updateStatus(), "late progress does not bring Downloading back").toEqual(stalled);
+
+    reject(new Error("Cancelled"));
+    await pending;
+    expect(updater.updateStatus(), "the cancellation is not reported as a failure").toEqual(stalled);
+  });
+
   it("a check that fails while a download runs leaves the download running", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const updater = await downloading();
@@ -276,12 +321,14 @@ describe("updater", () => {
   });
 
   it("skips the six-hourly check while downloaded or downloading", async () => {
-    const updater = await load();
+    const staged = await load();
     autoUpdater.emit("update-downloaded", { version: "2.0.0" });
     await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000 + 10_000);
     expect(mocks.check).not.toHaveBeenCalled();
+    staged.stopUpdater();
 
-    autoUpdater.emit("download-progress", { percent: 40 });
+    // (Progress only counts while a download is actually under way.)
+    const updater = await downloading();
     // A download that is alive keeps reporting; one that goes quiet is a stalled one.
     for (let elapsed = 0; elapsed < 6 * 60 * 60 * 1000; elapsed += 30_000) {
       await vi.advanceTimersByTimeAsync(30_000);

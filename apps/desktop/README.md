@@ -589,8 +589,10 @@ toasts only the headline "Could not reach the updater". The About row is a
 `role="status"` region; the download's percentage is drawn outside it, beside
 the progress bar, so a number that changes every second is not read out.
 A download that reports no progress for `DOWNLOAD_STALL_MS` (60 s, restarted by every
-`download-progress`) is stalled: the row becomes an error reading "The download stalled; try again."
-with Try again, which checks afresh. A Restart that never quits is called stuck after
+`download-progress`) is stalled: the download is cancelled (its `CancellationToken`, so electron-updater
+does not hand the hung one back to the next attempt), progress it still delivers is ignored, and the
+row becomes an error reading "The download stalled; try again." with Try again, which checks afresh
+and starts a new download. A Restart that never quits is called stuck after
 `INSTALL_DEADLINE_MS` and retried by pressing Restart again; a retry that is itself stuck has
 no further recovery than quitting the app, which is a known limit.
 Restart pushes an `installing` status (the row reads "Restarting…" and stays

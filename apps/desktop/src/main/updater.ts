@@ -48,7 +48,7 @@ import { settings } from "./db/repositories";
 import { markQuittingForUpdate } from "./quitting";
 import type { UpdateStatus } from "../shared/ipc/app";
 
-const { autoUpdater } = electronUpdater;
+const { autoUpdater, CancellationToken } = electronUpdater;
 
 /** Long enough to be out of the launch path; short enough to matter today. */
 const FIRST_CHECK_DELAY_MS = 10_000;
@@ -72,6 +72,14 @@ let installDeadline: NodeJS.Timeout | undefined;
 export const DOWNLOAD_STALL_MS = 60_000;
 export const DOWNLOAD_STALLED = "The download stalled; try again.";
 let stallTimer: NodeJS.Timeout | undefined;
+/**
+ * The download in flight. `downloadUpdate` hands electron-updater a token and a stall cancels it:
+ * `AppUpdater.downloadUpdate` returns the promise of a download already in flight, so without the
+ * cancel a Try again would re-attach to the hung one. `downloadGeneration` is bumped when a
+ * download is abandoned, so its late rejection is not reported as a failure of the next one.
+ */
+let downloadToken: InstanceType<typeof CancellationToken> | undefined;
+let downloadGeneration = 0;
 
 /** (Re)start the stall countdown: called when the download starts and on every progress event. */
 function armStall() {
@@ -79,6 +87,11 @@ function armStall() {
   stallTimer = setTimeout(() => {
     stallTimer = undefined;
     if (status.state === "downloading") {
+      // Cancelled, so the next download is a fresh one; no `version`, because on an error that
+      // marks a staged download the row answers with Restart, and nothing is staged here.
+      downloadGeneration += 1;
+      downloadToken?.cancel();
+      downloadToken = undefined;
       setStatus({ state: "error", message: DOWNLOAD_STALLED });
     }
   }, DOWNLOAD_STALL_MS);
@@ -159,6 +172,11 @@ export function initUpdater() {
     }
   });
   autoUpdater.on("download-progress", (progress) => {
+    // Progress from a download that was cancelled as stalled arrives after the row said so: it
+    // must not turn the error back into "Downloading…" with no version.
+    if (status.state !== "downloading") {
+      return;
+    }
     setStatus({
       state: "downloading",
       version: status.version,
@@ -286,12 +304,19 @@ export async function downloadUpdate(): Promise<UpdateStatus> {
   if (status.state !== "available") {
     return status;
   }
+  const token = new CancellationToken();
+  downloadToken = token;
+  const generation = downloadGeneration;
   try {
     setStatus({ state: "downloading", version: status.version, percent: 0 });
     armStall();
-    await autoUpdater.downloadUpdate();
+    await autoUpdater.downloadUpdate(token);
     return status;
   } catch (error) {
+    // A download abandoned as stalled rejects with its cancellation: the row already says why.
+    if (generation !== downloadGeneration) {
+      return status;
+    }
     return setStatus({ state: "error", message: message(error, "download") });
   }
 }
