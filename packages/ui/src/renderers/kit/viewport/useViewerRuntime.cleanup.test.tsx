@@ -209,7 +209,7 @@ test('the idle follow-up timer scheduled by the restore is cleared when the star
   expect(vi.getTimerCount()).toBe(0);
 });
 
-test('a rebuilt viewer forces its old context lost, after the listeners that would rebuild again are off', async () => {
+test('a rebuilt viewer forces its old, still-live context lost, with the rebuilding listeners already off', async () => {
   init.fail = false;
   const mount = document.createElement('div');
   document.body.appendChild(mount);
@@ -218,15 +218,28 @@ test('a rebuilt viewer forces its old context lost, after the listeners that wou
   const hook = renderHook(() => useViewerRuntime(base));
   await until(() => base.runtimeRef.current !== null);
   const canvas = renderers[0].domElement as HTMLCanvasElement;
-  // Stand in for the browser: a forced loss answers with the pair of context events.
+  const order: string[] = [];
+  const removeListener = canvas.removeEventListener.bind(canvas);
+  vi.spyOn(canvas, 'removeEventListener').mockImplementation(((type: string, ...rest: any[]) => {
+    order.push(`off:${type}`);
+    (removeListener as any)(type, ...rest);
+  }) as any);
+  // Chromium's `loseContext()`: `webglcontextlost` is dispatched ASYNCHRONOUSLY, after the
+  // synchronous release chain; `webglcontextrestored` never fires without `restoreContext()`.
   renderers[0].forceContextLoss.mockImplementation(() => {
-    canvas.dispatchEvent(new Event('webglcontextlost'));
-    canvas.dispatchEvent(new Event('webglcontextrestored'));
+    order.push('forceContextLoss');
+    queueMicrotask(() => canvas.dispatchEvent(new Event('webglcontextlost')));
   });
 
   hook.unmount();
+  await new Promise((resolve) => setTimeout(resolve, 0));
 
   expect(renderers[0].forceContextLoss).toHaveBeenCalledTimes(1);
+  // The listeners are off before the forced loss (matters if an implementation dispatches
+  // synchronously) and, as the event arrives later, there is nobody left to hear it.
+  const lostOff = order.indexOf('off:webglcontextlost');
+  expect(lostOff).toBeGreaterThanOrEqual(0);
+  expect(lostOff).toBeLessThan(order.indexOf('forceContextLoss'));
   expect(onContextRestored).not.toHaveBeenCalled();
   expect(base.setError).not.toHaveBeenCalled();
 });
