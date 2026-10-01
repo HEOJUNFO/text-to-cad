@@ -262,6 +262,8 @@ export function TerminalTab({
      * whatever runs now as if it had been typed. It is dropped here.
      */
     let replaying = false;
+    /** The shell is gone: a write that fails now is the shell's end, not a second problem to name. */
+    let exited = false;
 
     const offData = window.textToCad.on("terminal.data", (event) => {
       if (event.id !== ptyId) {
@@ -296,6 +298,7 @@ export function TerminalTab({
         }
         pending = [];
         if (attached.info.exitCode !== null) {
+          exited = true;
           setExited(attached.info.exitCode);
         }
         push();
@@ -303,6 +306,7 @@ export function TerminalTab({
       .catch((caught: unknown) => setNotice(errorMessage(caught)));
     const offExit = window.textToCad.on("terminal.exit", (event) => {
       if (event.id === ptyId) {
+        exited = true;
         setExited(event.exitCode);
       }
     });
@@ -312,7 +316,10 @@ export function TerminalTab({
         if (replaying && isTerminalReply(data)) {
           return;
         }
-        void window.textToCad.terminal.write({ id: ptyId, sessionId, data }).catch((caught: unknown) => setNotice(errorMessage(caught)));
+        void window.textToCad.terminal.write({ id: ptyId, sessionId, data }).catch((caught: unknown) => {
+          // The write that races the shell's exit rejects too: the exit sentence is the true one.
+          if (!exited) setNotice(errorMessage(caught));
+        });
       });
     }
 

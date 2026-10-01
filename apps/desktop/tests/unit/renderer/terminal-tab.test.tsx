@@ -219,6 +219,25 @@ it("says the shell exited in a status banner whose Try again restarts it", async
   expect(update).toHaveBeenCalledWith("tab", { ptyId: null });
 });
 
+it("keeps the exit sentence when a write to the gone shell then rejects", async () => {
+  terminal().attach = vi.fn(async () => ({ info: info(null), scrollback: "", seq: 0 }));
+  terminal().write = vi.fn(async () => { throw new Error("write EIO"); });
+  let exit: (event: { id: string; exitCode: number }) => void = () => {};
+  (window.textToCad.on as unknown as ReturnType<typeof vi.fn>).mockImplementation((channel: string, listener: typeof exit) => {
+    if (channel === "terminal.exit") exit = listener;
+    return () => {};
+  });
+  renderTab();
+  await waitFor(() => expect(terminals).toHaveLength(1));
+  act(() => exit({ id: "pty-old", exitCode: 2 }));
+  expect(await screen.findByText("The shell exited (code 2).")).toBeInTheDocument();
+
+  await act(async () => { (terminals[0] as unknown as { listener: (data: string) => void }).listener("ls\r"); });
+  expect(terminal().write).toHaveBeenCalled();
+  expect(screen.queryByText("write EIO")).toBeNull();
+  expect(screen.getByText("The shell exited (code 2).")).toBeInTheDocument();
+});
+
 it("shows the unwrapped sentence when attaching fails", async () => {
   terminal().attach = vi.fn(async () => { throw new Error("Error invoking remote method 'text-to-cad:terminal.attach': IpcError: That session is no longer active."); });
   renderTab();
