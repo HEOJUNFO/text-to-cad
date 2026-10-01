@@ -99,6 +99,21 @@ beforeEach(() => {
   useComposer.setState({ submit, drafts: {}, annotations: {}, submitRequest: null } as never);
 });
 
+describe("a start that fails for another reason", () => {
+  it("offers Try again, which creates again", async () => {
+    const user = userEvent.setup();
+    create.mockRejectedValueOnce(new Error("fatal: not a git repository")).mockResolvedValueOnce("s1");
+    render(<NewSession project={PROJECT} />);
+
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("fatal: not a git repository");
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(submit).toHaveBeenCalledWith("s1", "make a cube", [{ type: "text", text: "make a cube" }], expect.anything());
+  });
+});
+
 describe("a start that needs a sign-in", () => {
   it("sends the same prompt again from Try again", async () => {
     const user = userEvent.setup();

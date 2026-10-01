@@ -927,7 +927,12 @@ the person elsewhere (on another thread, or another project's new-session
 screen) shows a toast with the error and Try again, which returns to the
 new-session screen that holds the restored draft. A create that outlasts a
 click on another thread or project does not pull them back to the session it
-made.
+made. Whatever the error, the card on the screen carries Try again (it sends what
+the box holds, as the sign-in card's does) beside Open Settings › Agents and Dismiss.
+Settings' "New session in this worktree" (`runUiCommand`, `new-session` with a
+`cwd`) closes Settings before it starts the thread; if the start fails a toast
+says "Could not start a session in this worktree: <reason>" rather than leaving
+a bare console line.
 
 Image attachments show a contained thumbnail beside the filename, with an always-visible remove control. Click the thumbnail (or focus it and press Enter) to inspect the full image. Escape, Close or the backdrop dismisses the preview and returns focus to the thumbnail; the draft is unchanged. Explorer tabs use a bordered active state and visible keyboard focus on selection and close controls.
 
