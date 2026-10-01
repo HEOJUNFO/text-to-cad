@@ -84,7 +84,10 @@ const CAPTURE_COMMAND = [
   `printf '\\n%s\\n' ${ENV_END}`,
 ].join("; ");
 
-let cached: Promise<Env> | null = null;
+/** What a capture gave: the environment, and why it is only the process's own when the shell failed. */
+export type LoginEnvOutcome = { env: Env; failed: string | null };
+
+let cached: Promise<LoginEnvOutcome> | null = null;
 let resolved: Env | null = null;
 const listeners = new Set<(env: Env) => void>();
 
@@ -99,30 +102,39 @@ export function onLoginEnv(listener: (env: Env) => void): void {
 }
 
 /**
- * Resolve the login environment. Cached after the first call; `force`
- * re-runs the shell (Settings › Agents › Refresh).
+ * Resolve the login environment and say whether the shell gave it. Cached
+ * after the first call; `force` re-runs the shell (Settings › Agents ›
+ * Refresh). `failed` is the reason when the shell could not be read (it
+ * exited non-zero, timed out, printed no PATH): `env` is then the process's
+ * own, which is right to spawn with but says nothing about what is installed.
  */
-export function loginEnv(options: { force?: boolean; timeoutMs?: number; shell?: string } = {}): Promise<Env> {
+export function loginEnvOutcome(options: { force?: boolean; timeoutMs?: number; shell?: string } = {}): Promise<LoginEnvOutcome> {
   if (!cached || options.force) {
-    const capture = captureLoginEnv(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, options.shell)
-      .catch((error: unknown) => {
+    const capture: Promise<LoginEnvOutcome> = captureLoginEnv(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, options.shell)
+      .then((env): LoginEnvOutcome => ({ env, failed: null }))
+      .catch((error: unknown): LoginEnvOutcome => {
         const reason = error instanceof Error ? error.message : String(error);
         console.warn(
           `[shell-env] could not read the login shell's environment (${reason}); using the process environment, so agents on the shell's PATH may look not installed`,
         );
-        return stripHostSession(processEnv());
+        return { env: stripHostSession(processEnv()), failed: reason };
       })
-      .then((env) => {
+      .then((outcome) => {
         // A newer capture may have replaced this one while it ran.
         if (cached === capture) {
-          resolved = env;
-          for (const listener of listeners) listener(env);
+          resolved = outcome.env;
+          for (const listener of listeners) listener(outcome.env);
         }
-        return env;
+        return outcome;
       });
     cached = capture;
   }
   return cached;
+}
+
+/** The login environment alone, for the callers that only spawn with it. */
+export function loginEnv(options: { force?: boolean; timeoutMs?: number; shell?: string } = {}): Promise<Env> {
+  return loginEnvOutcome(options).then((outcome) => outcome.env);
 }
 
 /** `process.env` with the undefined values dropped. */

@@ -75,3 +75,10 @@ it("keeps a comment and a malformed line in the field after the blur that saves 
   expect(env).toHaveValue("# my note\nGOOD=1\noops");
   expect(screen.getByRole("status")).toHaveTextContent("Line 3 has no KEY=value and will not be saved.");
 });
+
+it("says why the skills could not be set up instead of blaming a missing build", async () => {
+  vi.mocked(window.textToCad.skills.info).mockResolvedValue({ root: null, skills: [], error: "EACCES: permission denied" });
+  render(drawer());
+  expect(await screen.findByText("Skills could not be set up: EACCES: permission denied")).toBeInTheDocument();
+  expect(screen.queryByText(/run .npm run build./)).toBeNull();
+});

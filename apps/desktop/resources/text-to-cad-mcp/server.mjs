@@ -45,6 +45,12 @@ export const BRIDGE_ENV = {
 /** Where the app put its skills. Shared with `src/main/integrations/skills.ts` by name. */
 export const SKILLS_ROOT_ENV = "TEXT_TO_CAD_SKILLS_ROOT";
 
+/** Why the app could not make the skills root, when it could not. */
+export const SKILLS_ERROR_ENV = "TEXT_TO_CAD_SKILLS_ERROR";
+
+/** The sentence an agent is told when the skills root could not be set up. */
+export const skillsErrorSentence = (reason) => `Skills could not be set up: ${reason}`;
+
 /** The layout inside the skills root that this server reads. */
 const SKILLS_LAYOUT = path.join(".claude", "skills");
 
@@ -179,6 +185,32 @@ const failure = (error) => ({
 });
 
 /**
+ * One sentence for a call whose arguments the schema refused, in place of the SDK's "MCP error
+ * -32602 … Invalid arguments" and a dump of the validator's issues. A tool may carry its own
+ * `usage` sentence; a refinement's own message is used as written; otherwise the sentence names
+ * the arguments the tool needs and the first one that was wrong.
+ */
+export function argumentSentence(definition, error) {
+  const issues = error.issues ?? [];
+  const custom = issues.find((issue) => issue.code === "custom");
+  if (custom) return custom.message;
+  if (definition.usage) return definition.usage;
+  const shape = definition.inputSchema.shape ?? {};
+  const required = Object.keys(shape).filter((key) => !shape[key].safeParse(undefined).success);
+  const takes = Object.keys(shape);
+  const unknown = issues.find((issue) => issue.code === "unrecognized_keys");
+  if (unknown) {
+    const keys = unknown.keys.map((key) => `"${key}"`).join(", ");
+    return `${definition.name} takes ${takes.length ? takes.join(", ") : "no arguments"}; it does not take ${keys}.`;
+  }
+  const first = issues[0];
+  const where = first?.path?.join(".") ?? "";
+  const missing = first && /received undefined/.test(first.message);
+  const problem = !where ? "" : missing ? `; ${where} is missing` : `; ${where} is not valid`;
+  return `${definition.name} needs ${required.length ? required.join(", ") : "no arguments"}${problem}.`;
+}
+
+/**
  * Build the server over a bridge function `(method, params) => result`.
  *
  * The descriptions are written for the agent reading them, because that is
@@ -189,6 +221,7 @@ export function createServer(bridge, options = {}) {
   const integration = integrationById(options.integration ?? process.env.TEXT_TO_CAD_INTEGRATION ?? "workspace");
   if (integration.runtime) throw new Error(`${integration.id} uses its upstream MCP runtime`);
   const skillsRoot = options.skillsRoot ?? process.env[SKILLS_ROOT_ENV] ?? null;
+  const skillsError = skillsRoot ? null : (options.skillsError ?? process.env[SKILLS_ERROR_ENV] ?? null);
   const server = new McpServer({ name: `text-to-cad-${integration.id}`, version: options.version ?? "0.0.0" });
   for (const definition of integration.tools) {
     server.registerTool(definition.name, {
@@ -196,6 +229,9 @@ export function createServer(bridge, options = {}) {
       inputSchema: definition.inputSchema,
     }, async (params, extra) => {
       try {
+        if (skillsError && (definition.name === "list_skills" || definition.name === "read_skill")) {
+          throw new Error(skillsErrorSentence(skillsError));
+        }
         if (definition.name === "list_skills") return text(readSkills(skillsRoot));
         if (definition.name === "read_skill") return text(readSkillFile(skillsRoot, params.name, params.path));
         const result = await bridge(definition.name, params, extra.signal);
@@ -211,6 +247,19 @@ export function createServer(bridge, options = {}) {
       } catch (error) { return failure(error); }
     });
   }
+  // The SDK validates before the handler runs and words a refusal as a JSON-RPC error with the
+  // validator's dump; say it in one sentence instead (same refusal, same isError result).
+  const validate = server.validateToolInput.bind(server);
+  server.validateToolInput = async (registered, args, name) => {
+    try {
+      return await validate(registered, args, name);
+    } catch (error) {
+      const definition = integration.tools.find((candidate) => candidate.name === name);
+      const parsed = definition?.inputSchema.safeParse(args ?? {});
+      if (!definition || !parsed || parsed.success) throw error;
+      throw new Error(argumentSentence(definition, parsed.error), { cause: error });
+    }
+  };
   return server;
 }
 

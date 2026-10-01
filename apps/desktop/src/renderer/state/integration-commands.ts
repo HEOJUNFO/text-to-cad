@@ -10,7 +10,7 @@ import { getDrawingScene } from "./drawings";
 import { useProjects } from "./projects";
 import { useSessions } from "./sessions";
 import { hasDirtyDocument, performDocumentCommand, performPdfCommand } from "./live-documents";
-import { performCadViewerCommand } from "./live-cad";
+import { performCadViewerCommand, recentCadTabIds } from "./live-cad";
 import { imageResult } from "./image-result";
 
 async function rendererIdForPath(projectId: string, root: string | null, path: string, tabId: string) {
@@ -57,6 +57,25 @@ async function scopedTab(command: IntegrationCommand, signal?: AbortSignal) {
   signal?.throwIfAborted();
   const tab = strip.tabs.find(tab => tab.id === (command.tabId ?? strip.activeId));
   if (!tab) throw new Error("that tab is closed or belongs to another workspace");
+  return tab;
+}
+
+const isCadTab = (tab: ExplorerTab) => tab.kind === "file" && Boolean(tab.path) && isCadFile(tab.path!);
+
+/**
+ * The CAD tab a viewer command with no tab ID means: the active tab if it is a CAD model, else the
+ * CAD tab of this workspace that was active most recently. None is "no viewer state", not "the
+ * active terminal is not a model".
+ */
+async function scopedCadTab(command: IntegrationCommand, signal?: AbortSignal) {
+  if (command.tabId) return scopedTab(command, signal);
+  const { tabs, activeId } = await scopedTabs(command, signal);
+  signal?.throwIfAborted();
+  const cad = tabs.filter(isCadTab);
+  const active = cad.find(tab => tab.id === activeId);
+  const recent = recentCadTabIds().map(id => cad.find(tab => tab.id === id)).find(Boolean);
+  const tab = active ?? recent;
+  if (!tab) throw new Error("No CAD viewer state in this workspace. Open the model first.");
   return tab;
 }
 
@@ -154,7 +173,7 @@ export async function performIntegrationCommand(command: IntegrationCommand, sig
     case "cad-reset-camera":
     case "cad-render-mode":
     case "capture-view": {
-      const tab = await scopedTab(command, signal);
+      const tab = await scopedCadTab(command, signal);
       signal?.throwIfAborted();
       if (tab.kind !== "file" || !tab.path || !isCadFile(tab.path)) throw new Error("this tab does not contain a CAD model");
       return performCadViewerCommand(command.kind, { ...params, tabId: tab.id }, { ...scope, path: tab.path });

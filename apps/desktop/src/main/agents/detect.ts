@@ -21,13 +21,19 @@ import path from "node:path";
 import type { AgentProvider, AgentStatus, AuthState } from "../../shared/agents";
 import { trackChild } from "../children";
 import { AGENT_PROVIDERS } from "./registry";
-import { loginEnv, type Env } from "./shell-env";
+import { loginEnvOutcome, type Env } from "./shell-env";
 
 export type ExecResult = { stdout: string; stderr: string; code: number | null };
 
 export type DetectorProbes = {
   /** Resolve the environment agents run in. */
   env: (force: boolean) => Promise<Env>;
+  /**
+   * Why the environment `env` just gave is only the process's own (the login shell failed or
+   * timed out), else null. Read right after `env` resolves: what was found on that PATH says
+   * nothing about what is installed, so it is no answer.
+   */
+  captureFailure?: () => string | null;
   /** Is this path an executable file? */
   isExecutable: (file: string) => Promise<boolean>;
   /** Does this path exist at all? */
@@ -62,8 +68,15 @@ export type AgentsCache = {
 /** What an auth probe prints when the person is signed out (`Not logged in`, `{"loggedIn":false}`). */
 const SIGNED_OUT = /not (logged|signed) in|logged out|signed out|"loggedIn"\s*:\s*false|not authenticated|unauthenticated|login required/i;
 
+let lastCaptureFailure: string | null = null;
+
 export const nodeProbes: DetectorProbes = {
-  env: (force) => loginEnv({ force }),
+  env: async (force) => {
+    const outcome = await loginEnvOutcome({ force });
+    lastCaptureFailure = outcome.failed;
+    return outcome.env;
+  },
+  captureFailure: () => lastCaptureFailure,
   isExecutable: async (file) => {
     try {
       // `access(X_OK)` alone is true of a directory (search permission), so a
@@ -138,6 +151,12 @@ export class AgentDetector {
   private env: Env | null = null;
   /** This run has finished a probe; until then any rows held are the last launch's. */
   private probed = false;
+  /** The last probe could not read the login shell: a retry must capture it again, not reuse that. */
+  private captureFailed = false;
+  /** The probe in flight re-ran the login shell, so a forced refresh needs nothing more. */
+  private inflightForced = false;
+  /** The forced probe queued behind an unforced one. */
+  private forcedNext: Promise<AgentStatus[]> | null = null;
   private seeded = false;
   /** Providers `refreshOne` has checked in this run, before any whole table has: their rows are not the last launch's. */
   private readonly freshIds = new Set<string>();
@@ -205,6 +224,10 @@ export class AgentDetector {
    * screen draws from this answer is provisional and says so.
    */
   async listWithin(waitMs: number): Promise<AgentStatus[]> {
+    if (this.captureFailed && !this.inflight) {
+      // The renderer asking again after a failed shell capture is its Retry: capture afresh.
+      this.refresh(true).catch((error: unknown) => console.info(`[agents] the probe failed: ${String(error)}`));
+    }
     const cached = this.list();
     if (!this.probed && cached.length > 0) {
       // A retry after a failed probe starts over: the failure's mark is not this run's.
@@ -274,13 +297,29 @@ export class AgentDetector {
     };
   }
 
-  /** Re-resolve the shell environment and re-probe everything. */
+  /**
+   * Re-resolve the shell environment and re-probe everything. A forced refresh asked while an
+   * unforced probe is out (the Agents page's Refresh during the launch probe) is not answered by
+   * that probe, which reused the cached environment: it runs a forced one right after it.
+   */
   refresh(force = true): Promise<AgentStatus[]> {
-    if (!this.inflight) {
-      this.inflight = this.probeAll(force).finally(() => {
-        this.inflight = null;
-      });
+    if (this.inflight) {
+      if (!force || this.inflightForced) {
+        return this.inflight;
+      }
+      this.forcedNext ??= this.inflight
+        .catch(() => undefined)
+        .then(() => {
+          this.forcedNext = null;
+          return this.refresh(true);
+        });
+      return this.forcedNext;
     }
+    this.inflightForced = force;
+    this.inflight = this.probeAll(force).finally(() => {
+      this.inflight = null;
+      this.inflightForced = false;
+    });
     return this.inflight;
   }
 
@@ -312,13 +351,20 @@ export class AgentDetector {
   }
 
   private async probeAll(force: boolean): Promise<AgentStatus[]> {
+    let captureFailure: string | null = null;
     try {
       const env = await this.probes.env(force);
       this.env = env;
+      captureFailure = this.probes.captureFailure?.() ?? null;
+      this.captureFailed = captureFailure !== null;
+      if (captureFailure) {
+        // Every agent would read "not installed" on a PATH the shell never gave. Spawns keep the env.
+        throw new Error(`could not read the login shell's environment (${captureFailure})`);
+      }
       const statuses = await Promise.all(this.providers.map((provider) => this.probe(provider, env)));
       this.statuses = statuses;
     } catch (error) {
-      if (!this.probed) {
+      if (!this.probed || captureFailure !== null) {
         // No fresh table is coming: the last launch's rows would stay "probing" for good. They stay,
         // unmarked but flagged: an empty table would read as "no agent ready — sign in", the wrong cause.
         // With no last launch's either, the flagged rows are the registry's, so the failure reaches

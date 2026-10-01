@@ -588,6 +588,11 @@ invoking remote method" wrapper to main's sentence, keeps it on the row and
 toasts only the headline "Could not reach the updater". The About row is a
 `role="status"` region; the download's percentage is drawn outside it, beside
 the progress bar, so a number that changes every second is not read out.
+A download that reports no progress for `DOWNLOAD_STALL_MS` (60 s, restarted by every
+`download-progress`) is stalled: the row becomes an error reading "The download stalled; try again."
+with Try again, which checks afresh. A Restart that never quits is called stuck after
+`INSTALL_DEADLINE_MS` and retried by pressing Restart again; a retry that is itself stuck has
+no further recovery than quitting the app, which is a known limit.
 Restart pushes an `installing` status (the row reads "Restarting…" and stays
 off) until the quit; if neither the quit nor an installer error arrives within a
 minute the status becomes an `error` that keeps the staged version, and Restart
@@ -1812,6 +1817,11 @@ to spawn) comes back as the updater's `error`, which puts back the scheduled
 checks `installUpdate` stopped (`src/main/updater.ts`), so the session goes on
 checking.
 
+The unsaved-draft ask is skipped by that quit on purpose (a Cancel there would strand the
+restart), so Restart asks before it requests the install: with a document holding text that
+is not on disk, `useUpdates.install` shows "Restart now and discard unsaved changes?" with
+Restart / Not now and requests nothing until Restart is pressed.
+
 ## CAD runtime
 
 The runtime ships inside the app. Every cadgen process the app runs — the
@@ -1952,6 +1962,10 @@ receives the root in both `additionalDirectories` and `_meta.additionalRoots`;
 adapters read whichever spelling they understand. Claude Code and Codex use
 their native skill-root mechanisms. Other adapters retain the concise first
 prompt preamble; workspace `list_skills` and `read_skill` read the same root.
+A root that could not be made (the copy failed, as opposed to nothing being composed) is
+not a missing build: Settings › Agents says "Skills could not be set up: <reason>", and the
+workspace `list_skills` and `read_skill` fail with that same sentence (the reason travels to
+the MCP server in `TEXT_TO_CAD_SKILLS_ERROR`) rather than answering an empty list.
 `session/new` sets the preamble and the first `session/prompt` the agent takes
 consumes it: a prompt the agent rejects before it has streamed anything (a
 title or a command list does not count) puts it back, so the retry still
@@ -2211,12 +2225,25 @@ when it was written by the same app version and holds every provider. Then:
   rejects draws the "Could not read the agent list" alert a failed first read does.
 - A **cold launch** (no usable cache) waits for the first probe for at most
   `PROBE_WAIT_MS` (3 s), then answers with whatever it has, which may be empty.
+  An empty table is "not checked yet", not "nothing installed": a send from the
+  new-session screen before the probe has landed is held with "Still checking
+  which agents are installed…" and goes out when the probe finds an agent; "Install
+  an agent first" is shown only once the probe has answered and found none.
 - If the probe fails while the table is still the last launch's, or has none and the
   rows are the registry's, its rows stay
   but carry `probeFailed` instead of `probing` (a row a login has since re-checked
   does not); when every row has it the
   renderer treats it as a failed read, and the new-session screen shows "Could
   not check for agents" with a retry rather than "No agent ready".
+  A login shell that cannot be read (it exits non-zero, times out after 20 s, or
+  prints no PATH) is such a failure: `loginEnvOutcome` reports it as `failed`,
+  the probe marks every row `probeFailed` (even over a good last-launch table),
+  writes nothing to the `__agents` cache, and still hands sessions the process
+  environment to spawn with. The renderer's next `agents.list` (the card's
+  retry) captures the shell afresh instead of reusing the failed capture.
+- A forced `refresh` (the Agents page's Refresh) asked while an unforced probe is out is not
+  answered by it, because that probe reused the cached login environment: a forced probe runs
+  right after it, and the table the caller gets is the later one.
 - Anything that would act on a row waits for this launch's probe, through
   `freshWithin(PROBE_WAIT_MS)`: `agents.login` (a CLI installed since has no
   binary path in last launch's row) and the check that refuses a session as

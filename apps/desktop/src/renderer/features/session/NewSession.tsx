@@ -20,6 +20,7 @@ import { useSettings } from "@renderer/state/settings";
 import { useUi } from "@renderer/state/ui";
 import type { PromptBlock } from "@shared/acp/types";
 import { isDeletedWhileStarting } from "@shared/ipc/errors";
+import type { AgentStatus } from "@shared/agents";
 import type { GitMode, Project } from "@shared/types";
 
 import { AgentSetupCard, useOfferedAgents } from "./agent-setup";
@@ -84,6 +85,8 @@ export function NewSession({ project }: { project: Project }) {
   const [agentId, setAgentId] = useState<string | null>(null);
   const [gitMode, setGitMode] = useState<GitMode | null>(null);
   const [busy, setBusy] = useState(false);
+  // A send held because the first probe has not said which agents are installed.
+  const [checking, setChecking] = useState(false);
   const [failure, setFailure] = useState<{ message: string; auth: boolean } | null>(null);
   // The draft the failed start took from the box, as the composer put it back. "Try again" sends
   // what the box holds *now* — the person may have edited it since — and a sign-in that finishes
@@ -217,7 +220,19 @@ export function NewSession({ project }: { project: Project }) {
    * annotations into the text, as a list, a second time beside their own chip.
    */
   const start = async (text: string, content: PromptBlock[], draft: TakenDraft): Promise<boolean> => {
-    if (!startingAgentId) {
+    let chosenAgentId = startingAgentId;
+    if (!chosenAgentId && !useAgents.getState().ready) {
+      // An empty table before the first probe has landed is "not checked yet", not "nothing
+      // installed": the send is held, and goes out (or is refused) once detection has answered.
+      setBusy(true);
+      setChecking(true);
+      await agentsReady();
+      if (mounted.current) setChecking(false);
+      const answered = useAgents.getState();
+      chosenAgentId = firstAgentId(answered.agents, useSettings.getState().settings?.defaultAgentId ?? null);
+      if (!chosenAgentId && mounted.current) setBusy(false);
+    }
+    if (!chosenAgentId) {
       setFailure({ message: "Install an agent first — Settings › Agents lists what text-to-cad can run.", auth: false });
       return false;
     }
@@ -231,7 +246,7 @@ export function NewSession({ project }: { project: Project }) {
       // efforts exist.
       sessionId = await create({
         projectId: project.id,
-        agentId: startingAgentId,
+        agentId: chosenAgentId,
         ...(draftRoot ? { cwd: draftRoot } : {}),
         gitMode: resolvedGitMode,
       });
@@ -480,6 +495,12 @@ export function NewSession({ project }: { project: Project }) {
           </div>
         ) : null}
 
+        {checking ? (
+          <p className="mt-4 text-center text-[13px] text-muted-foreground" role="status">
+            Still checking which agents are installed…
+          </p>
+        ) : null}
+
         <div className="mt-5">
           {context}
           <Composer
@@ -501,6 +522,25 @@ export function NewSession({ project }: { project: Project }) {
       </div>
     </div>
   );
+}
+
+/** Resolves once detection has answered (`ready`), at once when it already has. */
+function agentsReady(): Promise<void> {
+  if (useAgents.getState().ready) return Promise.resolve();
+  return new Promise((resolve) => {
+    const unsubscribe = useAgents.subscribe((state) => {
+      if (!state.ready) return;
+      unsubscribe();
+      resolve();
+    });
+  });
+}
+
+/** The agent a send would start with, from the table: the default if installed, else the first. */
+function firstAgentId(agents: AgentStatus[], defaultId: string | null): string | null {
+  const installedNow = agents.filter((candidate) => candidate.installed || candidate.launchWithoutBinary);
+  if (defaultId && installedNow.some((candidate) => candidate.id === defaultId)) return defaultId;
+  return (installedNow.find((candidate) => candidate.auth !== "unauthenticated") ?? installedNow[0])?.id ?? null;
 }
 
 /** Whether the box still holds exactly the draft a failed start put back into it. */

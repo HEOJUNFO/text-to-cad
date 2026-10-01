@@ -59,9 +59,9 @@ function skillsRoot(skills: Record<string, string>): string {
 
 async function connect(
   bridge: (method: string, params: unknown) => Promise<unknown>,
-  options: { skillsRoot?: string | null; integration?: string } = {},
+  options: { skillsRoot?: string | null; skillsError?: string; integration?: string } = {},
 ) {
-  const server = createServer(bridge, { version: "9.9.9", cwd: "/proj", skillsRoot: options.skillsRoot ?? null, integration: options.integration });
+  const server = createServer(bridge, { version: "9.9.9", cwd: "/proj", skillsRoot: options.skillsRoot ?? null, skillsError: options.skillsError, integration: options.integration });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   const client = new Client({ name: "test", version: "0" });
@@ -252,6 +252,71 @@ describe("the skills tools", () => {
     const listed = await bare.callTool({ name: "list_skills", arguments: {} });
     expect(JSON.parse((listed.content as Array<{text:string}>)[0]!.text)).toEqual([]);
     expect((await bare.callTool({ name: "read_skill", arguments: { name: "cad" } })).isError).toBe(true);
+  });
+});
+
+describe("tool descriptions", () => {
+  const described = async (integration: string, name: string) => {
+    const client = await connect(fakeBridge().bridge, { integration });
+    return (await client.listTools()).tools.find((tool) => tool.name === name)?.description ?? "";
+  };
+
+  it("close_tab does not promise a discard no tool can do", async () => {
+    const description = await described("workspace", "close_tab");
+    expect(description).toContain("save it first");
+    expect(description).not.toMatch(/explicitly discarded/);
+  });
+
+  it("stop_terminal says what it returns", async () => {
+    expect(await described("terminals", "stop_terminal")).toContain("exited: true with the exitCode, or exited: false");
+  });
+
+  it("the doc quotes the relay's timeout sentence as actions.ts words it", () => {
+    const doc = fs.readFileSync(fileURLToPath(new URL("../../../docs/integrations.md", import.meta.url)), "utf8");
+    expect(doc.replace(/\s+/g, " ")).toContain('"the text-to-cad window did not answer within 12 s"');
+  });
+});
+
+describe("a malformed call", () => {
+  const said = async (name: string, args: Record<string, unknown>, integration = "workspace") => {
+    const { bridge, calls } = fakeBridge();
+    const client = await connect(bridge, { integration });
+    const result = await client.callTool({ name, arguments: args });
+    expect(result.isError).toBe(true);
+    expect(calls).toEqual([]);
+    return (result.content as Array<{ text: string }>)[0]!.text;
+  };
+
+  it("names the missing argument in one sentence, not the validator's dump", async () => {
+    expect(await said("open_file", {})).toBe("open_file needs path; path is missing.");
+  });
+
+  it("names an argument the tool does not take", async () => {
+    expect(await said("open_file", { path: "a.step", mode: "x" })).toBe('open_file takes path; it does not take "mode".');
+  });
+
+  it("refuses a camera that looks from its own target, or has a zero up vector, before the viewer waits ten seconds", async () => {
+    const camera = { position: [1, 2, 3], target: [1, 2, 3], up: [0, 0, 1] };
+    expect(await said("set_camera", { tabId: "t", camera }, "cad"))
+      .toBe("set_camera needs a position different from its target; the camera cannot look from a point at itself");
+    expect(await said("set_camera", { tabId: "t", camera: { ...camera, target: [0, 0, 0], up: [0, 0, 0] } }, "cad"))
+      .toBe("set_camera needs a non-zero up vector");
+  });
+
+  it("uses a tool's own usage sentence where it has one", async () => {
+    expect(await said("set_camera", { tabId: "t", camera: { position: [0, 0], target: [0, 0, 0], up: [0, 0, 1] } }, "cad"))
+      .toBe("set_camera needs position, target and up as three numbers each");
+  });
+});
+
+describe("a skills root the app could not make", () => {
+  it("tells list_skills and read_skill why, instead of an empty list or 'no skills root'", async () => {
+    const client = await connect(fakeBridge().bridge, { skillsRoot: null, skillsError: "EACCES: permission denied, mkdir '/ro/skills'" });
+    const listed = await client.callTool({ name: "list_skills", arguments: {} });
+    expect(listed.isError).toBe(true);
+    expect((listed.content as Array<{ text: string }>)[0]!.text).toBe("Skills could not be set up: EACCES: permission denied, mkdir '/ro/skills'");
+    const read = await client.callTool({ name: "read_skill", arguments: { name: "cad" } });
+    expect((read.content as Array<{ text: string }>)[0]!.text).toBe("Skills could not be set up: EACCES: permission denied, mkdir '/ro/skills'");
   });
 });
 

@@ -16,7 +16,7 @@ import { explorerTerminals } from "../ipc/explorer";
 import { sessionRuntimePath } from "../cad";
 import { BrowserConnections } from "../browser/connections";
 import { McpBridge, type BridgeSession } from "./mcp-bridge";
-import { EMPTY_SKILLS, materialiseSkillsRoot, skillsPreamble, SKILLS_ROOT_ENV, type SkillSummary, type SkillsRoot } from "./skills";
+import { EMPTY_SKILLS, materialiseSkillsRoot, skillsPreamble, SKILLS_ROOT_ENV, SKILLS_ERROR_ENV, type SkillSummary, type SkillsRoot } from "./skills";
 let bridgeInstance: McpBridge | null = null;
 let skillsInstance: SkillsRoot = EMPTY_SKILLS;
 let commandsInstance: RendererCommands | null = null;
@@ -37,6 +37,8 @@ export function mcpServerScript(): { command: string; args: string[]; env: Recor
   const env: Record<string, string> = { ELECTRON_RUN_AS_NODE: "1" };
   if (skillsInstance.root) {
     env[SKILLS_ROOT_ENV] = skillsInstance.root;
+  } else if (skillsInstance.error) {
+    env[SKILLS_ERROR_ENV] = skillsInstance.error;
   }
   return { command: process.execPath, args: [script], env };
 }
@@ -44,6 +46,11 @@ export function mcpServerScript(): { command: string; args: string[]; env: Recor
 /** The materialised skills root, or null when no skills were composed into the app. */
 export function skillsRoot(): string | null {
   return skillsInstance.root;
+}
+
+/** Why the root could not be made, or null (also null when the build simply composed none). */
+export function skillsError(): string | null {
+  return skillsInstance.error ?? null;
 }
 
 /** What that root holds — the Settings page's list, and the preamble's. */
@@ -108,7 +115,7 @@ function materialiseSkills(userData: string): SkillsRoot {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`[skills] could not materialise the skills root: ${message}`);
-    return EMPTY_SKILLS;
+    return { root: null, skills: [], error: message };
   }
 }
 

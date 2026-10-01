@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ENV_BEGIN, ENV_END, captureLoginEnv, loginEnv, onLoginEnv, parseLoginOutput, processEnv } from "@main/agents/shell-env";
+import { ENV_BEGIN, ENV_END, captureLoginEnv, loginEnv, loginEnvOutcome, onLoginEnv, parseLoginOutput, processEnv } from "@main/agents/shell-env";
 
 const temps: string[] = [];
 afterEach(() => {
@@ -137,6 +137,16 @@ describe.skipIf(process.platform === "win32")("capturing the login shell", () =>
     const env = await loginEnv({ force: true, timeoutMs: 200, shell });
     expect(env.PATH).toBe(processEnv().PATH);
     expect(warn).toHaveBeenCalledWith(expect.stringMatching(/login shell.*process environment/i));
+  });
+
+  it("reports why the shell could not be read: a timeout, and an exit 1", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const slow = await loginEnvOutcome({ force: true, timeoutMs: 200, shell: fakeShell("sleep 5") });
+    expect(slow.failed).toMatch(/took longer than 200 ms/);
+    const broken = await loginEnvOutcome({ force: true, timeoutMs: 5_000, shell: fakeShell("exit 1") });
+    expect(broken.failed).toMatch(/Command failed|exit/i);
+    const fine = await loginEnvOutcome({ force: true, timeoutMs: 5_000, shell: fakeShell('env -i PATH=/fake/bin:/usr/bin /bin/sh -c "$2"') });
+    expect(fine.failed).toBeNull();
   });
 });
 

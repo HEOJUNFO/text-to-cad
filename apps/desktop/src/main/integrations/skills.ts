@@ -40,6 +40,8 @@ export const ROOT_MANIFEST = "text-to-cad-skills.json";
 
 /** How the MCP server (`resources/text-to-cad-mcp/server.mjs`) is told where the root is. */
 export const SKILLS_ROOT_ENV = "TEXT_TO_CAD_SKILLS_ROOT";
+/** Carries the reason the root could not be made, so `list_skills` can say it. */
+export const SKILLS_ERROR_ENV = "TEXT_TO_CAD_SKILLS_ERROR";
 
 export type SkillSummary = { name: string; description: string };
 
@@ -47,6 +49,8 @@ export type SkillsRoot = {
   /** The versioned directory, or null when no skills were composed into the app. */
   root: string | null;
   skills: SkillSummary[];
+  /** Why the root could not be made (a copy failed), else absent: "nothing composed" is no error. */
+  error?: string | null;
 };
 
 export const EMPTY_SKILLS: SkillsRoot = { root: null, skills: [] };
