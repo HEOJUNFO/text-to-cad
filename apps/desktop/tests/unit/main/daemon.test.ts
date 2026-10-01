@@ -1,6 +1,10 @@
+import { EventEmitter } from "node:events";
+import os from "node:os";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
-import { DAEMON_ARGS, DaemonWarmer } from "@main/cad/daemon";
+import { DAEMON_ARGS, DaemonWarmer, daemonPids } from "@main/cad/daemon";
 
 /**
  * The daemon warmer only ever spawns `python -m cadgen.daemon` — the
@@ -75,5 +79,34 @@ describe("DaemonWarmer", () => {
     expect(w.daemon.warm(resolved)).toBe(false);
     expect(w.logs).toEqual(["could not start the daemon: ENOENT"]);
     expect(w.daemon.list()).toEqual([]);
+  });
+
+  it("stops listing a daemon's pid once it has exited, so a reused pid is never spared", () => {
+    const child = Object.assign(new EventEmitter(), { pid: 424_242, unref: () => undefined });
+    const daemon = new DaemonWarmer({
+      env: () => ({}),
+      logFile: () => "/data/cad-runtime.log",
+      cwd: () => "/data",
+      spawn: () => child,
+      log: () => undefined,
+    });
+    expect(daemon.warm(resolved)).toBe(true);
+    expect(daemonPids()).toContain(424_242);
+    child.emit("exit", 0, null);
+    expect(daemonPids()).not.toContain(424_242);
+  });
+
+  it("does the same for a real, short-lived child started through the default spawn", async () => {
+    // This binary run as Node with the daemon's arguments (`-m …`) exits at once: a daemon that died.
+    const daemon = new DaemonWarmer({
+      env: () => ({ ELECTRON_RUN_AS_NODE: "1" }),
+      logFile: () => path.join(os.tmpdir(), "daemon-pid-test.log"),
+      cwd: () => os.tmpdir(),
+      log: () => undefined,
+    });
+    expect(daemon.warm({ ...resolved, python: process.execPath })).toBe(true);
+    const [pid] = daemonPids().slice(-1);
+    expect(pid).toBeGreaterThan(0);
+    await expect.poll(() => daemonPids().includes(pid!), { timeout: 10_000 }).toBe(false);
   });
 });

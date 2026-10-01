@@ -1686,7 +1686,7 @@ window that never acks its unload, a main-process error dialog (an
 `uncaughtException` while quitting exits at once) — is bounded too. It counts
 teardown and watchdog startup toward the same budget. On POSIX it kills every
 direct child except the warm daemon, which it spares by pid (the app hands it
-`daemonPids()` from `src/main/cad/daemon.ts`; sparing by process group would
+`daemonPids()` from `src/main/cad/daemon.ts`, which drops a daemon's pid when it exits so a reused pid is never spared; sparing by process group would
 also spare the app-owned viewer, which is `detached` too). A child that leads a
 group of its own, like the viewer, is killed as a group, so its compile workers
 go with it; Chromium's helpers are killed singly. (A viewer reused from another
