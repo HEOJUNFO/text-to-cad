@@ -23,8 +23,8 @@
   "mcpServers": "./codex.mcp.json",
   "interface": {
     "displayName": "CAD",
-    "shortDescription": "Give agents CAD superpowers.",
-    "longDescription": "CAD packages local agent workflows for generating CAD, inspecting models, sourcing STEP parts, writing robot description files, slicing mesh files, and preparing fabrication handoffs.",
+    "shortDescription": "Design 3D models",
+    "longDescription": "Give your agent CAD superpowers. The CAD plugin gives your agent local workflows for generating 3D models as STEP, GLB, STL or 3MF files. It also does design for manufacturing checks, generates engineering drawings, and connects to popular 3D printing, sheet metal and CNC fabrication services. The CAD plugin is 100% open source and free to use for everyone.",
     "developerName": "earthtojake",
     "composerIcon": "./.codex-plugin/logo.png",
     "logo": "./.codex-plugin/logo.png",
