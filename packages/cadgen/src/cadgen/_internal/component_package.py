@@ -175,6 +175,20 @@ def _world_leaves(wrapped: Any) -> list[Any]:
     return leaves
 
 
+def component_leaf_layout(wrapped: Any) -> dict[str, Any]:
+    """How a prototype's leaves sit: ``{"leaves": n, "placed": bool}``.
+
+    ``placed`` is True when every leaf of the UNLOCATED prototype carries the
+    identity location, so placing the prototype places each leaf at exactly the
+    prototype's own placement and the leaf's measured box key is the
+    prototype's rotation. A pure function of the encoded bytes.
+    """
+    from OCP.TopLoc import TopLoc_Location
+
+    leaves = _world_leaves(wrapped.Located(TopLoc_Location()))
+    return {"leaves": len(leaves), "placed": all(leaf.Location().IsIdentity() for leaf in leaves)}
+
+
 def _bbox_from_shape(shape: Any) -> dict[str, list[float]] | None:
     """The world-frame axis-aligned bounding box of a composed shape, as the
     ``{"min": [...], "max": [...]}`` the assembly.json records so a cheap whole-entry

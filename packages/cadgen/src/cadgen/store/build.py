@@ -34,7 +34,7 @@ import math
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from cadgen.coordination import PHASE_COMPONENTS, PHASE_FINALIZE, PHASE_PACKAGE
 from cadgen.coordination import resolve as resolve_progress
@@ -654,10 +654,11 @@ def _bbox_from_prepared_occurrences(walk: _Walk) -> dict[str, list[float]] | Non
         from OCP.TopLoc import TopLoc_Location
         from OCP.gp import gp_Vec
 
-        from cadgen._internal.component_package import _world_leaves, optimal_box
-        from cadgen.store.bounds import cached_box
+        from cadgen._internal.component_package import _world_leaves, component_leaf_layout, optimal_box
+        from cadgen.store.bounds import cached_box, cached_leaf_layout
 
         boxes: list[list[float]] = []
+        layouts_recorded: set[str] = set()
         for occurrence in walk.occurrences:
             occurrence_id = str(occurrence["id"])
             cid = str(occurrence["component"])
@@ -667,6 +668,13 @@ def _bbox_from_prepared_occurrences(walk: _Walk) -> dict[str, list[float]] | Non
             location = walk.native_locations[occurrence_id]
             if prototype is None or location is None:
                 return None
+            if cid not in layouts_recorded:
+                # The leaf layout lets a parent composed from this document
+                # (``_compose_readback``) name these same box keys without
+                # decoding the prototype again.
+                cached_leaf_layout(str(entry["codec"]), str(entry["brep"]),
+                                   lambda prototype=prototype: component_leaf_layout(prototype.wrapped))
+                layouts_recorded.add(cid)
 
             placed = prototype.wrapped.Located(location)
             for leaf_ordinal, leaf in enumerate(_world_leaves(placed), start=1):
@@ -900,6 +908,7 @@ def build_tree_through_step(
     on_preview: Callable[[str, dict[str, Any]], None] | None = None,
     _internal_source_publication: bool = False,
     materials: object = None,
+    child_documents: Callable[[], Mapping[str, str]] | None = None,
 ) -> tuple[str, dict[str, Any], dict[str, Any], str]:
     """Write STEP and return ``(result_hash, result_tree, stats, step_hash)``.
 
@@ -909,8 +918,19 @@ def build_tree_through_step(
     ``documentOccurrenceMap`` maps all authored flattened leaf/group IDs to
     canonical leaf-ID lists. ``documentNodeMap`` maps those same authored IDs
     to their exact written product nodes, preserving one-child group boundaries.
+    ``documentReadback`` says how that tree was obtained: ``"parsed"`` from
+    the written bytes, ``"indexed"`` from the document index of already-seen
+    bytes, or ``"composed"`` from the children's document trees.
     These private publication fields are not tree content. The caller owns
     document indexes, annotations and final filenames.
+
+    ``child_documents``, called only when the written bytes have no indexed
+    tree, maps each pinned child tree hash to the document tree that child's
+    record pins for it. With it, an all-link parent whose links are pure
+    translations composes its document tree from those instead of parsing the
+    STEP (``cadgen.store._compose_readback``); anything ineligible parses.
+    ``CADGEN_VERIFY_READBACK=1`` parses as well and fails the build when a
+    reused tree differs from the parse.
 
     1. Walk the compound (:func:`_walk_compound`): own occurrences, links,
        grouping — and, for each own component, the returned shape.
@@ -1032,56 +1052,136 @@ def build_tree_through_step(
 
     with timed(f"tree: re-read STEP {step_path.name}"):
         readback, damaged_document = (None, False) if force else _lookup_document_readback(step_path, step_hash=step_hash)
+        document_readback = "indexed" if readback is not None else "parsed"
+        if readback is None and not force and not damaged_document and child_documents is not None:
+            from cadgen.store._compose_readback import compose_document_readback
+
+            with timed("tree: compose document from children"):
+                readback = compose_document_readback(
+                    walk=walk, descriptor=descriptor, step_path=step_path, step_hash=step_hash,
+                    root_name=root_name, child_documents=child_documents, logger=logger,
+                )
+            if readback is not None:
+                document_readback = "composed"
         scene = readback.scene if readback is not None else None
         if scene is None:
             scene = load_step_scene(step_path)
-    nodes: dict[str, Any] = {}
-    stack = list(scene.roots)
-    while stack:
-        node = stack.pop()
-        nodes[_selector_id(node.path)] = node
-        stack.extend(node.children)
 
-    with timed("tree: re-read components"):
-        for occurrence in walk.occurrences:
-            occ_id = str(occurrence["id"])
-            node = nodes.get(occ_id)
-            if node is None:
-                raise RuntimeError(
-                    f"{step_path.name}: occurrence {occ_id} ({occurrence.get('name')}) has no "
-                    "product at that path in the STEP just written"
+    def canonical_document(readback: Any, scene: Any) -> tuple:
+        nodes: dict[str, Any] = {}
+        stack = list(scene.roots)
+        while stack:
+            node = stack.pop()
+            nodes[_selector_id(node.path)] = node
+            stack.extend(node.children)
+
+        with timed("tree: re-read components"):
+            for occurrence in walk.occurrences:
+                occ_id = str(occurrence["id"])
+                node = nodes.get(occ_id)
+                if node is None:
+                    raise RuntimeError(
+                        f"{step_path.name}: occurrence {occ_id} ({occurrence.get('name')}) has no "
+                        "product at that path in the STEP just written"
+                    )
+                own_shape = walk.shapes.get(str(occurrence["component"]))
+                _prototype, face_colors = _reread_component(
+                    scene, node, occurrence, step_path.name, written=getattr(own_shape, "wrapped", None)
                 )
-            own_shape = walk.shapes.get(str(occurrence["component"]))
-            _prototype, face_colors = _reread_component(
-                scene, node, occurrence, step_path.name, written=getattr(own_shape, "wrapped", None)
-            )
-            if not _normalized_face_colors(face_colors) and getattr(own_shape, "cad_face_ordinal_colors", None):
-                raise RuntimeError(
-                    f"{step_path.name}: occurrence {occ_id} ({occurrence.get('name')}) was "
-                    "written with per-face colours the STEP does not carry back"
+                if not _normalized_face_colors(face_colors) and getattr(own_shape, "cad_face_ordinal_colors", None):
+                    raise RuntimeError(
+                        f"{step_path.name}: occurrence {occ_id} ({occurrence.get('name')}) was "
+                        "written with per-face colours the STEP does not carry back"
+                    )
+        with timed("tree: canonical document"):
+            if readback is not None and readback.tree_hash is not None:
+                # Only this internal call owns the verified closure and the scene
+                # decoded from it. Public mutable scenes never acquire authority
+                # to reuse a tree through an attribute, digest, or document index.
+                parsed_leaves, parsed_nodes = readback.canonical_maps()
+            else:
+                document_hash, _document_tree, _document_stats, parsed_leaves, parsed_nodes = _publish_document_scene(
+                    scene, force=force or damaged_document, progress=progress,
+                    repair_objects=True,
                 )
-    with timed("tree: canonical document"):
-        if readback is not None and readback.tree_hash is not None:
-            # Only this internal call owns the verified closure and the scene
-            # decoded from it. Public mutable scenes never acquire authority
-            # to reuse a tree through an attribute, digest, or document index.
-            parsed_leaves, parsed_nodes = readback.canonical_maps()
-        else:
-            document_hash, _document_tree, _document_stats, parsed_leaves, parsed_nodes = _publish_document_scene(
-                scene, force=force or damaged_document, progress=progress,
-                repair_objects=True,
+            occurrence_map, appearance, node_map = _document_correspondence(
+                descriptor, scene, parsed_leaves, parsed_nodes,
+                root_name=root_name, step_name=step_path.name,
             )
-        occurrence_map, appearance, node_map = _document_correspondence(
-            descriptor, scene, parsed_leaves, parsed_nodes,
-            root_name=root_name, step_name=step_path.name,
-        )
-        if readback is not None and readback.tree_hash is not None:
-            # Keep the snapshot until correspondence succeeds. Restore exact
-            # bytes if GC/damage raced the read, without re-encoding native
-            # shapes (a decode/encode need not be a byte fixed point).
-            document_hash = readback.restore()
+            if readback is not None and readback.tree_hash is not None:
+                # Keep the snapshot until correspondence succeeds. Restore exact
+                # bytes if GC/damage raced the read, without re-encoding native
+                # shapes (a decode/encode need not be a byte fixed point).
+                document_hash = readback.restore()
+        return document_hash, parsed_leaves, parsed_nodes, occurrence_map, appearance, node_map
+
+    if document_readback == "composed":
+        try:
+            published = canonical_document(readback, scene)
+        except RuntimeError as error:
+            # A composed tree that does not correspond to the authored result
+            # is a case composition does not cover. The parse is always right.
+            if logger is not None:
+                logger.warning(f"{step_path.name}: the composed document tree was not used ({error}); parsing")
+            readback, document_readback = None, "parsed"
+            with timed(f"tree: re-read STEP {step_path.name}"):
+                scene = load_step_scene(step_path)
+            published = canonical_document(None, scene)
+    else:
+        published = canonical_document(readback, scene)
+    document_hash, parsed_leaves, parsed_nodes, occurrence_map, appearance, node_map = published
+    if readback is not None and readback.tree_hash is not None and _verify_readback_requested():
+        with timed(f"tree: verify reused document against a parse of {step_path.name}"):
+            _verify_reused_readback(
+                step_path, document_hash, parsed_leaves, parsed_nodes,
+                source=document_readback, progress=progress,
+            )
     stats["documentTree"] = document_hash
+    stats["documentReadback"] = document_readback
     stats["documentAppearance"] = appearance
     stats["documentOccurrenceMap"] = occurrence_map
     stats["documentNodeMap"] = node_map
     return tree_hash, tree, stats, step_hash
+
+
+def _verify_readback_requested() -> bool:
+    """``CADGEN_VERIFY_READBACK=1``: a maintainer's check that every reused
+    document tree equals the parse of the written bytes."""
+    import os
+
+    return os.environ.get("CADGEN_VERIFY_READBACK", "").strip() == "1"
+
+
+def _verify_reused_readback(
+    step_path: Path, reused_hash: str, reused_leaves: dict[str, list[str]], reused_nodes: dict[str, str],
+    *, source: str, progress: Any,
+) -> None:
+    """Parse the written STEP and publish it canonically; raise when the tree
+    hash or the canonical maps differ from what the build reused."""
+    from cadgen._internal.component_package import canonical_json_bytes
+    from cadgen._internal.step_scene_loader import load_step_scene
+    from cadgen.store.trees import get_tree
+
+    parsed_hash, parsed_tree, _stats, parsed_leaves, parsed_nodes = _publish_document_scene(
+        load_step_scene(step_path), force=False, progress=progress, repair_objects=True,
+    )
+    if parsed_hash == reused_hash and parsed_leaves == reused_leaves and parsed_nodes == reused_nodes:
+        return
+    reused_tree = get_tree(reused_hash) or {}
+    details = [f"{step_path.name}: the {source} document tree {reused_hash[:16]} differs from the "
+               f"parse {parsed_hash[:16]}"]
+    for key in sorted(set(reused_tree) | set(parsed_tree)):
+        if canonical_json_bytes(reused_tree.get(key)) != canonical_json_bytes(parsed_tree.get(key)):
+            details.append(f"differs: {key}")
+    parsed_by_id = {row["id"]: row for row in parsed_tree.get("occurrences") or []}
+    for row in reused_tree.get("occurrences") or []:
+        other = parsed_by_id.get(row["id"])
+        if other is None:
+            details.append(f"occurrence {row['id']} is not in the parse")
+            break
+        if canonical_json_bytes(row) != canonical_json_bytes(other):
+            details.append(f"first differing occurrence {row['id']}: reused {row}, parsed {other}")
+            break
+    if parsed_leaves != reused_leaves or parsed_nodes != reused_nodes:
+        details.append("the canonical maps differ")
+    raise RuntimeError("; ".join(details))

@@ -51,6 +51,24 @@ from cadgen._internal.generation_spec import (
     _selector_options_for_part,
 )
 
+def _pinned_child_documents(scene: object) -> dict[str, str]:
+    """Each child tree the body pinned, mapped to the document tree that
+    child's record pins for it — only while the record still pins that exact
+    tree, so a child rebuilt since the parent called it resolves to nothing
+    and the parent's read-back parses its STEP instead of composing it."""
+    from cadgen.store.records import read_record
+
+    documents: dict[str, str] = {}
+    for child in getattr(scene, "store_children", None) or ():
+        model, tree = child.get("model"), child.get("tree")
+        if not model or not tree:
+            continue
+        record = read_record(model)
+        if record and record.get("tree") == tree and record.get("documentTree"):
+            documents[str(tree)] = str(record["documentTree"])
+    return documents
+
+
 def _sha256_of(path: Path) -> str:
     import hashlib
 
@@ -468,6 +486,7 @@ def _generate_part_outputs(
                     on_preview=publish_preview,
                     _internal_source_publication=True,
                     materials=getattr(scene, "materials", None),
+                    child_documents=lambda: _pinned_child_documents(scene),
                 )
         else:
             with logger.timed("tree: components"):
