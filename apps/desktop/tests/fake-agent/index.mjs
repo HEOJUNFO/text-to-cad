@@ -698,10 +698,16 @@ async function script(conn, params) {
 
   if (text.includes("slow")) {
     await send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "working" } });
+    // The 30 s is a ceiling for a test that forgot to cancel. It is cleared the moment the wait
+    // ends and unref'd, so an agent whose parent is gone (stdin closed) does not linger for it.
+    let ceiling;
     await new Promise((resolve) => {
       cancelWaiter = resolve;
-      setTimeout(resolve, 30_000);
+      ceiling = setTimeout(resolve, 30_000);
+      ceiling.unref();
     });
+    clearTimeout(ceiling);
+    cancelWaiter = null;
     return { stopReason: cancelled ? "cancelled" : "end_turn" };
   }
 
