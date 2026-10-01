@@ -85,11 +85,17 @@ export function SessionRow({
     }
   }, [editing]);
 
+  // Enter and Escape settle the edit themselves; a blur that follows (some browsers blur an input
+  // as it unmounts) must commit nothing: Escape never renames, and Enter must not rename twice.
+  const settled = useRef(false);
   const startRename = () => {
+    settled.current = false;
     setDraft(session.title);
     setEditing(true);
   };
   const commitRename = () => {
+    if (settled.current) return;
+    settled.current = true;
     setEditing(false);
     if (draft.trim() && draft.trim() !== session.title) {
       void rename(session.id, draft);
@@ -162,6 +168,7 @@ export function SessionRow({
                   commitRename();
                 } else if (event.key === "Escape") {
                   refocusTitle.current = true;
+                  settled.current = true;
                   setEditing(false);
                 }
               }}
@@ -240,7 +247,7 @@ export function SessionRow({
  * turn failed (`lib/sidebar.ts` owns the mapping). Drawn only; the row's title
  * button says the same in words (`aria-describedby`), so the two are not both read.
  */
-function StateGlyph({ status }: { status: SessionStatus }) {
+export function StateGlyph({ status }: { status: SessionStatus }) {
   const glyph = sessionGlyphFor(status);
   // A 16px box the row centres; `leading-none` so the SVG has no line box to
   // sit low in — the glyphs are small, and a pixel off centre shows.

@@ -8,7 +8,8 @@ import { SELECTOR_LIST_SOURCE, splitReference } from "@shared/cad-refs";
  * `/` in it, or an extension with a letter in it, or ends in `/` — and is
  * not a URL, not absolute, and not a home path. `models/bracket.step`,
  * `README.md`, `src/`, `bracket.step#o1.2` are candidates; `0.5.0`, `e.g`,
- * `https://x.y/z`, `/etc/hosts` and `~/x` are not. Whether a candidate is
+ * `https://x.y/z` and `~/x` are not. An absolute path (`/Users/me/p/a.step`) is a candidate too;
+ * `PathLink` links it when it lies inside the thread's root. Whether a candidate is
  * a *link* is answered later, by asking the root whether it exists
  * (`state/path-links.ts`): the grammar over-approximates on purpose, and
  * the lookup is what keeps a sentence like "run make.sh" from lighting up
@@ -45,7 +46,13 @@ export function looksLikePath(candidate: string): boolean {
   if (!candidate || candidate.includes("://") || /^[A-Za-z]:[\\/]/.test(candidate)) {
     return false;
   }
-  if (candidate.startsWith("/") || candidate.startsWith("~") || candidate.startsWith("\\")) {
+  if (candidate.startsWith("~") || candidate.startsWith("\\")) {
+    return false;
+  }
+  // An absolute POSIX path (`/Users/me/proj/a.step`) is a candidate: whether it is a link is the
+  // scope's call (`PathLink`: inside the root it opens, outside it is words). A lone `/word`
+  // is a slash command, not a path, and `//` is no path.
+  if (candidate.startsWith("/") && (candidate.startsWith("//") || (!candidate.slice(1).includes("/") && !EXTENSION_RE.test(candidate)))) {
     return false;
   }
   // A `..` segment climbs out of the workspace; `v1..v2.txt` is only a name.

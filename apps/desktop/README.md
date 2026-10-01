@@ -780,6 +780,10 @@ colour waiting on a permission ("it needs you", not a warning), a red triangle a
 worktree or on a branch of its own, and a `…` on hover or when it takes
 keyboard focus, for pin, rename, archive and delete. `Pinned` is the first section when anything is pinned,
 and a pinned thread lives **only** there — never twice.
+A collapsed project's header carries the strongest state among the rows it
+hides — waiting over working — as the same glyph, named for what it counts ("1
+thread waiting for you"), so a thread that needs the person is never out of
+sight behind a collapse; an expanded section shows the rows and no extra mark.
 A pin, archive or delete that main refuses leaves the thread as it was (main writes the row first and only then closes or retires the adapter, so a refused write has touched nothing) and says so in the rename's shape — "Could not pin
 (unpin, archive, unarchive, delete) the thread: …" — and a refused archive or delete keeps the open session open — a delete whose rejection leaves no row behind (the renderer re-reads the list) is not refused, the thread is gone. A delete whose row is gone but whose disposal throws still succeeds, keeping the worktree on disk.
 
@@ -842,7 +846,12 @@ file or a folder, and as the words it was otherwise. A file opens in the
 explorer with its renderer; a folder is revealed in the tree; a path with
 a selector (`bracket.step#o1.2`, `#label.f45`) opens the file in the
 viewer and hands the selector to the STEP renderer's command source. Paths
-are relative to the thread's root — its worktree when it has one.
+are relative to the thread's root — its worktree when it has one — and an
+absolute path (`/Users/me/proj/models/a.step`) links when it lies inside that
+root, read against it; one outside the root is only words, since nothing
+outside the project opens in the explorer. A failed `explorer.exists` is not
+an answer: the path stays words and is asked again on the next hover or click
+(and at the next `files.changed`), not pinned as "not a path".
 
 Activity summaries stay neutral even when a call fails. A separate red failure count marks a folded group, and its failed rows show a red **Failed** indicator; expand a row for the original error. Completed thinking rows use an ellipsis, with a spinner while thinking is active. Status comes from the agent’s tool-call status, not from words in its output.
 
@@ -871,6 +880,9 @@ the round trip). AI Elements' `PromptInput` is untouched — its form, its
 attachments and its submit are as vendored — because the editor keeps the
 form's `message` field for it; its footer is the one part not used, since
 send shares the sentence's row.
+Enter sends and Shift+Enter breaks the line, as the shortcuts table says; no
+other Enter chord does anything (the editor's hard break is rebound to
+Shift+Enter alone, so Cmd/Ctrl+Enter does not add a line).
 
 **The box is one row until there is more to show.** Empty, it is a single
 line of text with send centred at its right end; it grows with what is
@@ -902,12 +914,19 @@ full file/selector remains in the tooltip and is still the text sent to the
 agent. Names are optional display metadata scoped to the draft; typed or
 unresolved references keep their file/selector fallback.
 
+A drop is accepted across the whole session view — the transcript, the chips
+row and the queue strip as well as the box — and goes through the same sort. A
+composer that is disabled (no live agent) takes no drop at all: the drop does
+nothing and the cursor reads not allowed.
+
 A file is sorted the moment it is attached (paperclip, paste or drop), not
 when the prompt is sent. Images and UTF-8 text up to 256 KB
 (`MAX_INLINE_TEXT_BYTES` in `composer/attachments.ts`) attach as before. An
 image over the model's limit (`MAX_IMAGE_BYTES`, the file size whose base64
 stays under 5 MiB, the same cap a viewer capture is fitted to) is redrawn
-smaller as a PNG when it is attached; one that cannot be brought under it is
+smaller as a PNG when it is attached, and a toast says so when that changed what
+the file is — an animated GIF or WebP comes out a still image ("<name> was scaled
+down to a still image to fit the model's limit."), any other format a PNG; one that cannot be brought under it is
 refused with "<name> is larger than the model takes (about 3.75 MB of image)
 and could not be scaled down, so it was not attached." The send checks again
 and drops such an image with the same sentence. A
@@ -926,7 +945,10 @@ cannot take an image in a prompt. Remove the attachment to send.",
 the message is accepted, not when its turn ends (`prompt` settles at the end
 of the turn); a prompt refused afterwards puts its files back in the strip. A queued prompt main refuses goes back into the
 box as it was taken, behind any put back before it, so the box reads in queue
-order, and the queue goes on. A new session's first prompt refused this way
+order, and the queue goes on. A turn the person stops (Stop or Esc) pauses the queue the way a failed one
+does: the queue row reads "Paused after you stopped" with the same Resume, and
+the next queued prompt waits for it (or for a prompt typed meanwhile, which goes
+out first) instead of starting behind the Stop. A new session's first prompt refused this way
 goes back into that session's box — the session was created and selected
 before the prompt went out (`NewSession.tsx`); only a create that fails keeps
 the new-session screen, with the error and Try again. A create that fails with
@@ -935,7 +957,9 @@ screen) shows a toast with the error and Try again, which returns to the
 new-session screen that holds the restored draft. A create that outlasts a
 click on another thread or project does not pull them back to the session it
 made. Whatever the error, the card on the screen carries Try again (it sends what
-the box holds, as the sign-in card's does) beside Open Settings › Agents and Dismiss.
+the box holds, as the sign-in card's does; a box emptied since gets the failed
+attempt's text and notes back first, so it retries the last form values, and the
+button is drawn only while there is an attempt to retry) beside Open Settings › Agents and Dismiss.
 Settings' "New session in this worktree" (`runUiCommand`, `new-session` with a
 `cwd`) closes Settings before it starts the thread; if the start fails a toast
 says "Could not start a session in this worktree: <reason>" rather than leaving
@@ -1151,7 +1175,9 @@ Keyboard shortcuts prints. A row holds two bindings when the platforms differ: o
 off a Mac carries an `otherBinding` (`bindingFor` in `lib/shortcuts.ts`). Toggle explorer is Cmd+Option+B on a Mac and
 Ctrl+Shift+E elsewhere, in the menu (`main/menu.ts`), in `Shell`'s key handler and on the page; the toast chord
 (`components/ui/sonner.tsx`) is the row "Focus the notifications", Cmd+Option+T on a Mac and Ctrl+Shift+T elsewhere, and
-is renderer-only (no menu accelerator). The ones the app menu also declares are its accelerators, so
+is renderer-only (no menu accelerator). A chord with Option on a Mac is matched on the physical key
+(`event.code`, `KeyB`), because Option+B types "∫" and `event.key` is never "b" (`Shell`'s handler; the
+toast chord's hotkey is `KeyT` already; no other chord uses Alt). The ones the app menu also declares are its accelerators, so
 they work with focus inside a webview (see "Rules that are easy to break" in
 AGENTS.md). The menu's New Session and Settings… with no window open one and
 hold the command until its page calls `ui.ready` (`src/main/menu.ts`): pushed
@@ -1201,7 +1227,8 @@ palette and Settings' agent drawer hand focus back to what had it when they
 close (`hooks/use-return-focus.ts`), since neither has a trigger for Radix to
 return it to. A permission answer goes to the composer; one main refuses keeps
 focus on the card, which says why. Rename's Enter or Escape goes to the title
-button. Enter on a pane separator closes the pane and hands focus to that pane's
+button, and settles the edit for good: a blur that follows (a browser may blur the
+box as it unmounts) commits nothing, so Escape never renames. Enter on a pane separator closes the pane and hands focus to that pane's
 toggle (the separator reads its width through `aria-valuetext`). A
 disconnected session's Reconnect bar goes away with its button, so focus waits
 on the composer's row and goes into the box once the agent is back; every

@@ -215,7 +215,9 @@ function useShellShortcuts(): void {
       const key = event.key.toLowerCase();
       // The explorer's chord is Cmd+Option+B on a Mac and Ctrl+Shift+E elsewhere, where Ctrl+Alt
       // is AltGr (`otherBinding` in `lib/shortcuts.ts`).
-      const explorer = isMac ? key === "b" && event.altKey && !event.shiftKey : key === "e" && event.shiftKey && !event.altKey;
+      // On a Mac Option changes what the key types (Option+B is "∫"), so that chord is read off the
+      // physical key; `key` is right where Alt is not a modifier of the character.
+      const explorer = isMac ? event.code === "KeyB" && event.altKey && !event.shiftKey : key === "e" && event.shiftKey && !event.altKey;
       const sidebar = key === "b" && !event.altKey && !event.shiftKey;
       if (explorer || sidebar) {
         event.preventDefault();

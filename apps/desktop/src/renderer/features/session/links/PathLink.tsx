@@ -13,7 +13,12 @@ import type { ExplorerRoot } from "@shared/types";
  * worktree when it runs in one (plan §9), else the project. Provided by
  * `SessionView` around the transcript; without it a path is prose.
  */
-export type TranscriptScope = { projectId: string; root: ExplorerRoot };
+export type TranscriptScope = {
+  projectId: string;
+  root: ExplorerRoot;
+  /** The absolute path of that root on disk, so an absolute path in prose can be read against it. */
+  rootPath?: string | null;
+};
 
 export const TranscriptScopeContext = createContext<TranscriptScope | null>(null);
 
@@ -26,10 +31,13 @@ export type PathTarget = { path: string; selector: string };
  * `remarkPathLinks` writes `./models/x.step#o1`; rehype-harden rewrites a
  * path-relative URL to `/models/x.step#o1` (and percent-encodes it); an
  * agent that wrote `[the part](models/x.step)` by hand arrives as that. All
- * three are the same file, and a leading `/` here is not an absolute path
- * on the machine — every path in a transcript is relative to the scope.
+ * three are the same file, so a leading `/` is a workspace path — unless it
+ * starts with `rootPath` (the scope's absolute root), in which case it is an
+ * absolute path inside the project and is read relative to it. An absolute
+ * path outside the root has no link: it comes out as a workspace path that
+ * does not exist, which is the words it was.
  */
-export function pathTarget(href: string | undefined): PathTarget | null {
+export function pathTarget(href: string | undefined, rootPath?: string | null): PathTarget | null {
   if (!href || /^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith("//")) {
     return null;
   }
@@ -43,6 +51,10 @@ export function pathTarget(href: string | undefined): PathTarget | null {
     selector = decodeURIComponent(rawSelector);
   } catch {
     return null;
+  }
+  const root = rootPath?.replace(/\/+$/, "");
+  if (root && (path === root || path.startsWith(`${root}/`))) {
+    path = path.slice(root.length);
   }
   path = path.replace(/^(\.\/|\/)+/, "").replace(/\/+$/, "");
   // A `..` segment climbs out; `v1..v2.txt` and `..keep/a.txt` are only names.
@@ -66,7 +78,7 @@ export function PathLink({
   ...rest
 }: AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown; children?: ReactNode }) {
   const scope = useContext(TranscriptScopeContext);
-  const target = pathTarget(href);
+  const target = pathTarget(href, scope?.rootPath);
   if (!target || !scope) {
     if (!href || !/^https?:/i.test(href)) {
       return <span className={className}>{children}</span>;
@@ -100,6 +112,15 @@ function FileLink({ scope, target, children }: { scope: TranscriptScope; target:
     }
   }, [kind, lookup, scope, target.path]);
 
+  if (kind === "error") {
+    // The question failed rather than being answered "no": ask again on the next hover or click.
+    const retry = () => usePathLinks.getState().invalidate(scope, [target.path]);
+    return (
+      <span data-path-retry data-path-text={target.path} onClick={retry} onPointerEnter={retry}>
+        {children}
+      </span>
+    );
+  }
   if (kind !== "file" && kind !== "directory") {
     return <span data-path-text={target.path}>{children}</span>;
   }

@@ -7,6 +7,7 @@ import { Button } from "@renderer/components/ui/button";
 import { useAcp } from "@renderer/state/acp";
 import { useAgents } from "@renderer/state/agents";
 import { useComposer } from "@renderer/state/composer";
+import { useProjects } from "@renderer/state/projects";
 import type { TakenDraft } from "@renderer/state/composer";
 import { useSettings } from "@renderer/state/settings";
 import { effortOption, fastOption, modeChoice, modelOption } from "@shared/acp/options";
@@ -72,9 +73,10 @@ export function SessionView({ session }: { session: Session }) {
 
   // What a path in this thread's prose is relative to: its worktree when it
   // runs in one (plan §9), else the project. `links/PathLink` reads it.
+  const projectPath = useProjects((state) => state.projects.find((item) => item.id === session.projectId)?.path ?? null);
   const scope = useMemo<TranscriptScope>(
-    () => ({ projectId: session.projectId, root: session.worktreePath ?? null }),
-    [session.projectId, session.worktreePath],
+    () => ({ projectId: session.projectId, root: session.worktreePath ?? null, rootPath: session.worktreePath ?? projectPath }),
+    [session.projectId, session.worktreePath, projectPath],
   );
 
   const running = state?.status === "running" || state?.status === "waiting";

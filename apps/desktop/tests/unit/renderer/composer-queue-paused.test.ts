@@ -49,3 +49,32 @@ it("a paused queue shows why, and Resume clears the pause and sends the head", a
   expect(prompt).toHaveBeenCalledWith(SESSION, block("A"));
   expect(useComposer.getState().queues[SESSION]?.map(item => item.text)).toEqual(["B"]);
 });
+
+it("a turn the person stopped holds the queue: it is not drained, says so, and Resume sends the head", async () => {
+  const prompt = vi.fn(() => new Promise<string>(() => {}));
+  useAcp.setState({ sessions: { [SESSION]: { ...initialSessionState(SESSION, "claude"), status: "running" } }, prompt });
+  useComposer.getState().enqueue(SESSION, "A", block("A"));
+  useComposer.getState().enqueue(SESSION, "B", block("B"));
+  render(createElement(Composer, { sessionId: SESSION, newDraftKey: "__new__:p", chips: null, commands: [], status: "ready", onSubmit: vi.fn() }));
+
+  // What the bridge does when Stop ends the running turn: `prompt/end` with `cancelled`, then idle.
+  await act(async () => {
+    useAcp.setState({ sessions: { [SESSION]: { ...initialSessionState(SESSION, "claude"), status: "idle", turns: [{ id: "t", stopReason: "cancelled" } as never] } } });
+    useComposer.getState().turnEvent(SESSION, "prompt/end", "cancelled");
+  });
+  expect(prompt, "Stop must not start the next queued prompt").not.toHaveBeenCalled();
+  expect(useComposer.getState().queues[SESSION]?.map(item => item.text)).toEqual(["A", "B"]);
+  expect(screen.getByRole("status").textContent).toBe("Paused after you stopped");
+
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Resume" })); });
+  expect(prompt).toHaveBeenCalledWith(SESSION, block("A"));
+  expect(useComposer.getState().queues[SESSION]?.map(item => item.text)).toEqual(["B"]);
+});
+
+it("a turn that ends normally still drains the queue", async () => {
+  const prompt = vi.fn(() => new Promise<string>(() => {}));
+  useAcp.setState({ sessions: { [SESSION]: { ...initialSessionState(SESSION, "claude"), status: "idle" } }, prompt });
+  useComposer.getState().enqueue(SESSION, "A", block("A"));
+  await act(async () => { useComposer.getState().turnEvent(SESSION, "prompt/end", "end_turn"); });
+  expect(prompt).toHaveBeenCalledWith(SESSION, block("A"));
+});

@@ -446,7 +446,7 @@ test("stop cancels the running turn", async () => {
   await shoot("session-cancelled.png");
 });
 
-test("a queued prompt goes out when the turn ends", async () => {
+test("a queued prompt holds behind a Stop and goes out on Resume", async () => {
   const composer = page.getByPlaceholder("Do anything", { exact: true });
   await composer.fill("slow");
   await composer.press("Enter");
@@ -455,6 +455,10 @@ test("a queued prompt goes out when the turn ends", async () => {
   await page.keyboard.press("Enter");
   await expect(page.getByText("1 queued prompt")).toBeVisible();
   await page.getByRole("button", { name: "Stop" }).click();
+  // Stop pauses the queue rather than starting the next prompt behind it.
+  await expect(page.getByText("Paused after you stopped")).toBeVisible();
+  await expect(page.getByText("1 queued prompt")).toBeVisible();
+  await page.getByRole("button", { name: "Resume" }).click();
   await expect(page.getByText("1 queued prompt")).toBeHidden();
   await expect(page.locator("[data-turn][data-role=user]").last()).toContainText("thought and then ok");
   await expect(page.locator("[data-session-view]")).toHaveAttribute("data-session-status", "idle", { timeout: 20_000 });
@@ -492,6 +496,15 @@ test("the sidebar renames and archives a session", async () => {
   await row.getByRole("button", { name: /actions$/ }).click();
   await page.getByRole("menuitem", { name: "Rename" }).click();
   const input = page.getByLabel("Session title");
+  // Escape leaves the old name, in real Chromium where a blur may follow the box's removal.
+  const before = (await page.locator("[data-session-title]").innerText()).trim();
+  await input.fill("Not saved");
+  await input.press("Escape");
+  await expect(input).toHaveCount(0);
+  await expect(row).not.toContainText("Not saved");
+  await expect(row).toContainText(before);
+  await row.getByRole("button", { name: /actions$/ }).click();
+  await page.getByRole("menuitem", { name: "Rename" }).click();
   await input.fill("Greeting script");
   await input.press("Enter");
   await expect(row).toContainText("Greeting script");

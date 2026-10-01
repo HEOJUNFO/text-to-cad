@@ -2,7 +2,7 @@
  * One thread's row in the sidebar: its rename box and its actions button. The
  * sidebar's own suite draws whole panels; the details of a single row live here.
  */
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
@@ -53,14 +53,35 @@ beforeEach(() => {
 });
 
 describe("the rename box", () => {
-  // Pinned, not fixed: the worry was that removing the focused input blurs it and `onBlur`
-  // commits the draft. Measured in Chromium with React 19, no blur reaches React on removal, so
-  // Escape and Enter already end the edit once (jsdom does not blur on removal either).
+  // Removing the focused input may blur it in some browsers, and `onBlur` commits the draft; jsdom
+  // never blurs on removal, so these fire the blur themselves. Enter and Escape settle the edit
+  // first (`settled`), and the blur that follows does nothing.
   it("Escape drops the edit", () => {
     row();
     const input = editBox();
     fireEvent.keyDown(input, { key: "Escape" });
     expect(rename).not.toHaveBeenCalled();
+  });
+
+  it("a blur that follows Escape commits nothing (some browsers blur an input as it unmounts)", () => {
+    row();
+    const input = editBox();
+    // One act, so the box is still mounted when the blur lands, as when a browser blurs it on removal.
+    act(() => {
+      fireEvent.keyDown(input, { key: "Escape" });
+      fireEvent.blur(input);
+    });
+    expect(rename).not.toHaveBeenCalled();
+  });
+
+  it("a blur that follows Enter does not rename a second time", () => {
+    row();
+    const input = editBox();
+    act(() => {
+      fireEvent.keyDown(input, { key: "Enter" });
+      fireEvent.blur(input);
+    });
+    expect(rename).toHaveBeenCalledTimes(1);
   });
 
   it("Enter renames once", () => {

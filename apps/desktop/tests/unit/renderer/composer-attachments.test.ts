@@ -169,3 +169,46 @@ it("a small file that is text for 8 KB and invalid UTF-8 after it is refused whe
   await waitFor(() => expect(errors()).toEqual(["mixed.txt is not text or an image, so it was not attached."]));
   expect(view.attached("mixed.txt")).toBeNull();
 });
+
+/** A session view: a transcript above the composer, under one `data-session-view` root. */
+function renderSessionView(disabled: boolean) {
+  const view = render(
+    createElement(
+      "div",
+      { "data-session-view": "s1" },
+      createElement("div", { "data-testid": "transcript" }),
+      createElement(Composer, { sessionId: null, newDraftKey: draftKey, chips: null, commands: [], status: "ready", disabled, onSubmit: vi.fn(async () => undefined) }),
+    ),
+  );
+  const attached = (name: string) => view.container.querySelector(`[data-composer] [data-attachment-name="${name}"]`);
+  return { ...view, attached, transcript: view.getByTestId("transcript") };
+}
+const textFile = () => new File(["hello"], "notes.txt", { type: "text/plain" });
+
+it("a file dropped on the transcript attaches, and the drag is accepted across the view", async () => {
+  const view = renderSessionView(false);
+  const over = new Event("dragover", { bubbles: true, cancelable: true });
+  Object.defineProperty(over, "dataTransfer", { value: { types: ["Files"], dropEffect: "" } });
+  view.transcript.dispatchEvent(over);
+  expect(over.defaultPrevented, "dragover over the transcript must be accepted").toBe(true);
+  expect((over as unknown as { dataTransfer: { dropEffect: string } }).dataTransfer.dropEffect).toBe("copy");
+  await act(async () => {
+    fireEvent.drop(view.transcript, { dataTransfer: { files: [textFile()], types: ["Files"] } });
+  });
+  await waitFor(() => expect(view.attached("notes.txt")).not.toBeNull());
+});
+
+it("a disabled composer takes no drop, on the transcript or on the box, and the cursor says so", async () => {
+  const view = renderSessionView(true);
+  const over = new Event("dragover", { bubbles: true, cancelable: true });
+  Object.defineProperty(over, "dataTransfer", { value: { types: ["Files"], dropEffect: "" } });
+  view.transcript.dispatchEvent(over);
+  expect((over as unknown as { dataTransfer: { dropEffect: string } }).dataTransfer.dropEffect).toBe("none");
+  await act(async () => {
+    fireEvent.drop(view.transcript, { dataTransfer: { files: [textFile()], types: ["Files"] } });
+    fireEvent.drop(view.container.querySelector("form")!, { dataTransfer: { files: [textFile()], types: ["Files"] } });
+  });
+  await act(async () => { await Promise.resolve(); });
+  expect(view.attached("notes.txt")).toBeNull();
+  expect(errors()).toEqual([]);
+});
