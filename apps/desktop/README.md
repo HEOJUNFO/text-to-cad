@@ -1728,10 +1728,10 @@ also spare the app-owned viewer, which is `detached` too). A child that leads a
 group of its own, like the viewer, is killed as a group, so its compile workers
 go with it; Chromium's helpers are killed singly. (A viewer reused from another
 run is not a child of this app and is never touched.) Its two probes, `pgrep -P`
-for the children and `ps` for their groups, each run under a 250 ms timeout so a
+for the children and `ps` for their groups, each run under a 150 ms timeout so a
 hung `ps` cannot stall the final kill of the app. The worst case is therefore
 `QUIT_DEADLINE_MS` + 2 × `WATCHDOG_PROBE_TIMEOUT_MS` + 300 ms of slack for starting the watchdog and
-the kill landing, which is 2000 ms, the whole budget; `tests/unit/main/quit-deadline.test.ts` holds that
+the kill landing, which is 1800 ms, 200 ms inside the 2000 ms budget (a both-probes-hang run measures about 1520 ms, down from 1720 ms at 250 ms probes); `tests/unit/main/quit-deadline.test.ts` holds that
 arithmetic in one place (the sum must fit the budget, and a run with both probes hanging must finish within it),
 so raising a probe timeout fails there. If `pgrep` fails or times out
 it finds no children, and only the app is killed; if `ps` times out, no groups are
