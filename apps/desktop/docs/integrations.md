@@ -114,19 +114,15 @@ before retrying", and an abort after the command was sent says it "may already
 have been applied". A handler that finished before the abort reports "was
 applied, but the request was aborted before the reply".
 
-The window's reply is itself made only once the effect is on screen: the
-viewer's live commands (`packages/ui/src/renderers/kit/shell/liveBinding.ts`)
-answer after a settled frame and, where the command has a committed
-predicate (clearing is an empty selection; `setCamera` the shell's applied,
-scoped camera at rest, which differs from the pose asked for when the camera is
-clamped or the lens/projection is derived; `resetCamera` the eased move at rest;
-`setDisplaySettings` and `setRenderMode` the store's commit, so a Render chunk
-that fails to load leaves the store at "render" while the screen shows
-"inspect"; a renderer's own command returns its own), once it holds, bounded at
-ten seconds, then "The viewer did not finish applying this command.", which
-reaches the agent as written because the relay waits twelve for these commands
-(the "text-to-cad window did not answer within 12 s" message means no window
-replied at all). A capture waits for the camera to rest.
+The window's reply is itself made only once the effect is on screen, and a
+viewer command that cannot get there says "The viewer did not finish applying
+this command." after ten seconds. The relay's tiers nest around that bound:
+`capture-view` waits for the camera to rest inside the viewer's ten seconds and
+then encodes, all inside the relay's thirty; the other viewer commands have
+twelve so the viewer's sentence arrives first. "The text-to-cad window did not
+answer within 12 s" means no window replied at all. What each command waits for
+is stated once, in
+[Live commands](../../../packages/ui/docs/cad-renderer.md#live-commands).
 
 The PDF renderer and its agent tools share one real Mozilla PDF.js document,
 worker and text layer. Page reads are bounded to 50 pages/one million

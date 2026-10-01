@@ -426,7 +426,10 @@ scripts/test/test-viewer-browser.sh
 scripts/test/test-viewer-browser.sh --only camera
 ```
 
-Use `--with-deps` when installing browsers on Linux. The browser suite runs
+Use `--with-deps` when installing browsers on Linux. CI installs only the
+headless shell (`--only-shell`, the `ui-browser: shell` input of
+`.github/actions/setup-deps/action.yml`) for the jobs whose browser tests launch
+headless; a test that needs a headed browser must say so there. The browser suite runs
 exactly what CI runs: every load path (STEP, STL, DXF, URDF) and the camera
 across modes and a saved revision, through the real backend (picking and
 kinematics are the `packages/ui` browser specs' on every PR). Backend tests live in

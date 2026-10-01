@@ -337,7 +337,8 @@ the rule is about.
   success (`idle`), in `settleAfterFailedCreate` (`idle` again, the failure a
   note in `session.status.error`, while the connection is alive; the renderer
   holds it in `setupNotes` and shows it above the composer with a Retry setup
-  button that calls `sessions.retrySetup`, never `load`), or by
+  button that calls `sessions.retrySetup`, never `load`; a retry's answer for a
+  session forgotten or disconnected meanwhile is dropped), or by
   removing the row (`abandonCreate`) when the adapter is dead or the row is
   gone; a row closed under the create keeps that state (`stillConnecting`
   guards the write of `idle`). `loadNow`'s catch sets `error`; `boot` makes a
@@ -398,25 +399,33 @@ the rule is about.
   ends; `stop` and `stopAll` bump it, so a stop that lands mid-launch is
   never overtaken by the launch or the restart that was already under way
   (`tests/unit/main/viewer.test.ts`).
-- **A live viewer command replies only once its effect is committed.**
-  `attachLiveBinding` (`packages/ui/src/renderers/kit/shell/liveBinding.ts`)
-  waits a settled frame and, where the command has a committed predicate
-  (display settings and render mode = the store's commit, so a Render chunk
-  that fails to load leaves the store at "render" while the screen shows
-  "inspect"; `setCamera` = the shell's applied, scoped camera at rest, which
-  differs from the request when the camera is clamped or the lens/projection
-  is derived; `resetCamera` = the eased move at rest; `clearSelection` =
-  selection empty; a renderer command's own), until it holds — at most ten
-  seconds, then "The viewer did not finish applying this command." That sentence
-  reaches the agent because main's relay waits 12 s (`VIEWER_REPLY_TIMEOUT_MS`) for
-  the viewer commands, its clock starting before the IPC send; "the text-to-cad window
-  did not answer within 12 s" means no window replied. A reply on
-  the call returning would hand an agent a state the command had not produced
-  yet. A capture waits for the camera to rest first.
+- **A live viewer command replies only once its effect is committed, and the
+  predicate compares against what the runtime records, not the request.**
+  `attachLiveBinding` waits a settled frame and the command's predicate, at
+  most ten seconds, then "The viewer did not finish applying this command."
+  (what each command waits for: [Live commands](../../packages/ui/docs/cad-renderer.md#live-commands)).
+  That sentence reaches the agent because main's relay waits 12 s
+  (`VIEWER_REPLY_TIMEOUT_MS`) for the viewer commands, its clock starting before
+  the IPC send; "the text-to-cad window did not answer within 12 s" means no
+  window replied. A reply on the call returning would hand an agent a state the
+  command had not produced yet.
 - **Every capture goes through `imageResult`.** It redraws an image over
   `MAX_IMAGE_BYTES` smaller and refuses it only when it cannot be made to fit,
   so no tool result larger than the model takes enters a transcript
   (`src/renderer/state/image-result.ts`).
+- **The quit deadline spares the warm daemon by pid, never by process group.**
+  The app-owned viewer is `detached` too, so a group spare would spare it; the
+  watchdog gets `daemonPids()` (a daemon's pid leaves it when it exits, so a
+  reused pid is never spared), and both of its probes run under a timeout so a
+  hung `ps` cannot stall the final kill. Windows has no spare list and its tree
+  kill takes the daemon (`src/main/quit-deadline.ts`, README "Quitting").
+- **A browser harness gets a fresh dependency cache per run.** A Vite server
+  under `tests/browser` takes a new temp `cacheDir`, names what its scan cannot
+  see in `optimizeDeps.include`, and asserts the page loaded once
+  (`tests/browser/pdf-renderer.test.mjs`).
+- **A pass that touches `packages/ui` runs the kit boundary check.**
+  `node scripts/test/check-kit-boundaries.mjs` from the root: the kit is
+  format-blind in its comments too.
 - **A git write child is signalled at quit, never killed first.**
   `endTrackedChildren` sends a commit, push or worktree add/remove SIGTERM so
   git drops its `index.lock`; `will-quit` kills what is left

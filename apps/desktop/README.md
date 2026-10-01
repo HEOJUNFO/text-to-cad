@@ -240,7 +240,8 @@ every motion component, and the shimmer stands still under it.
 ```sh
 npm run typecheck    # tsc over both projects: node (main/preload/shared) and web (renderer)
 npm test             # vitest: tests/unit/{main,shared} in node, tests/unit/renderer in jsdom,
-                     # tests/browser in Playwright's Chromium (`npx playwright install chromium`)
+                     # tests/browser in Playwright's Chromium (`npx playwright install chromium`; CI installs only the
+                     # headless shell, `--only-shell`, which is all they launch)
 npm run lint         # eslint flat config
 npm run build        # scripts/build.mjs: compose the skills, electron-vite build -> out/, bundle the MCP server
 npm run e2e          # playwright _electron against out/ — run `npm run build` first
@@ -1341,7 +1342,12 @@ scale and breakpoint (`tests/unit/renderer/file-renderers.test.tsx` checks it).
 Their tests are this app's: `tests/unit/renderer/{file-renderers,file-renderer-registrations,markdown-*}`
 in jsdom, and `tests/browser/pdf-renderer.test.mjs`, which serves a FileViewer
 with the PDF renderer from this app's root through its own Vite server and drives
-PDF.js's real worker, text selection and capture in Playwright's Chromium.
+PDF.js's real worker, text selection and capture in Playwright's Chromium. A browser
+harness gets a fresh dependency cache per run (`cacheDir` a new temp directory) and
+names what Vite's scan cannot see (`optimizeDeps.include`: `react/jsx-dev-runtime`,
+the automatic JSX runtime), then asserts the page loaded once; a late discovery
+re-optimises and reloads mid-test, and a stale cache would hide it locally and show
+it in CI.
 
 ### Live files and terminals
 
@@ -1654,7 +1660,9 @@ playbook for the mode bases and camera behavior.
 ## Quitting
 
 `app.quit()` has a budget of two seconds (`tests/e2e/cad.spec.ts` quits with everything running and
-asserts the process is gone within it, and that `[quit] teardown` and `[quit] will-quit` were logged), and the
+asserts the process is gone within it, and that `[quit] teardown` and `[quit] will-quit` were logged; it prints
+`[quit-budget] app.quit() to pid gone: N ms of 2000 ms (deadline 1200 ms)` whether it passes or fails, so a CI log shows
+how much of the budget a run used, and records N as the `quit-ms` annotation), and the
 teardown in `before-quit` is written for it: every owner signals what it
 owns and nothing is awaited. Electron waits for the Node side, and the Node
 side waits for every child it holds a pipe to, so `src/main/children.ts`
@@ -1670,9 +1678,11 @@ at all — an fsevents handle dies with the process.
 
 On POSIX, an app-owned viewer runs in its own process group. Its transient CAD
 workers are stopped when the viewer exits or the app quits, including workers
-that outlive the viewer process. Reused external viewers and the shared warm
-daemon belong to separate groups and are left running (on POSIX; on Windows the
-deadline's tree kill takes the warm daemon with it, see below).
+that outlive the viewer process. A reused external viewer is not a child
+of this app and is never touched. The shared warm daemon outlives the app by
+design and is spared by pid, not by group (the app-owned viewer has a group of
+its own too, so sparing a group would spare it); on Windows the deadline's tree
+kill takes the warm daemon with it. The deadline, below, has the mechanism.
 
 What is left after `before-quit` is Chromium's own shutdown, which on this
 macOS takes twelve seconds to minutes once a window has held a WebGL context
@@ -1884,7 +1894,10 @@ another domain's capabilities. The stdio entries omit `type`, because the ACP
 adapters otherwise interpret them as HTTP/SSE.
 
 The loopback bridge in `src/main/integrations/mcp-bridge.ts` authenticates the
-session, checks method ownership and validates its schema. Native services
+session, checks method ownership and validates its schema. `McpBridge.stop`
+aborts the in-flight calls, drops every token, disposes the resources and then
+always closes its listener, so a disposal that rejects is surfaced to the caller
+without leaving a loopback port open. Native services
 operate in main; UI-bound calls use `integrations.command` / `integrations.reply`
 and `src/renderer/state/integration-commands.ts`. Main resolves the session's
 project/worktree, and the owning service checks tab/resource identity again.
@@ -2216,12 +2229,19 @@ not take a connected session with it. A create that fails before that answer
 removes the row and, for a worktree it cut, the worktree. One that fails after
 it while the connection is alive resolves: the row goes `idle`, the composer
 opens, and the failure is a note in `session.status.error`
-(`settleAfterFailedCreate`). The renderer keeps it in `setupNotes` (`state/acp.ts`,
+(`settleAfterFailedCreate`), worded "The session started, but setting it up
+failed: <cause>". The renderer keeps it in `setupNotes` (`state/acp.ts`,
 fed by `bridge.ts`) and shows it as an alert above the composer with a Retry
 setup button; the composer stays sendable, because the session did start. Retry
 setup is `sessions.retrySetup` (`SessionManager.retrySetup`): it re-runs the
 same `applyPreferences` a create runs on the live, idle connection, and answers
-with the new note or null, which drops it. It is not a `load`: a `load` on a live
+with the new note or null, which drops it. A session that is not `idle` throws
+"The session is busy; set it up again when it is idle."; a retry that fails is
+the note "Setting it up again failed: <cause>" (also re-broadcast as the
+session's status error). The renderer's answer is dropped when the session was
+forgotten or disconnected meanwhile (a generation check in `retrySetup`,
+`state/acp.ts`), and the alert is hidden while the session shows a load error or
+is loading (`SessionView.tsx`), the note staying held underneath. It is not a `load`: a `load` on a live
 connection only re-broadcasts its state and retries nothing. The next `load`, a
 disconnect (`close`) or a forget clears the note; it is not persisted, so a window
 reload drops it.

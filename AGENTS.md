@@ -224,6 +224,7 @@ when touching shared surfaces or before handoff:
   The Viewer is two languages and `npm run test` covers only the client — the
   backend's suite is `tests/python/packages/cadgen/viewer`, run by
   `scripts/test/test-python.sh`. Touching `cadgen/viewer/` means running that.
+- Anything under `packages/ui/src/renderers/kit`, or a doc or comment about it: `node scripts/test/check-kit-boundaries.mjs` (the kit is format-blind in comments too).
 - Docs site: `npm --prefix apps/docs run check`
 - Targeted Python tests: `./.venv/bin/python -m unittest <changed test paths>`
 
