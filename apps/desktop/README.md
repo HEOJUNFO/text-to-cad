@@ -931,7 +931,9 @@ image over the model's limit (`MAX_IMAGE_BYTES`, the file size whose base64
 stays under 5 MiB, the same cap a viewer capture is fitted to) is redrawn
 smaller as a PNG when it is attached, and a toast says so when that changed what
 the file is — an animated GIF or WebP comes out a still image ("<name> was scaled
-down to a still image to fit the model's limit."), any other format a PNG; one that cannot be brought under it is
+down to a still image to fit the model's limit."), any other format a PNG (an
+animated PNG is read by its type, `image/png`, so it is not told apart from a
+still one and gets no still-image notice); one that cannot be brought under it is
 refused with "<name> is larger than the model takes (about 3.75 MB of image)
 and could not be scaled down, so it was not attached." The send checks again
 and drops such an image with the same sentence. A
