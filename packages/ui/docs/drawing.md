@@ -156,7 +156,7 @@ adaptations, notices, and offline Electron test when upgrading.
 
 Validation lives in core's `drawing.test.js`, desktop's drawing document/tab,
 prompt, tools and asset unit tests (`tests/unit/main/drawing-assets.test.ts`
-covers this plugin), and `tests/e2e/drawing.spec.ts`. The latter
+covers this plugin), and the drawing test in `tests/e2e/explorer.spec.ts`. That one
 draws real ink, checks PNG decoding and disabled persistence routes, and
 reloads the app profile while blocking external requests.
 

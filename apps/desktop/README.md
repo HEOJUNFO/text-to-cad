@@ -356,7 +356,9 @@ agent's `limits` turn), `session-cancelled`, `session-error`,
 `activity-expanded-light` and `transcript-links`. From
 `transcript-layout.spec.ts`: `transcript-light`, `transcript-dark` and
 `transcript-expanded`; from `browser-service.spec.ts`, `browser-use-native`
-(the native page as Browser Use captured it). The committed
+(the native page as Browser Use captured it). A failing spec adds `failure-<n>-<i>`, one PNG per window: the launcher's test fixture (`tests/e2e/launch.ts`, which a spec imports instead of Playwright's) traces every
+app a test launches and, only when that test fails, writes `trace-<n>.zip` and those PNGs beside it, because Playwright's own trace and screenshot options have no page to attach to for an Electron app;
+a green test writes none of them. The committed
 `tests/e2e/__screenshots__/` (`file-cad-failed`, `file-markdown-editable`,
 `file-markdown-raw-blocks`, `file-tree-deep`) is older evidence no spec
 rewrites. Look at them; they are the cheapest review of

@@ -33,7 +33,7 @@ export const mod = process.platform === "darwin" ? "Meta" : "Control";
  * Playwright's own `use: { trace, screenshot }` has no page fixture to attach
  * to and records nothing for these specs. Every app `launch()` starts is
  * therefore traced here, in one chunk per test, and the chunk is written out
- * (`trace-N.zip`, with a `failure-N.png` of each window) only when the test
+ * (`trace-N.zip`, with a `failure-N-M.png` of each window M) only when the test
  * failed; a green test discards its chunk, so a passing run writes nothing.
  * Import `test` from this file, not from `@playwright/test`, to get it.
  */
