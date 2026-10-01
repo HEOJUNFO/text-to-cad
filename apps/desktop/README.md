@@ -2278,8 +2278,8 @@ setup button; the composer stays sendable, because the session did start. Retry
 setup is `sessions.retrySetup` (`SessionManager.retrySetup`): it re-runs the
 same `applyPreferences` a create runs on the live, idle connection, and answers
 with the new note or null, which drops it. A session that is not `idle` throws
-"The session is busy; set it up again when it is idle."; a retry that fails is
-the note "Setting it up again failed: <cause>" (also re-broadcast as the
+"The session is busy; set it up again when it is idle." (a refusal, shown as is); a retry that fails is
+the note "Setting it up again failed: <cause>", composed by main (also re-broadcast as the
 session's status error). The renderer's answer is dropped when the session was
 forgotten or disconnected meanwhile (a generation check in `retrySetup`,
 `state/acp.ts`), and the alert is hidden while the session shows a load error or
@@ -2289,8 +2289,8 @@ disconnect (`close`), a closed status from the adapter itself (a crash or exit,
 through `receiveEvent`) or a forget clears the note, and the alert is never drawn
 beside the "Agent disconnected" bar; it is not persisted, so a window reload drops
 it. Retry setup is disabled and reads "Retrying setup…" until the answer comes
-back, and a retry the IPC rejects outright becomes the note "Setting it up again
-failed: <cause>", the same sentence main gives one that fails.
+back, and a retry main refuses (it throws, as for a busy session) becomes the note with
+main's own words, unprefixed: nothing was tried, so it is not reported as a failed try.
 One whose connection is dead, or whose row is gone,
 is abandoned (`abandonCreate`): the connection is retired, the row removed, the
 worktree that create cut released, and `create` rejects. The same happens when

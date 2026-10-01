@@ -142,10 +142,10 @@ describe("the note a failed setup leaves", () => {
     expect(screen.getByRole("button", { name: "Retry setup" })).toBeEnabled();
   });
 
-  it("words a retry that is rejected outright as a failed second try, not the raw IPC text", async () => {
+  it("shows a retry that main refuses in main's own words, not as a failed second try", async () => {
     retrySetup.mockRejectedValueOnce(new Error("The session is busy; set it up again when it is idle."));
     emitNote(NOTE);
     await act(() => useAcp.getState().retrySetup("s1"));
-    expect(useAcp.getState().setupNotes.s1).toBe("Setting it up again failed: The session is busy; set it up again when it is idle.");
+    expect(useAcp.getState().setupNotes.s1).toBe("The session is busy; set it up again when it is idle.");
   });
 });
