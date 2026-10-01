@@ -1502,15 +1502,17 @@ dotfile except `.git` (the tree and the filter leave out Git's own folder, or
 the `.git` file of a worktree, unless the open file is inside it),
 Git-ignored outputs, dependency folders and unsupported formats. Renderer
 support determines what opens in the file tab; it never hides a tree row.
-Unknown types open with **Not supported**. Trashing a folder closes every open tab under it; a tab with unsaved changes stays open and is named in a toast ("Moved to Trash, but 1 open tab could not be closed: <path> (<reason>)"), and the other tabs still close. A linked directory lists its children under the link's own path (`links/vendor/a.txt`), read through the real one, so a link and its target never produce the same row twice. Previews that cannot be shown keep the same way out:
+Unknown types open with **Not supported**. Previews that cannot be shown keep the same way out:
 an image or PDF over the 24 MB preview limit (`PREVIEW_LIMIT_BYTES` in `FileLoadError.tsx`, which
 `file-preview-errors.test.tsx` holds equal to `MAX_BINARY_BYTES` in `src/main/explorer/fs.ts`) reads
 "This file is too large to preview" with "<name> is <size>; previews open files up to 24 MB.", an
 image the browser cannot decode reads "This image could not be decoded.", and a PDF that PDF.js
 refuses reads "This PDF could not be opened: <reason>." with no page toolbar. Each offers Open
-externally when the host has it. Listings are lazy and complete for
-each expanded directory. The filter lists at most 200 matches and the index holds at most 20,000 files; when either
-cap cuts something it says "Showing the first 200 of N matches; the index stopped at 20,000 files" (or "The index stopped at 20,000 files; some matches may be missing"), and an index that cannot be read says "Could not search the files: <reason>". The bounded fuzzy index visits project content before
+externally when the host has it. Listings are lazy and complete for each expanded directory. The
+filter lists at most 200 matches and the index holds at most 20,000 files; when either cap cuts
+something it says "Showing the first 200 of N matches; the index stopped at 20,000 files" (or "The
+index stopped at 20,000 files; some matches may be missing"), and an index that cannot be read says
+"Could not search the files: <reason>". The bounded fuzzy index visits project content before
 dependency caches so cache files do not crowd generated CAD outputs out of the
 search budget. `listPaths` reads the next 16 directories (`LIST_READ_AHEAD`)
 while it takes the current one apart, and consumes them in the order they were
@@ -1536,7 +1538,9 @@ repeated under the link's name; the link's own inode is its identity. When
 `ln -sfn` re-points it, the inode is taken again and the alias moves to the
 new target (a target outside the root is none), so its changes are the ones
 repeated and renaming the link still moves its tab; moving the target leaves
-the link dangling — a removal to its tab. A
+the link dangling — a removal to its tab. A linked
+directory lists its children under the link's own path (`links/vendor/a.txt`), read through the
+real one, so a link and its target never produce the same row twice. A
 tab that remounts gives its paths back and takes them again; a release that
 overtakes the watch it follows is counted (`arriving`, `owed`) and given back
 once that watch holds, so no hold is left behind.
@@ -1643,7 +1647,9 @@ for create/rename/duplicate, plain Node and unit-tested; trash, reveal and
 `Open with…` — a chooser over `/Applications` then `open -a`, the shell's
 own Open With on Windows — in `src/main/ipc/explorer.ts`). A rename or a
 trash keeps the strip honest: tabs showing the file or anything under the
-folder are re-pointed or closed. `Open in terminal` on a folder is the one
+folder are re-pointed or closed. Trashing a folder closes every open tab
+under it; a tab with unsaved changes stays open and is named in a toast ("Moved to Trash, but 1
+open tab could not be closed: <path> (<reason>)"), and the other tabs still close. `Open in terminal` on a folder is the one
 `terminal.create` whose `cwd` is under a root rather than a root.
 
 ### The panels a file has
