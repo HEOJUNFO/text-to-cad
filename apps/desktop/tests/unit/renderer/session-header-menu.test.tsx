@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
 
@@ -89,5 +89,31 @@ describe("the header's rename box", () => {
     await user.click(screen.getByRole("button", { name: "Bracket" }));
     await user.keyboard("{Enter}");
     expect(screen.getByRole("button", { name: "Bracket" })).toHaveFocus();
+  });
+});
+
+describe("choosing Rename from the header menu", () => {
+  beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
+  afterEach(() => vi.useRealTimers());
+
+  it("keeps the box and its draft after the menu's close focus has settled", async () => {
+    const rename = vi.fn(async () => undefined);
+    useSessions.setState({ rename } as never);
+    const user = await openMenu();
+    await user.click(screen.getByRole("menuitem", { name: "Rename" }));
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+    // Whatever the menu does as it closes (trap, focus restore) must not end the edit by blurring the box.
+    expect(screen.queryByRole("textbox", { name: "Session title" }), "the rename box stays open after the menu closes").toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Session title" }), { target: { value: "Not saved" } });
+    // Past the menu's close, as the e2e's slow machine reaches it: any focus it moved off the box ends the edit.
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+    expect(rename, "rename must not run when the menu's close moves focus off the box").not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: "Session title" })).toHaveValue("Not saved");
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Session title" }), { key: "Escape" });
+    expect(rename).not.toHaveBeenCalled();
   });
 });
