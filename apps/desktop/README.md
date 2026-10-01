@@ -2496,8 +2496,10 @@ left to lose (`folderGone` in `src/main/projects/git.ts`); Settings lists such
 a worktree as clean, so Delete there is open to it. It never removes a worktree outside the project's
 worktree folders, a locked one, one that holds the `cwd`, `projectId` or
 `worktreePath` of a session row that is not archived, or a create still
-in flight, or one with uncommitted changes or ignored files that are not a
-disposable cache (`hasUnsavedWork`). An archived session holds no worktree.
+in flight, or one with unsaved work (`hasUnsavedWork`): uncommitted changes,
+ignored files that are not a disposable cache, a detached HEAD whose commits
+no branch, remote branch or tag reaches, or a rebase, merge, cherry-pick,
+revert or bisect left half done (`strandedWork`). An archived session holds no worktree.
 "In use" is one function, `sessionsUsing` in `src/main/projects/git.ts`: the
 sessions that are not archived and run in the worktree, in a folder inside it,
 or record it as their `worktreePath`. It answers Settings' open-session count,
@@ -2507,8 +2509,8 @@ refused on two grounds: a worktree in use (main answers "N sessions are still
 using that worktree", and the row says "A session is still open in this
 worktree.") and a locked one (`git worktree lock`; the row says it is kept
 until it is unlocked). The row disables Delete and gives the reason through
-`keptBecause` in `GitPage.tsx`, which also covers uncommitted changes or
-ignored files and a worktree git could not check. The limit counts only unlocked, unheld
+`keptBecause` in `GitPage.tsx`, which also covers uncommitted changes,
+ignored files, commits only the checkout holds, and a worktree git could not check. The limit counts only unlocked, unheld
 worktrees in the project's worktree folders; one with unsaved work counts
 toward it and is then kept. A branch is deleted only when a failed create abandons the
 worktree it made, and then only while it still points where it was cut

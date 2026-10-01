@@ -1601,10 +1601,52 @@ export async function ignoredFiles(cwd: string): Promise<string[]> {
  */
 export async function hasUnsavedWork(cwd: string): Promise<boolean | null> {
   try {
-    return (await isDirty(cwd)) || (await ignoredFiles(cwd)).length > 0;
+    return (await isDirty(cwd)) || (await ignoredFiles(cwd)).length > 0 || (await strandedWork(cwd)) !== null;
   } catch {
     return null;
   }
+}
+
+/** What git leaves in its directory while an operation is half done. */
+const OPERATION_MARKERS: readonly [file: string, name: string][] = [
+  ["rebase-merge", "a rebase"],
+  ["rebase-apply", "a rebase"],
+  ["MERGE_HEAD", "a merge"],
+  ["CHERRY_PICK_HEAD", "a cherry-pick"],
+  ["REVERT_HEAD", "a revert"],
+  ["BISECT_LOG", "a bisect"],
+];
+
+/**
+ * Work only this checkout holds although its files are clean: a detached HEAD
+ * whose commit no branch, remote branch or tag reaches (removing the worktree
+ * leaves those commits to the reflog and a gc), or an operation stopped
+ * half-way (a rebase, merge, cherry-pick, revert or bisect). A sentence, or
+ * null when there is none. Throws when git cannot say.
+ *
+ * A checkout can be recreated from its branch; the commits on a detached HEAD
+ * cannot.
+ */
+export async function strandedWork(cwd: string): Promise<string | null> {
+  const paths = (await git(cwd, ["rev-parse", ...OPERATION_MARKERS.flatMap(([file]) => ["--git-path", file])]))
+    .split(/\r?\n/)
+    .filter((line) => line !== "");
+  for (const [index, [, name]] of OPERATION_MARKERS.entries()) {
+    const marker = paths[index];
+    if (marker && (await fsp.stat(path.resolve(cwd, marker)).then(() => true, () => false))) {
+      return `${name} is in progress in it`;
+    }
+  }
+  // `symbolic-ref -q` exits 1, silently, for a detached HEAD.
+  const result = await runGit(cwd, ["symbolic-ref", "-q", "HEAD"]);
+  if (result.exitCode === 0) {
+    return null;
+  }
+  if (result.exitCode !== 1) {
+    throw new GitError("could not tell whether HEAD is on a branch");
+  }
+  const reached = await git(cwd, ["for-each-ref", "--count=1", "--format=%(refname)", "--contains", "HEAD", "refs/heads", "refs/remotes", "refs/tags"]);
+  return reached.trim() === "" ? "it is on a detached HEAD whose commits no branch holds" : null;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1948,6 +1990,10 @@ export async function removeWorktree(
     if (ignored.length > 0) {
       const named = ignored.slice(0, 3).join(", ") + (ignored.length > 3 ? `, and ${ignored.length - 3} more` : "");
       throw new GitError(`that worktree has ignored files that removing it would delete: ${named}`);
+    }
+    const stranded = await strandedWork(worktreePath).catch(unchecked);
+    if (stranded !== null) {
+      throw new GitError(`that worktree has work removing it would lose: ${stranded}`);
     }
   }
   await git(root, ["worktree", "remove", ...(options.force ? ["--force"] : []), worktreePath], { kind: "write" });
