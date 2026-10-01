@@ -1,3 +1,4 @@
+import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { AlertCircle, Paperclip, RotateCcw, Unplug } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -138,14 +139,15 @@ function ViewItemView({
       );
     case "attachment":
       return (
-        <span
-          className="not-prose my-1 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px]"
-          data-part="attachment"
-          title={item.uri}
-        >
-          <Paperclip className="size-3 text-muted-foreground" />
-          {item.name}
-        </span>
+        <TooltipHint content={item.uri} side="top">
+          <span
+            className="not-prose my-1 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px]"
+            data-part="attachment"
+          >
+            <Paperclip className="size-3 text-muted-foreground" />
+            {item.name}
+          </span>
+        </TooltipHint>
       );
     case "mode":
       return (

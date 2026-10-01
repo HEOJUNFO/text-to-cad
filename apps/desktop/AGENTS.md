@@ -165,6 +165,10 @@ the rule is about.
   (`packages/ui/README.md`), and `tests/unit/renderer/no-native-title.test.tsx`
   renders the session, the sidebar, Settings, the agent drawer, the tab strip
   and the review. A new screen is added to that test.
+  `tests/unit/renderer/a11y-source.test.ts` also scans every renderer source for
+  a `title` attribute on a plain tag or on a component that spreads onto one
+  (`Attachment`, `DialogTitle`), which no rendered state can miss; a
+  component's own `title` prop that ends in a `TooltipHint` is not one.
 - **Keyboard focus is visible.** A control revealed by `group-hover:opacity-100`
   carries a `focus-visible:opacity-100` (or `group-focus-within:opacity-100`) twin, and a button that takes
   `outline-none` draws the kit's ring (`focus-visible:ring-[3px]

@@ -47,7 +47,7 @@ function renderComposer(onSubmit = vi.fn(async () => undefined)) {
     Object.defineProperty(input, "files", { configurable: true, value: files });
     await act(async () => fireEvent.change(input));
   };
-  const attached = (name: string) => view.container.querySelector(`[data-composer] [title="${name}"]`);
+  const attached = (name: string) => view.container.querySelector(`[data-composer] [data-attachment-name="${name}"]`);
   const send = () => act(async () => fireEvent.submit(view.container.querySelector("form")!));
   return { ...view, pick, attached, send, onSubmit };
 }
