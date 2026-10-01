@@ -37,6 +37,7 @@ import { NEW_SESSION_KEY, useComposer, useQueue } from "@renderer/state/composer
 import { useActiveProject } from "@renderer/state/projects";
 import { useSessions } from "@renderer/state/sessions";
 import type { AvailableCommand, PromptBlock } from "@shared/acp/types";
+import { MAX_IMAGE_BYTES } from "@shared/image-cap";
 
 import {
   AttachmentFiles,
@@ -713,6 +714,11 @@ export async function toPromptBlocks(text: string, files: FileUIPart[], remember
     const mimeType = file.mediaType || parsed.mimeType || "application/octet-stream";
     const name = file.filename || "attachment";
     if (mimeType.startsWith("image/")) {
+      // The backstop for an image that reached the form another way: the model rejects base64 over 5 MiB.
+      if (parsed.base64.length > MAX_IMAGE_BYTES * 4 / 3) {
+        toast.error(attachmentRefusal.imageTooBig(name));
+        continue;
+      }
       blocks.push({ type: "image", data: parsed.base64, mimeType, uri: null });
       continue;
     }

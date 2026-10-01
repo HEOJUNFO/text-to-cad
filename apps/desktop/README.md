@@ -897,7 +897,13 @@ unresolved references keep their file/selector fallback.
 
 A file is sorted the moment it is attached (paperclip, paste or drop), not
 when the prompt is sent. Images and UTF-8 text up to 256 KB
-(`MAX_INLINE_TEXT_BYTES` in `composer/attachments.ts`) attach as before. A
+(`MAX_INLINE_TEXT_BYTES` in `composer/attachments.ts`) attach as before. An
+image over the model's limit (`MAX_IMAGE_BYTES`, the file size whose base64
+stays under 5 MiB, the same cap a viewer capture is fitted to) is redrawn
+smaller as a PNG when it is attached; one that cannot be brought under it is
+refused with "<name> is larger than the model takes (about 3.75 MB of image)
+and could not be scaled down, so it was not attached." The send checks again
+and drops such an image with the same sentence. A
 CAD file the viewer renders (`CAD_EXTENSIONS`) never goes in as bytes: one
 already in the project folder — matched by name and byte size, since Electron
 gives the renderer no path for a picked file — is inserted as its path, the
