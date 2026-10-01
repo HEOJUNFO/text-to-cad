@@ -255,6 +255,28 @@ describe("the skills tools", () => {
   });
 });
 
+describe("tool descriptions", () => {
+  const described = async (integration: string, name: string) => {
+    const client = await connect(fakeBridge().bridge, { integration });
+    return (await client.listTools()).tools.find((tool) => tool.name === name)?.description ?? "";
+  };
+
+  it("close_tab does not promise a discard no tool can do", async () => {
+    const description = await described("workspace", "close_tab");
+    expect(description).toContain("save it first");
+    expect(description).not.toMatch(/explicitly discarded/);
+  });
+
+  it("stop_terminal says what it returns", async () => {
+    expect(await described("terminals", "stop_terminal")).toContain("exited: true with the exitCode, or exited: false");
+  });
+
+  it("the doc quotes the relay's timeout sentence as actions.ts words it", () => {
+    const doc = fs.readFileSync(fileURLToPath(new URL("../../../docs/integrations.md", import.meta.url)), "utf8");
+    expect(doc.replace(/\s+/g, " ")).toContain('"the text-to-cad window did not answer within 12 s"');
+  });
+});
+
 describe("a malformed call", () => {
   const said = async (name: string, args: Record<string, unknown>, integration = "workspace") => {
     const { bridge, calls } = fakeBridge();

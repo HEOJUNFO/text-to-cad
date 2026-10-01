@@ -156,7 +156,7 @@ viewer command that cannot get there says "The viewer did not finish applying
 this command." after ten seconds. The relay's tiers nest around that bound:
 `capture-view` waits for the camera to rest inside the viewer's ten seconds and
 then encodes, all inside the relay's thirty; the other viewer commands have
-twelve so the viewer's sentence arrives first. "The text-to-cad window did not
+twelve so the viewer's sentence arrives first. "the text-to-cad window did not
 answer within 12 s" means no window replied at all. What each command waits for
 is stated once, in
 [Live commands](../../../packages/ui/docs/cad-renderer.md#live-commands).
