@@ -93,6 +93,19 @@ export function SessionRow({
     setDraft(session.title);
     setEditing(true);
   };
+  // The rename box must not open while the menu that chose it is still closing. Radix's focus scope
+  // pulls focus back into a menu that is still trapped (stealing the box's autoFocus) and, a tick
+  // after close, restores focus to the `…` trigger; either blurs the box, and the blur commits the
+  // draft. So Rename only raises this flag, and the box opens from the menu's own close-focus event,
+  // when both are done; that event is not given to the trigger.
+  const renameChosen = useRef(false);
+  const openRenameAfterMenu = (event: Event) => {
+    if (renameChosen.current) {
+      renameChosen.current = false;
+      event.preventDefault();
+      startRename();
+    }
+  };
   const commitRename = () => {
     if (settled.current) return;
     settled.current = true;
@@ -109,7 +122,13 @@ export function SessionRow({
         label={session.pinned ? "Unpin" : "Pin"}
         onSelect={() => void setPinned(session.id, !session.pinned)}
       />
-      <MenuItem icon={<Pencil />} label="Rename" onSelect={startRename} />
+      <MenuItem
+        icon={<Pencil />}
+        label="Rename"
+        onSelect={() => {
+          renameChosen.current = true;
+        }}
+      />
       <MenuItem
         icon={session.archived ? <ArchiveRestore /> : <Archive />}
         label={session.archived ? "Unarchive" : "Archive"}
@@ -226,13 +245,13 @@ export function SessionRow({
                 <MoreHorizontal className="size-3" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-40">
+            <DropdownMenuContent align="start" className="w-40" onCloseAutoFocus={openRenameAfterMenu}>
               <MenuKind.Provider value="dropdown">{menuItems}</MenuKind.Provider>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-40">
+      <ContextMenuContent className="w-40" onCloseAutoFocus={openRenameAfterMenu}>
         <MenuKind.Provider value="context">{menuItems}</MenuKind.Provider>
       </ContextMenuContent>
     </ContextMenu>
