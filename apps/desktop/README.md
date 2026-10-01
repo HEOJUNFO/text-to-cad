@@ -2266,11 +2266,15 @@ stop. A `session/load` replay cannot say either again (it has no `prompt/end`, s
 late text merges into the answer, and it closes every agent turn `end_turn`), so
 after the replay the connection dispatches `turns/restored`, built from the stored
 snapshot by `turnFactsFrom`: turns are matched by position for as long as each
-user turn says the same thing, an agent turn takes the stored stop reason, and
-its `lateFrom` only when the replay has the same number of parts (a replay that
-merged parts cannot say which were late). What a reload restores is those two
-facts, nothing else: a turn whose part count differs keeps its stop reason and loses its `lateFrom`, so its late parts read as part of
-the answer, and turns after the first user turn that differs from the stored one are not matched at all. In the renderer, `receiveState` (`state/acp.ts`) clears a session's
+user turn says the same thing, an agent turn takes the stored stop reason and its
+`lateFrom`. A replay with the same number of parts keeps `lateFrom` as stored; a
+replay that merged text chunks into fewer parts is cut again where the stored text
+before `lateFrom` ends (the `split` on the fact), so the late text is its own part
+again and both facts come back. If the stored text is not a prefix of the replayed
+text, neither fact is restored: the turn reads `end_turn` with no label rather than
+showing late text under a stop it did not belong to. What a reload restores is those
+two facts, nothing else, and turns after the first user turn that differs from the
+stored one are not matched at all. In the renderer, `receiveState` (`state/acp.ts`) clears a session's
 `loadErrors` once the state it takes says the agent is up (`idle`, `running` or
 `waiting`). In main, an `initialize` failure goes through `describe`
 (`src/main/acp/connection.ts`) as `session/new`, `session/load` and
