@@ -36,7 +36,19 @@ const MODULES = [
   "src/main/acp/sessions.ts",
   "src/main/explorer/fs.ts",
   "src/main/index.ts",
+  "src/main/quit-deadline.ts",
+  "src/main/test-door.ts",
+  "src/main/ipc/git.ts",
+  "src/main/integrations/actions.ts",
+  "src/main/acp/connection.ts",
 ];
+
+/** The workspace packages' own docs, outside the app: paths in them are from the package root, the app's or the repository's. */
+const PACKAGE_DOCS = ["packages/ui", "packages/core"].flatMap((pkg) =>
+  readdirSync(path.join(repoRoot, pkg, "docs"))
+    .filter((name) => name.endsWith(".md"))
+    .map((name) => `${pkg}/docs/${name}`),
+);
 
 const DOCUMENTS = [
   "README.md",
@@ -75,8 +87,8 @@ function onDisk(full: string): boolean {
   return existsSync(dir) && readdirSync(dir).some((name) => name.startsWith(`${stem}.`));
 }
 
-function missingIn(source: string, text: string): string[] {
-  const roots = [appRoot, path.dirname(path.join(appRoot, source)), repoRoot];
+function missingIn(source: string, text: string, from = appRoot): string[] {
+  const roots = [from, appRoot, path.dirname(path.join(from, source)), repoRoot];
   return [...text.matchAll(PATH)].flatMap((match) => {
     const raw = match[1]!.replace(/^apps\/desktop\//, "").replace(/:\d+(?:-\d+)?$/, "").replace(/[.,;:]$/, "");
     if (EXAMPLES.has(raw)) return [];
@@ -100,4 +112,12 @@ it("names only paths that exist, in README, AGENTS and docs", () => {
 it("names only paths that exist, in the modules' comments", () => {
   const missing = MODULES.flatMap((file) => missingIn(file, commentsOf(readFileSync(path.join(appRoot, file), "utf8"))));
   expect(missing.join("\n"), "backticked paths in module comments that are not on disk").toBe("");
+});
+
+it("names only paths that exist, in the packages' docs", () => {
+  expect(PACKAGE_DOCS.length).toBeGreaterThan(10);
+  const missing = PACKAGE_DOCS.flatMap((doc) =>
+    missingIn(doc, readFileSync(path.join(repoRoot, doc), "utf8"), path.join(repoRoot, doc.split("/docs/")[0]!)),
+  );
+  expect(missing.join("\n"), "backticked paths in packages/*/docs that are not on disk").toBe("");
 });

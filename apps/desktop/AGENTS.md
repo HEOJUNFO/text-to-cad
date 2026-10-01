@@ -111,7 +111,16 @@ the rule is about.
   exception is the e2e suite's door, `src/main/test-door.ts`
   (`installE2eDoor`), installed only when `NODE_ENV=test` and
   `!app.isPackaged` — an environment variable is something anyone can set in
-  front of a packaged app (`tests/unit/main/test-door.test.ts`).
+  front of a packaged app (`tests/unit/main/test-door.test.ts`). It answers with a
+  promise started in a macrotask that the caller must await
+  ([why](docs/session-workspaces.md)).
+- **An `app.evaluate` that touches the database runs on a fresh stack.** It is an
+  inspector interrupt and can land inside a `.all()` mid-row; start the work in
+  a `setImmediate` and return its promise (`src/main/test-door.ts`).
+- **A menu item that opens an input opens it from the menu's
+  `onCloseAutoFocus`.** Mounting the box while the menu is closing lets the
+  menu's focus handling blur it, and the blur commits the draft (Rename in
+  `features/sidebar/SessionRow.tsx` and `features/session/SessionHeader.tsx`).
 - **`src/renderer/components/{ui,ai-elements}` is vendored**, from the shadcn
   and AI Elements registries. It is excluded from eslint (not from the
   typechecker). These deliberate edits are in it: the `ai` package's types are
@@ -410,8 +419,8 @@ the rule is about.
   (what each command waits for: [Live commands](../../packages/ui/docs/cad-renderer.md#live-commands)).
   That sentence reaches the agent because main's relay waits 12 s
   (`VIEWER_REPLY_TIMEOUT_MS`) for the viewer commands, its clock starting before
-  the IPC send; "the text-to-cad window did not answer within 12 s" means no
-  window replied. A reply on the call returning would hand an agent a state the
+  the IPC send; "the text-to-cad window did not answer within 12 s (is one open?); the command may still complete, so check before retrying" means a window was there and
+  none replied, and with no window at all the refusal is the different sentence "no text-to-cad window is open; open one and retry". A reply on the call returning would hand an agent a state the
   command had not produced yet.
 - **Every capture goes through `imageResult`.** It redraws an image over
   `MAX_IMAGE_BYTES` smaller and refuses it only when it cannot be made to fit,
@@ -420,7 +429,7 @@ the rule is about.
 - **The quit deadline spares the warm daemon by pid, never by process group.**
   The app-owned viewer is `detached` too, so a group spare would spare it; the
   watchdog gets `daemonPids()` (a daemon's pid leaves it when it exits, so a
-  reused pid is never spared), and both of its probes run under a timeout so a
+  reused pid is never spared), and its one probe runs under a timeout so a
   hung `ps` cannot stall the final kill. Windows has no spare list and its tree
   kill takes the daemon (`src/main/quit-deadline.ts`, README "Quitting").
 - **A browser harness gets a fresh dependency cache per run.** A Vite server
@@ -483,13 +492,19 @@ the rule is about.
   a field whose text is parsed on the way in (the Advanced environment) says
   when the store's value is its text, or the blur that saves it rewrites what
   the person typed (`tests/unit/renderer/agent-advanced.test.tsx`).
-- **The row changes before the teardown.** Archive and delete write the
-  session row first and revoke tokens, dispose pages and kill shells after, so
-  a write that throws leaves the session whole with its tools
-  (`tests/unit/main/acp-archive-order.test.ts`). Archive first joins an
+- **A session mutation writes the row first.** Create writes the row before it
+  spawns the agent; archive and delete write it before they revoke tokens,
+  dispose pages, kill shells or release a worktree. A write that throws leaves
+  the session whole with its tools, and a create whose `repo.upsert` throws
+  releases the worktree it cut and its tokens (`abandonCreate`)
+  (`tests/unit/main/acp-archive-order.test.ts`, `tests/unit/main/sessions.test.ts`). Archive first joins an
   in-flight create, bounded at `ARCHIVE_WAIT_MS`, so it closes a session that
   exists rather than one about to be removed; `prompt` and `NewSession` never
   reconnect an archived row.
+- **A precondition is re-checked immediately before the irreversible step.** The
+  worktree sweep asks `stillEligible` again right before `git worktree remove`,
+  because the checks before it are several git calls and a session can open in
+  between (`removeWorktree`, `src/main/projects/git.ts`).
 - **A row records whether its create cut the worktree.** `worktreeOwned` is set
   when the create made a fresh worktree and not when it was handed one
   (`New session in this worktree`); `boot` and `abandonCreate` release only
@@ -515,5 +530,14 @@ the rule is about.
   sample is copied to `<target>.copying` and renamed into place, so a copy that
   dies leaves staging for the next run to discard, never a half-sample that
   reads as the person's own (`tests/unit/main/onboarding.test.ts`).
+- **A probe's timeout must survive a slow runner's spawn, so a budget is fitted
+  by needing fewer probes.** Starting a process on a loaded CI runner outran the
+  150 ms an earlier quit watchdog gave two probes; it now runs one, with room
+  for it (`WATCHDOG_PROBE_TIMEOUT_MS`, `src/main/quit-deadline.ts`).
+- **A unit test asserts no wall-clock bound, except where a documented budget is
+  the contract.** The two exceptions are the quit watchdog's budget
+  (`tests/unit/main/quit-deadline.test.ts`) and the teardown's
+  (`tests/unit/main/quit-sequence.test.ts`); a bound anywhere else fails on a
+  loaded machine and says nothing about the code.
 
 Domain MCP servers and focused skills are composed by `src/main/integrations/registry.mjs`. Read [the integration contract](docs/integrations.md) before adding session-to-app capabilities.

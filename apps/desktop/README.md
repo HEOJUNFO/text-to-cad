@@ -356,7 +356,9 @@ agent's `limits` turn), `session-cancelled`, `session-error`,
 `activity-expanded-light` and `transcript-links`. From
 `transcript-layout.spec.ts`: `transcript-light`, `transcript-dark` and
 `transcript-expanded`; from `browser-service.spec.ts`, `browser-use-native`
-(the native page as Browser Use captured it). The committed
+(the native page as Browser Use captured it). A failing spec adds `failure-<n>-<i>`, one PNG per window: the launcher's test fixture (`tests/e2e/launch.ts`, which a spec imports instead of Playwright's) traces every
+app a test launches and, only when that test fails, writes `trace-<n>.zip` and those PNGs beside it, because Playwright's own trace and screenshot options have no page to attach to for an Electron app;
+a green test writes none of them. The committed
 `tests/e2e/__screenshots__/` (`file-cad-failed`, `file-markdown-editable`,
 `file-markdown-raw-blocks`, `file-tree-deep`) is older evidence no spec
 rewrites. Look at them; they are the cheapest review of
@@ -784,7 +786,7 @@ A collapsed project's header carries the strongest state among the rows it
 hides — waiting over working — as the same glyph, named for what it counts ("1
 thread waiting for you"), so a thread that needs the person is never out of
 sight behind a collapse; an expanded section shows the rows and no extra mark.
-A pin, archive or delete that main refuses leaves the thread as it was (main writes the row first and only then closes or retires the adapter, so a refused write has touched nothing) and says so in the rename's shape — "Could not pin
+Rename in the row's menus (and the header's) only flags the choice; the box opens once the menu has closed, from `onCloseAutoFocus` (see "Focus coming back"). A pin, archive or delete that main refuses leaves the thread as it was (main writes the row first and only then closes or retires the adapter, so a refused write has touched nothing) and says so in the rename's shape — "Could not pin
 (unpin, archive, unarchive, delete) the thread: …" — and a refused archive or delete keeps the open session open — a delete whose rejection leaves no row behind (the renderer re-reads the list) is not refused, the thread is gone. A delete whose row is gone but whose disposal throws still succeeds, keeping the worktree on disk.
 
 The filter menu is global, and it is opened from the panel's own header:
@@ -952,7 +954,10 @@ cannot take an image in a prompt. Remove the attachment to send.",
 the message is accepted, not when its turn ends (`prompt` settles at the end
 of the turn); a prompt refused afterwards puts its files back in the strip. A queued prompt main refuses goes back into the
 box as it was taken, behind any put back before it, so the box reads in queue
-order, and the queue goes on. A turn the person stops (Stop or Esc) with something queued pauses the queue the way a failed one
+order, and the queue goes on. A prompt that is out but whose turn has not started (the box is `submitted`, while the
+session still reads idle for a moment) queues the next one too: Enter in a session sends then and the prompt goes behind it,
+though the button keeps its spinner (`queueWhileSubmitted`, passed by `SessionView` only). The new-session screen does not pass it,
+because its `submitted` is a create in progress and a second Enter would create a second session. A turn the person stops (Stop or Esc) with something queued pauses the queue the way a failed one
 does (Stop with nothing queued pauses nothing): the queue row reads "Paused after you stopped" with the same Resume (the reason is kept on the pause, so a Resume main then refuses reads "Paused after an error"), and
 the next queued prompt waits for it (or for a prompt typed meanwhile, which goes
 out first) instead of starting behind the Stop. A new session's first prompt refused this way
@@ -1233,7 +1238,7 @@ handed on, and an action that is refused leaves it on its control. The command
 palette and Settings' agent drawer hand focus back to what had it when they
 close (`hooks/use-return-focus.ts`), since neither has a trigger for Radix to
 return it to. A permission answer goes to the composer; one main refuses keeps
-focus on the card, which says why. Rename's Enter or Escape goes to the title
+focus on the card, which says why. Rename opens its box only after the menu that chose it has closed, from the menu's `onCloseAutoFocus` (the row's `…` menu, its context menu and the session header's menu): while the menu is still closing, Radix's focus scope takes focus off the box and then hands it to the trigger, and either blur would commit the draft. Rename's Enter or Escape goes to the title
 button, and settles the edit for good: a blur that follows (a browser may blur the
 box as it unmounts) commits nothing, so Escape never renames. Enter on a pane separator closes the pane and hands focus to that pane's
 toggle (the separator reads its width through `aria-valuetext`). A
@@ -1763,18 +1768,17 @@ group of its own, like the viewer, is killed as a group, so its compile workers
 go with it; Chromium's helpers are killed singly. (A viewer reused from another
 run is not a child of this app and is never touched.) Its one probe, `ps -axo pid=,ppid=,pgid=` (every process with its parent and group;
 the children are the rows whose parent is the app, and their groups come from the same rows), runs
-under a 400 ms timeout so a hung `ps` cannot stall the final kill of the app. The worst case is
-therefore `QUIT_DEADLINE_MS` + `WATCHDOG_PROBE_TIMEOUT_MS` + 300 ms of slack for starting the watchdog and
-the kill landing, which is 1900 ms, 100 ms inside the 2000 ms budget (a probe-hangs run measures about 1620 ms);
-the timeout is that long because starting a process on a loaded CI runner took more than the
-150 ms an earlier two-probe version allowed, and a probe that times out leaves every child alive.
-`tests/unit/main/quit-deadline.test.ts` holds that
-arithmetic in one place (the sum must fit the budget, and a run with the probe hanging must finish within it),
-so raising the probe timeout fails there. If the probe fails or times out
+under `WATCHDOG_PROBE_TIMEOUT_MS` so a hung `ps` cannot stall the final kill of the app; the timeout is
+that long because starting a process on a loaded CI runner took more than the 150 ms an earlier
+two-probe version allowed, and a probe that times out leaves every child alive. The quit budget is
+a number in one place: `tests/unit/main/quit-deadline.test.ts` adds the deadline, the probe timeout and
+the slack for starting the watchdog and the kill landing, requires the sum to fit the two-second budget,
+and requires a run with the probe hanging to finish inside it, so raising the probe timeout fails there.
+If the probe fails or times out
 no children are found, and only the app is killed (its helpers go with the browser process they
 serve, or are left to the OS). The rows of a `ps` that exits non-zero are read as well, for a
 variant that fails yet still prints what it found; no such variant has been measured. macOS and
-Linux (procps) `ps` both take `-a -x -o` and `name=` to drop the header. A quit that finishes
+Linux (procps) `ps` both take `-a -x -o`, and a field with an empty name (`pid=`) drops the header. A quit that finishes
 on its own — half a second without WebGL —
 gives it nothing to do. On Windows there is no spare list: the deadline runs
 `taskkill /PID <app> /T /F`, which follows the parent pid through `detached`, so
@@ -1910,8 +1914,9 @@ into an agent's own configuration: no plugin, marketplace or copy into
 `~/.claude/skills`, and no mandatory umbrella `text-to-cad-app-use` skill.
 A tool that needs the window (open a file, capture a view) is relayed to it; with
 every window closed (macOS keeps the app running) the agent is told at once,
-"no text-to-cad window is open; open one and retry", rather than after a
-ten-second wait.
+"no text-to-cad window is open; open one and retry", rather than after the wait
+for a reply, which is ten seconds, twelve for the viewer's live commands and thirty
+for a capture (the tiers are in the [integration guide](docs/integrations.md)).
 
 **Skills.** `scripts/build-skills.mjs` composes repository skills plus the
 registry's app skills into `resources/skills/`. The standalone `cad-viewer`
@@ -2264,7 +2269,8 @@ snapshot by `turnFactsFrom`: turns are matched by position for as long as each
 user turn says the same thing, an agent turn takes the stored stop reason, and
 its `lateFrom` only when the replay has the same number of parts (a replay that
 merged parts cannot say which were late). What a reload restores is those two
-facts, nothing else. In the renderer, `receiveState` (`state/acp.ts`) clears a session's
+facts, nothing else: a turn whose part count differs keeps its stop reason and loses its `lateFrom`, so its late parts read as part of
+the answer, and turns after the first user turn that differs from the stored one are not matched at all. In the renderer, `receiveState` (`state/acp.ts`) clears a session's
 `loadErrors` once the state it takes says the agent is up (`idle`, `running` or
 `waiting`). In main, an `initialize` failure goes through `describe`
 (`src/main/acp/connection.ts`) as `session/new`, `session/load` and
@@ -2498,7 +2504,8 @@ directory.
 Review tab, the mode chip (its Local item and its worktree item both) and worktree mode say which. Git is missing
 ("git is not installed or not on PATH"), the folder is gone ("<folder> no
 longer exists"), git refuses it for dubious ownership ("git will not open this
-folder because another user owns it"), or git did not answer in time. The
+folder because another user owns it (add it to git's safe.directory to trust it)"),
+or git did not answer in time ("git did not answer in time, so this folder could not be read"). The
 reason rides on `status` and `projectInfo` as `problem`; a folder that is just
 a folder has none, and gets the plain "not a git repository".
 
@@ -2556,7 +2563,8 @@ worktree folders, a locked one, one that holds the `cwd`, `projectId` or
 `worktreePath` of a session row that is not archived, or a create still
 in flight, or one with unsaved work (`hasUnsavedWork`): uncommitted changes,
 ignored files that are not a disposable cache, a detached HEAD whose commits
-no branch, remote branch or tag reaches, or a rebase, merge, cherry-pick,
+no branch, remote branch or tag reaches (`for-each-ref --contains HEAD` over
+`refs/heads`, `refs/remotes` and `refs/tags`), or a rebase, merge, cherry-pick,
 revert or bisect left half done (`strandedWork`). An archived session holds no worktree.
 "In use" is one function, `sessionsUsing` in `src/main/projects/git.ts`: the
 sessions that are not archived and run in the worktree, in a folder inside it,
@@ -2569,11 +2577,21 @@ worktree.") and a locked one (`git worktree lock`; the row says it is kept
 until it is unlocked). The row disables Delete and gives the reason through
 `keptBecause` in `GitPage.tsx`, which also covers uncommitted changes
 or ignored files (`dirty`), commits only the checkout holds (`stranded`: a detached
-HEAD no branch reaches, or a merge or rebase left half done, each with its own
-sentence and its own line under the branch), and a worktree git could not check
-(`unsavedWork` answers both, split by kind). The limit counts only unlocked, unheld
+HEAD no branch, remote branch or tag reaches, or a merge or rebase left half done), and a worktree git
+could not check (`unsavedWork` answers both, split by kind). `keptBecause` gives the stranded kinds one sentence, "This worktree holds
+commits on a detached HEAD no branch reaches, or an unfinished rebase or merge, that deleting it would lose.",
+and a worktree git could not check another, "Git could not check this worktree for uncommitted changes,
+ignored files, or commits only it holds, so it is kept."; the line under the branch says "commits on a
+detached HEAD, or an unfinished merge or rebase" or "could not check for unsaved work". The row's "no branch" is the short
+form of the rule above, which also counts a remote branch or a tag. The limit counts only unlocked, unheld
 worktrees in the project's worktree folders; one with unsaved work counts
-toward it and is then kept. A branch is deleted only when a failed create abandons the
+toward it and is then kept. Deleting a worktree by hand says why it refused, in the words of `removeWorktree`: "that worktree has uncommitted changes",
+"that worktree has ignored files that removing it would delete: <up to three names, and N more>",
+"that worktree has work removing it would lose: <it is on a detached HEAD whose commits no branch holds | a rebase is in progress in it>"
+(the second half names the operation: a rebase, merge, cherry-pick, revert or bisect),
+"could not check that worktree for unsaved work, so it was kept: <git's reason>", and, from the last look before git removes
+anything (`stillEligible`), "a session started in that worktree while it was being checked, so it was kept".
+A branch is deleted only when a failed create abandons the
 worktree it made, and then only while it still points where it was cut
 (`deleteBranchAtBase`; with no recorded head, only if `git branch -d` would
 take it) — a checkout can be recreated, the commits on it cannot.
@@ -2606,7 +2624,18 @@ say, takes the first's result rather than stacking another `add -A` that could
 land after it and re-point the ref. A snapshot that lands for a row that is gone
 (deleted, or a create that failed) unpins the marks it just made; the create's
 own marks are started before the spawn and settled after `session/new`, so they
-run alongside it.
+run alongside it. A snapshot that fails (`tree === null`: an unreadable file, git-lfs
+missing from the PATH, a full disk) is treated like a late one: the previous mark stays, with the log line
+"[acp] no turn snapshot of <cwd>; kept the previous mark" (`session` for a session mark), and with no previous mark the commit is the mark.
+
+The sidebar row's `+8 −1` is a different count from the review's: main tallies the diffs the agent
+*reported* (`changedFiles`, `insertions`, `deletions`, from `tallyUpdate` in `src/main/acp/sessions.ts`), not git. A turn writes
+the tally when it settles (`persistTally`), also when it is cut short, then without stamping `updatedAt`
+(`touch: false`); an edit that arrives after the turn settled, a background task finishing say, is written
+at once, but only while the session is idle, because a `session/load` replay counts the whole history again from
+zero and must not overwrite the row halfway. After a reload the replay's diffs are counted again; an adapter that
+replays none leaves the persisted counts as `baseFiles`, which later edits add to, so
+a file edited again then counts twice (its path is not known).
 A read of either scope lists the untracked files in a throwaway copy of the
 index (`add --intent-to-add` of just those paths, no objects written), and the
 reads of one review share it while the real index and the untracked set stay the
