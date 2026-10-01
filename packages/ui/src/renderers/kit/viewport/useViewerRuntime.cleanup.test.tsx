@@ -74,6 +74,12 @@ function options(mount: HTMLElement, extra: Record<string, unknown> = {}) {
   } as Record<string, unknown>, { get: (target, key: string) => (key in target ? target[key] : noop) });
 }
 
+// What the real macrotask queue needs to finish the hook's dynamic imports, without sleeping.
+async function until(condition: () => boolean) {
+  for (let turn = 0; turn < 10_000 && !condition(); turn += 1) await new Promise((resolve) => setImmediate(resolve));
+  expect(condition()).toBe(true);
+}
+
 test('a viewer whose initialisation throws midway releases what it had already registered', async () => {
   const added: Array<[string, unknown]> = [];
   const removed: Array<[string, unknown]> = [];
@@ -136,5 +142,24 @@ test('a renderer whose start throws before it is mounted still lets go of its co
   expect(renderers).toHaveLength(1);
   expect(renderers[0].dispose).toHaveBeenCalled();
   expect(mount.querySelector('canvas')).toBeNull();
+});
+
+test('interaction timers are cleared when the start is released without its runtime', async () => {
+  init.fail = false;
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const mount = document.createElement('div');
+  document.body.appendChild(mount);
+  const base = options(mount) as { runtimeRef: { current: any } };
+  const hook = renderHook(() => useViewerRuntime(base as any));
+  await until(() => base.runtimeRef.current !== null);
+  // A wheel tick starts an interaction: the idle-quality restore timer is armed (and the first
+  // frame's fallback timer already is).
+  renderers[0].domElement.dispatchEvent(new WheelEvent('wheel', { deltaY: 10 }));
+  expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+  base.runtimeRef.current = null;
+  hook.unmount();
+
+  expect(vi.getTimerCount()).toBe(0);
 });
 

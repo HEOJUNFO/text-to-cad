@@ -323,9 +323,18 @@ export function useViewerRuntime({
         renderQueuedAt: 0,
         renderFallbackTimerId: 0,
         restoreTimerId: 0,
+        idleFollowupTimerId: 0,
         shadowsDirty: true,
         interactionQuality: false
       };
+      // The timers are armed by interaction and fire on the renderer, the controls and the runtime
+      // ref; they die with whatever releases this start, not only with the success path's `cleanup`.
+      release(() => {
+        for (const key of ["renderFallbackTimerId", "restoreTimerId", "idleFollowupTimerId"]) {
+          if (interactionState[key]) window.clearTimeout(interactionState[key]);
+          interactionState[key] = 0;
+        }
+      });
       const keyboardOrbitState = {
         pressedKeys: new Set(),
         directionCounts: {
@@ -589,7 +598,8 @@ export function useViewerRuntime({
           if (typeof onIdleQuality === "function") {
             onIdleQuality();
             requestRender();
-            window.setTimeout(() => {
+            interactionState.idleFollowupTimerId = window.setTimeout(() => {
+              interactionState.idleFollowupTimerId = 0;
               applyRenderQuality(idlePixelRatioCap, { interaction: false });
               requestRender();
             }, 0);
@@ -963,12 +973,6 @@ export function useViewerRuntime({
             "zoomBaseDistance", "zoomBaseHalfHeight", "viewportFitScale", "interactiveFraming", "userMovedCamera"
           ].map(key => [key, runtime[key]]))
         };
-        if (runtime.interactionState.restoreTimerId) {
-          window.clearTimeout(runtime.interactionState.restoreTimerId);
-        }
-        if (runtime.interactionState.renderFallbackTimerId) {
-          window.clearTimeout(runtime.interactionState.renderFallbackTimerId);
-        }
         cancelCameraTransition(runtime, { scheduleIdle: false });
         window.cancelAnimationFrame(runtime.rafId);
         // The listeners, the observer, the frame and the controls, in the reverse of how they went in.
