@@ -243,6 +243,7 @@ npm test             # vitest: tests/unit/{main,shared} in node, tests/unit/rend
                      # tests/browser in Playwright's Chromium (`npx playwright install chromium`; CI installs only the
                      # headless shell, `--only-shell`, which is all they launch)
 npm run lint         # eslint flat config
+npm run lint:file -- src/main/index.ts   # lint named files only (same config)
 npm run build        # scripts/build.mjs: compose the skills, electron-vite build -> out/, bundle the MCP server
 npm run e2e          # playwright _electron against out/ — run `npm run build` first
 ```
