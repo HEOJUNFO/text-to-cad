@@ -412,6 +412,12 @@ export const TurnSchema = z.object({
   stopReason: StopReasonSchema.nullable(),
   /** The ACP `messageId` a replayed user message carried, so the next message starts its own turn. */
   messageId: z.string().optional(),
+  /**
+   * Parts from this index on arrived after the turn ended (a chunk or a call the adapter sent
+   * behind `prompt/end`). The transcript draws them after the turn's stop footer, labelled, so
+   * they do not read as if they came before the stop.
+   */
+  lateFrom: z.number().optional(),
 });
 export type Turn = z.infer<typeof TurnSchema>;
 

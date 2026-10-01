@@ -2191,7 +2191,13 @@ since whoever would take the answer is gone. `prompt/end`, whatever its stop
 reason, and `prompt/error` cancel pending cards as well; main cancels the
 client's pending permissions just before it dispatches `prompt/end`, so the
 cards and the requests agree. A call that is settled or completed is never
-revived by a late `in_progress`. In the renderer, `receiveState` (`state/acp.ts`) clears a session's
+revived by a late `in_progress`. Content that arrives behind `prompt/end` (a chunk,
+a tool call, a subagent spawn or a permission request the adapter sent late) is
+added to the last agent turn and marked by the turn's `lateFrom`, the index of
+the first part that came late. The transcript draws those parts after the turn's
+footer ("Stopped", "The agent declined.", the limit line), under a quiet label,
+"Arrived after the turn ended", so they never read as if they came before the
+stop. In the renderer, `receiveState` (`state/acp.ts`) clears a session's
 `loadErrors` once the state it takes says the agent is up (`idle`, `running` or
 `waiting`). In main, an `initialize` failure goes through `describe`
 (`src/main/acp/connection.ts`) as `session/new`, `session/load` and
