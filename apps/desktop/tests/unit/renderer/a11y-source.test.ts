@@ -47,7 +47,7 @@ const ALLOWED: { file: string; snippet: string; count?: number; reason: string }
   {
     file: "components/ai-elements/web-preview.tsx",
     snippet: 'title="Preview"',
-    reason: "an iframe's `title` is its accessible name, not a hover hint; and the component is vendored and unused",
+    reason: "an iframe's `title` is its accessible name, not a hover hint; and `WebPreviewBody`, the iframe, is vendored and unused (`WebPreview` and `WebPreviewNavigation` are used by `features/explorer/BrowserTab.tsx`)",
   },
   {
     file: "components/ui/sidebar.tsx",
