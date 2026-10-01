@@ -204,7 +204,7 @@ describe("Settings", () => {
     if (section === "git") {
       const remove = await screen.findByRole("button", { name: "Delete" });
       expect(remove).toBeDisabled();
-      expect(remove).toHaveAccessibleDescription(/uncommitted changes or ignored files/);
+      expect(remove).toHaveAccessibleDescription(/uncommitted changes, ignored files \(like \.env\), or commits on a detached HEAD/);
     }
     expect([...document.querySelectorAll("[title]")].map((element) => element.outerHTML.slice(0, 120))).toEqual([]);
   });
