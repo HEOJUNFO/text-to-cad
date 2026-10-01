@@ -73,6 +73,36 @@ def _document_pair_state(step_path: Path) -> tuple[str | None, str | None]:
     return digest(step_path), digest(source_sidecar_path(step_path))
 
 
+def _kept_document(
+    spec: EntrySpec, writer_input: str, expected_pair: tuple[str | None, str | None] | None,
+) -> dict[str, object] | None:
+    """The saved document a rebuild keeps instead of writing the same bytes again.
+
+    Only when the model's record says its saved STEP was written from exactly
+    this writer input, the STEP on disk when the build started still has the
+    recorded bytes, and that document's canonical tree is complete in the
+    store. A record without ``writerInput`` keeps nothing.
+    """
+    from cadgen.store.records import read_record, tree_for_document_hash
+    from cadgen.store.trees import get_tree, tree_complete
+
+    record = read_record(_model_for_spec(spec)) or {}
+    step_hash = str(record.get("stepHash") or "")
+    document_tree = str(record.get("documentTree") or "")
+    if not step_hash or not document_tree or record.get("writerInput") != writer_input:
+        return None
+    if expected_pair is None or expected_pair[0] != step_hash:
+        return None
+    if tree_for_document_hash(step_hash) != document_tree or not tree_complete(document_tree):
+        return None
+    result = get_tree(str(record.get("tree") or "")) or {}
+    occurrence_map, node_map = record.get("documentOccurrenceMap"), record.get("documentNodeMap")
+    if not result.get("bbox") or not isinstance(occurrence_map, dict) or not occurrence_map or not isinstance(node_map, dict):
+        return None
+    return {"stepHash": step_hash, "documentTree": document_tree, "bbox": copy.deepcopy(result["bbox"]),
+            "documentOccurrenceMap": copy.deepcopy(occurrence_map), "documentNodeMap": copy.deepcopy(node_map)}
+
+
 def _edge_visibility_classes_match_manifest(
     manifest: Mapping[str, object],
     selector_options: SelectorOptions,
@@ -464,7 +494,10 @@ def _generate_part_outputs(
                     on_preview=publish_preview,
                     _internal_source_publication=True,
                     materials=getattr(scene, "materials", None),
+                    kept_document=lambda digest: _kept_document(spec, digest, expected_document_pair),
                 )
+            if stats.get("documentKept"):
+                logger.debug(f"kept {_display_path(spec.step_path)}: its writer input is unchanged")
         else:
             with logger.timed("tree: components"):
                 if not generated:
@@ -579,6 +612,8 @@ def _generate_part_outputs(
             "children": list(getattr(scene, "store_children", None) or []),
             "documentOccurrenceMap": copy.deepcopy(stats.get("documentOccurrenceMap") or {}),
             "documentNodeMap": copy.deepcopy(stats.get("documentNodeMap") or {}),
+            # What the saved STEP's bytes are a function of (store.build.writer_input_digest).
+            "writerInput": stats.get("writerInput") if writes_step else None,
             "outputs": outputs,
             # The bytes of the document this tree describes -- a door's one question
             # (cadgen._internal.doors.document_tree). An imported document is hashed
@@ -664,7 +699,9 @@ def _generate_part_outputs(
                 # Separate atomic writes, not a multi-file transaction. The
                 # artifact index already describes the validated staged bytes;
                 # saved readers can recover from a missing cache by those bytes.
-                replace_atomic(staged_step, spec.step_path)
+                # A kept document is already in place, byte for byte.
+                if not stats.get("documentKept"):
+                    replace_atomic(staged_step, spec.step_path)
                 staged_sidecar = source_sidecar_path(staged_step)
                 if staged_sidecar.is_file():
                     replace_atomic(staged_sidecar, source_sidecar_path(spec.entry_path))

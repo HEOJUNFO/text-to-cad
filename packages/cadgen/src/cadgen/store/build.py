@@ -897,6 +897,7 @@ def build_tree_through_step(
     on_preview: Callable[[str, dict[str, Any]], None] | None = None,
     _internal_source_publication: bool = False,
     materials: object = None,
+    kept_document: Callable[[str], dict[str, Any] | None] | None = None,
 ) -> tuple[str, dict[str, Any], dict[str, Any], str]:
     """Write STEP and return ``(result_hash, result_tree, stats, step_hash)``.
 
@@ -933,6 +934,15 @@ def build_tree_through_step(
     member without a shape, a placement that moved — is a hard error (law 10).
     Source and translated component identities may differ; a saved-file reader
     always resolves the canonical document tree by the file's actual bytes.
+
+    ``stats['writerInput']`` is :func:`writer_input_digest` of the document
+    the writer is given. ``kept_document``, called with it before anything is
+    assembled, may return the saved document an earlier build wrote from that
+    exact input — ``stepHash``, ``documentTree``, both maps and that build's
+    result ``bbox``. Then nothing is assembled, written or read back: the
+    result is published and the callback notified as in step 2, the saved
+    bytes stay where they are, and ``stats['documentKept']`` is True. A forced
+    build always writes.
     """
     from contextlib import nullcontext
 
@@ -944,7 +954,7 @@ def build_tree_through_step(
     from cadgen._internal.step_scene_package import _lookup_document_readback
     from cadgen.step_export import export_build123d_step_file
     from cadgen.store.materialize import materialize_descriptor
-    from cadgen.store.trees import flatten_tree
+    from cadgen.store.trees import flatten_tree, tree_complete
 
     def timed(label: str):
         return logger.timed(label) if logger is not None else nullcontext()
@@ -970,6 +980,35 @@ def build_tree_through_step(
             prepared_document = None
             captured_bbox = None
 
+    descriptor = snapshot.descriptor() if snapshot is not None else flatten_tree(walk.draft_tree(root_name=root_name))
+    from cadgen._internal.source_sidecar import apply_appearance, resolve_materials
+
+    inherited_appearance = descriptor.get("appearance")
+    appearance = resolve_materials(descriptor, materials, inherited=inherited_appearance)
+    if appearance is not None:
+        descriptor = apply_appearance(descriptor, appearance)
+    with timed("tree: writer input"):
+        writer_input = writer_input_digest(descriptor, root_name=root_name, step_name=step_path.name)
+        kept = None if force or kept_document is None or writer_input is None else kept_document(writer_input)
+    if kept is not None:
+        # The saved document is what the writer would emit for this exact input
+        # (README law 5): publish the authored result and keep that document,
+        # its canonical tree and its correspondence maps. The input pins the
+        # geometry and placements, so the recorded result's bounds are these.
+        with timed("tree: source result"):
+            tree_hash, tree, stats = _publish_tree(
+                walk, bbox_shape=None, root_name=root_name, force=force, progress=progress, extra=extra,
+                bbox_override=captured_bbox if snapshot is not None else kept["bbox"],
+                appearance=appearance, base_appearance=inherited_appearance,
+            )
+            if not tree_complete(tree_hash):
+                raise RuntimeError("source result components disappeared before publication")
+            if on_preview is not None:
+                on_preview(tree_hash, tree)
+        stats.update(documentTree=kept["documentTree"], documentOccurrenceMap=kept["documentOccurrenceMap"],
+                     documentNodeMap=kept["documentNodeMap"], writerInput=writer_input, documentKept=True)
+        return tree_hash, tree, stats, kept["stepHash"]
+
     # The document, assembled the way materialize() assembles a published tree
     # so the bytes do not depend on whether the tree existed yet.
     own_shapes: dict[str, Any] = {}
@@ -980,18 +1019,10 @@ def build_tree_through_step(
             # eager-only exception is handled only at saved-file reader doors.
             shape = decode_geometry_component(prepared["entry"], prepared["payload"])
         own_shapes[cid] = shape
-    descriptor = snapshot.descriptor() if snapshot is not None else flatten_tree(walk.draft_tree(root_name=root_name))
-    from cadgen._internal.source_sidecar import apply_appearance, resolve_materials
-
-    inherited_appearance = descriptor.get("appearance")
-    appearance = resolve_materials(descriptor, materials, inherited=inherited_appearance)
-    if appearance is not None:
-        descriptor = apply_appearance(descriptor, appearance)
     document = None
     if snapshot is None:
         with timed("tree: prepare document"):
             document = materialize_descriptor(descriptor, shapes=own_shapes, label=root_name)
-    from cadgen.store.trees import tree_complete
 
     # This is the FINAL authored result, whether or not a UI is attached.
     # Persistence never substitutes STEP-translated prototypes into this tree.
@@ -1081,4 +1112,59 @@ def build_tree_through_step(
     stats["documentAppearance"] = appearance
     stats["documentOccurrenceMap"] = occurrence_map
     stats["documentNodeMap"] = node_map
+    stats["writerInput"] = writer_input
     return tree_hash, tree, stats, step_hash
+
+
+#: The saved-STEP writer's own version (``writerInput``, STORE.md §3). Bump it
+#: with any change to the bytes cadgen writes for the same descriptor: XCAF
+#: construction, the header, or a canonicalization pass.
+STEP_WRITER_SCHEME = "cadgen-step-writer-1"
+# Finishes ride the sidecar, never the STEP (README law 16).
+_FINISH_KEYS = ("material", "materialId", "materialName", "baseColor")
+
+
+def writer_input_digest(descriptor: dict[str, Any], *, root_name: str, step_name: str) -> str | None:
+    """sha256 of everything a saved STEP's bytes are a function of (README law 5).
+
+    That is the flattened descriptor the writer is given — geometry by BREP
+    object hash with its intrinsic face colours, placements, names, colours
+    and grouping — plus the file it writes, :data:`STEP_WRITER_SCHEME`, the
+    cadgen release and the loaded kernel. Two fields a document never carries
+    are left out: the root's authored name (the root product and the header
+    are named after the file) and finishes (they ride the sidecar, law 16).
+    Everything else counts, so an input the writer may read can only cost a
+    write, never keep stale bytes. None when the kernel cannot be named or the
+    descriptor holds a value that is not canonical JSON.
+    """
+    from cadgen._internal.component_package import canonical_json_bytes
+    from cadgen.store.surfaces import kernel_versions
+
+    try:
+        kernel = kernel_versions()
+    except ValueError:
+        return None
+    import hashlib
+
+    import cadgen
+
+    # A shallow normalized view: nothing below is mutated, so no deep copy.
+    view = {key: value for key, value in descriptor.items() if key not in ("appearance", "rootName")}
+    view["label"] = root_name
+    occurrences = [{key: value for key, value in occurrence.items() if key not in _FINISH_KEYS}
+                   for occurrence in descriptor.get("occurrences") or []]
+    view["occurrences"] = occurrences
+    assembly = descriptor.get("assembly")
+    root = assembly.get("root") if isinstance(assembly, dict) else None
+    if isinstance(root, dict):
+        view["assembly"] = {**assembly, "root": {**root, "name": root_name}}
+        if not root.get("children"):
+            for occurrence in occurrences:
+                if occurrence.get("id") == root.get("id"):
+                    occurrence["name"] = root_name
+    payload = {"scheme": STEP_WRITER_SCHEME, "cadgen": getattr(cadgen, "__version__", ""),
+               "kernel": list(kernel), "file": step_name, "document": view}
+    try:
+        return hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
+    except (TypeError, ValueError):
+        return None
