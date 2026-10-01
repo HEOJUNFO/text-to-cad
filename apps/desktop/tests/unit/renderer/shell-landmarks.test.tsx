@@ -65,13 +65,13 @@ it("names each pane separator and hints it without a native title", () => {
   for (const separator of separators) expect(separator).not.toHaveAttribute("title");
 });
 
-it("takes focus into the explorer when Mod+Alt+B opens it", async () => {
+it("takes focus into the explorer when its chord (Ctrl+Shift+E off a Mac) opens it", async () => {
   useExplorer.setState({ collapsed: true });
   render(<Shell />);
   expect(screen.queryByRole("region", { name: "Explorer" })).toBeNull();
   const composer = screen.getByRole("textbox", { name: "Prompt" });
   composer.focus();
-  fireEvent.keyDown(window, { key: "b", altKey: true, metaKey: true, ctrlKey: true });
+  fireEvent.keyDown(window, { key: "E", shiftKey: true, ctrlKey: true });
   await waitFor(() => expect(screen.getByRole("tab")).toHaveFocus());
 });
 

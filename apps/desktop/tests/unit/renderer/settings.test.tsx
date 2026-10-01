@@ -20,7 +20,7 @@ import { ShortcutsPage } from "@renderer/features/settings/pages/ShortcutsPage";
 import { SettingsSearchProvider, matchesQuery } from "@renderer/features/settings/search";
 import { AgentDrawer, authLabel, parseEnv, formatEnv } from "@renderer/features/settings/AgentDrawer";
 import { agentIcon, agentIconIds } from "@renderer/lib/agent-icons";
-import { SHORTCUTS, shortcutKeys, shortcutsIn } from "@renderer/lib/shortcuts";
+import { SHORTCUTS, bindingFor, shortcutKeys, shortcutsIn } from "@renderer/lib/shortcuts";
 import { useAgents } from "@renderer/state/agents";
 import { useSettings } from "@renderer/state/settings";
 import { useUi } from "@renderer/state/ui";
@@ -125,6 +125,12 @@ describe("shortcuts", () => {
     expect(shortcutKeys("Mod+Alt+B", false)).toBe("Ctrl+Alt+B");
     expect(shortcutKeys("Shift+Enter", true)).toBe("⇧⏎");
     expect(shortcutKeys("Escape", false)).toBe("Esc");
+  });
+
+  it("prints the explorer toggle's AltGr-free chord off a Mac", () => {
+    const row = SHORTCUTS.find((shortcut) => shortcut.id === "toggle-explorer")!;
+    expect(shortcutKeys(bindingFor(row, true), true)).toBe("⌘⌥B");
+    expect(shortcutKeys(bindingFor(row, false), false)).toBe("Ctrl+Shift+E");
   });
 
   it("covers every group and gives each shortcut a unique id", () => {

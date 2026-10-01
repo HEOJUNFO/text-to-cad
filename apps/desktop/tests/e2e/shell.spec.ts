@@ -8,6 +8,9 @@ import { PANE_LIMITS } from "../../src/shared/types";
 import { chooseDirectory, dragSeparator, launch, mod, newTab as newTabIn, scratch, setContentSize, setTheme as setThemeIn, shoot as shootInto } from "./launch";
 import { selectFixtureSession } from "./session-fixture";
 
+/** Cmd+Option+B on a Mac; Ctrl+Shift+E elsewhere, where Ctrl+Alt is AltGr (`lib/shortcuts.ts`). */
+const explorerChord = process.platform === "darwin" ? "Meta+Alt+b" : "Control+Shift+e";
+
 /**
  * The window itself, on one app: the colour scheme from the first frame, the
  * traffic lights' corner, the panes' drag rules, Settings, and the keyboard.
@@ -184,7 +187,7 @@ test("before a session: two panes, no explorer, and one chooser in the main area
   await expect(page.getByRole("option", { name: "Toggle explorer" })).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(page.getByPlaceholder("Search sessions, projects and commands…")).toBeHidden();
-  await page.keyboard.press(`${mod}+Alt+b`);
+  await page.keyboard.press(explorerChord);
   await expect(page.getByTestId("explorer")).toHaveCount(0);
   // The sidebar's collapse is in its title strip, level with the session's bar.
   const [toggleBox, titleBox] = await Promise.all([
@@ -411,9 +414,9 @@ test("a session owns the explorer: its toggles, its strip and its shortcuts", as
   await page.keyboard.press(`${mod}+B`);
   await expect(page.getByTestId("sidebar")).toHaveCount(0);
   await expectLeftmost("session", "[data-session-header]");
-  await page.keyboard.press(`${mod}+Alt+b`);
+  await page.keyboard.press(explorerChord);
   await expect(page.getByTestId("explorer")).toHaveCount(0);
-  await page.keyboard.press(`${mod}+Alt+b`);
+  await page.keyboard.press(explorerChord);
   await expect(page.getByTestId("explorer")).toHaveCount(1);
   await page.keyboard.press(`${mod}+B`);
   await expect(page.getByTestId("sidebar")).toHaveCount(1);

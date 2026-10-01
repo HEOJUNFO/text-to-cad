@@ -142,7 +142,9 @@ export function buildMenu(
         },
         {
           label: "Toggle Explorer",
-          accelerator: "CmdOrCtrl+Alt+B",
+          // Off a Mac, not Ctrl+Alt+B: Windows delivers AltGr as Ctrl+Alt, so on a Hungarian or
+          // Czech layout AltGr+B (which types "{") would toggle the pane (README, "global chord").
+          accelerator: isMac ? "CmdOrCtrl+Alt+B" : "CmdOrCtrl+Shift+E",
           click: send("toggle-explorer"),
         },
         { type: "separator" },

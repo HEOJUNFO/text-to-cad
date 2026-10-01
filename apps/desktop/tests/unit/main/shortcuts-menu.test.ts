@@ -56,3 +56,28 @@ it("gives every Application shortcut a menu accelerator", () => {
   ).map((shortcut) => `${shortcut.id} ${shortcut.binding}`);
   expect(missing, "Application shortcuts with no menu accelerator").toEqual([]);
 });
+
+/** The menu as Electron builds it on a platform; `buildMenu` reads `process.platform` when it runs. */
+function acceleratorsOn(platform: NodeJS.Platform): string[] {
+  const original = Object.getOwnPropertyDescriptor(process, "platform")!;
+  Object.defineProperty(process, "platform", { value: platform });
+  try {
+    return flatten(buildMenu(() => null, () => { throw new Error("unused"); }, true) as unknown as MenuItemConstructorOptions[])
+      .map((item) => item.accelerator)
+      .filter((accelerator): accelerator is string => typeof accelerator === "string");
+  } finally {
+    Object.defineProperty(process, "platform", original);
+  }
+}
+
+it.each(["win32", "linux"] as const)("binds no chord that combines Ctrl and Alt on %s, where it arrives as AltGr", (platform) => {
+  const chords = acceleratorsOn(platform);
+  expect(chords.length).toBeGreaterThan(0);
+  expect(chords.filter((chord) => /(CmdOrCtrl|Ctrl|Control)\+/.test(chord) && /\bAlt\+/.test(chord))).toEqual([]);
+});
+
+it("keeps the Mac's Cmd+Option+B and lists the other platforms' chord in the table", () => {
+  expect(acceleratorsOn("darwin")).toContain("CmdOrCtrl+Alt+B");
+  const row = SHORTCUTS.find((shortcut) => shortcut.id === "toggle-explorer") as Shortcut & { otherBinding?: string };
+  expect(acceleratorsOn("linux").map(portable)).toContain(row.otherBinding);
+});

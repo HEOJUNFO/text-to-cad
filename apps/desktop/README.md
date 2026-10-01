@@ -732,7 +732,7 @@ toggles do.
 **No session, no explorer.** The pane belongs to a session: with none
 selected (the new-session screen), `Shell` renders neither the panel nor its
 separator, the session pane has the window, and the toggle in the title bar,
-the palette's `Toggle explorer` row and `Mod+Alt+B` are all absent or inert
+the palette's `Toggle explorer` row and its chord (Cmd+Option+B on a Mac, Ctrl+Shift+E elsewhere) are all absent or inert
 (`setCollapsed` in `state/explorer.ts` refuses a preference it has nowhere to
 file). Selecting a session brings the pane back with that session's own
 remembered state.
@@ -1137,7 +1137,9 @@ poor thing to put in front of them.
 Every shortcut is a row in `src/renderer/lib/shortcuts.ts`, which Settings ›
 Keyboard shortcuts prints, but one: the toast chord (Cmd+Option+T on a Mac,
 Ctrl+Shift+T elsewhere, `components/ui/sonner.tsx`) differs by platform, and a
-row holds one portable binding, so the page closes with a footnote naming it. The ones the app menu also declares are its accelerators, so
+row holds one portable binding, so the page closes with a footnote naming it. A row that would arrive as AltGr
+off a Mac carries an `otherBinding` (`bindingFor` in `lib/shortcuts.ts`): Toggle explorer is Cmd+Option+B on a Mac and
+Ctrl+Shift+E elsewhere, in the menu (`main/menu.ts`), in `Shell`'s key handler and on the page. The ones the app menu also declares are its accelerators, so
 they work with focus inside a webview (see "Rules that are easy to break" in
 AGENTS.md). The menu's New Session and Settings… with no window open one and
 hold the command until its page calls `ui.ready` (`src/main/menu.ts`): pushed
