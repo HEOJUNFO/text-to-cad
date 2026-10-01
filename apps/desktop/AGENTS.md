@@ -483,13 +483,19 @@ the rule is about.
   a field whose text is parsed on the way in (the Advanced environment) says
   when the store's value is its text, or the blur that saves it rewrites what
   the person typed (`tests/unit/renderer/agent-advanced.test.tsx`).
-- **The row changes before the teardown.** Archive and delete write the
-  session row first and revoke tokens, dispose pages and kill shells after, so
-  a write that throws leaves the session whole with its tools
-  (`tests/unit/main/acp-archive-order.test.ts`). Archive first joins an
+- **A session mutation writes the row first.** Create writes the row before it
+  spawns the agent; archive and delete write it before they revoke tokens,
+  dispose pages, kill shells or release a worktree. A write that throws leaves
+  the session whole with its tools, and a create whose `repo.upsert` throws
+  releases the worktree it cut and its tokens (`abandonCreate`)
+  (`tests/unit/main/acp-archive-order.test.ts`, `tests/unit/main/sessions.test.ts`). Archive first joins an
   in-flight create, bounded at `ARCHIVE_WAIT_MS`, so it closes a session that
   exists rather than one about to be removed; `prompt` and `NewSession` never
   reconnect an archived row.
+- **A precondition is re-checked immediately before the irreversible step.** The
+  worktree sweep asks `stillEligible` again right before `git worktree remove`,
+  because the checks before it are several git calls and a session can open in
+  between (`removeWorktree`, `src/main/projects/git.ts`).
 - **A row records whether its create cut the worktree.** `worktreeOwned` is set
   when the create made a fresh worktree and not when it was handed one
   (`New session in this worktree`); `boot` and `abandonCreate` release only

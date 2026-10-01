@@ -2497,7 +2497,8 @@ directory.
 Review tab, the mode chip (its Local item and its worktree item both) and worktree mode say which. Git is missing
 ("git is not installed or not on PATH"), the folder is gone ("<folder> no
 longer exists"), git refuses it for dubious ownership ("git will not open this
-folder because another user owns it"), or git did not answer in time. The
+folder because another user owns it (add it to git's safe.directory to trust it)"),
+or git did not answer in time ("git did not answer in time, so this folder could not be read"). The
 reason rides on `status` and `projectInfo` as `problem`; a folder that is just
 a folder has none, and gets the plain "not a git repository".
 
@@ -2555,7 +2556,8 @@ worktree folders, a locked one, one that holds the `cwd`, `projectId` or
 `worktreePath` of a session row that is not archived, or a create still
 in flight, or one with unsaved work (`hasUnsavedWork`): uncommitted changes,
 ignored files that are not a disposable cache, a detached HEAD whose commits
-no branch, remote branch or tag reaches, or a rebase, merge, cherry-pick,
+no branch, remote branch or tag reaches (`for-each-ref --contains HEAD` over
+`refs/heads`, `refs/remotes` and `refs/tags`), or a rebase, merge, cherry-pick,
 revert or bisect left half done (`strandedWork`). An archived session holds no worktree.
 "In use" is one function, `sessionsUsing` in `src/main/projects/git.ts`: the
 sessions that are not archived and run in the worktree, in a folder inside it,
@@ -2568,11 +2570,21 @@ worktree.") and a locked one (`git worktree lock`; the row says it is kept
 until it is unlocked). The row disables Delete and gives the reason through
 `keptBecause` in `GitPage.tsx`, which also covers uncommitted changes
 or ignored files (`dirty`), commits only the checkout holds (`stranded`: a detached
-HEAD no branch reaches, or a merge or rebase left half done, each with its own
-sentence and its own line under the branch), and a worktree git could not check
-(`unsavedWork` answers both, split by kind). The limit counts only unlocked, unheld
+HEAD no branch, remote branch or tag reaches, or a merge or rebase left half done), and a worktree git
+could not check (`unsavedWork` answers both, split by kind). `keptBecause` gives the stranded kinds one sentence, "This worktree holds
+commits on a detached HEAD no branch reaches, or an unfinished rebase or merge, that deleting it would lose.",
+and a worktree git could not check another, "Git could not check this worktree for uncommitted changes,
+ignored files, or commits only it holds, so it is kept."; the line under the branch says "commits on a
+detached HEAD, or an unfinished merge or rebase" or "could not check for unsaved work". The row's "no branch" is the short
+form of the rule above, which also counts a remote branch or a tag. The limit counts only unlocked, unheld
 worktrees in the project's worktree folders; one with unsaved work counts
-toward it and is then kept. A branch is deleted only when a failed create abandons the
+toward it and is then kept. Deleting a worktree by hand says why it refused, in the words of `removeWorktree`: "that worktree has uncommitted changes",
+"that worktree has ignored files that removing it would delete: <up to three names, and N more>",
+"that worktree has work removing it would lose: <it is on a detached HEAD whose commits no branch holds | a rebase is in progress in it>"
+(the second half names the operation: a rebase, merge, cherry-pick, revert or bisect),
+"could not check that worktree for unsaved work, so it was kept: <git's reason>", and, from the last look before git removes
+anything (`stillEligible`), "a session started in that worktree while it was being checked, so it was kept".
+A branch is deleted only when a failed create abandons the
 worktree it made, and then only while it still points where it was cut
 (`deleteBranchAtBase`; with no recorded head, only if `git branch -d` would
 take it) — a checkout can be recreated, the commits on it cannot.
@@ -2605,7 +2617,18 @@ say, takes the first's result rather than stacking another `add -A` that could
 land after it and re-point the ref. A snapshot that lands for a row that is gone
 (deleted, or a create that failed) unpins the marks it just made; the create's
 own marks are started before the spawn and settled after `session/new`, so they
-run alongside it.
+run alongside it. A snapshot that fails (`tree === null`: an unreadable file, git-lfs
+missing from the PATH, a full disk) is treated like a late one: the previous mark stays, with the log line
+"[acp] no turn snapshot of <cwd>; kept the previous mark" (`session` for a session mark), and with no previous mark the commit is the mark.
+
+The sidebar row's `+8 −1` is a different count from the review's: main tallies the diffs the agent
+*reported* (`changedFiles`, `insertions`, `deletions`, from `tallyUpdate` in `src/main/acp/sessions.ts`), not git. A turn writes
+the tally when it settles (`persistTally`), also when it is cut short, then without stamping `updatedAt`
+(`touch: false`); an edit that arrives after the turn settled, a background task finishing say, is written
+at once, but only while the session is idle, because a `session/load` replay counts the whole history again from
+zero and must not overwrite the row halfway. After a reload the replay's diffs are counted again; an adapter that
+replays none leaves the persisted counts as `baseFiles`, which later edits add to, so
+a file edited again then counts twice (its path is not known).
 A read of either scope lists the untracked files in a throwaway copy of the
 index (`add --intent-to-add` of just those paths, no objects written), and the
 reads of one review share it while the real index and the untracked set stay the
