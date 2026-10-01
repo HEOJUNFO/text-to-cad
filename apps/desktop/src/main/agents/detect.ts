@@ -153,6 +153,10 @@ export class AgentDetector {
   private probed = false;
   /** The last probe could not read the login shell: a retry must capture it again, not reuse that. */
   private captureFailed = false;
+  /** The probe in flight re-ran the login shell, so a forced refresh needs nothing more. */
+  private inflightForced = false;
+  /** The forced probe queued behind an unforced one. */
+  private forcedNext: Promise<AgentStatus[]> | null = null;
   private seeded = false;
   /** Providers `refreshOne` has checked in this run, before any whole table has: their rows are not the last launch's. */
   private readonly freshIds = new Set<string>();
@@ -293,13 +297,29 @@ export class AgentDetector {
     };
   }
 
-  /** Re-resolve the shell environment and re-probe everything. */
+  /**
+   * Re-resolve the shell environment and re-probe everything. A forced refresh asked while an
+   * unforced probe is out (the Agents page's Refresh during the launch probe) is not answered by
+   * that probe, which reused the cached environment: it runs a forced one right after it.
+   */
   refresh(force = true): Promise<AgentStatus[]> {
-    if (!this.inflight) {
-      this.inflight = this.probeAll(force).finally(() => {
-        this.inflight = null;
-      });
+    if (this.inflight) {
+      if (!force || this.inflightForced) {
+        return this.inflight;
+      }
+      this.forcedNext ??= this.inflight
+        .catch(() => undefined)
+        .then(() => {
+          this.forcedNext = null;
+          return this.refresh(true);
+        });
+      return this.forcedNext;
     }
+    this.inflightForced = force;
+    this.inflight = this.probeAll(force).finally(() => {
+      this.inflight = null;
+      this.inflightForced = false;
+    });
     return this.inflight;
   }
 

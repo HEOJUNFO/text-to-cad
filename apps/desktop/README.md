@@ -2241,6 +2241,9 @@ when it was written by the same app version and holds every provider. Then:
   writes nothing to the `__agents` cache, and still hands sessions the process
   environment to spawn with. The renderer's next `agents.list` (the card's
   retry) captures the shell afresh instead of reusing the failed capture.
+- A forced `refresh` (the Agents page's Refresh) asked while an unforced probe is out is not
+  answered by it, because that probe reused the cached login environment: a forced probe runs
+  right after it, and the table the caller gets is the later one.
 - Anything that would act on a row waits for this launch's probe, through
   `freshWithin(PROBE_WAIT_MS)`: `agents.login` (a CLI installed since has no
   binary path in last launch's row) and the check that refuses a session as

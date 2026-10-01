@@ -166,11 +166,11 @@ describe("AgentDetector", () => {
     const detector = new AgentDetector(providers, machine({}));
     const seen: number[] = [];
     detector.onChange((statuses) => seen.push(statuses.length));
-    // list() on an empty cache starts a probe; refresh() joins that same
-    // in-flight probe rather than starting a second one.
+    // list() on an empty cache starts an unforced probe; refresh() is forced, so it runs a second,
+    // forced one after it rather than being answered by the first.
     expect(detector.list()).toEqual([]);
     await detector.refresh();
-    expect(seen).toEqual([3]);
+    expect(seen).toEqual([3, 3]);
     expect(detector.list()).toHaveLength(3);
   });
 
@@ -313,6 +313,28 @@ describe("AgentDetector on a cold table", () => {
     await detector.settled();
     expect(forced).toEqual([false, true]);
     expect(detector.list().find((row) => row.id === "claude-code")?.installed).toBe(true);
+  });
+
+  it("runs a forced probe after an unforced one in flight, rather than answering with it", async () => {
+    const forced: boolean[] = [];
+    let release!: (env: Record<string, string>) => void;
+    const first = new Promise<Record<string, string>>((resolve) => {
+      release = resolve;
+    });
+    const detector = new AgentDetector(providers, {
+      ...machine({}),
+      env: async (force) => {
+        forced.push(force);
+        return forced.length === 1 ? first : { PATH: "/usr/local/bin" };
+      },
+    });
+    const unforced = detector.refresh(false);
+    const refreshed = detector.refresh(true);
+    expect(forced).toEqual([false]);
+    release({ PATH: "/usr/local/bin" });
+    await Promise.all([unforced, refreshed]);
+    expect(forced).toEqual([false, true]);
+    expect(detector.refresh(true)).not.toBe(refreshed);
   });
 
   it("says a probe that failed with no last launch to fall back on: every row flagged, not an empty table", async () => {
