@@ -74,7 +74,7 @@ export type ChosenDirectory = { id: string; name: string; path: string; createdA
 export async function chooseDirectory(app: ElectronApplication, directory: string): Promise<ChosenDirectory> {
   return app.evaluate(
     (_electron, chosen) =>
-      (globalThis as unknown as { __textToCadE2E: { choose(directory: string): ChosenDirectory } }).__textToCadE2E.choose(chosen),
+      (globalThis as unknown as { __textToCadE2E: { choose(directory: string): Promise<ChosenDirectory> } }).__textToCadE2E.choose(chosen),
     directory,
   );
 }
