@@ -957,7 +957,9 @@ screen) shows a toast with the error and Try again, which returns to the
 new-session screen that holds the restored draft. A create that outlasts a
 click on another thread or project does not pull them back to the session it
 made. Whatever the error, the card on the screen carries Try again (it sends what
-the box holds, as the sign-in card's does) beside Open Settings › Agents and Dismiss.
+the box holds, as the sign-in card's does; a box emptied since gets the failed
+attempt's text and notes back first, so it retries the last form values, and the
+button is drawn only while there is an attempt to retry) beside Open Settings › Agents and Dismiss.
 Settings' "New session in this worktree" (`runUiCommand`, `new-session` with a
 `cwd`) closes Settings before it starts the thread; if the start fails a toast
 says "Could not start a session in this worktree: <reason>" rather than leaving

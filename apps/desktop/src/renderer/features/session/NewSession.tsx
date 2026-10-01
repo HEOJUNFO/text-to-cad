@@ -89,6 +89,9 @@ export function NewSession({ project }: { project: Project }) {
   // what the box holds *now* — the person may have edited it since — and a sign-in that finishes
   // retries by itself only while the box still holds exactly this.
   const failedAttempt = useRef<TakenDraft | null>(null);
+  // Whether there is an attempt to retry, for the card: Try again is drawn only then, so it never
+  // stands in for Dismiss (the ref is not something a render may read).
+  const [retryable, setRetryable] = useState(false);
   // A create takes seconds, and the person may click the connecting row in the sidebar meanwhile:
   // this screen unmounts, and the card `failure` would draw goes nowhere.
   const mounted = useRef(true);
@@ -261,6 +264,7 @@ export function NewSession({ project }: { project: Project }) {
       return false;
     }
     failedAttempt.current = null;
+    setRetryable(false);
     // Archived while the create ran: the person put the thread away, so it is
     // neither opened nor sent to (main refuses the prompt to a row it would
     // have to reconnect). What was written waits in that thread's box, which
@@ -294,6 +298,7 @@ export function NewSession({ project }: { project: Project }) {
   const submitFromComposer = async (text: string, content: PromptBlock[], draft: TakenDraft) => {
     if (!(await start(text, content, draft))) {
       failedAttempt.current = draft;
+      setRetryable(true);
       throw new Error("The session did not start");
     }
   };
@@ -301,13 +306,19 @@ export function NewSession({ project }: { project: Project }) {
   // Try again is the composer's own send of what the box holds now — edited or not, attachments
   // and annotations included — so the draft is taken, and put back on another failure, by the one
   // path that already does both. Nothing here clears the box.
+  // A box the person has emptied since the failure holds nothing to send, so the last attempt's
+  // text and notes go back in first: Try again retries the last form values, never nothing.
   const retry = () => {
-    if (busy) return;
-    if (!failedAttempt.current) {
-      setFailure(null);
-      return;
+    const attempt = failedAttempt.current;
+    if (busy || !attempt) return;
+    const composer = useComposer.getState();
+    const boxEmpty = !(composer.drafts[draftKey] ?? "").trim() && !(composer.annotations[draftKey]?.length ?? 0);
+    if (boxEmpty) {
+      // Its files are the strip's own: the composer put them back when the start failed.
+      const { files: _files, ...withoutFiles } = attempt;
+      composer.restoreDraft(draftKey, withoutFiles);
     }
-    useComposer.getState().requestSubmit(draftKey);
+    composer.requestSubmit(draftKey);
   };
 
   // A sign-in retries only the prompt that failed: a box edited since is the person's next draft,
@@ -428,10 +439,12 @@ export function NewSession({ project }: { project: Project }) {
           >
             <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
             <div className="min-w-0 flex-1 whitespace-pre-wrap">{failure.message}</div>
-            <Button className="h-6 gap-1 px-2 text-[12px]" disabled={busy} onClick={retry} size="sm" variant="outline">
-              <RotateCcw className="size-3" />
-              Try again
-            </Button>
+            {retryable ? (
+              <Button className="h-6 gap-1 px-2 text-[12px]" disabled={busy} onClick={retry} size="sm" variant="outline">
+                <RotateCcw className="size-3" />
+                Try again
+              </Button>
+            ) : null}
             <Button
               className="h-6 gap-1 px-2 text-[12px]"
               onClick={() => openSettings("agents")}

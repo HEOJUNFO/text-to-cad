@@ -186,6 +186,23 @@ describe("a start that needs a sign-in", () => {
     expect(submit).not.toHaveBeenCalledWith("s1", "make a cube", expect.anything(), expect.anything());
   });
 
+  it("Try again after the box was emptied retries the last attempt rather than doing nothing", async () => {
+    const user = userEvent.setup();
+    const key = "__new__:p1";
+    useComposer.setState({ drafts: { [key]: "make a cube" } });
+    create.mockRejectedValueOnce(new Error("fatal: not a git repository")).mockResolvedValueOnce("s1");
+    render(<NewSession project={PROJECT} />);
+
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByRole("button", { name: "Try again" });
+    act(() => useComposer.getState().setDraft(key, ""));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Prompt" }).textContent).toBe(""));
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    expect(submit).toHaveBeenCalledWith("s1", "make a cube", [{ type: "text", text: "make a cube" }], expect.anything());
+  });
+
   it("does not start again by itself after a login when the draft was edited since the failure", async () => {
     const user = userEvent.setup();
     const key = "__new__:p1";
