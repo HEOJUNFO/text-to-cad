@@ -45,6 +45,8 @@ export type ChangedFile = z.infer<typeof ChangedFileSchema>;
 
 export const GitStatusSchema = z.object({
   isRepository: z.boolean(),
+  /** Why there is no repository, when it is more than "a folder": git missing, the folder gone, dubious ownership. */
+  problem: z.string().optional(),
   branch: z.string().nullable(),
   unborn: z.boolean(),
   ahead: z.number(),
@@ -100,6 +102,8 @@ export type FileDiff = z.infer<typeof FileDiffSchema>;
  */
 export const ProjectGitInfoSchema = z.object({
   isRepository: z.boolean(),
+  /** Why there is no repository, when it is more than "a folder": git missing, the folder gone, dubious ownership. */
+  problem: z.string().optional(),
   branch: z.string().nullable(),
   upstream: z.string().nullable(),
   defaultBranch: z.string().nullable(),

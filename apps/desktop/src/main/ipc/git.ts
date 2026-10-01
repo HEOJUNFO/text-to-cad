@@ -254,6 +254,7 @@ export const gitHandlers = {
           : [];
         return {
           isRepository: info.isRepository,
+          ...(info.problem ? { problem: info.problem } : {}),
           branch: info.branch,
           upstream: info.upstream,
           defaultBranch: info.defaultBranch,

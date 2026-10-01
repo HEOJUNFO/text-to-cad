@@ -313,7 +313,7 @@ function ReviewBody({
   if (!status?.isRepository) {
     return (
       <EmptyState
-        description={`${project.name} is not a git repository, so there is nothing to review.`}
+        description={status?.problem ? `${status.problem}, so there is nothing to review.` : `${project.name} is not a git repository, so there is nothing to review.`}
         icon={GitCompare}
         title="Not a repository"
       />

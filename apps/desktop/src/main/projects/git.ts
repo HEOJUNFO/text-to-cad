@@ -52,6 +52,8 @@ export type ChangedFile = {
 export type GitStatus = {
   /** False for a directory that is not a repository. Everything else is empty. */
   isRepository: boolean;
+  /** Why, when it is not just "a folder": git missing, the folder gone, dubious ownership, a timeout. */
+  problem?: string;
   branch: string | null;
   /** True when HEAD has no commits yet. */
   unborn: boolean;
@@ -255,10 +257,56 @@ async function readWorkingBytes(absolute: string): Promise<Buffer | null> {
   return stat.isFile() ? fsp.readFile(absolute).catch(() => null) : null;
 }
 
+/**
+ * Why `cwd` has no repository, in one sentence, where it is for a reason
+ * other than "it is just a folder": git is not installed, the folder is gone,
+ * git refuses it (dubious ownership), or git did not answer. Null for a
+ * folder that is simply not a repository, which needs no apology.
+ */
+export type RepositoryProblem = string | null;
+
+/**
+ * The repository root containing `cwd` and, when there is none, why.
+ *
+ * `rev-parse --show-toplevel` fails the same way — nonzero, nothing on stdout
+ * — for a folder that is not a repository and for four things the person can
+ * fix, and every caller used to say "not a git repository" for all five.
+ */
+export async function repositoryState(cwd: string): Promise<{ root: string | null; problem: RepositoryProblem }> {
+  const result = await tracked(execa("git", ["rev-parse", "--show-toplevel"], { ...GIT_OPTIONS, cwd })).catch(() => null);
+  const root = result && !result.failed && result.exitCode === 0 && typeof result.stdout === "string" ? result.stdout.trim() : "";
+  if (root) {
+    return { root: path.normalize(root), problem: null };
+  }
+  if (!result) {
+    return { root: null, problem: null };
+  }
+  if (result.timedOut) {
+    return { root: null, problem: "git did not answer in time, so this folder could not be read" };
+  }
+  if (result.code === "ENOENT") {
+    // Both a missing git and a missing cwd are ENOENT from the spawn.
+    const exists = await fsp.stat(cwd).then(() => true, () => false);
+    return {
+      root: null,
+      problem: exists
+        ? "git is not installed or not on PATH"
+        : `${path.basename(cwd) || cwd} no longer exists`,
+    };
+  }
+  const stderr = typeof result.stderr === "string" ? result.stderr : "";
+  if (/dubious ownership/i.test(stderr)) {
+    return {
+      root: null,
+      problem: "git will not open this folder because another user owns it (add it to git's safe.directory to trust it)",
+    };
+  }
+  return { root: null, problem: null };
+}
+
 /** The repository root containing `cwd`, or null when there is none. */
 export async function repositoryRoot(cwd: string): Promise<string | null> {
-  const root = await tryGit(cwd, ["rev-parse", "--show-toplevel"]);
-  return root ? path.normalize(root.trim()) : null;
+  return (await repositoryState(cwd)).root;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -416,9 +464,10 @@ function splitOnce(value: string, separator: string): [string, string] {
 /* -------------------------------------------------------------------------- */
 
 /** The empty answer, for a directory that is not a repository. */
-export function emptyStatus(): GitStatus {
+export function emptyStatus(problem: RepositoryProblem = null): GitStatus {
   return {
     isRepository: false,
+    ...(problem ? { problem } : {}),
     branch: null,
     unborn: false,
     ahead: 0,
@@ -440,9 +489,9 @@ export function emptyStatus(): GitStatus {
  */
 export async function status(cwd: string, scope: DiffScope = { kind: "working-tree" }): Promise<GitStatus> {
   assertSafeScope(scope);
-  const root = await repositoryRoot(cwd);
+  const { root, problem } = await repositoryState(cwd);
   if (!root) {
-    return emptyStatus();
+    return emptyStatus(problem);
   }
 
   const porcelain = parsePorcelainStatus(
@@ -1055,6 +1104,8 @@ async function remoteToPush(root: string, branch: string): Promise<string> {
  */
 export type RepoInfo = {
   isRepository: boolean;
+  /** Why there is no repository, where it is more than "this is a folder" (see `repositoryState`). */
+  problem?: string;
   /** The repository root, which is not necessarily the directory asked about. */
   root: string | null;
   branch: string | null;
@@ -1070,9 +1121,10 @@ export type RepoInfo = {
   hasRemote: boolean;
 };
 
-export function emptyRepoInfo(): RepoInfo {
+export function emptyRepoInfo(problem: RepositoryProblem = null): RepoInfo {
   return {
     isRepository: false,
+    ...(problem ? { problem } : {}),
     root: null,
     branch: null,
     upstream: null,
@@ -1085,9 +1137,9 @@ export function emptyRepoInfo(): RepoInfo {
 }
 
 export async function repoInfo(cwd: string): Promise<RepoInfo> {
-  const root = await repositoryRoot(cwd);
+  const { root, problem } = await repositoryState(cwd);
   if (!root) {
-    return emptyRepoInfo();
+    return emptyRepoInfo(problem);
   }
 
   const [branchName, symbolic, porcelain, remotes, verified] = await Promise.all([
@@ -1721,9 +1773,9 @@ export type CreatedWorktree = {
  * way, and a branch someone else is already on.
  */
 export async function createWorktree(options: CreateWorktreeOptions): Promise<CreatedWorktree> {
-  const root = await repositoryRoot(options.repoPath);
+  const { root, problem } = await repositoryState(options.repoPath);
   if (!root) {
-    throw new GitError("Project is not a git repository, worktree mode unavailable");
+    throw new GitError(problem ?? "Project is not a git repository, worktree mode unavailable");
   }
   if ((await head(root)) === null) {
     throw new GitError("This repository has no commits yet, so there is nothing to branch from");

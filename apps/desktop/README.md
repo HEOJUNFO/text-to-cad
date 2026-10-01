@@ -2436,6 +2436,14 @@ or one with no commits — and it fails with a sentence rather than git's words.
 The others work in a plain folder: git is optional, and a project is a
 directory.
 
+"Not a repository" is not the only reason a folder has no repository, and the
+Review tab, the mode chip and worktree mode say which. Git is missing
+("git is not installed or not on PATH"), the folder is gone ("<folder> no
+longer exists"), git refuses it for dubious ownership ("git will not open this
+folder because another user owns it"), or git did not answer in time. The
+reason rides on `status` and `projectInfo` as `problem`; a folder that is just
+a folder has none, and gets the plain "not a git repository".
+
 Worktrees live outside the project, one folder per project, whichever agent
 made them:
 

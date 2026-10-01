@@ -266,7 +266,7 @@ export async function resolveWorkspace(input: ResolveInput): Promise<Workspace> 
   }
 
   if (!info.isRepository) {
-    throw new git.GitError("Project is not a git repository, worktree mode unavailable");
+    throw new git.GitError(info.problem ?? "Project is not a git repository, worktree mode unavailable");
   }
 
   const created = await git.createWorktree({
