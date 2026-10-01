@@ -22,7 +22,7 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "CAD",
-    "shortDescription": "Give your agent CAD superpowers.",
+    "shortDescription": "Give agents CAD superpowers.",
     "longDescription": "CAD packages local agent workflows for generating CAD, inspecting models, sourcing STEP parts, writing robot description files, slicing mesh files, and preparing fabrication handoffs.",
     "developerName": "earthtojake",
     "category": "Productivity",
