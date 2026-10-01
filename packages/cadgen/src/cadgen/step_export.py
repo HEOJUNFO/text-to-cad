@@ -923,43 +923,52 @@ def _canonicalize_style_tail_in_file(path: Path, scan: _StyleTailScan) -> bool:
 #
 # A real is matched only when its mantissa is ALL zeros, so a genuinely
 # negative value keeps its sign: `-0.5`, `-1.`, `-0.000000000001` and
-# `-6.123233995737E-17` are all left exactly as written. The leading lookbehind
-# and trailing lookahead make the match a whole token: a `-0.` glued to another
-# number (`1.-0.`, an exponent's `E-0`) is not a real of its own and is not
-# rewritten. A mantissa with no `.` is a STEP INTEGER, never a coordinate, and
-# is left alone — which is also what keeps a name like `rev-0.1` intact if the
-# string alternative below ever failed to cover it.
-_STEP_NEGATIVE_ZERO = re.compile(
-    # A quoted STEP string, consumed whole and returned unchanged: a part name
-    # is not a number, whatever it spells. `''` is an escaped quote.
-    rb"'(?:[^']|'')*'"
-    rb"|(?<![0-9.eE+-])-(?:0+\.0*|0*\.0+)(?:[eE][-+]?[0-9]+)?(?![0-9.eE])"
-)
+# `-6.123233995737E-17` are all left exactly as written. The trailing lookahead
+# ends the match with the token, and the pass below skips a match glued to the
+# number before it: a `-0.` after `1.` or an exponent's `E` is not a real of
+# its own and is not rewritten. A mantissa with no `.` is a STEP INTEGER, never
+# a coordinate, and is left alone. A real inside a quoted string is a name, not
+# a number, whatever it spells, and is left alone too (the pass decides which
+# matches are quoted).
+#
+# The pattern starts with a literal `-`, so the regex engine skips from one
+# `-` to the next in C and Python only sees negative-zero spellings, a few
+# thousand in a few hundred megabytes. Matching the string literals in the same
+# pattern made Python touch every literal in the file: a few tens of MB/s,
+# seconds per save of a large assembly.
+_STEP_NEGATIVE_ZERO = re.compile(rb"-(?:0+\.0*|0*\.0+)(?:[eE][-+]?[0-9]+)?(?![0-9.eE])")
+# What the `-` of a real of its own never follows.
+_STEP_NUMBER_BYTES = frozenset(b"0123456789.eE+-")
 
 
 def _normalize_negative_zero_reals(text: bytes) -> bytes:
     """Rewrite every negative-zero real in STEP text as its positive spelling.
 
-    Pure text over one line-aligned block: a STEP string literal is a single
-    token that never spans a line, so the string alternative above sees every
-    literal whole and no number inside a name is ever touched.
+    Pure text over one line-aligned block. A match is inside a string literal
+    exactly when an odd number of quotes precede it in the block: a literal
+    opens and closes with a quote, and `''`, an escaped quote, is two. OCCT
+    wraps a literal longer than a line, so a block can end inside one; what
+    follows that block's last quote then counts as outside every literal. The
+    rule defines the canonical bytes, so changing it would re-key every
+    document it reaches.
     """
-
-    # The scan has to consider every string literal to know which `-` it may
-    # not touch, so it runs at a few tens of MB/s. A negative zero starts
-    # `-0` or `-.`, so two memmem passes are a necessary condition for any
-    # match, and text with neither — an already-canonical file among them —
-    # skips the scan.
-    if b"-0" not in text and b"-." not in text:
+    last_quote = text.rfind(b"'")
+    cuts: list[int] = []
+    quotes = counted_to = 0
+    for match in _STEP_NEGATIVE_ZERO.finditer(text):
+        start = match.start()
+        if start and text[start - 1] in _STEP_NUMBER_BYTES:
+            continue
+        if start < last_quote:
+            quotes += text.count(b"'", counted_to, start)
+            counted_to = start
+            if quotes % 2:
+                continue
+        cuts.append(start)
+    if not cuts:
         return text
-
-    def replace(match: "re.Match[bytes]") -> bytes:
-        body = match.group(0)
-        if body.startswith(b"'"):
-            return body
-        return body[1:]
-
-    return _STEP_NEGATIVE_ZERO.sub(replace, text)
+    # Each cut drops the `-` at that offset.
+    return b"".join(text[begin + 1:end] for begin, end in zip([-1, *cuts], [*cuts, len(text)]))
 
 
 # Read/rewrite granularity for the negative-zero pass. Large enough that a
@@ -995,7 +1004,7 @@ def _normalize_negative_zero_reals_in_file(path: Path) -> bool:
             block = carry + chunk
             if chunk:
                 # Hand on a partial trailing line rather than splitting a token
-                # (or a string literal) across two blocks.
+                # (or a literal that fits on one line) across two blocks.
                 split = block.rfind(b"\n") + 1
                 carry, block = block[split:], block[:split]
             else:
