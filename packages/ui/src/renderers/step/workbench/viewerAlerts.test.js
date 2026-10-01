@@ -125,34 +125,22 @@ test("missing geometry gives file context and a next step", () => {
   assert.equal(buildViewerMeshAlert(null, false, "failure"), null);
 });
 
-test("edit alerts keep disconnects and healthy preview expiry quiet", () => {
-  assert.equal(buildViewerEditAlert({ state: "disconnected", error: "Connection closed" }, false, false), null);
-  assert.equal(buildViewerEditAlert({
-    state: "done",
-    error: "Preview geometry is no longer available in the cache",
-    previewUnavailable: true,
-    saved: { tree: "saved" }
-  }, false, true), null);
-
-  const blocked = buildViewerEditAlert({
-    state: "done",
-    error: "Preview geometry is no longer available in the cache",
-    previewUnavailable: true
-  }, false, false);
-  assert.equal(blocked.summary, "Open failed");
-  assert.equal(blocked.blocking, undefined);
+test("only a failed build the file has not moved past raises an alert", () => {
+  assert.equal(buildViewerEditAlert({ state: "disconnected", error: "Connection closed" }, false), null);
+  assert.equal(buildViewerEditAlert({ state: "building" }, true), null);
+  assert.equal(buildViewerEditAlert({ state: "done" }, true), null);
+  assert.equal(buildViewerEditAlert({ state: "failed", superseded: true, error: "" }, true), null);
 });
 
-test("a failed save explains that the updated model is visible and keeps the diagnostic", () => {
+test("a failed build over the model on screen keeps it and the diagnostic", () => {
   const alert = buildViewerEditAlert({
     state: "failed",
     error: "Disk full\nwrite trace",
     file: "STEP/moonwatch.step",
     revision: 8
-  }, true, true);
+  }, true);
   assert.equal(alert.summary, "Update failed");
-  assert.equal(alert.message, "The updated model is visible, but the STEP file could not be written.");
-  assert.equal(alert.title, "Couldn’t write the STEP file");
+  assert.equal(alert.message, "The latest update couldn’t be loaded. You’re still viewing the previous version.");
   assert.equal(alert.blocking, false);
   assert.equal(alert.reason, "Disk full\nwrite trace");
   assert.match(alert.details, /Revision: 8/);
@@ -162,14 +150,14 @@ test("edit worker failures are distinct from invalid-model failures", () => {
   const worker = buildViewerEditAlert({
     state: "failed",
     error: "artifact request failed or lost its protocol; no cold retry"
-  }, false, true);
+  }, true);
   assert.equal(worker.summary, "Viewer service failed");
   assert.equal(worker.kind, "service");
   assert.equal(worker.blocking, false);
   assert.equal(worker.reason, undefined);
   assert.match(worker.details, /no cold retry/);
 
-  const invalid = buildViewerEditAlert({ state: "failed", error: "Fillet radius is too large" }, false, false);
+  const invalid = buildViewerEditAlert({ state: "failed", error: "Fillet radius is too large" }, false);
   assert.equal(invalid.summary, "Open failed");
   assert.match(invalid.recovery, /correct the model/i);
   assert.equal(invalid.reason, "Fillet radius is too large");

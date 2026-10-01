@@ -21,6 +21,7 @@ import {
   awaitingSameFileRevision,
   meshStateAfterCancelledLoad,
   replacingSameFileMesh,
+  retainsPreviousStepMesh,
   shouldRetainCompleteSameFileMesh,
   tolerantAnimationClip,
   createDecodeSizeEstimator,
@@ -257,6 +258,12 @@ test("once a model is on screen, its file's next revision is an update: a part's
   assert.equal(awaitingSameFileRevision(current, { file: "plate.step" }), true);
   assert.equal(awaitingSameFileRevision(current, { file: "other.step" }), false);
   assert.equal(awaitingSameFileRevision(null, { file: "plate.step" }), false, "nothing on screen yet: that is the first load");
+  // The viewer's one answer, for every model: a robot with joints keeps its body on screen through a
+  // saved-file update just as a plate does, never the loading screen (a model with motion once went back to it).
+  assert.equal(retainsPreviousStepMesh(current, { file: "plate.step" }, { entryHasMesh: false, meshHash: "" }), true, "still building");
+  assert.equal(retainsPreviousStepMesh(current, { file: "plate.step" }, { entryHasMesh: true, meshHash: "new" }), true, "loading the new mesh");
+  assert.equal(retainsPreviousStepMesh(current, { file: "plate.step" }, { entryHasMesh: true, meshHash: "old" }), false, "the new mesh is published");
+  assert.equal(retainsPreviousStepMesh(null, { file: "plate.step" }, { entryHasMesh: true, meshHash: "new" }), false, "a first load");
   // The loader's own staging question stays an assembly's.
   assert.equal(shouldRetainCompleteSameFileMesh(current, { file: "plate.step", kind: "part" }, "new"), false);
   // Edits in quick succession: a revision's load cancelled for the next one leaves the complete

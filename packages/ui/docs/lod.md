@@ -225,12 +225,10 @@ independently; a superseded request cannot cancel its replacement. Topology
 requests for one file revision union rather than supersede: a batch in flight
 finishes, and one no longer wanted is simply not published.
 
-**After a save.** Source files hold the authored changes; there is no hidden
-durable preview document, and every explicit model run still waits for its
-declared outputs. A successful save leaves that revision's authored preview
-displayed, with nothing announced. A later successful no-op run without a new
-preview, or an expired preview with a validated saved result, uses the saved
-file instead.
+**After a save.** The view shows the saved file. When a build writes it, the new
+revision replaces the one on screen in place, keeping every component whose identity
+it shares; while the build runs the model on screen says it is updating, and a failed
+build leaves it on screen under its alert.
 
 **What the viewport shows.** The navbar carries no status. Opening and
 updating are the viewport's loading overlay (`ViewerLoadingOverlay`). A failure is

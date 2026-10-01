@@ -70,7 +70,7 @@ this one:
 
 | Mechanism | What it must not break | Specified in |
 |---|---|---|
-| Editing previews: an explicit session consumes the immutable preview tree an active build announces, before STEP persistence | saved-artifact read-back; no reader reaches source, closure or a model record | [`STORE.md`](STORE.md) §9b |
+| Build status: the viewer's feed says whether a build of a file is running or failed, never what it previews; the viewer shows the saved file | saved-artifact read-back; no reader reaches source, closure or a model record | [`STORE.md`](STORE.md) §9b |
 | Composition: what a decorated call returns, what a parent may consume before a child's save, and when an exact `Compound(children=[...])` keeps its children's pins | the link/component decision, declared-output completion, `isinstance(root, Compound)` | [`STORE.md`](STORE.md) §6, §9a |
 | Display surfaces: canonical trees pin encoded BREP and effective intrinsic face colors; SURF extraction is an artifact-only build-pool job under an attested producer | geometry completeness stays separate from display readiness — `read_step`, STEP re-emits and parent materialization never wait for SURF | [`STORE.md`](STORE.md) §2 |
 
@@ -233,8 +233,8 @@ path.
 
 Kinematics is pure data and choreography is pure JS, fully independent
 (11). Clients render from file + sidecar + the store's artifact side and never
-read source, a record, or trigger source builds (12). An explicit editing
-session may consume runtime-announced preview trees as specified in STORE §9b.
+read source, a record, or trigger source builds (12). A build's status
+(STORE §9b) carries no geometry: clients render the saved file.
 Correctness never depends on a
 store hit (13). Composition: importing binds, calling links — a parent
 depends on a child by its RESULT (the pinned tree) and on what importing it

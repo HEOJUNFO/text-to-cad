@@ -142,6 +142,15 @@ export function replacingSameFileMesh(current, entry, targetMeshHash) {
     meshStateIsComplete(current);
 }
 
+// Whether the model on screen stays while `entry`'s revision loads: through the rebuild, while the
+// entry has no mesh yet, and through the load of its new mesh. Whatever the model is -- a part, an
+// assembly, one with motion -- an edit is an update, never the loading screen again.
+export function retainsPreviousStepMesh(current, entry, { entryHasMesh, meshHash }) {
+  return entryHasMesh
+    ? Boolean(meshHash) && replacingSameFileMesh(current, entry, meshHash)
+    : awaitingSameFileRevision(current, entry);
+}
+
 // What stays on screen when a load is cancelled part-way (a newer revision, or another file):
 // the partial composition that load published for its file goes, a complete model -- a part's as
 // much as an assembly's -- stays, and another file's state is not the cancelled load's to touch.

@@ -64,7 +64,7 @@ test("root, service generation, revision, source appearance and replacement runt
   assert.equal(cache.get({ ...root, resources: {cacheKey: () => "other-service"} }, a.entry), null);
   assert.ok(cache.get({ ...root }, a.entry), "a replacement client for the same root may reopen a closed tab");
   for (const change of [{ hash: "new" }, { documentHash: "new" }, { appearanceHash: "new" },
-    { url: "http://cad.test/new/" }, { sourceSidecar: { appearance: { material: "new" } } }, { editingPreview: true }]) {
+    { url: "http://cad.test/new/" }, { sourceSidecar: { appearance: { material: "new" } } }]) {
     populate();
     assert.equal(cache.get(root, { ...a.entry, ...change }), null);
     assert.equal(cache.stats().entries, 0, "the obsolete revision is released");
@@ -100,7 +100,7 @@ test("recognition reads only private exact identities from the matching root, re
   for (const client of [{ ...root, workspaceId: "other" }, { ...root, resources: {cacheKey: () => "other-service"} }]) {
     assert.equal(cache.peekComponentIdentities(client, a.entry, { descriptor: a.context.descriptor }), null);
   }
-  for (const change of [{ hash: "new" }, { documentHash: "new" }, { editingPreview: true }]) {
+  for (const change of [{ hash: "new" }, { documentHash: "new" }]) {
     populate();
     assert.equal(cache.peekComponentIdentities(root, { ...a.entry, ...change }, { descriptor: a.context.descriptor }), null);
   }

@@ -95,19 +95,7 @@ export interface CadSurfaceResponse {
   viewId: string; job?: string; replacementView?: CadRuntimeView;
   components: Record<string, {state: 'pending' | 'ready' | 'failed'; surfaceInput: string; surfaceObject?: string; url?: string; byteLength?: number; job?: string; error?: string; code?: string}>;
 }
-export interface CadPreviewGeometry {
-  tree: string;
-  url: string;
-  kind?: string;
-  revision?: number;
-  sequence: number;
-  kinematics?: CadJson;
-  appearance?: CadJson;
-  appearanceHash?: string;
-  animation?: CadJson;
-  animationHash?: string;
-}
-export interface CadSavedArtifact { tree: string; documentHash: string; revision?: number }
+/** What a build of a STEP file is doing: status only. The viewer always shows the saved file. */
 export interface CadEditingPreview {
   feedCursor?: string;
   feedLimited?: boolean;
@@ -120,11 +108,8 @@ export interface CadEditingPreview {
   error?: string;
   output?: string;
   file?: string;
-  previewUnavailable?: boolean;
-  /** The file changed after this build finished: its preview and saved result stand in for nothing. */
+  /** The file changed after this build finished: its failure is no longer the news. */
   superseded?: boolean;
-  preview?: CadPreviewGeometry | null;
-  saved?: CadSavedArtifact | null;
 }
 export interface CadPreviewObserverOptions {
   schedule?: typeof globalThis.setTimeout;

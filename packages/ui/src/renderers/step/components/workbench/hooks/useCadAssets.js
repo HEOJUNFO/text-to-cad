@@ -781,7 +781,7 @@ export function useCadAssets({
       // its assembly.json, fetch each unique component GLB once, and compose them in
       // world space. A non-package descriptor is a stale/unbuilt artifact (throws below).
       const sourceSidecarUrl = entrySourceSidecarUrl(entry);
-      const inlineSourceSidecar = !entry?.editingPreview && entry?.sourceSidecar && typeof entry.sourceSidecar === "object"
+      const inlineSourceSidecar = entry?.sourceSidecar && typeof entry.sourceSidecar === "object"
         ? validateSourceSidecar(entry.sourceSidecar, {
             url: sourceSidecarUrl || entry?.file,
             documentHash: entry?.documentHash,

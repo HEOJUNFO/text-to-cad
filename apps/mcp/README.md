@@ -112,7 +112,8 @@ reference host `basic-host` does.
   that a person just touched it — and what it watches: its root's catalog and
   the build feed of a model being edited. Back come the agent's requests for it
   (`show`, `capture`), the catalog's revision, which the view reads again only
-  when it moved, and each feed's status, handed to the client as its
+  when it moved, and each feed's status (whether a build is running or failed:
+  the view shows the saved file), handed to the client as its
   `editingPreviewFeed`. A sync that brought news (an event, a moving build) is
   followed by the next sooner.
 

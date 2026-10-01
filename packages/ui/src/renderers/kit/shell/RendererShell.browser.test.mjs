@@ -472,9 +472,8 @@ test('a renderer says more about its load than a download: finding the file, edi
   assert.ok(Math.abs(middleY(updateBox) - middleY(toolsBox)) < 1,
     `model update status is vertically centred with the tool strip: ${JSON.stringify({ updateBox, toolsBox })}`);
 
-  // THE PREVIEW ENDS IT: the result is on screen, so the wait is over even though the
-  // write is not.
-  await stage('previewing');
+  // THE BUILD ENDING ENDS IT: the saved file is on screen, so the wait is over.
+  await stage('idle');
   await updating.waitFor({ state: 'detached' });
   const settled = await stillShot();
   assert.deepEqual([await overlay.count(), await card.count()], [0, 0]);

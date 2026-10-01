@@ -27,43 +27,28 @@ it('keeps its state across repeated identical failures and identical updates', (
   expect(result.current.state).toBe(ready);
 });
 
-// The case the feed cannot see: the file it last built is rewritten by something else (another
-// cadgen, a checkout). The catalog has the new revision, and the view must follow it.
-it('lets the catalog win once the file moves on without the feed', () => {
-  let update: (next: unknown) => void = () => {};
-  const client = { observeEditingPreview: (_file: string, onUpdate: any) => { update = onUpdate; return () => {}; } };
-  const before = { file: '/p/part.step', kind: 'part', hash: 'before', documentHash: 'bytes-0' };
-  const { result, rerender } = renderHook(({ entry }) => useEditingPreview('part.step', { enabled: true, client, catalogEntry: entry }),
-    { initialProps: { entry: before } });
-  act(() => update({ epoch: 'e1', revision: 1, state: 'building' }));
-  act(() => update({ epoch: 'e1', revision: 1, state: 'done', preview: { tree: 'preview-1', url: '/preview-1', sequence: 1 },
-    saved: { tree: 'saved-1', documentHash: 'bytes-1' } }));
-  expect(result.current.entry?.hash).toBe('preview-1');
-  rerender({ entry: { ...before, hash: 'saved-1', documentHash: 'bytes-1' } });
-  expect(result.current.entry?.hash).toBe('preview-1');
-  act(() => update({ state: 'disconnected' }));
-  rerender({ entry: { ...before, hash: 'elsewhere', documentHash: 'bytes-2' } });
-  expect(result.current.entry).toBeNull();
-});
-
-// The server says a finished build's file moved on: the preview goes, and the catalog is read at
-// once, so the view lands on the file on disk rather than an older catalog entry it still holds.
-it('reads the catalog again at once when the feed says the file moved past its build', () => {
+// The view shows the saved file: when a build finishes, or the file moves past one, the catalog is
+// read at once, so the saved file replaces the one on screen without waiting for its next poll.
+it('reads the catalog again at once when a build finishes or the file moves past it', () => {
   let update: (next: unknown) => void = () => {};
   const refreshes: unknown[] = [];
   const client = {
     observeEditingPreview: (_file: string, onUpdate: any) => { update = onUpdate; return () => {}; },
     refresh: (options: unknown) => { refreshes.push(options); return Promise.resolve(); },
   };
-  const saved = { file: '/p/part.step', kind: 'part', hash: 'saved-1', documentHash: 'bytes-1' };
-  const { result } = renderHook(() => useEditingPreview('part.step', { enabled: true, client, catalogEntry: saved }));
-  act(() => update({ epoch: 'e1', revision: 1, state: 'done', preview: { tree: 'preview-1', url: '/preview-1', sequence: 1 },
-    saved: { tree: 'saved-1', documentHash: 'bytes-1' } }));
-  expect(result.current.entry?.hash).toBe('preview-1');
+  const { result } = renderHook(() => useEditingPreview('part.step', { enabled: true, client }));
+  act(() => update({ epoch: 'e1', revision: 1, state: 'building' }));
   expect(refreshes).toEqual([]);
-  act(() => update({ epoch: 'e1', revision: 1, state: 'done', superseded: true }));
-  expect(result.current.entry).toBeNull();
+  act(() => update({ epoch: 'e1', revision: 1, state: 'done' }));
   expect(refreshes).toEqual([{ file: 'part.step', markRefreshing: false }]);
   act(() => update({ epoch: 'e1', revision: 1, state: 'done', superseded: true }));
   expect(refreshes).toHaveLength(1);
+  // The next build is followed again, and its finish read again.
+  act(() => update({ epoch: 'e1', revision: 2, state: 'building' }));
+  act(() => update({ epoch: 'e1', revision: 2, state: 'failed', error: 'boom' }));
+  expect(refreshes).toHaveLength(1);
+  expect(result.current.state.error).toBe('boom');
+  act(() => update({ epoch: 'e1', revision: 2, state: 'failed', superseded: true }));
+  expect(refreshes).toHaveLength(2);
+  expect(result.current.state.error).toBe('');
 });

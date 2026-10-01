@@ -55,8 +55,6 @@ const LOAD_STAGES = Object.freeze({
   finding: { load: { busy: true, finding: true } },
   // Queued work of the person's own, with nothing of it on screen yet.
   editing: { load: { editPending: true } },
-  // The same work, now drawn: the wait is over even though the write is not.
-  previewing: { load: { editPending: true, currentPreview: true } },
   // A newer revision failed and the model on screen survives it: the viewport's card says
   // so, and can be put away, because the previous version is still there to use.
   failed: {

@@ -8,8 +8,7 @@ import {
 } from "@text-to-cad/core/common/animationClock.js";
 import {
   kinematicsModuleDefinitionFromSidecar,
-  loadKinematicsModuleDefinition,
-  previewKinematicsModuleDefinition
+  loadKinematicsModuleDefinition
 } from "@text-to-cad/core/common/kinematicsModule.js";
 import { loadSourceAnimation, validateAnimationClips } from "@text-to-cad/core/common/renderModule.js";
 import { validateSourceSidecar } from "@text-to-cad/core/common/sourceSidecar.js";
@@ -23,17 +22,17 @@ import { resolveStepModuleLoad } from "./stepModuleLoad.js";
 import { stepModuleRequiresTopology } from "./topologyCapabilities.js";
 import { useStepMotionControls } from "./useStepMotionControls.js";
 
-function sourceAnimationForEntry(entry) { return (entry?.editingPreview ? entry.previewAnimation : entry?.sourceSidecar?.animation) || null; }
+function sourceAnimationForEntry(entry) { return entry?.sourceSidecar?.animation || null; }
 function sourceAnimationKeyForEntry(entry) {
   return sourceAnimationForEntry(entry) ? `${fileKeyOf(entry)}:${entry?.animationHash || entry?.documentHash || entry?.hash || "animation"}` : "";
 }
 
 /**
- * Where a STEP entry's motion comes from: its kinematics module (an edit's preview, or the
- * sidecar's), the path the module poses, and the routine source embedded in the sidecar.
+ * Where a STEP entry's motion comes from: its sidecar's kinematics module, the path the module
+ * poses, and the routine source embedded in the sidecar.
  */
 export function stepMotionSources(entry) {
-  const moduleUrl = entry?.editingPreview && entry.previewKinematics ? `preview:${entry.hash}` : entryPoseUrl(entry);
+  const moduleUrl = entryPoseUrl(entry);
   const sourceAnimation = sourceAnimationForEntry(entry);
   return {
     moduleUrl,
@@ -131,18 +130,14 @@ export function useStepMotion({ entry, fileKey, resources, meshData, meshPartial
     setStepModuleParameterValues({});
 
     const loadMotionRevision = motionRevisionRef.current;
-    const modulePromise = entry?.editingPreview
-      ? Promise.resolve().then(() => previewKinematicsModuleDefinition(entry.previewKinematics, {
-          cadPath: cadPath,
-        }))
-      : entry?.sourceSidecar
-        ? Promise.resolve().then(() => kinematicsModuleDefinitionFromSidecar(
-            validateSourceSidecar(entry.sourceSidecar, {
-              url: moduleUrl || entry.file,
-              documentHash: entry.documentHash,
-            }),
-            { cadPath: cadPath, url: moduleUrl }
-          ))
+    const modulePromise = entry?.sourceSidecar
+      ? Promise.resolve().then(() => kinematicsModuleDefinitionFromSidecar(
+          validateSourceSidecar(entry.sourceSidecar, {
+            url: moduleUrl || entry.file,
+            documentHash: entry.documentHash,
+          }),
+          { cadPath: cadPath, url: moduleUrl }
+        ))
       : loadKinematicsModuleDefinition(moduleUrl, {
           signal: controller.signal, resources: resources, cadPath: cadPath, documentHash: entry?.documentHash,
         });

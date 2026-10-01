@@ -1,33 +1,28 @@
-"""An explicit editing session's ephemeral preview feed, never a saved-file resolver.
+"""What a build of a STEP file is doing, for the viewer's status: never geometry.
 
-The daemon owns request ordering and publishes complete immutable trees. This
-read-only adapter matches the output and store, validates object availability,
-and exposes only display data. No source, closure, model record or output index
-is consulted. A daemon restart expires this channel; ordinary artifact readers
-continue to resolve the bytes on disk.
+The viewer always shows the saved file (STORE.md 9b). This read-only adapter matches the
+daemon's jobs to the file's output path and store and reports the newest: whether it is queued
+or running, how far it has got, whether it failed and why -- and, once it has finished, whether
+the file moved past it (``superseded``), when its failure is no longer the news. A daemon
+restart expires this channel; the catalog keeps serving the bytes on disk.
 """
 
 from __future__ import annotations
 
-import copy
-import json
 import os
 import time
 from pathlib import Path
-from urllib.parse import urlencode
 
 from cadgen.store.paths import store_root
-from cadgen.store.trees import capture_tree
 
 from .backend import normalized_file_ref, require_contained
 from .build_progress import _daemon_jobs
-from .store_paths import result_snapshot
 
 
 def _preview_target(root_path: str, file_ref: str, *, lazy: bool = False) -> str:
     ref = normalized_file_ref(file_ref)
     if not ref or Path(ref).suffix.lower() not in {".step", ".stp"}:
-        raise ValueError("An editing preview requires a STEP output path")
+        raise ValueError("A build status requires a STEP output path")
     target = os.path.abspath(ref if os.path.isabs(ref) else os.path.join(root_path, ref))
     require_contained(root_path, target)
     # A lazy root (a whole filesystem) serves what it is asked for, as the asset route does.
@@ -37,7 +32,7 @@ def _preview_target(root_path: str, file_ref: str, *, lazy: bool = False) -> str
 
 
 def preview_update(root_path: str, file_ref: str, *, after: str | None = None, lazy: bool = False) -> dict:
-    """Wake for ledger changes; each response still verifies artifact identity."""
+    """Wake for ledger changes, then answer as :func:`preview_status`."""
     target = _preview_target(root_path, file_ref, lazy=lazy)  # refuse invalid paths before waiting
     from cadgen.daemon.client import watch_jobs
 
@@ -82,80 +77,15 @@ def preview_status(root_path: str, file_ref: str, *, jobs: list[dict] | None = N
         "updatedAt": round(float(latest.get("updatedAt") or 0.0) * 1000.0),
         "error": latest.get("error"),
     }
-    # One look at the file on disk per answer: what a finished build is checked against, and what
-    # a completed write is validated as.
-    snapshot = []
-
-    def current():
-        if not snapshot:
-            snapshot.append(result_snapshot(target))
-        return snapshot[0]
-
-    if _superseded(latest, target, current):
+    if _superseded(latest, target):
         # The file moved on after this build finished: built by another installation, or once
-        # its daemon has gone; a checkout; a STEP written by hand. Its preview and saved result
-        # describe nothing on disk, so the feed offers neither, and the viewer shows the file.
+        # its daemon has gone; a checkout; a STEP written by hand. Its failure is no longer the news.
         result["superseded"] = True
         result["error"] = None
-        return result
-    # Only the newest accepted request can publish. The client may retain a
-    # previously displayed tree while this request has no preview yet.
-    verified = {}
-    for key, output_key in (("previews", "preview"), ("savedResults", "saved")):
-        payload = (latest.get(key) or {}).get(target)
-        if output_key == "saved" and not payload and latest.get("state") == "done":
-            # A no-op model run has no new publication event. Resolve its
-            # saved output from actual bytes so an earlier failed preview is
-            # not kept forever after a successful current-file request.
-            on_disk = current()
-            if on_disk:
-                payload = {"tree": on_disk[1], "documentHash": on_disk[0]}
-        if not isinstance(payload, dict):
-            continue
-        tree_hash = str(payload.get("tree") or "")
-        if tree_hash not in verified:
-            try:
-                verified[tree_hash] = capture_tree(tree_hash, retain_payloads=False)[0]
-            except (OSError, ValueError, TypeError, KeyError, RuntimeError, OverflowError):
-                verified[tree_hash] = None
-        descriptor = verified[tree_hash]
-        if descriptor is None:
-            result["error"] = "Preview geometry is no longer available in the cache"
-            if output_key == "preview":
-                result["previewUnavailable"] = True
-            continue
-        result[output_key] = {
-            "tree": tree_hash,
-            "kind": descriptor.get("entryKind", "part"),
-            "sequence": int(payload.get("sequence") or 0),
-            "url": f"/__cad/store?file={tree_hash}",
-        }
-        if output_key == "preview":
-            result[output_key]["kinematics"] = copy.deepcopy(payload.get("kinematics"))
-            if payload.get("surfaceProducer") is not None:
-                from cadgen.store.surfaces import producer_fields
-
-                selected_producer = producer_fields(payload["surfaceProducer"])
-                result[output_key]["surfaceProducer"] = selected_producer
-                result[output_key]["url"] += "&" + urlencode({
-                    "surfaceProducer": json.dumps(selected_producer, sort_keys=True, separators=(",", ":")),
-                })
-            result[output_key]["appearance"] = copy.deepcopy(payload.get("appearance"))
-            result[output_key]["animation"] = copy.deepcopy(payload.get("animation"))
-        else:
-            # A completed write is only labelled saved if these are still the
-            # actual bytes. It never aliases a live preview into index/document.
-            digest = payload.get("documentHash")
-            if not digest or current() != (digest, tree_hash):
-                result.pop(output_key)
-                result["error"] = "The saved file has changed since this build completed"
-            else:
-                result[output_key]["documentHash"] = digest
-                result[output_key]["url"] += "&documentHash=" + digest
     return result
 
 
-def _superseded(job: dict, target: str, current) -> bool:
+def _superseded(job: dict, target: str) -> bool:
     """Whether the file changed after ``job`` finished. A build that saved is judged by bytes: the
     file is no longer the one it wrote. One that saved nothing (it failed, or it changed nothing)
     by time: the file was written after the build ended. A file that is not there was not -- a
@@ -165,8 +95,9 @@ def _superseded(job: dict, target: str, current) -> bool:
         return False
     saved = (job.get("savedResults") or {}).get(target)
     if isinstance(saved, dict) and saved.get("documentHash"):
-        on_disk = current()
-        return on_disk is None or on_disk[0] != saved["documentHash"]
+        from cadgen.catalog import artifact_file_hash
+
+        return artifact_file_hash(Path(target)) != saved["documentHash"]
     try:
         return os.stat(target).st_mtime > float(finished)
     except (OSError, TypeError, ValueError):

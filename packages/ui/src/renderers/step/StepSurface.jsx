@@ -16,8 +16,7 @@ import { VIEWER_PICK_MODE } from "@text-to-cad/core/lib/viewer/constants.js";
 import { runtimeModelKeyMatches, toNumber } from "@text-to-cad/core/lib/viewer/modelRuntime.js";
 import { normalizePartIdList } from "@text-to-cad/core/lib/viewer/partVisualState.js";
 import RendererShell from "../kit/shell/RendererShell.jsx";
-import { presentationIsPending, usePresentationReport, usePreviewState, useRendererShell } from "../kit/shell/useRendererShell.js";
-import { shellPresentationKey } from "../kit/shell/fileView.js";
+import { usePreviewState, useRendererShell } from "../kit/shell/useRendererShell.js";
 import StepSceneLayers, { releaseStepRuntime } from "./scene/StepSceneLayers.jsx";
 import { displayRecordExplodedViewTranslation } from "./scene/useStepExplode.js";
 import { createStepScene, stepSceneView } from "./scene/stepScene.js";
@@ -38,7 +37,7 @@ import { animationControlsHaveContent } from "../kit/tools/playbar/ViewportAnima
 import { useCadAssets } from "./components/workbench/hooks/useCadAssets.js";
 import { useEditingPreview } from "./components/workbench/hooks/useEditingPreview.js";
 import { useViewportQualityStatus } from "./components/workbench/hooks/useViewportQualityStatus.js";
-import { previewGeometryChanged } from "./workbench/editingPreview.js";
+import { editingBuildActive } from "./workbench/editingPreview.js";
 import MeasurePanel from "./components/workbench/MeasurePanel.jsx";
 import { useCadWorkspaceSelection } from "./components/workbench/hooks/useCadWorkspaceSelection.js";
 import { useCadWorkspaceSelectors } from "./components/workbench/hooks/useCadWorkspaceSelectors.js";
@@ -117,9 +116,8 @@ import {
   resolveStepModuleFeatures
 } from "@text-to-cad/core/common/stepModule.js";
 import {
-  awaitingSameFileRevision,
   meshStateIsComplete,
-  replacingSameFileMesh
+  retainsPreviousStepMesh
 } from "./components/workbench/hooks/packageProgressiveLoad.js";
 import { meshLoadErrorForViewer, shouldStartMeshLoad } from "./components/workbench/hooks/meshLoadTarget.js";
 import { useViewerHost } from "../../host/context.js";
@@ -335,9 +333,9 @@ function StepSurfaceBody({ view, data }) {
   // catalog's path relative to this client's served root.
   const editingFile = liveEntry ? cadFileParamForEntry(liveEntry) : explicitFileParam;
   const editingAvailable = /\.st(?:ep|p)$/i.test(editingFile || "");
+  // The build feed: status only ("Updating model…", a failed build). The view shows the saved file.
   const editingPreview = useEditingPreview(editingFile, { client,
     enabled: editingAvailable && !selectedCatalogPending,
-    catalogEntry: liveEntry,
   });
   // Unified render-artifact status for the selected entry: ready (render) | generating (loading) |
   // error (fatal). A missing/stale cache is not an issue — it just triggers a (re)build. Replaces
@@ -350,7 +348,7 @@ function StepSurfaceBody({ view, data }) {
       client,
     }
   );
-  const editingHasView = Boolean(editingPreview.entry || entryHasMesh(liveEntry));
+  const editingHasView = entryHasMesh(liveEntry);
   const selectedArtifactGenerating = selectedArtifact.status === "compiling" && !editingHasView;
   // The in-flight build's own report of where it is (null until it reports, and for
   // every loading state that is not an artifact build). Only meaningful while
@@ -363,28 +361,16 @@ function StepSurfaceBody({ view, data }) {
   // the viewer shows a loading or error state and renders only the fresh artifact once ready.
   const selectedEntry = useMemo(
     () => {
-      const base = editingPreview.entry || (!liveEntry || selectedArtifact.status === "compiled" ||
-        entryHasMesh(liveEntry)
+      const base = !liveEntry || selectedArtifact.status === "compiled" || entryHasMesh(liveEntry)
         ? liveEntry
-        : entryWithoutRenderAssets(liveEntry));
+        : entryWithoutRenderAssets(liveEntry);
       if (!base) {
         return base;
       }
       return referencePath ? { ...base, fileRefPrefix: referencePath } : base;
     },
-    [liveEntry, selectedArtifact.status, referencePath, editingPreview.entry]
+    [liveEntry, selectedArtifact.status, referencePath]
   );
-  const previousPreviewTree = useRef(null);
-  useEffect(() => {
-    const previous = previousPreviewTree.current;
-    const next = { file: selectedEntry?.file, hash: selectedEntry?.hash, preview: selectedEntry?.editingPreview };
-    if (previewGeometryChanged(previous, next)) {
-      setSelectedReferenceIds([]);
-      setSelectedPartIds([]);
-      setSelectedRenderPartIdByAssemblyPartId({});
-    }
-    previousPreviewTree.current = next;
-  }, [selectedEntry?.file, selectedEntry?.hash, selectedEntry?.editingPreview]);
   // This renderer is only ever handed a STEP (its `matches`, index.ts), keyed per file, and an
   // entry is always present: so every capability a STEP has (parts, topology, Measure, a
   // sidecar's parameters, the Select and Draw tools) is simply on here, and nothing below asks
@@ -416,14 +402,10 @@ function StepSurfaceBody({ view, data }) {
   // be picked while the replacement geometry/selectors are loading.
   // Before that, while the rewritten file's next revision is still being built, the entry has no
   // mesh at all: the model on screen stays through that too (`awaitingSameFileRevision`), so a
-  // rebuild is only ever an update, never the loading screen again.
-  const retainingPreviousStepMesh =
-    (!selectedEntryHasMesh && awaitingSameFileRevision(meshState, selectedEntry)) || (
-      selectedEntryHasMesh &&
-      !!selectedMeshHash &&
-      !selectedStepModuleUrl &&
-      !selectedAnimationSourceKey &&
-      replacingSameFileMesh(meshState, selectedEntry, selectedMeshHash));
+  // rebuild is only ever an update, never the loading screen again. A model with motion is no
+  // exception: its new revision's module poses the new mesh once that is published.
+  const retainingPreviousStepMesh = retainsPreviousStepMesh(meshState, selectedEntry,
+    { entryHasMesh: selectedEntryHasMesh, meshHash: selectedMeshHash });
   const retainedPreviousStepMeshError = retainingPreviousStepMesh &&
     meshState?.assemblyBackgroundErrorMeshHash === selectedMeshHash
     ? String(meshState?.assemblyBackgroundError || "").trim()
@@ -442,11 +424,9 @@ function StepSurfaceBody({ view, data }) {
     !!meshState?.assemblyBackgroundError &&
     (selectedMeshMatches || !!retainedPreviousStepMeshError);
   const selectedMeshData = (selectedMeshMatches || retainingPreviousStepMesh) ? meshState.meshData : null;
-  const selectedSourceAppearance = selectedEntry?.editingPreview
-    ? selectedEntry.previewAppearance || null
-    : selectedEntry?.sourceSidecar
-      ? selectedEntry.sourceSidecar.appearance || null
-      : selectedMeshData?.appearance || null;
+  const selectedSourceAppearance = selectedEntry?.sourceSidecar
+    ? selectedEntry.sourceSidecar.appearance || null
+    : selectedMeshData?.appearance || null;
   const selectedDisplayMeshData = useMemo(() => {
     return registerLodDisplaySource(
       applySourceAppearanceToMeshData(selectedMeshData, selectedSourceAppearance),
@@ -708,19 +688,11 @@ function StepSurfaceBody({ view, data }) {
     ? meshLoadProgress : null;
   const selectedLoadProgress = selectedArtifactProgress || activeMeshLoadProgress || null;
   // The revision half of the shell's presentation token: what is being shown, and whether it
-  // is all of it yet. The shell builds the token and hands it to the viewport; this renderer
-  // builds the same one, because only it can answer whether a live edit's own result has landed.
+  // is all of it yet. The shell builds the token and hands it to the viewport.
   const presentationRevisionKey = `${selectedMeshData ? meshState?.meshHash || selectedMeshHash : selectedMeshHash}:${selectedMeshPartial ? "partial" : "complete"}`;
-  const presentationKey = shellPresentationKey(selectedKey, presentationRevisionKey);
-  // The shell's presentation report, held here because the edit alert below reads it before the shell hook runs.
-  const presentationReport = usePresentationReport();
-  const presentationPending = Boolean(selectedMeshData) &&
-    presentationIsPending(presentationReport.state, { modelKey: selectedKey, key: presentationKey, renderMode: rendering });
-  const currentPreviewVisible = Boolean(editingPreview.entry && selectedMeshMatches && !selectedMeshPartial &&
-    !presentationPending && Number(editingPreview.state.preview?.revision) === Number(editingPreview.state.revision));
 
   const viewerAlert = useMemo(() => {
-    const editFailure = buildViewerEditAlert(editingPreview.state, currentPreviewVisible, Boolean(selectedMeshData && !selectedMeshPartial));
+    const editFailure = buildViewerEditAlert(editingPreview.state, Boolean(selectedMeshData && !selectedMeshPartial));
     if (editFailure) return editFailure;
     if (catalogError && !selectedMeshData) return {
       severity: "error", kind: "status", title: "Couldn’t open the model",
@@ -743,7 +715,7 @@ function StepSurfaceBody({ view, data }) {
         backgroundError: meshState?.assemblyBackgroundError,
       }),
       selectedMeshData && !selectedMeshPartial &&
-        !["submitted", "queued", "building"].includes(editingPreview.state?.state) &&
+        !editingBuildActive(editingPreview.state) &&
         ["network", "timeout", "status"].includes(selectedArtifact.failure?.kind)
         ? null : selectedArtifact,
       { partial: selectedMeshPartial }
@@ -751,7 +723,6 @@ function StepSurfaceBody({ view, data }) {
     return meshAlert || viewerRuntimeAlert;
   }, [
     editingPreview.state,
-    currentPreviewVisible,
     catalogError,
     error,
     meshState?.assemblyBackgroundError,
@@ -1534,8 +1505,7 @@ function StepSurfaceBody({ view, data }) {
       updating: !viewportIsLoading && (effectiveViewerLoading || selectedMeshPartial),
       progress: selectedLoadProgress || (editingPreview.state.phase ? { phase: editingPreview.state.phase, detail: editingPreview.state.detail } : null),
       alert: viewerAlert || (!selectedMeshData && catalogError ? catalogError : null) || annotationAlert,
-      editPending: ["submitted", "queued", "building"].includes(editingPreview.state?.state) && !editingPreview.state?.saved,
-      currentPreview: currentPreviewVisible,
+      editPending: editingBuildActive(editingPreview.state),
       finding: !catalogHydrated || selectedCatalogPending
     },
     // The playbar belongs to preview here, not to every file with routines: leaving preview
@@ -1556,7 +1526,6 @@ function StepSurfaceBody({ view, data }) {
     preserveInteractionPixelRatio: viewPolicy.wireframeMode || viewPolicy.edgesVisible,
     runtimeLifecycle: stepRuntimeLifecycle,
     onRuntimeAlert: handleViewerAlertChange,
-    presentationReport
   });
   shellRef.current = shell;
   const reportActionError = shell.reportActionError;

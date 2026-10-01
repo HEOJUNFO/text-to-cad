@@ -21,7 +21,7 @@ right.
 | [8](#8-gc-eviction-and-the-cap) | The sweeper: retired kinds, eviction to the cap, unreachable objects, a store two cadgens share, and why a pass needs no lock | anything that deletes |
 | [9](#9-the-daemon) | The build pool, job ledger and slots | daemon, workers, jobs |
 | [9a](#9a-lazy-children) | Lazy children: pins at the call, forcing, exact-`Compound` reference preservation | a decorated call's return, parallel child builds |
-| [9b](#9b-editing-previews-and-explicit-saves) | Announced preview trees, the feed, explicit saves | the viewer's live-edit path |
+| [9b](#9b-editing-previews-and-explicit-saves) | Announced preview trees, the build feed, explicit saves | what the viewer says while a build runs |
 | [10](#10-debugging) | `store why`, resolving a tree, resets smallest first | diagnosing staleness |
 | [11](#11-never) | The explicit prohibitions | before proposing any of them |
 
@@ -136,9 +136,8 @@ test:
    Its occurrence and selector views stay bound to that captured revision;
    each `shape()` returns privately copied topology. An already open scene
    survives document replacement or deletion of its cached objects.
-   An explicitly attached editing session has a different input: a complete
-   preview tree announced by the build runtime (§9b). It still reads no
-   model/output records and never runs source. This input is not a saved file.
+   A build's preview tree (§9b) is the build's own: a parent may pin a child's,
+   and no viewer displays one.
 3. **Records are deletable.** `rm -rf index/model index/output` loses no
    artifact: every reader still works from objects; a rebuild re-creates the
    records without rebuilding a tree whose objects exist.
@@ -1363,32 +1362,21 @@ orphaned pending status behind in the ledger.
 
 These ephemeral preview handles are not GC roots. The normal grace period
 protects newly published objects; explicit GC or cache deletion can expire an
-older preview, including one retained after a failed save. The feed then
-reports that its geometry is unavailable. Already displayed browser resources
-remain owned until replaced or closed, but reopening requires a new build.
-The durable source and saved STEP remain the recovery path.
+older preview, including one retained after a failed save. The durable source
+and saved STEP remain the recovery path.
 
-The viewer automatically follows active edits for STEP entries. It reads this
-channel via `GET /__cad/preview`, validates transitive object availability, and
-fetches geometry from the existing object routes. The server
-does no kernel work and exposes no source/closure/model record. Without an
-available preview, the viewer resolves the saved bytes with the topology and
-annotations that belong to them. A finished build whose output is no longer
-the file on disk -- the bytes it saved replaced or, if it saved nothing, the
-file written after it ended -- is reported `superseded`, with neither its
-preview nor its saved result. A feed with no build of the file to report (two
-minutes after the last, or with no daemon) vouches for nothing, so a preview
-the viewer already holds stands in only for a file that build saved. Either way
-a file that changed without this feed -- built by another installation, a
-checkout, a STEP written by hand -- is shown from the catalog, as any other
-update. It reports an incomplete or failed update as
-such, and never announces a background file write it did not perform. Preview kinematics are
-resolved against the preview tree; the saved sidecar is resolved separately against the read-back
-tree and bound to the saved bytes. Within one build, successful authored-tree
-kinematics resolution may be reused for that exact tree hash, with independent
-copies for preview and saved-document remapping. No resolution survives the
-build or substitutes for the read-back remap. Preview and saved events carry
-their independently pinned appearance and embedded animation. A saved-tree identity change clears incompatible selection and
+The viewer shows the saved file, always: the catalog's bytes with the topology
+and annotations that belong to them, replaced in place when a build writes new
+bytes (the components it already holds are retained: the last paragraph). It reads
+this channel (`GET /__cad/preview`) for status alone: whether a build of the file
+is queued or running and its phase, and a failure with its message. An answer
+carries no geometry; the server does no kernel work and exposes no
+source/closure/model record. A finished build whose output is no longer the file
+on disk -- the bytes it saved replaced or, if it saved nothing, the file written
+after it ended -- is reported `superseded`, and its failure is no longer the news.
+The viewer reads the catalog again when a build finishes or is superseded, rather
+than at its next poll. It never announces a background file write it did not
+perform. A saved-tree identity change clears incompatible selection and
 measurement state.
 
 An open editing tab holds one request against an opaque ledger cursor scoped
@@ -1398,9 +1386,8 @@ the same lock, and a daemon restart changes the cursor's epoch. The daemon
 admits at most 32 read-only waiters, separate from build workers and CPU slots;
 saturation returns a snapshot without another thread and the client backs off
 to 500 ms. A one-second heartbeat
-still rechecks actual saved bytes and object completeness even with no build
-event. Each heartbeat verifies each unique tree once without retaining its
-BREP payloads. Closing or switching the tab aborts its request; a disconnected feed
+still rechecks whether the file moved past the newest build, even with no build
+event. Closing or switching the tab aborts its request; a disconnected feed
 retries without starting a daemon or a model. This adds no persistent state.
 The CAD app's tunnel (`cadgen.mcp.tunnel`) never holds the request: it drops the
 cursor, so the daemon answers with a snapshot at once, and the client paces
@@ -1411,15 +1398,8 @@ materialize that result before the child's STEP save finishes. It becomes
 `record.tree` only after the model's publication checks and dependent saves
 succeed; it is never replaced by translated STEP geometry and never used as a
 document-byte mapping. Successful explicit saves require all declared outputs;
-publishing a preview alone is not success. In **Follow
-edits**, a successful save keeps that revision's authored preview on screen:
-the status confirms the STEP save, while the viewport remains explicitly a
-preview with its own topology and kinematics. This avoids replacing every
-component just because STEP translation changed its canonical encoding.
-Choosing **Saved file** displays the validated saved representation instead.
-A successful no-op request without a new preview, or an expired preview with
-a separately validated saved result, also falls back to that saved input.
-No saved byte hash is mapped to a preview tree to obtain this reuse.
+publishing a preview alone is not success. No saved byte hash is mapped to a
+preview tree.
 
 An interactive viewer can retain a complete displayed component across a
 replacement when its full SURF object hash, component identity, origin and

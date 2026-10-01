@@ -713,8 +713,8 @@ renderer captures the latest complete working set.
 Reuse requires the same resource-provider generation, stable root, file, entry/document and
 appearance revision, package URL and runtime descriptor view. Anonymous clients
 remain object-isolated. Each component retains its exact surface-input/object
-binding and concrete tessellation key and level. Editing previews, changed
-revisions and runtime replacement views invalidate the snapshot. Tabs borrowing the same workspace service can reopen while the bounded entry
+binding and concrete tessellation key and level. Changed revisions and
+runtime replacement views invalidate the snapshot. Tabs borrowing the same workspace service can reopen while the bounded entry
 survives. A replacement service or changed backend identity starts a new resource
 generation, preventing URL cache reuse across changed credentials or origins. A native GLB scene and its animation mixer are never cached:
 they are mutable state with one owner, the GLB renderer's mounted scene.

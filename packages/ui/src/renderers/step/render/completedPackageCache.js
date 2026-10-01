@@ -10,7 +10,7 @@ const MAX_PACKAGES = 8;
 const MAX_BYTES = 256 * 1024 * 1024;
 
 export function completedPackageRevision(entry) {
-  if (!renderCapabilities(entrySourceFormat(entry)).topology || entry?.editingPreview
+  if (!renderCapabilities(entrySourceFormat(entry)).topology
       || entry?.runtimeSurfaceViewReplacement || !entry?.file || !entry?.hash) return "";
   return JSON.stringify([entry.file, entry.kind, entry.hash, entryAssetUrl(entry, "glb"),
     entryMeshAssetSignature(entry), entry.documentHash || "", entry.sourceSidecar?.appearance || null]);
