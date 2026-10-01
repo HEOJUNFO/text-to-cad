@@ -784,7 +784,7 @@ A collapsed project's header carries the strongest state among the rows it
 hides — waiting over working — as the same glyph, named for what it counts ("1
 thread waiting for you"), so a thread that needs the person is never out of
 sight behind a collapse; an expanded section shows the rows and no extra mark.
-A pin, archive or delete that main refuses leaves the thread as it was (main writes the row first and only then closes or retires the adapter, so a refused write has touched nothing) and says so in the rename's shape — "Could not pin
+Rename in the row's menus (and the header's) only flags the choice; the box opens once the menu has closed, from `onCloseAutoFocus` (see "Focus coming back"). A pin, archive or delete that main refuses leaves the thread as it was (main writes the row first and only then closes or retires the adapter, so a refused write has touched nothing) and says so in the rename's shape — "Could not pin
 (unpin, archive, unarchive, delete) the thread: …" — and a refused archive or delete keeps the open session open — a delete whose rejection leaves no row behind (the renderer re-reads the list) is not refused, the thread is gone. A delete whose row is gone but whose disposal throws still succeeds, keeping the worktree on disk.
 
 The filter menu is global, and it is opened from the panel's own header:
@@ -952,7 +952,10 @@ cannot take an image in a prompt. Remove the attachment to send.",
 the message is accepted, not when its turn ends (`prompt` settles at the end
 of the turn); a prompt refused afterwards puts its files back in the strip. A queued prompt main refuses goes back into the
 box as it was taken, behind any put back before it, so the box reads in queue
-order, and the queue goes on. A turn the person stops (Stop or Esc) with something queued pauses the queue the way a failed one
+order, and the queue goes on. A prompt that is out but whose turn has not started (the box is `submitted`, while the
+session still reads idle for a moment) queues the next one too: Enter in a session sends then and the prompt goes behind it,
+though the button keeps its spinner (`queueWhileSubmitted`, passed by `SessionView` only). The new-session screen does not pass it,
+because its `submitted` is a create in progress and a second Enter would create a second session. A turn the person stops (Stop or Esc) with something queued pauses the queue the way a failed one
 does (Stop with nothing queued pauses nothing): the queue row reads "Paused after you stopped" with the same Resume (the reason is kept on the pause, so a Resume main then refuses reads "Paused after an error"), and
 the next queued prompt waits for it (or for a prompt typed meanwhile, which goes
 out first) instead of starting behind the Stop. A new session's first prompt refused this way
@@ -1233,7 +1236,7 @@ handed on, and an action that is refused leaves it on its control. The command
 palette and Settings' agent drawer hand focus back to what had it when they
 close (`hooks/use-return-focus.ts`), since neither has a trigger for Radix to
 return it to. A permission answer goes to the composer; one main refuses keeps
-focus on the card, which says why. Rename's Enter or Escape goes to the title
+focus on the card, which says why. Rename opens its box only after the menu that chose it has closed, from the menu's `onCloseAutoFocus` (the row's `…` menu, its context menu and the session header's menu): while the menu is still closing, Radix's focus scope takes focus off the box and then hands it to the trigger, and either blur would commit the draft. Rename's Enter or Escape goes to the title
 button, and settles the edit for good: a blur that follows (a browser may blur the
 box as it unmounts) commits nothing, so Escape never renames. Enter on a pane separator closes the pane and hands focus to that pane's
 toggle (the separator reads its width through `aria-valuetext`). A
@@ -2263,7 +2266,8 @@ snapshot by `turnFactsFrom`: turns are matched by position for as long as each
 user turn says the same thing, an agent turn takes the stored stop reason, and
 its `lateFrom` only when the replay has the same number of parts (a replay that
 merged parts cannot say which were late). What a reload restores is those two
-facts, nothing else. In the renderer, `receiveState` (`state/acp.ts`) clears a session's
+facts, nothing else: a turn whose part count differs keeps its stop reason and loses its `lateFrom`, so its late parts read as part of
+the answer, and turns after the first user turn that differs from the stored one are not matched at all. In the renderer, `receiveState` (`state/acp.ts`) clears a session's
 `loadErrors` once the state it takes says the agent is up (`idle`, `running` or
 `waiting`). In main, an `initialize` failure goes through `describe`
 (`src/main/acp/connection.ts`) as `session/new`, `session/load` and

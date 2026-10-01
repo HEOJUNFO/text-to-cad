@@ -111,7 +111,16 @@ the rule is about.
   exception is the e2e suite's door, `src/main/test-door.ts`
   (`installE2eDoor`), installed only when `NODE_ENV=test` and
   `!app.isPackaged` — an environment variable is something anyone can set in
-  front of a packaged app (`tests/unit/main/test-door.test.ts`).
+  front of a packaged app (`tests/unit/main/test-door.test.ts`). It answers with a
+  promise started in a macrotask that the caller must await
+  ([why](docs/session-workspaces.md)).
+- **An `app.evaluate` that touches the database runs on a fresh stack.** It is an
+  inspector interrupt and can land inside a `.all()` mid-row; start the work in
+  a `setImmediate` and return its promise (`src/main/test-door.ts`).
+- **A menu item that opens an input opens it from the menu's
+  `onCloseAutoFocus`.** Mounting the box while the menu is closing lets the
+  menu's focus handling blur it, and the blur commits the draft (Rename in
+  `features/sidebar/SessionRow.tsx` and `features/session/SessionHeader.tsx`).
 - **`src/renderer/components/{ui,ai-elements}` is vendored**, from the shadcn
   and AI Elements registries. It is excluded from eslint (not from the
   typechecker). These deliberate edits are in it: the `ai` package's types are

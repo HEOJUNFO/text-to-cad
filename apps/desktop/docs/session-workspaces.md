@@ -27,7 +27,12 @@ The e2e suite chooses folders through a door, not a channel:
 on main's global only when `NODE_ENV=test` and the build is not packaged. Its
 `choose(dir)` calls `projects.choose` and broadcasts `ui.directorySelected`,
 as the chooser does; `chooseDirectory` in `tests/e2e/launch.ts` drives it
-through `app.evaluate`.
+through `app.evaluate`. `choose` returns a promise that is started in a
+`setImmediate` macrotask, so `app.evaluate` must return it (and the caller await
+it): `app.evaluate` is an inspector call that V8 runs as an interrupt at the next
+function entry, which can land inside a better-sqlite3 `.all()` at its row
+factory, where the connection is busy and `prepare` throws. A macrotask starts
+on an empty stack.
 The descriptor's name is the directory basename. There is no project rename
 or delete operation. Sidebar groups contain sessions matching the current
 filters; empty groups are omitted. Archiving the last visible session hides
