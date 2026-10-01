@@ -43,7 +43,7 @@ import type { PromptReference } from "@text-to-cad/core/prompt";
  * if the agent does not come back, the queue's head is sent anyway so it fails
  * in the transcript with a Retry instead of waiting silently.
  *
- * A failed turn pauses the queue, and so does one the person stopped (`prompt/end` with
+ * A failed turn pauses the queue, and so does one the person stopped with something queued (`prompt/end` with
  * `cancelled`: Stop or Esc). The failure is in the transcript with its
  * Retry, and what the person sends next — that Retry, or a new prompt — goes
  * out at once, ahead of the queue; the queue resumes when that turn ends.
@@ -171,10 +171,12 @@ type ComposerState = {
   /** Sessions with a prompt sent and no `prompt/start` for it yet, by send token. */
   sending: Record<string, number>;
   /**
-   * Sessions whose last turn failed: the queue holds until the next turn starts, and what is sent
-   * meanwhile — the Retry or a new prompt — goes out first, even after the agent was evicted.
+   * Sessions whose queue is held until the next turn starts — what is sent meanwhile (the Retry or
+   * a new prompt) goes out first, even after the agent was evicted — and why: "stopped" for a turn
+   * the person stopped, "error" for a failed turn or a prompt main refused before any turn. The
+   * reason is kept here, not read back from the last turn, which a refusal does not touch.
    */
-  paused: Record<string, true>;
+  paused: Record<string, "stopped" | "error">;
   /** The bridge's hand-off of a turn's lifecycle events: the queue's one driver. */
   turnEvent: (sessionId: string, type: "prompt/start" | "prompt/end" | "prompt/error", stopReason?: string) => void;
   /** Clear a draft for sending, returning what it held. */
@@ -382,7 +384,11 @@ export const useComposer = create<ComposerState>((set, get) => ({
     // A turn the person stopped holds the queue the way a failed one does: they pressed Stop, so
     // the next prompt must not start behind their back. Resume (or a new prompt) goes on.
     const stopped = type === "prompt/end" && stopReason === "cancelled";
-    if (type === "prompt/error" || stopped) set((state) => ({ paused: { ...state.paused, [sessionId]: true } }));
+    // Stop with nothing queued holds nothing back, so there is nothing to say or to Resume.
+    if (type === "prompt/error") set((state) => ({ paused: { ...state.paused, [sessionId]: "error" } }));
+    else if (stopped && (get().queues[sessionId]?.length ?? 0) > 0) {
+      set((state) => ({ paused: { ...state.paused, [sessionId]: "stopped" } }));
+    }
     if (type === "prompt/start" && sessionId in get().paused) {
       set((state) => ({ paused: withoutKey(state.paused, sessionId) }));
     }
@@ -530,7 +536,7 @@ async function send(sessionId: string, content: PromptBlock[], item?: QueuedProm
     if (item) {
       useComposer.setState((state) => ({
         queues: { ...state.queues, [sessionId]: [item, ...(state.queues[sessionId] ?? [])] },
-        paused: { ...state.paused, [sessionId]: true },
+        paused: { ...state.paused, [sessionId]: "error" },
       }));
     }
     useAcp.setState((state) => ({ loadErrors: { ...state.loadErrors, [sessionId]: errorMessage(error) } }));
