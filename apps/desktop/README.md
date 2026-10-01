@@ -2134,6 +2134,9 @@ when it was written by the same app version and holds every provider. Then:
   A failed run's "Install failed (exit N)" / "Sign in failed (exit N)" is worded
   only while the step is undone (`useJob`'s `done`: installed, signed in), and a
   newer job of the kind replaces the failed one a mount started.
+  A start main refuses (no job exists to carry an exit code) is worded "Install could not start: …" / "Sign in could not
+  start: …" in the same alert slot, with no log under it, and clears on the next try. The Agents page's Refresh that
+  rejects draws the "Could not read the agent list" alert a failed first read does.
 - A **cold launch** (no usable cache) waits for the first probe for at most
   `PROBE_WAIT_MS` (3 s), then answers with whatever it has, which may be empty.
 - If the probe fails while the table is still the last launch's, or has none and the
