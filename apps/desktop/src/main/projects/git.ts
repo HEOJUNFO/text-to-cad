@@ -173,7 +173,7 @@ const REPOSITORY_LOCATION = [
  * commit") in several places, a localized git would translate it, and one pin is simpler than a
  * list of the calls that read messages. A hook inherits it.
  */
-function gitEnv(): NonNullable<Options["env"]> {
+export function gitEnv(): NonNullable<Options["env"]> {
   const location = Object.fromEntries(REPOSITORY_LOCATION.map((name) => [name, undefined]));
   return { ...loginGitEnv, ...location, ...GIT_OPTIONS.env, LC_ALL: "C", LANG: "C" };
 }

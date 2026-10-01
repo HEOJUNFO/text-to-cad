@@ -5,7 +5,7 @@
  * two same-named projects must not let one delete the other's work.
  */
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -300,4 +300,28 @@ test("an archived thread does not hold a worktree, and one in a subfolder does",
   state.sessions = state.sessions.filter((row) => row.id === "old");
   await gitHandlers.git.removeWorktree({ projectId: project.id, path: created.path });
   expect(await exists(created.path)).toBe(false);
+});
+
+test("a worktree made under a symlinked worktreeRoot is listed, counted by projectInfo, and deletable", async () => {
+  const project = await repository("a", path.join(base, "robot-arm"));
+  const realRoot = path.join(base, "real-worktrees");
+  const linkRoot = path.join(base, "link-worktrees");
+  await mkdir(realRoot);
+  await symlink(realRoot, linkRoot);
+  // The setting names the link; git reports the real spelling.
+  state.worktreeRoot = linkRoot;
+  const parentDir = projectWorktreeDir({ worktreeRoot: linkRoot }, project);
+  expect(parentDir.startsWith(linkRoot)).toBe(true);
+  const created = await git.createWorktree({ repoPath: project.path, parentDir, name: "wrist" });
+
+  const listed = await gitHandlers.git.worktrees({ projectId: project.id });
+  expect(listed.map((row) => row.path), "the Settings list must see a worktree under a symlinked root").toEqual([created.path]);
+  const info = await gitHandlers.git.projectInfo({ projectId: project.id });
+  expect(info.worktreeCount, "projectInfo must count it").toBe(1);
+
+  // Deleted by the spelling the setting uses (git lists the real one).
+  const spelledThroughLink = path.join(linkRoot, path.relative(realRoot, created.path));
+  await gitHandlers.git.removeWorktree({ projectId: project.id, path: spelledThroughLink });
+  expect(await exists(created.path)).toBe(false);
+  expect(await gitHandlers.git.worktrees({ projectId: project.id })).toEqual([]);
 });

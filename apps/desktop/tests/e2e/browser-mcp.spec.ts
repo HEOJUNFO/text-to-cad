@@ -3,7 +3,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { _electron as electron, expect, test, type ElectronApplication } from "@playwright/test";
+import { _electron as electron, expect, type ElectronApplication } from "@playwright/test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { WebSocket } from "ws";
@@ -12,6 +12,7 @@ import { buildMcpServer } from "../../scripts/build-mcp.mjs";
 import type { BrowserService } from "../../src/main/browser/service";
 import type { BrowserConnections } from "../../src/main/browser/connections";
 import type { McpBridge, BridgeSession } from "../../src/main/integrations/mcp-bridge";
+import { test, traceApp } from "./launch";
 
 declare const browserMcpFixture: { service: BrowserService; scope: { sessionId: string; projectId: string; root: string }; other: { sessionId: string; projectId: string; root: string };
   window: Electron.BrowserWindow; calls: { kind: string; tabId?: string }[]; connections: BrowserConnections; session: BridgeSession; bridge: McpBridge;
@@ -56,6 +57,7 @@ test.beforeAll(async () => {
   await build({ entryPoints: [path.join(appRoot, "tests/fixtures/browser/mcp-app.ts")], outfile: entry, bundle: true, platform: "node", format: "cjs", external: ["electron"], target: "node22" });
   application = await electron.launch({ args: [entry, `--user-data-dir=${path.join(scratch, "profile")}`], env: { ...process.env,
     TEXT_TO_CAD_E2E_HIDDEN: "1", BROWSER_FIXTURE_ROOT: scratch, BROWSER_FIXTURE_ORIGIN: origin, BROWSER_FIXTURE_MCP: path.join(packed, "server.mjs") } });
+  await traceApp(application);
   application.process().stderr?.on("data", chunk => { void fs.appendFile(test.info().outputPath("electron.log"), chunk).catch(() => {}); });
   await application.firstWindow();
   // The test driver's separate CDP client must not auto-dismiss the MCP's dialog.
