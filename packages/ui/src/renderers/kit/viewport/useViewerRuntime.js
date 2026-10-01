@@ -207,6 +207,7 @@ export function useViewerRuntime({
         rendererReleased = true;
         if (runtimeRef.current?.renderer === renderer) runtimeRef.current = null;
         renderer.dispose();
+        renderer.forceContextLoss?.();
         renderer.domElement?.parentNode?.removeChild(renderer.domElement);
       };
       release(() => {

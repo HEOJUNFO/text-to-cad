@@ -74,12 +74,6 @@ function options(mount: HTMLElement, extra: Record<string, unknown> = {}) {
   } as Record<string, unknown>, { get: (target, key: string) => (key in target ? target[key] : noop) });
 }
 
-// What the real macrotask queue needs to finish the hook's dynamic imports, without sleeping.
-async function until(condition: () => boolean) {
-  for (let turn = 0; turn < 10_000 && !condition(); turn += 1) await new Promise((resolve) => setImmediate(resolve));
-  expect(condition()).toBe(true);
-}
-
 test('a viewer whose initialisation throws midway releases what it had already registered', async () => {
   const added: Array<[string, unknown]> = [];
   const removed: Array<[string, unknown]> = [];
@@ -131,6 +125,12 @@ test('a viewer whose runtime ref was cleared under it still releases its listene
   expect(renderers[0].dispose).toHaveBeenCalled();
 });
 
+// What the real macrotask queue needs to finish the hook's dynamic imports, without sleeping.
+async function until(condition: () => boolean) {
+  for (let turn = 0; turn < 10_000 && !condition(); turn += 1) await new Promise((resolve) => setImmediate(resolve));
+  expect(condition()).toBe(true);
+}
+
 test('a renderer whose start throws before it is mounted still lets go of its context and canvas', async () => {
   buffer.fail = true;
   const mount = document.createElement('div');
@@ -142,6 +142,7 @@ test('a renderer whose start throws before it is mounted still lets go of its co
 
   expect(renderers).toHaveLength(1);
   expect(renderers[0].dispose).toHaveBeenCalled();
+  expect(renderers[0].forceContextLoss).toHaveBeenCalledTimes(1);
   expect(mount.querySelector('canvas')).toBeNull();
 });
 
@@ -184,3 +185,24 @@ test('interaction timers are cleared when the start is released without its runt
   expect(vi.getTimerCount()).toBe(0);
 });
 
+test('a rebuilt viewer forces its old context lost, after the listeners that would rebuild again are off', async () => {
+  init.fail = false;
+  const mount = document.createElement('div');
+  document.body.appendChild(mount);
+  const onContextRestored = vi.fn();
+  const base = options(mount, { onContextRestored }) as any;
+  const hook = renderHook(() => useViewerRuntime(base));
+  await until(() => base.runtimeRef.current !== null);
+  const canvas = renderers[0].domElement as HTMLCanvasElement;
+  // Stand in for the browser: a forced loss answers with the pair of context events.
+  renderers[0].forceContextLoss.mockImplementation(() => {
+    canvas.dispatchEvent(new Event('webglcontextlost'));
+    canvas.dispatchEvent(new Event('webglcontextrestored'));
+  });
+
+  hook.unmount();
+
+  expect(renderers[0].forceContextLoss).toHaveBeenCalledTimes(1);
+  expect(onContextRestored).not.toHaveBeenCalled();
+  expect(base.setError).not.toHaveBeenCalled();
+});
