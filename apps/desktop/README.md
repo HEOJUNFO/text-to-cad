@@ -1763,18 +1763,17 @@ group of its own, like the viewer, is killed as a group, so its compile workers
 go with it; Chromium's helpers are killed singly. (A viewer reused from another
 run is not a child of this app and is never touched.) Its one probe, `ps -axo pid=,ppid=,pgid=` (every process with its parent and group;
 the children are the rows whose parent is the app, and their groups come from the same rows), runs
-under a 400 ms timeout so a hung `ps` cannot stall the final kill of the app. The worst case is
-therefore `QUIT_DEADLINE_MS` + `WATCHDOG_PROBE_TIMEOUT_MS` + 300 ms of slack for starting the watchdog and
-the kill landing, which is 1900 ms, 100 ms inside the 2000 ms budget (a probe-hangs run measures about 1620 ms);
-the timeout is that long because starting a process on a loaded CI runner took more than the
-150 ms an earlier two-probe version allowed, and a probe that times out leaves every child alive.
-`tests/unit/main/quit-deadline.test.ts` holds that
-arithmetic in one place (the sum must fit the budget, and a run with the probe hanging must finish within it),
-so raising the probe timeout fails there. If the probe fails or times out
+under `WATCHDOG_PROBE_TIMEOUT_MS` so a hung `ps` cannot stall the final kill of the app; the timeout is
+that long because starting a process on a loaded CI runner took more than the 150 ms an earlier
+two-probe version allowed, and a probe that times out leaves every child alive. The quit budget is
+a number in one place: `tests/unit/main/quit-deadline.test.ts` adds the deadline, the probe timeout and
+the slack for starting the watchdog and the kill landing, requires the sum to fit the two-second budget,
+and requires a run with the probe hanging to finish inside it, so raising the probe timeout fails there.
+If the probe fails or times out
 no children are found, and only the app is killed (its helpers go with the browser process they
 serve, or are left to the OS). The rows of a `ps` that exits non-zero are read as well, for a
 variant that fails yet still prints what it found; no such variant has been measured. macOS and
-Linux (procps) `ps` both take `-a -x -o` and `name=` to drop the header. A quit that finishes
+Linux (procps) `ps` both take `-a -x -o`, and a field with an empty name (`pid=`) drops the header. A quit that finishes
 on its own — half a second without WebGL —
 gives it nothing to do. On Windows there is no spare list: the deadline runs
 `taskkill /PID <app> /T /F`, which follows the parent pid through `detached`, so

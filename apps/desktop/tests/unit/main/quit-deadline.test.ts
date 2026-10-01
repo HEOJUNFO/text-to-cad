@@ -180,7 +180,7 @@ setInterval(() => {}, 1000);
   });
 
   it("keeps the whole quit inside the two-second budget with the real deadline even when the probe hangs", async () => {
-    // The one place the budget arithmetic lives (README, "Quitting"): the deadline, then at worst
+    // The one place the budget arithmetic lives (README "Quitting" and `quit-deadline.ts` point here): the deadline, then at worst
     // the one probe (`ps`) runs to its timeout before the kill, plus slack for starting the
     // watchdog and the kill landing. The sum must itself fit the README's budget, so raising a
     // probe timeout fails here even though the measured time follows it.

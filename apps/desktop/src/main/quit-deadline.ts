@@ -30,10 +30,10 @@ export const QUIT_DEADLINE_MS = 1_200;
 
 /**
  * How long the watchdog's one probe (`ps -axo pid=,ppid=,pgid=`: every process with its parent
- * and group) may take. The deadline is kept at 1.2 s of a two-second budget; one probe at this
- * timeout fits in what is left with 300 ms of slack. It is generous because starting a process on
- * a loaded CI runner took longer than the 150 ms an earlier, two-probe version allowed, and a probe
- * that times out leaves every child alive. A probe that hangs is killed and treated as having
+ * and group) may take. The budget arithmetic is stated once, in
+ * `tests/unit/main/quit-deadline.test.ts`, and raising this fails there. The timeout is generous
+ * because starting a process on a loaded CI runner took longer than the 150 ms an earlier,
+ * two-probe version allowed, and a probe that times out leaves every child alive. A probe that hangs is killed and treated as having
  * found nothing: only the app is killed.
  */
 export const WATCHDOG_PROBE_TIMEOUT_MS = 400;
@@ -55,7 +55,7 @@ export const WATCHDOG_PROBE_TIMEOUT_MS = 400;
  *
  * One probe finds the children and their groups: `ps -axo pid=,ppid=,pgid=` lists every
  * process with its parent and group (BSD/macOS `ps` and Linux procps both take `-a -x -o`, and
- * `name=` drops the header), the children are the rows whose ppid is the app's. It runs under a
+ * an empty name after each field drops the header), the children are the rows whose ppid is the app's. It runs under a
  * timeout (`probeTimeoutMs`) so a hung `ps` cannot stall the final kill of the app: a probe that
  * fails or times out finds no children and only the app is killed. A probe that exits non-zero
  * but printed rows is read for those rows.

@@ -420,7 +420,7 @@ the rule is about.
 - **The quit deadline spares the warm daemon by pid, never by process group.**
   The app-owned viewer is `detached` too, so a group spare would spare it; the
   watchdog gets `daemonPids()` (a daemon's pid leaves it when it exits, so a
-  reused pid is never spared), and both of its probes run under a timeout so a
+  reused pid is never spared), and its one probe runs under a timeout so a
   hung `ps` cannot stall the final kill. Windows has no spare list and its tree
   kill takes the daemon (`src/main/quit-deadline.ts`, README "Quitting").
 - **A browser harness gets a fresh dependency cache per run.** A Vite server
@@ -515,5 +515,14 @@ the rule is about.
   sample is copied to `<target>.copying` and renamed into place, so a copy that
   dies leaves staging for the next run to discard, never a half-sample that
   reads as the person's own (`tests/unit/main/onboarding.test.ts`).
+- **A probe's timeout must survive a slow runner's spawn, so a budget is fitted
+  by needing fewer probes.** Starting a process on a loaded CI runner outran the
+  150 ms an earlier quit watchdog gave two probes; it now runs one, with room
+  for it (`WATCHDOG_PROBE_TIMEOUT_MS`, `src/main/quit-deadline.ts`).
+- **A unit test asserts no wall-clock bound, except where a documented budget is
+  the contract.** The two exceptions are the quit watchdog's budget
+  (`tests/unit/main/quit-deadline.test.ts`) and the teardown's
+  (`tests/unit/main/quit-sequence.test.ts`); a bound anywhere else fails on a
+  loaded machine and says nothing about the code.
 
 Domain MCP servers and focused skills are composed by `src/main/integrations/registry.mjs`. Read [the integration contract](docs/integrations.md) before adding session-to-app capabilities.
