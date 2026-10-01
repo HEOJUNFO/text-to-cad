@@ -1190,15 +1190,16 @@ export class SessionManager {
         // stood.
         console.warn(`[acp] archive ${id.slice(0, 8)}: create still running after ${ARCHIVE_WAIT_MS / 1000} s, abandoning it`);
         this.close(id);
-        return this.deps.repo.get(id) ? this.update(id, { archived }) : { ...session, archived, status: "closed" };
+        return this.deps.repo.get(id) ? this.update(id, { archived }, false) : { ...session, archived, status: "closed" };
       }
       // A create that failed took the row with it: there is nothing left to archive.
       this.require(id);
     }
     // The durable write first, the side effect after: a write that throws
     // leaves the adapter running and the row as it was, which is what the
-    // refusal toast says.
-    const updated = this.update(id, { archived });
+    // refusal toast says. Archiving and unarchiving are not activity in the
+    // thread (`activity: false`), so Undo puts the row back where it was.
+    const updated = this.update(id, { archived }, false);
     if (!archived) {
       return updated;
     }

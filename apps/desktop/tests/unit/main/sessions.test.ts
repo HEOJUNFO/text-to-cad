@@ -1549,6 +1549,16 @@ describe("SessionManager", () => {
     expect(manager.state(session.id)).not.toBeNull();
   });
 
+  it("archive then unarchive leaves updatedAt where it was (Undo restores the row's place)", async () => {
+    const { repo, manager, cwd } = await setup();
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    repo.upsert({ ...repo.get(session.id)!, updatedAt: 100 });
+    await manager.archive(session.id, true);
+    expect(repo.get(session.id)).toMatchObject({ archived: true, status: "closed", updatedAt: 100 });
+    await manager.archive(session.id, false);
+    expect(repo.get(session.id)).toMatchObject({ archived: false, updatedAt: 100 });
+  });
+
   it("says why a worktree was kept when releaseWorkspace does not remove it", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
