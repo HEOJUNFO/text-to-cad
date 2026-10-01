@@ -285,6 +285,23 @@ describe("releaseWorkspace for an abandoned create", () => {
   });
 });
 
+describe("releaseWorkspace for an abandoned create whose folder is gone", () => {
+  it("still deletes the branch, asking the project's repository", async () => {
+    const { project, settings } = await fixture();
+    const made = await resolveWorkspace({ project, settings, gitMode: "worktree", name: "folder gone" });
+    const sessionHead = (await run("git", ["rev-parse", "HEAD"], { cwd: made.cwd, env: GIT_ENV })).stdout.trim();
+    await rm(made.cwd, { recursive: true, force: true });
+
+    await releaseWorkspace(
+      { worktreePath: made.cwd, branch: made.branch, projectId: project.path, sessionHead },
+      { autoDeleteWorktrees: false },
+      { abandoned: true },
+    );
+    const branches = await run("git", ["branch", "--list", made.branch!], { cwd: project.path, env: GIT_ENV });
+    expect(branches.stdout.trim()).toBe("");
+  });
+});
+
 describe("releaseWorkspace for an abandoned create cut from a fetched tip", () => {
   it("deletes the branch this create made while it is still at its base, even when local HEAD is behind it", async () => {
     // A remote one commit ahead of the checkout: the fetch before creating

@@ -337,8 +337,10 @@ export async function releaseWorkspace(
     return { removed: false, reason: "auto-delete is off" };
   }
   try {
+    // The project's repository first: with the folder gone, the worktree's own
+    // path names no repository, and the branch would be left behind.
     const primary = options.abandoned
-      ? (await git.listWorktrees(session.worktreePath)).find((worktree) => worktree.primary)?.path
+      ? await primaryOf([session.projectId, session.worktreePath])
       : undefined;
     await git.removeWorktree(session.worktreePath, session.projectId ? { repoPath: session.projectId } : {});
     if (primary && session.branch) {
@@ -350,4 +352,14 @@ export async function releaseWorkspace(
   } catch (error) {
     return { removed: false, reason: error instanceof Error ? error.message : String(error) };
   }
+}
+
+/** The primary worktree of the first of `places` that is inside a repository. */
+async function primaryOf(places: (string | undefined)[]): Promise<string | undefined> {
+  for (const place of places) {
+    if (!place) continue;
+    const primary = (await git.listWorktrees(place).catch(() => [])).find((worktree) => worktree.primary)?.path;
+    if (primary) return primary;
+  }
+  return undefined;
 }
