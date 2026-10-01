@@ -1288,6 +1288,17 @@ async function bigUntracked(root: string): Promise<string[]> {
   return big;
 }
 
+/**
+ * The repository's own index file, absolute. `rev-parse --path-format=absolute`
+ * needs git 2.31 and the app's floor is older, so it asks for the plain path
+ * (relative to `root` unless git made it absolute, as it does for a linked
+ * worktree) and resolves it here. Undefined when git cannot say.
+ */
+async function liveIndexPath(root: string): Promise<string | undefined> {
+  const answer = (await tryGit(root, ["rev-parse", "--git-path", "index"]))?.trim();
+  return answer ? path.resolve(root, answer) : undefined;
+}
+
 /** The environment of the read in flight: a temp index that lists the untracked files too. */
 const readIndex = new AsyncLocalStorage<NodeJS.ProcessEnv>();
 
@@ -1299,7 +1310,7 @@ async function withTempIndex<T>(
   const scratch = await fsp.mkdtemp(path.join(os.tmpdir(), "text-to-cad-index-"));
   try {
     const index = path.join(scratch, "index");
-    const live = (await tryGit(root, ["rev-parse", "--path-format=absolute", "--git-path", "index"]))?.trim();
+    const live = await liveIndexPath(root);
     if (live) {
       await fsp.copyFile(live, index).catch(() => undefined);
     }
@@ -1395,7 +1406,7 @@ function releaseReadIndex(entry: ReadIndexEntry): void {
  * untracked set are the same, which is when it would be built identically.
  */
 async function acquireReadIndex(root: string, paths: string[]): Promise<ReadIndexEntry> {
-  const live = (await tryGit(root, ["rev-parse", "--path-format=absolute", "--git-path", "index"]))?.trim();
+  const live = await liveIndexPath(root);
   const stat = live ? await fsp.stat(live).catch(() => null) : null;
   const key = [
     stat ? `${stat.ino}:${stat.mtimeMs}:${stat.size}` : "none",

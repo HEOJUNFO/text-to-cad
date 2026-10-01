@@ -2574,6 +2574,7 @@ validates them before git starts (`assertSafeScope` in
 a review scope's revision also puts `--end-of-options` in front of it, so a
 value shaped like `--output=…` is a revision git rejects, never an option.
 That flag needs git 2.24 or newer.
+The throwaway index a snapshot and a review read through is seeded from the real one found with `rev-parse --git-path index`, resolved against the repository, not `--path-format=absolute` (git 2.31), so 2.24 stays the floor.
 
 The commit strip's button reads **Push** when the tree has no changed files and
 the branch is ahead (`pushState` answers `{ dirty, ahead }` in one status

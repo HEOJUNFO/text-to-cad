@@ -231,6 +231,33 @@ describe("snapshot marks", () => {
     expect((await git.fileDiff(cwd, "b.txt", resolveDiffScope({ kind: "turn" }, marks))).after).toBe("from turn two\n");
   });
 
+  it("still seeds the temp index from the real one on a git that has no --path-format", async () => {
+    const cwd = await committedRepo();
+    // A tracked file the ignore rules would skip: only the real index remembers it.
+    await writeFile(path.join(cwd, ".gitignore"), "kept.log\n");
+    await writeFile(path.join(cwd, "kept.log"), "tracked before it was ignored\n");
+    await sh(cwd, "add", "-f", ".gitignore", "kept.log");
+    await sh(cwd, "commit", "-q", "-m", "ignored but tracked");
+    // git before 2.31 answers `rev-parse --path-format=absolute` with usage and exit 129.
+    const real = (await run("sh", ["-c", "command -v git"])).stdout.trim();
+    const bin = await realpath(await mkdtemp(path.join(os.tmpdir(), "t2c-oldgit-")));
+    scratch.push(bin);
+    await writeFile(
+      path.join(bin, "git"),
+      `#!/bin/sh\nfor a in "$@"; do case "$a" in --path-format*) echo "usage: git rev-parse" >&2; exit 129;; esac; done\nexec "${real}" "$@"\n`,
+      { mode: 0o755 },
+    );
+    const before = process.env.PATH;
+    process.env.PATH = `${bin}:${before}`;
+    try {
+      const tree = await git.snapshotTree(cwd, "s5/turn");
+      expect(tree).not.toBeNull();
+      expect(await sh(cwd, "ls-tree", "-r", "--name-only", tree!)).toContain("kept.log");
+    } finally {
+      process.env.PATH = before;
+    }
+  });
+
   it("a file modified in the turn is M against the snapshot, and one deleted is D", async () => {
     const cwd = await committedRepo();
     await writeFile(path.join(cwd, "part.py"), "one\ntwo\n three\n");
