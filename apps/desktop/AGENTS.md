@@ -398,21 +398,16 @@ the rule is about.
   ends; `stop` and `stopAll` bump it, so a stop that lands mid-launch is
   never overtaken by the launch or the restart that was already under way
   (`tests/unit/main/viewer.test.ts`).
-- **A live viewer command replies only once its effect is committed.**
-  `attachLiveBinding` (`packages/ui/src/renderers/kit/shell/liveBinding.ts`)
-  waits a settled frame and, where the command has a committed predicate
-  (display settings and render mode = the store's commit, so a Render chunk
-  that fails to load leaves the store at "render" while the screen shows
-  "inspect"; `setCamera` = the shell's applied, scoped camera at rest, which
-  differs from the request when the camera is clamped or the lens/projection
-  is derived; `resetCamera` = the eased move at rest; `clearSelection` =
-  selection empty; a renderer command's own), until it holds — at most ten
-  seconds, then "The viewer did not finish applying this command." That sentence
-  reaches the agent because main's relay waits 12 s (`VIEWER_REPLY_TIMEOUT_MS`) for
-  the viewer commands, its clock starting before the IPC send; "the text-to-cad window
-  did not answer within 12 s" means no window replied. A reply on
-  the call returning would hand an agent a state the command had not produced
-  yet. A capture waits for the camera to rest first.
+- **A live viewer command replies only once its effect is committed, and the
+  predicate compares against what the runtime records, not the request.**
+  `attachLiveBinding` waits a settled frame and the command's predicate, at
+  most ten seconds, then "The viewer did not finish applying this command."
+  (what each command waits for: [Live commands](../../packages/ui/docs/cad-renderer.md#live-commands)).
+  That sentence reaches the agent because main's relay waits 12 s
+  (`VIEWER_REPLY_TIMEOUT_MS`) for the viewer commands, its clock starting before
+  the IPC send; "the text-to-cad window did not answer within 12 s" means no
+  window replied. A reply on the call returning would hand an agent a state the
+  command had not produced yet.
 - **Every capture goes through `imageResult`.** It redraws an image over
   `MAX_IMAGE_BYTES` smaller and refuses it only when it cannot be made to fit,
   so no tool result larger than the model takes enters a transcript
