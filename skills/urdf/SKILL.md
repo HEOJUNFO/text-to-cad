@@ -44,7 +44,7 @@ validation don't replace this.
 
 - If your tools include `cad_show` (your host may prefix it), use it, and follow its
   description for when to call it again. `cad_view` reads what the user selected;
-  `cad_screenshot` shows you what they see.
+  `cad_screenshot` shows you what they see. Neither is a review of your own work.
 - Otherwise run the CAD Viewer from the models directory (usually `models/`, not an
   artifact's output folder):
 

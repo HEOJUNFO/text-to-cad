@@ -126,10 +126,10 @@ In the Codex app the plugin also brings the CAD viewer: **CAD** in the sidebar
 (recent models, and Open), a **CAD** tab beside each thread that the agent
 drives, and *Open with CAD* for model files. It runs locally through
 [uv](https://docs.astral.sh/uv/): after installing, ask Codex to run the
-plugin's `$setup` skill (it installs uv if you approve and prepares the pinned
+plugin's `$cad-mcp-setup` skill (it installs uv if you approve and prepares the pinned
 runtime), then restart the app. To update, upgrade the `earthtojake` marketplace
 (Plugins › Manage › Marketplace, or `codex plugin marketplace upgrade earthtojake`),
-run `$setup` again and restart the app. The marketplace was renamed from `text-to-cad`
+run `$cad-mcp-setup` again and restart the app. The marketplace was renamed from `text-to-cad`
 to `earthtojake`; if you added it before, remove the old one first
 (`codex plugin marketplace remove text-to-cad`).
 

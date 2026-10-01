@@ -159,8 +159,10 @@ do not add a STEP solely to satisfy the workflow. Report units, thresholds,
 selected geometry and untested requirements. A failed computation is not a pass.
 
 After creating or visibly changing geometry, generate and review at least one
-snapshot of the resulting STEP or mesh. Choose additional views to expose the
-features under review; see [snapshot policy and options](references/snapshot-review.md).
+snapshot of the resulting STEP or mesh. Snapshots are your own review: always
+render and read them yourself, never rely on the viewer for it. Choose additional
+views to expose the features under review; see
+[snapshot policy and options](references/snapshot-review.md).
 
 ```bash
 cadgen step snapshot STEP/bracket.step tmp/review.png
@@ -173,9 +175,10 @@ geometric evidence. `cadgen store why <model>.py` explains unexpected rebuilds;
 `python <model>.py --force` forces one model, and `cadgen daemon status` shows
 build progress. More diagnostics are in the [model contract](references/step-generation.md).
 
-Include output files, reviewed PNGs, checks actually run, and material
-assumptions or limitations in the final response. Explain any snapshot skip or
-failure using the cases in the snapshot reference.
+Include output files, checks actually run, and material assumptions or
+limitations in the final response. The user sees the model in the viewer (Show
+the model), so don't attach snapshots unless they ask for an image. Explain any
+snapshot skip or failure using the cases in the snapshot reference.
 
 ### Show the model
 
@@ -184,7 +187,7 @@ validation don't replace this.
 
 - If your tools include `cad_show` (your host may prefix it), use it, and follow its
   description for when to call it again. `cad_view` reads what the user selected;
-  `cad_screenshot` shows you what they see.
+  `cad_screenshot` shows you what they see. Neither is a review of your own work.
 - Otherwise run the CAD Viewer from the models directory (usually `models/`, not an
   artifact's output folder):
 

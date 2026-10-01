@@ -113,8 +113,8 @@ class PluginManifestPolicyTest(unittest.TestCase):
         manifest = load_json(CODEX_PLUGIN_PATH)
         self.assertEqual(manifest.get("mcpServers"), "./codex.mcp.json")
         # Codex resolves the onboarding skill as a path from the plugin root, to its SKILL.md.
-        self.assertEqual(manifest.get("extensions", {}).get("com.openai", {}).get("onboardingSkill"), "./skills/setup/SKILL.md")
-        self.assertTrue((SKILLS_ROOT / "setup" / "SKILL.md").is_file())
+        self.assertEqual(manifest.get("extensions", {}).get("com.openai", {}).get("onboardingSkill"), "./skills/cad-mcp-setup/SKILL.md")
+        self.assertTrue((SKILLS_ROOT / "cad-mcp-setup" / "SKILL.md").is_file())
         servers = load_json(CODEX_MCP_PATH)["mcpServers"]
         self.assertEqual(list(servers), ["cad"])
         server = servers["cad"]

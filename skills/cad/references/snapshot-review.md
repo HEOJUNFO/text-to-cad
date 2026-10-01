@@ -259,4 +259,4 @@ Visual review is diagnostic, not authoritative. Convert every visual concern int
 - cavity, bore, or blind hole looks wrong -> run section review, then measure wall thickness, depth, or through-condition
 - repeated pattern looks uneven -> measure pattern centers, angular spacing, or occurrence frames
 
-Final reports should include the generated snapshot PNGs or the documented skip reason, and state which deterministic checks support any visual finding.
+Final reports name what the snapshots showed, or the documented skip reason, and which deterministic checks support any visual finding. The PNGs are for your review; the user sees the model in the viewer, so attach one only when they ask for an image.

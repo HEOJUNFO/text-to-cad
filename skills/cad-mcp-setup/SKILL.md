@@ -1,5 +1,5 @@
 ---
-name: setup
+name: cad-mcp-setup
 description: Set up the CAD plugin after installing it - install uv if it is missing (with the user's approval) and prepare the pinned cadgen runtime that CAD's viewer runs on, so CAD opens in the sidebar and in thread tabs. Use right after the CAD plugin is installed or updated, or when CAD's viewer did not start.
 ---
 

@@ -52,13 +52,13 @@ class PluginZipTests(unittest.TestCase):
             "skills": "./skills/", "mcpServers": "./codex.mcp.json",
             "interface": {"displayName": "Demo", "shortDescription": "Demo things", "longDescription": "Demo.",
                           "developerName": "Demo", "category": "Productivity", "capabilities": []},
-            "extensions": {"com.openai": {"onboardingSkill": "./skills/setup/SKILL.md"}},
+            "extensions": {"com.openai": {"onboardingSkill": "./skills/cad-mcp-setup/SKILL.md"}},
         }
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / ".codex-plugin").mkdir()
-            (root / "skills/setup").mkdir(parents=True)
-            (root / "skills/setup/SKILL.md").write_text("---\nname: setup\ndescription: Set up.\n---\nSteps.\n",
+            (root / "skills/cad-mcp-setup").mkdir(parents=True)
+            (root / "skills/cad-mcp-setup/SKILL.md").write_text("---\nname: cad-mcp-setup\ndescription: Set up.\n---\nSteps.\n",
                                                         encoding="utf-8")
             (root / "codex.mcp.json").write_text('{"mcpServers": {}}\n', encoding="utf-8")
             git(root, "init", "-q")
