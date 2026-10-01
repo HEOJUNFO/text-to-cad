@@ -6,7 +6,7 @@ import { isSameOrUnder, movedFilePath } from "../fileChanges.js";
 
 type ReadyDocument = { status: "ready"; file: FileMetadata; renderer: RendererRegistration; prepared: PreparedRenderer };
 export type LoadedDocument = ReadyDocument | { status: "empty" } | { status: "loading" } | { status: "error"; message: string };
-type EditState = { key: string; base: TextDocument; value: string; saving: boolean; stale: boolean; error: string | null };
+type EditState = { key: string; base: TextDocument; value: string; saving: boolean; stale: boolean; deleted?: boolean; error: string | null };
 
 export function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 
@@ -86,7 +86,8 @@ export function useFileDocument(file: string | FileMetadata | null, source: File
         || (item.kind === "added" && item.path === path)
         || (item.kind === "deleted" && isSameOrUnder(path, item.path)))) return;
       if (document && document.value !== document.base.content) {
-        setEdit((previous) => previous?.key === key ? { ...previous, stale: true } : previous);
+        const deleted = change.changes.some(item => item.kind === "deleted" && isSameOrUnder(path, item.path));
+        setEdit((previous) => previous?.key === key ? { ...previous, stale: true, deleted } : previous);
       } else reload();
     });
   }, [key, path, source, reload, drafts]);
@@ -99,7 +100,18 @@ export function useFileDocument(file: string | FileMetadata | null, source: File
     if (path) drafts?.put(source.id, path, next.value !== next.base.content ? { base: next.base, value: next.value, stale: next.stale } : null);
     setEdit(next);
   }, [key, source, path, drafts]);
-  const keepMine = useCallback(() => setEdit((previous) => previous?.key === key ? { ...previous, stale: false } : previous), [key]);
+  // "Keep mine" is a decision to overwrite what is on disk, so it adopts the disk's revision:
+  // the next save then writes. A file deleted meanwhile has no revision, and a save creates it.
+  const keepMine = useCallback(() => {
+    const deleted = current.current.edit?.key === key && current.current.edit.deleted === true;
+    setEdit((previous) => previous?.key === key ? { ...previous, stale: false, deleted: false } : previous);
+    if (!path) return;
+    const rebase = (revision: string | undefined) => setEdit((previous) => previous?.key === key ? { ...previous, base: { ...previous.base, revision } } : previous);
+    if (deleted) { rebase(undefined); return; }
+    void source.stat(path, { signal: new AbortController().signal }).then((metadata) => {
+      if (current.current.key === key && current.current.source === source) rebase(metadata.revision);
+    }, () => {});
+  }, [key, path, source]);
   const save = useCallback(async (): Promise<DocumentSaveResult> => {
     const state = current.current;
     const document = state.edit;
@@ -140,7 +152,7 @@ export function useFileDocument(file: string | FileMetadata | null, source: File
   const document = useMemo<DocumentSession | null>(() => edit?.key === key && loaded.status === "ready" && loaded.prepared.text ? {
     key, value: edit.value, revision: edit.base.revision, readOnly: !!edit.base.readOnly || !!edit.base.truncated || !source.writeText,
     ...(edit.base.truncated ? { readOnlyReason: "truncated" as const } : edit.base.readOnly ? { readOnlyReason: "encoding" as const } : {}),
-    dirty: edit.value !== edit.base.content, saving: edit.saving, stale: edit.stale, error: edit.error,
+    dirty: edit.value !== edit.base.content, saving: edit.saving, stale: edit.stale, deleted: edit.stale && edit.deleted === true, error: edit.error,
     setValue, save, reload, keepMine,
   } : null, [edit, key, loaded, source, setValue, save, reload, keepMine]);
   return { loaded, document, key, reload, path };

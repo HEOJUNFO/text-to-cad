@@ -1537,7 +1537,12 @@ open file, paired by inode in the watcher (above) — remap every matching tab
 and cached/expanded subtree;
 delete events prune descendant listings. A bounded mutation-receipt history
 prevents the broadcast and initiating caller's receipt from applying a move
-twice. External edits preserve dirty drafts and refresh clean documents.
+twice. External edits preserve dirty drafts and refresh clean documents. A dirty
+draft whose file changed on disk shows "This file changed on disk since you
+opened it." with Reload and Keep mine; Keep mine adopts the disk's current
+revision, so the next Save writes your text over it. A dirty draft whose file
+was deleted shows "This file was deleted on disk; Save will create it again."
+and Save, after Keep mine, creates the file.
 
 A failed IPC call reaches every renderer caller as the handler's own sentence:
 the preload bridge (`src/preload/index.ts`) strips Electron's `Error invoking
