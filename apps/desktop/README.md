@@ -780,6 +780,10 @@ colour waiting on a permission ("it needs you", not a warning), a red triangle a
 worktree or on a branch of its own, and a `…` on hover or when it takes
 keyboard focus, for pin, rename, archive and delete. `Pinned` is the first section when anything is pinned,
 and a pinned thread lives **only** there — never twice.
+A collapsed project's header carries the strongest state among the rows it
+hides — waiting over working — as the same glyph, named for what it counts ("1
+thread waiting for you"), so a thread that needs the person is never out of
+sight behind a collapse; an expanded section shows the rows and no extra mark.
 A pin, archive or delete that main refuses leaves the thread as it was (main writes the row first and only then closes or retires the adapter, so a refused write has touched nothing) and says so in the rename's shape — "Could not pin
 (unpin, archive, unarchive, delete) the thread: …" — and a refused archive or delete keeps the open session open — a delete whose rejection leaves no row behind (the renderer re-reads the list) is not refused, the thread is gone. A delete whose row is gone but whose disposal throws still succeeds, keeping the worktree on disk.
 

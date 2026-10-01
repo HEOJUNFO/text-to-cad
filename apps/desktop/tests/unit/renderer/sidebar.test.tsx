@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { TooltipProvider } from "@text-to-cad/ui/primitives/tooltip";
@@ -462,6 +462,35 @@ describe("Sidebar", () => {
     // Optimistic, so the row is gone before the round trip lands.
     expect(screen.queryByText("Session 1")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "text-to-cad", expanded: false })).toBeInTheDocument();
+  });
+
+  it("a collapsed project's header shows its strongest hidden state; an expanded one shows none", () => {
+    withProject();
+    const collapsedSettings = { ...defaultSettings(), sidebar: filters({ collapsedProjects: ["p1"] }) };
+    useSettings.setState({ settings: collapsedSettings, ready: true });
+    useSessions.setState({
+      sessions: [
+        session({ id: "s1", title: "Running one", status: "running" }),
+        session({ id: "s2", title: "Needs you", status: "waiting" }),
+        session({ id: "s3", title: "Quiet", status: "idle" }),
+      ],
+      ready: true,
+      activeId: null,
+    });
+    const view = wrap(<Sidebar />);
+    expect(screen.queryByText("Needs you")).not.toBeInTheDocument();
+    const header = view.container.querySelector("[data-sidebar-section-header]")!;
+    expect(within(header as HTMLElement).getByRole("img", { name: "1 thread waiting for you" })).toBeInTheDocument();
+    expect(header.querySelector('[data-session-glyph="waiting"]')).not.toBeNull();
+
+    // Nothing waiting: the running one is what is left to say.
+    act(() => useSessions.setState({ sessions: [session({ id: "s1", title: "Running one", status: "running" })] }));
+    expect(within(header as HTMLElement).getByRole("img", { name: "1 thread working" })).toBeInTheDocument();
+
+    // Expanded, the rows say it themselves and the header says nothing.
+    act(() => useSettings.setState({ settings: { ...defaultSettings(), sidebar: filters() } }));
+    expect(screen.getByText("Running one")).toBeInTheDocument();
+    expect(header.querySelector("[data-sidebar-section-state]")).toBeNull();
   });
 
   it("pins from the row's menu, and the row moves to Pinned", async () => {

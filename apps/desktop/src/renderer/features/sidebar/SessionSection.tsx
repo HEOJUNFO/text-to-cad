@@ -11,7 +11,7 @@ import {
 } from "@renderer/components/ui/context-menu";
 import { MenuKind } from "@renderer/features/sidebar/menu";
 import { ProjectMenuItems } from "@renderer/features/sidebar/project-menu";
-import { SessionRow } from "@renderer/features/sidebar/SessionRow";
+import { SessionRow, StateGlyph } from "@renderer/features/sidebar/SessionRow";
 import type { SidebarSection } from "@renderer/lib/sidebar";
 import { useProjects } from "@renderer/state/projects";
 import { useSessions } from "@renderer/state/sessions";
@@ -49,6 +49,18 @@ export function SessionSection({ section }: { section: SidebarSection }) {
   const collapsible = project !== null;
   const collapsed = collapsible && filters.collapsedProjects.includes(section.id);
   const active = project !== null && project.id === activeProjectId;
+
+  // A collapsed section hides its rows, and with them the one thing a sidebar exists to surface: a
+  // thread that needs the person. The header carries the strongest state among the hidden rows
+  // (waiting over running), in the rows' own glyph; an expanded section shows the rows themselves.
+  const hidden = collapsed
+    ? section.sessions.some((row) => row.status === "waiting")
+      ? ("waiting" as const)
+      : section.sessions.some((row) => row.status === "running")
+        ? ("running" as const)
+        : null
+    : null;
+  const hiddenCount = hidden ? section.sessions.filter((row) => row.status === hidden).length : 0;
 
   const toggle = () => {
     if (!project) {
@@ -98,6 +110,17 @@ export function SessionSection({ section }: { section: SidebarSection }) {
           />
         ) : null}
       </button>
+
+      {hidden ? (
+        <span
+          aria-label={`${hiddenCount} ${hiddenCount === 1 ? "thread" : "threads"} ${hidden === "waiting" ? "waiting for you" : "working"}`}
+          className="flex shrink-0 items-center"
+          data-sidebar-section-state={hidden}
+          role="img"
+        >
+          <StateGlyph status={hidden} />
+        </span>
+      ) : null}
 
       {project ? (
         /* `+` is the header's one control, and it is always there. The search
