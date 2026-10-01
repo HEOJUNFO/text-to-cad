@@ -121,8 +121,10 @@ export function armQuitDeadline(
   spare: readonly number[] = daemonPids(),
 ): void {
   try {
-    // Armed once state is saved: at the end of before-quit (nothing cancels a
-    // quit after its teardown; the database is closed) and again at will-quit.
+    // Armed once, once state is saved: at the end of before-quit (nothing cancels a
+    // quit after its teardown; the database is closed). index.ts arms from will-quit
+    // too, as the fallback if before-quit threw before reaching its `try`; its guard makes
+    // that a no-op otherwise.
     // If teardown or launching Electron-as-Node used the budget, the watchdog
     // fires immediately.
     spawn(process.execPath, ["-e", watchdogScript(pid, deadlineMs, platform, startedAt, tree, spare)], {

@@ -1697,8 +1697,8 @@ CoreAnalytics XPC send; `app.exit()` is slower still, and no timer of ours
 runs once the event loop has stopped). `src/main/quit-deadline.ts` keeps a
 deadline from outside: a detached copy of this binary run as Node that
 kills the app and its helpers at an absolute deadline, 1.2 seconds from
-`before-quit`. It is armed at the end of `before-quit`, once state is saved
-(and again, harmlessly, at `will-quit`), so a stall between the two — a
+`before-quit`. It is armed once, at the end of `before-quit`, once state is saved
+(`will-quit` arms it only if `before-quit` did not, having thrown before reaching its `try`), so a stall between the two — a
 window that never acks its unload, a main-process error dialog (an
 `uncaughtException` while quitting exits at once) — is bounded too. It counts
 teardown and watchdog startup toward the same budget. On POSIX it kills every
