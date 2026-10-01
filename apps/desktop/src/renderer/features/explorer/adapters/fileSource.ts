@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import type { FileActions, FileSource, FileMutationResult, ManagedFileAsset } from "@text-to-cad/ui/file-viewer";
 import type { ExternalEntryAction } from "@text-to-cad/ui/file-viewer";
 import { closeSessionTab, readSessionStrip, revealSessionPath, useExplorer } from "@renderer/state/explorer";
@@ -42,9 +43,14 @@ export function createDesktopFileSource({ sessionId, projectId, projectName, roo
       try {
         if (effect === "trash") {
           const strip = await readSessionStrip(sessionId);
+          // Each tab on its own: one with unsaved changes refuses to close, and the rest still do.
+          const left: string[] = [];
           for (const tab of strip.tabs) {
-            if (tab.kind === "file" && tab.root === root && tab.path !== null && (tab.path === result.path || tab.path.startsWith(`${result.path}/`))) await closeSessionTab(sessionId, tab.id);
+            if (tab.kind === "file" && tab.root === root && tab.path !== null && (tab.path === result.path || tab.path.startsWith(`${result.path}/`))) {
+              try { await closeSessionTab(sessionId, tab.id); } catch (error) { left.push(`${tab.path} (${messageOf(error)})`); }
+            }
           }
+          if (left.length > 0) toast.error(`Moved to Trash, but ${left.length === 1 ? "1 open tab" : `${left.length} open tabs`} could not be closed: ${left.join("; ")}`);
         }
         if (effect === "reveal") await revealSessionPath(sessionId, projectId, root, result.path, result.change.directory);
       } catch { /* A closed/archived session cannot revoke a committed file operation. */ }
