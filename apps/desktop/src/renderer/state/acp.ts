@@ -164,6 +164,11 @@ export const useAcp = create<AcpState>((set, get) => ({
       if (next.status === "closed" && !stillWanted(sessionId, current)) {
         return without(current, sessionId);
       }
+      // An adapter that crashed or exited is as disconnected as a hand `close`: the setup note's
+      // retry is moot, and it would sit beside the Reconnect bar.
+      if (next.status === "closed" && sessionId in current.setupNotes) {
+        return { sessions: { ...current.sessions, [sessionId]: next }, setupNotes: withoutError(current.setupNotes, sessionId) };
+      }
       return { sessions: { ...current.sessions, [sessionId]: next } };
     }),
 
@@ -322,7 +327,8 @@ export const useAcp = create<AcpState>((set, get) => ({
     try {
       note = (await window.textToCad.sessions.retrySetup({ id: sessionId })).error;
     } catch (error) {
-      note = errorMessage(error);
+      // The IPC's own words, in the sentence main gives a retry that fails (`SessionManager.retrySetup`).
+      note = `Setting it up again failed: ${errorMessage(error)}`;
     }
     // Forgotten or disconnected meanwhile: the setup is moot, and so is its answer.
     if (generationOf(sessionId) !== asked) return;

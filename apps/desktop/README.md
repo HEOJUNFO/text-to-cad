@@ -2257,8 +2257,12 @@ forgotten or disconnected meanwhile (a generation check in `retrySetup`,
 `state/acp.ts`), and the alert is hidden while the session shows a load error or
 is loading (`SessionView.tsx`), the note staying held underneath. It is not a `load`: a `load` on a live
 connection only re-broadcasts its state and retries nothing. The next `load`, a
-disconnect (`close`) or a forget clears the note; it is not persisted, so a window
-reload drops it.
+disconnect (`close`), a closed status from the adapter itself (a crash or exit,
+through `receiveEvent`) or a forget clears the note, and the alert is never drawn
+beside the "Agent disconnected" bar; it is not persisted, so a window reload drops
+it. Retry setup is disabled and reads "Retrying setup…" until the answer comes
+back, and a retry the IPC rejects outright becomes the note "Setting it up again
+failed: <cause>", the same sentence main gives one that fails.
 One whose connection is dead, or whose row is gone,
 is abandoned (`abandonCreate`): the connection is retired, the row removed, the
 worktree that create cut released, and `create` rejects. The same happens when
