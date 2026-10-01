@@ -1611,8 +1611,20 @@ export async function ignoredFiles(cwd: string): Promise<string[]> {
  * never as clean.
  */
 export async function hasUnsavedWork(cwd: string): Promise<boolean | null> {
+  const found = await unsavedWork(cwd);
+  return found === null ? null : found.files || found.stranded;
+}
+
+/**
+ * `hasUnsavedWork`, split by kind so Settings can say which: `files` is
+ * uncommitted changes or ignored files that are not a disposable cache,
+ * `stranded` is what only the checkout holds although its files are clean
+ * (`strandedWork`). Null when git could not say.
+ */
+export async function unsavedWork(cwd: string): Promise<{ files: boolean; stranded: boolean } | null> {
   try {
-    return (await isDirty(cwd)) || (await ignoredFiles(cwd)).length > 0 || (await strandedWork(cwd)) !== null;
+    const files = (await isDirty(cwd)) || (await ignoredFiles(cwd)).length > 0;
+    return { files, stranded: (await strandedWork(cwd)) !== null };
   } catch {
     return null;
   }

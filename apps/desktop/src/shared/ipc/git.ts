@@ -130,10 +130,17 @@ export const WorktreeSchema = z.object({
   /** Sessions still pointing at it — never swept, and a warning before Delete. */
   openSessions: z.number().int().nonnegative(),
   /**
-   * Uncommitted work: `Delete` refuses rather than discarding it. Null when
-   * git could not check — shown as unknown, and kept like dirty.
+   * Uncommitted changes or ignored files: `Delete` refuses rather than
+   * discarding them. Null when git could not check — shown as unknown, and
+   * kept like dirty.
    */
   dirty: z.boolean().nullable(),
+  /**
+   * Work only this checkout holds although its files are clean: commits on a
+   * detached HEAD no branch reaches, or a merge or rebase left half done.
+   * Kept like dirty; null when git could not check.
+   */
+  stranded: z.boolean().nullable(),
   locked: z.boolean(),
 });
 export type Worktree = z.infer<typeof WorktreeSchema>;

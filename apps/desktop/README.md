@@ -2540,8 +2540,11 @@ refused on two grounds: a worktree in use (main answers "N sessions are still
 using that worktree", and the row says "A session is still open in this
 worktree.") and a locked one (`git worktree lock`; the row says it is kept
 until it is unlocked). The row disables Delete and gives the reason through
-`keptBecause` in `GitPage.tsx`, which also covers uncommitted changes,
-ignored files, commits only the checkout holds, and a worktree git could not check. The limit counts only unlocked, unheld
+`keptBecause` in `GitPage.tsx`, which also covers uncommitted changes
+or ignored files (`dirty`), commits only the checkout holds (`stranded`: a detached
+HEAD no branch reaches, or a merge or rebase left half done, each with its own
+sentence and its own line under the branch), and a worktree git could not check
+(`unsavedWork` answers both, split by kind). The limit counts only unlocked, unheld
 worktrees in the project's worktree folders; one with unsaved work counts
 toward it and is then kept. A branch is deleted only when a failed create abandons the
 worktree it made, and then only while it still points where it was cut

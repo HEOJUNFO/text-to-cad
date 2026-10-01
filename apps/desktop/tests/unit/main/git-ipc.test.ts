@@ -241,6 +241,21 @@ test("a worktree whose folder was deleted by hand lists as deletable, not as unc
   expect(await gitHandlers.git.worktrees({ projectId: project.id })).toEqual([]);
 });
 
+test("a clean worktree on a detached commit no branch holds lists as stranded, not as dirty files", async () => {
+  const project = await repository("a", path.join(base, "robot-arm"));
+  const created = await git.createWorktree({
+    repoPath: project.path,
+    parentDir: projectWorktreeDir({ worktreeRoot: state.worktreeRoot }, project),
+    name: "wrist",
+  });
+  await run("git", ["checkout", "--quiet", "--detach"], { cwd: created.path });
+  await run("git", ["commit", "--quiet", "--allow-empty", "-m", "only here"], { cwd: created.path });
+
+  const rows = await gitHandlers.git.worktrees({ projectId: project.id });
+  expect(rows.map((row) => [row.path, row.dirty])).toEqual([[created.path, false]]);
+  expect(rows.map((row) => [row.path, row.stranded])).toEqual([[created.path, true]]);
+});
+
 test("a push that failed after its commit is retried by asking again, without 'nothing to commit'", async () => {
   const project = await repository("a", path.join(base, "robot-arm"));
   const remote = path.join(base, "remote.git");

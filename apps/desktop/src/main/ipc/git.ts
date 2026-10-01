@@ -108,6 +108,8 @@ async function worktreesOf(project: Project): Promise<Worktree[]> {
       continue;
     }
     const lastUsedAt = await git.lastWrittenAt(worktree.path);
+    const gone = (await git.folderGone(worktree.path).catch(() => null)) === true;
+    const unsaved = gone ? { files: false, stranded: false } : await git.unsavedWork(worktree.path);
     rows.push({
       path: worktree.path,
       branch: worktree.branch,
@@ -118,9 +120,8 @@ async function worktreesOf(project: Project): Promise<Worktree[]> {
       // about it (`hasUnsavedWork` would say null and pin Delete off for good),
       // and `removeWorktree` unregisters it — so it is clean. A folder that
       // could not be read is unknown, as before.
-      dirty: (await git.folderGone(worktree.path).catch(() => null)) === true
-        ? false
-        : await git.hasUnsavedWork(worktree.path),
+      dirty: unsaved && unsaved.files,
+      stranded: unsaved && unsaved.stranded,
       locked: worktree.locked,
     });
   }
