@@ -147,35 +147,33 @@ test("an expired failed preview recovers an earlier saved result only from its e
   assert.equal(editingPreviewEntry(expired, entry), null);
 });
 
-// A preview stands in for the file only while the catalog holds the file its build started from
-// (the catalog not caught up yet) or one it saved. A file that moved on without this feed -- built
-// by another cadgen, or after the daemon that ran the last build exited; a checkout; a STEP
-// written by hand -- is the catalog's to show: the last preview heard must not pin the view.
-test("a file that moved on without the feed shows the catalog's revision, not the last preview", () => {
+// A preview stands in for a file only while the feed vouches for it. Two minutes after any build
+// the daemon forgets it and the feed goes quiet; a file that then changes -- built by another
+// installation, a checkout, a STEP written by hand -- is the catalog's to show.
+test("a quiet feed's last preview stands in only for a file its build saved", () => {
   const saved = { tree: "saved-1", documentHash: "bytes-1" };
-  const started = reduceEditingPreview(initialEditingPreview(), update(1), { catalogTree: "before" });
-  const built = reduceEditingPreview(started, update(1, "preview-1", { state: "done", saved }), { catalogTree: "before" });
+  const built = reduceEditingPreview(initialEditingPreview(), update(1, "preview-1", { state: "done", saved }));
   assert.equal(editingPreviewEntry(built, { hash: "before", documentHash: "bytes-0" }).hash, "preview-1",
-    "the catalog has not caught up with the save yet");
-  assert.equal(editingPreviewEntry(built, { hash: "saved-1", documentHash: "bytes-1" }).hash, "preview-1",
-    "Follow edits keeps the authored preview of the saved file");
-  assert.equal(editingPreviewEntry(built, { hash: "elsewhere", documentHash: "bytes-2" }), null,
-    "a writer the feed never saw");
+    "a live feed's finished build: the catalog has not caught up with its save yet");
   const quiet = reduceEditingPreview(built, { state: "disconnected" });
   assert.equal(editingPreviewEntry(quiet, { hash: "saved-1", documentHash: "bytes-1" }).hash, "preview-1");
   assert.equal(editingPreviewEntry(quiet, { hash: "elsewhere", documentHash: "bytes-2" }), null,
-    "the feed went quiet and the file changed");
+    "the file changed without the feed");
+  const dropped = reduceEditingPreview(built, { error: "The request failed" });
+  assert.equal(editingPreviewEntry(dropped, { hash: "before", documentHash: "bytes-0" }).hash, "preview-1",
+    "a request that failed is not a quiet feed");
 });
 
-test("a revision remembers the file it started from across the feed's updates, and the next revision its own", () => {
-  const first = reduceEditingPreview(initialEditingPreview(), update(1, "preview-1"), { catalogTree: "before" });
-  assert.equal(first.startedFrom, "before");
-  assert.equal(reduceEditingPreview(first, update(1, "preview-1b"), { catalogTree: "saved-1" }).startedFrom, "before");
-  assert.equal(reduceEditingPreview(first, { state: "disconnected" }).startedFrom, "before");
-  const second = reduceEditingPreview(first, update(2), { catalogTree: "saved-1" });
-  assert.equal(second.startedFrom, "saved-1");
-  // A revision first heard before the catalog had the file takes the first tree it then sees.
-  const unknown = reduceEditingPreview(initialEditingPreview(), update(3, "preview-3"));
-  assert.equal(unknown.startedFrom, "");
-  assert.equal(reduceEditingPreview(unknown, update(3, "preview-3"), { catalogTree: "before" }).startedFrom, "before");
+// The server says when a finished build's file has moved on (`superseded`); a view opened after
+// the change has never seen the file the build started from, so it cannot tell by itself.
+test("a build the file moved past stands in for nothing, and the next build is followed again", () => {
+  const saved = { tree: "saved-1", documentHash: "bytes-1" };
+  const built = reduceEditingPreview(initialEditingPreview(), update(1, "preview-1", { state: "done", saved }));
+  const moved = reduceEditingPreview(built, update(1, null, { state: "done", superseded: true }));
+  assert.equal(moved.preview, null);
+  assert.equal(moved.saved, null);
+  assert.equal(moved.retainedSaved, null);
+  assert.equal(editingPreviewEntry(moved, { hash: "elsewhere", documentHash: "bytes-2" }), null);
+  const next = reduceEditingPreview(moved, update(2, "preview-2"));
+  assert.equal(editingPreviewEntry(next, { hash: "elsewhere", documentHash: "bytes-2" }).hash, "preview-2");
 });

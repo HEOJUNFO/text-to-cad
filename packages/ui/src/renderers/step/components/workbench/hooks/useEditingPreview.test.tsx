@@ -45,3 +45,25 @@ it('lets the catalog win once the file moves on without the feed', () => {
   rerender({ entry: { ...before, hash: 'elsewhere', documentHash: 'bytes-2' } });
   expect(result.current.entry).toBeNull();
 });
+
+// The server says a finished build's file moved on: the preview goes, and the catalog is read at
+// once, so the view lands on the file on disk rather than an older catalog entry it still holds.
+it('reads the catalog again at once when the feed says the file moved past its build', () => {
+  let update: (next: unknown) => void = () => {};
+  const refreshes: unknown[] = [];
+  const client = {
+    observeEditingPreview: (_file: string, onUpdate: any) => { update = onUpdate; return () => {}; },
+    refresh: (options: unknown) => { refreshes.push(options); return Promise.resolve(); },
+  };
+  const saved = { file: '/p/part.step', kind: 'part', hash: 'saved-1', documentHash: 'bytes-1' };
+  const { result } = renderHook(() => useEditingPreview('part.step', { enabled: true, client, catalogEntry: saved }));
+  act(() => update({ epoch: 'e1', revision: 1, state: 'done', preview: { tree: 'preview-1', url: '/preview-1', sequence: 1 },
+    saved: { tree: 'saved-1', documentHash: 'bytes-1' } }));
+  expect(result.current.entry?.hash).toBe('preview-1');
+  expect(refreshes).toEqual([]);
+  act(() => update({ epoch: 'e1', revision: 1, state: 'done', superseded: true }));
+  expect(result.current.entry).toBeNull();
+  expect(refreshes).toEqual([{ file: 'part.step', markRefreshing: false }]);
+  act(() => update({ epoch: 'e1', revision: 1, state: 'done', superseded: true }));
+  expect(refreshes).toHaveLength(1);
+});

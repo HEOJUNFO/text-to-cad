@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -208,6 +209,48 @@ class EditingPreviewTests(unittest.TestCase):
         self.assertEqual(1, hashes, "saved validation must not hash a replacement revision")
         self.assertEqual((old_digest, self.tree),
                          (result["saved"]["documentHash"], result["saved"]["tree"]))
+
+    # The file moved on after the build: another installation's build, a checkout, a STEP written
+    # by hand. The feed offers neither the build's preview nor its saved result, and no error: the
+    # viewer shows the file.
+    def test_a_finished_build_the_file_moved_past_offers_no_preview(self):
+        from cadgen.catalog import artifact_file_hash
+        from cadgen.store.records import note_document_tree
+
+        Path(self.output).write_bytes(b"saved document")
+        digest = artifact_file_hash(Path(self.output))
+        note_document_tree(digest, self.tree)
+        done = self.job(state="done", finishedAt=time.time(), previews=self.preview(),
+                        savedResults={self.output: {"tree": self.tree, "documentHash": digest}})
+        kept = preview_status(str(self.root), self.output, jobs=[done])
+        self.assertEqual((kept["preview"]["tree"], kept["saved"]["documentHash"]), (self.tree, digest))
+        self.assertNotIn("superseded", kept)
+        Path(self.output).write_bytes(b"written by another build")
+        moved = preview_status(str(self.root), self.output, jobs=[done])
+        self.assertTrue(moved["superseded"])
+        self.assertNotIn("preview", moved)
+        self.assertNotIn("saved", moved)
+        self.assertIsNone(moved["error"])
+
+    def test_a_build_that_saved_nothing_is_moved_past_by_a_later_write(self):
+        Path(self.output).write_bytes(b"before the build")
+        os.utime(self.output, (1000.0, 1000.0))
+        builds = [self.job(state="failed", error="Disk full", finishedAt=2000.0, previews=self.preview()),
+                  self.job(state="done", finishedAt=2000.0, previews=self.preview())]
+        for build in builds:
+            kept = preview_status(str(self.root), self.output, jobs=[build])
+            self.assertEqual(kept["preview"]["tree"], self.tree, build["state"])
+            self.assertNotIn("superseded", kept)
+        os.utime(self.output, (3000.0, 3000.0))
+        for build in builds:
+            moved = preview_status(str(self.root), self.output, jobs=[build])
+            self.assertTrue(moved["superseded"], build["state"])
+            self.assertNotIn("preview", moved)
+            self.assertIsNone(moved["error"])
+        # A build still running is never moved past: it writes the file next.
+        running = preview_status(str(self.root), self.output, jobs=[self.job(previews=self.preview())])
+        self.assertEqual(running["preview"]["tree"], self.tree)
+        self.assertNotIn("superseded", running)
 
     def test_noop_completion_resolves_current_saved_bytes_without_a_record(self):
         from cadgen.catalog import artifact_file_hash

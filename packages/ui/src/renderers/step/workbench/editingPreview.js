@@ -7,8 +7,7 @@ export function initialEditingPreview() {
     previewUnavailable: false,
     saved: null,
     retainedSaved: null,
-    // The catalog's tree when this revision was first heard: the file its build started from.
-    startedFrom: "",
+    superseded: false,
     state: "disconnected",
     phase: "",
     detail: "",
@@ -22,10 +21,7 @@ export function previewGeometryChanged(previous, next) {
     (previous.preview || next.preview));
 }
 
-// `catalogTree` is the catalog's tree for the file as this update lands. A revision keeps the first
-// one it saw, so a preview can tell the catalog not having caught up with its save (still the file
-// it started from) from the file having moved on without this feed.
-export function reduceEditingPreview(current, next, { catalogTree = "" } = {}) {
+export function reduceEditingPreview(current, next) {
   if (!next || typeof next !== "object") return current;
   if (!next.epoch) {
     return {
@@ -38,7 +34,10 @@ export function reduceEditingPreview(current, next, { catalogTree = "" } = {}) {
   if (revision < previous.revision) return current;
   const same = revision === previous.revision;
   const candidate = next.preview;
-  let preview = candidate && (!same || !previous.preview || previous.preview.revision !== revision || candidate.sequence >= previous.preview.sequence)
+  // A build the file moved past (the server's `superseded`) describes nothing on disk: neither its
+  // preview nor anything it saved stands in for the file any longer.
+  const superseded = next.superseded === true;
+  let preview = superseded ? null : candidate && (!same || !previous.preview || previous.preview.revision !== revision || candidate.sequence >= previous.preview.sequence)
     ? { ...candidate, revision } : previous.preview;
   if (JSON.stringify(preview) === JSON.stringify(previous.preview)) preview = previous.preview;
   const previewUnavailable = candidate
@@ -64,9 +63,9 @@ export function reduceEditingPreview(current, next, { catalogTree = "" } = {}) {
     revision,
     preview,
     previewUnavailable,
-    saved: next.saved || null,
-    retainedSaved: next.saved || previous.saved || previous.retainedSaved || null,
-    startedFrom: same ? previous.startedFrom || catalogTree : catalogTree,
+    saved: superseded ? null : next.saved || null,
+    retainedSaved: superseded ? null : next.saved || previous.saved || previous.retainedSaved || null,
+    superseded,
     state,
     phase,
     detail,
@@ -93,12 +92,14 @@ export function editingPreviewEntry(state, catalogEntry) {
   if (savedMatchesCatalog && (
     state.previewUnavailable === true || state.preview.revision !== state.revision
   )) return null;
-  // The file moved on without this feed: built by another cadgen, or after the daemon that ran
-  // this build exited; a checkout; a STEP written by hand. The catalog holds neither the file
-  // this build started from nor one it saved, so the preview describes nothing on disk, and the
-  // catalog's revision is shown instead -- loaded behind the model on screen like any update.
+  // A quiet feed -- no build of this file running or remembered, as two minutes after any build,
+  // or once its daemon has gone -- vouches for nothing on disk: its last preview stands in only
+  // for a file that build saved. Any other file changed without the feed (built by another
+  // installation, a checkout, a STEP written by hand), and the catalog's revision is shown,
+  // loaded behind the model on screen like any update. A feed that failed to answer is not
+  // quiet: an in-flight edit keeps its preview through a dropped request.
   const catalogTree = String(catalogEntry?.hash || "");
-  if (catalogTree && state.startedFrom && catalogTree !== state.startedFrom &&
+  if (state.state === "disconnected" && !state.error && catalogTree &&
     catalogTree !== state.saved?.tree && catalogTree !== state.retainedSaved?.tree) return null;
   const previewAppearance = state.preview.appearance || null;
   const previewAnimation = state.preview.animation || null;

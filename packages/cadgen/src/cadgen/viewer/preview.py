@@ -82,6 +82,22 @@ def preview_status(root_path: str, file_ref: str, *, jobs: list[dict] | None = N
         "updatedAt": round(float(latest.get("updatedAt") or 0.0) * 1000.0),
         "error": latest.get("error"),
     }
+    # One look at the file on disk per answer: what a finished build is checked against, and what
+    # a completed write is validated as.
+    snapshot = []
+
+    def current():
+        if not snapshot:
+            snapshot.append(result_snapshot(target))
+        return snapshot[0]
+
+    if _superseded(latest, target, current):
+        # The file moved on after this build finished: built by another installation, or once
+        # its daemon has gone; a checkout; a STEP written by hand. Its preview and saved result
+        # describe nothing on disk, so the feed offers neither, and the viewer shows the file.
+        result["superseded"] = True
+        result["error"] = None
+        return result
     # Only the newest accepted request can publish. The client may retain a
     # previously displayed tree while this request has no preview yet.
     verified = {}
@@ -91,9 +107,9 @@ def preview_status(root_path: str, file_ref: str, *, jobs: list[dict] | None = N
             # A no-op model run has no new publication event. Resolve its
             # saved output from actual bytes so an earlier failed preview is
             # not kept forever after a successful current-file request.
-            current = result_snapshot(target)
-            if current:
-                payload = {"tree": current[1], "documentHash": current[0]}
+            on_disk = current()
+            if on_disk:
+                payload = {"tree": on_disk[1], "documentHash": on_disk[0]}
         if not isinstance(payload, dict):
             continue
         tree_hash = str(payload.get("tree") or "")
@@ -130,10 +146,27 @@ def preview_status(root_path: str, file_ref: str, *, jobs: list[dict] | None = N
             # A completed write is only labelled saved if these are still the
             # actual bytes. It never aliases a live preview into index/document.
             digest = payload.get("documentHash")
-            if not digest or result_snapshot(target) != (digest, tree_hash):
+            if not digest or current() != (digest, tree_hash):
                 result.pop(output_key)
                 result["error"] = "The saved file has changed since this build completed"
             else:
                 result[output_key]["documentHash"] = digest
                 result[output_key]["url"] += "&documentHash=" + digest
     return result
+
+
+def _superseded(job: dict, target: str, current) -> bool:
+    """Whether the file changed after ``job`` finished. A build that saved is judged by bytes: the
+    file is no longer the one it wrote. One that saved nothing (it failed, or it changed nothing)
+    by time: the file was written after the build ended."""
+    finished = job.get("finishedAt")
+    if job.get("state") not in ("done", "failed") or finished is None:
+        return False
+    saved = (job.get("savedResults") or {}).get(target)
+    if isinstance(saved, dict) and saved.get("documentHash"):
+        on_disk = current()
+        return on_disk is None or on_disk[0] != saved["documentHash"]
+    try:
+        return os.stat(target).st_mtime > float(finished)
+    except (OSError, TypeError, ValueError):
+        return True

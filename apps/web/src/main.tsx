@@ -47,7 +47,9 @@ function StartingView({ error }: { error?: Error }) {
 const element = document.getElementById('root');
 if (!element) throw new Error('Missing #root mount point.');
 const root = createRoot(element);
-const client = createCadClient({ origin: '', shouldPoll: () => document.visibilityState !== 'hidden' });
+// The catalog is read every two seconds whether or not the tab is seen: a tab in the background is
+// current when it is shown, and its build feed never falls back on a catalog it stopped reading.
+const client = createCadClient({ origin: '' });
 let icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
 if (!icon) { icon = document.createElement('link'); icon.rel = 'icon'; document.head.append(icon); }
 icon.type = 'image/png'; icon.href = faviconUrl;

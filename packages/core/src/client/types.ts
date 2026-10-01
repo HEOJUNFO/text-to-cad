@@ -121,6 +121,8 @@ export interface CadEditingPreview {
   output?: string;
   file?: string;
   previewUnavailable?: boolean;
+  /** The file changed after this build finished: its preview and saved result stand in for nothing. */
+  superseded?: boolean;
   preview?: CadPreviewGeometry | null;
   saved?: CadSavedArtifact | null;
 }
