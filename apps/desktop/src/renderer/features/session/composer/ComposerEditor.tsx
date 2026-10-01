@@ -87,7 +87,13 @@ export function ComposerEditor({
       Document.extend({ content: "paragraph" }),
       Paragraph,
       Text,
-      HardBreak,
+      // Shift+Enter only. The extension's default also binds Mod-Enter to a break, a chord the
+      // shortcuts table does not list (Enter sends), so it would silently add a line.
+      HardBreak.extend({
+        addKeyboardShortcuts() {
+          return { "Shift-Enter": () => this.editor.commands.setHardBreak() };
+        },
+      }),
       ReferenceNode,
       Placeholder.configure({ placeholder, showOnlyWhenEditable: false }),
       Extension.create({

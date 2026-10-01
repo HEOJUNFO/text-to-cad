@@ -871,6 +871,9 @@ the round trip). AI Elements' `PromptInput` is untouched — its form, its
 attachments and its submit are as vendored — because the editor keeps the
 form's `message` field for it; its footer is the one part not used, since
 send shares the sentence's row.
+Enter sends and Shift+Enter breaks the line, as the shortcuts table says; no
+other Enter chord does anything (the editor's hard break is rebound to
+Shift+Enter alone, so Cmd/Ctrl+Enter does not add a line).
 
 **The box is one row until there is more to show.** Empty, it is a single
 line of text with send centred at its right end; it grows with what is
