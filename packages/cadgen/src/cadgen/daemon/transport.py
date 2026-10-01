@@ -336,9 +336,13 @@ class AuthenticationError(OSError):
 
 
 def connect(address: str, authkey: bytes) -> Channel:
-    """Open a channel to a listening daemon. Raises OSError when there is none."""
+    """Open a channel to a listening daemon. Raises OSError when there is none -- including one
+    that closes the connection while it is being opened, as a daemon on its way out does (its
+    version changed, or it idled out): the caller then spawns or waits for its successor."""
     try:
         return Channel(mpc.Client(address, family=_family(), authkey=authkey))
+    except EOFError as exc:
+        raise OSError("the geometry service closed the connection while it was opening") from exc
     except mpc.AuthenticationError as exc:
         raise AuthenticationError(
             "The geometry service rejected its local connection key. Its running "

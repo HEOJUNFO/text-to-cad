@@ -8,6 +8,7 @@ inputs. Disconnect/cancellation detaches that subscriber, not another reader.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 import uuid
@@ -17,6 +18,8 @@ from cadgen.store import surfaces
 from cadgen.store.objects import object_path, read_verified_object
 from cadgen.store.paths import store_root
 from cadgen.store.trees import capture_tree
+
+LOG = logging.getLogger("cadgen.viewer.surfaces")
 
 MAX_COMPONENTS = 64
 MAX_SUBSCRIBERS = 256
@@ -212,7 +215,8 @@ class SurfaceSubscribers:
                 # raced the first lookup. A deleted result is then a failure.
                 error = "surface derivation completed without its requested output"
             except Exception as exc:
-                error = str(exc)
+                LOG.warning("surface derivation failed for %s: %r", operation["tree"][:16], exc)
+                error = str(exc) or type(exc).__name__
             for cid in missing:
                 response["components"][cid] = {"surfaceInput": selected[cid]["surfaceInput"], "state": "failed", "error": error}
             self.cancel(token)
