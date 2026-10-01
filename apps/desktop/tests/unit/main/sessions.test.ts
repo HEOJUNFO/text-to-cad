@@ -1536,6 +1536,31 @@ describe("SessionManager", () => {
     expect(unpinned.length).toBeGreaterThan(0);
   });
 
+  it("a create whose row can neither be written nor removed still releases and unpins, and rejects with the write error", async () => {
+    const released: string[] = [];
+    const unpinned: string[] = [];
+    const repo = memoryRepo();
+    repo.upsert = () => {
+      throw new Error("SQLITE_BUSY: upsert");
+    };
+    repo.remove = () => {
+      throw new Error("SQLITE_READONLY: remove");
+    };
+    const { manager } = await setup({
+      repo,
+      workspace: async () => ({ cwd: `/wt/cut-1`, worktreePath: `/wt/cut-1` }),
+      releaseWorkspace: async (session) => {
+        released.push(session.worktreePath ?? "");
+      },
+      dropMarks: async (_cwd, id) => {
+        unpinned.push(id);
+      },
+    });
+    await expect(manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "worktree" })).rejects.toThrow("SQLITE_BUSY: upsert");
+    expect(released).toEqual([`/wt/cut-1`]);
+    expect(unpinned.length).toBeGreaterThan(0);
+  });
+
   it("a failed create revokes the integration tokens it minted for the session", async () => {
     const forgotten: string[] = [];
     const { manager, cwd } = await setup({

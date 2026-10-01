@@ -618,8 +618,14 @@ export class SessionManager {
     this.retire(session.id);
     this.pendingTitles.delete(session.id);
     this.deps.forgetSession?.(session.id);
-    this.deps.repo.remove(session.id);
-    this.broadcastIndex();
+    // The store that refused the row may refuse its removal too (busy, read-only, a full disk):
+    // that must not hide the failure being reported, nor leave the worktree and the marks behind.
+    try {
+      this.deps.repo.remove(session.id);
+      this.broadcastIndex();
+    } catch (error) {
+      console.warn(`[acp] create ${session.id.slice(0, 8)} could not drop its row: ${String(error)}`);
+    }
     // The marks may still be landing: unpin them once they have, and take
     // the branch's base from the session mark (`releaseWorkspace`).
     const [startHead] = await marks.catch(() => [null, null] as const);
