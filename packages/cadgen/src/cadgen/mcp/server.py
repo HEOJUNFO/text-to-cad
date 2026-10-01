@@ -43,6 +43,7 @@ import itertools
 import threading
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 from cadgen.viewer.scanner import SOURCE_EXTENSIONS, catalog_lists
@@ -50,6 +51,7 @@ from cadgen.viewer.scanner import SOURCE_EXTENSIONS, catalog_lists
 from .protocol import INVALID_PARAMS, METHOD_NOT_FOUND, Connection, RequestContext, RpcError, claim_stdout
 from .roots import WORKSPACE, Root, ThreadWorkspace, file_uri_path, filesystem_of, home_filesystem
 from .ui import MIME, RESOURCE_META, AppPage
+from .sidebar_views import SidebarView
 from .views import NoAnswer, ViewRegistry
 
 LOG = logging.getLogger("cadgen.mcp")
@@ -166,13 +168,15 @@ def _data(structured: dict[str, Any]) -> dict[str, Any]:
 
 
 class Server:
-    def __init__(self, *, launch_cwd: str | None, page: AppPage | None = None, recents=None, tunnel=None, viewer_url=None) -> None:
+    def __init__(self, *, launch_cwd: str | None, page: AppPage | None = None, recents=None, tunnel=None, viewer_url=None,
+                 sidebar_views=None) -> None:
         excluded = tuple(path for path in (os.environ.get("PLUGIN_ROOT"), os.path.expanduser("~")) if path)
         self.workspace = ThreadWorkspace(launch_cwd, excluded=excluded)
         self.page = page or AppPage()
         self.views = ViewRegistry()
         self._recents = recents
         self._tunnel = tunnel
+        self._sidebar_views = sidebar_views
         self._picker = None
         self._model: str | None = None  # what this thread last opened or showed
         self._tools: list[dict[str, Any]] | None = None
@@ -192,6 +196,16 @@ class Server:
 
             self._recents = RecentStore()
         return self._recents
+
+    @property
+    def sidebar_views(self):
+        """The CAD sidebar's views, which every process reaches (``sidebar_views.py``)."""
+        if self._sidebar_views is None:
+            from .sidebar_views import SidebarViews
+
+            # Beside the model library: the person's state, shared by every process of theirs.
+            self._sidebar_views = SidebarViews(Path(self.recents.root).parent / "sidebar-views")
+        return self._sidebar_views
 
     @property
     def picker(self):
@@ -533,12 +547,23 @@ class Server:
     # the agent's tools ----------------------------------------------------------
 
     def _target(self, context: RequestContext, view_id: Any, *, needs_model: bool) -> Any:
-        views = [view for view in self.views.live(context.meta.get("threadId")) if view.surface != "file" or view.id == view_id]
+        """The view the agent means: one it names, else the one a person touched last of its thread's
+        views and the CAD sidebar's -- which another process serves (``sidebar_views.py``), so a
+        model the person is looking at in the sidebar is shown, read and captured there."""
+        return next(iter(self._candidates(context, view_id, needs_model=needs_model)), None)
+
+    def _candidates(self, context: RequestContext, view_id: Any, *, needs_model: bool, files: bool = False) -> list[Any]:
+        own = [view for view in self.views.live(context.meta.get("threadId"))
+               if files or view.surface != "file" or view.id == view_id]
+        touched = [(self.views.wall(view.focused), view) for view in own]
+        if self.tabs:
+            touched += [(view.touched, view) for view in self.sidebar_views.live()]
+        views = [view for _, view in sorted(touched, key=lambda pair: pair[0], reverse=True)]
         if view_id:
             views = [view for view in views if view.id == view_id]
         if needs_model:
             views = [view for view in views if view.model]
-        return views[0] if views else None
+        return views
 
     def _tool_cad_show(self, arguments, context):
         if self.text:
@@ -550,8 +575,15 @@ class Server:
         view = self._target(context, arguments.get("view"), needs_model=False)
         if view is None:
             self._model = model
+            LOG.info("cad_show: no viewer for thread %s in process %d; live here: %s", context.meta.get("threadId") or "none",
+                     os.getpid(), [(view.id, view.surface, view.thread_id) for view in self.views.live()] or "none")
             return _text("No CAD viewer is open in this thread. Call cad_open to open one.", {"delivered": 0})
         launch = self._launch(model)
+        if isinstance(view, SidebarView):
+            if view.model != model:
+                self.sidebar_views.post(view.id, {"type": "show", "launch": launch})
+            return _text(f"Showing {model} in the CAD sidebar, which shows each rebuild by itself.",
+                         {"delivered": 1, "view": view.id, "sidebar": True})
         self.views.post([view.id], {"type": "show", "launch": launch})
         return _text(f"Showing {model} in CAD.", {"delivered": 1, "view": view.id})
 
@@ -587,12 +619,13 @@ class Server:
         return view
 
     def _tool_cad_view(self, arguments, context):
-        live = [self._shown(arguments.get("view"))] if not self.tabs else self.views.live(context.meta.get("threadId"))
+        live = [self._shown(arguments.get("view"))] if not self.tabs else self._candidates(context, None, needs_model=False, files=True)
         if not live:
             return _text("No CAD viewer is open in this thread.", {"views": []})
         # What each view last said it shows: a view sends its state whenever it changes, on the
         # sync it makes each second, so this answers at once without asking any of them.
-        views = [{"view": view.id, "surface": view.surface, "model": view.model, **view.state} for view in live]
+        views = [{"view": view.id, "surface": "sidebar" if isinstance(view, SidebarView) else view.surface,
+                  "model": view.model, **view.state} for view in live]
         return _text(json.dumps({"views": views}, indent=1), {"views": views})
 
     def _tool_cad_screenshot(self, arguments, context):
@@ -602,10 +635,17 @@ class Server:
         if view is None:
             raise ToolFailed("No CAD viewer with a model is open in this thread. Open one with cad_open, "
                              "or render headless with `cadgen snapshot`.")
-        try:
-            reply = self.views.ask(view.id, "capture")
-        except NoAnswer as failure:
-            raise ToolFailed(f"The CAD viewer could not capture: {failure}") from failure
+        if isinstance(view, SidebarView):
+            reply = self.sidebar_views.ask(view.id)
+            if reply is None:
+                raise ToolFailed("The CAD sidebar did not answer in time; is it still open?")
+            if reply.get("error"):
+                raise ToolFailed(f"The CAD viewer could not capture: {reply['error']}")
+        else:
+            try:
+                reply = self.views.ask(view.id, "capture")
+            except NoAnswer as failure:
+                raise ToolFailed(f"The CAD viewer could not capture: {failure}") from failure
         png = reply.get("png")
         if not isinstance(png, str) or not png:
             raise ToolFailed("The CAD viewer answered without an image.")
@@ -619,7 +659,10 @@ class Server:
         view_id, surface = arguments.get("view"), arguments.get("surface")
         if not isinstance(view_id, str) or not view_id or not isinstance(surface, str):
             raise RpcError(INVALID_PARAMS, "view and surface are required")
-        self.views.register(view_id, surface=surface, thread_id=context.meta.get("threadId"), model=arguments.get("model"))
+        thread_id = context.meta.get("threadId")
+        if view_id not in self.views:
+            LOG.info("view %s (%s) syncs here, thread %s, process %d", view_id, surface, thread_id or "none", os.getpid())
+        self.views.register(view_id, surface=surface, thread_id=thread_id, model=arguments.get("model"))
         return view_id
 
     def _tool_cad_sync(self, arguments, context):
@@ -632,8 +675,11 @@ class Server:
         reads the catalog again only when that moves) and each feed's current status.
         """
         view_id = self._register(arguments, context)
+        sidebar = self.tabs and arguments.get("surface") == "sidebar"
         if arguments.get("closed") is True:  # a view a newer one replaced: the agent can no longer reach it
             self.views.forget(view_id)
+            if sidebar:
+                self.sidebar_views.forget(view_id)
             return _data({"events": []})
         state = arguments.get("state") if isinstance(arguments.get("state"), dict) else None
         focused = arguments.get("focused") is True
@@ -656,13 +702,22 @@ class Server:
                 files = [item for item in watch.get("previews") or [] if isinstance(item, str)][:4]
                 if files:
                     answer["previews"] = [{"file": item, **self.tunnel.preview(root, item)} for item in files]
+        if sidebar:
+            # Every thread's agent can reach the sidebar (``sidebar_views.py``): it says what it shows
+            # there, and takes what was left for it.
+            view = self.views.view(view_id)
+            self.sidebar_views.publish(view_id, model=view.model if view else arguments.get("model"),
+                                       state=view.state if view else None, touched=focused)
         # Last, so a sync that failed before this point has taken nothing from the queue.
-        answer["events"] = self.views.poll(view_id)
+        answer["events"] = self.views.poll(view_id) + (self.sidebar_views.take(view_id) if sidebar else [])
         return _data(answer)
 
     def _tool_cad_capture_reply(self, arguments, context):
         reply: dict[str, Any] = {key: arguments[key] for key in ("png", "error") if isinstance(arguments.get(key), str)}
-        return _data({"accepted": self.views.reply(str(arguments.get("requestId")), reply)})
+        request_id = str(arguments.get("requestId"))
+        # A capture another thread's agent asked of this process's sidebar view goes back to it.
+        accepted = self.views.reply(request_id, reply) or (self.tabs and self.sidebar_views.answer(request_id, reply))
+        return _data({"accepted": bool(accepted)})
 
     def _tool_cad_http(self, arguments, context):
         root = arguments.get("root")

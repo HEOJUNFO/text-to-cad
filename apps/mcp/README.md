@@ -49,6 +49,12 @@ reference host `basic-host` does.
   its drive, whose catalog holds only the file on screen (a hidden folder it is in
   included) and which nothing lists. *Open with CAD* and an inline card show one
   file and have no explorer either.
+- **An agent reaches the sidebar too.** Codex runs the sidebar page in a thread, and a server
+  process, of its own, so no thread's agent syncs with it. Each process publishes its sidebar
+  views beside the model library (`cadgen/mcp/sidebar_views.py`), and an agent's `cad_show`,
+  `cad_view` and `cad_screenshot` mean the view a person touched last of its thread's tabs and
+  the sidebar's: a model already in the sidebar is shown there, not in a new tab. Only sidebar
+  views are shared; a thread's tabs are that conversation's.
 - **One request to the network: the newest release.** The page asks the server
   once (`cad_release`); the server asks GitHub's latest-release API at most every
   six hours and keeps the answer in the user's state directory (`release.json`,

@@ -248,6 +248,74 @@ class TabServerTest(_Session):
         self.assertTrue(refused["isError"])
 
 
+class SidebarAcrossThreadsTest(_Session):
+    """Codex runs the sidebar page in a thread, and a server process, of its own. An agent in any
+    thread reaches the sidebar view a person touched last -- shown a model, read, captured -- as it
+    reaches its own tabs, rather than opening a tab beside a model already on screen."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        # The sidebar's own process: another server over the same state directory.
+        self.sidebar = Server(launch_cwd=None, page=AppPage(self.tmp / "app"), recents=RecentStore(self.tmp / "state"))
+        self.sidebar.handle("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": CODEX}, None)
+        self.model = str(self.workspace / "parts" / "bracket.stl")
+
+    def on_sidebar(self, name: str, arguments: dict) -> dict:
+        context = RequestContext(1, {"threadId": "sidebar-thread"}, self.connection)
+        return self.sidebar.handle("tools/call", {"name": name, "arguments": arguments}, context)["structuredContent"]
+
+    def sync_sidebar(self, **extra) -> dict:
+        return self.on_sidebar("cad_sync", {"view": "s1", "surface": "sidebar", "model": self.model, **extra})
+
+    def test_an_agent_with_no_tab_shows_reads_and_captures_the_model_in_the_sidebar(self) -> None:
+        self.sync_sidebar(state={"model": self.model, "selection": [f"{self.model}#o1.f1"]}, focused=True)
+        # The model the sidebar shows already: no tab, and nothing to send it.
+        self.assertEqual(self.call("cad_show", {"path": "parts/bracket.stl"})["structuredContent"],
+                         {"delivered": 1, "view": "s1", "sidebar": True})
+        self.assertEqual(self.sync_sidebar()["events"], [])
+        # What the sidebar reported, read at once.
+        (view,) = self.call("cad_view")["structuredContent"]["views"]
+        self.assertEqual((view["view"], view["surface"], view["selection"]), ("s1", "sidebar", [f"{self.model}#o1.f1"]))
+        # Another model: the sidebar takes it on its next sync.
+        loose = str(self.tmp / "elsewhere" / "loose.stl")
+        self.assertEqual(self.call("cad_show", {"path": loose})["structuredContent"]["view"], "s1")
+        (event,) = self.sync_sidebar()["events"]
+        self.assertEqual((event["type"], event["launch"]["model"]), ("show", loose))
+        # A capture: the sidebar's process takes the request on a sync, and its answer comes back.
+
+        def page() -> None:
+            for _ in range(1000):
+                for event in self.sync_sidebar()["events"]:
+                    if event["type"] == "capture":
+                        self.on_sidebar("cad_capture_reply", {"requestId": event["requestId"], "png": "iVBORw0KGgo="})
+                        return
+                time.sleep(0.005)
+
+        viewer = threading.Thread(target=page, daemon=True)
+        viewer.start()
+        shot = self.call("cad_screenshot")
+        viewer.join(10)
+        self.assertEqual(shot["content"][0], {"type": "image", "data": "iVBORw0KGgo=", "mimeType": "image/png"})
+
+    def test_the_view_a_person_touched_last_is_meant_and_a_threads_tabs_stay_its_own(self) -> None:
+        self.call("cad_sync", {"view": "t1", "surface": "agent", "model": self.model})
+        time.sleep(0.02)
+        self.sync_sidebar(focused=True)
+        self.assertEqual(self.call("cad_show", {"path": "parts/bracket.stl"})["structuredContent"]["view"], "s1")
+        time.sleep(0.02)
+        self.call("cad_sync", {"view": "t1", "surface": "agent", "model": self.model, "focused": True})
+        self.assertEqual(self.call("cad_show", {"path": "parts/bracket.stl"})["structuredContent"]["view"], "t1")
+        # The sidebar's process sees no thread's tab: only sidebar views are shared.
+        self.assertEqual([view["view"] for view in self.on_sidebar("cad_view", {})["views"]], ["s1"])
+
+    def test_a_sidebar_that_stopped_syncing_is_not_reached(self) -> None:
+        self.sync_sidebar(focused=True)
+        stale = time.time() - 120
+        for published in (self.tmp / "state" / "sidebar-views").glob("*.json"):
+            os.utime(published, (stale, stale))
+        self.assertEqual(self.call("cad_show", {"path": "parts/bracket.stl"})["structuredContent"], {"delivered": 0})
+
+
 class InlineServerTest(_Session):
     """Claude and every other MCP Apps host: each cad_show mounts a new view in the chat."""
 

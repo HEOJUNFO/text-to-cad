@@ -58,6 +58,18 @@ class ViewRegistry:
 
     # -- views -----------------------------------------------------------------
 
+    def __contains__(self, view_id: object) -> bool:
+        with self._cond:
+            return view_id in self._views
+
+    def view(self, view_id: str) -> View | None:
+        with self._cond:
+            return self._views.get(view_id)
+
+    def wall(self, moment: float) -> float:
+        """A moment on this registry's clock, as wall time: what another process can compare."""
+        return time.time() - (self._clock() - moment)
+
     def register(self, view_id: str, *, surface: str, thread_id: str | None, model: str | None) -> View:
         with self._cond:
             view = self._views.get(view_id)
