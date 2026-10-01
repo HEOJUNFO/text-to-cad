@@ -144,3 +144,18 @@ describe("browser chrome cost", () => {
     expect(window.textToCad.browser.metadata).toHaveBeenLastCalledWith({ ...binding, logs: true });
   });
 });
+
+describe("a refused navigation", () => {
+  it("stays on screen through a metadata poll until a navigation succeeds", async () => {
+    mount(); await vi.advanceTimersByTimeAsync(1);
+    vi.mocked(window.textToCad.browser.navigate).mockRejectedValueOnce(new Error("Error invoking remote method 'text-to-cad:browser.navigate': IpcError: Only http and https addresses can be opened here."));
+    await useBrowser.getState().navigate(binding, { url: "file:///etc/passwd" });
+    expect(useBrowser.getState().errors[binding.tabId]).toBe("Only http and https addresses can be opened here.");
+    await vi.advanceTimersByTimeAsync(1200);
+    expect(vi.mocked(window.textToCad.browser.metadata).mock.calls.length).toBeGreaterThan(0);
+    expect(useBrowser.getState().errors[binding.tabId]).toBe("Only http and https addresses can be opened here.");
+    vi.mocked(window.textToCad.browser.navigate).mockResolvedValueOnce(target);
+    await useBrowser.getState().navigate(binding, { url: "https://example.com/" });
+    expect(useBrowser.getState().errors[binding.tabId]).toBeUndefined();
+  });
+});

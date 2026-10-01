@@ -18,6 +18,7 @@ import type { DesktopCadConnection } from "./adapters/cadRuntime";
 import { useDesktopViewState } from "./adapters/persistence";
 import { createDesktopRenderers } from "./renderers";
 import { EXPLORER_TABPANEL_ID, focusTabBody } from "./focus";
+import { FileLoadError } from "./FileLoadError";
 
 /**
  * The worktree a tab's root is, drawn before the crumbs, or null for a tab in the project
@@ -73,6 +74,7 @@ export function FileTab({ sessionId, tabId, project, root, path, panel, cadConne
   return <FileViewer file={path} host={host} renderers={composition.renderers} state={state} onStateChange={onStateChange}
     reveal={reveal?.root === root ? reveal : null}
     onError={(error) => toast.error(error.message)}
+    presentation={{ error: message => <FileLoadError message={message} path={path} source={source} /> }}
     leading={worktree ? <>
       <TooltipHint content={worktree.path}>
         <span className="flex shrink items-center gap-1 truncate rounded-sm px-0.5 text-muted-foreground" data-crumb="worktree">

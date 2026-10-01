@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 
 import type { Project } from "@shared/types";
@@ -74,7 +74,7 @@ function renderTab(ptyId: string | null = "pty-old", agent = false, tabId = "tab
 it("kills the exited pty before restarting, so its scrollback is not kept for a tab that moved on", async () => {
   terminal().attach = vi.fn(async () => ({ info: info(0), scrollback: "done\n", seq: 1 }));
   renderTab();
-  fireEvent.click(await screen.findByRole("button", { name: "restart" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
   expect(terminal().kill).toHaveBeenCalledWith({ id: "pty-old", sessionId: "session" });
   expect(update).toHaveBeenCalledWith("tab", { ptyId: null });
 });
@@ -201,4 +201,27 @@ it("leaves paste to xterm: Cmd+V is passed over and the clipboard is not also wr
   await Promise.resolve();
   expect(readText).not.toHaveBeenCalled();
   expect(terminal().write).not.toHaveBeenCalled();
+});
+
+it("says the shell exited in a status banner whose Try again restarts it", async () => {
+  terminal().attach = vi.fn(async () => ({ info: info(null), scrollback: "", seq: 0 }));
+  let exit: (event: { id: string; exitCode: number }) => void = () => {};
+  (window.textToCad.on as unknown as ReturnType<typeof vi.fn>).mockImplementation((channel: string, listener: typeof exit) => {
+    if (channel === "terminal.exit") exit = listener;
+    return () => {};
+  });
+  renderTab();
+  await waitFor(() => expect(terminals).toHaveLength(1));
+  act(() => exit({ id: "pty-old", exitCode: 2 }));
+  expect(await screen.findByText("The shell exited (code 2).")).toBeInTheDocument();
+  expect(screen.getByText("The shell exited (code 2).").closest('[role="status"]')).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect(update).toHaveBeenCalledWith("tab", { ptyId: null });
+});
+
+it("shows the unwrapped sentence when attaching fails", async () => {
+  terminal().attach = vi.fn(async () => { throw new Error("Error invoking remote method 'text-to-cad:terminal.attach': IpcError: That session is no longer active."); });
+  renderTab();
+  expect(await screen.findByText("That session is no longer active.")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
 });

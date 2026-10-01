@@ -23,6 +23,13 @@ export function browserURL(value: string) {
   return url.href;
 }
 
+/** A load that reached the network and failed (DNS, refused, TLS), in words the tab can show. */
+export function navigationFailure(address: string, errorText: string) {
+  let host = address;
+  try { host = new URL(address).host || address; } catch { /* shown as typed */ }
+  return Object.assign(new Error(`${host} could not be reached: ${errorText}`), { name: "BrowserNavigationError" });
+}
+
 /** Owns live pages independently of whichever project or tab is painted. */
 export class BrowserService {
   /** `opened` / `closed`, one listener pair per scoped CDP connection (they leave with it), so more than ten sessions' clients are ordinary. A finite cap, not 0: a listener leak past a hundred connections should still warn. */
@@ -72,7 +79,8 @@ export class BrowserService {
     this.refuseDownloads(wc.session);
     // No unmanaged windows or privileged scheme navigations may escape the root.
     wc.setWindowOpenHandler(({ url: popupURL }) => {
-      try { void wc.loadURL(browserURL(popupURL)).catch(() => {}); } catch { /* blocked scheme */ }
+      try { void wc.loadURL(browserURL(popupURL)).catch(() => {}); }
+      catch { this.log(target, "error", `Only http and https addresses can be opened here: ${popupURL.slice(0, 200)} was not opened.`); }
       return { action: "deny" };
     });
     const guard = (event: Electron.Event, nextURL: string) => {
@@ -177,7 +185,7 @@ export class BrowserService {
       const target = [...this.targets.values()].find(candidate => candidate.view.webContents === contents);
       if (target && this.inForeground(target)) return;
       event.preventDefault();
-      if (target) this.log(target, "error", `Download blocked: ${item.getFilename() || item.getURL()}. Downloads start only from the page you are using.`);
+      if (target) this.log(target, "error", `Downloads are not supported in this browser tab. Blocked: ${item.getFilename() || item.getURL()}.`);
     });
   }
   private inForeground(target: Target) {
@@ -265,7 +273,7 @@ export class BrowserService {
       const navigation = browserMethodSchemas.navigate.parse(params);
       if (navigation.url) {
         const result = await harness.Page.navigate({ url: browserURL(navigation.url) });
-        if (result.errorText) throw new Error(result.errorText);
+        if (result.errorText) throw navigationFailure(navigation.url, result.errorText);
       } else if (navigation.direction === "back" && view.webContents.navigationHistory.canGoBack()) view.webContents.navigationHistory.goBack();
       else if (navigation.direction === "forward" && view.webContents.navigationHistory.canGoForward()) view.webContents.navigationHistory.goForward();
       else if (navigation.direction === "reload") await harness.Page.reload({});

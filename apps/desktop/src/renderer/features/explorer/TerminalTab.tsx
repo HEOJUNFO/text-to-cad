@@ -14,6 +14,7 @@ import { Button } from "@renderer/components/ui/button";
 import { useResolvedTheme } from "@renderer/hooks/use-theme";
 import { terminalPromptRoot } from "@renderer/lib/terminal-workspace";
 import { useExplorer, updateSessionTab } from "@renderer/state/explorer";
+import { errorMessage } from "@shared/ipc/errors";
 import { isTerminalReply } from "@shared/terminal-replies";
 import type { Project } from "@shared/types";
 
@@ -151,7 +152,9 @@ export function TerminalTab({
   const termRef = useRef<Terminal | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selection, setSelection] = useState("");
-  const [exited, setExited] = useState<number | null>(null);
+  /** What the banner over the footer says: the shell ended, or the pty could not be attached to or written. */
+  const [notice, setNotice] = useState<string | null>(null);
+  const setExited = (code: number | null) => setNotice(code === null ? null : `The shell exited (code ${code}).`);
   const tabMoves = useTabMovesFocus();
   // Focus is taken when the person opened or picked this tab (`./focus`), never
   // on every mount: a session switch, Back or a theme change remounts it too.
@@ -192,7 +195,7 @@ export function TerminalTab({
       spawning.set(tabId, spawn);
     }
     void spawn.catch((caught: unknown) => {
-      setError(caught instanceof Error ? caught.message : String(caught));
+      setError(errorMessage(caught));
     });
   }, [ptyId, sessionId, project.id, cwd, agent, tabId]);
 
@@ -297,7 +300,7 @@ export function TerminalTab({
         }
         push();
       })
-      .catch(() => {});
+      .catch((caught: unknown) => setNotice(errorMessage(caught)));
     const offExit = window.textToCad.on("terminal.exit", (event) => {
       if (event.id === ptyId) {
         setExited(event.exitCode);
@@ -309,7 +312,7 @@ export function TerminalTab({
         if (replaying && isTerminalReply(data)) {
           return;
         }
-        void window.textToCad.terminal.write({ id: ptyId, sessionId, data }).catch(() => {});
+        void window.textToCad.terminal.write({ id: ptyId, sessionId, data }).catch((caught: unknown) => setNotice(errorMessage(caught)));
       });
     }
 
@@ -417,6 +420,12 @@ export function TerminalTab({
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="min-h-0 flex-1 overflow-hidden px-2 pt-2" data-selectable data-terminal-body ref={hostRef} />
+      {notice === null ? null : (
+        <div className="flex items-center gap-2 border-t bg-muted/60 px-3 py-1.5 text-xs text-foreground" role="status">
+          <span className="min-w-0 flex-1 whitespace-pre-wrap">{notice}</span>
+          <Button className="h-6 shrink-0 text-xs" onClick={() => { setNotice(null); restart(); }} size="sm" variant="secondary">Try again</Button>
+        </div>
+      )}
       <div className="flex h-6 shrink-0 items-center gap-2 border-t px-3 text-[11px] text-muted-foreground">
         <span className="truncate">{cwd ?? project.path}</span>
         {agent ? <span className="shrink-0 rounded-sm bg-muted px-1">agent</span> : null}
@@ -427,21 +436,6 @@ export function TerminalTab({
           onClick={() => { termRef.current?.clear(); termRef.current?.focus(); }}><Eraser className="size-3" />Clear</button>
         <button type="button" className="inline-flex h-5 shrink-0 items-center gap-1 hover:text-foreground disabled:opacity-40"
           disabled={!selection} onClick={addSelection}><MessageSquarePlus className="size-3" />Add to prompt</button>
-        {exited === null ? null : (
-          <span className="shrink-0">
-            exited {exited}
-            <button
-              className="ml-2 underline underline-offset-2 hover:text-foreground"
-              onClick={() => {
-                setExited(null);
-                restart();
-              }}
-              type="button"
-            >
-              restart
-            </button>
-          </span>
-        )}
       </div>
     </div>
   );

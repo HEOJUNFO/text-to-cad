@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { BrowserTarget } from "@shared/browser";
+import { errorMessage } from "@shared/ipc/errors";
 import { useExplorer } from "./explorer";
 
 type BrowserBinding = { sessionId: string; projectId: string; root: string | null; tabId: string };
@@ -19,13 +20,17 @@ type BrowserState = {
 export const useBrowser = create<BrowserState>((set, get) => {
   /** Wakes a mounted tab's poll now (the console was just opened). */
   const wakers = new Map<string, () => void>();
-  const accept = (incoming: BrowserTarget, withLogs = true) => {
+  /** Tabs whose shown error is a refused navigation: only the next successful navigation clears it, not a metadata poll. */
+  const navigationFailures = new Set<string>();
+  const accept = (incoming: BrowserTarget, withLogs = true, navigated = false) => {
     const state = get();
+    if (navigated) navigationFailures.delete(incoming.tabId);
+    const keepError = navigationFailures.has(incoming.tabId);
     const previous = state.targets[incoming.tabId];
     // A poll without console lines keeps the lines already shown.
     const target = withLogs ? incoming : { ...incoming, logs: previous?.logs ?? [] };
-    if (!previous || !sameTarget(previous, target) || state.errors[target.tabId] !== undefined) {
-      set(current => ({ targets: { ...current.targets, [target.tabId]: target }, errors: { ...current.errors, [target.tabId]: undefined } }));
+    if (!previous || !sameTarget(previous, target) || (!keepError && state.errors[target.tabId] !== undefined)) {
+      set(current => ({ targets: { ...current.targets, [target.tabId]: target }, errors: keepError ? current.errors : { ...current.errors, [target.tabId]: undefined } }));
     }
     const explorer = useExplorer.getState();
     const tab = explorer.tabs.find(tab => tab.id === target.tabId);
@@ -33,8 +38,9 @@ export const useBrowser = create<BrowserState>((set, get) => {
       explorer.update(tab.id, { url: target.url });
     }
   };
-  const failed = (tabId: string, error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
+  const failed = (tabId: string, error: unknown, fromNavigation = false) => {
+    if (fromNavigation) navigationFailures.add(tabId); else navigationFailures.delete(tabId);
+    const message = errorMessage(error);
     // The same failure again is not a change: no new state, no re-render.
     if (get().errors[tabId] !== message) set(state => ({ errors: { ...state.errors, [tabId]: message } }));
   };
@@ -105,8 +111,8 @@ export const useBrowser = create<BrowserState>((set, get) => {
       };
     },
     navigate: async (binding, navigation) => {
-      try { accept(await window.textToCad.browser.navigate({ ...binding, ...navigation })); wakers.get(binding.tabId)?.(); }
-      catch (error) { failed(binding.tabId, error); }
+      try { accept(await window.textToCad.browser.navigate({ ...binding, ...navigation }), true, true); wakers.get(binding.tabId)?.(); }
+      catch (error) { failed(binding.tabId, error, true); }
     },
     contextAttachment: async (binding, target, kind) => {
       const captured = await window.textToCad.browser.capture({ ...binding, url: target.url, generation: target.generation, kind });

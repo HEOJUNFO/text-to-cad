@@ -117,6 +117,19 @@ cancelled rather than opening that dialog over their work, and counted as an
 error in the page's console. These
 constraints are reported rather than implemented as successful no-ops.
 
+An address the tab cannot open is answered in words, and the answer stays: a
+typed `file://` address is refused with "Only http and https addresses can be
+opened here.", and a load that fails reaches the tab as "<host> could not be
+reached: <error>". The tab keeps that sentence until the next navigation succeeds;
+the poll that refreshes the page's title and history does not clear it.
+
+A page that opens a window the tab cannot show (a `mailto:` link, a blocked scheme) adds
+"Only http and https addresses can be opened here: <address> was not opened." to the tab's
+console, and a refused download adds "Downloads are not supported in this browser tab.
+Blocked: <file>." A `window.open` or `_blank` link to a web address still replaces the current
+page: opening a second tab from main needs a new event channel to the renderer's tab strip,
+which this tab does not have.
+
 The stock MCP exposes JavaScript evaluation and file upload; its subprocess runs
 with the agent's ordinary OS permissions. Target scoping protects app pages and
 workspace partitions, not all filesystem or network effects of agent code.

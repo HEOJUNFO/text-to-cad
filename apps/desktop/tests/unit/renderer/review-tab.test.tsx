@@ -490,3 +490,21 @@ it("Refresh says it is busy while the read is out, not only by spinning", async 
   await act(async () => again.resolve(repo("main")));
   expect(refresh).toHaveAttribute("aria-busy", "false");
 });
+
+it("a refresh that fails shows git's words without Electron's wrapper", async () => {
+  scoped.mockResolvedValueOnce(repo("main")).mockRejectedValueOnce(new Error("Error invoking remote method 'text-to-cad:git.status': GitError: index.lock exists"));
+  renderReview();
+  expect(await screen.findByText("main")).toBeInTheDocument();
+  await act(async () => useExplorer.setState({ fsRevision: useExplorer.getState().fsRevision + 1 }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(/^Could not refresh: index\.lock exists/);
+});
+
+it.each([
+  ["git is not installed or not on PATH", "Git is not installed", "Git is not installed or not on PATH, so there is nothing to review."],
+  ["git did not answer in time, so this folder could not be read", "Git did not answer", "Git did not answer in time, so this folder could not be read."],
+])("gives the problem %j its own title and one capitalised sentence", async (problem, title, sentence) => {
+  scoped.mockResolvedValueOnce({ ...repo("main"), isRepository: false, problem });
+  renderReview();
+  expect(await screen.findByText(title)).toBeInTheDocument();
+  expect(screen.getByText(sentence)).toBeInTheDocument();
+});

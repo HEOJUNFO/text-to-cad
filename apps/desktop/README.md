@@ -1028,6 +1028,12 @@ one read per 500 ms (`STATUS_GAP_MS` in `ReviewTab.tsx`), and re-read only the
 diffs of files the answer says changed. A diff that cannot be read says so,
 with git's words and a Retry. A refresh that fails keeps the last answer on
 screen, marked stale under a "Could not refresh" line with Try again.
+A failed or timed-out `git show` is never drawn as an empty side (a file that read
+as wholly added while its header counted +3 −2): the diff fails with "could not read
+<path> at <revision>: <git's words>". A submodule is one line, "submodule <path> at
+<sha>", on each side, not an empty editor. A failed commit keeps git's lines as
+lines, and the messages above are shown without Electron's "Error invoking remote
+method" wrapper.
 
 The composer's paperclip opens one picker for files and photos. The viewer's
 camera button adds the current view and selected references to the draft.
@@ -1301,6 +1307,8 @@ once the last tab is closed, so it does not go on to close the window. On
 Windows and Linux the plain Ctrl chords are skipped while the focus is inside a
 terminal (`[data-terminal-body]`), where they are the shell's; the Ctrl+Shift
 chords and Ctrl+` still run there.
+Ctrl+` is matched by the physical key (`event.code` "Backquote"), so a layout where the
+backtick is a dead key, and sends "Dead", still opens a terminal.
 
 A tab is reordered by dragging its chip (a plain HTML5 drag). The insertion
 line is drawn before the chip under the pointer on its left half and after it on
@@ -1462,6 +1470,12 @@ to the command palette. Paste is xterm's own paste listener, which brackets the
 text when the shell asked for it; the Cmd/Ctrl+V branch of the handler only
 returns false so Ctrl+V does not reach the shell as `^V`, and writes nothing (a
 second write ran a pasted command twice, once unbracketed).
+A shell that ends is said so over the footer, not in it: a `role="status"` banner reads
+"The shell exited (code N)." with a Try again button, which kills the old pty and
+starts a fresh shell (the lazy-tab error pattern). A pty that cannot be attached to,
+or written to, puts the unwrapped sentence from main in the same banner, and a spawn
+that fails shows it under "No shell" without Electron's "Error invoking remote
+method" wrapper.
 
 A terminal an agent asks for through ACP's `terminal/*` (`src/main/acp/terminals.ts`)
 is separate from those ptys, and its output reaches the transcript's activity row
@@ -1484,7 +1498,13 @@ renderer state cannot type into another session's shell.
 Directory listings show every regular file and directory, including dotfiles,
 Git-ignored outputs, dependency folders and unsupported formats. Renderer
 support determines what opens in the file tab; it never hides a tree row.
-Unknown types open with **Not supported**. Listings are lazy and complete for
+Unknown types open with **Not supported**. Previews that cannot be shown keep the same way out:
+an image or PDF over the 24 MB preview limit (`PREVIEW_LIMIT_BYTES` in `FileLoadError.tsx`, which
+`file-preview-errors.test.tsx` holds equal to `MAX_BINARY_BYTES` in `src/main/explorer/fs.ts`) reads
+"This file is too large to preview" with "<name> is <size>; previews open files up to 24 MB.", an
+image the browser cannot decode reads "This image could not be decoded.", and a PDF that PDF.js
+refuses reads "This PDF could not be opened: <reason>." with no page toolbar. Each offers Open
+externally when the host has it. Listings are lazy and complete for
 each expanded directory. The bounded fuzzy index visits project content before
 dependency caches so cache files do not crowd generated CAD outputs out of the
 search budget. `listPaths` reads the next 16 directories (`LIST_READ_AHEAD`)
@@ -2549,6 +2569,10 @@ folder because another user owns it (add it to git's safe.directory to trust it)
 or git did not answer in time ("git did not answer in time, so this folder could not be read"). The
 reason rides on `status` and `projectInfo` as `problem`; a folder that is just
 a folder has none, and gets the plain "not a git repository".
+Each reason has its own title in the Review tab ("Git is not installed", "Folder is
+gone", "Git will not open this folder", "Git did not answer"), over one capitalised
+sentence, and only the reasons that do not already say what follows add ", so there is
+nothing to review."
 
 Worktrees live outside the project, one folder per project, whichever agent
 made them:

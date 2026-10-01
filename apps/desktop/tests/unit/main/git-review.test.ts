@@ -18,6 +18,7 @@ import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { execa } from "execa";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 
 import * as git from "@main/projects/git";
@@ -178,3 +179,38 @@ describe("a renamed file", () => {
   });
 });
 
+
+describe("a diff side that cannot be read", () => {
+  it("says so when git show fails, instead of rendering the side as empty", async () => {
+    const { root } = await repository();
+    await writeFile(path.join(root, "README.md"), "one\ntwo\nthree\n");
+    const real = (await execa("which", ["git"])).stdout;
+    const bin = await scratch("text-to-cad-nogitshow-");
+    await writeFile(path.join(bin, "git"), `#!/bin/sh\nfor a in "$@"; do [ "$a" = show ] && { echo "fatal: unable to read blob" >&2; exit 128; }; done\nexec ${real} "$@"\n`, { mode: 0o755 });
+    const original = process.env.PATH;
+    process.env.PATH = `${bin}${path.delimiter}${original ?? ""}`;
+    try {
+      await expect(git.fileDiff(root, "README.md")).rejects.toThrow(/^could not read README\.md at HEAD: fatal: unable to read blob$/);
+    } finally {
+      process.env.PATH = original;
+    }
+  });
+
+  it("draws a submodule as one line naming its commit, not an empty editor", async () => {
+    const { root } = await repository();
+    const inner = await scratch("text-to-cad-submodule-");
+    await committedRepository(inner, "inner\n");
+    await git_(root, "-c", "protocol.file.allow=always", "submodule", "add", "--quiet", inner, "sub");
+    await git_(root, "commit", "--quiet", "-m", "add submodule");
+    const before = (await git.head(path.join(root, "sub")))!;
+    await writeFile(path.join(root, "sub", "next.txt"), "next\n");
+    await git_(path.join(root, "sub"), "add", "next.txt");
+    await git_(path.join(root, "sub"), "commit", "--quiet", "-m", "move the pointer");
+    const after = (await git.head(path.join(root, "sub")))!;
+    await git_(root, "add", "sub");
+
+    const diff = await git.fileDiff(root, "sub");
+    expect(diff.before).toBe(`submodule sub at ${before}\n`);
+    expect(diff.after).toBe(`submodule sub at ${after}\n`);
+  });
+});
