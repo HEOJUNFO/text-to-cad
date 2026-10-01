@@ -186,16 +186,7 @@ function commonGitDir(repository: string): string | null {
  * exists; the part that does not exist yet (a worktree about to be made) is kept as spelled.
  */
 export function realDirectory(candidate: string): string {
-  const resolved = path.resolve(candidate);
-  const missing: string[] = [];
-  for (let existing = resolved; ; existing = path.dirname(existing)) {
-    try {
-      return path.join(realpathSync(existing), ...missing.reverse());
-    } catch {
-      if (path.dirname(existing) === existing) return resolved;
-      missing.push(path.basename(existing));
-    }
-  }
+  return git.realPath(candidate);
 }
 
 /** Is `candidate` the project directory itself, however it is spelled? */

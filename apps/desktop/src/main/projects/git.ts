@@ -19,7 +19,7 @@
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
-import { rmSync } from "node:fs";
+import { realpathSync, rmSync } from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -1869,7 +1869,7 @@ export async function createWorktree(options: CreateWorktreeOptions): Promise<Cr
   await git(root, ["worktree", "add", "--no-track", "-b", branch, directory, base], { kind: "write" });
 
   return {
-    path: path.normalize(directory),
+    path: realPath(directory),
     branch,
     base: (await head(directory)) ?? base,
   };
@@ -2000,7 +2000,7 @@ export async function removeWorktree(
     throw new GitError("that worktree is no longer a git repository");
   }
   const target = (await listWorktrees(root)).find((candidate) =>
-    samePath(candidate.path, worktreePath),
+    sameRealPath(candidate.path, worktreePath),
   );
   if (!target) {
     throw new GitError("git does not know that worktree");
@@ -2080,7 +2080,27 @@ export async function deleteBranchAtBase(repoPath: string, branch: string, base:
   return (await tryGit(repoPath, ["update-ref", "-d", `refs/heads/${branch}`, base])) !== null;
 }
 
-/** Path comparison that survives a trailing separator and Windows' case rules. */
+/**
+ * `candidate` with the symlinks resolved in the part that exists; the part
+ * that does not exist yet (a worktree about to be made, or one deleted by
+ * hand) is kept as spelled. `git worktree list` answers real paths, so a path
+ * spelled through a symlinked worktree root (`~/wt`, or `/tmp` and `/var` on a
+ * Mac) only compares to it once it is resolved the same way.
+ */
+export function realPath(candidate: string): string {
+  const resolved = path.resolve(candidate);
+  const missing: string[] = [];
+  for (let existing = resolved; ; existing = path.dirname(existing)) {
+    try {
+      return path.join(realpathSync(existing), ...missing.reverse());
+    } catch {
+      if (path.dirname(existing) === existing) return resolved;
+      missing.push(path.basename(existing));
+    }
+  }
+}
+
+/** Path comparison that survives a trailing separator and Windows' case rules. Lexical: no disk. */
 export function samePath(left: string, right: string): boolean {
   const normalise = (value: string) => path.normalize(value).replace(/[\\/]+$/, "");
   const a = normalise(left);
@@ -2121,10 +2141,10 @@ export async function pruneWorktrees(options: PruneOptions): Promise<{ removed: 
   // Inside counts too: a session opened on a folder in the worktree is
   // running in it just as much as one at its root.
   const held = (worktreePath: string) => protectedNow().some((protectedPath) =>
-    samePath(protectedPath, worktreePath) || isUnder(worktreePath, protectedPath));
+    sameRealPath(protectedPath, worktreePath) || isUnderReal(worktreePath, protectedPath));
 
   const eligible = worktrees.filter((worktree) =>
-    !worktree.primary && !worktree.locked && parents.some((parent) => isUnder(parent, worktree.path)) &&
+    !worktree.primary && !worktree.locked && parents.some((parent) => isUnderReal(parent, worktree.path)) &&
     !held(worktree.path));
   // Within the limit nothing goes, so nothing needs dating — the usual case,
   // and the one every create would otherwise pay for.
@@ -2226,13 +2246,27 @@ export function sessionsUsing<T extends { cwd: string; worktreePath?: string | u
 ): T[] {
   return all.filter((session) =>
     !session.archived &&
-    [session.cwd, session.worktreePath].some((root) => root && (samePath(root, worktree) || isUnder(worktree, root))));
+    [session.cwd, session.worktreePath].some((root) => root && (sameRealPath(root, worktree) || isUnderReal(worktree, root))));
 }
 
 /** True when `child` is inside `parent` — the test that keeps the sweep in its own root. */
 export function isUnder(parent: string, child: string): boolean {
   const relative = path.relative(path.normalize(parent), path.normalize(child));
   return relative !== "" && !climbsOut(relative);
+}
+
+/**
+ * `samePath` through the real paths: for a path against what `git worktree
+ * list` answers (always real), where the other side may be spelled through a
+ * symlinked worktree root. Reads the disk; the lexical pair is the fast path.
+ */
+export function sameRealPath(left: string, right: string): boolean {
+  return samePath(realPath(left), realPath(right));
+}
+
+/** `isUnder` through the real paths; see `sameRealPath`. */
+export function isUnderReal(parent: string, child: string): boolean {
+  return isUnder(realPath(parent), realPath(child));
 }
 
 /* -------------------------------------------------------------------------- */

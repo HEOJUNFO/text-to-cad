@@ -103,8 +103,8 @@ async function worktreesOf(project: Project): Promise<Worktree[]> {
   // Listed by the project's own repository, so a worktree in the shared
   // pre-hash folder shows here only when it is this project's.
   for (const worktree of await git.listWorktrees(project.path)) {
-    if (worktree.primary || (!parents.some((parent) => git.isUnder(parent, worktree.path)) &&
-        !open.some(session => session.worktreePath && git.samePath(session.worktreePath, worktree.path)))) {
+    if (worktree.primary || (!parents.some((parent) => git.isUnderReal(parent, worktree.path)) &&
+        !open.some(session => session.worktreePath && git.sameRealPath(session.worktreePath, worktree.path)))) {
       continue;
     }
     const lastUsedAt = await git.lastWrittenAt(worktree.path);
@@ -249,8 +249,8 @@ export const gitHandlers = {
         const parents = projectWorktreeDirs(settings.get(), project);
         const worktrees = info.isRepository
           ? (await git.listWorktrees(project.path)).filter(
-              (worktree) => !worktree.primary && (parents.some((dir) => git.isUnder(dir, worktree.path)) ||
-                sessions.list(project.id).some(session => session.worktreePath && git.samePath(session.worktreePath, worktree.path))),
+              (worktree) => !worktree.primary && (parents.some((dir) => git.isUnderReal(dir, worktree.path)) ||
+                sessions.list(project.id).some(session => session.worktreePath && git.sameRealPath(session.worktreePath, worktree.path))),
             )
           : [];
         return {
@@ -339,14 +339,14 @@ export const gitHandlers = {
         const requested = path.resolve(target);
         const parents = projectWorktreeDirs(settings.get(), project);
         const recorded = sessions.list(project.id).some(session =>
-          session.worktreePath && git.samePath(session.worktreePath, requested));
+          session.worktreePath && git.sameRealPath(session.worktreePath, requested));
         // Under one of the project's folders (or recorded by one of its
         // sessions) AND a linked worktree of the project's own repository: the
         // pre-hash folder is shared by every same-named project, so the folder
         // alone does not say whose it is.
         const own = (await git.listWorktrees(project.path)).some(worktree =>
-          !worktree.primary && git.samePath(worktree.path, requested));
-        if (!own || (!parents.some((parent) => git.isUnder(parent, requested)) && !recorded)) {
+          !worktree.primary && git.sameRealPath(worktree.path, requested));
+        if (!own || (!parents.some((parent) => git.isUnderReal(parent, requested)) && !recorded)) {
           throw new IpcError("that worktree does not belong to this project");
         }
         // Not even forced: pulling the directory out from under a session

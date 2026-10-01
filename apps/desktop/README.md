@@ -2469,6 +2469,12 @@ Every session has a working directory, and a git mode is how it got one
 | `checkout` | the project directory | whatever it is on | — |
 | `worktree` | a new worktree | a new `text-to-cad/<slug>` | the same directory |
 
+Worktree paths are compared by real path (`git.sameRealPath` / `git.isUnderReal` resolve
+symlinks in the part that exists), because `git worktree list` answers real paths:
+a `worktreeRoot` that is a symlink (`~/wt`, or `/tmp` and `/var` on a Mac) still
+lists, sweeps and deletes, and a session spelled through the link still holds its
+worktree. A new worktree's recorded path is the real one.
+
 `worktree` is the only one that can fail — a project that is not a repository,
 or one with no commits — and it fails with a sentence rather than git's words.
 The others work in a plain folder: git is optional, and a project is a
