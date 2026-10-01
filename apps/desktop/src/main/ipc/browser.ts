@@ -33,11 +33,25 @@ const scope = (request: { sessionId: string; projectId: string; root?: string | 
   if (root !== real(session.cwd)) throw new IpcError("This browser belongs to a different session workspace.");
   return { sessionId: request.sessionId, projectId: request.projectId, root };
 };
+/** What the tab's address bar may open; anything else is a sentence, not a generic "failed". */
+const NOT_WEB_ADDRESS = "Only http and https addresses can be opened here.";
+async function navigate(request: { url?: string }, resolved: ReturnType<typeof scope>) {
+  if (request.url && request.url !== "about:blank") {
+    let protocol = "";
+    try { protocol = new URL(request.url).protocol; } catch { /* below */ }
+    if (protocol !== "http:" && protocol !== "https:") throw new IpcError(NOT_WEB_ADDRESS);
+  }
+  try { return await browserService.invoke("navigate", resolved, request) as BrowserTarget; }
+  catch (error) {
+    if (error instanceof Error && error.name === "BrowserNavigationError") throw new IpcError(error.message);
+    throw error;
+  }
+}
 export const browserHandlers = {
   browser: {
     ensure: request => browserService.open(scope(request), request),
     metadata: request => browserService.metadata(scope(request), request.tabId, request.logs !== false),
-    navigate: async request => await browserService.invoke("navigate", scope(request), request) as BrowserTarget,
+    navigate: async request => await navigate(request, scope(request)),
     input: async request => await browserService.invoke("input", scope(request), request) as BrowserTarget,
     present: (request, context) => {
       const owner = BrowserWindow.fromWebContents(context.sender);

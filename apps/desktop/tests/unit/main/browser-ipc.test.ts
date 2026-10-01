@@ -22,6 +22,7 @@ vi.mock("@main/browser/service", () => ({ browserService: { metadata } }));
 vi.mock("@main/browser/storage", () => ({ sweepBrowserStorage: sweep }));
 import { browserHandlers } from "@main/ipc/browser";
 import { IpcError } from "@main/ipc/register";
+import { browserService } from "@main/browser/service";
 
 beforeEach(async () => {
   fixture.root = fixture.cwd = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "browser-ipc-")));
@@ -54,4 +55,20 @@ it("refuses a missing workspace with an IpcError instead of a raw ENOENT", async
 it("refuses a session whose recorded directory is gone even when the root resolves", async () => {
   fixture.cwd = path.join(fixture.root, "removed-worktree");
   expect(() => browserHandlers.browser.metadata(request)).toThrow(new IpcError("This session's workspace is missing."));
+});
+
+it("refuses a non-web address with a sentence instead of a generic failure", async () => {
+  const invoke = vi.fn();
+  (browserService as unknown as { invoke: unknown }).invoke = invoke;
+  let thrown: unknown;
+  try { await browserHandlers.browser.navigate({ ...request, url: "file:///etc/passwd" }); } catch (error) { thrown = error; }
+  expect(thrown).toBeInstanceOf(IpcError);
+  expect((thrown as Error).message).toBe("Only http and https addresses can be opened here.");
+  expect(invoke).not.toHaveBeenCalled();
+});
+
+it("reports a page that could not be reached as an IpcError naming the host", async () => {
+  const invoke = vi.fn().mockRejectedValue(Object.assign(new Error("example.invalid could not be reached: net::ERR_NAME_NOT_RESOLVED"), { name: "BrowserNavigationError" }));
+  (browserService as unknown as { invoke: unknown }).invoke = invoke;
+  await expect(browserHandlers.browser.navigate({ ...request, url: "https://example.invalid/" })).rejects.toThrow(new IpcError("example.invalid could not be reached: net::ERR_NAME_NOT_RESOLVED"));
 });

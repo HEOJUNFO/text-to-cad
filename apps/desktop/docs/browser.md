@@ -117,6 +117,12 @@ cancelled rather than opening that dialog over their work, and counted as an
 error in the page's console. These
 constraints are reported rather than implemented as successful no-ops.
 
+An address the tab cannot open is answered in words, and the answer stays: a
+typed `file://` address is refused with "Only http and https addresses can be
+opened here.", and a load that fails reaches the tab as "<host> could not be
+reached: <error>". The tab keeps that sentence until the next navigation succeeds;
+the poll that refreshes the page's title and history does not clear it.
+
 The stock MCP exposes JavaScript evaluation and file upload; its subprocess runs
 with the agent's ordinary OS permissions. Target scoping protects app pages and
 workspace partitions, not all filesystem or network effects of agent code.

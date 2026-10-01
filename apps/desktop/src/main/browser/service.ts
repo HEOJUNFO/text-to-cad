@@ -23,6 +23,13 @@ export function browserURL(value: string) {
   return url.href;
 }
 
+/** A load that reached the network and failed (DNS, refused, TLS), in words the tab can show. */
+export function navigationFailure(address: string, errorText: string) {
+  let host = address;
+  try { host = new URL(address).host || address; } catch { /* shown as typed */ }
+  return Object.assign(new Error(`${host} could not be reached: ${errorText}`), { name: "BrowserNavigationError" });
+}
+
 /** Owns live pages independently of whichever project or tab is painted. */
 export class BrowserService {
   /** `opened` / `closed`, one listener pair per scoped CDP connection (they leave with it), so more than ten sessions' clients are ordinary. A finite cap, not 0: a listener leak past a hundred connections should still warn. */
@@ -265,7 +272,7 @@ export class BrowserService {
       const navigation = browserMethodSchemas.navigate.parse(params);
       if (navigation.url) {
         const result = await harness.Page.navigate({ url: browserURL(navigation.url) });
-        if (result.errorText) throw new Error(result.errorText);
+        if (result.errorText) throw navigationFailure(navigation.url, result.errorText);
       } else if (navigation.direction === "back" && view.webContents.navigationHistory.canGoBack()) view.webContents.navigationHistory.goBack();
       else if (navigation.direction === "forward" && view.webContents.navigationHistory.canGoForward()) view.webContents.navigationHistory.goForward();
       else if (navigation.direction === "reload") await harness.Page.reload({});
