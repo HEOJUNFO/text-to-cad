@@ -2211,6 +2211,10 @@ when it was written by the same app version and holds every provider. Then:
   rejects draws the "Could not read the agent list" alert a failed first read does.
 - A **cold launch** (no usable cache) waits for the first probe for at most
   `PROBE_WAIT_MS` (3 s), then answers with whatever it has, which may be empty.
+  An empty table is "not checked yet", not "nothing installed": a send from the
+  new-session screen before the probe has landed is held with "Still checking
+  which agents are installed…" and goes out when the probe finds an agent; "Install
+  an agent first" is shown only once the probe has answered and found none.
 - If the probe fails while the table is still the last launch's, or has none and the
   rows are the registry's, its rows stay
   but carry `probeFailed` instead of `probing` (a row a login has since re-checked

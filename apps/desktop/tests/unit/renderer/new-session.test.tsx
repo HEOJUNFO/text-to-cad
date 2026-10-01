@@ -209,13 +209,43 @@ describe("a start that needs a sign-in", () => {
     expect(submit).toHaveBeenCalledWith("s1", "make a cube", [{ type: "text", text: "make a cube" }], expect.anything());
   });
 
-  it("does not draw Try again on the install-an-agent card, which has Dismiss and nothing to retry", async () => {
+  it("holds a send while the first probe is out, rather than claiming nothing is installed", async () => {
     const user = userEvent.setup();
     useAgents.setState({ agents: [], ready: false });
     useComposer.setState({ drafts: { "__new__:p1": "make a cube" } });
     render(<NewSession project={PROJECT} />);
 
     await user.click(screen.getByRole("button", { name: "Send" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Still checking which agents are installed…");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("sends the held prompt once the probe lands and finds an agent", async () => {
+    const user = userEvent.setup();
+    useAgents.setState({ agents: [], ready: false });
+    create.mockResolvedValueOnce("s1");
+    useComposer.setState({ drafts: { "__new__:p1": "make a cube" } });
+    render(<NewSession project={PROJECT} />);
+
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByRole("status");
+    act(() => useAgents.getState().receive([AGENT as AgentStatus]));
+
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ agentId: "claude" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("asks for an install, with Dismiss and no Try again, only once the probe found none", async () => {
+    const user = userEvent.setup();
+    useAgents.setState({ agents: [], ready: false });
+    useComposer.setState({ drafts: { "__new__:p1": "make a cube" } });
+    render(<NewSession project={PROJECT} />);
+
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByRole("status");
+    act(() => useAgents.getState().receive([{ ...AGENT, installed: false, launchWithoutBinary: false } as AgentStatus]));
     expect(await screen.findByRole("alert")).toHaveTextContent("Install an agent first");
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     expect(screen.getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
