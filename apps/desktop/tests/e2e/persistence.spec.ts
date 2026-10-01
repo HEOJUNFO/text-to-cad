@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { expect, test, type ElectronApplication, type Locator, type Page } from "@playwright/test";
+import { expect, type ElectronApplication, type Locator, type Page } from "@playwright/test";
 import type { TextToCadApi } from "../../src/shared/ipc";
-import { chooseDirectory, launch, type Launched, scratch } from "./launch";
+import { chooseDirectory, launch, type Launched, scratch, test } from "./launch";
 
 /**
  * What a quit and a relaunch keep, and what opening a session then costs —

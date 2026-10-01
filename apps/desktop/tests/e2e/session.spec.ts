@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
+import { expect, type ElectronApplication, type Page } from "@playwright/test";
 import type { TextToCadApi } from "../../src/shared/ipc";
-import { chooseDirectory, launch, scratch, setTheme as setThemeIn, settledLayout, shoot as shootInto } from "./launch";
+import { chooseDirectory, launch, scratch, setTheme as setThemeIn, settledLayout, shoot as shootInto, test } from "./launch";
 
 /**
  * The session UI against the fake agent (plan §12): new session → prompt →

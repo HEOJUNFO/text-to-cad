@@ -2,10 +2,10 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
+import { expect, type ElectronApplication, type Page } from "@playwright/test";
 import { projectWorktreeDir } from "../../src/main/projects/workspace";
 import type { TextToCadApi } from "../../src/shared/ipc";
-import { chooseDirectory, launch, mod, newTab as newTabIn, scratch, settleTerminal, shoot as shootInto } from "./launch";
+import { chooseDirectory, launch, mod, newTab as newTabIn, scratch, settleTerminal, shoot as shootInto, test } from "./launch";
 
 /**
  * Projects, git modes, worktrees and the review (plan §9), on one app and one
