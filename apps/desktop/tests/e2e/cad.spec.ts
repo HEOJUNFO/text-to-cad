@@ -9,6 +9,7 @@ import type { IntegrationCommand, IntegrationReply } from "../../src/shared/ipc/
 import { cadRegistryEnvironment, cadRuntimeReady, cadTestProfile } from "./cad-runtime";
 import { launch, repoRoot, settleTerminal } from "./launch";
 import { QUIT_DEADLINE_MS } from "../../src/main/quit-deadline";
+import { QUIT_BUDGET_MS, QUIT_TEARDOWN_BUDGET_MS, teardownMs } from "./quit-budget";
 import { selectFixtureSession } from "./session-fixture";
 
 /**
@@ -52,8 +53,6 @@ const revision = createHash("sha256").update(stepBytes).digest("hex");
 
 let app: ElectronApplication;
 let page: Page;
-/** README "Quitting": `app.quit()` has two seconds, teardown and the watchdog's deadline included. */
-const QUIT_BUDGET_MS = 2_000;
 let lines: string[];
 let userData: string;
 let socketDir: string;
@@ -318,13 +317,22 @@ test("the app quits with everything running and leaves no child behind", async (
   // into main and the 25 ms poll are inside it; the watchdog's part is QUIT_DEADLINE_MS plus the
   // quarter second the kill takes to land (quit-deadline.ts), which leaves the rest of the budget as slack.
   const quitMs = Date.now() - quitAt;
-  // Printed whether it passes or not (launch.ts has no CI marker), so a CI log shows how much of the
-  // budget a run used; the assertion below is unchanged.
-  console.info(`[quit-budget] app.quit() to pid gone: ${quitMs} ms of ${QUIT_BUDGET_MS} ms (deadline ${QUIT_DEADLINE_MS} ms)`);
-  test.info().annotations.push({ type: "quit-ms", description: String(quitMs) });
-  expect(quitMs, `the app took ${quitMs} ms to quit (deadline ${QUIT_DEADLINE_MS} ms, budget ${QUIT_BUDGET_MS} ms)`).toBeLessThan(QUIT_BUDGET_MS);
   // `before-quit` ran its teardown and `will-quit` arrived (the lines land as the pipe drains).
   await expect.poll(() => lines.filter((line) => /^\[quit\] (will-quit|teardown \d+ms)$/.test(line.trim())).length).toBeGreaterThanOrEqual(2);
+  // Everything is printed and annotated before anything is asserted (launch.ts has no CI marker), so a
+  // CI log of a failing run shows the split: main's own `[quit]` lines, the teardown against its
+  // budget, and what is left for Chromium's shutdown and the watchdog's kill.
+  const quitLines = lines.map((line) => line.trim()).filter((line) => line.startsWith("[quit]"));
+  for (const line of quitLines) console.info(line);
+  const teardown = teardownMs(quitLines);
+  console.info(`[quit-budget] app.quit() to pid gone: ${quitMs} ms of ${QUIT_BUDGET_MS} ms (deadline ${QUIT_DEADLINE_MS} ms)`);
+  console.info(`[quit-budget] before-quit teardown: ${teardown} ms of ${QUIT_TEARDOWN_BUDGET_MS} ms; the other ${teardown === null ? "?" : quitMs - teardown} ms is Chromium's shutdown, the watchdog and the polling`);
+  test.info().annotations.push({ type: "quit-ms", description: String(quitMs) }, { type: "quit-teardown-ms", description: String(teardown) });
+  expect(quitMs, `the app took ${quitMs} ms to quit (deadline ${QUIT_DEADLINE_MS} ms, budget ${QUIT_BUDGET_MS} ms; teardown ${teardown} ms)`).toBeLessThan(QUIT_BUDGET_MS);
+  // The teardown is synchronous (quit-budget.ts has the derivation): the total can pass on a fast
+  // machine while a step has started to wait, and fail on a slow one without saying which part.
+  expect(teardown, "main logged no `[quit] teardown Nms` line").not.toBeNull();
+  expect(teardown!, `before-quit's teardown took ${teardown} ms (budget ${QUIT_TEARDOWN_BUDGET_MS} ms); lines: ${quitLines.join(" | ")}`).toBeLessThanOrEqual(QUIT_TEARDOWN_BUDGET_MS);
   await expect.poll(() => tree.filter((entry) => alive(entry.pid)).map((entry) => ({ ...entry, current: processState(entry.pid) })), { timeout: 5_000 }).toEqual([]);
   await exited;
   // What the watchdog and the teardown leave: the shared warm daemon is detached by design (README, "Quitting").

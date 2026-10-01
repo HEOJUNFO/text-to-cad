@@ -13,6 +13,7 @@ import { SessionManager, type SessionRepository } from "@main/acp/sessions";
 import { db } from "@main/db/index";
 import type { AgentProvider } from "@shared/agents";
 import type { Session } from "@shared/types";
+import { QUIT_TEARDOWN_BUDGET_MS, teardownMs } from "../../e2e/quit-budget";
 import { cleanTempDirs, tempDir } from "./temp-dirs";
 
 /**
@@ -30,6 +31,8 @@ const h = vi.hoisted(() => ({
   cadFails: false,
   /** The database handle's `close()` throws. */
   dbCloseFails: false,
+  /** The database handle's `close()` blocks this many milliseconds first. */
+  dbCloseDelayMs: 0,
   ready: false,
   /** `app.isReady()` at each call of Aptabase's `initialize`. */
   aptabaseInitReady: [] as boolean[],
@@ -106,6 +109,7 @@ vi.mock("better-sqlite3", () => ({
     close() {
       h.order.push("closeDb");
       h.teardown.push("database");
+      for (const until = Date.now() + h.dbCloseDelayMs; Date.now() < until; ) { /* a close() that blocks */ }
       if (h.dbCloseFails) {
         throw new Error("close failed");
       }
@@ -421,6 +425,29 @@ describe("quit sequence", () => {
     expect(h.teardown).toContain("ended");
     expect(h.arm).toHaveBeenCalledTimes(1);
     expect(main.error).toHaveBeenCalledWith("[main] quit teardown database:", expect.any(Error));
+    main.restore();
+  });
+
+  it("logs how long the teardown took, and a step that starts to wait shows in it (the e2e asserts the same budget on the real app)", async () => {
+    const main = await freshMain();
+    h.app.emit("before-quit");
+    const quick = teardownMs(main.info.mock.calls.map(([line]) => String(line)));
+    expect(quick, "main logged no `[quit] teardown Nms` line").not.toBeNull();
+    expect(quick!, `teardown took ${quick} ms (budget ${QUIT_TEARDOWN_BUDGET_MS} ms)`).toBeLessThanOrEqual(QUIT_TEARDOWN_BUDGET_MS);
+
+    main.restore();
+
+    // A fresh app: the first quit closed the database.
+    const waiting = await freshMain();
+    h.dbCloseDelayMs = 300;
+    try {
+      h.app.emit("before-quit");
+    } finally {
+      h.dbCloseDelayMs = 0;
+    }
+    const slow = teardownMs(waiting.info.mock.calls.map(([line]) => String(line)));
+    expect(slow, "a 300 ms close() should show in the logged teardown").toBeGreaterThanOrEqual(300);
+    expect(slow!, "a 300 ms close() should exceed the teardown budget").toBeGreaterThan(QUIT_TEARDOWN_BUDGET_MS);
     main.restore();
   });
 });

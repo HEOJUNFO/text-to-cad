@@ -342,7 +342,7 @@ if (!app.requestSingleInstanceLock()) {
    * made quitting take sixty seconds.
    */
   let quitStartedAt: number | undefined;
-  // Armed at the end of `before-quit` and again at `will-quit`; once is enough.
+  // Armed once, at the end of `before-quit`; `will-quit` calls it too, as the fallback if `before-quit` threw before its `try`.
   let deadlineArmed = false;
   const armDeadline = () => {
     if (!deadlineArmed) {

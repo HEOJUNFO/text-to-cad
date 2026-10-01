@@ -7,8 +7,9 @@ import { runInNewContext } from "node:vm";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { armQuitDeadline, watchdogScript } from "@main/quit-deadline";
+import { armQuitDeadline, QUIT_DEADLINE_MS, WATCHDOG_PROBE_TIMEOUT_MS, watchdogScript } from "@main/quit-deadline";
 import { markQuittingForUpdate } from "@main/quitting";
+import { QUIT_BUDGET_MS } from "../../e2e/quit-budget";
 
 // The real spawn, observable: `armQuitDeadline` is checked by the script it
 // hands the watchdog, and those two calls are answered by a stub.
@@ -152,6 +153,35 @@ setInterval(() => {}, 1000);
       expect(alive(app.target.pid!)).toBe(false);
       // With no groups known, the unspared children are killed singly (the worker in the viewer's group is not reached).
       await expect.poll(() => [app.pids.attached, app.pids.viewer].filter(alive), { timeout: 5_000 }).toEqual([]);
+    } finally {
+      app.cleanup();
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the whole quit inside the two-second budget with the real deadline even when both probes hang", async () => {
+    // The one place the budget arithmetic lives (README, "Quitting"): the deadline, then at worst
+    // both probes (`pgrep`, `ps`) run to their timeouts before the kill, plus slack for starting the
+    // watchdog and the kill landing. The sum must itself fit the README's budget, so raising a
+    // probe timeout fails here even though the measured time follows it.
+    const SLACK_MS = 300;
+    const allowed = QUIT_DEADLINE_MS + 2 * WATCHDOG_PROBE_TIMEOUT_MS + SLACK_MS;
+    const formula = `QUIT_DEADLINE_MS ${QUIT_DEADLINE_MS} + 2 * WATCHDOG_PROBE_TIMEOUT_MS ${WATCHDOG_PROBE_TIMEOUT_MS} + ${SLACK_MS} = ${allowed}`;
+    expect(allowed, `${formula} must fit QUIT_BUDGET_MS ${QUIT_BUDGET_MS}`).toBeLessThanOrEqual(QUIT_BUDGET_MS);
+
+    const stub = withStubPs("exec sleep 30");
+    // pgrep hangs as well: the worst case is two probes at their timeouts.
+    fs.writeFileSync(path.join(stub.dir, "pgrep"), "#!/bin/sh\nexec sleep 30\n", { mode: 0o755 });
+    const app = await launchApp();
+    try {
+      const started = Date.now();
+      const done = runWatchdog(app.target.pid!, QUIT_DEADLINE_MS, [], undefined, stub.env);
+      await expect.poll(() => alive(app.target.pid!), { timeout: 10_000, interval: 10 }).toBe(false);
+      const elapsed = Date.now() - started;
+      await done;
+      expect(elapsed, `the app was killed ${elapsed} ms after the watchdog started; allowed ${formula}`).toBeLessThanOrEqual(allowed);
+      // The deadline was waited out, not skipped.
+      expect(elapsed, "the watchdog should wait for the deadline").toBeGreaterThanOrEqual(QUIT_DEADLINE_MS - 50);
     } finally {
       app.cleanup();
       fs.rmSync(stub.dir, { recursive: true, force: true });

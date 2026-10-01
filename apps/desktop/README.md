@@ -243,6 +243,7 @@ npm test             # vitest: tests/unit/{main,shared} in node, tests/unit/rend
                      # tests/browser in Playwright's Chromium (`npx playwright install chromium`; CI installs only the
                      # headless shell, `--only-shell`, which is all they launch)
 npm run lint         # eslint flat config
+npm run lint:file -- src/main/index.ts   # lint named files only (same config)
 npm run build        # scripts/build.mjs: compose the skills, electron-vite build -> out/, bundle the MCP server
 npm run e2e          # playwright _electron against out/ — run `npm run build` first
 ```
@@ -1660,9 +1661,15 @@ playbook for the mode bases and camera behavior.
 ## Quitting
 
 `app.quit()` has a budget of two seconds (`tests/e2e/cad.spec.ts` quits with everything running and
-asserts the process is gone within it, and that `[quit] teardown` and `[quit] will-quit` were logged; it prints
-`[quit-budget] app.quit() to pid gone: N ms of 2000 ms (deadline 1200 ms)` whether it passes or fails, so a CI log shows
-how much of the budget a run used, and records N as the `quit-ms` annotation), and the
+asserts two things: the process is gone within it, and `before-quit`'s own teardown, the
+`[quit] teardown Nms` line, took at most 250 ms (`tests/e2e/quit-budget.ts` has the derivation:
+the teardown is synchronous, about 6 ms locally, and counts toward the watchdog's deadline).
+It echoes main's `[quit]` lines and prints
+`[quit-budget] app.quit() to pid gone: N ms of 2000 ms (deadline 1200 ms)` and the teardown's share
+whether it passes or fails, and records both as the `quit-ms` and `quit-teardown-ms` annotations,
+so a CI log shows which part of the budget a slow run spent. `tests/unit/main/quit-sequence.test.ts`
+pins the same teardown bound against the real `before-quit` handler, with a `close()` that blocks
+shown to exceed it), and the
 teardown in `before-quit` is written for it: every owner signals what it
 owns and nothing is awaited. Electron waits for the Node side, and the Node
 side waits for every child it holds a pipe to, so `src/main/children.ts`
@@ -1691,8 +1698,8 @@ CoreAnalytics XPC send; `app.exit()` is slower still, and no timer of ours
 runs once the event loop has stopped). `src/main/quit-deadline.ts` keeps a
 deadline from outside: a detached copy of this binary run as Node that
 kills the app and its helpers at an absolute deadline, 1.2 seconds from
-`before-quit`. It is armed at the end of `before-quit`, once state is saved
-(and again, harmlessly, at `will-quit`), so a stall between the two — a
+`before-quit`. It is armed once, at the end of `before-quit`, once state is saved
+(`will-quit` arms it only if `before-quit` did not, having thrown before reaching its `try`), so a stall between the two — a
 window that never acks its unload, a main-process error dialog (an
 `uncaughtException` while quitting exits at once) — is bounded too. It counts
 teardown and watchdog startup toward the same budget. On POSIX it kills every
@@ -1703,7 +1710,11 @@ group of its own, like the viewer, is killed as a group, so its compile workers
 go with it; Chromium's helpers are killed singly. (A viewer reused from another
 run is not a child of this app and is never touched.) Its two probes, `pgrep -P`
 for the children and `ps` for their groups, each run under a 250 ms timeout so a
-hung `ps` cannot stall the final kill of the app. If `pgrep` fails or times out
+hung `ps` cannot stall the final kill of the app. The worst case is therefore
+`QUIT_DEADLINE_MS` + 2 × `WATCHDOG_PROBE_TIMEOUT_MS` + 300 ms of slack for starting the watchdog and
+the kill landing, which is 2000 ms, the whole budget; `tests/unit/main/quit-deadline.test.ts` holds that
+arithmetic in one place (the sum must fit the budget, and a run with both probes hanging must finish within it),
+so raising a probe timeout fails there. If `pgrep` fails or times out
 it finds no children, and only the app is killed; if `ps` times out, no groups are
 known and every unspared child is killed singly (a viewer's workers, in its own group,
 are then not reached). On macOS, `ps -p a,b` prints the rows
