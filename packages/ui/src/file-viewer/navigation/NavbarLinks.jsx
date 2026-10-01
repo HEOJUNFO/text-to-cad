@@ -1,4 +1,4 @@
-import { Check, Copy, Download } from "lucide-react";
+import { Check, Copy, Download, MessageCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@text-to-cad/ui/primitives/button";
@@ -7,6 +7,7 @@ import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { cn } from "@text-to-cad/ui/utils";
 
 import { DiscordMark, GitHubMark, XMark } from "./brandMarks.jsx";
+import { issueUrl } from "./links.js";
 import wordmark from "../../assets/logo-cad.svg";
 
 /**
@@ -14,13 +15,19 @@ import wordmark from "../../assets/logo-cad.svg";
  * them. A newer release the host found (`links.latest`) is a blue download button — nothing at all
  * when there is none — whose menu says what is new and how this host updates (`UpdateButton`).
  * X, Discord and GitHub are icon links (`CommunityLinks`): in the Settings popover's header, beside
- * the version, and under the home's wordmark. Every link opens the host's way: a page that can open
- * one itself follows an ordinary link to a new tab; a page in a frame that cannot hands it to
- * `links.open` (the host's own browser). Copies go through the host's clipboard.
+ * the version, and under the home's wordmark. Feedback (`FeedbackLink`) opens a new issue: in the
+ * navbar, before the view's controls, and last under the home's wordmark. Every link opens the
+ * host's way: a page that can open one itself follows an ordinary link to a new tab; a page in a
+ * frame that cannot hands it to `links.open` (the host's own browser). Copies go through the
+ * host's clipboard.
  */
 
-/** How a link is followed: the ordinary way, or through the host's `links.open`. */
-function useFollow(links, onError) {
+/**
+ * How a link is followed: the ordinary way, or through the host's `links.open`.
+ * @param {import("../../host/types.js").ViewerLinks | undefined} links
+ * @param {(error: Error) => void} [onError]
+ */
+export function useFollow(links, onError) {
   if (!links?.open) return undefined;
   return (event) => {
     event.preventDefault();
@@ -40,6 +47,18 @@ export function CommunityLinks({ links, onError }) {
     <IconLink href={links.discord} label="Discord" icon={DiscordMark} onFollow={follow} />
     <IconLink href={links.github} label="GitHub" icon={GitHubMark} onFollow={follow} />
   </>;
+}
+
+/**
+ * Feedback: a new issue on the host's tracker (`links.issues`), blank for the person to fill in
+ * but for where it came from — the version and the platform. Nothing where the host has none.
+ * @param {{ links: import("../../host/types.js").ViewerLinks, platform?: string, onError?: (error: Error) => void }} props
+ *   `platform`: the host's `environment.platform`.
+ */
+export function FeedbackLink({ links, platform, onError }) {
+  const follow = useFollow(links, onError);
+  const href = issueUrl(links.issues, { body: "**What happened, or what would you like?**\n\n", about: { CAD: links.version, Platform: platform } });
+  return <IconLink href={href} label="Feedback" icon={MessageCircle} onFollow={follow} />;
 }
 
 function IconLink({ href, label, icon: Icon, onFollow }) {

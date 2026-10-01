@@ -174,7 +174,7 @@ function DxfSurface({ view, data }) {
         </div> : null}
         <ViewerLoadingOverlay loading={{ opening: payload.loading && !alert, progress: { label: "Reading drawing" } }}
           operationKey={file} />
-        <ViewerAlertCard alert={alert || (actionError ? { severity: "error", kind: "status", blocking: false, title: "Couldn’t capture the drawing", message: actionError } : null)} hasContent={shown} onReload={view.reload} />
+        <ViewerAlertCard alert={alert || (actionError ? { severity: "error", kind: "status", blocking: false, title: "Couldn’t capture the drawing", message: actionError } : null)} hasContent={shown} onReload={view.reload} file={file} />
       </div>
     </div>
   );

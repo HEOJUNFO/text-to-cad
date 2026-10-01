@@ -14,6 +14,7 @@ import {
   normalizeViewerDiscordUrl,
   normalizeViewerGithubUrl,
   normalizeViewerReleaseVersion,
+  viewerGithubIssueUrl,
   viewerGithubLatestReleaseApiUrl,
   viewerGithubLatestReleaseUrl,
   viewerGithubReleaseUrl,
@@ -90,7 +91,7 @@ function useLatestRelease({ latestReleaseApiUrl, latestReleaseUrl, mockLatestVer
   return release;
 }
 
-/** This Viewer's `ViewerHost.links`: the version it runs, X, its build's GitHub and Discord, and what GitHub says is newest. */
+/** This Viewer's `ViewerHost.links`: the version it runs, X, its build's GitHub (and new issues there) and Discord, and what GitHub says is newest. */
 export function useViewerLinks() {
   const version = normalizeViewerReleaseVersion(viewerPackage.version);
   const github = normalizeViewerGithubUrl(import.meta.env?.VIEWER_GITHUB_URL);
@@ -102,7 +103,7 @@ export function useViewerLinks() {
     mockLatestReleaseUrl: mockLatestVersion ? viewerGithubReleaseUrl(mockLatestVersion, github) : ""
   });
   return useMemo(() => viewerLinks({
-    version, github, discord, release: viewerGithubReleaseUrl(version, github),
+    version, github, discord, issues: viewerGithubIssueUrl(github), release: viewerGithubReleaseUrl(version, github),
     install: { command: release?.installCommand || DEFAULT_VIEWER_SKILLS_INSTALL_COMMAND, prompt: DEFAULT_VIEWER_SKILLS_UPDATE_PROMPT },
     latest: release ? { version: release.latestVersion, url: release.releaseUrl, newer: isViewerReleaseUpdateSuggested(version, release.latestVersion) } : null
   }), [version, github, discord, release]);

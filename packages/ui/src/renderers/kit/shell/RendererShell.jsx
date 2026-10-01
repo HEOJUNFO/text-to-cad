@@ -264,7 +264,7 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
                     preserveInteractionPixelRatio={frame.preserveInteractionPixelRatio || renderProfileKeepsPixelRatio(renderProfile)}
                     runtimeLifecycle={frame.runtimeLifecycle}
                   >{overlay}</ShellViewport>
-                  {!previewing ? <ViewerAlertCard key={frame.modelKey} alert={frame.viewerAlert} hasContent={hasContent} onReload={view.reload} /> : null}
+                  {!previewing ? <ViewerAlertCard key={frame.modelKey} alert={frame.viewerAlert} hasContent={hasContent} onReload={view.reload} file={view.file?.path} /> : null}
                 </div>
               </div>
 

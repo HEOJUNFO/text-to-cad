@@ -25,7 +25,7 @@ turns the explorer.
 | The host (web, desktop) supplies | The shared UI decides |
 | --- | --- |
 | Where the tab record lives (`TabRecordStorage`: the web's sessionStorage, the desktop's per-tab store) | The record: its settings (the tree, the tool stack's layout, the appearance) and each file's view (its camera, Display settings, Playback settings and renderer slices), what is written when, and what is never stored (`@text-to-cad/ui/tab-store`, `kit/shell/fileView.js`) |
-| `navigation.home`, `links` (its version, GitHub, Discord, how a link opens) and `displayActions` (an appearance control) | The navbar's order and look, the version's menu and the panel toggles |
+| `navigation.home`, `links` (its version, GitHub, Discord, where a new issue opens, how a link opens) and `displayActions` (an appearance control) | The navbar's order and look, the version's menu, the panel toggles and what a new issue says |
 | `host.files`, `fileActions`, `navigation`, `clipboard`, `promptContext`, `attachments` | When a copy, capture or open happens and what it carries |
 | `host.environment`: color scheme, keyboard `platform`, `reducedMotion` | How the chrome honours them |
 | `onError`, for errors the viewer hands up | Preview, tooltips, keyboard scope, the tool stack, the camera |
@@ -42,10 +42,12 @@ none.
   control) stand in the name's place beside the explorer's toggle. Right: a
   declared panel's toggle, the update — a blue download button, there only when
   the host found a newer release, whose menu says the step to it, how this host
-  updates and what is new — then the view's controls (Settings, Preview). The
-  version, GitHub and Discord are in the Settings popover's header. A CAD file
+  updates and what is new — then **Feedback** (a speech bubble, a link to a new
+  issue naming the version and platform, where the host has a tracker), then the
+  view's controls (Settings, Preview). Preview puts Feedback away with the navbar.
+  The version, X, GitHub and Discord are in the Settings popover's header. A CAD file
   declares no panel and publishes no navbar action. A host's home has no navbar:
-  its update (when there is one), GitHub and Discord stand under its CAD wordmark. A view shown small in a
+  its update (when there is one), X, Discord, GitHub and Feedback stand under its CAD wordmark. A view shown small in a
   conversation (`compact`) has none either, and draws the model alone: no tools,
   view actions, cube or Quick Edit.
 - **File explorer** floats over the view's left, inset 8px like the toolbar, on a
@@ -631,8 +633,9 @@ when a closing menu hands focus back.
 The viewer shows no toasts or notifications: copy, snapshot and prompt actions
 complete silently, the Copy and Quick Edit buttons showing a tick for a moment.
 Progress stays in the viewport; a failed action is the
-viewport's alert card; errors handed to the host's `onError` are the host's to
-show.
+viewport's alert card, whose **Retry** reloads the file and whose **Report Issue**,
+where the host has a tracker, opens a new issue filled in from the card; errors
+handed to the host's `onError` are the host's to show.
 
 ## Verification
 

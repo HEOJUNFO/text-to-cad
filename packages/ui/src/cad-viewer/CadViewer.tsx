@@ -148,18 +148,18 @@ export function CadViewer<Model extends LibraryModel = LibraryModel>({ client, h
   // A file opened meanwhile has the screen, and the GPU, to itself.
   useEffect(() => { if (file) drawn(false); }, [file, drawn]);
 
-  const colorScheme = host.environment.colorScheme;
+  const { colorScheme, platform } = host.environment;
   const layout = settings.library.layout;
   const changeLayout = useCallback((next: LibraryLayout) => preferences.update({ library: { layout: next } }), [preferences]);
   const presentation = useMemo(() => ({
     home: library ? <ModelLibrary library={library} layout={layout} onLayoutChange={changeLayout} picture={picture}
-      links={host.links} clipboard={host.clipboard} onError={onError} /> : undefined,
+      links={host.links} platform={platform} clipboard={host.clipboard} onError={onError} /> : undefined,
     empty: <EmptyState icon={Box} title="Ask the agent to show a model" />,
     loading: <div className="relative h-full"><ViewerLoadingOverlay viewerLoading /></div>,
     error: () => <div className="relative h-full">{catalog.error
       ? <EmptyState icon={FolderX} title="Could not read this folder" description={catalog.error} tone="warn" />
       : <EmptyCadBackdrop colorScheme={colorScheme}><MissingFileAlert missingFileRef={file} rootPath={rootPath} /></EmptyCadBackdrop>}</div>,
-  }), [library, colorScheme, layout, changeLayout, catalog.error, file, rootPath, picture, host.links, host.clipboard, onError]);
+  }), [library, colorScheme, layout, changeLayout, catalog.error, file, rootPath, picture, host.links, platform, host.clipboard, onError]);
   return <>
     <FileViewer file={file || null} host={viewerHost} renderers={renderers} state={state} onStateChange={onStateChange}
       displayActions={displayActions} navigationPath={navigationPath} onError={onError} presentation={presentation} />

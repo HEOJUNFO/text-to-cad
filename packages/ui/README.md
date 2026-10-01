@@ -277,9 +277,9 @@ The binding [viewer design system](docs/settings-ui.md) defines tool lifecycle,
 the tool stack, mobile layout, section density, keyboard scope, tooltips
 and preview. RendererShell owns the top-left toolbar, Quick Edit at the top-right,
 the bottom-left cube, and the view's controls it draws into the navbar's right end
-(`navbarSlot`): Display settings, then Preview. Preview is the shell's own
-mode, where routines play and the model orbits, and preserves the parent
-navbar. Keep app-specific effects in the
+(`navbarSlot`): Display settings, then Preview, after the host's Feedback. Preview is
+the shell's own mode, where routines play and the model orbits, and takes the whole
+page, the navbar with it. Keep app-specific effects in the
 [host contract](docs/viewer-host.md), not in renderer components.
 
 One per-file settings store serves controls, live commands and persistence.
@@ -293,7 +293,9 @@ Model reference section shows their properties. There is no Materials editor or
 persisted material override. See [View styles](docs/render-mode.md) and
 [progressive detail](docs/lod.md).
 
-The navbar names the file and offers its ⋯ menu; a renderer's loading and update
-status is its own, in its viewport. An error appears as a card over the viewport;
-a failed update the model survives can be dismissed, leaving the previous
-version to inspect. Try again reloads only the selected renderer.
+The navbar names the file and offers its ⋯ menu, and Feedback (a new issue) where the
+host has a tracker; a renderer's loading and update status is its own, in its viewport.
+An error appears as a card over the viewport; a failed update the model survives can be
+dismissed, leaving the previous version to inspect. Retry reloads only the selected
+renderer; Report Issue, where the host has a tracker, opens a new issue filled in from
+the card.

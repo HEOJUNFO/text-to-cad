@@ -268,7 +268,8 @@ Large assemblies load progressively and refine visible components within memory
 budgets. Warm tessellations can render before exact surface derivation. The
 viewport carries opening/update status, centred at its top (a progress icon on
 mobile); initial loading may also use the viewport overlay, and an error is a card over the viewport whose Details keep the complete
-compiler output and whose Try again reloads only that file. A failed update the
+compiler output, whose Retry reloads only that file and whose Report Issue opens a
+new issue filled in from the card. A failed update the
 model survives can be dismissed, leaving the previous version to inspect.
 
 A source-checkout backend can restart on Python code changes. This browser host
@@ -344,10 +345,11 @@ The Viewer has the one navbar every app shares (see
 [the host contract](../../packages/ui/docs/viewer-host.md#host-chrome-slots)): at the
 left the explorer's toggle and the open file's name with its ⋯ ("Select file" with
 none open); at the right the update (a blue download button, only when GitHub has a
-newer release), then the view's controls (Settings, Preview); the version, GitHub and
-Discord are in the Settings popover's header. This host supplies the links
-(`src/host/viewerLinks.js`): its version, the GitHub and Discord its build names
-(`VIEWER_GITHUB_URL`, `VIEWER_DISCORD_URL`), and what GitHub's latest-release API
+newer release), Feedback (a new issue), then the view's controls (Settings, Preview);
+the version, X, GitHub and Discord are in the Settings popover's header. This host
+supplies the links (`src/host/viewerLinks.js`): its version, the GitHub (where new
+issues open) and Discord its build names (`VIEWER_GITHUB_URL`, `VIEWER_DISCORD_URL`),
+and what GitHub's latest-release API
 says, so the version reads "Update" when a newer release is out; links open in a new
 tab. Browser titles use "CAD | <filename>", or "CAD" when no file is selected.
 Appearance is injected as an icon-bearing dropdown beside Projection in the Display

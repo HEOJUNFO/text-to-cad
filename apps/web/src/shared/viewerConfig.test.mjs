@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { TEXT_TO_CAD_LINKS } from "@text-to-cad/ui/links";
 
 import {
   DEFAULT_VIEWER_DISCORD_URL,
@@ -15,6 +16,7 @@ import {
   normalizeViewerDiscordUrl,
   normalizeViewerGithubUrl,
   normalizeViewerSkillsInstallCommand,
+  viewerGithubIssueUrl,
   viewerGithubLatestReleaseApiUrl,
   viewerGithubLatestReleaseUrl,
   viewerGithubReleaseUrl,
@@ -83,6 +85,11 @@ test("viewerGithubReleaseUrl links to the v-prefixed release tag", () => {
     "https://github.com/example/repo/releases/tag/v0.5.0"
   );
   assert.equal(viewerGithubReleaseUrl("", "github.com/example/repo"), "");
+});
+
+test("viewerGithubIssueUrl opens a new issue on the build's repository, the shared default unless it names another", () => {
+  assert.equal(viewerGithubIssueUrl(""), TEXT_TO_CAD_LINKS.issues);
+  assert.equal(viewerGithubIssueUrl("github.com/example/repo/tree/main"), "https://github.com/example/repo/issues/new");
 });
 
 test("normalizeViewerReleaseVersion strips the tag dressing once, for display and comparison", () => {

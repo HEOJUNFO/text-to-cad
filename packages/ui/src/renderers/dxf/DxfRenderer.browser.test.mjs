@@ -336,7 +336,7 @@ test('an unreadable drawing shows the server’s own sentence, and an empty one 
   assert.match(text, /The viewer couldn’t complete the request/);
   assert.match(text, /HTTP 400/);
   assert.match(text, /not a readable DXF document/);
-  assert.match(text, /Try again/);
+  assert.match(text, /Retry/);
   assert.equal(await broken.pane.locator('[data-viewer-loading]').count(), 0, 'and not a spinner forever');
 
   const empty = await open(t, 'empty.dxf');

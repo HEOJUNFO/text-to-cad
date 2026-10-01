@@ -60,6 +60,12 @@ export function viewerGithubReleaseUrl(version = "", value = "", fallback = DEFA
   return `${repositoryUrl}/releases/tag/${encodeURIComponent(tagName)}`;
 }
 
+/** Where Feedback and Report Issue open a new issue: `issues/new` on this build's repository. */
+export function viewerGithubIssueUrl(value = "", fallback = DEFAULT_VIEWER_GITHUB_URL) {
+  const repositoryUrl = viewerGithubRepositoryUrl(value, fallback);
+  return repositoryUrl ? `${repositoryUrl}/issues/new` : "";
+}
+
 export function viewerGithubLatestReleaseUrl(value = "", fallback = DEFAULT_VIEWER_GITHUB_URL) {
   const repositoryUrl = viewerGithubRepositoryUrl(value, fallback);
   if (!repositoryUrl) {

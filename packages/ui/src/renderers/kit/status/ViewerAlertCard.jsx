@@ -1,9 +1,12 @@
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { CircleAlert, X } from "lucide-react";
 import { Button } from "@text-to-cad/ui/primitives/button";
 import { ScrollArea } from "@text-to-cad/ui/primitives/scroll-area";
 import { cn } from "@text-to-cad/ui/utils";
+import { useFollow } from "../../../file-viewer/navigation/NavbarLinks.jsx";
 import { useViewerMobile } from "../../../file-viewer/responsive.js";
+import { ViewerHostContext } from "../../../host/context.js";
+import { alertIssueUrl } from "./reportIssue.js";
 
 /**
  * Whether the card can be put away. The viewport is the one place a file's problem is said, so
@@ -21,10 +24,14 @@ const alertKey = alert => JSON.stringify([alert.severity, alert.title, alert.mes
  * The card over the viewport for the alert it shows. One the model survives can be put
  * away — the previous version is there to inspect and to pick from — until the alert
  * changes, or clears and is raised again (a retry that failed the same way). Long
- * compiler output stays complete in a scrollable diagnostic, never clipped.
+ * compiler output stays complete in a scrollable diagnostic, never clipped. Retry reloads
+ * the file; where the host has a tracker (`links.issues`), Report Issue beside it opens a
+ * new issue saying what the card says, about `file` (its path; the issue names only the file).
  */
-export default function ViewerAlertCard({ alert: shown, hasContent, onReload }) {
+export default function ViewerAlertCard({ alert: shown, hasContent, onReload, file = "" }) {
   const mobile = useViewerMobile();
+  const host = useContext(ViewerHostContext);
+  const follow = useFollow(host?.links);
   const [dismissed, setDismissed] = useState("");
   if (!shown) {
     if (dismissed) setDismissed("");
@@ -36,6 +43,9 @@ export default function ViewerAlertCard({ alert: shown, hasContent, onReload }) 
   const reason = String(shown.reason || "");
   const shortReason = reason.split("\n").find((line) => line.trim()) || "";
   const readableReason = shortReason.length > 360 ? `${shortReason.slice(0, 360)}…` : shortReason;
+  const title = shown.title || shown.summary || "Couldn’t display the model";
+  const report = alertIssueUrl(host?.links?.issues, { ...shown, title },
+    { file, version: host?.links?.version, platform: host?.environment.platform });
   return (
     <div className={cn("pointer-events-none absolute inset-0 z-30 flex min-w-0 items-center justify-center py-3", mobile ? "px-3" : "px-4")}>
       <div
@@ -46,7 +56,7 @@ export default function ViewerAlertCard({ alert: shown, hasContent, onReload }) 
           <div className="mb-3 flex items-start gap-2">
             <h2 className="flex min-w-0 flex-1 items-start gap-2 text-base font-semibold leading-6 text-foreground">
               <CircleAlert className={cn("mt-0.5 size-5 shrink-0", shown.severity === "warning" ? "text-amber-500" : "text-destructive")} aria-hidden="true" />
-              {shown.title || shown.summary || "Couldn’t display the model"}
+              {title}
             </h2>
             {dismissible ? (
               <Button type="button" variant="ghost" size="icon-xs" aria-label="Dismiss"  onClick={() => setDismissed(key)}>
@@ -66,10 +76,19 @@ export default function ViewerAlertCard({ alert: shown, hasContent, onReload }) 
                 </ScrollArea>
               </details>
             ) : null}
-            {shown.reload ? (
-              <Button type="button" variant="outline" size="sm" onClick={onReload} disabled={!onReload}>
-                Try again
-              </Button>
+            {shown.reload || report ? (
+              <div className="flex flex-wrap gap-2">
+                {shown.reload ? (
+                  <Button type="button" variant="outline" size="sm" onClick={onReload} disabled={!onReload}>
+                    Retry
+                  </Button>
+                ) : null}
+                {report ? (
+                  <Button asChild variant="outline" size="sm">
+                    <a href={report} target="_blank" rel="noreferrer" onClick={follow} data-report-issue="">Report Issue</a>
+                  </Button>
+                ) : null}
+              </div>
             ) : null}
           </div>
         </ScrollArea>

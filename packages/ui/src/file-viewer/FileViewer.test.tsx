@@ -1,5 +1,6 @@
 import { act, cleanup, render, screen, within } from '@testing-library/react';
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { unavailablePromptContext } from '@text-to-cad/core/prompt';
@@ -23,6 +24,7 @@ const host = {
 const open = (props: { navigationPath?: string | null; host?: object; file?: string | null; presentation?: object }) =>
   render(<FileViewer file="parts/a.step" host={host as any} renderers={[renderer]} state={{ panel: null, panelWidth: 220 }} onStateChange={() => {}} {...props as any} />);
 const navbar = () => document.querySelector('[data-viewer-navbar]');
+const labels = (selector = '[data-viewer-navbar]') => [...document.querySelectorAll(`${selector} a, ${selector} button`)].map(node => node.getAttribute('aria-label'));
 
 it('draws the navbar only when it has something to hold, and never for a view shown small', async () => {
   open({ navigationPath: null });
@@ -36,13 +38,21 @@ it('draws the navbar only when it has something to hold, and never for a view sh
   expect(screen.queryByRole('button', { name: 'File actions' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Show files' })).toBeNull();
   cleanup();
-  // The host's links: without an update, nothing of them in the navbar (X, Discord, GitHub and the
-  // version are the renderer's Settings' and the home's).
-  const linked = { ...host, links: viewerLinks({ version: 'v0.7.4' }) };
+  // The host's links: without an update, Feedback alone — a new issue naming the version and the
+  // platform (X, Discord, GitHub and the version are the renderer's Settings' and the home's).
+  const linked = { ...host, links: viewerLinks({ version: 'v0.7.4' }), environment: { colorScheme: 'light', platform: 'darwin' } };
   open({ navigationPath: null, host: linked });
   await screen.findByText('shown');
+  expect(labels()).toEqual(['Feedback']);
+  const feedback = new URL(screen.getByRole('link', { name: 'Feedback' }).getAttribute('href')!);
+  expect(`${feedback.origin}${feedback.pathname}`).toBe('https://github.com/earthtojake/text-to-cad/issues/new');
+  expect(feedback.searchParams.get('body')).toMatch(/^\*\*What happened, or what would you like\?\*\*\n[\s\S]*- CAD: 0\.7\.4\n- Platform: darwin$/);
+  cleanup();
+  // A host with no tracker: nothing of them.
+  open({ navigationPath: null, host: { ...linked, links: viewerLinks({ version: '0.7.4', issues: '' }) } });
+  await screen.findByText('shown');
   expect(navbar()).not.toBeNull();
-  expect(navbar()!.querySelectorAll('button, a').length).toBe(0);
+  expect(labels()).toEqual([]);
   cleanup();
   open({ host: { ...linked, environment: { colorScheme: 'light', compact: true } } });
   await screen.findByText('shown');
@@ -81,22 +91,26 @@ it('an update is a blue download button whose menu says the step to it, how this
   expect(within(menu).queryByText('In your terminal')).toBeNull();
 });
 
-it('steps the navbar aside while the renderer shows its file fullscreen', async () => {
+it('puts Feedback just before the view\'s controls, outside them, and steps the navbar aside while the renderer shows its file fullscreen', async () => {
+  // A renderer with the CAD viewer's controls in the navbar, whose Preview is fullscreen.
   const fullscreen = defineFileRenderer({
     id: 'full', priority: 2, matches: () => true, prepare: async () => ({ data: null }),
-    load: async () => ({ default: ({ onFullscreenChange }: any) => <>
-      <button type="button" onClick={() => onFullscreenChange(true)}>Fullscreen</button>
+    load: async () => ({ default: ({ onFullscreenChange, navbarSlot }: any) => <>
+      {navbarSlot ? createPortal(<><button type="button" aria-label="Settings" />
+        <button type="button" aria-label="Preview" onClick={() => onFullscreenChange(true)} /></>, navbarSlot) : null}
       <button type="button" onClick={() => onFullscreenChange(false)}>Back</button>
     </> }),
   });
   render(<FileViewer file="parts/a.step" host={{ ...host, links: viewerLinks({ version: '0.7.4' }) } as any} renderers={[fullscreen]}
     state={{ panel: null, panelWidth: 220 }} onStateChange={() => {}} />);
-  await screen.findByRole('button', { name: 'Fullscreen' });
-  expect(navbar()).not.toBeNull();
-  act(() => screen.getByRole('button', { name: 'Fullscreen' }).click());
+  await screen.findByRole('button', { name: 'Preview' });
+  expect(labels()).toEqual(['Feedback', 'Settings', 'Preview']);
+  expect(labels('[data-navbar-controls]')).toEqual(['Settings', 'Preview']);
+  act(() => screen.getByRole('button', { name: 'Preview' }).click());
   expect(navbar()).toBeNull();
+  expect(screen.queryByRole('link', { name: 'Feedback' })).toBeNull();
   act(() => screen.getByRole('button', { name: 'Back' }).click());
-  expect(navbar()).not.toBeNull();
+  expect(labels()).toEqual(['Feedback', 'Settings', 'Preview']);
 });
 
 it('leads back to the host\'s home from a file, and draws no navbar over the home itself', async () => {

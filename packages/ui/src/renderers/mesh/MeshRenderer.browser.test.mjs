@@ -373,7 +373,7 @@ test('a corrupt mesh raises the viewer\'s load alert and an empty one says there
   for (const name of ['Settings', 'Preview']) {
     assert.equal(await broken.pane.getByRole('button', { name, exact: true }).count(), 0, `no ${name} over a failed load`);
   }
-  assert.equal(await alert.getByRole('button', { name: 'Try again', exact: true }).count(), 1);
+  assert.equal(await alert.getByRole('button', { name: 'Retry', exact: true }).count(), 1);
   assert.equal(await alert.getByText('Details', { exact: true }).count(), 1);
 
   const empty = await open(t, 'empty.stl');

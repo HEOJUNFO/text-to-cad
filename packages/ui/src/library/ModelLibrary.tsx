@@ -7,7 +7,7 @@ import { ScrollArea as ScrollRegion } from "../primitives/scroll-area.jsx";
 import { Spinner } from "../primitives/spinner.jsx";
 import type { LibraryLayout } from "../tab-store/tabRecord.js";
 import wordmark from "../assets/logo-cad.svg";
-import { CommunityLinks, UpdateButton } from "../file-viewer/navigation/NavbarLinks.jsx";
+import { CommunityLinks, FeedbackLink, UpdateButton } from "../file-viewer/navigation/NavbarLinks.jsx";
 import type { ClipboardPort, ViewerLinks } from "../host/types.js";
 
 /** A model someone opened: kept by the host, which also says where it is shown from. */
@@ -139,7 +139,7 @@ function Placeholders({ layout }: { layout: LibraryLayout }) {
 /**
  * The host's home: the models opened before, from every view, to open again. It has no navbar
  * over it: the CAD wordmark is centred at its top over the host's links — its update, only when
- * there is one, then X, Discord and GitHub — then "Files" with its search, its grid/list switch and, where
+ * there is one, then X, Discord, GitHub and Feedback — then "Files" with its search, its grid/list switch and, where
  * the host has a chooser, Open; then the models, pinned first, as solid cards (a picture over the
  * name and when the file was edited) or as rows. A card can be pinned (its pin filled); a row can
  * also be removed. With none yet, one empty card opens the host's chooser. It is drawn on the
@@ -151,7 +151,7 @@ function Placeholders({ layout }: { layout: LibraryLayout }) {
  * (`wantsPicture`) is handed to `picture`, where the viewer draws one out of sight — one card at a
  * time, each once while the page is up — and the list is read again once one is kept.
  */
-export function ModelLibrary<Model extends LibraryModel>({ library, layout = "grid", onLayoutChange, failure = "", picture, links, clipboard, onError }: {
+export function ModelLibrary<Model extends LibraryModel>({ library, layout = "grid", onLayoutChange, failure = "", picture, links, platform, clipboard, onError }: {
   library: ModelLibrarySource<Model>;
   /** Grid or list; the host keeps the choice (the tab's settings). */
   layout?: LibraryLayout;
@@ -162,6 +162,8 @@ export function ModelLibrary<Model extends LibraryModel>({ library, layout = "gr
   picture?(model: Model): Promise<boolean>;
   /** The host's links, under the wordmark, and the clipboard their copies go through. */
   links?: ViewerLinks;
+  /** The host's `environment.platform`, which Feedback's issue names. */
+  platform?: string;
   clipboard?: ClipboardPort;
   onError?(error: Error): void;
 }) {
@@ -263,6 +265,7 @@ export function ModelLibrary<Model extends LibraryModel>({ library, layout = "gr
       {links ? <nav className="cad-library-links" aria-label="CAD links">
         {clipboard ? <UpdateButton links={links} clipboard={clipboard} onError={onError} align="center" /> : null}
         <CommunityLinks links={links} onError={onError} />
+        <FeedbackLink links={links} platform={platform} onError={onError} />
       </nav> : null}
       <div className="cad-library-toolbar">
         <h1 className="cad-library-heading">Files</h1>

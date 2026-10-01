@@ -161,8 +161,8 @@ export default function App({ bridge, server, launch: initial, presentation = 't
     return () => { lifetime.abort(); stop(); window.removeEventListener('pointerdown', touched, true); window.removeEventListener('focus', touched); };
   }, [bridge, sync, superseded]);
 
-  // The navbar's links: the same three as every app's, followed through the host (a frame cannot open one itself),
-  // and how this host updates CAD.
+  // The navbar's links: the same as every app's (X, Discord, GitHub and a new issue), followed through the host (a
+  // frame cannot open one itself), and how this host updates CAD.
   // The newest release, asked once: an update shows as the blue download button, and nothing shows without one.
   const [latest, setLatest] = useState<{ version: string; url: string; newer: boolean } | null>(null);
   useEffect(() => { void server.release().then(setLatest, () => {}); }, [server]);

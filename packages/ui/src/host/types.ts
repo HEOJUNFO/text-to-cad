@@ -34,6 +34,11 @@ export interface ViewerLinks {
   github: string;
   discord: string;
   /**
+   * Where a person opens a new issue (GitHub's `issues/new`): the navbar's Feedback, the home's,
+   * and an alert's Report Issue fill one in for them to finish. Empty: none of them is offered.
+   */
+  issues: string;
+  /**
    * How to update, the way this host does it, each shown only when given: a command for a terminal,
    * the same as a message for an agent, and `message`: how this host updates, said in a line, for a
    * host whose update is not a command (a marketplace, a restart). The defaults update the skills.
@@ -74,7 +79,7 @@ export interface ViewerHost {
     openFile(path: string, options?: { target: 'current' | 'new'; panel?: string }): void;
     home?(): void;
   };
-  /** The navbar's links: the version, X, Discord and GitHub. A host with none gets none. */
+  /** The navbar's links: the version, X, Discord, GitHub and new issues. A host with none gets none. */
   links?: ViewerLinks;
   /**
    * `platform` names the keyboard's modifiers (⌘ on `darwin`, Ctrl elsewhere); `reducedMotion` is

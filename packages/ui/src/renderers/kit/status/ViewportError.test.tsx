@@ -1,9 +1,12 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import ViewportError from './ViewportError.jsx';
 import ViewerAlertCard from './ViewerAlertCard.jsx';
 import { ViewerMobileContext } from '../../../file-viewer/responsive.js';
+import { viewerLinks } from '../../../file-viewer/navigation/links.js';
+import { ViewerHostContext } from '../../../host/context.js';
+import { testHost } from '../../../host/testing/host.js';
 Object.assign(globalThis, { React });
 afterEach(cleanup);
 
@@ -33,4 +36,25 @@ it('says a warning beside the model over it, where it can be put away; with noth
   render(<ViewerAlertCard alert={warning} hasContent={false} onReload={() => {}} />);
   expect(screen.getByRole('alert')).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Dismiss' })).toBeNull();
+});
+
+it('offers Retry, and beside it, where the host has a tracker, Report Issue: a new issue saying what the card says', () => {
+  const alert = { severity: 'error', title: 'Couldn’t load the model', message: 'No model', reason: 'EOFError', details: 'File: parts/gear.step', reload: true };
+  const onReload = vi.fn();
+  const card = (host?: object) => render(<ViewerHostContext.Provider value={host as any ?? null}>
+    <ViewerAlertCard alert={alert} hasContent={false} onReload={onReload} file="parts/gear.step" />
+  </ViewerHostContext.Provider>);
+  card();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  expect(onReload).toHaveBeenCalledOnce();
+  expect(screen.queryByRole('link', { name: 'Report Issue' })).toBeNull();
+  cleanup();
+  card(testHost({ links: viewerLinks({ version: '0.7.5', issues: '' }) }));
+  expect(screen.queryByRole('link', { name: 'Report Issue' })).toBeNull();
+  cleanup();
+  card(testHost({ links: viewerLinks({ version: '0.7.5' }), environment: { colorScheme: 'light', platform: 'linux' } }));
+  const report = new URL(screen.getByRole('link', { name: 'Report Issue' }).getAttribute('href')!);
+  expect(`${report.origin}${report.pathname}`).toBe('https://github.com/earthtojake/text-to-cad/issues/new');
+  expect(report.searchParams.get('title')).toBe('Couldn’t load the model: EOFError');
+  expect(report.searchParams.get('body')).toContain('- File: gear.step\n- CAD: 0.7.5\n- Platform: linux');
 });

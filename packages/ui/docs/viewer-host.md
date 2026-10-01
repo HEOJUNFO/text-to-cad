@@ -51,7 +51,7 @@ are for reading and maintaining the contracts.
 | `ModelLibrary`, `ModelLibrarySource`, `ModelPictureSource`, `useModelThumbnail` (a host's home: the CAD title over the host's links, then the models opened before, pinned first, as cards or rows, and with none an "Open File" card that opens the chooser; placeholder cards or rows while the list is read (again every two seconds while the home is up, so a model rebuilt meanwhile is pictured again), and a spinner over the model being opened, which takes no second press until `open` settles; `pick` only where the host has a file chooser; `pictureFrom` where it can reach a model to picture it) | [Model library](../src/library/ModelLibrary.tsx), [thumbnails](../src/library/thumbnails.ts) | `@text-to-cad/ui/library` |
 | `CadViewer` (FileViewer over one root's CAD catalog: the five CAD renderers, catalog following, the home, the loading and missing-file pages, the library's pictures) | [CAD viewer](../src/cad-viewer/CadViewer.tsx) | `@text-to-cad/ui/cad-viewer` |
 | `createCatalogFileSource`, `createCadFileActions`, `rootPath`, `pathUnderRoot`, `referencePath` (a CAD catalog as a read-only `FileSource`, the file menu's copies and reveal, the paths a root names a file by) | [Catalog](../src/cad-viewer/catalog.ts) | `@text-to-cad/ui/catalog` |
-| `ViewerLinks`, `viewerLinks` (the version, GitHub, Discord, the newest release and how to update, and how a link is followed) | [Host types](../src/host/types.ts), [links](../src/file-viewer/navigation/links.js) | `@text-to-cad/ui/links` |
+| `ViewerLinks`, `viewerLinks` (the version, GitHub, Discord, where a new issue opens, the newest release and how to update, and how a link is followed), `issueUrl` (a new issue filled in, its address kept under `ISSUE_URL_MAX`) | [Host types](../src/host/types.ts), [links](../src/file-viewer/navigation/links.js) | `@text-to-cad/ui/links` |
 
 Start with the actual compositions: [web App](../../../apps/web/src/App.tsx) and the
 MCP app's [ModelView](../../../apps/mcp/src/ModelView.tsx), both one `CadViewer`.
@@ -76,9 +76,9 @@ beside the orbit speed and playback.
 ## Preview and renderer navigation actions
 
 Preview is the shared shell's own state (`previewing`); there is no host prop
-for it and a host cannot start or observe it. It fills the scene below the
-host's navbar and beside its panel column, which both stay as they are (the column can
-still be opened and shut). It never uses the browser Fullscreen API. The shell saves the tools view's camera, fits a preview camera and restores
+for it and a host cannot start or observe it. It is fullscreen
+(`onFullscreenChange`, below): the navbar, with everything in it, the explorer and the
+panel column step aside while it lasts. It never uses the browser Fullscreen API. The shell saves the tools view's camera, fits a preview camera and restores
 the tools view's exact pose on exit; nothing of preview is persisted. Orbit
 starts by default, with its speed, unless the file's Playback settings say otherwise:
 they are the file's view's `playback` — orbit on or off and its speed, Autoplay, the
@@ -98,7 +98,7 @@ render loops. These actions use existing host capabilities for effects. What a
 person tells the agent about a CAD file is [Quick Edit](#prompt-handoff)'s.
 
 A renderer with controls of its own for the view draws them into
-`RendererViewProps.navbarSlot`, at the navbar's right end after the version (the CAD
+`RendererViewProps.navbarSlot`, at the navbar's right end after the host's links (the CAD
 viewer's Display settings and Preview); it is null where no navbar is drawn. A
 renderer that shows its file fullscreen (the CAD viewer's Preview) says so through
 `onFullscreenChange(true)`, and `false` when it stops: the navbar, the explorer
@@ -373,9 +373,14 @@ With no file open the name's place says "Select file" (words, not a control), an
 the page says "Ask the agent to show a model". Right: the renderer's navigation actions, any
 declared panel's toggle, then the update (`UpdateButton`, `NavbarLinks.jsx`): where the host
 found a newer release (`links.latest`), a blue download button whose menu says the step to it,
-how this host updates (`links.install`) and what is new; without one, nothing. The version,
-GitHub and Discord (`CommunityLinks`) are the CAD renderer's Settings popover's header and the
-home's, under its wordmark. A link opens the ordinary way unless the host supplies
+how this host updates (`links.install`) and what is new; without one, nothing. Then Feedback
+(`FeedbackLink`), where the host has a tracker (`links.issues`): a new issue naming the version
+and `environment.platform`, just before the renderer's view controls and never among them. The
+version, X, Discord and GitHub (`CommunityLinks`) are the CAD renderer's Settings popover's header
+and the home's, under its wordmark, where Feedback follows them. An alert card's Report Issue opens
+a new issue too, filled in from the card (`kit/status/reportIssue.js`): its title and failure, the
+file's name — never its path — the version and platform, then its Details, cut from their end to
+keep the address under `ISSUE_URL_MAX`. A link opens the ordinary way unless the host supplies
 `links.open` (a page in a sandboxed frame hands it to its host). `displayActions`
 passes host-owned appearance controls into the Display section beside Projection
 via `RendererViewProps`. The shell handles placement and hides the toolbar in
