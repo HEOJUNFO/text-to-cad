@@ -59,9 +59,9 @@ function skillsRoot(skills: Record<string, string>): string {
 
 async function connect(
   bridge: (method: string, params: unknown) => Promise<unknown>,
-  options: { skillsRoot?: string | null; integration?: string } = {},
+  options: { skillsRoot?: string | null; skillsError?: string; integration?: string } = {},
 ) {
-  const server = createServer(bridge, { version: "9.9.9", cwd: "/proj", skillsRoot: options.skillsRoot ?? null, integration: options.integration });
+  const server = createServer(bridge, { version: "9.9.9", cwd: "/proj", skillsRoot: options.skillsRoot ?? null, skillsError: options.skillsError, integration: options.integration });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   const client = new Client({ name: "test", version: "0" });
@@ -252,6 +252,17 @@ describe("the skills tools", () => {
     const listed = await bare.callTool({ name: "list_skills", arguments: {} });
     expect(JSON.parse((listed.content as Array<{text:string}>)[0]!.text)).toEqual([]);
     expect((await bare.callTool({ name: "read_skill", arguments: { name: "cad" } })).isError).toBe(true);
+  });
+});
+
+describe("a skills root the app could not make", () => {
+  it("tells list_skills and read_skill why, instead of an empty list or 'no skills root'", async () => {
+    const client = await connect(fakeBridge().bridge, { skillsRoot: null, skillsError: "EACCES: permission denied, mkdir '/ro/skills'" });
+    const listed = await client.callTool({ name: "list_skills", arguments: {} });
+    expect(listed.isError).toBe(true);
+    expect((listed.content as Array<{ text: string }>)[0]!.text).toBe("Skills could not be set up: EACCES: permission denied, mkdir '/ro/skills'");
+    const read = await client.callTool({ name: "read_skill", arguments: { name: "cad" } });
+    expect((read.content as Array<{ text: string }>)[0]!.text).toBe("Skills could not be set up: EACCES: permission denied, mkdir '/ro/skills'");
   });
 });
 

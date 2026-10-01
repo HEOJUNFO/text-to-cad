@@ -359,7 +359,9 @@ function SkillsSection({ agent }: { agent: AgentStatus }) {
                  ? `which ${agent.name} loads by itself.`
                  : `and, because ${agent.name} does not load one, a line in the first prompt saying where they are. The app's MCP server can read them too.`
              } Nothing is installed into ${agent.name}'s own configuration.`
-              : "text-to-cad hands its skills to every session. This build has none composed yet — run `npm run build`."
+              : skills?.error
+                ? `Skills could not be set up: ${skills.error}`
+                : "text-to-cad hands its skills to every session. This build has none composed yet — run `npm run build`."
           }
         />
       </p>

@@ -45,6 +45,12 @@ export const BRIDGE_ENV = {
 /** Where the app put its skills. Shared with `src/main/integrations/skills.ts` by name. */
 export const SKILLS_ROOT_ENV = "TEXT_TO_CAD_SKILLS_ROOT";
 
+/** Why the app could not make the skills root, when it could not. */
+export const SKILLS_ERROR_ENV = "TEXT_TO_CAD_SKILLS_ERROR";
+
+/** The sentence an agent is told when the skills root could not be set up. */
+export const skillsErrorSentence = (reason) => `Skills could not be set up: ${reason}`;
+
 /** The layout inside the skills root that this server reads. */
 const SKILLS_LAYOUT = path.join(".claude", "skills");
 
@@ -189,6 +195,7 @@ export function createServer(bridge, options = {}) {
   const integration = integrationById(options.integration ?? process.env.TEXT_TO_CAD_INTEGRATION ?? "workspace");
   if (integration.runtime) throw new Error(`${integration.id} uses its upstream MCP runtime`);
   const skillsRoot = options.skillsRoot ?? process.env[SKILLS_ROOT_ENV] ?? null;
+  const skillsError = skillsRoot ? null : (options.skillsError ?? process.env[SKILLS_ERROR_ENV] ?? null);
   const server = new McpServer({ name: `text-to-cad-${integration.id}`, version: options.version ?? "0.0.0" });
   for (const definition of integration.tools) {
     server.registerTool(definition.name, {
@@ -196,6 +203,9 @@ export function createServer(bridge, options = {}) {
       inputSchema: definition.inputSchema,
     }, async (params, extra) => {
       try {
+        if (skillsError && (definition.name === "list_skills" || definition.name === "read_skill")) {
+          throw new Error(skillsErrorSentence(skillsError));
+        }
         if (definition.name === "list_skills") return text(readSkills(skillsRoot));
         if (definition.name === "read_skill") return text(readSkillFile(skillsRoot, params.name, params.path));
         const result = await bridge(definition.name, params, extra.signal);

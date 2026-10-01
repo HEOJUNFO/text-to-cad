@@ -1952,6 +1952,10 @@ receives the root in both `additionalDirectories` and `_meta.additionalRoots`;
 adapters read whichever spelling they understand. Claude Code and Codex use
 their native skill-root mechanisms. Other adapters retain the concise first
 prompt preamble; workspace `list_skills` and `read_skill` read the same root.
+A root that could not be made (the copy failed, as opposed to nothing being composed) is
+not a missing build: Settings › Agents says "Skills could not be set up: <reason>", and the
+workspace `list_skills` and `read_skill` fail with that same sentence (the reason travels to
+the MCP server in `TEXT_TO_CAD_SKILLS_ERROR`) rather than answering an empty list.
 `session/new` sets the preamble and the first `session/prompt` the agent takes
 consumes it: a prompt the agent rejects before it has streamed anything (a
 title or a command list does not count) puts it back, so the retry still
