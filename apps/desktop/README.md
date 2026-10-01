@@ -2223,12 +2223,19 @@ not take a connected session with it. A create that fails before that answer
 removes the row and, for a worktree it cut, the worktree. One that fails after
 it while the connection is alive resolves: the row goes `idle`, the composer
 opens, and the failure is a note in `session.status.error`
-(`settleAfterFailedCreate`). The renderer keeps it in `setupNotes` (`state/acp.ts`,
+(`settleAfterFailedCreate`), worded "The session started, but setting it up
+failed: <cause>". The renderer keeps it in `setupNotes` (`state/acp.ts`,
 fed by `bridge.ts`) and shows it as an alert above the composer with a Retry
 setup button; the composer stays sendable, because the session did start. Retry
 setup is `sessions.retrySetup` (`SessionManager.retrySetup`): it re-runs the
 same `applyPreferences` a create runs on the live, idle connection, and answers
-with the new note or null, which drops it. It is not a `load`: a `load` on a live
+with the new note or null, which drops it. A session that is not `idle` throws
+"The session is busy; set it up again when it is idle."; a retry that fails is
+the note "Setting it up again failed: <cause>" (also re-broadcast as the
+session's status error). The renderer's answer is dropped when the session was
+forgotten or disconnected meanwhile (a generation check in `retrySetup`,
+`state/acp.ts`), and the alert is hidden while the session shows a load error or
+is loading (`SessionView.tsx`), the note staying held underneath. It is not a `load`: a `load` on a live
 connection only re-broadcasts its state and retries nothing. The next `load`, a
 disconnect (`close`) or a forget clears the note; it is not persisted, so a window
 reload drops it.

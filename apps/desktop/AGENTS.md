@@ -337,7 +337,8 @@ the rule is about.
   success (`idle`), in `settleAfterFailedCreate` (`idle` again, the failure a
   note in `session.status.error`, while the connection is alive; the renderer
   holds it in `setupNotes` and shows it above the composer with a Retry setup
-  button that calls `sessions.retrySetup`, never `load`), or by
+  button that calls `sessions.retrySetup`, never `load`; a retry's answer for a
+  session forgotten or disconnected meanwhile is dropped), or by
   removing the row (`abandonCreate`) when the adapter is dead or the row is
   gone; a row closed under the create keeps that state (`stillConnecting`
   guards the write of `idle`). `loadNow`'s catch sets `error`; `boot` makes a
