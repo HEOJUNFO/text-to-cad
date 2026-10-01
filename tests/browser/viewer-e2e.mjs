@@ -34,7 +34,7 @@ const root = path.resolve(args.dir || ".");
 // a robot description.
 const fixtures = [
   // `tools` is the file's own tool strip (a mesh and a drawing have none: a tool that does not
-  // apply is hidden, not disabled); `threeD` has the viewport's Display settings and Preview.
+  // apply is hidden, not disabled); `threeD` has the view's Settings and Preview in the navbar.
   { format: "stl", file: "smoke.stl", parts: false, tools: [], threeD: true },
   { format: "step", file: "assembly.step", parts: true, tools: ["Select", "Draw", "Measure"], threeD: true },
   // A drawing is line work, not shaded surfaces: its outline covers a fraction of what a solid does.
@@ -287,15 +287,11 @@ async function formatGate() {
       if (!fixture.tools.includes("Measure") && strip.includes("Measure")) {
         failures.push(`${fixture.format}: Measure is offered on a view that cannot measure (must be hidden, not disabled)`);
       }
-      // A 3D view's actions, on top of the view cube: Display settings, Reset view, then Preview.
-      const topRight = await page.locator("[data-viewport-actions] button").evaluateAll((buttons) =>
+      // A 3D view's controls, at the navbar's right end: Settings, then Preview. A drawing has none.
+      const controls = await page.locator("[data-navbar-controls] button").evaluateAll((buttons) =>
         buttons.map((button) => button.getAttribute("aria-label")));
-      if (fixture.threeD && JSON.stringify(topRight) !== JSON.stringify(["Display settings", "Reset view", "Preview"])) {
-        failures.push(`${fixture.format}: top-right bar is ${JSON.stringify(topRight)}`);
-      }
-      // Every file can be captured from the navigation row.
-      const snapshot = page.getByRole("button", { name: "Take snapshot", exact: true });
-      if (!(await snapshot.count()) || !(await snapshot.first().isEnabled())) failures.push(`${fixture.format}: missing or disabled Take snapshot`);
+      const expected = fixture.threeD ? ["Settings", "Preview"] : [];
+      if (JSON.stringify(controls) !== JSON.stringify(expected)) failures.push(`${fixture.format}: navbar controls are ${JSON.stringify(controls)}`);
       const menu = await canvasMenuItems(page, canvas);
       if (fixture.parts) {
         for (const item of framing) if (!menu.includes(item)) failures.push(`${fixture.format}: menu missing ${item}`);
@@ -316,11 +312,11 @@ async function formatGate() {
 }
 
 // Inspect and Render are the Display settings' Solid and Render presets, chosen from the Mode
-// dropdown of the popover the viewport's top-right bar opens.
+// dropdown of the popover the navbar's Settings opens.
 const VIEWING_PRESET = { Inspect: "Solid", Render: "Render" };
 async function selectViewingMode(page, current, next) {
   const popover = page.locator("[data-display-popover]");
-  if (!(await popover.count())) await page.getByRole("button", { name: "Display settings", exact: true }).click();
+  if (!(await popover.count())) await page.locator("[data-navbar-controls]").getByRole("button", { name: "Settings", exact: true }).click();
   const mode = popover.getByRole("combobox", { name: "Mode", exact: true });
   await mode.waitFor();
   if ((await mode.innerText()).trim() !== VIEWING_PRESET[current]) fail(`viewing mode: expected ${current} before switching to ${next}`);
