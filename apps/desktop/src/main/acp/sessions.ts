@@ -1289,6 +1289,10 @@ export class SessionManager {
       // not delete" over a thread that no longer exists. What could not be
       // disposed keeps the worktree on disk (it may still be held open).
       console.warn(`[acp] kept the worktree of deleted session ${id.slice(0, 8)}: ${error instanceof Error ? error.message : String(error)}`);
+      // The worktree stays; the marks do not: the row is gone and `boot` unpins
+      // only rows with no adapter session, so these refs would stay pinned
+      // for good (and `git push --mirror` sends them).
+      if (session) await this.unpinMarks(session);
       return;
     }
     if (session) {

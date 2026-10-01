@@ -1558,6 +1558,28 @@ describe("SessionManager", () => {
     }
   });
 
+  it("a beforeRelease that throws still unpins the session's marks", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const dropped: string[] = [];
+      const { manager, cwd } = await setup({
+        workspace: async () => ({ cwd, worktreePath: `${cwd}/wt` }),
+        dropMarks: async (_repository, sessionId) => {
+          dropped.push(sessionId);
+        },
+      });
+      const session = await manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "worktree" });
+      await manager.delete(session.id, {
+        beforeRelease: () => {
+          throw new Error("x");
+        },
+      });
+      expect(dropped).toContain(session.id);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("an archive whose write throws leaves the adapter alive and the row not archived", async () => {
     const { repo, manager, cwd } = await setup();
     const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
