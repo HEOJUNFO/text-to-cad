@@ -54,6 +54,10 @@
  *                 text chunk and an `in_progress` update for the failed call,
  *                 the way a background task's report lands after `prompt/end`
  *   "slow"        wait until cancelled
+ *   "reject-prompt" ask session/request_permission without waiting for the
+ *                 answer, then answer `session/prompt` with a JSON-RPC error
+ *                 while staying alive — a turn that fails with a request
+ *                 still open, unlike "crash", whose exit disposes the client
  *   "crash"       exit(3) mid-turn
  *   "showcase"    a Codex-shaped turn for the session UI's e2e: thoughts,
  *                 reads, edits with diffs, a streamed command, a plan, a
@@ -604,6 +608,20 @@ async function script(conn, params) {
     record("integration-proof", { id: request.id, result });
     await send({ sessionUpdate: "tool_call_update", toolCallId, status: result.isError ? "failed" : "completed", rawOutput: result });
     return { stopReason: "end_turn" };
+  }
+
+  if (text.includes("reject-prompt")) {
+    void conn
+      .requestPermission({
+        sessionId,
+        toolCall: { toolCallId: "rp-1", title: "Run ls", kind: "execute", status: "pending", rawInput: { command: "ls" } },
+        options: [{ optionId: "allow-once", name: "Yes", kind: "allow_once" }],
+        _meta: { permission: { version: 1, title: "Run ls?", description: "Lists the directory." } },
+      })
+      .catch(() => {});
+    // Same pipe, so the request reaches the client before the error does.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    throw RequestError.internalError(undefined, "the model refused the turn");
   }
 
   if (text.includes("crash")) {
