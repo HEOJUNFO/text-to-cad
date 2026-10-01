@@ -15,12 +15,17 @@
 
 Evaluated once in the requesting process (fast, no kernel import) and again on
 the worker immediately before building. Recursion in (3) is memoized per request.
+Clauses 4 and 5 verify an object or an output once per process, while its file
+keeps the settled identity that verification observed (STORE.md §4).
 Mesh tolerances and argv flags are not inputs.
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -29,7 +34,7 @@ from cadgen._internal import filetrace
 from cadgen.store.closure import changed_constant, current_closure_hash
 from cadgen.store.index import resolve_model_ref, split_model_ref
 from cadgen.store.records import read_record
-from cadgen.store.trees import tree_complete
+from cadgen.store.trees import _stamp_is_settled, tree_complete
 
 
 @dataclass
@@ -67,7 +72,47 @@ class Verdict:
         return "current"
 
 
+# One rebuild evaluates the gate many times over the same files, and a large
+# assembly's STEP is hundreds of megabytes. A digest is reused while its file
+# keeps the identity -- device, inode, size, mtime and ctime -- observed on both
+# sides of the read that produced it, once that read is settled: the rule the
+# metadata capture applies to store objects (STORE.md §10). Deletion,
+# replacement, truncation and any rewrite a later stat can see hash it again.
+_DIGESTS_CAPACITY = 4096
+_DIGESTS: OrderedDict[str, tuple[tuple, str]] = OrderedDict()
+_DIGESTS_LOCK = threading.Lock()
+
+
+def _file_stamp(path: Path) -> tuple | None:
+    """The fingerprint ``trees._object_stamp`` takes, of a file outside the store."""
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    return (str(path), stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+
+
 def _sha256_file(path: Path) -> str | None:
+    key = str(path)
+    before = _file_stamp(path)
+    with _DIGESTS_LOCK:
+        cached = _DIGESTS.get(key)
+        if cached is not None:
+            if cached[0] == before:
+                _DIGESTS.move_to_end(key)
+                return cached[1]
+            del _DIGESTS[key]
+    digest = _hash_file(path)
+    after = _file_stamp(path)
+    if digest is not None and before is not None and before == after and _stamp_is_settled(after):
+        with _DIGESTS_LOCK:
+            _DIGESTS[key] = (after, digest)
+            if len(_DIGESTS) > _DIGESTS_CAPACITY:
+                _DIGESTS.popitem(last=False)
+    return digest
+
+
+def _hash_file(path: Path) -> str | None:
     digest = hashlib.sha256()
     try:
         with open(path, "rb") as handle:
