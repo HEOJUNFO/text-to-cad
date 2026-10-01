@@ -177,6 +177,17 @@ describe("SessionManager", () => {
     expect(broadcasts.filter((b) => b.channel === "session.update").length).toBeGreaterThan(3);
   });
 
+  it("writes the counts of an edit that arrives after the turn has settled", async () => {
+    const { repo, manager, cwd } = await setup();
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    await manager.prompt(session.id, [{ type: "text", text: "nothing to edit" }]);
+    expect(repo.get(session.id)?.insertions).toBe(0);
+    // A background task finishing: a tool call with a diff, long after `prompt` resolved.
+    const late = { sessionUpdate: "tool_call", toolCallId: "late-1", status: "completed", kind: "edit", title: "Edit late.md", content: [{ type: "diff", path: "late.md", oldText: "", newText: "a\nb\n" }] };
+    (manager as unknown as { onEvent(id: string, event: unknown): void }).onEvent(session.id, { type: "session/update", acpSessionId: "fake-session-1", update: late });
+    expect(repo.get(session.id)).toMatchObject({ changedFiles: 1, insertions: 2, deletions: 0 });
+  });
+
   it("bridges permission requests and answers", async () => {
     const { broadcasts, manager, cwd } = await setup();
     const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
