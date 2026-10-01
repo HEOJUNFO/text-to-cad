@@ -1660,9 +1660,15 @@ playbook for the mode bases and camera behavior.
 ## Quitting
 
 `app.quit()` has a budget of two seconds (`tests/e2e/cad.spec.ts` quits with everything running and
-asserts the process is gone within it, and that `[quit] teardown` and `[quit] will-quit` were logged; it prints
-`[quit-budget] app.quit() to pid gone: N ms of 2000 ms (deadline 1200 ms)` whether it passes or fails, so a CI log shows
-how much of the budget a run used, and records N as the `quit-ms` annotation), and the
+asserts two things: the process is gone within it, and `before-quit`'s own teardown, the
+`[quit] teardown Nms` line, took at most 250 ms (`tests/e2e/quit-budget.ts` has the derivation:
+the teardown is synchronous, about 6 ms locally, and counts toward the watchdog's deadline).
+It echoes main's `[quit]` lines and prints
+`[quit-budget] app.quit() to pid gone: N ms of 2000 ms (deadline 1200 ms)` and the teardown's share
+whether it passes or fails, and records both as the `quit-ms` and `quit-teardown-ms` annotations,
+so a CI log shows which part of the budget a slow run spent. `tests/unit/main/quit-sequence.test.ts`
+pins the same teardown bound against the real `before-quit` handler, with a `close()` that blocks
+shown to exceed it), and the
 teardown in `before-quit` is written for it: every owner signals what it
 owns and nothing is awaited. Electron waits for the Node side, and the Node
 side waits for every child it holds a pipe to, so `src/main/children.ts`
