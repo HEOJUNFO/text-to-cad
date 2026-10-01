@@ -79,7 +79,8 @@ export class BrowserService {
     this.refuseDownloads(wc.session);
     // No unmanaged windows or privileged scheme navigations may escape the root.
     wc.setWindowOpenHandler(({ url: popupURL }) => {
-      try { void wc.loadURL(browserURL(popupURL)).catch(() => {}); } catch { /* blocked scheme */ }
+      try { void wc.loadURL(browserURL(popupURL)).catch(() => {}); }
+      catch { this.log(target, "error", `Only http and https addresses can be opened here: ${popupURL.slice(0, 200)} was not opened.`); }
       return { action: "deny" };
     });
     const guard = (event: Electron.Event, nextURL: string) => {
@@ -184,7 +185,7 @@ export class BrowserService {
       const target = [...this.targets.values()].find(candidate => candidate.view.webContents === contents);
       if (target && this.inForeground(target)) return;
       event.preventDefault();
-      if (target) this.log(target, "error", `Download blocked: ${item.getFilename() || item.getURL()}. Downloads start only from the page you are using.`);
+      if (target) this.log(target, "error", `Downloads are not supported in this browser tab. Blocked: ${item.getFilename() || item.getURL()}.`);
     });
   }
   private inForeground(target: Target) {

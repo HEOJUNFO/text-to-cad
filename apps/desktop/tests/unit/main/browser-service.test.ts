@@ -20,7 +20,8 @@ const electron = await vi.hoisted(async () => {
     reload = vi.fn(); focus = vi.fn();
     navigationHistory = { canGoBack: () => false, canGoForward: () => false };
     constructor(public session: InstanceType<typeof EventEmitter>) { super(); }
-    setWindowOpenHandler() {}
+    openHandler: (details: { url: string }) => unknown = () => ({});
+    setWindowOpenHandler(handler: (details: { url: string }) => unknown) { this.openHandler = handler; }
     async loadURL(url: string) { this.url = url; }
     getURL() { return this.url; } getTitle() { return ""; } isLoading() { return false; }
     isDestroyed() { return this.destroyed; } isFocused() { return this.focused; }
@@ -232,4 +233,13 @@ it("still warns about a listener leak, past a finite cap", async () => {
     await new Promise(resolve => setImmediate(resolve));
   } finally { process.off("warning", warn); service.events.removeAllListeners("opened"); }
   expect(warn).toHaveBeenCalledWith(expect.objectContaining({ name: "MaxListenersExceededWarning" }));
+});
+
+it("says so in the console when a page opens a window it cannot, and when a download is refused", async () => {
+  await service.open(scope, { tabId: "popup", url: "https://example.com/" });
+  const page = contents("popup");
+  expect(page.openHandler({ url: "mailto:a@example.com" })).toEqual({ action: "deny" });
+  expect(service.metadata(scope, "popup").logs.at(-1)).toEqual({ level: "error", message: "Only http and https addresses can be opened here: mailto:a@example.com was not opened." });
+  page.session.emit("will-download", { preventDefault: vi.fn() }, { getFilename: () => "report.zip", getURL: () => "https://example.com/report.zip" }, page);
+  expect(service.metadata(scope, "popup").logs.at(-1)).toEqual({ level: "error", message: "Downloads are not supported in this browser tab. Blocked: report.zip." });
 });
