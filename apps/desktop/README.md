@@ -2496,7 +2496,12 @@ git and its hooks run under the login shell's environment (PATH included) once
 `git.ts`; Refresh in Settings › Agents refreshes it too), so Homebrew's git,
 git-lfs and a hook that calls node work from a Dock launch. Until the capture
 lands, git runs under the process environment and no call waits for it; on
-Windows the process environment is always used.
+Windows the process environment is always used. Either way the
+repository-location variables (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_NAMESPACE`,
+`GIT_CEILING_DIRECTORIES`, and the common-dir, object-directory and prefix ones) are stripped, so a login
+shell that exports one cannot point every call at another repository, and `LC_ALL` and `LANG` are
+pinned to `C` for every git call (the app matches git's English, such as "dubious ownership"; a hook
+inherits the pin).
 
 Worktree paths are compared by real path (`git.sameRealPath` / `git.isUnderReal` resolve
 symlinks in the part that exists), because `git worktree list` answers real paths:
