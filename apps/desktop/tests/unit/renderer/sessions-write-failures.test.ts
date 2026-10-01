@@ -53,7 +53,7 @@ describe("an archive", () => {
     const [text, options] = vi.mocked(toast.success).mock.calls[0]!;
     expect(text).toBe("Thread archived.");
     expect(options?.action).toMatchObject({ label: "Undo" });
-    (options!.action as { onClick: () => void }).onClick();
+    (options!.action as unknown as { onClick: () => void }).onClick();
     expect(window.textToCad.sessions.archive).toHaveBeenLastCalledWith({ id: "s1", archived: false });
   });
 

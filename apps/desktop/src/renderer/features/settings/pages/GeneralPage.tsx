@@ -4,6 +4,7 @@
  * make a noise, count a launch.
  */
 import { Play } from "lucide-react";
+import { toast } from "sonner";
 import { revealLabel } from "@text-to-cad/ui/navigation";
 
 import { Button } from "@renderer/components/ui/button";
@@ -23,6 +24,7 @@ import {
   useSettingsValue,
 } from "@renderer/features/settings/settings-value";
 import { isMac, platform } from "@renderer/lib/platform";
+import { errorMessage } from "@shared/ipc/errors";
 import type { FileOpenDestination, NotificationSoundTiming } from "@shared/types";
 
 const OPEN_WITH: { value: FileOpenDestination; label: string }[] = [
@@ -61,7 +63,8 @@ export function GeneralPage() {
                 title: "Default project folder",
                 defaultPath: settings.defaultProjectFolder ?? undefined,
               })
-              .then((chosen) => chosen && patch({ defaultProjectFolder: chosen.path }));
+              .then((chosen) => chosen && patch({ defaultProjectFolder: chosen.path }))
+              .catch((error) => toast.error(`Could not open the folder chooser: ${errorMessage(error)}`));
           }}
           note={
             fallbacks.gone.defaultProjectFolder?.reason === "file"
@@ -168,7 +171,8 @@ export function GeneralPage() {
                 title: "Notification sound",
                 filters: [{ name: "Audio", extensions: ["aiff", "aif", "wav", "mp3", "m4a", "ogg"] }],
               })
-              .then((chosen) => chosen && patch({ notificationSoundFile: chosen.path }));
+              .then((chosen) => chosen && patch({ notificationSoundFile: chosen.path }))
+              .catch((error) => toast.error(`Could not open the file chooser: ${errorMessage(error)}`));
           }}
           onClear={() => patch({ notificationSoundFile: null })}
           placeholder="text-to-cad chime"

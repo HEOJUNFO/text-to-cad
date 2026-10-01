@@ -2420,7 +2420,9 @@ but only ones git says belong to this project's repository
 
 The root and the branch prefix are settings, as are the fetch before creating,
 the auto-delete and its keep limit (Settings › Git and worktrees, which also
-lists what exists per project). The slug comes from the session's first prompt
+lists what exists per project; a project whose worktrees cannot be read shows its card with "Could not read the worktrees: …"
+in place of the list, and a failed Delete's message goes when the next read lands. A folder or file chooser that itself
+fails toasts "Could not open the folder chooser: …" / "…file chooser: …"). The slug comes from the session's first prompt
 when there is one, so a directory can be matched to a thread without opening
 anything. That directory is also the session's *identity* in the agent's own
 store — both `codex resume` and `claude --resume` key their threads by cwd —

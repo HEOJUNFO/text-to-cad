@@ -19,6 +19,8 @@
  */
 import { create } from "zustand";
 
+import { errorMessage } from "@shared/ipc/errors";
+
 import type { Worktree } from "@shared/ipc/git";
 import type { Session } from "@shared/types";
 
@@ -26,6 +28,8 @@ type WorktreeCache = {
   lists: Record<string, Worktree[]>;
   /** The epoch each list was read at; a list from an older epoch is shown, and read again. */
   readAt: Record<string, number>;
+  /** Why a project's last read failed, by project; a read that lands clears it. The list stays beside it. */
+  errors: Record<string, string>;
   /** Bumped by every invalidation: the cards mounted at the time read again. */
   epoch: number;
   /** Mark every list old; they stay visible until their re-read lands. */
@@ -37,9 +41,10 @@ type WorktreeCache = {
 export const useWorktreeCache = create<WorktreeCache>((set) => ({
   lists: {},
   readAt: {},
+  errors: {},
   epoch: 0,
   invalidate: () => set((state) => ({ epoch: state.epoch + 1 })),
-  clear: () => set((state) => ({ lists: {}, readAt: {}, epoch: state.epoch + 1 })),
+  clear: () => set((state) => ({ lists: {}, readAt: {}, errors: {}, epoch: state.epoch + 1 })),
 }));
 
 /** Reads under way, one per project and epoch: a read begun before an invalidation is not the answer to the next. */
@@ -71,10 +76,16 @@ export function ensureWorktrees(projectId: string, { fresh = false } = {}): Prom
         useWorktreeCache.setState((state) => ({
           lists: { ...state.lists, [projectId]: list },
           readAt: { ...state.readAt, [projectId]: epoch },
+          errors: Object.fromEntries(Object.entries(state.errors).filter(([id]) => id !== projectId)),
         }));
       }
     })
-    .catch(() => {})
+    // Not kept as a read (the next mount or invalidation tries again), but not silent: the card says why.
+    .catch((error) => {
+      if (useWorktreeCache.getState().epoch === epoch) {
+        useWorktreeCache.setState((state) => ({ errors: { ...state.errors, [projectId]: errorMessage(error) } }));
+      }
+    })
     .finally(() => inflight.delete(key));
   inflight.set(key, read);
   return read;
@@ -112,5 +123,5 @@ export function noteSessions(sessions: readonly Session[]): void {
 export function resetForTests(): void {
   inflight.clear();
   usage = null;
-  useWorktreeCache.setState({ lists: {}, readAt: {}, epoch: 0 });
+  useWorktreeCache.setState({ lists: {}, readAt: {}, errors: {}, epoch: 0 });
 }
