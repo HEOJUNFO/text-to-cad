@@ -777,6 +777,8 @@ a permission, a red one after a failure, a spinner ring connecting —
 worktree or on a branch of its own, and a `…` on hover or when it takes
 keyboard focus, for pin, rename, archive and delete. `Pinned` is the first section when anything is pinned,
 and a pinned thread lives **only** there — never twice.
+A pin, archive or delete that main refuses leaves the thread as it was and says so in the rename's shape — "Could not pin
+(unpin, archive, unarchive, delete) the thread: …" — and a refused archive or delete keeps the open session open.
 
 The filter menu is global, and it is opened from the panel's own header:
 `Status` (Active / Archived / All), `Environment` (All / Local / Worktree —
