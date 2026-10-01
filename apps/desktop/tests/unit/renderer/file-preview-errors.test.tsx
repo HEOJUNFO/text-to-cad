@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -18,6 +16,7 @@ vi.mock("pdfjs-dist/legacy/build/pdf.mjs", () => ({
 vi.mock("pdfjs-dist/legacy/build/pdf.worker.min.mjs?worker", () => ({ default: class { terminate() {} } }));
 vi.mock("pdfjs-dist/web/pdf_viewer.css", () => ({}));
 
+import mainFs from "../../../src/main/explorer/fs.ts?raw";
 import { FileLoadError, PREVIEW_LIMIT_BYTES } from "@renderer/features/explorer/FileLoadError";
 import ImageRenderer from "@renderer/features/explorer/renderers/image/ImageRenderer";
 import PdfRenderer from "@renderer/features/explorer/renderers/pdf/PdfRenderer";
@@ -59,8 +58,7 @@ describe("previews that cannot be shown", () => {
   });
 
   it("mirrors the main process's binary limit", () => {
-    const fs = readFileSync(path.resolve(__dirname, "../../../src/main/explorer/fs.ts"), "utf8");
-    expect(/MAX_BINARY_BYTES = (\d+) \* 1024 \* 1024/.exec(fs)?.[1]).toBe(String(PREVIEW_LIMIT_BYTES / 1024 / 1024));
+    expect(/MAX_BINARY_BYTES = (\d+) \* 1024 \* 1024/.exec(mainFs)?.[1]).toBe(String(PREVIEW_LIMIT_BYTES / 1024 / 1024));
   });
 
   it("says a PDF could not be opened, with PDF.js's reason, and hides the page toolbar", async () => {
