@@ -30,7 +30,7 @@ export function Transcript({
   onReconnect,
 }: {
   state: SessionState;
-  onRetry: () => void;
+  onRetry: () => void | Promise<void>;
   onReconnect: () => void;
 }) {
   const status = statusLine(state);
@@ -242,7 +242,7 @@ const TurnView = memo(function TurnView({
   turn: Turn;
   sessionId: string;
   /** Given to the last turn only: its error row's Retry. */
-  onRetry?: () => void;
+  onRetry?: () => void | Promise<void>;
   /** Given to the last turn only, while the session is in error. */
   onReconnect?: () => void;
 }) {

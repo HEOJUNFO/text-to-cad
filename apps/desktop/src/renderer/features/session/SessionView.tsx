@@ -222,11 +222,18 @@ export function SessionView({ session }: { session: Session }) {
     handToComposer();
     void load(session.id);
   };
-  const retry = () => {
+  // One resend at a time: a second click while the first is out would meet a busy session and
+  // queue the same prompt again. The transcript's Retry is pending for as long as this runs.
+  const retrying = useRef(false);
+  const retry = async () => {
     const lastPrompt = lastUserPrompt(state);
-    if (lastPrompt) {
+    if (!lastPrompt || retrying.current) return;
+    retrying.current = true;
+    try {
       handToComposer();
-      void submit(session.id, promptText(lastPrompt), lastPrompt);
+      await submit(session.id, promptText(lastPrompt), lastPrompt);
+    } finally {
+      retrying.current = false;
     }
   };
   useEffect(() => {

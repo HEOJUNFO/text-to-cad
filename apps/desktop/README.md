@@ -1194,7 +1194,7 @@ on the composer's row and goes into the box once the agent is back; every
 Reconnect, Retry, Install and sign-in retry on the session screen, the
 transcript's included, goes through the composer handoff, `handToComposer`
 (`features/session/SessionView.tsx`; `reconnectFromBar` is it plus the load, and the
-transcript's Retry is it plus the resubmit), for the same reason. Leaving Settings
+transcript's Retry is it plus the resubmit), for the same reason. The transcript's Retry is one resend at a time: from the first click the button is disabled and reads "Retrying…" until the resubmit settles, and `retry` ignores a second call while one is out, so a double-click cannot queue the same prompt twice. Leaving Settings
 unmounts the button that had focus, so `focusSessionHome` (`app/pane-focus.ts`)
 puts it in the composer, waiting one frame for the editor to mount. The
 context ring takes focus into its panel on open and gets it back on close.
