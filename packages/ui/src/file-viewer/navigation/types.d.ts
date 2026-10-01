@@ -163,7 +163,7 @@ export type FileTreeSource = {
   /** Bumped when the filesystem moved on: re-reads what is open, retires the corpus. */
   revision: number;
   /** Every file path under the root, for the filter. Fetched on the first keystroke. */
-  paths: () => Promise<readonly string[]>;
+  paths: () => Promise<readonly string[] | { paths: readonly string[]; truncated: boolean }>;
   platform: Platform;
   capabilities?: ReadonlySet<EntryAction>;
   /** Everything except the three that start a field, which the tree keeps. */

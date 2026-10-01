@@ -67,7 +67,8 @@ export function createDesktopFileSource({ sessionId, projectId, projectName, roo
       return { ...stat, mediaType: stat.fileKind };
     },
     list: (path, { signal }) => checked(signal, () => window.textToCad.explorer.list({ ...at, path })),
-    paths: ({ signal }) => checked(signal, async () => (await window.textToCad.explorer.paths({ ...at, path: "" })).paths),
+    // `truncated` rides along: the filter says when the index stopped short of the project.
+    paths: ({ signal }) => checked(signal, () => window.textToCad.explorer.paths({ ...at, path: "" })),
     readText: (path, { signal }) => checked(signal, () => window.textToCad.explorer.readText({ ...at, path })),
     async readAsset(path, { signal }): Promise<ManagedFileAsset> {
       const binary = await checked(signal, () => window.textToCad.explorer.readBinary({ ...at, path }));

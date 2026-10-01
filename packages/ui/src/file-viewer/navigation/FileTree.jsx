@@ -85,6 +85,7 @@ import { InlineName } from "./InlineName.jsx";
  */
 
 const NO_FAILURES = Object.freeze({});
+const FILTER_LIMIT = 200;
 const ROW_HEIGHT = TREE_ROW_HEIGHT;
 const INDENT = 12;
 
@@ -238,12 +239,13 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
     void Promise.resolve(paths())
       .then((result) => {
         if (!cancelled) {
-          setCorpus({ revision, paths: [...result] });
+          const listing = Array.isArray(result) ? { paths: result, truncated: false } : result;
+          setCorpus({ revision, paths: [...listing.paths], truncated: listing.truncated === true });
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (!cancelled) {
-          setCorpus({ revision, paths: [] });
+          setCorpus({ revision, paths: [], failure: error instanceof Error ? error.message : String(error) });
         }
       });
     return () => {
@@ -474,10 +476,19 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
       ? (rows.find((row) => row.path === editing.directory)?.depth ?? 0) + 1
       : 0;
 
-  const matches = useMemo(
-    () => (filtering ? fuzzyFilter((corpus?.paths ?? []).filter((path) => !isInsideHiddenTreeEntry(path)), query, 200) : []),
+  const ranked = useMemo(
+    () => (filtering ? fuzzyFilter((corpus?.paths ?? []).filter((path) => !isInsideHiddenTreeEntry(path)), query, Infinity) : []),
     [corpus, filtering, query]
   );
+  const matches = useMemo(() => ranked.slice(0, FILTER_LIMIT), [ranked]);
+  /** What the filter could not show: matches past the cap, and files the source's index never held. */
+  const filterNotice = (() => {
+    if (!filtering || !corpus || corpus.failure !== undefined) return null;
+    const over = ranked.length > FILTER_LIMIT ? `Showing the first ${FILTER_LIMIT} of ${ranked.length} matches` : null;
+    const capped = corpus.truncated ? `the index stopped at ${corpus.paths.length.toLocaleString("en-US")} files` : null;
+    if (over && capped) return `${over}; ${capped}`;
+    return over ?? (capped ? `${capped[0].toUpperCase()}${capped.slice(1)}; some matches may be missing` : null);
+  })();
 
   /**
    * Open a file. One picked from the filter ends the search: the tree comes
@@ -733,10 +744,11 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
             {filtering ? (
               matches.length === 0 ? (
                 <p className="px-3 py-6 text-center text-xs text-muted-foreground">
-                  {corpus === null ? "Searching…" : `No file matches “${query.trim()}”`}
+                  {corpus === null ? "Searching…" : corpus.failure !== undefined ? `Could not search the files: ${corpus.failure}` : `No file matches “${query.trim()}”${corpus.truncated ? `; the index stopped at ${corpus.paths.length.toLocaleString("en-US")} files` : ""}`}
                 </p>
               ) : (
-                matches.map((match, index) => (
+                <>
+                {matches.map((match, index) => (
                   <FilterRow
                     active={match.path === activePath || match.path === reveal?.path}
                     cursor={match.path === drawnCursor}
@@ -746,7 +758,9 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
                     onOpen={() => open(match.path)}
                     path={match.path}
                   />
-                ))
+                ))}
+                {filterNotice ? <p className="px-3 py-2 text-xs text-muted-foreground" role="presentation">{filterNotice}</p> : null}
+                </>
               )
             ) : rows.length === 0 && !newEntryRow ? (
               <p className="px-3 py-6 text-center text-xs text-muted-foreground">

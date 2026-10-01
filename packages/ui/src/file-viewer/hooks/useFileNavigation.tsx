@@ -167,10 +167,11 @@ export function useFileNavigation({ source, actions, state, onStateChange, onOpe
   const paths = useCallback(async () => {
     const controller = new AbortController();
     searches.current.add(controller);
-    try { const paths = await source.paths?.({ signal: controller.signal }) ?? []; return !controller.signal.aborted && current.current.source === source ? paths : []; }
-    catch (error) { if (!controller.signal.aborted) report(error); return []; }
+    try { const listing = await source.paths?.({ signal: controller.signal }) ?? []; return !controller.signal.aborted && current.current.source === source ? listing : []; }
+    // Not a toast: the filter says why it found nothing, where the person is looking.
+    catch (error) { if (!controller.signal.aborted) throw new Error(errorMessage(error)); return []; }
     finally { searches.current.delete(controller); }
-  }, [source, report]);
+  }, [source]);
   const tree: FileTreeSource = { rootName: source.rootName, expanded, setExpanded, listings, failures, load, revision, paths, platform, capabilities, onAction,
     rename: source.rename ? rename : undefined, create: source.create ? create : undefined, trash: source.trash ? trash : undefined };
   const crumbs: CrumbSource = {
