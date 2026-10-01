@@ -148,6 +148,18 @@ export const useSessions = create<SessionsState>((set, get) => ({
     try {
       await window.textToCad.sessions.delete({ id });
     } catch (error) {
+      // The rejection may arrive after the row went (a failure past the write): ask main what exists
+      // before deciding what to keep active, rather than keeping a deleted id open.
+      let listed: Session[] | null = null;
+      try {
+        listed = await window.textToCad.sessions.list({});
+      } catch {
+        // Main cannot say either: keep what is shown and report the refusal.
+      }
+      if (Array.isArray(listed) && !listed.some((session) => session.id === id)) {
+        get().receive(listed);
+        return;
+      }
       toast.error(`Could not delete the thread: ${errorMessage(error)}`);
       return;
     }

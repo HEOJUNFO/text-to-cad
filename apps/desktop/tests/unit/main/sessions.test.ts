@@ -1500,6 +1500,55 @@ describe("SessionManager", () => {
     expect(released).toEqual([]);
   });
 
+  it("a delete whose row cannot be removed leaves the adapter alive and the row as it was", async () => {
+    const { repo, manager, cwd } = await setup();
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    repo.remove = () => {
+      throw new Error("database is locked");
+    };
+    await expect(manager.delete(session.id)).rejects.toThrow("database is locked");
+    expect(repo.get(session.id)?.status).toBe("idle");
+    expect(manager.state(session.id)).not.toBeNull();
+  });
+
+  it("a beforeRelease that throws after the row went still resolves, and keeps the worktree", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const released: string[] = [];
+    try {
+      const { repo, manager, cwd } = await setup({
+        workspace: async () => ({ cwd, worktreePath: `${cwd}/wt` }),
+        releaseWorkspace: async () => {
+          released.push("release");
+        },
+      });
+      const session = await manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "worktree" });
+      await expect(
+        manager.delete(session.id, {
+          beforeRelease: () => {
+            throw new Error("terminal stuck");
+          },
+        }),
+      ).resolves.toBeUndefined();
+      expect(repo.get(session.id)).toBeNull();
+      expect(released).toEqual([]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("an archive whose write throws leaves the adapter alive and the row not archived", async () => {
+    const { repo, manager, cwd } = await setup();
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    const upsert = repo.upsert;
+    repo.upsert = () => {
+      throw new Error("database is locked");
+    };
+    await expect(manager.archive(session.id, true)).rejects.toThrow("database is locked");
+    repo.upsert = upsert;
+    expect(repo.get(session.id)).toMatchObject({ archived: false, status: "idle" });
+    expect(manager.state(session.id)).not.toBeNull();
+  });
+
   it("says why a worktree was kept when releaseWorkspace does not remove it", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
