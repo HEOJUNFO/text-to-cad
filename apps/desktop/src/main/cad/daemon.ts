@@ -14,7 +14,8 @@
  * singleton lock, and stands down at once if one is already bound, so
  * starting it here when a project opens is the same daemon the CLI and the
  * viewer would have started later, only earlier and off the critical path.
- * Detached and never tracked: it is the person's daemon, shared with every
+ * Detached and never held as one of the app's children (only its pid is remembered, while it
+ * runs, so a quit's deadline spares it): it is the person's daemon, shared with every
  * terminal, and it retires on its own idle timeout the way the CLI's does.
  * It starts in the app's data directory, not in the project that opened it:
  * a process's cwd locks that folder on Windows (the worktree could not be

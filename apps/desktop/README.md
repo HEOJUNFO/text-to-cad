@@ -1671,7 +1671,8 @@ at all — an fsevents handle dies with the process.
 On POSIX, an app-owned viewer runs in its own process group. Its transient CAD
 workers are stopped when the viewer exits or the app quits, including workers
 that outlive the viewer process. Reused external viewers and the shared warm
-daemon belong to separate groups and are left running.
+daemon belong to separate groups and are left running (on POSIX; on Windows the
+deadline's tree kill takes the warm daemon with it, see below).
 
 What is left after `before-quit` is Chromium's own shutdown, which on this
 macOS takes twelve seconds to minutes once a window has held a WebGL context
@@ -1698,7 +1699,10 @@ known and every unspared child is killed singly (a viewer's workers, in its own 
 are then not reached). A `ps` that exits non-zero but printed rows (BSD `ps -p a,b`
 does when one pid vanished since `pgrep`) is read for those rows. A quit that finishes
 on its own — half a second without WebGL —
-gives it nothing to do.
+gives it nothing to do. On Windows there is no spare list: the deadline runs
+`taskkill /PID <app> /T /F`, which follows the parent pid through `detached`, so
+a quit that reaches the deadline ends the warm daemon too and it is cold-started
+by the next launch. (A quit that finishes on its own leaves it running.)
 
 `before-quit` in `src/main/index.ts` calls `markQuitting()` first, before any
 step that can throw; the listener in `src/main/menu.ts` is registered later

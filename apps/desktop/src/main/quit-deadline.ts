@@ -56,6 +56,11 @@ export const WATCHDOG_PROBE_TIMEOUT_MS = 250;
  * non-zero but printed rows (BSD `ps -p a,b` does when one pid vanished since `pgrep`)
  * is read for those rows.
  *
+ * Windows has no spare list: `taskkill /T` follows ParentProcessId, which `detached` does
+ * not change, so when the deadline is reached the tree kill takes the warm daemon with
+ * it and the next launch cold-starts it. (Sparing it would need a different mechanism; the
+ * test "carries no spare list on Windows" pins the current behaviour so a change is deliberate.)
+ *
  * Except when the quit is an update's (`tree` false): electron-updater has
  * just spawned the NSIS installer, or the new AppImage, as a child of this
  * process, and a tree kill would take it down mid-install. Then only the app

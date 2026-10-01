@@ -218,6 +218,14 @@ setInterval(() => {}, 1000);
     expect(scanned).not.toHaveBeenCalled();
   });
 
+  it("carries no spare list on Windows, where the tree kill takes the warm daemon with it", () => {
+    // `taskkill /T` follows ParentProcessId through `detached`. Flip this deliberately, together
+    // with the README's "Quitting" section, if a Windows spare mechanism is ever built.
+    const script = watchdogScript(123, 0, "win32", Date.now(), true, [777, 888]);
+    expect(script).not.toMatch(/777|888|spare/);
+    expect(script).toContain('"/T"');
+  });
+
   it("after before-quit-for-update, kills only the app, never the installer it spawned", () => {
     // posix: no `pgrep -P` scan, so the relaunched AppImage (a child) lives.
     const signaled: number[] = [];
