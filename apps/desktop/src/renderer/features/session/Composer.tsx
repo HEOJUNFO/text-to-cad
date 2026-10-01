@@ -102,6 +102,7 @@ export function Composer({
   placeholder = "Do anything",
   autoFocus,
   refuseSend,
+  queueWhileSubmitted,
   onSubmit,
   onStop,
 }: {
@@ -122,6 +123,14 @@ export function Composer({
    * says this, the way a chip with a `disabledReason` does, and the draft stays where it is.
    */
   refuseSend?: string;
+  /**
+   * Enter sends while `submitted` too. In a session that is a prompt out whose turn has not
+   * started, and a prompt sent then is queued behind it (`sending`, state/composer.ts) just as
+   * one sent mid-turn is; the button still shows the spinner. The new-session screen leaves it
+   * off: its `submitted` is a create in progress, and a second Enter there would create a
+   * second session.
+   */
+  queueWhileSubmitted?: boolean;
   /** `draft` is what the box held, kept apart, so a queued prompt can be put back as it was. */
   onSubmit: (text: string, content: PromptBlock[], draft: TakenDraft) => Promise<void> | void;
   onStop?: () => void;
@@ -166,6 +175,10 @@ export function Composer({
     const submit = form?.querySelector('button[type="submit"]') as HTMLButtonElement | null;
     if (form && !submit?.disabled) form.requestSubmit();
   }, [submitRequest]);
+  // Enter's gate: the submit button says no (a disabled composer, or the spinner of a create),
+  // except where a prompt in flight is the thing a send queues behind.
+  const enterBlocked = (submit: HTMLButtonElement | null) =>
+    Boolean(submit?.disabled) && !(queueWhileSubmitted && !disabled && status === "submitted");
 
   // The files behind this box's attachments (`composer/attachments.ts`), for as long as it is mounted.
   const [attachmentFiles] = useState(() => new AttachmentFiles());
@@ -410,6 +423,7 @@ export function Composer({
                 admit={admit}
                 autoFocus={autoFocus}
                 disabled={disabled}
+                enterBlocked={enterBlocked}
                 handle={textRef}
                 onChange={setText}
                 onKeyDown={(event) => {
@@ -517,11 +531,13 @@ type Admit = (files: readonly File[], add: (files: File[]) => void) => Promise<v
  */
 function ComposerEditorField({
   admit,
+  enterBlocked,
   handle,
   onKeyDown,
   ...props
 }: Omit<React.ComponentProps<typeof ComposerEditor>, "onSubmit" | "onPasteFiles" | "onKeyDown"> & {
   admit: Admit;
+  enterBlocked: (submit: HTMLButtonElement | null) => boolean;
   handle: React.RefObject<ComposerEditorHandle | null>;
   onKeyDown: (event: React.KeyboardEvent) => void;
 }) {
@@ -547,7 +563,7 @@ function ComposerEditorField({
       onSubmit={() => {
         const form = handle.current?.form() ?? null;
         const submit = form?.querySelector('button[type="submit"]') as HTMLButtonElement | null;
-        if (form && !submit?.disabled) {
+        if (form && !enterBlocked(submit)) {
           form.requestSubmit();
         }
       }}
