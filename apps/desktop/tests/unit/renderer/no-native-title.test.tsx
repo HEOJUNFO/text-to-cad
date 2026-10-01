@@ -189,7 +189,7 @@ describe("Settings", () => {
     // A project with a worktree that has uncommitted work: Delete is off, and says why.
     useProjects.setState({ projects: [{ id: "p", name: "p", path: "/p", createdAt: 0 }], activeId: "p" });
     vi.mocked(window.textToCad.git.worktrees).mockResolvedValue([
-      { path: "/Users/me/worktrees/p/fillet", branch: "text-to-cad/fillet", lastUsedAt: null, openSessions: 0, dirty: true, locked: false },
+      { path: "/Users/me/worktrees/p/fillet", branch: "text-to-cad/fillet", lastUsedAt: null, openSessions: 0, dirty: true, stranded: false, locked: false },
     ]);
   });
 
@@ -204,7 +204,7 @@ describe("Settings", () => {
     if (section === "git") {
       const remove = await screen.findByRole("button", { name: "Delete" });
       expect(remove).toBeDisabled();
-      expect(remove).toHaveAccessibleDescription(/uncommitted changes, ignored files \(like \.env\), or commits on a detached HEAD/);
+      expect(remove).toHaveAccessibleDescription(/uncommitted changes or ignored files \(like \.env\)/);
     }
     expect([...document.querySelectorAll("[title]")].map((element) => element.outerHTML.slice(0, 120))).toEqual([]);
   });

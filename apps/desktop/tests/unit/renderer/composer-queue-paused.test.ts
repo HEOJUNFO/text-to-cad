@@ -71,6 +71,32 @@ it("a turn the person stopped holds the queue: it is not drained, says so, and R
   expect(useComposer.getState().queues[SESSION]?.map(item => item.text)).toEqual(["B"]);
 });
 
+it("a Resume that main refuses before any turn reads 'Paused after an error', not 'after you stopped'", async () => {
+  // The agent is gone: main refuses the head before a turn begins, so the last turn is still the
+  // one the person stopped.
+  const prompt = vi.fn(() => Promise.reject(new Error("the agent is not installed")));
+  useAcp.setState({ sessions: { [SESSION]: { ...initialSessionState(SESSION, "claude"), status: "running" } }, prompt, loadErrors: {} });
+  useComposer.getState().enqueue(SESSION, "A", block("A"));
+  useComposer.getState().enqueue(SESSION, "B", block("B"));
+  render(createElement(Composer, { sessionId: SESSION, newDraftKey: "__new__:p", chips: null, commands: [], status: "ready", onSubmit: vi.fn() }));
+  await act(async () => {
+    useAcp.setState({ sessions: { [SESSION]: { ...initialSessionState(SESSION, "claude"), status: "idle", turns: [{ id: "t", stopReason: "cancelled" } as never] } } });
+    useComposer.getState().turnEvent(SESSION, "prompt/end", "cancelled");
+  });
+  expect(screen.getByRole("status").textContent).toBe("Paused after you stopped");
+
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Resume" })); });
+  expect(prompt).toHaveBeenCalledTimes(1);
+  expect(useComposer.getState().queues[SESSION]?.map(item => item.text)).toEqual(["A", "B"]);
+  expect(screen.getByRole("status").textContent).toBe("Paused after an error");
+});
+
+it("Stop with nothing queued does not pause: the next prompt is not held back behind a pause nobody can see", async () => {
+  useAcp.setState({ sessions: { [SESSION]: { ...initialSessionState(SESSION, "claude"), status: "idle" } } });
+  await act(async () => { useComposer.getState().turnEvent(SESSION, "prompt/end", "cancelled"); });
+  expect(useComposer.getState().paused).toEqual({});
+});
+
 it("a turn that ends normally still drains the queue", async () => {
   const prompt = vi.fn(() => new Promise<string>(() => {}));
   useAcp.setState({ sessions: { [SESSION]: { ...initialSessionState(SESSION, "claude"), status: "idle" } }, prompt });

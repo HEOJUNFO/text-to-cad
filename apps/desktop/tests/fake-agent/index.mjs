@@ -53,7 +53,14 @@
  *                 and only then — behind the prompt response — send one more
  *                 text chunk and an `in_progress` update for the failed call,
  *                 the way a background task's report lands after `prompt/end`
+ *   "linger"      work for about 1.5 s, then end the turn on its own (`end_turn`) —
+ *                 long enough to queue a prompt behind it, unlike "slow", which
+ *                 waits to be cancelled
  *   "slow"        wait until cancelled
+ *   "reject-prompt" ask session/request_permission without waiting for the
+ *                 answer, then answer `session/prompt` with a JSON-RPC error
+ *                 while staying alive — a turn that fails with a request
+ *                 still open, unlike "crash", whose exit disposes the client
  *   "crash"       exit(3) mid-turn
  *   "showcase"    a Codex-shaped turn for the session UI's e2e: thoughts,
  *                 reads, edits with diffs, a streamed command, a plan, a
@@ -606,6 +613,20 @@ async function script(conn, params) {
     return { stopReason: "end_turn" };
   }
 
+  if (text.includes("reject-prompt")) {
+    void conn
+      .requestPermission({
+        sessionId,
+        toolCall: { toolCallId: "rp-1", title: "Run ls", kind: "execute", status: "pending", rawInput: { command: "ls" } },
+        options: [{ optionId: "allow-once", name: "Yes", kind: "allow_once" }],
+        _meta: { permission: { version: 1, title: "Run ls?", description: "Lists the directory." } },
+      })
+      .catch(() => {});
+    // Same pipe, so the request reaches the client before the error does.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    throw RequestError.internalError(undefined, "the model refused the turn");
+  }
+
   if (text.includes("crash")) {
     await send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "about to " } });
     process.exit(3);
@@ -681,6 +702,12 @@ async function script(conn, params) {
       void send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Background task finished." } });
       void send({ sessionUpdate: "tool_call_update", toolCallId: "late-1", status: "in_progress" });
     }, 20);
+    return { stopReason: "end_turn" };
+  }
+
+  if (text.includes("linger")) {
+    await send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "working" } });
+    await new Promise((resolve) => setTimeout(resolve, 1500));
     return { stopReason: "end_turn" };
   }
 

@@ -298,7 +298,8 @@ export function NewSession({ project }: { project: Project }) {
   const submitFromComposer = async (text: string, content: PromptBlock[], draft: TakenDraft) => {
     if (!(await start(text, content, draft))) {
       failedAttempt.current = draft;
-      setRetryable(true);
+      // "Install an agent first" is not a failed attempt: nothing was tried, and its card has Dismiss.
+      setRetryable(Boolean(startingAgentId));
       throw new Error("The session did not start");
     }
   };

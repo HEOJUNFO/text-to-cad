@@ -31,6 +31,9 @@ export type PathToken = {
   selector: string;
 };
 
+/** What `remarkPathLinks` ends an absolute path's URL with, before any `#selector`; `pathTarget` reads it. */
+export const ABSOLUTE_MARK = "?abs";
+
 /** Characters that end a token; they are never part of a path in prose. */
 const TOKEN_RE = new RegExp(`[^\\s()\\[\\]<>"'\`,;]+(?:#${SELECTOR_LIST_SOURCE})?`, "g");
 /** Punctuation a sentence hangs on the end of a path. */
@@ -77,22 +80,58 @@ export function looksLikePath(candidate: string): boolean {
   return extension !== undefined && /[A-Za-z]/.test(extension) && last.length > extension.length + 1;
 }
 
-/** Every path-shaped token in `text`, in order. */
-export function findPathTokens(text: string): PathToken[] {
+/**
+ * Tokens that begin with the thread's own root, for a root the ordinary token
+ * grammar cannot hold (`/Users/me/My Project`: a space splits a token, and
+ * `PATH_CHARS_RE` would refuse an accented name). The root's characters are
+ * taken as they are; what follows it is read as any other path.
+ */
+function rootedTokens(text: string, rootPath: string | null | undefined): PathToken[] {
+  const root = rootPath?.replace(/\/+$/, "");
+  if (!root || !root.startsWith("/") || PATH_CHARS_RE.test(root)) {
+    return [];
+  }
   const tokens: PathToken[] = [];
-  TOKEN_RE.lastIndex = 0;
-  for (let match = TOKEN_RE.exec(text); match; match = TOKEN_RE.exec(text)) {
-    const token = tokenFrom(match[0], match.index);
-    if (token) {
-      tokens.push(token);
+  const tail = new RegExp(`[^\\s()\\[\\]<>"'\`,;]*(?:#${SELECTOR_LIST_SOURCE})?`, "y");
+  for (let at = text.indexOf(`${root}/`); at >= 0; at = text.indexOf(`${root}/`, at + 1)) {
+    if (at > 0 && !/[\s()[\]<>"'`,;]/.test(text[at - 1]!)) {
+      continue;
     }
+    tail.lastIndex = at + root.length;
+    const rest = tail.exec(text)?.[0] ?? "";
+    // Read the part after the root as the path it is, under a stand-in the grammar accepts.
+    const token = tokenFrom(`/r${rest}`, 0);
+    if (!token) {
+      continue;
+    }
+    tokens.push({
+      start: at,
+      end: at + root.length + token.end - 2,
+      raw: `${root}${token.raw.slice(2)}`,
+      path: `${root}${token.path.slice(2)}`,
+      selector: token.selector,
+    });
   }
   return tokens;
 }
 
+/** Every path-shaped token in `text`, in order. */
+export function findPathTokens(text: string, rootPath?: string | null): PathToken[] {
+  const rooted = rootedTokens(text, rootPath);
+  const tokens: PathToken[] = [...rooted];
+  TOKEN_RE.lastIndex = 0;
+  for (let match = TOKEN_RE.exec(text); match; match = TOKEN_RE.exec(text)) {
+    const token = tokenFrom(match[0], match.index);
+    if (token && !rooted.some((other) => token.start < other.end && other.start < token.end)) {
+      tokens.push(token);
+    }
+  }
+  return tokens.sort((left, right) => left.start - right.start);
+}
+
 /** The whole string as one token, or null — for a code span that is a path. */
-export function pathToken(text: string): PathToken | null {
-  const token = tokenFrom(text, 0);
+export function pathToken(text: string, rootPath?: string | null): PathToken | null {
+  const token = rootedTokens(text, rootPath)[0] ?? tokenFrom(text, 0);
   return token && token.start === 0 && token.end === text.length ? token : null;
 }
 

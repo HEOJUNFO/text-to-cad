@@ -3,10 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ContextMeter } from "@renderer/features/session/ContextMeter";
-import { EffortChip, ModeChip, ProjectChip } from "@renderer/features/session/ComposerChips";
+import { EffortChip, GitModeChip, ModeChip, ProjectChip } from "@renderer/features/session/ComposerChips";
 import { useProjects } from "@renderer/state/projects";
 import { useSessions } from "@renderer/state/sessions";
 import type { SelectOption } from "@shared/acp/options";
+import type { ProjectGitInfo } from "@shared/ipc/git";
 import type { Project, Session } from "@shared/types";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), dismiss: vi.fn(), info: vi.fn() } }));
@@ -74,5 +75,27 @@ describe("a chip's hint", () => {
   it("opens above a chip in the strip over the box, off the sentence", async () => {
     render(<ProjectChip onChange={vi.fn()} project={BRACKET} />);
     expect(await hintSide(screen.getByRole("button", { name: "Gripper bracket" }))).toBe("top");
+  });
+});
+
+describe("the git mode chip's menu", () => {
+  const folder: ProjectGitInfo = {
+    isRepository: false, branch: null, upstream: null, defaultBranch: null, dirty: false, detached: false,
+    unborn: false, hasRemote: false, hasGh: false, worktreeCount: 0, worktreeDir: "",
+  };
+
+  it("gives Local the reason git cannot open the folder, as the worktree item has it, not 'not a git repository'", async () => {
+    const problem = "git will not open this folder because another user owns it (add it to git's safe.directory to trust it)";
+    render(<GitModeChip gitMode="none" info={{ ...folder, problem }} onChange={vi.fn()} />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Local" }));
+    expect(screen.getByRole("menuitemradio", { name: /^Local/ })).toHaveTextContent(`The project folder; ${problem}`);
+    expect(screen.getByRole("menuitemradio", { name: /^New worktree/ })).toHaveTextContent(problem);
+    expect(screen.queryByText(/it is not a git repository/)).toBeNull();
+  });
+
+  it("keeps the plain sentence for a folder that is just a folder", async () => {
+    render(<GitModeChip gitMode="none" info={folder} onChange={vi.fn()} />);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Local" }));
+    expect(screen.getByRole("menuitemradio", { name: /^Local/ })).toHaveTextContent("The project folder; it is not a git repository");
   });
 });

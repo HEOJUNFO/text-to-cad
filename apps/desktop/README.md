@@ -848,8 +848,13 @@ a selector (`bracket.step#o1.2`, `#label.f45`) opens the file in the
 viewer and hands the selector to the STEP renderer's command source. Paths
 are relative to the thread's root — its worktree when it has one — and an
 absolute path (`/Users/me/proj/models/a.step`) links when it lies inside that
-root, read against it; one outside the root is only words, since nothing
-outside the project opens in the explorer. A failed `explorer.exists` is not
+root, read against it (a root with a space in it too: `remarkPathLinks` is given
+the root); one outside the root is only words, since nothing outside the
+project opens in the explorer. The plugin marks an absolute path's URL
+(`?abs`), because rehype-harden spells a workspace path `/models/x` too and
+`/etc/hosts` would otherwise read as `<root>/etc/hosts`; a link the agent wrote
+by hand with a leading `/` is still read as a workspace path. An image at an
+absolute path under the root is read the same way. A failed `explorer.exists` is not
 an answer: the path stays words and is asked again on the next hover or click
 (and at the next `files.changed`), not pinned as "not a path".
 
@@ -926,7 +931,9 @@ image over the model's limit (`MAX_IMAGE_BYTES`, the file size whose base64
 stays under 5 MiB, the same cap a viewer capture is fitted to) is redrawn
 smaller as a PNG when it is attached, and a toast says so when that changed what
 the file is — an animated GIF or WebP comes out a still image ("<name> was scaled
-down to a still image to fit the model's limit."), any other format a PNG; one that cannot be brought under it is
+down to a still image to fit the model's limit."), any other format a PNG (an
+animated PNG is read by its type, `image/png`, so it is not told apart from a
+still one and gets no still-image notice); one that cannot be brought under it is
 refused with "<name> is larger than the model takes (about 3.75 MB of image)
 and could not be scaled down, so it was not attached." The send checks again
 and drops such an image with the same sentence. A
@@ -945,8 +952,8 @@ cannot take an image in a prompt. Remove the attachment to send.",
 the message is accepted, not when its turn ends (`prompt` settles at the end
 of the turn); a prompt refused afterwards puts its files back in the strip. A queued prompt main refuses goes back into the
 box as it was taken, behind any put back before it, so the box reads in queue
-order, and the queue goes on. A turn the person stops (Stop or Esc) pauses the queue the way a failed one
-does: the queue row reads "Paused after you stopped" with the same Resume, and
+order, and the queue goes on. A turn the person stops (Stop or Esc) with something queued pauses the queue the way a failed one
+does (Stop with nothing queued pauses nothing): the queue row reads "Paused after you stopped" with the same Resume (the reason is kept on the pause, so a Resume main then refuses reads "Paused after an error"), and
 the next queued prompt waits for it (or for a prompt typed meanwhile, which goes
 out first) instead of starting behind the Stop. A new session's first prompt refused this way
 goes back into that session's box — the session was created and selected
@@ -2468,7 +2475,7 @@ The others work in a plain folder: git is optional, and a project is a
 directory.
 
 "Not a repository" is not the only reason a folder has no repository, and the
-Review tab, the mode chip and worktree mode say which. Git is missing
+Review tab, the mode chip (its Local item and its worktree item both) and worktree mode say which. Git is missing
 ("git is not installed or not on PATH"), the folder is gone ("<folder> no
 longer exists"), git refuses it for dubious ownership ("git will not open this
 folder because another user owns it"), or git did not answer in time. The
@@ -2540,8 +2547,11 @@ refused on two grounds: a worktree in use (main answers "N sessions are still
 using that worktree", and the row says "A session is still open in this
 worktree.") and a locked one (`git worktree lock`; the row says it is kept
 until it is unlocked). The row disables Delete and gives the reason through
-`keptBecause` in `GitPage.tsx`, which also covers uncommitted changes,
-ignored files, commits only the checkout holds, and a worktree git could not check. The limit counts only unlocked, unheld
+`keptBecause` in `GitPage.tsx`, which also covers uncommitted changes
+or ignored files (`dirty`), commits only the checkout holds (`stranded`: a detached
+HEAD no branch reaches, or a merge or rebase left half done, each with its own
+sentence and its own line under the branch), and a worktree git could not check
+(`unsavedWork` answers both, split by kind). The limit counts only unlocked, unheld
 worktrees in the project's worktree folders; one with unsaved work counts
 toward it and is then kept. A branch is deleted only when a failed create abandons the
 worktree it made, and then only while it still points where it was cut

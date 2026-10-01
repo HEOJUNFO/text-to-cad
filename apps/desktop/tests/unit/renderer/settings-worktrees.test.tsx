@@ -32,6 +32,7 @@ const worktree = (over: Partial<Worktree>): Worktree => ({
   lastUsedAt: null,
   openSessions: 0,
   dirty: false,
+  stranded: false,
   locked: false,
   ...over,
 });
@@ -209,4 +210,22 @@ it("toasts when the folder chooser itself fails", async () => {
   );
   await userEvent.setup().click(screen.getAllByRole("button", { name: /Choose/ })[0]!);
   await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Could not open the folder chooser: no dialog"));
+});
+
+it("describes a worktree holding only stranded commits as that, not as uncommitted files", async () => {
+  vi.mocked(window.textToCad.git.worktrees).mockResolvedValue([
+    worktree({ path: "/w/p/detached", branch: null, stranded: true }),
+    worktree({ path: "/w/p/edited", branch: "edited", dirty: true }),
+  ]);
+  render(
+    <TooltipProvider>
+      <GitPage />
+    </TooltipProvider>,
+  );
+  expect(await screen.findByText(/detached · .*commits on a detached HEAD, or an unfinished merge or rebase/)).toBeInTheDocument();
+  expect(screen.queryByText(/detached · .*uncommitted or ignored files/)).toBeNull();
+  expect(screen.getByText(/edited · .*uncommitted or ignored files/)).toBeInTheDocument();
+  const [stranded] = screen.getAllByRole("button", { name: "Delete" });
+  expect(stranded).toBeDisabled();
+  expect(stranded).toHaveAccessibleDescription(/holds commits on a detached HEAD no branch reaches/);
 });

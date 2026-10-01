@@ -367,11 +367,14 @@ function keptBecause(worktree: Worktree): string | null {
   if (worktree.locked) {
     return "This worktree is locked (git worktree lock), so it is kept until it is unlocked.";
   }
-  if (worktree.dirty === null) {
-    return "Git could not check this worktree for uncommitted changes or ignored files, so it is kept.";
+  if (worktree.dirty === null || worktree.stranded === null) {
+    return "Git could not check this worktree for uncommitted changes, ignored files, or commits only it holds, so it is kept.";
   }
   if (worktree.dirty) {
-    return "This worktree has uncommitted changes, ignored files (like .env), or commits on a detached HEAD or an unfinished rebase or merge that deleting it would lose.";
+    return "This worktree has uncommitted changes or ignored files (like .env) that deleting it would lose.";
+  }
+  if (worktree.stranded) {
+    return "This worktree holds commits on a detached HEAD no branch reaches, or an unfinished rebase or merge, that deleting it would lose.";
   }
   if (worktree.openSessions > 0) {
     return "A session is still open in this worktree.";
@@ -406,10 +409,12 @@ function describe(worktree: Worktree): string {
   if (worktree.locked) {
     parts.push("locked");
   }
-  if (worktree.dirty) {
+  if (worktree.dirty === null || worktree.stranded === null) {
+    parts.push("could not check for unsaved work");
+  } else if (worktree.dirty) {
     parts.push("uncommitted or ignored files");
-  } else if (worktree.dirty === null) {
-    parts.push("could not check for unsaved files");
+  } else if (worktree.stranded) {
+    parts.push("commits on a detached HEAD, or an unfinished merge or rebase");
   }
   return parts.join(" · ");
 }

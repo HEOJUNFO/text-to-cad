@@ -33,7 +33,6 @@ import {
   QueueSectionTrigger,
 } from "@renderer/components/ai-elements/queue";
 import type { FileUIPart } from "@renderer/components/ai-elements/types";
-import { useAcp } from "@renderer/state/acp";
 import { NEW_SESSION_KEY, useComposer, useQueue } from "@renderer/state/composer";
 import { useActiveProject } from "@renderer/state/projects";
 import { useSessions } from "@renderer/state/sessions";
@@ -194,10 +193,8 @@ export function Composer({
   }, [referenceScope, draftKey, attachmentFiles]);
   const queue = useQueue(sessionId);
   const dequeue = useComposer((state) => state.dequeue);
-  // A failed turn holds the queue until the next turn starts; said here, with a way to go on.
-  const queuePaused = useComposer((state) => (sessionId ? sessionId in state.paused : false));
-  // A pause after Stop says so; any other pause is a failed turn (or a refused prompt).
-  const pausedByStop = useAcp((state) => (sessionId ? state.sessions[sessionId]?.turns.at(-1)?.stopReason === "cancelled" : false));
+  // A failed or stopped turn holds the queue until the next turn starts; said here, with a way to go on.
+  const queuePaused = useComposer((state) => (sessionId ? state.paused[sessionId] ?? null : null));
 
   // A file dropped anywhere on the session view — the transcript, the chips row, the queue strip —
   // attaches, not only one dropped on the box (whose own handler is `onDropCapture` below, which
@@ -317,7 +314,7 @@ export function Composer({
             </QueueSectionTrigger>
             {/* Always mounted, so the text arriving in it is announced; the button stays outside. */}
             <div className="flex items-center justify-between gap-2 px-2 text-[12px] text-muted-foreground">
-              <span aria-live="polite" role="status">{queuePaused ? (pausedByStop ? "Paused after you stopped" : "Paused after an error") : ""}</span>
+              <span aria-live="polite" role="status">{queuePaused ? (queuePaused === "stopped" ? "Paused after you stopped" : "Paused after an error") : ""}</span>
               {queuePaused ? (
                 <button
                   className="my-1 rounded-md px-2 py-0.5 font-medium text-foreground hover:bg-muted"

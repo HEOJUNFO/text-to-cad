@@ -184,15 +184,18 @@ describe("SessionConnection against the fake agent", () => {
     const events: SessionEvent[] = [];
     const connection = connect({ cwd: await scratch(), onEvent: (event) => events.push(event) });
     await connection.newSession();
-    void connection.client.requestPermission({
-      sessionId: connection.state.acpSessionId!,
-      toolCall: { toolCallId: "late-2", title: "Run ls?" },
-      options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
-    });
-    expect(connection.client.pendingPermissionIds).toHaveLength(1);
 
-    await expect(connection.prompt([{ type: "text", text: "please crash" }])).rejects.toThrow();
+    // The agent asks, then fails the turn with a JSON-RPC error and stays alive: no exit
+    // disposes the client, so only the prompt's own catch can answer the request.
+    const turn = connection.prompt([{ type: "text", text: "reject-prompt" }]);
+    const rejected = expect(turn).rejects.toThrow();
+    await waitFor(events, "permission/request");
+    await rejected;
+
+    expect(events.map((event) => event.type)).toContain("prompt/error");
     expect(connection.client.pendingPermissionIds).toEqual([]);
+    expect(events.filter((event) => event.type === "permission/resolve")).toHaveLength(1);
+    expect(connection.state.pendingPermissions).toEqual([]);
   });
 
   it("answers a request still pending when the prompt resolves, as the transcript already shows it", async () => {
