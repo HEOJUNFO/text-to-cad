@@ -2468,7 +2468,7 @@ The others work in a plain folder: git is optional, and a project is a
 directory.
 
 "Not a repository" is not the only reason a folder has no repository, and the
-Review tab, the mode chip and worktree mode say which. Git is missing
+Review tab, the mode chip (its Local item and its worktree item both) and worktree mode say which. Git is missing
 ("git is not installed or not on PATH"), the folder is gone ("<folder> no
 longer exists"), git refuses it for dubious ownership ("git will not open this
 folder because another user owns it"), or git did not answer in time. The

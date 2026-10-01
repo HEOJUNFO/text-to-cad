@@ -286,7 +286,7 @@ export function GitModeChip({
               <span>Local</span>
               <span className="text-[11px] text-muted-foreground">
                 {local === "none"
-                  ? "The project folder; it is not a git repository"
+                  ? `The project folder; ${info?.problem ?? "it is not a git repository"}`
                   : `The project's checkout${info?.branch ? `, on ${info.branch}` : ""}`}
               </span>
             </span>
