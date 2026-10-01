@@ -6,7 +6,7 @@ import Notice from './Notice';
 import { createBridge, type HostContext, type ToolResult } from './host/bridge';
 import { relaunch } from './host/relaunch';
 import { readPresentation } from './host/presentation';
-import { createServer, PROTOCOL, readLaunch, type Launch } from './host/server';
+import { createServer, PROTOCOL, readLaunch, toolText, type Launch } from './host/server';
 import './styles.css';
 
 const element = document.getElementById('root');
@@ -21,8 +21,6 @@ function applyTheme(context: HostContext) {
   document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
 }
 
-const textOf = (result: ToolResult) => result.content?.find(part => part.type === 'text')?.text || 'CAD could not open.';
-
 async function start() {
   const presentation = readPresentation();
   const bridge = createBridge(window.parent);
@@ -36,7 +34,7 @@ async function start() {
       if (!launch && !result.isError) return;
       clearTimeout(timer);
       stop();
-      if (launch) resolve(launch); else reject(new Error(textOf(result)));
+      if (launch) resolve(launch); else reject(new Error(toolText(result, 'CAD could not open.')));
     });
   });
   try {

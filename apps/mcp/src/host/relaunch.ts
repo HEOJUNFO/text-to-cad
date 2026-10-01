@@ -1,7 +1,5 @@
-import type { Bridge, ToolResult } from './bridge';
-import { readLaunch, type Launch } from './server';
-
-const textOf = (result: ToolResult) => result.content?.find(part => part.type === 'text')?.text || 'CAD could not open.';
+import type { Bridge } from './bridge';
+import { readLaunch, toolText, type Launch } from './server';
 
 /** A path's `file:` URI, every character a path may hold (`#`, `?`, a drive's backslashes) kept in it. */
 function fileUri(path: string): string {
@@ -19,7 +17,7 @@ export async function relaunch(bridge: Pick<Bridge, 'callTool'>, stale: Launch):
   const call = async (name: string, args: Record<string, unknown>) => {
     const result = await bridge.callTool(name, args);
     const fresh = readLaunch(result);
-    if (!fresh) throw new Error(textOf(result));
+    if (!fresh) throw new Error(toolText(result, 'CAD could not open.'));
     return fresh;
   };
   if (stale.page === 'home') return call('cad_home', {});

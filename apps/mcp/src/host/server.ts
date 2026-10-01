@@ -1,4 +1,5 @@
 import type { CadEditingPreview } from '@text-to-cad/core/client';
+import type { LibraryModel } from '@text-to-cad/ui/library';
 import type { Bridge, CallOptions, ToolResult } from './bridge';
 
 /**
@@ -29,7 +30,8 @@ export interface Launch {
   view?: string;
   order?: { createdAt: number; seq: number };
 }
-export interface Recent { path: string; name: string; folder: string; opened: number; modified: number | null; pinned: boolean; missing: boolean; thumbnail: string | null; pictured: number | null }
+/** A model in the library every CAD view shares (`cad_recents`), as the home lists it. */
+export type Recent = LibraryModel;
 export type ViewEvent =
   | { seq: number; type: 'show'; launch: Launch }
   | { seq: number; type: 'capture'; requestId: string };
@@ -51,7 +53,9 @@ export class ServerError extends Error {
   constructor(message: string) { super(message); this.name = 'ServerError'; }
 }
 
-const message = (result: ToolResult) => result.content?.find(part => part.type === 'text')?.text || 'CAD could not do that.';
+/** What a tool result says, in its first text block, or `fallback`. */
+export const toolText = (result: ToolResult, fallback = 'CAD could not do that.') =>
+  result.content?.find(part => part.type === 'text')?.text || fallback;
 
 export function readLaunch(result: ToolResult | undefined): Launch | null {
   const launch = result?.structuredContent?.launch as Launch | undefined;
@@ -62,7 +66,7 @@ export function readLaunch(result: ToolResult | undefined): Launch | null {
 export function createServer(bridge: Pick<Bridge, 'callTool'>) {
   async function call<T>(name: string, args: Record<string, unknown> = {}, options?: CallOptions): Promise<T> {
     const result = await bridge.callTool(name, args, options);
-    if (result.isError) throw new ServerError(message(result));
+    if (result.isError) throw new ServerError(toolText(result));
     return (result.structuredContent || {}) as T;
   }
   return {
