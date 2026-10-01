@@ -86,7 +86,7 @@ export interface DocumentSession {
   saving: boolean;
   stale: boolean;
   /** With `stale`: the file is gone from disk, and a save creates it again. */
-  deleted: boolean;
+  deleted?: boolean;
   error: string | null;
   setValue: (value: string) => void;
   save: () => Promise<DocumentSaveResult>;
