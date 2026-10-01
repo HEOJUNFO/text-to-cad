@@ -26,10 +26,11 @@ export default function ImageRenderer({
 }: FileRendererProps<ImageRendererData>) {
   const [actual, setActual] = useState(false);
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
-  const [broken, setBroken] = useState(false);
+  // The url that failed to decode: a new file or a reload carries a new url, so it is a new
+  // chance to decode without any effect having to clear a flag.
+  const [brokenUrl, setBrokenUrl] = useState<string | null>(null);
+  const broken = brokenUrl === data.url;
   useEffect(() => onReady(true), [onReady]);
-  // A new file or a reload is a new chance to decode.
-  useEffect(() => setBroken(false), [data.url]);
 
   if (broken) {
     return (
@@ -63,7 +64,7 @@ export default function ImageRenderer({
               "rounded-sm shadow-sm",
               actual ? "max-w-none" : "max-h-full max-w-full object-contain",
             )}
-            onError={() => setBroken(true)}
+            onError={() => setBrokenUrl(data.url)}
             onLoad={(event) =>
               setDimensions({
                 width: event.currentTarget.naturalWidth,
