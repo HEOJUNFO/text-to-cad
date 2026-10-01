@@ -17,7 +17,8 @@
  *
  * A binding is written once, in the portable form (`Mod+K`), and rendered per
  * platform: `Mod` is ⌘ on macOS and Ctrl everywhere else, which is the only
- * difference between the two columns worth encoding.
+ * difference between the two columns worth encoding — except a row that would
+ * arrive as AltGr, which carries an `otherBinding` without Alt.
  */
 
 /** The groups the page prints, in order. */
@@ -30,6 +31,8 @@ export type Shortcut = {
   label: string;
   /** `Mod`, `Alt`, `Shift`, `Ctrl` and a key, joined by `+`. */
   binding: string;
+  /** The binding off a Mac, when it differs (a chord with Alt is AltGr on a European keyboard). */
+  otherBinding?: string;
   /** The far end of a range, for the nine tab shortcuts that are one row. */
   through?: string;
 };
@@ -40,7 +43,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: "settings", group: "Application", label: "Settings", binding: "Mod+," },
   { id: "close-settings", group: "Application", label: "Close Settings or the palette", binding: "Escape" },
   { id: "toggle-sidebar", group: "Application", label: "Toggle sidebar", binding: "Mod+B" },
-  { id: "toggle-explorer", group: "Application", label: "Toggle explorer", binding: "Mod+Alt+B" },
+  { id: "toggle-explorer", group: "Application", label: "Toggle explorer", binding: "Mod+Alt+B", otherBinding: "Mod+Shift+E" },
   // The top level only: the threads and new-session screens the session pane
   // has shown. The explorer's tabs have their own strip and are not in it.
   { id: "navigate-back", group: "Application", label: "Back", binding: "Mod+[" },
@@ -120,6 +123,11 @@ export function shortcutKeys(binding: string, mac: boolean): string {
     return part.length === 1 ? part.toUpperCase() : part;
   });
   return mac ? parts.join("") : parts.join("+");
+}
+
+/** The binding a platform presses: `otherBinding` off a Mac when the row has one. */
+export function bindingFor(shortcut: Pick<Shortcut, "binding" | "otherBinding">, mac: boolean): string {
+  return mac ? shortcut.binding : (shortcut.otherBinding ?? shortcut.binding);
 }
 
 /** The shortcuts of one group, in declaration order. */

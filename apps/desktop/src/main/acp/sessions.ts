@@ -524,7 +524,7 @@ export class SessionManager {
         // On its own, before the preferences and the marks: the row is what
         // `boot` purges when it has no agent session id, and a crash while
         // the marks are pending must not take a connected session with it.
-        this.update(session.id, { acpSessionId: connection.acpSessionId });
+        this.update(session.id, { acpSessionId: connection.acpSessionId }, false);
         console.info(
           `[acp] create ${session.id.slice(0, 8)} ${session.agentId} warm=${warmed ? "yes" : "no"} ${timer.format()}`,
         );
@@ -550,6 +550,7 @@ export class SessionManager {
         const updated = this.update(
           session.id,
           stillConnecting ? { status: "idle", sessionHead, turnHead } : { sessionHead, turnHead },
+          false,
         );
         if (stillConnecting) {
           this.deps.broadcast("session.state", { sessionId: session.id, state: connection.state });
@@ -628,7 +629,7 @@ export class SessionManager {
     cause: unknown,
   ): Promise<Session> {
     const [sessionHead, turnHead] = await marks.catch(() => [null, null] as const);
-    const row = this.update(session.id, { status: "idle", sessionHead, turnHead });
+    const row = this.update(session.id, { status: "idle", sessionHead, turnHead }, false);
     this.deps.broadcast("session.state", { sessionId: session.id, state: connection.state });
     this.deps.broadcast("session.status", {
       sessionId: session.id,
@@ -983,7 +984,7 @@ export class SessionManager {
     console.info(
       `[acp] load ${id.slice(0, 8)} ${session.agentId} warm=${warmed ? "yes" : "no"} ${timer.format()}`,
     );
-    this.update(id, { status: "idle" });
+    this.update(id, { status: "idle" }, false);
     this.deps.broadcast("session.state", { sessionId: id, state: connection.state });
     return connection.state;
   }
@@ -1806,7 +1807,7 @@ export class SessionManager {
         this.tallyUpdate(id, event.update as Record<string, unknown>);
         break;
       case "permission/request":
-        this.setStatus(id, "waiting");
+        this.setStatus(id, "waiting", null, true);
         this.deps.broadcast("session.permission", { sessionId: id, request: event.request });
         break;
       case "permission/resolve": {
@@ -1814,18 +1815,18 @@ export class SessionManager {
         // there is no `prompt/end` still to come to say so.
         const status = this.live.get(id)?.state.status;
         if (status === "running" || status === "idle") {
-          this.setStatus(id, status);
+          this.setStatus(id, status, null, true);
         }
         break;
       }
       case "prompt/start":
-        this.setStatus(id, "running");
+        this.setStatus(id, "running", null, true);
         break;
       case "prompt/end":
-        this.setStatus(id, "idle");
+        this.setStatus(id, "idle", null, true);
         break;
       case "prompt/error":
-        this.setStatus(id, "error", event.message);
+        this.setStatus(id, "error", event.message, true);
         break;
       case "status":
         if (this.deps.repo.get(id)) {
@@ -1900,7 +1901,14 @@ export class SessionManager {
     this.broadcastIndex();
   }
 
-  private setStatus(id: string, status: SessionStatus, error: string | null = null) {
+  /**
+   * `activity` says whether the change is something the user or the agent did in the thread (a
+   * turn opening or closing, a permission asked or answered), which stamps `updatedAt`. A
+   * connection's own life (`connecting`, `closed` by eviction or Disconnect, `idle` after a
+   * reconnect, a failed connect) is not activity: "Last activity" would reorder rows under the
+   * pointer for opening or evicting one.
+   */
+  private setStatus(id: string, status: SessionStatus, error: string | null = null, activity = false) {
     const session = this.deps.repo.get(id);
     if (!session || session.status === status) {
       // Unchanged and with nothing to say: the index already says so, and a renderer that took the
@@ -1910,13 +1918,14 @@ export class SessionManager {
       }
       return;
     }
-    this.update(id, { status });
+    this.update(id, { status }, activity);
     this.deps.broadcast("session.status", { sessionId: id, status, error });
   }
 
-  private update(id: string, patch: Partial<Session>): Session {
+  /** `activity: false` writes without stamping `updatedAt` (see `setStatus`). */
+  private update(id: string, patch: Partial<Session>, activity = true): Session {
     const session = this.require(id);
-    const next = this.deps.repo.upsert({ ...session, ...patch, updatedAt: Date.now() });
+    const next = this.deps.repo.upsert({ ...session, ...patch, updatedAt: activity ? Date.now() : session.updatedAt });
     this.broadcastIndex();
     return next;
   }

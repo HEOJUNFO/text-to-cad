@@ -30,7 +30,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       className="toaster group"
       // Deliberate edit to the vendored component: stock is Alt+T, and Option+T types "†" on a
       // Mac keyboard, so the toast list stole focus from a sentence being typed. Mod+Alt+T types
-      // nothing, and sits beside Mod+Alt+B (toggle explorer). `customAriaLabel`, because the
+      // nothing, and sits beside the explorer's chord (Cmd+Option+B on a Mac, Ctrl+Shift+E elsewhere). `customAriaLabel`, because the
       // region's stock name appends the hotkey's key names ("Notifications metaKey+altKey+T").
       hotkey={HOTKEY}
       customAriaLabel="Notifications"

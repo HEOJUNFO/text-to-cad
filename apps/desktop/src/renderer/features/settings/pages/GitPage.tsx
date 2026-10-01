@@ -11,6 +11,7 @@
 import { useEffect, useId, useState } from "react";
 import { Folder, Loader2, TriangleAlert } from "lucide-react";
 import { Alert, AlertDescription } from "@text-to-cad/ui/primitives/alert";
+import { toast } from "sonner";
 
 import { Button } from "@renderer/components/ui/button";
 import { Textarea } from "@renderer/components/ui/textarea";
@@ -31,6 +32,7 @@ import {
 import { ensureWorktrees, useWorktreeCache } from "@renderer/features/settings/worktree-cache";
 import { runUiCommand } from "@renderer/state/bridge";
 import { useProjects } from "@renderer/state/projects";
+import { errorMessage } from "@shared/ipc/errors";
 import type { Worktree } from "@shared/ipc/git";
 import { branchPrefixProblem, defaultSettings, type GitMode, type Project } from "@shared/types";
 
@@ -128,7 +130,8 @@ export function GitPage() {
                 title: "Worktree root",
                 defaultPath: settings.worktreeRoot ?? undefined,
               })
-              .then((chosen) => chosen && patch({ worktreeRoot: chosen.path }));
+              .then((chosen) => chosen && patch({ worktreeRoot: chosen.path }))
+              .catch((error) => toast.error(`Could not open the folder chooser: ${errorMessage(error)}`));
           }}
           note={
             fallbacks.gone.worktreeRoot?.reason === "file"
@@ -236,8 +239,12 @@ function ProjectWorktreeCard({ project }: { project: Project }) {
   const cardId = useId();
   const worktrees = useWorktreeCache((state) => state.lists[project.id]) ?? null;
   const epoch = useWorktreeCache((state) => state.epoch);
+  const readError = useWorktreeCache((state) => state.errors[project.id]) ?? null;
   const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // A delete's failure is about the list it was made against: the next read that lands replaces the
+  // list and so retires the message (compared by identity, not cleared by an effect).
+  const [failure, setFailure] = useState<{ message: string; against: Worktree[] | null } | null>(null);
+  const error = failure && failure.against === worktrees ? failure.message : null;
 
   // A mount reads afresh over the list the visit already has (`worktree-cache.ts`);
   // `epoch` reads again after an invalidation.
@@ -250,12 +257,12 @@ function ProjectWorktreeCard({ project }: { project: Project }) {
 
   const remove = async (worktree: Worktree) => {
     setBusy(worktree.path);
-    setError(null);
+    setFailure(null);
     try {
       await window.textToCad.git.removeWorktree({ projectId: project.id, path: worktree.path });
       useWorktreeCache.getState().invalidate();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
+      setFailure({ message: caught instanceof Error ? caught.message : String(caught), against: worktrees });
     } finally {
       setBusy(null);
     }
@@ -263,13 +270,18 @@ function ProjectWorktreeCard({ project }: { project: Project }) {
 
   // Nothing to say until the read comes back, and nothing to say afterwards
   // if the project has no worktrees of ours.
-  if (!worktrees || worktrees.length === 0) {
+  if ((!worktrees || worktrees.length === 0) && !readError) {
     return null;
   }
 
   return (
     <SettingCard title={`Worktrees · ${project.name}`}>
-      {worktrees.map((worktree, index) => {
+      {readError ? (
+        <p className="px-4 py-2 text-[12px] text-destructive" role="alert">
+          Could not read the worktrees: {readError}
+        </p>
+      ) : null}
+      {(worktrees ?? []).map((worktree, index) => {
         const kept = keptBecause(worktree);
         const keptId = `${cardId}-kept-${index}`;
         return (
@@ -326,24 +338,26 @@ function ProjectWorktreeCard({ project }: { project: Project }) {
       {error ? (
         <p className="px-4 py-2 text-[12px] text-destructive">{error}</p>
       ) : null}
-      <SettingRow
-        control={
-          <Button
-            className="h-8 gap-1.5"
-            onClick={() => {
-              void window.textToCad.shell.showItemInFolder({ projectId: project.id, worktrees: true });
-            }}
-            size="sm"
-            variant="ghost"
-          >
-            <Folder className="size-3.5" />
-            Reveal
-          </Button>
-        }
-        description={parentOf(worktrees)}
-        keywords="reveal finder folder directory"
-        title="Where they live"
-      />
+      {worktrees && worktrees.length > 0 ? (
+        <SettingRow
+          control={
+            <Button
+              className="h-8 gap-1.5"
+              onClick={() => {
+                void window.textToCad.shell.showItemInFolder({ projectId: project.id, worktrees: true });
+              }}
+              size="sm"
+              variant="ghost"
+            >
+              <Folder className="size-3.5" />
+              Reveal
+            </Button>
+          }
+          description={parentOf(worktrees)}
+          keywords="reveal finder folder directory"
+          title="Where they live"
+        />
+      ) : null}
     </SettingCard>
   );
 }

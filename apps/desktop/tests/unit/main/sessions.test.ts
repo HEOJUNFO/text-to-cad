@@ -500,6 +500,19 @@ describe("SessionManager", () => {
     expect(manager.state(session.id)).toBeNull();
   });
 
+  it("leaves updatedAt alone across closed, connecting and idle, and stamps it on a turn", async () => {
+    const { repo, manager, cwd } = await setup();
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    repo.upsert({ ...repo.get(session.id)!, updatedAt: 100 });
+    manager.close(session.id);
+    expect(repo.get(session.id)?.status).toBe("closed");
+    await manager.load(session.id);
+    expect(repo.get(session.id)?.status).toBe("idle");
+    expect(repo.get(session.id)?.updatedAt).toBe(100);
+    await manager.prompt(session.id, [{ type: "text", text: "ok again" }]);
+    expect(repo.get(session.id)!.updatedAt).toBeGreaterThan(100);
+  });
+
   /**
    * `connect` waits on the shell environment before the connection is in the live set, so a
    * Disconnect that lands then has nothing to retire: the load is what has to notice it.

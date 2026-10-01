@@ -7,7 +7,7 @@ import { SessionPane } from "@renderer/features/session/SessionPane";
 import { Sidebar } from "@renderer/features/sidebar/Sidebar";
 import { maxWidthOf, resolvePanes } from "@renderer/lib/panes";
 import type { SidePane } from "@renderer/lib/panes";
-import { isPrimaryModifier } from "@renderer/lib/platform";
+import { isMac, isPrimaryModifier } from "@renderer/lib/platform";
 import { runUiCommand } from "@renderer/state/bridge";
 import { useExplorer } from "@renderer/state/explorer";
 import { useSettings } from "@renderer/state/settings";
@@ -199,7 +199,7 @@ export function Shell() {
 }
 
 /**
- * Cmd/Ctrl+B and Cmd/Ctrl+Alt+B for the panes, Cmd/Ctrl+[ and Cmd/Ctrl+] for
+ * Cmd/Ctrl+B and Cmd+Option+B (Ctrl+Shift+E off a Mac) for the panes, Cmd/Ctrl+[ and Cmd/Ctrl+] for
  * the history — bound here as well as in the app menu, because the menu's
  * accelerator is the one that works with focus in a webview and this one
  * works when the menu is hidden. Both ends at the same commands.
@@ -209,14 +209,18 @@ export function Shell() {
 function useShellShortcuts(): void {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!isPrimaryModifier(event) || event.shiftKey) {
+      if (!isPrimaryModifier(event)) {
         return;
       }
       const key = event.key.toLowerCase();
-      if (key === "b") {
+      // The explorer's chord is Cmd+Option+B on a Mac and Ctrl+Shift+E elsewhere, where Ctrl+Alt
+      // is AltGr (`otherBinding` in `lib/shortcuts.ts`).
+      const explorer = isMac ? key === "b" && event.altKey && !event.shiftKey : key === "e" && event.shiftKey && !event.altKey;
+      const sidebar = key === "b" && !event.altKey && !event.shiftKey;
+      if (explorer || sidebar) {
         event.preventDefault();
-        const opening = event.altKey && useExplorer.getState().sessionId !== null && useExplorer.getState().collapsed;
-        runUiCommand({ command: event.altKey ? "toggle-explorer" : "toggle-sidebar" });
+        const opening = explorer && useExplorer.getState().sessionId !== null && useExplorer.getState().collapsed;
+        runUiCommand({ command: explorer ? "toggle-explorer" : "toggle-sidebar" });
         // The chord that opens the explorer takes the keyboard into it — its strip's tab, else
         // `+` — as the chords that open a tab do (`features/explorer/focus.ts`).
         if (opening) {
@@ -227,7 +231,7 @@ function useShellShortcuts(): void {
         }
         return;
       }
-      if (event.altKey) {
+      if (event.altKey || event.shiftKey) {
         return;
       }
       if (key === "[") {

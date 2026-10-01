@@ -124,6 +124,53 @@ describe("a job that ended badly", () => {
   });
 });
 
+describe("a job main refuses to start", () => {
+  const drawer = (
+    <TooltipProvider>
+      <AgentDrawer agent={codex} onOpenChange={() => {}} open platform="macos" />
+    </TooltipProvider>
+  );
+
+  it("says so under Install, without an empty log", async () => {
+    vi.mocked(window.textToCad.agents.install).mockRejectedValueOnce(new Error("spawn EACCES"));
+    render(drawer);
+    fireEvent.click(screen.getByRole("button", { name: "Install" }));
+    expect(await screen.findByText("Install could not start: spawn EACCES")).toBeInTheDocument();
+    expect(screen.queryByText("Waiting for output…")).toBeNull();
+    expect(screen.getByRole("button", { name: "Install" })).toBeEnabled();
+  });
+
+  it("says so under Sign in, and clears on the next try", async () => {
+    const installed = { ...codex, installed: true, auth: "unauthenticated", authMethods: [{ type: "cli-login", label: "Sign in with Codex" }] } as unknown as AgentStatus;
+    vi.mocked(window.textToCad.agents.login).mockRejectedValueOnce(new Error("no pty"));
+    render(
+      <TooltipProvider>
+        <AgentDrawer agent={installed} onOpenChange={() => {}} open platform="macos" />
+      </TooltipProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByText("Sign in could not start: no pty")).toBeInTheDocument();
+    vi.mocked(window.textToCad.agents.login).mockResolvedValueOnce({ jobId: "j9" });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await screen.findByText("Waiting for output…");
+    expect(screen.queryByText(/could not start/)).toBeNull();
+  });
+});
+
+describe("the Agents page's Refresh", () => {
+  it("draws a refresh main refuses as the agent-list alert", async () => {
+    vi.mocked(window.textToCad.agents.refresh).mockRejectedValueOnce(new Error("probe crashed"));
+    render(
+      <TooltipProvider>
+        <AgentsPage />
+      </TooltipProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(await screen.findByText("probe crashed")).toBeInTheDocument();
+    expect(screen.getByText("Could not read the agent list")).toBeInTheDocument();
+  });
+});
+
 describe("a row the last launch left", () => {
   it("offers no Install in the drawer until the probe has confirmed the agent is missing", () => {
     render(

@@ -23,6 +23,7 @@ import { StatusDot, type Tone } from "@renderer/features/settings/StatusDot";
 import { matchesQuery, useSettingsQuery } from "@renderer/features/settings/search";
 import { useAppInfo } from "@renderer/features/settings/use-app-info";
 import { useAgents } from "@renderer/state/agents";
+import { errorMessage } from "@shared/ipc/errors";
 import type { AgentStatus, Platform } from "@shared/agents";
 
 /**
@@ -106,7 +107,10 @@ export function AgentsPage() {
           disabled={refreshing}
           onClick={() => {
             setRefreshing(true);
-            void refresh().finally(() => setRefreshing(false));
+            // A refresh main refuses is the same "Could not read the agent list" alert a failed first read draws.
+            void refresh()
+              .catch((error) => useAgents.setState({ loadError: errorMessage(error) }))
+              .finally(() => setRefreshing(false));
           }}
           size="sm"
           variant="secondary"

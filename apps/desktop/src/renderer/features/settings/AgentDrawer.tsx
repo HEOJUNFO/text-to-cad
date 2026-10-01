@@ -31,6 +31,7 @@ import {
 } from "@renderer/components/ui/sheet";
 import { Textarea } from "@renderer/components/ui/textarea";
 import { useReturnFocus } from "@renderer/hooks/use-return-focus";
+import { errorMessage } from "@shared/ipc/errors";
 import { AgentMark } from "@renderer/features/settings/AgentMark";
 import { InlineCode } from "@renderer/features/settings/inline-code";
 import { StatusLabel, type Tone } from "@renderer/features/settings/StatusDot";
@@ -196,7 +197,7 @@ function InstallationSection({ agent, platform }: { agent: AgentStatus; platform
             {agent.adapter ? ` · adapter ${agent.adapter.version}` : ""}
           </p>
         </div>
-        {jobId ? <JobLog failure={failure} output={output} /> : null}
+        {jobId || failure ? <JobLog failure={failure} log={jobId !== null} output={output} /> : null}
       </Section>
     );
   }
@@ -259,7 +260,7 @@ function InstallationSection({ agent, platform }: { agent: AgentStatus; platform
       <p className="mt-2 font-mono text-[11px] break-all text-muted-foreground" data-selectable>
         {methods[index]?.command}
       </p>
-      {jobId ? <JobLog failure={failure} output={output} /> : null}
+      {jobId || failure ? <JobLog failure={failure} log={jobId !== null} output={output} /> : null}
     </Section>
   );
 }
@@ -331,7 +332,7 @@ function AuthenticationSection({ agent }: { agent: AgentStatus }) {
         </details>
       ) : null}
 
-      {jobId ? <JobLog failure={failure} output={output} /> : null}
+      {jobId || failure ? <JobLog failure={failure} log={jobId !== null} output={output} /> : null}
     </Section>
   );
 }
@@ -562,6 +563,8 @@ export function formatEnv(env: Record<string, string>): string {
  */
 export function useJob(agentId: string, kind: AgentJobOutput["kind"], done = false) {
   const [startedId, setStartedId] = useState<string | null>(null);
+  // Main refusing to start the job at all (no job exists to carry an exit code): said in its words.
+  const [startError, setStartError] = useState<string | null>(null);
   // This agent and kind's latest job in the store (insertion order): running, it is this
   // one's whoever started it; finished with a non-zero code, it stays to say so on a remount.
   const latestId = useAgents(
@@ -588,8 +591,11 @@ export function useJob(agentId: string, kind: AgentJobOutput["kind"], done = fal
       return;
     }
     starting.current = true;
+    setStartError(null);
     try {
       setStartedId(await run());
+    } catch (error) {
+      setStartError(`${kind === "install" ? "Install" : "Sign in"} could not start: ${errorMessage(error)}`);
     } finally {
       starting.current = false;
     }
@@ -602,15 +608,16 @@ export function useJob(agentId: string, kind: AgentJobOutput["kind"], done = fal
     running: jobId !== null && (job?.exitCode ?? null) === null,
     // A finished job's non-zero code, in words; the log above it is the why.
     failure:
-      !done && job && job.exitCode !== null && job.exitCode !== 0
+      (!done ? startError : null) ??
+      (!done && job && job.exitCode !== null && job.exitCode !== 0
         ? `${kind === "install" ? "Install" : "Sign in"} failed (exit ${job.exitCode})`
-        : null,
+        : null),
     start,
   };
 }
 
 /** The tail of a running job, scrolled to the bottom. */
-export function JobLog({ output, failure = null }: { output: string; failure?: string | null }) {
+export function JobLog({ output, failure = null, log = true }: { output: string; failure?: string | null; log?: boolean }) {
   const ref = useRef<HTMLPreElement>(null);
   const text = useMemo(() => stripAnsi(output).trimEnd(), [output]);
 
@@ -628,7 +635,7 @@ export function JobLog({ output, failure = null }: { output: string; failure?: s
           {failure}
         </p>
       ) : null}
-      <pre
+      {log ? <pre
         className="mt-3 max-h-40 overflow-auto rounded-lg border bg-muted/40 px-3 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap"
         ref={ref}
       >
@@ -640,7 +647,7 @@ export function JobLog({ output, failure = null }: { output: string; failure?: s
         ) : (
           <code data-selectable>{text}</code>
         )}
-      </pre>
+      </pre> : null}
     </>
   );
 }

@@ -105,7 +105,7 @@ export function AgentRow({ agent }: { agent: AgentStatus }) {
           </Button>
         )}
       </div>
-      {jobId ? <JobLog failure={failure} output={output} /> : null}
+      {jobId || failure ? <JobLog failure={failure} log={jobId !== null} output={output} /> : null}
     </div>
   );
 }

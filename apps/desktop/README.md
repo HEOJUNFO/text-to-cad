@@ -733,7 +733,7 @@ toggles do.
 **No session, no explorer.** The pane belongs to a session: with none
 selected (the new-session screen), `Shell` renders neither the panel nor its
 separator, the session pane has the window, and the toggle in the title bar,
-the palette's `Toggle explorer` row and `Mod+Alt+B` are all absent or inert
+the palette's `Toggle explorer` row and its chord (Cmd+Option+B on a Mac, Ctrl+Shift+E elsewhere) are all absent or inert
 (`setCollapsed` in `state/explorer.ts` refuses a preference it has nowhere to
 file). Selecting a session brings the pane back with that session's own
 remembered state.
@@ -760,7 +760,7 @@ of its own worktrees (`root`), or the folder its worktrees live in
 against the project and refuses anything else (`src/main/ipc/explorer.ts`).
 The session's own header menu, the `…` beside its title
 (`features/session/SessionHeader.tsx`), is Rename, Copy path, Reveal in
-Finder, then **Disconnect agent** — main closes the adapter and the
+Finder (Show in Explorer on Windows, Show in file manager on Linux — `revealLabel` from the UI package, as the explorer's entry menu and Settings use), then **Disconnect agent** — main closes the adapter and the
 transcript stays on screen, marked closed, under a Reconnect bar (a turn
 that was streaming ends there, its running tool calls cancelled) — or, for a
 session already disconnected, **Reconnect** in its place; then Archive and
@@ -769,20 +769,26 @@ There are no project rename or delete actions: these
 are directory groups derived from sessions, not saved project records. A
 directory with no matching sessions has no sidebar header. Archiving or
 deleting its last active session removes its active group; archived sessions
-remain available in Settings and the Archived filter. Worktree sessions group
+leave the sidebar and come back through the filter menu's `Status` → Archived, where a row's `…` offers Unarchive
+(Settings has no list of them). Archiving, from the row or the session header, toasts "Thread archived." with an
+**Undo** that unarchives it. Worktree sessions group
 under their original checkout directory. Selecting a new folder opens an
 in-memory composer draft; its group appears only when a session is created. A session row is its **state** as a leading glyph (a hollow
-circle idle, a pulsing dot while a turn streams, an amber triangle waiting on
-a permission, a red one after a failure, a spinner ring connecting —
+circle idle, a pulsing dot while a turn streams, a ringed dot in the info
+colour waiting on a permission ("it needs you", not a warning), a red triangle after a failure, a spinner ring connecting —
 `lib/sidebar.ts`), the title, git's own glyph when the thread runs in a
 worktree or on a branch of its own, and a `…` on hover or when it takes
 keyboard focus, for pin, rename, archive and delete. `Pinned` is the first section when anything is pinned,
 and a pinned thread lives **only** there — never twice.
+A pin, archive or delete that main refuses leaves the thread as it was and says so in the rename's shape — "Could not pin
+(unpin, archive, unarchive, delete) the thread: …" — and a refused archive or delete keeps the open session open.
 
 The filter menu is global, and it is opened from the panel's own header:
 `Status` (Active / Archived / All), `Environment` (All / Local / Worktree —
 our git modes), `Group by` (Project, or None for one flat list), `Sort by`
-(Last activity / Created / Name) and `Show branch`. It is stored in `settings.sidebar` and applied by one pure
+(Last activity / Created / Name) and `Show branch`. *Last activity* is `updatedAt`, which a prompt, a turn opening or
+closing, a permission asked or answered, a title, a rename or a mark moves — and a connection's own life (opening a closed
+thread, a keep-alive eviction, a failed connect) and a pin do not, so rows do not jump under the pointer. It is stored in `settings.sidebar` and applied by one pure
 function over the index (`sidebarSections` in `lib/sidebar.ts`), which is also
 where the rules live that a screenshot cannot check: a pinned thread is
 excluded from its directory section, empty sections never appear (including
@@ -1132,7 +1138,9 @@ poor thing to put in front of them.
 Every shortcut is a row in `src/renderer/lib/shortcuts.ts`, which Settings ›
 Keyboard shortcuts prints, but one: the toast chord (Cmd+Option+T on a Mac,
 Ctrl+Shift+T elsewhere, `components/ui/sonner.tsx`) differs by platform, and a
-row holds one portable binding, so the page closes with a footnote naming it. The ones the app menu also declares are its accelerators, so
+row holds one portable binding, so the page closes with a footnote naming it. A row that would arrive as AltGr
+off a Mac carries an `otherBinding` (`bindingFor` in `lib/shortcuts.ts`): Toggle explorer is Cmd+Option+B on a Mac and
+Ctrl+Shift+E elsewhere, in the menu (`main/menu.ts`), in `Shell`'s key handler and on the page. The ones the app menu also declares are its accelerators, so
 they work with focus inside a webview (see "Rules that are easy to break" in
 AGENTS.md). The menu's New Session and Settings… with no window open one and
 hold the command until its page calls `ui.ready` (`src/main/menu.ts`): pushed
@@ -2141,6 +2149,9 @@ when it was written by the same app version and holds every provider. Then:
   A failed run's "Install failed (exit N)" / "Sign in failed (exit N)" is worded
   only while the step is undone (`useJob`'s `done`: installed, signed in), and a
   newer job of the kind replaces the failed one a mount started.
+  A start main refuses (no job exists to carry an exit code) is worded "Install could not start: …" / "Sign in could not
+  start: …" in the same alert slot, with no log under it, and clears on the next try. The Agents page's Refresh that
+  rejects draws the "Could not read the agent list" alert a failed first read does.
 - A **cold launch** (no usable cache) waits for the first probe for at most
   `PROBE_WAIT_MS` (3 s), then answers with whatever it has, which may be empty.
 - If the probe fails while the table is still the last launch's, or has none and the
@@ -2420,7 +2431,9 @@ but only ones git says belong to this project's repository
 
 The root and the branch prefix are settings, as are the fetch before creating,
 the auto-delete and its keep limit (Settings › Git and worktrees, which also
-lists what exists per project). The slug comes from the session's first prompt
+lists what exists per project; a project whose worktrees cannot be read shows its card with "Could not read the worktrees: …"
+in place of the list, and a failed Delete's message goes when the next read lands. A folder or file chooser that itself
+fails toasts "Could not open the folder chooser: …" / "…file chooser: …"). The slug comes from the session's first prompt
 when there is one, so a directory can be matched to a thread without opening
 anything. That directory is also the session's *identity* in the agent's own
 store — both `codex resume` and `claude --resume` key their threads by cwd —

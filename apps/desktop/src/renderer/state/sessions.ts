@@ -115,20 +115,42 @@ export const useSessions = create<SessionsState>((set, get) => ({
     }
   },
 
+  // A write main refuses leaves the session whole (nothing was half done), so all there is to do is
+  // say so, in the shape of the rename sentence: "Could not <verb> the thread: <why>".
   archive: async (id, archived) => {
-    if (archived) await flushSessionTabs(id);
-    await window.textToCad.sessions.archive({ id, archived });
+    try {
+      if (archived) await flushSessionTabs(id);
+      await window.textToCad.sessions.archive({ id, archived });
+    } catch (error) {
+      toast.error(`Could not ${archived ? "archive" : "unarchive"} the thread: ${errorMessage(error)}`);
+      return;
+    }
     if (archived && get().activeId === id) {
       set({ activeId: null });
+    }
+    if (archived) {
+      // The way back otherwise is Sidebar filter, Status, Archived, then Unarchive.
+      toast.success("Thread archived.", {
+        action: { label: "Undo", onClick: () => void get().archive(id, false) },
+      });
     }
   },
 
   setPinned: async (id, pinned) => {
-    await window.textToCad.sessions.setPinned({ id, pinned });
+    try {
+      await window.textToCad.sessions.setPinned({ id, pinned });
+    } catch (error) {
+      toast.error(`Could not ${pinned ? "pin" : "unpin"} the thread: ${errorMessage(error)}`);
+    }
   },
 
   remove: async (id) => {
-    await window.textToCad.sessions.delete({ id });
+    try {
+      await window.textToCad.sessions.delete({ id });
+    } catch (error) {
+      toast.error(`Could not delete the thread: ${errorMessage(error)}`);
+      return;
+    }
     if (get().activeId === id) {
       set({ activeId: null });
     }

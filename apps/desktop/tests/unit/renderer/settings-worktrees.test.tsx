@@ -3,6 +3,7 @@
  * what a row says about why one does not.
  */
 import { beforeEach, expect, it, vi } from "vitest";
+import { toast } from "sonner";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -167,4 +168,45 @@ it("invalidates on a session that appeared, moved or was archived, and not on st
   expect(epoch()).toBe(2);
   noteSessions([session({ archived: true }), session({ id: "s2", cwd: "/w/p/other" })]);
   expect(epoch()).toBe(3);
+});
+
+it("says so when a project's worktrees cannot be read, and drops it when a read lands", async () => {
+  vi.mocked(window.textToCad.git.worktrees).mockRejectedValueOnce(new Error("git exploded"));
+  render(
+    <TooltipProvider>
+      <GitPage />
+    </TooltipProvider>,
+  );
+  expect(await screen.findByText(/Could not read the worktrees: git exploded/)).toBeInTheDocument();
+  vi.mocked(window.textToCad.git.worktrees).mockResolvedValue([worktree({})]);
+  act(() => useWorktreeCache.getState().invalidate());
+  await screen.findByRole("button", { name: "Delete" });
+  expect(screen.queryByText(/Could not read the worktrees/)).toBeNull();
+});
+
+it("drops a failed Delete's message once the next read lands", async () => {
+  vi.mocked(window.textToCad.git.worktrees).mockResolvedValue([worktree({})]);
+  vi.mocked(window.textToCad.git.removeWorktree).mockRejectedValueOnce(new Error("busy dir"));
+  render(
+    <TooltipProvider>
+      <GitPage />
+    </TooltipProvider>,
+  );
+  await userEvent.setup().click(await screen.findByRole("button", { name: "Delete" }));
+  expect(await screen.findByText("busy dir")).toBeInTheDocument();
+  vi.mocked(window.textToCad.git.worktrees).mockResolvedValue([worktree({ branch: "other" })]);
+  act(() => useWorktreeCache.getState().invalidate());
+  await waitFor(() => expect(screen.queryByText("busy dir")).toBeNull());
+});
+
+it("toasts when the folder chooser itself fails", async () => {
+  vi.mocked(window.textToCad.git.worktrees).mockResolvedValue([]);
+  vi.mocked(window.textToCad.dialogs.chooseDirectory).mockRejectedValueOnce(new Error("no dialog"));
+  render(
+    <TooltipProvider>
+      <GitPage />
+    </TooltipProvider>,
+  );
+  await userEvent.setup().click(screen.getAllByRole("button", { name: /Choose/ })[0]!);
+  await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Could not open the folder chooser: no dialog"));
 });
