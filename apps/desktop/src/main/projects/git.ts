@@ -52,6 +52,8 @@ export type ChangedFile = {
 export type GitStatus = {
   /** False for a directory that is not a repository. Everything else is empty. */
   isRepository: boolean;
+  /** Why, when it is not just "a folder": git missing, the folder gone, dubious ownership, a timeout. */
+  problem?: string;
   branch: string | null;
   /** True when HEAD has no commits yet. */
   unborn: boolean;
@@ -255,10 +257,56 @@ async function readWorkingBytes(absolute: string): Promise<Buffer | null> {
   return stat.isFile() ? fsp.readFile(absolute).catch(() => null) : null;
 }
 
+/**
+ * Why `cwd` has no repository, in one sentence, where it is for a reason
+ * other than "it is just a folder": git is not installed, the folder is gone,
+ * git refuses it (dubious ownership), or git did not answer. Null for a
+ * folder that is simply not a repository, which needs no apology.
+ */
+export type RepositoryProblem = string | null;
+
+/**
+ * The repository root containing `cwd` and, when there is none, why.
+ *
+ * `rev-parse --show-toplevel` fails the same way — nonzero, nothing on stdout
+ * — for a folder that is not a repository and for four things the person can
+ * fix, and every caller used to say "not a git repository" for all five.
+ */
+export async function repositoryState(cwd: string): Promise<{ root: string | null; problem: RepositoryProblem }> {
+  const result = await tracked(execa("git", ["rev-parse", "--show-toplevel"], { ...GIT_OPTIONS, cwd })).catch(() => null);
+  const root = result && !result.failed && result.exitCode === 0 && typeof result.stdout === "string" ? result.stdout.trim() : "";
+  if (root) {
+    return { root: path.normalize(root), problem: null };
+  }
+  if (!result) {
+    return { root: null, problem: null };
+  }
+  if (result.timedOut) {
+    return { root: null, problem: "git did not answer in time, so this folder could not be read" };
+  }
+  if (result.code === "ENOENT") {
+    // Both a missing git and a missing cwd are ENOENT from the spawn.
+    const exists = await fsp.stat(cwd).then(() => true, () => false);
+    return {
+      root: null,
+      problem: exists
+        ? "git is not installed or not on PATH"
+        : `${path.basename(cwd) || cwd} no longer exists`,
+    };
+  }
+  const stderr = typeof result.stderr === "string" ? result.stderr : "";
+  if (/dubious ownership/i.test(stderr)) {
+    return {
+      root: null,
+      problem: "git will not open this folder because another user owns it (add it to git's safe.directory to trust it)",
+    };
+  }
+  return { root: null, problem: null };
+}
+
 /** The repository root containing `cwd`, or null when there is none. */
 export async function repositoryRoot(cwd: string): Promise<string | null> {
-  const root = await tryGit(cwd, ["rev-parse", "--show-toplevel"]);
-  return root ? path.normalize(root.trim()) : null;
+  return (await repositoryState(cwd)).root;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -416,9 +464,10 @@ function splitOnce(value: string, separator: string): [string, string] {
 /* -------------------------------------------------------------------------- */
 
 /** The empty answer, for a directory that is not a repository. */
-export function emptyStatus(): GitStatus {
+export function emptyStatus(problem: RepositoryProblem = null): GitStatus {
   return {
     isRepository: false,
+    ...(problem ? { problem } : {}),
     branch: null,
     unborn: false,
     ahead: 0,
@@ -440,9 +489,9 @@ export function emptyStatus(): GitStatus {
  */
 export async function status(cwd: string, scope: DiffScope = { kind: "working-tree" }): Promise<GitStatus> {
   assertSafeScope(scope);
-  const root = await repositoryRoot(cwd);
+  const { root, problem } = await repositoryState(cwd);
   if (!root) {
-    return emptyStatus();
+    return emptyStatus(problem);
   }
 
   const porcelain = parsePorcelainStatus(
@@ -1055,6 +1104,8 @@ async function remoteToPush(root: string, branch: string): Promise<string> {
  */
 export type RepoInfo = {
   isRepository: boolean;
+  /** Why there is no repository, where it is more than "this is a folder" (see `repositoryState`). */
+  problem?: string;
   /** The repository root, which is not necessarily the directory asked about. */
   root: string | null;
   branch: string | null;
@@ -1070,9 +1121,10 @@ export type RepoInfo = {
   hasRemote: boolean;
 };
 
-export function emptyRepoInfo(): RepoInfo {
+export function emptyRepoInfo(problem: RepositoryProblem = null): RepoInfo {
   return {
     isRepository: false,
+    ...(problem ? { problem } : {}),
     root: null,
     branch: null,
     upstream: null,
@@ -1085,9 +1137,9 @@ export function emptyRepoInfo(): RepoInfo {
 }
 
 export async function repoInfo(cwd: string): Promise<RepoInfo> {
-  const root = await repositoryRoot(cwd);
+  const { root, problem } = await repositoryState(cwd);
   if (!root) {
-    return emptyRepoInfo();
+    return emptyRepoInfo(problem);
   }
 
   const [branchName, symbolic, porcelain, remotes, verified] = await Promise.all([
@@ -1236,6 +1288,17 @@ async function bigUntracked(root: string): Promise<string[]> {
   return big;
 }
 
+/**
+ * The repository's own index file, absolute. `rev-parse --path-format=absolute`
+ * needs git 2.31 and the app's floor is older, so it asks for the plain path
+ * (relative to `root` unless git made it absolute, as it does for a linked
+ * worktree) and resolves it here. Undefined when git cannot say.
+ */
+async function liveIndexPath(root: string): Promise<string | undefined> {
+  const answer = (await tryGit(root, ["rev-parse", "--git-path", "index"]))?.trim();
+  return answer ? path.resolve(root, answer) : undefined;
+}
+
 /** The environment of the read in flight: a temp index that lists the untracked files too. */
 const readIndex = new AsyncLocalStorage<NodeJS.ProcessEnv>();
 
@@ -1247,7 +1310,7 @@ async function withTempIndex<T>(
   const scratch = await fsp.mkdtemp(path.join(os.tmpdir(), "text-to-cad-index-"));
   try {
     const index = path.join(scratch, "index");
-    const live = (await tryGit(root, ["rev-parse", "--path-format=absolute", "--git-path", "index"]))?.trim();
+    const live = await liveIndexPath(root);
     if (live) {
       await fsp.copyFile(live, index).catch(() => undefined);
     }
@@ -1343,7 +1406,7 @@ function releaseReadIndex(entry: ReadIndexEntry): void {
  * untracked set are the same, which is when it would be built identically.
  */
 async function acquireReadIndex(root: string, paths: string[]): Promise<ReadIndexEntry> {
-  const live = (await tryGit(root, ["rev-parse", "--path-format=absolute", "--git-path", "index"]))?.trim();
+  const live = await liveIndexPath(root);
   const stat = live ? await fsp.stat(live).catch(() => null) : null;
   const key = [
     stat ? `${stat.ino}:${stat.mtimeMs}:${stat.size}` : "none",
@@ -1549,10 +1612,52 @@ export async function ignoredFiles(cwd: string): Promise<string[]> {
  */
 export async function hasUnsavedWork(cwd: string): Promise<boolean | null> {
   try {
-    return (await isDirty(cwd)) || (await ignoredFiles(cwd)).length > 0;
+    return (await isDirty(cwd)) || (await ignoredFiles(cwd)).length > 0 || (await strandedWork(cwd)) !== null;
   } catch {
     return null;
   }
+}
+
+/** What git leaves in its directory while an operation is half done. */
+const OPERATION_MARKERS: readonly [file: string, name: string][] = [
+  ["rebase-merge", "a rebase"],
+  ["rebase-apply", "a rebase"],
+  ["MERGE_HEAD", "a merge"],
+  ["CHERRY_PICK_HEAD", "a cherry-pick"],
+  ["REVERT_HEAD", "a revert"],
+  ["BISECT_LOG", "a bisect"],
+];
+
+/**
+ * Work only this checkout holds although its files are clean: a detached HEAD
+ * whose commit no branch, remote branch or tag reaches (removing the worktree
+ * leaves those commits to the reflog and a gc), or an operation stopped
+ * half-way (a rebase, merge, cherry-pick, revert or bisect). A sentence, or
+ * null when there is none. Throws when git cannot say.
+ *
+ * A checkout can be recreated from its branch; the commits on a detached HEAD
+ * cannot.
+ */
+export async function strandedWork(cwd: string): Promise<string | null> {
+  const paths = (await git(cwd, ["rev-parse", ...OPERATION_MARKERS.flatMap(([file]) => ["--git-path", file])]))
+    .split(/\r?\n/)
+    .filter((line) => line !== "");
+  for (const [index, [, name]] of OPERATION_MARKERS.entries()) {
+    const marker = paths[index];
+    if (marker && (await fsp.stat(path.resolve(cwd, marker)).then(() => true, () => false))) {
+      return `${name} is in progress in it`;
+    }
+  }
+  // `symbolic-ref -q` exits 1, silently, for a detached HEAD.
+  const result = await runGit(cwd, ["symbolic-ref", "-q", "HEAD"]);
+  if (result.exitCode === 0) {
+    return null;
+  }
+  if (result.exitCode !== 1) {
+    throw new GitError("could not tell whether HEAD is on a branch");
+  }
+  const reached = await git(cwd, ["for-each-ref", "--count=1", "--format=%(refname)", "--contains", "HEAD", "refs/heads", "refs/remotes", "refs/tags"]);
+  return reached.trim() === "" ? "it is on a detached HEAD whose commits no branch holds" : null;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1721,9 +1826,9 @@ export type CreatedWorktree = {
  * way, and a branch someone else is already on.
  */
 export async function createWorktree(options: CreateWorktreeOptions): Promise<CreatedWorktree> {
-  const root = await repositoryRoot(options.repoPath);
+  const { root, problem } = await repositoryState(options.repoPath);
   if (!root) {
-    throw new GitError("Project is not a git repository, worktree mode unavailable");
+    throw new GitError(problem ?? "Project is not a git repository, worktree mode unavailable");
   }
   if ((await head(root)) === null) {
     throw new GitError("This repository has no commits yet, so there is nothing to branch from");
@@ -1859,9 +1964,23 @@ async function uniqueName(
  */
 export async function removeWorktree(
   worktreePath: string,
-  options: { force?: boolean; repoPath?: string } = {},
+  options: {
+    force?: boolean;
+    repoPath?: string;
+    /**
+     * Asked once more, right before git removes anything: the checks above
+     * are several git calls, and a session can open on the folder in between.
+     * `false` keeps the worktree.
+     */
+    stillEligible?: () => boolean;
+  } = {},
 ): Promise<void> {
   const gone = await folderGone(worktreePath);
+  const lastLook = () => {
+    if (options.stillEligible && !options.stillEligible()) {
+      throw new GitError("a session started in that worktree while it was being checked, so it was kept");
+    }
+  };
   const root = gone && options.repoPath
     ? await repositoryRoot(options.repoPath)
     : await repositoryRoot(worktreePath);
@@ -1882,6 +2001,7 @@ export async function removeWorktree(
   // reappeared between the two reads.
   const missing = gone && target.prunable;
   if (missing) {
+    lastLook();
     await git(root, ["worktree", "remove", target.path], { kind: "write" });
     return;
   }
@@ -1897,7 +2017,12 @@ export async function removeWorktree(
       const named = ignored.slice(0, 3).join(", ") + (ignored.length > 3 ? `, and ${ignored.length - 3} more` : "");
       throw new GitError(`that worktree has ignored files that removing it would delete: ${named}`);
     }
+    const stranded = await strandedWork(worktreePath).catch(unchecked);
+    if (stranded !== null) {
+      throw new GitError(`that worktree has work removing it would lose: ${stranded}`);
+    }
   }
+  lastLook();
   await git(root, ["worktree", "remove", ...(options.force ? ["--force"] : []), worktreePath], { kind: "write" });
 }
 
@@ -2016,11 +2141,17 @@ export async function pruneWorktrees(options: PruneOptions): Promise<{ removed: 
     if (gone === null || (!gone && (await hasUnsavedWork(candidate.path)) !== false)) {
       continue;
     }
-    await removeWorktree(candidate.path, { repoPath: options.repoPath }).then(
+    // And again: the checks above are git calls, and a "New session in this
+    // worktree" that began during them is protected only if it is asked now.
+    // `removeWorktree` asks once more itself, right before it deletes.
+    if (held(candidate.path)) {
+      continue;
+    }
+    await removeWorktree(candidate.path, { repoPath: options.repoPath, stillEligible: () => !held(candidate.path) }).then(
       () => removed.push(candidate.path),
       // One worktree that will not go must not stop the sweep: the next launch
       // would meet the same one and the limit would never be enforced.
-      () => undefined,
+      (error) => console.warn(`[git] the sweep kept ${candidate.path}: ${error instanceof Error ? error.message : String(error)}`),
     );
   }
   return { removed };

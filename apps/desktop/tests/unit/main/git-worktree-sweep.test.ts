@@ -103,6 +103,36 @@ describe("removeWorktree", () => {
     expect(await git.listWorktrees(root)).toHaveLength(1);
   });
 
+  it("keeps a detached HEAD whose commits no branch holds, and an unfinished merge", async () => {
+    const { root, worktrees } = await repository();
+    const stranded = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "stranded" });
+    await git_(stranded.path, "checkout", "--quiet", "--detach");
+    await writeFile(path.join(stranded.path, "only-here.txt"), "mine\n");
+    await git_(stranded.path, "add", "-A");
+    await git_(stranded.path, "commit", "--quiet", "-m", "only copy");
+    expect(await git.isDirty(stranded.path)).toBe(false);
+
+    expect(await git.hasUnsavedWork(stranded.path)).toBe(true);
+    await expect(git.removeWorktree(stranded.path)).rejects.toThrow(/detached HEAD/);
+    expect((await git.pruneWorktrees({ repoPath: root, parentDir: worktrees, keep: 0 })).removed).toEqual([]);
+    expect(await readdir(stranded.path)).toContain("only-here.txt");
+
+    // Once a branch holds the commit, the checkout can go.
+    await git_(stranded.path, "branch", "saved");
+    expect(await git.hasUnsavedWork(stranded.path)).toBe(false);
+  });
+
+  it("keeps a worktree in the middle of a merge even when its files are clean", async () => {
+    const { root, worktrees } = await repository();
+    const merging = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "merging" });
+    await git_(root, "commit", "--quiet", "--allow-empty", "-m", "theirs");
+    await git_(merging.path, "merge", "--quiet", "--no-commit", "--no-ff", "main");
+    expect(await git.isDirty(merging.path)).toBe(false);
+
+    expect(await git.hasUnsavedWork(merging.path)).toBe(true);
+    await expect(git.removeWorktree(merging.path)).rejects.toThrow("a merge is in progress");
+  });
+
   it("removes the registration of a folder deleted by hand, and the sweep does too", async () => {
     const { root, worktrees } = await repository();
     const gone = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "gone by hand" });
@@ -174,6 +204,24 @@ describe("pruneWorktrees", () => {
     expect(removed.sort()).toEqual([made[0], made[1]].sort());
     const left = (await git.listWorktrees(root)).filter((worktree) => !worktree.primary);
     expect(left.map((worktree) => worktree.path).sort()).toEqual([made[2], outside.path].sort());
+  });
+
+  it("asks again whether a session took the worktree while the sweep was checking it", async () => {
+    const { root, worktrees } = await repository();
+    const busy = await git.createWorktree({ repoPath: root, parentDir: worktrees, name: "busy" });
+    // A "New session in this worktree" lands after the sweep's own checks:
+    // the first answers say nobody holds it, the later ones say someone does.
+    let asked = 0;
+    const { removed } = await git.pruneWorktrees({
+      repoPath: root,
+      parentDir: worktrees,
+      keep: 0,
+      protectedPaths: () => (++asked <= 3 ? [] : [busy.path]),
+    });
+
+    expect(removed).toEqual([]);
+    expect(await readdir(busy.path)).toContain("README.md");
+    expect((await git.listWorktrees(root)).map((worktree) => worktree.path)).toContain(busy.path);
   });
 
   it("orders by the newest file written, not the folder's own mtime", async () => {

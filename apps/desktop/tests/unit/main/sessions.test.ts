@@ -177,6 +177,17 @@ describe("SessionManager", () => {
     expect(broadcasts.filter((b) => b.channel === "session.update").length).toBeGreaterThan(3);
   });
 
+  it("writes the counts of an edit that arrives after the turn has settled", async () => {
+    const { repo, manager, cwd } = await setup();
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    await manager.prompt(session.id, [{ type: "text", text: "nothing to edit" }]);
+    expect(repo.get(session.id)?.insertions).toBe(0);
+    // A background task finishing: a tool call with a diff, long after `prompt` resolved.
+    const late = { sessionUpdate: "tool_call", toolCallId: "late-1", status: "completed", kind: "edit", title: "Edit late.md", content: [{ type: "diff", path: "late.md", oldText: "", newText: "a\nb\n" }] };
+    (manager as unknown as { onEvent(id: string, event: unknown): void }).onEvent(session.id, { type: "session/update", acpSessionId: "fake-session-1", update: late });
+    expect(repo.get(session.id)).toMatchObject({ changedFiles: 1, insertions: 2, deletions: 0 });
+  });
+
   it("bridges permission requests and answers", async () => {
     const { broadcasts, manager, cwd } = await setup();
     const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
@@ -988,6 +999,17 @@ describe("SessionManager", () => {
     expect(repo.get(session.id)?.turnHead).toBe("the-commit");
   });
 
+  it("keeps the previous mark, not HEAD, when a turn's snapshot fails outright", async () => {
+    const { repo, manager, cwd } = await setup({
+      head: async () => "the-commit",
+      snapshot: async (_cwd, mark) => (mark.endsWith("/turn") ? null : "tree"),
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    expect(repo.get(session.id)?.turnHead).toBe("tree");
+    await manager.prompt(session.id, [{ type: "text", text: "hello" }]);
+    expect(repo.get(session.id)?.turnHead).toBe("tree");
+  });
+
   it("takes one snapshot at a time per mark, so turns behind a slow one do not stack another", async () => {
     const releases: ((tree: string) => void)[] = [];
     let started = 0;
@@ -1531,6 +1553,28 @@ describe("SessionManager", () => {
       ).resolves.toBeUndefined();
       expect(repo.get(session.id)).toBeNull();
       expect(released).toEqual([]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("a beforeRelease that throws still unpins the session's marks", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const dropped: string[] = [];
+      const { manager, cwd } = await setup({
+        workspace: async () => ({ cwd, worktreePath: `${cwd}/wt` }),
+        dropMarks: async (_repository, sessionId) => {
+          dropped.push(sessionId);
+        },
+      });
+      const session = await manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "worktree" });
+      await manager.delete(session.id, {
+        beforeRelease: () => {
+          throw new Error("x");
+        },
+      });
+      expect(dropped).toContain(session.id);
     } finally {
       warn.mockRestore();
     }

@@ -33,7 +33,16 @@ export class ScopedBrowserCdp {
   async start() {
     this.lifetime.signal.throwIfAborted();
     if (this.endpoint) return this.endpoint;
-    await new Promise<void>((resolve, reject) => { this.server.once("error", reject); this.server.listen(0, "127.0.0.1", resolve); });
+    await new Promise<void>((resolve, reject) => {
+      this.server.once("error", reject);
+      this.server.listen(0, "127.0.0.1", () => {
+        this.server.off("error", reject);
+        // Kept for the endpoint's life: a later accept error (EMFILE) with no
+        // handler is an uncaught exception and the "JavaScript error" dialog.
+        this.server.on("error", error => console.warn(`[browser] the CDP listener reported: ${error.message}`));
+        resolve();
+      });
+    });
     this.endpoint = `ws://127.0.0.1:${(this.server.address() as AddressInfo).port}/${this.secret}`;
     return this.endpoint;
   }

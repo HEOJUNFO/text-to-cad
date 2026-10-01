@@ -67,6 +67,9 @@ const SIGNATURES: Record<string, (head: Buffer) => boolean> = {
 };
 const IMAGE_NAMES: Record<string, string> = { "image/png": "PNG", "image/jpeg": "JPEG", "image/gif": "GIF", "image/webp": "WebP" };
 
+/** What a relayed command says when no window received it. */
+export const NO_WINDOW = "no text-to-cad window is open; open one and retry";
+
 export type ActionDeps = {
   /**
    * The directory a session's paths resolve against, or null when its
@@ -76,8 +79,12 @@ export type ActionDeps = {
    * directory, the absolute path for a worktree.
    */
   sessionRoot: (session: BridgeSession) => { directory: string; root: string | null } | null;
-  /** Push a command to every window. */
-  send: (command: IntegrationCommand) => void;
+  /**
+   * Push a command to every window, answering how many received it. Zero is
+   * "no window is open" (the app outlives its last window on macOS), and the
+   * command is refused at once rather than left to time out.
+   */
+  send: (command: IntegrationCommand) => number | void;
   cancel?: (requestId: string) => void;
   newId: () => string;
   timeoutMs?: number;
@@ -117,7 +124,12 @@ export class RendererCommands {
       const cleanup = () => signal?.removeEventListener("abort", abort);
       signal?.addEventListener("abort", abort, { once: true });
       this.pending.set(requestId, { resolve: value => { cleanup(); resolve(value); }, reject: error => { cleanup(); reject(error); }, timer });
-      try { this.deps.send({ ...command, requestId }); }
+      try {
+        if (this.deps.send({ ...command, requestId }) === 0) {
+          cleanup(); this.pending.delete(requestId); clearTimeout(timer);
+          reject(new Error(NO_WINDOW));
+        }
+      }
       catch (error) { this.pending.delete(requestId); clearTimeout(timer); cleanup(); reject(error); }
     });
   }

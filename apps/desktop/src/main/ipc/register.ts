@@ -120,18 +120,21 @@ export function emit<C extends IpcEventChannel>(
   targets: Iterable<WebContents>,
   channel: C,
   payload: IpcEventPayload<C>,
-): void {
+): number {
   const validated = parse(ipcEvents[channel] as z.ZodType, payload, `${channel} event`);
+  let delivered = 0;
   for (const target of targets) {
     if (!target.isDestroyed()) {
       target.send(`${IPC_EVENT_PREFIX}${channel}`, validated);
+      delivered += 1;
     }
   }
+  return delivered;
 }
 
-/** Broadcast to every open window. */
-export function broadcast<C extends IpcEventChannel>(channel: C, payload: IpcEventPayload<C>) {
-  emit(
+/** Broadcast to every open window; answers how many there were (macOS keeps the app alive with none). */
+export function broadcast<C extends IpcEventChannel>(channel: C, payload: IpcEventPayload<C>): number {
+  return emit(
     BrowserWindow.getAllWindows().map((window) => window.webContents),
     channel,
     payload,

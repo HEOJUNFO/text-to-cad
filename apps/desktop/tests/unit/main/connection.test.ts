@@ -180,6 +180,21 @@ describe("SessionConnection against the fake agent", () => {
     expect(lastAgentText(connection.state)).toBe("ok");
   });
 
+  it("answers a request still pending when the prompt throws, as the error card already shows it", async () => {
+    const events: SessionEvent[] = [];
+    const connection = connect({ cwd: await scratch(), onEvent: (event) => events.push(event) });
+    await connection.newSession();
+    void connection.client.requestPermission({
+      sessionId: connection.state.acpSessionId!,
+      toolCall: { toolCallId: "late-2", title: "Run ls?" },
+      options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+    });
+    expect(connection.client.pendingPermissionIds).toHaveLength(1);
+
+    await expect(connection.prompt([{ type: "text", text: "please crash" }])).rejects.toThrow();
+    expect(connection.client.pendingPermissionIds).toEqual([]);
+  });
+
   it("answers a request still pending when the prompt resolves, as the transcript already shows it", async () => {
     const events: SessionEvent[] = [];
     const connection = connect({ cwd: await scratch(), onEvent: (event) => events.push(event) });

@@ -626,6 +626,10 @@ export class SessionConnection {
         this.pendingPreamble ??= preamble;
       }
       const described = this.describe(error, "session/prompt");
+      // The turn is over, and the reducer cancels every card when `prompt/error`
+      // lands (as for `prompt/end`): answer the same requests, or the client's
+      // map stays open behind cards that read cancelled.
+      this.client.cancelPendingPermissions();
       // After `close` the rejection is the SDK tearing down the turn we
       // killed, not a failure of it: `closed` was the last word.
       if (!this.closing) {

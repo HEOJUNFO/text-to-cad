@@ -178,7 +178,7 @@ export async function pruneProjectWorktrees(project: Project): Promise<void> {
         ...creating.keys(),
       ],
     })
-    .catch(() => undefined);
+    .catch((error) => console.warn(`[git] the worktree sweep failed: ${error instanceof Error ? error.message : String(error)}`));
 }
 
 /** Each created worktree's unmark and project, until its session row is written. */
@@ -254,6 +254,7 @@ export const gitHandlers = {
           : [];
         return {
           isRepository: info.isRepository,
+          ...(info.problem ? { problem: info.problem } : {}),
           branch: info.branch,
           upstream: info.upstream,
           defaultBranch: info.defaultBranch,

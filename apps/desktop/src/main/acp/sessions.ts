@@ -1289,6 +1289,10 @@ export class SessionManager {
       // not delete" over a thread that no longer exists. What could not be
       // disposed keeps the worktree on disk (it may still be held open).
       console.warn(`[acp] kept the worktree of deleted session ${id.slice(0, 8)}: ${error instanceof Error ? error.message : String(error)}`);
+      // The worktree stays; the marks do not: the row is gone and `boot` unpins
+      // only rows with no adapter session, so these refs would stay pinned
+      // for good (and `git push --mirror` sends them).
+      if (session) await this.unpinMarks(session);
       return;
     }
     if (session) {
@@ -1425,6 +1429,13 @@ export class SessionManager {
       }
       if (tree === EXPIRED) {
         return fallback ?? (await this.headOf(owner.cwd));
+      }
+      if (tree === null && fallback && this.deps.snapshot) {
+        // git failed (an unreadable file, git-lfs missing from the PATH, a full
+        // disk): the previous mark is the honest answer, not HEAD, which would
+        // list every uncommitted file — the work from before the turn too.
+        console.warn(`[acp] no ${kind} snapshot of ${owner.cwd}; kept the previous mark`);
+        return fallback;
       }
       // No snapshot to take (or git failed): the commit is what the tree is at.
       return tree ?? (await this.headOf(owner.cwd));
@@ -1882,6 +1893,7 @@ export class SessionManager {
       return;
     }
     const content = Array.isArray(update.content) ? update.content : [];
+    let counted = false;
     for (const item of content) {
       const entry = item as Record<string, unknown> | null;
       if (entry?.type !== "diff" || typeof entry.path !== "string") {
@@ -1895,6 +1907,16 @@ export class SessionManager {
       );
       tally.insertions += insertions;
       tally.deletions += deletions;
+      counted = true;
+    }
+    // A turn's edits are written when it settles (`persistTally` after the
+    // prompt); one that arrives after that — a background task finishing, a
+    // late tool call — has no settle coming, and `onEvent` drops everything
+    // from the moment of quit, so it is written here or lost. Only while idle:
+    // a turn settles its own, and a `session/load` replay counts the whole
+    // history again from zero, which must not overwrite the row halfway.
+    if (counted && this.live.get(id)?.state.status === "idle") {
+      this.persistTally(id, { touch: false });
     }
   }
 

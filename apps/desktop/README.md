@@ -1901,6 +1901,10 @@ The app gives each session focused skills and independent domain MCP servers.
 lifetimes, prompt handoff and the recipe for adding a domain. Nothing installs
 into an agent's own configuration: no plugin, marketplace or copy into
 `~/.claude/skills`, and no mandatory umbrella `text-to-cad-app-use` skill.
+A tool that needs the window (open a file, capture a view) is relayed to it; with
+every window closed (macOS keeps the app running) the agent is told at once,
+"no text-to-cad window is open; open one and retry", rather than after a
+ten-second wait.
 
 **Skills.** `scripts/build-skills.mjs` composes repository skills plus the
 registry's app skills into `resources/skills/`. The standalone `cad-viewer`
@@ -2463,6 +2467,14 @@ or one with no commits — and it fails with a sentence rather than git's words.
 The others work in a plain folder: git is optional, and a project is a
 directory.
 
+"Not a repository" is not the only reason a folder has no repository, and the
+Review tab, the mode chip and worktree mode say which. Git is missing
+("git is not installed or not on PATH"), the folder is gone ("<folder> no
+longer exists"), git refuses it for dubious ownership ("git will not open this
+folder because another user owns it"), or git did not answer in time. The
+reason rides on `status` and `projectInfo` as `problem`; a folder that is just
+a folder has none, and gets the plain "not a git repository".
+
 Worktrees live outside the project, one folder per project, whichever agent
 made them:
 
@@ -2515,19 +2527,21 @@ left to lose (`folderGone` in `src/main/projects/git.ts`); Settings lists such
 a worktree as clean, so Delete there is open to it. It never removes a worktree outside the project's
 worktree folders, a locked one, one that holds the `cwd`, `projectId` or
 `worktreePath` of a session row that is not archived, or a create still
-in flight, or one with uncommitted changes or ignored files that are not a
-disposable cache (`hasUnsavedWork`). An archived session holds no worktree.
+in flight, or one with unsaved work (`hasUnsavedWork`): uncommitted changes,
+ignored files that are not a disposable cache, a detached HEAD whose commits
+no branch, remote branch or tag reaches, or a rebase, merge, cherry-pick,
+revert or bisect left half done (`strandedWork`). An archived session holds no worktree.
 "In use" is one function, `sessionsUsing` in `src/main/projects/git.ts`: the
 sessions that are not archived and run in the worktree, in a folder inside it,
 or record it as their `worktreePath`. It answers Settings' open-session count,
 Delete's refusal, and a session's release of its own worktree; the sweep's
-`protectedPaths` applies the same not-archived filter. Settings' Delete is
+`protectedPaths` applies the same not-archived filter. The sweep asks it again right before `git worktree remove` (`stillEligible` on `removeWorktree`), so a session that opened during the checks keeps its folder; a worktree it could not remove is logged. Settings' Delete is
 refused on two grounds: a worktree in use (main answers "N sessions are still
 using that worktree", and the row says "A session is still open in this
 worktree.") and a locked one (`git worktree lock`; the row says it is kept
 until it is unlocked). The row disables Delete and gives the reason through
-`keptBecause` in `GitPage.tsx`, which also covers uncommitted changes or
-ignored files and a worktree git could not check. The limit counts only unlocked, unheld
+`keptBecause` in `GitPage.tsx`, which also covers uncommitted changes,
+ignored files, commits only the checkout holds, and a worktree git could not check. The limit counts only unlocked, unheld
 worktrees in the project's worktree folders; one with unsaved work counts
 toward it and is then kept. A branch is deleted only when a failed create abandons the
 worktree it made, and then only while it still points where it was cut
@@ -2587,6 +2601,7 @@ validates them before git starts (`assertSafeScope` in
 a review scope's revision also puts `--end-of-options` in front of it, so a
 value shaped like `--output=…` is a revision git rejects, never an option.
 That flag needs git 2.24 or newer.
+The throwaway index a snapshot and a review read through is seeded from the real one found with `rev-parse --git-path index`, resolved against the repository, not `--path-format=absolute` (git 2.31), so 2.24 stays the floor.
 
 The commit strip's button reads **Push** when the tree has no changed files and
 the branch is ahead (`pushState` answers `{ dirty, ahead }` in one status
