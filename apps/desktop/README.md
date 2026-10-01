@@ -1175,7 +1175,9 @@ Keyboard shortcuts prints. A row holds two bindings when the platforms differ: o
 off a Mac carries an `otherBinding` (`bindingFor` in `lib/shortcuts.ts`). Toggle explorer is Cmd+Option+B on a Mac and
 Ctrl+Shift+E elsewhere, in the menu (`main/menu.ts`), in `Shell`'s key handler and on the page; the toast chord
 (`components/ui/sonner.tsx`) is the row "Focus the notifications", Cmd+Option+T on a Mac and Ctrl+Shift+T elsewhere, and
-is renderer-only (no menu accelerator). The ones the app menu also declares are its accelerators, so
+is renderer-only (no menu accelerator). A chord with Option on a Mac is matched on the physical key
+(`event.code`, `KeyB`), because Option+B types "∫" and `event.key` is never "b" (`Shell`'s handler; the
+toast chord's hotkey is `KeyT` already; no other chord uses Alt). The ones the app menu also declares are its accelerators, so
 they work with focus inside a webview (see "Rules that are easy to break" in
 AGENTS.md). The menu's New Session and Settings… with no window open one and
 hold the command until its page calls `ui.ready` (`src/main/menu.ts`): pushed
