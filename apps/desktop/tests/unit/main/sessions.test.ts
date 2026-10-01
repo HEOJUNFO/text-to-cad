@@ -136,7 +136,7 @@ async function setup(extra: Partial<SessionManagerDeps> = {}) {
     broadcast: (channel, payload) => {
       broadcasts.push({ channel, payload });
     },
-    newId: () => `session-${++counter}`,
+    newId: () => `s${++counter}-xxxxxxxx`,
     ...extra,
   });
   managers.push(manager);
@@ -159,7 +159,7 @@ describe("SessionManager", () => {
   it("creates a row, connects, titles the session from the first prompt, and tallies changes", async () => {
     const { repo, broadcasts, manager, cwd } = await setup();
     const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
-    expect(session).toMatchObject({ id: "session-1", status: "idle", acpSessionId: "fake-session-1", title: "New session" });
+    expect(session).toMatchObject({ id: "s1-xxxxxxxx", status: "idle", acpSessionId: "fake-session-1", title: "New session" });
     expect(manager.state(session.id)?.state.status).toBe("idle");
     expect(broadcasts.some((b) => b.channel === "session.state")).toBe(true);
 
@@ -1494,7 +1494,7 @@ describe("SessionManager", () => {
       launchOverride: () => ({ command: path.join("/nonexistent", "no-such-agent"), args: [], env: {} }),
     });
     await expect(manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "none", cwd })).rejects.toThrow();
-    expect(forgotten).toEqual(["session-1"]);
+    expect(forgotten).toEqual(["s1-xxxxxxxx"]);
   });
 
   it("a failed create in a worktree it was given leaves that worktree alone", async () => {
@@ -1754,7 +1754,7 @@ describe("SessionManager", () => {
     };
     const { repo, manager, broadcasts, cwd } = await setup({ agentOptions: deps });
     const created = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
-    const id = "session-1";
+    const id = "s1-xxxxxxxx";
     expect(created).toMatchObject({ id, status: "idle", acpSessionId: "fake-session-1" });
     expect(repo.list()).toHaveLength(1);
     expect(repo.get(id)?.status).toBe("idle");
@@ -1822,7 +1822,7 @@ describe("SessionManager", () => {
     };
     await expect(manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" })).rejects.toThrow("SQLITE_BUSY");
     expect(repo.list()).toHaveLength(0);
-    expect((manager as unknown as { live: { get(id: string): unknown } }).live.get("session-1")).toBeUndefined();
+    expect((manager as unknown as { live: { get(id: string): unknown } }).live.get("s1-xxxxxxxx")).toBeUndefined();
   });
 
   it("rejects a create whose row was deleted under it with the error the renderer swallows", async () => {
@@ -1844,7 +1844,7 @@ describe("SessionManager", () => {
       remember: (...args: Parameters<typeof recorder.deps.remember>) => {
         if (recorder.remembered.length >= 1) {
           // The adapter is gone without anyone closing it (a crash), so the row is still `connecting`.
-          const live = (made.manager as unknown as { live: { get(id: string): object | undefined } }).live.get("session-1");
+          const live = (made.manager as unknown as { live: { get(id: string): object | undefined } }).live.get("s1-xxxxxxxx");
           Object.defineProperty(live, "alive", { get: () => false });
           throw new Error("SQLITE_BUSY");
         }
