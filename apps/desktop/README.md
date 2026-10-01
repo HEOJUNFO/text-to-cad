@@ -1481,7 +1481,7 @@ dotfile except `.git` (the tree and the filter leave out Git's own folder, or
 the `.git` file of a worktree, unless the open file is inside it),
 Git-ignored outputs, dependency folders and unsupported formats. Renderer
 support determines what opens in the file tab; it never hides a tree row.
-Unknown types open with **Not supported**. Listings are lazy and complete for
+Unknown types open with **Not supported**. A linked directory lists its children under the link's own path (`links/vendor/a.txt`), read through the real one, so a link and its target never produce the same row twice. Listings are lazy and complete for
 each expanded directory. The filter lists at most 200 matches and the index holds at most 20,000 files; when either
 cap cuts something it says "Showing the first 200 of N matches; the index stopped at 20,000 files" (or "The index stopped at 20,000 files; some matches may be missing"), and an index that cannot be read says "Could not search the files: <reason>". The bounded fuzzy index visits project content before
 dependency caches so cache files do not crowd generated CAD outputs out of the

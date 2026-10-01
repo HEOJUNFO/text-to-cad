@@ -348,6 +348,10 @@ export async function listDirectory(
 
   const dirents = await fs.readdir(absolute, { withFileTypes: true });
   const entries: DirEntry[] = [];
+  // Children are named under the path that was asked for: a link to a folder
+  // lists `links/vendor/a.txt`, not the target's `shared/a.txt`, so the two
+  // never collide as rows. They are read through the real path all the same.
+  const listed = toRelative(realRoot, path.resolve(realRoot, directory));
 
   // Every row needs its size and mtime, which the dirent does not carry, so
   // each is stat'ed; a folder of twenty thousand frames is twenty thousand
@@ -362,7 +366,7 @@ export async function listDirectory(
         return null;
       }
       return {
-        path: toRelative(realRoot, child),
+        path: listed === "" ? dirent.name : `${listed}/${dirent.name}`,
         name: dirent.name,
         kind: stats.isDirectory() ? "directory" : "file",
         size: stats.isDirectory() ? 0 : stats.size,
