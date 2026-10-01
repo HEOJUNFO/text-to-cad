@@ -1,6 +1,7 @@
 import { FILE_PANEL_TREE, PANEL_DEFAULT_WIDTH, clampPanelWidth } from "@text-to-cad/ui/navigation";
 import { create } from "zustand";
 import { toast } from "sonner";
+import { errorMessage } from "@shared/ipc/errors";
 import { desktopSourceId, hasDirtyDocument, moveDocuments, releaseDocumentTab, discardDocumentTab } from "./live-documents";
 import { releaseCadTab } from "./live-cad";
 import { forgetSessionTabStores, forgetTabStore, pruneTabStores, rememberTabOwners } from "@renderer/features/explorer/adapters/tabStore";
@@ -412,7 +413,21 @@ function commit(
 
 /** The watcher for one root, started and stopped with the binding. */
 function watch(projectId: string, root: ExplorerRoot): Promise<void> {
-  return window.textToCad.explorer.watch({ projectId, ...(root ? { root } : {}) }).catch(() => undefined);
+  // Asking again re-arms a dead watcher in main, so a failure after this is worth saying again.
+  warnedWatchRoots.delete(`${projectId}\0${root ?? ""}`);
+  return window.textToCad.explorer.watch({ projectId, ...(root ? { root } : {}) })
+    .catch((error: unknown) => reportWatchFailure(projectId, root,
+      `Live updates did not start: ${errorMessage(error)}. Reload the tab to re-arm them.`));
+}
+
+const warnedWatchRoots = new Set<string>();
+
+/** Said once per root: a watcher that died or never started leaves the tree, Review and the edit banner stale. */
+export function reportWatchFailure(projectId: string, root: ExplorerRoot, message: string): void {
+  const key = `${projectId}\0${root ?? ""}`;
+  if (warnedWatchRoots.has(key)) return;
+  warnedWatchRoots.add(key);
+  toast.error(message, { id: `watch:${key}` });
 }
 
 function unwatch(projectId: string, root: ExplorerRoot): void {

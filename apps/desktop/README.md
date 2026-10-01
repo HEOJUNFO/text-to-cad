@@ -1511,6 +1511,13 @@ tab that remounts gives its paths back and takes them again; a release that
 overtakes the watch it follows is counted (`arriving`, `owed`) and given back
 once that watch holds, so no hold is left behind.
 
+A watcher that dies, or cannot start (on Linux, usually the inotify limit),
+is not left silent: main publishes `files.watch-error` and the renderer toasts
+"Live updates stopped: <reason>. Reload the tab to re-arm them." once per root
+(`reportWatchFailure` in `state/explorer.ts`); a `watch` that is rejected says
+"Live updates did not start: <reason>. Reload the tab to re-arm them." The next
+`watch` of that root closes the dead watcher and builds it again.
+
 ### The file tab's nav
 
 One row: the breadcrumb, with the unsaved dot and the file's loading or update

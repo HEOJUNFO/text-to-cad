@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { dedupeFileTabs, getDrawingTab, tabTitle, useExplorer } from "@renderer/state/explorer";
+import { dedupeFileTabs, getDrawingTab, reportWatchFailure, tabTitle, useExplorer } from "@renderer/state/explorer";
 import { deleteDrawingScene } from "@renderer/state/drawings";
 
 vi.mock("@renderer/state/drawings", () => ({ deleteDrawingScene: vi.fn() }));
@@ -610,5 +610,17 @@ describe("the explorer strip", () => {
     );
     expect(tabTitle({ ...base, kind: "browser", root: null, url: null })).toBe("New tab");
     expect(tabTitle({ ...base, kind: "review", scope: "all" })).toBe("Review");
+  });
+});
+
+describe("a dead file watcher", () => {
+  it("says so once per root, and again for another root", () => {
+    const sentence = "Live updates stopped: ENOSPC: System limit for number of file watchers reached. Reload the tab to re-arm them.";
+    vi.mocked(toast.error).mockClear();
+    reportWatchFailure("watch-project", null, sentence);
+    reportWatchFailure("watch-project", null, sentence);
+    expect(vi.mocked(toast.error).mock.calls).toEqual([[sentence, { id: "watch:watch-project\0" }]]);
+    reportWatchFailure("watch-project", "worktree", sentence);
+    expect(vi.mocked(toast.error)).toHaveBeenCalledTimes(2);
   });
 });

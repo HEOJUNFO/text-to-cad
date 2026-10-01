@@ -16,7 +16,7 @@ import { useAgentOptions } from "./agent-options";
 import { useAgents } from "./agents";
 import { useComposer } from "./composer";
 import { performIntegrationCommand } from "./integration-commands";
-import { useExplorer } from "./explorer";
+import { reportWatchFailure, useExplorer } from "./explorer";
 import { attachHistory, useHistory } from "./history";
 import { useOnboarding } from "./onboarding";
 import { usePathLinks } from "./path-links";
@@ -109,6 +109,7 @@ export function subscribeToMain(): () => void {
       // may be gone: the next render asks again.
       usePathLinks.getState().invalidate({ projectId, root }, paths);
     }),
+    window.textToCad.on("files.watch-error", ({ projectId, root, message }) => reportWatchFailure(projectId, root, message)),
     // An agent's tool call, relayed by main; answered whatever happens, so
     // the bridge's wait ends with the reason rather than a timeout.
     window.textToCad.on("integrations.cancel", ({ requestId }) => commands.get(requestId)?.abort(new Error("Tool request cancelled"))),
