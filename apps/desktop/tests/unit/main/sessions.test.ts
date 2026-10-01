@@ -1487,6 +1487,16 @@ describe("SessionManager", () => {
     expect(unpinned.length).toBeGreaterThan(0);
   });
 
+  it("a failed create revokes the integration tokens it minted for the session", async () => {
+    const forgotten: string[] = [];
+    const { manager, cwd } = await setup({
+      forgetSession: (id) => forgotten.push(id),
+      launchOverride: () => ({ command: path.join("/nonexistent", "no-such-agent"), args: [], env: {} }),
+    });
+    await expect(manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "none", cwd })).rejects.toThrow();
+    expect(forgotten).toEqual(["session-1"]);
+  });
+
   it("a failed create in a worktree it was given leaves that worktree alone", async () => {
     const released: string[] = [];
     const { manager, cwd } = await setup({

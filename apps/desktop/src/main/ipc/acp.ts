@@ -82,6 +82,7 @@ export const sessionManager: SessionManager = new SessionManager({
   // Every session gets the text-to-cad MCP server, with a token that names it.
   mcpServers: mcpServersFor,
   forgetProbe: (probeId) => forgetSession(probeId),
+  forgetSession: (sessionId) => forgetSession(sessionId),
   // …the app's skills as an additional directory, and the preamble for an
   // agent that will not read one (src/main/integrations/skills.ts)…
   skills: { root: skillsRoot, preamble: sessionPreamble },
