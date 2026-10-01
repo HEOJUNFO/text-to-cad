@@ -194,6 +194,24 @@ export function useViewerRuntime({
       syncCameraViewport(orthographicCamera, width, height);
 
       const renderer = createWebGlRenderer(THREE);
+      // Registered the moment the renderer exists: every line below can throw (the theme and
+      // pixel-ratio getters are injected), and a pinned GL context is a scarce thing (Chromium
+      // keeps ~16 alive and evicts the oldest), so a retry loop would otherwise push live viewers
+      // out. Registered first, so it runs LAST: the context-lost/restored listeners below are
+      // already off the canvas when the forced loss fires, and the loss cannot be taken for a GPU
+      // reset that asks the host to rebuild this viewer. Idempotent: the success path's `cleanup`
+      // calls it too, after its releases.
+      let rendererReleased = false;
+      const releaseRenderer = () => {
+        if (rendererReleased) return;
+        rendererReleased = true;
+        if (runtimeRef.current?.renderer === renderer) runtimeRef.current = null;
+        renderer.dispose();
+        renderer.domElement?.parentNode?.removeChild(renderer.domElement);
+      };
+      release(() => {
+        if (!runtimeOwnsRenderer) releaseRenderer();
+      });
       const presentation = createFramePresentation({ canvas: renderer.domElement, renderMode, onPresent: onFramePresented });
       const softwareRendering = isSoftwareWebGlRenderer(renderer);
       let idlePixelRatioCap = softwareRendering
@@ -218,12 +236,6 @@ export function useViewerRuntime({
       });
       container.innerHTML = "";
       container.appendChild(renderer.domElement);
-      release(() => {
-        if (runtimeOwnsRenderer) return;
-        if (runtimeRef.current?.renderer === renderer) runtimeRef.current = null;
-        renderer.dispose();
-        if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement);
-      });
 
       const controls = new OrbitControls(camera, renderer.domElement);
       release(() => controls.dispose());
@@ -976,10 +988,7 @@ export function useViewerRuntime({
         if (runtime.keyLight?.shadow) {
           runtime.keyLight.shadow.map = null;
         }
-        runtime.renderer.dispose();
-        if (container.contains(runtime.renderer.domElement)) {
-          container.removeChild(runtime.renderer.domElement);
-        }
+        releaseRenderer();
         runtimeRef.current = null;
       };
     }

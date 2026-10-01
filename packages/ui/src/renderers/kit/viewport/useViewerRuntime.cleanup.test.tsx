@@ -12,7 +12,13 @@ vi.mock('@text-to-cad/core/common/webglRenderer.js', () => ({
     return renderer;
   },
 }));
-vi.mock('./viewportBuffer.js', () => ({ createViewportBuffer: () => ({ request: vi.fn(), dispose: vi.fn() }) }));
+const buffer = { fail: false };
+vi.mock('./viewportBuffer.js', () => ({
+  createViewportBuffer: () => {
+    if (buffer.fail) throw new Error('buffer failed');
+    return { request: vi.fn(), dispose: vi.fn() };
+  },
+}));
 vi.mock('./framePresentation.js', () => ({ createFramePresentation: () => ({ dispose: vi.fn() }) }));
 // The failure under test: initialisation throws after the window's resize listener is registered.
 const init = { fail: true };
@@ -39,16 +45,18 @@ class FakeResizeObserver {
 beforeEach(() => {
   renderers.length = 0;
   init.fail = true;
+  buffer.fail = false;
   FakeResizeObserver.live.clear();
   vi.stubGlobal('ResizeObserver', FakeResizeObserver);
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
-function options(mount: HTMLElement) {
+function options(mount: HTMLElement, extra: Record<string, unknown> = {}) {
   const noop = vi.fn();
   return new Proxy({
     mountRef: { current: mount },
@@ -62,6 +70,7 @@ function options(mount: HTMLElement) {
     IDLE_PIXEL_RATIO_CAP: 2,
     INTERACTION_PIXEL_RATIO_CAP: 1,
     onInitializationError: vi.fn(),
+    ...extra,
   } as Record<string, unknown>, { get: (target, key: string) => (key in target ? target[key] : noop) });
 }
 
@@ -114,3 +123,18 @@ test('a viewer whose runtime ref was cleared under it still releases its listene
   expect(FakeResizeObserver.live.size).toBe(0);
   expect(renderers[0].dispose).toHaveBeenCalled();
 });
+
+test('a renderer whose start throws before it is mounted still lets go of its context and canvas', async () => {
+  buffer.fail = true;
+  const mount = document.createElement('div');
+  document.body.appendChild(mount);
+  const onInitializationError = vi.fn();
+  const hook = renderHook(() => useViewerRuntime({ ...(options(mount) as object), onInitializationError } as any));
+  await waitFor(() => expect(onInitializationError).toHaveBeenCalled());
+  hook.unmount();
+
+  expect(renderers).toHaveLength(1);
+  expect(renderers[0].dispose).toHaveBeenCalled();
+  expect(mount.querySelector('canvas')).toBeNull();
+});
+
