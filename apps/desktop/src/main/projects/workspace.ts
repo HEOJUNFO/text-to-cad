@@ -186,16 +186,7 @@ function commonGitDir(repository: string): string | null {
  * exists; the part that does not exist yet (a worktree about to be made) is kept as spelled.
  */
 export function realDirectory(candidate: string): string {
-  const resolved = path.resolve(candidate);
-  const missing: string[] = [];
-  for (let existing = resolved; ; existing = path.dirname(existing)) {
-    try {
-      return path.join(realpathSync(existing), ...missing.reverse());
-    } catch {
-      if (path.dirname(existing) === existing) return resolved;
-      missing.push(path.basename(existing));
-    }
-  }
+  return git.realPath(candidate);
 }
 
 /** Is `candidate` the project directory itself, however it is spelled? */
@@ -337,8 +328,10 @@ export async function releaseWorkspace(
     return { removed: false, reason: "auto-delete is off" };
   }
   try {
+    // The project's repository first: with the folder gone, the worktree's own
+    // path names no repository, and the branch would be left behind.
     const primary = options.abandoned
-      ? (await git.listWorktrees(session.worktreePath)).find((worktree) => worktree.primary)?.path
+      ? await primaryOf([session.projectId, session.worktreePath])
       : undefined;
     await git.removeWorktree(session.worktreePath, session.projectId ? { repoPath: session.projectId } : {});
     if (primary && session.branch) {
@@ -350,4 +343,14 @@ export async function releaseWorkspace(
   } catch (error) {
     return { removed: false, reason: error instanceof Error ? error.message : String(error) };
   }
+}
+
+/** The primary worktree of the first of `places` that is inside a repository. */
+async function primaryOf(places: (string | undefined)[]): Promise<string | undefined> {
+  for (const place of places) {
+    if (!place) continue;
+    const primary = (await git.listWorktrees(place).catch(() => [])).find((worktree) => worktree.primary)?.path;
+    if (primary) return primary;
+  }
+  return undefined;
 }

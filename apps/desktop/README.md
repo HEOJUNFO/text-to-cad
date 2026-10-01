@@ -2257,7 +2257,14 @@ added to the last agent turn and marked by the turn's `lateFrom`, the index of
 the first part that came late. The transcript draws those parts after the turn's
 footer ("Stopped", "The agent declined.", the limit line), under a quiet label,
 "Arrived after the turn ended", so they never read as if they came before the
-stop. In the renderer, `receiveState` (`state/acp.ts`) clears a session's
+stop. A `session/load` replay cannot say either again (it has no `prompt/end`, so
+late text merges into the answer, and it closes every agent turn `end_turn`), so
+after the replay the connection dispatches `turns/restored`, built from the stored
+snapshot by `turnFactsFrom`: turns are matched by position for as long as each
+user turn says the same thing, an agent turn takes the stored stop reason, and
+its `lateFrom` only when the replay has the same number of parts (a replay that
+merged parts cannot say which were late). What a reload restores is those two
+facts, nothing else. In the renderer, `receiveState` (`state/acp.ts`) clears a session's
 `loadErrors` once the state it takes says the agent is up (`idle`, `running` or
 `waiting`). In main, an `initialize` failure goes through `describe`
 (`src/main/acp/connection.ts`) as `session/new`, `session/load` and
@@ -2468,6 +2475,19 @@ Every session has a working directory, and a git mode is how it got one
 | `none` | the project directory | — | — |
 | `checkout` | the project directory | whatever it is on | — |
 | `worktree` | a new worktree | a new `text-to-cad/<slug>` | the same directory |
+
+git and its hooks run under the login shell's environment (PATH included) once
+`loginEnv` has captured it at launch (`onLoginEnv` in `agents/shell-env.ts` feeds
+`git.ts`; Refresh in Settings › Agents refreshes it too), so Homebrew's git,
+git-lfs and a hook that calls node work from a Dock launch. Until the capture
+lands, git runs under the process environment and no call waits for it; on
+Windows the process environment is always used.
+
+Worktree paths are compared by real path (`git.sameRealPath` / `git.isUnderReal` resolve
+symlinks in the part that exists), because `git worktree list` answers real paths:
+a `worktreeRoot` that is a symlink (`~/wt`, or `/tmp` and `/var` on a Mac) still
+lists, sweeps and deletes, and a session spelled through the link still holds its
+worktree. A new worktree's recorded path is the real one.
 
 `worktree` is the only one that can fail — a project that is not a repository,
 or one with no commits — and it fails with a sentence rather than git's words.

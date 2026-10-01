@@ -136,7 +136,7 @@ async function setup(extra: Partial<SessionManagerDeps> = {}) {
     broadcast: (channel, payload) => {
       broadcasts.push({ channel, payload });
     },
-    newId: () => `session-${++counter}`,
+    newId: () => `s${++counter}-xxxxxxxx`,
     ...extra,
   });
   managers.push(manager);
@@ -159,7 +159,7 @@ describe("SessionManager", () => {
   it("creates a row, connects, titles the session from the first prompt, and tallies changes", async () => {
     const { repo, broadcasts, manager, cwd } = await setup();
     const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
-    expect(session).toMatchObject({ id: "session-1", status: "idle", acpSessionId: "fake-session-1", title: "New session" });
+    expect(session).toMatchObject({ id: "s1-xxxxxxxx", status: "idle", acpSessionId: "fake-session-1", title: "New session" });
     expect(manager.state(session.id)?.state.status).toBe("idle");
     expect(broadcasts.some((b) => b.channel === "session.state")).toBe(true);
 
@@ -688,6 +688,31 @@ describe("SessionManager", () => {
    * failed load's debounce, or by a quit in the first second — it destroys the
    * only copy of the history.
    */
+  it("keeps a stored turn's stop reason and late label across a session/load", async () => {
+    // The replay carries no `prompt/end` and no stop reason: every replayed
+    // agent turn ends `end_turn`, and late text merges into the answer.
+    const store = memorySnapshots();
+    const { manager, cwd } = await setup({ snapshots: store });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    await manager.prompt(session.id, [{ type: "text", text: "hello there" }]);
+    manager.close(session.id);
+
+    const saved = JSON.parse(store.rows.get(session.id)!);
+    const last = saved.turns.at(-1);
+    expect(last.role).toBe("agent");
+    // What the fake agent replays for any session: the stored transcript is of the same text.
+    saved.turns[0].parts = [{ type: "text", text: "earlier prompt" }];
+    last.parts = [{ type: "text", text: "earlier reply" }];
+    last.stopReason = "cancelled";
+    last.lateFrom = last.parts.length - 1;
+    store.rows.set(session.id, JSON.stringify(saved));
+
+    const state = await manager.load(session.id);
+    expect(state.turns.at(-1)).toMatchObject({ role: "agent", stopReason: "cancelled", lateFrom: last.lateFrom });
+    manager.closeAll();
+    expect(JSON.parse(store.rows.get(session.id)!).turns.at(-1)).toMatchObject({ stopReason: "cancelled", lateFrom: last.lateFrom });
+  });
+
   it("keeps the stored transcript when a reconnect's session/load is refused", async () => {
     let launchArgs = [FAKE_AGENT];
     const store = memorySnapshots();
@@ -1462,6 +1487,41 @@ describe("SessionManager", () => {
     expect(released).toEqual([{ worktreePath: `${cwd}/wt`, options: { abandoned: true } }]);
   });
 
+  it("a create whose row cannot be written releases the worktree it cut and unpins its marks", async () => {
+    const released: { worktreePath: string | undefined; options: unknown }[] = [];
+    const unpinned: string[] = [];
+    const repo = memoryRepo();
+    let calls = 0;
+    const upsert = repo.upsert;
+    repo.upsert = (session) => {
+      if (++calls === 1) throw new Error("SQLITE_BUSY");
+      return upsert(session);
+    };
+    const { manager } = await setup({
+      repo,
+      workspace: async () => ({ cwd: `/wt/cut-1`, worktreePath: `/wt/cut-1` }),
+      releaseWorkspace: async (session, options) => {
+        released.push({ worktreePath: session.worktreePath, options });
+      },
+      dropMarks: async (_cwd, id) => {
+        unpinned.push(id);
+      },
+    });
+    await expect(manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "worktree" })).rejects.toThrow("SQLITE_BUSY");
+    expect(released).toEqual([{ worktreePath: `/wt/cut-1`, options: { abandoned: true } }]);
+    expect(unpinned.length).toBeGreaterThan(0);
+  });
+
+  it("a failed create revokes the integration tokens it minted for the session", async () => {
+    const forgotten: string[] = [];
+    const { manager, cwd } = await setup({
+      forgetSession: (id) => forgotten.push(id),
+      launchOverride: () => ({ command: path.join("/nonexistent", "no-such-agent"), args: [], env: {} }),
+    });
+    await expect(manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "none", cwd })).rejects.toThrow();
+    expect(forgotten).toEqual(["s1-xxxxxxxx"]);
+  });
+
   it("a failed create in a worktree it was given leaves that worktree alone", async () => {
     const released: string[] = [];
     const { manager, cwd } = await setup({
@@ -1719,7 +1779,7 @@ describe("SessionManager", () => {
     };
     const { repo, manager, broadcasts, cwd } = await setup({ agentOptions: deps });
     const created = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
-    const id = "session-1";
+    const id = "s1-xxxxxxxx";
     expect(created).toMatchObject({ id, status: "idle", acpSessionId: "fake-session-1" });
     expect(repo.list()).toHaveLength(1);
     expect(repo.get(id)?.status).toBe("idle");
@@ -1787,7 +1847,7 @@ describe("SessionManager", () => {
     };
     await expect(manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" })).rejects.toThrow("SQLITE_BUSY");
     expect(repo.list()).toHaveLength(0);
-    expect((manager as unknown as { live: { get(id: string): unknown } }).live.get("session-1")).toBeUndefined();
+    expect((manager as unknown as { live: { get(id: string): unknown } }).live.get("s1-xxxxxxxx")).toBeUndefined();
   });
 
   it("rejects a create whose row was deleted under it with the error the renderer swallows", async () => {
@@ -1809,7 +1869,7 @@ describe("SessionManager", () => {
       remember: (...args: Parameters<typeof recorder.deps.remember>) => {
         if (recorder.remembered.length >= 1) {
           // The adapter is gone without anyone closing it (a crash), so the row is still `connecting`.
-          const live = (made.manager as unknown as { live: { get(id: string): object | undefined } }).live.get("session-1");
+          const live = (made.manager as unknown as { live: { get(id: string): object | undefined } }).live.get("s1-xxxxxxxx");
           Object.defineProperty(live, "alive", { get: () => false });
           throw new Error("SQLITE_BUSY");
         }

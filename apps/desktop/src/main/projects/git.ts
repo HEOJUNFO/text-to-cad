@@ -19,7 +19,7 @@
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
-import { rmSync } from "node:fs";
+import { realpathSync, rmSync } from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -27,6 +27,7 @@ import path from "node:path";
 import { execa, type Options } from "execa";
 
 import { diffScopeFor, ReviewScopeSchema } from "../../shared/types";
+import { onLoginEnv } from "../agents/shell-env";
 import { trackChild, type ChildKind, type Trackable } from "../children";
 import { climbsOut, MAX_TEXT_BYTES, resolveInRoot } from "../explorer/fs";
 
@@ -134,6 +135,29 @@ const GIT_OPTIONS: Options = {
 };
 
 /**
+ * The login shell's environment, once `loginEnv` has captured it (the capture
+ * `prewarmAgents` starts at launch). A Dock launch has launchd's PATH
+ * (`/usr/bin:/bin:/usr/sbin:/sbin`), where Homebrew's git, git-lfs and a hook
+ * that calls node or npx are all missing. Until it lands git runs under the
+ * process environment: no git call waits for a login shell. Not on Windows,
+ * which has no login shell to ask.
+ */
+let loginGitEnv: Record<string, string> | null = null;
+onLoginEnv((env) => {
+  if (process.platform !== "win32") loginGitEnv = env;
+});
+
+/** The environment git's children get: the login shell's, under this module's own variables. */
+function gitEnv(): NonNullable<Options["env"]> {
+  return loginGitEnv ? { ...loginGitEnv, ...GIT_OPTIONS.env } : { ...GIT_OPTIONS.env };
+}
+
+/** For the tests: the environment git runs under, as if `loginEnv` had just captured it (null: not yet). */
+export function setLoginEnvForGit(env: Record<string, string> | null): void {
+  loginGitEnv = env;
+}
+
+/**
  * Every process this module starts goes through the child registry
  * (`../children`): a read in flight is not worth waiting for at quit, and a
  * `fetch` against a slow remote would otherwise hold the exit open. execa's
@@ -165,7 +189,7 @@ function tail(output: string, lines = 20): string {
 async function git(cwd: string, args: string[], options: { timeout?: number; kind?: ChildKind } = {}): Promise<string> {
   const timeout = options.timeout ?? GIT_OPTIONS.timeout;
   const env = readIndex.getStore();
-  const result = await tracked(execa("git", args, env ? { ...GIT_OPTIONS, timeout, cwd, env: { ...GIT_OPTIONS.env, ...env } } : { ...GIT_OPTIONS, timeout, cwd }), options.kind);
+  const result = await tracked(execa("git", args, { ...GIT_OPTIONS, timeout, cwd, env: { ...gitEnv(), ...env } }), options.kind);
   if (result.failed || result.exitCode !== 0) {
     if (result.timedOut) {
       const minutes = Number(timeout) / 60_000;
@@ -204,7 +228,7 @@ async function gitNoIndex(
   const result = await tracked(execa(
     "git",
     ["diff", "--no-index", ...extra, "--", nullDevice, filePath],
-    { ...GIT_OPTIONS, cwd },
+    { ...GIT_OPTIONS, cwd, env: gitEnv() },
   )).catch(() => null);
   if (!result || (result.exitCode !== 0 && result.exitCode !== 1)) {
     return null;
@@ -273,7 +297,7 @@ export type RepositoryProblem = string | null;
  * fix, and every caller used to say "not a git repository" for all five.
  */
 export async function repositoryState(cwd: string): Promise<{ root: string | null; problem: RepositoryProblem }> {
-  const result = await tracked(execa("git", ["rev-parse", "--show-toplevel"], { ...GIT_OPTIONS, cwd })).catch(() => null);
+  const result = await tracked(execa("git", ["rev-parse", "--show-toplevel"], { ...GIT_OPTIONS, cwd, env: gitEnv() })).catch(() => null);
   const root = result && !result.failed && result.exitCode === 0 && typeof result.stdout === "string" ? result.stdout.trim() : "";
   if (root) {
     return { root: path.normalize(root), problem: null };
@@ -1241,7 +1265,7 @@ export async function snapshotTree(cwd: string, mark?: string): Promise<string |
     return null;
   }
   return withTempIndex(root, async (env) => {
-    const options = { ...GIT_OPTIONS, cwd: root, env: { ...GIT_OPTIONS.env, ...env } };
+    const options = { ...GIT_OPTIONS, cwd: root, env: { ...gitEnv(), ...env } };
     const big = await bigUntracked(root);
     const added = await tracked(execa(
       "git",
@@ -1452,7 +1476,7 @@ async function startReadIndex(root: string, key: string, live: string | undefine
     const added = await tracked(execa("git", ["add", "--intent-to-add", "--pathspec-from-file=-", "--pathspec-file-nul"], {
       ...GIT_OPTIONS,
       cwd: root,
-      env: { ...GIT_OPTIONS.env, GIT_INDEX_FILE: index },
+      env: { ...gitEnv(), GIT_INDEX_FILE: index },
       input: paths.map((file) => `:(literal)${file}`).join("\0"),
     }));
     if (added.failed || added.exitCode !== 0) {
@@ -1493,7 +1517,7 @@ export type GitRunner = (cwd: string, args: string[], input?: string) => Promise
  * say" (a timeout, a spawn error), which `tryGit` folds together.
  */
 export const runGit: GitRunner = async (cwd, args, input) => {
-  const result = await tracked(execa("git", args, { ...GIT_OPTIONS, cwd, ...(input === undefined ? {} : { input }) })).catch(() => null);
+  const result = await tracked(execa("git", args, { ...GIT_OPTIONS, cwd, env: gitEnv(), ...(input === undefined ? {} : { input }) })).catch(() => null);
   if (!result) return { exitCode: undefined, stdout: "", stderr: "", timedOut: false };
   return {
     exitCode: typeof result.exitCode === "number" ? result.exitCode : undefined,
@@ -1869,7 +1893,7 @@ export async function createWorktree(options: CreateWorktreeOptions): Promise<Cr
   await git(root, ["worktree", "add", "--no-track", "-b", branch, directory, base], { kind: "write" });
 
   return {
-    path: path.normalize(directory),
+    path: realPath(directory),
     branch,
     base: (await head(directory)) ?? base,
   };
@@ -2000,7 +2024,7 @@ export async function removeWorktree(
     throw new GitError("that worktree is no longer a git repository");
   }
   const target = (await listWorktrees(root)).find((candidate) =>
-    samePath(candidate.path, worktreePath),
+    sameRealPath(candidate.path, worktreePath),
   );
   if (!target) {
     throw new GitError("git does not know that worktree");
@@ -2080,7 +2104,27 @@ export async function deleteBranchAtBase(repoPath: string, branch: string, base:
   return (await tryGit(repoPath, ["update-ref", "-d", `refs/heads/${branch}`, base])) !== null;
 }
 
-/** Path comparison that survives a trailing separator and Windows' case rules. */
+/**
+ * `candidate` with the symlinks resolved in the part that exists; the part
+ * that does not exist yet (a worktree about to be made, or one deleted by
+ * hand) is kept as spelled. `git worktree list` answers real paths, so a path
+ * spelled through a symlinked worktree root (`~/wt`, or `/tmp` and `/var` on a
+ * Mac) only compares to it once it is resolved the same way.
+ */
+export function realPath(candidate: string): string {
+  const resolved = path.resolve(candidate);
+  const missing: string[] = [];
+  for (let existing = resolved; ; existing = path.dirname(existing)) {
+    try {
+      return path.join(realpathSync(existing), ...missing.reverse());
+    } catch {
+      if (path.dirname(existing) === existing) return resolved;
+      missing.push(path.basename(existing));
+    }
+  }
+}
+
+/** Path comparison that survives a trailing separator and Windows' case rules. Lexical: no disk. */
 export function samePath(left: string, right: string): boolean {
   const normalise = (value: string) => path.normalize(value).replace(/[\\/]+$/, "");
   const a = normalise(left);
@@ -2121,10 +2165,10 @@ export async function pruneWorktrees(options: PruneOptions): Promise<{ removed: 
   // Inside counts too: a session opened on a folder in the worktree is
   // running in it just as much as one at its root.
   const held = (worktreePath: string) => protectedNow().some((protectedPath) =>
-    samePath(protectedPath, worktreePath) || isUnder(worktreePath, protectedPath));
+    sameRealPath(protectedPath, worktreePath) || isUnderReal(worktreePath, protectedPath));
 
   const eligible = worktrees.filter((worktree) =>
-    !worktree.primary && !worktree.locked && parents.some((parent) => isUnder(parent, worktree.path)) &&
+    !worktree.primary && !worktree.locked && parents.some((parent) => isUnderReal(parent, worktree.path)) &&
     !held(worktree.path));
   // Within the limit nothing goes, so nothing needs dating — the usual case,
   // and the one every create would otherwise pay for.
@@ -2226,13 +2270,27 @@ export function sessionsUsing<T extends { cwd: string; worktreePath?: string | u
 ): T[] {
   return all.filter((session) =>
     !session.archived &&
-    [session.cwd, session.worktreePath].some((root) => root && (samePath(root, worktree) || isUnder(worktree, root))));
+    [session.cwd, session.worktreePath].some((root) => root && (sameRealPath(root, worktree) || isUnderReal(worktree, root))));
 }
 
 /** True when `child` is inside `parent` — the test that keeps the sweep in its own root. */
 export function isUnder(parent: string, child: string): boolean {
   const relative = path.relative(path.normalize(parent), path.normalize(child));
   return relative !== "" && !climbsOut(relative);
+}
+
+/**
+ * `samePath` through the real paths: for a path against what `git worktree
+ * list` answers (always real), where the other side may be spelled through a
+ * symlinked worktree root. Reads the disk; the lexical pair is the fast path.
+ */
+export function sameRealPath(left: string, right: string): boolean {
+  return samePath(realPath(left), realPath(right));
+}
+
+/** `isUnder` through the real paths; see `sameRealPath`. */
+export function isUnderReal(parent: string, child: string): boolean {
+  return isUnder(realPath(parent), realPath(child));
 }
 
 /* -------------------------------------------------------------------------- */

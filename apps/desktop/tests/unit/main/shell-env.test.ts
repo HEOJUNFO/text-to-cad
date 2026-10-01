@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ENV_BEGIN, ENV_END, captureLoginEnv, loginEnv, parseLoginOutput, processEnv } from "@main/agents/shell-env";
+import { ENV_BEGIN, ENV_END, captureLoginEnv, loginEnv, onLoginEnv, parseLoginOutput, processEnv } from "@main/agents/shell-env";
 
 const temps: string[] = [];
 afterEach(() => {
@@ -83,6 +83,16 @@ describe.skipIf(process.platform === "win32")("capturing the login shell", () =>
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+
+  it("tells a listener each capture that lands, a refresh included, and the one that already has", async () => {
+    const first = fakeShell('env -i PATH=/first/bin:/usr/bin:/bin /bin/sh -c "$2"');
+    const second = fakeShell('env -i PATH=/second/bin:/usr/bin:/bin /bin/sh -c "$2"');
+    await loginEnv({ force: true, timeoutMs: 5_000, shell: first });
+    const heard: string[] = [];
+    onLoginEnv((env) => heard.push(env.PATH?.split(":")[0] ?? ""));
+    await loginEnv({ force: true, timeoutMs: 5_000, shell: second });
+    expect(heard).toEqual(["/first/bin", "/second/bin"]);
   });
 
   it("keeps a Claude variable the rc exports even when the host session inherited the same value from it", async () => {

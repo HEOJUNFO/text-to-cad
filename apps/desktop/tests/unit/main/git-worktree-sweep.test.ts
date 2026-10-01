@@ -15,7 +15,7 @@
  * in the code under test.
  */
 import { execFile } from "node:child_process";
-import { chmod, mkdtemp, mkdir, readdir, readFile, realpath, rm, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, symlink, mkdir, readdir, readFile, realpath, rm, stat, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -354,3 +354,40 @@ async function touch(directory: string, at: number): Promise<void> {
   await utimes(path.join(directory, "README.md"), new Date(at), new Date(at));
   await utimes(directory, new Date(at), new Date(at));
 }
+
+describe("a worktree root reached through a symlink", () => {
+  // `~/wt` as a link, or `/tmp` and `/var` on a Mac: git lists REAL paths, the
+  // settings and the sessions may spell the link.
+  async function linked() {
+    const { root, worktrees } = await repository();
+    const real = path.join(path.dirname(worktrees), "real-store");
+    await mkdir(real);
+    const link = path.join(path.dirname(worktrees), "link-store");
+    await symlink(real, link);
+    const parent = path.join(link, "wt");
+    const created = await git.createWorktree({ repoPath: root, parentDir: parent, name: "through link" });
+    return { root, parent, created, spelled: path.join(parent, path.basename(created.path)) };
+  }
+
+  it("is swept by the keep-limit sweep", async () => {
+    const { root, parent, created } = await linked();
+    const { removed } = await git.pruneWorktrees({ repoPath: root, parentDir: [parent], keep: 0 });
+    expect(removed).toEqual([created.path]);
+  });
+
+  it("is removed by its own path, in either spelling", async () => {
+    const { root, created, spelled } = await linked();
+    await git.removeWorktree(spelled);
+    expect((await git.listWorktrees(root)).filter((worktree) => !worktree.primary)).toEqual([]);
+    await expect(stat(created.path)).rejects.toThrow();
+  });
+
+  it("stays protected when a session spells its path the other way", async () => {
+    const { root, parent, spelled, created } = await linked();
+    for (const protectedPath of [spelled, created.path]) {
+      const { removed } = await git.pruneWorktrees({ repoPath: root, parentDir: [parent], keep: 0, protectedPaths: [protectedPath] });
+      expect(removed).toEqual([]);
+    }
+    expect(git.sessionsUsing([{ cwd: spelled, archived: false }], created.path)).toHaveLength(1);
+  });
+});
