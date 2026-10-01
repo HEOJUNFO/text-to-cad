@@ -781,7 +781,9 @@ and a pinned thread lives **only** there — never twice.
 The filter menu is global, and it is opened from the panel's own header:
 `Status` (Active / Archived / All), `Environment` (All / Local / Worktree —
 our git modes), `Group by` (Project, or None for one flat list), `Sort by`
-(Last activity / Created / Name) and `Show branch`. It is stored in `settings.sidebar` and applied by one pure
+(Last activity / Created / Name) and `Show branch`. *Last activity* is `updatedAt`, which a prompt, a turn opening or
+closing, a permission asked or answered, a title, a rename or a mark moves — and a connection's own life (opening a closed
+thread, a keep-alive eviction, a failed connect) and a pin do not, so rows do not jump under the pointer. It is stored in `settings.sidebar` and applied by one pure
 function over the index (`sidebarSections` in `lib/sidebar.ts`), which is also
 where the rules live that a screenshot cannot check: a pinned thread is
 excluded from its directory section, empty sections never appear (including
