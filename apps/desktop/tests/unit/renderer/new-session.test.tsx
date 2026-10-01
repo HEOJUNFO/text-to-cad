@@ -251,6 +251,36 @@ describe("a start that needs a sign-in", () => {
     expect(screen.getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
   });
 
+  it("keeps Try again when a held send's create then fails, as it would for a send that was not held", async () => {
+    const user = userEvent.setup();
+    useAgents.setState({ agents: [], ready: false });
+    create.mockRejectedValueOnce(new Error("fatal: not a git repository"));
+    useComposer.setState({ drafts: { "__new__:p1": "make a cube" } });
+    render(<NewSession project={PROJECT} />);
+
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByRole("status");
+    act(() => useAgents.getState().receive([AGENT as AgentStatus]));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("fatal: not a git repository");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  it("asks for the sign-in when a held send's create fails against an agent the probe found signed out", async () => {
+    const user = userEvent.setup();
+    useAgents.setState({ agents: [], ready: false });
+    create.mockRejectedValueOnce(new Error("spawn failed"));
+    useComposer.setState({ drafts: { "__new__:p1": "make a cube" } });
+    render(<NewSession project={PROJECT} />);
+
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByRole("status");
+    act(() => useAgents.getState().receive([{ ...AGENT, auth: "unauthenticated" } as AgentStatus]));
+
+    expect(await screen.findByText("Sign in to Claude Code")).toBeInTheDocument();
+    expect(screen.queryByText(/Install an agent first/)).toBeNull();
+  });
+
   it("does not start again by itself after a login when the draft was edited since the failure", async () => {
     const user = userEvent.setup();
     const key = "__new__:p1";
