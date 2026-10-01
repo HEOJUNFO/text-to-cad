@@ -492,6 +492,11 @@ export class SessionManager {
     };
     try {
       this.deps.repo.upsert(session);
+    } catch (error) {
+      // The worktree is cut and the marks are pinned, and no row will ever
+      // say so: the same way out as any other failed create.
+      await this.abandonCreate(session, input, workspace, marks);
+      throw error;
     } finally {
       this.deps.workspaceSettled?.(workspace);
     }

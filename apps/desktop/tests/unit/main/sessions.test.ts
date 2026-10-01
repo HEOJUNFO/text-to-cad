@@ -1462,6 +1462,31 @@ describe("SessionManager", () => {
     expect(released).toEqual([{ worktreePath: `${cwd}/wt`, options: { abandoned: true } }]);
   });
 
+  it("a create whose row cannot be written releases the worktree it cut and unpins its marks", async () => {
+    const released: { worktreePath: string | undefined; options: unknown }[] = [];
+    const unpinned: string[] = [];
+    const repo = memoryRepo();
+    let calls = 0;
+    const upsert = repo.upsert;
+    repo.upsert = (session) => {
+      if (++calls === 1) throw new Error("SQLITE_BUSY");
+      return upsert(session);
+    };
+    const { manager } = await setup({
+      repo,
+      workspace: async () => ({ cwd: `/wt/cut-1`, worktreePath: `/wt/cut-1` }),
+      releaseWorkspace: async (session, options) => {
+        released.push({ worktreePath: session.worktreePath, options });
+      },
+      dropMarks: async (_cwd, id) => {
+        unpinned.push(id);
+      },
+    });
+    await expect(manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "worktree" })).rejects.toThrow("SQLITE_BUSY");
+    expect(released).toEqual([{ worktreePath: `/wt/cut-1`, options: { abandoned: true } }]);
+    expect(unpinned.length).toBeGreaterThan(0);
+  });
+
   it("a failed create in a worktree it was given leaves that worktree alone", async () => {
     const released: string[] = [];
     const { manager, cwd } = await setup({
