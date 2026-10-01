@@ -6,6 +6,8 @@ import { encodeBase64 } from './tunnel';
 export const SYNC_MS = 1_000;
 /** How soon it syncs again while a build it watches is moving: its progress, at a readable pace. */
 export const NEWS_MS = 150;
+// Syncs failing in a row before a view says its server is gone (about seven seconds, with the backoff).
+export const LOST_AFTER = 4;
 
 export interface ViewSyncHandlers {
   /** The agent asked this view to show a model. */
@@ -14,6 +16,11 @@ export interface ViewSyncHandlers {
   capture(): Promise<Blob>;
   /** What the view shows and has selected, for the agent (`cad_view`): sent whenever it changes. */
   state(): Record<string, unknown>;
+  /**
+   * Whether the server still answers: false once `LOST_AFTER` syncs in a row have failed (its process
+   * has gone, and the host does not start it again on its own), true when one succeeds again.
+   */
+  connection?(connected: boolean): void;
 }
 
 /** What the mounted model view watches, through its client: its root's catalog. */
@@ -128,6 +135,7 @@ export function createViewSync(server: Pick<Server, 'sync' | 'reply'>,
               ...(state ? { state } : {}),
               ...(watch ? { watch: { root: { kind: watch.root.kind, path: watch.root.path }, file: watch.file(), ...(files.length ? { previews: files } : {}) } } : {}),
             }, { signal });
+            if (failures >= LOST_AFTER) handlers.connection?.(true);
             failures = 0;
             if (state) sentState = JSON.stringify(state);
             for (const event of reply.events) void answer(event);
@@ -152,6 +160,7 @@ export function createViewSync(server: Pick<Server, 'sync' | 'reply'>,
             if (touched) focused = true;
             if (signal.aborted) return;
             failures += 1;
+            if (failures === LOST_AFTER) handlers.connection?.(false);
             await pause(Math.min(30_000, 500 * 2 ** Math.min(failures, 6)), signal);
           }
         }

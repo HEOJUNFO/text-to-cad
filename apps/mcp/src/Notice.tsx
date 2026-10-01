@@ -1,3 +1,10 @@
+/** A line over the view, the model still under it: what stopped working, and what to do about it. */
+export function Banner({ message }: { message: string }) {
+  return <div className="pointer-events-none absolute inset-x-0 top-2 z-50 flex justify-center px-3">
+    <div className="pointer-events-auto max-w-md rounded-md border bg-background/95 px-3 py-2 text-ui text-xs text-foreground shadow-sm" role="alert">{message}</div>
+  </div>;
+}
+
 /** A whole-page message: why CAD cannot show anything, and what to do about it. */
 export default function Notice({ title, message, details }: { title: string; message: string; details?: string }) {
   return <div className="cad-notice text-ui" role="alert">

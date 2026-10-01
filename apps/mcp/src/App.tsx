@@ -13,6 +13,7 @@ import { chatReach } from './host/prompt';
 import type { Launch, Root, Server } from './host/server';
 import { createViewSync } from './host/sync';
 import ModelView, { type ViewReporter } from './ModelView';
+import { Banner } from './Notice';
 
 interface Showing { launch: Launch; sequence: number }
 
@@ -30,12 +31,18 @@ export function useHostContext(bridge: Pick<Bridge, 'hostContext' | 'onHostConte
 const TAB_BOTTOM_CENTER = '40px';
 
 // How each host updates CAD, said in a line. Codex runs the plugin's pinned release offline: the
-// marketplace's update moves the pin, `$setup` fetches that release, and a restart starts it.
+// marketplace's update moves the pin, `$cad-mcp-setup` fetches that release, and a restart starts it.
 // Every other host starts the server through an unpinned `uvx --from cadgen`, which resolves the
 // newest release.
 const UPDATE: Record<Presentation, ViewerLinks['install']> = {
-  tabs: { message: "Update CAD from Codex's plugin marketplace, then run $setup and restart Codex." },
+  tabs: { message: "Update CAD from Codex's plugin marketplace, then run $cad-mcp-setup and restart Codex." },
   inline: { message: 'Restart the app to update: CAD starts its newest release each time.' },
+};
+
+// What to do once this view's server has gone: the host started it, and only the host starts it again.
+const LOST: Record<Presentation, string> = {
+  tabs: 'The CAD plugin stopped responding in this thread. Restart Codex to reconnect it.',
+  inline: 'The CAD plugin stopped responding. Restart the app to reconnect it.',
 };
 
 // Inline, a view is a card in the chat: as tall as its width suits, within what the host allows.
@@ -50,7 +57,7 @@ export function inlineHeight(width: number, maxHeight?: number): number {
  * told, with a way to full size. The one element either way, so going full size keeps the view (and
  * its model) as it is.
  */
-function Frame({ bridge, context, insets, inline = false, expandable = true, bottomCenter, children }: { bridge: Bridge; context: HostContext; insets: NonNullable<HostContext['safeAreaInsets']>; inline?: boolean; expandable?: boolean; bottomCenter?: string; children: ReactNode }) {
+function Frame({ bridge, context, insets, inline = false, expandable = true, bottomCenter, overlay = null, children }: { bridge: Bridge; context: HostContext; insets: NonNullable<HostContext['safeAreaInsets']>; inline?: boolean; expandable?: boolean; bottomCenter?: string; overlay?: ReactNode; children: ReactNode }) {
   // Where the host's composer floats over the page instead of taking room from it: the line the
   // viewer's playback bars sit on, and the strip lists scroll clear of.
   const floating = bottomCenter ? { '--cad-viewport-bottom-center': bottomCenter, '--cad-host-bottom-inset': `${context.safeAreaInsets?.bottom || 0}px` } as CSSProperties : {};
@@ -65,13 +72,14 @@ function Frame({ bridge, context, insets, inline = false, expandable = true, bot
   useEffect(() => { if (inline) bridge.notify('ui/notifications/size-changed', { height }); }, [bridge, inline, height]);
   if (!inline) {
     return <div className="flex h-svh flex-col overflow-hidden" style={{ paddingTop: insets.top || 0, paddingRight: insets.right || 0, paddingBottom: insets.bottom || 0, paddingLeft: insets.left || 0, ...floating }}>
-      <div className="relative min-h-0 flex-1">{children}</div>
+      <div className="relative min-h-0 flex-1">{children}{overlay}</div>
     </div>;
   }
   const expand = () => void bridge.request('ui/request-display-mode', { mode: 'fullscreen' }).catch(() => {});
   return <div className="flex flex-col overflow-hidden" style={{ height }}>
     <div className="relative min-h-0 flex-1">
       {children}
+      {overlay}
       {expandable && context.availableDisplayModes?.includes('fullscreen') !== false
         ? <Button variant="secondary" size="icon-sm" className="absolute right-2 top-2 z-40 shadow-sm" aria-label="Full size" title="Full size" onClick={expand}>
           <Maximize2 aria-hidden="true" />
@@ -111,6 +119,8 @@ export default function App({ bridge, server, launch: initial, presentation = 't
   const [still, setStill] = useState<string | null | undefined>(undefined);
   const superseded = still !== undefined;
   const [showing, setShowing] = useState<Showing>({ launch: initial, sequence: 0 });
+  // The server stopped answering (its process has gone): the view keeps its model, and says so.
+  const [lost, setLost] = useState(false);
   const shown = useRef<{ model: string | null; resolvePath: (resource: ResourceRef) => string }>({ model: null, resolvePath: unresolved });
   // This view's one call to the server each second: what it shows, the agent's requests for it,
   // and what changed in what it watches (`host/sync.ts`).
@@ -122,6 +132,7 @@ export default function App({ bridge, server, launch: initial, presentation = 't
       return controller.capture();
     },
     state: () => describeView(live.current(), shown.current.model, shown.current.resolvePath),
+    connection: connected => setLost(!connected),
   }), [server, view, surface, live]);
   const reporter = useMemo<ViewReporter>(() => ({
     showing(model, resolvePath) {
@@ -177,7 +188,8 @@ export default function App({ bridge, server, launch: initial, presentation = 't
   if (superseded) {
     return <Frame bridge={bridge} context={context} insets={insets} inline={inline} bottomCenter={bottomCenter} expandable={false}><Superseded still={still} /></Frame>;
   }
-  return <Frame bridge={bridge} context={context} insets={insets} inline={inline} bottomCenter={bottomCenter}>
+  return <Frame bridge={bridge} context={context} insets={insets} inline={inline} bottomCenter={bottomCenter}
+    overlay={lost ? <Banner message={LOST[presentation]} /> : null}>
     <ModelView key={rootKey(launch.root)} launch={launch} root={launch.root} sequence={showing.sequence} bridge={bridge} server={server}
       tabStore={tabStore} live={live} links={links} colorScheme={colorScheme} platform={initial.platform || 'darwin'} reporter={reporter} sync={sync} compact={inline} chat={chat}
       onLaunch={show} onHome={goHome} />

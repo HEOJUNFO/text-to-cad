@@ -7,7 +7,7 @@ import { createFilesystemSource } from './files';
 import { chatReach, createChatPromptContext } from './prompt';
 import { relaunch } from './relaunch';
 import { createServer, type SyncReply, type SyncRequest, type ViewEvent } from './server';
-import { createViewSync, NEWS_MS, SYNC_MS } from './sync';
+import { createViewSync, LOST_AFTER, NEWS_MS, SYNC_MS } from './sync';
 import { createTunnelFetch, decodeBase64, encodeBase64, TUNNEL_ORIGIN } from './tunnel';
 
 /** A host frame: records what the page posts and answers with `respond`. */
@@ -121,6 +121,38 @@ describe('a view\'s one call each second', () => {
       const count = requests.length;
       await vi.advanceTimersByTimeAsync(SYNC_MS * 3);
       expect(requests).toHaveLength(count);
+      stop.abort();
+    } finally { vi.useRealTimers(); }
+  });
+
+  // The host starts a thread's server once: if its process goes, every sync fails, and the view
+  // says so rather than freeze on its last model; it says so again once a sync succeeds.
+  it('says its server is gone once syncs keep failing, and back when one answers', async () => {
+    vi.useFakeTimers();
+    try {
+      let down = true;
+      const server = {
+        sync: vi.fn(async () => { if (down) throw new Error('server gone'); return { events: [] } as unknown as SyncReply; }),
+        reply: async () => {},
+      };
+      const said: boolean[] = [];
+      const stop = new AbortController();
+      const sync = createViewSync(server, { id: 'v1', surface: 'tab', model: () => null }, {
+        show: () => {}, capture: async () => new Blob(), state: () => ({}),
+        connection: connected => said.push(connected),
+      });
+      sync.run(stop.signal);
+      // The backoff between failures doubles from a second: 1, 2, 4, 8 s.
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(server.sync).toHaveBeenCalledTimes(LOST_AFTER - 1);
+      expect(said).toEqual([]);
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(said).toEqual([false]);
+      down = false;
+      await vi.advanceTimersByTimeAsync(8_000);
+      expect(said).toEqual([false, true]);
       stop.abort();
     } finally { vi.useRealTimers(); }
   });
