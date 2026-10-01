@@ -419,6 +419,13 @@ the rule is about.
   reused pid is never spared), and both of its probes run under a timeout so a
   hung `ps` cannot stall the final kill. Windows has no spare list and its tree
   kill takes the daemon (`src/main/quit-deadline.ts`, README "Quitting").
+- **A browser harness gets a fresh dependency cache per run.** A Vite server
+  under `tests/browser` takes a new temp `cacheDir`, names what its scan cannot
+  see in `optimizeDeps.include`, and asserts the page loaded once
+  (`tests/browser/pdf-renderer.test.mjs`).
+- **A pass that touches `packages/ui` runs the kit boundary check.**
+  `node scripts/test/check-kit-boundaries.mjs` from the root: the kit is
+  format-blind in its comments too.
 - **A git write child is signalled at quit, never killed first.**
   `endTrackedChildren` sends a commit, push or worktree add/remove SIGTERM so
   git drops its `index.lock`; `will-quit` kills what is left

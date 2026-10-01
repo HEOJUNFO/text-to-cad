@@ -240,7 +240,8 @@ every motion component, and the shimmer stands still under it.
 ```sh
 npm run typecheck    # tsc over both projects: node (main/preload/shared) and web (renderer)
 npm test             # vitest: tests/unit/{main,shared} in node, tests/unit/renderer in jsdom,
-                     # tests/browser in Playwright's Chromium (`npx playwright install chromium`)
+                     # tests/browser in Playwright's Chromium (`npx playwright install chromium`; CI installs only the
+                     # headless shell, `--only-shell`, which is all they launch)
 npm run lint         # eslint flat config
 npm run build        # scripts/build.mjs: compose the skills, electron-vite build -> out/, bundle the MCP server
 npm run e2e          # playwright _electron against out/ — run `npm run build` first
@@ -1341,7 +1342,12 @@ scale and breakpoint (`tests/unit/renderer/file-renderers.test.tsx` checks it).
 Their tests are this app's: `tests/unit/renderer/{file-renderers,file-renderer-registrations,markdown-*}`
 in jsdom, and `tests/browser/pdf-renderer.test.mjs`, which serves a FileViewer
 with the PDF renderer from this app's root through its own Vite server and drives
-PDF.js's real worker, text selection and capture in Playwright's Chromium.
+PDF.js's real worker, text selection and capture in Playwright's Chromium. A browser
+harness gets a fresh dependency cache per run (`cacheDir` a new temp directory) and
+names what Vite's scan cannot see (`optimizeDeps.include`: `react/jsx-dev-runtime`,
+the automatic JSX runtime), then asserts the page loaded once; a late discovery
+re-optimises and reloads mid-test, and a stale cache would hide it locally and show
+it in CI.
 
 ### Live files and terminals
 
