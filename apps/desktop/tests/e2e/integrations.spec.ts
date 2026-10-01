@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
+import { expect, type ElectronApplication, type Page } from "@playwright/test";
 import type { TextToCadApi } from "../../src/shared/ipc";
-import { chooseDirectory, launch, mod, scratch } from "./launch";
+import { chooseDirectory, launch, mod, scratch, test } from "./launch";
 
 /**
  * What the app gives an agent, on the wire (plan §8, as revised), and what an

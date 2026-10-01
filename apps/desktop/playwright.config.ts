@@ -42,6 +42,11 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
   use: {
+    // Cost nothing on a green run. These two cover pages Playwright's own
+    // fixtures own; the specs launch Electron themselves, so their traces and
+    // screenshots come from `failureEvidence` in tests/e2e/launch.ts, which
+    // writes `trace-N.zip` / `failure-N-M.png` into the same test-results dir.
     trace: "retain-on-failure",
+    screenshot: "only-on-failure",
   },
 });

@@ -3,11 +3,11 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
+import { expect, type ElectronApplication, type Page } from "@playwright/test";
 import type { TextToCadApi } from "../../src/shared/ipc";
 import type { IntegrationCommand, IntegrationReply } from "../../src/shared/ipc/integrations";
 import { cadRegistryEnvironment, cadRuntimeReady, cadTestProfile } from "./cad-runtime";
-import { launch, repoRoot, settleTerminal } from "./launch";
+import { launch, repoRoot, settleTerminal, test } from "./launch";
 import { QUIT_DEADLINE_MS } from "../../src/main/quit-deadline";
 import { QUIT_BUDGET_MS, QUIT_TEARDOWN_BUDGET_MS, teardownMs } from "./quit-budget";
 import { selectFixtureSession } from "./session-fixture";

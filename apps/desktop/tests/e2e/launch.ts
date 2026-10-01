@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { _electron as electron, expect, type ElectronApplication, type Locator, type Page } from "@playwright/test";
+import { _electron as electron, expect, test as base, type ElectronApplication, type Locator, type Page } from "@playwright/test";
 
 /**
  * The one way the suite starts the built app.
@@ -25,6 +25,48 @@ export const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 export const repoRoot = path.resolve(appRoot, "..", "..");
 export const fakeAgent = path.join(appRoot, "tests", "fake-agent", "index.mjs");
 export const mod = process.platform === "darwin" ? "Meta" : "Control";
+
+/**
+ * What a failed test leaves behind.
+ *
+ * The suite launches Electron itself (`_electron.launch` in a `beforeAll`), so
+ * Playwright's own `use: { trace, screenshot }` has no page fixture to attach
+ * to and records nothing for these specs. Every app `launch()` starts is
+ * therefore traced here, in one chunk per test, and the chunk is written out
+ * (`trace-N.zip`, with a `failure-N.png` of each window) only when the test
+ * failed; a green test discards its chunk, so a passing run writes nothing.
+ * Import `test` from this file, not from `@playwright/test`, to get it.
+ */
+const traced = new Set<ElectronApplication>();
+
+async function startChunks() {
+  for (const app of traced) await app.context().tracing.startChunk().catch(() => traced.delete(app));
+}
+
+export const test = base.extend<{ failureEvidence: void }>({
+  failureEvidence: [
+    // eslint-disable-next-line no-empty-pattern
+    async ({}, use, testInfo) => {
+      await startChunks();
+      await use();
+      const failed = testInfo.status !== testInfo.expectedStatus;
+      let n = 0;
+      for (const app of [...traced]) {
+        n += 1;
+        const context = app.context();
+        if (failed) {
+          for (const [i, window] of app.windows().entries()) {
+            await window.screenshot({ path: testInfo.outputPath(`failure-${n}-${i}.png`), animations: "disabled", timeout: 5_000 }).catch(() => undefined);
+          }
+        }
+        await context.tracing
+          .stopChunk(failed ? { path: testInfo.outputPath(`trace-${n}.zip`) } : undefined)
+          .catch(() => traced.delete(app));
+      }
+    },
+    { auto: true },
+  ],
+});
 
 export type Launched = { app: ElectronApplication; page: Page; lines: string[] };
 
@@ -55,6 +97,10 @@ export async function launch(options: {
   const lines: string[] = [];
   app.process().stdout?.on("data", (chunk: Buffer) => lines.push(...String(chunk).split("\n")));
   app.process().stderr?.on("data", (chunk: Buffer) => lines.push(...String(chunk).split("\n")));
+  await app.context().tracing.start({ screenshots: true, snapshots: true, sources: false });
+  await app.context().tracing.startChunk().catch(() => undefined);
+  traced.add(app);
+  app.on("close", () => traced.delete(app));
   const page = await app.firstWindow();
   page.on("pageerror", (error) => console.error(`[renderer] ${error.message}`));
   await page.waitForLoadState("domcontentloaded");

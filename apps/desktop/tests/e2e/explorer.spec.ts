@@ -2,9 +2,9 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 
-import { expect, test, type ElectronApplication, type Locator, type Page } from "@playwright/test";
+import { expect, type ElectronApplication, type Locator, type Page } from "@playwright/test";
 import type { TextToCadApi } from "../../src/shared/ipc";
-import { chooseDirectory, launch, mod, newTab as newTabIn, repoRoot, scratch, settleTerminal, shoot as shootInto } from "./launch";
+import { chooseDirectory, launch, mod, newTab as newTabIn, repoRoot, scratch, settleTerminal, shoot as shootInto, test } from "./launch";
 import { selectFixtureSession } from "./session-fixture";
 
 /**

@@ -488,6 +488,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: desktop-test-results
-          path: apps/desktop/test-results/
+          path: |
+            apps/desktop/test-results/**/trace*.zip
+            apps/desktop/test-results/**/error-context.md
+            apps/desktop/test-results/**/*.png
           if-no-files-found: ignore
           retention-days: 3

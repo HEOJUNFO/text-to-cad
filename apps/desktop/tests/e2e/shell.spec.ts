@@ -1,11 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
+import { expect, type ElectronApplication, type Page } from "@playwright/test";
 
 import { TITLEBAR_HEIGHT, TRAFFIC_LIGHTS_INSET, trafficLightPosition } from "../../src/shared/titlebar";
 import { PANE_LIMITS } from "../../src/shared/types";
-import { chooseDirectory, dragSeparator, launch, mod, newTab as newTabIn, scratch, setContentSize, setTheme as setThemeIn, shoot as shootInto } from "./launch";
+import { chooseDirectory, dragSeparator, launch, mod, newTab as newTabIn, scratch, setContentSize, setTheme as setThemeIn, shoot as shootInto, test } from "./launch";
 import { selectFixtureSession } from "./session-fixture";
 
 /** Cmd+Option+B on a Mac; Ctrl+Shift+E elsewhere, where Ctrl+Alt is AltGr (`lib/shortcuts.ts`). */
