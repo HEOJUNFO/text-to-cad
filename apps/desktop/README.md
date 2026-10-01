@@ -926,7 +926,10 @@ cannot take an image in a prompt. Remove the attachment to send.",
 the message is accepted, not when its turn ends (`prompt` settles at the end
 of the turn); a prompt refused afterwards puts its files back in the strip. A queued prompt main refuses goes back into the
 box as it was taken, behind any put back before it, so the box reads in queue
-order, and the queue goes on. A new session's first prompt refused this way
+order, and the queue goes on. A turn the person stops (Stop or Esc) pauses the queue the way a failed one
+does: the queue row reads "Paused after you stopped" with the same Resume, and
+the next queued prompt waits for it (or for a prompt typed meanwhile, which goes
+out first) instead of starting behind the Stop. A new session's first prompt refused this way
 goes back into that session's box — the session was created and selected
 before the prompt went out (`NewSession.tsx`); only a create that fails keeps
 the new-session screen, with the error and Try again. A create that fails with

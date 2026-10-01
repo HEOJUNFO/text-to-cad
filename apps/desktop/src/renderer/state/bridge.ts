@@ -79,7 +79,7 @@ export function subscribeToMain(): () => void {
       // A turn's lifecycle drives the prompt queue: a turn that ends sends
       // the next queued prompt (`state/composer.ts`).
       if (event.type === "prompt/start" || event.type === "prompt/end" || event.type === "prompt/error") {
-        useComposer.getState().turnEvent(sessionId, event.type);
+        useComposer.getState().turnEvent(sessionId, event.type, event.type === "prompt/end" ? event.stopReason : undefined);
       } else if (before !== "idle" && useAcp.getState().sessions[sessionId]?.status === "idle") {
         // The other way to idle: a permission asked outside a turn and answered leaves the
         // session waiting, then idle, with no `prompt/end` to say so (`drain` is a no-op when

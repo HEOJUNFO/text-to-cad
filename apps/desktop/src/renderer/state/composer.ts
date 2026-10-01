@@ -43,7 +43,8 @@ import type { PromptReference } from "@text-to-cad/core/prompt";
  * if the agent does not come back, the queue's head is sent anyway so it fails
  * in the transcript with a Retry instead of waiting silently.
  *
- * A failed turn pauses the queue. The failure is in the transcript with its
+ * A failed turn pauses the queue, and so does one the person stopped (`prompt/end` with
+ * `cancelled`: Stop or Esc). The failure is in the transcript with its
  * Retry, and what the person sends next — that Retry, or a new prompt — goes
  * out at once, ahead of the queue; the queue resumes when that turn ends.
  * `paused` carries that across an eviction or reconnect, which a session's
@@ -175,7 +176,7 @@ type ComposerState = {
    */
   paused: Record<string, true>;
   /** The bridge's hand-off of a turn's lifecycle events: the queue's one driver. */
-  turnEvent: (sessionId: string, type: "prompt/start" | "prompt/end" | "prompt/error") => void;
+  turnEvent: (sessionId: string, type: "prompt/start" | "prompt/end" | "prompt/error", stopReason?: string) => void;
   /** Clear a draft for sending, returning what it held. */
   takeDraft: (key: string) => TakenDraft;
   /**
@@ -376,9 +377,12 @@ export const useComposer = create<ComposerState>((set, get) => ({
 
   sending: {},
   paused: {},
-  turnEvent: (sessionId, type) => {
+  turnEvent: (sessionId, type, stopReason) => {
     clearSending(sessionId);
-    if (type === "prompt/error") set((state) => ({ paused: { ...state.paused, [sessionId]: true } }));
+    // A turn the person stopped holds the queue the way a failed one does: they pressed Stop, so
+    // the next prompt must not start behind their back. Resume (or a new prompt) goes on.
+    const stopped = type === "prompt/end" && stopReason === "cancelled";
+    if (type === "prompt/error" || stopped) set((state) => ({ paused: { ...state.paused, [sessionId]: true } }));
     if (type === "prompt/start" && sessionId in get().paused) {
       set((state) => ({ paused: withoutKey(state.paused, sessionId) }));
     }
@@ -386,7 +390,7 @@ export const useComposer = create<ComposerState>((set, get) => ({
     if (type === "prompt/start" && sessionId in useAcp.getState().loadErrors) {
       useAcp.setState((state) => ({ loadErrors: withoutKey(state.loadErrors, sessionId) }));
     }
-    if (type === "prompt/end") void get().drain(sessionId);
+    if (type === "prompt/end" && !stopped) void get().drain(sessionId);
   },
 
   takeDraft: (key) => {
