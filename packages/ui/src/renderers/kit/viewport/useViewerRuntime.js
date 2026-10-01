@@ -198,8 +198,12 @@ export function useViewerRuntime({
       // pixel-ratio getters are injected), and a pinned GL context is a scarce thing (Chromium
       // keeps ~16 alive and evicts the oldest), so a retry loop would otherwise push live viewers
       // out. Registered first, so it runs LAST: the context-lost/restored listeners below are
-      // already off the canvas when the forced loss fires, and the loss cannot be taken for a GPU
-      // reset that asks the host to rebuild this viewer. Idempotent: the success path's `cleanup`
+      // already off the canvas when the forced loss is requested. Chromium dispatches
+      // `webglcontextlost` asynchronously, after this chain, so there the listeners are gone
+      // before the event arrives; the order also covers an implementation that dispatches it
+      // synchronously. Either way the loss is not taken for a GPU reset that asks the host to
+      // rebuild this viewer. The forced loss is needed because the host rebuilds on a RESTORE,
+      // when the old context is still alive and would stay pinned. Idempotent: the success path's `cleanup`
       // calls it too, after its releases.
       let rendererReleased = false;
       const releaseRenderer = () => {
