@@ -14,7 +14,7 @@ import { cameraReadsBack } from './liveReadback.js';
 // a settled frame at least, and where the command has a committed predicate, until that holds.
 // The predicate compares against what the runtime records, not the request. Each command's
 // predicate (setCamera's position-and-target readback, Preview's orbit, resetCamera's rest,
-// setRenderMode's projection, STEP's select) is stated once in packages/ui/docs/cad-renderer.md
+// setRenderMode's projection, a renderer's own select) is stated once in packages/ui/docs/cad-renderer.md
 // under "Live commands". A renderer whose reset is instant (a flat drawing) returns no predicate
 // and a settled frame is its answer. The wait is bounded at ten seconds, then it throws "The
 // viewer did not finish applying this command." rather than answer with a state the command did
