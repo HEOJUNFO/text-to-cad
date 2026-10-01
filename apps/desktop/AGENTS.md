@@ -271,11 +271,11 @@ the rule is about.
   Application row with a modifier is a menu accelerator** in
   `src/main/menu.ts` — and every accelerator is a row
   (`tests/unit/main/shortcuts-menu.test.ts`). Add a key to both or to
-  neither. The table lists everything but the development build's `Reload App`
-  (a packaged app has none) and the toast chord in
-  `components/ui/sonner.tsx` (Cmd+Option+T on a Mac, Ctrl+Shift+T elsewhere): a
-  row holds one portable binding and this one differs by platform, so the
-  Shortcuts page names it in a footnote instead.
+  neither (the renderer-only rows are listed in the test). The table lists
+  everything but the development build's `Reload App` (a packaged app has
+  none); the toast chord in `components/ui/sonner.tsx` is the row "Focus the
+  notifications", a two-binding row (`otherBinding`: Cmd+Option+T on a Mac,
+  Ctrl+Shift+T elsewhere).
 - **A global chord is checked on all three platforms.** It types no character
   with Option on a Mac (Option+T is a dagger), does not arrive as AltGr on a
   European keyboard (Ctrl+Alt), and is not GNOME's Ctrl+Alt+T.

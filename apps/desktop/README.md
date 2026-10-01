@@ -1147,11 +1147,11 @@ poor thing to put in front of them.
 ## Keyboard
 
 Every shortcut is a row in `src/renderer/lib/shortcuts.ts`, which Settings ›
-Keyboard shortcuts prints, but one: the toast chord (Cmd+Option+T on a Mac,
-Ctrl+Shift+T elsewhere, `components/ui/sonner.tsx`) differs by platform, and a
-row holds one portable binding, so the page closes with a footnote naming it. A row that would arrive as AltGr
-off a Mac carries an `otherBinding` (`bindingFor` in `lib/shortcuts.ts`): Toggle explorer is Cmd+Option+B on a Mac and
-Ctrl+Shift+E elsewhere, in the menu (`main/menu.ts`), in `Shell`'s key handler and on the page. The ones the app menu also declares are its accelerators, so
+Keyboard shortcuts prints. A row holds two bindings when the platforms differ: one that would arrive as AltGr
+off a Mac carries an `otherBinding` (`bindingFor` in `lib/shortcuts.ts`). Toggle explorer is Cmd+Option+B on a Mac and
+Ctrl+Shift+E elsewhere, in the menu (`main/menu.ts`), in `Shell`'s key handler and on the page; the toast chord
+(`components/ui/sonner.tsx`) is the row "Focus the notifications", Cmd+Option+T on a Mac and Ctrl+Shift+T elsewhere, and
+is renderer-only (no menu accelerator). The ones the app menu also declares are its accelerators, so
 they work with focus inside a webview (see "Rules that are easy to break" in
 AGENTS.md). The menu's New Session and Settings… with no window open one and
 hold the command until its page calls `ui.ready` (`src/main/menu.ts`): pushed

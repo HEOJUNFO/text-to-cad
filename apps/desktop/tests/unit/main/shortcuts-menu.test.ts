@@ -40,8 +40,9 @@ const accelerators = flatten(
 /**
  * Renderer-only by nature: Escape is not a menu key, and F6 moves focus between the renderer's
  * own panes — a menu accelerator would take it from a webview that has focus and do nothing there.
+ * `focus-notifications` is the Toaster's own hotkey listener.
  */
-const RENDERER_ONLY = new Set(["close-settings", "next-pane", "previous-pane"]);
+const RENDERER_ONLY = new Set(["close-settings", "next-pane", "previous-pane", "focus-notifications"]);
 
 it("lists every packaged menu accelerator in the shortcut table", () => {
   const bindings = new Set(SHORTCUTS.map((shortcut) => shortcut.binding));
