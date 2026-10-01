@@ -248,7 +248,14 @@ async function fitImage(file: File): Promise<File | null> {
   return new File([blob], `${file.name.replace(/\.[^./]+$/, "")}.png`, { type: blob.type || "image/png", lastModified: file.lastModified });
 }
 
-export type Screened = { attach: File[]; references: CadReference[]; refusals: string[] };
+/** Said once when an image was changed to fit: a gif or webp loses its animation, anything else its format. */
+export function imageScaledNotice(name: string, from: string): string {
+  return /^image\/(gif|webp|apng)$/i.test(from)
+    ? `${name} was scaled down to a still image to fit the model's limit.`
+    : `${name} was scaled down and saved as a PNG to fit the model's limit.`;
+}
+
+export type Screened = { attach: File[]; references: CadReference[]; refusals: string[]; notices: string[] };
 
 /**
  * Sort what was picked, pasted or dropped before any of it is attached:
@@ -260,7 +267,7 @@ export type Screened = { attach: File[]; references: CadReference[]; refusals: s
  * a write into the person's folder they did not ask for.
  */
 export async function screenAttachments(files: readonly File[], scope: AttachScope): Promise<Screened> {
-  const result: Screened = { attach: [], references: [], refusals: [] };
+  const result: Screened = { attach: [], references: [], refusals: [], notices: [] };
   // One walk of the project for the whole batch, and only when a CAD file needs it. A walk that
   // fails vouches for nothing, and says so — it is not a project with too many files.
   let listing: Promise<ProjectListing> | null = null;
@@ -273,8 +280,11 @@ export async function screenAttachments(files: readonly File[], scope: AttachSco
       if (file.size > MAX_ATTACHMENT_BYTES) result.refusals.push(attachmentRefusal.overLimit(file.name));
       else {
         const fitted = await fitImage(file);
-        if (fitted) result.attach.push(fitted);
-        else result.refusals.push(attachmentRefusal.imageTooBig(file.name));
+        if (fitted) {
+          result.attach.push(fitted);
+          // The redraw is a PNG: an animation does not survive it, and the person should know.
+          if (fitted.type !== file.type) result.notices.push(imageScaledNotice(file.name, file.type));
+        } else result.refusals.push(attachmentRefusal.imageTooBig(file.name));
       }
       continue;
     }

@@ -182,6 +182,9 @@ export function Composer({
     for (const message of screened.refusals) {
       toast.error(message);
     }
+    for (const notice of screened.notices) {
+      toast.info(notice);
+    }
     for (const reference of screened.references) {
       useComposer.getState().insertReference(draftKey, reference);
     }
