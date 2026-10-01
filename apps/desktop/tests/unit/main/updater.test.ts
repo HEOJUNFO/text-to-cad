@@ -240,6 +240,21 @@ describe("updater", () => {
     return updater;
   }
 
+  it("calls a download that stops reporting progress stalled, and Try again can check afresh", async () => {
+    const updater = await downloading();
+    vi.advanceTimersByTime(59_000);
+    expect(updater.updateStatus().state).toBe("downloading");
+    autoUpdater.emit("download-progress", { percent: 20 });
+    vi.advanceTimersByTime(59_000);
+    expect(updater.updateStatus().state, "progress restarted the countdown").toBe("downloading");
+
+    vi.advanceTimersByTime(1_000);
+    expect(updater.updateStatus()).toEqual({ state: "error", message: "The download stalled; try again." });
+
+    feedAnnounces("2.0.0");
+    expect((await updater.checkForUpdates()).state).toBe("available");
+  });
+
   it("a check that fails while a download runs leaves the download running", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const updater = await downloading();
@@ -267,7 +282,11 @@ describe("updater", () => {
     expect(mocks.check).not.toHaveBeenCalled();
 
     autoUpdater.emit("download-progress", { percent: 40 });
-    await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
+    // A download that is alive keeps reporting; one that goes quiet is a stalled one.
+    for (let elapsed = 0; elapsed < 6 * 60 * 60 * 1000; elapsed += 30_000) {
+      await vi.advanceTimersByTimeAsync(30_000);
+      autoUpdater.emit("download-progress", { percent: 40 });
+    }
     expect(mocks.check).not.toHaveBeenCalled();
     expect(updater.updateStatus().state).toBe("downloading");
     updater.stopUpdater();

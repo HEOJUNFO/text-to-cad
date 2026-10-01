@@ -64,6 +64,26 @@ let timers: NodeJS.Timeout[] = [];
  */
 export const INSTALL_DEADLINE_MS = 60_000;
 let installDeadline: NodeJS.Timeout | undefined;
+/**
+ * How long a download may go without a progress event before it is called stalled. A connection
+ * that went quiet leaves "Downloading…" with no action and checks refused; past this the row
+ * says so and offers Try again.
+ */
+export const DOWNLOAD_STALL_MS = 60_000;
+export const DOWNLOAD_STALLED = "The download stalled; try again.";
+let stallTimer: NodeJS.Timeout | undefined;
+
+/** (Re)start the stall countdown: called when the download starts and on every progress event. */
+function armStall() {
+  clearTimeout(stallTimer);
+  stallTimer = setTimeout(() => {
+    stallTimer = undefined;
+    if (status.state === "downloading") {
+      setStatus({ state: "error", message: DOWNLOAD_STALLED });
+    }
+  }, DOWNLOAD_STALL_MS);
+  stallTimer.unref();
+}
 /** The version `update-downloaded` staged: what a retried Restart installs. */
 let staged: string | undefined;
 
@@ -74,6 +94,10 @@ export function updateStatus(): UpdateStatus {
 
 function setStatus(next: UpdateStatus): UpdateStatus {
   status = next;
+  if (next.state !== "downloading") {
+    clearTimeout(stallTimer);
+    stallTimer = undefined;
+  }
   broadcast("app.updateStatus", next);
   return next;
 }
@@ -134,15 +158,16 @@ export function initUpdater() {
       setStatus({ state: "idle" });
     }
   });
-  autoUpdater.on("download-progress", (progress) =>
+  autoUpdater.on("download-progress", (progress) => {
     setStatus({
       state: "downloading",
       version: status.version,
       // electron-updater reports a float; the UI wants a percentage it can
       // print, and the schema refuses anything outside 0–100.
       percent: Math.min(100, Math.max(0, Math.round(progress.percent))),
-    }),
-  );
+    });
+    armStall();
+  });
   autoUpdater.on("update-downloaded", (info) => {
     staged = info.version;
     setStatus({ state: "downloaded", version: info.version });
@@ -263,6 +288,7 @@ export async function downloadUpdate(): Promise<UpdateStatus> {
   }
   try {
     setStatus({ state: "downloading", version: status.version, percent: 0 });
+    armStall();
     await autoUpdater.downloadUpdate();
     return status;
   } catch (error) {
