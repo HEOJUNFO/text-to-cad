@@ -25,7 +25,7 @@ import { TranscriptScopeContext, type TranscriptScope } from "./links/PathLink";
 import { PlanCard } from "./PlanCard";
 import { SessionHeader } from "./SessionHeader";
 import { Transcript } from "./Transcript";
-import { isAuthError, planClock } from "./view";
+import { composerFlags, isAuthError, planClock } from "./view";
 
 /**
  * One thread, one agent (plan §3): the header, the transcript, the pinned
@@ -89,11 +89,7 @@ export function SessionView({ session }: { session: Session }) {
   // The row can still say `connecting` over a state that reads idle: a session being created is
   // promptable from `session/new`, but its model and mode are not settled until `create` returns.
   const connecting = state?.status === "connecting" || (session.status === "connecting" && !reconnecting);
-  const composerStatus: "ready" | "submitted" | "streaming" = running
-    ? "streaming"
-    : ((connecting || loading) && !reconnecting) || sending
-      ? "submitted"
-      : "ready";
+  const { status: composerStatus, queueWhileSubmitted } = composerFlags({ running, connecting, loading, reconnecting, sending });
 
   // "Disconnect agent" (SessionHeader), or the keep-alive evicting the
   // adapter: nothing is coming back on its own — `ensureLoaded` runs when
@@ -354,7 +350,7 @@ export function SessionView({ session }: { session: Session }) {
             disabled={composerDisabled}
             onStop={() => reportRefusal(cancel(session.id), "stop the turn", "Could not")}
             onSubmit={onSubmit}
-            queueWhileSubmitted
+            queueWhileSubmitted={queueWhileSubmitted}
             placeholder={running ? "Send another message — it goes next" : "Do anything"}
             sessionId={session.id}
             status={composerStatus}

@@ -610,6 +610,9 @@ test("the full-access mode is never asked anything", async () => {
   const composer = page.getByPlaceholder("Describe a part to build…", { exact: true });
   await composer.fill("permission to run ls");
   await composer.press("Enter");
+  // The turn itself first: `idle` is also what the view says before `prompt/start` lands, and a
+  // count of 0 taken then proves nothing. The agent's "ok" is the end of the turn that ran.
+  await expect(page.locator("[data-turn][data-role=agent]").first()).toContainText("ok", { timeout: 20_000 });
   await expect(page.locator("[data-session-view]")).toHaveAttribute("data-session-status", "idle", { timeout: 20_000 });
   // The same prompt as the test above, and no card: the request was never
   // made. Nothing here auto-answered one.

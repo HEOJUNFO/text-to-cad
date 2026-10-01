@@ -593,3 +593,22 @@ export function isAuthError(message: string | null | undefined): boolean {
     message ?? "",
   );
 }
+
+/**
+ * What the composer says about the session, and whether Enter may send while it says `submitted`.
+ * `submitted` is two things: a session still connecting or loading (a first load or a create, which
+ * a second send must not race), and a prompt that is out without its `prompt/start` yet (`sending`),
+ * where a send queues behind it. Only the second lets Enter through. A reconnect behind a painted
+ * transcript is neither: its box stays live, and a prompt sent into it is held by main.
+ */
+export function composerFlags(input: {
+  running: boolean;
+  connecting: boolean;
+  loading: boolean;
+  reconnecting: boolean;
+  sending: boolean;
+}): { status: "ready" | "submitted" | "streaming"; queueWhileSubmitted: boolean } {
+  const starting = (input.connecting || input.loading) && !input.reconnecting;
+  const status = input.running ? "streaming" : starting || input.sending ? "submitted" : "ready";
+  return { status, queueWhileSubmitted: input.sending && !starting };
+}

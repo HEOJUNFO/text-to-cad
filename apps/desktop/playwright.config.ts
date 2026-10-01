@@ -42,10 +42,10 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
   use: {
-    // Cost nothing on a green run. These two cover pages Playwright's own
-    // fixtures own; the specs launch Electron themselves, so their traces and
-    // screenshots come from `failureEvidence` in tests/e2e/launch.ts, which
-    // writes `trace-N.zip` / `failure-N-M.png` into the same test-results dir.
+    // Cost nothing on a green run. `screenshot` writes `test-failed-N.png`, the failing window as
+    // Playwright sees it; `trace` writes a `trace.zip` without DOM snapshots for these specs, which
+    // launch Electron themselves. The trace with snapshots, `trace-N.zip`, comes from
+    // `failureEvidence` in tests/e2e/launch.ts, which writes it into the same test-results dir.
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },

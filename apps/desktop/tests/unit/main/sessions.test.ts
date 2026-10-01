@@ -713,6 +713,30 @@ describe("SessionManager", () => {
     expect(JSON.parse(store.rows.get(session.id)!).turns.at(-1)).toMatchObject({ stopReason: "cancelled", lateFrom: last.lateFrom });
   });
 
+  it("splits the late text a session/load merged into the answer, restoring the stop and the label", async () => {
+    const store = memorySnapshots();
+    const { manager, cwd } = await setup({ snapshots: store });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    await manager.prompt(session.id, [{ type: "text", text: "hello there" }]);
+    manager.close(session.id);
+
+    const saved = JSON.parse(store.rows.get(session.id)!);
+    const last = saved.turns.at(-1);
+    saved.turns[0].parts = [{ type: "text", text: "earlier prompt" }];
+    // Live: "earlier " then, after the stop, "reply". The replay joins them into "earlier reply".
+    last.parts = [{ type: "text", text: "earlier " }, { type: "text", text: "reply" }];
+    last.stopReason = "cancelled";
+    last.lateFrom = 1;
+    store.rows.set(session.id, JSON.stringify(saved));
+
+    const state = await manager.load(session.id);
+    expect(state.turns.at(-1)).toMatchObject({
+      stopReason: "cancelled",
+      lateFrom: 1,
+      parts: [{ text: "earlier " }, { text: "reply" }],
+    });
+  });
+
   it("keeps the stored transcript when a reconnect's session/load is refused", async () => {
     let launchArgs = [FAKE_AGENT];
     const store = memorySnapshots();
@@ -1509,6 +1533,31 @@ describe("SessionManager", () => {
     });
     await expect(manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "worktree" })).rejects.toThrow("SQLITE_BUSY");
     expect(released).toEqual([{ worktreePath: `/wt/cut-1`, options: { abandoned: true } }]);
+    expect(unpinned.length).toBeGreaterThan(0);
+  });
+
+  it("a create whose row can neither be written nor removed still releases and unpins, and rejects with the write error", async () => {
+    const released: string[] = [];
+    const unpinned: string[] = [];
+    const repo = memoryRepo();
+    repo.upsert = () => {
+      throw new Error("SQLITE_BUSY: upsert");
+    };
+    repo.remove = () => {
+      throw new Error("SQLITE_READONLY: remove");
+    };
+    const { manager } = await setup({
+      repo,
+      workspace: async () => ({ cwd: `/wt/cut-1`, worktreePath: `/wt/cut-1` }),
+      releaseWorkspace: async (session) => {
+        released.push(session.worktreePath ?? "");
+      },
+      dropMarks: async (_cwd, id) => {
+        unpinned.push(id);
+      },
+    });
+    await expect(manager.create({ projectId: "p1", agentId: "claude-code", gitMode: "worktree" })).rejects.toThrow("SQLITE_BUSY: upsert");
+    expect(released).toEqual([`/wt/cut-1`]);
     expect(unpinned.length).toBeGreaterThan(0);
   });
 

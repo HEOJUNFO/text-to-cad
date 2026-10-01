@@ -253,6 +253,9 @@ export function Composer({
   const removeAnnotations = useComposer((state) => state.removeAnnotations);
   const editAnnotation = useComposer((state) => state.editAnnotation);
 
+  // A send between Enter and `takeDraft` (it awaits the attachments' bytes): the box still holds
+  // the text then, so a second Enter in that gap would send the same text again.
+  const taking = useRef(false);
   const handleSubmit = useCallback(
     async (message: PromptInputMessage) => {
       if (refuseSend) {
@@ -260,37 +263,43 @@ export function Composer({
         // Rejected, so the form keeps its attachments; the draft was never taken.
         throw new Error(refuseSend);
       }
-      // Annotations added from the viewer go out with the prompt, after what was typed.
-      const pending = useComposer.getState().annotations[draftKey] ?? NO_ANNOTATIONS;
-      const trimmed = withAnnotations(message.text.trim(), pending);
-      if (!trimmed && message.files.length === 0) {
-        return;
-      }
-      // A note's sketch goes out with it, after the form's own attachments.
-      const content = await toPromptBlocks(trimmed, [...message.files, ...await annotationImageParts(pending)], attachmentFiles);
-      if (content.length === 0) {
-        return;
-      }
-      // The box empties now, but what it held is kept whole — the typed text and the annotations
-      // apart, with their chips' labels — rather than as the flattened prompt: a start that fails
-      // puts it back as it was (the catch below), and so does taking it out of the queue.
-      const taken = useComposer.getState().takeDraft(draftKey);
-      // With its files, for a refusal that comes back after the box has let them go.
-      const files = message.files.flatMap((part) => attachmentFiles.fileFor(part) ?? []);
-      const sent = files.length ? { ...taken, files } : taken;
-      // The strip empties with the text, now: `onSubmit` settles when the turn ends, and waiting
-      // for that kept the image chip on screen through the whole turn, sent it again with the
-      // next message typed meanwhile, and let the form's late clear wipe a file attached since.
-      attachmentsRef.current?.clear();
-      // Not awaited for the same reason. A start that fails puts the draft back as it was, its
-      // files in the strip again (`restoreDraft`), from wherever the rejection arrives.
-      void (async () => {
-        try {
-          await onSubmit(trimmed, content, sent);
-        } catch {
-          useComposer.getState().restoreDraft(draftKey, sent);
+      if (taking.current) return;
+      taking.current = true;
+      try {
+        // Annotations added from the viewer go out with the prompt, after what was typed.
+        const pending = useComposer.getState().annotations[draftKey] ?? NO_ANNOTATIONS;
+        const trimmed = withAnnotations(message.text.trim(), pending);
+        if (!trimmed && message.files.length === 0) {
+          return;
         }
-      })();
+        // A note's sketch goes out with it, after the form's own attachments.
+        const content = await toPromptBlocks(trimmed, [...message.files, ...await annotationImageParts(pending)], attachmentFiles);
+        if (content.length === 0) {
+          return;
+        }
+        // The box empties now, but what it held is kept whole — the typed text and the annotations
+        // apart, with their chips' labels — rather than as the flattened prompt: a start that fails
+        // puts it back as it was (the catch below), and so does taking it out of the queue.
+        const taken = useComposer.getState().takeDraft(draftKey);
+        // With its files, for a refusal that comes back after the box has let them go.
+        const files = message.files.flatMap((part) => attachmentFiles.fileFor(part) ?? []);
+        const sent = files.length ? { ...taken, files } : taken;
+        // The strip empties with the text, now: `onSubmit` settles when the turn ends, and waiting
+        // for that kept the image chip on screen through the whole turn, sent it again with the
+        // next message typed meanwhile, and let the form's late clear wipe a file attached since.
+        attachmentsRef.current?.clear();
+        // Not awaited for the same reason. A start that fails puts the draft back as it was, its
+        // files in the strip again (`restoreDraft`), from wherever the rejection arrives.
+        void (async () => {
+          try {
+            await onSubmit(trimmed, content, sent);
+          } catch {
+            useComposer.getState().restoreDraft(draftKey, sent);
+          }
+        })();
+      } finally {
+        taking.current = false;
+      }
     },
     [onSubmit, refuseSend, draftKey, attachmentFiles],
   );

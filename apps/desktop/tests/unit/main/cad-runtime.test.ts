@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CadRuntime,
@@ -55,7 +55,10 @@ async function cleanUp(): Promise<void> {
     removeTree(dir);
   }
 }
-afterEach(cleanUp);
+afterEach(async () => {
+  vi.useRealTimers();
+  await cleanUp();
+});
 afterAll(async () => {
   await cleanUp();
   CadRuntime.prototype.log = log;
@@ -798,14 +801,25 @@ describe("execCommand", () => {
       const script = path.join(dir, "leader");
       const pidFile = path.join(dir, "child.pid");
       fs.writeFileSync(script, `#!/bin/sh\nsleep 30 &\necho $! > "${pidFile}"\nwait\n`, { mode: 0o755 });
-      const result = await execCommand(script, [], {
+      // The timeout's clock is faked and the leader's progress is real: the timeout fires once the
+      // leader has said it started its child (the pid file), not after a wall-clock guess that a
+      // loaded machine can overrun before `sh` has run its second line.
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const running = execCommand(script, [], {
         env: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
         timeoutMs: 500,
         processGroup: true,
       });
+      const startedChild = () => (fs.existsSync(pidFile) ? fs.readFileSync(pidFile, "utf8").trim() : "");
+      while (!/^\d+$/.test(startedChild())) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      vi.advanceTimersByTime(500);
+      vi.useRealTimers();
+      const result = await running;
       expect(result.timedOut).toBe(true);
       expect(result.code).toBeNull();
-      const child = Number(fs.readFileSync(pidFile, "utf8").trim());
+      const child = Number(startedChild());
       const alive = () => {
         try {
           process.kill(child, 0);

@@ -147,9 +147,35 @@ onLoginEnv((env) => {
   if (process.platform !== "win32") loginGitEnv = env;
 });
 
-/** The environment git's children get: the login shell's, under this module's own variables. */
+/**
+ * Variables that say WHERE a repository is. A login shell (or a process that was started from a
+ * hook) can export them, and every git call this module makes would then act on that repository
+ * instead of the `cwd` it was given. Callers that mean one (`GIT_INDEX_FILE` for a temporary
+ * index) set it after `gitEnv()`.
+ */
+const REPOSITORY_LOCATION = [
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_INDEX_FILE",
+  "GIT_NAMESPACE",
+  "GIT_CEILING_DIRECTORIES",
+  "GIT_COMMON_DIR",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_PREFIX",
+];
+
+/**
+ * The environment git's children get: the login shell's, without the repository-location
+ * variables (set to undefined so the process's own are dropped too, `extendEnv` notwithstanding),
+ * under this module's own variables. `LC_ALL` and `LANG` are `C` for every call, not only the ones
+ * whose output is parsed: this module matches git's English ("dubious ownership", "nothing to
+ * commit") in several places, a localized git would translate it, and one pin is simpler than a
+ * list of the calls that read messages. A hook inherits it.
+ */
 function gitEnv(): NonNullable<Options["env"]> {
-  return loginGitEnv ? { ...loginGitEnv, ...GIT_OPTIONS.env } : { ...GIT_OPTIONS.env };
+  const location = Object.fromEntries(REPOSITORY_LOCATION.map((name) => [name, undefined]));
+  return { ...loginGitEnv, ...location, ...GIT_OPTIONS.env, LC_ALL: "C", LANG: "C" };
 }
 
 /** For the tests: the environment git runs under, as if `loginEnv` had just captured it (null: not yet). */

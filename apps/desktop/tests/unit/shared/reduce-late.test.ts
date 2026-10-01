@@ -41,13 +41,45 @@ describe("turnFactsFrom (what a session/load restores from the stored transcript
     id: "t", role, parts: [{ type: "text", text }], startedAt: 1, endedAt: 2, stopReason: role === "agent" ? "end_turn" : null, ...extra,
   });
 
-  it("takes a stored stop reason, and lateFrom only where the replay has the same parts", () => {
+  it("takes a stored stop reason and lateFrom where the replay has the same parts", () => {
     const replayed = [turn("user", "q"), turn("agent", "a")];
     const stored = [turn("user", "q"), turn("agent", "a", { stopReason: "cancelled", lateFrom: 0 })];
     expect(turnFactsFrom(replayed, stored)).toEqual([{ turn: 1, stopReason: "cancelled", lateFrom: 0 }]);
+  });
 
-    const merged = [turn("user", "q"), turn("agent", "a", { parts: [{ type: "text", text: "a" }, { type: "thought", text: "b" }] })];
-    expect(turnFactsFrom(replayed, merged.map((t, i) => (i ? { ...t, lateFrom: 1, stopReason: "cancelled" as const } : t)))).toEqual([{ turn: 1, stopReason: "cancelled" }]);
+  it("splits the text the replay merged where the stored text before lateFrom ends", () => {
+    const stored = [
+      turn("user", "q"),
+      turn("agent", "", {
+        parts: [{ type: "text", text: "Working on it." }, { type: "text", text: "Background task finished." }],
+        stopReason: "cancelled",
+        lateFrom: 1,
+      }),
+    ];
+    const replayed = [turn("user", "q"), turn("agent", "Working on it.Background task finished.")];
+    const facts = turnFactsFrom(replayed, stored);
+    expect(facts).toEqual([{ turn: 1, stopReason: "cancelled", lateFrom: 1, split: { part: 0, at: 14 } }]);
+
+    let state = reduce(initialSessionState("s1", "fake"), { type: "session/loaded", at } as never);
+    state = { ...state, turns: replayed };
+    const restored = reduce(state, { type: "turns/restored", facts, at }).turns[1]!;
+    expect(restored).toMatchObject({
+      stopReason: "cancelled",
+      lateFrom: 1,
+      parts: [{ text: "Working on it." }, { text: "Background task finished." }],
+    });
+  });
+
+  it("restores neither fact when the stored text is not a prefix of the replayed text", () => {
+    const stored = [
+      turn("user", "q"),
+      turn("agent", "", {
+        parts: [{ type: "text", text: "Working on it." }, { type: "text", text: "Background task finished." }],
+        stopReason: "cancelled",
+        lateFrom: 1,
+      }),
+    ];
+    expect(turnFactsFrom([turn("user", "q"), turn("agent", "Something else entirely, longer.")], stored)).toEqual([]);
   });
 
   it("stops at a user turn that says something else", () => {

@@ -356,9 +356,9 @@ agent's `limits` turn), `session-cancelled`, `session-error`,
 `activity-expanded-light` and `transcript-links`. From
 `transcript-layout.spec.ts`: `transcript-light`, `transcript-dark` and
 `transcript-expanded`; from `browser-service.spec.ts`, `browser-use-native`
-(the native page as Browser Use captured it). A failing spec adds `failure-<n>-<i>`, one PNG per window: the launcher's test fixture (`tests/e2e/launch.ts`, which a spec imports instead of Playwright's) traces every
-app a test launches and, only when that test fails, writes `trace-<n>.zip` and those PNGs beside it, because Playwright's own trace and screenshot options have no page to attach to for an Electron app;
-a green test writes none of them. The committed
+(the native page as Browser Use captured it). A failing spec leaves Playwright's own `test-failed-<n>.png` and `trace-<n>.zip`: the launcher's test fixture (`tests/e2e/launch.ts`, which a spec imports instead of Playwright's) traces every
+app a test launches and, only when that test fails, writes `trace-<n>.zip` (with DOM snapshots, which Playwright's own `trace.zip` for these specs lacks); it writes no screenshot of its own, since that would repeat `test-failed-<n>.png`.
+A green test writes none of them. The committed
 `tests/e2e/__screenshots__/` (`file-cad-failed`, `file-markdown-editable`,
 `file-markdown-raw-blocks`, `file-tree-deep`) is older evidence no spec
 rewrites. Look at them; they are the cheapest review of
@@ -956,8 +956,11 @@ of the turn); a prompt refused afterwards puts its files back in the strip. A qu
 box as it was taken, behind any put back before it, so the box reads in queue
 order, and the queue goes on. A prompt that is out but whose turn has not started (the box is `submitted`, while the
 session still reads idle for a moment) queues the next one too: Enter in a session sends then and the prompt goes behind it,
-though the button keeps its spinner (`queueWhileSubmitted`, passed by `SessionView` only). The new-session screen does not pass it,
-because its `submitted` is a create in progress and a second Enter would create a second session. A turn the person stops (Stop or Esc) with something queued pauses the queue the way a failed one
+though the button keeps its spinner (`queueWhileSubmitted`, which `SessionView` computes in `composerFlags`, `features/session/view.ts`:
+true only while a prompt is in flight (`sending`) on a session that is not itself still connecting or loading). A box that reads
+`submitted` for a first load or a create does not take Enter: its prompt would race the setup. The new-session screen never passes it,
+because its `submitted` is a create in progress and a second Enter would create a second session. Two Enters before the first has
+taken the draft (it awaits the attachments' bytes) send once: `Composer` holds a synchronous guard from Enter to `takeDraft`. A turn the person stops (Stop or Esc) with something queued pauses the queue the way a failed one
 does (Stop with nothing queued pauses nothing): the queue row reads "Paused after you stopped" with the same Resume (the reason is kept on the pause, so a Resume main then refuses reads "Paused after an error"), and
 the next queued prompt waits for it (or for a prompt typed meanwhile, which goes
 out first) instead of starting behind the Stop. A new session's first prompt refused this way
@@ -2266,11 +2269,15 @@ stop. A `session/load` replay cannot say either again (it has no `prompt/end`, s
 late text merges into the answer, and it closes every agent turn `end_turn`), so
 after the replay the connection dispatches `turns/restored`, built from the stored
 snapshot by `turnFactsFrom`: turns are matched by position for as long as each
-user turn says the same thing, an agent turn takes the stored stop reason, and
-its `lateFrom` only when the replay has the same number of parts (a replay that
-merged parts cannot say which were late). What a reload restores is those two
-facts, nothing else: a turn whose part count differs keeps its stop reason and loses its `lateFrom`, so its late parts read as part of
-the answer, and turns after the first user turn that differs from the stored one are not matched at all. In the renderer, `receiveState` (`state/acp.ts`) clears a session's
+user turn says the same thing, an agent turn takes the stored stop reason and its
+`lateFrom`. A replay with the same number of parts keeps `lateFrom` as stored; a
+replay that merged text chunks into fewer parts is cut again where the stored text
+before `lateFrom` ends (the `split` on the fact), so the late text is its own part
+again and both facts come back. If the stored text is not a prefix of the replayed
+text, neither fact is restored: the turn reads `end_turn` with no label rather than
+showing late text under a stop it did not belong to. What a reload restores is those
+two facts, nothing else, and turns after the first user turn that differs from the
+stored one are not matched at all. In the renderer, `receiveState` (`state/acp.ts`) clears a session's
 `loadErrors` once the state it takes says the agent is up (`idle`, `running` or
 `waiting`). In main, an `initialize` failure goes through `describe`
 (`src/main/acp/connection.ts`) as `session/new`, `session/load` and
@@ -2344,7 +2351,9 @@ back, and a retry main refuses (it throws, as for a busy session) becomes the no
 main's own words, unprefixed: nothing was tried, so it is not reported as a failed try.
 One whose connection is dead, or whose row is gone,
 is abandoned (`abandonCreate`): the connection is retired, the row removed, the
-worktree that create cut released, and `create` rejects. The same happens when
+worktree that create cut released, and `create` rejects with the failure that ended it, even
+when the store refuses to remove the row too (that is logged, and the marks are still unpinned and
+the worktree still released). The same happens when
 the store refuses the settle too, so nothing stays `connecting` behind a live
 connection. A create whose row the person deleted while it started rejects with
 `DELETED_WHILE_STARTING` (`shared/ipc/errors.ts`), which `NewSession` swallows:
@@ -2487,7 +2496,12 @@ git and its hooks run under the login shell's environment (PATH included) once
 `git.ts`; Refresh in Settings › Agents refreshes it too), so Homebrew's git,
 git-lfs and a hook that calls node work from a Dock launch. Until the capture
 lands, git runs under the process environment and no call waits for it; on
-Windows the process environment is always used.
+Windows the process environment is always used. Either way the
+repository-location variables (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_NAMESPACE`,
+`GIT_CEILING_DIRECTORIES`, and the common-dir, object-directory and prefix ones) are stripped, so a login
+shell that exports one cannot point every call at another repository, and `LC_ALL` and `LANG` are
+pinned to `C` for every git call (the app matches git's English, such as "dubious ownership"; a hook
+inherits the pin).
 
 Worktree paths are compared by real path (`git.sameRealPath` / `git.isUnderReal` resolve
 symlinks in the part that exists), because `git worktree list` answers real paths:

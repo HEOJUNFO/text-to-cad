@@ -578,6 +578,8 @@ export const SessionEventSchema = z.discriminatedUnion("type", [
         turn: z.number(),
         stopReason: StopReasonSchema.optional(),
         lateFrom: z.number().optional(),
+        /** Cut text part `part` at character `at` first: the replay merged late text into it. */
+        split: z.object({ part: z.number(), at: z.number() }).optional(),
       }),
     ),
     at: z.number(),

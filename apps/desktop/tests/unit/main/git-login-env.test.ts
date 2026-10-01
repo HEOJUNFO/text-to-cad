@@ -41,4 +41,34 @@ describe("the environment git runs under", () => {
     await git.createWorktree({ repoPath: root, parentDir: path.join(base, "wt"), name: "after" });
     expect(await readFile(seen, "utf8")).toContain("/login-shell-marker/bin");
   });
+
+  it("drops the repository-location variables a login shell exports, so every call still finds the repository it was asked about", async () => {
+    const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "text-to-cad-login-env-")));
+    temporary.push(base);
+    const root = path.join(base, "project");
+    await committedRepository(root, "one\n");
+    git.setLoginEnvForGit({
+      ...(process.env as Record<string, string>),
+      GIT_DIR: "/nowhere",
+      GIT_WORK_TREE: "/nowhere",
+      GIT_INDEX_FILE: "/nowhere/index",
+      GIT_NAMESPACE: "other",
+      GIT_CEILING_DIRECTORIES: base,
+    });
+    expect(await git.repositoryRoot(root)).toBe(root);
+  });
+
+  it("pins the language git speaks (LC_ALL and LANG are C), whatever the login shell says", async () => {
+    const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "text-to-cad-login-env-")));
+    temporary.push(base);
+    const root = path.join(base, "project");
+    await committedRepository(root, "one\n");
+    const seen = path.join(base, "hook-locale.txt");
+    const hook = path.join(root, ".git", "hooks", "post-checkout");
+    await writeFile(hook, `#!/bin/sh\nprintf '%s|%s' "$LC_ALL" "$LANG" > '${seen}'\n`);
+    await chmod(hook, 0o755);
+    git.setLoginEnvForGit({ ...(process.env as Record<string, string>), LC_ALL: "de_DE.UTF-8", LANG: "de_DE.UTF-8" });
+    await git.createWorktree({ repoPath: root, parentDir: path.join(base, "wt"), name: "locale" });
+    expect(await readFile(seen, "utf8")).toBe("C|C");
+  });
 });

@@ -1,13 +1,18 @@
 import { fireEvent, render } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Composer } from "@renderer/features/session/Composer";
+import { composerFlags } from "@renderer/features/session/view";
 import { useComposer } from "@renderer/state/composer";
 
 const noRects = () => Object.assign([], { item: () => null }) as unknown as DOMRectList;
 Range.prototype.getClientRects ??= noRects;
 Range.prototype.getBoundingClientRect ??= () => new DOMRect();
 (Text.prototype as unknown as { getClientRects: () => DOMRectList }).getClientRects ??= noRects;
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 beforeEach(() => {
   useComposer.setState({ drafts: { s1: "applied", [NEW]: "hello" }, queues: {}, sending: {}, paused: {} });
@@ -50,8 +55,46 @@ describe("Enter while a prompt is in flight", () => {
 
   it("still does nothing on the new-session screen, where a second send would create a second session", async () => {
     const { input, onSubmit } = await mount({ sessionId: null, status: "submitted" });
+    vi.useFakeTimers();
     fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await vi.runAllTimersAsync();
     expect(onSubmit).not.toHaveBeenCalled();
+    // The same keystroke on a box that is not blocked does send (the Enter path works here), so
+    // the silence above is the gate and not a path that never ran.
+    vi.useRealTimers();
+    const ready = await mount({ sessionId: null, status: "ready" });
+    fireEvent.keyDown(ready.input, { key: "Enter", code: "Enter" });
+    await vi.waitFor(() => expect(ready.onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("sends once for two Enters pressed before the first has taken the draft", async () => {
+    const { input, onSubmit } = await mount({ sessionId: "s1", status: "ready" });
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+    await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    vi.useFakeTimers();
+    await vi.runAllTimersAsync();
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("composerFlags (what the composer says, and when Enter may queue)", () => {
+  const idle = { running: false, connecting: false, loading: false, reconnecting: false, sending: false };
+
+  it("lets Enter queue behind a prompt in flight on a session that is up", () => {
+    expect(composerFlags({ ...idle, sending: true })).toEqual({ status: "submitted", queueWhileSubmitted: true });
+  });
+
+  it("does not, while the session is still connecting or loading, though the box reads submitted", () => {
+    expect(composerFlags({ ...idle, connecting: true })).toEqual({ status: "submitted", queueWhileSubmitted: false });
+    expect(composerFlags({ ...idle, loading: true })).toEqual({ status: "submitted", queueWhileSubmitted: false });
+    expect(composerFlags({ ...idle, loading: true, sending: true })).toEqual({ status: "submitted", queueWhileSubmitted: false });
+  });
+
+  it("keeps a reconnect behind a painted transcript live, and a prompt sent into it queues", () => {
+    expect(composerFlags({ ...idle, loading: true, reconnecting: true })).toEqual({ status: "ready", queueWhileSubmitted: false });
+    expect(composerFlags({ ...idle, loading: true, reconnecting: true, sending: true })).toEqual({ status: "submitted", queueWhileSubmitted: true });
+    expect(composerFlags({ ...idle, running: true })).toEqual({ status: "streaming", queueWhileSubmitted: false });
   });
 });

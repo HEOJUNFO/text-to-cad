@@ -30,11 +30,13 @@ export const mod = process.platform === "darwin" ? "Meta" : "Control";
  * What a failed test leaves behind.
  *
  * The suite launches Electron itself (`_electron.launch` in a `beforeAll`), so
- * Playwright's own `use: { trace, screenshot }` has no page fixture to attach
- * to and records nothing for these specs. Every app `launch()` starts is
- * therefore traced here, in one chunk per test, and the chunk is written out
- * (`trace-N.zip`, with a `failure-N-M.png` of each window M) only when the test
- * failed; a green test discards its chunk, so a passing run writes nothing.
+ * Playwright's own `use: { trace }` has no page fixture to attach to and
+ * records nothing useful for these specs (its `trace.zip` has no DOM snapshots).
+ * Every app `launch()` starts is therefore traced here, in one chunk per test,
+ * and the chunk is written out (`trace-N.zip`, with DOM snapshots and
+ * screenshots) only when the test failed; a green test discards its chunk, so a
+ * passing run writes nothing. No separate PNG of the windows: Playwright's own
+ * `screenshot: "only-on-failure"` writes `test-failed-N.png`, and the trace holds the rest.
  * Import `test` from this file, not from `@playwright/test`, to get it.
  */
 const traced = new Set<ElectronApplication>();
@@ -54,11 +56,6 @@ export const test = base.extend<{ failureEvidence: void }>({
       for (const app of [...traced]) {
         n += 1;
         const context = app.context();
-        if (failed) {
-          for (const [i, window] of app.windows().entries()) {
-            await window.screenshot({ path: testInfo.outputPath(`failure-${n}-${i}.png`), animations: "disabled", timeout: 5_000 }).catch(() => undefined);
-          }
-        }
         await context.tracing
           .stopChunk(failed ? { path: testInfo.outputPath(`trace-${n}.zip`) } : undefined)
           .catch(() => traced.delete(app));

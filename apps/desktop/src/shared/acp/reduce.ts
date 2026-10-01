@@ -123,8 +123,19 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
       const turns = state.turns.map((turn, index) => {
         const fact = event.facts.find((candidate) => candidate.turn === index);
         if (!fact || turn.role !== "agent") return turn;
+        const cut = fact.split ? turn.parts[fact.split.part] : undefined;
+        const parts =
+          fact.split && cut?.type === "text"
+            ? [
+                ...turn.parts.slice(0, fact.split.part),
+                { ...cut, text: cut.text.slice(0, fact.split.at) },
+                { ...cut, text: cut.text.slice(fact.split.at) },
+                ...turn.parts.slice(fact.split.part + 1),
+              ]
+            : turn.parts;
         return {
           ...turn,
+          parts,
           ...(fact.stopReason !== undefined ? { stopReason: fact.stopReason } : {}),
           ...(fact.lateFrom !== undefined ? { lateFrom: fact.lateFrom } : {}),
         };
@@ -1535,11 +1546,21 @@ export function lastAgentText(state: SessionState): string {
  * `end_turn`) and where its late parts begin (the replay has no `prompt/end`,
  * so late text merges into the answer). Turns are matched by position, for as
  * long as each user turn says the same thing; an agent turn takes the stored
- * stop reason, and its `lateFrom` only when the replay has the same number of
- * parts, since a replay that merged parts cannot say which of them were late.
+ * stop reason and `lateFrom`. When the replay has the same number of parts,
+ * `lateFrom` carries over as it was. When the replay merged text chunks into
+ * fewer parts, the merged text part is split where the stored text before
+ * `lateFrom` ends (`split`), which restores both facts; if the stored text is
+ * not a prefix of the replayed text (or ends where no text part can be cut)
+ * neither fact is restored, so the turn reads `end_turn` with no label rather
+ * than showing late text under a stop it did not belong to.
  */
 export function turnFactsFrom(replayed: readonly Turn[], stored: readonly Turn[]) {
-  const facts: { turn: number; stopReason?: NonNullable<Turn["stopReason"]>; lateFrom?: number }[] = [];
+  const facts: {
+    turn: number;
+    stopReason?: NonNullable<Turn["stopReason"]>;
+    lateFrom?: number;
+    split?: { part: number; at: number };
+  }[] = [];
   const textOf = (turn: Turn) =>
     turn.parts.map((part) => (part.type === "text" ? part.text : "")).join("");
   for (let index = 0; index < replayed.length && index < stored.length; index++) {
@@ -1550,11 +1571,39 @@ export function turnFactsFrom(replayed: readonly Turn[], stored: readonly Turn[]
       if (textOf(now) !== textOf(before)) break;
       continue;
     }
-    const stopReason = before.stopReason && before.stopReason !== now.stopReason ? before.stopReason : undefined;
-    const lateFrom =
-      before.lateFrom !== undefined && before.parts.length === now.parts.length ? before.lateFrom : undefined;
+    let stopReason = before.stopReason && before.stopReason !== now.stopReason ? before.stopReason : undefined;
+    let lateFrom: number | undefined;
+    let split: { part: number; at: number } | undefined;
+    if (before.lateFrom !== undefined) {
+      if (before.parts.length === now.parts.length || before.lateFrom === 0) {
+        lateFrom = before.lateFrom;
+      } else {
+        const head = textOf({ ...before, parts: before.parts.slice(0, before.lateFrom) });
+        let seen = 0;
+        for (let part = 0; part < now.parts.length; part++) {
+          const piece = now.parts[part]!;
+          const length = piece.type === "text" ? piece.text.length : 0;
+          if (length > 0 && seen < head.length && head.length < seen + length) {
+            if (textOf(now).startsWith(head)) {
+              split = { part, at: head.length - seen };
+              lateFrom = part + 1;
+            }
+            break;
+          }
+          seen += length;
+        }
+        if (lateFrom === undefined) {
+          stopReason = undefined;
+        }
+      }
+    }
     if (stopReason !== undefined || lateFrom !== undefined) {
-      facts.push({ turn: index, ...(stopReason ? { stopReason } : {}), ...(lateFrom !== undefined ? { lateFrom } : {}) });
+      facts.push({
+        turn: index,
+        ...(stopReason ? { stopReason } : {}),
+        ...(lateFrom !== undefined ? { lateFrom } : {}),
+        ...(split ? { split } : {}),
+      });
     }
   }
   return facts;
