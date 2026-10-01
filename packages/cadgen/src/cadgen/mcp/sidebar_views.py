@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from cadgen._internal.atomic_replace import write_bytes_atomic
+
 from .views import LIVE_SECONDS
 
 # A sidebar view that says nothing new still refreshes its file this often, which is how others
@@ -152,7 +154,5 @@ def _name(identifier: str) -> str:
 
 
 def _write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    temporary.write_text(text, encoding="utf-8")
-    os.replace(temporary, path)
+    # Through a temp file ending .tmp, so a reader globbing *.json never sees half a record.
+    write_bytes_atomic(path, text.encode("utf-8"))
