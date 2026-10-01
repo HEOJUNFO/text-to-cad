@@ -148,7 +148,7 @@ this edit still BUILD? It no longer has anything to say about the index.
 `utils/list-skills.sh` — prints every `skills/*/SKILL.md` directory. Used by the
 install scripts and `test-python.sh`.
 
-`bench/` — manual warm-build and viewer performance commands. See
+`bench/` — manual edit, warm-build and viewer performance commands. See
 [benchmark usage](bench/cadgen-performance/README.md). Reports and profiler
 captures are local output under `tmp/`, never committed here. The drivers are
 manual; their `*.test.mjs` helper units run in `test-js.sh`.
