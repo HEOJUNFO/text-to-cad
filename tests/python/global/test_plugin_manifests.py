@@ -116,8 +116,8 @@ class PluginManifestPolicyTest(unittest.TestCase):
         self.assertEqual(manifest.get("extensions", {}).get("com.openai", {}).get("onboardingSkill"), "./skills/setup/SKILL.md")
         self.assertTrue((SKILLS_ROOT / "setup" / "SKILL.md").is_file())
         servers = load_json(CODEX_MCP_PATH)["mcpServers"]
-        self.assertEqual(list(servers), ["text_to_cad"])
-        server = servers["text_to_cad"]
+        self.assertEqual(list(servers), ["cad"])
+        server = servers["cad"]
         self.assertNotIn("cwd", server)
         self.assertEqual(server["command"], "uvx")
         args = server["args"]

@@ -116,7 +116,7 @@ manifest = json.loads((repo / ".codex-plugin" / "plugin.json").read_text(encodin
 manifest["version"] = version
 manifest["mcpServers"] = "./codex.mcp.json"
 (plugin / ".codex-plugin" / "plugin.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-server = {"mcpServers": {"text_to_cad": {"command": python, "args": ["-m", "cadgen.cli", "mcp"],
+server = {"mcpServers": {"cad": {"command": python, "args": ["-m", "cadgen.cli", "mcp"],
                                          "env": {"CADGEN_MCP_APP_DIR": app}, "startup_timeout_sec": 30}}}
 (plugin / "codex.mcp.json").write_text(json.dumps(server, indent=2) + "\n", encoding="utf-8")
 catalog = {"name": marketplace, "interface": {"displayName": "CAD (this checkout)"}, "plugins": [{

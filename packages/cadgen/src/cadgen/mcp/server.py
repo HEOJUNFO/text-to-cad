@@ -56,7 +56,7 @@ from .views import NoAnswer, ViewRegistry
 
 LOG = logging.getLogger("cadgen.mcp")
 
-NAME = "text_to_cad"
+NAME = "cad"
 TITLE = "CAD"
 # The launch/view protocol between this server and its page. 2: every launch names a root, the
 # home's included, and the page reveals files (`cad_reveal`). 3: only the sidebar has a home, and
