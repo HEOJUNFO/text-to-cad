@@ -29,17 +29,20 @@ import { isQuittingForUpdate } from "./quitting";
 export const QUIT_DEADLINE_MS = 1_200;
 
 /**
- * How long each of the watchdog's two probes (`pgrep`, `ps`) may take. The deadline is
- * kept at 1.2 s of a two-second budget; two probes at this timeout fit in what is left.
- * A probe that hangs is killed and treated as having found nothing.
+ * How long the watchdog's one probe (`ps -axo pid=,ppid=,pgid=`: every process with its parent
+ * and group) may take. The deadline is kept at 1.2 s of a two-second budget; one probe at this
+ * timeout fits in what is left with 300 ms of slack. It is generous because starting a process on
+ * a loaded CI runner took longer than the 150 ms an earlier, two-probe version allowed, and a probe
+ * that times out leaves every child alive. A probe that hangs is killed and treated as having
+ * found nothing: only the app is killed.
  */
-export const WATCHDOG_PROBE_TIMEOUT_MS = 150;
+export const WATCHDOG_PROBE_TIMEOUT_MS = 400;
 
 /**
  * The watchdog's whole program. Platform-specific in one place: on Windows
- * `taskkill /T` ends the tree; elsewhere the direct children are listed and
+ * `taskkill /T` ends the tree; elsewhere the direct children are found and
  * killed before the parent. Our own children are already gone by then; what
- * `pgrep -P` finds is Chromium's helpers.
+ * the probe finds is Chromium's helpers.
  *
  * Every direct child is killed except the pids in `spare`: the shared warm
  * daemon (`daemonPids()`, src/main/cad/daemon.ts) outlives the app by design.
@@ -48,15 +51,14 @@ export const WATCHDOG_PROBE_TIMEOUT_MS = 150;
  * it) and must not be spared with it. A child that leads a group of its own
  * is killed as a group (`kill(-pgid)`); Chromium's helpers, in the app's
  * group, are killed one by one. A viewer reused from another app run is not
- * a child of this process and is never seen here. If the groups cannot be
- * read, every unspared child is killed singly. Both probes run under a timeout
- * (`probeTimeoutMs`) so a hung `ps` cannot stall the final kill of the app: a
- * `pgrep` that fails or times out finds no children (only the app is killed), a `ps`
- * that times out finds no groups (children are killed singly). A probe that exits
- * non-zero but printed rows is read for those rows. macOS `ps -p a,b` does not need this (it
- * prints the live rows and exits 0 unless no pid matches, and the app's own pid is always
- * listed); the read covers a variant that reports a vanished pid as a failure yet still prints
- * what it found, unmeasured on Linux.
+ * a child of this process and is never seen here.
+ *
+ * One probe finds the children and their groups: `ps -axo pid=,ppid=,pgid=` lists every
+ * process with its parent and group (BSD/macOS `ps` and Linux procps both take `-a -x -o`, and
+ * `name=` drops the header), the children are the rows whose ppid is the app's. It runs under a
+ * timeout (`probeTimeoutMs`) so a hung `ps` cannot stall the final kill of the app: a probe that
+ * fails or times out finds no children and only the app is killed. A probe that exits non-zero
+ * but printed rows is read for those rows.
  *
  * Windows has no spare list: `taskkill /T` follows ParentProcessId, which `detached` does
  * not change, so when the deadline is reached the tree kill takes the warm daemon with
@@ -88,12 +90,11 @@ const probe = (file, args) => {
   try { return cp.execFileSync(file, args, { encoding: "utf8", timeout: ${Math.max(1, Math.floor(probeTimeoutMs))}, killSignal: "SIGKILL" }); }
   catch (error) { return error && error.code !== "ETIMEDOUT" && typeof error.stdout === "string" ? error.stdout : ""; }
 };
-const children = probe("pgrep", ["-P", "${pid}"]).trim().split(/\\s+/).filter(Boolean);
-const groups = new Map();
-for (const line of probe("ps", ["-o", "pid=", "-o", "pgid=", "-p", ["${pid}", ...children].join(",")]).trim().split("\\n")) {
-  const [member, group] = line.trim().split(/\\s+/).map(Number);
-  if (Number.isInteger(member) && Number.isInteger(group)) groups.set(member, group);
-}
+const rows = probe("ps", ["-axo", "pid=,ppid=,pgid="]).trim().split("\\n")
+  .map((line) => line.trim().split(/\\s+/).map(Number))
+  .filter((row) => row.length === 3 && row.every(Number.isInteger));
+const groups = new Map(rows.map(([member, , group]) => [member, group]));
+const children = rows.filter(([, parent]) => parent === ${pid}).map(([member]) => String(member));
 const spare = ${JSON.stringify(spare.filter(Number.isInteger))};
 const own = groups.get(${pid});
 for (const child of children) {
