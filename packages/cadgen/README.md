@@ -207,6 +207,14 @@ the script's folder declares it the standard Python way (`PYTHONPATH=src`).
 *Pressure-test*: move a project's folders around and rebuild; cadgen must not
 care, only the project's imports may.
 
+A script may declare several models, and builds the ones its `__main__` calls.
+Its flags (`--force`, `--json`, `--verbose`, the mesh tolerances) apply to every
+model it builds: no flag names, selects or configures one of them. A command
+that addresses one model, such as `cadgen store why`, names it
+`script.py::function`; a bare `script.py` names its sole model, and a file that
+declares several must be named. *Pressure-test*: put two models in one file and
+call both from `__main__`; every flag must mean the same thing for each.
+
 ### 8. No backwards compatibility
 
 Hard cutovers only. Every retired surface fails loudly with a teaching
