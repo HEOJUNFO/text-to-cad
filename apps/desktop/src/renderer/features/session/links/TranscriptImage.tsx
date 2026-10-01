@@ -29,7 +29,7 @@ export function TranscriptImage({
 }: ImgHTMLAttributes<HTMLImageElement> & { node?: unknown }) {
   const scope = useContext(TranscriptScopeContext);
   const source = typeof src === "string" ? src : "";
-  const target = pathTarget(source);
+  const target = pathTarget(source, scope?.rootPath);
   if (target && scope) {
     return <ProjectImage alt={alt} className={className} path={target.path} scope={scope} />;
   }

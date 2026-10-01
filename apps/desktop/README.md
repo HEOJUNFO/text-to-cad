@@ -848,8 +848,13 @@ a selector (`bracket.step#o1.2`, `#label.f45`) opens the file in the
 viewer and hands the selector to the STEP renderer's command source. Paths
 are relative to the thread's root — its worktree when it has one — and an
 absolute path (`/Users/me/proj/models/a.step`) links when it lies inside that
-root, read against it; one outside the root is only words, since nothing
-outside the project opens in the explorer. A failed `explorer.exists` is not
+root, read against it (a root with a space in it too: `remarkPathLinks` is given
+the root); one outside the root is only words, since nothing outside the
+project opens in the explorer. The plugin marks an absolute path's URL
+(`?abs`), because rehype-harden spells a workspace path `/models/x` too and
+`/etc/hosts` would otherwise read as `<root>/etc/hosts`; a link the agent wrote
+by hand with a leading `/` is still read as a workspace path. An image at an
+absolute path under the root is read the same way. A failed `explorer.exists` is not
 an answer: the path stays words and is asked again on the next hover or click
 (and at the next `files.changed`), not pinned as "not a path".
 

@@ -6,6 +6,8 @@ import { cn } from "@renderer/lib/utils";
 import { useExplorer } from "@renderer/state/explorer";
 import { usePathKind, usePathLinks } from "@renderer/state/path-links";
 import { isCadFile, isSelectorList } from "@shared/cad-refs";
+
+import { ABSOLUTE_MARK } from "./grammar";
 import type { ExplorerRoot } from "@shared/types";
 
 /**
@@ -25,6 +27,8 @@ export const TranscriptScopeContext = createContext<TranscriptScope | null>(null
 /** What a link's href names, when it names a path: the file half and the selector half. */
 export type PathTarget = { path: string; selector: string };
 
+
+
 /**
  * A path out of a markdown link's href, or null for a URL.
  *
@@ -33,16 +37,25 @@ export type PathTarget = { path: string; selector: string };
  * agent that wrote `[the part](models/x.step)` by hand arrives as that. All
  * three are the same file, so a leading `/` is a workspace path — unless it
  * starts with `rootPath` (the scope's absolute root), in which case it is an
- * absolute path inside the project and is read relative to it. An absolute
- * path outside the root has no link: it comes out as a workspace path that
- * does not exist, which is the words it was.
+ * absolute path inside the project and is read relative to it.
+ *
+ * An absolute path in prose is told apart from those by `ABSOLUTE_MARK`
+ * (`remarkPathLinks` writes it; harden's `/models/x` is otherwise the same
+ * string as `/etc/hosts`): marked, it is a link only inside the root, and
+ * outside it — or with no root known — it is null, the words it was. An
+ * unmarked `/…` outside the root (a link the agent wrote by hand) stays a
+ * workspace path, as harden hands it on.
  */
 export function pathTarget(href: string | undefined, rootPath?: string | null): PathTarget | null {
   if (!href || /^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith("//")) {
     return null;
   }
   const hash = href.indexOf("#");
-  const rawPath = hash >= 0 ? href.slice(0, hash) : href;
+  let rawPath = hash >= 0 ? href.slice(0, hash) : href;
+  const absolute = rawPath.endsWith(ABSOLUTE_MARK);
+  if (absolute) {
+    rawPath = rawPath.slice(0, -ABSOLUTE_MARK.length);
+  }
   const rawSelector = hash >= 0 ? href.slice(hash + 1) : "";
   let path: string;
   let selector: string;
@@ -55,6 +68,8 @@ export function pathTarget(href: string | undefined, rootPath?: string | null): 
   const root = rootPath?.replace(/\/+$/, "");
   if (root && (path === root || path.startsWith(`${root}/`))) {
     path = path.slice(root.length);
+  } else if (absolute) {
+    return null;
   }
   path = path.replace(/^(\.\/|\/)+/, "").replace(/\/+$/, "");
   // A `..` segment climbs out; `v1..v2.txt` and `..keep/a.txt` are only names.

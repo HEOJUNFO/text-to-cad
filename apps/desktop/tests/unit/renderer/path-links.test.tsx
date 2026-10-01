@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { findPathTokens, looksLikePath, pathToken } from "@renderer/features/session/links/grammar";
 import { PartsList } from "@renderer/features/session/parts/PartsList";
 import { PathLink, TranscriptScopeContext, pathTarget } from "@renderer/features/session/links/PathLink";
+import { TranscriptImage } from "@renderer/features/session/links/TranscriptImage";
 import { remarkPathLinks } from "@renderer/features/session/links/remarkPathLinks";
 import { useExplorer } from "@renderer/state/explorer";
 import { scopeKey, usePathLinks } from "@renderer/state/path-links";
@@ -93,6 +94,13 @@ describe("remarkPathLinks", () => {
 });
 
 describe("pathTarget", () => {
+  it("reads a marked absolute path only inside the root: outside it, or with no root known, it is words", () => {
+    expect(pathTarget("/Users/me/p/models/a.step?abs#o1", "/Users/me/p")).toEqual({ path: "models/a.step", selector: "o1" });
+    expect(pathTarget("/etc/hosts?abs", "/Users/me/p")).toBeNull();
+    expect(pathTarget("/Users/me/pp/a.step?abs", "/Users/me/p")).toBeNull();
+    expect(pathTarget("/etc/hosts?abs")).toBeNull();
+  });
+
   it("reads an absolute path inside the root against it, and one outside as a workspace path that is not there", () => {
     expect(pathTarget("/Users/me/p/models/a.step#o1", "/Users/me/p")).toEqual({ path: "models/a.step", selector: "o1" });
     expect(pathTarget("/Users/me/p/", "/Users/me/p/")).toBeNull();
@@ -263,5 +271,49 @@ describe("an absolute path in an agent's prose, through the markdown pipeline", 
     const link = await screen.findByRole("button", { name: /models\/a\.step/ });
     expect(link).toHaveAttribute("data-path-link", "models/a.step");
     expect(screen.getAllByRole("button")).toHaveLength(1);
+  });
+});
+
+describe("an absolute path outside the root, and a root the grammar cannot hold", () => {
+  const exists = (known: Record<string, "file">) =>
+    vi.fn(async ({ paths }: { paths: string[] }) => Object.fromEntries(paths.map((path) => [path, known[path] ?? null])));
+  const prose = (text: string, rootPath: string) =>
+    render(
+      <TranscriptScopeContext.Provider value={{ projectId: "p1", root: null, rootPath }}>
+        <PartsList open={false} parts={[{ type: "text", text }]} prefix="t" sessionId="s1" />
+      </TranscriptScopeContext.Provider>,
+    );
+
+  beforeEach(() => usePathLinks.setState({ kinds: {} }));
+
+  it("stays words in prose even when the same path exists under the root", async () => {
+    // `<root>/etc/hosts` exists; `/etc/hosts` is somewhere else entirely.
+    (window.textToCad.explorer as unknown as Record<string, unknown>).exists = exists({ "etc/hosts": "file", "models/a.step": "file" });
+    prose("See /etc/hosts and /Users/me/p/models/a.step.", "/Users/me/p");
+    const link = await screen.findByRole("button", { name: /models\/a\.step/ });
+    expect(link).toHaveAttribute("data-path-link", "models/a.step");
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /hosts/ })).toBeNull();
+  });
+
+  it("links an absolute path under a root with a space in it", async () => {
+    (window.textToCad.explorer as unknown as Record<string, unknown>).exists = exists({ "models/a.step": "file", "b.md": "file" });
+    prose("Wrote /Users/me/My Project/models/a.step#o1 and `/Users/me/My Project/b.md`.", "/Users/me/My Project");
+    const link = await screen.findByRole("button", { name: /models\/a\.step/ });
+    expect(link).toHaveAttribute("data-path-link", "models/a.step");
+    expect(link).toHaveAttribute("data-path-selector", "o1");
+    expect(await screen.findByRole("button", { name: /b\.md/ })).toHaveAttribute("data-path-link", "b.md");
+  });
+
+  it("reads an image at an absolute path under the root through the project", async () => {
+    const readBinary = vi.mocked(window.textToCad.explorer.readBinary);
+    readBinary.mockResolvedValue({ path: "render.png", mime: "image/png", size: 4, dataUrl: "data:image/png;base64,AAAA" });
+    render(
+      <TranscriptScopeContext.Provider value={{ projectId: "p1", root: null, rootPath: "/Users/me/p" }}>
+        <TranscriptImage alt="r" src="/Users/me/p/render.png" />
+      </TranscriptScopeContext.Provider>,
+    );
+    expect(await screen.findByAltText("r")).toHaveAttribute("src", "data:image/png;base64,AAAA");
+    expect(readBinary).toHaveBeenCalledWith({ projectId: "p1", path: "render.png" });
   });
 });

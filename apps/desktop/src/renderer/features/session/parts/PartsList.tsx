@@ -1,6 +1,6 @@
 import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { AlertCircle, Paperclip, RotateCcw, Unplug } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useContext, useMemo, useState, type ComponentProps } from "react";
 
 import { defaultRemarkPlugins } from "streamdown";
 
@@ -9,6 +9,7 @@ import { Button } from "@renderer/components/ui/button";
 import type { Part } from "@shared/acp/types";
 
 import { TRANSCRIPT_COMPONENTS, TRANSCRIPT_REHYPE_PLUGINS } from "../links/components";
+import { TranscriptScopeContext } from "../links/PathLink";
 import { remarkPathLinks } from "../links/remarkPathLinks";
 import { partsView, type ViewItem } from "../view";
 
@@ -21,9 +22,25 @@ import { partsView, type ViewItem } from "../view";
  * composer.
  *
  * `remarkPlugins` *replaces* Streamdown's defaults rather than extending
- * them, so GFM is spread back in first.
+ * them, so GFM is spread back in first. The path plugin is given the thread's
+ * root (a root with a space in it is read where an absolute path begins with
+ * it), so the list is one per root, kept by `useRemarkPlugins`.
  */
-const REMARK_PLUGINS = [...Object.values(defaultRemarkPlugins), remarkPathLinks];
+const DEFAULT_REMARK_PLUGINS = Object.values(defaultRemarkPlugins);
+type RemarkPlugins = ComponentProps<typeof MessageResponse>["remarkPlugins"];
+const remarkPluginsFor = new Map<string, NonNullable<RemarkPlugins>>();
+
+function useRemarkPlugins(): RemarkPlugins {
+  const rootPath = useContext(TranscriptScopeContext)?.rootPath ?? "";
+  return useMemo(() => {
+    let plugins = remarkPluginsFor.get(rootPath);
+    if (!plugins) {
+      plugins = [...DEFAULT_REMARK_PLUGINS, [remarkPathLinks, { rootPath: rootPath || null }]];
+      remarkPluginsFor.set(rootPath, plugins);
+    }
+    return plugins;
+  }, [rootPath]);
+}
 import { ActivityGroup } from "./ActivityRow";
 import { PermissionCard } from "./PermissionCard";
 import { SubagentRow } from "./SubagentRow";
@@ -109,11 +126,12 @@ function ViewItemView({
   onRetry?: () => void | Promise<void>;
   onReconnect?: () => void;
 }) {
+  const remarkPlugins = useRemarkPlugins();
   switch (item.kind) {
     case "text":
       return (
         <div className="prose-transcript my-2 min-w-0 [overflow-wrap:anywhere] text-[14px] leading-6" data-part="text">
-          <MessageResponse components={TRANSCRIPT_COMPONENTS} isAnimating={item.streaming} rehypePlugins={TRANSCRIPT_REHYPE_PLUGINS} remarkPlugins={REMARK_PLUGINS}>
+          <MessageResponse components={TRANSCRIPT_COMPONENTS} isAnimating={item.streaming} rehypePlugins={TRANSCRIPT_REHYPE_PLUGINS} remarkPlugins={remarkPlugins}>
             {item.text}
           </MessageResponse>
         </div>
