@@ -129,6 +129,11 @@ describe("shortcuts", () => {
 
   it("prints the explorer toggle's AltGr-free chord off a Mac", () => {
     const row = SHORTCUTS.find((shortcut) => shortcut.id === "toggle-explorer")!;
+    // As rendered first: the page (jsdom's agent is not a Mac) prints the row's other binding.
+    wrap(<ShortcutsPage />);
+    const printed = screen.getByText("Toggle explorer").closest("div")!.parentElement!.textContent;
+    expect(printed).toContain("Ctrl+Shift+E");
+    expect(printed).not.toContain("Alt");
     expect(shortcutKeys(bindingFor(row, true), true)).toBe("⌘⌥B");
     expect(shortcutKeys(bindingFor(row, false), false)).toBe("Ctrl+Shift+E");
   });
@@ -142,9 +147,12 @@ describe("shortcuts", () => {
 });
 
 describe("the shortcuts page", () => {
-  it("names the toast chord, which no row holds", () => {
+  it("prints the toast chord as a row, with no footnote", () => {
     wrap(<ShortcutsPage />);
-    expect(screen.getByText("Toasts: ⌘⌥T on macOS, Ctrl+Shift+T elsewhere.")).toBeInTheDocument();
+    expect(screen.getByText("Focus the notifications")).toBeInTheDocument();
+    const printed = screen.getByText("Focus the notifications").closest("div")!.parentElement!.textContent;
+    expect(printed).toContain("Ctrl+Shift+T");
+    expect(screen.queryByText(/Toasts:/)).toBeNull();
   });
 });
 

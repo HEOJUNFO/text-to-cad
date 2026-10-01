@@ -34,6 +34,7 @@ describe("a refused menu write", () => {
     vi.mocked(sessions.setPinned).mockRejectedValueOnce(new Error("no"));
     await useSessions.getState().setPinned("s1", false);
     vi.mocked(sessions.delete).mockRejectedValueOnce(new Error("no"));
+    vi.mocked(sessions.list).mockResolvedValueOnce([row("s1")]);
     await useSessions.getState().remove("s1");
     expect(vi.mocked(toast.error).mock.calls.map(([text]) => text)).toEqual([
       "Could not unarchive the thread: no",
@@ -41,6 +42,24 @@ describe("a refused menu write", () => {
       "Could not unpin the thread: no",
       "Could not delete the thread: no",
     ]);
+    expect(useSessions.getState().activeId).toBe("s1");
+  });
+});
+
+describe("a delete rejected after the row went", () => {
+  it("drops the active id and does not toast when the list no longer has the row", async () => {
+    vi.mocked(window.textToCad.sessions.delete).mockRejectedValueOnce(new Error("cleanup failed"));
+    vi.mocked(window.textToCad.sessions.list).mockResolvedValueOnce([]);
+    await useSessions.getState().remove("s1");
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(useSessions.getState().activeId).toBeNull();
+  });
+
+  it("toasts and keeps the id when the list still has the row", async () => {
+    vi.mocked(window.textToCad.sessions.delete).mockRejectedValueOnce(new Error("locked"));
+    vi.mocked(window.textToCad.sessions.list).mockResolvedValueOnce([row("s1")]);
+    await useSessions.getState().remove("s1");
+    expect(toast.error).toHaveBeenCalledWith("Could not delete the thread: locked");
     expect(useSessions.getState().activeId).toBe("s1");
   });
 });

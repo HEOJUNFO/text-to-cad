@@ -780,15 +780,15 @@ colour waiting on a permission ("it needs you", not a warning), a red triangle a
 worktree or on a branch of its own, and a `…` on hover or when it takes
 keyboard focus, for pin, rename, archive and delete. `Pinned` is the first section when anything is pinned,
 and a pinned thread lives **only** there — never twice.
-A pin, archive or delete that main refuses leaves the thread as it was and says so in the rename's shape — "Could not pin
-(unpin, archive, unarchive, delete) the thread: …" — and a refused archive or delete keeps the open session open.
+A pin, archive or delete that main refuses leaves the thread as it was (main writes the row first and only then closes or retires the adapter, so a refused write has touched nothing) and says so in the rename's shape — "Could not pin
+(unpin, archive, unarchive, delete) the thread: …" — and a refused archive or delete keeps the open session open — a delete whose rejection leaves no row behind (the renderer re-reads the list) is not refused, the thread is gone. A delete whose row is gone but whose disposal throws still succeeds, keeping the worktree on disk.
 
 The filter menu is global, and it is opened from the panel's own header:
 `Status` (Active / Archived / All), `Environment` (All / Local / Worktree —
 our git modes), `Group by` (Project, or None for one flat list), `Sort by`
 (Last activity / Created / Name) and `Show branch`. *Last activity* is `updatedAt`, which a prompt, a turn opening or
-closing, a permission asked or answered, a title, a rename or a mark moves — and a connection's own life (opening a closed
-thread, a keep-alive eviction, a failed connect) and a pin do not, so rows do not jump under the pointer. It is stored in `settings.sidebar` and applied by one pure
+closing, a permission asked or answered, a title or a rename moves — and a connection's own life (opening a closed
+thread, a keep-alive eviction, a failed connect), a pin, an archive and an unarchive (so Undo puts the row back where it was) do not, so rows do not jump under the pointer. It is stored in `settings.sidebar` and applied by one pure
 function over the index (`sidebarSections` in `lib/sidebar.ts`), which is also
 where the rules live that a screenshot cannot check: a pinned thread is
 excluded from its directory section, empty sections never appear (including
@@ -1147,11 +1147,11 @@ poor thing to put in front of them.
 ## Keyboard
 
 Every shortcut is a row in `src/renderer/lib/shortcuts.ts`, which Settings ›
-Keyboard shortcuts prints, but one: the toast chord (Cmd+Option+T on a Mac,
-Ctrl+Shift+T elsewhere, `components/ui/sonner.tsx`) differs by platform, and a
-row holds one portable binding, so the page closes with a footnote naming it. A row that would arrive as AltGr
-off a Mac carries an `otherBinding` (`bindingFor` in `lib/shortcuts.ts`): Toggle explorer is Cmd+Option+B on a Mac and
-Ctrl+Shift+E elsewhere, in the menu (`main/menu.ts`), in `Shell`'s key handler and on the page. The ones the app menu also declares are its accelerators, so
+Keyboard shortcuts prints. A row holds two bindings when the platforms differ: one that would arrive as AltGr
+off a Mac carries an `otherBinding` (`bindingFor` in `lib/shortcuts.ts`). Toggle explorer is Cmd+Option+B on a Mac and
+Ctrl+Shift+E elsewhere, in the menu (`main/menu.ts`), in `Shell`'s key handler and on the page; the toast chord
+(`components/ui/sonner.tsx`) is the row "Focus the notifications", Cmd+Option+T on a Mac and Ctrl+Shift+T elsewhere, and
+is renderer-only (no menu accelerator). The ones the app menu also declares are its accelerators, so
 they work with focus inside a webview (see "Rules that are easy to break" in
 AGENTS.md). The menu's New Session and Settings… with no window open one and
 hold the command until its page calls `ui.ready` (`src/main/menu.ts`): pushed
@@ -1728,10 +1728,10 @@ also spare the app-owned viewer, which is `detached` too). A child that leads a
 group of its own, like the viewer, is killed as a group, so its compile workers
 go with it; Chromium's helpers are killed singly. (A viewer reused from another
 run is not a child of this app and is never touched.) Its two probes, `pgrep -P`
-for the children and `ps` for their groups, each run under a 250 ms timeout so a
+for the children and `ps` for their groups, each run under a 150 ms timeout so a
 hung `ps` cannot stall the final kill of the app. The worst case is therefore
 `QUIT_DEADLINE_MS` + 2 × `WATCHDOG_PROBE_TIMEOUT_MS` + 300 ms of slack for starting the watchdog and
-the kill landing, which is 2000 ms, the whole budget; `tests/unit/main/quit-deadline.test.ts` holds that
+the kill landing, which is 1800 ms, 200 ms inside the 2000 ms budget (a both-probes-hang run measures about 1520 ms, down from 1720 ms at 250 ms probes); `tests/unit/main/quit-deadline.test.ts` holds that
 arithmetic in one place (the sum must fit the budget, and a run with both probes hanging must finish within it),
 so raising a probe timeout fails there. If `pgrep` fails or times out
 it finds no children, and only the app is killed; if `ps` times out, no groups are
@@ -2278,8 +2278,8 @@ setup button; the composer stays sendable, because the session did start. Retry
 setup is `sessions.retrySetup` (`SessionManager.retrySetup`): it re-runs the
 same `applyPreferences` a create runs on the live, idle connection, and answers
 with the new note or null, which drops it. A session that is not `idle` throws
-"The session is busy; set it up again when it is idle."; a retry that fails is
-the note "Setting it up again failed: <cause>" (also re-broadcast as the
+"The session is busy; set it up again when it is idle." (a refusal, shown as is); a retry that fails is
+the note "Setting it up again failed: <cause>", composed by main (also re-broadcast as the
 session's status error). The renderer's answer is dropped when the session was
 forgotten or disconnected meanwhile (a generation check in `retrySetup`,
 `state/acp.ts`), and the alert is hidden while the session shows a load error or
@@ -2289,8 +2289,8 @@ disconnect (`close`), a closed status from the adapter itself (a crash or exit,
 through `receiveEvent`) or a forget clears the note, and the alert is never drawn
 beside the "Agent disconnected" bar; it is not persisted, so a window reload drops
 it. Retry setup is disabled and reads "Retrying setup…" until the answer comes
-back, and a retry the IPC rejects outright becomes the note "Setting it up again
-failed: <cause>", the same sentence main gives one that fails.
+back, and a retry main refuses (it throws, as for a busy session) becomes the note with
+main's own words, unprefixed: nothing was tried, so it is not reported as a failed try.
 One whose connection is dead, or whose row is gone,
 is abandoned (`abandonCreate`): the connection is retired, the row removed, the
 worktree that create cut released, and `create` rejects. The same happens when

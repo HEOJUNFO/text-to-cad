@@ -448,6 +448,6 @@ describe("quit sequence", () => {
     const slow = teardownMs(waiting.info.mock.calls.map(([line]) => String(line)));
     expect(slow, "a 300 ms close() should show in the logged teardown").toBeGreaterThanOrEqual(300);
     expect(slow!, "a 300 ms close() should exceed the teardown budget").toBeGreaterThan(QUIT_TEARDOWN_BUDGET_MS);
-    main.restore();
+    waiting.restore();
   });
 });

@@ -24,6 +24,9 @@ shortcuts and SDK actions are disabled, including the command palette that
 otherwise includes hardcoded export and library actions. Dropped scene/library
 files and pasted scene files are rejected. Dropped raster images are inserted
 directly as images so even PNG metadata cannot replace the current sketch.
+The SDK's Cmd/Ctrl+Shift+E (its image-export dialog, which ignores the menu flags) is swallowed. Off a Mac (`platform` not
+`darwin`) Ctrl+Shift+E is the desktop host's explorer chord, so the editor re-dispatches it to `window` for the host's
+listeners instead of letting the stopped event vanish with the SDK's.
 Ordinary copied elements and raster image insertion remain available; pasted
 elements pass bounded scene validation.
 

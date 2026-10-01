@@ -327,8 +327,10 @@ export const useAcp = create<AcpState>((set, get) => ({
     try {
       note = (await window.textToCad.sessions.retrySetup({ id: sessionId })).error;
     } catch (error) {
-      // The IPC's own words, in the sentence main gives a retry that fails (`SessionManager.retrySetup`).
-      note = `Setting it up again failed: ${errorMessage(error)}`;
+      // A rejection is a refusal: main throws before it tries anything (the session is busy, or
+      // has no live connection), and a try that fails is *resolved* with its own "Setting it up
+      // again failed: <cause>" note. Prefixing here would report a failure for a try never made.
+      note = errorMessage(error);
     }
     // Forgotten or disconnected meanwhile: the setup is moot, and so is its answer.
     if (generationOf(sessionId) !== asked) return;

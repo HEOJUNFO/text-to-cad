@@ -73,3 +73,29 @@ test("an unrecoverable first failure is rethrown after its context is released",
   );
   assert.deepEqual(lost, ["only"]);
 });
+
+test("a failed attempt whose canvas never made a context releases nothing, throws nothing and asks for no WebGL 1 context", () => {
+  const asked = [];
+  const lost = [];
+  const canvas = {
+    getContext: (kind) => {
+      asked.push(kind);
+      return null;
+    },
+    loseContext: () => lost.push("lost")
+  };
+  const failure = new Error("Error creating WebGL context.");
+  assert.throws(
+    () => createCadWebGlRenderer({ WebGLRenderer: class { constructor() { throw failure; } } }, { createCanvas: () => canvas }),
+    failure
+  );
+  assert.deepEqual(lost, []);
+  assert.deepEqual(asked, ["webgl2"], "only the type three tried is asked for: asking for another could create a context just to lose it");
+  // A canvas whose getContext itself throws is as harmless.
+  assert.throws(
+    () => createCadWebGlRenderer({ WebGLRenderer: class { constructor() { throw failure; } } }, {
+      createCanvas: () => ({ getContext: () => { throw new Error("context creation blew up"); } })
+    }),
+    failure
+  );
+});

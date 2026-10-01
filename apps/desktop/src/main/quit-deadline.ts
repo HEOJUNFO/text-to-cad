@@ -33,7 +33,7 @@ export const QUIT_DEADLINE_MS = 1_200;
  * kept at 1.2 s of a two-second budget; two probes at this timeout fit in what is left.
  * A probe that hangs is killed and treated as having found nothing.
  */
-export const WATCHDOG_PROBE_TIMEOUT_MS = 250;
+export const WATCHDOG_PROBE_TIMEOUT_MS = 150;
 
 /**
  * The watchdog's whole program. Platform-specific in one place: on Windows

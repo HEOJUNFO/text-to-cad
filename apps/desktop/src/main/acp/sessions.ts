@@ -1190,13 +1190,21 @@ export class SessionManager {
         // stood.
         console.warn(`[acp] archive ${id.slice(0, 8)}: create still running after ${ARCHIVE_WAIT_MS / 1000} s, abandoning it`);
         this.close(id);
-        return this.deps.repo.get(id) ? this.update(id, { archived }) : { ...session, archived, status: "closed" };
+        return this.deps.repo.get(id) ? this.update(id, { archived }, false) : { ...session, archived, status: "closed" };
       }
       // A create that failed took the row with it: there is nothing left to archive.
       this.require(id);
-      this.close(id);
     }
-    return this.update(id, { archived });
+    // The durable write first, the side effect after: a write that throws
+    // leaves the adapter running and the row as it was, which is what the
+    // refusal toast says. Archiving and unarchiving are not activity in the
+    // thread (`activity: false`), so Undo puts the row back where it was.
+    const updated = this.update(id, { archived }, false);
+    if (!archived) {
+      return updated;
+    }
+    this.close(id);
+    return this.deps.repo.get(id) ?? updated;
   }
 
   /** Whether `work` settled (either way) before `ms` passed. */
@@ -1257,21 +1265,32 @@ export class SessionManager {
        * terminals, browser targets and CAD viewer holding the session's
        * directory open (`src/main/ipc/acp.ts`). After the row, so a delete
        * that fails leaves the session whole; before the release, so nothing
-       * outlives its directory. A throw here keeps the worktree on disk.
+       * outlives its directory. A throw here keeps the worktree on disk and is
+       * logged, not rethrown: the row is already gone.
        */
       beforeRelease?: (session: Session | null) => void | Promise<void>;
     } = {},
   ): Promise<void> {
     const session = this.deps.repo.get(id);
+    // The durable write first: a `remove` that throws leaves the row, its
+    // adapter and its pending snapshot exactly as they were.
+    this.deps.repo.remove(id);
     this.retire(id);
     this.pendingTitles.delete(id);
     this.tallies.delete(id);
     // The snapshot row goes with the session's own (ON DELETE CASCADE); this
     // cancels the pending write that would otherwise put it back.
     this.snapshots?.forget(id);
-    this.deps.repo.remove(id);
     this.broadcastIndex();
-    await options.beforeRelease?.(session);
+    try {
+      await options.beforeRelease?.(session);
+    } catch (error) {
+      // The row is gone, so the delete happened: rejecting would toast "Could
+      // not delete" over a thread that no longer exists. What could not be
+      // disposed keeps the worktree on disk (it may still be held open).
+      console.warn(`[acp] kept the worktree of deleted session ${id.slice(0, 8)}: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
     if (session) {
       // Before the worktree goes: the refs live in the repository it shares.
       await this.unpinMarks(session);

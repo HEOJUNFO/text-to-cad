@@ -9,11 +9,11 @@
  * one a person reads and the menu is the one Electron reads — and
  * `tests/unit/main/shortcuts-menu.test.ts` holds them to the same keys: every
  * menu accelerator is a row here, and every Application row with a modifier
- * is a menu accelerator. Two bindings are left out. The development build's
- * `Reload App` (Mod+Alt+R), because a packaged app does not have it; and the
- * toast chord (`components/ui/sonner.tsx`: Cmd+Option+T on a Mac, Ctrl+Shift+T
- * elsewhere), because a row holds one portable binding and this one differs by
- * platform — the Settings page prints it as a footnote instead.
+ * is a menu accelerator, except the renderer-only ones (`RENDERER_ONLY` in that
+ * test). One binding is left out: the development build's `Reload App`
+ * (Mod+Alt+R), because a packaged app does not have it. The toast chord
+ * (`components/ui/sonner.tsx`) is a row like the others, with an `otherBinding`:
+ * Cmd+Option+T on a Mac, Ctrl+Shift+T elsewhere.
  *
  * A binding is written once, in the portable form (`Mod+K`), and rendered per
  * platform: `Mod` is ⌘ on macOS and Ctrl everywhere else, which is the only
@@ -44,6 +44,8 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: "close-settings", group: "Application", label: "Close Settings or the palette", binding: "Escape" },
   { id: "toggle-sidebar", group: "Application", label: "Toggle sidebar", binding: "Mod+B" },
   { id: "toggle-explorer", group: "Application", label: "Toggle explorer", binding: "Mod+Alt+B", otherBinding: "Mod+Shift+E" },
+  // Renderer-only: the Toaster's own hotkey (`components/ui/sonner.tsx`), which moves focus into the notifications.
+  { id: "focus-notifications", group: "Application", label: "Focus the notifications", binding: "Mod+Alt+T", otherBinding: "Mod+Shift+T" },
   // The top level only: the threads and new-session screens the session pane
   // has shown. The explorer's tabs have their own strip and are not in it.
   { id: "navigate-back", group: "Application", label: "Back", binding: "Mod+[" },
