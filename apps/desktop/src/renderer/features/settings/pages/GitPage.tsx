@@ -241,7 +241,10 @@ function ProjectWorktreeCard({ project }: { project: Project }) {
   const epoch = useWorktreeCache((state) => state.epoch);
   const readError = useWorktreeCache((state) => state.errors[project.id]) ?? null;
   const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // A delete's failure is about the list it was made against: the next read that lands replaces the
+  // list and so retires the message (compared by identity, not cleared by an effect).
+  const [failure, setFailure] = useState<{ message: string; against: Worktree[] | null } | null>(null);
+  const error = failure && failure.against === worktrees ? failure.message : null;
 
   // A mount reads afresh over the list the visit already has (`worktree-cache.ts`);
   // `epoch` reads again after an invalidation.
@@ -252,19 +255,14 @@ function ProjectWorktreeCard({ project }: { project: Project }) {
     void ensureWorktrees(project.id);
   }, [project.id, epoch]);
 
-  // A delete's failure is about the list it was made against: the next read that lands replaces it.
-  useEffect(() => {
-    setError(null);
-  }, [worktrees]);
-
   const remove = async (worktree: Worktree) => {
     setBusy(worktree.path);
-    setError(null);
+    setFailure(null);
     try {
       await window.textToCad.git.removeWorktree({ projectId: project.id, path: worktree.path });
       useWorktreeCache.getState().invalidate();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
+      setFailure({ message: caught instanceof Error ? caught.message : String(caught), against: worktrees });
     } finally {
       setBusy(null);
     }
