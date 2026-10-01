@@ -359,6 +359,26 @@ identity. A real one (`link_arm`: a bar plus two placements of a pin model):
   decides whether the parent runs by its sources, and what it publishes for
   its bytes is the same tree either way.
 
+  **Kept documents.** A rebuild may keep its saved document instead of writing
+  the same bytes again. The record's `writerInput` is the sha256 of everything
+  the saved STEP's bytes are a function of
+  (`cadgen.store.build.writer_input_digest`): the flattened descriptor the
+  writer is given — geometry by BREP object hash with intrinsic face colours,
+  placements, names, colours and grouping — the file name,
+  `STEP_WRITER_SCHEME`, the cadgen release and the loaded kernel. It leaves
+  out only the root's authored name (the root product is named after the file)
+  and finishes (README law 16). When a rebuild's writer input equals its
+  record's, the STEP on disk when the build started still has the recorded
+  `stepHash`, and that document's tree is complete, the build publishes its
+  result and writes only the sidecar and the record: no export, no read-back,
+  no correspondence. The recorded `documentTree` and maps carry over, the
+  result takes the recorded result's bounds, which the input pins, and the
+  build reports `documentReadback` as `kept`. The writer is pure (README law
+  5), so those bytes are what a write would produce. A forced build always
+  writes; so does any rebuild whose record lacks `writerInput`. Bump
+  `STEP_WRITER_SCHEME` with any change to the bytes cadgen writes for the same
+  descriptor.
+
   Finishes that STEP does not carry persist in the schema-9 sidecar's named
   `appearance.materials` library and `appearance.assignments` map, keyed by
   verified canonical leaf IDs. Resolved
@@ -420,7 +440,8 @@ A real one (`link_robot`: a base, two placements of `link_arm`, one of
     {"model": "/abs/models/assemblies/src/link_robot/link_pin.py::link_pin", "tree": "265aee57…"}
   ],
   "outputs": {"/abs/models/assemblies/STEP/link_robot/link_robot.step": {"sha256": "823699b0…"}},
-  "stepHash": "823699b0…"
+  "stepHash": "823699b0…",
+  "writerInput": "5f0c27d1…"
 }
 ```
 

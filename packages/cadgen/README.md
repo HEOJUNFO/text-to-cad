@@ -144,7 +144,9 @@ format — STEP (canonicalized NAUO ids and presentation-style ordering), meshes
 kernel makes no such promise. Two runs of one model can differ in a last digit
 or in the order of the pieces a boolean returns, and cadgen neither hides that
 nor depends on it. Equal bytes mean reuse; different bytes cost a
-recomputation (a re-mesh, a parent recompose) and never a wrong answer.
+recomputation (a re-mesh, a parent recompose) and never a wrong answer. A
+rebuild whose writer input is unchanged keeps its saved STEP instead of writing
+the same bytes again ([`STORE.md`](STORE.md) §3, `writerInput`).
 Content addresses stay byte hashes; whether a model runs is decided by its
 sources (`STORE.md` §4), never by its outputs being reproducible. Compare two
 builds by geometry within a tolerance, never by file hash.
