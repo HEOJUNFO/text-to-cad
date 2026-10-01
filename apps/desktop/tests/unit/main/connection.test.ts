@@ -79,7 +79,7 @@ async function ticksUntil(done: () => boolean, what: string): Promise<void> {
 describe("the fake agent's slow turn", () => {
   it("leaves no timer behind: once cancelled and its stdin closed, the agent exits by itself", async () => {
     const agent = spawn(process.execPath, [FAKE_AGENT], { stdio: ["pipe", "pipe", "ignore"] });
-    const lines: Array<Record<string, any>> = [];
+    const lines: Array<{ id?: number; result?: { sessionId?: string; stopReason?: string } }> = [];
     let buffered = "";
     agent.stdout.on("data", (chunk) => {
       buffered += chunk;
@@ -96,12 +96,12 @@ describe("the fake agent's slow turn", () => {
       await ticksUntil(() => lines.some((line) => line.id === 1), "initialize");
       send({ id: 2, method: "session/new", params: { cwd: os.tmpdir(), mcpServers: [] } });
       await ticksUntil(() => lines.some((line) => line.id === 2), "session/new");
-      const sessionId = lines.find((line) => line.id === 2)!.result.sessionId as string;
+      const sessionId = lines.find((line) => line.id === 2)!.result!.sessionId!;
       send({ id: 3, method: "session/prompt", params: { sessionId, prompt: [{ type: "text", text: "slow" }] } });
       await ticksUntil(() => lines.some((line) => JSON.stringify(line).includes("working")), "the slow turn to start");
       send({ method: "session/cancel", params: { sessionId } });
       await ticksUntil(() => lines.some((line) => line.id === 3), "the cancelled turn's response");
-      expect(lines.find((line) => line.id === 3)!.result.stopReason).toBe("cancelled");
+      expect(lines.find((line) => line.id === 3)!.result!.stopReason).toBe("cancelled");
 
       agent.stdin.end();
       // No signal is sent: it exits because nothing is left to keep it alive (the vitest timeout is the bound).
