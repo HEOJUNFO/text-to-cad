@@ -773,8 +773,8 @@ leave the sidebar and come back through the filter menu's `Status` → Archived,
 **Undo** that unarchives it. Worktree sessions group
 under their original checkout directory. Selecting a new folder opens an
 in-memory composer draft; its group appears only when a session is created. A session row is its **state** as a leading glyph (a hollow
-circle idle, a pulsing dot while a turn streams, an amber triangle waiting on
-a permission, a red one after a failure, a spinner ring connecting —
+circle idle, a pulsing dot while a turn streams, a ringed dot in the info
+colour waiting on a permission ("it needs you", not a warning), a red triangle after a failure, a spinner ring connecting —
 `lib/sidebar.ts`), the title, git's own glyph when the thread runs in a
 worktree or on a branch of its own, and a `…` on hover or when it takes
 keyboard focus, for pin, rename, archive and delete. `Pinned` is the first section when anything is pinned,
