@@ -20,6 +20,8 @@ export function useFileDocument(file: string | FileMetadata | null, source: File
   const current = useRef({ key, edit, source });
   current.current = { key, edit, source };
   const writes = useRef(new Set<AbortController>());
+  /** A "Keep mine" rebase onto the disk's revision that is still reading it: a save waits for it. */
+  const rebasing = useRef<Promise<void> | null>(null);
   const relocation = useRef<{ source: FileSource; path: string; edit: EditState | null } | null>(null);
   const reload = useCallback(() => { if (path) drafts?.put(source.id, path, null); setGeneration((value) => value + 1); }, [drafts, source.id, path]);
   const previousLoad = useRef<{ key: string; source: FileSource; path: string | null; generation: number; refresh: boolean } | null>(null);
@@ -106,13 +108,21 @@ export function useFileDocument(file: string | FileMetadata | null, source: File
     const deleted = current.current.edit?.key === key && current.current.edit.deleted === true;
     setEdit((previous) => previous?.key === key ? { ...previous, stale: false, deleted: false } : previous);
     if (!path) return;
-    const rebase = (revision: string | undefined) => setEdit((previous) => previous?.key === key ? { ...previous, base: { ...previous.base, revision } } : previous);
+    const rebase = (revision: string | undefined) => {
+      // Visible to a save that was waiting on this before the next render commits it.
+      const latest = current.current.edit;
+      if (latest?.key === key) current.current.edit = { ...latest, base: { ...latest.base, revision } };
+      setEdit((previous) => previous?.key === key ? { ...previous, base: { ...previous.base, revision } } : previous);
+    };
     if (deleted) { rebase(undefined); return; }
-    void source.stat(path, { signal: new AbortController().signal }).then((metadata) => {
+    const pending: Promise<void> = source.stat(path, { signal: new AbortController().signal }).then((metadata) => {
       if (current.current.key === key && current.current.source === source) rebase(metadata.revision);
-    }, () => {});
+    }, () => {}).finally(() => { if (rebasing.current === pending) rebasing.current = null; });
+    rebasing.current = pending;
   }, [key, path, source]);
   const save = useCallback(async (): Promise<DocumentSaveResult> => {
+    // A Save clicked before "Keep mine" has read the disk's revision would still conflict.
+    if (rebasing.current) await rebasing.current;
     const state = current.current;
     const document = state.edit;
     if (state.key !== key || state.source !== source) return { status: "stale" };
