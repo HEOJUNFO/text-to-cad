@@ -33,7 +33,7 @@ function buildClient(node: IpcNode, path: string[]): unknown {
       try {
         return await ipcRenderer.invoke(channel, request);
       } catch (error) {
-        throw new Error(errorMessage(error));
+        throw new Error(errorMessage(error), { cause: error });
       }
     };
   }

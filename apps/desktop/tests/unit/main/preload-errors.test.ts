@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const invoke = vi.fn();
-let exposed: any;
+let exposed: { explorer: { stat: (request: unknown) => Promise<unknown> } };
 
 vi.mock("electron", () => ({
-  contextBridge: { exposeInMainWorld: (_name: string, api: unknown) => { exposed = api; } },
+  contextBridge: { exposeInMainWorld: (_name: string, api: unknown) => { exposed = api as typeof exposed; } },
   ipcRenderer: { invoke: (...args: unknown[]) => invoke(...args), on: vi.fn(), off: vi.fn() },
 }));
 
