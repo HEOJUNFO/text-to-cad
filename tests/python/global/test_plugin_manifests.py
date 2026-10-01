@@ -105,9 +105,11 @@ class PluginManifestPolicyTest(unittest.TestCase):
             "marketplace entry must source the plugin from the repository root",
         )
 
-    def test_codex_starts_the_cad_server_pinned_offline_in_the_threads_workspace(self) -> None:
+    def test_codex_starts_the_cad_server_pinned_in_the_threads_workspace(self) -> None:
         # One uniquely named server (a host allowlists servers by name), run by uvx from the
-        # runtime this plugin version pins, never downloading at startup. No `cwd`: Codex
+        # runtime this plugin version pins. Not offline: the first start after an install or an
+        # update downloads that runtime, given the time to (an offline start of an uncached pin
+        # fails, which left every update without CAD until setup ran again). No `cwd`: Codex
         # then starts each thread's server in that thread's workspace, which is how the
         # server knows where the thread's files are before the agent says anything.
         manifest = load_json(CODEX_PLUGIN_PATH)
@@ -121,7 +123,8 @@ class PluginManifestPolicyTest(unittest.TestCase):
         self.assertNotIn("cwd", server)
         self.assertEqual(server["command"], "uvx")
         args = server["args"]
-        self.assertIn("--offline", args)
+        self.assertNotIn("--offline", args)
+        self.assertGreaterEqual(server.get("startup_timeout_sec", 0), 300)
         self.assertIn("--no-config", args)
         self.assertEqual(args[-2:], ["cadgen", "mcp"])
         version = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()

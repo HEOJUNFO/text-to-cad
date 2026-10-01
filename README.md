@@ -128,8 +128,8 @@ drives, and *Open with CAD* for model files. It runs locally through
 [uv](https://docs.astral.sh/uv/): after installing, ask Codex to run the
 plugin's `$cad-mcp-setup` skill (it installs uv if you approve and prepares the pinned
 runtime), then restart the app. To update, upgrade the `earthtojake` marketplace
-(Plugins › Manage › Marketplace, or `codex plugin marketplace upgrade earthtojake`),
-run `$cad-mcp-setup` again and restart the app. The marketplace was renamed from `text-to-cad`
+(Plugins › Manage › Marketplace, or `codex plugin marketplace upgrade earthtojake`)
+and restart the app: its first start downloads the new runtime. The marketplace was renamed from `text-to-cad`
 to `earthtojake`; if you added it before, remove the old one first
 (`codex plugin marketplace remove text-to-cad`).
 

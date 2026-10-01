@@ -30,12 +30,12 @@ export function useHostContext(bridge: Pick<Bridge, 'hostContext' | 'onHostConte
 // viewer's playback bars sit on that same line (Codex: a 45px box, 17px up).
 const TAB_BOTTOM_CENTER = '40px';
 
-// How each host updates CAD, said in a line. Codex runs the plugin's pinned release offline: the
-// marketplace's update moves the pin, `$cad-mcp-setup` fetches that release, and a restart starts it.
+// How each host updates CAD, said in a line. Codex runs the plugin's pinned release: the
+// marketplace's update moves the pin, and the first start after a restart downloads that release.
 // Every other host starts the server through an unpinned `uvx --from cadgen`, which resolves the
 // newest release.
 const UPDATE: Record<Presentation, ViewerLinks['install']> = {
-  tabs: { message: "Update CAD from Codex's plugin marketplace, then run $cad-mcp-setup and restart Codex." },
+  tabs: { message: "Update CAD from Codex's plugin marketplace, then restart Codex: its first start downloads the new release." },
   inline: { message: 'Restart the app to update: CAD starts its newest release each time.' },
 };
 
