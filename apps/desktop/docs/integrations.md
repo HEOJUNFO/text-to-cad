@@ -114,6 +114,12 @@ before retrying", and an abort after the command was sent says it "may already
 have been applied". A handler that finished before the abort reports "was
 applied, but the request was aborted before the reply".
 
+With no window open (closing the last one leaves the app running on macOS) the
+command reaches nobody, and is refused at once rather than after the wait:
+"no text-to-cad window is open; open one and retry". Nothing was applied, so
+retrying is safe; `send` reports how many windows received the command, and
+zero is that refusal.
+
 The window's reply is itself made only once the effect is on screen, and a
 viewer command that cannot get there says "The viewer did not finish applying
 this command." after ten seconds. The relay's tiers nest around that bound:

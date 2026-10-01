@@ -276,6 +276,23 @@ describe("RendererCommands", () => {
     await expect(commands.request({ sessionId: "s1", kind: "list-tabs", projectId: "p1" })).rejects.toThrow("did not answer");
   });
 
+  it("refuses at once, with no timer, when no window received the command", async () => {
+    vi.useFakeTimers();
+    try {
+      const commands = new RendererCommands({ sessionRoot: () => ({ directory: "/proj", root: null }), send: () => 0, newId: () => "r1" });
+      let refusal: string | undefined;
+      commands.request({ sessionId: "s1", kind: "list-tabs", projectId: "p1" }).catch((error: Error) => {
+        refusal = error.message;
+      });
+      // No clock advance: the refusal is immediate, not the 10 s timeout's.
+      await vi.advanceTimersByTimeAsync(0);
+      expect(refusal).toBe("no text-to-cad window is open; open one and retry");
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("names the timeout, says the command may still complete, and gives a save longer than a tab list", async () => {
     vi.useFakeTimers();
     try {

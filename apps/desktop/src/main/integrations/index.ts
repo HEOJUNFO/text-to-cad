@@ -66,7 +66,7 @@ export function rendererCommands(): RendererCommands {
   return commandsInstance;
 }
 
-export async function initIntegrations(deps: { sendCommand: (command: IntegrationCommand) => void; cancelCommand: (requestId: string) => void }): Promise<void> {
+export async function initIntegrations(deps: { sendCommand: (command: IntegrationCommand) => number | void; cancelCommand: (requestId: string) => void }): Promise<void> {
   skillsInstance = materialiseSkills(app.getPath("userData"));
   commandsInstance = new RendererCommands({
     sessionRoot,
