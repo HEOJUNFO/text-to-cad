@@ -1539,6 +1539,12 @@ delete events prune descendant listings. A bounded mutation-receipt history
 prevents the broadcast and initiating caller's receipt from applying a move
 twice. External edits preserve dirty drafts and refresh clean documents.
 
+A failed IPC call reaches every renderer caller as the handler's own sentence:
+the preload bridge (`src/preload/index.ts`) strips Electron's `Error invoking
+remote method '…': IpcError:` wrapper once, with `errorMessage`
+(`src/shared/ipc/errors.ts`), so the viewer says "that file is gone" and not
+the wrapper around it.
+
 **Every crumb is a menu of its neighbours** (`@text-to-cad/ui/navigation`'s
 `Breadcrumbs.jsx`, the model in its `crumbs.js`), the way the CAD Viewer's
 breadcrumb is. The crumbs
