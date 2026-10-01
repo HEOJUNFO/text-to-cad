@@ -1912,8 +1912,9 @@ into an agent's own configuration: no plugin, marketplace or copy into
 `~/.claude/skills`, and no mandatory umbrella `text-to-cad-app-use` skill.
 A tool that needs the window (open a file, capture a view) is relayed to it; with
 every window closed (macOS keeps the app running) the agent is told at once,
-"no text-to-cad window is open; open one and retry", rather than after a
-ten-second wait.
+"no text-to-cad window is open; open one and retry", rather than after the wait
+for a reply, which is ten seconds, twelve for the viewer's live commands and thirty
+for a capture (the tiers are in the [integration guide](docs/integrations.md)).
 
 **Skills.** `scripts/build-skills.mjs` composes repository skills plus the
 registry's app skills into `resources/skills/`. The standalone `cad-viewer`

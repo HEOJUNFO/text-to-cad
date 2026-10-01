@@ -419,8 +419,8 @@ the rule is about.
   (what each command waits for: [Live commands](../../packages/ui/docs/cad-renderer.md#live-commands)).
   That sentence reaches the agent because main's relay waits 12 s
   (`VIEWER_REPLY_TIMEOUT_MS`) for the viewer commands, its clock starting before
-  the IPC send; "the text-to-cad window did not answer within 12 s" means no
-  window replied. A reply on the call returning would hand an agent a state the
+  the IPC send; "the text-to-cad window did not answer within 12 s (is one open?); the command may still complete, so check before retrying" means a window was there and
+  none replied, and with no window at all the refusal is the different sentence "no text-to-cad window is open; open one and retry". A reply on the call returning would hand an agent a state the
   command had not produced yet.
 - **Every capture goes through `imageResult`.** It redraws an image over
   `MAX_IMAGE_BYTES` smaller and refuses it only when it cannot be made to fit,
