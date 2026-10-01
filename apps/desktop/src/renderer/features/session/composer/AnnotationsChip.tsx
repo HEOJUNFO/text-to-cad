@@ -235,13 +235,14 @@ function SketchThumbnail({ image, index }: { image: File; index: number }) {
   const url = useMemo(() => URL.createObjectURL(image), [image]);
   useEffect(() => () => URL.revokeObjectURL(url), [url]);
   return url ? (
-    <img
-      alt={`Sketch for annotation ${index + 1}`}
-      className="mt-0.5 size-12 shrink-0 rounded-md border bg-muted/40 object-cover"
-      data-annotation-sketch
-      src={url}
-      title={image.name}
-    />
+    <TooltipHint content={image.name} side="top">
+      <img
+        alt={`Sketch for annotation ${index + 1}`}
+        className="mt-0.5 size-12 shrink-0 rounded-md border bg-muted/40 object-cover"
+        data-annotation-sketch
+        src={url}
+      />
+    </TooltipHint>
   ) : null;
 }
 

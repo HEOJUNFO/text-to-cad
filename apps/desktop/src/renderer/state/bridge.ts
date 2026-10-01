@@ -6,7 +6,10 @@
  * would be re-registered on every render of the sidebar — and it means a
  * change made from the app menu updates the same state a click would.
  */
+import { toast } from "sonner";
+
 import type { IpcEventPayload } from "@shared/ipc";
+import { errorMessage } from "@shared/ipc/errors";
 
 import { useAcp } from "./acp";
 import { useAgentOptions } from "./agent-options";
@@ -211,7 +214,9 @@ export function runUiCommand(payload: IpcEventPayload<"ui.command">): void {
         .getState()
         .start({ projectId, cwd: payload.cwd, gitMode: "worktree" })
         .catch((error: unknown) => {
+          // Settings closed to make room for the session, so say why there is none.
           console.error("[ui] could not start a session", error);
+          toast.error(`Could not start a session in this worktree: ${errorMessage(error)}`);
         });
       break;
     }

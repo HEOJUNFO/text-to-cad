@@ -205,7 +205,7 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
       const next = withSessionParts(state, request.acpSessionId, event.at, add, false);
       if (next === state) {
         return {
-          ...withClosedParts(state, event.at, add),
+          ...withClosedParts(state, event.at, add, true),
           status: "waiting",
           pendingPermissions: [...state.pendingPermissions, request],
         };
@@ -644,10 +644,13 @@ function withRootParts(
 }
 
 /** Parts for a moment when no turn is open: the last agent turn takes them, or a closed one of their own. */
-function withClosedParts(state: SessionState, at: number, fn: (parts: Part[]) => Part[]): SessionState {
+function withClosedParts(state: SessionState, at: number, fn: (parts: Part[]) => Part[], markLate = false): SessionState {
   const last = state.turns.at(-1);
   if (last?.role === "agent") {
-    return { ...state, turns: [...state.turns.slice(0, -1), { ...last, parts: fn(last.parts) }] };
+    const parts = fn(last.parts);
+    // What this added sits behind the turn's end: `lateFrom` is where the first such part begins.
+    const lateFrom = markLate && parts.length > last.parts.length ? { lateFrom: last.lateFrom ?? last.parts.length } : {};
+    return { ...state, turns: [...state.turns.slice(0, -1), { ...last, parts, ...lateFrom }] };
   }
   const turn: Turn = {
     id: `t${state.turns.length + 1}`,
@@ -656,6 +659,7 @@ function withClosedParts(state: SessionState, at: number, fn: (parts: Part[]) =>
     startedAt: at,
     endedAt: at,
     stopReason: null,
+    ...(markLate ? { lateFrom: 0 } : {}),
   };
   return { ...state, turns: [...state.turns, turn] };
 }
@@ -738,7 +742,7 @@ function withUpdateOrLate(
     return placed;
   }
   // `late` is how content that lands on a closed turn is added, where that differs from `fn`.
-  const closed = withClosedParts(state, at, late ?? fn);
+  const closed = withClosedParts(state, at, late ?? fn, true);
   return late ? { ...closed, lateChunk: true } : closed;
 }
 

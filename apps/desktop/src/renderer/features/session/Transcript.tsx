@@ -30,7 +30,7 @@ export function Transcript({
   onReconnect,
 }: {
   state: SessionState;
-  onRetry: () => void;
+  onRetry: () => void | Promise<void>;
   onReconnect: () => void;
 }) {
   const status = statusLine(state);
@@ -242,7 +242,7 @@ const TurnView = memo(function TurnView({
   turn: Turn;
   sessionId: string;
   /** Given to the last turn only: its error row's Retry. */
-  onRetry?: () => void;
+  onRetry?: () => void | Promise<void>;
   /** Given to the last turn only, while the session is in error. */
   onReconnect?: () => void;
 }) {
@@ -250,13 +250,17 @@ const TurnView = memo(function TurnView({
     return <UserTurn turn={turn} />;
   }
   const open = turn.endedAt === null;
+  // What arrived behind the turn's end is drawn after its stop footer, not before it.
+  const lateFrom = turn.lateFrom !== undefined && turn.lateFrom >= 0 && turn.lateFrom < turn.parts.length ? turn.lateFrom : null;
+  const earlier = lateFrom === null ? turn.parts : turn.parts.slice(0, lateFrom);
+  const late = lateFrom === null ? [] : turn.parts.slice(lateFrom);
   return (
     <div className="flex min-w-0 w-full flex-col" data-turn={turn.id} data-role="agent" data-stop-reason={turn.stopReason ?? undefined}>
       <PartsList
         onReconnect={onReconnect}
         onRetry={onRetry}
         open={open}
-        parts={turn.parts}
+        parts={earlier}
         prefix={turn.id}
         sessionId={sessionId}
       />
@@ -270,6 +274,14 @@ const TurnView = memo(function TurnView({
         <p className="not-prose mt-1 px-1.5 text-[13px] leading-5 text-muted-foreground italic">
           Stopped at the agent&apos;s limit — send &quot;continue&quot; to go on.
         </p>
+      ) : null}
+      {late.length > 0 ? (
+        <>
+          <p className="not-prose mt-2 px-1.5 text-[12px] leading-5 text-muted-foreground" data-late-label>
+            Arrived after the turn ended
+          </p>
+          <PartsList open={false} parts={late} prefix={`${turn.id}:late`} sessionId={sessionId} />
+        </>
       ) : null}
     </div>
   );

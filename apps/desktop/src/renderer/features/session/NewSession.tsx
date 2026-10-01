@@ -1,6 +1,6 @@
 import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
-import { AlertCircle, Loader2, Settings2 } from "lucide-react";
+import { AlertCircle, Loader2, RotateCcw, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@renderer/components/ui/button";
@@ -428,6 +428,10 @@ export function NewSession({ project }: { project: Project }) {
           >
             <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
             <div className="min-w-0 flex-1 whitespace-pre-wrap">{failure.message}</div>
+            <Button className="h-6 gap-1 px-2 text-[12px]" disabled={busy} onClick={retry} size="sm" variant="outline">
+              <RotateCcw className="size-3" />
+              Try again
+            </Button>
             <Button
               className="h-6 gap-1 px-2 text-[12px]"
               onClick={() => openSettings("agents")}

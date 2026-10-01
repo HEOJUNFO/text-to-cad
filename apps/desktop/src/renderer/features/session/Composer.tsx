@@ -37,6 +37,7 @@ import { NEW_SESSION_KEY, useComposer, useQueue } from "@renderer/state/composer
 import { useActiveProject } from "@renderer/state/projects";
 import { useSessions } from "@renderer/state/sessions";
 import type { AvailableCommand, PromptBlock } from "@shared/acp/types";
+import { MAX_IMAGE_BYTES } from "@shared/image-cap";
 
 import {
   AttachmentFiles,
@@ -590,20 +591,21 @@ function AttachmentStrip({ annotations, hasAnnotations }: { annotations: React.R
         {attachments.files.map((file) => {
           const isImage = file.mediaType?.startsWith("image/");
           return (
-            <Attachment
-              className={cn(
-                "cursor-default text-[12px]",
-                isImage ? "h-auto w-[280px] max-w-full gap-2 rounded-xl bg-muted/30 p-2" : "h-8 max-w-full",
-              )}
-              data={file}
-              key={file.id}
-              onRemove={() => attachments.remove(file.id)}
-              title={file.filename}
-            >
-              {isImage ? <AttachmentImagePreview file={file} /> : <AttachmentPreview className="size-4" />}
-              <AttachmentInfo className={isImage ? "min-w-0 text-[11px] leading-4" : "max-w-[160px]"} />
-              <AttachmentRemove className="size-6 opacity-60 hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring" />
-            </Attachment>
+            <TooltipHint content={file.filename} key={file.id} overflowOnly side="top">
+              <Attachment
+                className={cn(
+                  "cursor-default text-[12px]",
+                  isImage ? "h-auto w-[280px] max-w-full gap-2 rounded-xl bg-muted/30 p-2" : "h-8 max-w-full",
+                )}
+                data={file}
+                data-attachment-name={file.filename}
+                onRemove={() => attachments.remove(file.id)}
+              >
+                {isImage ? <AttachmentImagePreview file={file} /> : <AttachmentPreview className="size-4" />}
+                <AttachmentInfo className={isImage ? "min-w-0 text-[11px] leading-4" : "max-w-[160px]"} />
+                <AttachmentRemove className="size-6 opacity-60 hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring" />
+              </Attachment>
+            </TooltipHint>
           );
         })}
       </Attachments>
@@ -713,6 +715,11 @@ export async function toPromptBlocks(text: string, files: FileUIPart[], remember
     const mimeType = file.mediaType || parsed.mimeType || "application/octet-stream";
     const name = file.filename || "attachment";
     if (mimeType.startsWith("image/")) {
+      // The backstop for an image that reached the form another way: the model rejects base64 over 5 MiB.
+      if (parsed.base64.length > MAX_IMAGE_BYTES * 4 / 3) {
+        toast.error(attachmentRefusal.imageTooBig(name));
+        continue;
+      }
       blocks.push({ type: "image", data: parsed.base64, mimeType, uri: null });
       continue;
     }

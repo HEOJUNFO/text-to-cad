@@ -1,5 +1,7 @@
 import type { FileUIPart } from "@renderer/components/ai-elements/types";
 import { isCadFile, type CadReference } from "@shared/cad-refs";
+import { MAX_IMAGE_BYTES } from "@shared/image-cap";
+import { shrinkImage } from "@renderer/lib/shrink-image";
 
 /**
  * The files behind one composer's attachments, kept while they are in its box.
@@ -148,6 +150,8 @@ export const attachmentRefusal = {
   /** The same limit and words for text pasted into the box: it is the same prompt either way. */
   pasteTooLarge: () =>
     `The pasted text is larger than ${MAX_INLINE_TEXT_BYTES / 1024} KB, so it was not pasted. Put it in the project folder and mention its path instead.`,
+  imageTooBig: (name: string) =>
+    `${name} is larger than the model takes (about ${(MAX_IMAGE_BYTES / 1024 / 1024).toFixed(2)} MB of image) and could not be scaled down, so it was not attached.`,
   cadOutside: (name: string) =>
     `${name} is a CAD file that is not in this project, so it was not attached. Copy it into the project folder, then refer to it by its path.`,
   cadAmbiguous: (name: string, paths: readonly string[]) =>
@@ -224,6 +228,26 @@ async function findInProject(file: File, scope: NonNullable<AttachScope>, listin
   return listing.truncated ? { kind: "unconfirmed" } : { kind: "outside" };
 }
 
+const MAX_FIT_PASSES = 6;
+
+/**
+ * An image the model will take: the file itself when its base64 fits under the model's 5 MiB
+ * (`MAX_IMAGE_BYTES` is the file size that guarantees it), else redrawn smaller as a PNG, else
+ * null. The same cap a viewer capture is fitted to (`state/image-result.ts`).
+ */
+async function fitImage(file: File): Promise<File | null> {
+  if (file.size <= MAX_IMAGE_BYTES) return file;
+  let blob: Blob = file;
+  for (let pass = 0; blob.size > MAX_IMAGE_BYTES && pass < MAX_FIT_PASSES; pass += 1) {
+    const step = Math.min(0.75, Math.sqrt(MAX_IMAGE_BYTES / blob.size) * 0.9);
+    const smaller = await shrinkImage(blob, step).catch(() => null);
+    if (!smaller) return null;
+    blob = smaller;
+  }
+  if (blob.size > MAX_IMAGE_BYTES) return null;
+  return new File([blob], `${file.name.replace(/\.[^./]+$/, "")}.png`, { type: blob.type || "image/png", lastModified: file.lastModified });
+}
+
 export type Screened = { attach: File[]; references: CadReference[]; refusals: string[] };
 
 /**
@@ -247,7 +271,11 @@ export async function screenAttachments(files: readonly File[], scope: AttachSco
     if (file.type.startsWith("image/")) {
       // Past the form's cap the form drops it without a word; said here instead.
       if (file.size > MAX_ATTACHMENT_BYTES) result.refusals.push(attachmentRefusal.overLimit(file.name));
-      else result.attach.push(file);
+      else {
+        const fitted = await fitImage(file);
+        if (fitted) result.attach.push(fitted);
+        else result.refusals.push(attachmentRefusal.imageTooBig(file.name));
+      }
       continue;
     }
     if (isCadFile(file.name)) {

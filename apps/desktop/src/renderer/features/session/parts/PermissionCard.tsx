@@ -109,7 +109,7 @@ export function PermissionCard({ part, sessionId }: { part: PermissionRequestPar
         ))}
       </ConfirmationActions>
       {refusal ? (
-        <p className="text-[12px] leading-5 text-muted-foreground" role="status">
+        <p className="text-[12px] leading-5 text-destructive" role="alert">
           {refusal}
         </p>
       ) : null}

@@ -222,11 +222,26 @@ export function SessionView({ session }: { session: Session }) {
     handToComposer();
     void load(session.id);
   };
-  const retry = () => {
+  // One resend at a time: a second click while the first is out would meet a busy session and
+  // queue the same prompt again. The transcript's Retry is pending for as long as this runs.
+  const retrying = useRef(false);
+  // The setup retry is a round trip to the adapter: the button says so until it answers, and a
+  // second click does not start a second setup.
+  const [settingUp, setSettingUp] = useState(false);
+  const retrySetupOnce = () => {
+    if (settingUp) return;
+    setSettingUp(true);
+    void retrySetup(session.id).finally(() => setSettingUp(false));
+  };
+  const retry = async () => {
     const lastPrompt = lastUserPrompt(state);
-    if (lastPrompt) {
+    if (!lastPrompt || retrying.current) return;
+    retrying.current = true;
+    try {
       handToComposer();
-      void submit(session.id, promptText(lastPrompt), lastPrompt);
+      await submit(session.id, promptText(lastPrompt), lastPrompt);
+    } finally {
+      retrying.current = false;
     }
   };
   useEffect(() => {
@@ -297,13 +312,13 @@ export function SessionView({ session }: { session: Session }) {
           ) : null}
           {/* The session started but setting it up failed (`session.status.error`): the box is
               live, so this is a line above it with the way to try the setup again. */}
-          {setupNote && !loadError && !loading ? (
+          {setupNote && !loadError && !loading && !disconnected ? (
             <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-[13px] leading-5" data-setup-failed role="alert">
               <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
               <span className="min-w-0 flex-1 whitespace-pre-wrap">{setupNote}</span>
-              <Button className="h-6 gap-1 px-2 text-[12px]" onClick={() => void retrySetup(session.id)} size="sm" variant="outline">
+              <Button aria-disabled={settingUp} className="h-6 gap-1 px-2 text-[12px]" disabled={settingUp} onClick={retrySetupOnce} size="sm" variant="outline">
                 <RotateCcw className="size-3" />
-                Retry setup
+                {settingUp ? "Retrying setup…" : "Retry setup"}
               </Button>
             </div>
           ) : null}

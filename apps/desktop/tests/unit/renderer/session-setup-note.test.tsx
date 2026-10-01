@@ -108,4 +108,44 @@ describe("the note a failed setup leaves", () => {
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getAllByRole("button", { name: /Reconnect|Retry setup/ })).toHaveLength(1);
   });
+
+  it("goes when the adapter crashes (a closed status event), leaving only the Reconnect bar", () => {
+    useSessions.setState({ activeId: "s1" });
+    render(<SessionView session={SESSION} />);
+    emitNote(NOTE);
+    expect(screen.getByRole("button", { name: "Retry setup" })).toBeInTheDocument();
+    act(() => useAcp.getState().receiveEvent("s1", { type: "status", status: "closed", error: null, at: 1 } as never));
+    expect(useAcp.getState().setupNotes).toEqual({});
+    expect(screen.queryByRole("button", { name: "Retry setup" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: /Reconnect|Retry setup/ })).toHaveLength(1);
+  });
+
+  it("is not drawn beside the Reconnect bar even when the note is still held", () => {
+    render(<SessionView session={SESSION} />);
+    emitNote(NOTE);
+    act(() => useAcp.setState((current) => ({ sessions: { ...current.sessions, s1: { ...current.sessions.s1!, status: "closed" } } })));
+    expect(screen.queryByRole("button", { name: "Retry setup" })).toBeNull();
+  });
+
+  it("disables Retry setup while the retry is out", async () => {
+    const user = userEvent.setup();
+    let answer: (value: { error: string | null }) => void = () => {};
+    retrySetup.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+    render(<SessionView session={SESSION} />);
+    emitNote(NOTE);
+    await user.click(screen.getByRole("button", { name: "Retry setup" }));
+    const pending = screen.getByRole("button", { name: "Retrying setup…" });
+    expect(pending).toBeDisabled();
+    await user.click(pending);
+    expect(retrySetup).toHaveBeenCalledTimes(1);
+    await act(async () => answer({ error: NOTE }));
+    expect(screen.getByRole("button", { name: "Retry setup" })).toBeEnabled();
+  });
+
+  it("words a retry that is rejected outright as a failed second try, not the raw IPC text", async () => {
+    retrySetup.mockRejectedValueOnce(new Error("The session is busy; set it up again when it is idle."));
+    emitNote(NOTE);
+    await act(() => useAcp.getState().retrySetup("s1"));
+    expect(useAcp.getState().setupNotes.s1).toBe("Setting it up again failed: The session is busy; set it up again when it is idle.");
+  });
 });

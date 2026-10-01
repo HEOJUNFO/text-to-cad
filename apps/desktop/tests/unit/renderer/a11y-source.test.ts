@@ -39,6 +39,21 @@ const ALLOWED: { file: string; snippet: string; count?: number; reason: string }
     snippet: "aria-label={`Close ${title}`}",
     reason: "the tab's close button is aria-hidden and outside the Tab order (Delete on the tab is its keyboard twin), so keyboard focus never lands on it",
   },
+  {
+    file: "components/ai-elements/prompt-input.tsx",
+    snippet: 'title="Upload files"',
+    reason: "the hidden file input (`className=\"hidden\"`) is never seen or hovered; the title is its accessible name beside the aria-label",
+  },
+  {
+    file: "components/ai-elements/web-preview.tsx",
+    snippet: 'title="Preview"',
+    reason: "an iframe's `title` is its accessible name, not a hover hint; and the component is vendored and unused",
+  },
+  {
+    file: "components/ui/sidebar.tsx",
+    snippet: 'title="Toggle Sidebar"',
+    reason: "SidebarRail is vendored and unused (the app's sidebar has its own toggle, hinted by TooltipHint)",
+  },
 ];
 
 const allowed = (site: Site) => ALLOWED.some((entry) => entry.file === site.file && site.text.includes(entry.snippet));
@@ -131,6 +146,26 @@ function ringlessButtons(path: string, source: string): Site[] {
   return found;
 }
 
+/**
+ * A native `title` on an element: a plain tag (`<span title=…>`) or one of the components that
+ * spread their props onto a plain element (`Attachment` is a div, `DialogTitle` a heading). A
+ * component's own `title` prop is not one — `ComposerChip`'s and `RowButton`'s end up in a
+ * `TooltipHint` — so only these tags are read. An svg's `<title>` child is not an attribute.
+ */
+const SPREADS_TITLE = ["Attachment", "DialogTitle", "DialogDescription"];
+const NATIVE_TITLE = new RegExp(`<(?:[a-z][a-z0-9]*|${SPREADS_TITLE.join("|")})(?=[\\s>/])`, "g");
+
+function nativeTitles(path: string, source: string): Site[] {
+  const found: Site[] = [];
+  for (const match of source.matchAll(NATIVE_TITLE)) {
+    const tag = openingTag(source, match.index);
+    if (/(?:^|\s)title=/.test(tag.replace(/\{[^{}]*\}|"[^"]*"|'[^']*'|`[^`]*`/g, (part) => (part.startsWith("{") ? "{}" : '""')) .replace(/^<\S+/, ""))) {
+      found.push(site(path, source, match.index, tag));
+    }
+  }
+  return found;
+}
+
 function scan(find: (path: string, source: string) => Site[]): Site[] {
   return Object.entries(sources).flatMap(([path, source]) => find(path, source));
 }
@@ -183,8 +218,21 @@ describe("keyboard focus is visible (source scan of src/renderer)", () => {
     expect(hits, "add focus-visible:ring-[3px] focus-visible:ring-ring/50 (the kit's button ring)").toEqual([]);
   });
 
+  it("the scan sees a native title on a plain tag or a spreading component, and only there", () => {
+    expect(at(nativeTitles("a.tsx", '<span className="x" title={uri}>a</span>'))).toEqual(["a.tsx:1"]);
+    expect(at(nativeTitles("a.tsx", '<Attachment data={f} title={f.filename}>'))).toEqual(["a.tsx:1"]);
+    expect(at(nativeTitles("a.tsx", '<img\n alt=""\n title={image.name}\n/>'))).toEqual(["a.tsx:1"]);
+    expect(at(nativeTitles("a.tsx", '<Chip title={project?.path} />'))).toEqual([]);
+    expect(at(nativeTitles("a.tsx", '<span aria-label="a title=b">x</span>'))).toEqual([]);
+  });
+
+  it("no element carries a native title (the hint is the kit's TooltipHint)", () => {
+    const hits = at(scan(nativeTitles).filter((found) => !allowed(found)));
+    expect(hits, "wrap it in <TooltipHint content=…> from @text-to-cad/ui/primitives/tooltip; a native title cannot be styled and reads twice").toEqual([]);
+  });
+
   it("every allowlist entry still matches exactly the sites it counts", () => {
-    const live = [...scan(hoverOnlyReveals), ...scan(ringlessButtons)];
+    const live = [...scan(hoverOnlyReveals), ...scan(ringlessButtons), ...scan(nativeTitles)];
     const stale = ALLOWED.filter(
       (entry) => live.filter((found) => found.file === entry.file && found.text.includes(entry.snippet)).length !== (entry.count ?? 1),
     );

@@ -31,7 +31,9 @@ export function AttachmentImagePreview({ file }: { file: FileUIPart }) {
         onKeyDown={(event) => event.stopPropagation()}
       >
         <div className="shrink-0 border-b px-4 py-4 pr-12">
-          <DialogTitle className="truncate text-sm font-medium" title={name}>{name}</DialogTitle>
+          <TooltipHint content={name} overflowOnly side="bottom">
+            <DialogTitle className="truncate text-sm font-medium">{name}</DialogTitle>
+          </TooltipHint>
         </div>
         <div className="flex min-h-0 items-center justify-center bg-muted/20 p-3">
           <img alt={name} className="max-h-[calc(100dvh-7rem)] max-w-full object-contain" src={file.url} />

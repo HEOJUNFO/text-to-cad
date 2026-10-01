@@ -904,7 +904,13 @@ unresolved references keep their file/selector fallback.
 
 A file is sorted the moment it is attached (paperclip, paste or drop), not
 when the prompt is sent. Images and UTF-8 text up to 256 KB
-(`MAX_INLINE_TEXT_BYTES` in `composer/attachments.ts`) attach as before. A
+(`MAX_INLINE_TEXT_BYTES` in `composer/attachments.ts`) attach as before. An
+image over the model's limit (`MAX_IMAGE_BYTES`, the file size whose base64
+stays under 5 MiB, the same cap a viewer capture is fitted to) is redrawn
+smaller as a PNG when it is attached; one that cannot be brought under it is
+refused with "<name> is larger than the model takes (about 3.75 MB of image)
+and could not be scaled down, so it was not attached." The send checks again
+and drops such an image with the same sentence. A
 CAD file the viewer renders (`CAD_EXTENSIONS`) never goes in as bytes: one
 already in the project folder — matched by name and byte size, since Electron
 gives the renderer no path for a picked file — is inserted as its path, the
@@ -928,7 +934,12 @@ the person elsewhere (on another thread, or another project's new-session
 screen) shows a toast with the error and Try again, which returns to the
 new-session screen that holds the restored draft. A create that outlasts a
 click on another thread or project does not pull them back to the session it
-made.
+made. Whatever the error, the card on the screen carries Try again (it sends what
+the box holds, as the sign-in card's does) beside Open Settings › Agents and Dismiss.
+Settings' "New session in this worktree" (`runUiCommand`, `new-session` with a
+`cwd`) closes Settings before it starts the thread; if the start fails a toast
+says "Could not start a session in this worktree: <reason>" rather than leaving
+a bare console line.
 
 Image attachments show a contained thumbnail beside the filename, with an always-visible remove control. Click the thumbnail (or focus it and press Enter) to inspect the full image. Escape, Close or the backdrop dismisses the preview and returns focus to the thumbnail; the draft is unchanged. Explorer tabs use a bordered active state and visible keyboard focus on selection and close controls.
 
@@ -1197,7 +1208,7 @@ on the composer's row and goes into the box once the agent is back; every
 Reconnect, Retry, Install and sign-in retry on the session screen, the
 transcript's included, goes through the composer handoff, `handToComposer`
 (`features/session/SessionView.tsx`; `reconnectFromBar` is it plus the load, and the
-transcript's Retry is it plus the resubmit), for the same reason. Leaving Settings
+transcript's Retry is it plus the resubmit), for the same reason. The transcript's Retry is one resend at a time: from the first click the button is disabled and reads "Retrying…" until the resubmit settles, and `retry` ignores a second call while one is out, so a double-click cannot queue the same prompt twice. Leaving Settings
 unmounts the button that had focus, so `focusSessionHome` (`app/pane-focus.ts`)
 puts it in the composer, waiting one frame for the editor to mount. The
 context ring takes focus into its panel on open and gets it back on close.
@@ -2202,7 +2213,13 @@ since whoever would take the answer is gone. `prompt/end`, whatever its stop
 reason, and `prompt/error` cancel pending cards as well; main cancels the
 client's pending permissions just before it dispatches `prompt/end`, so the
 cards and the requests agree. A call that is settled or completed is never
-revived by a late `in_progress`. In the renderer, `receiveState` (`state/acp.ts`) clears a session's
+revived by a late `in_progress`. Content that arrives behind `prompt/end` (a chunk,
+a tool call, a subagent spawn or a permission request the adapter sent late) is
+added to the last agent turn and marked by the turn's `lateFrom`, the index of
+the first part that came late. The transcript draws those parts after the turn's
+footer ("Stopped", "The agent declined.", the limit line), under a quiet label,
+"Arrived after the turn ended", so they never read as if they came before the
+stop. In the renderer, `receiveState` (`state/acp.ts`) clears a session's
 `loadErrors` once the state it takes says the agent is up (`idle`, `running` or
 `waiting`). In main, an `initialize` failure goes through `describe`
 (`src/main/acp/connection.ts`) as `session/new`, `session/load` and
@@ -2268,8 +2285,12 @@ forgotten or disconnected meanwhile (a generation check in `retrySetup`,
 `state/acp.ts`), and the alert is hidden while the session shows a load error or
 is loading (`SessionView.tsx`), the note staying held underneath. It is not a `load`: a `load` on a live
 connection only re-broadcasts its state and retries nothing. The next `load`, a
-disconnect (`close`) or a forget clears the note; it is not persisted, so a window
-reload drops it.
+disconnect (`close`), a closed status from the adapter itself (a crash or exit,
+through `receiveEvent`) or a forget clears the note, and the alert is never drawn
+beside the "Agent disconnected" bar; it is not persisted, so a window reload drops
+it. Retry setup is disabled and reads "Retrying setup…" until the answer comes
+back, and a retry the IPC rejects outright becomes the note "Setting it up again
+failed: <cause>", the same sentence main gives one that fails.
 One whose connection is dead, or whose row is gone,
 is abandoned (`abandonCreate`): the connection is retired, the row removed, the
 worktree that create cut released, and `create` rejects. The same happens when

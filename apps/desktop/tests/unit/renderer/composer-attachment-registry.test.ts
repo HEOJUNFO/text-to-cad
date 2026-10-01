@@ -44,7 +44,7 @@ function composer(draftKey: string, onSubmit: Submit = vi.fn(async () => undefin
     pick: async (...files: File[]) => {
       Object.defineProperty(input, "files", { configurable: true, value: files });
       await act(async () => fireEvent.change(input));
-      await waitFor(() => expect(view.container.querySelectorAll("[data-composer] [title='image.png']").length).toBeGreaterThan(0));
+      await waitFor(() => expect(view.container.querySelectorAll("[data-composer] [data-attachment-name='image.png']").length).toBeGreaterThan(0));
     },
     remove: () => act(async () => fireEvent.click(view.container.querySelector("[aria-label='Remove']")!)),
     send: () => act(async () => fireEvent.submit(view.container.querySelector("form")!)),

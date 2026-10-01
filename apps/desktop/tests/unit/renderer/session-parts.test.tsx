@@ -226,10 +226,12 @@ describe("PermissionCard", () => {
     });
     (window.textToCad.sessions as unknown as { respondPermission: unknown }).respondPermission = respond;
     wrap(<PermissionCard part={part} sessionId="s1" />);
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByText(/not connected/)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Yes" }));
     expect(respond).toHaveBeenCalled();
-    expect(await screen.findByRole("status")).toHaveTextContent(/^the session is not connected; load it first$/);
+    // A refused answer is a failure, so it is an alert (AGENTS.md), not a status.
+    const reason = await screen.findByText(/^the session is not connected; load it first$/);
+    expect(reason).toHaveAttribute("role", "alert");
   });
 
   it("falls back to the expired line when the refusal has no message", async () => {

@@ -1,5 +1,6 @@
+import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { AlertCircle, Paperclip, RotateCcw, Unplug } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { defaultRemarkPlugins } from "streamdown";
 
@@ -48,7 +49,7 @@ export function PartsList({
   prefix: string;
   sessionId: string;
   /** Re-send the last prompt; shown on an error row when given. */
-  onRetry?: () => void;
+  onRetry?: () => void | Promise<void>;
   /** Spawn the agent again and load the history; shown when the agent is gone. */
   onReconnect?: () => void;
 }) {
@@ -62,6 +63,41 @@ export function PartsList({
   );
 }
 
+/**
+ * A failed turn's row. Retry is pending from the first click until the resend has settled (the
+ * turn began, or the resend was refused), so a second click cannot queue the same prompt twice.
+ */
+function ErrorRow({ message, onRetry, onReconnect }: { message: string; onRetry?: () => void | Promise<void>; onReconnect?: () => void }) {
+  const [retrying, setRetrying] = useState(false);
+  const retry = () => {
+    if (retrying) return;
+    setRetrying(true);
+    void Promise.resolve(onRetry?.()).finally(() => setRetrying(false));
+  };
+  return (
+    <div
+      className="not-prose my-2 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-[13px] leading-5"
+      data-part="error"
+      role="alert"
+    >
+      <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
+      <div className="min-w-0 flex-1 whitespace-pre-wrap break-words">{message}</div>
+      {onReconnect ? (
+        <Button className="h-6 shrink-0 gap-1 px-2 text-[12px]" onClick={onReconnect} size="sm" variant="ghost">
+          <Unplug className="size-3" />
+          Reconnect
+        </Button>
+      ) : null}
+      {onRetry ? (
+        <Button aria-disabled={retrying} className="h-6 shrink-0 gap-1 px-2 text-[12px]" disabled={retrying} onClick={retry} size="sm" variant="outline">
+          <RotateCcw className="size-3" />
+          {retrying ? "Retrying…" : "Retry"}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 function ViewItemView({
   item,
   sessionId,
@@ -70,7 +106,7 @@ function ViewItemView({
 }: {
   item: ViewItem;
   sessionId: string;
-  onRetry?: () => void;
+  onRetry?: () => void | Promise<void>;
   onReconnect?: () => void;
 }) {
   switch (item.kind) {
@@ -91,28 +127,7 @@ function ViewItemView({
     case "subagent":
       return <SubagentRow part={item.part} sessionId={sessionId} />;
     case "error":
-      return (
-        <div
-          className="not-prose my-2 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-[13px] leading-5"
-          data-part="error"
-          role="alert"
-        >
-          <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
-          <div className="min-w-0 flex-1 whitespace-pre-wrap break-words">{item.message}</div>
-          {onReconnect ? (
-            <Button className="h-6 shrink-0 gap-1 px-2 text-[12px]" onClick={onReconnect} size="sm" variant="ghost">
-              <Unplug className="size-3" />
-              Reconnect
-            </Button>
-          ) : null}
-          {onRetry ? (
-            <Button className="h-6 shrink-0 gap-1 px-2 text-[12px]" onClick={onRetry} size="sm" variant="outline">
-              <RotateCcw className="size-3" />
-              Retry
-            </Button>
-          ) : null}
-        </div>
-      );
+      return <ErrorRow message={item.message} onReconnect={onReconnect} onRetry={onRetry} />;
     case "image":
       return (
         <img
@@ -124,14 +139,15 @@ function ViewItemView({
       );
     case "attachment":
       return (
-        <span
-          className="not-prose my-1 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px]"
-          data-part="attachment"
-          title={item.uri}
-        >
-          <Paperclip className="size-3 text-muted-foreground" />
-          {item.name}
-        </span>
+        <TooltipHint content={item.uri} side="top">
+          <span
+            className="not-prose my-1 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px]"
+            data-part="attachment"
+          >
+            <Paperclip className="size-3 text-muted-foreground" />
+            {item.name}
+          </span>
+        </TooltipHint>
       );
     case "mode":
       return (
