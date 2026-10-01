@@ -1302,6 +1302,8 @@ once the last tab is closed, so it does not go on to close the window. On
 Windows and Linux the plain Ctrl chords are skipped while the focus is inside a
 terminal (`[data-terminal-body]`), where they are the shell's; the Ctrl+Shift
 chords and Ctrl+` still run there.
+Ctrl+` is matched by the physical key (`event.code` "Backquote"), so a layout where the
+backtick is a dead key, and sends "Dead", still opens a terminal.
 
 A tab is reordered by dragging its chip (a plain HTML5 drag). The insertion
 line is drawn before the chip under the pointer on its left half and after it on

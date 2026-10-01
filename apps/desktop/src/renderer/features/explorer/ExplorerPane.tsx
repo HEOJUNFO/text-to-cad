@@ -261,7 +261,9 @@ export function useExplorerShortcuts() {
       // `⌃\`` is Control on macOS as well: it is the chord a person already
       // has in their fingers for a terminal, and it is the same one on the
       // machine they came from.
-      if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key === "`") {
+      // The physical key, as the mac explorer chord is: on a layout where the backtick is a
+      // dead key, `event.key` is "Dead" and only `event.code` still says which key it was.
+      if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && (event.code === "Backquote" || event.key === "`")) {
         event.preventDefault();
         if (!event.repeat) {
           preloadTerminal();
