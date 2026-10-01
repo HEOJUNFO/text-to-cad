@@ -285,6 +285,36 @@ describe("AgentDetector on a cold table", () => {
     }
   });
 
+  it("marks every row probeFailed, caches nothing, and re-captures on the next list when the login shell could not be read", async () => {
+    const written: AgentStatus[][] = [];
+    const forced: boolean[] = [];
+    let failure: string | null = "shell exited 1";
+    const detector = new AgentDetector(providers, {
+      ...machine({ executables: ["/usr/local/bin/claude"], outputs: {
+        "/usr/local/bin/claude --version": { stdout: "2.0.0" },
+        "/usr/local/bin/claude auth status": { code: 0 },
+      } }),
+      env: async (force) => {
+        forced.push(force);
+        return { PATH: "/usr/local/bin" };
+      },
+      captureFailure: () => failure,
+    }, { read: () => null, write: (statuses) => written.push(statuses) });
+    const seen: AgentStatus[][] = [];
+    detector.onChange((statuses) => seen.push(statuses));
+
+    await expect(detector.refresh(false)).rejects.toThrow("could not read the login shell's environment (shell exited 1)");
+    expect(seen.at(-1)!.map((row) => row.probeFailed)).toEqual([true, true]);
+    expect(seen.at(-1)!.some((row) => row.installed)).toBe(false);
+    expect(written).toEqual([]);
+
+    failure = null;
+    await detector.listWithin(50);
+    await detector.settled();
+    expect(forced).toEqual([false, true]);
+    expect(detector.list().find((row) => row.id === "claude-code")?.installed).toBe(true);
+  });
+
   it("says a probe that failed with no last launch to fall back on: every row flagged, not an empty table", async () => {
     const detector = new AgentDetector(providers, {
       ...machine({}),

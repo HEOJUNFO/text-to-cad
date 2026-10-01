@@ -2221,6 +2221,12 @@ when it was written by the same app version and holds every provider. Then:
   does not); when every row has it the
   renderer treats it as a failed read, and the new-session screen shows "Could
   not check for agents" with a retry rather than "No agent ready".
+  A login shell that cannot be read (it exits non-zero, times out after 20 s, or
+  prints no PATH) is such a failure: `loginEnvOutcome` reports it as `failed`,
+  the probe marks every row `probeFailed` (even over a good last-launch table),
+  writes nothing to the `__agents` cache, and still hands sessions the process
+  environment to spawn with. The renderer's next `agents.list` (the card's
+  retry) captures the shell afresh instead of reusing the failed capture.
 - Anything that would act on a row waits for this launch's probe, through
   `freshWithin(PROBE_WAIT_MS)`: `agents.login` (a CLI installed since has no
   binary path in last launch's row) and the check that refuses a session as
