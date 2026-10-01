@@ -3,7 +3,19 @@ const vector = z.tuple([z.number(), z.number(), z.number()]);
 const camera = z.object({ position: vector, target: vector, up: vector,
   zoom: z.number().positive().optional(), projection: z.enum(["orthographic", "perspective"]).optional(),
   focalLength: z.number().positive().optional(), orthographicHalfHeight: z.number().positive().optional(),
-}).strict();
+}).strict().superRefine((value, context) => {
+  const [p, t, u] = [value.position, value.target, value.up];
+  if (![...p, ...t, ...u].every(Number.isFinite)) {
+    context.addIssue({ code: "custom", message: "set_camera needs finite numbers for position, target and up" });
+    return;
+  }
+  if (p.every((n, i) => n === t[i])) {
+    context.addIssue({ code: "custom", message: "set_camera needs a position different from its target; the camera cannot look from a point at itself" });
+  }
+  if (u.every((n) => n === 0)) {
+    context.addIssue({ code: "custom", message: "set_camera needs a non-zero up vector" });
+  }
+});
 export default {
   id: "cad", description: "Inspect and control CAD documents displayed in text-to-cad.", skills: ["skills/cad-viewer"],
   rendererCommands: { viewer_state: "viewer-state", select_reference: "select-reference", capture_view: "capture-view",

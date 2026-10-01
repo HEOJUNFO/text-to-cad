@@ -130,7 +130,10 @@ A call whose arguments the schema refuses is answered by the MCP server with one
 `isError`, never the validator's JSON: `open_file needs path; path is missing.`, or
 `open_file takes path; it does not take "mode".`, or the tool's own `usage` sentence
 (`set_camera needs position, target and up as three numbers each`). The bridge is not
-called. Past that, these are the sentences the layers answer with:
+called. A `set_camera` camera whose position equals its target, or whose up vector is zero,
+is refused the same way ("set_camera needs a position different from its target; the camera cannot
+look from a point at itself", "set_camera needs a non-zero up vector") instead of waiting ten seconds
+for a viewer that cannot apply it. Past that, these are the sentences the layers answer with:
 
 | Sentence | Where |
 | --- | --- |

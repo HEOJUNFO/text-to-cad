@@ -273,6 +273,14 @@ describe("a malformed call", () => {
     expect(await said("open_file", { path: "a.step", mode: "x" })).toBe('open_file takes path; it does not take "mode".');
   });
 
+  it("refuses a camera that looks from its own target, or has a zero up vector, before the viewer waits ten seconds", async () => {
+    const camera = { position: [1, 2, 3], target: [1, 2, 3], up: [0, 0, 1] };
+    expect(await said("set_camera", { tabId: "t", camera }, "cad"))
+      .toBe("set_camera needs a position different from its target; the camera cannot look from a point at itself");
+    expect(await said("set_camera", { tabId: "t", camera: { ...camera, target: [0, 0, 0], up: [0, 0, 0] } }, "cad"))
+      .toBe("set_camera needs a non-zero up vector");
+  });
+
   it("uses a tool's own usage sentence where it has one", async () => {
     expect(await said("set_camera", { tabId: "t", camera: { position: [0, 0], target: [0, 0, 0], up: [0, 0, 1] } }, "cad"))
       .toBe("set_camera needs position, target and up as three numbers each");
