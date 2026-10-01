@@ -247,6 +247,11 @@ class EditingPreviewTests(unittest.TestCase):
             self.assertTrue(moved["superseded"], build["state"])
             self.assertNotIn("preview", moved)
             self.assertIsNone(moved["error"])
+        # A failed first build never wrote the file: its failure and its preview stand.
+        os.remove(self.output)
+        first = preview_status(str(self.root), self.output, jobs=[builds[0]])
+        self.assertEqual((first["preview"]["tree"], first["error"]), (self.tree, "Disk full"))
+        self.assertNotIn("superseded", first)
         # A build still running is never moved past: it writes the file next.
         running = preview_status(str(self.root), self.output, jobs=[self.job(previews=self.preview())])
         self.assertEqual(running["preview"]["tree"], self.tree)

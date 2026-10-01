@@ -158,7 +158,8 @@ def preview_status(root_path: str, file_ref: str, *, jobs: list[dict] | None = N
 def _superseded(job: dict, target: str, current) -> bool:
     """Whether the file changed after ``job`` finished. A build that saved is judged by bytes: the
     file is no longer the one it wrote. One that saved nothing (it failed, or it changed nothing)
-    by time: the file was written after the build ended."""
+    by time: the file was written after the build ended. A file that is not there was not -- a
+    failed first build never wrote one -- and that build's failure is still the news."""
     finished = job.get("finishedAt")
     if job.get("state") not in ("done", "failed") or finished is None:
         return False
@@ -169,4 +170,4 @@ def _superseded(job: dict, target: str, current) -> bool:
     try:
         return os.stat(target).st_mtime > float(finished)
     except (OSError, TypeError, ValueError):
-        return True
+        return False
