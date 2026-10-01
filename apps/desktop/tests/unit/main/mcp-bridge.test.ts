@@ -70,6 +70,18 @@ async function rpc(url: string, token: string | null, body: unknown) {
 }
 
 describe("McpBridge", () => {
+  it("logs an error the listener reports after it started, rather than throwing it", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const { bridge } = await startBridge();
+      const server = (bridge as unknown as { server: http.Server }).server;
+      expect(() => server.emit("error", new Error("EMFILE: too many open files"))).not.toThrow();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("EMFILE: too many open files"));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("listens on loopback and describes itself as a stdio MCP server per session", async () => {
     const { bridge, url } = await startBridge();
     expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);

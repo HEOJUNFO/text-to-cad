@@ -73,6 +73,10 @@ export class McpBridge {
       server.once("error", reject);
       server.listen(0, "127.0.0.1", () => {
         server.off("error", reject);
+        // Kept for the listener's life: an accept error later (EMFILE) with no
+        // handler is an uncaught exception, which is the app's "JavaScript
+        // error" dialog for a thing the next request will simply retry.
+        server.on("error", (error) => console.warn(`[mcp] the bridge listener reported: ${error.message}`));
         resolve();
       });
     });

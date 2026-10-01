@@ -1,5 +1,6 @@
 /** The scoped CDP endpoint keeps download policy with the host, in both protocol spellings. */
 import { EventEmitter } from "node:events";
+import type { Server } from "node:http";
 import { afterEach, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 vi.mock("electron", () => ({ WebContentsView: vi.fn(), app: {}, session: {} }));
@@ -120,4 +121,17 @@ it("a tab id re-opened over new contents gets its own session and target id, and
   service.events.emit("closed", { ...scope, tabId: "tab" });
   await vi.waitFor(() => expect(events.find(item => item.method === "Target.targetDestroyed")?.params).toEqual({ targetId: "new-target" }));
   await new Promise(resolve => { socket.once("close", resolve); socket.close(); });
+});
+
+it("logs an error the listener reports after it started, rather than throwing it", async () => {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  try {
+    endpoint = new ScopedBrowserCdp(service, scope, tabs);
+    await endpoint.start();
+    const server = (endpoint as unknown as { server: Server }).server;
+    expect(() => server.emit("error", new Error("EMFILE: too many open files"))).not.toThrow();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("EMFILE: too many open files"));
+  } finally {
+    warn.mockRestore();
+  }
 });
