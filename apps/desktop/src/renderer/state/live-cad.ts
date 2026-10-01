@@ -8,6 +8,8 @@ export function desktopCadLive(tabId: string, scope: Scope): CadLiveBinding {
     const binding = { ...scope, controller }; live.set(tabId, binding);
     return () => {
       if (live.get(tabId) !== binding) return;
+      // Deleted first so the Map's order is recency: the last key is the tab left most recently.
+      snapshots.delete(tabId);
       snapshots.set(tabId, { ...scope, state: { ...controller.readState(), active: false } });
       live.delete(tabId);
     };
@@ -37,6 +39,14 @@ export async function performCadViewerCommand(kind: string, params: Record<strin
     return imageResult(blob, { tabId, ...state });
   }
   throw new Error(`Unknown CAD operation: ${kind}`);
+}
+
+/**
+ * Tab ids that have shown a CAD viewer, most recently active first: the ones displayed now, then
+ * the ones left behind, newest departure first. For an integration command that names no tab.
+ */
+export function recentCadTabIds(): string[] {
+  return [...live.keys(), ...[...snapshots.keys()].reverse()].filter((id, index, all) => all.indexOf(id) === index);
 }
 
 export function releaseCadTab(tabId: string) { live.delete(tabId); snapshots.delete(tabId); }

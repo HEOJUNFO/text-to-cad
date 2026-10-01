@@ -132,3 +132,16 @@ it("marks a terminal tab the agent opens as the agent's, so its respawn keeps th
   expect(useExplorer.getState().tabs.find(tab => tab.id === opened.tabId)).toMatchObject({ kind: "terminal", agent: true });
   expect(useExplorer.getState().open("terminal")).toMatchObject({ agent: false });
 });
+it("viewer_state with no tab ID reads the most recently active CAD tab when a terminal or drawing is active, and says so when there is none", async () => {
+  const { desktopCadLive } = await import("@renderer/state/live-cad");
+  const viewerState = () => performIntegrationCommand({ sessionId: sessionA, projectId, requestId: "vs", kind: "viewer-state", root: null });
+  await expect(viewerState()).rejects.toThrow("No CAD viewer state in this workspace. Open the model first.");
+
+  const cad = useExplorer.getState().open("file", { path: "part.step" })!;
+  const state = { resource: { path: "part.step" }, selection: [], active: true };
+  const unbind = desktopCadLive(cad.id, { projectId, root: null }).bind({ readState: () => state } as never);
+  unbind();
+  useExplorer.getState().open("drawing");
+
+  expect(await viewerState()).toMatchObject({ tabId: cad.id, resource: { path: "part.step" } });
+});

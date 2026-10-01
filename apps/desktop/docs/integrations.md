@@ -54,6 +54,10 @@ Paths on disk are resolved against the session's project/worktree using main's
 normal realpath boundary. A matching filename in another root is not the same
 resource.
 
+A CAD tool called with no `tabId` means the active tab when it is a CAD model, otherwise
+the CAD tab of this workspace that was active most recently; with none it answers "No CAD viewer
+state in this workspace. Open the model first." rather than blaming the active terminal.
+
 `attach_snapshot` reads an image (PNG, JPEG, WebP, GIF, at most 3.75 MB of file so the base64 stays under the model's 5 MB, and only when the file's first bytes are that image type)
 in main from one handle, opened non-blocking and checked with `fstat`. Once it is
 open the path is resolved again with a fresh `realpath`, which must still be
