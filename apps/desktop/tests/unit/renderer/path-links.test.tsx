@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { findPathTokens, looksLikePath, pathToken } from "@renderer/features/session/links/grammar";
+import { PartsList } from "@renderer/features/session/parts/PartsList";
 import { PathLink, TranscriptScopeContext, pathTarget } from "@renderer/features/session/links/PathLink";
 import { remarkPathLinks } from "@renderer/features/session/links/remarkPathLinks";
 import { useExplorer } from "@renderer/state/explorer";
@@ -18,12 +19,18 @@ import { scopeKey, usePathLinks } from "@renderer/state/path-links";
 
 describe("the path grammar", () => {
   it("recognises relative paths and file names, not versions, URLs or absolute paths", () => {
-    for (const yes of ["models/bracket.step", "README.md", "src/", "src/main", "apps/desktop/AGENTS.md", "Makefile.in", "a.b/c", "v1..v2.txt", "..keep/a.txt"]) {
+    for (const yes of ["models/bracket.step", "README.md", "src/", "src/main", "apps/desktop/AGENTS.md", "Makefile.in", "a.b/c", "/Users/me/p/a.step", "/etc/hosts", "v1..v2.txt", "..keep/a.txt"]) {
       expect(looksLikePath(yes), yes).toBe(true);
     }
-    for (const no of ["0.5.0", "3.14", "https://x.y/z", "/etc/hosts", "~/x", "C:\\x", "foo:", "../x", "a/../b", "hello", "."]) {
+    for (const no of ["0.5.0", "3.14", "https://x.y/z", "/clear", "//x/y", "~/x", "C:\\x", "foo:", "../x", "a/../b", "hello", "."]) {
       expect(looksLikePath(no), no).toBe(false);
     }
+  });
+
+  it("finds an absolute path in prose and keeps its leading slash", () => {
+    expect(findPathTokens("Wrote /Users/me/proj/models/a.step#o1, done.").map((token) => [token.raw, token.path, token.selector])).toEqual([
+      ["/Users/me/proj/models/a.step#o1", "/Users/me/proj/models/a.step", "o1"],
+    ]);
   });
 
   it("finds tokens in prose, shedding the sentence's punctuation", () => {
@@ -86,6 +93,13 @@ describe("remarkPathLinks", () => {
 });
 
 describe("pathTarget", () => {
+  it("reads an absolute path inside the root against it, and one outside as a workspace path that is not there", () => {
+    expect(pathTarget("/Users/me/p/models/a.step#o1", "/Users/me/p")).toEqual({ path: "models/a.step", selector: "o1" });
+    expect(pathTarget("/Users/me/p/", "/Users/me/p/")).toBeNull();
+    expect(pathTarget("/Users/me/other/a.step", "/Users/me/p")).toEqual({ path: "Users/me/other/a.step", selector: "" });
+    expect(pathTarget("/Users/me/pp/a.step", "/Users/me/p")).toEqual({ path: "Users/me/pp/a.step", selector: "" });
+  });
+
   it("reads the path and selector back from the hrefs the pipeline produces", () => {
     expect(pathTarget("./models/x.step#o1.2")).toEqual({ path: "models/x.step", selector: "o1.2" });
     expect(pathTarget("/models/x.step#label.f45")).toEqual({ path: "models/x.step", selector: "label.f45" });
@@ -167,6 +181,36 @@ describe("PathLink", () => {
     expect(useExplorer.getState().tabs[0]).toMatchObject({ kind: "file", path: null });
   });
 
+  it("an absolute path inside the project renders a link to the file; one outside stays words", async () => {
+    const exists = vi.fn(async ({ paths }: { paths: string[] }) => Object.fromEntries(paths.map((path) => [path, path === "models/a.step" ? "file" : null])));
+    (window.textToCad.explorer as unknown as Record<string, unknown>).exists = exists;
+    const rooted = { projectId: "p1", root: null, rootPath: "/Users/me/p" };
+    render(
+      <TranscriptScopeContext.Provider value={rooted}>
+        <PathLink href="/Users/me/p/models/a.step">/Users/me/p/models/a.step</PathLink>
+        <PathLink href="/Users/me/elsewhere/b.step">/Users/me/elsewhere/b.step</PathLink>
+      </TranscriptScopeContext.Provider>,
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: /\/Users\/me\/p\/models\/a\.step/ })).toHaveAttribute("data-path-link", "models/a.step"));
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+  });
+
+  it("an exists error is not pinned: the next hover asks again and the answer becomes a link", async () => {
+    const user = userEvent.setup();
+    const exists = vi
+      .fn<(request: { paths: string[] }) => Promise<Record<string, string | null>>>()
+      .mockRejectedValueOnce(new Error("ipc down"))
+      .mockResolvedValue({ "models/x.step": "file" });
+    (window.textToCad.explorer as unknown as Record<string, unknown>).exists = exists;
+    wrap("./models/x.step", "models/x.step");
+    await waitFor(() => expect(screen.getByText("models/x.step")).toHaveAttribute("data-path-retry"));
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(exists).toHaveBeenCalledTimes(1);
+    await user.hover(screen.getByText("models/x.step"));
+    await waitFor(() => expect(screen.getByRole("button", { name: /models\/x\.step/ })).toBeInTheDocument());
+    expect(exists).toHaveBeenCalledTimes(2);
+  });
+
   it("leaves a missing path as text and a URL as an outside link", async () => {
     (window.textToCad.explorer as unknown as Record<string, unknown>).exists = vi.fn(async () => ({ "gone.md": null }));
     wrap("./gone.md", "gone.md");
@@ -202,5 +246,22 @@ describe("PathLink", () => {
     await screen.findByRole("tooltip");
     const hint = document.querySelector("[data-slot=tooltip-content] [data-link-hint]");
     expect(hint).toHaveClass("break-all");
+  });
+});
+
+describe("an absolute path in an agent's prose, through the markdown pipeline", () => {
+  it("becomes a link when it lies inside the project", async () => {
+    usePathLinks.setState({ kinds: {} });
+    (window.textToCad.explorer as unknown as Record<string, unknown>).exists = vi.fn(async ({ paths }: { paths: string[] }) =>
+      Object.fromEntries(paths.map((path) => [path, path === "models/a.step" ? "file" : null])),
+    );
+    render(
+      <TranscriptScopeContext.Provider value={{ projectId: "p1", root: null, rootPath: "/Users/me/p" }}>
+        <PartsList open={false} parts={[{ type: "text", text: "Wrote `/Users/me/p/models/a.step` and /usr/bin/env." }]} prefix="t" sessionId="s1" />
+      </TranscriptScopeContext.Provider>,
+    );
+    const link = await screen.findByRole("button", { name: /models\/a\.step/ });
+    expect(link).toHaveAttribute("data-path-link", "models/a.step");
+    expect(screen.getAllByRole("button")).toHaveLength(1);
   });
 });

@@ -79,7 +79,9 @@ function splitText(value: string): MdNode[] {
 
 /** The URL is the token, path-relative; `PathLink` decodes it back. */
 export function pathLinkUrl(raw: string): string {
-  return `./${raw}`;
+  // An absolute path stays root-relative as written (`./` in front would make it `.//Users/…`);
+  // `PathLink` tells it from a workspace path by the scope's own root.
+  return raw.startsWith("/") ? raw : `./${raw}`;
 }
 
 function linkFor(raw: string, children: MdNode[]): MdNode {

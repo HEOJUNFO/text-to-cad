@@ -846,7 +846,12 @@ file or a folder, and as the words it was otherwise. A file opens in the
 explorer with its renderer; a folder is revealed in the tree; a path with
 a selector (`bracket.step#o1.2`, `#label.f45`) opens the file in the
 viewer and hands the selector to the STEP renderer's command source. Paths
-are relative to the thread's root — its worktree when it has one.
+are relative to the thread's root — its worktree when it has one — and an
+absolute path (`/Users/me/proj/models/a.step`) links when it lies inside that
+root, read against it; one outside the root is only words, since nothing
+outside the project opens in the explorer. A failed `explorer.exists` is not
+an answer: the path stays words and is asked again on the next hover or click
+(and at the next `files.changed`), not pinned as "not a path".
 
 Activity summaries stay neutral even when a call fails. A separate red failure count marks a folded group, and its failed rows show a red **Failed** indicator; expand a row for the original error. Completed thinking rows use an ellipsis, with a spinner while thinking is active. Status comes from the agent’s tool-call status, not from words in its output.
 
