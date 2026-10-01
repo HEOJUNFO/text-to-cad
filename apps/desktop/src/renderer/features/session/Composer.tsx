@@ -196,6 +196,39 @@ export function Composer({
   // A pause after Stop says so; any other pause is a failed turn (or a refused prompt).
   const pausedByStop = useAcp((state) => (sessionId ? state.sessions[sessionId]?.turns.at(-1)?.stopReason === "cancelled" : false));
 
+  // A file dropped anywhere on the session view — the transcript, the chips row, the queue strip —
+  // attaches, not only one dropped on the box (whose own handler is `onDropCapture` below, which
+  // runs first and stops the event, so nothing is added twice). The zone is the session view the
+  // composer sits in, or the composer alone where there is none (the new-session screen). A
+  // disabled composer takes nothing: the drop is a no-op and the cursor says not allowed.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const root = rootRef.current;
+    const zone = root?.closest<HTMLElement>("[data-session-view]") ?? root;
+    if (!zone) return;
+    const hasFiles = (event: DragEvent) => event.dataTransfer?.types?.includes("Files") ?? false;
+    const onDragOver = (event: DragEvent) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = disabled ? "none" : "copy";
+    };
+    const onDrop = (event: DragEvent) => {
+      if (!hasFiles(event)) return;
+      // Always handled: an unhandled file drop would navigate the window to the file.
+      event.preventDefault();
+      const dropped = [...(event.dataTransfer?.files ?? [])];
+      const add = attachmentsRef.current?.add;
+      if (disabled || dropped.length === 0 || !add) return;
+      void admit(dropped, add);
+    };
+    zone.addEventListener("dragover", onDragOver);
+    zone.addEventListener("drop", onDrop);
+    return () => {
+      zone.removeEventListener("dragover", onDragOver);
+      zone.removeEventListener("drop", onDrop);
+    };
+  }, [disabled, admit]);
+
   useEffect(() => {
     if (autoFocus) {
       textRef.current?.focus();
@@ -252,7 +285,12 @@ export function Composer({
   return (
     <div
       className="relative flex flex-col gap-2"
+      ref={rootRef}
       data-composer
+      onDragOverCapture={(event) => {
+        // The vendored form accepts every file drag; a disabled box says it does not.
+        if (disabled && event.dataTransfer?.types?.includes("Files")) event.dataTransfer.dropEffect = "none";
+      }}
       onDropCapture={(event) => {
         // Ahead of the vendored form's own drop handler, which would attach the file unchecked.
         const dropped = [...(event.dataTransfer?.files ?? [])];
@@ -262,7 +300,8 @@ export function Composer({
         event.preventDefault();
         event.stopPropagation();
         const add = attachmentsRef.current?.add;
-        if (add) {
+        // A disabled composer (no live agent) attaches nothing: the drop is refused whole.
+        if (add && !disabled) {
           void admit(dropped, add);
         }
       }}

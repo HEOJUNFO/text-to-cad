@@ -905,6 +905,11 @@ full file/selector remains in the tooltip and is still the text sent to the
 agent. Names are optional display metadata scoped to the draft; typed or
 unresolved references keep their file/selector fallback.
 
+A drop is accepted across the whole session view — the transcript, the chips
+row and the queue strip as well as the box — and goes through the same sort. A
+composer that is disabled (no live agent) takes no drop at all: the drop does
+nothing and the cursor reads not allowed.
+
 A file is sorted the moment it is attached (paperclip, paste or drop), not
 when the prompt is sent. Images and UTF-8 text up to 256 KB
 (`MAX_INLINE_TEXT_BYTES` in `composer/attachments.ts`) attach as before. An
