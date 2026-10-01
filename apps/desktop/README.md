@@ -1457,6 +1457,12 @@ to the command palette. Paste is xterm's own paste listener, which brackets the
 text when the shell asked for it; the Cmd/Ctrl+V branch of the handler only
 returns false so Ctrl+V does not reach the shell as `^V`, and writes nothing (a
 second write ran a pasted command twice, once unbracketed).
+A shell that ends is said so over the footer, not in it: a `role="status"` banner reads
+"The shell exited (code N)." with a Try again button, which kills the old pty and
+starts a fresh shell (the lazy-tab error pattern). A pty that cannot be attached to,
+or written to, puts the unwrapped sentence from main in the same banner, and a spawn
+that fails shows it under "No shell" without Electron's "Error invoking remote
+method" wrapper.
 
 A terminal an agent asks for through ACP's `terminal/*` (`src/main/acp/terminals.ts`)
 is separate from those ptys, and its output reaches the transcript's activity row
