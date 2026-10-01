@@ -2348,7 +2348,9 @@ back, and a retry main refuses (it throws, as for a busy session) becomes the no
 main's own words, unprefixed: nothing was tried, so it is not reported as a failed try.
 One whose connection is dead, or whose row is gone,
 is abandoned (`abandonCreate`): the connection is retired, the row removed, the
-worktree that create cut released, and `create` rejects. The same happens when
+worktree that create cut released, and `create` rejects with the failure that ended it, even
+when the store refuses to remove the row too (that is logged, and the marks are still unpinned and
+the worktree still released). The same happens when
 the store refuses the settle too, so nothing stays `connecting` behind a live
 connection. A create whose row the person deleted while it started rejects with
 `DELETED_WHILE_STARTING` (`shared/ipc/errors.ts`), which `NewSession` swallows:
