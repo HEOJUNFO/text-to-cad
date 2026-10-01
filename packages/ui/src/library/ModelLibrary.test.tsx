@@ -152,3 +152,31 @@ it('asks for a picture of each card on screen that has none or an old one, one a
   expect(picture).toHaveBeenCalledTimes(2);
   expect(list).toHaveBeenCalledTimes(2);
 });
+
+// The home stays up while an agent rebuilds a model it lists: the card is pictured again.
+it('pictures a card again when its file is edited while the home is up', async () => {
+  const edited = Date.now() / 1000 - 60;
+  let models = [model('plate.step', { thumbnail: 'plate.png', pictured: edited + 30, modified: edited })];
+  const list = vi.fn(async () => models);
+  const picture = vi.fn(async () => true);
+  render(<ModelLibrary library={library(models, { list })} picture={picture} />);
+  await screen.findByRole('button', { name: 'Open plate.step' });
+  expect(picture).not.toHaveBeenCalled();
+  models = [{ ...models[0], modified: edited + 60 }];
+  await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+  await waitFor(() => expect(picture.mock.calls.map(([item]) => item.modified)).toEqual([edited + 60]));
+});
+
+it('reads its list again every couple of seconds while the home is up, keeping the cards when nothing changed', async () => {
+  vi.useFakeTimers();
+  try {
+    const list = vi.fn(async () => [model('plate.step')]);
+    render(<ModelLibrary library={library([], { list })} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(list).toHaveBeenCalledTimes(1);
+    const card = screen.getByRole('button', { name: 'Open plate.step' });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('button', { name: 'Open plate.step' })).toBe(card);
+  } finally { vi.useRealTimers(); }
+});

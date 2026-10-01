@@ -106,7 +106,8 @@ export function CadViewer<Model extends LibraryModel = LibraryModel>({ client, h
   }, [client]);
 
   // What is on screen joins the library with a picture, once it has settled.
-  useModelThumbnail(live, shown, (png, pictured) => latest.current.onThumbnail?.(png, pictured) ?? Promise.resolve());
+  useModelThumbnail(live, shown, String(entry?.documentHash || entry?.hash || ''),
+    (png, pictured) => latest.current.onThumbnail?.(png, pictured) ?? Promise.resolve());
 
   // A file the viewer asks for — a pick in the explorer, a renderer's link — is shown by the host,
   // and opens with the panel it was asked for (the explorer, for a pick there) or its own default;

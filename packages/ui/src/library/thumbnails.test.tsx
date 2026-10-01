@@ -19,7 +19,7 @@ function view(path: string) {
 test('the file on screen is pictured once its view settles, at the card\'s size, and a stale view never is', async () => {
   const live = createLiveRegistry();
   const save = vi.fn(async () => {});
-  const { rerender } = renderHook(({ file }) => useModelThumbnail(live, file, save), { initialProps: { file: 'a.step' as string | null } });
+  const { rerender } = renderHook(({ file }) => useModelThumbnail(live, file, 'r1', save), { initialProps: { file: 'a.step' as string | null } });
   const a = view('a.step');
   act(() => { live.binding.bind(a); });
   expect(a.thumbnail).toHaveBeenCalledWith(THUMBNAIL_SIZE);
@@ -31,4 +31,20 @@ test('the file on screen is pictured once its view settles, at the card\'s size,
   rerender({ file: 'b.step' });
   await act(async () => b.settle(new Blob(['still a'])));
   expect(save).toHaveBeenCalledTimes(1);
+});
+
+test('a model rebuilt while it is open is pictured again once its new revision settles, and only then', async () => {
+  const live = createLiveRegistry();
+  const save = vi.fn(async () => {});
+  const { rerender } = renderHook(({ revision }) => useModelThumbnail(live, 'a.step', revision, save), { initialProps: { revision: 'r1' } });
+  const a = view('a.step');
+  act(() => { live.binding.bind(a); });
+  await act(async () => a.settle(new Blob(['r1'])));
+  expect(save).toHaveBeenCalledTimes(1);
+  rerender({ revision: 'r1' });
+  expect(a.thumbnail).toHaveBeenCalledTimes(1);
+  rerender({ revision: 'r2' });
+  expect(a.thumbnail).toHaveBeenCalledTimes(2);
+  await act(async () => a.settle(new Blob(['r2'])));
+  expect(save).toHaveBeenCalledTimes(2);
 });

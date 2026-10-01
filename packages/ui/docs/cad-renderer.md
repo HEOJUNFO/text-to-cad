@@ -673,8 +673,10 @@ for STEP's (its selection, hidden and isolated parts, `select` and `clearSelecti
 
 The injected `CadWorkspaceService` owns its catalog and request controllers. The first
 subscriber starts the catalog and its two-second poll; further subscribers
-share them. The last unsubscribe stops polling. The host supplies `shouldPoll`
-and connects window focus and visible `visibilitychange` events to
+share them. The last unsubscribe stops polling. A host may gate the poll with
+`shouldPoll`; the web viewer does not, so a tab in the background is current
+when it is shown (the CAD app polls nothing: its views sync). `CadViewer`
+connects window focus and visible `visibilitychange` events to
 `refresh({ markRefreshing: false })`, preserving browser refresh behavior
 without a DOM dependency in core. Catalog requests retain the ten-second
 timeout and the same error text.

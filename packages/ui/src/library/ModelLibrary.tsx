@@ -85,6 +85,8 @@ export function editedLabel(modified: number | null, now = Date.now()): string {
 }
 
 const message = (failure: unknown) => failure instanceof Error ? failure.message : String(failure);
+/** How often the home reads its list again while it is up. */
+const LIST_MS = 2_000;
 // The chrome's one scroll region (`primitives/scroll-area.jsx`), as this page uses it.
 const ScrollArea = ScrollRegion as unknown as ComponentType<{ className?: string; style?: CSSProperties; viewportClassName?: string; children: ReactNode; [data: `data-${string}`]: string }>;
 
@@ -112,7 +114,7 @@ function Thumbnail<Model extends LibraryModel>({ item, load, seen, opening = fal
     });
     observer.observe(element.current);
     return () => { active = false; observer.disconnect(); };
-  }, [item.path, item.thumbnail, item.missing, load]);
+  }, [item.path, item.thumbnail, item.missing, item.modified, load]);
   return <span className="cad-library-thumbnail" ref={element}>
     {image ? <img src={image} alt="" /> : <Box strokeWidth={1} aria-hidden="true" />}
     {opening ? <span className="cad-library-opening"><Spinner aria-label={`Opening ${item.name}`} /></span> : null}
@@ -170,21 +172,28 @@ export function ModelLibrary<Model extends LibraryModel>({ library, layout = "gr
   const current = useRef(library);
   current.current = library;
   const images = useRef(new Map<string, Promise<string | null>>());
-  const refresh = useCallback(() => current.current.list().then(setItems), []);
+  // The same list again is not news: the cards keep their state and are not drawn again.
+  const refresh = useCallback(() => current.current.list().then(next =>
+    setItems(previous => previous && JSON.stringify(previous) === JSON.stringify(next) ? previous : next)), []);
+  // Read on mount, again every couple of seconds while the home is up (a model rebuilt meanwhile
+  // is edited later than its picture, and is pictured again), and when the page is shown.
   useEffect(() => {
     void refresh().catch(failure => { setItems([]); setError(message(failure)); });
-    const again = () => { if (document.visibilityState !== "hidden") void refresh().catch(() => {}); };
+    const again = () => { void refresh().catch(() => {}); };
+    const timer = setInterval(again, LIST_MS);
     document.addEventListener("visibilitychange", again);
-    return () => document.removeEventListener("visibilitychange", again);
+    return () => { clearInterval(timer); document.removeEventListener("visibilitychange", again); };
   }, [refresh]);
   // The cards on screen that want a picture, in the order they came into view, drawn one at a time.
   const draw = useRef(picture);
   draw.current = picture;
   const asked = useRef(new Set<string>());
   const [queue, setQueue] = useState<readonly Model[]>([]);
+  // Once per card and edit: a file edited again wants its picture again.
   const seen = useCallback((item: Model) => {
-    if (!draw.current || asked.current.has(item.path) || !wantsPicture(item)) return;
-    asked.current.add(item.path);
+    const key = JSON.stringify([item.path, item.modified]);
+    if (!draw.current || asked.current.has(key) || !wantsPicture(item)) return;
+    asked.current.add(key);
     setQueue(waiting => [...waiting, item]);
   }, []);
   const drawing = useRef(false);
