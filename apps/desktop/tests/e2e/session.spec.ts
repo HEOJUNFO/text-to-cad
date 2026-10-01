@@ -446,6 +446,21 @@ test("stop cancels the running turn", async () => {
   await shoot("session-cancelled.png");
 });
 
+test("a queued prompt goes out when the turn ends", async () => {
+  const composer = page.getByPlaceholder("Do anything", { exact: true });
+  await composer.fill("linger");
+  await composer.press("Enter");
+  await expect(page.getByRole("button", { name: "Stop" })).toBeVisible();
+  await page.getByPlaceholder("Send another message — it goes next").fill("thought and then ok");
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("1 queued prompt")).toBeVisible();
+  // The turn ends by itself, nobody pressed Stop: the queue is not paused and the next prompt goes out.
+  await expect(page.getByText("1 queued prompt")).toBeHidden({ timeout: 20_000 });
+  await expect(page.getByText(/^Paused after/)).toBeHidden();
+  await expect(page.locator("[data-turn][data-role=user]").last()).toContainText("thought and then ok");
+  await expect(page.locator("[data-session-view]")).toHaveAttribute("data-session-status", "idle", { timeout: 20_000 });
+});
+
 test("a queued prompt holds behind a Stop and goes out on Resume", async () => {
   const composer = page.getByPlaceholder("Do anything", { exact: true });
   await composer.fill("slow");

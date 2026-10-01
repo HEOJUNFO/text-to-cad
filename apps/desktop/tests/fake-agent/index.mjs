@@ -53,6 +53,9 @@
  *                 and only then — behind the prompt response — send one more
  *                 text chunk and an `in_progress` update for the failed call,
  *                 the way a background task's report lands after `prompt/end`
+ *   "linger"      work for about 1.5 s, then end the turn on its own (`end_turn`) —
+ *                 long enough to queue a prompt behind it, unlike "slow", which
+ *                 waits to be cancelled
  *   "slow"        wait until cancelled
  *   "reject-prompt" ask session/request_permission without waiting for the
  *                 answer, then answer `session/prompt` with a JSON-RPC error
@@ -699,6 +702,12 @@ async function script(conn, params) {
       void send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Background task finished." } });
       void send({ sessionUpdate: "tool_call_update", toolCallId: "late-1", status: "in_progress" });
     }, 20);
+    return { stopReason: "end_turn" };
+  }
+
+  if (text.includes("linger")) {
+    await send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "working" } });
+    await new Promise((resolve) => setTimeout(resolve, 1500));
     return { stopReason: "end_turn" };
   }
 
