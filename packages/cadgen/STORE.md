@@ -1443,8 +1443,10 @@ supersession does not cancel their exports.
   once it is far enough past the write it observed that a further write must
   stamp a different mtime — a filesystem times writes by a clock of its own
   resolution (~15.6 ms on Windows, whose `st_ctime` is the creation time and
-  never moves for a rewrite), and a same-size rewrite inside that tick is
-  invisible to every stat field. The metadata cache is byte-bounded, store-root
+  never moves for a rewrite; a 100 Hz timer interrupt on Linux before 6.13,
+  even where the stamp shows nanoseconds), and a same-size rewrite inside that
+  tick is invisible to every stat field. No read settles in less than two
+  Windows ticks. The metadata cache is byte-bounded, store-root
   isolated and returns a newly parsed flattened view to every caller. The gate's
   completeness check (`tree_complete`) is such a consumer, and its output
   digests follow the same rule (§4).

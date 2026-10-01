@@ -460,7 +460,12 @@ _STAMP_MTIME_NS = 4
 # under-estimating certifies a read a later write can still reproduce. FAT's
 # 2 s write time divides by 1 s, so it needs an entry of its own -- read as a
 # 1 s clock it would admit a rewrite in the back half of its own tick.
-_TIMESTAMP_TICKS_NS = (2_000_000_000, 1_000_000_000, 15_625_000, 1_000_000)
+_TIMESTAMP_TICKS_NS = (2_000_000_000, 1_000_000_000)
+# Nanosecond digits do not prove a nanosecond clock. Linux before 6.13 stamps a
+# write with the time its timer interrupt last recorded (every 10 ms at 100 Hz)
+# and Windows with a ~15.6 ms one, each keeping all the digits of that time, so
+# no stamp settles before the slower of them has ticked twice.
+_TIMESTAMP_FLOOR_NS = 2 * 15_625_000
 
 
 def _object_stamp(digest: str) -> tuple:
@@ -469,11 +474,11 @@ def _object_stamp(digest: str) -> tuple:
 
 
 def _timestamp_resolution_ns(mtime_ns: int) -> int:
-    """How coarsely the filesystem that produced ``mtime_ns`` stamps a write."""
+    """How coarsely the filesystem that produced ``mtime_ns`` may stamp a write."""
     for tick in _TIMESTAMP_TICKS_NS:
         if mtime_ns % tick == 0:
             return tick
-    return 1
+    return _TIMESTAMP_FLOOR_NS
 
 
 def _stamp_is_settled(stamp: tuple) -> bool:
@@ -481,9 +486,9 @@ def _stamp_is_settled(stamp: tuple) -> bool:
 
     The read happened at least one timestamp tick after the write it observed,
     so any later write lands in a tick the fingerprint does not already hold.
-    A nanosecond-resolution filesystem settles immediately; a coarse one (or a
-    clock that ran backwards) leaves a short window in which the bytes may still
-    change silently, and nothing read in it is remembered.
+    Every clock leaves a short window -- a few interrupt ticks, or a whole
+    coarse tick, or longer when the clock ran backwards -- in which the bytes
+    may still change silently, and nothing read in it is remembered.
     """
     mtime_ns = stamp[_STAMP_MTIME_NS]
     return time.time_ns() - mtime_ns >= _timestamp_resolution_ns(mtime_ns)

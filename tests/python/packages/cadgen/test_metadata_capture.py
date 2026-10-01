@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import Counter
 from concurrent.futures import Future, ThreadPoolExecutor
+import functools
 import json
 import os
 from pathlib import Path
@@ -302,26 +303,32 @@ class MetadataCapture(unittest.TestCase):
         timer. A same-size rewrite landing in the tick the verified read observed
         leaves dev, inode, size, mtime and ctime identical, so the cached
         metadata would answer for bytes that no longer hash to their address.
+        Linux before 6.13 stamps from its timer interrupt too (10 ms at 100 Hz)
+        and keeps every nanosecond digit, so no digit pattern gives the tick away.
         """
         entry = next(value for cid, value in self.geometry["components"].items() if cid != self.cid)
         target = object_path(entry["brep"])
         original = target.read_bytes()
-        tick_ns = time.time_ns() // WINDOWS_TICK_NS * WINDOWS_TICK_NS
+        now = time.time_ns()
 
-        def windows_stamp(digest):
+        def coarse_stamp(digest, mtime_ns):
             stat = object_path(digest).stat()
-            return (digest, stat.st_dev, stat.st_ino, stat.st_size, tick_ns, 0)
+            return (digest, stat.st_dev, stat.st_ino, stat.st_size, mtime_ns, 0)
 
-        trees._reset_metadata_capture_cache()
-        try:
-            with mock.patch.object(trees, "_object_stamp", side_effect=windows_stamp), \
-                 mock.patch("time.time_ns", return_value=tick_ns + WINDOWS_TICK_NS // 2):
-                trees.capture_tree(self.tree, retain_payloads=False)
-                target.write_bytes(bytes([original[0] ^ 1]) + original[1:])
-                with self.assertRaises((OSError, ValueError)):
-                    trees.capture_tree(self.tree, retain_payloads=False)
-        finally:
-            target.write_bytes(original)
+        for clock, mtime_ns in (("windows", now // WINDOWS_TICK_NS * WINDOWS_TICK_NS),
+                                ("linux jiffy", now // 1_000_000_000 * 1_000_000_000 + 123_456_789)):
+            with self.subTest(clock=clock):
+                trees._reset_metadata_capture_cache()
+                try:
+                    with mock.patch.object(trees, "_object_stamp",
+                                           side_effect=functools.partial(coarse_stamp, mtime_ns=mtime_ns)), \
+                         mock.patch("time.time_ns", return_value=mtime_ns + 5_000_000):
+                        trees.capture_tree(self.tree, retain_payloads=False)
+                        target.write_bytes(bytes([original[0] ^ 1]) + original[1:])
+                        with self.assertRaises((OSError, ValueError)):
+                            trees.capture_tree(self.tree, retain_payloads=False)
+                finally:
+                    target.write_bytes(original)
         trees._reset_metadata_capture_cache()
         self.settle_store_objects()
         self.assertEqual(trees.capture_tree(self.tree), (self.geometry, self.payloads))
