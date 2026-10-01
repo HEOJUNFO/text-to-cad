@@ -1,5 +1,5 @@
 import { fireEvent, render } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Composer } from "@renderer/features/session/Composer";
 import { useComposer } from "@renderer/state/composer";
@@ -8,6 +8,10 @@ const noRects = () => Object.assign([], { item: () => null }) as unknown as DOMR
 Range.prototype.getClientRects ??= noRects;
 Range.prototype.getBoundingClientRect ??= () => new DOMRect();
 (Text.prototype as unknown as { getClientRects: () => DOMRectList }).getClientRects ??= noRects;
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 beforeEach(() => {
   useComposer.setState({ drafts: { s1: "applied", [NEW]: "hello" }, queues: {}, sending: {}, paused: {} });
@@ -50,8 +54,17 @@ describe("Enter while a prompt is in flight", () => {
 
   it("still does nothing on the new-session screen, where a second send would create a second session", async () => {
     const { input, onSubmit } = await mount({ sessionId: null, status: "submitted" });
+    vi.useFakeTimers();
     fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await vi.runAllTimersAsync();
+    expect(onSubmit).not.toHaveBeenCalled();
+    // The same keystroke on a box that is not blocked does send (the Enter path works here), so
+    // the silence above is the gate and not a path that never ran.
+    vi.useRealTimers();
+    const ready = await mount({ sessionId: null, status: "ready" });
+    fireEvent.keyDown(ready.input, { key: "Enter", code: "Enter" });
+    await vi.waitFor(() => expect(ready.onSubmit).toHaveBeenCalledTimes(1));
     expect(onSubmit).not.toHaveBeenCalled();
   });
+
 });
