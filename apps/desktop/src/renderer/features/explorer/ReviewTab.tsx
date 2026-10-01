@@ -227,7 +227,7 @@ function ReviewBody({
         },
         (failure: unknown) => {
           if (sequence !== latestRead.current) return;
-          setError(failure instanceof Error ? failure.message : String(failure));
+          setError(errorMessage(failure));
           setLoading(false);
         },
       );
@@ -313,9 +313,9 @@ function ReviewBody({
   if (!status?.isRepository) {
     return (
       <EmptyState
-        description={status?.problem ? `${status.problem}, so there is nothing to review.` : `${project.name} is not a git repository, so there is nothing to review.`}
+        description={notRepository(status?.problem, project.name).description}
         icon={GitCompare}
-        title="Not a repository"
+        title={notRepository(status?.problem, project.name).title}
       />
     );
   }
@@ -899,7 +899,7 @@ function CommitPanel({
       onClose();
       onDone();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
+      setError(errorMessage(caught));
     } finally {
       setBusy(false);
     }
@@ -980,7 +980,7 @@ function CommitPanel({
         ) : null}
         </>
       ) : null}
-      {error ? <p className="mt-2 text-[11px] text-destructive">{error}</p> : null}
+      {error ? <p className="mt-2 whitespace-pre-wrap text-[11px] text-destructive">{error}</p> : null}
       <div className="mt-2.5 flex items-center gap-1.5">
         {canOpenPullRequest ? (
           <Button
@@ -1040,3 +1040,16 @@ function CommitPanel({
   );
 }
 
+
+/** Each way a folder can fail to be a repository gets its own title and a capitalised sentence. */
+export function notRepository(problem: string | undefined, name: string): { title: string; description: string } {
+  if (!problem) return { title: "Not a repository", description: `${name} is not a git repository, so there is nothing to review.` };
+  const sentence = `${problem.charAt(0).toUpperCase()}${problem.slice(1)}`;
+  const finished = (text: string) => (/[.!?]$/.test(text) ? text : `${text}.`);
+  // The timeout problem already says what follows from it.
+  if (/did not answer in time/.test(problem)) return { title: "Git did not answer", description: finished(sentence) };
+  const title = /not installed/.test(problem) ? "Git is not installed"
+    : /no longer exists/.test(problem) ? "Folder is gone"
+    : /another user owns/.test(problem) ? "Git will not open this folder" : "Could not read this folder";
+  return { title, description: `${sentence}, so there is nothing to review.` };
+}

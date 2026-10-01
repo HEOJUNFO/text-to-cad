@@ -952,7 +952,7 @@ async function fileDiffAt(root: string, filePath: string, absolute: string, scop
   const before =
     meta.status === "added" || meta.status === "untracked" || !base
       ? ""
-      : ((await tryGit(root, ["show", "--end-of-options", `${base.split("..")[0] ?? base}:${beforePath}`])) ?? "");
+      : await showSide(root, `${base.split("..")[0] ?? base}`, beforePath);
 
   const after =
     meta.status === "deleted"
@@ -961,10 +961,43 @@ async function fileDiffAt(root: string, filePath: string, absolute: string, scop
         // revision: "since this turn began" has to show the edit the agent
         // has not committed, which is every edit it just made.
         scope.kind === "working-tree" || openEnded(scope)
-        ? await readWorkingCopy(absolute)
-        : ((await tryGit(root, ["show", "--end-of-options", `${scopeTip(scope)}:${filePath}`])) ?? "");
+        ? await readWorkingSide(root, filePath, absolute)
+        : await showSide(root, scopeTip(scope), filePath);
 
   return { ...meta, before, after };
+}
+
+/** A submodule is one line in a diff: where its pointer is, not an empty editor. */
+const submoduleLine = (filePath: string, sha: string) => `submodule ${filePath} at ${sha}\n`;
+
+/**
+ * One side of a diff from a revision. A failed or timed-out `git show` is
+ * said, not turned into an empty side: a file that rendered wholly added or
+ * deleted while its header counted +3 −2 would be a diff that lies.
+ */
+async function showSide(root: string, revision: string, filePath: string): Promise<string> {
+  const link = (await tryGit(root, ["ls-tree", "-z", "--end-of-options", revision, "--", filePath])) ?? "";
+  const gitlink = /^160000 commit ([0-9a-f]+)\t/.exec(link);
+  if (gitlink) return submoduleLine(filePath, gitlink[1]!);
+  try {
+    return await git(root, ["show", "--end-of-options", `${revision}:${filePath}`]);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new GitError(`could not read ${filePath} at ${revision.slice(0, 12)}: ${reason}`);
+  }
+}
+
+/** The working copy as the second side; a submodule's directory is its recorded pointer. */
+async function readWorkingSide(root: string, filePath: string, absolute: string): Promise<string> {
+  if ((await fsp.lstat(absolute).catch(() => null))?.isDirectory()) {
+    const staged = (await tryGit(root, ["ls-files", "-s", "-z", "--", filePath])) ?? "";
+    const gitlink = /^160000 ([0-9a-f]+) /.exec(staged);
+    if (gitlink) {
+      const head = (await tryGit(absolute, ["rev-parse", "HEAD"]))?.trim();
+      return submoduleLine(filePath, head || gitlink[1]!);
+    }
+  }
+  return readWorkingCopy(absolute);
 }
 
 /** One file's status and counts, without walking the tree. */

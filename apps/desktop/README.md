@@ -1023,6 +1023,12 @@ one read per 500 ms (`STATUS_GAP_MS` in `ReviewTab.tsx`), and re-read only the
 diffs of files the answer says changed. A diff that cannot be read says so,
 with git's words and a Retry. A refresh that fails keeps the last answer on
 screen, marked stale under a "Could not refresh" line with Try again.
+A failed or timed-out `git show` is never drawn as an empty side (a file that read
+as wholly added while its header counted +3 −2): the diff fails with "could not read
+<path> at <revision>: <git's words>". A submodule is one line, "submodule <path> at
+<sha>", on each side, not an empty editor. A failed commit keeps git's lines as
+lines, and the messages above are shown without Electron's "Error invoking remote
+method" wrapper.
 
 The composer's paperclip opens one picker for files and photos. The viewer's
 camera button adds the current view and selected references to the draft.
@@ -2528,6 +2534,10 @@ folder because another user owns it (add it to git's safe.directory to trust it)
 or git did not answer in time ("git did not answer in time, so this folder could not be read"). The
 reason rides on `status` and `projectInfo` as `problem`; a folder that is just
 a folder has none, and gets the plain "not a git repository".
+Each reason has its own title in the Review tab ("Git is not installed", "Folder is
+gone", "Git will not open this folder", "Git did not answer"), over one capitalised
+sentence, and only the reasons that do not already say what follows add ", so there is
+nothing to review."
 
 Worktrees live outside the project, one folder per project, whichever agent
 made them:
