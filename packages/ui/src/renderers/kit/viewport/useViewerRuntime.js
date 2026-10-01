@@ -998,6 +998,10 @@ export function useViewerRuntime({
     }
 
     initializeViewer().catch((err) => {
+      // A start that failed has nothing to keep alive: its canvas, its window listeners and its
+      // GL context go now, not whenever the owner unmounts or retries. The effect cleanup's
+      // releaseAll is a no-op afterwards.
+      releaseAll();
       if (!cancelled) {
         setError(runtimeErrorMessage(err));
         onInitializationError?.(err);

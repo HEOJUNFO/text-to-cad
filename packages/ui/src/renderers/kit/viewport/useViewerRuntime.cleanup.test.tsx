@@ -94,7 +94,8 @@ test('a viewer whose initialisation throws midway releases what it had already r
   await waitFor(() => expect(onInitializationError).toHaveBeenCalled());
   const resize = added.filter(([type]) => type === 'resize');
   expect(resize).toHaveLength(1);
-  expect(FakeResizeObserver.live.size).toBe(1);
+  // The failed start let go of its observer at once; unmounting finds nothing left to do.
+  expect(FakeResizeObserver.live.size).toBe(0);
 
   hook.unmount();
 
@@ -140,6 +141,26 @@ test('a renderer whose start throws before it is mounted still lets go of its co
   hook.unmount();
 
   expect(renderers).toHaveLength(1);
+  expect(renderers[0].dispose).toHaveBeenCalled();
+  expect(mount.querySelector('canvas')).toBeNull();
+});
+
+test('a failed start releases its viewer at once, before anything unmounts', async () => {
+  const mount = document.createElement('div');
+  document.body.appendChild(mount);
+  const onInitializationError = vi.fn();
+  const added: Array<[string, unknown]> = [];
+  const removed: Array<[string, unknown]> = [];
+  const add = window.addEventListener.bind(window);
+  const remove = window.removeEventListener.bind(window);
+  vi.spyOn(window, 'addEventListener').mockImplementation(((type: string, listener: any, opts?: any) => { added.push([type, listener]); add(type, listener, opts); }) as any);
+  vi.spyOn(window, 'removeEventListener').mockImplementation(((type: string, listener: any, opts?: any) => { removed.push([type, listener]); remove(type, listener, opts); }) as any);
+  renderHook(() => useViewerRuntime({ ...(options(mount) as object), onInitializationError } as any));
+  await waitFor(() => expect(onInitializationError).toHaveBeenCalled());
+
+  const resize = added.filter(([type]) => type === 'resize');
+  expect(resize).toHaveLength(1);
+  expect(removed).toContainEqual(resize[0]);
   expect(renderers[0].dispose).toHaveBeenCalled();
   expect(mount.querySelector('canvas')).toBeNull();
 });
