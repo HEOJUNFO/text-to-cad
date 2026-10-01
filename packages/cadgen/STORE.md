@@ -960,7 +960,9 @@ Every build goes through one interface, `cadgen.daemon.executors.submit(model)
   resident memory and pending reservations,
   and may reclaim idle workers or refuse work (§9 below). A worker is recycled after
   `CADGEN_DAEMON_RECYCLE` jobs (default 1000) as a leak hedge, and the daemon
-  exits after `CADGEN_DAEMON_IDLE_TIMEOUT` seconds idle (default 3600).
+  exits after `CADGEN_DAEMON_IDLE_TIMEOUT` seconds idle (default 3600). The
+  first client that needs the daemon starts it, and `cadgen viewer` starts it as
+  soon as its URL is announced, so a session's first build finds warm spares.
   Inside a worker, `submit` is the same client call back to the daemon, so a
   parent's children land on their own workers while the parent's body runs.
 - **Transient executor (`CADGEN_DAEMON=0`).** A subprocess per job, alive for
