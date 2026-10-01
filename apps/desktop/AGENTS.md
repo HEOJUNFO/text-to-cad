@@ -412,6 +412,12 @@ the rule is about.
   `MAX_IMAGE_BYTES` smaller and refuses it only when it cannot be made to fit,
   so no tool result larger than the model takes enters a transcript
   (`src/renderer/state/image-result.ts`).
+- **The quit deadline spares the warm daemon by pid, never by process group.**
+  The app-owned viewer is `detached` too, so a group spare would spare it; the
+  watchdog gets `daemonPids()` (a daemon's pid leaves it when it exits, so a
+  reused pid is never spared), and both of its probes run under a timeout so a
+  hung `ps` cannot stall the final kill. Windows has no spare list and its tree
+  kill takes the daemon (`src/main/quit-deadline.ts`, README "Quitting").
 - **A git write child is signalled at quit, never killed first.**
   `endTrackedChildren` sends a commit, push or worktree add/remove SIGTERM so
   git drops its `index.lock`; `will-quit` kills what is left

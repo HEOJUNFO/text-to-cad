@@ -1654,7 +1654,9 @@ playbook for the mode bases and camera behavior.
 ## Quitting
 
 `app.quit()` has a budget of two seconds (`tests/e2e/cad.spec.ts` quits with everything running and
-asserts the process is gone within it, and that `[quit] teardown` and `[quit] will-quit` were logged), and the
+asserts the process is gone within it, and that `[quit] teardown` and `[quit] will-quit` were logged; it prints
+`[quit-budget] app.quit() to pid gone: N ms of 2000 ms (deadline 1200 ms)` whether it passes or fails, so a CI log shows
+how much of the budget a run used, and records N as the `quit-ms` annotation), and the
 teardown in `before-quit` is written for it: every owner signals what it
 owns and nothing is awaited. Electron waits for the Node side, and the Node
 side waits for every child it holds a pipe to, so `src/main/children.ts`
@@ -1670,9 +1672,11 @@ at all — an fsevents handle dies with the process.
 
 On POSIX, an app-owned viewer runs in its own process group. Its transient CAD
 workers are stopped when the viewer exits or the app quits, including workers
-that outlive the viewer process. Reused external viewers and the shared warm
-daemon belong to separate groups and are left running (on POSIX; on Windows the
-deadline's tree kill takes the warm daemon with it, see below).
+that outlive the viewer process. A reused external viewer is not a child
+of this app and is never touched. The shared warm daemon outlives the app by
+design and is spared by pid, not by group (the app-owned viewer has a group of
+its own too, so sparing a group would spare it); on Windows the deadline's tree
+kill takes the warm daemon with it. The deadline, below, has the mechanism.
 
 What is left after `before-quit` is Chromium's own shutdown, which on this
 macOS takes twelve seconds to minutes once a window has held a WebGL context
@@ -1884,7 +1888,10 @@ another domain's capabilities. The stdio entries omit `type`, because the ACP
 adapters otherwise interpret them as HTTP/SSE.
 
 The loopback bridge in `src/main/integrations/mcp-bridge.ts` authenticates the
-session, checks method ownership and validates its schema. Native services
+session, checks method ownership and validates its schema. `McpBridge.stop`
+aborts the in-flight calls, drops every token, disposes the resources and then
+always closes its listener, so a disposal that rejects is surfaced to the caller
+without leaving a loopback port open. Native services
 operate in main; UI-bound calls use `integrations.command` / `integrations.reply`
 and `src/renderer/state/integration-commands.ts`. Main resolves the session's
 project/worktree, and the owning service checks tab/resource identity again.
