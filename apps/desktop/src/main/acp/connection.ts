@@ -49,13 +49,14 @@ import {
   type PromptResponse,
 } from "@agentclientprotocol/sdk";
 
-import { configOptions, reduce, sessionModes } from "../../shared/acp/reduce";
+import { configOptions, reduce, sessionModes, turnFactsFrom } from "../../shared/acp/reduce";
 import {
   initialSessionState,
   type PromptBlock,
   type RawSessionUpdate,
   type SessionEvent,
   type SessionState,
+  type Turn,
 } from "../../shared/acp/types";
 import type { Launch } from "../../shared/agents";
 import { agentProvider } from "../agents/registry";
@@ -480,6 +481,8 @@ export class SessionConnection {
     acpSessionId: string,
     title: string | null = null,
     answered = false,
+    /** The stored transcript: what it knows of its turns that the replay cannot say again. */
+    stored: readonly Turn[] = [],
   ): Promise<LoadSessionResponse> {
     const init = await this.initialize();
     if (!init.agentCapabilities?.loadSession) {
@@ -523,6 +526,10 @@ export class SessionConnection {
       });
     }
     this.dispatch({ type: "session/loaded", at: Date.now() });
+    const facts = turnFactsFrom(this.stateValue.turns, stored);
+    if (facts.length > 0) {
+      this.dispatch({ type: "turns/restored", facts, at: Date.now() });
+    }
     // A session that was created and never prompted has no transcript to hold
     // the preamble: the replay carried no user turn, and the first prompt on
     // this connection is the first the agent will read.

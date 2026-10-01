@@ -945,7 +945,7 @@ export class SessionManager {
       // brings back (`loadSession`).
       const answered =
         stored?.turns.some((turn) => turn.role === "agent" && turn.parts.some((part) => part.type !== "error")) ?? false;
-      await connection.loadSession(session.acpSessionId, title, answered);
+      await connection.loadSession(session.acpSessionId, title, answered, stored?.turns);
       // An adapter that replays no diffs leaves nothing counted, and the
       // next persistTally would overwrite the row with one turn's edits:
       // the persisted counts are then the history to add to.

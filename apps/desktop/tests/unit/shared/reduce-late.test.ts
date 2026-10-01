@@ -1,7 +1,7 @@
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { reduce } from "@shared/acp/reduce";
-import { initialSessionState, type SessionEvent, type SessionState } from "@shared/acp/types";
+import { reduce, turnFactsFrom } from "@shared/acp/reduce";
+import { initialSessionState, type SessionEvent, type SessionState, type Turn } from "@shared/acp/types";
 
 const at = 1_000;
 const root = "root-session";
@@ -34,4 +34,24 @@ it("marks a chunk that arrives after the turn ended as late, from where it begin
 
 it("leaves a turn that took nothing late unmarked", () => {
   expect(stopped().turns.at(-1)!.lateFrom).toBeUndefined();
+});
+
+describe("turnFactsFrom (what a session/load restores from the stored transcript)", () => {
+  const turn = (role: "user" | "agent", text: string, extra: Partial<Turn> = {}): Turn => ({
+    id: "t", role, parts: [{ type: "text", text }], startedAt: 1, endedAt: 2, stopReason: role === "agent" ? "end_turn" : null, ...extra,
+  });
+
+  it("takes a stored stop reason, and lateFrom only where the replay has the same parts", () => {
+    const replayed = [turn("user", "q"), turn("agent", "a")];
+    const stored = [turn("user", "q"), turn("agent", "a", { stopReason: "cancelled", lateFrom: 0 })];
+    expect(turnFactsFrom(replayed, stored)).toEqual([{ turn: 1, stopReason: "cancelled", lateFrom: 0 }]);
+
+    const merged = [turn("user", "q"), turn("agent", "a", { parts: [{ type: "text", text: "a" }, { type: "thought", text: "b" }] })];
+    expect(turnFactsFrom(replayed, merged.map((t, i) => (i ? { ...t, lateFrom: 1, stopReason: "cancelled" as const } : t)))).toEqual([{ turn: 1, stopReason: "cancelled" }]);
+  });
+
+  it("stops at a user turn that says something else", () => {
+    const replayed = [turn("user", "q"), turn("agent", "a")];
+    expect(turnFactsFrom(replayed, [turn("user", "other"), turn("agent", "a", { stopReason: "cancelled" })])).toEqual([]);
+  });
 });

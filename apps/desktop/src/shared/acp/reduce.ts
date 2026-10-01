@@ -119,6 +119,19 @@ export function reduce(state: SessionState, event: SessionEvent): SessionState {
     case "session/loaded":
       return { ...closeOpenTurn(state, event.at, replayedEnd(state)), status: "idle" };
 
+    case "turns/restored": {
+      const turns = state.turns.map((turn, index) => {
+        const fact = event.facts.find((candidate) => candidate.turn === index);
+        if (!fact || turn.role !== "agent") return turn;
+        return {
+          ...turn,
+          ...(fact.stopReason !== undefined ? { stopReason: fact.stopReason } : {}),
+          ...(fact.lateFrom !== undefined ? { lateFrom: fact.lateFrom } : {}),
+        };
+      });
+      return { ...state, turns };
+    }
+
     case "prompt/start": {
       const { lateChunk: _late, ...settled } = state;
       const closed = closeOpenTurn(settled, event.at, null);
@@ -1514,4 +1527,35 @@ export function lastAgentText(state: SessionState): string {
     .filter((part): part is Extract<Part, { type: "text" }> => part.type === "text")
     .map((part) => part.text)
     .join("");
+}
+
+/**
+ * What a stored transcript knows about its turns that `session/load` cannot
+ * say again: how an agent turn was stopped (the replay closes every turn
+ * `end_turn`) and where its late parts begin (the replay has no `prompt/end`,
+ * so late text merges into the answer). Turns are matched by position, for as
+ * long as each user turn says the same thing; an agent turn takes the stored
+ * stop reason, and its `lateFrom` only when the replay has the same number of
+ * parts, since a replay that merged parts cannot say which of them were late.
+ */
+export function turnFactsFrom(replayed: readonly Turn[], stored: readonly Turn[]) {
+  const facts: { turn: number; stopReason?: NonNullable<Turn["stopReason"]>; lateFrom?: number }[] = [];
+  const textOf = (turn: Turn) =>
+    turn.parts.map((part) => (part.type === "text" ? part.text : "")).join("");
+  for (let index = 0; index < replayed.length && index < stored.length; index++) {
+    const now = replayed[index]!;
+    const before = stored[index]!;
+    if (now.role !== before.role) break;
+    if (now.role === "user") {
+      if (textOf(now) !== textOf(before)) break;
+      continue;
+    }
+    const stopReason = before.stopReason && before.stopReason !== now.stopReason ? before.stopReason : undefined;
+    const lateFrom =
+      before.lateFrom !== undefined && before.parts.length === now.parts.length ? before.lateFrom : undefined;
+    if (stopReason !== undefined || lateFrom !== undefined) {
+      facts.push({ turn: index, ...(stopReason ? { stopReason } : {}), ...(lateFrom !== undefined ? { lateFrom } : {}) });
+    }
+  }
+  return facts;
 }

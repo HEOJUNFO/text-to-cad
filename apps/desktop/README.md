@@ -2257,7 +2257,14 @@ added to the last agent turn and marked by the turn's `lateFrom`, the index of
 the first part that came late. The transcript draws those parts after the turn's
 footer ("Stopped", "The agent declined.", the limit line), under a quiet label,
 "Arrived after the turn ended", so they never read as if they came before the
-stop. In the renderer, `receiveState` (`state/acp.ts`) clears a session's
+stop. A `session/load` replay cannot say either again (it has no `prompt/end`, so
+late text merges into the answer, and it closes every agent turn `end_turn`), so
+after the replay the connection dispatches `turns/restored`, built from the stored
+snapshot by `turnFactsFrom`: turns are matched by position for as long as each
+user turn says the same thing, an agent turn takes the stored stop reason, and
+its `lateFrom` only when the replay has the same number of parts (a replay that
+merged parts cannot say which were late). What a reload restores is those two
+facts, nothing else. In the renderer, `receiveState` (`state/acp.ts`) clears a session's
 `loadErrors` once the state it takes says the agent is up (`idle`, `running` or
 `waiting`). In main, an `initialize` failure goes through `describe`
 (`src/main/acp/connection.ts`) as `session/new`, `session/load` and

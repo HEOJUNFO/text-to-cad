@@ -566,6 +566,22 @@ export const SessionEventSchema = z.discriminatedUnion("type", [
   }),
   /** `session/load` finished replaying. */
   z.object({ type: z.literal("session/loaded"), at: z.number() }),
+  /**
+   * After a `session/load`: the per-turn facts the wire cannot replay and the
+   * stored snapshot still had — how a turn was stopped, and where its late
+   * parts begin (`restoreTurnFacts`, `src/shared/acp/reduce.ts`).
+   */
+  z.object({
+    type: z.literal("turns/restored"),
+    facts: z.array(
+      z.object({
+        turn: z.number(),
+        stopReason: StopReasonSchema.optional(),
+        lateFrom: z.number().optional(),
+      }),
+    ),
+    at: z.number(),
+  }),
   z.object({
     type: z.literal("prompt/start"),
     turnId: z.string(),

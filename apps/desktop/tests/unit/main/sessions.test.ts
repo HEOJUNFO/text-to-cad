@@ -688,6 +688,31 @@ describe("SessionManager", () => {
    * failed load's debounce, or by a quit in the first second — it destroys the
    * only copy of the history.
    */
+  it("keeps a stored turn's stop reason and late label across a session/load", async () => {
+    // The replay carries no `prompt/end` and no stop reason: every replayed
+    // agent turn ends `end_turn`, and late text merges into the answer.
+    const store = memorySnapshots();
+    const { manager, cwd } = await setup({ snapshots: store });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    await manager.prompt(session.id, [{ type: "text", text: "hello there" }]);
+    manager.close(session.id);
+
+    const saved = JSON.parse(store.rows.get(session.id)!);
+    const last = saved.turns.at(-1);
+    expect(last.role).toBe("agent");
+    // What the fake agent replays for any session: the stored transcript is of the same text.
+    saved.turns[0].parts = [{ type: "text", text: "earlier prompt" }];
+    last.parts = [{ type: "text", text: "earlier reply" }];
+    last.stopReason = "cancelled";
+    last.lateFrom = last.parts.length - 1;
+    store.rows.set(session.id, JSON.stringify(saved));
+
+    const state = await manager.load(session.id);
+    expect(state.turns.at(-1)).toMatchObject({ role: "agent", stopReason: "cancelled", lateFrom: last.lateFrom });
+    manager.closeAll();
+    expect(JSON.parse(store.rows.get(session.id)!).turns.at(-1)).toMatchObject({ stopReason: "cancelled", lateFrom: last.lateFrom });
+  });
+
   it("keeps the stored transcript when a reconnect's session/load is refused", async () => {
     let launchArgs = [FAKE_AGENT];
     const store = memorySnapshots();
