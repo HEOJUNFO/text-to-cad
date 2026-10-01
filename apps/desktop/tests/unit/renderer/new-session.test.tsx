@@ -281,6 +281,23 @@ describe("a start that needs a sign-in", () => {
     expect(screen.queryByText(/Install an agent first/)).toBeNull();
   });
 
+  it("releases a held send with the could-not-check card, not the install sentence, when every probe failed", async () => {
+    const user = userEvent.setup();
+    useAgents.setState({ agents: [], ready: false });
+    useComposer.setState({ drafts: { "__new__:p1": "make a cube" } });
+    render(<NewSession project={PROJECT} />);
+
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByRole("status");
+    act(() => useAgents.getState().receive([{ ...AGENT, probeFailed: true } as AgentStatus]));
+
+    expect(await screen.findByText("Could not check for agents")).toBeInTheDocument();
+    expect(screen.queryByText(/Install an agent first/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(create).not.toHaveBeenCalled();
+    expect(useComposer.getState().drafts["__new__:p1"], "the draft is back in the box").toBe("make a cube");
+  });
+
   it("does not start again by itself after a login when the draft was edited since the failure", async () => {
     const user = userEvent.setup();
     const key = "__new__:p1";

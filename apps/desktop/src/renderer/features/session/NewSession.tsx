@@ -234,6 +234,12 @@ export function NewSession({ project }: { project: Project }) {
       await agentsReady();
       if (mounted.current) setChecking(false);
       const answered = useAgents.getState();
+      if (answered.loadError) {
+        // Every row's probe failed: the check did not happen, which is not "nothing installed".
+        // The send is released; the "Could not check for agents" card (with its Retry) says why.
+        if (mounted.current) setBusy(false);
+        return false;
+      }
       chosenAgentId = firstAgentId(answered.agents, useSettings.getState().settings?.defaultAgentId ?? null);
       if (!chosenAgentId && mounted.current) setBusy(false);
     }
