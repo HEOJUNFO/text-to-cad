@@ -53,8 +53,10 @@ export const WATCHDOG_PROBE_TIMEOUT_MS = 250;
  * (`probeTimeoutMs`) so a hung `ps` cannot stall the final kill of the app: a
  * `pgrep` that fails or times out finds no children (only the app is killed), a `ps`
  * that times out finds no groups (children are killed singly). A probe that exits
- * non-zero but printed rows (BSD `ps -p a,b` does when one pid vanished since `pgrep`)
- * is read for those rows.
+ * non-zero but printed rows is read for those rows. macOS `ps -p a,b` does not need this (it
+ * prints the live rows and exits 0 unless no pid matches, and the app's own pid is always
+ * listed); the read covers a variant that reports a vanished pid as a failure yet still prints
+ * what it found, unmeasured on Linux.
  *
  * Windows has no spare list: `taskkill /T` follows ParentProcessId, which `detached` does
  * not change, so when the deadline is reached the tree kill takes the warm daemon with

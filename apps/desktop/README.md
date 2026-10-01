@@ -1706,8 +1706,11 @@ for the children and `ps` for their groups, each run under a 250 ms timeout so a
 hung `ps` cannot stall the final kill of the app. If `pgrep` fails or times out
 it finds no children, and only the app is killed; if `ps` times out, no groups are
 known and every unspared child is killed singly (a viewer's workers, in its own group,
-are then not reached). A `ps` that exits non-zero but printed rows (BSD `ps -p a,b`
-does when one pid vanished since `pgrep`) is read for those rows. A quit that finishes
+are then not reached). On macOS, `ps -p a,b` prints the rows
+of the pids still alive and exits 0 (it exits 1 only when none matches, and the app's own
+pid is always in the list). The rows of a `ps` that exits non-zero are read as well, for a
+variant that reports a vanished pid as a failure while still printing what it found; no such
+variant has been measured on Linux. A quit that finishes
 on its own — half a second without WebGL —
 gives it nothing to do. On Windows there is no spare list: the deadline runs
 `taskkill /PID <app> /T /F`, which follows the parent pid through `detached`, so

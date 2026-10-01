@@ -126,8 +126,9 @@ setInterval(() => {}, 1000);
     }
   });
 
-  it("reads the rows a failing ps still printed, so the viewer's group dies with it", async () => {
-    // BSD `ps -p a,b` exits non-zero when one pid vanished since `pgrep`, yet prints the rest.
+  it("reads the rows of a ps variant that fails yet still printed them, so the viewer's group dies with it", async () => {
+    // macOS `ps` exits 0 here; this stub stands in for a variant (unmeasured on Linux) that
+    // reports a vanished pid as a failure while printing the rows it found.
     const stub = withStubPs('/bin/ps "$@"\nexit 1');
     const app = await launchApp();
     try {
