@@ -120,9 +120,15 @@ def tree_objects(tree_hash: str, *, _seen: set[str] | None = None) -> set[str]:
 
 
 def tree_complete(tree_hash: str) -> bool:
-    """Full verified geometry closure; disposable surfaces are not required."""
+    """Full verified geometry closure; disposable surfaces are not required.
+
+    Verified once per process. The gate asks for the same closures many times
+    in one build, so this is the metadata capture: a closure already verified
+    here answers with one stat per object while every object keeps the settled
+    file identity its verified read observed, and anything else verifies the
+    whole closure again (STORE.md §10)."""
     try:
-        capture_tree(tree_hash)
+        capture_tree(tree_hash, retain_payloads=False)
         return True
     except (OSError, ValueError, TypeError, KeyError, RuntimeError, OverflowError):
         return False

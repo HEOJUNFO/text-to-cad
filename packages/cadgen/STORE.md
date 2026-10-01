@@ -616,6 +616,13 @@ of:
 5. **A declared output does not match `outputs`.** Protects against a deleted,
    hand-edited or foreign `.step`/sidecar/mesh file beside the model.
 
+Clauses 4 and 5 verify each object and each output once per process. One
+build evaluates the gate many times over the same closures, and a large
+assembly's STEP is hundreds of megabytes. A later evaluation stats each file and
+reuses the verdict while the file keeps the identity (device, inode, size, mtime,
+ctime) observed around its verified read, under §10's settled-stamp rule.
+Deleting, replacing, truncating or rewriting a file verifies it again.
+
 Mesh tolerances and argv flags are not inputs. A model run's
 `--mesh-tolerance` / `--mesh-angular-tolerance` override every declared mesh's
 tolerance for that run (flag > declaration > `@step` > default): each mesh's
@@ -1332,7 +1339,9 @@ supersession does not cancel their exports.
   resolution (~15.6 ms on Windows, whose `st_ctime` is the creation time and
   never moves for a rewrite), and a same-size rewrite inside that tick is
   invisible to every stat field. The metadata cache is byte-bounded, store-root
-  isolated and returns a newly parsed flattened view to every caller.
+  isolated and returns a newly parsed flattened view to every caller. The gate's
+  completeness check (`tree_complete`) is such a consumer, and its output
+  digests follow the same rule (§4).
   Components carry `brep`, `codec` and `faceColors`; display SURF resolves
   separately through `store.surfaces` and `index/surface`.
 - `cadgen store info` sizes the store. `cadgen store gc --dry-run` lists what
