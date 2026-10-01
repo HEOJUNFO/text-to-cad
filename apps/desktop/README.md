@@ -956,8 +956,11 @@ of the turn); a prompt refused afterwards puts its files back in the strip. A qu
 box as it was taken, behind any put back before it, so the box reads in queue
 order, and the queue goes on. A prompt that is out but whose turn has not started (the box is `submitted`, while the
 session still reads idle for a moment) queues the next one too: Enter in a session sends then and the prompt goes behind it,
-though the button keeps its spinner (`queueWhileSubmitted`, passed by `SessionView` only). The new-session screen does not pass it,
-because its `submitted` is a create in progress and a second Enter would create a second session. A turn the person stops (Stop or Esc) with something queued pauses the queue the way a failed one
+though the button keeps its spinner (`queueWhileSubmitted`, which `SessionView` computes in `composerFlags`, `features/session/view.ts`:
+true only while a prompt is in flight (`sending`) on a session that is not itself still connecting or loading). A box that reads
+`submitted` for a first load or a create does not take Enter: its prompt would race the setup. The new-session screen never passes it,
+because its `submitted` is a create in progress and a second Enter would create a second session. Two Enters before the first has
+taken the draft (it awaits the attachments' bytes) send once: `Composer` holds a synchronous guard from Enter to `takeDraft`. A turn the person stops (Stop or Esc) with something queued pauses the queue the way a failed one
 does (Stop with nothing queued pauses nothing): the queue row reads "Paused after you stopped" with the same Resume (the reason is kept on the pause, so a Resume main then refuses reads "Paused after an error"), and
 the next queued prompt waits for it (or for a prompt typed meanwhile, which goes
 out first) instead of starting behind the Stop. A new session's first prompt refused this way

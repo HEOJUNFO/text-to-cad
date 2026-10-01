@@ -2,6 +2,7 @@ import { fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Composer } from "@renderer/features/session/Composer";
+import { composerFlags } from "@renderer/features/session/view";
 import { useComposer } from "@renderer/state/composer";
 
 const noRects = () => Object.assign([], { item: () => null }) as unknown as DOMRectList;
@@ -75,5 +76,25 @@ describe("Enter while a prompt is in flight", () => {
     vi.useFakeTimers();
     await vi.runAllTimersAsync();
     expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("composerFlags (what the composer says, and when Enter may queue)", () => {
+  const idle = { running: false, connecting: false, loading: false, reconnecting: false, sending: false };
+
+  it("lets Enter queue behind a prompt in flight on a session that is up", () => {
+    expect(composerFlags({ ...idle, sending: true })).toEqual({ status: "submitted", queueWhileSubmitted: true });
+  });
+
+  it("does not, while the session is still connecting or loading, though the box reads submitted", () => {
+    expect(composerFlags({ ...idle, connecting: true })).toEqual({ status: "submitted", queueWhileSubmitted: false });
+    expect(composerFlags({ ...idle, loading: true })).toEqual({ status: "submitted", queueWhileSubmitted: false });
+    expect(composerFlags({ ...idle, loading: true, sending: true })).toEqual({ status: "submitted", queueWhileSubmitted: false });
+  });
+
+  it("keeps a reconnect behind a painted transcript live, and a prompt sent into it queues", () => {
+    expect(composerFlags({ ...idle, loading: true, reconnecting: true })).toEqual({ status: "ready", queueWhileSubmitted: false });
+    expect(composerFlags({ ...idle, loading: true, reconnecting: true, sending: true })).toEqual({ status: "submitted", queueWhileSubmitted: true });
+    expect(composerFlags({ ...idle, running: true })).toEqual({ status: "streaming", queueWhileSubmitted: false });
   });
 });
