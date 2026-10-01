@@ -185,6 +185,30 @@ test('interaction timers are cleared when the start is released without its runt
   expect(vi.getTimerCount()).toBe(0);
 });
 
+test('the idle follow-up timer scheduled by the restore is cleared when the start is released', async () => {
+  init.fail = false;
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const mount = document.createElement('div');
+  document.body.appendChild(mount);
+  const base = options(mount) as { runtimeRef: { current: any } };
+  const hook = renderHook(() => useViewerRuntime(base as any));
+  await until(() => base.runtimeRef.current !== null);
+  // A render type that restores its own idle quality: the restore timer then nests a second
+  // timer (the pixel-ratio raise) instead of applying it at once.
+  const onIdleQualityRestore = vi.fn();
+  base.runtimeRef.current.onIdleQualityRestore = onIdleQualityRestore;
+  renderers[0].domElement.dispatchEvent(new WheelEvent('wheel', { deltaY: 10 }));
+  // Step to the restore timer, no further: the follow-up it schedules has not run yet.
+  for (let step = 0; step < 20 && onIdleQualityRestore.mock.calls.length === 0; step += 1) vi.advanceTimersToNextTimer();
+  expect(onIdleQualityRestore).toHaveBeenCalledTimes(1);
+  expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+  base.runtimeRef.current = null;
+  hook.unmount();
+
+  expect(vi.getTimerCount()).toBe(0);
+});
+
 test('a rebuilt viewer forces its old context lost, after the listeners that would rebuild again are off', async () => {
   init.fail = false;
   const mount = document.createElement('div');
