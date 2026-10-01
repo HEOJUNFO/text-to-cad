@@ -164,6 +164,21 @@ test("a quiet feed's last preview stands in only for a file its build saved", ()
     "a request that failed is not a quiet feed");
 });
 
+// A daemon too busy to list its jobs answers like one with none. A build last heard running keeps
+// its preview through that, and gives way only to a file that changed after the feed went quiet.
+test("a build last heard running keeps its preview through a quiet answer until the file changes", () => {
+  const building = reduceEditingPreview(initialEditingPreview(), update(2, "preview-2"), { catalogTree: "before" });
+  assert.equal(building.ended, false);
+  const quiet = reduceEditingPreview(building, { state: "disconnected" }, { catalogTree: "before" });
+  assert.equal(quiet.quietFrom, "before");
+  assert.equal(editingPreviewEntry(quiet, { hash: "before", documentHash: "bytes-0" }).hash, "preview-2");
+  assert.equal(reduceEditingPreview(quiet, { state: "disconnected" }, { catalogTree: "elsewhere" }).quietFrom, "before",
+    "a feed already quiet keeps the tree it went quiet on");
+  assert.equal(editingPreviewEntry(quiet, { hash: "elsewhere", documentHash: "bytes-2" }), null);
+  const back = reduceEditingPreview(quiet, update(2, "preview-2"), { catalogTree: "before" });
+  assert.equal(editingPreviewEntry(back, { hash: "before", documentHash: "bytes-0" }).hash, "preview-2");
+});
+
 // The server says when a finished build's file has moved on (`superseded`); a view opened after
 // the change has never seen the file the build started from, so it cannot tell by itself.
 test("a build the file moved past stands in for nothing, and the next build is followed again", () => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   editingPreviewEntry, initialEditingPreview, reduceEditingPreview,
 } from "../../../workbench/editingPreview.js";
@@ -6,13 +6,16 @@ import { observeEditingPreview } from "../../../workbench/editingPreviewFeed.js"
 
 export function useEditingPreview(file, { enabled, catalogEntry, client } = {}) {
   const [snapshot, setSnapshot] = useState(() => ({ file: "", state: initialEditingPreview() }));
+  // The catalog's tree as each answer lands: a feed going quiet remembers it.
+  const catalogTree = useRef("");
+  catalogTree.current = String(catalogEntry?.hash || "");
   useEffect(() => {
     if (!enabled || !file) return undefined;
     // A poll that changes nothing, a failed one included, keeps the snapshot: the surface re-renders
     // only for news, not once per poll while the feed is down.
     const apply = next => setSnapshot(previous => {
       const before = previous.file === file ? previous.state : initialEditingPreview();
-      const state = reduceEditingPreview(before, next);
+      const state = reduceEditingPreview(before, next, { catalogTree: catalogTree.current });
       return previous.file === file && JSON.stringify(before) === JSON.stringify(state)
         ? previous : { file, state };
     });
@@ -30,7 +33,8 @@ export function useEditingPreview(file, { enabled, catalogEntry, client } = {}) 
     state.preview, state.revision, state.output, state.file,
     state.previewUnavailable,
     state.saved?.tree, state.saved?.documentHash,
-    state.retainedSaved?.tree, state.retainedSaved?.documentHash, state.state, state.error, catalogEntry,
+    state.retainedSaved?.tree, state.retainedSaved?.documentHash, state.state, state.error, state.ended,
+    state.quietFrom, catalogEntry,
   ]);
   return { entry, state };
 }
