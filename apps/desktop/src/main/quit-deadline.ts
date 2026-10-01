@@ -29,6 +29,13 @@ import { isQuittingForUpdate } from "./quitting";
 export const QUIT_DEADLINE_MS = 1_200;
 
 /**
+ * How long each of the watchdog's two probes (`pgrep`, `ps`) may take. The deadline is
+ * kept at 1.2 s of a two-second budget; two probes at this timeout fit in what is left.
+ * A probe that hangs is killed and treated as having found nothing.
+ */
+export const WATCHDOG_PROBE_TIMEOUT_MS = 250;
+
+/**
  * The watchdog's whole program. Platform-specific in one place: on Windows
  * `taskkill /T` ends the tree; elsewhere the direct children are listed and
  * killed before the parent. Our own children are already gone by then; what
@@ -42,7 +49,12 @@ export const QUIT_DEADLINE_MS = 1_200;
  * is killed as a group (`kill(-pgid)`); Chromium's helpers, in the app's
  * group, are killed one by one. A viewer reused from another app run is not
  * a child of this process and is never seen here. If the groups cannot be
- * read, every unspared child is killed singly.
+ * read, every unspared child is killed singly. Both probes run under a timeout
+ * (`probeTimeoutMs`) so a hung `ps` cannot stall the final kill of the app: a
+ * `pgrep` that fails or times out finds no children (only the app is killed), a `ps`
+ * that times out finds no groups (children are killed singly). A probe that exits
+ * non-zero but printed rows (BSD `ps -p a,b` does when one pid vanished since `pgrep`)
+ * is read for those rows.
  *
  * Except when the quit is an update's (`tree` false): electron-updater has
  * just spawned the NSIS installer, or the new AppImage, as a child of this
@@ -58,22 +70,23 @@ export function watchdogScript(
   startedAt = Date.now(),
   tree = true,
   spare: readonly number[] = [],
+  probeTimeoutMs: number = WATCHDOG_PROBE_TIMEOUT_MS,
 ): string {
   const kill =
     platform === "win32"
       ? `require("node:child_process").spawnSync("taskkill", ["/PID", "${pid}", ${tree ? `"/T", ` : ""}"/F"], { stdio: "ignore" });`
       : tree
         ? `const cp = require("node:child_process");
-let children = [];
-try { children = cp.execFileSync("pgrep", ["-P", "${pid}"], { encoding: "utf8" }).trim().split(/\\s+/).filter(Boolean); } catch {}
+const probe = (file, args) => {
+  try { return cp.execFileSync(file, args, { encoding: "utf8", timeout: ${Math.max(1, Math.floor(probeTimeoutMs))}, killSignal: "SIGKILL" }); }
+  catch (error) { return error && error.code !== "ETIMEDOUT" && typeof error.stdout === "string" ? error.stdout : ""; }
+};
+const children = probe("pgrep", ["-P", "${pid}"]).trim().split(/\\s+/).filter(Boolean);
 const groups = new Map();
-try {
-  const listed = cp.execFileSync("ps", ["-o", "pid=", "-o", "pgid=", "-p", ["${pid}", ...children].join(",")], { encoding: "utf8" });
-  for (const line of listed.trim().split("\\n")) {
-    const [member, group] = line.trim().split(/\\s+/).map(Number);
-    groups.set(member, group);
-  }
-} catch {}
+for (const line of probe("ps", ["-o", "pid=", "-o", "pgid=", "-p", ["${pid}", ...children].join(",")]).trim().split("\\n")) {
+  const [member, group] = line.trim().split(/\\s+/).map(Number);
+  if (Number.isInteger(member) && Number.isInteger(group)) groups.set(member, group);
+}
 const spare = ${JSON.stringify(spare.filter(Number.isInteger))};
 const own = groups.get(${pid});
 for (const child of children) {

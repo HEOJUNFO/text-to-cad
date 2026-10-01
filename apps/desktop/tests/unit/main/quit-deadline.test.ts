@@ -1,5 +1,8 @@
 import * as childProcess from "node:child_process";
 import { once } from "node:events";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { runInNewContext } from "node:vm";
 
 import { describe, expect, it, vi } from "vitest";
@@ -30,12 +33,39 @@ const alive = (pid: number) => {
   }
 };
 
-const runWatchdog = (pid: number, deadlineMs: number, spare: number[] = []) =>
+const runWatchdog = (pid: number, deadlineMs: number, spare: number[] = [], probeTimeoutMs?: number, env?: NodeJS.ProcessEnv) =>
   new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
-    spawn(process.execPath, ["-e", watchdogScript(pid, deadlineMs, process.platform, Date.now(), true, spare)], { stdio: "ignore" }).once("exit", (code, signal) =>
+    spawn(process.execPath, ["-e", watchdogScript(pid, deadlineMs, process.platform, Date.now(), true, spare, probeTimeoutMs)], { stdio: "ignore", env }).once("exit", (code, signal) =>
       resolve({ code, signal }),
     ),
   );
+
+/** A directory that shadows `ps` on PATH for one watchdog run. */
+const withStubPs = (body: string) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "quit-deadline-ps-"));
+  fs.writeFileSync(path.join(dir, "ps"), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+  return { env: { ...process.env, PATH: `${dir}${path.delimiter}${process.env.PATH}` }, dir };
+};
+
+/** The app's shape for the probe tests: an attached helper, and a detached viewer with a worker in its group. */
+const launchApp = async () => {
+  const target = spawn(process.execPath, ["-e", `
+const { spawn } = require("node:child_process");
+const worker = "require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }).once('spawn', function () { process.send(this.pid); }); setInterval(() => {}, 1000)";
+const launch = (detached, code) => new Promise((resolve) => {
+  const child = spawn(process.execPath, ["-e", code], { detached, stdio: ["ignore", "ignore", "ignore", "ipc"] });
+  child.once("message", (grandchild) => resolve({ pid: child.pid, grandchild }));
+  child.unref();
+});
+Promise.all([launch(false, "process.send(0); setInterval(() => {}, 1000)"), launch(true, worker)])
+  .then(([attached, viewer]) => process.send({ attached: attached.pid, viewer: viewer.pid, worker: viewer.grandchild }));
+setInterval(() => {}, 1000);
+`], { stdio: ["ignore", "ignore", "pipe", "ipc"] });
+  const [ready] = await once(target, "message");
+  const pids = ready as { attached: number; viewer: number; worker: number };
+  const all = [target.pid!, pids.attached, pids.viewer, pids.worker];
+  return { target, pids, all, cleanup: () => all.forEach((pid) => { try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ } }) };
+};
 
 describe("the quit deadline's watchdog", () => {
   it("counts teardown and process startup against the original deadline", () => {
@@ -93,6 +123,37 @@ setInterval(() => {}, 1000);
           try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ }
         }
       }
+    }
+  });
+
+  it("reads the rows a failing ps still printed, so the viewer's group dies with it", async () => {
+    // BSD `ps -p a,b` exits non-zero when one pid vanished since `pgrep`, yet prints the rest.
+    const stub = withStubPs('/bin/ps "$@"\nexit 1');
+    const app = await launchApp();
+    try {
+      await expect(runWatchdog(app.target.pid!, 0, [], 2_000, stub.env)).resolves.toEqual({ code: 0, signal: null });
+      // The worker is in the viewer's own group: only a kill of that group (known from ps's rows) ends it.
+      await expect.poll(() => app.all.filter(alive), { timeout: 5_000 }).toEqual([]);
+    } finally {
+      app.cleanup();
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+
+  it("kills the app at the deadline even when ps hangs", async () => {
+    const stub = withStubPs("exec sleep 30");
+    const app = await launchApp();
+    const started = Date.now();
+    try {
+      await expect(runWatchdog(app.target.pid!, 0, [], 150, stub.env)).resolves.toEqual({ code: 0, signal: null });
+      // The probe was cut off after its timeout, not waited out: the app is dead long before `sleep` ends.
+      expect(Date.now() - started).toBeLessThan(10_000);
+      expect(alive(app.target.pid!)).toBe(false);
+      // With no groups known, the unspared children are killed singly (the worker in the viewer's group is not reached).
+      await expect.poll(() => [app.pids.attached, app.pids.viewer].filter(alive), { timeout: 5_000 }).toEqual([]);
+    } finally {
+      app.cleanup();
+      fs.rmSync(stub.dir, { recursive: true, force: true });
     }
   });
 
