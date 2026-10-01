@@ -1491,7 +1491,13 @@ renderer state cannot type into another session's shell.
 Directory listings show every regular file and directory, including dotfiles,
 Git-ignored outputs, dependency folders and unsupported formats. Renderer
 support determines what opens in the file tab; it never hides a tree row.
-Unknown types open with **Not supported**. Listings are lazy and complete for
+Unknown types open with **Not supported**. Previews that cannot be shown keep the same way out:
+an image or PDF over the 24 MB preview limit (`PREVIEW_LIMIT_BYTES` in `FileLoadError.tsx`, which
+`file-preview-errors.test.tsx` holds equal to `MAX_BINARY_BYTES` in `src/main/explorer/fs.ts`) reads
+"This file is too large to preview" with "<name> is <size>; previews open files up to 24 MB.", an
+image the browser cannot decode reads "This image could not be decoded.", and a PDF that PDF.js
+refuses reads "This PDF could not be opened: <reason>." with no page toolbar. Each offers Open
+externally when the host has it. Listings are lazy and complete for
 each expanded directory. The bounded fuzzy index visits project content before
 dependency caches so cache files do not crowd generated CAD outputs out of the
 search budget. `listPaths` reads the next 16 directories (`LIST_READ_AHEAD`)
