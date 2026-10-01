@@ -3,6 +3,8 @@ import { create } from "zustand";
 
 import type { UpdateStatus } from "@shared/ipc/app";
 
+import { hasAnyDirtyDocument } from "./live-documents";
+
 /**
  * The updater's state, mirrored from main (P8).
  *
@@ -18,7 +20,8 @@ type UpdatesState = {
   load: () => Promise<void>;
   check: () => Promise<void>;
   download: () => Promise<void>;
-  install: () => Promise<void>;
+  /** `confirmed` skips the unsaved-changes ask (it is the ask's own Restart). */
+  install: (confirmed?: boolean) => Promise<void>;
   /** Applied by the `app.updateStatus` subscription in `subscribeToMain`. */
   receive: (status: UpdateStatus) => void;
 };
@@ -76,7 +79,19 @@ export const useUpdates = create<UpdatesState>((set, get) => {
     // answers as soon as it has asked Electron to quit, so the row is held by
     // `installing` — pushed by main, and set here for the case where the answer
     // wins the race. A refusal that has already been pushed is not overwritten.
-    install: async () => {
+    //
+    // An update's quit skips the unsaved-draft ask on purpose (a Cancel there would strand the
+    // restart: `src/main/quitting.ts`), so the ask happens here, before the install is requested:
+    // with an unsaved document open, Restart asks once and does nothing until it is confirmed.
+    install: async (confirmed = false) => {
+      if (!confirmed && hasAnyDirtyDocument()) {
+        toast("Restart now and discard unsaved changes?", {
+          id: "update-restart-discards",
+          action: { label: "Restart", onClick: () => void get().install(true) },
+          cancel: { label: "Not now", onClick: () => {} },
+        });
+        return;
+      }
       await run(() => window.textToCad.app.installUpdate());
       const { status } = get();
       if (status.state === "downloaded" || (status.state === "error" && status.version !== undefined)) {

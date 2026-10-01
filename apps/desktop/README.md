@@ -1812,6 +1812,11 @@ to spawn) comes back as the updater's `error`, which puts back the scheduled
 checks `installUpdate` stopped (`src/main/updater.ts`), so the session goes on
 checking.
 
+The unsaved-draft ask is skipped by that quit on purpose (a Cancel there would strand the
+restart), so Restart asks before it requests the install: with a document holding text that
+is not on disk, `useUpdates.install` shows "Restart now and discard unsaved changes?" with
+Restart / Not now and requests nothing until Restart is pressed.
+
 ## CAD runtime
 
 The runtime ships inside the app. Every cadgen process the app runs — the
