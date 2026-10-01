@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@text-to-cad/ui/utils";
 import { usePromptDestination, useViewerHost } from "../../host/context.js";
-import ViewerAlertCard from "../kit/status/ViewerAlertCard.jsx";
+import ViewerAlertCard, { useAlertDismissal } from "../kit/status/ViewerAlertCard.jsx";
 import ViewerLoadingOverlay from "../kit/status/ViewerLoadingOverlay.js";
 import { ViewUpdateStatus } from "../kit/status/ViewUpdateStatus.jsx";
 import { VIEWPORT_INSET_PX, VIEWPORT_TOP_BAR_PX } from "../kit/shell/viewportLayout.js";
@@ -150,6 +150,9 @@ function DxfSurface({ view, data }) {
   };
   // A drawing has settled once it is read and painted: a library card's picture waits for that.
   const whenSettled = useWhenSettled(() => ready);
+  // The card the viewport shows, and its dismissal: put away, its icon in the navbar brings it back.
+  const cardAlert = alert || (actionError ? { severity: "error", kind: "status", blocking: false, title: "Couldn’t capture the drawing", message: actionError } : null);
+  const alertDismissal = useAlertDismissal(cardAlert, { hasContent: shown, scope: file, onNavigationActionsChange: view.onNavigationActionsChange });
   const binding = data.services.live;
   useEffect(() => {
     if (!binding) return undefined;
@@ -174,7 +177,7 @@ function DxfSurface({ view, data }) {
         </div> : null}
         <ViewerLoadingOverlay loading={{ opening: payload.loading && !alert, progress: { label: "Reading drawing" } }}
           operationKey={file} />
-        <ViewerAlertCard alert={alert || (actionError ? { severity: "error", kind: "status", blocking: false, title: "Couldn’t capture the drawing", message: actionError } : null)} hasContent={shown} onReload={view.reload} file={file} />
+        <ViewerAlertCard alert={cardAlert} hasContent={shown} dismissed={alertDismissal.dismissed} onDismiss={alertDismissal.dismiss} onReload={view.reload} file={file} />
       </div>
     </div>
   );

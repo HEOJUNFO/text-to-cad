@@ -22,13 +22,13 @@ test('a new tab starts at the defaults and two tabs never meet: each reload brin
   const one = browserTab(), two = browserTab();
   const first = createTabStore(one.record());
   // Tab one: the tree panel widened, the tree column widened, the appearance chosen, and the file in wireframe.
-  first.settings.update({ appearance: 'dark', toolStack: { panels: { tree: { width: 240 } }, collapsed: {} }, fileTree: { width: 300, expanded: {} } });
+  first.settings.update({ appearance: 'dark', toolStack: { panels: { tree: { width: 240 } }, collapsed: {}, closed: {} }, fileTree: { width: 300, expanded: {} } });
   first.files.write('one', 'part.step', 'step', writeFileView({ display: { mode: 'wireframe' }, playback: { orbitSpeed: 3, autoplay: true } }) as never);
 
   // Tab two, in the same browser: none of it.
   const second = createTabStore(two.record());
   expect(second.getSnapshot()).toEqual(defaultTabRecord());
-  expect(second.settings.getSnapshot()).toEqual({ fileTree: { width: 220, expanded: {} }, toolStack: { panels: {}, collapsed: {} }, appearance: 'system', library: { layout: 'grid' } });
+  expect(second.settings.getSnapshot()).toEqual({ fileTree: { width: 220, expanded: {} }, toolStack: { panels: {}, collapsed: {}, closed: {} }, appearance: 'system', library: { layout: 'grid' } });
   const fresh = readFileView(second.files.read('one', 'part.step', 'step'));
   expect([fresh.display.mode, fresh.playback]).toEqual(['solid', DEFAULT_PLAYBACK]);
   second.settings.update({ appearance: 'light' });
@@ -43,7 +43,7 @@ test('a new tab starts at the defaults and two tabs never meet: each reload brin
   // Tab two reloaded: its own.
   const secondReloaded = createTabStore(two.record());
   expect(secondReloaded.settings.getSnapshot().appearance).toBe('light');
-  expect(secondReloaded.settings.getSnapshot().toolStack).toEqual({ panels: {}, collapsed: {} });
+  expect(secondReloaded.settings.getSnapshot().toolStack).toEqual({ panels: {}, collapsed: {}, closed: {} });
   expect(secondReloaded.files.read('one', 'part.step', 'step')).toBeUndefined();
 });
 

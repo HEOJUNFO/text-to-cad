@@ -39,14 +39,18 @@ none.
   its ⋯ — the explorer's own menu for that file; the name has no right-click menu
   and there are no crumbs. The name sits the row's 4px gap after the button before
   it, with no margin of its own. With no file open, the words "Select file" (not a
-  control) stand in the name's place beside the explorer's toggle. Right: a
-  declared panel's toggle, the update — a blue download button, there only when
+  control) stand in the name's place beside the explorer's toggle. Right, first,
+  while a person has put an alert card away: the card's own icon (a circle with
+  an exclamation mark, red for an error and amber for a warning, named and hinted
+  by the alert's title), which brings the card back and goes with it — the
+  renderer's one navbar action. Then a declared panel's toggle, the update — a
+  blue download button, there only when
   the host found a newer release, whose menu says the step to it, how this host
   updates and what is new — then **Feedback** (a speech bubble, a link to a new
   issue titled "Feedback: " naming the version and platform, where the host has a tracker), then the
   view's controls (Settings, Preview). Preview puts Feedback away with the navbar.
   The version, X, GitHub and Discord are in the Settings popover's header. A CAD file
-  declares no panel and publishes no navbar action. A host's home has no navbar:
+  declares no panel and publishes no navbar action but that icon. A host's home has no navbar:
   its update (when there is one), X, Discord, GitHub and Feedback stand under its CAD wordmark. A view shown small in a
   conversation (`compact`) has none either, and draws the model alone: no tools,
   view actions, cube or Quick Edit.
@@ -113,7 +117,7 @@ owner.
 
 | Tool | Pressing it | Leaving it |
 | --- | --- | --- |
-| Select | The default tool of STEP and robots; shows Features (Links) and, with a selection, the Reference panel; a STEP's Select panel above them sets the mode | The selection is dropped; its panels leave the stack |
+| Select | The default tool of STEP and robots; shows Features (Links) and, with a selection, the Reference panel; a STEP's Select panel above them sets the mode. A press while it is up opens its tree again where a person closed it | The selection is dropped; its panels leave the stack |
 | Draw | Draws on the view; its tools, color and history are the Drawing panel; a second press puts it down | The sketch is gone |
 | Measure | Arms picking and shows the Measure panel: its snapping modes, then its results; a press while it is up clears the results and puts it down | Unfinished picks are cancelled; completed measurements and their panel stay |
 | Explode / Clip | Opens a neutral panel; an edit applies the effect | A neutral panel goes; an applied effect and its panel stay |
@@ -124,7 +128,9 @@ returns to Select before it acts.
 
 **Every tool's panel but Select's has an X, and no fold chevron.** The X puts
 the tool down and returns to Select, the default tool, which cannot itself be put
-down — its panels (Features or Links, SDF) fold instead.
+down. Select's tree has an X too, which closes the tree alone and leaves Select
+the tool; a press on Select while it is up opens it again (see
+[Closing the tree](#the-tool-stack)). SDF folds instead.
 
 **No tool has a menu on the strip.** A press on a tool is its only action:
 it takes the tool up, and — for a tool that toggles (Draw, Measure, Explode,
@@ -146,7 +152,7 @@ preview's Playback settings (`ToolPopover`, `PlaybackMenu`).
 **Select** (STEP) has four exclusive modes, each with its own glyph: **All**
 (the pointer), **Parts** (a cube), **Faces** (a cube, its top face filled) and
 **Edges** (a faint cube, one edge heavy). They are the mode menu in the
-Features filter row, beside its chevron; each menu row shows its mode's glyph
+Features filter row, beside its X; each menu row shows its mode's glyph
 at full size. The strip's Select button shows the mode in hand as ONE composite:
 the pointer, with the mode's glyph shrunk to a badge in its top-right corner
 (cut out of the pointer so the two never touch at the strip's 14px), and the
@@ -190,7 +196,7 @@ tick where the shortcut was; the copy shortcut does the same. A sketch begun ope
 [Quick Edit](#quick-edit), whose header says **drawing** while the ink is there. Draw disables the cube without hiding it.
 
 **Measure.** Its **Measure** panel is up as soon as it is the tool, empty: a
-heading whose mode menu, beside the chevron and the X, holds the four snapping
+heading whose mode menu, beside its X, holds the four snapping
 modes — **All**, **Points**, **Edges**, **Faces**, plain rows with no title and
 no descriptions, each the mode's glyph at full size (All: the ruler; Points: a
 dot in a ring; Edges and Faces: Select's glyphs) — and, before the first
@@ -231,19 +237,19 @@ whose tool is not up is `hidden`, not unmounted: a tree keeps its expansion,
 filter and scroll across a trip to another tool. Preview hides the whole
 stack.
 
-- **Two kinds of panel.** The tree (Features, Links) and **Position** are
-  *resizable*: the person's to size, each on its own. Every other panel —
-  Drawing, Measurements, Explode, Clip, the Reference, SDF — is *fixed*:
-  one width, its content's height, and no handle. The Reference is the one
-  exception to the width: it sits under the tree and takes the tree's width
-  (`widthFrom="tree"`), following a drag live, while its height stays fixed. A
-  renderer opts a panel in with `resizable`; nothing else about it changes.
+- **Two kinds of panel.** The tree (Features, Links), the **Reference** and
+  **Position** are *resizable*: the person's to size, each on its own. The
+  Reference sits under the tree as a box of its own, sized apart from it:
+  sizing either changes nothing about the other. Every other panel — Drawing,
+  Measurements, Explode, Clip, SDF — is *fixed*: one width, its content's
+  height, and no grip. A renderer opts a panel in with `resizable`; nothing
+  else about it changes.
 - **One width.** Every panel opens at `TOOL_PANEL_WIDTH`: 164px, a strip of
   six tools (six 24px buttons, 2px gaps, 4px padding and a 1px border),
   whatever tools the file's own strip has — a file with three tools has the
   same panels as one with seven. A fixed panel is exactly that wide. A
-  resizable panel is only ever made wider, up to half the viewer; widening the
-  tree changes nothing about any other panel. The panels hang left-aligned
+  resizable panel is only ever made wider, up to half the viewer; widening one
+  changes nothing about any other panel. The panels hang left-aligned
   under the strip, each at its own width. Content truncates to fit; it never
   widens a panel.
 - **Heights.** A panel is exactly its content's height — never padded to a
@@ -251,21 +257,22 @@ stack.
   has a *cap* the content grows up to and then scrolls inside: the tree and
   Position open capped at half the stack's own height (the area under the
   strip, not the viewer) on desktop, and at the whole column on a phone. The
-  Reference has a cap that is not the person's (288px, `maxHeight`: its heading
-  and a dozen compact rows, so a part's or a face's facts and material fit
-  without scrolling). A cap is never a floor. Setting one panel's cap changes
-  no other's.
-- **Handles, on a resizable panel only.** Three, each moving only that panel:
-  one ON its right edge (width), one ON its bottom edge (height) and one on the
-  bottom-right corner between them (both) — each centred on the edge, an 8px
-  hit area (12px for the corner), nothing drawn: a resize cursor, and a focus
-  ring for the keyboard. Named "Resize features width", "Resize features
-  height" and "Resize features". By pointer, or by keyboard: arrows by 16px
-  (Left/Right on the width's, Up/Down on the height's, all four on the corner),
-  Home and End to an edge's bounds (the one width or half the viewer; 64px or
-  the stack's height). One write, when the pointer lets go (or per key), never
-  per pointer move. A folded panel keeps its width handle and has no height
-  handle or corner: there is no height to set.
+  Reference opens shorter, capped at 200px on both (`TOOL_PANEL_REFERENCE_HEIGHT`:
+  its heading, its Copy and about seven compact rows between them — a part's
+  or a face's first facts; the rest scrolls, or a drag of its corner shows it).
+  A cap is never a floor. Setting one panel's cap changes no other's.
+- **One grip, on a resizable panel only.** A resizable panel is sized from its
+  bottom-right corner alone, by the grip Quick Edit's box has
+  (`kit/tools/ResizeGrip.jsx`, mirrored into this corner): two short diagonal
+  strokes drawn inside the panel's border, muted until the pointer is over them,
+  in a 14px hit area with a resize cursor and, for the keyboard, a focus ring. No
+  edge of a panel resizes it. A drag moves only that panel, its width (from the
+  one width to half the viewer) and its cap (from 64px to the stack's height)
+  at once. The grip is a separator in the tab order, named after its panel
+  ("Resize features", "Resize reference details"): Left/Right nudge the width
+  and Up/Down the cap by 16px, and Home and End take both to their bounds. One
+  write, when the pointer lets go (or per key), never per pointer move. A
+  folded panel has no grip: there is no height to set.
 - **Never past the viewer.** The column is the viewer's height less the 8px
   inset above the strip, the strip, and at its foot the cube with its view
   actions and an 8px gap above them (`VIEWPORT_STACK_BOTTOM`, `calc(6rem +
@@ -274,18 +281,33 @@ stack.
   details panel (Reference, Position, Measurements)
   gives way, down to 96px or its content; a small panel (Explode, Clip, Drawing)
   keeps its height. If what cannot give way still does not fit, the column
-  itself scrolls — a panel is never cut. On mobile the tree starts folded and,
+  itself scrolls — a panel is never cut. On mobile the tree starts closed and,
   opened, may take the whole column, giving way as other panels join it.
-- **Folding.** Only Select's panels fold (Features or Links, SDF): every tool panel and the Reference has an X instead. A folding panel folds to its first row and unfolds again,
+- **Closing the tree.** Select's tree (Features, Links) does not fold: the X at
+  its filter row's end ("Close features") closes it, `hidden` and kept mounted
+  with its expansion, filter, selection and scroll, and Select stays the tool —
+  a selection still shows its Reference, a panel of its own. While the tree is
+  closed, Select's button carries the flyout corner: a small filled triangle in
+  its bottom-right corner (the mode badge has the top-right), out of the
+  accessibility tree, with the button described as "Features closed". A press
+  on Select while it is the tool opens the tree again as it was, and the mark
+  goes; from another tool a press only takes Select up, the tree still closed.
+  Until a person closes or opens it, the tree starts as the file does: closed
+  for a single part, open for an assembly (and for a robot's Links), and closed
+  on a phone whatever the file — the mark showing whenever it starts closed.
+  Once the person has closed or opened it, that choice holds in every file of
+  the tab, over how each starts. A renderer opts in with `closable` on the
+  tree's panel (`ToolPanelClose` is its X) and `panel: { id, label, startsClosed }`
+  on the tool it belongs to (STEP: `startsClosed` for a single part); the frame
+  draws the mark, routes the press and starts the panel (`RendererShell.jsx`).
+- **Folding.** Only Select's SDF panel and a robot's Reference fold: every tool
+  panel and a STEP's Reference has an X alone. A folding panel folds to its first row and unfolds again,
   by a chevron at that row's trailing end: up while open (fold), down while
-  folded (open), with `aria-expanded` and the panel's name ("Collapse
-  features"). Folded content stays mounted, so a tree keeps its expansion,
-  selection and scroll. Typing into a
-  folded tree's filter opens it, since what the filter finds is in its body; a
-  folded filter row draws no rule under it.
+  folded (open), with `aria-expanded` and the panel's name ("Collapse sdf").
+  Folded content stays mounted.
 - **First rows.** Features and Links have no heading: the filter is their top
   row ("Filter…"), stays put while the tree scrolls, and carries the mode menu
-  (Select's) and the chevron at its end — both step aside while the box has
+  (Select's) and the X at its end — both step aside while the box has
   focus, so the whole row is the box. Every other panel
   has a heading row, and every heading reads alike: the Display section
   headings' text (11px, regular, `TOOL_PANEL_HEADING_TEXT_CLASS`), 28px tall,
@@ -303,17 +325,21 @@ stack.
   ink, Drawing's **Copy Drawing**. The button shows the copy shortcut in the
   platform's form (a phone shows none); after a copy it says **Copied** for a
   moment, a tick where the shortcut was.
-- **The layout is the person's.** The sizes and the folded panels are one of the
-  tab's settings, across its files (`CadPreferences.toolStack`:
-  `{ panels: { [panel id]: { width?, height? } }, collapsed: { [panel id]: boolean } }`,
+- **The layout is the person's.** The sizes, the folded panels and the closed
+  tree are one of the tab's settings, across its files (`CadPreferences.toolStack`:
+  `{ panels: { [panel id]: { width?, height? } }, collapsed: { [panel id]: boolean }, closed: { [panel id]: boolean } }`,
   kept beside the appearance). `panels` holds only what a person set, by
-  resizable panel; `collapsed` only what differs from a panel's start (the SDF
-  panel starts folded). A new tab (a cleared record) puts every
-  panel back at the one width and its default cap. Every size is written back
-  once, when the pointer lets go (or per key), never per pointer move.
+  resizable panel — the tree, the Reference and Position each under its own
+  id; `collapsed` only what differs from a panel's start (the SDF panel starts
+  folded); `closed` the person's own choice, once they have closed (`true`) or
+  opened (`false`) the tree, which then holds in every file over how each
+  starts (a part closed, an assembly open, a phone closed). A new tab (a cleared
+  record) puts every panel back at the one width and its default cap, and the
+  tree as each file starts it. Every size is written back once, when the pointer
+  lets go (or per key), never per pointer move.
 - **Surfaces.** Two, defined once (`floatingSurface.js`), with one border: the
   toolbar and the stack's panels, which stay up beside the model, share
-  `FLOATING_CHROME_SURFACE_CLASS` — the background at 35% and barely blurred
+  `FLOATING_CHROME_SURFACE_CLASS` — the background at 45.5% and barely blurred
   (2px), so the model behind them is easy to make out; every menu and popover
   over the viewport shares `FLOATING_SURFACE_CLASS` (the background at 75%,
   blurred), so its text never competes with the model.
@@ -341,8 +367,8 @@ Model and link filters share `TreeFilterInput`.
 
 **Mobile** is below 720px of FileViewer width — the one viewer breakpoint
 (`useViewerMobile`); chrome never uses window breakpoints. The tool stack is
-the same stack, but Select's tree (Features, Links) starts folded, so the model
-has the screen until the person opens it. The host's panels (the explorer at the
+the same stack, but Select's tree (Features, Links) starts closed in every
+file, Select marked, so the model has the screen until the person presses Select. The host's panels (the explorer at the
 left, a declared panel at the right) become non-modal floating sheets over the
 viewer (280px, inset 8px) that never resize or move the scene or shift the page; a
 sheet has a compact X, outside dismissal and Escape, and a pick in the explorer
@@ -420,9 +446,9 @@ icon is unambiguous, and always keep the accessible name.
 
 ## Position and references
 
-The **Position** panel is headed "Position", with a small Reset icon and the
-fold chevron in its heading, and is sized like the tree: its content's height,
-capped at half the stack, with a height handle. Its first row is "Pose" — a label
+The **Position** panel is headed "Position", with a small Reset icon and its
+X in its heading, and is sized like the tree: its content's height, capped at
+half the stack, with its corner grip. Its first row is "Pose" — a label
 beside its dropdown (`KinematicsPoseRow`) — only when there is a named pose to
 choose; the dropdown includes Default, and manual edits show Custom. No divider
 under the pose row and no Reset footer. Each joint's label sits tight above its
@@ -441,7 +467,9 @@ routine but keeps its Routine, Speed and Loop for the next play. Kinematics, nam
 animation are separate capabilities; the absence of one never leaves empty
 controls for another.
 
-The Reference panel is read-only. Its rows are compact (2px above and below) and
+The Reference panel is read-only, and a resizable panel of its own under the
+tree: it opens at the one width, capped at 200px, and its corner grip sizes it
+apart from the tree. Its rows are compact (2px above and below) and
 in the panel's one face: labels and values alike are the UI font at `text-tiny`,
 numbers in tabular figures — no monospace. A value too long for its cell wraps
 between words, or (a row of numbers, such as a link's inertia) truncates with
@@ -483,7 +511,8 @@ preview puts it away with the tools. While the view loads it is out of sight, it
 and its state kept.
 
 The box opens 15rem wide, its note growing with what is written up to 10rem. Its
-bottom-left corner drags it wider to the left and its note taller, for as long as the
+bottom-left corner — the grip every resizable box over the viewport has
+(`kit/tools/ResizeGrip.jsx`) — drags it wider to the left and its note taller, for as long as the
 box is open: once it closes, however it closes, the next box opens at 15rem again, and
 so does another file's. A drag keeps the box at the corner, a frame at a time and
 never eased, and renders nothing: the size is written to the box itself, so nothing
@@ -550,7 +579,7 @@ page over to it. Its button is the fullscreen icon, the last of the view's contr
 in the navbar ("Preview"). It is fullscreen: the renderer says so
 (`onFullscreenChange`), and the navbar, the explorer and any declared panel step
 aside while it lasts, Display settings with them; the toolbar, the tool stack and
-its resize handles, Quick Edit, joint handles, cube and context menu are gone. Its
+its resize grips, Quick Edit, joint handles, cube and context menu are gone. Its
 way out is the view's own: an X ("Exit preview") at the view's top-right, exactly
 where Preview sat in the navbar (the corner is a row of the navbar's own geometry,
 `lib/navbarRow.js`), transparent over the model, which fades with the playbar; Escape leaves it too. It
@@ -602,9 +631,9 @@ pressed in while focus is on the page. Editable targets keep their own keys.
   unfinished measurement, then the Measure tool, then the selection, then
   isolation; robots: the selection). The tool stack's panels and the host's
   explorer are never Escape's to close (a phone's sheet is dismissed like any sheet).
-- **Resize handles** (the stack's width, a panel's cap) are separators in the
-  tab order: arrows nudge by 16px, Home and End go to the bounds, and a folded
-  panel's handle opens it on ArrowDown or End.
+- **A panel's grip** (its bottom-right corner) is a separator in the tab
+  order: Left/Right nudge its width and Up/Down its cap by 16px, and Home and
+  End take both to their bounds.
 - **Copy** (⌘C or Ctrl+C, and Ctrl+Insert) copies the drawing while Draw has
   ink, otherwise the selection's references — unless a text field has focus or
   text is selected. The Reference's and Drawing's Copy buttons show the shortcut
@@ -635,7 +664,12 @@ complete silently, the Copy and Quick Edit buttons showing a tick for a moment.
 Progress stays in the viewport; a failed action is the
 viewport's alert card, whose **Retry** reloads the file and whose **Report Issue**,
 where the host has a tracker, opens a new issue titled "Issue: ", labelled `bug`, filled
-in from the card; errors handed to the host's `onError` are the host's to show.
+in from the card; errors handed to the host's `onError` are the host's to show. A card the
+model survives (a failed update, a warning beside the model) has an X, **Dismiss**: it puts
+the card away for as long as that alert stands, and its icon, first of the navbar's
+right-hand controls, brings it back. The dismissal goes once the alert changes or clears, or
+another file opens; with the card back, so does the icon. Preview has no navbar, and so no
+icon.
 
 ## Verification
 

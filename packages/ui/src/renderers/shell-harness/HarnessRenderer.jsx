@@ -6,8 +6,7 @@ import { createPromptContext, referencePart, textPart } from "@text-to-cad/core/
 import RendererShell from "../kit/shell/RendererShell.jsx";
 import { SHELL_TOOL, useRendererShell } from "../kit/shell/useRendererShell.js";
 import { createToolModes } from "../kit/tools/toolModes.js";
-import ToolPanel, { ToolPanelCollapse } from "../kit/tools/ToolPanel.jsx";
-import { TOOL_PANEL_REFERENCE_HEIGHT } from "../kit/tools/toolStackLayout.js";
+import ToolPanel, { ToolPanelClose } from "../kit/tools/ToolPanel.jsx";
 
 // TEST SCAFFOLDING. This renderer is never registered in a product: it exists so
 // the shell's own tools can be driven in a real browser under a frame that is
@@ -33,6 +32,10 @@ import { TOOL_PANEL_REFERENCE_HEIGHT } from "../kit/tools/toolStackLayout.js";
 // Draw and nothing else: with no tool taken up, "" is the mode, exactly as the
 // shell records for a renderer that hands over no tools at all.
 const HARNESS_TOOL_MODES = createToolModes({ defaultMode: "", modes: { [SHELL_TOOL.DRAW]: { toggles: true } } });
+// A file with a tool stack (`panel*.harness`) opens in Select, as STEP and robots do: the tool
+// whose tree a person can close, and whose press while it is up opens it again.
+const SELECT_TOOL = "select";
+const PANEL_TOOL_MODES = createToolModes({ defaultMode: SELECT_TOOL, modes: { [SELECT_TOOL]: {}, [SHELL_TOOL.DRAW]: { toggles: true } } });
 const LIVE = Object.freeze({ declined: {
   select: "The shell harness has nothing to select: it draws one triangle and reads no file.",
   clearSelection: "The shell harness has no selection to clear."
@@ -145,9 +148,11 @@ function HarnessSurface({ view, data }) {
     ? { ...LIVE, resource: () => ({ ...resource, revision: shownRevision }) }
     : LIVE), [resource, shownRevision]);
 
+  // `panel*.harness` stands in for a file whose tool stack is full (below); it opens in Select.
+  const withPanel = view.file.path.startsWith("panel");
   const shell = useRendererShell({
     view, services: shellServices, resource, modelKey: view.file.path, revisionKey: "harness",
-    features: EDGELESS_VIEW_FEATURES, toolModes: HARNESS_TOOL_MODES, scene,
+    features: EDGELESS_VIEW_FEATURES, toolModes: withPanel ? PANEL_TOOL_MODES : HARNESS_TOOL_MODES, scene,
     load: { busy: false, ...stageLoad },
     live, onCameraSettled, runtimeLifecycle,
     // A renderer whose references are its own vocabulary assembles its own snapshot.
@@ -168,15 +173,19 @@ function HarnessSurface({ view, data }) {
   ]), [picked]);
 
   // `panel*.harness` stands in for a file whose tool stack is full: a tree far taller than any
-  // viewer, the Reference for a selection, a retained effect — "Keep" keeps a small panel
-  // under them, highlighted, whatever tool is up — and "Pose", a tool whose panel is the
-  // person's to size like the tree.
+  // viewer, which Select's press brings back once its X has closed it; the Reference for a
+  // selection, sized on its own; a retained effect — "Keep" keeps a small panel under them,
+  // highlighted, whatever tool is up — and "Pose", a tool whose panel is the person's to size
+  // like the tree.
   const [kept, setKept] = useState(false);
   const [posing, setPosing] = useState(false);
-  const withPanel = view.file.path.startsWith("panel");
   // `panel-short.harness` turns the heights round: a tree of two rows and a Reference of many.
   const short = view.file.path.startsWith("panel-short");
   const [treeRows, referenceRows] = short ? [2, 40] : [120, 8];
+  // `panel-part.harness` stands in for a single part, whose tree starts closed.
+  const part = view.file.path.startsWith("panel-part");
+  const selectTool = shell.tools.own({ id: SELECT_TOOL, label: "Select", icon: <span aria-hidden="true">S</span>,
+    panel: { id: "tree", label: "Harness tree", startsClosed: part } });
   const keepTool = { id: "keep", label: "Keep", icon: <span aria-hidden="true">K</span>, active: kept, disabled: shell.idle,
     onSelect: () => setKept(value => !value) };
   const poseTool = { id: "pose", label: "Pose", icon: <span aria-hidden="true">P</span>, active: posing, disabled: shell.idle,
@@ -185,15 +194,15 @@ function HarnessSurface({ view, data }) {
     <li key={index} className="flex h-6 items-center">{name} {index + 1}</li>)}</ul>;
   const toolPanels = <>
     {withPanel ? <>
-      <ToolPanel id="tree" label="Harness tree" fit="tree" resizable
-        header={<p className="flex h-9 items-center border-b px-2"><span className="flex-1">Filter</span><ToolPanelCollapse /></p>}>{rows(treeRows, "Row")}</ToolPanel>
-      <ToolPanel id="reference" title="Reference" label="Harness reference" fit="details" widthFrom="tree" maxHeight={TOOL_PANEL_REFERENCE_HEIGHT} onClose={() => {}}>{rows(referenceRows, "Fact")}</ToolPanel>
+      <ToolPanel id="tree" label="Harness tree" fit="tree" resizable closable collapsible={false}
+        header={<p className="flex h-9 items-center border-b px-2"><span className="flex-1">Filter</span><ToolPanelClose /></p>}>{rows(treeRows, "Row")}</ToolPanel>
+      <ToolPanel id="reference" title="Reference" label="Harness reference" fit="details" resizable onClose={() => {}}>{rows(referenceRows, "Fact")}</ToolPanel>
       {posing ? <ToolPanel id="position" title="Position" label="Harness position" fit="details" resizable collapsible={false} onClose={() => setPosing(false)}>{rows(30, "Joint")}</ToolPanel> : null}
     </> : null}
     {kept ? <ToolPanel id="kept" title="Kept" label="Kept controls" onClose={() => setKept(false)}><div className="h-16 px-2">Kept</div></ToolPanel> : null}
   </>;
 
-  return <RendererShell shell={shell} tools={withPanel ? [shell.tools.draw, keepTool, poseTool] : [shell.tools.draw]}
+  return <RendererShell shell={shell} tools={withPanel ? [selectTool, shell.tools.draw, keepTool, poseTool] : [shell.tools.draw]}
     toolPanels={toolPanels} references={references} onClearReferences={() => setPicked("")}
     contextMenuItems={contextMenuItems} onContextMenuOpenChange={setMenuUp}
     frameProvider={frame => <HarnessFrameContext.Provider value={`frame:${stage}`}>{frame}</HarnessFrameContext.Provider>}

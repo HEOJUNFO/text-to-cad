@@ -15,14 +15,23 @@ import { FLOATING_CHROME_SURFACE_CLASS } from "./floatingSurface.js";
  * @property {boolean} [disabled]
  * @property {() => void} onSelect  Every press of the button.
  * @property {string} [description]  `aria-description`.
+ * @property {{ id: string, label: string, startsClosed?: boolean }} [panel]  The panel of the tool's
+ *   own that a person can close (Select's tree, by its `id` and its name; `startsClosed` where this
+ *   file opens with it closed, as a single part does): while it is closed the frame marks the tool
+ *   (`panelClosed`), and a press on the tool while it is up opens the panel again (`RendererShell.jsx`).
+ * @property {boolean} [panelClosed]  The tool's panel is closed: a small mark in the button's
+ *   bottom-right corner, the flyout corner that says the tool has more to show.
  */
 
 // A plain function, not a component: the strip's own output is the buttons.
 function toolButton(tool) {
   const active = tool.active === true;
-  return <ToolbarButton tooltipSide="top" label={tool.label} active={active} disabled={tool.disabled}
+  return <ToolbarButton className="relative" tooltipSide="top" label={tool.label} active={active} disabled={tool.disabled}
     aria-pressed={active} aria-description={tool.description} onClick={() => tool.onSelect()}>
     {tool.icon}
+    {tool.panelClosed ? <span data-tool-panel-closed="" aria-hidden="true" className="pointer-events-none absolute bottom-0 right-0 flex size-2 items-center justify-center">
+      <svg viewBox="0 0 5 5" className="size-1" fill="currentColor"><path d="M5 0v5H0Z" /></svg>
+    </span> : null}
   </ToolbarButton>;
 }
 

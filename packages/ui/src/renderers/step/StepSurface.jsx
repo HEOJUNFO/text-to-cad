@@ -6,6 +6,7 @@ import { NO_CONNECTED_SELECTION, connectedSelectionApplies } from "./workbench/s
 import { PositionToolIcon, positionValuesAreDefault } from "../kit/inspector/kinematicsControls.jsx";
 import { filterSelectionReferences, toggleReferenceGroupSelection, connectedReferenceIds } from "./workbench/selectionFilter.js";
 import { buildTangentFaceGraph } from "./workbench/tangentFaceSelection.js";
+import { explodablePartCount } from "./workbench/explodableParts.js";
 import { createHoverStore } from "./workbench/hoverStore.js";
 
 import * as THREE from "three";
@@ -3121,6 +3122,10 @@ function StepSurfaceBody({ view, data }) {
   lodSelectedPartIdsRef.current = layerProps.selectedPartIds;
 
   // ---- the strip ------------------------------------------------------------------------------
+  // An assembly, as the catalog says or as the model on screen shows (several parts, as Explode
+  // counts them): the model survives an update the catalog has not finished, or one that failed,
+  // so the tree's start does not change under the person while a rebuild is pending.
+  const assemblyOnScreen = isAssemblyView || explodablePartCount(selectedDisplayMeshData) > 1;
   const selectDisabled = viewerLoading || !selectedMeshData || referenceSelectionPending ||
     referenceSelectionUnavailable || topologySelectionDeferred;
   const toolIdle = viewerLoading || !selectedMeshData;
@@ -3152,6 +3157,9 @@ function StepSurfaceBody({ view, data }) {
       active: !topologySelectionDeferred && selectionToolActive, disabled: selectDisabled,
       // Its modes and options are a menu in the Features panel's filter row.
       onSelect: () => handleSelectTabToolMode(TAB_TOOL_MODE.REFERENCES),
+      // Its own panel, which a person can close (`ModelingTree.jsx`'s Features, by its X): a press
+      // on Select while it is the tool opens it again. A single part opens with it closed.
+      panel: { id: "tree", label: "Features", startsClosed: !assemblyOnScreen },
     }),
     // Position comes straight after Select; only files with movable joints offer it.
     poseAvailable ? shell.tools.own({ id: TAB_TOOL_MODE.POSE, label: "Position",

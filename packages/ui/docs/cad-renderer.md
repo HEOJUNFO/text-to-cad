@@ -34,9 +34,9 @@ the reverse.
 | `camera/` | `runtimeCamera` (zoom percent against the authored framing, projection and lens sync, perspective snapshots, eased transitions, fit-to-bounds, recentre), `useViewportCamera` (that behaviour bound to a mounted viewport: the perspective kept by a mounted view, the preview camera swap and its restore, the reset that Zoom to fit and the live `resetCamera` share, view-cube presets, which turn the camera and keep its zoom and target), `viewportCameraKit` and `viewportCameraFit`, `orbitControls`, `zoomPivotReanchor`, `zoomSpeeds`, `cameraLens`, `ViewPlaneControl` (view cube). |
 | `look/` | `stageEffects` (lighting rig scaled to the model, floor, glow and shadow catcher, grid and origin axes), the Render studio boundary (`renderStudioChunk`, `studioEnvironmentCache` and its worker). `chromeBackdrop` and `useChromeBackdropColor` (the frame colour around a scene). The surface LOOK is data the viewport resolves and a scene applies to its own materials: `@text-to-cad/core/lib/viewer/surfaceLook.js` (`createSurfaceLook(THREE, root).apply(look)`) does it for any authored material tree. The viewport resolves it with core's `resolveSceneSurfaceLook` (`common/sceneSettings.js`), the resolver the snapshot CLI dresses the same scenes with. |
 | `view-settings/` | The settings model and store (`viewSettingsStore`, `useViewSettings`, `viewerDisplaySettings`, `renderState`), applying a change to a viewport (`useAppliedViewSettings`, `viewUpdateCoordinator`, `viewUpdateGate`, `viewUpdatePlan`), and the Display tool's content (`DisplaySettingsSection`, `DisplayModeOptions`; the shell draws it as a stack panel while Display is the tool). |
-| `tools/` | `FloatingToolBar` (the dumb strip), `toolModes` (the tool-mode state machine), `ToolModeMenu` (a tool's exclusive modes: one button in its panel's header row and its dropdown), `ToolPopover` (an ordinary dropdown from its button, on a `side` and `align`ed start or end: preview's Playback settings, upward from the playbar), `ToolStack` (the bounded column under the strip, which scrolls only when what cannot give way still does not fit), `ToolPanel` (one panel of it: `fit` says how it gives way when the viewer is short, `resizable` makes it the person's to size — width, height and corner handles, moving only it — and every panel but Drawing folds to its first row; `ToolPanelCollapse` is the chevron for a panel whose first row is its content's; its `footer`, a `ToolPanelFooterButton`, is a full-row action under the body that never scrolls: the Reference's Copy, Drawing's Copy), `toolStackLayout` (every panel's width, the resizable panels' sizes and the folded panels: defaults, bounds and their stored record), `floatingSurface` (the two surfaces, defined together: the strip's and every menu's over the viewport, and the stack panels' more transparent one), and the format-blind tools: `draw/` (overlay, view lock, `useDrawingViewLock`), `PreviewChrome` (preview's controls and their visibility), `PlaybackMenu` (preview's Playback settings: Animation — Routine, Speed, Loop, Autoplay — then Orbit and its speed), `preview/` (orbit preferences), `playbar/` (`ViewportAnimationBar`, `animationClock`, `usePlaybackFrames`, `playbackPreferences`: the file's Playback settings — orbit and its speed, Autoplay, the routine's chosen Speed and Loop), `pose/` (the handle overlay, canvas, drag mathematics), `select/` (`usePointerPick`: taps and hover through a scene's own `pick`), `quick-edit/` (`QuickEdit`, the note to the agent, and `quickEditPrompt`, the context it builds and the text it copies). Screenshot capture is `@text-to-cad/core/lib/viewer/screenshotCapture.js`. |
+| `tools/` | `FloatingToolBar` (the dumb strip), `toolModes` (the tool-mode state machine), `ToolModeMenu` (a tool's exclusive modes: one button in its panel's header row and its dropdown), `ToolPopover` (an ordinary dropdown from its button, on a `side` and `align`ed start or end: preview's Playback settings, upward from the playbar), `ToolStack` (the bounded column under the strip, which scrolls only when what cannot give way still does not fit), `ToolPanel` (one panel of it: `fit` says how it gives way when the viewer is short, `resizable` makes it the person's to size by the grip in its bottom-right corner alone, moving only it, and a panel with a heading can fold to it; `closable` is the tree's, whose X — `ToolPanelClose`, in its filter row — closes it until a press on the tool it belongs to brings it back; `ToolPanelCollapse` is the chevron for a foldable panel whose first row is its content's; its `footer`, a `ToolPanelFooterButton`, is a full-row action under the body that never scrolls: the Reference's Copy, Drawing's Copy), `ResizeGrip` (the one resize grip of a box over the viewport, in a bottom corner: a resizable panel's at its bottom-right, Quick Edit's at its bottom-left), `toolStackLayout` (every panel's width, the resizable panels' sizes, the folded panels and the closed tree: defaults, bounds and their stored record), `floatingSurface` (the two surfaces, defined together: the strip's and every menu's over the viewport, and the stack panels' more transparent one), and the format-blind tools: `draw/` (overlay, view lock, `useDrawingViewLock`), `PreviewChrome` (preview's controls and their visibility), `PlaybackMenu` (preview's Playback settings: Animation — Routine, Speed, Loop, Autoplay — then Orbit and its speed), `preview/` (orbit preferences), `playbar/` (`ViewportAnimationBar`, `animationClock`, `usePlaybackFrames`, `playbackPreferences`: the file's Playback settings — orbit and its speed, Autoplay, the routine's chosen Speed and Loop), `pose/` (the handle overlay, canvas, drag mathematics), `select/` (`usePointerPick`: taps and hover through a scene's own `pick`), `quick-edit/` (`QuickEdit`, the note to the agent, and `quickEditPrompt`, the context it builds and the text it copies). Screenshot capture is `@text-to-cad/core/lib/viewer/screenshotCapture.js`. |
 | `inspector/` | `FileSheet` and its row and section primitives, `modelTreeSearch` (`useTreeSearch`, the ranked flat search every tree shares), `VirtualRows` (a long tree's rows, windowed), `referenceRows` (`InfoRow`, `MonoValue`, `CoordValue`), `kinematicsControls` (the `Pose` row that heads every Position section, with its Reset). The tree row and filter box are `primitives/tree-row` and `primitives/tree-filter`. |
-| `status/` | `LoadingIndicator` and `ViewerLoadingOverlay`, `ViewerAlertCard` (the card over the viewport for every alert) and `reportIssue` (`alertIssueUrl`: its Report Issue's new issue), `MissingFileAlert`, `ViewUpdateStatus`, `loadingState` (`viewerLoadingState`), `loadAlerts` (`failureAlert`, `noGeometryAlert`). |
+| `status/` | `LoadingIndicator` and `ViewerLoadingOverlay`, `ViewerAlertCard` (the card over the viewport for every alert, and `useAlertDismissal`: a card put away, and its icon in the navbar that brings it back) and `reportIssue` (`alertIssueUrl`: its Report Issue's new issue), `MissingFileAlert`, `ViewUpdateStatus`, `loadingState` (`viewerLoadingState`), `loadAlerts` (`failureAlert`, `noGeometryAlert`). |
 | `shell/` | The host glue every renderer needs that is not about its scene: see [Shell](#shell). |
 
 **What a view opts into.** The Display panel and `resolveViewSettings` take explicit
@@ -147,7 +147,7 @@ calls one hook; the shell owns the rest.
 
 | module | what it is |
 | --- | --- |
-| `useRendererShell.js` | The hook. Per-file state through the host, the Display settings store and the Display panel's content (`shell.display`), tool modes (Draw is the only strip tool the shell itself owns; Display and preview's buttons and Playback settings are the frame's; `toolModes` is omitted altogether by a renderer with no tools of its own), the tool stack's layout (a viewer preference: `services.preferences.toolStack` — the resizable panels' sizes, the folded panels — changed by one patch per gesture, `frame.changeToolStack`), prompt snapshots (the host's `captureRequest`), the clipboard screenshot (Draw's Copy), what Quick Edit takes from the view (its file, how a copied prompt spells a path, the view as a picture, the viewer's Escape), the one preview state (`shell.previewing` / `setPreviewing`, from `usePreviewState`) and preview's Autoplay (`shell.autoplay`, a viewer preference), alerts, shortcuts, and the live command surface. It owns no zoom control: the shell has none. |
+| `useRendererShell.js` | The hook. Per-file state through the host, the Display settings store and the Display panel's content (`shell.display`), tool modes (Draw is the only strip tool the shell itself owns; Display and preview's buttons and Playback settings are the frame's; `toolModes` is omitted altogether by a renderer with no tools of its own), the tool stack's layout (a viewer preference: `services.preferences.toolStack` — the resizable panels' sizes, the folded panels, the closed tree — changed by one patch per gesture, `frame.changeToolStack`), prompt snapshots (the host's `captureRequest`), the clipboard screenshot (Draw's Copy), what Quick Edit takes from the view (its file, how a copied prompt spells a path, the view as a picture, the viewer's Escape), the one preview state (`shell.previewing` / `setPreviewing`, from `usePreviewState`) and preview's Autoplay (`shell.autoplay`, a viewer preference), alerts, shortcuts, and the live command surface. It owns no zoom control: the shell has none. |
 | `RendererShell.jsx` | The frame: viewport box, tool strip (the renderer's tools) at the top-left, the tool stack under the strip (`ToolStack`: the Drawing panel while Draw is up, with Copy at its foot once there is ink, then the renderer's `toolPanels`; the column stops above the cube, `VIEWPORT_STACK_BOTTOM`), Quick Edit at the top-right, the view cube in the bottom-left corner, the view's controls at the navbar's right end, after the version (portaled into the renderer's `navbarSlot`: Display settings, whose popover is `DisplayPopover` and opens down, then Preview, a fullscreen icon), preview's controls (`PreviewChrome`: at the view's top-right, Playback settings then the way out, on a row of the navbar's own geometry (`lib/navbarRow.js`) so each lands where Settings and Preview sat; under the model, the playbar for a file with routines and nothing for a static one), preview as fullscreen (`onFullscreenChange`: the navbar steps aside), the tools out of sight while the host's explorer is open over them (`openPanel === "tree"`), the render profile (`kit/viewport/renderProfile.js`: preview draws the scene one quality tier up, keeps its pixel ratio while orbiting and suspends the tool effects), stopping the routine (`animation.onRelease`) when preview ends, the loading overlay, the update status centred at the top of the viewport, and the alert card. While the model loads, and once a load has failed in a way the model did not survive (an alert that cannot be put away), it draws none of its controls and no update status: only the load, or the card saying why; in a compact host (`appearance.compact`), none at all: the model alone. Nothing sits at the bottom centre but preview's playbar, on the `--cad-viewport-bottom-center` line. It takes `references` (what is selected, in the prompt grammar: what Quick Edit attaches and counts) and `copySelection` (what ⌘C / Ctrl+C copies while the renderer's own tool is up and something is selected; null when nothing is). It draws nothing into the host's panel column. One DOM structure (`data-slot="cad-file-view"`, `data-cad-surface`, `data-cad-scene-backdrop`, `data-cad-toolbar`, `data-cad-tool-stack`, `data-tool-panel`) for every renderer. `frameProvider` wraps the WHOLE frame in the renderer's own context — the tool stack as well as the viewport, because both read it — and `onCanvasPointerDown` is a press that landed on the model, for a renderer with something to put down when the person reaches for it. The frame focuses itself on such a press either way. |
 | `ShellViewport.jsx` | The three.js viewport around ONE kit scene: `useViewerRuntime`, `useViewportCamera`, the look (rig or studio, environment, background, floor, grid, axes), the Draw overlay and view lock, the view cube (bottom-left; not mounted in preview, `previewMode`, while the model loads, or when the shell says so, `viewCube`), frame presentation and the queued view-settings handshake. Its children may be a function of the viewport (`{ runtimeRef, hostRef, mountRef, viewerReadyTick, commitScene, syncSceneBounds }`), which is how a renderer mounts its own overlay or pointer pick. A scene that changes IN PLACE (it arrives in pieces, swaps its detail, is rebuilt under one identity) calls `commitScene()` from its own effect: the viewport re-reads what it placed, fits the stage and the depth range and applies the framing rules THEN, because a child's effects run before the viewport's own adoption effect. The one thing a commit never does ahead of the viewport is FRAME under a camera that is about to change: when the same render also changed the lens, the projection or the viewing mode, the stage is adopted at once and the framing follows once the camera has been given those props (a stored camera applied under the old projection and then converted comes out about a sixth smaller). A scene that says `complete: false` is framed on what has arrived and once more when it is whole — unless the camera on screen is the person's rather than that first fit, which is true of one they moved during the current mount; reopening always starts with fresh framing. `preserveInteractionPixelRatio` keeps the idle pixel ratio while the camera moves (a scene drawn with hairlines, and preview's orbit: `renderProfileKeepsPixelRatio`), and `runtimeLifecycle` (`onRelease(runtime, { handoff })` while the WebGL renderer is still alive, `onContextLost()`, `onInitializationError(error)`) is for a renderer that hangs its own objects or in-flight work on the runtime. `syncSceneBounds()` re-fits lighting, shadows and the floor's height to a scene that moved its own bounds, with no React render and no reframe. What is SIZED stays sized from the rest placement, in Inspect and in Render alike: the grid and stage (`sceneRadiusForBounds` on `restBounds`) and the Render studio's floor plane (`applyPhotographicStudio`'s `groundBounds`), so a pose or a playing routine never rescales or slides the ground under the model; `zoomToBounds(bounds)` frames part of the scene. Read-only test seams: `window.__cadCamera()` (the live camera, its depth range included) and `window.__cadStage()` (the ground's radius, the bounds the stage is fitted to, the floor's height, the studio floor's size and centre). |
 | `fileView.js` | The file's view `{ version, camera, display, playback, renderer }`, read forgivingly and written exactly: the camera (restored in place of the open-time fit; null fits), the Display settings, preview's Playback settings (`tools/playbar/playbackPreferences.js`), and the renderer's own slices, each `{ signature, value }` and restored only under the signature the renderer declares now (`readFileView(raw, signatures)`); the camera, the display and the playback are always kept. The host keys it `[file path, renderer id]` under its root, in the tab store. Not in it: the tool in hand, a selection, measurements, ink, preview, a routine's time — every open starts those afresh. |
@@ -193,10 +193,14 @@ state), each its content's height, with `fit` saying how it gives way on a short
 `"tree"` first (to 128px or its content), then
 `"details"` (to 96px or its content), never `"fixed"`; the column scrolls only if the
 rest still does not fit. Every panel is `TOOL_PANEL_WIDTH` wide (164px, a six-tool strip's);
-`resizable` — the tree and Position — makes a panel the person's to size on its own, from
-handles on its right edge, bottom edge and corner, kept under its `id` (`tree` and `position`
-open at half the stack); the Reference is fixed under a `maxHeight` of 288px; every panel
-but Drawing folds to its first row, kept by `id` too (`kit/tools/toolStackLayout.js`). Nothing a pick or a tool does
+`resizable` — the tree, the Reference and Position — makes a panel the person's to size on its
+own, from the grip in its bottom-right corner alone (`kit/tools/ResizeGrip.jsx`, Quick Edit's),
+kept under its `id` (`tree` and `position` open at half the stack, `reference` at 200px); a
+panel with a heading may fold to it, kept by `id` too. The tree is `closable`: its X closes it,
+and the tool that names it as its `panel` (Select) carries a corner mark until a press on it,
+while it is up, opens the tree again; the person's closing or opening is kept by `id` as well,
+for every file, and until then the tree starts closed for a single part (the tool's
+`panel.startsClosed`) and on a phone (`kit/tools/toolStackLayout.js`). Nothing a pick or a tool does
 touches the host's column; a pick scrolls its row into view in the tree, which is on
 screen whenever Select is.
 
@@ -937,19 +941,22 @@ Shift toggles the resulting group, and Copy Reference copies its canonical edge 
 A STEP's panels in the tool stack (`components/workbench/StepPanels.js`), in order:
 
 - **Features** (Select): the `Filter…` box as its top row, then the model tree
-  (`ModelingTree.jsx`). It gives way first on a short viewer and scrolls inside itself.
+  (`ModelingTree.jsx`). It gives way first on a short viewer and scrolls inside itself. Its X
+  closes it until Select, pressed while it is the tool, opens it again; an assembly opens with
+  it open, a single part (and any file on a phone) with it closed and Select marked.
 - **Reference** (Select, with a selection): headed by the reference being read
   (`StepReferenceSection.js`'s `useStepReference`: its label, else its part as the tree
   names it and its kind — `base · face 3`; with several, a picker with `i/N`) and an X
   that clears the selection; its rows are the browsed reference's alone, compact and in the
-  UI font, under a 288px cap the person can drag.
+  UI font. A resizable panel of its own, apart from the tree: it opens at the one width and a
+  200px cap, and its corner grip sizes it.
 - **Position** (Position): named poses, joint values and Reset, when the file has
   kinematics.
 
 Each is `hidden`, not unmounted, while its tool is not up.
 
 **Select modes.** Select's mode menu (`SelectModeMenu` in `SelectionModes.jsx`, over
-`ToolModeMenu`), in the Features filter row beside its chevron (`ModelingTree`'s
+`ToolModeMenu`), in the Features filter row beside its X (`ModelingTree`'s
 `modeMenu`), holds four exclusive modes — All, Parts (assemblies only), Faces, Edges
 (`workbench/selectionFilter.js`'s `SELECT_MODES`), each row its mode's glyph at full
 size — whose composite the strip's button shows (`SelectModeIcon`: the pointer badged with
@@ -1098,7 +1105,7 @@ unselectable. Selection reveals expand the required ancestors and scroll once
 per selection or explicit reveal command. Later expansion, recognition updates
 and manual scrolling must not pull the view back to that row.
 
-The Reference pane is read-only, fixed in size (every panel's width, capped at 288px),
+The Reference pane is read-only, sized on its own (it opens at every panel's width, capped at 200px, and its corner grip sizes it),
 independently scrollable, and pinned at the panel's foot, under every section. Its
 static heading has a Copy action (the reference on show, file-prefixed as Copy Reference copies it) and an X to clear the selection; neither the pane nor its
 fields collapse. A compact dropdown browses the selected references directly
@@ -1316,8 +1323,10 @@ takes the keyboard once the pen lifts; with its note empty it closes when the in
 ### File navbar
 
 The file navbar holds the panel toggles; pressing a toggle opens that panel and closes
-whatever was open. The CAD renderers publish no navbar action: what a person tells the
-agent is Quick Edit's. The one toggle is the file tree's, id `tree` (`Folders`,
+whatever was open. The CAD renderers publish one navbar action, and only while a person
+has put away an alert card the model survives: the card's own icon, which brings it back
+(see [Inspect, Render and live revisions](#inspect-render-and-live-revisions)). What a person
+tells the agent is Quick Edit's. The one toggle is the file tree's, id `tree` (`Folders`,
 labelled `Show files` / `Hide files`), when the host's source lists files. No CAD registration declares `panels`: every
 CAD file has the tree alone, its controls being panels of its own tool stack. The
 tree is FileViewer's own (`treePanel`), always last. Display is a popover from its
@@ -1419,8 +1428,9 @@ in which case every link is kept. An SRDF shows its paired URDF's tree.
 The section reuses the Features tree's pieces rather than cloning them: the 28px
 row primitive, `Filter…` (`TreeFilterInput`, `primitives/tree-filter`), the
 ranked flat search of `kit/inspector/modelTreeSearch.js` (`useTreeSearch`), and the
-Reference panel under it (the stack's next panel, under the same 288px cap, the same
-panel the Features tree has). The search index also reads a row's `searchAliases`, so a
+Reference panel under it (the stack's next panel, sized on its own from the same 200px
+cap, the same panel the Features tree has). Its X closes Links, as Features', and Select
+opens it again. The search index also reads a row's `searchAliases`, so a
 link is found by its joint name and the hit shows that joint in place of its
 owners. The root opens, along with a chain of single child links below it;
 everything else starts collapsed. When the tree has exactly one root with
@@ -1470,12 +1480,13 @@ A renderer's controls are `ToolPanel`s in the tool stack under the strip
 the file's strip has), each exactly its content's height — up to its cap, for the tree,
 Position and the Reference — until the column (the area under the strip) runs out; then
 a `"tree"` panel scrolls inside itself first, a `"details"` one next, and a `"fixed"` one
-never; and if those still do not fit, the column scrolls. The tree and Position are
-`resizable`, each on its own: handles on its right edge, bottom edge and corner make it
-wider (never narrower than the one width, never past half the viewer) and set its cap,
-moving no other panel; every other panel is fixed, with no handle. Every panel folds to
-its first row (Drawing excepted). The resizable panels' sizes and the folded panels are
-one of the tab's settings (`CadPreferences.toolStack`).
+never; and if those still do not fit, the column scrolls. The tree, the Reference and
+Position are `resizable`, each on its own: the grip in its bottom-right corner, and nothing
+else, makes it wider (never narrower than the one width, never past half the viewer) and
+sets its cap, moving no other panel; every other panel is fixed, with no grip. The tree
+does not fold: its X closes it until Select brings it back; a panel with a heading may
+fold to it. The resizable panels' sizes, the folded panels and the closed tree are one
+of the tab's settings (`CadPreferences.toolStack`).
 The strip and every menu over the viewport share one translucent, blurred surface, and
 the stack's panels a more transparent one with the same blur and border
 (`kit/tools/floatingSurface.js`); every scroll region is the `ScrollArea` primitive. A
@@ -1518,7 +1529,11 @@ with the tool strip (`ViewUpdateStatus`; on mobile, a spinner whose label opens 
 press). An error is a card over the viewport (`ViewerAlertCard`), always;
 one the model survives (`blocking: false`, the previous version still on screen)
 has a Dismiss button, and stays dismissed until the alert changes, or clears and is
-raised again. A warning is a card too, dismissible while the model is on screen:
+raised again, or another file opens. The dismissal is the frame's (`useAlertDismissal`), so a
+trip to preview keeps it, and while it stands the card's own icon, in its colour and named
+after the alert, is the leftmost of the navbar's right-hand controls (the renderer's
+navigation action): pressing it brings the card back, and the icon goes. A warning is a card
+too, dismissible while the model is on screen:
 there is no other place a problem is listed. Full diagnostics stay expandable under
 Details; Retry uses FileViewer's renderer reload,
 which rechecks the artifact and does not restart the desktop window, and Report Issue,

@@ -6,6 +6,7 @@ import { cn } from "@text-to-cad/ui/utils";
 import { promptReferenceIds } from "@text-to-cad/core/prompt";
 import { usePromptDestination, useViewerHost } from "../../../../host/context.js";
 import { FLOATING_SURFACE_CLASS } from "../floatingSurface.js";
+import ResizeGrip from "../ResizeGrip.jsx";
 import { TOOL_PANEL_BUTTON_CLASS } from "../ToolPanel.jsx";
 import { copiedQuickEdit, createQuickEditContext, quickEditSelection, sketchName } from "./quickEditPrompt.js";
 
@@ -278,10 +279,8 @@ export default function QuickEdit({ resource, references = EMPTY, sketch = null,
           </Button>
         </TooltipHint>)}
       </div>
-      <div aria-hidden="true" onPointerDown={startResize} data-quick-edit-resize=""
-        className="group/resize absolute bottom-0 left-0 flex size-3.5 cursor-nesw-resize touch-none items-end justify-start p-0.5 @max-md/cad-viewport:hidden">
-        <svg viewBox="0 0 8 8" className="size-2 text-muted-foreground/50 group-hover/resize:text-muted-foreground"><path d="M1 2L6 7M1 5L3 7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" /></svg>
-      </div>
+      {/* The grip every resizable box over the viewport has (`ResizeGrip.jsx`), in this one's bottom-left. */}
+      <ResizeGrip corner="bottom-left" aria-hidden="true" onPointerDown={startResize} data-quick-edit-resize="" className="@max-md/cad-viewport:hidden" />
     </section> : null}
   </div>;
 }

@@ -69,7 +69,8 @@ does opens, closes or turns the host's explorer or panel column. FileViewer stil
 renderer those props — they are the generic panel contract, which the file tree and
 the desktop markdown's source view use. A host's stored `panel` naming the retired CAD
 Settings panel (`cad-file`) resolves as nothing open. The tool stack's layout — the
-sizes a person dragged the tree and Position panels to, and the folded panels — is one
+sizes a person dragged the tree, the Reference and Position panels to, the folded panels
+and whether the tree is closed — is one
 of the tab's settings (`settings.toolStack` of the tab record, `@text-to-cad/ui/tab-store`),
 beside the orbit speed and playback.
 
@@ -87,7 +88,10 @@ file's routine plays on entry only when its Autoplay is on. The rules are in
 [settings-ui.md](settings-ui.md#camera-animation-and-preview).
 
 A renderer can publish `FileNavigationAction[]` through
-`RendererViewProps.onNavigationActionsChange`; the CAD renderers publish none. The
+`RendererViewProps.onNavigationActionsChange`. The CAD renderers publish one, and only
+while a person has put away an alert card the model survives: the card's own icon in its
+colour, named after the alert, which brings the card back (`useAlertDismissal`,
+`kit/status/ViewerAlertCard.jsx`). The
 shared navbar shows these at its right, before any declared panel's toggle and the
 host's links. Each action declares its icon, accessible label, an
 optional shorter hover `hint`, disabled state and invocation callback. Registration belongs to the mounted

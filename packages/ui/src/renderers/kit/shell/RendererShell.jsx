@@ -8,7 +8,7 @@ import { cn } from "@text-to-cad/ui/utils";
 import PreviewChrome from "../tools/PreviewChrome.jsx";
 import { useViewerMobile } from "../../../file-viewer/responsive.js";
 import { FILE_PANEL_TREE } from "../../../file-viewer/navigation/panels.js";
-import ViewerAlertCard, { alertDismissible } from "../status/ViewerAlertCard.jsx";
+import ViewerAlertCard, { alertDismissible, useAlertDismissal } from "../status/ViewerAlertCard.jsx";
 import { MODEL_UPDATE_STATUS, ViewUpdateStatus } from "../status/ViewUpdateStatus.jsx";
 import ViewerLoadingOverlay from "../status/ViewerLoadingOverlay.js";
 import { VIEWER_RENDER_PROFILE, renderProfileKeepsPixelRatio, sceneForRenderProfile } from "../viewport/renderProfile.js";
@@ -18,6 +18,7 @@ import ToolPanel, { ToolPanelFooterButton } from "../tools/ToolPanel.jsx";
 import PlaybackMenu from "../tools/PlaybackMenu.jsx";
 import FloatingToolBar from "../tools/FloatingToolBar.js";
 import ToolStack from "../tools/ToolStack.jsx";
+import { toolPanelClosed } from "../tools/toolStackLayout.js";
 import { ViewportAnimationBar, animationControlsHaveContent } from "../tools/playbar/ViewportAnimationBar.js";
 import QuickEdit from "../tools/quick-edit/QuickEdit.jsx";
 import ShellViewport from "./ShellViewport.jsx";
@@ -67,7 +68,10 @@ function NavbarControl({ label, disabled = false, onClick, children }) {
  *     mountRef: object, viewerReadyTick: number, commitScene: () => boolean }) => import("react").ReactNode) }} props
  *   `tools`: left to right, from `shell.tools`; an EMPTY list draws no strip at all,
  *   which is what a file whose viewport only orbits, pans and zooms hands over. A tool the
- *   file cannot offer is left out, never handed over disabled.
+ *   file cannot offer is left out, never handed over disabled. A tool that names a `closable`
+ *   panel of its own (`panel: { id, label, startsClosed }`: Select's tree, which a single part
+ *   opens with closed) is marked while that panel is closed, and a press on it while it is up
+ *   opens the panel again.
  *   `toolPanels`: the tool stack's panels, top to bottom — each a `ToolPanel`
  *   (`kit/tools/ToolPanel.jsx`), shown or `hidden` by the renderer as its tools say: what
  *   the tool in hand shows (Select's tree and Reference, Position's joints), then the
@@ -161,7 +165,20 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
     wasPreviewing.current = previewing;
   }, [previewing]);
   // Every tool's panel but Select's has an X that puts the tool down, back to Select (the default
-  // tool, which cannot be put down: its panels fold instead).
+  // tool, which cannot be put down). Select's tree has an X of its own that closes the tree alone:
+  // the tool it belongs to then carries the strip's corner mark, and a press on that tool while it
+  // is up opens the tree again; from another tool, a press only takes it up, the tree still closed.
+  // Until the person has closed or opened it, the tree starts as the tool says this file starts it
+  // (`panel.startsClosed`: a single part's) and closed on a phone.
+  // One object while those starts stay the same: the stack's panels read it.
+  const panelStarts = JSON.stringify(tools.filter(tool => tool.panel).map(tool => [tool.panel.id, Boolean(tool.panel.startsClosed)]));
+  const startsClosed = useMemo(() => Object.fromEntries(JSON.parse(panelStarts)), [panelStarts]);
+  const stripTools = tools.map(tool => {
+    if (!tool.panel || !toolPanelClosed(frame.toolStack, tool.panel.id, { mobile, startsClosed: startsClosed[tool.panel.id] })) return tool;
+    const reopen = () => frame.changeToolStack(current => ({ closed: { ...current.closed, [tool.panel.id]: false } }));
+    return { ...tool, panelClosed: true, description: tool.description || `${tool.panel.label} closed`,
+      onSelect: () => { if (tool.active) reopen(); tool.onSelect(); } };
+  });
   // The shell's own tool's panel leads the stack while its tool is up: Draw's tools, color and
   // history. The renderer's follow.
   // Draw's controls, and once there is ink, Copy Drawing (the view with its ink) at their foot.
@@ -177,6 +194,9 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
   // A load the model did not survive: an alert that cannot be put away (a failed update that
   // keeps the previous version on screen can be, and keeps its chrome).
   const failed = Boolean(frame.viewerAlert) && !alertDismissible(frame.viewerAlert, hasContent);
+  // The card's dismissal is the frame's, so it outlives the card (gone in preview): while the person
+  // has the card put away, its icon is the navbar's way back to it, leftmost of the right-hand group.
+  const alertDismissal = useAlertDismissal(frame.viewerAlert, { hasContent, scope: frame.modelKey, onNavigationActionsChange: view.onNavigationActionsChange });
   // While the model loads, or once it has failed to, the viewer shows none of its own chrome: no
   // tools, no Quick Edit, no cube, no view actions and no update status -- only the load itself,
   // or the card saying why it failed. They arrive with the model, and stay through a rebuild that
@@ -265,7 +285,8 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
                     runtimeLifecycle={frame.runtimeLifecycle}
                   >{overlay}</ShellViewport>
                   {/* The file as the alert names it (the catalog's absolute path), which Report Issue keeps out of its issue. */}
-                  {!previewing ? <ViewerAlertCard key={frame.modelKey} alert={frame.viewerAlert} hasContent={hasContent} onReload={view.reload} file={frame.modelKey || view.file?.path} /> : null}
+                  {!previewing ? <ViewerAlertCard alert={frame.viewerAlert} hasContent={hasContent} dismissed={alertDismissal.dismissed} onDismiss={alertDismissal.dismiss}
+                    onReload={view.reload} file={frame.modelKey || view.file?.path} /> : null}
                 </div>
               </div>
 
@@ -295,8 +316,8 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
                   sight under it, kept as they are for when it closes. */}
               {toolsHidden ? null : <div className={cn("group/tool-stack pointer-events-none absolute z-20 flex flex-col items-start gap-2", view.openPanel === FILE_PANEL_TREE && "invisible")} style={TOOLBAR_POSITION}
                 data-mobile={mobile ? "" : undefined} data-cad-tool-groups="">
-                <FloatingToolBar tools={tools} />
-                <ToolStack hidden={previewing} mobile={mobile} layout={frame.toolStack} onLayoutChange={frame.changeToolStack}>{shellPanels}{toolPanels}</ToolStack>
+                <FloatingToolBar tools={stripTools} />
+                <ToolStack hidden={previewing} mobile={mobile} startsClosed={startsClosed} layout={frame.toolStack} onLayoutChange={frame.changeToolStack}>{shellPanels}{toolPanels}</ToolStack>
               </div>}
               {/* Hidden, not unmounted, while the view loads: a note being written outlives a reload of the model. */}
               {compact || !references ? null : <QuickEdit key={frame.modelKey} className="absolute z-30" style={QUICK_EDIT_POSITION} hidden={chromeHidden}

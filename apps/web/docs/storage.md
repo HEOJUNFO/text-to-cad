@@ -38,7 +38,7 @@ The record is `{ version, settings, files }`:
 
 | Kept | Where | What |
 | --- | --- | --- |
-| Tab settings | `settings` | `fileTree` (the panel column's width, and the folders open under each root), `toolStack` (the resizable panels' sizes and the folded panels, `kit/tools/toolStackLayout.js`), `appearance` (System, Light or Dark; System until the person picks). |
+| Tab settings | `settings` | `fileTree` (the panel column's width, and the folders open under each root), `toolStack` (the resizable panels' sizes, the folded panels and the closed tree, `kit/tools/toolStackLayout.js`), `appearance` (System, Light or Dark; System until the person picks). |
 | File views | `files[[root id, file path, renderer id]]` | The file's view ([fileView.js](../../../packages/ui/src/renderers/kit/shell/fileView.js)): `camera` (the renderer's own — a scene's pose, lens and projection, restored in place of the open-time fit; a drawing's plane transform), `display` (the Display settings, Clip and Explode included), `playback` (preview's Playback settings: orbit on or off and its speed, Autoplay, and — once chosen — the Speed and Loop the routine plays with, unset meaning the routine's own; kept between leaving and re-entering preview; defaults orbit on at 1×, Autoplay off) and `renderer`, the renderer's own slices, each behind the signature it was written against: a STEP's expanded nodes, hidden parts, isolated assemblies, pose and large-file opt-in; a robot's joint values. A slice whose signature no longer matches the file on screen is dropped; the camera, the display and the playback are always kept. The fifty most recently written files stay; the oldest goes. |
 
 | Not kept | Every open starts it afresh |

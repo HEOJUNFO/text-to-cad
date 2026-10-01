@@ -251,7 +251,7 @@ Quick Edit, without a 3D toolbar or tool stack.
 
 The file explorer floats over the view's left and never resizes it. Below 720px of
 FileViewer width it is a floating sheet over the viewer and the tree panel of the
-tool stack starts folded. Preview is the shared shell's button among the view
+tool stack starts closed (Select, pressed, opens it). Preview is the shared shell's button among the view
 actions: it keeps the navbar and the explorer, hides the toolbar, tool stack and
 Quick Edit, orbits by default, plays routines (on entry only with Autoplay on)
 and offers Playback and Display settings; the host passes no preview props.

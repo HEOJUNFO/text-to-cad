@@ -65,7 +65,7 @@ drag below half of it closes it. Below 720px of total FileViewer width it is a
 dismissible floating sheet. The sheets have no extra visible title row and never
 scroll or translate the host page. A CAD file's controls are not a panel of the
 explorer but of the viewer's own tool stack under the toolbar: one width for every
-panel, bounded by the viewer's height.
+panel until a person sizes one, bounded by the viewer's height.
 Progress indicators use this same breakpoint. Panels never
 scroll sideways: a Position panel's labels truncate to preserve its sliders and
 inputs.
@@ -266,7 +266,11 @@ tool stack, shown by the tool they belong to. Select shows Features (a robot's L
 and, with a selection, the Reference; Position shows Position; Display and Draw show
 their own panels; kept effects (Explode, Clip, Measure's results) follow. A panel
 whose tool is not up stays mounted, hidden, so a tree keeps its scroll and expansion;
-only what is on screen does background work. SDF metadata is a Select panel
+only what is on screen does background work. The tree's X closes it alone (Select stays
+the tool, marked) until a press on Select brings it back; it starts closed for a single
+part and on a phone, open for an assembly, until a person chooses.
+The tree, the Reference and Position are each sized by their own bottom-right grip, Quick
+Edit's. SDF metadata is a Select panel
 too. Links is the description's link tree, with the Model tree's rows, filter
 and Reference panel; see [robot links](docs/cad-renderer.md#robot-links). Which of
 the host's panels a file opens with is the host's to apply
@@ -296,7 +300,8 @@ persisted material override. See [View styles](docs/render-mode.md) and
 The navbar names the file and offers its ⋯ menu, and Feedback (a new issue titled
 "Feedback: ") where the host has a tracker; a renderer's loading and update status is its
 own, in its viewport. An error appears as a card over the viewport; a failed update the
-model survives can be dismissed, leaving the previous version to inspect. Retry reloads
-only the selected renderer; Report Issue, where the host has a tracker, opens a new issue
-titled "Issue: ", labelled `bug`, filled in from the card, with the file's name and no path
-of the machine.
+model survives can be dismissed, leaving the previous version to inspect, and the card's own
+icon, the leftmost of the navbar's right-hand controls while it is put away, brings it back.
+Retry reloads only the selected renderer; Report Issue, where the host has a tracker, opens a
+new issue titled "Issue: ", labelled `bug`, filled in from the card, with the file's name and
+no path of the machine.

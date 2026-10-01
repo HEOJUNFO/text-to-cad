@@ -4,7 +4,7 @@
 // few slots all its views share, where a held request would take one. An answer
 // with nothing new waits out the rest of a second; news is asked after again within
 // a tenth of one.
-// The heartbeat still revalidates missing objects and actual saved bytes.
+// The heartbeat still rechecks whether the file moved past the newest build.
 const IDLE_MS = 1000;
 const NEWS_MS = 100;
 // No cursor (no daemon, a failed request) or a server limiting its watchers: ask again at

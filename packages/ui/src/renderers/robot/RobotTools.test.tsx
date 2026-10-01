@@ -216,3 +216,41 @@ it('robot Links and Position are each their tool\'s panel, and no pick or tool o
   expect(robot.stack()).toEqual(['Position controls']);
   robot.client.dispose();
 });
+
+it("robot Links closes by its X and Select brings it back: marked while it is closed, a press while Select is the tool opens it, and from another tool a press only takes Select up", async () => {
+  const robot = await openRobot();
+  const mark = () => robot.tool('Select').querySelector('[data-tool-panel-closed]');
+  expect([robot.stack(), mark()]).toEqual([['Links'], null]);
+  fireEvent.click(within(robot.pane).getByRole('button', { name: 'Close links' }));
+  expect(robot.stack()).toEqual([]);
+  expect(mark()).not.toBeNull();
+  expect(robot.tool('Select').getAttribute('aria-description')).toBe('Links closed');
+  // A pick still shows its Reference: a panel of its own, apart from the closed tree.
+  robot.tapUpperArm();
+  await waitFor(() => expect(robot.stack()).toEqual(['Reference details']));
+  // From Position, Select is only taken up: the tree stays closed.
+  robot.open('Position');
+  robot.open('Select');
+  expect(robot.toolNames()).toEqual(['Select:true', 'Position:false']);
+  expect(robot.stack()).toEqual([]);
+  expect(mark()).not.toBeNull();
+  // Pressed while it is the tool, it opens Links again, as it was.
+  robot.open('Select');
+  expect(robot.stack()).toEqual(['Links']);
+  expect(mark()).toBeNull();
+  expect(robot.pane.querySelector('[aria-label="Robot links"] li')).not.toBeNull();
+  robot.client.dispose();
+});
+
+it('on a phone robot Links starts closed, Select marked, until Select is pressed', async () => {
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(
+    { x: 0, y: 0, left: 0, top: 0, right: 390, bottom: 844, width: 390, height: 844, toJSON: noop } as DOMRect);
+  const robot = await openRobot();
+  expect(robot.pane.querySelector('[data-viewer-layout]')!.getAttribute('data-viewer-layout')).toBe('mobile');
+  expect(robot.stack()).toEqual([]);
+  expect(robot.tool('Select').querySelector('[data-tool-panel-closed]')).not.toBeNull();
+  robot.open('Select');
+  expect(robot.stack()).toEqual(['Links']);
+  expect(robot.tool('Select').querySelector('[data-tool-panel-closed]')).toBeNull();
+  robot.client.dispose();
+});

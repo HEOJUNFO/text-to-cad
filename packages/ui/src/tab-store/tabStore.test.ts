@@ -8,18 +8,18 @@ const view = (camera: unknown) => ({ version: 2, camera, display: null, renderer
 test('the record normalizes: every setting to its bounds, the files to well-keyed plain objects, and another version to the defaults', () => {
   expect(readTabRecord(undefined)).toEqual(defaultTabRecord());
   expect(defaultTabRecord()).toEqual({ version: TAB_RECORD_VERSION, settings: {
-    fileTree: { width: 220, expanded: {} }, toolStack: { panels: {}, collapsed: {} }, appearance: 'system', library: { layout: 'grid' },
+    fileTree: { width: 220, expanded: {} }, toolStack: { panels: {}, collapsed: {}, closed: {} }, appearance: 'system', library: { layout: 'grid' },
   }, files: {} });
   for (const raw of [null, 'x', [], { version: 0, settings: { appearance: 'dark' } }, { version: 2, settings: { appearance: 'dark' } }]) {
     expect(readTabRecord(raw), JSON.stringify(raw)).toEqual(defaultTabRecord());
   }
   const record = readTabRecord({ version: TAB_RECORD_VERSION, settings: {
     fileTree: { width: 9999, expanded: { root: ['a', 'a', 7, 'b'], other: 'x' } },
-    toolStack: { panels: { tree: { width: 12 } }, collapsed: { tree: true, 'Not an id': true } },
+    toolStack: { panels: { tree: { width: 12 } }, collapsed: { tree: true, 'Not an id': true }, closed: { tree: true, sdf: 'no' } },
     orbit: { speed: 99 }, playback: { autoplay: true }, appearance: 'cinematic', library: { layout: 'shelf' },
   }, files: { [tabFileKey('root', 'a.step', 'step')]: view(1), '["root","b.step"]': view(2), 'junk': view(3), [tabFileKey('root', 'c.step', 'step')]: 'not a view' } });
   expect(record.settings).toEqual({
-    fileTree: { width: 480, expanded: { root: ['a', 'b'] } }, toolStack: { panels: { tree: { width: 164 } }, collapsed: { tree: true } },
+    fileTree: { width: 480, expanded: { root: ['a', 'b'] } }, toolStack: { panels: { tree: { width: 164 } }, collapsed: { tree: true }, closed: { tree: true } },
     appearance: 'system', library: { layout: 'grid' },
   });
   expect(readTabRecord({ version: TAB_RECORD_VERSION, settings: { library: { layout: 'list' } }, files: {} }).settings.library).toEqual({ layout: 'list' });
@@ -84,9 +84,9 @@ test('the preferences a renderer reads are the settings: patched by key, normali
   preferences.update({ appearance: 'dark' });
   preferences.update({ toolStack: { panels: { tree: { width: 240, height: 12 } }, collapsed: { sdf: false } } });
   expect(preferences.getSnapshot().appearance).toBe('dark');
-  expect(preferences.getSnapshot().toolStack).toEqual({ panels: { tree: { width: 240, height: 64 } }, collapsed: { sdf: false } });
-  preferences.update({ toolStack: { panels: {}, collapsed: {} } });
-  expect(preferences.getSnapshot().toolStack).toEqual({ panels: {}, collapsed: {} });
+  expect(preferences.getSnapshot().toolStack).toEqual({ panels: { tree: { width: 240, height: 64 } }, collapsed: { sdf: false }, closed: {} });
+  preferences.update({ toolStack: { panels: {}, collapsed: {}, closed: {} } });
+  expect(preferences.getSnapshot().toolStack).toEqual({ panels: {}, collapsed: {}, closed: {} });
   expect(preferences.getSnapshot()).toBe(store.getSnapshot().settings);
 });
 

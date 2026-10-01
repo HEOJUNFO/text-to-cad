@@ -2,7 +2,7 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import ViewportError from './ViewportError.jsx';
-import ViewerAlertCard from './ViewerAlertCard.jsx';
+import ViewerAlertCard, { useAlertDismissal } from './ViewerAlertCard.jsx';
 import { ViewerMobileContext } from '../../../file-viewer/responsive.js';
 import { viewerLinks } from '../../../file-viewer/navigation/links.js';
 import { ViewerHostContext } from '../../../host/context.js';
@@ -26,14 +26,20 @@ it('a viewport failure is one line placed by the viewer breakpoint, never the wi
   expect(card(false)).not.toMatch(/\bsm:/);
 });
 
+/** The card as a frame shows it: its dismissal held beside it (`useAlertDismissal`). */
+function FramedCard({ alert, hasContent }: { alert: object, hasContent: boolean }) {
+  const { dismissed, dismiss } = useAlertDismissal(alert, { hasContent });
+  return <ViewerAlertCard alert={alert} hasContent={hasContent} dismissed={dismissed} onDismiss={dismiss} onReload={() => {}} />;
+}
+
 it('says a warning beside the model over it, where it can be put away; with nothing else on screen it stays', () => {
   const warning = { severity: 'warning', title: 'Animation unavailable', message: 'Preview has no routine to play.' };
-  render(<ViewerAlertCard alert={warning} hasContent onReload={() => {}} />);
+  render(<FramedCard alert={warning} hasContent />);
   expect(screen.getByRole('alert').textContent).toContain('Animation unavailable');
   fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
   expect(screen.queryByRole('alert')).toBeNull();
   cleanup();
-  render(<ViewerAlertCard alert={warning} hasContent={false} onReload={() => {}} />);
+  render(<FramedCard alert={warning} hasContent={false} />);
   expect(screen.getByRole('alert')).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Dismiss' })).toBeNull();
 });

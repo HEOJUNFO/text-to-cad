@@ -34,7 +34,7 @@ async function open(server) {
   const { page, pane } = view;
   await pane.locator('[aria-busy="false"] > div > canvas').first().waitFor();
   await page.waitForFunction(() => window.cadHarness.a.controller?.readState().loading === false);
-  await pane.getByRole('region', { name: 'Features', exact: true }).waitFor();
+  await pane.locator('[data-cad-toolbar]').getByRole('button', { name: 'Select', exact: true }).waitFor();
   await page.evaluate(() => window.cadHarness.a.controller.setDisplaySettings({ axes: { enabled: false } }));
   await page.waitForFunction(() => window.cadHarness.a.controller.readState().display.axes?.enabled === false);
   // The opening fit at rest, the same camera two frames running: `at` projects from it.
@@ -61,6 +61,13 @@ test('a single-part STEP names a picked face after its part, never after the XCA
   // The staging is what cadgen writes: one part, named `=>[0:1:1:2]` in the view.
   assert.equal(lone.fixture.view.occurrences[0].name, '=>[0:1:1:2]');
   assert.equal(await view.tool('Explode').count(), 0, 'a single part: no Explode, so this is the lone-part view');
+  // A single part opens with its tree closed and Select marked; Select, pressed, opens it.
+  const features = pane.locator('[data-cad-tool-stack] [data-tool-panel][aria-label="Features"]');
+  assert.equal(await features.isVisible(), false, 'a single part\'s tree starts closed');
+  assert.equal(await view.tool('Select').locator('[data-tool-panel-closed]').count(), 1);
+  await view.tool('Select').click();
+  await features.waitFor();
+  assert.equal(await view.tool('Select').locator('[data-tool-panel-closed]').count(), 0);
   await page.mouse.click(...at([6, 6, 5]));
   await page.waitForFunction(() => /\.f\d+$/.test(window.cadHarness.a.controller.readState().selectedReferenceIds.join()));
   const face = (await view.state()).selectedReferenceIds[0].split('|').at(-1);

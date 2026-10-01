@@ -26,6 +26,9 @@ import { useRobotDocument } from "./useRobotDocument.js";
 
 const NO_HANDLES = Object.freeze([]);
 const SELECT_ICON = <MousePointer2 className="size-3" strokeWidth={2} aria-hidden="true" />;
+// Select's own panel, which a person can close (`LinksSection.jsx`'s tree). A robot is never a
+// single part: like an assembly's, its tree starts open, except on a phone.
+const LINKS_PANEL = Object.freeze({ id: "tree", label: "Links", startsClosed: false });
 
 function RobotSurface({ view, data }) {
   const document = useWorkspaceDocument({ view, data });
@@ -183,7 +186,8 @@ function RobotSurface({ view, data }) {
   // Position is offered where a joint can be driven; until the robot has loaded that is not
   // known, and it is shown, idle, meanwhile.
   const tools = [
-    shell.tools.own({ id: ROBOT_TOOL.SELECT, label: "Select", icon: SELECT_ICON }),
+    // Links closes by its X; a press on Select while it is the tool opens it again.
+    shell.tools.own({ id: ROBOT_TOOL.SELECT, label: "Select", icon: SELECT_ICON, panel: LINKS_PANEL }),
     !robot || posable ? shell.tools.own({ id: ROBOT_TOOL.POSE, label: "Position", icon: <PositionToolIcon custom={poseCustom} />,
       // Its panel is in the tool stack for as long as it is the tool.
       onSelect: () => { if (!poseActive) selectTool(ROBOT_TOOL.POSE); } }) : null
