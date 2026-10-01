@@ -1545,6 +1545,11 @@ remote method '…': IpcError:` wrapper once, with `errorMessage`
 (`src/shared/ipc/errors.ts`), so the viewer says "that file is gone" and not
 the wrapper around it.
 
+A directory that cannot be listed (a deleted root, a permission error, a
+worktree gone on restore) says why where its rows would be, with a Retry:
+"Reading…" is only ever the wait for an answer. A refresh that fails on a
+directory already drawn keeps its rows and toasts instead.
+
 **Every crumb is a menu of its neighbours** (`@text-to-cad/ui/navigation`'s
 `Breadcrumbs.jsx`, the model in its `crumbs.js`), the way the CAD Viewer's
 breadcrumb is. The crumbs

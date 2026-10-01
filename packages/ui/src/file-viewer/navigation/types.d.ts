@@ -156,6 +156,8 @@ export type FileTreeSource = {
   setExpanded: (update: (current: ReadonlySet<string>) => ReadonlySet<string>) => void;
   /** A directory absent from this map has not been read yet. */
   listings: Record<string, readonly TreeEntry[]>;
+  /** The sentence for each directory whose listing failed and is not drawn; the tree shows it with a Retry (`load`). */
+  failures?: Readonly<Record<string, string>>;
   /** Ask for one directory's entries; a host holding them already may no-op. */
   load: (directory: string) => void;
   /** Bumped when the filesystem moved on: re-reads what is open, retires the corpus. */

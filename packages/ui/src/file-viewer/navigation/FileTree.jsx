@@ -84,6 +84,7 @@ import { InlineName } from "./InlineName.jsx";
  * @property {(entry: import("./entry-menu.js").MenuEntryTarget) => Promise<boolean>} [trash]
  */
 
+const NO_FAILURES = Object.freeze({});
 const ROW_HEIGHT = TREE_ROW_HEIGHT;
 const INDENT = 12;
 
@@ -160,6 +161,7 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
     expanded,
     setExpanded,
     listings: children,
+    failures = NO_FAILURES,
     load,
     revision,
     paths,
@@ -722,7 +724,7 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
               id: listId,
               onKeyDown: filtering ? undefined : onTreeKeyDown,
               role: filtering ? (matches.length > 0 ? "listbox" : undefined) : "tree",
-              "aria-busy": !filtering && children[""] === undefined ? true : undefined,
+              "aria-busy": !filtering && children[""] === undefined && failures[""] === undefined ? true : undefined,
               "aria-label": filtering ? "Matching files" : "Files",
               tabIndex: -1
             }}
@@ -748,7 +750,9 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
               )
             ) : rows.length === 0 && !newEntryRow ? (
               <p className="px-3 py-6 text-center text-xs text-muted-foreground">
-                {children[""] === undefined ? "Reading…" : `${rootName} is empty`}
+                {children[""] === undefined && failures[""] !== undefined ? (
+                  <ListingError message={failures[""]} onRetry={() => load("")} />
+                ) : children[""] === undefined ? "Reading…" : `${rootName} is empty`}
               </p>
             ) : (
               <>
@@ -780,6 +784,9 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
                       }}
                       row={row}
                     />
+                    {row.kind === "directory" && row.expanded && children[row.path] === undefined && failures[row.path] !== undefined ? (
+                      <ListingError depth={row.depth + 1} message={failures[row.path]} onRetry={() => load(row.path)} />
+                    ) : null}
                     {creatingAt === index + 1 ? newEntryRow : null}
                   </Fragment>
                 ))}
@@ -801,6 +808,17 @@ export function FileTree({ source, activePath, reveal = null, edit = null, onOpe
         </ContextMenuContent>
       </ContextMenu>
     </div>
+  );
+}
+
+/** A directory that could not be read: the sentence, where its rows would be, and a way to ask again. */
+function ListingError({ message, onRetry, depth = null }) {
+  return (
+    <span className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground" data-listing-error role="alert"
+      style={depth === null ? undefined : { paddingLeft: 6 + depth * INDENT + 20, minHeight: ROW_HEIGHT }}>
+      <span>{message}</span>
+      <button className="rounded-sm underline outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={onRetry} type="button">Retry</button>
+    </span>
   );
 }
 
