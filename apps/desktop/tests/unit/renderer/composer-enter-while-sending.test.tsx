@@ -67,4 +67,13 @@ describe("Enter while a prompt is in flight", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it("sends once for two Enters pressed before the first has taken the draft", async () => {
+    const { input, onSubmit } = await mount({ sessionId: "s1", status: "ready" });
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+    await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    vi.useFakeTimers();
+    await vi.runAllTimersAsync();
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
 });
