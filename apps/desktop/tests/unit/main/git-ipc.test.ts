@@ -198,23 +198,24 @@ test("a create does not wait on the keep-limit sweep, which runs once the row ex
 
   // A `git` whose `worktree list` — the sweep's first read — waits for a
   // gate file: a sweep over a large repository, as slow as it likes (thirty
-  // seconds at most, so a failed run leaves nothing spinning).
+  // seconds at most, so a failed run leaves nothing spinning). It leaves a `listed` marker when
+  // the wait ends, so "the create did not wait for the sweep" is read from the files rather than
+  // from a clock.
   const real = (await run("sh", ["-c", "command -v git"])).stdout.trim();
   const bin = path.join(base, "bin");
   await mkdir(bin);
   const gate = path.join(base, "gate");
   await writeFile(
     path.join(bin, "git"),
-    `#!/bin/sh\ncase "$*" in *"worktree list"*) i=0; while [ ! -f "${gate}" ] && [ $i -lt 1500 ]; do sleep 0.02; i=$((i+1)); done;; esac\nexec "${real}" "$@"\n`,
+    `#!/bin/sh\ncase "$*" in *"worktree list"*) i=0; while [ ! -f "${gate}" ] && [ $i -lt 1500 ]; do sleep 0.02; i=$((i+1)); done; : > "${base}/listed";; esac\nexec "${real}" "$@"\n`,
     { mode: 0o755 },
   );
   process.env.PATH = `${bin}${path.delimiter}${process.env.PATH ?? ""}`;
 
-  // Far longer than a create takes, far shorter than the gate holds.
-  const held = new Promise<"held">((resolve) => setTimeout(() => resolve("held"), 10_000));
-  const workspace = await Promise.race([sessionWorkspace({ projectId: project.id, gitMode: "worktree", name: "new" }), held]);
-  expect(workspace).not.toBe("held");
-  const created = workspace as Awaited<ReturnType<typeof sessionWorkspace>>;
+  // The create returns while the sweep's `worktree list` is still waiting on the gate: had the
+  // create awaited the sweep, the marker would be there (the gate only opens below).
+  const created = await sessionWorkspace({ projectId: project.id, gitMode: "worktree", name: "new" });
+  expect(await exists(path.join(base, "listed"))).toBe(false);
   // The row is written, and the create is told so — which starts the sweep.
   state.sessions.push({ id: "s", projectId: project.id, cwd: created.cwd, worktreePath: created.worktreePath!, archived: false });
   sessionWorkspaceSettled(created);

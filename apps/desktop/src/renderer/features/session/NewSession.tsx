@@ -95,6 +95,10 @@ export function NewSession({ project }: { project: Project }) {
   // Whether there is an attempt to retry, for the card: Try again is drawn only then, so it never
   // stands in for Dismiss (the ref is not something a render may read).
   const [retryable, setRetryable] = useState(false);
+  // The agent the last start actually tried to create with: a held send resolves it only when the
+  // probe lands, after the render whose closure `submitFromComposer` runs in, so neither
+  // "Try again" nor the sign-in flag may be read from that closure's `startingAgentId`.
+  const triedAgentId = useRef<string | null>(null);
   // A create takes seconds, and the person may click the connecting row in the sidebar meanwhile:
   // this screen unmounts, and the card `failure` would draw goes nowhere.
   const mounted = useRef(true);
@@ -221,6 +225,7 @@ export function NewSession({ project }: { project: Project }) {
    */
   const start = async (text: string, content: PromptBlock[], draft: TakenDraft): Promise<boolean> => {
     let chosenAgentId = startingAgentId;
+    triedAgentId.current = null;
     if (!chosenAgentId && !useAgents.getState().ready) {
       // An empty table before the first probe has landed is "not checked yet", not "nothing
       // installed": the send is held, and goes out (or is refused) once detection has answered.
@@ -229,6 +234,12 @@ export function NewSession({ project }: { project: Project }) {
       await agentsReady();
       if (mounted.current) setChecking(false);
       const answered = useAgents.getState();
+      if (answered.loadError) {
+        // Every row's probe failed: the check did not happen, which is not "nothing installed".
+        // The send is released; the "Could not check for agents" card (with its Retry) says why.
+        if (mounted.current) setBusy(false);
+        return false;
+      }
       chosenAgentId = firstAgentId(answered.agents, useSettings.getState().settings?.defaultAgentId ?? null);
       if (!chosenAgentId && mounted.current) setBusy(false);
     }
@@ -238,6 +249,8 @@ export function NewSession({ project }: { project: Project }) {
     }
     setBusy(true);
     setFailure(null);
+    triedAgentId.current = chosenAgentId;
+    const usedAgent = useAgents.getState().agents.find((candidate) => candidate.id === chosenAgentId);
     let sessionId: string;
     try {
       // The model, the effort and the mode are not passed: they are this
@@ -274,7 +287,7 @@ export function NewSession({ project }: { project: Project }) {
         return false;
       }
       // Main has already dropped the row: nothing to resume, nothing to list.
-      setFailure({ message, auth: isAuthError(message) || agent?.auth === "unauthenticated" });
+      setFailure({ message, auth: isAuthError(message) || usedAgent?.auth === "unauthenticated" });
       setBusy(false);
       return false;
     }
@@ -314,7 +327,7 @@ export function NewSession({ project }: { project: Project }) {
     if (!(await start(text, content, draft))) {
       failedAttempt.current = draft;
       // "Install an agent first" is not a failed attempt: nothing was tried, and its card has Dismiss.
-      setRetryable(Boolean(startingAgentId));
+      setRetryable(Boolean(triedAgentId.current));
       throw new Error("The session did not start");
     }
   };

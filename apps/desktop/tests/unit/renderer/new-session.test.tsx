@@ -251,6 +251,53 @@ describe("a start that needs a sign-in", () => {
     expect(screen.getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
   });
 
+  it("keeps Try again when a held send's create then fails, as it would for a send that was not held", async () => {
+    const user = userEvent.setup();
+    useAgents.setState({ agents: [], ready: false });
+    create.mockRejectedValueOnce(new Error("fatal: not a git repository"));
+    useComposer.setState({ drafts: { "__new__:p1": "make a cube" } });
+    render(<NewSession project={PROJECT} />);
+
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByRole("status");
+    act(() => useAgents.getState().receive([AGENT as AgentStatus]));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("fatal: not a git repository");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  it("asks for the sign-in when a held send's create fails against an agent the probe found signed out", async () => {
+    const user = userEvent.setup();
+    useAgents.setState({ agents: [], ready: false });
+    create.mockRejectedValueOnce(new Error("spawn failed"));
+    useComposer.setState({ drafts: { "__new__:p1": "make a cube" } });
+    render(<NewSession project={PROJECT} />);
+
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByRole("status");
+    act(() => useAgents.getState().receive([{ ...AGENT, auth: "unauthenticated" } as AgentStatus]));
+
+    expect(await screen.findByText("Sign in to Claude Code")).toBeInTheDocument();
+    expect(screen.queryByText(/Install an agent first/)).toBeNull();
+  });
+
+  it("releases a held send with the could-not-check card, not the install sentence, when every probe failed", async () => {
+    const user = userEvent.setup();
+    useAgents.setState({ agents: [], ready: false });
+    useComposer.setState({ drafts: { "__new__:p1": "make a cube" } });
+    render(<NewSession project={PROJECT} />);
+
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByRole("status");
+    act(() => useAgents.getState().receive([{ ...AGENT, probeFailed: true } as AgentStatus]));
+
+    expect(await screen.findByText("Could not check for agents")).toBeInTheDocument();
+    expect(screen.queryByText(/Install an agent first/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(create).not.toHaveBeenCalled();
+    expect(useComposer.getState().drafts["__new__:p1"], "the draft is back in the box").toBe("make a cube");
+  });
+
   it("does not start again by itself after a login when the draft was edited since the failure", async () => {
     const user = userEvent.setup();
     const key = "__new__:p1";

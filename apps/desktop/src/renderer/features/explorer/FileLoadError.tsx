@@ -9,7 +9,7 @@ import { OpenExternally } from "./renderers/unsupported/OpenExternally";
 
 /**
  * The most a binary preview (an image, a PDF) reads. It mirrors `MAX_BINARY_BYTES` in
- * `src/main/explorer/fs.ts`, which the renderer cannot import; `file-load-error.test.tsx`
+ * `src/main/explorer/fs.ts`, which the renderer cannot import; `tests/unit/renderer/file-preview-errors.test.tsx`
  * fails when the two drift.
  */
 export const PREVIEW_LIMIT_BYTES = 24 * 1024 * 1024;

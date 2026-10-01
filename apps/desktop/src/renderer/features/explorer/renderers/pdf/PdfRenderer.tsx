@@ -58,7 +58,9 @@ export default function PdfRenderer({ data, file, source, state, onStateChange, 
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** The document itself would not open: there is no page, so no toolbar either. */
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [failed, setFailed] = useState<{ data: PdfRendererData; message: string } | null>(null);
+  // Keyed on the data that failed, so reopening the file (new data) clears it without an effect.
+  const loadError = failed?.data === data ? failed.message : null;
   const [selection, setSelection] = useState('');
   const [feedback, setFeedback] = useState('');
   // The live binding reads these outside render; every writer of `page` and `selection`
@@ -84,12 +86,11 @@ export default function PdfRenderer({ data, file, source, state, onStateChange, 
       iccUrl: new URL("iccs/", assetBaseUrl).href,
     } : {};
     const loading = getDocument({ data: data.bytes.slice(), worker: pdfWorker, useSystemFonts: true, ...assets });
-    setLoadError(null);
     void loading.promise.then(document => {
       if (!active) return;
       setPdf(document);
       if (pageRef.current > document.numPages) setPage(document.numPages);
-    }).catch(reason => { if (active) setLoadError(shortReason(reason)); });
+    }).catch(reason => { if (active) setFailed({ data, message: shortReason(reason) }); });
     return () => { active = false; void loading.destroy().finally(() => { pdfWorker.destroy(); worker.terminate(); }); };
   }, [data, assetBaseUrl]);
   useEffect(() => {
