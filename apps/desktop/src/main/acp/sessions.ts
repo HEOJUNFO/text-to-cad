@@ -1426,6 +1426,13 @@ export class SessionManager {
       if (tree === EXPIRED) {
         return fallback ?? (await this.headOf(owner.cwd));
       }
+      if (tree === null && fallback && this.deps.snapshot) {
+        // git failed (an unreadable file, git-lfs missing from the PATH, a full
+        // disk): the previous mark is the honest answer, not HEAD, which would
+        // list every uncommitted file — the work from before the turn too.
+        console.warn(`[acp] no ${kind} snapshot of ${owner.cwd}; kept the previous mark`);
+        return fallback;
+      }
       // No snapshot to take (or git failed): the commit is what the tree is at.
       return tree ?? (await this.headOf(owner.cwd));
     } finally {

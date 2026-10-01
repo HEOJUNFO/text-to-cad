@@ -988,6 +988,17 @@ describe("SessionManager", () => {
     expect(repo.get(session.id)?.turnHead).toBe("the-commit");
   });
 
+  it("keeps the previous mark, not HEAD, when a turn's snapshot fails outright", async () => {
+    const { repo, manager, cwd } = await setup({
+      head: async () => "the-commit",
+      snapshot: async (_cwd, mark) => (mark.endsWith("/turn") ? null : "tree"),
+    });
+    const session = await manager.create({ projectId: "p1", agentId: "claude-code", cwd, gitMode: "none" });
+    expect(repo.get(session.id)?.turnHead).toBe("tree");
+    await manager.prompt(session.id, [{ type: "text", text: "hello" }]);
+    expect(repo.get(session.id)?.turnHead).toBe("tree");
+  });
+
   it("takes one snapshot at a time per mark, so turns behind a slow one do not stack another", async () => {
     const releases: ((tree: string) => void)[] = [];
     let started = 0;
