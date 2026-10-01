@@ -14,7 +14,8 @@
  * singleton lock, and stands down at once if one is already bound, so
  * starting it here when a project opens is the same daemon the CLI and the
  * viewer would have started later, only earlier and off the critical path.
- * Detached and never tracked: it is the person's daemon, shared with every
+ * Detached and never held as one of the app's children (only its pid is remembered, while it
+ * runs, so a quit's deadline spares it): it is the person's daemon, shared with every
  * terminal, and it retires on its own idle timeout the way the CLI's does.
  * It starts in the app's data directory, not in the project that opened it:
  * a process's cwd locks that folder on Windows (the worktree could not be
@@ -35,7 +36,11 @@ export const DAEMON_ARGS = ["-m", "cadgen.daemon"];
 
 const spawnedPids = new Set<number>();
 
-/** Pids of the daemons this app run started; the quit watchdog spares them (src/main/quit-deadline.ts). */
+/**
+ * Pids of the daemons this app run started AND that are still running; the quit watchdog spares
+ * them (src/main/quit-deadline.ts). A daemon's pid leaves the set when it exits, so a pid the
+ * kernel hands to a later direct child of the app is never spared by mistake.
+ */
 export function daemonPids(): number[] {
   return [...spawnedPids];
 }
@@ -44,7 +49,12 @@ export type DaemonSpawn = (
   python: string,
   args: string[],
   options: { cwd: string; env: Record<string, string>; logFile: string },
-) => { pid?: number | undefined; unref(): void } | null;
+) => {
+  pid?: number | undefined;
+  unref(): void;
+  /** A real child process has it; the exit is what takes its pid back out of `daemonPids()`. */
+  once?(event: "exit", listener: () => void): unknown;
+} | null;
 
 export type DaemonWarmerDeps = {
   /** The environment cadgen children get (PYTHONPATH in a checkout, CADGEN_NODE). */
@@ -122,7 +132,9 @@ export class DaemonWarmer {
       }
       child.unref();
       if (child.pid) {
-        spawnedPids.add(child.pid);
+        const pid = child.pid;
+        spawnedPids.add(pid);
+        child.once?.("exit", () => spawnedPids.delete(pid));
       }
       this.log(`warming ${resolved.source} ${resolved.python}${child.pid ? ` (pid ${child.pid})` : ""}`);
       return true;

@@ -1671,7 +1671,8 @@ at all — an fsevents handle dies with the process.
 On POSIX, an app-owned viewer runs in its own process group. Its transient CAD
 workers are stopped when the viewer exits or the app quits, including workers
 that outlive the viewer process. Reused external viewers and the shared warm
-daemon belong to separate groups and are left running.
+daemon belong to separate groups and are left running (on POSIX; on Windows the
+deadline's tree kill takes the warm daemon with it, see below).
 
 What is left after `before-quit` is Chromium's own shutdown, which on this
 macOS takes twelve seconds to minutes once a window has held a WebGL context
@@ -1686,13 +1687,22 @@ window that never acks its unload, a main-process error dialog (an
 `uncaughtException` while quitting exits at once) — is bounded too. It counts
 teardown and watchdog startup toward the same budget. On POSIX it kills every
 direct child except the warm daemon, which it spares by pid (the app hands it
-`daemonPids()` from `src/main/cad/daemon.ts`; sparing by process group would
+`daemonPids()` from `src/main/cad/daemon.ts`, which drops a daemon's pid when it exits so a reused pid is never spared; sparing by process group would
 also spare the app-owned viewer, which is `detached` too). A child that leads a
 group of its own, like the viewer, is killed as a group, so its compile workers
 go with it; Chromium's helpers are killed singly. (A viewer reused from another
-run is not a child of this app and is never touched.) A quit that finishes
+run is not a child of this app and is never touched.) Its two probes, `pgrep -P`
+for the children and `ps` for their groups, each run under a 250 ms timeout so a
+hung `ps` cannot stall the final kill of the app. If `pgrep` fails or times out
+it finds no children, and only the app is killed; if `ps` times out, no groups are
+known and every unspared child is killed singly (a viewer's workers, in its own group,
+are then not reached). A `ps` that exits non-zero but printed rows (BSD `ps -p a,b`
+does when one pid vanished since `pgrep`) is read for those rows. A quit that finishes
 on its own — half a second without WebGL —
-gives it nothing to do.
+gives it nothing to do. On Windows there is no spare list: the deadline runs
+`taskkill /PID <app> /T /F`, which follows the parent pid through `detached`, so
+a quit that reaches the deadline ends the warm daemon too and it is cold-started
+by the next launch. (A quit that finishes on its own leaves it running.)
 
 `before-quit` in `src/main/index.ts` calls `markQuitting()` first, before any
 step that can throw; the listener in `src/main/menu.ts` is registered later

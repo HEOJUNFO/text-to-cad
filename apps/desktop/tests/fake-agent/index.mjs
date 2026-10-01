@@ -33,7 +33,6 @@
  *   "open"        call the text-to-cad MCP server's `open_file` on the path
  *                 after "open " — the server `session/new` carried in
  *                 `mcpServers`, spawned the way an adapter spawns it
- *   "drawing-tool <JSON>"  call a drawing MCP tool with explicit name/args
  *   "session-title <JSON>" send a session_info_update ({title, sessionId?})
  *   "mention"     reply with prose naming files — real and missing paths,
  *                 a CAD reference, one in backticks — for the transcript's
@@ -607,17 +606,6 @@ async function script(conn, params) {
     return { stopReason: "end_turn" };
   }
 
-  if (text.startsWith("drawing-tool ")) {
-    // Drawing E2E uses the same stdio MCP/token/root path as a real adapter.
-    const { name, args } = JSON.parse(text.slice("drawing-tool ".length));
-    if (!["open_drawing", "drawing_state", "capture_drawing", "list_open_tabs", "show_tab", "close_tab"].includes(name)) throw new Error("unsupported drawing test tool");
-    const toolCallId = `drawing-${Date.now()}`;
-    await send({ sessionUpdate: "tool_call", toolCallId, title: name, kind: "other", status: "in_progress", rawInput: args });
-    const result = await callTextToCadTool(name, args);
-    await send({ sessionUpdate: "tool_call_update", toolCallId, status: result.isError ? "failed" : "completed", rawOutput: result });
-    return { stopReason: "end_turn" };
-  }
-
   if (text.includes("crash")) {
     await send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "about to " } });
     process.exit(3);
@@ -698,10 +686,16 @@ async function script(conn, params) {
 
   if (text.includes("slow")) {
     await send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "working" } });
+    // The 30 s is a ceiling for a test that forgot to cancel. It is cleared the moment the wait
+    // ends and unref'd, so an agent whose parent is gone (stdin closed) does not linger for it.
+    let ceiling;
     await new Promise((resolve) => {
       cancelWaiter = resolve;
-      setTimeout(resolve, 30_000);
+      ceiling = setTimeout(resolve, 30_000);
+      ceiling.unref();
     });
+    clearTimeout(ceiling);
+    cancelWaiter = null;
     return { stopReason: cancelled ? "cancelled" : "end_turn" };
   }
 
@@ -835,10 +829,6 @@ async function script(conn, params) {
     await conn.sessionUpdate({ sessionId: childId, update: { sessionUpdate: "tool_call", toolCallId: "child-read-1", title: "Read README", kind: "read", status: "completed" } });
     await send({ sessionUpdate: "subagent_state_update", subagentSessionId: childId, state: "completed" });
     await send({ sessionUpdate: "tool_call_update", toolCallId: "task-1", status: "completed" });
-  }
-
-  if (text.includes("plan")) {
-    await send({ sessionUpdate: "plan", entries: [{ content: "first", priority: "high", status: "in_progress" }, { content: "second", priority: "low", status: "pending" }] });
   }
 
   await send({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "o" } });

@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -74,6 +75,42 @@ async function ticksUntil(done: () => boolean, what: string): Promise<void> {
     await new Promise((resolve) => setImmediate(resolve));
   }
 }
+
+describe("the fake agent's slow turn", () => {
+  it("leaves no timer behind: once cancelled and its stdin closed, the agent exits by itself", async () => {
+    const agent = spawn(process.execPath, [FAKE_AGENT], { stdio: ["pipe", "pipe", "ignore"] });
+    const lines: Array<{ id?: number; result?: { sessionId?: string; stopReason?: string } }> = [];
+    let buffered = "";
+    agent.stdout.on("data", (chunk) => {
+      buffered += chunk;
+      const parts = buffered.split("\n");
+      buffered = parts.pop() ?? "";
+      for (const part of parts.filter(Boolean)) lines.push(JSON.parse(part));
+    });
+    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
+      agent.once("exit", (code, signal) => resolve({ code, signal })),
+    );
+    const send = (message: object) => agent.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
+    try {
+      send({ id: 1, method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } });
+      await ticksUntil(() => lines.some((line) => line.id === 1), "initialize");
+      send({ id: 2, method: "session/new", params: { cwd: os.tmpdir(), mcpServers: [] } });
+      await ticksUntil(() => lines.some((line) => line.id === 2), "session/new");
+      const sessionId = lines.find((line) => line.id === 2)!.result!.sessionId!;
+      send({ id: 3, method: "session/prompt", params: { sessionId, prompt: [{ type: "text", text: "slow" }] } });
+      await ticksUntil(() => lines.some((line) => JSON.stringify(line).includes("working")), "the slow turn to start");
+      send({ method: "session/cancel", params: { sessionId } });
+      await ticksUntil(() => lines.some((line) => line.id === 3), "the cancelled turn's response");
+      expect(lines.find((line) => line.id === 3)!.result!.stopReason).toBe("cancelled");
+
+      agent.stdin.end();
+      // No signal is sent: it exits because nothing is left to keep it alive (the vitest timeout is the bound).
+      await expect(exited).resolves.toEqual({ code: 0, signal: null });
+    } finally {
+      agent.kill("SIGKILL");
+    }
+  });
+});
 
 describe("SessionConnection against the fake agent", () => {
   it("initializes, opens a session, and runs a turn to end_turn", async () => {

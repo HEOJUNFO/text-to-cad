@@ -12,7 +12,13 @@ vi.mock('@text-to-cad/core/common/webglRenderer.js', () => ({
     return renderer;
   },
 }));
-vi.mock('./viewportBuffer.js', () => ({ createViewportBuffer: () => ({ request: vi.fn(), dispose: vi.fn() }) }));
+const buffer = { fail: false };
+vi.mock('./viewportBuffer.js', () => ({
+  createViewportBuffer: () => {
+    if (buffer.fail) throw new Error('buffer failed');
+    return { request: vi.fn(), dispose: vi.fn() };
+  },
+}));
 vi.mock('./framePresentation.js', () => ({ createFramePresentation: () => ({ dispose: vi.fn() }) }));
 // The failure under test: initialisation throws after the window's resize listener is registered.
 const init = { fail: true };
@@ -39,16 +45,18 @@ class FakeResizeObserver {
 beforeEach(() => {
   renderers.length = 0;
   init.fail = true;
+  buffer.fail = false;
   FakeResizeObserver.live.clear();
   vi.stubGlobal('ResizeObserver', FakeResizeObserver);
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
-function options(mount: HTMLElement) {
+function options(mount: HTMLElement, extra: Record<string, unknown> = {}) {
   const noop = vi.fn();
   return new Proxy({
     mountRef: { current: mount },
@@ -62,6 +70,7 @@ function options(mount: HTMLElement) {
     IDLE_PIXEL_RATIO_CAP: 2,
     INTERACTION_PIXEL_RATIO_CAP: 1,
     onInitializationError: vi.fn(),
+    ...extra,
   } as Record<string, unknown>, { get: (target, key: string) => (key in target ? target[key] : noop) });
 }
 
@@ -79,7 +88,8 @@ test('a viewer whose initialisation throws midway releases what it had already r
   await waitFor(() => expect(onInitializationError).toHaveBeenCalled());
   const resize = added.filter(([type]) => type === 'resize');
   expect(resize).toHaveLength(1);
-  expect(FakeResizeObserver.live.size).toBe(1);
+  // The failed start let go of its observer at once; unmounting finds nothing left to do.
+  expect(FakeResizeObserver.live.size).toBe(0);
 
   hook.unmount();
 
@@ -113,4 +123,86 @@ test('a viewer whose runtime ref was cleared under it still releases its listene
   for (const listener of listeners) expect(removed).toContainEqual(listener);
   expect(FakeResizeObserver.live.size).toBe(0);
   expect(renderers[0].dispose).toHaveBeenCalled();
+});
+
+// What the real macrotask queue needs to finish the hook's dynamic imports, without sleeping.
+async function until(condition: () => boolean) {
+  for (let turn = 0; turn < 10_000 && !condition(); turn += 1) await new Promise((resolve) => setImmediate(resolve));
+  expect(condition()).toBe(true);
+}
+
+test('a renderer whose start throws before it is mounted still lets go of its context and canvas', async () => {
+  buffer.fail = true;
+  const mount = document.createElement('div');
+  document.body.appendChild(mount);
+  const onInitializationError = vi.fn();
+  const hook = renderHook(() => useViewerRuntime({ ...(options(mount) as object), onInitializationError } as any));
+  await waitFor(() => expect(onInitializationError).toHaveBeenCalled());
+  hook.unmount();
+
+  expect(renderers).toHaveLength(1);
+  expect(renderers[0].dispose).toHaveBeenCalled();
+  expect(renderers[0].forceContextLoss).toHaveBeenCalledTimes(1);
+  expect(mount.querySelector('canvas')).toBeNull();
+});
+
+test('a failed start releases its viewer at once, before anything unmounts', async () => {
+  const mount = document.createElement('div');
+  document.body.appendChild(mount);
+  const onInitializationError = vi.fn();
+  const added: Array<[string, unknown]> = [];
+  const removed: Array<[string, unknown]> = [];
+  const add = window.addEventListener.bind(window);
+  const remove = window.removeEventListener.bind(window);
+  vi.spyOn(window, 'addEventListener').mockImplementation(((type: string, listener: any, opts?: any) => { added.push([type, listener]); add(type, listener, opts); }) as any);
+  vi.spyOn(window, 'removeEventListener').mockImplementation(((type: string, listener: any, opts?: any) => { removed.push([type, listener]); remove(type, listener, opts); }) as any);
+  renderHook(() => useViewerRuntime({ ...(options(mount) as object), onInitializationError } as any));
+  await waitFor(() => expect(onInitializationError).toHaveBeenCalled());
+
+  const resize = added.filter(([type]) => type === 'resize');
+  expect(resize).toHaveLength(1);
+  expect(removed).toContainEqual(resize[0]);
+  expect(renderers[0].dispose).toHaveBeenCalled();
+  expect(mount.querySelector('canvas')).toBeNull();
+});
+
+test('interaction timers are cleared when the start is released without its runtime', async () => {
+  init.fail = false;
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const mount = document.createElement('div');
+  document.body.appendChild(mount);
+  const base = options(mount) as { runtimeRef: { current: any } };
+  const hook = renderHook(() => useViewerRuntime(base as any));
+  await until(() => base.runtimeRef.current !== null);
+  // A wheel tick starts an interaction: the idle-quality restore timer is armed (and the first
+  // frame's fallback timer already is).
+  renderers[0].domElement.dispatchEvent(new WheelEvent('wheel', { deltaY: 10 }));
+  expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+  base.runtimeRef.current = null;
+  hook.unmount();
+
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+test('a rebuilt viewer forces its old context lost, after the listeners that would rebuild again are off', async () => {
+  init.fail = false;
+  const mount = document.createElement('div');
+  document.body.appendChild(mount);
+  const onContextRestored = vi.fn();
+  const base = options(mount, { onContextRestored }) as any;
+  const hook = renderHook(() => useViewerRuntime(base));
+  await until(() => base.runtimeRef.current !== null);
+  const canvas = renderers[0].domElement as HTMLCanvasElement;
+  // Stand in for the browser: a forced loss answers with the pair of context events.
+  renderers[0].forceContextLoss.mockImplementation(() => {
+    canvas.dispatchEvent(new Event('webglcontextlost'));
+    canvas.dispatchEvent(new Event('webglcontextrestored'));
+  });
+
+  hook.unmount();
+
+  expect(renderers[0].forceContextLoss).toHaveBeenCalledTimes(1);
+  expect(onContextRestored).not.toHaveBeenCalled();
+  expect(base.setError).not.toHaveBeenCalled();
 });
