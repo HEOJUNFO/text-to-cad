@@ -7,6 +7,9 @@
 // The heartbeat still revalidates missing objects and actual saved bytes.
 const IDLE_MS = 1000;
 const NEWS_MS = 100;
+// No cursor (no daemon, a failed request) or a server limiting its watchers: ask again at
+// the pace of a quiet feed, never faster than one.
+const RETRY_MS = IDLE_MS;
 
 export function observeEditingPreview(file, onUpdate, onError, {
   client,
@@ -20,17 +23,17 @@ export function observeEditingPreview(file, onUpdate, onError, {
   let cursor = null;
   const poll = async () => {
     const asked = now();
-    let delay = 500;
+    let delay = RETRY_MS;
     try {
       const next = await client.editingPreview(file, { after: cursor || "", signal: controller.signal });
       if (controller.signal.aborted) return;
       const previous = cursor;
       cursor = typeof next.feedCursor === "string" ? next.feedCursor : null;
       // Coalesce bursty progress (at most ten answers a second, and never at frame
-      // rate). A missing daemon uses the slower retry without starting work or spinning.
+      // rate). A missing daemon is asked again at the retry pace, starting no work.
       delay = cursor && !next.feedLimited
         ? Math.max(16, (cursor === previous ? IDLE_MS : NEWS_MS) - (now() - asked))
-        : 500;
+        : RETRY_MS;
       onUpdate(next);
     } catch (error) {
       if (controller.signal.aborted) return;

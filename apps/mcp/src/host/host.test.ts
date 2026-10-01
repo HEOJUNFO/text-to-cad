@@ -209,10 +209,14 @@ describe('a tab restored from an older build', () => {
     expect((await relaunch(bridge, stale({ page: 'home', surface: 'sidebar' }))).page).toBe('home');
     await relaunch(bridge, stale({ surface: 'tab' }));
     await relaunch(bridge, stale({ surface: 'file', model: '/work/parts/a b.step' }));
+    await relaunch(bridge, stale({ surface: 'file', model: '/work/parts/link #2?.step' }));
+    await relaunch(bridge, stale({ surface: 'file', model: 'C:\\work\\b.step' }));
     const agent = await relaunch(bridge, stale({ surface: 'agent', model: '/work/parts/a.step' }));
     expect(calls).toEqual([
       ['cad_home', {}], ['cad_tab', {}],
       ['cad_file', { file: { name: 'a b.step', resourceUri: 'file:///work/parts/a%20b.step' } }],
+      ['cad_file', { file: { name: 'link #2?.step', resourceUri: 'file:///work/parts/link%20%232%3F.step' } }],
+      ['cad_file', { file: { name: 'b.step', resourceUri: 'file:///C:/work/b.step' } }],
       ['cad_launch', { model: '/work/parts/a.step' }],
     ]);
     expect([agent.protocol, agent.surface]).toEqual([3, 'agent']);

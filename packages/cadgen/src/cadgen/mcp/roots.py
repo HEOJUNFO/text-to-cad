@@ -62,16 +62,22 @@ def _usable_directory(path: str | None, *, excluded: tuple[str, ...]) -> str | N
     return path
 
 
+def file_uri_path(value: Any) -> str | None:
+    """The local path a ``file:`` URI names (``file:///C:/x`` is ``C:/x`` on Windows), else None."""
+    if not isinstance(value, str) or not value.startswith("file:"):
+        return None
+    path = unquote(urlparse(value).path)
+    if os.name == "nt" and len(path) > 2 and path[0] == "/" and path[2] == ":":
+        path = path[1:]
+    return path or None
+
+
 def _path_from_file_uri(value: Any) -> str | None:
     if not isinstance(value, str) or not value:
         return None
     if not value.startswith("file:"):
         return value if os.path.isabs(value) else None
-    parsed = urlparse(value)
-    path = unquote(parsed.path)
-    if os.name == "nt" and len(path) > 2 and path[0] == "/" and path[2] == ":":
-        path = path[1:]
-    return path or None
+    return file_uri_path(value)
 
 
 class ThreadWorkspace:

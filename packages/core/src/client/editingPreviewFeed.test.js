@@ -80,7 +80,7 @@ test("switching files aborts a held request and ignores a late response", async 
   next.stop();
 });
 
-test("errors clear the cursor and retry slowly; cleanup cancels the retry", async () => {
+test("errors clear the cursor and retry at the idle pace; cleanup cancels the retry", async () => {
   const h = harness();
   answer(h.requests[0], { feedCursor: "epoch:1" });
   await settled();
@@ -88,12 +88,12 @@ test("errors clear the cursor and retry slowly; cleanup cancels the retry", asyn
   answer(h.requests[1], null, false);
   await settled();
   assert.equal(h.errors.length, 1);
-  assert.equal(h.timers[1].delay, 500);
+  assert.equal(h.timers[1].delay, 1000);
   h.timers[1].callback();
   assert.equal(new URL(h.requests[2].url, "http://localhost").searchParams.has("after"), false);
   answer(h.requests[2], { state: "disconnected" });
   await settled();
-  assert.equal(h.timers[2].delay, 500);
+  assert.equal(h.timers[2].delay, 1000);
   h.stop();
   assert.equal(h.timers[2].cancelled, true);
 });
@@ -104,7 +104,7 @@ test("watcher saturation backs off while retaining its output cursor", async () 
     for (let index = 0; index < 3; index++) {
       answer(h.requests[index], { feedCursor: "epoch:1", feedLimited: true });
       await settled();
-      assert.equal(h.timers[index].delay, 500, "saturation must not spin at frame rate");
+      assert.equal(h.timers[index].delay, 1000, "saturation is asked after no faster than a quiet feed");
       h.timers[index].callback();
       assert.equal(new URL(h.requests[index + 1].url, "http://localhost").searchParams.get("after"), "epoch:1");
     }

@@ -3,6 +3,13 @@ import { readLaunch, type Launch } from './server';
 
 const textOf = (result: ToolResult) => result.content?.find(part => part.type === 'text')?.text || 'CAD could not open.';
 
+/** A path's `file:` URI, every character a path may hold (`#`, `?`, a drive's backslashes) kept in it. */
+function fileUri(path: string): string {
+  const url = new URL('file:///');
+  url.pathname = path.replace(/\\/g, '/').replace(/^(?!\/)/, '/');
+  return url.href;
+}
+
 /**
  * The same view, launched again in today's terms: a tab the host restores from an older build
  * replays the launch it was first opened with, which this page no longer reads. The sidebar's home,
@@ -17,6 +24,6 @@ export async function relaunch(bridge: Pick<Bridge, 'callTool'>, stale: Launch):
   };
   if (stale.page === 'home') return call('cad_home', {});
   if (!stale.model) return call('cad_tab', {});
-  if (stale.surface === 'file') return call('cad_file', { file: { name: stale.model.split(/[\\/]/).pop(), resourceUri: new URL(`file://${stale.model}`).href } });
+  if (stale.surface === 'file') return call('cad_file', { file: { name: stale.model.split(/[\\/]/).pop(), resourceUri: fileUri(stale.model) } });
   return { ...(await call('cad_launch', { model: stale.model })), surface: stale.surface };
 }

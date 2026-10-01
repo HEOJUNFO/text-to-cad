@@ -44,12 +44,11 @@ import threading
 import time
 import uuid
 from typing import Any
-from urllib.parse import unquote, urlparse
 
 from cadgen.viewer.scanner import SOURCE_EXTENSIONS, catalog_lists
 
 from .protocol import INVALID_PARAMS, METHOD_NOT_FOUND, Connection, RequestContext, RpcError, claim_stdout
-from .roots import WORKSPACE, Root, ThreadWorkspace, filesystem_of, home_filesystem
+from .roots import WORKSPACE, Root, ThreadWorkspace, file_uri_path, filesystem_of, home_filesystem
 from .ui import MIME, RESOURCE_META, AppPage
 from .views import NoAnswer, ViewRegistry
 
@@ -150,15 +149,6 @@ def _presentation(client: dict[str, Any], offered: dict[str, Any]) -> str:
     extensions = offered.get("extensions") if isinstance(offered.get("extensions"), dict) else {}
     ui = extensions.get(_UI_EXTENSION)
     return "inline" if isinstance(ui, dict) and MIME in (ui.get("mimeTypes") or []) else "text"
-
-
-def _file_uri_path(value: Any) -> str | None:
-    if not isinstance(value, str) or not value.startswith("file:"):
-        return None
-    path = unquote(urlparse(value).path)
-    if os.name == "nt" and len(path) > 2 and path[0] == "/" and path[2] == ":":
-        path = path[1:]
-    return path or None
 
 
 def _text(text: str, structured: dict[str, Any] | None = None, *, error: bool = False) -> dict[str, Any]:
@@ -436,8 +426,9 @@ class Server:
         """Where a view with no model sits: the thread's workspace, else the filesystem of the user's home."""
         return self.workspace.root() or home_filesystem()
 
-    def _launch(self, model: str | None, *, surface: str | None = None, explore: bool = True) -> dict[str, Any]:
-        root = self._root_for(model) if model is not None else self._home_root()
+    def _launch(self, model: str | None, *, surface: str | None = None, explore: bool = True,
+                root: Root | None = None) -> dict[str, Any]:
+        root = root or (self._root_for(model) if model is not None else self._home_root())
         # Only a project is browsed: the thread's workspace. A model with no project around it is
         # shown on its own, and an inline view is a card in the chat, which browses nothing.
         launch: dict[str, Any] = {"protocol": PROTOCOL, "page": "viewer", "model": model, "root": root.public(),
@@ -467,7 +458,7 @@ class Server:
         """An existing CAD file, absolute, from what a caller named."""
         if not isinstance(value, str) or not value.strip():
             raise ToolFailed("Name a CAD file by its path.")
-        path = _file_uri_path(value) or os.path.expanduser(value.strip())
+        path = file_uri_path(value) or os.path.expanduser(value.strip())
         if not os.path.isabs(path):
             base = self.workspace.primary
             if base is None:
@@ -504,11 +495,10 @@ class Server:
         path = resource.get("path") if isinstance(resource, dict) else None
         if not path:
             file = arguments.get("file")
-            path = _file_uri_path(file.get("resourceUri")) if isinstance(file, dict) else None
+            path = file_uri_path(file.get("resourceUri")) if isinstance(file, dict) else None
         model = self._model_path(path)
-        launch = self._launch(model, surface="file", explore=False)
         # Shown on its own: the one file, read without the catalog of any folder.
-        launch["root"] = filesystem_of(model).public()
+        launch = self._launch(model, surface="file", explore=False, root=filesystem_of(model))
         return _text(f"{os.path.basename(model)} is open in CAD.", {"launch": launch})
 
     def _tool_cad_open(self, arguments, context):
