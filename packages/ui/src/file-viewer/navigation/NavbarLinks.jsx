@@ -50,14 +50,16 @@ export function CommunityLinks({ links, onError }) {
 }
 
 /**
- * Feedback: a new issue on the host's tracker (`links.issues`), blank for the person to fill in
- * but for where it came from — the version and the platform. Nothing where the host has none.
+ * Feedback: a new issue on the host's tracker (`links.issues`) titled "Feedback: ", blank for the
+ * person to finish but for where it came from — the version and the platform. It carries no label:
+ * what a person says here may be a bug, a request or a question, and the project has no label for
+ * all of them. Nothing where the host has no tracker.
  * @param {{ links: import("../../host/types.js").ViewerLinks, platform?: string, onError?: (error: Error) => void }} props
  *   `platform`: the host's `environment.platform`.
  */
 export function FeedbackLink({ links, platform, onError }) {
   const follow = useFollow(links, onError);
-  const href = issueUrl(links.issues, { body: "**What happened, or what would you like?**\n\n", about: { CAD: links.version, Platform: platform } });
+  const href = issueUrl(links.issues, { title: "Feedback: ", body: "**What happened, or what would you like?**\n\n", about: { CAD: links.version, Platform: platform } });
   return <IconLink href={href} label="Feedback" icon={MessageCircle} onFollow={follow} />;
 }
 

@@ -42,22 +42,29 @@ export function releaseNotesUrl(repository, version) {
 export const ISSUE_URL_MAX = 6000;
 
 /**
- * A new issue on `issues` (`ViewerLinks.issues`), filled in as `?title=…&body=…`; "" without
+ * A new issue on `issues` (`ViewerLinks.issues`), filled in as `?title=…&labels=…&body=…`; "" without
  * `issues`. The body is `body`, then `about` as a list ("- CAD: 0.7.5", each label with a value),
- * then `details`, fenced. The address never passes `max` characters: `details` gives way first,
- * from its end, then `body`, each cut marked. Nothing is sent: the person reads the issue, says
- * what they were doing and submits it.
+ * then `details`, fenced. The address never passes `max` characters: the title and the labels are
+ * kept whole and count against it, `details` gives way first, from its end, then `body`, each cut
+ * marked. Nothing is sent: the person reads the issue, says what they were doing and submits it.
+ *
+ * `title` is where the issue opens: a person finishing it types after it ("Feedback: "). `labels`
+ * are the names of labels the repository has, passed as GitHub's comma-separated `labels`
+ * parameter. GitHub applies them only for someone with triage access to the repository and drops
+ * them for everyone else, who open the issue unlabelled: a label is a convenience, never a need.
  *
  * @param {string | undefined} issues
- * @param {{ title?: string, body?: string, about?: Record<string, string | undefined>, details?: string }} [issue]
+ * @param {{ title?: string, labels?: readonly string[], body?: string, about?: Record<string, string | undefined>, details?: string }} [issue]
  * @param {number} [max]
  */
-export function issueUrl(issues, { title = "", body = "", about = {}, details = "" } = {}, max = ISSUE_URL_MAX) {
+export function issueUrl(issues, { title = "", labels = [], body = "", about = {}, details = "" } = {}, max = ISSUE_URL_MAX) {
   const base = String(issues || "").trim();
   if (!base) return "";
+  const named = labels.map((label) => String(label).trim()).filter(Boolean).join(",");
   const address = (text) => {
     const query = new URLSearchParams();
     if (title) query.set("title", title);
+    if (named) query.set("labels", named);
     if (text) query.set("body", text);
     const search = query.toString();
     return search ? `${base}${base.includes("?") ? "&" : "?"}${search}` : base;

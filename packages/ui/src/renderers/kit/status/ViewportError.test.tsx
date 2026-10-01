@@ -39,10 +39,10 @@ it('says a warning beside the model over it, where it can be put away; with noth
 });
 
 it('offers Retry, and beside it, where the host has a tracker, Report Issue: a new issue saying what the card says', () => {
-  const alert = { severity: 'error', title: 'Couldn’t load the model', message: 'No model', reason: 'EOFError', details: 'File: parts/gear.step', reload: true };
+  const alert = { severity: 'error', title: 'Couldn’t load the model', message: 'No model', reason: 'EOFError', details: 'File: /Users/ada/parts/gear.step', reload: true };
   const onReload = vi.fn();
   const card = (host?: object) => render(<ViewerHostContext.Provider value={host as any ?? null}>
-    <ViewerAlertCard alert={alert} hasContent={false} onReload={onReload} file="parts/gear.step" />
+    <ViewerAlertCard alert={alert} hasContent={false} onReload={onReload} file="/Users/ada/parts/gear.step" />
   </ViewerHostContext.Provider>);
   card();
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
@@ -55,6 +55,12 @@ it('offers Retry, and beside it, where the host has a tracker, Report Issue: a n
   card(testHost({ links: viewerLinks({ version: '0.7.5' }), environment: { colorScheme: 'light', platform: 'linux' } }));
   const report = new URL(screen.getByRole('link', { name: 'Report Issue' }).getAttribute('href')!);
   expect(`${report.origin}${report.pathname}`).toBe('https://github.com/earthtojake/text-to-cad/issues/new');
-  expect(report.searchParams.get('title')).toBe('Couldn’t load the model: EOFError');
-  expect(report.searchParams.get('body')).toContain('- File: gear.step\n- CAD: 0.7.5\n- Platform: linux');
+  // Opened as "Issue: ", labelled bug; the card's own words and the file's name are the body's, no path of the machine.
+  expect(report.searchParams.get('title')).toBe('Issue: ');
+  expect(report.searchParams.get('labels')).toBe('bug');
+  const body = report.searchParams.get('body')!;
+  expect(body).toContain('> **Couldn’t load the model**\n> No model\n> EOFError');
+  expect(body).toContain('- File: gear.step\n- CAD: 0.7.5\n- Platform: linux');
+  expect(body).toContain('```\nFile: gear.step\n```');
+  expect(body).not.toContain('/Users/ada');
 });

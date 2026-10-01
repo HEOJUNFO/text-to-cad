@@ -1522,7 +1522,8 @@ raised again. A warning is a card too, dismissible while the model is on screen:
 there is no other place a problem is listed. Full diagnostics stay expandable under
 Details; Retry uses FileViewer's renderer reload,
 which rechecks the artifact and does not restart the desktop window, and Report Issue,
-where the host has a tracker, opens a new issue filled in from the card.
+where the host has a tracker, opens a new issue titled "Issue: ", labelled `bug`, filled in
+from the card, with the file's name and no path of the machine.
 
 ### Camera framing and zoom
 

@@ -26,7 +26,9 @@ it('heads the home with the CAD wordmark over X, Discord, GitHub and Feedback, a
   render(<ModelLibrary library={library([])} links={links({ version: '0.7.4', url: 'u', newer: false })} platform="win32" clipboard={clipboard} />);
   let nav = await screen.findByRole('navigation', { name: 'CAD links' });
   expect([...nav.querySelectorAll('a, button')].map(node => node.getAttribute('aria-label'))).toEqual(['X', 'Discord', 'GitHub', 'Feedback']);
-  expect(new URL(within(nav).getByRole('link', { name: 'Feedback' }).getAttribute('href')!).searchParams.get('body')).toContain('- CAD: 0.7.4\n- Platform: win32');
+  const feedback = new URL(within(nav).getByRole('link', { name: 'Feedback' }).getAttribute('href')!).searchParams;
+  expect(feedback.get('title')).toBe('Feedback: ');
+  expect(feedback.get('body')).toContain('- CAD: 0.7.4\n- Platform: win32');
   expect(screen.queryByText('Build things')).toBeNull();
   cleanup();
   render(<ModelLibrary library={library([])} links={links({ version: '0.7.5', url: 'u', newer: true })} clipboard={clipboard} />);

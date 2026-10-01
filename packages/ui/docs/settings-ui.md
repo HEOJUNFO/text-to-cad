@@ -43,7 +43,7 @@ none.
   declared panel's toggle, the update — a blue download button, there only when
   the host found a newer release, whose menu says the step to it, how this host
   updates and what is new — then **Feedback** (a speech bubble, a link to a new
-  issue naming the version and platform, where the host has a tracker), then the
+  issue titled "Feedback: " naming the version and platform, where the host has a tracker), then the
   view's controls (Settings, Preview). Preview puts Feedback away with the navbar.
   The version, X, GitHub and Discord are in the Settings popover's header. A CAD file
   declares no panel and publishes no navbar action. A host's home has no navbar:
@@ -634,8 +634,8 @@ The viewer shows no toasts or notifications: copy, snapshot and prompt actions
 complete silently, the Copy and Quick Edit buttons showing a tick for a moment.
 Progress stays in the viewport; a failed action is the
 viewport's alert card, whose **Retry** reloads the file and whose **Report Issue**,
-where the host has a tracker, opens a new issue filled in from the card; errors
-handed to the host's `onError` are the host's to show.
+where the host has a tracker, opens a new issue titled "Issue: ", labelled `bug`, filled
+in from the card; errors handed to the host's `onError` are the host's to show.
 
 ## Verification
 

@@ -293,9 +293,10 @@ Model reference section shows their properties. There is no Materials editor or
 persisted material override. See [View styles](docs/render-mode.md) and
 [progressive detail](docs/lod.md).
 
-The navbar names the file and offers its ⋯ menu, and Feedback (a new issue) where the
-host has a tracker; a renderer's loading and update status is its own, in its viewport.
-An error appears as a card over the viewport; a failed update the model survives can be
-dismissed, leaving the previous version to inspect. Retry reloads only the selected
-renderer; Report Issue, where the host has a tracker, opens a new issue filled in from
-the card.
+The navbar names the file and offers its ⋯ menu, and Feedback (a new issue titled
+"Feedback: ") where the host has a tracker; a renderer's loading and update status is its
+own, in its viewport. An error appears as a card over the viewport; a failed update the
+model survives can be dismissed, leaving the previous version to inspect. Retry reloads
+only the selected renderer; Report Issue, where the host has a tracker, opens a new issue
+titled "Issue: ", labelled `bug`, filled in from the card, with the file's name and no path
+of the machine.

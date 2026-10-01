@@ -35,7 +35,9 @@ export interface ViewerLinks {
   discord: string;
   /**
    * Where a person opens a new issue (GitHub's `issues/new`): the navbar's Feedback, the home's,
-   * and an alert's Report Issue fill one in for them to finish. Empty: none of them is offered.
+   * and an alert's Report Issue fill one in for them to finish, through GitHub's `title`, `labels`
+   * and `body` parameters: a title begun ("Feedback: ", "Issue: ") and, for Report Issue, the
+   * `bug` label. Empty: none of them is offered.
    */
   issues: string;
   /**

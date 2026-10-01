@@ -26,7 +26,8 @@ const alertKey = alert => JSON.stringify([alert.severity, alert.title, alert.mes
  * changes, or clears and is raised again (a retry that failed the same way). Long
  * compiler output stays complete in a scrollable diagnostic, never clipped. Retry reloads
  * the file; where the host has a tracker (`links.issues`), Report Issue beside it opens a
- * new issue saying what the card says, about `file` (its path; the issue names only the file).
+ * new issue saying what the card says, about `file` (its path as the alert names it, absolute:
+ * the issue names only the file, and carries no path of this machine).
  */
 export default function ViewerAlertCard({ alert: shown, hasContent, onReload, file = "" }) {
   const mobile = useViewerMobile();

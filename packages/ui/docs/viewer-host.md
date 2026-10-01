@@ -51,7 +51,7 @@ are for reading and maintaining the contracts.
 | `ModelLibrary`, `ModelLibrarySource`, `ModelPictureSource`, `useModelThumbnail` (a host's home: the CAD title over the host's links, then the models opened before, pinned first, as cards or rows, and with none an "Open File" card that opens the chooser; placeholder cards or rows while the list is read (again every two seconds while the home is up, so a model rebuilt meanwhile is pictured again), and a spinner over the model being opened, which takes no second press until `open` settles; `pick` only where the host has a file chooser; `pictureFrom` where it can reach a model to picture it) | [Model library](../src/library/ModelLibrary.tsx), [thumbnails](../src/library/thumbnails.ts) | `@text-to-cad/ui/library` |
 | `CadViewer` (FileViewer over one root's CAD catalog: the five CAD renderers, catalog following, the home, the loading and missing-file pages, the library's pictures) | [CAD viewer](../src/cad-viewer/CadViewer.tsx) | `@text-to-cad/ui/cad-viewer` |
 | `createCatalogFileSource`, `createCadFileActions`, `rootPath`, `pathUnderRoot`, `referencePath` (a CAD catalog as a read-only `FileSource`, the file menu's copies and reveal, the paths a root names a file by) | [Catalog](../src/cad-viewer/catalog.ts) | `@text-to-cad/ui/catalog` |
-| `ViewerLinks`, `viewerLinks` (the version, GitHub, Discord, where a new issue opens, the newest release and how to update, and how a link is followed), `issueUrl` (a new issue filled in, its address kept under `ISSUE_URL_MAX`) | [Host types](../src/host/types.ts), [links](../src/file-viewer/navigation/links.js) | `@text-to-cad/ui/links` |
+| `ViewerLinks`, `viewerLinks` (the version, GitHub, Discord, where a new issue opens, the newest release and how to update, and how a link is followed), `issueUrl` (a new issue filled in — its title, labels and body — its address kept under `ISSUE_URL_MAX`) | [Host types](../src/host/types.ts), [links](../src/file-viewer/navigation/links.js) | `@text-to-cad/ui/links` |
 
 Start with the actual compositions: [web App](../../../apps/web/src/App.tsx) and the
 MCP app's [ModelView](../../../apps/mcp/src/ModelView.tsx), both one `CadViewer`.
@@ -374,13 +374,19 @@ the page says "Ask the agent to show a model". Right: the renderer's navigation 
 declared panel's toggle, then the update (`UpdateButton`, `NavbarLinks.jsx`): where the host
 found a newer release (`links.latest`), a blue download button whose menu says the step to it,
 how this host updates (`links.install`) and what is new; without one, nothing. Then Feedback
-(`FeedbackLink`), where the host has a tracker (`links.issues`): a new issue naming the version
-and `environment.platform`, just before the renderer's view controls and never among them. The
-version, X, Discord and GitHub (`CommunityLinks`) are the CAD renderer's Settings popover's header
-and the home's, under its wordmark, where Feedback follows them. An alert card's Report Issue opens
-a new issue too, filled in from the card (`kit/status/reportIssue.js`): its title and failure, the
-file's name — never its path — the version and platform, then its Details, cut from their end to
-keep the address under `ISSUE_URL_MAX`. A link opens the ordinary way unless the host supplies
+(`FeedbackLink`), where the host has a tracker (`links.issues`): a new issue titled "Feedback: ",
+for the person to finish, naming the version and `environment.platform`, just before the
+renderer's view controls and never among them. It has no label: the project has none for
+feedback, and what is said may be a bug, a request or a question. The version, X, Discord and
+GitHub (`CommunityLinks`) are the CAD renderer's Settings popover's header and the home's, under
+its wordmark, where Feedback follows them. An alert card's Report Issue opens a new issue too,
+titled "Issue: " and labelled `bug`, filled in from the card (`kit/status/reportIssue.js`): its
+title, message and failure, the file's name, the version and platform, then its Details, cut from
+their end to keep the address, title and labels included, under `ISSUE_URL_MAX`. No path of the
+machine goes with it: the file's path is its name wherever the card writes it, and a home
+directory in anything else is `~/`. A label is a suggestion: GitHub applies a URL's labels only
+for someone with triage access to the repository and drops them for everyone else. A link opens
+the ordinary way unless the host supplies
 `links.open` (a page in a sandboxed frame hands it to its host). `displayActions`
 passes host-owned appearance controls into the Display section beside Projection
 via `RendererViewProps`. The shell handles placement and hides the toolbar in

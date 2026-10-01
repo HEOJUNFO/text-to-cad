@@ -38,14 +38,17 @@ it('draws the navbar only when it has something to hold, and never for a view sh
   expect(screen.queryByRole('button', { name: 'File actions' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Show files' })).toBeNull();
   cleanup();
-  // The host's links: without an update, Feedback alone — a new issue naming the version and the
-  // platform (X, Discord, GitHub and the version are the renderer's Settings' and the home's).
+  // The host's links: without an update, Feedback alone — a new issue titled "Feedback: ", for the person
+  // to finish, naming the version and the platform (X, Discord, GitHub and the version are the
+  // renderer's Settings' and the home's). It carries no label: the project has none for feedback.
   const linked = { ...host, links: viewerLinks({ version: 'v0.7.4' }), environment: { colorScheme: 'light', platform: 'darwin' } };
   open({ navigationPath: null, host: linked });
   await screen.findByText('shown');
   expect(labels()).toEqual(['Feedback']);
   const feedback = new URL(screen.getByRole('link', { name: 'Feedback' }).getAttribute('href')!);
   expect(`${feedback.origin}${feedback.pathname}`).toBe('https://github.com/earthtojake/text-to-cad/issues/new');
+  expect(feedback.searchParams.get('title')).toBe('Feedback: ');
+  expect(feedback.searchParams.has('labels')).toBe(false);
   expect(feedback.searchParams.get('body')).toMatch(/^\*\*What happened, or what would you like\?\*\*\n[\s\S]*- CAD: 0\.7\.4\n- Platform: darwin$/);
   cleanup();
   // A host with no tracker: nothing of them.

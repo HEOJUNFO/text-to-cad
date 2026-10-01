@@ -277,7 +277,7 @@ export const CommunityLinks: ComponentType<{
   onError?: (error: Error) => void;
 }>;
 
-/** Feedback: an icon link to a new issue (`links.issues`) naming the version and `platform`; nothing without one. */
+/** Feedback: an icon link to a new issue (`links.issues`) titled "Feedback: ", naming the version and `platform`; nothing without one. */
 export const FeedbackLink: ComponentType<{
   links: import("../../host/types.js").ViewerLinks;
   platform?: string;
