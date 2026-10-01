@@ -18,6 +18,9 @@ import type { AgentStatus } from "@shared/agents";
 // that sends what the draft holds (a stock prompt when it is empty) the way the
 // real composer does: taken whole on submit, put back when the start rejects —
 // and a submit asked for from outside (`requestSubmit`) is the same send.
+// The real composer sends nothing from an empty box; the stock prompt below is a convenience for
+// the tests that click Send on one, and a test about the empty box turns it off.
+const box = vi.hoisted(() => ({ stockPrompt: true }));
 vi.mock("@renderer/features/session/Composer", async () => {
   const { useEffect } = await import("react");
   const { useComposer } = await import("@renderer/state/composer");
@@ -28,7 +31,8 @@ vi.mock("@renderer/features/session/Composer", async () => {
     }) => {
       const send = () => {
         const store = useComposer.getState();
-        const text = store.drafts[newDraftKey]?.trim() || "make a cube";
+        const text = store.drafts[newDraftKey]?.trim() || (box.stockPrompt ? "make a cube" : "");
+        if (!text) return;
         // The box's attachments go with the draft, the way the real composer hands them over.
         const files = store.takeFiles(newDraftKey);
         const taken = { ...store.takeDraft(newDraftKey), ...(files.length ? { files } : {}) };
@@ -95,6 +99,7 @@ beforeEach(() => {
   useAgentOptions.setState({ probe: vi.fn(async () => undefined) } as never);
   useAgents.setState({ agents: [AGENT], jobs: {}, ready: true, loadError: null });
   options.mode = null;
+  box.stockPrompt = true;
   useAcp.setState({ create } as never);
   useComposer.setState({ submit, drafts: {}, annotations: {}, submitRequest: null } as never);
 });
@@ -187,6 +192,7 @@ describe("a start that needs a sign-in", () => {
   });
 
   it("Try again after the box was emptied retries the last attempt rather than doing nothing", async () => {
+    box.stockPrompt = false;
     const user = userEvent.setup();
     const key = "__new__:p1";
     useComposer.setState({ drafts: { [key]: "make a cube" } });
@@ -201,6 +207,18 @@ describe("a start that needs a sign-in", () => {
 
     await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
     expect(submit).toHaveBeenCalledWith("s1", "make a cube", [{ type: "text", text: "make a cube" }], expect.anything());
+  });
+
+  it("does not draw Try again on the install-an-agent card, which has Dismiss and nothing to retry", async () => {
+    const user = userEvent.setup();
+    useAgents.setState({ agents: [], ready: false });
+    useComposer.setState({ drafts: { "__new__:p1": "make a cube" } });
+    render(<NewSession project={PROJECT} />);
+
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Install an agent first");
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
   });
 
   it("does not start again by itself after a login when the draft was edited since the failure", async () => {
