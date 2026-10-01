@@ -85,6 +85,18 @@ const CAPTURE_COMMAND = [
 ].join("; ");
 
 let cached: Promise<Env> | null = null;
+let resolved: Env | null = null;
+const listeners = new Set<(env: Env) => void>();
+
+/**
+ * Told the login environment each time a capture lands (the first, and every
+ * `force`), and at once when one already has. For the callers that cannot
+ * await it — git's children take it once it is there, and never wait for it.
+ */
+export function onLoginEnv(listener: (env: Env) => void): void {
+  listeners.add(listener);
+  if (resolved) listener(resolved);
+}
 
 /**
  * Resolve the login environment. Cached after the first call; `force`
@@ -92,14 +104,23 @@ let cached: Promise<Env> | null = null;
  */
 export function loginEnv(options: { force?: boolean; timeoutMs?: number; shell?: string } = {}): Promise<Env> {
   if (!cached || options.force) {
-    cached = captureLoginEnv(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, options.shell)
+    const capture = captureLoginEnv(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, options.shell)
       .catch((error: unknown) => {
         const reason = error instanceof Error ? error.message : String(error);
         console.warn(
           `[shell-env] could not read the login shell's environment (${reason}); using the process environment, so agents on the shell's PATH may look not installed`,
         );
         return stripHostSession(processEnv());
+      })
+      .then((env) => {
+        // A newer capture may have replaced this one while it ran.
+        if (cached === capture) {
+          resolved = env;
+          for (const listener of listeners) listener(env);
+        }
+        return env;
       });
+    cached = capture;
   }
   return cached;
 }

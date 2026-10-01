@@ -27,6 +27,7 @@ import path from "node:path";
 import { execa, type Options } from "execa";
 
 import { diffScopeFor, ReviewScopeSchema } from "../../shared/types";
+import { onLoginEnv } from "../agents/shell-env";
 import { trackChild, type ChildKind, type Trackable } from "../children";
 import { climbsOut, MAX_TEXT_BYTES, resolveInRoot } from "../explorer/fs";
 
@@ -134,6 +135,29 @@ const GIT_OPTIONS: Options = {
 };
 
 /**
+ * The login shell's environment, once `loginEnv` has captured it (the capture
+ * `prewarmAgents` starts at launch). A Dock launch has launchd's PATH
+ * (`/usr/bin:/bin:/usr/sbin:/sbin`), where Homebrew's git, git-lfs and a hook
+ * that calls node or npx are all missing. Until it lands git runs under the
+ * process environment: no git call waits for a login shell. Not on Windows,
+ * which has no login shell to ask.
+ */
+let loginGitEnv: Record<string, string> | null = null;
+onLoginEnv((env) => {
+  if (process.platform !== "win32") loginGitEnv = env;
+});
+
+/** The environment git's children get: the login shell's, under this module's own variables. */
+function gitEnv(): NonNullable<Options["env"]> {
+  return loginGitEnv ? { ...loginGitEnv, ...GIT_OPTIONS.env } : { ...GIT_OPTIONS.env };
+}
+
+/** For the tests: the environment git runs under, as if `loginEnv` had just captured it (null: not yet). */
+export function setLoginEnvForGit(env: Record<string, string> | null): void {
+  loginGitEnv = env;
+}
+
+/**
  * Every process this module starts goes through the child registry
  * (`../children`): a read in flight is not worth waiting for at quit, and a
  * `fetch` against a slow remote would otherwise hold the exit open. execa's
@@ -165,7 +189,7 @@ function tail(output: string, lines = 20): string {
 async function git(cwd: string, args: string[], options: { timeout?: number; kind?: ChildKind } = {}): Promise<string> {
   const timeout = options.timeout ?? GIT_OPTIONS.timeout;
   const env = readIndex.getStore();
-  const result = await tracked(execa("git", args, env ? { ...GIT_OPTIONS, timeout, cwd, env: { ...GIT_OPTIONS.env, ...env } } : { ...GIT_OPTIONS, timeout, cwd }), options.kind);
+  const result = await tracked(execa("git", args, { ...GIT_OPTIONS, timeout, cwd, env: { ...gitEnv(), ...env } }), options.kind);
   if (result.failed || result.exitCode !== 0) {
     if (result.timedOut) {
       const minutes = Number(timeout) / 60_000;
@@ -204,7 +228,7 @@ async function gitNoIndex(
   const result = await tracked(execa(
     "git",
     ["diff", "--no-index", ...extra, "--", nullDevice, filePath],
-    { ...GIT_OPTIONS, cwd },
+    { ...GIT_OPTIONS, cwd, env: gitEnv() },
   )).catch(() => null);
   if (!result || (result.exitCode !== 0 && result.exitCode !== 1)) {
     return null;
@@ -273,7 +297,7 @@ export type RepositoryProblem = string | null;
  * fix, and every caller used to say "not a git repository" for all five.
  */
 export async function repositoryState(cwd: string): Promise<{ root: string | null; problem: RepositoryProblem }> {
-  const result = await tracked(execa("git", ["rev-parse", "--show-toplevel"], { ...GIT_OPTIONS, cwd })).catch(() => null);
+  const result = await tracked(execa("git", ["rev-parse", "--show-toplevel"], { ...GIT_OPTIONS, cwd, env: gitEnv() })).catch(() => null);
   const root = result && !result.failed && result.exitCode === 0 && typeof result.stdout === "string" ? result.stdout.trim() : "";
   if (root) {
     return { root: path.normalize(root), problem: null };
@@ -1241,7 +1265,7 @@ export async function snapshotTree(cwd: string, mark?: string): Promise<string |
     return null;
   }
   return withTempIndex(root, async (env) => {
-    const options = { ...GIT_OPTIONS, cwd: root, env: { ...GIT_OPTIONS.env, ...env } };
+    const options = { ...GIT_OPTIONS, cwd: root, env: { ...gitEnv(), ...env } };
     const big = await bigUntracked(root);
     const added = await tracked(execa(
       "git",
@@ -1452,7 +1476,7 @@ async function startReadIndex(root: string, key: string, live: string | undefine
     const added = await tracked(execa("git", ["add", "--intent-to-add", "--pathspec-from-file=-", "--pathspec-file-nul"], {
       ...GIT_OPTIONS,
       cwd: root,
-      env: { ...GIT_OPTIONS.env, GIT_INDEX_FILE: index },
+      env: { ...gitEnv(), GIT_INDEX_FILE: index },
       input: paths.map((file) => `:(literal)${file}`).join("\0"),
     }));
     if (added.failed || added.exitCode !== 0) {
@@ -1493,7 +1517,7 @@ export type GitRunner = (cwd: string, args: string[], input?: string) => Promise
  * say" (a timeout, a spawn error), which `tryGit` folds together.
  */
 export const runGit: GitRunner = async (cwd, args, input) => {
-  const result = await tracked(execa("git", args, { ...GIT_OPTIONS, cwd, ...(input === undefined ? {} : { input }) })).catch(() => null);
+  const result = await tracked(execa("git", args, { ...GIT_OPTIONS, cwd, env: gitEnv(), ...(input === undefined ? {} : { input }) })).catch(() => null);
   if (!result) return { exitCode: undefined, stdout: "", stderr: "", timedOut: false };
   return {
     exitCode: typeof result.exitCode === "number" ? result.exitCode : undefined,

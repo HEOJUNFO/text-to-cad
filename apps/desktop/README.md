@@ -2476,6 +2476,13 @@ Every session has a working directory, and a git mode is how it got one
 | `checkout` | the project directory | whatever it is on | — |
 | `worktree` | a new worktree | a new `text-to-cad/<slug>` | the same directory |
 
+git and its hooks run under the login shell's environment (PATH included) once
+`loginEnv` has captured it at launch (`onLoginEnv` in `agents/shell-env.ts` feeds
+`git.ts`; Refresh in Settings › Agents refreshes it too), so Homebrew's git,
+git-lfs and a hook that calls node work from a Dock launch. Until the capture
+lands, git runs under the process environment and no call waits for it; on
+Windows the process environment is always used.
+
 Worktree paths are compared by real path (`git.sameRealPath` / `git.isUnderReal` resolve
 symlinks in the part that exists), because `git worktree list` answers real paths:
 a `worktreeRoot` that is a symlink (`~/wt`, or `/tmp` and `/var` on a Mac) still
