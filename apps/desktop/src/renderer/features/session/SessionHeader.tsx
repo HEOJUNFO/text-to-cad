@@ -1,3 +1,4 @@
+import { revealLabel } from "@text-to-cad/ui/navigation";
 import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { useEffect, useRef, useState } from "react";
 import { Archive, Copy, FolderOpen, MoreHorizontal, Pencil, RotateCcw, Trash2, Unplug } from "lucide-react";
@@ -11,6 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@renderer/components/ui/dropdown-menu";
+import { platform } from "@renderer/lib/platform";
 import { useAcp } from "@renderer/state/acp";
 import { useSessions } from "@renderer/state/sessions";
 import { useExplorer } from "@renderer/state/explorer";
@@ -167,7 +169,7 @@ export function SessionHeader({
                 onSelect={() => void window.textToCad.shell.showItemInFolder({ projectId: session.projectId, root: session.cwd })}
               >
                 <FolderOpen />
-                Reveal in Finder
+                {revealLabel(platform)}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               {disconnected ? (

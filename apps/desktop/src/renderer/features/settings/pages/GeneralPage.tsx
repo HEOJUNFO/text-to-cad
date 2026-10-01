@@ -4,6 +4,7 @@
  * make a noise, count a launch.
  */
 import { Play } from "lucide-react";
+import { revealLabel } from "@text-to-cad/ui/navigation";
 
 import { Button } from "@renderer/components/ui/button";
 import { Switch } from "@renderer/components/ui/switch";
@@ -21,11 +22,11 @@ import {
   useSettingsPatch,
   useSettingsValue,
 } from "@renderer/features/settings/settings-value";
-import { isMac } from "@renderer/lib/platform";
+import { isMac, platform } from "@renderer/lib/platform";
 import type { FileOpenDestination, NotificationSoundTiming } from "@shared/types";
 
 const OPEN_WITH: { value: FileOpenDestination; label: string }[] = [
-  { value: "reveal", label: isMac ? "Reveal in Finder" : "Show in Explorer" },
+  { value: "reveal", label: revealLabel(platform) },
   { value: "editor", label: "Default editor" },
   { value: "custom", label: "Custom command" },
 ];
