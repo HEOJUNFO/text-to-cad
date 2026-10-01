@@ -67,20 +67,27 @@ it("answers from the last launch's table before the probe resolves, then broadca
   const store = memoryStore({ version: "1.2.3", statuses: lastLaunch });
   const detector = new AgentDetector(undefined, probes(), settingsAgentsCache(store, () => "1.2.3"));
   const broadcasts: AgentStatus[][] = [];
-  detector.onChange((statuses) => broadcasts.push(statuses));
+  // The contract is an order, not a duration: answer, then the probe resolves, then the broadcast.
+  const order: string[] = [];
+  detector.onChange((statuses) => {
+    order.push("broadcast");
+    broadcasts.push(statuses);
+  });
 
-  const started = performance.now();
+  // The shell is held until this test lets it go, so the answer can only have come from the cache.
   const answered = await detector.listWithin(3_000);
-  const took = performance.now() - started;
+  order.push("answer");
   // The shell has not answered: this is the cache, every row provisional.
   expect(answered).toHaveLength(AGENT_PROVIDERS.length);
   expect(answered.every((row) => row.probing === true)).toBe(true);
   expect(answered.find((row) => row.id === "claude-code")).toMatchObject({ auth: "unauthenticated", version: "1.0.0" });
   expect(broadcasts).toHaveLength(0);
-  expect(took).toBeLessThan(50);
+  expect(order).toEqual(["answer"]);
 
+  order.push("probe resolves");
   shell.release();
   const fresh = await detector.settled();
+  expect(order).toEqual(["answer", "probe resolves", "broadcast"]);
   expect(broadcasts).toEqual([fresh]);
   expect(fresh.some((row) => row.probing)).toBe(false);
   expect(fresh.find((row) => row.id === "claude-code")).toMatchObject({
