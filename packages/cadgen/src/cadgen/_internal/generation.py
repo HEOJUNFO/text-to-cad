@@ -766,8 +766,10 @@ def _generate_part_outputs(
     # The render artifact is the tree; whole-model selector topology is
     # extracted on demand by ensure_step_topology_artifact (selection renders,
     # read_scene), so generation returns no selector bundle.
+    tree_result = artifact_results.get("tree") or {}
     return GeneratedStepResult(spec=spec, scene=scene, selector_bundle=None,
-                               tree=str((artifact_results.get("tree") or {}).get("tree") or "") or None)
+                               tree=str(tree_result.get("tree") or "") or None,
+                               step_kept=bool(tree_result.get("documentKept")))
 
 
 def _generate_step_outputs(
@@ -1288,6 +1290,8 @@ def _run_selected_specs(
         results.append(result)
         if isinstance(result, _SkippedGeneration):
             logger.info(f"{spec.cad_ref} was built by a concurrent run; skipped")
+        elif isinstance(result, GeneratedStepResult) and result.step_kept and result.spec.step_path is not None:
+            logger.info(f"kept STEP: {_display_path(result.spec.step_path)} (its bytes would not change)")
         elif success_message is not None:
             message_spec = result.spec if isinstance(result, GeneratedStepResult) else spec
             logger.info(success_message(message_spec))

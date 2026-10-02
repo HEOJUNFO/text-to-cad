@@ -93,6 +93,8 @@ class StepExportReuseTest(unittest.TestCase):
         relabeled = _run(self.entry, ["--json"], self.store)
         self.assertEqual(relabeled.returncode, 0, relabeled.stderr[-1500:])
         self.assertIn('"outcome":"built"', relabeled.stdout)
+        self.assertIn("kept STEP: block.step", relabeled.stderr)
+        self.assertNotIn("wrote STEP", relabeled.stderr)
         self.assertEqual((step.stat().st_ino, step.stat().st_mtime_ns), (before.st_ino, before.st_mtime_ns))
 
         # The same writer input never keeps bytes that are not the recorded ones.
@@ -105,6 +107,7 @@ class StepExportReuseTest(unittest.TestCase):
         edited = _run(self.entry, [], self.store)
         self.assertEqual(edited.returncode, 0, edited.stderr[-1500:])
         self.assertNotIn("step export is current", edited.stderr)
+        self.assertIn("wrote STEP: block.step", edited.stderr)
         self.assertNotEqual(hashlib.sha256(step.read_bytes()).hexdigest(), original)
 
 
