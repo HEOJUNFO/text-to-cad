@@ -25,7 +25,9 @@ Recently used means recently written. No reader writes: an entry's mtime is
 when a build or a derivation last wrote it, and an object's is when a publish
 last wrote or claimed it (``objects.claim_object``). Objects are deleted only by
 ``objects.delete_unclaimed``, rename then recheck, so a claim made while a pass
-runs is never lost, and nothing takes a lock.
+runs is never lost, and nothing takes a lock. The recheck reads the claim
+against the grace window, so a pass with none (``grace_seconds=0``) keeps
+nothing back, not even an object claimed before its rename.
 
 The mark reads JSON only: records, document entries, derived entries, and each
 tree they reach once, verified against its address. A leaf object counts by

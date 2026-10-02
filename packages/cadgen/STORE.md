@@ -901,8 +901,9 @@ are not cancelled merely because a newer editing request exists.
 - **A sweep beside a build.** A pass never coordinates with builds: a write
   claims what it reuses, a publish claims its record's closure, and the
   sweeper deletes by rename, then recheck (§5, §8), so no record is written
-  naming an object a concurrent pass took. The daemon runs its own passes
-  only while it has no request in flight.
+  naming an object a concurrent pass took, unless that pass has no grace
+  window (§8). The daemon runs its own passes only while it has no request
+  in flight.
 - **Dependency waits** release the parent's CPU slot but retain its geometry
   and memory reservation. A coalesced child may have been started by another
   consumer; it must remain alive while any required consumer uses it.
@@ -991,8 +992,13 @@ before the rename shows there, and the object goes back; a claim made after it
 finds the object gone and writes the bytes again, or fails the publish when it
 holds none -- never writing a record that names a missing object. So a pass may
 run beside builds without a lock. The grace window is the whole protection for
-a pin a build holds before its publish, so do not sweep with `--grace-hours 0`
-while anything is building.
+a pin a build holds before its publish, and the recheck reads a claim against
+that same window, so a pass with none (`--grace-hours 0`) keeps nothing back:
+not a pin, and not a claim made before the rename. Zero is no window at all,
+not "written before the pass began": on Windows `time.time()` can trail a
+file's mtime by a clock step (about 16 ms), so a cutoff of "now" would keep
+what was written a moment before. So do not sweep with `--grace-hours 0` while
+anything is building.
 
 **A store two cadgens share.** Every cadgen on a machine uses the same store
 by default, and a pass can only judge what it can read. A newer cadgen's

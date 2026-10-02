@@ -9,7 +9,8 @@ A write that finds its bytes already present is a REUSE, and a reuse claims
 the object: its mtime becomes now (:func:`claim_object`). The sweeper keeps
 anything claimed within its grace window and deletes only by rename, then
 recheck (:func:`delete_unclaimed`), so an object a publish has claimed is
-never deleted under it (STORE.md §8).
+never deleted under it -- unless the pass has no grace window, which keeps
+nothing back (STORE.md §8).
 """
 
 from __future__ import annotations
