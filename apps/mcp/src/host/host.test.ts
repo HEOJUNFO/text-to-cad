@@ -193,6 +193,32 @@ describe('a view\'s one call each second', () => {
       stop.abort();
     } finally { vi.useRealTimers(); }
   });
+
+  it('hands the view a failed build as news, and only a bare error as the feed failing', async () => {
+    vi.useFakeTimers();
+    try {
+      const { server } = syncing([
+        { previews: [{ file: 'a.step', epoch: 'e', revision: 3, state: 'failed', error: 'the model raised', feedCursor: 'k1' }] as SyncReply['previews'] },
+        { previews: [{ file: 'a.step', error: 'the daemon did not answer' }] as SyncReply['previews'] },
+      ]);
+      const stop = new AbortController();
+      const sync = createViewSync(server, { id: 'v1', surface: 'inline', model: () => '/p/a.step' },
+        { show() {}, capture: async () => new Blob(), state: () => ({}) });
+      sync.watch({ root: { kind: 'workspace', path: '/p' }, file: () => 'a.step', revision: () => 'r1', refresh: async () => {} });
+      const updates: string[] = [];
+      const lost: string[] = [];
+      sync.observePreview('a.step', preview => updates.push(`${preview.state}: ${preview.error}`),
+        error => lost.push(error instanceof Error ? error.message : String(error)));
+      sync.run(stop.signal);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(updates).toEqual(['failed: the model raised']);
+      expect(lost).toEqual([]);
+      await vi.advanceTimersByTimeAsync(NEWS_MS);
+      expect(lost).toEqual(['the daemon did not answer']);
+      expect(updates).toEqual(['failed: the model raised']);
+      stop.abort();
+    } finally { vi.useRealTimers(); }
+  });
 });
 
 describe('the fetch tunnel', () => {
