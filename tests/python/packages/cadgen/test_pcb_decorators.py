@@ -81,7 +81,7 @@ class PcbDecoratorsTest(unittest.TestCase):
         folder = self.script.parent.resolve()
 
         def outputs(name: str) -> list[str]:
-            return [str(path.relative_to(folder)) for path in declared_output_paths(self.script, function=name)]
+            return [path.relative_to(folder).as_posix() for path in declared_output_paths(self.script, function=name)]
 
         self.assertEqual(outputs("flat"), ["flat.kicad_pcb", "flat.kicad_sch", "flat.kicad_pro", "flat.kicad_dru"])
         self.assertEqual(

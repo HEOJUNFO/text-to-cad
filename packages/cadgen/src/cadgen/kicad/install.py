@@ -183,7 +183,7 @@ def find_kicad() -> KicadInstall:
             too_old.append(f"{candidate} is KiCad {version}")
             continue
         major = _major(version)
-        return KicadInstall(
+        install = KicadInstall(
             cli=candidate,
             version=version,
             symbol_dir=_library_dir(candidate, "symbols", major),
@@ -191,6 +191,14 @@ def find_kicad() -> KicadInstall:
             model_dir=_library_dir(candidate, "3dmodels", major),
             ngspice=_ngspice(candidate),
         )
+        # The libraries a board reads are its inputs wherever KiCad is installed: a
+        # KiCad update that changes a footprint makes the boards using it stale.
+        from cadgen._internal.filetrace import claim_inputs
+
+        for folder in (install.symbol_dir, install.footprint_dir):
+            if folder is not None:
+                claim_inputs(folder)
+        return install
     if too_old:
         raise KicadMissingError(
             f"cadgen needs KiCad {KICAD_MAJOR} or newer, but {'; '.join(too_old)}: {install_hint()}"
