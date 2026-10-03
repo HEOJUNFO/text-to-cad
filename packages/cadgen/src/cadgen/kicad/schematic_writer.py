@@ -16,6 +16,7 @@ coordinates sit on KiCad's 1.27 mm connection grid.
 
 from __future__ import annotations
 
+import copy
 import math
 from dataclasses import dataclass
 
@@ -181,21 +182,32 @@ def _effects(*, hidden: bool = False, justify: list | None = None) -> list:
     return node
 
 
-def _property(key: str, value: str, at: tuple[float, float, float], *, hidden: bool) -> list:
+def _property(key: str, value: str, at: tuple[float, float, float], *, hidden: bool, effects: list | None = None) -> list:
+    """A symbol field. ``effects`` is the library field's (its font and justification), as
+    KiCad copies them when placing a symbol; whether it shows is the writer's to say."""
     node: list = [Sym("property"), key, value, [Sym("at"), at[0], at[1], at[2]]]
     if hidden:
         node.append([Sym("hide"), Sym("yes")])
-    node.append(_effects())
+    if effects is None:
+        node.append(_effects())
+    else:
+        node.append([entry for entry in copy.deepcopy(effects) if sexpr.head(entry) != "hide"])
     return node
 
 
-def _library_property_at(symbol: Symbol, key: str) -> tuple[float, float, float] | None:
+def _library_property(symbol: Symbol, key: str) -> list | None:
     for node in sexpr.find_all(symbol.tree, "property"):
         if node[1] == key:
-            at = sexpr.find(node, "at")
-            if at is not None:
-                return float(at[1]), float(at[2]), float(at[3]) if len(at) > 3 else 0.0
+            return node
     return None
+
+
+def _library_property_at(symbol: Symbol, key: str) -> tuple[float, float, float] | None:
+    node = _library_property(symbol, key)
+    at = sexpr.find(node, "at") if node is not None else None
+    if at is None:
+        return None
+    return float(at[1]), float(at[2]), float(at[3]) if len(at) > 3 else 0.0
 
 
 def schematic_document(board: Board, *, project: str, net_of_pin, power_flag_nets: list[str]) -> tuple[list, dict[str, str]]:
@@ -273,7 +285,9 @@ def schematic_document(board: Board, *, project: str, net_of_pin, power_flag_net
                 at = (origin_x, origin_y, 0.0)
             else:
                 at = (_snap(origin_x + library_at[0]), _snap(origin_y - library_at[1]), library_at[2])
-            node.append(_property(field_key, field_value, at, hidden=hidden))
+            library_field = _library_property(symbol, field_key)
+            effects = sexpr.find(library_field, "effects") if library_field is not None else None
+            node.append(_property(field_key, field_value, at, hidden=hidden, effects=effects))
         for number in symbol.pin_numbers():
             node.append([Sym("pin"), number, [Sym("uuid"), ids(f"{key}:pin:{number}")]])
         node.append(
