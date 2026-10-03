@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://github.com/earthtojake/text-to-cad/raw/b347a34b2bbf37ec47a34e931565ef8a42bd4646/apps/docs/public/brand/logo-texttocad.png" alt="text-to-cad" width="800">
+<img src="https://github.com/earthtojake/text-to-cad/raw/7b675ccb1edec68a2fb228043d8fb9772ff93094/apps/docs/public/brand/logo-texttocad.png" alt="text-to-cad" width="800">
 
 Give your agent CAD superpowers.
 
@@ -44,8 +44,8 @@ robot description files, simulation, and local review.
 | SendCutSend  | Checks DXF and STEP files before upload to SendCutSend.                                                                                            | [skills/sendcutsend](skills/sendcutsend/SKILL.md)   |
 | DfAM Check   | Measures mesh printability per process: wall thickness, overhangs, support volume, and build orientation.                                          | [skills/dfam-check](skills/dfam-check/SKILL.md)     |
 | DFM | Reviews a part for sheet metal, CNC machining, or injection molding, with measured evidence and the cited rule behind every finding; measures draft, undercuts and projected area from a mesh. | [skills/dfm](skills/dfm/SKILL.md) |
-| G-code       | Slices supported mesh files into validated, printer-profiled FDM `.gcode` with real slicer CLIs.                                                   | [skills/gcode](skills/gcode/SKILL.md)               |
-| Bambu Labs   | Dry-runs, uploads, and cautiously starts local Bambu Lab print jobs from validated `.gcode`.                                                       | [skills/bambu-labs](skills/bambu-labs/SKILL.md)     |
+| G-code       | Slices models into printer-ready G-code with OrcaSlicer, using your own printer presets.                                                           | [skills/gcode](skills/gcode/SKILL.md)               |
+| Bambu Labs   | Sends prints to Bambu Lab printers through Bambu Connect, Bambu Lab's official app, or Bambu Studio.                                               | [skills/bambu-labs](skills/bambu-labs/SKILL.md)     |
 
 ## 💻 Installation
 
@@ -111,18 +111,24 @@ claude plugin marketplace add earthtojake/text-to-cad
 claude plugin install text-to-cad@earthtojake
 ```
 
+In Claude Code, the plugin also starts CAD's server. Where Claude Code can show
+app views, CAD shows models as viewer cards in the conversation; otherwise, as
+in a terminal, asking it to show a model gives you a link that opens the model
+in the CAD Viewer in your browser.
+
 In Claude Desktop, CAD shows models in the chat: ask Claude to show one and it
 appears as a viewer card you can orbit, add to your prompt, and open full size;
 Claude can read what you selected and see what you see. It runs locally through
 [uv](https://docs.astral.sh/uv/): add the server to Claude Desktop's config
 (Settings > Developer > Edit Config), then restart the app. If Claude Desktop
-cannot find `uvx`, give its full path (`which uvx`). Each start runs the newest
-release, so restarting the app updates it.
+cannot find `uvx`, give its full path (`which uvx`). The config pins a cadgen
+release, and uvx keeps the version it first downloads: to update, change it to
+the [latest release](https://pypi.org/project/cadgen/) and restart the app.
 
 ```json
 {
   "mcpServers": {
-    "cad": { "command": "uvx", "args": ["--from", "cadgen", "cadgen", "mcp"] }
+    "cad": { "command": "uvx", "args": ["--no-config", "--from", "cadgen==0.7.9", "cadgen", "mcp"] }
   }
 }
 ```
@@ -138,7 +144,7 @@ grok plugin enable text-to-cad
 
 Restart your agent if newly installed skills do not appear. For local
 development, branch from `main`, open PRs against `main`, and follow
-[CONTRIBUTING.md](https://github.com/earthtojake/text-to-cad/blob/b347a34b2bbf37ec47a34e931565ef8a42bd4646/CONTRIBUTING.md).
+[CONTRIBUTING.md](https://github.com/earthtojake/text-to-cad/blob/7b675ccb1edec68a2fb228043d8fb9772ff93094/CONTRIBUTING.md).
 
 ### Usage analytics
 
@@ -175,4 +181,4 @@ repository can do.
 
 Branch from `main` and open PRs against `main`.
 For local contribution workflow, skill linking, and validation guidance, see
-[CONTRIBUTING.md](https://github.com/earthtojake/text-to-cad/blob/b347a34b2bbf37ec47a34e931565ef8a42bd4646/CONTRIBUTING.md).
+[CONTRIBUTING.md](https://github.com/earthtojake/text-to-cad/blob/7b675ccb1edec68a2fb228043d8fb9772ff93094/CONTRIBUTING.md).
