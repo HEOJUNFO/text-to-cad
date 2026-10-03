@@ -249,7 +249,7 @@ def schematic_document(board: Board, *, project: str, net_of_pin, power_flag_net
             [Sym("unit"), unit.unit],
             [Sym("body_style"), 1],
             [Sym("exclude_from_sim"), Sym("no")],
-            [Sym("in_bom"), Sym("no" if is_flag else "yes")],
+            [Sym("in_bom"), Sym("no" if is_flag or not symbol.in_bom else "yes")],
             [Sym("on_board"), Sym("no" if is_flag else "yes")],
             [Sym("in_pos_files"), Sym("no" if is_flag else "yes")],
             [Sym("dnp"), Sym("yes" if unit.part is not None and unit.part.dnp else "no")],

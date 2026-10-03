@@ -185,6 +185,9 @@ class Symbol:
     power: str | None
     tree: list
     source: Path
+    # KiCad's "Exclude from bill of materials", inverted: the schematic owns it,
+    # and a footprint follows it (``exclude_from_bom``).
+    in_bom: bool = True
 
     @property
     def reference_prefix(self) -> str:
@@ -522,6 +525,7 @@ class Libraries:
             power=power,
             tree=flat,
             source=source if source.is_file() else source / f"{name}.kicad_sym",
+            in_bom=str(sexpr.value(flat, "in_bom") or "yes") != "no",
         )
         self._symbols[lib_id] = symbol
         return symbol

@@ -129,6 +129,29 @@ class PcbDocumentsTest(unittest.TestCase):
         pads = {str(pad[1]): pad for pad in sexpr.find_all(_footprint(texts.pcb_tree, spare.ref), "pad")}
         self.assertEqual(sexpr.value(pads["2"], "net"), f"unconnected-({spare.ref}-Pad2)")
 
+    def test_the_bill_of_materials_flag_is_the_symbols(self) -> None:
+        # KiCad's update from the schematic gives a footprint its symbol's "exclude from BOM",
+        # whatever the library footprint said; otherwise its parity check reports the mismatch.
+        board = self.board()
+        point = board.part("Test:TP", ref="TP1")  # in the BOM; Test:TEST_PAD says exclude_from_bom
+        mark = board.part("Test:FIDUCIAL", footprint="Test:ONE_PAD", ref="FID1")  # (in_bom no)
+        board.no_connect(point[1], mark[1])
+        board.place(point, at=(-12, 8))
+        board.place(mark, at=(-12, -8))
+        texts = project_texts(board, name="amp")
+
+        def attr(ref: str) -> list[str]:
+            return [str(flag) for flag in sexpr.find(_footprint(texts.pcb_tree, ref), "attr")[1:]]
+
+        self.assertEqual(attr("TP1"), ["smd", "exclude_from_pos_files"])
+        self.assertEqual(attr("FID1"), ["smd", "exclude_from_bom"])
+        in_bom = {
+            next(prop[2] for prop in sexpr.find_all(node, "property") if prop[1] == "Reference"): sexpr.value(node, "in_bom")
+            for node in sexpr.find_all(sexpr.parse(texts.sch), "symbol")
+            if sexpr.find(node, "lib_id") is not None
+        }
+        self.assertEqual((in_bom["TP1"], in_bom["FID1"]), ("yes", "no"))
+
     def test_the_project_carries_the_rules_and_net_classes(self) -> None:
         board = self.board()
         board.netclass("Power", track_width=0.5, clearance=0.25)

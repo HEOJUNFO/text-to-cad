@@ -332,8 +332,7 @@ def _place_footprint(
                     _toggle_mirror(item)
                 _set_angle(item, local_angle + placement.rotation)
         elif head == "attr":
-            if part.dnp and not any(entry == "dnp" for entry in item[1:]):
-                item.append(Sym("dnp"))
+            item = _attr(item[1:], part)
         node.append(item)
     # Fields the symbol carries that the footprint does not: the BOM reads them here.
     insert_at = max(
@@ -384,9 +383,40 @@ def _place_footprint(
         [Sym("sheetname"), "/"],
         [Sym("sheetfile"), sheetfile],
     ]
-    if not any(isinstance(entry, list) and entry and entry[0] == "attr" for entry in node) and part.dnp:
-        node.append([Sym("attr"), Sym("dnp")])
+    if not any(isinstance(entry, list) and entry and entry[0] == "attr" for entry in node):
+        attr = _attr([], part)
+        if len(attr) > 1:
+            node.append(attr)
     return node
+
+
+# KiCad's order for footprint attributes, as it writes them.
+_ATTR_ORDER = (
+    "smd",
+    "through_hole",
+    "board_only",
+    "exclude_from_pos_files",
+    "exclude_from_bom",
+    "allow_missing_courtyard",
+    "dnp",
+    "allow_soldermask_bridges",
+)
+
+
+def _attr(flags: list, part: Part) -> list:
+    """A footprint's ``attr``, with what the schematic owns set as KiCad's update from it sets it.
+
+    "Exclude from BOM" and "do not populate" are the symbol's; a library
+    footprint's own say (a test point's ``exclude_from_bom``) gives way to its
+    symbol's, or KiCad's parity check reports the two disagreeing.
+    """
+    kept = {str(flag) for flag in flags if str(flag) not in ("exclude_from_bom", "dnp")}
+    if not part.symbol.in_bom:
+        kept.add("exclude_from_bom")
+    if part.dnp:
+        kept.add("dnp")
+    known = [flag for flag in _ATTR_ORDER if flag in kept]
+    return [Sym("attr"), *(Sym(flag) for flag in known + sorted(kept - set(_ATTR_ORDER)))]
 
 
 def _hole_footprint(index: int, ref: str, hole, *, frame: Frame, ids: Ids) -> list:

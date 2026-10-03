@@ -1,17 +1,21 @@
 """A tiny KiCad library for tests that must not need KiCad itself.
 
-Two symbols and three footprints, written in KiCad 10's own formats into a
-temporary folder that a ``Board``/``Circuit`` takes as ``libraries=``:
+Symbols and footprints written in KiCad 10's own formats into a temporary
+folder that a ``Board``/``Circuit`` takes as ``libraries=``:
 
 - ``Test:R``: two passive pins, ``1`` and ``2``; no default footprint.
 - ``Test:AMP``: ``IN`` (1), ``OUT`` (2) and two pins named ``GND`` (3, 4);
   default footprint ``Test:SOT4``.
 - ``Test:REG`` extends ``AMP`` (a derived symbol: KiCad flattens it on use).
+- ``Test:TP``: one passive pin, in the BOM, default footprint ``Test:TEST_PAD`` (KiCad's
+  test point: a symbol in the BOM on a footprint excluded from it).
+- ``Test:FIDUCIAL``: one passive pin, and ``(in_bom no)``: on the board, not bought.
 - ``Test:PWR``: a power symbol (``(power global)``), which is a net, not a part.
 - ``power:PWR_FLAG``: the flag a board's schematic puts on a net powered from
   off the board (KiCad's own is in its ``power`` library; this one stands in).
 - footprints ``Test:R_0603`` (pads 1, 2 at x = -/+0.825), ``Test:SOT4``
-  (pads 1-4) and ``Test:ONE_PAD`` (pad 1 only).
+  (pads 1-4), ``Test:ONE_PAD`` (pad 1 only) and ``Test:TEST_PAD`` (pad 1,
+  excluded from the BOM and position files, as KiCad's test points are).
 """
 
 from __future__ import annotations
@@ -45,6 +49,10 @@ SYMBOLS = (
     f'(symbol "AMP_1_1" {_pin("input", -7.62, 2.54, 0, "IN", "1")} {_pin("output", 7.62, 2.54, 180, "OUT", "2")}'
     f'{_pin("passive", -7.62, -2.54, 0, "GND", "3")} {_pin("passive", 7.62, -2.54, 180, "GND", "4")}))'
     f'(symbol "REG" (extends "AMP") {_properties("U", "REG", "Test:SOT4", "A regulator")})'
+    f'(symbol "TP" (pin_numbers (hide yes)) (in_bom yes) (on_board yes) {_properties("TP", "TP", "Test:TEST_PAD", "A test point")}'
+    f'(symbol "TP_1_1" {_pin("passive", 0, 2.54, 270, "~", "1")}))'
+    f'(symbol "FIDUCIAL" (pin_numbers (hide yes)) (in_bom no) (on_board yes) {_properties("FID", "FIDUCIAL", "", "Not bought")}'
+    f'(symbol "FIDUCIAL_1_1" {_pin("passive", 0, 2.54, 270, "~", "1")}))'
     f'(symbol "PWR" (power global) (pin_names (hide yes)) {_properties("#PWR", "PWR")}'
     f'(symbol "PWR_1_1" {_pin("power_in", 0, 0, 90, "~", "1")}))'
     ")"
@@ -82,6 +90,7 @@ FOOTPRINTS = {
     "R_0603": _footprint("R_0603", _pad("1", -0.825, 0) + _pad("2", 0.825, 0)),
     "SOT4": _footprint("SOT4", _pad("1", -1.5, -0.95) + _pad("2", 1.5, -0.95) + _pad("3", -1.5, 0.95) + _pad("4", 1.5, 0.95)),
     "ONE_PAD": _footprint("ONE_PAD", _pad("1", 0, 0)),
+    "TEST_PAD": _footprint("TEST_PAD", _pad("1", 0, 0)).replace("(attr smd)", "(attr smd exclude_from_pos_files exclude_from_bom)"),
 }
 
 
