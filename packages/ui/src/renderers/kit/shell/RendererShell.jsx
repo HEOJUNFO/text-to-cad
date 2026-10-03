@@ -1,4 +1,4 @@
-import { VIEWPORT_ACTION_HEIGHT_PX, VIEWPORT_CORNER_INSET_PX, VIEWPORT_CUBE_BOTTOM_PX, VIEWPORT_CUBE_SIZE, VIEWPORT_INSET_PX, VIEWPORT_STACK_BOTTOM, VIEWPORT_TOP_BAR_PX } from "./viewportLayout.js";
+import { VIEWPORT_ACTION_HEIGHT_PX, VIEWPORT_CORNER_INSET_PX, VIEWPORT_CUBE_BOTTOM_PX, VIEWPORT_CUBE_SIZE, VIEWPORT_INSET_PX, VIEWPORT_TOP_BAR_PX } from "./viewportLayout.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Play, X } from "lucide-react";
 import { Button } from "@text-to-cad/ui/primitives/button";
@@ -14,22 +14,13 @@ import DisplayPopover from "./DisplayPopover.jsx";
 import { DrawingToolbar } from "../../../drawing/toolbar.jsx";
 import ToolPanel, { ToolPanelFooterButton } from "../tools/ToolPanel.jsx";
 import PlaybackMenu from "../tools/PlaybackMenu.jsx";
-import FloatingToolBar from "../tools/FloatingToolBar.js";
-import ToolStack from "../tools/ToolStack.jsx";
-import { toolPanelClosed } from "../tools/toolStackLayout.js";
 import { ViewportAnimationBar, animationControlsHaveContent } from "../tools/playbar/ViewportAnimationBar.js";
 import QuickEdit from "../tools/quick-edit/QuickEdit.jsx";
 import { ViewportTopRight } from "./ViewportTopRight.jsx";
 import ShellViewport from "./ShellViewport.jsx";
+import ToolColumn from "./ToolColumn.jsx";
 import ViewportContextMenu from "./ViewportContextMenu.jsx";
 
-// The strip and the panels under it share one column, inset from the viewer's top and left
-// edges and stopping above the cube and its actions in the bottom-left corner: the column is
-// exactly the height the stack may take, so however many panels are up, it never runs past the
-// viewer or under the cube (`ToolPanel.jsx` decides which of them gives way).
-const INSET = `${VIEWPORT_INSET_PX}px`;
-// The strip and its stack stop short of Quick Edit's button at the top-right.
-const TOOLBAR_POSITION = Object.freeze({ top: INSET, left: INSET, bottom: VIEWPORT_STACK_BOTTOM, maxWidth: "calc(100% - 3.5rem)" });
 // A 3D view's controls, on top of the cube in the bottom-left corner and as wide as it.
 const VIEW_CONTROLS_POSITION = Object.freeze({
   bottom: `calc(${VIEWPORT_CUBE_SIZE} + ${VIEWPORT_CUBE_BOTTOM_PX}px)`, left: VIEWPORT_CORNER_INSET_PX,
@@ -166,21 +157,6 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
     if (wasPreviewing.current && !previewing) releaseRef.current?.();
     wasPreviewing.current = previewing;
   }, [previewing]);
-  // Every tool's panel but Select's has an X that puts the tool down, back to Select (the default
-  // tool, which cannot be put down). Select's tree has an X of its own that closes the tree alone:
-  // the tool it belongs to then carries the strip's corner mark, and a press on that tool while it
-  // is up opens the tree again; from another tool, a press only takes it up, the tree still closed.
-  // Until the person has closed or opened it, the tree starts as the tool says this file starts it
-  // (`panel.startsClosed`: a single part's) and closed on a phone.
-  // One object while those starts stay the same: the stack's panels read it.
-  const panelStarts = JSON.stringify(tools.filter(tool => tool.panel).map(tool => [tool.panel.id, Boolean(tool.panel.startsClosed)]));
-  const startsClosed = useMemo(() => Object.fromEntries(JSON.parse(panelStarts)), [panelStarts]);
-  const stripTools = tools.map(tool => {
-    if (!tool.panel || !toolPanelClosed(frame.toolStack, tool.panel.id, { mobile, startsClosed: startsClosed[tool.panel.id] })) return tool;
-    const reopen = () => frame.changeToolStack(current => ({ closed: { ...current.closed, [tool.panel.id]: false } }));
-    return { ...tool, panelClosed: true, description: tool.description || `${tool.panel.label} closed`,
-      onSelect: () => { if (tool.active) reopen(); tool.onSelect(); } };
-  });
   // The shell's own tool's panel leads the stack while its tool is up: Draw's tools, color and
   // history. The renderer's follow.
   // Draw's controls, and once there is ink, Copy Drawing (the view with its ink) at their foot.
@@ -320,11 +296,8 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
                   className="pointer-events-auto" disabled={viewerLoading || !scene} /> : null}>
 
               {/* The file explorer floats over this corner, above the tools, which stay drawn under it. */}
-              {toolsHidden ? null : <div className="group/tool-stack pointer-events-none absolute z-20 flex flex-col items-start gap-2" style={TOOLBAR_POSITION}
-                data-mobile={mobile ? "" : undefined} data-cad-tool-groups="">
-                <FloatingToolBar tools={stripTools} />
-                <ToolStack hidden={previewing} mobile={mobile} startsClosed={startsClosed} layout={frame.toolStack} onLayoutChange={frame.changeToolStack}>{shellPanels}{toolPanels}</ToolStack>
-              </div>}
+              {toolsHidden ? null : <ToolColumn tools={tools} layout={frame.toolStack} onLayoutChange={frame.changeToolStack} mobile={mobile}
+                hidden={previewing}>{shellPanels}{toolPanels}</ToolColumn>}
               {/* The top-right: the host's notice once a model is on screen (`view.notice`), and Quick Edit
                   under it -- hidden, not unmounted, while the view loads: a note being written outlives a
                   reload of the model. */}
