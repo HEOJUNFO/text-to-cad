@@ -338,8 +338,8 @@ export default function Home() {
             <AgentMessage />
             <div className="space-y-6 pt-6">
               <p className="text-sm leading-6 text-muted-foreground">
-                Or install it yourself. The plugin brings the skills and CAD&apos;s viewer, a local server that
-                runs through uv, which must be installed. Restart your agent if newly installed skills do not
+                Or install it yourself. The plugin brings the skills and CAD&apos;s viewer, a local server; both
+                run through uv, which must be installed. Restart your agent if newly installed skills do not
                 appear.
               </p>
               {installs.map((item) => (
