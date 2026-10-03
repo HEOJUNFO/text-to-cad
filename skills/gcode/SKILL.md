@@ -1,6 +1,7 @@
 ---
 name: gcode
 description: Slice 3D models into printer-ready G-code with OrcaSlicer, the open-source slicer with built-in profiles for most FDM printers (Prusa, Bambu Lab, Creality, Voron and more). Use when the user wants an `.stl`, `.3mf` or `.obj` model sliced for their printer, as a sliced `.gcode.3mf` or plain `.gcode`, headless with OrcaSlicer's command line or by opening the model in OrcaSlicer. Never contacts a printer.
+license: MIT
 ---
 
 # G-code
@@ -58,11 +59,11 @@ built-in profiles.
      --load-settings "presets/process.json;presets/printer.json" \
      --load-filaments presets/filament-1.json \
      --arrange 1 --slice 0 \
-     --outputdir "$PWD/out" --export-3mf model.gcode.3mf
+     --outputdir /absolute/path/to/out --export-3mf model.gcode.3mf
    ```
 
-   This writes `out/plate_1.gcode`, the plain G-code, and
-   `out/model.gcode.3mf`, the sliced 3MF. The command line reads `.stl`,
+   This writes `plate_1.gcode`, the plain G-code, and `model.gcode.3mf`, the
+   sliced 3MF, into that folder. The command line reads `.stl`,
    `.3mf`, `.obj` and `.amf`; export STEP to STL or 3MF with `$cad` first.
    Override one setting with `--<setting>=<value>`, using the setting's key
    with hyphens for underscores, such as `--layer-height=0.16`.
