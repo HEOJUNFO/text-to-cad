@@ -135,6 +135,28 @@ class PcbDesignTest(unittest.TestCase):
         four = Board(outline=_Outline(), layers=4, libraries=[self.library])
         self.assertEqual(four.copper_layers, ("F.Cu", "In1.Cu", "In2.Cu", "B.Cu"))
 
+    def test_copper_ending_on_a_pin_must_share_its_net_and_reach_its_pad(self) -> None:
+        board = self.board()
+        vin, gnd = board.net("VIN"), board.net("GND")
+        top = board.part("Test:R", footprint="Test:R_0603", ref="R1")
+        under = board.part("Test:R", footprint="Test:R_0603", ref="R2")
+        board.connect(vin, top[1], under[1])
+        board.connect(gnd, top[2])
+        board.no_connect(under[2])
+        board.place(top, at=(0, 0))
+        board.place(under, at=(10, 0), side="bottom")
+        board.track(vin, [top[1], (5, 3), (9.175, 3)])  # ends on its own net's pad: fine
+        with self.assertRaisesRegex(DesignError, "a VIN track ends on R1 pin 2, which is on net GND, so the track would short"):
+            board.track(vin, [top[2], (5, 3)])
+        with self.assertRaisesRegex(DesignError, "R2 pin 2, which is marked no-connect"):
+            board.track(vin, [(5, 3), under[2]])
+        # A bottom part's SMD pads are copper on B.Cu only.
+        with self.assertRaisesRegex(DesignError, "R2 pin 1 has copper on B.Cu only .R2 is on the bottom., so a track on F.Cu"):
+            board.track(vin, [(5, 3), under[1]])
+        board.track(vin, [(9, 3), under[1]], layer="B.Cu")
+        with self.assertRaisesRegex(DesignError, "an arc on F.Cu cannot reach it"):
+            board.arc(vin, start=(8, 4), mid=(8.5, 3), end=under[1])
+
 
 if __name__ == "__main__":
     unittest.main()

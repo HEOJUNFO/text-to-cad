@@ -359,6 +359,15 @@ class Text:
     rotation: float
 
 
+@dataclass(frozen=True)
+class Autoroute:
+    """What ``board.autoroute(...)`` asked for: the build routes the board with Freerouting."""
+
+    skip: tuple[Any, ...]  # nets (or their names) the router leaves alone
+    passes: int
+    timeout: float
+
+
 def _nm(value: float) -> float:
     """A length rounded to KiCad's resolution, one nanometre."""
     rounded = round(float(value), 6)
@@ -373,6 +382,22 @@ def _point(value: Any, *, what: str) -> tuple[float, float]:
         return _nm(float(x)), _nm(float(y))
     except (TypeError, ValueError):
         raise DesignError(f"{what} must be an (x, y) pair in millimetres or a pin, got {value!r}") from None
+
+
+_FLIPPED = {"F.Cu": "B.Cu", "B.Cu": "F.Cu"}
+
+
+def _pad_copper(pin: Pin) -> set[str] | None:
+    """The copper layers a pin's pads are on, as placed; None when they reach every layer."""
+    found: set[str] = set()
+    bottom = pin.part.side == "bottom"
+    for pad in pin.part.footprint.pads_numbered(pin.number):
+        for layer in pad.layers:
+            if layer in ("*.Cu", "F&B.Cu"):
+                return None
+            if layer.endswith(".Cu"):
+                found.add(_FLIPPED.get(layer, layer) if bottom else layer)
+    return found or None
 
 
 def _positive(value: Any, *, what: str, allow_none: bool = True) -> float | None:
@@ -606,6 +631,8 @@ class Board(Circuit):
     """A printed circuit board: a circuit, its outline, its layout and its copper."""
 
     _requires_footprint = True
+    #: What ``board.autoroute(...)`` asked for; None until it is called.
+    autoroute_request: Autoroute | None = None
 
     def __init__(
         self,
@@ -654,6 +681,32 @@ class Board(Circuit):
             )
         return text
 
+    def _check_end(self, net: Net, point: Any, layer: str, *, what: str) -> None:
+        """A pin copper ends on must be on the copper's net and have a pad on its layer.
+
+        KiCad would report either as a short or a dangling end; this says which
+        pin and what to do while the call that drew it is still in hand.
+        """
+        if not isinstance(point, Pin):
+            return
+        pin = self._owned_pin(point, what=what)
+        if pin.net is not net:
+            if pin.net is not None:
+                state = f"on net {pin.net.name}, so the {what} would short the two"
+            elif pin.key in self._no_connects:
+                state = "marked no-connect"
+            else:
+                state = f"on no net yet: connect it to {net.name} (board.connect) before routing to it"
+            raise DesignError(f"a {net.name} {what} ends on {pin.part.ref} pin {pin.number}, which is {state}")
+        layers = _pad_copper(pin)
+        if layers is not None and layer not in layers:
+            raise DesignError(
+                f"{pin.part.ref} pin {pin.number} has copper on {' and '.join(sorted(layers))} only "
+                f"({pin.part.ref} is on the {pin.part.side}), so {'an' if what[0] in 'aeiou' else 'a'} {what} on {layer} "
+                "cannot reach it: draw it on "
+                f"{sorted(layers)[0]}, or change layers through a via beside the pad"
+            )
+
     # -- placement --
 
     def place(self, part: Part, *, at: Any, rotation: float = 0.0, side: str = "top") -> None:
@@ -680,6 +733,8 @@ class Board(Circuit):
             raise DesignError("a track needs at least two points")
         layer = self._copper(layer, what="track layer")
         width = _positive(width, what="track width")
+        for point in points:
+            self._check_end(net, point, layer, what="track")
         resolved = [_point(point, what="a track point") for point in points]
         for start, end in zip(resolved, resolved[1:]):
             if start == end:
@@ -692,12 +747,15 @@ class Board(Circuit):
         """A circular copper arc from ``start`` through ``mid`` to ``end``."""
         if not isinstance(net, Net) or net._board is not self:
             raise DesignError("arc's first argument is a net from this board")
+        layer = self._copper(layer, what="arc layer")
+        for point in (start, end):
+            self._check_end(net, point, layer, what="arc")
         a, b, c = (_point(p, what="an arc point") for p in (start, mid, end))
         cross = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
         if abs(cross) < 1e-9:
             raise DesignError("an arc's start, mid and end lie on one line; use track() for a straight run")
         self.tracks.append(
-            Track(net=net, start=a, end=c, mid=b, width=_positive(width, what="arc width"), layer=self._copper(layer, what="arc layer"))
+            Track(net=net, start=a, end=c, mid=b, width=_positive(width, what="arc width"), layer=layer)
         )
 
     def via(
@@ -841,6 +899,47 @@ class Board(Circuit):
         if found is None:
             raise DesignError(f"net {net.name} is in net class {net.netclass!r}, which board.netclass(...) never defined")
         return found
+
+    # -- routing --
+
+    def autoroute(self, *, skip: Any = (), passes: int = 100, timeout: float = 600.0) -> None:
+        """Route every connection the script did not draw, with Freerouting, when the board is built.
+
+        Place the parts first, and draw what must run one way (a power path, a
+        pour): the router keeps every track and via the script drew, routes
+        around them and continues from them. Each net is routed in its net
+        class's width, clearance and via. ``skip`` is nets (or their names) the
+        router leaves alone, such as a ground a pour carries. ``passes`` caps
+        Freerouting's routing passes; the same board and passes always route
+        the same way. ``timeout`` (seconds) stops a run that takes longer, and
+        fails the build. A connection the router cannot make stays unrouted and
+        the board is a draft that says so.
+
+        The build runs Freerouting, a separate program: install it (and Java,
+        for its jar) as cadgen.kicad.route says.
+        """
+        if self.autoroute_request is not None:
+            raise DesignError("board.autoroute(...) was already called; call it once, with every setting")
+        items = (skip,) if isinstance(skip, (Net, str)) else skip
+        try:
+            items = tuple(items)
+        except TypeError:
+            raise DesignError(f"skip= takes nets or net names, like skip=[gnd]; got {skip!r}") from None
+        for item in items:
+            if isinstance(item, Net):
+                if item._board is not self:
+                    raise DesignError(f"skip= names {item!r}, a net of another board or testbench")
+            elif not isinstance(item, str) or not item.strip():
+                raise DesignError(f"skip= takes nets or net names, like skip=[gnd]; got {item!r}")
+        if not isinstance(passes, int) or isinstance(passes, bool) or passes < 1:
+            raise DesignError(f"passes= is how many routing passes Freerouting may make, a whole number from 1; got {passes!r}")
+        try:
+            seconds = float(timeout)
+        except (TypeError, ValueError):
+            raise DesignError(f"timeout= is seconds, got {timeout!r}") from None
+        if not math.isfinite(seconds) or seconds <= 0:
+            raise DesignError(f"timeout= is seconds, greater than 0; got {timeout!r}")
+        self.autoroute_request = Autoroute(skip=items, passes=passes, timeout=seconds)
 
     # -- mechanical and graphics --
 
