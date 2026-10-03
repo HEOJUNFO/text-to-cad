@@ -71,6 +71,11 @@ where those files ship, so these scripts are what produces them.
   fresh clone has none.
 - `test-docs.sh` — `npm --prefix apps/docs run check`, pulling the hero assets
   first. Called by `test.yml` and `release-publish.yml`.
+- `test-kicad.sh` — `tests/python/packages/kicad`, the board suites that need
+  KiCad 10's `kicad-cli` (and its ngspice library, for simulation): boards built
+  end to end, plotted, exported, checked and simulated by KiCad itself, in an
+  isolated store. A missing KiCad fails the run rather than skipping it. Called
+  by `test.yml` (the `kicad` job).
 - `test-harness.sh` — `tests/python/packages/harness`, the wiring-harness suites
   that need WireViz's `wireviz` and Graphviz's `dot`: documents drawn and listed
   through a real WireViz. A missing tool fails the run rather than skipping it.
