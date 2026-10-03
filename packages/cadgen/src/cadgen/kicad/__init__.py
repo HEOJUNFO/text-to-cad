@@ -14,6 +14,7 @@ Modules, each importing nothing heavy at module scope:
   ngspice.
 - ``library``: load a symbol or footprint by its ``Library:Name``; search them.
 - ``design``: the authoring model (``Board``, parts, nets, copper, rules).
+- ``fabs``: each fab's limits for its standard service (``pcb.JLCPCB``, ``pcb.PCBWAY``...).
 - ``outline`` / ``ids``: a build123d outline as board edges; stable UUIDs.
 - ``board_writer`` / ``schematic_writer`` / ``project_writer`` / ``project``:
   the documents.

@@ -47,7 +47,7 @@ WIDTH, HEIGHT = 40.0, 30.0
 def blinky():
     with bd.BuildSketch() as outline:
         bd.RectangleRounded(WIDTH, HEIGHT, 2)
-    board = pcb.Board(outline=outline.sketch)        # 2 layers, JLCPCB rules by default
+    board = pcb.Board(outline=outline.sketch)        # 2 layers, JLCPCB's limits by default
 
     vbus = board.net("VBUS", power_flag=True)          # powered from the connector
     gnd = board.net("GND", power_flag=True)
@@ -118,7 +118,7 @@ Rotation is degrees counter-clockwise seen from the top. The full reference is
 
 | Call | What it does |
 | --- | --- |
-| `pcb.Board(outline=, layers=2, thickness=1.6, rules=pcb.JLCPCB, libraries=[folder], title=)` | A board: outline (holes in the face are cutouts), copper layer count, design rules, project-local libraries searched before KiCad's |
+| `pcb.Board(outline=, layers=2, thickness=1.6, fab=pcb.JLCPCB, rules=None, libraries=[folder], title=)` | A board: outline (holes in the face are cutouts), copper layer count, the fab whose limits it is checked against (`pcb.PCBWAY`, `pcb.OSHPARK`, `pcb.AISLER`, ...) or your own `rules=`, project-local libraries searched before KiCad's |
 | `board.part(symbol, footprint=, value=, ref=, properties={}, dnp=False)` | A part: KiCad symbol and footprint (the symbol's own default footprint when it has one); `ref` defaults to the next free `R1`, `U3`...; `properties` are BOM fields (`LCSC`, `MPN`, `Manufacturer`) |
 | `part[1]`, `part["VIN"]` | A pin by number, or by name when unique (an ambiguous name is refused, listing the numbers) |
 | `board.net(name=None, netclass=, power_flag=False)` | A net; one name is one net |

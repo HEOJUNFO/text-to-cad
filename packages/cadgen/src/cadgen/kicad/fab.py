@@ -7,14 +7,16 @@ zip whose entries are sorted and dated 1980-01-01. The same board always
 writes the same bytes.
 
 - **gerber**: every copper, mask, paste and silkscreen layer the board has plus
-  the outline, and the Excellon drill files (plated and unplated apart), in one
-  zip: what a fab's upload form takes.
-- **bom**: one row per distinct part (value, footprint, LCSC and MPN fields),
-  with JLCPCB's column names (Comment, Designator, Footprint, LCSC Part #).
-  Read from the schematic beside the board; parts marked DNP are left out.
+  the outline, the Gerber job file, and the Excellon drill files (plated and
+  unplated apart), in one zip: what every fab's upload form takes.
+- **bom**: one row per distinct part, read from the schematic beside the board;
+  parts marked DNP are left out. JLCPCB's required columns (Comment, Designator,
+  Footprint, LCSC Part #), which every other assembler accepts, then every field
+  the others ask for (Quantity, MPN, Manufacturer, Description).
 - **pos**: one row per placed part, in millimetres from the board's drill/place
   origin (the board script's own origin), with JLCPCB's column names
-  (Designator, Mid X, Mid Y, Rotation, Layer). DNP parts are left out.
+  (Designator, Mid X, Mid Y, Rotation, Layer), which the others accept. DNP
+  parts are left out.
 
 Manufacturing files are refused for a board that is not finished: one with
 unrouted connections or any DRC error. That is the caller's check
@@ -78,8 +80,8 @@ def _gerbers(board: Path, stage: Path, install) -> bytes:
          "--excellon-separate-th", board.name],
         cwd=stage,
     )
-    files = sorted(path for path in out.iterdir() if path.is_file() and path.suffix != ".gbrjob")
-    if not files:
+    files = sorted(path for path in out.iterdir() if path.is_file())
+    if not any(path.suffix != ".gbrjob" for path in files):
         raise RuntimeError(f"KiCad wrote no Gerbers for {board.name}")
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -87,8 +89,18 @@ def _gerbers(board: Path, stage: Path, install) -> bytes:
             info = zipfile.ZipInfo(path.name, date_time=_ZIP_DATE)
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o644 << 16
-            archive.writestr(info, _strip_dates(path.read_bytes()))
+            data = _undated_job(path.read_bytes()) if path.suffix == ".gbrjob" else _strip_dates(path.read_bytes())
+            archive.writestr(info, data)
     return buffer.getvalue()
+
+
+def _undated_job(data: bytes) -> bytes:
+    """The Gerber job file (X2's table of contents, which some fabs ask for) without its creation date."""
+    import json
+
+    job = json.loads(data.decode("utf-8"))
+    job.get("Header", {}).pop("CreationDate", None)
+    return (json.dumps(job, indent=2) + "\n").encode("utf-8")
 
 
 def _bom(board: Path, stage: Path, install) -> bytes:
@@ -101,8 +113,8 @@ def _bom(board: Path, stage: Path, install) -> bytes:
         install,
         [
             "sch", "export", "bom", "--output", "bom.csv",
-            "--fields", "Value,Reference,Footprint,${QUANTITY},LCSC,MPN,Manufacturer",
-            "--labels", "Comment,Designator,Footprint,Quantity,LCSC Part #,MPN,Manufacturer",
+            "--fields", "Value,Reference,Footprint,LCSC,${QUANTITY},MPN,Manufacturer,Description",
+            "--labels", "Comment,Designator,Footprint,LCSC Part #,Quantity,MPN,Manufacturer,Description",
             "--group-by", "Value,Footprint,LCSC,MPN",
             "--sort-field", "Reference",
             "--exclude-dnp",

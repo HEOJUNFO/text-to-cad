@@ -31,14 +31,22 @@ from cadgen._internal.snapshot_door import plot_snapshot_verb
 from cadgen.results import FabExportResult, ValidationResult
 
 __all__ = [
+    "AISLER",
     "Board",
     "DesignError",
+    "EUROCIRCUITS",
+    "FABS",
+    "Fab",
     "JLCPCB",
+    "NEXTPCB",
     "Net",
     "NetClass",
+    "OSHPARK",
+    "PCBWAY",
     "Part",
     "Pin",
     "Rules",
+    "SEEED_FUSION",
     "SimulationError",
     "Testbench",
     "bom",
@@ -50,7 +58,8 @@ __all__ = [
     "validate",
 ]
 
-_DESIGN = {"Board", "DesignError", "JLCPCB", "Net", "NetClass", "Part", "Pin", "Rules"}
+_DESIGN = {"Board", "DesignError", "Net", "NetClass", "Part", "Pin", "Rules"}
+_FABS = {"AISLER", "EUROCIRCUITS", "FABS", "Fab", "JLCPCB", "NEXTPCB", "OSHPARK", "PCBWAY", "SEEED_FUSION"}
 _SIMULATION = {"SimulationError", "Testbench"}
 
 _SUFFIXES = (".kicad_pcb", ".kicad_sch", ".kicad_pro")
@@ -166,6 +175,10 @@ def __getattr__(name: str):
         from cadgen.kicad import design
 
         return getattr(design, name)
+    if name in _FABS:
+        from cadgen.kicad import fabs
+
+        return getattr(fabs, name)
     if name in _SIMULATION:
         from cadgen.kicad import sim
 

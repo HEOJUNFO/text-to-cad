@@ -190,8 +190,8 @@ class PcbRouteTest(unittest.TestCase):
         texts, dsn = self.dsn()
         tree = _parse(dsn.text)
         rule = _scope(tree, "structure", "rule")
-        # JLCPCB: 0.25 mm tracks, 0.2 mm clearance, 0.3 mm to the edge; each a micrometre over.
-        self.assertEqual(rule[1:], [["width", "250"], ["clearance", "201"], ["clearance", "301", ["type", "default_edge"]]])
+        # JLCPCB: 0.25 mm tracks, 0.2 mm clearance, 0.2 mm to the edge; each a micrometre over.
+        self.assertEqual(rule[1:], [["width", "250"], ["clearance", "201"], ["clearance", "201", ["type", "default_edge"]]])
         classes = {item[1]: item for item in _scopes(_scope(tree, "network"), "class")}
         self.assertEqual(sorted(classes), ["C1Power", "kicad_default"])
         power = classes["C1Power"]
@@ -291,13 +291,13 @@ class PcbRouteTest(unittest.TestCase):
         tree = _parse(dsn.text)
         image = next(image for image in _scopes(_scope(tree, "library"), "image") if image[1].endswith("Hole_3mm"))
         pin = _scope(image, "pin")
-        # A pin of no net, on every layer: 3 mm drilled, grown by min_hole_clearance (0.25)
-        # less the copper clearance (0.2) each side.
+        # A pin of no net, on every layer: 3 mm drilled, grown by min_hole_clearance (JLCPCB's
+        # 0.28) less the copper clearance (0.2) each side.
         joined = [ref for net in _scopes(_scope(tree, "network"), "net") for ref in _scope(net, "pins")[1:]]
         self.assertEqual(pin[2], "@1")
         self.assertNotIn("H1-@1", joined)
         stack = next(item for item in _scopes(_scope(tree, "library"), "padstack") if item[1] == pin[1])
-        self.assertEqual([shape[1] for shape in _scopes(stack, "shape")], [["circle", "F.Cu", "3100", "0", "0"], ["circle", "B.Cu", "3100", "0", "0"]])
+        self.assertEqual([shape[1] for shape in _scopes(stack, "shape")], [["circle", "F.Cu", "3160", "0", "0"], ["circle", "B.Cu", "3160", "0", "0"]])
 
     def test_the_same_board_writes_the_same_dsn(self) -> None:
         _texts, first = self.dsn()

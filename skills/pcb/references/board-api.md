@@ -22,7 +22,8 @@ pcb.Board(
     outline=face_or_sketch,     # required; build123d 2D geometry in the XY plane, holes = cutouts
     layers=2,                   # copper layers: an even number 2..32 (F.Cu, In1.Cu.., B.Cu)
     thickness=1.6,              # mm
-    rules=pcb.JLCPCB,           # pcb.Rules; pcb.JLCPCB.replace(min_clearance=0.1, ...)
+    fab=pcb.JLCPCB,             # where it is made: its limits are the board's design rules
+    rules=None,                 # a pcb.Rules instead: pcb.PCBWAY.rules.replace(min_track_width=0.15)
     libraries=[],               # project folders holding <Lib>.kicad_sym / <Lib>.pretty, searched first
     title=None,                 # the title block; defaults to the model's name
 )
@@ -35,9 +36,17 @@ Off-plane geometry is refused.
 `min_via_diameter`, `min_via_annular_width`, `min_through_hole_diameter`,
 `min_hole_to_hole`, `min_hole_clearance`, `min_copper_edge_clearance`,
 `min_silk_clearance`, `min_text_height`, `min_text_thickness`, and the Default net class's
-`track_width`, `clearance`, `via_diameter`, `via_drill`. `pcb.JLCPCB` is conservative
-within JLCPCB's standard 2-layer service (0.15 mm clearance and track minimums, 0.6/0.3 mm
-vias, 0.3 mm copper to edge).
+`track_width`, `clearance`, `via_diameter`, `via_drill`.
+
+`fab=` is one of `pcb.JLCPCB` (the default), `pcb.PCBWAY`, `pcb.OSHPARK`, `pcb.AISLER`,
+`pcb.EUROCIRCUITS`, `pcb.SEEED_FUSION`, `pcb.NEXTPCB` (all in `pcb.FABS`): each holds that fab's
+standard-service limits (the price tier with no surcharge), for two copper layers
+(`fab.rules`) and for four or more (`fab.multilayer`); the board takes the set for its
+`layers=`. A board checked against them is one that fab makes at its base price. For a fab
+not listed, pass `rules=pcb.Rules(...)` with the numbers from its capability page. Each
+preset's default net class (0.25 mm tracks, 0.2 mm clearance, a 0.6/0.3 mm via, or the
+larger via a fab needs) is well inside its limits; the minimums only matter where you ask
+for less. [Manufacturing](manufacturing.md) has each fab's numbers and how to order.
 
 ## Parts and pins
 

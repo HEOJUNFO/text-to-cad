@@ -127,6 +127,29 @@ class PcbDesignTest(unittest.TestCase):
         with self.assertRaisesRegex(DesignError, "did you mean R_0603"):
             self.board().part("Test:R", footprint="Test:R_0605")
 
+    def test_a_board_takes_its_fabs_limits_for_its_layer_count(self) -> None:
+        from cadgen.kicad.fabs import FABS, JLCPCB, OSHPARK
+
+        self.assertEqual((self.board().fab, self.board().rules), (JLCPCB, JLCPCB.rules))
+        four = Board(outline=_Outline(), layers=4, fab=OSHPARK, libraries=[self.library])
+        self.assertEqual(four.rules, OSHPARK.multilayer)
+        mine = OSHPARK.rules.replace(min_track_width=0.2)
+        self.assertEqual(Board(outline=_Outline(), fab=OSHPARK, rules=mine, libraries=[self.library]).rules, mine)
+        with self.assertRaisesRegex(DesignError, "fab= takes a pcb.Fab: one of pcb.JLCPCB"):
+            Board(outline=_Outline(), fab="jlcpcb", libraries=[self.library])
+        # Every preset's default tracks and vias are ones that fab makes, and a default track
+        # passing a default via keeps the fab's hole clearance: what the router draws passes.
+        for fab in FABS.values():
+            for rules in (fab.rules, fab.multilayer):
+                with self.subTest(fab=fab.name):
+                    annular = (rules.via_diameter - rules.via_drill) / 2
+                    self.assertGreaterEqual(rules.track_width, rules.min_track_width)
+                    self.assertGreaterEqual(rules.clearance, rules.min_clearance)
+                    self.assertGreaterEqual(rules.via_diameter, rules.min_via_diameter)
+                    self.assertGreaterEqual(rules.via_drill, rules.min_through_hole_diameter)
+                    self.assertGreaterEqual(annular + 1e-9, rules.min_via_annular_width)
+                    self.assertGreaterEqual(rules.clearance + annular + 1e-9, rules.min_hole_clearance)
+
     def test_copper_must_be_on_a_layer_the_board_has(self) -> None:
         board = self.board()
         net = board.net("GND")

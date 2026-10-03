@@ -41,7 +41,6 @@ __all__ = [
     "Board",
     "Circuit",
     "DesignError",
-    "JLCPCB",
     "Net",
     "NetClass",
     "Part",
@@ -95,26 +94,6 @@ class Rules:
                 f"Rules has no {', '.join(unknown)}; its fields are {', '.join(self.__dataclass_fields__)}"
             )
         return replace(self, **changes)
-
-
-#: Conservative rules within JLCPCB's standard 2-layer service (1 oz copper).
-JLCPCB = Rules(
-    min_clearance=0.15,
-    min_track_width=0.15,
-    min_via_diameter=0.6,
-    min_via_annular_width=0.15,
-    min_through_hole_diameter=0.3,
-    min_hole_to_hole=0.5,
-    min_hole_clearance=0.25,
-    min_copper_edge_clearance=0.3,
-    min_silk_clearance=0.0,
-    min_text_height=0.8,
-    min_text_thickness=0.15,
-    track_width=0.25,
-    clearance=0.2,
-    via_diameter=0.6,
-    via_drill=0.3,
-)
 
 
 @dataclass(frozen=True)
@@ -666,21 +645,30 @@ class Board(Circuit):
         outline: Any,
         layers: int = 2,
         thickness: float = 1.6,
-        rules: Rules = JLCPCB,
+        fab: Any = None,
+        rules: Rules | None = None,
         libraries: Iterable[str | Path] = (),
         title: str | None = None,
     ):
+        from cadgen.kicad.fabs import FABS, JLCPCB, Fab
+
         if outline is None:
             raise DesignError("a Board needs outline=: a build123d face or sketch, in millimetres")
         if not isinstance(layers, int) or isinstance(layers, bool) or layers < 2 or layers % 2 or layers > 32:
             raise DesignError(f"layers= is the copper layer count, an even number from 2 to 32; got {layers!r}")
-        if not isinstance(rules, Rules):
-            raise DesignError("rules= takes a pcb.Rules (pcb.JLCPCB, or pcb.JLCPCB.replace(...))")
+        fab = JLCPCB if fab is None else fab
+        if not isinstance(fab, Fab):
+            presets = ", ".join(f"pcb.{name}" for name in ("JLCPCB", "PCBWAY", "OSHPARK", "AISLER", "EUROCIRCUITS", "SEEED_FUSION", "NEXTPCB"))
+            raise DesignError(f"fab= takes a pcb.Fab: one of {presets} (the fabs: {', '.join(FABS)}); got {fab!r}")
+        if rules is not None and not isinstance(rules, Rules):
+            raise DesignError("rules= takes a pcb.Rules, such as pcb.PCBWAY.rules.replace(min_track_width=0.15)")
         super().__init__(libraries=libraries)
         self.outline = outline
         self.layer_count = layers
         self.thickness = _positive(thickness, what="thickness", allow_none=False)
-        self.rules = rules
+        #: Where the board is made: its limits are the board's rules unless rules= says otherwise.
+        self.fab = fab
+        self.rules = rules if rules is not None else fab.rules_for(layers)
         self.title = title
         self._netclasses: dict[str, NetClass] = {}
         self.tracks: list[Track] = []
