@@ -1,0 +1,140 @@
+"""The board SDK's contract, without KiCad: parts, pins, nets, placement, refusals.
+
+Everything here runs against a tiny project-local library (``kicad_library``)
+so the suite needs no KiCad install; what KiCad itself decides is the KiCad
+suite's (tests/python/packages/kicad).
+"""
+
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from tests.python.support.kicad_library import write_test_library
+from tests.python.support.paths import add_repo_path
+
+add_repo_path("packages/cadgen/src")
+
+from cadgen.kicad.design import Board, Circuit, DesignError  # noqa: E402
+
+
+class _Outline:
+    """Board(outline=...) is only read when a board is written; these tests never write."""
+
+
+class PcbDesignTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.library = write_test_library(Path(self._tmp.name))
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def board(self) -> Board:
+        return Board(outline=_Outline(), libraries=[self.library])
+
+    def test_pins_by_number_or_unambiguous_name(self) -> None:
+        board = self.board()
+        amp = board.part("Test:AMP")
+        self.assertEqual(amp[1].number, "1")
+        self.assertEqual(amp["OUT"].number, "2")
+        with self.assertRaisesRegex(DesignError, "2 pins named 'GND'.*3, 4"):
+            amp["GND"]
+        with self.assertRaisesRegex(DesignError, "has no pin 'VCC'; its pins are 1=IN, 2=OUT, 3=GND, 4=GND"):
+            amp["VCC"]
+
+    def test_references_number_themselves_and_never_collide(self) -> None:
+        board = self.board()
+        first = board.part("Test:R", footprint="Test:R_0603")
+        board.part("Test:R", footprint="Test:R_0603", ref="R3")
+        second = board.part("Test:R", footprint="Test:R_0603")
+        self.assertEqual((first.ref, second.ref), ("R1", "R2"))
+        with self.assertRaisesRegex(DesignError, "ref R3 is used twice"):
+            board.part("Test:R", footprint="Test:R_0603", ref="R3")
+
+    def test_a_pin_joins_one_net(self) -> None:
+        board = self.board()
+        r1 = board.part("Test:R", footprint="Test:R_0603")
+        vcc, gnd = board.net("VCC"), board.net("GND")
+        board.connect(vcc, r1[1])
+        self.assertIs(board.net("VCC"), vcc)
+        with self.assertRaisesRegex(DesignError, r"already on net VCC"):
+            board.connect(gnd, r1[1])
+        board.no_connect(r1[2])
+        with self.assertRaisesRegex(DesignError, "marked no-connect"):
+            board.connect(gnd, r1[2])
+
+    def test_an_unnamed_net_is_named_after_its_first_pin_as_kicad_names_one(self) -> None:
+        board = self.board()
+        r1 = board.part("Test:R", footprint="Test:R_0603")
+        amp = board.part("Test:AMP")
+        net = board.net()
+        board.connect(net, amp["IN"], r1[2])
+        self.assertEqual(net.name, "Net-(R1-Pad2)")
+
+    def test_pad_positions_follow_rotation_and_side(self) -> None:
+        board = self.board()
+        top = board.part("Test:R", footprint="Test:R_0603")
+        bottom = board.part("Test:R", footprint="Test:R_0603")
+        # Pad 1 sits at x = -0.825 in the footprint. Rotated 90 degrees counter-clockwise
+        # (seen from the top, y up) it lands below the part's centre.
+        board.place(top, at=(10, 5), rotation=90)
+        self.assertEqual(top[1].position, (10.0, 4.175))
+        self.assertEqual(top[2].position, (10.0, 5.825))
+        # A bottom part is flipped top-to-bottom in its own frame, as KiCad flips it:
+        # pads on the x axis stay where they were.
+        board.place(bottom, at=(-3, 2), side="bottom")
+        self.assertEqual(bottom[1].position, (-3.825, 2.0))
+
+    def test_unplaced_parts_and_missing_classes_stop_a_board(self) -> None:
+        board = self.board()
+        r1 = board.part("Test:R", footprint="Test:R_0603")
+        net = board.net("SIG", netclass="Fast")
+        board.connect(net, r1[1])
+        problems = board.problems()
+        self.assertIn("R1 is not placed: call board.place(r1, at=(x, y))", problems)
+        self.assertTrue(any("never defined" in problem for problem in problems), problems)
+
+    def test_a_footprint_must_have_a_pad_for_every_pin(self) -> None:
+        board = self.board()
+        with self.assertRaisesRegex(DesignError, r"pin\(s\) 2 that footprint Test:ONE_PAD has no pad for"):
+            board.part("Test:R", footprint="Test:ONE_PAD")
+
+    def test_a_board_needs_a_footprint_and_a_circuit_does_not(self) -> None:
+        with self.assertRaisesRegex(DesignError, "has no default footprint"):
+            self.board().part("Test:R")
+        circuit = Circuit(libraries=[self.library])
+        resistor = circuit.part("Test:R", value="10k")
+        self.assertEqual(resistor.value, "10k")
+
+    def test_a_derived_symbol_is_its_parent_with_its_own_fields(self) -> None:
+        board = self.board()
+        reg = board.part("Test:REG")  # extends AMP; default footprint from its own fields
+        self.assertEqual(reg.value, "REG")
+        self.assertEqual(reg["OUT"].electrical_type, "output")
+        self.assertEqual(reg.footprint.lib_id, "Test:SOT4")
+        self.assertEqual(reg.symbol.tree[1], "Test:REG")
+        self.assertNotIn("extends", str(reg.symbol.tree))
+
+    def test_a_power_symbol_is_a_net_not_a_part(self) -> None:
+        with self.assertRaisesRegex(DesignError, "power symbol"):
+            self.board().part("Test:PWR")
+
+    def test_unknown_names_suggest_what_is_there(self) -> None:
+        with self.assertRaisesRegex(DesignError, "has no 'Resistor'"):
+            self.board().part("Test:Resistor", footprint="Test:R_0603")
+        with self.assertRaisesRegex(DesignError, "did you mean R_0603"):
+            self.board().part("Test:R", footprint="Test:R_0605")
+
+    def test_copper_must_be_on_a_layer_the_board_has(self) -> None:
+        board = self.board()
+        net = board.net("GND")
+        with self.assertRaisesRegex(DesignError, "not a copper layer of this 2-layer board; use one of F.Cu, B.Cu"):
+            board.track(net, [(0, 0), (1, 0)], layer="In1.Cu")
+        four = Board(outline=_Outline(), layers=4, libraries=[self.library])
+        self.assertEqual(four.copper_layers, ("F.Cu", "In1.Cu", "In2.Cu", "B.Cu"))
+
+
+if __name__ == "__main__":
+    unittest.main()

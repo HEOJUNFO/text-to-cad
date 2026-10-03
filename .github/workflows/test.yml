@@ -277,6 +277,38 @@ jobs:
       - name: Run the CAD app tests and build it
         run: scripts/test/test-js.sh --select mcp
 
+  # Boards (@pcb, cadgen.kicad) end to end through a real KiCad 10: its kicad-cli fills,
+  # checks, plots and exports every board these tests build, and the simulation tests
+  # load the ngspice library KiCad depends on. Linux only: what can break here is
+  # cadgen's use of KiCad, and KiCad's command line is the same on every platform. The
+  # PPA's kicad package is the command line and its symbol and footprint libraries;
+  # the 3D model library (over a gigabyte) is left out, so boards export bare.
+  kicad:
+    name: KiCad boards
+    needs: changes
+    if: needs.changes.outputs.cadgen == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install KiCad 10
+        run: |
+          sudo add-apt-repository --yes ppa:kicad/kicad-10.0-releases
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends kicad kicad-symbols kicad-footprints libngspice0
+          kicad-cli version
+
+      - name: Set up dependencies
+        uses: ./.github/actions/setup-deps
+        with:
+          npm: packages/core
+
+      - name: Run the KiCad suites
+        run: scripts/test/test-kicad.sh
+
   # The policy gates read the repo's markdown and manifests; the skill suites run the
   # cadgen CLIs. Repository properties, so Linux only.
   skills:

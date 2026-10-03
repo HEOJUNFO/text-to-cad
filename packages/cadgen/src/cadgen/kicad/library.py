@@ -133,7 +133,9 @@ def _library_symbols(path: Path, names: set[str]) -> list:
         key = f"{digest}:{name}"
         node = _recall(key)
         if node is None:
-            match = re.search(r'\n\s*\(symbol "' + re.escape(name) + r'"\s', text)
+            # A sub-symbol is named "<Name>_<unit>_<style>", never a bare top-level name,
+            # so the first `(symbol "<Name>"` is the symbol, however the file is laid out.
+            match = re.search(r'\(symbol\s+"' + re.escape(name) + r'"(?=[\s)])', text)
             if match is None:
                 found[name] = None  # type: ignore[assignment]
                 continue
@@ -420,21 +422,35 @@ class Libraries:
     model_dir: Path | None = None
     _symbols: dict[str, Symbol] = field(default_factory=dict, repr=False)
     _footprints: dict[str, Footprint] = field(default_factory=dict, repr=False)
+    # Why KiCad's own libraries are not on the path, when they are not.
+    _kicad_missing: str | None = field(default=None, repr=False)
 
     @classmethod
     def for_project(cls, project: Iterable[Path] = (), *, install=None) -> "Libraries":
-        """The project's library folders, then the KiCad install's (``find_kicad()`` by default)."""
-        if install is None:
-            from cadgen.kicad.install import find_kicad
+        """The project's library folders, then the KiCad install's (``find_kicad()`` by default).
 
-            install = find_kicad()
+        With no KiCad installed, the project's own folders still resolve; a lookup
+        that needed KiCad's libraries fails then, saying how to install KiCad.
+        """
+        missing = None
+        if install is None:
+            from cadgen.kicad.install import KicadMissingError, find_kicad
+
+            try:
+                install = find_kicad()
+            except KicadMissingError as error:
+                missing = str(error)
         folders = [Path(path).expanduser().resolve() for path in project]
-        return cls(
+        kicad_symbols = (install.symbol_dir,) if install is not None and install.symbol_dir is not None else ()
+        kicad_footprints = (install.footprint_dir,) if install is not None and install.footprint_dir is not None else ()
+        libraries = cls(
             project=tuple(folders),
-            symbol_dirs=tuple(folders) + tuple(p for p in (install.symbol_dir,) if p is not None),
-            footprint_dirs=tuple(folders) + tuple(p for p in (install.footprint_dir,) if p is not None),
-            model_dir=install.model_dir,
+            symbol_dirs=tuple(folders) + kicad_symbols,
+            footprint_dirs=tuple(folders) + kicad_footprints,
+            model_dir=install.model_dir if install is not None else None,
         )
+        libraries._kicad_missing = missing
+        return libraries
 
     # -- symbols --
 
@@ -554,9 +570,11 @@ class Libraries:
 
     # -- messages --
 
-    @staticmethod
-    def _where(folders: Sequence[Path]) -> str:
-        return ", ".join(str(folder) for folder in folders) or "no folders: KiCad's libraries were not found"
+    def _where(self, folders: Sequence[Path]) -> str:
+        where = ", ".join(str(folder) for folder in folders) or "no folders"
+        if self._kicad_missing:
+            where += f"; KiCad's own libraries are not available ({self._kicad_missing})"
+        return where
 
     def _near_libraries(self, library: str, kind: str) -> str:
         names: list[str] = []
