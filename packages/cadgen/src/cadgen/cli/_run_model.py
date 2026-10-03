@@ -167,7 +167,9 @@ def _run(args: argparse.Namespace, script: Path, prog: str) -> int:
                 f"{script.name} declares no CAD model — decorate one function with "
                 "@step, @dxf, @pcb, or a mesh decorator (@stl/@glb/@threemf) from cadgen"
             )
-        if source.pcb_path is not None:
+        if source.pcb_path is not None and source.step_path is None:
+            # A board without a 3D export. One WITH one is a geometry model: the
+            # STEP route below, whose runner also writes the KiCad project.
             from cadgen.generation import generate_pcb_targets
 
             return generate_pcb_targets(

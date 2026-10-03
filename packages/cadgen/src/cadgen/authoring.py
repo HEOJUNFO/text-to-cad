@@ -274,6 +274,13 @@ class ModelDef:
     # tree and record as any model, but the .step is not among its outputs and
     # is never written. STEP is one output kind, not the primary.
     step_output: bool = True
+    # A @pcb board: the function returns a pcb.Board and the build writes its KiCad
+    # project to ``pcb_out`` (else the sibling ``<name>.kicad_pcb``). A board alone
+    # is fmt "pcb", a tree-less model like a drawing; a board that also declares a
+    # 3D export (@step, @glb, @stl, @threemf) is fmt "step", its tree the populated
+    # board, so assemblies compose it like any part.
+    board: bool = False
+    pcb_out: str | None = None
     # (mtime_ns, size) of the script when this definition was registered: the
     # metadata reader reuses the entry while the file on disk is those bytes.
     stamp: tuple[int, int] | None = None
@@ -290,8 +297,17 @@ class ModelDef:
 
     @property
     def output_path(self) -> Path:
+        if self.fmt == "pcb":
+            return self.board_path
         return resolve_model_output_path(
             self.script_path, fmt=self.fmt, explicit_out=self.out, function=self.name
+        )
+
+    @property
+    def board_path(self) -> Path:
+        """The board's ``.kicad_pcb`` (its ``.kicad_sch`` and ``.kicad_pro`` sit beside it)."""
+        return resolve_model_output_path(
+            self.script_path, fmt="pcb", explicit_out=self.pcb_out, function=self.name
         )
 
 
@@ -514,12 +530,15 @@ def _decorator(
         prior: ModelDef | None = getattr(func, "__cadgen_model__", None)
         if prior is not None:
             prior = _REGISTRY.get(prior.ref, prior)  # the registry is authoritative
+        board, pcb_out = False, None
         if prior is not None and not prior.step_output:
-            # A mesh decorator BELOW this one already declared the function a
-            # mesh-only model (and handed back its wrapper). @step takes the RAW
-            # function and its declarations over (stacking order stays neutral);
-            # a drawing or a board cannot (yet).
+            # A mesh decorator (or @pcb) BELOW this one already declared the function a
+            # model without a STEP (and handed back its wrapper). @step takes the RAW
+            # function and its declarations over (stacking order stays neutral); a
+            # drawing cannot.
             if fmt != "step":
+                if prior.board:
+                    raise ValueError(f"{prior.script_path.name} stacks @{fmt} on a @pcb board")
                 names = ", ".join(f"@{_MESH_FMT_DECORATOR[d.fmt]}" for d in prior.mesh_exports)
                 raise ValueError(
                     f"{prior.script_path.name} stacks {names} on a @{fmt} drawing; "
@@ -527,6 +546,7 @@ def _decorator(
                 )
             pending = prior.mesh_exports
             func = prior.func
+            board, pcb_out = prior.board, prior.pcb_out
         _validate_signature(func, fmt=fmt)
         script_path = _script_path_of(func)
         if animation_def is not None:
@@ -550,69 +570,82 @@ def _decorator(
             animation=animation_def,
             mesh_exports=pending,
             step_output=step_output,
+            board=board,
+            pcb_out=pcb_out,
             stamp=_script_stamp(script_path),
         )
         _register(defn)
         func.__cadgen_model__ = defn  # type: ignore[attr-defined]
-
-        @functools.wraps(func)
-        def model(*args: Any, **kwargs: Any) -> Any:
-            frame = current_frame()
-            if frame is not None:
-                if args or kwargs:
-                    raise TypeError(f"{func.__name__}() takes no arguments: a model is one configuration of one output.")
-                if (
-                    frame.script_path is not None
-                    and _same_file(frame.script_path, script_path)
-                    and (frame.function is None or frame.function == func.__name__)
-                ):
-                    # The pipeline building THIS model is asking for its body. (Another
-                    # model of the same file is a child like any other.)
-                    return func()
-                if fmt in ("dxf", "pcb"):
-                    # A drawing or a board composes models, never the reverse: called
-                    # inside another build it is just its body (2D geometry, or the
-                    # pcb.Board), nothing to pin.
-                    return func()
-                # Composition: a parent's body asked for this child. Same rule as the
-                # top level — stale → build, then hand back its geometry — except the
-                # geometry is materialized from the child's tree and the call is
-                # pinned into the parent's record.
-                return _compose_child(_REGISTRY.get(defn.ref, defn))
-            if args or kwargs:
-                raise TypeError(
-                    f"{func.__name__}() takes no arguments: a model is one configuration "
-                    "of one output. Calling it builds that output."
-                )
-            # A top-level call builds. The registry entry may have been extended by a
-            # mesh decorator stacked ABOVE @step since `defn` was captured, so read it
-            # back rather than closing over the original.
-            current = _REGISTRY.get(defn.ref, defn)
-            from cadgen.daemon.executors import capture_source_result
-
-            with capture_source_result(current.ref) as built:
-                code = _build(current)
-                built._finish(code)
-            if code != 0:
-                raise SystemExit(code)
-            tree = built.wait_result() if current.fmt == "step" else None
-            if current.fmt == "step" and _caller_discards_model_result():
-                return None
-            # ...and hands back the geometry it built (or found current), so a plain
-            # used return, notebook or REPL gets the shape a parent would: the model's
-            # tree materialized. A drawing has no tree and returns None. The bare-call
-            # shortcut above still waits for the checked source result before deciding,
-            # so persistence failures remain observable.
-            return _built_geometry(current, tree=tree)
-
-        model.__cadgen_model__ = defn  # type: ignore[attr-defined]
-        # A model's body runs in its own build, reached through a pin -- never
-        # inline behind a caller's closure. functools.wraps would hand it out as
-        # __wrapped__ (``arm.__wrapped__()``, ``inspect.unwrap``).
-        del model.__wrapped__
-        return model
+        return _model_wrapper(func, defn)
 
     return apply
+
+
+def _model_wrapper(func: Callable[..., Any], defn: ModelDef) -> Callable[..., Any]:
+    """The callable a model decorator hands back: build at top level, compose inside a body.
+
+    It reads the model's CURRENT registry entry on every call: a decorator stacked
+    above may have extended it (mesh exports) or changed its kind (a board that
+    gained a 3D export is a geometry model) since this wrapper was made.
+    """
+    script_path = defn.script_path
+
+    @functools.wraps(func)
+    def model(*args: Any, **kwargs: Any) -> Any:
+        frame = current_frame()
+        if frame is not None:
+            if args or kwargs:
+                raise TypeError(f"{func.__name__}() takes no arguments: a model is one configuration of one output.")
+            if (
+                frame.script_path is not None
+                and _same_file(frame.script_path, script_path)
+                and (frame.function is None or frame.function == func.__name__)
+            ):
+                # The pipeline building THIS model is asking for its body. (Another
+                # model of the same file is a child like any other.)
+                return func()
+            if _REGISTRY.get(defn.ref, defn).fmt in ("dxf", "pcb"):
+                # A drawing or a board without a 3D export composes models, never
+                # the reverse: called inside another build it is just its body (2D
+                # geometry, or the pcb.Board), nothing to pin.
+                return func()
+            # Composition: a parent's body asked for this child. Same rule as the
+            # top level — stale → build, then hand back its geometry — except the
+            # geometry is materialized from the child's tree and the call is
+            # pinned into the parent's record.
+            return _compose_child(_REGISTRY.get(defn.ref, defn))
+        if args or kwargs:
+            raise TypeError(
+                f"{func.__name__}() takes no arguments: a model is one configuration "
+                "of one output. Calling it builds that output."
+            )
+        # A top-level call builds. The registry entry may have been extended by a
+        # mesh decorator stacked ABOVE @step since `defn` was captured, so read it
+        # back rather than closing over the original.
+        current = _REGISTRY.get(defn.ref, defn)
+        from cadgen.daemon.executors import capture_source_result
+
+        with capture_source_result(current.ref) as built:
+            code = _build(current)
+            built._finish(code)
+        if code != 0:
+            raise SystemExit(code)
+        tree = built.wait_result() if current.fmt == "step" else None
+        if current.fmt == "step" and _caller_discards_model_result():
+            return None
+        # ...and hands back the geometry it built (or found current), so a plain
+        # used return, notebook or REPL gets the shape a parent would: the model's
+        # tree materialized. A drawing has no tree and returns None. The bare-call
+        # shortcut above still waits for the checked source result before deciding,
+        # so persistence failures remain observable.
+        return _built_geometry(current, tree=tree)
+
+    model.__cadgen_model__ = defn  # type: ignore[attr-defined]
+    # A model's body runs in its own build, reached through a pin -- never
+    # inline behind a caller's closure. functools.wraps would hand it out as
+    # __wrapped__ (``arm.__wrapped__()``, ``inspect.unwrap``).
+    del model.__wrapped__
+    return model
 
 
 def step(
@@ -690,8 +723,45 @@ def pcb(
                 f"@pcb out= names the board file and must end with '.kicad_pcb' (got {checked!r}); "
                 "the .kicad_sch and .kicad_pro are written beside it"
             )
-    decorator = _decorator("pcb", out=out, mesh_tolerance=None, mesh_angular_tolerance=None)
-    return decorator(func) if func is not None else decorator
+    def apply(target: Callable[..., Any]) -> Callable[..., Any]:
+        with _declaring(target):
+            return _apply_pcb(target, checked)
+
+    return apply(func) if func is not None else apply
+
+
+def _apply_pcb(target: Callable[..., Any], pcb_out: str | None) -> Callable[..., Any]:
+    from dataclasses import replace as _replace
+
+    prior: ModelDef | None = getattr(target, "__cadgen_model__", None)
+    if prior is not None:
+        prior = _REGISTRY.get(prior.ref, prior)
+        if prior.fmt == "dxf":
+            raise ValueError(f"{prior.script_path.name}: a @dxf drawing cannot also be a @pcb board")
+        if prior.board:
+            raise ValueError(f"{prior.script_path.name}: @pcb is declared twice on {prior.name}()")
+        # @step or a mesh decorator below: a board with a 3D export, a geometry model.
+        func = prior.func
+        defn = _replace(prior, board=True, pcb_out=pcb_out)
+    else:
+        func = target
+        _validate_signature(func, fmt="pcb")
+        script_path = _script_path_of(func)
+        defn = ModelDef(
+            func=func,
+            fmt="pcb",
+            script_path=script_path,
+            out=None,
+            mesh_tolerance=None,
+            mesh_angular_tolerance=None,
+            step_output=False,
+            board=True,
+            pcb_out=pcb_out,
+            stamp=_script_stamp(script_path),
+        )
+    _register(defn)
+    func.__cadgen_model__ = defn  # type: ignore[attr-defined]
+    return _model_wrapper(func, defn)
 
 
 _MESH_FMT_DECORATOR = {"stl": "stl", "glb": "glb", "3mf": "threemf"}
@@ -758,6 +828,13 @@ def _mesh_export_decorator(deco_name: str, fmt: str):
 
         def _attach(target: Callable[..., Any]) -> Callable[..., Any]:
             existing_model: ModelDef | None = getattr(target, "__cadgen_model__", None)
+            if existing_model is not None and existing_model.fmt == "pcb":
+                # Above @pcb: the board gains a 3D export, so it is a geometry model
+                # (fmt "step", no STEP of its own) whose tree is the populated board.
+                updated = _replace(existing_model, fmt="step", step_output=False, mesh_exports=(decl,))
+                _REGISTRY[updated.ref] = updated
+                target.__cadgen_model__ = updated  # type: ignore[attr-defined]
+                return target
             if existing_model is not None:
                 # Above @step: extend the registered model in place.
                 if existing_model.fmt != "step":

@@ -39,6 +39,10 @@ class GeneratorMetadata:
     step_output: bool = True
     materials: object | None = None
     animation: object | None = None
+    # A @pcb board (see cadgen.authoring.ModelDef.board): its KiCad project is among
+    # the outputs, at ``pcb_out_target`` (else the sibling ``<name>.kicad_pcb``).
+    board: bool = False
+    pcb_out_target: str | None = None
 
 
 @dataclass(frozen=True)
@@ -151,12 +155,18 @@ def declared_output_paths(script_path: Path | str, *, function: str | None = Non
                 continue
             declared = str(getattr(metadata, "format", "step") or "step")
             fmt = declared if declared in _MODEL_FORMATS else "step"
+            if fmt == "pcb" or getattr(metadata, "board", False):
+                board_file = resolve_model_output_path(
+                    script, fmt="pcb", explicit_out=getattr(metadata, "pcb_out_target", None),
+                    function=metadata.entry_function,
+                )
+                outputs.extend(board_file.with_suffix(suffix) for suffix in PCB_PROJECT_SUFFIXES)
+            if fmt == "pcb":
+                continue
             primary = resolve_model_output_path(
                 script, fmt=fmt, explicit_out=metadata.out_target, function=metadata.entry_function
             )
-            if fmt == "pcb":
-                outputs.extend(primary.with_suffix(suffix) for suffix in PCB_PROJECT_SUFFIXES)
-            elif fmt == "dxf" or getattr(metadata, "step_output", True):
+            if fmt == "dxf" or getattr(metadata, "step_output", True):
                 outputs.append(primary)
             for decl in getattr(metadata, "mesh_exports", ()) or ():
                 if decl.out is not None:
@@ -198,8 +208,11 @@ def _match_model_decorator(
     """(fmt, decorator kwargs, mesh_only) when the function carries a cadgen model
     decorator. ``@step``/``@dxf`` name the format; mesh decorators alone
     (``@stl``/``@glb``/``@threemf`` with no ``@step``) declare a MESH-ONLY model:
-    format "step" — the same tree and record — whose .step is never written."""
-    mesh_only = False
+    format "step" — the same tree and record — whose .step is never written.
+    ``@pcb`` alone is format "pcb" (a tree-less board); ``@pcb`` with a 3D export
+    (``@step`` or a mesh decorator) is format "step": the board's tree is its
+    populated 3D board. Stacking order never changes the answer."""
+    seen: list[tuple[str, dict[str, ast.expr]]] = []
     for decorator in function.decorator_list:
         call_kwargs: dict[str, ast.expr] = {}
         target = decorator
@@ -208,29 +221,29 @@ def _match_model_decorator(
             for keyword in decorator.keywords:
                 if keyword.arg is not None:
                     call_kwargs[keyword.arg] = keyword.value
-        fmt: str | None = None
+        resolved: str | None = None
         if isinstance(target, ast.Name):
-            # Only MODEL formats may match here. `names` tracks all five
-            # decorator aliases, so an unrestricted get() let the first
-            # cadgen decorator top-down win — a mesh decorator stacked ABOVE
-            # @step was mis-taken as the model format, breaking the
-            # documented stacking-order neutrality (runtime was neutral, the
-            # parser was not).
             resolved = names.get(target.id)
-            if resolved in _MODEL_FORMATS:
-                fmt = resolved
-            elif resolved in _MESH_DECORATOR_NAMES:
-                mesh_only = True
         elif isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name):
-            if target.value.id in module_aliases and target.attr in _MODEL_FORMATS:
-                fmt = target.attr
-            elif target.value.id in module_aliases and target.attr in _MESH_DECORATOR_NAMES:
-                mesh_only = True
-        if fmt is not None:
-            return fmt, call_kwargs, False
-    if mesh_only:
-        return "step", {}, True
-    return None
+            if target.value.id in module_aliases and target.attr in {*_MODEL_FORMATS, *_MESH_DECORATOR_NAMES}:
+                resolved = target.attr
+        if resolved is not None:
+            seen.append((resolved, call_kwargs))
+    kinds = [kind for kind, _kwargs in seen]
+    if not kinds:
+        return None
+    meshes = any(kind in _MESH_DECORATOR_NAMES for kind in kinds)
+    if "pcb" in kinds:
+        board_kwargs = next(kwargs for kind, kwargs in seen if kind == "pcb")
+        if "step" in kinds or meshes:
+            return "step", board_kwargs, "step" not in kinds
+        return "pcb", board_kwargs, False
+    for kind, kwargs in seen:
+        # The first MODEL format top-down wins; a mesh decorator stacked above
+        # @step must not be taken for the model's format.
+        if kind in ("step", "dxf"):
+            return kind, kwargs, False
+    return "step", {}, True
 
 
 def model_function_formats(source: bytes | str, filename: str = "<model>") -> dict[str, str]:
@@ -385,6 +398,8 @@ def parse_generator_metadata(script_path: Path, function: str | None = None) -> 
         step_output=bool(defn.step_output),
         materials=defn.materials,
         animation=defn.animation,
+        board=bool(getattr(defn, "board", False)),
+        pcb_out_target=getattr(defn, "pcb_out", None),
     )
 
 

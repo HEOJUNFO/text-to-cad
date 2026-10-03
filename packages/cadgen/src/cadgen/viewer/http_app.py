@@ -494,8 +494,8 @@ class CadApp:
                     response.send_json(200, self.build_status(query.get("file") or "", after=query.get("after")))
                 elif pathname == "/__cad/drawing":
                     self._handle_drawing(request, response, query)
-                elif pathname == "/__cad/kicad":
-                    self._handle_kicad(request, response, query)
+                elif pathname == "/__cad/plot":
+                    self._handle_plot(request, response, query)
                 elif pathname == "/__cad/store":
                     self._handle_store_asset(request, response, query)
                 elif pathname == "/__cad/asset":
@@ -817,16 +817,16 @@ class CadApp:
             return
         response.send_json(status, body)
 
-    def _handle_kicad(self, request, response, query):
-        """A KiCad board or schematic as KiCad's own plot (``kicad.py`` owns both rules).
+    def _handle_plot(self, request, response, query):
+        """A document drawn by its own tool, as SVG sheets (``plots.py`` owns both rules).
 
         Like the drawing route it does real work -- ``kicad-cli`` plots, about a
         second on a cold board -- so it is counted, and its payload goes out as the
         store's JSON bytes unchanged.
         """
-        from .kicad import kicad_payload_response
+        from .plots import plot_payload_response
 
-        status, body = kicad_payload_response(query.get("file") or "")
+        status, body = plot_payload_response(query.get("file") or "")
         if isinstance(body, bytes):
             response.send_bytes(status, body, "application/json; charset=utf-8")
             return

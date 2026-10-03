@@ -682,6 +682,27 @@ def _run_script_generator_body(
         names=store_closure.names,
         wholes=store_closure.wholes,
     )
+    board_outputs: dict[Path, dict] | None = None
+    if model_format == "step" and spec.pcb_path is not None:
+        # A board with a 3D export: write and check its KiCad project exactly as a
+        # board alone does, then hand the STEP pipeline the populated board KiCad
+        # builds from it -- the model's geometry, and so its tree.
+        frame.wait_children()
+        board_written = _write_pcb_project(
+            raw_payload, output_path=spec.pcb_path, script_path=spec.script_path, logger=logger, progress=progress
+        )
+        from cadgen.kicad.solid import board_solid
+
+        raw_payload = board_solid(spec.pcb_path, name=getattr(spec.generator_metadata, "entry_function", None) or spec.pcb_path.stem)
+        import hashlib
+
+        board_outputs = {
+            path.resolve(): {
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                **({"unrouted": board_written.unrouted} if path.suffix == ".kicad_pcb" else {}),
+            }
+            for path in board_written.paths
+        }
     if model_format == "step":
         payload = _normalize_step_payload(raw_payload, script_path=spec.script_path)
         if spec.step_path is None:
@@ -707,6 +728,8 @@ def _run_script_generator_body(
         # Runtime handles never enter objects/records. Source-ready children may
         # still owe their own files; the parent drains these after its preview.
         generated_scene.wait_child_outputs = frame.wait_children
+        if board_outputs is not None:
+            generated_scene.extra_outputs = board_outputs
     elif model_format == "dxf":
         if spec.dxf_path is None:
             raise RuntimeError(f"{spec.source_ref} has no configured DXF output")

@@ -529,7 +529,7 @@ def _pcb_generator_source(resolved_script_path: Path, metadata: GeneratorMetadat
     from cadgen.metadata import resolve_model_output_path
 
     pcb_path = resolve_model_output_path(
-        resolved_script_path, fmt="pcb", explicit_out=metadata.out_target, function=metadata.entry_function
+        resolved_script_path, fmt="pcb", explicit_out=metadata.pcb_out_target, function=metadata.entry_function
     )
     return CadSource(
         source_ref=_model_source_ref(resolved_script_path, metadata),
@@ -563,6 +563,14 @@ def _read_python_source(
     step_path = resolve_model_output_path(
         resolved_script_path, fmt="step", explicit_out=metadata.out_target, function=metadata.entry_function
     )
+    # A board with a 3D export: a geometry model that ALSO writes its KiCad project.
+    pcb_path = (
+        resolve_model_output_path(
+            resolved_script_path, fmt="pcb", explicit_out=metadata.pcb_out_target, function=metadata.entry_function
+        )
+        if metadata.board
+        else None
+    )
     return CadSource(
         source_ref=_model_source_ref(resolved_script_path, metadata),
         cad_ref=cad_ref_from_step_path(step_path),
@@ -573,6 +581,7 @@ def _read_python_source(
         generator_metadata=metadata,
         step_path=step_path,
         dxf_path=None,
+        pcb_path=pcb_path,
         mesh_tolerance=metadata.mesh_tolerance,
         mesh_angular_tolerance=metadata.mesh_angular_tolerance,
     )

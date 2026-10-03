@@ -665,6 +665,10 @@ def _generate_part_outputs(
                 )
             ),
         }
+        # A board's KiCad project rides the same record: three more outputs, listed
+        # only now so the document hash above stays the STEP's.
+        for extra_path, facts in (getattr(scene, "extra_outputs", None) or {}).items():
+            outputs[str(extra_path)] = dict(facts)
         from cadgen.store.trees import get_tree
 
         unannotated = get_tree(str(record["unannotatedTree"]))
@@ -1353,6 +1357,9 @@ def _reported_document(spec: EntrySpec) -> str | None:
     -- the first mesh it declares. A STEP model that also declares meshes still
     names its STEP: the line names the model's primary document, not everything
     the build wrote."""
+    if spec.pcb_path is not None:
+        # A board names its board file, whatever 3D exports it also writes.
+        return str(spec.pcb_path.expanduser().resolve())
     if spec.step_output:
         return str(spec.step_path.expanduser().resolve()) if spec.step_path is not None else None
     for export in spec.mesh_exports:
@@ -1449,8 +1456,7 @@ def generate_step_targets(
 
     def _emit(spec: EntrySpec, outcome: str, tree: str | None) -> None:
         from cadgen.store.trees import tree_kind_for
-        reported.append(
-            {
+        entry = {
                 "ok": True,
                 # Read off the tree (store.trees.tree_kind): part or assembly is
                 # what the returned shape was, never something a model declares.
@@ -1465,7 +1471,9 @@ def generate_step_targets(
                 "document": _reported_document(spec),
                 "tree": tree,
             }
-        )
+        if spec.pcb_path is not None:
+            entry["unrouted"] = _board_unrouted(spec)
+        reported.append(entry)
 
     def _flush() -> None:
         # STDOUT IS THE RESULT, on every CLI: the logger's prose goes to stderr, so a
@@ -1478,7 +1486,11 @@ def generate_step_targets(
                 print(json.dumps(entry, separators=(",", ":")))
             else:
                 document = entry["document"]
-                print(f"{entry['outcome']} {_display_path(Path(document)) if document else entry['tree']}")
+                line = f"{entry['outcome']} {_display_path(Path(document)) if document else entry['tree']}"
+                unrouted = entry.get("unrouted")
+                if unrouted:
+                    line += f" (draft: {unrouted} unrouted connection{'s' if unrouted != 1 else ''})"
+                print(line)
     all_specs, selected_specs = _selected_specs_for_targets(targets, step_options=step_options)
     for spec in selected_specs:
         _validate_step_target(spec, tool_name=tool_name)
