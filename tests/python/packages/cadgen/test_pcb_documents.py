@@ -129,6 +129,27 @@ class PcbDocumentsTest(unittest.TestCase):
         pads = {str(pad[1]): pad for pad in sexpr.find_all(_footprint(texts.pcb_tree, spare.ref), "pad")}
         self.assertEqual(sexpr.value(pads["2"], "net"), f"unconnected-({spare.ref}-Pad2)")
 
+    def test_net_names_are_escaped_and_unit_lettered_as_kicad_derives_them(self) -> None:
+        # KiCad escapes "/" in a net name (it separates sheets), and names an open pin's net with
+        # its unit's letter on a symbol of several units; the pads must agree or parity fails.
+        board = self.board()
+        dual = board.part("Test:DUAL", ref="U2")
+        r3 = board.part("Test:R", footprint="Test:R_0603", ref="R3")
+        board.connect(board.net("TX/RX"), r3[1], r3[2])
+        board.no_connect(dual[1], dual[2])
+        board.place(dual, at=(-12, 8))
+        board.place(r3, at=(-12, -8))
+        texts = project_texts(board, name="amp")
+
+        def pad_nets(ref: str) -> list[str]:
+            return [sexpr.value(pad, "net") for pad in sexpr.find_all(_footprint(texts.pcb_tree, ref), "pad")]
+
+        self.assertEqual(pad_nets("R3"), ["TX{slash}RX", "TX{slash}RX"])
+        self.assertEqual(pad_nets("U2"), ["unconnected-(U2A-IN{slash}A-Pad1)", "unconnected-(U2B-IN{slash}B-Pad2)"])
+        labels = {str(node[1]) for node in sexpr.find_all(sexpr.parse(texts.sch), "global_label")}
+        self.assertIn("TX{slash}RX", labels)
+        self.assertEqual(board.net("TX/RX").name, "TX/RX")  # the script keeps its own name
+
     def test_the_bill_of_materials_flag_is_the_symbols(self) -> None:
         # KiCad's update from the schematic gives a footprint its symbol's "exclude from BOM",
         # whatever the library footprint said; otherwise its parity check reports the mismatch.

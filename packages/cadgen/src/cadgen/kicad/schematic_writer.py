@@ -20,7 +20,7 @@ import math
 from dataclasses import dataclass
 
 from cadgen.kicad import sexpr
-from cadgen.kicad.design import Board, Part, _natural
+from cadgen.kicad.design import Board, Part, _natural, kicad_net_name
 from cadgen.kicad.ids import Ids
 from cadgen.kicad.library import Symbol
 from cadgen.kicad.sexpr import Sym
@@ -309,7 +309,7 @@ def schematic_document(board: Board, *, project: str, net_of_pin, power_flag_net
             items.append(
                 [
                     Sym("global_label"),
-                    net_name,
+                    kicad_net_name(net_name),
                     [Sym("shape"), Sym("passive")],
                     [Sym("at"), end[0], end[1], angle],
                     [Sym("fields_autoplaced"), Sym("yes")],

@@ -27,7 +27,7 @@ import math
 from dataclasses import dataclass
 
 from cadgen.kicad import sexpr
-from cadgen.kicad.design import Board, Part, _natural
+from cadgen.kicad.design import Board, Part, _natural, kicad_net_name, unit_letter
 from cadgen.kicad.ids import Ids
 from cadgen.kicad.outline import outline_bounds, outline_segments, polygon_rings
 from cadgen.kicad.sexpr import Sym
@@ -89,11 +89,17 @@ class Frame:
         return self.point((0.0, 0.0))
 
 
-def unconnected_net_name(ref: str, pin_name: str, number: str) -> str:
-    """KiCad's name for the net of a pin connected to nothing (each gets its own)."""
+def unconnected_net_name(ref: str, pin_name: str, number: str, *, unit: str = "") -> str:
+    """KiCad's name for the net of a pin connected to nothing (each gets its own).
+
+    As KiCad derives it from the schematic: a named pin's net carries the
+    reference with the pin's unit letter (``unit``, ``U1B``, on a symbol of
+    several units), the name and the number; an unnamed pin's, the bare
+    reference and the number; both escaped as KiCad escapes net names.
+    """
     if pin_name and pin_name not in {"~", number}:
-        return f"unconnected-({ref}-{pin_name}-Pad{number})"
-    return f"unconnected-({ref}-Pad{number})"
+        return kicad_net_name(f"unconnected-({ref}{unit}-{pin_name}-Pad{number})")
+    return kicad_net_name(f"unconnected-({ref}-Pad{number})")
 
 
 # --- layers ----------------------------------------------------------------------
@@ -294,7 +300,13 @@ def _place_footprint(
             net_name = None
             if pin is not None:
                 net = board._pin_nets.get(pin.key)
-                net_name = net.name if net is not None else unconnected_net_name(part.ref, pin.name, pin.number)
+                if net is not None:
+                    net_name = kicad_net_name(net.name)
+                else:
+                    unit = ""
+                    if part.symbol.unit_count > 1:
+                        unit = unit_letter(next((p.unit for p in part.symbol.pins if p.number == pin.number), 1) or 1)
+                    net_name = unconnected_net_name(part.ref, pin.name, pin.number, unit=unit)
             # Net, then pin function and type, before the uuid, as KiCad orders them.
             item[:] = [entry for entry in item if not (isinstance(entry, list) and entry and entry[0] in {"net", "pinfunction", "pintype"})]
             uuid_index = next(i for i, entry in enumerate(item) if isinstance(entry, list) and entry and entry[0] == "uuid")
@@ -484,7 +496,7 @@ def _zone(board: Board, zone, index: int, *, frame: Frame, ids: Ids) -> list[lis
         layers = [Sym("layer"), zone.layers[0]] if len(zone.layers) == 1 else [Sym("layers"), *zone.layers]
         node: list = [Sym("zone")]
         if zone.keepout is None:
-            node.append([Sym("net"), zone.net.name])
+            node.append([Sym("net"), kicad_net_name(zone.net.name)])
         node.extend([layers, [Sym("uuid"), ids(f"zone:{index}:{ring_index}")], [Sym("hatch"), Sym("edge"), 0.5]])
         if zone.priority:
             node.append([Sym("priority"), zone.priority])
@@ -577,7 +589,7 @@ def board_document(board: Board, *, project: str, frame: Frame, symbol_paths: di
         document.append(_text(board, text, index, frame=frame, ids=ids))
     for index, track in enumerate(board.tracks):
         width = track.width if track.width is not None else board.netclass_of(track.net).track_width
-        common = [[Sym("width"), width], [Sym("layer"), track.layer], [Sym("net"), track.net.name], [Sym("uuid"), ids(f"track:{index}")]]
+        common = [[Sym("width"), width], [Sym("layer"), track.layer], [Sym("net"), kicad_net_name(track.net.name)], [Sym("uuid"), ids(f"track:{index}")]]
         if track.mid is None:
             document.append([Sym("segment"), [Sym("start"), *frame.point(track.start)], [Sym("end"), *frame.point(track.end)], *common])
         else:
@@ -593,7 +605,7 @@ def board_document(board: Board, *, project: str, frame: Frame, symbol_paths: di
                 [Sym("size"), via.diameter if via.diameter is not None else netclass.via_diameter],
                 [Sym("drill"), via.drill if via.drill is not None else netclass.via_drill],
                 [Sym("layers"), *via.layers],
-                [Sym("net"), via.net.name],
+                [Sym("net"), kicad_net_name(via.net.name)],
                 [Sym("uuid"), ids(f"via:{index}")],
             ]
         )

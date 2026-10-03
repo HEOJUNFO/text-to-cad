@@ -7,6 +7,8 @@ folder that a ``Board``/``Circuit`` takes as ``libraries=``:
 - ``Test:AMP``: ``IN`` (1), ``OUT`` (2) and two pins named ``GND`` (3, 4);
   default footprint ``Test:SOT4``.
 - ``Test:REG`` extends ``AMP`` (a derived symbol: KiCad flattens it on use).
+- ``Test:DUAL``: two units, one input each, named with a slash: ``IN/A`` (1, unit A)
+  and ``IN/B`` (2, unit B); default footprint ``Test:R_0603``.
 - ``Test:TP``: one passive pin, in the BOM, default footprint ``Test:TEST_PAD`` (KiCad's
   test point: a symbol in the BOM on a footprint excluded from it).
 - ``Test:FIDUCIAL``: one passive pin, and ``(in_bom no)``: on the board, not bought.
@@ -49,6 +51,9 @@ SYMBOLS = (
     f'(symbol "AMP_1_1" {_pin("input", -7.62, 2.54, 0, "IN", "1")} {_pin("output", 7.62, 2.54, 180, "OUT", "2")}'
     f'{_pin("passive", -7.62, -2.54, 0, "GND", "3")} {_pin("passive", 7.62, -2.54, 180, "GND", "4")}))'
     f'(symbol "REG" (extends "AMP") {_properties("U", "REG", "Test:SOT4", "A regulator")})'
+    f'(symbol "DUAL" (in_bom yes) (on_board yes) {_properties("U", "DUAL", "Test:R_0603", "Two units")}'
+    f'(symbol "DUAL_1_1" {_pin("input", -5.08, 0, 0, "IN/A", "1")})'
+    f'(symbol "DUAL_2_1" {_pin("input", -5.08, 0, 0, "IN/B", "2")}))'
     f'(symbol "TP" (pin_numbers (hide yes)) (in_bom yes) (on_board yes) {_properties("TP", "TP", "Test:TEST_PAD", "A test point")}'
     f'(symbol "TP_1_1" {_pin("passive", 0, 2.54, 270, "~", "1")}))'
     f'(symbol "FIDUCIAL" (pin_numbers (hide yes)) (in_bom no) (on_board yes) {_properties("FID", "FIDUCIAL", "", "Not bought")}'

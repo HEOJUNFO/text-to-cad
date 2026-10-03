@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 
-from cadgen.kicad.design import Board
+from cadgen.kicad.design import Board, kicad_net_name
 
 __all__ = ["project_document"]
 
@@ -69,7 +69,7 @@ def project_document(board: Board, *, project: str, root_uuid: str) -> str:
             )
         )
     patterns = [
-        {"netclass": net.netclass, "pattern": net.name}
+        {"netclass": net.netclass, "pattern": kicad_net_name(net.name)}
         for net in sorted(board.nets, key=lambda net: net.name)
         if net.netclass is not None
     ]

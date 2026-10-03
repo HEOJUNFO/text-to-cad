@@ -939,3 +939,23 @@ class Board(Circuit):
 
 def _natural(text: str) -> tuple:
     return tuple(int(chunk) if chunk.isdigit() else chunk for chunk in re.split(r"(\d+)", str(text)))
+
+
+def kicad_net_name(name: str) -> str:
+    """A net's name as KiCad stores and compares it.
+
+    ``/`` separates sheets in KiCad's net names, so KiCad escapes one inside a
+    name (a label ``TX/RX`` is the net ``TX{slash}RX``) and drops line breaks;
+    a board's pads must carry the same form or the parity check reports them.
+    """
+    return str(name).replace("/", "{slash}").replace("\n", "").replace("\r", "")
+
+
+def unit_letter(unit: int) -> str:
+    """KiCad's letter for a symbol unit: 1 is A, 26 is Z, 27 is AA."""
+    letters = ""
+    unit = max(int(unit), 1)
+    while unit > 0:
+        unit, remainder = divmod(unit - 1, 26)
+        letters = chr(ord("A") + remainder) + letters
+    return letters
