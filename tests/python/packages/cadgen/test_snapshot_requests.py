@@ -291,6 +291,77 @@ class PlotRequestsAreRefusedByName(_Workspace):
             self.resolve(self.job())
 
 
+class HarnessRequestsAreRefusedByName(_Workspace):
+    """A wiring harness (`<name>.harness.yml`) is a plot too: WireViz's diagram, flat.
+
+    The same refusals a board gets, in a harness's words and before WireViz is
+    ever run; and a harness resolves to a `plot` job drawn from WireViz's payload,
+    never KiCad's. None of this needs WireViz.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.write("cable.harness.yml", "connectors: {}\n")
+
+    def job(self, name="cable.harness.yml", **overrides) -> dict:
+        return {"input": name, "outputs": [{"path": "review.png"}], **overrides}
+
+    def refused(self, job, pattern, **kwargs) -> None:
+        with mock.patch.object(snapshot_cli, "plot_payload_file", side_effect=AssertionError("plotted")), \
+                self.assertRaisesRegex(SnapshotError, pattern):
+            self.resolve(job, **kwargs)
+
+    def test_a_scene_request_is_refused_in_a_harness_words(self) -> None:
+        for job, pattern in (
+            (self.job(camera="top"), r"camera poses a model in space; a wiring harness is drawn as WireViz draws it"),
+            (self.job(display={"mode": "render"}), r"display\.mode describes a 3D scene.*a wiring harness is drawn as WireViz draws it"),
+            (self.job(mode="list", outputs=[]), r"so view is the only mode cable\.harness\.yml renders in"),
+            (self.job(output={"tightFrame": True}), r"output\.tightFrame has no meaning for a wiring harness"),
+            (self.job(jointValues={"j1": 10}), r"wiring harnesses have no joints"),
+        ):
+            with self.subTest(job=sorted(set(job) - {"input"})):
+                self.refused(job, pattern)
+
+    def test_each_door_routes_a_harness_only_where_it_should(self) -> None:
+        harness = snapshot_cli.enabled_kinds(("harness",))
+        _single, prepared = snapshot_cli.prepare_render_job_packet(self.job(), cwd=self.root, kinds=harness)
+        self.assertEqual("harness", prepared[0].kind)
+        self.refused(self.job(), r"does not render \.harness\.yml inputs.*It accepts: \.kicad_pcb, \.kicad_sch",
+                     kinds=snapshot_cli.enabled_kinds(("kicad_pcb", "kicad_sch")))
+        self.write("blinky.kicad_pcb", "(kicad_pcb (version 20240108))\n")
+        self.refused(self.job("blinky.kicad_pcb"), r"does not render \.kicad_pcb inputs.*It accepts: \.harness\.yml", kinds=harness)
+        # Only the pair is a harness: a plain YAML file is no input, and `cadgen snapshot` says what is.
+        self.write("config.yml", "a: 1\n")
+        self.refused(self.job("config.yml"), r"does not render \.yml inputs.*\.harness\.yml",
+                     kinds=snapshot_cli.enabled_kinds(snapshot_cli.KIND_RESOLVERS))
+
+    def test_a_harness_resolves_to_a_plot_job_drawn_from_wirevizs_payload(self) -> None:
+        payload = b'{"schemaVersion":1,"kind":"harness","unrouted":null,"sheets":[]}'
+        with mock.patch("cadgen.wireviz.plot.plot_payload_bytes", return_value=payload) as plot, \
+                mock.patch("cadgen.kicad.plot.plot_payload_bytes", side_effect=AssertionError("KiCad drew a harness")):
+            packet = self.resolve(self.job())
+        plot.assert_called_once_with(self.root / "cable.harness.yml")
+        resolved = packet["jobs"][0]["resolved"]
+        self.assertEqual(("plot", "harness"), (resolved["kind"], resolved["inputKind"]))
+        served = Path(resolved["rootPath"]) / resolved["plotUrl"].split("/__render_asset/", 1)[1].split("?", 1)[0]
+        self.assertEqual(payload, served.read_bytes())
+
+    def test_a_machine_without_wireviz_is_told_how_to_get_it_and_a_bad_document_why(self) -> None:
+        from cadgen.kicad.plot import PlotError
+        from cadgen.wireviz.install import WirevizMissingError
+
+        for raised, pattern in (
+            (WirevizMissingError("WireViz's command line, wireviz, was not found: install Graphviz and WireViz"),
+             r"wireviz, was not found: install Graphviz and WireViz"),
+            (PlotError("WireViz could not draw cable.harness.yml: X2:9 not found"),
+             r"WireViz could not draw cable\.harness\.yml: X2:9 not found"),
+        ):
+            with self.subTest(raised=type(raised).__name__), \
+                    mock.patch("cadgen.wireviz.plot.plot_payload_bytes", side_effect=raised), \
+                    self.assertRaisesRegex(SnapshotError, pattern):
+                self.resolve(self.job())
+
+
 class SrdfPairingTests(_Workspace):
     """S9: an SRDF renders its paired URDF, found the way `cadgen srdf validate` finds it."""
 

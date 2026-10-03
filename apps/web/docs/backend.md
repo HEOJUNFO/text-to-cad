@@ -194,7 +194,7 @@ cache reads and writes.
 | `GET /__cad/asset?file=...` | A CAD file's or sidecar's bytes. |
 | `GET /__cad/store?file=...` | Virtual render assets from the shared store. |
 | `GET /__cad/drawing?file=...` | A `.dxf` flattened to 2D render primitives; the DXF pane's only source. |
-| `GET /__cad/plot?file=...` | A KiCad board or schematic as KiCad plots it, one SVG per sheet; the plot pane's only source. |
+| `GET /__cad/plot?file=...` | A KiCad board or schematic as KiCad plots it, or a wiring harness as WireViz draws it, one SVG per sheet; the plot pane's only source. |
 | `GET /__cad/artifact?file=...` | Artifact status and advisory progress. |
 | `POST /__cad/artifact?file=...` | Start importing a foreign STEP and answer at once (`compiling`; `compiled` when there is nothing to build); `&force=1` requests a rebuild. The import is followed through `GET /__cad/artifact`, whose `failed` carries the job's reason until the file's bytes change. |
 | `GET /__cad/recents` | The model library every CAD view shares. |
@@ -289,22 +289,24 @@ second thread pool here.
 ## `GET /__cad/plot`
 
 A document drawn by its own tool, on the SERVER: a KiCad board or schematic is
-`kicad-cli`'s SVG plot of it (`cadgen.kicad.plot`), so the plot pane draws what KiCad
-draws and never parses KiCad's files. A board is one sheet — its layers stacked back
-to front, on KiCad's board background, with any unrouted connection drawn as a
-ratsnest line (a draft never looks finished); a schematic is one sheet per page,
-root first.
+`kicad-cli`'s SVG plot of it (`cadgen.kicad.plot`), and a wiring harness
+(`<name>.harness.yml`) is WireViz's diagram of it (`cadgen.wireviz.plot`), so the plot
+pane draws what the tool draws and never parses its files. A board is one sheet — its
+layers stacked back to front, on KiCad's board background, with any unrouted connection
+drawn as a ratsnest line (a draft never looks finished); a schematic is one sheet per
+page, root first; a harness is one sheet on WireViz's page colour (`kind: "harness"`,
+sizes converted from Graphviz's points).
 
-`cadgen pcb snapshot` draws the SAME payload: its resolver calls
-`cadgen.kicad.plot.plot_payload_bytes` too, writes the bytes where the headless page
-can fetch them, and the page draws them with `@text-to-cad/core/lib/plot2d` — the module
-the plot pane draws with.
+`cadgen pcb snapshot` and `cadgen harness snapshot` draw the SAME payload: their
+resolver calls the same builder (`plot_payload_bytes`), writes the bytes where the
+headless page can fetch them, and the page draws them with `@text-to-cad/core/lib/plot2d`
+— the module the plot pane draws with.
 
 `?file=` names the document by its absolute path, as every route does: a relative
-ref, or anything that is not a `.kicad_pcb` or `.kicad_sch`, is 400, and a missing
-file 404. A document KiCad cannot plot, and a machine with no KiCad, are 400 with the
-teaching message — the latter names how to install KiCad, which the pane shows on its
-alert card.
+ref, or anything that is not a `.kicad_pcb`, `.kicad_sch` or `.harness.yml`, is 400,
+and a missing file 404. A document its tool cannot plot, and a machine without the
+tool, are 400 with the teaching message — the latter names how to install it, which
+the pane shows on its alert card.
 
 ```jsonc
 {
@@ -326,7 +328,8 @@ alert card.
 
 The payload is derived data, cached in the store's `drawing` index under the
 document's bytes (a schematic's: every sheet beside it), the plot scheme and the
-KiCad version, so a second request re-serves stored bytes without running KiCad. A
-cold plot runs `kicad-cli` on the request thread — a DRC and an SVG export, under a
-second for a small board, tens of seconds for a large one — which is why the client
-waits up to three minutes for this route.
+tool's version (WireViz's and Graphviz's for a harness), so a second request
+re-serves stored bytes without running the tool. A cold plot runs it on the request
+thread — for a board a DRC and an SVG export, under a second for a small board, tens of
+seconds for a large one — which is why the client waits up to three minutes for this
+route.

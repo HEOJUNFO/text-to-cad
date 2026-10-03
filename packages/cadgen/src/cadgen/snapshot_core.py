@@ -501,10 +501,11 @@ CAD_MODEL_DISPLAY_MODES = frozenset({"xray", "hidden-line", "wireframe"})
 CAD_MODEL_SURFACE_STYLES = frozenset({"hidden", "off"})
 CAD_MODEL_KINDS = frozenset({"step", "stp"})
 # Inputs that are DRAWN rather than staged: a DXF drawing, and a plot (a KiCad
-# board or schematic as KiCad draws it). Nothing in `display` but ``appearance``
-# reaches them, which is a stricter rule than the one below and is stated where
-# their rules live (:func:`cadgen.snapshot_cli.check_flat_render_job`).
-DRAWING_KINDS = frozenset({"dxf", "kicad_pcb", "kicad_sch"})
+# board or schematic as KiCad draws it, a wiring harness as WireViz draws it).
+# Nothing in `display` but ``appearance`` reaches them, which is a stricter rule
+# than the one below and is stated where their rules live
+# (:func:`cadgen.snapshot_cli.check_flat_render_job`).
+DRAWING_KINDS = frozenset({"dxf", "kicad_pcb", "kicad_sch", "harness"})
 
 
 def validate_display_for_kind(display: Mapping[str, object], *, kind: str, input_label: str) -> None:

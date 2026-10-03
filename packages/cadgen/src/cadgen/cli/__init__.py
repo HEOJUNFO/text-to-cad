@@ -63,6 +63,8 @@ _COMMANDS: dict[str, tuple[str, str]] = {
     "gerber build": ("cadgen.cli.gerber_build", "write the Gerber and drill zip of a KiCad board"),
     "bom build": ("cadgen.cli.bom_build", "write the bill of materials of a KiCad board or harness"),
     "pos build": ("cadgen.cli.pos_build", "write the pick-and-place file of a KiCad board"),
+    # Wiring harnesses. A harness is made by running its script; its document is drawn by WireViz.
+    "harness snapshot": ("cadgen.cli.harness_snapshot", "render a wiring harness to an image"),
     # Robot descriptions
     "urdf validate": ("cadgen.cli.urdf_validate", "validate a URDF robot description"),
     "urdf snapshot": ("cadgen.cli.urdf_snapshot", "render a URDF to an image"),

@@ -8,6 +8,7 @@ import { createPlotRenderer } from '../../../dist/renderers/plot/index.js';
 import '../../../dist/renderers/plot/PlotRenderer.js';
 import BOARD from './__fixtures__/board.plot.json';
 import SCHEMATIC from './__fixtures__/schematic.plot.json';
+import HARNESS from './__fixtures__/harness.plot.json';
 
 // The plot tab's states and its answers to the host, mounted the way a host mounts it: the
 // FileViewer over the real registration and a real CAD client, whose backend is a fetch that
@@ -33,7 +34,7 @@ const context2d = new Proxy({}, { get: (_target, key) => (key === 'canvas' ? und
 
 beforeEach(() => {
   frames.length = 0;
-  readPlot = (file) => (file.endsWith('.kicad_sch') ? json(SCHEMATIC) : json(BOARD));
+  readPlot = (file) => (file.endsWith('.kicad_sch') ? json(SCHEMATIC) : file.endsWith('.harness.yml') ? json(HARNESS) : json(BOARD));
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0));
   vi.stubGlobal('cancelAnimationFrame', (handle: number) => clearTimeout(handle));
   vi.stubGlobal('matchMedia', (query: string) => ({ matches: false, media: query, addEventListener: noop, removeEventListener: noop, addListener: noop, removeListener: noop }));
@@ -55,7 +56,8 @@ async function open(file: string, { strict = false } = {}) {
   const fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input));
     if (url.pathname.endsWith('/__cad/catalog')) {
-      return json({ rootId: 'one', entries: [{ kind: file.split('.').pop(), file, rootRelativeFile: file, url: `/${file}`, hash: 'one', bytes: 4096 }] });
+      const kind = file.endsWith('.harness.yml') ? 'harness' : file.split('.').pop();
+      return json({ rootId: 'one', entries: [{ kind, file, rootRelativeFile: file, url: `/${file}`, hash: 'one', bytes: 4096 }] });
     }
     if (url.pathname.endsWith('/__cad/server')) return json({ rootId: 'one', rootPath: '/models', backend: 'cadgen' });
     if (url.pathname.endsWith('/__cad/plot')) return readPlot(url.searchParams.get('file') || '');
@@ -138,4 +140,14 @@ it('host commands a plot cannot answer are declined in its own words; it fits an
   const blob = await controller.capture();
   expect(blob.type).toBe('image/png');
   schematic.dispose();
+});
+
+it('a wiring harness opens in the same pane, and is called a harness drawn by WireViz', async () => {
+  const harness = await open('cable.harness.yml');
+  await opened(harness.pane);
+  expect(harness.pane.querySelector('canvas')?.getAttribute('aria-label')).toBe('Harness: cable.harness.yml');
+  const controller = await waitFor(() => { expect(harness.controller).not.toBeNull(); return harness.controller; });
+  await expect(controller.select({ selectors: ['o1.f1'] })).rejects.toThrow(/A harness is shown as the picture WireViz draws of it/);
+  await expect(controller.setRenderMode(true)).rejects.toThrow(/drawn in WireViz’s own colours/);
+  harness.dispose();
 });

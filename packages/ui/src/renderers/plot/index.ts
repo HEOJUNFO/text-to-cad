@@ -27,19 +27,23 @@ export interface PreparedPlotDocument extends PreparedWorkspaceEntry {
   services: Omit<PlotRendererOptions, 'client'> & { preferences: CadPreferenceSource };
 }
 
-/** The documents shown as their own tool's plot: a KiCad board and a KiCad schematic. */
-export const PLOT_FILE = /\.kicad_(?:pcb|sch)$/i;
+/**
+ * The documents shown as their own tool's plot: a KiCad board, a KiCad schematic, and a WireViz
+ * wiring harness (`<name>.harness.yml`; a plain `.yml` is no CAD file).
+ */
+export const PLOT_FILE = /(?:\.kicad_(?:pcb|sch)|[^/\\]\.harness\.yml)$/i;
 
 /**
- * A KiCad board or schematic is a straight 2D render: the backend has KiCad plot it to SVG
- * (`GET /__cad/plot`) and the client draws the sheets on a canvas.
+ * A KiCad board or schematic, or a wiring harness, is a straight 2D render: the backend has its
+ * own tool (KiCad, WireViz) plot it to SVG (`GET /__cad/plot`) and the client draws the sheets
+ * on a canvas.
  *
  * It declares NO panel. A plot has nothing to configure — no Display settings, no layers — so
  * the navbar shows no toggle for one, and the file tree stays the only panel its tab can open.
  * Registering loads no three.js, no viewport and no backend connection.
  *
  * It still opens a render session it never draws from, as a DXF does: that session is what
- * registers the file as OPEN with the client, which is how a rewritten board reaches this tab.
+ * registers the file as OPEN with the client, which is how a rewritten document reaches this tab.
  */
 export function createPlotRenderer({ client, ...options }: PlotRendererOptions) {
   const services = { ...options, preferences: options.preferences || createCadPreferences() };

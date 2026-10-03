@@ -13,7 +13,8 @@ import { PNG } from 'pngjs';
 // `__fixtures__/README.md`), served as `GET /__cad/plot` serves them: no KiCad, no board.
 const BOARD = JSON.parse(await readFile(new URL('./__fixtures__/board.plot.json', import.meta.url), 'utf8'));
 const SCHEMATIC = JSON.parse(await readFile(new URL('./__fixtures__/schematic.plot.json', import.meta.url), 'utf8'));
-const PLOTS = { 'blinky.kicad_pcb': BOARD, 'blinky.kicad_sch': SCHEMATIC };
+const HARNESS = JSON.parse(await readFile(new URL('./__fixtures__/harness.plot.json', import.meta.url), 'utf8'));
+const PLOTS = { 'blinky.kicad_pcb': BOARD, 'blinky.kicad_sch': SCHEMATIC, 'cable.harness.yml': HARNESS };
 const NO_KICAD = "KiCad's command line, kicad-cli, was not found: install KiCad 10 from https://www.kicad.org/download/.";
 
 // The harness renders its pane at a fixed CSS size; the spec draws it smaller.
@@ -25,7 +26,8 @@ before(async () => {
   await build({ entryPoints: [fileURLToPath(new URL('../harness/index.tsx', import.meta.url))], outfile: join(temporary, 'harness.js'), bundle: true, format: 'esm', platform: 'browser', conditions: ['production'], jsx: 'automatic', loader: { '.webp': 'dataurl', '.avif': 'dataurl', '.woff2': 'dataurl', '.svg': 'dataurl' } });
   const bundle = await readFile(join(temporary, 'harness.js'));
   const css = await readFile(new URL('../../../dist/styles.css', import.meta.url));
-  const files = ['blinky.kicad_pcb', 'blinky.kicad_sch', 'broken.kicad_pcb'];
+  const files = ['blinky.kicad_pcb', 'blinky.kicad_sch', 'cable.harness.yml', 'broken.kicad_pcb'];
+  const kindOf = file => (file.endsWith('.harness.yml') ? 'harness' : file.split('.').pop());
   server = createServer((request, response) => {
     const url = new URL(request.url, 'http://test');
     const root = url.pathname.split('/')[1];
@@ -39,7 +41,7 @@ before(async () => {
     } else if (url.pathname.endsWith('/__cad/catalog')) {
       response.setHeader('Content-Type', 'application/json');
       response.end(JSON.stringify({ rootId: root, entries: files.map(file => (
-        { kind: file.split('.').pop(), file, rootRelativeFile: file, url: `/${file}`, hash: `${root}-${file}`, bytes: 4096 })) }));
+        { kind: kindOf(file), file, rootRelativeFile: file, url: `/${file}`, hash: `${root}-${file}`, bytes: 4096 })) }));
     } else if (url.pathname.endsWith('/__cad/server')) {
       response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ rootId: root, rootPath: '/models', backend: 'cadgen' }));
     } else { response.setHeader('Content-Type', 'text/html'); response.end(`<!doctype html><html><head><link rel="stylesheet" href="/styles.css">${HARNESS_SIZE}</head><body><div id="root"></div><script type="module" src="/harness.js"></script></body></html>`); }
@@ -185,6 +187,25 @@ test('the theme is the surround only: the board keeps its own background', async
   assert.ok(darkBox.surround[0] < 110, `a dark surround: ${darkBox.surround}`);
   assert.ok(near(pixel(dark, darkBox.minX + 4, darkBox.minY + 4), hex(BOARD.sheets[0].background)), 'the board background is KiCad’s');
   assert.deepEqual([darkBox.minX, darkBox.minY, darkBox.maxX], [lightBox.minX, lightBox.minY, lightBox.maxX], 'the theme is not a camera move');
+  assert.deepEqual(errors, []);
+});
+
+test('a wiring harness is WireViz’s diagram, sized in points, on its white page', async (t) => {
+  const { page, pane, errors } = await open(t, 'cable.harness.yml');
+  const light = await frame(pane);
+  // On a dark surround the white page shows whole: fitted to Graphviz's 216 x 108 pt, centred.
+  await page.evaluate(() => document.documentElement.classList.add('dark'));
+  const image = await frame(pane, light);
+  const box = sheetBox(image);
+  assert.ok(Math.abs(box.width / box.height - 2) < 0.03, `the diagram's own aspect: ${box.width}x${box.height}`);
+  assert.ok(Math.abs(box.width - (image.width - 32)) <= 2, `fitted to the gutter: ${box.width} in ${image.width}`);
+  assert.ok(near(pixel(image, box.minX + box.width / 2, box.minY + box.height * 0.15), hex(HARNESS.sheets[0].background)), 'on WireViz’s page colour');
+  // The wire runs across the middle (y = 54 of 108 pt, x = 24..192 of 216): Graphviz's y-up
+  // transform lands it where WireViz drew it.
+  const wire = pixel(image, box.minX + box.width / 2, box.minY + box.height / 2);
+  assert.ok(red(wire), `the wire: ${wire}`);
+  assert.ok(!red(pixel(image, box.minX + box.width * 0.05, box.minY + box.height / 2)), 'and starts where the diagram starts it');
+  assert.equal(await canvasOf(pane).getAttribute('aria-label'), 'Harness: cable.harness.yml');
   assert.deepEqual(errors, []);
 });
 

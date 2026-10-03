@@ -44,7 +44,7 @@ are for reading and maintaining the contracts.
 | `TabStore`, `TabRecordStorage`, `createTabStore`, `useTabViewerState` (the tab's one store: its settings, the view of the file on screen, and `FileViewer`'s state from both) | [Tab store](../src/tab-store/tabStore.ts), [the record](../src/tab-store/tabRecord.ts) | `@text-to-cad/ui/tab-store` |
 | `CadPreferenceSource`, `createCadPreferences` (the tab's settings as renderers read them) | [Viewer preferences](../src/renderers/workspace/preferences.ts) | `@text-to-cad/ui/renderers/workspace` |
 | `DxfRendererOptions` (2D drawings; declines every camera, display and selection command) | [DXF registration](../src/renderers/dxf/index.ts) | `@text-to-cad/ui/renderers/dxf` |
-| `PlotRendererOptions` (KiCad boards and schematics, as KiCad plots them; declines every camera, display and selection command) | [Plot registration](../src/renderers/plot/index.ts) | `@text-to-cad/ui/renderers/plot` |
+| `PlotRendererOptions` (KiCad boards and schematics as KiCad plots them, wiring harnesses as WireViz draws them; declines every camera, display and selection command) | [Plot registration](../src/renderers/plot/index.ts) | `@text-to-cad/ui/renderers/plot` |
 | `GlbRendererOptions`, `LiveViewBinding`, `LiveViewController` | [GLB registration](../src/renderers/glb/index.ts), [live binding](../src/renderers/kit/shell/liveBinding.ts) | `@text-to-cad/ui/renderers/glb` |
 | `MeshRendererOptions` (STL, 3MF), `LiveViewBinding`, `LiveViewController` | [Mesh registration](../src/renderers/mesh/index.ts) | `@text-to-cad/ui/renderers/mesh` |
 | `RobotRendererOptions` (URDF, SRDF, SDF), `RobotLiveController`, `RobotLiveState` (`selectedLinks`, `selectedPartIds`) | [Robot registration](../src/renderers/robot/index.ts) | `@text-to-cad/ui/renderers/robot` |
@@ -252,8 +252,8 @@ drawn, never a timer — then draws the model framed whole from the default
 direction at the card's aspect, on its own (no floor, grid or axes, whatever the
 person turned on) and on transparency, so it suits either scheme, off to the side of the view, so
 the person's camera, panels and window never show in it and nothing on screen
-changes (`kit/viewport/thumbnail.js`; a DXF paints its fitted drawing, and a KiCad plot
-its fitted sheets, on a canvas of its own). A view that goes before it settles rejects it. `useModelThumbnail`
+changes (`kit/viewport/thumbnail.js`; a DXF paints its fitted drawing, and a plot (KiCad's,
+WireViz's) its fitted sheets, on a canvas of its own). A view that goes before it settles rejects it. `useModelThumbnail`
 keeps one per revision of a file per mounted view (a model rebuilt while it is
 open is pictured again once its new revision is drawn), and only for the file the
 view still shows.

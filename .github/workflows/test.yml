@@ -365,10 +365,10 @@ jobs:
           sudo apt-get install --yes --no-install-recommends graphviz
           dot -V
 
+      # The snapshot browser too: a harness snapshot is drawn by the CAD Viewer's plot scene.
       - name: Set up dependencies
         uses: ./.github/actions/setup-deps
         with:
-          playwright: "false"
           npm: packages/core
 
       # Pinned: a WireViz release that changes its syntax should fail here on purpose, the

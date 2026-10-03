@@ -1,6 +1,7 @@
 import {
   Bot,
   Box,
+  Cable,
   CircuitBoard,
   DraftingCompass,
   FileBox,
@@ -32,6 +33,8 @@ const ENTRY_ICON_COMPONENTS = {
   // A KiCad board is the board; its schematic, the part symbols it is drawn with.
   [ENTRY_ICON_KIND.KICAD_PCB]: CircuitBoard,
   [ENTRY_ICON_KIND.KICAD_SCH]: Microchip,
+  // A wiring harness is a cable between connectors.
+  [ENTRY_ICON_KIND.HARNESS]: Cable,
   [ENTRY_ICON_KIND.ROBOT]: Bot
 };
 

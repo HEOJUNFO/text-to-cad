@@ -27,7 +27,8 @@ export const PARAMETER_SOURCE = Object.freeze({
 
 // WHICH ASSET the viewer loads for this format. A DXF loads a DRAWING: the server's
 // flattened 2D payload, not a mesh, so every "is it loaded yet?" check has to ask about the
-// drawing. A KiCad board or schematic loads a PLOT: the SVG sheets its own tool draws.
+// drawing. A KiCad board or schematic, and a WireViz harness, load a PLOT: the SVG sheets their
+// own tool draws.
 // Loader implementations stay per-format; this only names which one.
 export const ASSET_KIND = Object.freeze({
   MESH: "mesh",
@@ -43,6 +44,7 @@ export const ENTRY_ICON_KIND = Object.freeze({
   DXF: "dxf",
   KICAD_PCB: "kicad-pcb",
   KICAD_SCH: "kicad-sch",
+  HARNESS: "harness",
   ROBOT: "robot",
   STEP: "step",
   STL_MESH: "stl-mesh",
@@ -57,8 +59,8 @@ export const ENTRY_ICON_KIND = Object.freeze({
 // than reflowing as you move between files.
 //
 // This is the place a format DECLINES a tool, and the shell reads it through
-// `supportsTool`. The flat formats are the rows that decline: a DXF drawing and a KiCad
-// plot are painted on a canvas with no toolbar over it at all, so they claim none of these
+// `supportsTool`. The flat formats are the rows that decline: a DXF drawing and a plot (KiCad's,
+// WireViz's) are painted on a canvas with no toolbar over it at all, so they claim none of these
 // rather than advertising four buttons that exist nowhere.
 const VIEWPORT_TOOLS = Object.freeze({
   select: true,
@@ -179,6 +181,13 @@ export const RENDER_CAPABILITIES = Object.freeze({
     ...DEFAULT_CAPABILITIES,
     assetKind: ASSET_KIND.PLOT,
     iconKind: ENTRY_ICON_KIND.KICAD_SCH,
+    tools: NO_VIEWPORT_TOOLS,
+  }),
+  // A wiring harness (`.harness.yml`) is a plot too: WireViz's diagram of the document.
+  [RENDER_FORMAT.HARNESS]: Object.freeze({
+    ...DEFAULT_CAPABILITIES,
+    assetKind: ASSET_KIND.PLOT,
+    iconKind: ENTRY_ICON_KIND.HARNESS,
     tools: NO_VIEWPORT_TOOLS,
   }),
   [RENDER_FORMAT.URDF]: Object.freeze({ ...DEFAULT_CAPABILITIES, ...ROBOT_CAPABILITIES }),

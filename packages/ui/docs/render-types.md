@@ -17,11 +17,11 @@ an endpoint the server does not implement.
 ## Scope
 
 This is the rule inside the STEP renderer (`src/renderers/step`). A DXF, a KiCad board
-or schematic, a GLB, a triangle mesh (STL, 3MF) and a robot description (URDF, SRDF, SDF)
+or schematic, a wiring harness, a GLB, a triangle mesh (STL, 3MF) and a robot description (URDF, SRDF, SDF)
 have renderers of their own (`src/renderers/dxf`, `src/renderers/plot`, `src/renderers/glb`,
 `src/renderers/mesh`, `src/renderers/robot`; see [CAD renderer](cad-renderer.md#kit)): a
 vertical slice owns its tools, tabs and scene outright and consults no capability table.
-The `dxf`, `kicad_pcb`, `kicad_sch`, `glb`, `stl`, `3mf`, `urdf`, `srdf` and `sdf` rows below
+The `dxf`, `kicad_pcb`, `kicad_sch`, `harness`, `glb`, `stl`, `3mf`, `urdf`, `srdf` and `sdf` rows below
 remain for what is not a renderer: the file list's icon and label. The headless snapshot renderer consults no table either: it draws
 each of those families with the scene builder its renderer uses
 ([one scene builder per family](cad-renderer.md#one-scene-builder-per-family-the-viewer-and-the-snapshot-cli)).
@@ -30,9 +30,10 @@ The DXF slice does not even have a scene: it is a canvas painted from
 `GET /__cad/drawing`, so none of the viewport capabilities below describes it — and its
 row says so, with `assetKind: drawing` and no tools. `cadgen dxf snapshot` paints the same
 payload with the same code (`@text-to-cad/core/lib/drawing2d`), so the CLI cannot produce a
-picture the pane could not. A KiCad board or schematic is the same kind of row, with
-`assetKind: plot`: a canvas painted from `GET /__cad/plot` (KiCad's SVG plot), and
-`cadgen pcb snapshot` draws it with the same `@text-to-cad/core/lib/plot2d`.
+picture the pane could not. A KiCad board or schematic, and a wiring harness, are the same
+kind of row, with `assetKind: plot`: a canvas painted from `GET /__cad/plot` (KiCad's SVG
+plot, WireViz's diagram), and `cadgen pcb snapshot` and `cadgen harness snapshot` draw it
+with the same `@text-to-cad/core/lib/plot2d`.
 
 ## The capability registry
 
@@ -43,7 +44,7 @@ format. Pure data: no behaviour, no imports beyond the format enum.
 |---|---|
 | `assetKind` | Which asset a format LOADS: `mesh`, `drawing`, `robot`. |
 | `iconKind` | The file-list glyph. |
-| `tools` | `select`, `pan`, `draw`, `orbit`, `screenshot`. Orbit and screenshot are true for every format WITH a viewport — they act on the viewport, not the geometry. `dxf`, `kicad_pcb` and `kicad_sch` claim none of them: their pane is a canvas with no toolbar over it. |
+| `tools` | `select`, `pan`, `draw`, `orbit`, `screenshot`. Orbit and screenshot are true for every format WITH a viewport — they act on the viewport, not the geometry. `dxf`, `kicad_pcb`, `kicad_sch` and `harness` claim none of them: their pane is a canvas with no toolbar over it. |
 | `parts` | Per-part selection, hiding, isolate, assembly tree. |
 | `topology` | Face/edge/vertex references. Implies `parts`. |
 | `exploded`, `displayModes`, `clip` | STEP-tier display transforms. |

@@ -166,8 +166,8 @@ src/
                    #   drawing2d/ (a GET /__cad/drawing payload -> Canvas 2D:
                    #   fit/pan/zoom maths, batched Path2D, hairline strokes),
                    #   plot2d/ (a GET /__cad/plot payload -> Canvas 2D:
-                   #   KiCad's SVG sheets laid out and drawn, drawing2d's
-                   #   view maths),
+                   #   KiCad's and WireViz's SVG sheets laid out and
+                   #   drawn, drawing2d's view maths),
                    #   export/ (packageMeshExport), cadRefs (grammar,
                    #   parity-tested against cad_ref_syntax.py)
 bin/               # node builders the bundler ships into _runtime/node:

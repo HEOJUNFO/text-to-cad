@@ -6,6 +6,7 @@ export const RENDER_FORMAT = Object.freeze({
   DXF: "dxf",
   KICAD_PCB: "kicad_pcb",
   KICAD_SCH: "kicad_sch",
+  HARNESS: "harness",
   URDF: "urdf",
   SRDF: "srdf",
   SDF: "sdf"
@@ -18,12 +19,21 @@ export const MESH_RENDER_FORMATS = Object.freeze([
 ]);
 
 // Formats the viewer shows as a PLOT: the picture the document's own tool draws of it (KiCad's
-// plot of a board or a schematic), served as SVG sheets by `GET /__cad/plot`. Like a DXF, the
-// render asset is the file itself; nothing bakes a mesh for it.
+// plot of a board or a schematic, WireViz's diagram of a wiring harness), served as SVG sheets
+// by `GET /__cad/plot`. Like a DXF, the render asset is the file itself; nothing bakes a mesh
+// for it.
 export const PLOT_RENDER_FORMATS = Object.freeze([
   RENDER_FORMAT.KICAD_PCB,
-  RENDER_FORMAT.KICAD_SCH
+  RENDER_FORMAT.KICAD_SCH,
+  RENDER_FORMAT.HARNESS
 ]);
+
+// A document whose type is TWO suffixes: `cable.harness.yml` is a wiring harness, while a plain
+// `.yml` is no CAD file at all. To everything here each is one extension, as it is to the viewer
+// server (`cadgen.viewer.content_types.COMPOUND_EXTENSIONS`), and only when a name comes before
+// it: `.harness.yml` alone is a hidden `.yml`.
+const COMPOUND_EXTENSIONS = Object.freeze([".harness.yml"]);
+const COMPOUND_FORMATS = Object.freeze({ "harness.yml": RENDER_FORMAT.HARNESS });
 
 export function normalizeFormat(value) {
   return String(value || "").trim().toLowerCase();
@@ -45,6 +55,7 @@ export function normalizeRenderFormat(value, { defaultFormat = RENDER_FORMAT.STE
     normalized === RENDER_FORMAT.DXF ||
     normalized === RENDER_FORMAT.KICAD_PCB ||
     normalized === RENDER_FORMAT.KICAD_SCH ||
+    normalized === RENDER_FORMAT.HARNESS ||
     normalized === RENDER_FORMAT.URDF ||
     normalized === RENDER_FORMAT.SRDF ||
     normalized === RENDER_FORMAT.SDF
@@ -124,6 +135,11 @@ export function fileExtensionFromPath(value, { baseUrl = "" } = {}) {
 
   const normalizedPath = pathname.toLowerCase();
   const slashIndex = normalizedPath.lastIndexOf("/");
+  const name = normalizedPath.slice(slashIndex + 1);
+  const compound = COMPOUND_EXTENSIONS.find((extension) => name.length > extension.length && name.endsWith(extension));
+  if (compound) {
+    return compound;
+  }
   const dotIndex = normalizedPath.lastIndexOf(".");
   return dotIndex > slashIndex ? normalizedPath.slice(dotIndex) : "";
 }
@@ -147,6 +163,9 @@ export function renderFormatFromExtension(extension) {
   }
   if (normalized === RENDER_FORMAT.KICAD_PCB || normalized === RENDER_FORMAT.KICAD_SCH) {
     return normalized;
+  }
+  if (Object.hasOwn(COMPOUND_FORMATS, normalized)) {
+    return COMPOUND_FORMATS[normalized];
   }
   if (normalized === "urdf") {
     return RENDER_FORMAT.URDF;

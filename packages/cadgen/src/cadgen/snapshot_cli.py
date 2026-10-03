@@ -432,7 +432,17 @@ def load_job_from_options(options: SnapshotOptions, *, cwd: Path | None = None) 
     return job
 
 
+# A document whose type is TWO suffixes, as the viewer's catalog reads it
+# (`cadgen.viewer.content_types.COMPOUND_EXTENSIONS`): `cable.harness.yml` is a wiring
+# harness, while a plain `.yml` is no input at all.
+_COMPOUND_KINDS = {".harness.yml": "harness"}
+
+
 def input_kind(file_path: Path) -> str:
+    name = file_path.name.lower()
+    for compound, kind in _COMPOUND_KINDS.items():
+        if name.endswith(compound) and len(name) > len(compound):
+            return kind
     suffix = file_path.suffix.lower()
     if suffix == ".step":
         return "step"
@@ -1574,13 +1584,13 @@ def resolve_plot_render_job(
     input_path: Path,
     **_kind_context: object,
 ) -> dict[str, object]:
-    """Resolve a KiCad board or schematic: its plot payload, on a path the page can fetch.
+    """Resolve a plot (a KiCad board or schematic, a wiring harness): its payload, on a path the page can fetch.
 
-    The page draws the SAME payload (:func:`cadgen.kicad.plot.plot_payload_bytes`)
-    the Viewer's `GET /__cad/plot` answers with: KiCad plots the document once,
-    the store caches it by the document's bytes, and the page draws its sheets
-    with the viewer's own code. The job the page sees is a `plot` job; which
-    file it came from is `inputKind`.
+    The page draws the SAME payload the Viewer's `GET /__cad/plot` answers with
+    (:func:`cadgen.kicad.plot.plot_payload_bytes`, :func:`cadgen.wireviz.plot.plot_payload_bytes`):
+    the document's tool plots it once, the store caches it by the document's
+    bytes, and the page draws its sheets with the viewer's own code. The job the
+    page sees is a `plot` job; which file it came from is `inputKind`.
     """
     payload_path = plot_payload_file(input_path)
     serve_root = payload_path.parent
@@ -1600,30 +1610,53 @@ def plot_payload_file(source: Path) -> Path:
     """The document's plot payload, written where the render can fetch it.
 
     Beside the drawings' payloads (one directory per process, removed at exit),
-    named by the payload's own content hash. A machine without KiCad, or a
-    document KiCad cannot plot, is refused with the plotter's own sentence --
-    which names the file, and for a missing KiCad, how to install it.
+    named by the payload's own content hash. A machine without the document's
+    tool, or a document it cannot plot, is refused with the plotter's own
+    sentence -- which names the file, and for a missing tool, how to install it.
     """
     from hashlib import sha256
 
     from cadgen._internal.atomic_replace import write_bytes_atomic
 
-    if input_kind(source) not in PLOT_KINDS:
-        raise SnapshotError(f"snapshot input must be a .kicad_pcb or .kicad_sch document: {source}")
+    kind = input_kind(source)
+    if kind not in PLOT_KINDS:
+        suffixes = [plot.suffix for plot in PLOT_KINDS.values()]
+        raise SnapshotError(
+            f"snapshot input must be a {', '.join(suffixes[:-1])} or {suffixes[-1]} document: {source}"
+        )
     if not source.is_file():
         raise SnapshotError(f"snapshot input does not exist: {source}")
-    from cadgen.kicad.cli import KicadRunError
-    from cadgen.kicad.install import KicadMissingError
-    from cadgen.kicad.plot import PlotError, plot_payload_bytes
-
-    try:
-        data = plot_payload_bytes(source)
-    except (KicadMissingError, KicadRunError, PlotError) as error:
-        raise SnapshotError(str(error)) from None
+    data = _plot_payload_bytes(kind, source)
     payload_path = _drawing_payload_dir() / f"{sha256(data).hexdigest()}.plot.json"
     if not payload_path.is_file():
         write_bytes_atomic(payload_path, data)
     return payload_path
+
+
+def _plot_payload_bytes(kind: str, source: Path) -> bytes:
+    """A plot's payload, from the tool that draws its kind; the tool's refusals as snapshot errors.
+
+    KiCad draws a board or a schematic (:mod:`cadgen.kicad.plot`), WireViz a wiring
+    harness (:mod:`cadgen.wireviz.plot`): the same two builders the Viewer's
+    `GET /__cad/plot` calls, each imported only when its kind is drawn.
+    """
+    from cadgen.kicad.plot import PlotError
+
+    if kind == "harness":
+        from cadgen.wireviz.install import WirevizMissingError
+        from cadgen.wireviz.plot import plot_payload_bytes
+
+        refusals: tuple[type[Exception], ...] = (WirevizMissingError, PlotError)
+    else:
+        from cadgen.kicad.cli import KicadRunError
+        from cadgen.kicad.install import KicadMissingError
+        from cadgen.kicad.plot import plot_payload_bytes
+
+        refusals = (KicadMissingError, KicadRunError, PlotError)
+    try:
+        return plot_payload_bytes(source)
+    except refusals as error:
+        raise SnapshotError(str(error)) from None
 
 
 # Kind dispatch for render-job resolution. Every resolver takes the same
@@ -1643,6 +1676,7 @@ _KINDS: dict[str, tuple[Callable[..., object], Callable[..., dict[str, object]]]
     "dxf": (check_drawing_render_job, resolve_drawing_render_job),
     "kicad_pcb": _PLOT_KIND,
     "kicad_sch": _PLOT_KIND,
+    "harness": _PLOT_KIND,
     "urdf": _ROBOT_KIND,
     "srdf": _ROBOT_KIND,
     "sdf": _ROBOT_KIND,
@@ -1660,11 +1694,13 @@ KIND_LABELS: dict[str, str] = {
     "step": ".step", "stp": ".stp",
     "glb": ".glb", "stl": ".stl", "3mf": ".3mf",
     "dxf": ".dxf",
-    "kicad_pcb": ".kicad_pcb", "kicad_sch": ".kicad_sch",
+    "kicad_pcb": ".kicad_pcb", "kicad_sch": ".kicad_sch", "harness": ".harness.yml",
     "urdf": ".urdf", "srdf": ".srdf", "sdf": ".sdf",
 }
 
-_KIND_HELP_ORDER = ("step", "stp", "3mf", "glb", "stl", "dxf", "kicad_pcb", "kicad_sch", "urdf", "srdf", "sdf")
+_KIND_HELP_ORDER = (
+    "step", "stp", "3mf", "glb", "stl", "dxf", "kicad_pcb", "kicad_sch", "harness", "urdf", "srdf", "sdf",
+)
 
 
 def enabled_kinds(kinds: Sequence[str]) -> frozenset[str]:

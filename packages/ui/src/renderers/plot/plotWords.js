@@ -1,18 +1,19 @@
 /**
- * What the plot pane calls the document on screen. A plot's `kind` (`"board"`, `"schematic"`)
- * changes WORDS and nothing else: every kind is laid out, drawn and navigated the same way.
- * Until the payload says what it is, the file's name does.
+ * What the plot pane calls the document on screen. A plot's `kind` (`"board"`, `"schematic"`,
+ * `"harness"`) changes WORDS and nothing else: every kind is laid out, drawn and navigated the
+ * same way. Until the payload says what it is, the file's name does.
  */
 
 /** Each kind's noun, and the tool whose picture of it the pane shows. */
 const KINDS = Object.freeze({
   board: Object.freeze({ noun: "board", tool: "KiCad" }),
-  schematic: Object.freeze({ noun: "schematic", tool: "KiCad" })
+  schematic: Object.freeze({ noun: "schematic", tool: "KiCad" }),
+  harness: Object.freeze({ noun: "harness", tool: "WireViz" })
 });
 const UNKNOWN = Object.freeze({ noun: "plot", tool: "its own tool" });
 
 /** The kind a file's name implies, before its payload has said. */
-const KIND_BY_NAME = [[/\.kicad_pcb$/i, "board"], [/\.kicad_sch$/i, "schematic"]];
+const KIND_BY_NAME = [[/\.kicad_pcb$/i, "board"], [/\.kicad_sch$/i, "schematic"], [/[^/\\]\.harness\.yml$/i, "harness"]];
 
 /** @param {string} path */
 export function plotKindForPath(path) {

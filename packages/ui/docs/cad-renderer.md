@@ -19,8 +19,8 @@ modules around it (see the end of [Shell](#shell)). Applications use the registr
 `src/renderers/kit` is the format-blind half of the viewer: small modules a
 renderer composes, none of which asks what it is showing. There is one renderer
 per file family, each a vertical slice over the kit: `src/renderers/dxf`
-([DXF renderer](#dxf-renderer)), `src/renderers/plot` (KiCad boards and schematics,
-[Plot renderer](#plot-renderer)), `src/renderers/glb` ([GLB renderer](#glb-renderer)),
+([DXF renderer](#dxf-renderer)), `src/renderers/plot` (KiCad boards and schematics, wiring
+harnesses, [Plot renderer](#plot-renderer)), `src/renderers/glb` ([GLB renderer](#glb-renderer)),
 `src/renderers/mesh` (STL and 3MF, [Mesh renderer](#mesh-renderer)),
 `src/renderers/robot` (URDF, SRDF and SDF, [Robot renderer](#robot-renderer)) and
 `src/renderers/step` (STEP and STP, [STEP renderer](#step-and-source-separation)). The kit imports itself, shared UI
@@ -350,18 +350,21 @@ the viewer was inventing from the file; a drawing is not that.
 
 ## Plot renderer
 
-`createPlotRenderer` (`@text-to-cad/ui/renderers/plot`, id `plot`) shows a KiCad board
-(`.kicad_pcb`) or schematic (`.kicad_sch`) as the picture KiCad draws of it. It is a
-straight render, as a DXF is: not on the shell, no three.js, no viewport, no panel, no
-Display settings, no layer toggles, no tools, no toolbar, no preview. A board's 3D is the
-STEP or GLB its model exports, which are files of their own.
+`createPlotRenderer` (`@text-to-cad/ui/renderers/plot`, id `plot`) shows a document as the
+picture its own tool draws of it: a KiCad board (`.kicad_pcb`) or schematic (`.kicad_sch`)
+as KiCad plots it, and a wiring harness (`<name>.harness.yml`; a plain `.yml` is no CAD
+file) as WireViz draws it. It is a straight render, as a DXF is: not on the shell, no
+three.js, no viewport, no panel, no Display settings, no layer toggles, no tools, no
+toolbar, no preview. A board's 3D is the STEP or GLB its model exports, which are files of
+their own.
 
 - **The picture is KiCad's.** `client.plotPayload(file)` is one `GET /__cad/plot`
   (`apps/web/docs/backend.md`): `kicad-cli` plots the document to SVG on the server — a
   board as one sheet, its layers back to front on KiCad's board background and any
   unrouted connection as a ratsnest line; a schematic as one sheet per page, root first.
-  Sheets are millimetres, y down, each on its own `background`. **This renderer never
-  parses KiCad's files**, and its colours are KiCad's own.
+  A harness is one sheet, WireViz's Graphviz diagram on WireViz's page colour. Sheets are
+  millimetres, y down, each on its own `background`. **This renderer never parses KiCad's
+  or WireViz's files**, and its colours are the tool's own.
 - **Layout and drawing are core's** (`@text-to-cad/core/lib/plot2d`), so the snapshot
   bundle draws the same picture: `layoutPlot` stacks the sheets top to bottom, each
   centred on the widest, 4% of the widest apart; `drawPlot` fills each visible sheet's
@@ -378,9 +381,9 @@ STEP or GLB its model exports, which are files of their own.
   at once. Three patches are kept, the least recently shown first out. The pane's
   `data-plot-settled` says whether the frame on screen is final, and a capture draws first.
 - **Kind is words.** The payload's `kind` names the document — "Reading board", "Updating
-  schematic…", the canvas's label, alert titles and the declined-command sentences
-  (`plot/plotWords.js`) — and changes nothing that is drawn. Until the payload arrives the
-  file's suffix says.
+  schematic…", "Harness: cable.harness.yml", alert titles and the declined-command sentences,
+  which name the tool (`plot/plotWords.js`) — and changes nothing that is drawn. Until the
+  payload arrives the file's suffix says.
 - **The surround** is the theme's `--background`, read at draw time; a theme flip repaints
   it and nothing else, since every sheet keeps its own background.
 - **Host commands, state, navbar** are the DXF pane's: `resetCamera` fits, `capture` is the
@@ -389,16 +392,20 @@ STEP or GLB its model exports, which are files of their own.
   `setDisplaySettings` and `setRenderMode` are declined in words; the view is the file view's
   camera once moved; the navbar has the file tree's toggle and nothing of the plot's.
 - **Failures.** A non-200 is the ordinary actionable card with the SERVER's sentence — a
-  machine without KiCad is told how to install it, an unreadable board why; a payload from
-  a cadgen that disagrees about `schemaVersion` gets the version alert.
-- **`cadgen pcb snapshot`** (and `cadgen snapshot` for the same suffixes) draws the same
-  payload with the same `drawPlot`, fitted to the image (`common/headlessPlotRender.js`).
-- **Fixtures and tests**: `plot/__fixtures__` holds two hand-made payloads in KiCad's shape.
+  machine without KiCad (or WireViz and Graphviz) is told how to install it, an unreadable
+  document why; a payload from a cadgen that disagrees about `schemaVersion` gets the version
+  alert.
+- **`cadgen pcb snapshot`** and **`cadgen harness snapshot`** (and `cadgen snapshot` for the
+  same suffixes) draw the same payload with the same `drawPlot`, fitted to the image
+  (`common/headlessPlotRender.js`).
+- **Fixtures and tests**: `plot/__fixtures__` holds hand-made payloads in KiCad's and
+  WireViz's shape.
   `PlotRenderer.browser.test.mjs` asserts on pixels — the fit, the board's background, a
   track's thickness and its sharp edge at 400%, a schematic's stacked sheets, the theme's
-  surround, an untainted capture, a library card's picture, the view kept on reopening, the
-  missing-KiCad card; `PlotRenderer.test.tsx` the states, the declined commands and the
-  StrictMode remount; `plotRasters.test.js` the patches.
+  surround, a harness's Graphviz sheet, an untainted capture, a library card's picture, the
+  view kept on reopening, the missing-KiCad card; `PlotRenderer.test.tsx` the states, the
+  declined commands (a harness's in WireViz's name) and the StrictMode remount;
+  `plotRasters.test.js` the patches.
 
 ## GLB renderer
 
@@ -1364,7 +1371,7 @@ effects pass reports whether a style, visibility or highlight changed
 
 Draw is the shared [drawing editor](drawing.md) (Excalidraw) laid transparently
 over the viewport. It is a STEP tool and appears on no other format: a GLB, an
-STL, a 3MF, a DXF, a KiCad board or schematic and a robot description do not offer it. (The tool itself is
+STL, a 3MF, a DXF, a KiCad board or schematic, a wiring harness and a robot description do not offer it. (The tool itself is
 the SHELL's — `kit/tools/draw`, `shell.tools.draw` — and STEP is the renderer that
 puts it on its strip; `renderers/shell-harness` also mounts it, for tests.) The
 chunk loads on the first use of the tool, and the

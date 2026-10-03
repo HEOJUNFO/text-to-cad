@@ -89,7 +89,7 @@ src/
     robot/          URDF, SRDF and SDF: Position and Links
     glb/, mesh/     GLB, and STL/3MF triangle meshes
     dxf/            2D drawings
-    plot/           KiCad boards and schematics, as KiCad plots them
+    plot/           KiCad boards and schematics, and wiring harnesses, as their tools plot them
     workspace/      a viewer file's catalog entry and document load
     harness/, shell-harness/  surfaces the browser suites drive
   primitives/       shared controls: buttons, menus, selects, sheets, tooltips, tree rows

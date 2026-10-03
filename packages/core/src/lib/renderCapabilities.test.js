@@ -13,10 +13,10 @@ import {
   supportsTool
 } from "./renderCapabilities.js";
 
-// Every format drawn in a 3D viewport. The flat formats are not: a DXF's pane and a KiCad
-// plot's are 2D canvases with no scene and no toolbar, so the viewport rules below do not
-// reach them.
-const FLAT_FORMATS = [RENDER_FORMAT.DXF, RENDER_FORMAT.KICAD_PCB, RENDER_FORMAT.KICAD_SCH];
+// Every format drawn in a 3D viewport. The flat formats are not: a DXF's pane and a plot's
+// (KiCad's, WireViz's) are 2D canvases with no scene and no toolbar, so the viewport rules
+// below do not reach them.
+const FLAT_FORMATS = [RENDER_FORMAT.DXF, RENDER_FORMAT.KICAD_PCB, RENDER_FORMAT.KICAD_SCH, RENDER_FORMAT.HARNESS];
 const VIEWPORT_FORMATS = Object.values(RENDER_FORMAT).filter(
   (format) => !FLAT_FORMATS.includes(format)
 );
@@ -62,9 +62,11 @@ test("asset kinds are known", () => {
   assert.equal(assetKindForRenderFormat(RENDER_FORMAT.URDF), ASSET_KIND.ROBOT);
   // A drawing is not a mesh and never was one: a DXF loads the backend's 2D payload.
   assert.equal(assetKindForRenderFormat(RENDER_FORMAT.DXF), ASSET_KIND.DRAWING);
-  // Nor is a plot: a KiCad board or schematic loads the SVG sheets KiCad draws of it.
+  // Nor is a plot: a KiCad board or schematic loads the SVG sheets KiCad draws of it, and a
+  // harness the diagram WireViz draws of it.
   assert.equal(assetKindForRenderFormat(RENDER_FORMAT.KICAD_PCB), ASSET_KIND.PLOT);
   assert.equal(assetKindForRenderFormat(RENDER_FORMAT.KICAD_SCH), ASSET_KIND.PLOT);
+  assert.equal(assetKindForRenderFormat(RENDER_FORMAT.HARNESS), ASSET_KIND.PLOT);
 });
 
 test("orbit and screenshot are available to every format with a viewport", () => {

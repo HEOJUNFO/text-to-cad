@@ -63,7 +63,8 @@ snapshot's own.
 ## Drawings
 
 A `.dxf` is not rendered in a scene at all, so `cadgen dxf snapshot` is the
-narrowest door, a shape only `cadgen pcb snapshot` shares. It draws the whole drawing, fitted to the image and
+narrowest door, a shape only the plot doors (`cadgen pcb snapshot` and `cadgen
+harness snapshot`) share. It draws the whole drawing, fitted to the image and
 head on, in the pens the file declares — the same picture the CAD Viewer's DXF
 pane shows, from the same server-side payload, through the same drawing code.
 What the viewer cannot show, the CLI does not render.
@@ -115,6 +116,24 @@ It takes what the drawing door takes: `TARGET`, `OUT`, `--job`, `--appearance`
 snapshot` routing a board or a schematic) that asks for a camera, a display key
 but `appearance`, a mode but `view`, a section, a scale, a view label or an
 output setting that frames a camera is refused by name with what a plot is.
+
+## Wiring harnesses
+
+A `.harness.yml` (a WireViz document) is drawn as WireViz draws it — `wireviz`, with
+Graphviz, makes the SVG — and is a plot like a board: `cadgen harness snapshot`
+takes the same shape, and refuses the same requests in a harness's words. The
+diagram (every connector with its pins and labels, every cable with its wires'
+colours, the runs between them) is one sheet on WireViz's page colour, fitted to
+the image on the appearance's background: the payload the CAD Viewer's plot pane
+shows, drawn by the same code. It takes any WireViz document, a hand-written one
+included; a document WireViz refuses fails with WireViz's reason, and a machine
+without WireViz or Graphviz is told how to install them. A plain `.yml` is not a
+harness: only the two suffixes together are.
+
+```bash
+cadgen harness snapshot cable.harness.yml review.png
+cadgen snapshot cable.harness.yml review.png --display '{"appearance": "dark"}'
+```
 
 ## Requests and OUT
 

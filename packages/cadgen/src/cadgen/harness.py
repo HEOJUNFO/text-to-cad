@@ -10,8 +10,9 @@ A harness is written as one WireViz document, ``<name>.harness.yml``, after
 its checks pass: a wire whose ends are on boards joins pins carrying the same
 net, a pin takes one wire, every colour, gauge and length is one WireViz
 reads. WireViz itself -- a separate program cadgen runs and never imports --
-draws the document for the CAD Viewer and lists its bill of materials
-(``@bom`` above ``@harness``, or ``cadgen bom build``).
+draws the document for the CAD Viewer and ``harness.snapshot`` (``cadgen
+harness snapshot``) and lists its bill of materials (``@bom`` above
+``@harness``, or ``cadgen bom build``).
 
 Import discipline: nothing here pulls in OCP or runs WireViz at module scope.
 """
@@ -19,10 +20,14 @@ Import discipline: nothing here pulls in OCP or runs WireViz at module scope.
 from __future__ import annotations
 
 from cadgen._internal.format_namespace import callable_namespace
+from cadgen._internal.snapshot_door import plot_snapshot_verb
 
-__all__ = ["Cable", "Connector", "Harness", "HarnessError", "Pin", "Wire"]
+__all__ = ["Cable", "Connector", "Harness", "HarnessError", "Pin", "Wire", "snapshot"]
 
-_DESIGN = frozenset(__all__)
+_DESIGN = frozenset({"Cable", "Connector", "Harness", "HarnessError", "Pin", "Wire"})
+
+#: ``cadgen harness snapshot``'s verb: a harness document drawn as WireViz draws it, as the viewer draws it.
+snapshot = plot_snapshot_verb("harness")
 
 
 def __getattr__(name: str):

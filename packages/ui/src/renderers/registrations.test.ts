@@ -39,15 +39,17 @@ describe("viewer renderer registrations", () => {
     expect(["fullscreen", "preview", "previewing"].some(key => key in dxf || key in step)).toBe(false);
   });
 
-  it("gives a KiCad board and schematic their own renderer, which the STEP renderer leaves alone", () => {
+  it("gives a KiCad board and schematic, and a wiring harness, their own renderer, which the STEP renderer leaves alone", () => {
     const plot = createPlotRenderer({ client });
     const step = createStepRenderer({ client });
     const dxf = createDxfRenderer({ client });
     expect(plot.id).toBe("plot");
     // A catalog lists every file as `cad`: the suffix is what decides, never the media type.
-    for (const path of ["boards/blinky.kicad_pcb", "boards/blinky.kicad_sch", "BLINKY.KICAD_PCB"]) {
+    for (const path of ["boards/blinky.kicad_pcb", "boards/blinky.kicad_sch", "BLINKY.KICAD_PCB", "harness/cable.harness.yml"]) {
       expect(selectRenderer([step, dxf, plot], file(path, "cad"))).toBe(plot);
     }
+    // A harness is the two suffixes together: a plain YAML file is no plot.
+    expect(plot.matches(file("config.yml", "cad"))).toBe(false);
     expect("panels" in plot).toBe(false);
   });
 

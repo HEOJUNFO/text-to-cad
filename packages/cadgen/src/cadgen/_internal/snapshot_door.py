@@ -8,7 +8,7 @@ the loaders the verb already uses; library-side a real dict through the same
 parameter — so the signature IS the surface and ``cli_from_function`` derives
 the CLI exactly as it does for ``build`` and ``validate``.
 
-Four signature shapes cover the eight doors honestly (the old shared
+Four signature shapes cover the nine doors honestly (the old shared
 signature advertised STEP-only options to every door and refused them at
 runtime):
 
@@ -18,8 +18,9 @@ runtime):
 - dxf: a DRAWING, not a scene. Where, how big, and light or dark — nothing
   else, because a flat 2D drawing has no camera to pose, no surfaces to
   shade and no parts to list.
-  The pcb door's PLOT — a KiCad board or schematic, as KiCad draws it — is
-  as flat, and takes the same shape: light or dark is the surround.
+  The pcb and harness doors' PLOT — a KiCad board or schematic as KiCad
+  draws it, a wiring harness as WireViz draws it — is as flat, and takes the
+  same shape: light or dark is the surround.
 
 The polymorphic ``cadgen snapshot`` binds the UNION shape (STEP surface +
 ``joint_values``) over every kind at once: a job packet may mix formats, and
@@ -49,6 +50,7 @@ DOOR_KINDS: dict[str, tuple[str, ...]] = {
     "glb": ("glb",),
     "dxf": ("dxf",),
     "pcb": ("kicad_pcb", "kicad_sch"),
+    "harness": ("harness",),
     "urdf": ("urdf",),
     "srdf": ("srdf",),
     "sdf": ("sdf",),
@@ -440,29 +442,35 @@ def drawing_snapshot_verb(door: str):
 
 # --- what a plot is not -------------------------------------------------------
 # A PLOT is a document drawn by its own tool: a KiCad board or schematic, as
-# `kicad-cli` plots it, its sheets fitted to the image -- the picture the CAD
-# Viewer's plot pane shows (`GET /__cad/plot`). It is as flat as a drawing, and
-# refused the same requests in its own words: per input kind for a job packet
+# `kicad-cli` plots it, or a wiring harness, as WireViz draws it, its sheets
+# fitted to the image -- the picture the CAD Viewer's plot pane shows
+# (`GET /__cad/plot`). It is as flat as a drawing, and refused the same requests
+# in its own words: per input kind for a job packet
 # (`cadgen.snapshot_cli.check_plot_render_job`), per door for the help text.
 
 class PlotKind(NamedTuple):
-    """How a refusal speaks of one kind of plot."""
+    """How a refusal speaks of one kind of plot, and the file suffix that is one."""
 
     is_: str  # What it IS: every refusal about one opens with it.
     noun: str  # "a KiCad board"
     plural: str  # "KiCad boards"
+    suffix: str  # ".kicad_pcb"
 
 
 #: Every plotted input kind, and the words for it.
 PLOT_KINDS: dict[str, PlotKind] = {
     "kicad_pcb": PlotKind(
         "a KiCad board is drawn as KiCad plots it, flat, fitted to the image",
-        "a KiCad board", "KiCad boards",
+        "a KiCad board", "KiCad boards", ".kicad_pcb",
     ),
     "kicad_sch": PlotKind(
         "a KiCad schematic is drawn as KiCad plots it, its sheets one under another, "
         "fitted to the image",
-        "a KiCad schematic", "KiCad schematics",
+        "a KiCad schematic", "KiCad schematics", ".kicad_sch",
+    ),
+    "harness": PlotKind(
+        "a wiring harness is drawn as WireViz draws it, flat, fitted to the image",
+        "a wiring harness", "wiring harnesses", ".harness.yml",
     ),
 }
 #: What each plot door draws, said in its help: the paragraph after the summary.
@@ -472,6 +480,12 @@ PLOT_DOOR_PICTURES: dict[str, str] = {
         "KiCad's board background, with any unrouted connection as a ratsnest line; a "
         "schematic's sheets one under another, root first — fitted to the image, on the "
         "appearance's background. Needs KiCad installed."
+    ),
+    "harness": (
+        "A wiring harness document is drawn as WireViz draws it — every connector with "
+        "its pins and labels, every cable with its wires' colours, and the runs between "
+        "them, on WireViz's page — fitted to the image, on the appearance's background. "
+        "Needs WireViz and Graphviz installed."
     ),
 }
 #: The one display key that survives, said of a plot.
@@ -488,7 +502,8 @@ def plot_snapshot_verb(door: str):
     The drawing's shape exactly: where, how big, and light or dark. A plot is
     its tool's own picture of the document (KiCad's of a board, every layer on
     KiCad's board background with its unrouted connections as a ratsnest, or of
-    a schematic, its sheets root first, one under another), fitted to the image.
+    a schematic, its sheets root first, one under another; WireViz's of a wiring
+    harness), fitted to the image.
     So no ``camera`` (nothing to pose), no ``display`` (no surfaces, lighting or
     render mode: the colours are the tool's), no ``mode`` (nothing to list or
     section) and no ``view_labels`` (no view to name). ``appearance`` is the
@@ -501,7 +516,7 @@ def plot_snapshot_verb(door: str):
     """
     kinds = DOOR_KINDS[door]
     picture = PLOT_DOOR_PICTURES[door]
-    suffixes = ", ".join(f".{kind}" for kind in kinds)
+    suffixes = ", ".join(PLOT_KINDS[kind].suffix for kind in kinds)
 
     @_track_explicit_options
     def snapshot(
@@ -734,8 +749,9 @@ def polymorphic_snapshot_verb():
         """Render any supported input, routed by suffix.
 
         target: the document to render — STEP/STP, STL/3MF/GLB, DXF, a KiCad
-            board or schematic, or a robot description (URDF/SRDF/SDF). Run
-            model scripts first, then snapshot the document they write.
+            board or schematic, a wiring harness (.harness.yml), or a robot
+            description (URDF/SRDF/SDF). Run model scripts first, then
+            snapshot the document they write.
         out: destination path, written EXACTLY there — .png (a STEP section
             also writes .svg, a STEP --video writes .mp4/.gif) — or a directory
             for a generated timestamped name. A refused request leaves an
@@ -743,23 +759,23 @@ def polymorphic_snapshot_verb():
         job: a render-job JSON file — one job, an array of them, or
             {"jobs": [...]}; jobs may mix formats. When given it wins, and the
             other flags override every job in it.
-        mode: view (default), section (STEP only), or list (not DXF or
-            KiCad: a drawing or a plot has no parts to list).
+        mode: view (default), section (STEP only), or list (not a DXF or a
+            plot — KiCad, harness: a drawing or a plot has no parts to list).
         section: where a STEP --mode section cuts, as PLANE[:OFFSET] — XY, XZ
             or YZ, offset along the plane's normal in model units: XZ:12.5.
         camera: a preset (front, back, left, right, top, bottom, iso), an
             "azimuth:elevation" pair, or camera JSON;
             orthographicHalfHeight preserves an orthographic view's scale.
             Projection and focalLength (20..200 mm) belong in display.camera.
-            A DXF or a KiCad plot is drawn flat and head on, and refuses a
-            camera.
+            A DXF or a plot (KiCad, harness) is drawn flat and head on, and
+            refuses a camera.
         display: solid (default), render, xray, hidden-line, wireframe or grid, grouped
             display JSON, or a JSON file path. appearance defaults to light.
             Omitted groups inherit the preset. edges, clip, exploded, the xray,
             hidden-line and wireframe modes and the hidden/off surface styles
             describe a STEP model; every other input takes solid or render. A
-            DXF or a KiCad plot takes appearance alone (`--appearance` on
-            `cadgen dxf snapshot` and `cadgen pcb snapshot`).
+            DXF or a plot takes appearance alone (`--appearance` on `cadgen
+            dxf snapshot`, `cadgen pcb snapshot` and `cadgen harness snapshot`).
         kinematics: pose values for a STEP model's kinematics — a preset
             name or {dof: value} JSON; available in every display mode.
         animation: one still frame of a STEP model's clip — the clip name
