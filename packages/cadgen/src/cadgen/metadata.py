@@ -43,6 +43,32 @@ class GeneratorMetadata:
     # the outputs, at ``pcb_out_target`` (else the sibling ``<name>.kicad_pcb``).
     board: bool = False
     pcb_out_target: str | None = None
+    # Declared manufacturing exports of a board (@gerber/@bom/@pos).
+    fab_exports: "tuple[FabExportDecl, ...]" = ()
+
+
+@dataclass(frozen=True)
+class FabExportDecl:
+    """One declared manufacturing export of a board: ``@gerber``, ``@bom`` or ``@pos``.
+
+    ``out`` is the raw script-relative target, ``None`` meaning the sibling of the
+    board file (``board.gerbers.zip``, ``board.bom.csv``, ``board.pos.csv``)."""
+
+    fmt: str
+    out: str | None = None
+
+
+#: The file a manufacturing export writes beside its board by default.
+FAB_SUFFIX = {"gerber": ".gerbers.zip", "bom": ".bom.csv", "pos": ".pos.csv"}
+
+
+def fab_output_path(script_path: Path | str, decl: "FabExportDecl", board_file: Path) -> Path:
+    """Where a declared manufacturing export lands (``out=`` resolves against the script)."""
+    if decl.out:
+        target = Path(decl.out)
+        return (target if target.is_absolute() else Path(script_path).resolve().parent / target).resolve()
+    stem = board_file.name[: -len(".kicad_pcb")] if board_file.name.endswith(".kicad_pcb") else board_file.stem
+    return board_file.with_name(stem + FAB_SUFFIX[decl.fmt]).resolve()
 
 
 @dataclass(frozen=True)
@@ -161,6 +187,9 @@ def declared_output_paths(script_path: Path | str, *, function: str | None = Non
                     function=metadata.entry_function,
                 )
                 outputs.extend(board_file.with_suffix(suffix) for suffix in PCB_PROJECT_SUFFIXES)
+                outputs.extend(
+                    fab_output_path(script, decl, board_file) for decl in getattr(metadata, "fab_exports", ()) or ()
+                )
             if fmt == "pcb":
                 continue
             primary = resolve_model_output_path(
@@ -400,6 +429,7 @@ def parse_generator_metadata(script_path: Path, function: str | None = None) -> 
         animation=defn.animation,
         board=bool(getattr(defn, "board", False)),
         pcb_out_target=getattr(defn, "pcb_out", None),
+        fab_exports=tuple(getattr(defn, "fab_exports", ()) or ()),
     )
 
 

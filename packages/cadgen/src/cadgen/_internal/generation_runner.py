@@ -405,13 +405,18 @@ def _write_pcb_project(
     script_path: Path,
     logger: CliLogger,
     progress: object | None = None,
+    fab_exports: Sequence[object] = (),
 ) -> BoardWritten:
     """Check a ``@pcb`` return with KiCad and write its project, or write nothing.
 
     KiCad fills the zones and runs ERC and DRC (with the schematic-to-board
     parity check) on a staged copy first. Any error fails the build before a
     byte reaches the output folder; warnings and unrouted connections are
-    reported, and a board with unrouted connections is written as a draft.
+    reported, and a board with unrouted connections is written as a draft --
+    unless it declares a manufacturing export (``@gerber``/``@pos``), which a
+    draft cannot have: then the build fails, naming what is left to route.
+    The declared exports are written after the project, from the files just
+    written.
     """
     from cadgen._internal.atomic_replace import write_bytes_atomic
     from cadgen.kicad.check import build_board, is_blocking
@@ -437,6 +442,16 @@ def _write_pcb_project(
         raise RuntimeError(
             f"{label}: KiCad found {len(errors)} error(s), so nothing was written:\n  {listed}"
         )
+    from cadgen.kicad.fab import MANUFACTURING
+
+    manufacturing = sorted({getattr(decl, "fmt", "") for decl in fab_exports} & MANUFACTURING)
+    if manufacturing and built.unrouted:
+        listed = "\n  ".join(finding.render() for finding in built.findings if finding.check == "unconnected")
+        raise RuntimeError(
+            f"{label}: the board has {built.unrouted} unrouted connection(s), so nothing was written: "
+            f"{' and '.join('@' + fmt for fmt in manufacturing)} write manufacturing files only for a finished board. "
+            f"Route these, or drop {' and '.join('@' + fmt for fmt in manufacturing)} while the board is a draft:\n  {listed}"
+        )
     from cadgen.coordination.kinds import PHASE_WRITE
 
     resolve_progress(progress).phase(PHASE_WRITE)
@@ -447,6 +462,16 @@ def _write_pcb_project(
         write_bytes_atomic(target, text.encode("utf-8"))
         written.append(target)
     logger.debug(f"wrote KiCad project: {_display_path(output_path)}")
+    if fab_exports:
+        from cadgen.kicad.fab import export
+        from cadgen.metadata import fab_output_path
+
+        for decl in fab_exports:
+            target = fab_output_path(script_path, decl, output_path.resolve())
+            target.parent.mkdir(parents=True, exist_ok=True)
+            write_bytes_atomic(target, export(decl.fmt, output_path))
+            written.append(target)
+            logger.info(f"wrote {decl.fmt.upper()}: {_display_path(target)}")
     return BoardWritten(paths=tuple(written), unrouted=built.unrouted, warnings=len(built.warnings))
 
 
@@ -689,7 +714,8 @@ def _run_script_generator_body(
         # builds from it -- the model's geometry, and so its tree.
         frame.wait_children()
         board_written = _write_pcb_project(
-            raw_payload, output_path=spec.pcb_path, script_path=spec.script_path, logger=logger, progress=progress
+            raw_payload, output_path=spec.pcb_path, script_path=spec.script_path, logger=logger, progress=progress,
+            fab_exports=getattr(spec.generator_metadata, "fab_exports", ()) or (),
         )
         from cadgen.kicad.solid import board_solid
 
@@ -751,7 +777,8 @@ def _run_script_generator_body(
             raise RuntimeError(f"{spec.source_ref} has no configured board output")
         frame.wait_children()
         board_written = _write_pcb_project(
-            raw_payload, output_path=spec.pcb_path, script_path=spec.script_path, logger=logger, progress=progress
+            raw_payload, output_path=spec.pcb_path, script_path=spec.script_path, logger=logger, progress=progress,
+            fab_exports=getattr(spec.generator_metadata, "fab_exports", ()) or (),
         )
         # A board is a model like a drawing: no tree, its three KiCad files as the
         # outputs, and the board file's entry carrying how much is left to route.

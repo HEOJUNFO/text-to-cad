@@ -65,13 +65,16 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from cadgen.kinematics import KinematicsDef, normalize_kinematics
-from cadgen.metadata import MeshExportDecl, normalize_mesh_numeric, resolve_model_output_path
+from cadgen.metadata import FabExportDecl, MeshExportDecl, normalize_mesh_numeric, resolve_model_output_path
 from cadgen.store.index import model_ref
 
 __all__ = [
     "step",
     "dxf",
     "pcb",
+    "gerber",
+    "bom",
+    "pos",
     "stl",
     "glb",
     "threemf",
@@ -281,6 +284,8 @@ class ModelDef:
     # board, so assemblies compose it like any part.
     board: bool = False
     pcb_out: str | None = None
+    # A board's declared manufacturing exports (@gerber/@bom/@pos).
+    fab_exports: tuple[FabExportDecl, ...] = ()
     # (mtime_ns, size) of the script when this definition was registered: the
     # metadata reader reuses the entry while the file on disk is those bytes.
     stamp: tuple[int, int] | None = None
@@ -531,6 +536,7 @@ def _decorator(
         if prior is not None:
             prior = _REGISTRY.get(prior.ref, prior)  # the registry is authoritative
         board, pcb_out = False, None
+        fab_exports: tuple[FabExportDecl, ...] = ()
         if prior is not None and not prior.step_output:
             # A mesh decorator (or @pcb) BELOW this one already declared the function a
             # model without a STEP (and handed back its wrapper). @step takes the RAW
@@ -547,6 +553,7 @@ def _decorator(
             pending = prior.mesh_exports
             func = prior.func
             board, pcb_out = prior.board, prior.pcb_out
+            fab_exports = prior.fab_exports
         _validate_signature(func, fmt=fmt)
         script_path = _script_path_of(func)
         if animation_def is not None:
@@ -572,6 +579,7 @@ def _decorator(
             step_output=step_output,
             board=board,
             pcb_out=pcb_out,
+            fab_exports=fab_exports,
             stamp=_script_stamp(script_path),
         )
         _register(defn)
@@ -762,6 +770,57 @@ def _apply_pcb(target: Callable[..., Any], pcb_out: str | None) -> Callable[...,
     _register(defn)
     func.__cadgen_model__ = defn  # type: ignore[attr-defined]
     return _model_wrapper(func, defn)
+
+
+def _fab_export_decorator(fmt: str):
+    """Factory for ``@gerber``/``@bom``/``@pos``: a manufacturing export of a board.
+
+    They stack ABOVE ``@pcb`` (decorators apply bottom-up, so the board is a model
+    by the time they see it) and only on a board. A declared export is written on
+    every build, from the board KiCad just checked; ``@gerber`` and ``@pos`` refuse
+    a board with unrouted connections, which fails the build.
+    """
+    from dataclasses import replace as _replace
+
+    required = ".zip" if fmt == "gerber" else ".csv"
+
+    def decorator_factory(func: Callable[..., Any] | None = None, *, out: str | None = None, **unsupported: Any):
+        with _declaring_here():
+            _reject_unknown_kwargs(fmt, unsupported)
+            out = _checked_out(out, where=f"@{fmt}")
+            if out is not None and not out.lower().endswith(required):
+                raise ValueError(f"@{fmt} out= must end with '{required}': {out!r}")
+        decl = FabExportDecl(fmt=fmt, out=out)
+
+        def attach(target: Callable[..., Any]) -> Callable[..., Any]:
+            with _declaring(target):
+                existing: ModelDef | None = getattr(target, "__cadgen_model__", None)
+                if existing is None:
+                    raise ValueError(
+                        f"@{fmt} goes ABOVE @pcb: decorators apply bottom-up, so write\n"
+                        f"    @{fmt}\n    @pcb\n    def {getattr(target, '__name__', 'board')}(): ..."
+                    )
+                existing = _REGISTRY.get(existing.ref, existing)
+                if not existing.board:
+                    raise ValueError(
+                        f"@{fmt} exports a @pcb board's manufacturing files; {existing.name}() is a @{existing.fmt} model"
+                    )
+                if any(d.fmt == fmt for d in existing.fab_exports):
+                    raise ValueError(f"@{fmt} is declared twice on {existing.name}()")
+                updated = _replace(existing, fab_exports=(decl, *existing.fab_exports))
+                _REGISTRY[updated.ref] = updated
+                target.__cadgen_model__ = updated  # type: ignore[attr-defined]
+                return target
+
+        return attach(func) if func is not None else attach
+
+    decorator_factory.__name__ = fmt
+    return decorator_factory
+
+
+gerber = _fab_export_decorator("gerber")
+bom = _fab_export_decorator("bom")
+pos = _fab_export_decorator("pos")
 
 
 _MESH_FMT_DECORATOR = {"stl": "stl", "glb": "glb", "3mf": "threemf"}
