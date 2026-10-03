@@ -313,9 +313,14 @@ class Part:
         raise DesignError(f"{self.ref} ({self.symbol.lib_id}) has no pin {text!r}; its pins are {listing}")
 
     def _pad_position(self, pad) -> tuple[float, float]:
+        return self._local_to_board(pad.x, pad.y)
+
+    def _local_to_board(self, x: float, y: float) -> tuple[float, float]:
+        """A point of the footprint as its library draws it (y down), where it lands on the board (y up)."""
         placement = self._require_placement()
-        # Library pads are y-down (KiCad's footprint frame); the board's frame is y-up.
-        local_x, local_y = pad.x, (pad.y if placement.side == "bottom" else -pad.y)
+        # Library footprints are y-down (KiCad's footprint frame); the board's frame is y-up,
+        # and a bottom part is flipped top-to-bottom in its own frame first, as KiCad flips it.
+        local_x, local_y = x, (y if placement.side == "bottom" else -y)
         angle = math.radians(placement.rotation)
         cos, sin = math.cos(angle), math.sin(angle)
         return (

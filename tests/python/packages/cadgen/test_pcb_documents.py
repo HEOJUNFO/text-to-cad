@@ -150,6 +150,23 @@ class PcbDocumentsTest(unittest.TestCase):
         self.assertIn("TX{slash}RX", labels)
         self.assertEqual(board.net("TX/RX").name, "TX/RX")  # the script keeps its own name
 
+    def test_a_footprints_zone_lands_where_its_pads_do(self) -> None:
+        # KiCad stores a placed footprint's zone in board coordinates, not the footprint's own:
+        # a keepout corner drawn on pad 1's centre must land on pad 1, whatever the placement.
+        from cadgen.kicad.board_writer import Frame
+
+        for side, rotation in (("top", 0), ("top", 90), ("bottom", 30)):
+            board = self.board()
+            part = board.part("Test:FIDUCIAL", footprint="Test:ZONED", ref="FID1")
+            board.no_connect(part[1])
+            board.place(part, at=(-12, 6), rotation=rotation, side=side)
+            texts = project_texts(board, name="amp")
+            zone = sexpr.find(_footprint(texts.pcb_tree, "FID1"), "zone")
+            corners = [tuple(point[1:3]) for point in sexpr.find_all(sexpr.find(sexpr.find(zone, "polygon"), "pts"), "xy")]
+            frame = Frame.for_outline(board.outline)
+            self.assertEqual(corners[0], frame.point(part[1].position), (side, rotation))
+            self.assertEqual(sexpr.find(zone, "layers")[1], "B.Cu" if side == "bottom" else "F.Cu")
+
     def test_the_bill_of_materials_flag_is_the_symbols(self) -> None:
         # KiCad's update from the schematic gives a footprint its symbol's "exclude from BOM",
         # whatever the library footprint said; otherwise its parity check reports the mismatch.

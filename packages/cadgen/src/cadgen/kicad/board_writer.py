@@ -220,6 +220,17 @@ def _toggle_mirror(node: list) -> None:
         justify.append(Sym("mirror"))
 
 
+def _place_points(node: list, place) -> None:
+    """Every point under ``node`` (a polygon's ``xy``, an arc's ``start``/``mid``/``end``), moved by ``place``."""
+    for child in node[1:]:
+        if not isinstance(child, list) or not child:
+            continue
+        if child[0] in ("xy", "start", "mid", "end") and len(child) >= 3 and isinstance(child[1], (int, float)):
+            child[1], child[2] = place(float(child[1]), float(child[2]))
+        else:
+            _place_points(child, place)
+
+
 def _mirror_points(node: list) -> None:
     """y -> -y for every coordinate in ``node`` and below (a footprint-frame flip)."""
     for child in node[1:]:
@@ -329,7 +340,20 @@ def _place_footprint(
                     layers[1:] = [_flip_layer(str(layer)) for layer in layers[1:]]
                 local_angle = -local_angle
             _set_angle(item, local_angle + placement.rotation)
-        elif head in _TEXT_HEADS or head.startswith("fp_") or head in {"zone", "dimension", "image", "group"}:
+        elif head == "zone":
+            # Unlike its pads and graphics, a footprint's zone (an antenna keepout, say) is stored
+            # in the board's own coordinates once placed: move each corner as its pads move.
+            _set_uuid(item, ids(f"footprint:{part.ref}:item:{item_counter}"))
+            item_counter += 1
+            _place_points(item, lambda x, y: frame.point(part._local_to_board(x, y)))
+            if bottom:
+                layer = sexpr.find(item, "layer")
+                if layer is not None:
+                    layer[1] = _flip_layer(str(layer[1]))
+                layers = sexpr.find(item, "layers")
+                if layers is not None:
+                    layers[1:] = [_flip_layer(str(entry)) for entry in layers[1:]]
+        elif head in _TEXT_HEADS or head.startswith("fp_") or head in {"dimension", "image", "group"}:
             _set_uuid(item, ids(f"footprint:{part.ref}:item:{item_counter}"))
             item_counter += 1
             if bottom:

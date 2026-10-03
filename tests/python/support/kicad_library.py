@@ -17,8 +17,9 @@ folder that a ``Board``/``Circuit`` takes as ``libraries=``:
 - ``power:PWR_FLAG``: the flag a board's schematic puts on a net powered from
   off the board (KiCad's own is in its ``power`` library; this one stands in).
 - footprints ``Test:R_0603`` (pads 1, 2 at x = -/+0.825), ``Test:SOT4``
-  (pads 1-4), ``Test:ONE_PAD`` (pad 1 only) and ``Test:TEST_PAD`` (pad 1,
-  excluded from the BOM and position files, as KiCad's test points are).
+  (pads 1-4), ``Test:ONE_PAD`` (pad 1 only), ``Test:TEST_PAD`` (pad 1,
+  excluded from the BOM and position files, as KiCad's test points are) and
+  ``Test:ZONED`` (pad 1 at (1, 0) and a keepout zone with a corner on it).
 """
 
 from __future__ import annotations
@@ -98,6 +99,15 @@ FOOTPRINTS = {
     "SOT4": _footprint("SOT4", _pad("1", -1.5, -0.95) + _pad("2", 1.5, -0.95) + _pad("3", -1.5, 0.95) + _pad("4", 1.5, 0.95)),
     "ONE_PAD": _footprint("ONE_PAD", _pad("1", 0, 0)),
     "TEST_PAD": _footprint("TEST_PAD", _pad("1", 0, 0)).replace("(attr smd)", "(attr smd exclude_from_pos_files exclude_from_bom)"),
+    # A keepout drawn from pad 1's centre, as an RF module's antenna keepout is drawn.
+    "ZONED": _footprint(
+        "ZONED",
+        _pad("1", 1, 0)
+        + '(zone (net 0) (net_name "") (layers "F.Cu") (name "KEEP") (hatch edge 0.5) (connect_pads (clearance 0))'
+        " (min_thickness 0.25) (filled_areas_thickness no)"
+        " (keepout (tracks not_allowed) (vias not_allowed) (pads allowed) (copperpour not_allowed) (footprints allowed))"
+        " (fill (thermal_gap 0.5) (thermal_bridge_width 0.5)) (polygon (pts (xy 1 0) (xy 3 0) (xy 3 2) (xy 1 2))))",
+    ),
 }
 
 
