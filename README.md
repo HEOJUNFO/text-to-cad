@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://github.com/earthtojake/text-to-cad/raw/f62f86746a9c74bab08f8e68d0fb76ba68dc3c86/apps/docs/public/brand/logo-texttocad.png" alt="text-to-cad" width="800">
+<img src="https://github.com/earthtojake/text-to-cad/raw/4d420edd14f75bede5e94dd83fbf6d6ed1542236/apps/docs/public/brand/logo-texttocad.png" alt="text-to-cad" width="800">
 
 Give your agent CAD superpowers.
 
@@ -80,8 +80,10 @@ only skills still present in the checkout.
 
 ### Plugins
 
-Provider-native plugin installs are also available for Codex, Claude Code, and
-Grok Build:
+Provider-native plugin installs are also available for Codex, Claude Code,
+Cursor and Grok Build. Each installs from `main`, whose root carries every
+host's manifest. The `plugin` branch is the same plugin without the rest of the
+repository, updated on each release; the plugin directories follow it.
 
 ```bash
 # Codex (requires Codex 0.142.0 or newer)
@@ -127,13 +129,24 @@ the [latest release](https://pypi.org/project/cadgen/) and restart the app.
 ```json
 {
   "mcpServers": {
-    "cad": { "command": "uvx", "args": ["--no-config", "--from", "cadgen==0.7.10", "cadgen", "mcp"] }
+    "cad": { "command": "uvx", "args": ["--no-config", "--from", "cadgen==0.7.11", "cadgen", "mcp"] }
   }
 }
 ```
 
-Grok Build uses the existing `.claude-plugin/marketplace.json`; there is no
-separate Grok plugin manifest.
+```bash
+# Cursor
+git clone --depth 1 https://github.com/earthtojake/text-to-cad ~/.cursor/plugins/local/text-to-cad
+```
+
+Cursor reads `.cursor-plugin/plugin.json`: restart Cursor after cloning, and
+`git pull` in that folder to update. Add `--branch plugin` to clone only the
+plugin. Teams can instead import the repository under **Dashboard → Plugins &
+MCPs → Team Marketplaces**. Like the other plugins it starts CAD's server, which
+runs locally through [uv](https://docs.astral.sh/uv/).
+
+Grok Build reads the Claude plugin manifest; there is no separate Grok plugin
+manifest. Append `@plugin` to the source to install only the plugin.
 
 ```bash
 # Grok Build
@@ -143,7 +156,7 @@ grok plugin enable text-to-cad
 
 Restart your agent if newly installed skills do not appear. For local
 development, branch from `main`, open PRs against `main`, and follow
-[CONTRIBUTING.md](https://github.com/earthtojake/text-to-cad/blob/f62f86746a9c74bab08f8e68d0fb76ba68dc3c86/CONTRIBUTING.md).
+[CONTRIBUTING.md](https://github.com/earthtojake/text-to-cad/blob/4d420edd14f75bede5e94dd83fbf6d6ed1542236/CONTRIBUTING.md).
 
 ### Usage analytics
 
@@ -180,4 +193,4 @@ repository can do.
 
 Branch from `main` and open PRs against `main`.
 For local contribution workflow, skill linking, and validation guidance, see
-[CONTRIBUTING.md](https://github.com/earthtojake/text-to-cad/blob/f62f86746a9c74bab08f8e68d0fb76ba68dc3c86/CONTRIBUTING.md).
+[CONTRIBUTING.md](https://github.com/earthtojake/text-to-cad/blob/4d420edd14f75bede5e94dd83fbf6d6ed1542236/CONTRIBUTING.md).

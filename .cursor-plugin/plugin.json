@@ -23,6 +23,7 @@
     "sdf",
     "gcode"
   ],
+  "logo": ".claude-plugin/icon.png",
   "skills": "./skills/",
   "mcpServers": "./claude.mcp.json"
 }
