@@ -3,9 +3,10 @@
 Two boards from the tiny test library and a harness between their connectors,
 in a fresh folder. A harness build checks and writes its WireViz document,
 then is current; a board's edit reaches it (the board script is its source);
-a swapped connection fails and writes nothing; a board with a 3D export is
-refused at the call. WireViz only draws and lists a document, so none of this
-needs it (tests/python/packages/harness does).
+a swapped connection fails and writes nothing; a board with a 3D export gives
+a harness its netlist all the same, and a part, which has none, is refused at
+the call. WireViz only draws and lists a document, so none of this needs it
+(tests/python/packages/harness does).
 """
 
 from __future__ import annotations
@@ -112,14 +113,23 @@ class HarnessBuildTest(unittest.TestCase):
         self.assertIn("DRV_J1 carries VBUS on pin 2", failed.stderr)
         self.assertFalse((self.folder / "cable.harness.yml").exists())
 
-    def test_a_board_with_a_3d_export_is_refused_at_the_call(self) -> None:
+    def test_a_board_with_a_3d_export_gives_its_netlist_and_a_part_is_refused(self) -> None:
+        # The driver is a part to its enclosure (it has a 3D export); a harness still reads its netlist.
         self.board("controller", "VBUS", "GND")
         self.board("driver", "GND", "VBUS", decorators="@step\n@pcb", imports="pcb, step")
         self.cable()
+        built = self.run_script()
+        self.assertEqual(built.returncode, 0, built.stderr)
+        self.assertIn('    - "DRV_J1": [2, 1]\n', (self.folder / "cable.harness.yml").read_text(encoding="utf-8"))
+        # A part has no netlist to read.
+        (self.folder / "driver.py").write_text(
+            "from cadgen import build123d as bd\nfrom cadgen import step\n\n\n@step\ndef driver():\n    return bd.Box(1, 1, 1)\n",
+            encoding="utf-8",
+        )
         failed = self.run_script()
         self.assertNotEqual(failed.returncode, 0)
-        self.assertIn("cable() is a @harness, which reads a board's pcb.Board; driver() is a geometry model", failed.stderr)
-        self.assertFalse((self.folder / "cable.harness.yml").exists())
+        self.assertIn("cable() is a @harness, which reads boards' netlists", failed.stderr)
+        self.assertIn("driver() is a geometry model, which has none", failed.stderr)
 
 
 if __name__ == "__main__":

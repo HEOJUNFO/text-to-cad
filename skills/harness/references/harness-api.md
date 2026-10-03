@@ -26,9 +26,9 @@ The function takes no parameters and returns a `harness.Harness`. A file may hol
 models; models sharing a file write `<function>.harness.yml`. Nothing else stacks on a
 harness: `@step`, `@dxf`, `@pcb`, the mesh exports, `@gerber` and `@pos` are refused.
 
-Called inside another model's build, a `@harness` function returns its `Harness`, and a
-`@pcb` board without a 3D export returns its `pcb.Board`; a geometry model (a `@step` part,
-a board with a 3D export) called inside a harness's build is refused.
+Called inside another model's build, a `@harness` function returns its `Harness`. Inside a
+harness's build a `@pcb` board returns its `pcb.Board`, 3D export or not; a `@step` part
+called there is refused (it has no netlist).
 
 ## `harness.Harness(title=None)`
 
@@ -54,8 +54,8 @@ a = h.connector(j3, type="JST PH 2.0 mm housing, 4 pin")            # j3: the bo
   per harness, so the second board's `J1` needs a `name=`.
 - `pins=`, `pinlabels=` and `pincount=` are refused: the board has the pins.
 - The board must be a `pcb.Board` (a testbench's part is refused), and the reference one of
-  its parts (the refusal lists them). 3D geometry (what a board with a 3D export hands another
-  model) is refused, with the plain-function split as the fix.
+  its parts (the refusal lists them). 3D geometry is refused: call the board's `@pcb` model
+  inside the harness, where it returns its `pcb.Board`.
 
 ### Free
 

@@ -719,9 +719,10 @@ A real one (`link_robot`: a base, two placements of `link_arm`, one of
 - A **harness** (`@harness`) is a model like a drawing: `entryKind: "harness"`,
   `tree: null`, its WireViz document (`.harness.yml`) and, with `@bom`, its bill of
   materials as its outputs. The boards its body reads are source, not children: a
-  board without a 3D export runs inline, so the board's script is in the harness's
-  closure and the library files it read are inputs. A board WITH a 3D export is a
-  geometry model, and a harness body that calls one is refused at the call.
+  board runs inline there, 3D export or not (its body is its `pcb.Board`), so the
+  board's script is in the harness's closure and the library files it read are
+  inputs. A part (`@step`) called in a harness body has no netlist and is refused at
+  the call.
 - A model's **outputs are whatever its decorators declare**. STEP is one
   output kind, not the primary: a model declared by `@stl`/`@glb`/`@threemf`
   alone has the same tree and record as any model, every stale declared mesh

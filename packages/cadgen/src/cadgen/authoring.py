@@ -622,13 +622,15 @@ def _model_wrapper(func: Callable[..., Any], defn: ModelDef) -> Callable[..., An
                 return func()
             building_model = _REGISTRY.get(frame.model) if frame.model is not None else None
             if building_model is not None and building_model.fmt == "harness":
-                # A harness reads boards' netlists, never geometry. Refused at the call,
-                # before a child build is submitted for geometry nothing would use.
+                # A harness reads boards' netlists, never geometry. A board with a 3D export is
+                # a part to a geometry model, but its body is still its pcb.Board: that is what
+                # a harness gets. Any other geometry model has nothing a harness reads, and is
+                # refused at the call, before a child build is submitted for it.
+                if getattr(_REGISTRY.get(defn.ref, defn), "board", False):
+                    return func()
                 raise TypeError(
-                    f"{building_model.name}() is a @harness, which reads a board's pcb.Board; {func.__name__}() is a "
-                    "geometry model (a @pcb board with a 3D export is a part when another model calls it). Keep the "
-                    f"circuit in a plain function that returns the pcb.Board, have {func.__name__}() return it, and "
-                    "call that function in the harness"
+                    f"{building_model.name}() is a @harness, which reads boards' netlists (a @pcb model returns its "
+                    f"pcb.Board inside a harness); {func.__name__}() is a geometry model, which has none"
                 )
             # Composition: a parent's body asked for this child. Same rule as the
             # top level — stale → build, then hand back its geometry — except the

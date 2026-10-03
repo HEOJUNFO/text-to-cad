@@ -207,8 +207,9 @@ def case():
     return bd.Compound(children=[shell, bd.Pos(0, 0, FLOOR) * controller()])
 ```
 
-A board WITHOUT a 3D export called inside another model's body returns its `pcb.Board`
-(the netlist and placement), which is how a harness or a test reads it. The enclosure itself is
+Called inside a `@harness`, any board returns its `pcb.Board` (the netlist and placement);
+inside any other model's body, a board WITHOUT a 3D export does too, which is how a test
+reads it. The enclosure itself is
 `$cad`'s work; the cables between boards are `$harness`'s, checked against these netlists.
 
 ## Checking an existing project

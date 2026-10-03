@@ -74,7 +74,7 @@ class HarnessDesignTest(unittest.TestCase):
     def test_3d_geometry_is_not_a_board(self) -> None:
         # What a @pcb board with a 3D export hands another model's body: its geometry.
         lazy = type("LazyCompound", (), {})()
-        with self.assertRaisesRegex(HarnessError, "got 3D geometry, not a board.*plain function that returns the pcb.Board"):
+        with self.assertRaisesRegex(HarnessError, "got 3D geometry, not a board. Call the board's @pcb model inside the @harness"):
             harness.Harness().connector(lazy, "J1", type="JST PH")
 
     def test_a_free_connector_takes_pins_labels_or_a_count(self) -> None:

@@ -49,8 +49,8 @@ A connector comes from a board or is free:
 - `h.connector("M1", pinlabels=["A+", "A-", "B+", "B-"], type=...)`: a motor's lead, a
   battery, a sensor's pigtail: pins by `pins=`, `pinlabels=` or `pincount=`.
 
-A board is read by calling its `@pcb` model inside the harness: a board with no 3D export
-returns its `pcb.Board` there (its netlist; the copper does not matter, a draft is fine).
+A board is read by calling its `@pcb` model inside the harness: it returns its `pcb.Board`
+there, 3D export or not (its netlist; the copper does not matter, a draft is fine).
 
 ### A worked example: two boards and a cable between them
 
@@ -211,21 +211,10 @@ writes nothing:
 
 ## A board with a 3D export
 
-A `@pcb` board that also declares `@step` (or a mesh export) is a part when another model
-calls it, so a harness cannot read its netlist from it, and the build refuses the call. Keep
-the circuit in a plain function both use:
-
-```python
-def controller_board():                    # plain: returns the pcb.Board
-    ...
-
-@step
-@pcb
-def controller():                          # the board model, with its 3D export
-    return controller_board()
-```
-
-and call `controller_board()` in the harness.
+A `@pcb` board that also declares `@step` (or a mesh export) is a part to the enclosure that
+calls it, and still a netlist to a harness: called in a `@harness` function it returns its
+`pcb.Board`, so one board model serves both. A `@step` part has no netlist, and a harness
+that calls one fails at the call.
 
 ## Bill of materials
 

@@ -493,10 +493,8 @@ class Harness:
             raise HarnessError(f"the board has no part {wanted!r}; its parts are {refs}")
         if _is_geometry(source):
             raise HarnessError(
-                "h.connector() got 3D geometry, not a board. A @pcb board with a 3D export (@step, @glb, @stl, "
-                "@threemf) is a part when another model calls it, so a harness cannot read its netlist from it. Keep "
-                "the circuit in a plain function that returns the pcb.Board, have the @pcb model return it, and call "
-                "that function in the harness; or call a @pcb board that declares no 3D export"
+                "h.connector() got 3D geometry, not a board. Call the board's @pcb model inside the @harness "
+                "function: there it returns its pcb.Board, whether or not it has a 3D export"
             )
         raise HarnessError(
             "h.connector() takes a pcb.Board and a part reference (h.connector(board, \"J3\", type=...)), a board's "
