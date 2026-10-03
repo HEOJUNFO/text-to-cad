@@ -83,12 +83,18 @@ class PcbDecoratorsTest(unittest.TestCase):
         def outputs(name: str) -> list[str]:
             return [str(path.relative_to(folder)) for path in declared_output_paths(self.script, function=name)]
 
-        self.assertEqual(outputs("flat"), ["flat.kicad_pcb", "flat.kicad_sch", "flat.kicad_pro"])
-        self.assertEqual(outputs("step_above"), ["step_above.kicad_pcb", "step_above.kicad_sch", "step_above.kicad_pro", "step_above.step"])
-        self.assertEqual(outputs("mesh_only"), ["mesh_only.kicad_pcb", "mesh_only.kicad_sch", "mesh_only.kicad_pro", "mesh_only.glb"])
+        self.assertEqual(outputs("flat"), ["flat.kicad_pcb", "flat.kicad_sch", "flat.kicad_pro", "flat.kicad_dru"])
+        self.assertEqual(
+            outputs("step_above"),
+            ["step_above.kicad_pcb", "step_above.kicad_sch", "step_above.kicad_pro", "step_above.kicad_dru", "step_above.step"],
+        )
+        self.assertEqual(
+            outputs("mesh_only"),
+            ["mesh_only.kicad_pcb", "mesh_only.kicad_sch", "mesh_only.kicad_pro", "mesh_only.kicad_dru", "mesh_only.glb"],
+        )
         self.assertEqual(
             sorted(outputs("fabricated")),
-            sorted(["fab/board.kicad_pcb", "fab/board.kicad_sch", "fab/board.kicad_pro",
+            sorted(["fab/board.kicad_pcb", "fab/board.kicad_sch", "fab/board.kicad_pro", "fab/board.kicad_dru",
                     "fab/board.gerbers.zip", "fab/board.bom.csv", "fab/board.pos.csv"]),
         )
 

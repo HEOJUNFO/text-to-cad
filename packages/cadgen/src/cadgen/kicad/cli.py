@@ -128,6 +128,11 @@ def _items(raw: list, to_script: Callable[[float, float], tuple[float, float]] |
     return tuple(items)
 
 
+def _unique(findings: list[Finding]) -> list[Finding]:
+    """Findings in KiCad's order, each once: a through-hole pad's DRC fires per copper layer."""
+    return list(dict.fromkeys(findings))
+
+
 def erc_findings(report: Path) -> list[Finding]:
     """The violations in an ERC report (schematic positions are page positions, kept as is)."""
     data = json.loads(Path(report).read_text())
@@ -143,7 +148,7 @@ def erc_findings(report: Path) -> list[Finding]:
                     items=_items(violation.get("items", []), None),
                 )
             )
-    return found
+    return _unique(found)
 
 
 def drc_findings(report: Path, *, to_script: Callable[[float, float], tuple[float, float]] | None) -> list[Finding]:
@@ -161,4 +166,4 @@ def drc_findings(report: Path, *, to_script: Callable[[float, float], tuple[floa
                     items=_items(violation.get("items", []), to_script),
                 )
             )
-    return found
+    return _unique(found)

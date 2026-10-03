@@ -1,8 +1,10 @@
-"""A board as its three KiCad documents: ``.kicad_pro``, ``.kicad_sch``, ``.kicad_pcb``.
+"""A board as its four KiCad documents: ``.kicad_pro``, ``.kicad_sch``, ``.kicad_pcb``, ``.kicad_dru``.
 
 :func:`project_texts` is the pure half of writing a board: the same board gives
-the same three texts. Filling zones and checking the result is KiCad's, in
-:mod:`cadgen.kicad.check`.
+the same four texts. Filling zones and checking the result is KiCad's, in
+:mod:`cadgen.kicad.check`. The ``.kicad_dru`` holds the board's custom design
+rules (``board.rule``); a board without any writes it anyway, empty, so a
+project's files never depend on what the script did last time.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from cadgen.kicad.ids import Ids
 from cadgen.kicad.project_writer import project_document
 from cadgen.kicad.schematic_writer import schematic_document
 
-__all__ = ["ProjectTexts", "project_texts"]
+__all__ = ["ProjectTexts", "project_texts", "rules_text"]
 
 
 @dataclass(frozen=True)
@@ -26,6 +28,12 @@ class ProjectTexts:
     sch: str
     pcb: str
     pcb_tree: list
+    dru: str
+
+
+def rules_text(rules: list[list]) -> str:
+    """A ``.kicad_dru``: KiCad's rule-file version, then each rule."""
+    return "(version 1)\n" + "".join(sexpr.dumps(rule) for rule in rules)
 
 
 def project_texts(board: Board, *, name: str) -> ProjectTexts:
@@ -45,4 +53,11 @@ def project_texts(board: Board, *, name: str) -> ProjectTexts:
     sch_tree, paths = schematic_document(board, project=name, net_of_pin=net_of_pin, power_flag_nets=power_flag_nets)
     pcb_tree = board_document(board, project=name, frame=frame, symbol_paths=paths)
     pro = project_document(board, project=name, root_uuid=Ids(name).of("sheet:/"))
-    return ProjectTexts(name=name, pro=pro, sch=sexpr.dumps(sch_tree), pcb=sexpr.dumps(pcb_tree), pcb_tree=pcb_tree)
+    return ProjectTexts(
+        name=name,
+        pro=pro,
+        sch=sexpr.dumps(sch_tree),
+        pcb=sexpr.dumps(pcb_tree),
+        pcb_tree=pcb_tree,
+        dru=rules_text(board.design_rules),
+    )

@@ -707,7 +707,8 @@ A real one (`link_robot`: a base, two placements of `link_arm`, one of
   bracket's geometry changes. The viewer and `dxf snapshot` read the `.dxf`
   file directly; there is no drawing-specific freshness anywhere.
 - A **board** (`@pcb`) is a model like a drawing: `entryKind: "pcb"`, `tree: null`,
-  its KiCad project (`.kicad_pro`, `.kicad_sch`, `.kicad_pcb`) and any declared
+  its KiCad project (`.kicad_pro`, `.kicad_sch`, `.kicad_pcb`, and the custom
+  design rules `.kicad_dru`, written empty when there are none) and any declared
   manufacturing files (`@gerber`, `@bom`, `@pos`) as its outputs; the board file's
   entry also carries `unrouted`, the count of connections its last build left
   unrouted (a draft says so on every run, current or not). A board that declares a

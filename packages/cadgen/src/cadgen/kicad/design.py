@@ -636,6 +636,7 @@ class Board(Circuit):
         self.holes: list[Hole] = []
         self.texts: list[Text] = []
         self.raw_items: list[str] = []
+        self.design_rules: list[list] = []
 
     # -- layers --
 
@@ -886,6 +887,33 @@ class Board(Circuit):
         except sexpr.SexprError as error:
             raise DesignError(f"board.raw(...) takes one KiCad S-expression: {error}") from None
         self.raw_items.append(text)
+
+    def rule(self, text: str) -> None:
+        """A custom design rule, in KiCad's own rule language (Board Setup > Custom Rules).
+
+        For a constraint the board-wide rules cannot scope: a connector whose own
+        land pattern puts its pads nearer its locating holes than
+        ``min_hole_clearance`` allows, more clearance on a high-voltage net,
+        tighter rules under one fine-pitch part. The rules are the project's
+        ``.kicad_dru``, so KiCad applies them in every check, its own editor's
+        included. A rule KiCad cannot read fails the build: KiCad itself would
+        drop the whole file without a word.
+        """
+        from cadgen.kicad import sexpr
+
+        example = """(rule "J1 land pattern" (constraint hole_clearance (min 0.15mm)) (condition "A.memberOfFootprint('J1')"))"""
+        source = str(text).strip()
+        try:
+            tree = sexpr.parse(source)
+        except sexpr.SexprError as error:
+            raise DesignError(f"board.rule(...) takes one KiCad rule, like {example}: {error}") from None
+        if sexpr.head(tree) != "rule" or len(tree) < 3 or isinstance(tree[1], list):
+            raise DesignError(f"board.rule(...) takes one (rule NAME ...) of KiCad's rule language, like {example}")
+        if not any(sexpr.head(child) == "constraint" for child in tree[2:] if isinstance(child, list)):
+            raise DesignError(f"rule {tree[1]!r} has no (constraint ...); like {example}")
+        if any(str(existing[1]) == str(tree[1]) for existing in self.design_rules):
+            raise DesignError(f"the board already has a rule named {str(tree[1])!r}; give each rule its own name")
+        self.design_rules.append(tree)
 
     # -- what a build checks before KiCad does --
 

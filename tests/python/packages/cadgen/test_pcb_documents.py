@@ -139,6 +139,23 @@ class PcbDocumentsTest(unittest.TestCase):
         self.assertEqual(project["net_settings"]["netclass_patterns"], [{"netclass": "Power", "pattern": "VIN"}])
         self.assertEqual(project["board"]["design_settings"]["rules"]["min_clearance"], board.rules.min_clearance)
 
+    def test_custom_rules_are_the_projects_kicad_dru(self) -> None:
+        from cadgen.kicad.design import DesignError
+
+        board = self.board()
+        self.assertEqual(project_texts(board, name="amp").dru, "(version 1)\n")  # written even when empty
+        board.rule("""(rule "U1 pads" (constraint hole_clearance (min 0.15mm)) (condition "A.memberOfFootprint('U1')"))""")
+        rules = sexpr.parse(project_texts(board, name="amp").dru.split("\n", 1)[1])
+        self.assertEqual((rules[1], sexpr.value(rules, "condition")), ("U1 pads", "A.memberOfFootprint('U1')"))
+        for text, message in (
+            ("(rule unclosed", "takes one KiCad rule"),
+            ('(constraint clearance (min 1mm))', "takes one \\(rule NAME"),
+            ('(rule "no constraint" (condition "A.Type == \'Pad\'"))', "has no \\(constraint"),
+            ('(rule "U1 pads" (constraint clearance (min 1mm)))', "already has a rule named"),
+        ):
+            with self.assertRaisesRegex(DesignError, message):
+                board.rule(text)
+
 
 if __name__ == "__main__":
     unittest.main()

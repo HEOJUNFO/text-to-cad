@@ -419,7 +419,7 @@ def _write_pcb_project(
     written.
     """
     from cadgen._internal.atomic_replace import write_bytes_atomic
-    from cadgen.kicad.check import build_board, is_blocking
+    from cadgen.kicad.check import build_board, fixes
     from cadgen.kicad.design import Board
 
     label = _display_path(script_path)
@@ -428,20 +428,29 @@ def _write_pcb_project(
     output_path = Path(output_path)
     resolve_progress(progress).phase(PHASE_CHECK_BOARD)
     built = build_board(result, name=output_path.stem)
-    for finding in built.findings:
-        if not is_blocking(finding) and finding.check != "unconnected":
-            logger.info(f"{label} {finding.render()}")
+    errors = built.errors
+    if errors:
+        # Only the errors: warnings and the unrouted list come back once these are fixed.
+        later = [
+            f"{count} {noun}"
+            for count, noun in ((built.unrouted, "unrouted connection(s)"), (len(built.warnings), "warning(s)"))
+            if count
+        ]
+        listed = "\n  ".join(finding.render() for finding in errors)
+        how = "".join(f"\n  {line}" for line in fixes(errors))
+        raise RuntimeError(
+            f"{label}: KiCad found {len(errors)} error(s), so nothing was written"
+            + (f" ({' and '.join(later)} reported once they are fixed)" if later else "")
+            + f":\n  {listed}"
+            + (f"\nHow to fix:{how}" if how else "")
+        )
+    for finding in built.warnings:
+        logger.info(f"{label} {finding.render()}")
     if built.unrouted:
         logger.info(f"{label} has {built.unrouted} unrouted connection(s); the board is a draft until they are routed:")
         for finding in built.findings:
             if finding.check == "unconnected":
                 logger.info(f"  {finding.render()}")
-    errors = built.errors
-    if errors:
-        listed = "\n  ".join(finding.render() for finding in errors)
-        raise RuntimeError(
-            f"{label}: KiCad found {len(errors)} error(s), so nothing was written:\n  {listed}"
-        )
     from cadgen.kicad.fab import MANUFACTURING
 
     manufacturing = sorted({getattr(decl, "fmt", "") for decl in fab_exports} & MANUFACTURING)
@@ -457,7 +466,7 @@ def _write_pcb_project(
     resolve_progress(progress).phase(PHASE_WRITE)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     written = []
-    for suffix, text in ((".kicad_pro", built.pro), (".kicad_sch", built.sch), (".kicad_pcb", built.pcb)):
+    for suffix, text in ((".kicad_pro", built.pro), (".kicad_sch", built.sch), (".kicad_pcb", built.pcb), (".kicad_dru", built.dru)):
         target = output_path.with_suffix(suffix)
         write_bytes_atomic(target, text.encode("utf-8"))
         written.append(target)

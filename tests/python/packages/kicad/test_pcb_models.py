@@ -7,7 +7,7 @@ person relies on: a clean board is written and then current; KiCad's errors
 write nothing; an unrouted board is a reported draft; manufacturing files are
 deterministic and refused for a draft; a board with a 3D export composes into
 an enclosure in the script's own coordinates; the library files a board read
-are its inputs. Needs KiCad 10 (scripts/test/test-kicad.sh).
+are its inputs; custom rules are KiCad's, and one it cannot read fails the build. Needs KiCad 10 (scripts/test/test-kicad.sh).
 """
 
 from __future__ import annotations
@@ -117,7 +117,7 @@ class PcbModelsTest(unittest.TestCase):
         self.assertEqual(built.returncode, 0, built.stderr)
         result = json.loads(built.stdout.strip().splitlines()[-1])
         self.assertEqual((result["outcome"], result["kind"], result["unrouted"]), ("built", "pcb", 0))
-        for suffix in (".kicad_pro", ".kicad_sch", ".kicad_pcb"):
+        for suffix in (".kicad_pro", ".kicad_sch", ".kicad_pcb", ".kicad_dru"):
             self.assertTrue((self.folder / f"blinky{suffix}").is_file(), suffix)
         first = (self.folder / "blinky.kicad_pcb").read_bytes()
         self.assertIn(b"filled_polygon", first)  # KiCad filled the ground pour
@@ -140,6 +140,21 @@ class PcbModelsTest(unittest.TestCase):
         built = self.run_script("blinky.py")
         self.assertNotEqual(built.returncode, 0)
         self.assertIn("pin_not_connected", built.stderr)
+        self.assertFalse(any(self.folder.glob("blinky.kicad_*")))
+
+    def test_custom_rules_are_kicads_and_one_it_cannot_read_fails_the_build(self) -> None:
+        # The rule asks more than the board has (a 0.25 mm VBUS track): KiCad applying it fails the build.
+        wide = """board.rule(\"\"\"(rule "wide VBUS" (constraint track_width (min 1mm)) (condition "A.NetName == 'VBUS'"))\"\"\")"""
+        self.write("blinky.py", board_source(extra=wide))
+        built = self.run_script("blinky.py")
+        self.assertNotEqual(built.returncode, 0)
+        self.assertIn("track_width", built.stderr)
+        # KiCad drops a rules file it cannot parse without a word; the build may not.
+        unknown = wide.replace("A.NetName == 'VBUS'", "A.noSuchFunction('VBUS')")
+        self.write("blinky.py", board_source(extra=unknown))
+        broken = self.run_script("blinky.py")
+        self.assertNotEqual(broken.returncode, 0)
+        self.assertIn("could not read the board's custom rules", broken.stderr)
         self.assertFalse(any(self.folder.glob("blinky.kicad_*")))
 
     def test_manufacturing_files_are_deterministic_and_refused_for_a_draft(self) -> None:

@@ -150,8 +150,9 @@ def resolve_model_output_path(
 
 
 _FORMAT_SUFFIX = {"pcb": "kicad_pcb"}
-# A board's project is three files; the board file is its primary document.
-PCB_PROJECT_SUFFIXES = (".kicad_pcb", ".kicad_sch", ".kicad_pro")
+# A board's project is four files (the last its custom design rules, empty
+# when it has none); the board file is its primary document.
+PCB_PROJECT_SUFFIXES = (".kicad_pcb", ".kicad_sch", ".kicad_pro", ".kicad_dru")
 _MODEL_FORMATS = ("step", "dxf", "pcb")
 
 _MESH_DECORATOR_NAMES = ("stl", "glb", "threemf")
