@@ -22,7 +22,8 @@ on Linux, Eclipse Adoptium's and Microsoft's builds on Windows).
 A run is isolated as a ``kicad-cli`` run is: its files are staged in a
 temporary folder, Freerouting's settings and log go to a folder of the run's
 own (``--user_data_path``), its ``FREEROUTING__*`` environment overrides are
-dropped, its window never opens and its analytics are off (``-da``). It routes
+dropped, its window never opens, its analytics are off (``-da``) and it never
+reaches the network (see :data:`_OFFLINE_JAVA`). It routes
 single-threaded for at most the requested passes, so the same board always
 routes the same way; a run that outlives its timeout is stopped and fails the
 build, rather than leaving a route that depends on how fast the machine was.
@@ -251,9 +252,19 @@ def find_freerouting() -> Freerouting:
     raise FreeroutingMissingError(f"board.autoroute() needs Freerouting, which was not found: {freerouting_hint()}")
 
 
+# Freerouting asks GitHub for its latest release on every start, and has no setting
+# that stops it. Its HTTP client honours Java's proxy properties, so a proxy at a
+# closed local port makes the request fail on this machine: a build never reaches
+# the network. JAVA_TOOL_OPTIONS reaches the JVM inside Freerouting's own app
+# launchers as well as a jar cadgen starts.
+_OFFLINE_JAVA = ("-Dhttps.proxyHost=127.0.0.1", "-Dhttps.proxyPort=9", "-Dhttp.proxyHost=127.0.0.1", "-Dhttp.proxyPort=9")
+
+
 def _isolated_env() -> dict[str, str]:
-    """This process's environment, less Freerouting's own setting overrides."""
-    return {key: value for key, value in os.environ.items() if not key.upper().startswith("FREEROUTING__")}
+    """This process's environment, less Freerouting's own setting overrides, and offline."""
+    env = {key: value for key, value in os.environ.items() if not key.upper().startswith("FREEROUTING__")}
+    env["JAVA_TOOL_OPTIONS"] = " ".join([*env.get("JAVA_TOOL_OPTIONS", "").split(), *_OFFLINE_JAVA])
+    return env
 
 
 def _tail(text: str) -> str:

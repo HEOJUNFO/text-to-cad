@@ -470,6 +470,18 @@ class PcbRouteTest(unittest.TestCase):
                     with self.assertRaisesRegex(route.FreeroutingMissingError, r"is Java 1\.8\.0_282"):
                         route.find_freerouting()
 
+    def test_a_run_is_isolated_and_offline(self) -> None:
+        # Freerouting asks GitHub for its latest release on every start; Java's proxy
+        # properties, at a closed local port, keep that request on this machine.
+        with mock.patch.dict(os.environ, {"FREEROUTING__GUI__ENABLED": "true", "JAVA_TOOL_OPTIONS": "-Xmx2g"}):
+            env = route._isolated_env()
+        self.assertNotIn("FREEROUTING__GUI__ENABLED", env)
+        options = env["JAVA_TOOL_OPTIONS"].split()
+        self.assertEqual(options[0], "-Xmx2g")  # a person's own options stay
+        for scheme in ("http", "https"):
+            self.assertIn(f"-D{scheme}.proxyHost=127.0.0.1", options)
+            self.assertIn(f"-D{scheme}.proxyPort=9", options)
+
     def test_every_way_freerouting_fails_is_loud(self) -> None:
         fake = textwrap.dedent(
             """
