@@ -279,6 +279,7 @@ def _place_footprint(
     pad_counter = 0
     item_counter = 0
     properties_seen: set[str] = set()
+    fields = part.fields
     for item in body:
         if not isinstance(item, list):
             continue
@@ -292,6 +293,8 @@ def _place_footprint(
                 item[2] = part.value
             elif key in {"Datasheet", "Description"}:
                 item[2] = part.symbol.properties.get(key, "")
+            elif key in fields:
+                item[2] = fields[key]  # the symbol's say, as KiCad's update from the schematic sets it
         if head == "pad":
             _set_uuid(item, ids(f"footprint:{part.ref}:pad:{pad_counter}"))
             pad_counter += 1
@@ -346,13 +349,14 @@ def _place_footprint(
         elif head == "attr":
             item = _attr(item[1:], part)
         node.append(item)
-    # Fields the symbol carries that the footprint does not: the BOM reads them here.
+    # Fields the symbol carries that the footprint does not: the BOM reads them here, and
+    # KiCad's parity check wants every one of the symbol's on its footprint.
     insert_at = max(
         (index for index, entry in enumerate(node) if isinstance(entry, list) and entry and entry[0] == "property"),
         default=len(node) - 1,
     ) + 1
     extra_properties = []
-    for key, value in sorted(part.properties.items()):
+    for key, value in sorted(fields.items()):
         if key in properties_seen:
             continue
         extra_properties.append(

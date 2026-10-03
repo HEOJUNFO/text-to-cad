@@ -248,7 +248,7 @@ def schematic_document(board: Board, *, project: str, net_of_pin, power_flag_net
             [Sym("at"), origin_x, origin_y, 0],
             [Sym("unit"), unit.unit],
             [Sym("body_style"), 1],
-            [Sym("exclude_from_sim"), Sym("no")],
+            [Sym("exclude_from_sim"), Sym("yes" if str(sexpr.value(symbol.tree, "exclude_from_sim") or "no") == "yes" else "no")],
             [Sym("in_bom"), Sym("no" if is_flag or not symbol.in_bom else "yes")],
             [Sym("on_board"), Sym("no" if is_flag else "yes")],
             [Sym("in_pos_files"), Sym("no" if is_flag else "yes")],
@@ -260,7 +260,9 @@ def schematic_document(board: Board, *, project: str, net_of_pin, power_flag_net
             fields.append(("Footprint", unit.part.footprint.lib_id, True))
             fields.append(("Datasheet", symbol.properties.get("Datasheet", ""), True))
             fields.append(("Description", symbol.properties.get("Description", ""), True))
-            fields.extend((key_, value_, True) for key_, value_ in sorted(unit.part.properties.items()))
+            # The library symbol's own fields travel with it (a diode's Sim.Device, so KiCad's
+            # simulator can read the schematic), then the part's properties=.
+            fields.extend((key_, value_, True) for key_, value_ in sorted(unit.part.fields.items()))
         else:
             fields.append(("Footprint", "", True))
             fields.append(("Datasheet", "", True))

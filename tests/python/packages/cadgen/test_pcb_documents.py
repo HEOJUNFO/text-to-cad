@@ -173,6 +173,28 @@ class PcbDocumentsTest(unittest.TestCase):
         }
         self.assertEqual((in_bom["TP1"], in_bom["FID1"]), ("yes", "no"))
 
+    def test_a_library_symbols_own_fields_reach_its_symbol_and_footprint(self) -> None:
+        # KiCad copies a library symbol's fields (a model's Sim.*) onto the placed symbol, and its
+        # parity check wants each on the footprint too; a part's properties= win over them.
+        board = self.board()
+        mark = board.part("Test:FIDUCIAL", footprint="Test:ONE_PAD", ref="FID1", properties={"LCSC": "C1"})
+        board.no_connect(mark[1])
+        board.place(mark, at=(-12, -8))
+        self.assertEqual(mark.fields, {"Sim.Enable": "0", "LCSC": "C1"})
+        texts = project_texts(board, name="amp")
+
+        def fields(node: list) -> dict[str, str]:
+            return {str(prop[1]): str(prop[2]) for prop in sexpr.find_all(node, "property")}
+
+        symbol = next(
+            node for node in sexpr.find_all(sexpr.parse(texts.sch), "symbol")
+            if sexpr.find(node, "lib_id") is not None and fields(node).get("Reference") == "FID1"
+        )
+        for carried in (fields(symbol), fields(_footprint(texts.pcb_tree, "FID1"))):
+            self.assertEqual((carried["Sim.Enable"], carried["LCSC"]), ("0", "C1"))
+        overridden = self.board().part("Test:FIDUCIAL", footprint="Test:ONE_PAD", properties={"Sim.Enable": "1"})
+        self.assertEqual(overridden.fields, {"Sim.Enable": "1"})
+
     def test_the_project_carries_the_rules_and_net_classes(self) -> None:
         board = self.board()
         board.netclass("Power", track_width=0.5, clearance=0.25)

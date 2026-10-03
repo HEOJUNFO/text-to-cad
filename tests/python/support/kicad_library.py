@@ -11,7 +11,8 @@ folder that a ``Board``/``Circuit`` takes as ``libraries=``:
   and ``IN/B`` (2, unit B); default footprint ``Test:R_0603``.
 - ``Test:TP``: one passive pin, in the BOM, default footprint ``Test:TEST_PAD`` (KiCad's
   test point: a symbol in the BOM on a footprint excluded from it).
-- ``Test:FIDUCIAL``: one passive pin, and ``(in_bom no)``: on the board, not bought.
+- ``Test:FIDUCIAL``: one passive pin, and ``(in_bom no)``: on the board, not bought; a
+  field of its own, ``Sim.Enable`` = ``0``, as KiCad's library symbols carry ``Sim.*``.
 - ``Test:PWR``: a power symbol (``(power global)``), which is a net, not a part.
 - ``power:PWR_FLAG``: the flag a board's schematic puts on a net powered from
   off the board (KiCad's own is in its ``power`` library; this one stands in).
@@ -57,6 +58,7 @@ SYMBOLS = (
     f'(symbol "TP" (pin_numbers (hide yes)) (in_bom yes) (on_board yes) {_properties("TP", "TP", "Test:TEST_PAD", "A test point")}'
     f'(symbol "TP_1_1" {_pin("passive", 0, 2.54, 270, "~", "1")}))'
     f'(symbol "FIDUCIAL" (pin_numbers (hide yes)) (in_bom no) (on_board yes) {_properties("FID", "FIDUCIAL", "", "Not bought")}'
+    f'(property "Sim.Enable" "0" (at 0 0 0) (hide yes) {_FONT})'
     f'(symbol "FIDUCIAL_1_1" {_pin("passive", 0, 2.54, 270, "~", "1")}))'
     f'(symbol "PWR" (power global) (pin_names (hide yes)) {_properties("#PWR", "PWR")}'
     f'(symbol "PWR_1_1" {_pin("power_in", 0, 0, 90, "~", "1")}))'

@@ -10,10 +10,17 @@ are files, and ``kicad-cli`` is a program cadgen runs.
 Modules, each importing nothing heavy at module scope:
 
 - ``sexpr``: read and write the S-expression syntax every KiCad file uses.
-- ``install``: find ``kicad-cli`` and the symbol/footprint/3D libraries.
-- ``library``: load a symbol or footprint by its ``Library:Name``.
-- ``design``: the authoring model (``Board``, parts, nets, copper).
-- ``board_writer`` / ``schematic_writer`` / ``project_writer``: the
-  documents.
+- ``install``: find ``kicad-cli``, the symbol/footprint/3D libraries and
+  ngspice.
+- ``library``: load a symbol or footprint by its ``Library:Name``; search them.
+- ``design``: the authoring model (``Board``, parts, nets, copper, rules).
+- ``outline`` / ``ids``: a build123d outline as board edges; stable UUIDs.
+- ``board_writer`` / ``schematic_writer`` / ``project_writer`` / ``project``:
+  the documents.
 - ``cli``: run ``kicad-cli`` and read its JSON reports.
+- ``check``: a build's fill, ERC and DRC; ``cadgen pcb validate``'s checks.
+- ``plot`` / ``solid`` / ``fab``: the viewer's plots, the populated board in
+  3D, and the manufacturing files.
+- ``spice`` / ``ngspice`` / ``sim``: simulation -- the netlist from KiCad's
+  ``Sim.*`` fields, the simulator KiCad ships, and the ``Testbench``.
 """

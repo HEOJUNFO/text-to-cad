@@ -50,6 +50,10 @@ __all__ = [
 ]
 
 
+#: The fields every KiCad symbol has; the rest are a library's or a part's own.
+STANDARD_FIELDS = ("Reference", "Value", "Footprint", "Datasheet", "Description")
+
+
 class DesignError(ValueError):
     """A board that cannot be what its script says. The message says how to fix it."""
 
@@ -241,6 +245,22 @@ class Part:
                 f"footprint='Library:Name'"
             )
         return self._footprint
+
+    @property
+    def fields(self) -> dict[str, str]:
+        """Every field the part carries beyond KiCad's five (reference, value, footprint, datasheet, description).
+
+        The library symbol's own come first, as KiCad copies them when placing
+        it (a diode's ``Sim.Device``); ``properties=`` are the part's and win.
+        Both the schematic symbol and the footprint carry them all: KiCad's
+        parity check compares the two.
+        """
+        carried = {
+            key: value
+            for key, value in self.symbol.properties.items()
+            if key not in STANDARD_FIELDS and not key.startswith("ki_")
+        }
+        return {**carried, **self.properties}
 
     @property
     def placed(self) -> bool:

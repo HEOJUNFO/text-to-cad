@@ -7,9 +7,15 @@ They are the same object -- this module is callable (see
 gives a model script all three.
 
 A board is written as a KiCad project: ``<name>.kicad_pro``,
-``<name>.kicad_sch`` and ``<name>.kicad_pcb``. KiCad itself (its command line,
-``kicad-cli``) fills the zones and runs the electrical and design rule checks
-inside every build; a build with errors writes nothing.
+``<name>.kicad_sch``, ``<name>.kicad_pcb`` and its custom design rules,
+``<name>.kicad_dru``. KiCad itself (its command line, ``kicad-cli``) fills the
+zones and runs the electrical and design rule checks inside every build; a
+build with errors writes nothing.
+
+``pcb.Testbench`` simulates a board's subcircuits with ngspice, the simulator
+KiCad ships: a circuit like a board, built by the same functions, whose runs
+are facts for a script to assert (``pcb.SimulationError`` when ngspice cannot
+solve it).
 
 Import discipline: nothing here pulls in OCP or touches KiCad at module scope.
 """
@@ -31,6 +37,8 @@ __all__ = [
     "Part",
     "Pin",
     "Rules",
+    "SimulationError",
+    "Testbench",
     "find_footprints",
     "find_symbols",
     "snapshot",
@@ -38,6 +46,7 @@ __all__ = [
 ]
 
 _DESIGN = {"Board", "DesignError", "JLCPCB", "Net", "NetClass", "Part", "Pin", "Rules"}
+_SIMULATION = {"SimulationError", "Testbench"}
 
 _SUFFIXES = (".kicad_pcb", ".kicad_sch", ".kicad_pro")
 
@@ -103,6 +112,10 @@ def __getattr__(name: str):
         from cadgen.kicad import design
 
         return getattr(design, name)
+    if name in _SIMULATION:
+        from cadgen.kicad import sim
+
+        return getattr(sim, name)
     if name in {"find_symbols", "find_footprints"}:
         from cadgen.kicad import library
 
