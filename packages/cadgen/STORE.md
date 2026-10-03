@@ -706,6 +706,15 @@ A real one (`link_robot`: a base, two placements of `link_arm`, one of
   models its body called — a flat pattern of `bracket()` goes stale when
   bracket's geometry changes. The viewer and `dxf snapshot` read the `.dxf`
   file directly; there is no drawing-specific freshness anywhere.
+- A **board** (`@pcb`) is a model like a drawing: `entryKind: "pcb"`, `tree: null`,
+  its KiCad project (`.kicad_pro`, `.kicad_sch`, `.kicad_pcb`) and any declared
+  manufacturing files (`@gerber`, `@bom`, `@pos`) as its outputs; the board file's
+  entry also carries `unrouted`, the count of connections its last build left
+  unrouted (a draft says so on every run, current or not). A board that declares a
+  3D export (`@step` or a mesh) is a geometry model instead: its tree is the
+  populated board, its record is a STEP model's, and the KiCad files and
+  manufacturing files join the same `outputs`. The library files a build reads
+  (symbols, footprints) are inputs like any other read.
 - A model's **outputs are whatever its decorators declare**. STEP is one
   output kind, not the primary: a model declared by `@stl`/`@glb`/`@threemf`
   alone has the same tree and record as any model, every stale declared mesh
