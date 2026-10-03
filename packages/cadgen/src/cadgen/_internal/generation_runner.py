@@ -23,6 +23,7 @@ from cadgen.catalog import build_scope
 from cadgen.cli_logging import CliLogger
 from cadgen.cli_progress import cli_progress_line
 from cadgen.coordination import DRAWING_PACKAGE
+from cadgen.coordination import HARNESS_PACKAGE
 from cadgen.coordination import PCB_PACKAGE
 from cadgen.coordination import PHASE_CHECK_BOARD
 from cadgen.coordination import PHASE_GENERATE
@@ -484,6 +485,62 @@ def _write_pcb_project(
     return BoardWritten(paths=tuple(written), unrouted=built.unrouted, warnings=len(built.warnings))
 
 
+@dataclass(frozen=True)
+class HarnessWritten:
+    """What a @harness build wrote: its document, and its BOM when ``@bom`` declares one."""
+
+    paths: tuple[Path, ...]
+
+
+def _write_harness_document(
+    result: object,
+    *,
+    output_path: Path,
+    script_path: Path,
+    logger: CliLogger,
+    progress: object | None = None,
+    fab_exports: Sequence[object] = (),
+) -> HarnessWritten:
+    """Check a ``@harness`` return and write its WireViz document, or write nothing.
+
+    The checks are the harness's own (``cadgen.wireviz.design``): most ran as
+    the script connected it, and the last -- something connected, every
+    connector and cable used -- run here. A declared ``@bom`` is WireViz's list
+    of the document's parts, made from the document's bytes before either file
+    is written, so a build that cannot list them writes neither.
+    """
+    from cadgen._internal.atomic_replace import write_bytes_atomic
+    from cadgen.coordination.kinds import PHASE_WRITE
+    from cadgen.wireviz.design import Harness, HarnessError
+    from cadgen.wireviz.document import harness_document
+
+    label = _display_path(script_path)
+    if not isinstance(result, Harness):
+        raise TypeError(f"{label} @harness must return a harness.Harness, got {type(result).__name__}")
+    try:
+        document = harness_document(result).encode("utf-8")
+    except HarnessError as error:
+        raise HarnessError(f"{label}: {error}") from None
+    output_path = Path(output_path)
+    files: list[tuple[Path, bytes]] = [(output_path, document)]
+    resolve_progress(progress).phase(PHASE_WRITE)
+    if fab_exports:
+        from cadgen.metadata import fab_output_path
+        from cadgen.wireviz.bom import harness_bom
+
+        for decl in fab_exports:
+            # Only a BOM: the decorators refuse a harness any other export.
+            bom = harness_bom(document, label=output_path.name)
+            files.append((fab_output_path(script_path, decl, output_path.resolve()), bom))
+    for target, data in files:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        write_bytes_atomic(target, data)
+    logger.debug(f"wrote harness: {_display_path(output_path)}")
+    for target, _data in files[1:]:
+        logger.info(f"wrote BOM: {_display_path(target)}")
+    return HarnessWritten(paths=tuple(target for target, _data in files))
+
+
 def _write_dxf_payload(
     result: object,
     *,
@@ -552,7 +609,7 @@ def run_script_generator(
     touched — they cannot reload, must stay warm, and are not freshness inputs.
     """
     logger = logger or CliLogger("cad")
-    if model_format not in {"step", "dxf", "pcb"}:
+    if model_format not in {"step", "dxf", "pcb", "harness"}:
         raise RuntimeError(f"Unsupported model format: {model_format}")
     if spec.script_path is None or spec.generator_metadata is None:
         raise ValueError(f"{spec.source_ref} is not a generated Python CAD source")
@@ -637,7 +694,10 @@ def _run_script_generator_body(
     # kernel call, not merely before the tree write.
     from cadgen._internal import determinism
 
-    determinism.install()
+    if model_format != "harness":
+        # A harness writes no geometry, so nothing it writes depends on the kernel's
+        # order -- and the hook's import of the kernel is most of a harness build.
+        determinism.install()
     generated_scene: LoadedStepScene | None = None
     # Deterministic closure capture: start from a clean first-party module space, so
     # every first-party file the generator loads and runs executes inside the window
@@ -800,6 +860,26 @@ def _run_script_generator_body(
             outputs=board_written.paths,
             output_facts={spec.pcb_path: {"unrouted": board_written.unrouted}},
         )
+    elif model_format == "harness":
+        if spec.harness_path is None:
+            raise RuntimeError(f"{spec.source_ref} has no configured harness output")
+        frame.wait_children()
+        harness_written = _write_harness_document(
+            raw_payload, output_path=spec.harness_path, script_path=spec.script_path, logger=logger,
+            progress=progress, fab_exports=getattr(spec.generator_metadata, "fab_exports", ()) or (),
+        )
+        # A harness is a model like a drawing: no tree, its document (and BOM) the
+        # outputs. The boards it read are source, not pins: a board without a 3D
+        # export runs inline (cadgen.store.closure._pinned), so its script is in the
+        # closure and the library files it read are traced inputs.
+        _write_drawing_record(
+            spec,
+            spec.harness_path,
+            source_closure=source_closure,
+            child_trees=child_trees,
+            entry_kind="harness",
+            outputs=harness_written.paths,
+        )
     if generated_scene is not None and source_closure is not None:
         generated_scene.source_closure_hash = source_closure.closure_hash
         generated_scene.source_closure_files = source_closure.files
@@ -815,6 +895,8 @@ def _run_script_generator_body(
             )
     if model_format == "pcb":
         return board_written
+    if model_format == "harness":
+        return harness_written
     return generated_scene if model_format == "step" else None
 
 
@@ -868,7 +950,7 @@ def _spec_output_dir(spec: EntrySpec, model_format: str) -> str | None:
     before any geometry is."""
     if model_format == "step" and spec.step_path is not None:
         return build_scope(spec.entry_path)
-    if model_format in ("dxf", "pcb") and spec.script_path is not None:
+    if model_format in ("dxf", "pcb", "harness") and spec.script_path is not None:
         return build_scope(spec.script_path)
     return None
 
@@ -897,5 +979,5 @@ def _track_spec_generation(
         return contextlib.nullcontext()
     # The kind decides which phase set the run reports over, so a drawing generator
     # counts its own phases rather than a STEP package's.
-    kind = {"dxf": DRAWING_PACKAGE, "pcb": PCB_PACKAGE}.get(model_format, STEP_PACKAGE)
+    kind = {"dxf": DRAWING_PACKAGE, "pcb": PCB_PACKAGE, "harness": HARNESS_PACKAGE}.get(model_format, STEP_PACKAGE)
     return generator_busy(kind, scope, sink=sink)

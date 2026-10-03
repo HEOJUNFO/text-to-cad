@@ -71,6 +71,10 @@ where those files ship, so these scripts are what produces them.
   fresh clone has none.
 - `test-docs.sh` — `npm --prefix apps/docs run check`, pulling the hero assets
   first. Called by `test.yml` and `release-publish.yml`.
+- `test-harness.sh` — `tests/python/packages/harness`, the wiring-harness suites
+  that need WireViz's `wireviz` and Graphviz's `dot`: documents drawn and listed
+  through a real WireViz. A missing tool fails the run rather than skipping it.
+  Called by `test.yml` (the `harness` job).
 - `test-installed.sh` — builds the wheel (or accepts `--wheel PATH` to test
   the exact artifact already built), installs it into a scratch venv and
   exercises cadgen from outside the repo, including `cadgen mcp` serving the

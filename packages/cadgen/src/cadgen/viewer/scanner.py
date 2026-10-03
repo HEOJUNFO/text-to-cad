@@ -67,7 +67,8 @@ __all__ = [
 CAD_CATALOG_SCHEMA_VERSION = 4
 
 SOURCE_EXTENSIONS = frozenset(
-    {".step", ".stp", ".stl", ".3mf", ".glb", ".dxf", ".urdf", ".srdf", ".sdf", ".kicad_pcb", ".kicad_sch"}
+    {".step", ".stp", ".stl", ".3mf", ".glb", ".dxf", ".urdf", ".srdf", ".sdf", ".kicad_pcb", ".kicad_sch",
+     ".harness.yml"}
 )
 
 # The folders the explorer's search never walks (``folders.py``), beside every hidden one. Matched
@@ -252,9 +253,15 @@ def asset_for_path(file_path) -> dict | None:
 
 
 def source_format_for_path(source_path, extension=None) -> str:
-    r"""``extension.toLowerCase().replace(/^\./, "")`` — ONE leading dot."""
+    r"""``extension.toLowerCase().replace(/^\./, "")`` — ONE leading dot; a compound
+    extension names its format (``.harness.yml`` is a ``harness``)."""
     ext = (extension_of(source_path) if extension is None else extension).lower()
+    if ext in _COMPOUND_FORMATS:
+        return _COMPOUND_FORMATS[ext]
     return ext[1:] if ext.startswith(".") else ext
+
+
+_COMPOUND_FORMATS = {".harness.yml": "harness"}
 
 
 # --- URDF/SRDF pairing ----------------------------------------------------

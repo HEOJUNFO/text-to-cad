@@ -53,6 +53,7 @@ class WorkspaceWorkflowSelection(unittest.TestCase):
             r"^scripts/test/check-(dependencies|kit-boundaries)\.test\.mjs$",  # test-js.sh
             r"^tests/python/packages/cadgen/(.*/)?test_[^/]*\.py$",      # test-python.sh cadgen
             r"^tests/python/packages/kicad/test_[^/]*\.py$",             # test-kicad.sh
+            r"^tests/python/packages/harness/test_[^/]*\.py$",           # test-harness.sh
             r"^tests/python/skills/[^/]+/(.*/)?test_[^/]*\.py$",         # test-python.sh skills
             r"^tests/python/global/test_[^/]*\.py$",                     # test-global.sh
             r"^tests/browser/viewer-e2e\.mjs$",                          # test-viewer-browser.sh

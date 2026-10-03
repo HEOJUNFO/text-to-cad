@@ -75,6 +75,7 @@ __all__ = [
     "gerber",
     "bom",
     "pos",
+    "harness",
     "stl",
     "glb",
     "threemf",
@@ -259,7 +260,7 @@ class ModelDef:
     """One registered model: the decorated function plus its durable options."""
 
     func: Callable[..., Any]
-    fmt: str  # "step" | "dxf" | "pcb"
+    fmt: str  # "step" | "dxf" | "pcb" | "harness"
     script_path: Path
     out: str | None
     mesh_tolerance: float | None
@@ -535,6 +536,8 @@ def _decorator(
         prior: ModelDef | None = getattr(func, "__cadgen_model__", None)
         if prior is not None:
             prior = _REGISTRY.get(prior.ref, prior)  # the registry is authoritative
+            if prior.fmt == "harness":
+                raise ValueError(_NOT_ON_A_HARNESS.format(deco=fmt, script=prior.script_path.name, name=prior.name))
         board, pcb_out = False, None
         fab_exports: tuple[FabExportDecl, ...] = ()
         if prior is not None and not prior.step_output:
@@ -612,11 +615,21 @@ def _model_wrapper(func: Callable[..., Any], defn: ModelDef) -> Callable[..., An
                 # The pipeline building THIS model is asking for its body. (Another
                 # model of the same file is a child like any other.)
                 return func()
-            if _REGISTRY.get(defn.ref, defn).fmt in ("dxf", "pcb"):
-                # A drawing or a board without a 3D export composes models, never
-                # the reverse: called inside another build it is just its body (2D
-                # geometry, or the pcb.Board), nothing to pin.
+            if _REGISTRY.get(defn.ref, defn).fmt in ("dxf", "pcb", "harness"):
+                # A drawing, a board without a 3D export or a harness composes models,
+                # never the reverse: called inside another build it is just its body
+                # (2D geometry, the pcb.Board, the harness.Harness), nothing to pin.
                 return func()
+            building_model = _REGISTRY.get(frame.model) if frame.model is not None else None
+            if building_model is not None and building_model.fmt == "harness":
+                # A harness reads boards' netlists, never geometry. Refused at the call,
+                # before a child build is submitted for geometry nothing would use.
+                raise TypeError(
+                    f"{building_model.name}() is a @harness, which reads a board's pcb.Board; {func.__name__}() is a "
+                    "geometry model (a @pcb board with a 3D export is a part when another model calls it). Keep the "
+                    f"circuit in a plain function that returns the pcb.Board, have {func.__name__}() return it, and "
+                    "call that function in the harness"
+                )
             # Composition: a parent's body asked for this child. Same rule as the
             # top level — stale → build, then hand back its geometry — except the
             # geometry is materialized from the child's tree and the call is
@@ -744,6 +757,8 @@ def _apply_pcb(target: Callable[..., Any], pcb_out: str | None) -> Callable[...,
     prior: ModelDef | None = getattr(target, "__cadgen_model__", None)
     if prior is not None:
         prior = _REGISTRY.get(prior.ref, prior)
+        if prior.fmt == "harness":
+            raise ValueError(_NOT_ON_A_HARNESS.format(deco="pcb", script=prior.script_path.name, name=prior.name))
         if prior.fmt == "dxf":
             raise ValueError(f"{prior.script_path.name}: a @dxf drawing cannot also be a @pcb board")
         if prior.board:
@@ -772,13 +787,74 @@ def _apply_pcb(target: Callable[..., Any], pcb_out: str | None) -> Callable[...,
     return _model_wrapper(func, defn)
 
 
+# A harness is a document, never geometry or a board: nothing that makes one stacks on it.
+_NOT_ON_A_HARNESS = (
+    "{script}: @{deco} cannot stack on {name}(), a @harness: a harness is one WireViz document, with no geometry "
+    "and no board. Its one export is @bom, above @harness"
+)
+
+
+def harness(
+    func: Callable[..., Any] | None = None,
+    *,
+    out: str | None = None,
+    **unsupported: Any,
+):
+    """Declare a wiring harness. Usable bare (``@harness``) or configured (``@harness(out=...)``).
+
+    The function returns a ``harness.Harness``; the build checks it (each wire
+    whose ends are on boards joins pins carrying the same net, a pin takes one
+    wire, every connector and cable is used) and writes it as one WireViz
+    document, ``<name>.harness.yml``. ``out=`` names that file. ``@bom`` above
+    ``@harness`` also writes its bill of materials.
+    """
+    with _declaring_here():
+        _reject_unknown_kwargs("harness", unsupported)
+        checked = _checked_out(out, where="@harness")
+        if checked is not None and not checked.lower().endswith(".harness.yml"):
+            raise ValueError(f"@harness out= names the harness document and must end with '.harness.yml' (got {checked!r})")
+
+    def apply(target: Callable[..., Any]) -> Callable[..., Any]:
+        with _declaring(target):
+            return _apply_harness(target, checked)
+
+    return apply(func) if func is not None else apply
+
+
+def _apply_harness(target: Callable[..., Any], out: str | None) -> Callable[..., Any]:
+    prior: ModelDef | None = getattr(target, "__cadgen_model__", None)
+    if prior is not None:
+        prior = _REGISTRY.get(prior.ref, prior)
+        kind = "@harness" if prior.fmt == "harness" else ("@pcb" if prior.board else f"@{prior.fmt}")
+        raise ValueError(
+            f"{prior.script_path.name}: {prior.name}() is already a {kind} model; a @harness is a model of its own, "
+            "whose function returns a harness.Harness (its one export is @bom, above @harness)"
+        )
+    _validate_signature(target, fmt="harness")
+    script_path = _script_path_of(target)
+    defn = ModelDef(
+        func=target,
+        fmt="harness",
+        script_path=script_path,
+        out=out,
+        mesh_tolerance=None,
+        mesh_angular_tolerance=None,
+        step_output=False,
+        stamp=_script_stamp(script_path),
+    )
+    _register(defn)
+    target.__cadgen_model__ = defn  # type: ignore[attr-defined]
+    return _model_wrapper(target, defn)
+
+
 def _fab_export_decorator(fmt: str):
     """Factory for ``@gerber``/``@bom``/``@pos``: a manufacturing export of a board.
 
     They stack ABOVE ``@pcb`` (decorators apply bottom-up, so the board is a model
     by the time they see it) and only on a board. A declared export is written on
     every build, from the board KiCad just checked; ``@gerber`` and ``@pos`` refuse
-    a board with unrouted connections, which fails the build.
+    a board with unrouted connections, which fails the build. ``@bom`` also stacks
+    above ``@harness``: a harness's bill of materials, as WireViz lists it.
     """
     from dataclasses import replace as _replace
 
@@ -796,14 +872,21 @@ def _fab_export_decorator(fmt: str):
             with _declaring(target):
                 existing: ModelDef | None = getattr(target, "__cadgen_model__", None)
                 if existing is None:
+                    model = "@pcb (or @harness)" if fmt == "bom" else "@pcb"
                     raise ValueError(
-                        f"@{fmt} goes ABOVE @pcb: decorators apply bottom-up, so write\n"
+                        f"@{fmt} goes ABOVE {model}: decorators apply bottom-up, so write\n"
                         f"    @{fmt}\n    @pcb\n    def {getattr(target, '__name__', 'board')}(): ..."
                     )
                 existing = _REGISTRY.get(existing.ref, existing)
-                if not existing.board:
+                if existing.fmt == "harness" and fmt != "bom":
                     raise ValueError(
-                        f"@{fmt} exports a @pcb board's manufacturing files; {existing.name}() is a @{existing.fmt} model"
+                        f"@{fmt} exports a @pcb board's manufacturing files; {existing.name}() is a @harness, whose one "
+                        "export is @bom"
+                    )
+                if not existing.board and existing.fmt != "harness":
+                    owner = "a @pcb board's (or a @harness's)" if fmt == "bom" else "a @pcb board's"
+                    raise ValueError(
+                        f"@{fmt} exports {owner} manufacturing files; {existing.name}() is a @{existing.fmt} model"
                     )
                 if any(d.fmt == fmt for d in existing.fab_exports):
                     raise ValueError(f"@{fmt} is declared twice on {existing.name}()")
@@ -896,6 +979,10 @@ def _mesh_export_decorator(deco_name: str, fmt: str):
                 return target
             if existing_model is not None:
                 # Above @step: extend the registered model in place.
+                if existing_model.fmt == "harness":
+                    raise ValueError(_NOT_ON_A_HARNESS.format(
+                        deco=deco_name, script=existing_model.script_path.name, name=existing_model.name
+                    ))
                 if existing_model.fmt != "step":
                     raise ValueError(
                         f"@{deco_name} declares a mesh export of a @step model; "

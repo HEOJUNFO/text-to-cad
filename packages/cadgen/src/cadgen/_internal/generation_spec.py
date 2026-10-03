@@ -37,6 +37,8 @@ class EntrySpec:
     dxf_path: Path | None = None
     # A @pcb board's .kicad_pcb (its .kicad_sch and .kicad_pro sit beside it).
     pcb_path: Path | None = None
+    # A @harness model's .harness.yml, its one document.
+    harness_path: Path | None = None
     # ``None`` means "the caller specified nothing" — the adaptive resolver
     # supplies the value. A number is the caller's explicit choice, and
     # ``is not None`` IS the explicitness test; there is no separate flag and
@@ -217,6 +219,7 @@ def _entry_spec_from_source(source: CadSource) -> EntrySpec:
         generator_metadata=generator_metadata,
         dxf_path=source.dxf_path,
         pcb_path=source.pcb_path,
+        harness_path=source.harness_path,
         mesh_tolerance=source.mesh_tolerance,
         mesh_angular_tolerance=source.mesh_angular_tolerance,
         color=source.color,

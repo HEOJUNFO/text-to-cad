@@ -22,7 +22,8 @@ class GeneratorMetadata:
     script_path: Path
     display_name: str | None
     generator_names: tuple[str, ...]
-    # The decorator kind this model script declares: "step" (@step), "dxf" (@dxf) or "pcb" (@pcb).
+    # The decorator kind this model script declares: "step" (@step), "dxf" (@dxf), "pcb" (@pcb)
+    # or "harness" (@harness).
     format: str
     mesh_tolerance: float | None
     mesh_angular_tolerance: float | None
@@ -43,7 +44,7 @@ class GeneratorMetadata:
     # the outputs, at ``pcb_out_target`` (else the sibling ``<name>.kicad_pcb``).
     board: bool = False
     pcb_out_target: str | None = None
-    # Declared manufacturing exports of a board (@gerber/@bom/@pos).
+    # Declared manufacturing exports of a board (@gerber/@bom/@pos), or a harness's @bom.
     fab_exports: "tuple[FabExportDecl, ...]" = ()
 
 
@@ -67,7 +68,12 @@ def fab_output_path(script_path: Path | str, decl: "FabExportDecl", board_file: 
     if decl.out:
         target = Path(decl.out)
         return (target if target.is_absolute() else Path(script_path).resolve().parent / target).resolve()
-    stem = board_file.name[: -len(".kicad_pcb")] if board_file.name.endswith(".kicad_pcb") else board_file.stem
+    # Beside the document, named by its stem: `board.kicad_pcb` -> `board.bom.csv`, and a
+    # harness's `cable.harness.yml` -> `cable.bom.csv`.
+    stem = next(
+        (board_file.name[: -len(suffix)] for suffix in (".kicad_pcb", ".harness.yml") if board_file.name.endswith(suffix)),
+        board_file.stem,
+    )
     return board_file.with_name(stem + FAB_SUFFIX[decl.fmt]).resolve()
 
 
@@ -149,11 +155,11 @@ def resolve_model_output_path(
     return (script.parent / f"{stem}.{suffix}").resolve()
 
 
-_FORMAT_SUFFIX = {"pcb": "kicad_pcb"}
+_FORMAT_SUFFIX = {"pcb": "kicad_pcb", "harness": "harness.yml"}
 # A board's project is four files (the last its custom design rules, empty
 # when it has none); the board file is its primary document.
 PCB_PROJECT_SUFFIXES = (".kicad_pcb", ".kicad_sch", ".kicad_pro", ".kicad_dru")
-_MODEL_FORMATS = ("step", "dxf", "pcb")
+_MODEL_FORMATS = ("step", "dxf", "pcb", "harness")
 
 _MESH_DECORATOR_NAMES = ("stl", "glb", "threemf")
 _MESH_DECORATOR_FMT = {"stl": "stl", "glb": "glb", "threemf": "3mf"}
@@ -192,6 +198,16 @@ def declared_output_paths(script_path: Path | str, *, function: str | None = Non
                     fab_output_path(script, decl, board_file) for decl in getattr(metadata, "fab_exports", ()) or ()
                 )
             if fmt == "pcb":
+                continue
+            if fmt == "harness":
+                # One WireViz document, and the BOM a @bom above it writes beside it.
+                document = resolve_model_output_path(
+                    script, fmt="harness", explicit_out=metadata.out_target, function=metadata.entry_function
+                )
+                outputs.append(document)
+                outputs.extend(
+                    fab_output_path(script, decl, document) for decl in getattr(metadata, "fab_exports", ()) or ()
+                )
                 continue
             primary = resolve_model_output_path(
                 script, fmt=fmt, explicit_out=metadata.out_target, function=metadata.entry_function
@@ -241,7 +257,9 @@ def _match_model_decorator(
     format "step" — the same tree and record — whose .step is never written.
     ``@pcb`` alone is format "pcb" (a tree-less board); ``@pcb`` with a 3D export
     (``@step`` or a mesh decorator) is format "step": the board's tree is its
-    populated 3D board. Stacking order never changes the answer."""
+    populated 3D board. ``@harness`` is format "harness" whatever else is stacked on
+    it (the decorators refuse a harness that carries anything but ``@bom``).
+    Stacking order never changes the answer."""
     seen: list[tuple[str, dict[str, ast.expr]]] = []
     for decorator in function.decorator_list:
         call_kwargs: dict[str, ast.expr] = {}
@@ -263,6 +281,8 @@ def _match_model_decorator(
     if not kinds:
         return None
     meshes = any(kind in _MESH_DECORATOR_NAMES for kind in kinds)
+    if "harness" in kinds:
+        return "harness", next(kwargs for kind, kwargs in seen if kind == "harness"), False
     if "pcb" in kinds:
         board_kwargs = next(kwargs for kind, kwargs in seen if kind == "pcb")
         if "step" in kinds or meshes:
@@ -277,7 +297,7 @@ def _match_model_decorator(
 
 
 def model_function_formats(source: bytes | str, filename: str = "<model>") -> dict[str, str]:
-    """``{function: "step" | "dxf" | "pcb"}`` for every model a module's source declares,
+    """``{function: "step" | "dxf" | "pcb" | "harness"}`` for every model a module's source declares,
     in file order; a mesh-only model reads as "step". A pure function of the
     bytes: ``{}`` for source that declares none or does not parse."""
     try:

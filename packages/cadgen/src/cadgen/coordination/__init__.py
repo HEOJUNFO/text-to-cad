@@ -41,6 +41,7 @@ from typing import Any, Callable, Iterator
 
 from cadgen.coordination.kinds import (
     DRAWING_PACKAGE,
+    HARNESS_PACKAGE,
     PCB_PACKAGE,
     PHASE_BROWSER,
     PHASE_CHECK_BOARD,
@@ -71,6 +72,7 @@ __all__ = [
     "ArtifactKind",
     "BuildRun",
     "DRAWING_PACKAGE",
+    "HARNESS_PACKAGE",
     "PCB_PACKAGE",
     "PHASE_BROWSER",
     "PHASE_CHECK_BOARD",
