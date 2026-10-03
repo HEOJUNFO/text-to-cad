@@ -110,7 +110,7 @@ CLOSE_SECONDS = 2  # the most an exiting server waits for its last send
 UNCOUNTED = frozenset({"cad_sync", "cad_http", "cad_capture_reply"})
 # A file's format, by extension: what the viewer opens (``cadgen.viewer.scanner.SOURCE_EXTENSIONS``).
 FILE_KINDS = {".step": "step", ".stp": "step", ".stl": "stl", ".3mf": "3mf", ".glb": "glb", ".dxf": "dxf",
-              ".urdf": "urdf", ".srdf": "srdf", ".sdf": "sdf"}
+              ".urdf": "urdf", ".srdf": "srdf", ".sdf": "sdf", ".kicad_pcb": "kicad_pcb", ".kicad_sch": "kicad_sch"}
 FILES_PER_BATCH = 32  # more wait for the next batch: the receiver takes 64 events at most
 # The receiver read the request and will never take it: malformed (400), too large (413), not JSON (415).
 # Anything else -- a 404 where no receiver is deployed yet, a firewall's 403, a 429, a 5xx -- is tried

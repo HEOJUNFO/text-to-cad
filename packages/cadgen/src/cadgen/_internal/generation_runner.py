@@ -23,6 +23,8 @@ from cadgen.catalog import build_scope
 from cadgen.cli_logging import CliLogger
 from cadgen.cli_progress import cli_progress_line
 from cadgen.coordination import DRAWING_PACKAGE
+from cadgen.coordination import PCB_PACKAGE
+from cadgen.coordination import PHASE_CHECK_BOARD
 from cadgen.coordination import PHASE_GENERATE
 from cadgen.coordination import ProgressEvent
 from cadgen.coordination import STEP_PACKAGE
@@ -331,11 +333,20 @@ def _mark_scene_python_backed(
 
 
 def _write_drawing_record(
-    spec: EntrySpec, output_path: Path, *, source_closure, child_trees
+    spec: EntrySpec,
+    output_path: Path,
+    *,
+    source_closure,
+    child_trees,
+    entry_kind: str = "drawing",
+    outputs: Sequence[Path] | None = None,
+    output_facts: dict[Path, dict] | None = None,
 ) -> None:
-    """The drawing's model record: ``tree: null``, its ``.dxf`` as the one output,
-    children pinned from the body's calls. Published under the same rule as a
-    @step record (never replace a current record with a stale one)."""
+    """A tree-less model's record: ``tree: null``, its files as the outputs
+    (a drawing's ``.dxf``; a board's three KiCad files), children pinned from the
+    body's calls. ``output_facts`` adds what a door needs to an output's entry
+    beside its hash (a board's unrouted count). Published under the same rule as
+    a @step record (never replace a current record with a stale one)."""
     import hashlib
 
     from cadgen.store.publish import decide
@@ -344,11 +355,12 @@ def _write_drawing_record(
     from cadgen.store.index import model_ref
 
     model_path = model_ref(spec.script_path, getattr(spec.generator_metadata, "entry_function", None))
-    written = Path(output_path).resolve()
+    written_paths = [Path(path).resolve() for path in (outputs if outputs is not None else [output_path])]
+    facts = {Path(path).resolve(): dict(meta) for path, meta in (output_facts or {}).items()}
     closure_files = list(source_closure.files)
     closure_hash = str(source_closure.closure_hash)
     record = {
-        "entryKind": "drawing",
+        "entryKind": entry_kind,
         "sourceKind": "python",
         "tree": None,
         "closure": {
@@ -361,7 +373,10 @@ def _write_drawing_record(
         },
         "constants": dict(getattr(source_closure, "constants", None) or {}),
         "children": [{"model": str(child), "tree": tree} for child, tree in child_trees],
-        "outputs": {str(written): {"sha256": hashlib.sha256(written.read_bytes()).hexdigest()}},
+        "outputs": {
+            str(written): {"sha256": hashlib.sha256(written.read_bytes()).hexdigest(), **facts.get(written, {})}
+            for written in written_paths
+        },
         "stepHash": "",
     }
     decision = decide(model_path, ran_closure_hash=closure_hash, ran_files=closure_files,
@@ -370,7 +385,69 @@ def _write_drawing_record(
     if not decision.publish_outputs:
         return
     write_record(model_path, record)
-    note_output(written, model_path)
+    for written in written_paths:
+        note_output(written, model_path)
+
+
+@dataclass(frozen=True)
+class BoardWritten:
+    """What a @pcb build wrote: the project's files, and how finished the board is."""
+
+    paths: tuple[Path, ...]
+    unrouted: int
+    warnings: int
+
+
+def _write_pcb_project(
+    result: object,
+    *,
+    output_path: Path,
+    script_path: Path,
+    logger: CliLogger,
+    progress: object | None = None,
+) -> BoardWritten:
+    """Check a ``@pcb`` return with KiCad and write its project, or write nothing.
+
+    KiCad fills the zones and runs ERC and DRC (with the schematic-to-board
+    parity check) on a staged copy first. Any error fails the build before a
+    byte reaches the output folder; warnings and unrouted connections are
+    reported, and a board with unrouted connections is written as a draft.
+    """
+    from cadgen._internal.atomic_replace import write_bytes_atomic
+    from cadgen.kicad.check import build_board, is_blocking
+    from cadgen.kicad.design import Board
+
+    label = _display_path(script_path)
+    if not isinstance(result, Board):
+        raise TypeError(f"{label} @pcb must return a pcb.Board, got {type(result).__name__}")
+    output_path = Path(output_path)
+    resolve_progress(progress).phase(PHASE_CHECK_BOARD)
+    built = build_board(result, name=output_path.stem)
+    for finding in built.findings:
+        if not is_blocking(finding) and finding.check != "unconnected":
+            logger.info(f"{label} {finding.render()}")
+    if built.unrouted:
+        logger.info(f"{label} has {built.unrouted} unrouted connection(s); the board is a draft until they are routed:")
+        for finding in built.findings:
+            if finding.check == "unconnected":
+                logger.info(f"  {finding.render()}")
+    errors = built.errors
+    if errors:
+        listed = "\n  ".join(finding.render() for finding in errors)
+        raise RuntimeError(
+            f"{label}: KiCad found {len(errors)} error(s), so nothing was written:\n  {listed}"
+        )
+    from cadgen.coordination.kinds import PHASE_WRITE
+
+    resolve_progress(progress).phase(PHASE_WRITE)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    written = []
+    for suffix, text in ((".kicad_pro", built.pro), (".kicad_sch", built.sch), (".kicad_pcb", built.pcb)):
+        target = output_path.with_suffix(suffix)
+        write_bytes_atomic(target, text.encode("utf-8"))
+        written.append(target)
+    logger.debug(f"wrote KiCad project: {_display_path(output_path)}")
+    return BoardWritten(paths=tuple(written), unrouted=built.unrouted, warnings=len(built.warnings))
 
 
 def _write_dxf_payload(
@@ -441,7 +518,7 @@ def run_script_generator(
     touched — they cannot reload, must stay warm, and are not freshness inputs.
     """
     logger = logger or CliLogger("cad")
-    if model_format not in {"step", "dxf"}:
+    if model_format not in {"step", "dxf", "pcb"}:
         raise RuntimeError(f"Unsupported model format: {model_format}")
     if spec.script_path is None or spec.generator_metadata is None:
         raise ValueError(f"{spec.source_ref} is not a generated Python CAD source")
@@ -646,6 +723,24 @@ def _run_script_generator_body(
         # `bracket()` -- are pinned from the calls, so a child's new geometry makes
         # the drawing stale like any parent.
         _write_drawing_record(spec, output_path, source_closure=source_closure, child_trees=child_trees)
+    elif model_format == "pcb":
+        if spec.pcb_path is None:
+            raise RuntimeError(f"{spec.source_ref} has no configured board output")
+        frame.wait_children()
+        board_written = _write_pcb_project(
+            raw_payload, output_path=spec.pcb_path, script_path=spec.script_path, logger=logger, progress=progress
+        )
+        # A board is a model like a drawing: no tree, its three KiCad files as the
+        # outputs, and the board file's entry carrying how much is left to route.
+        _write_drawing_record(
+            spec,
+            spec.pcb_path,
+            source_closure=source_closure,
+            child_trees=child_trees,
+            entry_kind="pcb",
+            outputs=board_written.paths,
+            output_facts={spec.pcb_path: {"unrouted": board_written.unrouted}},
+        )
     if generated_scene is not None and source_closure is not None:
         generated_scene.source_closure_hash = source_closure.closure_hash
         generated_scene.source_closure_files = source_closure.files
@@ -659,6 +754,8 @@ def _run_script_generator_body(
             raise RuntimeError(
                 f"{_display_path(spec.script_path)} did not write {_display_path(written)}"
             )
+    if model_format == "pcb":
+        return board_written
     return generated_scene if model_format == "step" else None
 
 
@@ -712,7 +809,7 @@ def _spec_output_dir(spec: EntrySpec, model_format: str) -> str | None:
     before any geometry is."""
     if model_format == "step" and spec.step_path is not None:
         return build_scope(spec.entry_path)
-    if model_format == "dxf" and spec.script_path is not None:
+    if model_format in ("dxf", "pcb") and spec.script_path is not None:
         return build_scope(spec.script_path)
     return None
 
@@ -741,5 +838,5 @@ def _track_spec_generation(
         return contextlib.nullcontext()
     # The kind decides which phase set the run reports over, so a drawing generator
     # counts its own phases rather than a STEP package's.
-    kind = DRAWING_PACKAGE if model_format == "dxf" else STEP_PACKAGE
+    kind = {"dxf": DRAWING_PACKAGE, "pcb": PCB_PACKAGE}.get(model_format, STEP_PACKAGE)
     return generator_busy(kind, scope, sink=sink)

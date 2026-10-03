@@ -22,7 +22,7 @@ class GeneratorMetadata:
     script_path: Path
     display_name: str | None
     generator_names: tuple[str, ...]
-    # The decorator kind this model script declares: "step" (@step) or "dxf" (@dxf).
+    # The decorator kind this model script declares: "step" (@step), "dxf" (@dxf) or "pcb" (@pcb).
     format: str
     mesh_tolerance: float | None
     mesh_angular_tolerance: float | None
@@ -108,14 +108,21 @@ def resolve_model_output_path(
     if explicit_out:
         target = Path(explicit_out)
         return (target if target.is_absolute() else script.parent / target).resolve()
+    # A board's primary document is its KiCad board file.
+    suffix = _FORMAT_SUFFIX.get(fmt, fmt)
     # A file's sole model writes `<file>.<fmt>` (what `python bracket.py` is expected
     # to leave beside it, whatever the function is called); models SHARING a file
     # each write `<function>.<fmt>`, so two models never collide on one default.
     stem = script.stem
     if function and function != stem and len(model_function_names(script)) > 1:
         stem = function
-    return (script.parent / f"{stem}.{fmt}").resolve()
+    return (script.parent / f"{stem}.{suffix}").resolve()
 
+
+_FORMAT_SUFFIX = {"pcb": "kicad_pcb"}
+# A board's project is three files; the board file is its primary document.
+PCB_PROJECT_SUFFIXES = (".kicad_pcb", ".kicad_sch", ".kicad_pro")
+_MODEL_FORMATS = ("step", "dxf", "pcb")
 
 _MESH_DECORATOR_NAMES = ("stl", "glb", "threemf")
 _MESH_DECORATOR_FMT = {"stl": "stl", "glb": "glb", "threemf": "3mf"}
@@ -142,11 +149,14 @@ def declared_output_paths(script_path: Path | str, *, function: str | None = Non
         for metadata in models:
             if metadata is None:
                 continue
-            fmt = "dxf" if str(getattr(metadata, "format", "step") or "step") == "dxf" else "step"
+            declared = str(getattr(metadata, "format", "step") or "step")
+            fmt = declared if declared in _MODEL_FORMATS else "step"
             primary = resolve_model_output_path(
                 script, fmt=fmt, explicit_out=metadata.out_target, function=metadata.entry_function
             )
-            if fmt == "dxf" or getattr(metadata, "step_output", True):
+            if fmt == "pcb":
+                outputs.extend(primary.with_suffix(suffix) for suffix in PCB_PROJECT_SUFFIXES)
+            elif fmt == "dxf" or getattr(metadata, "step_output", True):
                 outputs.append(primary)
             for decl in getattr(metadata, "mesh_exports", ()) or ():
                 if decl.out is not None:
@@ -167,7 +177,7 @@ def _cadgen_decorator_aliases(tree: ast.Module) -> tuple[dict[str, str], set[str
     names bound to the cadgen module itself (for ``@cadgen.step(...)``)."""
     names: dict[str, str] = {}
     module_aliases: set[str] = set()
-    tracked = {"step", "dxf", *_MESH_DECORATOR_NAMES}
+    tracked = {*_MODEL_FORMATS, *_MESH_DECORATOR_NAMES}
     for node in tree.body:
         if isinstance(node, ast.ImportFrom) and node.module in {"cadgen", "cadgen.authoring"}:
             for alias in node.names:
@@ -207,12 +217,12 @@ def _match_model_decorator(
             # documented stacking-order neutrality (runtime was neutral, the
             # parser was not).
             resolved = names.get(target.id)
-            if resolved in {"step", "dxf"}:
+            if resolved in _MODEL_FORMATS:
                 fmt = resolved
             elif resolved in _MESH_DECORATOR_NAMES:
                 mesh_only = True
         elif isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name):
-            if target.value.id in module_aliases and target.attr in {"step", "dxf"}:
+            if target.value.id in module_aliases and target.attr in _MODEL_FORMATS:
                 fmt = target.attr
             elif target.value.id in module_aliases and target.attr in _MESH_DECORATOR_NAMES:
                 mesh_only = True
@@ -224,7 +234,7 @@ def _match_model_decorator(
 
 
 def model_function_formats(source: bytes | str, filename: str = "<model>") -> dict[str, str]:
-    """``{function: "step" | "dxf"}`` for every model a module's source declares,
+    """``{function: "step" | "dxf" | "pcb"}`` for every model a module's source declares,
     in file order; a mesh-only model reads as "step". A pure function of the
     bytes: ``{}`` for source that declares none or does not parse."""
     try:

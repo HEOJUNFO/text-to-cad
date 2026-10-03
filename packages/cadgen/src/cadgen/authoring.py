@@ -71,6 +71,7 @@ from cadgen.store.index import model_ref
 __all__ = [
     "step",
     "dxf",
+    "pcb",
     "stl",
     "glb",
     "threemf",
@@ -255,7 +256,7 @@ class ModelDef:
     """One registered model: the decorated function plus its durable options."""
 
     func: Callable[..., Any]
-    fmt: str  # "step" | "dxf"
+    fmt: str  # "step" | "dxf" | "pcb"
     script_path: Path
     out: str | None
     mesh_tolerance: float | None
@@ -517,7 +518,7 @@ def _decorator(
             # A mesh decorator BELOW this one already declared the function a
             # mesh-only model (and handed back its wrapper). @step takes the RAW
             # function and its declarations over (stacking order stays neutral);
-            # a drawing cannot.
+            # a drawing or a board cannot (yet).
             if fmt != "step":
                 names = ", ".join(f"@{_MESH_FMT_DECORATOR[d.fmt]}" for d in prior.mesh_exports)
                 raise ValueError(
@@ -568,9 +569,10 @@ def _decorator(
                     # The pipeline building THIS model is asking for its body. (Another
                     # model of the same file is a child like any other.)
                     return func()
-                if fmt == "dxf":
-                    # A drawing composes models, never the reverse: called inside
-                    # another build it is just its body (2D geometry), nothing to pin.
+                if fmt in ("dxf", "pcb"):
+                    # A drawing or a board composes models, never the reverse: called
+                    # inside another build it is just its body (2D geometry, or the
+                    # pcb.Board), nothing to pin.
                     return func()
                 # Composition: a parent's body asked for this child. Same rule as the
                 # top level — stale → build, then hand back its geometry — except the
@@ -665,6 +667,30 @@ def dxf(
     decorator = _decorator(
         "dxf", out=out, mesh_tolerance=None, mesh_angular_tolerance=None
     )
+    return decorator(func) if func is not None else decorator
+
+
+def pcb(
+    func: Callable[..., Any] | None = None,
+    *,
+    out: str | None = None,
+    **unsupported: Any,
+):
+    """Declare a printed circuit board. Usable bare (``@pcb``) or configured (``@pcb(out=...)``).
+
+    The function returns a ``pcb.Board``; the build writes its KiCad project
+    (``.kicad_pro``, ``.kicad_sch``, ``.kicad_pcb``) after KiCad fills its zones
+    and checks it. ``out=`` names the ``.kicad_pcb``; the other two land beside it.
+    """
+    with _declaring_here():
+        _reject_unknown_kwargs("pcb", unsupported)
+        checked = _checked_out(out, where="@pcb")
+        if checked is not None and not checked.lower().endswith(".kicad_pcb"):
+            raise ValueError(
+                f"@pcb out= names the board file and must end with '.kicad_pcb' (got {checked!r}); "
+                "the .kicad_sch and .kicad_pro are written beside it"
+            )
+    decorator = _decorator("pcb", out=out, mesh_tolerance=None, mesh_angular_tolerance=None)
     return decorator(func) if func is not None else decorator
 
 

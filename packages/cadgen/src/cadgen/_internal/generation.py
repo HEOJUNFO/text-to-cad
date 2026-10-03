@@ -18,6 +18,7 @@ from cadgen.cli_logging import CliLogger
 from cadgen._internal.glb_topology import build_step_topology_index_manifest
 from cadgen.coordination import (
     DRAWING_PACKAGE,
+    PCB_PACKAGE,
     PHASE_GENERATE,
     STEP_PACKAGE,
     ProgressEvent,
@@ -1134,6 +1135,23 @@ def _validate_dxf_target(spec: EntrySpec) -> None:
         raise ValueError(f"dxf target has no configured DXF output: {spec.source_ref}")
 
 
+def _validate_pcb_target(spec: EntrySpec) -> None:
+    metadata = spec.generator_metadata
+    if spec.source != "generated" or spec.script_path is None or metadata is None:
+        raise ValueError(f"pcb expected a generated Python source target: {spec.source_ref}")
+    if metadata.format != "pcb":
+        raise ValueError(f"pcb target is not a @pcb model: {spec.source_ref}")
+    if spec.pcb_path is None:
+        raise ValueError(f"pcb target has no configured board output: {spec.source_ref}")
+
+
+def _generated_pcb_summary(spec: EntrySpec) -> str:
+    output = spec.pcb_path
+    if output is not None:
+        return f"wrote KiCad project: {_display_path(output)}"
+    return f"processed: {spec.source_ref}"
+
+
 def _generated_output_summary(spec: EntrySpec) -> str:
     if spec.step_path is not None:
         return f"wrote STEP: {_display_path(spec.step_path)}"
@@ -1172,7 +1190,7 @@ def _tree_event(spec: EntrySpec, state: str, **extra: object) -> None:
 
 def _current_source_result(spec: EntrySpec, tree: str | None) -> None:
     """Capture the current source result now; consumers never reread the record."""
-    if spec.source != "generated" or spec.dxf_path is not None:
+    if spec.source != "generated" or spec.dxf_path is not None or spec.pcb_path is not None:
         return
     from cadgen.daemon.executors import emit_source_result
     model = _model_for_spec(spec)
@@ -1230,7 +1248,7 @@ def _run_with_spec_generation_status(
     ``action`` is called as ``action(spec, run)``; ``run`` is the progress reporter.
     """
     del logger
-    kind = DRAWING_PACKAGE if model_format == "dxf" else STEP_PACKAGE
+    kind = {"dxf": DRAWING_PACKAGE, "pcb": PCB_PACKAGE}.get(model_format, STEP_PACKAGE)
     started = time.perf_counter()
     checked_tree = None
 
@@ -1670,6 +1688,110 @@ def generate_dxf_targets(
         )
         for spec, result in zip(selected_specs, results):
             _emit(spec, "skipped-peer" if isinstance(result, _SkippedGeneration) else "built")
+    logger.total()
+    _flush()
+    return 0
+
+
+def _board_unrouted(spec: EntrySpec) -> int | None:
+    """What the board's record says its last build left unrouted (None if unknown)."""
+    model = _model_for_spec(spec)
+    if model is None or spec.pcb_path is None:
+        return None
+    from cadgen.store.records import read_record
+
+    record = read_record(model) or {}
+    meta = (record.get("outputs") or {}).get(str(spec.pcb_path.expanduser().resolve())) or {}
+    unrouted = meta.get("unrouted")
+    return int(unrouted) if isinstance(unrouted, int) else None
+
+
+def generate_pcb_targets(
+    targets: Sequence[str],
+    *,
+    force: bool = False,
+    verbose: bool = False,
+    json_output: bool = False,
+) -> int:
+    """Build boards. A board is a model like a drawing (STORE.md §3): it answers on
+    stdout with one `outcome document` line per target, the document being its
+    ``.kicad_pcb`` (its ``.kicad_sch`` and ``.kicad_pro`` are written beside it).
+    A board with unrouted connections is a DRAFT: it is written and says so."""
+    from cadgen.store.gate import stale
+
+    reported: list[dict[str, object]] = []
+
+    def _emit(spec: EntrySpec, outcome: str, unrouted: int | None) -> None:
+        reported.append(
+            {
+                "ok": True,
+                "kind": "pcb",
+                "outcome": outcome,
+                "document": str(spec.pcb_path.expanduser().resolve()) if spec.pcb_path is not None else None,
+                "tree": None,
+                "unrouted": unrouted,
+            }
+        )
+
+    def _flush() -> None:
+        for entry in reported:
+            if json_output:
+                print(json.dumps(entry, separators=(",", ":")))
+                continue
+            document = entry["document"]
+            line = f"{entry['outcome']} {_display_path(Path(document)) if document else None}"
+            unrouted = entry.get("unrouted")
+            if unrouted:
+                line += f" (draft: {unrouted} unrouted connection{'s' if unrouted != 1 else ''})"
+            print(line)
+
+    def board_current(spec: EntrySpec) -> bool:
+        model = _model_for_spec(spec)
+        if model is None or spec.pcb_path is None:
+            return False
+        return not stale(model).stale
+
+    logger = CliLogger("cadgen", verbose=verbose)
+    all_specs, selected_specs = _selected_specs_for_targets(targets)
+    for spec in selected_specs:
+        _validate_pcb_target(spec)
+    if not force:
+        current_specs = [spec for spec in selected_specs if spec.script_path is not None and board_current(spec)]
+        for spec in current_specs:
+            logger.info(f"{_display_path(spec.pcb_path) if spec.pcb_path is not None else spec.cad_ref} is current; not rebuilt")
+            _emit(spec, "current", _board_unrouted(spec))
+        current_refs = {spec.source_ref for spec in current_specs}
+        selected_specs = [spec for spec in selected_specs if spec.source_ref not in current_refs]
+    if selected_specs:
+        def _built_by_a_peer(spec: EntrySpec) -> bool:
+            if force or spec.script_path is None:
+                return False
+            return board_current(spec)
+
+        results = _run_selected_specs(
+            selected_specs,
+            action=lambda spec, progress_sink=None: _run_with_spec_generation_status(
+                spec,
+                "pcb",
+                lambda tracked_spec, reporter: run_script_generator(
+                    tracked_spec,
+                    "pcb",
+                    logger=logger,
+                    progress=reporter,
+                    model_prints_to_stdout=True,
+                ),
+                skip_if_current=_built_by_a_peer,
+                progress_sink=progress_sink,
+                logger=logger,
+            ),
+            logger=logger,
+            success_message=_generated_pcb_summary,
+        )
+        for spec, result in zip(selected_specs, results):
+            if isinstance(result, _SkippedGeneration):
+                _emit(spec, "skipped-peer", _board_unrouted(spec))
+            else:
+                _emit(spec, "built", getattr(result, "unrouted", None))
     logger.total()
     _flush()
     return 0

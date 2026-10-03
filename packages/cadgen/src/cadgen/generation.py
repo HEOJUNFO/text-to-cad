@@ -6,9 +6,10 @@ drives. Anything not exported
 here is private and may change between releases.
 """
 
-from cadgen._internal.generation import generate_dxf_targets, generate_step_targets
+from cadgen._internal.generation import generate_dxf_targets, generate_pcb_targets, generate_step_targets
 
 __all__ = [
     "generate_dxf_targets",
+    "generate_pcb_targets",
     "generate_step_targets",
 ]

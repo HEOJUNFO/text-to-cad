@@ -165,7 +165,16 @@ def _run(args: argparse.Namespace, script: Path, prog: str) -> int:
         if source is None:
             raise ValueError(
                 f"{script.name} declares no CAD model — decorate one function with "
-                "@step, @dxf, or a mesh decorator (@stl/@glb/@threemf) from cadgen"
+                "@step, @dxf, @pcb, or a mesh decorator (@stl/@glb/@threemf) from cadgen"
+            )
+        if source.pcb_path is not None:
+            from cadgen.generation import generate_pcb_targets
+
+            return generate_pcb_targets(
+                [target],
+                force=bool(args.force),
+                verbose=bool(args.verbose),
+                json_output=bool(args.json),
             )
         if source.dxf_path is not None and source.step_path is None:
             from cadgen.generation import generate_dxf_targets
