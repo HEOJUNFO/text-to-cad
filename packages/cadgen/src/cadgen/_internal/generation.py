@@ -1211,8 +1211,15 @@ def _tree_event(spec: EntrySpec, state: str, **extra: object) -> None:
 
 
 def _current_source_result(spec: EntrySpec, tree: str | None) -> None:
-    """Capture the current source result now; consumers never reread the record."""
-    if spec.source != "generated" or spec.dxf_path is not None or spec.pcb_path is not None or spec.harness_path is not None:
+    """Capture the current source result now; consumers never reread the record.
+
+    Tree-less models (a drawing, a board without a 3D export, a harness) have none;
+    a board WITH a 3D export is a geometry model, whose tree its caller waits for.
+    """
+    tree_less = spec.dxf_path is not None or spec.harness_path is not None or (
+        spec.pcb_path is not None and spec.step_path is None
+    )
+    if spec.source != "generated" or tree_less:
         return
     from cadgen.daemon.executors import emit_source_result
     model = _model_for_spec(spec)

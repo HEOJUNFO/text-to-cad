@@ -186,6 +186,9 @@ class PcbModelsTest(unittest.TestCase):
         self.assertEqual(built.returncode, 0, built.stderr)
         for name in ("blinky.step", "blinky.kicad_pcb", "case.step"):
             self.assertTrue((self.folder / name).is_file(), name)
+        # Run on its own, the current board hands its tree back like any current part.
+        again = self.run_script("blinky.py")
+        self.assertEqual((again.returncode, again.stdout.strip().splitlines()[-1]), (0, "current blinky.kicad_pcb"), again.stderr)
         probe = textwrap.dedent(
             """
             import json
