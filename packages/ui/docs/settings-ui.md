@@ -428,10 +428,11 @@ stack.
 - **Surfaces.** Two, defined once (`lib/floatingSurface.js`), with one border: the
   toolbar and the stack's panels, which stay up beside the model, share
   `FLOATING_CHROME_SURFACE_CLASS` — the background at 45.5% and barely blurred
-  (2px), so the model behind them is easy to make out; every menu and popover
-  over the viewport, the app menu and Display included, share
-  `FLOATING_SURFACE_CLASS` (the background at 75%, blurred), so their text never
-  competes with the model.
+  (2px), so the model behind them is easy to make out (a picture that keeps its
+  own colours against the theme, a KiCad schematic's light paper in the dark,
+  raises it to 90% through `--cad-chrome-alpha`); every menu and popover over the
+  viewport, the app menu and Display included, share `FLOATING_SURFACE_CLASS` (the
+  background at 75%, blurred), so their text never competes with the model.
 - **Scrolling.** Every scroll region in the viewer's chrome — a panel's body,
   the stack's column, the explorer, a menu, the alert card — is the
   `ScrollArea` primitive (`primitives/scroll-area.jsx`, shadcn's): thin overlay
