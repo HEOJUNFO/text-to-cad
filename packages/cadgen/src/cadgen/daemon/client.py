@@ -69,6 +69,9 @@ _TIMED_OUT = object()
 # idle housekeeping holds the client's store to (STORE.md §8). CADGEN_VERIFY_READBACK
 # is one build's request (STORE.md §10): a daemon started with it verified every
 # later build, and one started without it skipped the check a maintainer asked for.
+# The programs a board or a harness build runs are the same kind of choice: the
+# KiCad, the Freerouting and the Java to run it, the WireViz (and ngspice) the
+# caller named.
 FORWARDED_ENV_VARS = (
     "CADGEN_CACHE_DIR",
     "XDG_CACHE_HOME",
@@ -77,6 +80,12 @@ FORWARDED_ENV_VARS = (
     "CADGEN_FFMPEG",
     "CADGEN_STORE_MAX",
     "CADGEN_VERIFY_READBACK",
+    "CADGEN_KICAD_CLI",
+    "CADGEN_FREEROUTING",
+    "CADGEN_JAVA",
+    "JAVA_HOME",
+    "CADGEN_WIREVIZ",
+    "CADGEN_NGSPICE",
 )
 
 # The client's own ffmpeg, looked up once per process. Resolved HERE rather than
