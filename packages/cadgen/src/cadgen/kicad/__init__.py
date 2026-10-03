@@ -23,4 +23,7 @@ Modules, each importing nothing heavy at module scope:
   3D, and the manufacturing files.
 - ``spice`` / ``ngspice`` / ``sim``: simulation -- the netlist from KiCad's
   ``Sim.*`` fields, the simulator KiCad ships, and the ``Testbench``.
+- ``specctra`` / ``route``: autorouting -- a board as Freerouting's Specctra
+  DSN and its routed session read back, and running Freerouting (a separate
+  program, GPL-3.0) for ``board.autoroute()``.
 """

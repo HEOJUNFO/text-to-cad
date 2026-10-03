@@ -249,7 +249,7 @@ requested separately. A manual dispatch runs every job.
 | --- | --- | --- |
 | Version Check | every change | canonical version, derived metadata, skill pins, the shipping contract's tree rules |
 | cadgen (Linux/Windows) | cadgen, core, infrastructure | Python engine, daemon, CLI and viewer backend |
-| KiCad boards | cadgen, core, infrastructure | `scripts/test/test-kicad.sh`: boards built end to end through KiCad 10 (from its Ubuntu PPA): fills, ERC/DRC, plots, Gerbers, 3D, simulation. Not a required check |
+| KiCad boards | cadgen, core, infrastructure | `scripts/test/test-kicad.sh`: boards built end to end through KiCad 10 (from its Ubuntu PPA): fills, ERC/DRC, plots, Gerbers, 3D, simulation, and autorouting through a pinned Freerouting jar (SHA-256 checked) on Java 25. Not a required check |
 | WireViz harnesses | cadgen, core, infrastructure | `scripts/test/test-harness.sh`: harnesses through a real WireViz (pip) and Graphviz (apt): their drawings and bills of materials. Not a required check |
 | core-js | core, infrastructure | `@text-to-cad/core` and benchmark helper units |
 | web | web, UI, core, cadgen, infrastructure | UI and web units, the UI browser specs, bundled launch, format/camera browser checks through the backend |

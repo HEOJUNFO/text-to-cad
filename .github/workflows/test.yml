@@ -283,12 +283,17 @@ jobs:
   # cadgen's use of KiCad, and KiCad's command line is the same on every platform. The
   # PPA's kicad package is the command line and its symbol and footprint libraries;
   # the 3D model library (over a gigabyte) is left out, so boards export bare.
+  # board.autoroute() runs Freerouting, a separate program cadgen never ships (GPL-3.0):
+  # the pinned release's jar, checked against its published SHA-256, on Java 25.
   kicad:
     name: KiCad boards
     needs: changes
     if: needs.changes.outputs.cadgen == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      FREEROUTING_VERSION: "2.4.1"
+      FREEROUTING_SHA256: "251101c3eeac22d7e7dfcf6796603279e5d1000283eb82d8f093780f7afc6aa9"
 
     steps:
       - name: Check out repository
@@ -300,6 +305,34 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends kicad kicad-symbols kicad-footprints libngspice0
           kicad-cli version
+
+      - name: Set up Java 25 for Freerouting
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+          java-package: jre
+
+      - name: Cache Freerouting
+        id: freerouting
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/freerouting
+          key: freerouting-${{ env.FREEROUTING_VERSION }}-${{ env.FREEROUTING_SHA256 }}
+
+      - name: Download Freerouting
+        if: steps.freerouting.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$HOME/.cache/freerouting"
+          curl --fail --silent --show-error --location --retry 3 \
+            --output "$HOME/.cache/freerouting/freerouting-${FREEROUTING_VERSION}.jar" \
+            "https://github.com/freerouting/freerouting/releases/download/v${FREEROUTING_VERSION}/freerouting-${FREEROUTING_VERSION}.jar"
+
+      - name: Point cadgen at Freerouting
+        run: |
+          jar="$HOME/.cache/freerouting/freerouting-${FREEROUTING_VERSION}.jar"
+          echo "${FREEROUTING_SHA256}  ${jar}" | sha256sum --check
+          echo "CADGEN_FREEROUTING=${jar}" >> "$GITHUB_ENV"
 
       - name: Set up dependencies
         uses: ./.github/actions/setup-deps

@@ -386,6 +386,7 @@ class Autoroute:
     skip: tuple[Any, ...]  # nets (or their names) the router leaves alone
     passes: int
     timeout: float
+    layers: tuple[str, ...] | None = None  # the copper layers it may run tracks on; None is every one
 
 
 def _nm(value: float) -> float:
@@ -922,14 +923,23 @@ class Board(Circuit):
 
     # -- routing --
 
-    def autoroute(self, *, skip: Any = (), passes: int = 100, timeout: float = 600.0) -> None:
+    def autoroute(
+        self,
+        *,
+        skip: Any = (),
+        layers: Sequence[str] | None = None,
+        passes: int = 100,
+        timeout: float = 600.0,
+    ) -> None:
         """Route every connection the script did not draw, with Freerouting, when the board is built.
 
         Place the parts first, and draw what must run one way (a power path, a
         pour): the router keeps every track and via the script drew, routes
         around them and continues from them. Each net is routed in its net
         class's width, clearance and via. ``skip`` is nets (or their names) the
-        router leaves alone, such as a ground a pour carries. ``passes`` caps
+        router leaves alone, such as a ground a pour carries. ``layers`` is the
+        copper layers it may run tracks on (every one by default; vias still
+        pass through all), so an inner plane stays whole. ``passes`` caps
         Freerouting's routing passes; the same board and passes always route
         the same way. ``timeout`` (seconds) stops a run that takes longer, and
         fails the build. A connection the router cannot make stays unrouted and
@@ -940,6 +950,13 @@ class Board(Circuit):
         """
         if self.autoroute_request is not None:
             raise DesignError("board.autoroute(...) was already called; call it once, with every setting")
+        routing_layers = None
+        if layers is not None:
+            names = (layers,) if isinstance(layers, str) else tuple(layers)
+            chosen = {self._copper(name, what="autoroute layer") for name in names}
+            if not chosen:
+                raise DesignError(f"layers= names the copper layers to route on, at least one of {', '.join(self.copper_layers)}")
+            routing_layers = tuple(name for name in self.copper_layers if name in chosen)
         items = (skip,) if isinstance(skip, (Net, str)) else skip
         try:
             items = tuple(items)
@@ -959,7 +976,7 @@ class Board(Circuit):
             raise DesignError(f"timeout= is seconds, got {timeout!r}") from None
         if not math.isfinite(seconds) or seconds <= 0:
             raise DesignError(f"timeout= is seconds, greater than 0; got {timeout!r}")
-        self.autoroute_request = Autoroute(skip=items, passes=passes, timeout=seconds)
+        self.autoroute_request = Autoroute(skip=items, passes=passes, timeout=seconds, layers=routing_layers)
 
     # -- mechanical and graphics --
 

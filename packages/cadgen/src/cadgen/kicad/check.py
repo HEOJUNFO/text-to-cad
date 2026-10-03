@@ -7,10 +7,15 @@ three documents in a temporary folder and asks ``kicad-cli`` for:
 - the DRC of the board, with the schematic-to-board parity check, after
   refilling every zone (``--refill-zones --save-board``).
 
+A board that asked for autorouting (``board.autoroute()``) is routed by
+Freerouting before it is staged (:mod:`cadgen.kicad.route`): its tracks and
+vias join cadgen's tree, so KiCad fills around them and checks them like any
+the script drew.
+
 KiCad's saved board is read back for one thing only, the copper it filled each
 zone with (``filled_polygon``), which is merged into cadgen's own tree by zone
-UUID. The board cadgen writes is therefore cadgen's bytes plus KiCad's fill:
-the same board always writes the same file.
+UUID. The board cadgen writes is therefore cadgen's bytes (and the router's)
+plus KiCad's fill: the same board always writes the same file.
 
 :func:`check_project` runs the same checks on any KiCad project, a person's
 included, for ``cadgen pcb validate``.
@@ -166,11 +171,18 @@ def build_board(board: Board, *, name: str, install: KicadInstall | None = None)
     """The board's documents, its zones filled by KiCad, and KiCad's findings."""
     install = install or find_kicad()
     texts = project_texts(board, name=name)
+    pcb_tree, pcb_text = texts.pcb_tree, texts.pcb
+    if board.autoroute_request is not None:
+        # Freerouting routes first, so its tracks are filled around and checked like drawn ones.
+        from cadgen.kicad.route import route_board
+
+        pcb_tree = route_board(board, pcb_tree, project=texts.pro, name=name).tree
+        pcb_text = sexpr.dumps(pcb_tree)
     with tempfile.TemporaryDirectory(prefix="cadgen-pcb-") as folder:
         stage = Path(folder)
         (stage / f"{name}.kicad_pro").write_text(texts.pro)
         (stage / f"{name}.kicad_sch").write_text(texts.sch)
-        (stage / f"{name}.kicad_pcb").write_text(texts.pcb)
+        (stage / f"{name}.kicad_pcb").write_text(pcb_text)
         (stage / f"{name}.kicad_dru").write_text(texts.dru + (_CANARY if board.design_rules else ""))
         run_kicad_cli(install, ["sch", "erc", "--format", "json", "-o", "erc.json", f"{name}.kicad_sch"], cwd=stage)
         run_kicad_cli(
@@ -178,7 +190,7 @@ def build_board(board: Board, *, name: str, install: KicadInstall | None = None)
             ["pcb", "drc", "--format", "json", "--schematic-parity", "--refill-zones", "--save-board", "-o", "drc.json", f"{name}.kicad_pcb"],
             cwd=stage,
         )
-        board_findings, loaded = _without_canary(drc_findings(stage / "drc.json", to_script=_to_script(_origin(texts.pcb_tree))))
+        board_findings, loaded = _without_canary(drc_findings(stage / "drc.json", to_script=_to_script(_origin(pcb_tree))))
         if board.design_rules and not loaded:
             raise DesignError(
                 "KiCad could not read the board's custom rules, so it applied none of them: a board.rule(...) "
@@ -186,7 +198,7 @@ def build_board(board: Board, *, name: str, install: KicadInstall | None = None)
                 "condition that is not an expression). Check each against KiCad's custom rules syntax."
             )
         findings = erc_findings(stage / "erc.json") + board_findings
-        filled = _merge_fills(texts.pcb_tree, (stage / f"{name}.kicad_pcb").read_text())
+        filled = _merge_fills(pcb_tree, (stage / f"{name}.kicad_pcb").read_text())
     return BoardBuild(findings=tuple(findings), name=name, pro=texts.pro, sch=texts.sch, pcb=sexpr.dumps(filled), dru=texts.dru)
 
 
