@@ -19,6 +19,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from cadgen._internal.format_namespace import callable_namespace
+from cadgen._internal.snapshot_door import plot_snapshot_verb
 from cadgen.results import ValidationResult
 
 __all__ = [
@@ -32,12 +33,16 @@ __all__ = [
     "Rules",
     "find_footprints",
     "find_symbols",
+    "snapshot",
     "validate",
 ]
 
 _DESIGN = {"Board", "DesignError", "JLCPCB", "Net", "NetClass", "Part", "Pin", "Rules"}
 
 _SUFFIXES = (".kicad_pcb", ".kicad_sch", ".kicad_pro")
+
+#: ``cadgen pcb snapshot``'s verb: a board or schematic drawn as KiCad plots it, as the viewer draws it.
+snapshot = plot_snapshot_verb("pcb")
 
 
 def validate(path: Path, *, strict: bool = False, verbose: bool = False) -> ValidationResult:

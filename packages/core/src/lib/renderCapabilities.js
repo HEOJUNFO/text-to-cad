@@ -27,10 +27,12 @@ export const PARAMETER_SOURCE = Object.freeze({
 
 // WHICH ASSET the viewer loads for this format. A DXF loads a DRAWING: the server's
 // flattened 2D payload, not a mesh, so every "is it loaded yet?" check has to ask about the
-// drawing. Loader implementations stay per-format; this only names which one.
+// drawing. A KiCad board or schematic loads a PLOT: the SVG sheets its own tool draws.
+// Loader implementations stay per-format; this only names which one.
 export const ASSET_KIND = Object.freeze({
   MESH: "mesh",
   DRAWING: "drawing",
+  PLOT: "plot",
   ROBOT: "robot"
 });
 
@@ -39,6 +41,8 @@ export const ASSET_KIND = Object.freeze({
 export const ENTRY_ICON_KIND = Object.freeze({
   LOADING: "loading",
   DXF: "dxf",
+  KICAD_PCB: "kicad-pcb",
+  KICAD_SCH: "kicad-sch",
   ROBOT: "robot",
   STEP: "step",
   STL_MESH: "stl-mesh",
@@ -53,9 +57,9 @@ export const ENTRY_ICON_KIND = Object.freeze({
 // than reflowing as you move between files.
 //
 // This is the place a format DECLINES a tool, and the shell reads it through
-// `supportsTool`. DXF is the row that declines: a drawing is painted on a canvas with no
-// toolbar over it at all, so it claims none of these rather than advertising four buttons
-// that exist nowhere.
+// `supportsTool`. The flat formats are the rows that decline: a DXF drawing and a KiCad
+// plot are painted on a canvas with no toolbar over it at all, so they claim none of these
+// rather than advertising four buttons that exist nowhere.
 const VIEWPORT_TOOLS = Object.freeze({
   select: true,
   draw: true,
@@ -160,6 +164,21 @@ export const RENDER_CAPABILITIES = Object.freeze({
     ...DEFAULT_CAPABILITIES,
     assetKind: ASSET_KIND.DRAWING,
     iconKind: ENTRY_ICON_KIND.DXF,
+    tools: NO_VIEWPORT_TOOLS,
+  }),
+  // A KiCad board or schematic is not on the 3D shell either (packages/ui/src/renderers/plot):
+  // its pane is a canvas painted from `GET /__cad/plot`, KiCad's own SVG plot of the file. Its
+  // 3D comes from the STEP or GLB a board model exports, which are files of their own.
+  [RENDER_FORMAT.KICAD_PCB]: Object.freeze({
+    ...DEFAULT_CAPABILITIES,
+    assetKind: ASSET_KIND.PLOT,
+    iconKind: ENTRY_ICON_KIND.KICAD_PCB,
+    tools: NO_VIEWPORT_TOOLS,
+  }),
+  [RENDER_FORMAT.KICAD_SCH]: Object.freeze({
+    ...DEFAULT_CAPABILITIES,
+    assetKind: ASSET_KIND.PLOT,
+    iconKind: ENTRY_ICON_KIND.KICAD_SCH,
     tools: NO_VIEWPORT_TOOLS,
   }),
   [RENDER_FORMAT.URDF]: Object.freeze({ ...DEFAULT_CAPABILITIES, ...ROBOT_CAPABILITIES }),

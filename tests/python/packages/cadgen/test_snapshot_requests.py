@@ -213,6 +213,84 @@ class CrossKindOptionsAreRefusedByName(_Workspace):
         self.assertIn("grid, hidden-line, render, solid, wireframe, xray", said)
 
 
+class PlotRequestsAreRefusedByName(_Workspace):
+    """A KiCad board or schematic is a PLOT: drawn as KiCad plots it, flat.
+
+    Everything that describes a scene is refused BY NAME, in a plot's words,
+    and before KiCad is ever run — so none of this needs KiCad. Routing is the
+    other half: a plot resolves to a `plot` job whose payload the page fetches.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.write("blinky.kicad_pcb", "(kicad_pcb (version 20240108))\n")
+        self.write("blinky.kicad_sch", "(kicad_sch (version 20231120))\n")
+
+    def job(self, name="blinky.kicad_pcb", **overrides) -> dict:
+        return {"input": name, "outputs": [{"path": "review.png"}], **overrides}
+
+    def refused(self, job, pattern, **kwargs) -> None:
+        # Resolving is where KiCad would run: a refusal must come first.
+        with mock.patch.object(snapshot_cli, "plot_payload_file", side_effect=AssertionError("plotted")), \
+                self.assertRaisesRegex(SnapshotError, pattern):
+            self.resolve(job, **kwargs)
+
+    def test_a_scene_request_is_refused_in_a_plots_words(self) -> None:
+        for job, pattern in (
+            (self.job(camera="top"), r"camera poses a model in space; a KiCad board is drawn as KiCad plots it"),
+            (self.job(outputs=[{"path": "review.png", "camera": "iso"}]), r"camera poses a model in space"),
+            (self.job("blinky.kicad_sch", display={"mode": "render"}),
+             r"display\.mode describes a 3D scene.*a KiCad schematic is drawn as KiCad plots it, its sheets one under another"),
+            (self.job(display={"floor": {"enabled": True}}), r"--appearance light\|dark"),
+            (self.job(mode="list", outputs=[]), r"no parts to list and no solid to section, so view is the only mode blinky\.kicad_pcb"),
+            (self.job(section={"plane": "XY"}), r"no parts to list and no solid to section"),
+            (self.job(scale="urdf"), r"scale picks the units a 3D scene.*in millimetres, so blinky\.kicad_pcb has no scene to scale"),
+            (self.job(outputs=[{"path": "review.png", "label": "TOP"}]), r"names the view burnt into the image"),
+            (self.job(output={"padding": 0.1}), r"output\.padding has no meaning for a KiCad board"),
+            (self.job(jointValues={"j1": 10}), r"KiCad boards have no joints"),
+            (self.job("blinky.kicad_sch", quality={"tessellation": {"chordTolerance": 0.01}}),
+             r"a KiCad schematic is the picture its own tool draws, not a tessellated surface"),
+        ):
+            with self.subTest(job=sorted(set(job) - {"input"})):
+                self.refused(job, pattern)
+
+    def test_appearance_and_the_flat_output_settings_survive(self) -> None:
+        single, prepared = snapshot_cli.prepare_render_job_packet(
+            self.job(display={"appearance": "dark"}, output={"renderScale": 2, "transparent": True}), cwd=self.root
+        )
+        self.assertTrue(single)
+        self.assertEqual("dark", prepared[0].job["display"]["appearance"])
+        self.assertEqual("kicad_pcb", prepared[0].kind)
+
+    def test_each_door_routes_a_plot_only_where_it_should(self) -> None:
+        pcb = snapshot_cli.enabled_kinds(("kicad_pcb", "kicad_sch"))
+        snapshot_cli.prepare_render_job_packet(self.job("blinky.kicad_sch"), cwd=self.root, kinds=pcb)
+        self.refused(self.job(), r"does not render \.kicad_pcb inputs.*It accepts: \.step, \.stp",
+                     kinds=snapshot_cli.enabled_kinds(("step", "stp")))
+        self.write("panel.dxf", "0\nEOF\n")
+        self.refused(self.job("panel.dxf"), r"does not render \.dxf inputs.*It accepts: \.kicad_pcb, \.kicad_sch", kinds=pcb)
+
+    def test_a_plot_resolves_to_a_plot_job_whose_payload_the_page_fetches(self) -> None:
+        payload = b'{"schemaVersion":1,"kind":"board","unrouted":0,"sheets":[]}'
+        with mock.patch("cadgen.kicad.plot.plot_payload_bytes", return_value=payload) as plot:
+            packet = self.resolve(self.job(debug=True))
+        plot.assert_called_once_with(self.root / "blinky.kicad_pcb")
+        resolved = packet["jobs"][0]["resolved"]
+        self.assertEqual(("plot", "kicad_pcb"), (resolved["kind"], resolved["inputKind"]))
+        self.assertTrue(resolved["plotUrl"].startswith("/__render_asset/"))
+        served = Path(resolved["rootPath"]) / resolved["plotUrl"].split("/__render_asset/", 1)[1].split("?", 1)[0]
+        self.assertEqual(payload, served.read_bytes())
+        self.assertEqual(len(payload), resolved["debug"]["plotSource"]["payloadBytes"])
+
+    def test_a_machine_without_kicad_is_told_how_to_get_it(self) -> None:
+        from cadgen.kicad.install import KicadMissingError
+
+        missing = KicadMissingError("KiCad's command line, kicad-cli, was not found: install KiCad 10 from kicad.org")
+        with mock.patch("cadgen.kicad.plot.plot_payload_bytes", side_effect=missing), \
+                self.assertRaisesRegex(SnapshotError, r"kicad-cli, was not found: install KiCad 10"):
+            self.resolve(self.job())
+
+
 class SrdfPairingTests(_Workspace):
     """S9: an SRDF renders its paired URDF, found the way `cadgen srdf validate` finds it."""
 

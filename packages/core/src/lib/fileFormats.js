@@ -4,6 +4,8 @@ export const RENDER_FORMAT = Object.freeze({
   THREE_MF: "3mf",
   GLB: "glb",
   DXF: "dxf",
+  KICAD_PCB: "kicad_pcb",
+  KICAD_SCH: "kicad_sch",
   URDF: "urdf",
   SRDF: "srdf",
   SDF: "sdf"
@@ -13,6 +15,14 @@ export const MESH_RENDER_FORMATS = Object.freeze([
   RENDER_FORMAT.STL,
   RENDER_FORMAT.THREE_MF,
   RENDER_FORMAT.GLB
+]);
+
+// Formats the viewer shows as a PLOT: the picture the document's own tool draws of it (KiCad's
+// plot of a board or a schematic), served as SVG sheets by `GET /__cad/plot`. Like a DXF, the
+// render asset is the file itself; nothing bakes a mesh for it.
+export const PLOT_RENDER_FORMATS = Object.freeze([
+  RENDER_FORMAT.KICAD_PCB,
+  RENDER_FORMAT.KICAD_SCH
 ]);
 
 export function normalizeFormat(value) {
@@ -33,6 +43,8 @@ export function normalizeRenderFormat(value, { defaultFormat = RENDER_FORMAT.STE
     normalized === RENDER_FORMAT.THREE_MF ||
     normalized === RENDER_FORMAT.GLB ||
     normalized === RENDER_FORMAT.DXF ||
+    normalized === RENDER_FORMAT.KICAD_PCB ||
+    normalized === RENDER_FORMAT.KICAD_SCH ||
     normalized === RENDER_FORMAT.URDF ||
     normalized === RENDER_FORMAT.SRDF ||
     normalized === RENDER_FORMAT.SDF
@@ -50,6 +62,9 @@ export function entrySourceFormat(entry) {
   const kind = entryKind(entry);
   if (kind === RENDER_FORMAT.DXF) {
     return RENDER_FORMAT.DXF;
+  }
+  if (isPlotRenderFormat(kind)) {
+    return kind;
   }
   if (kind === RENDER_FORMAT.STL) {
     return RENDER_FORMAT.STL;
@@ -76,11 +91,16 @@ export function isMeshRenderFormat(format) {
   return MESH_RENDER_FORMATS.includes(normalizeFormat(format));
 }
 
+export function isPlotRenderFormat(format) {
+  return PLOT_RENDER_FORMATS.includes(normalizeFormat(format));
+}
+
 export function meshAssetKeyForFormat(format) {
   const normalized = normalizeFormat(format);
   // A DXF's render asset is its own file (the server flattens it to a 2D payload;
-  // nothing bakes a mesh for it), so its key is itself, never a baked GLB relation.
-  return isMeshRenderFormat(normalized) || normalized === RENDER_FORMAT.DXF
+  // nothing bakes a mesh for it), and so is a plot's (its tool draws it as SVG), so
+  // their key is themselves, never a baked GLB relation.
+  return isMeshRenderFormat(normalized) || normalized === RENDER_FORMAT.DXF || isPlotRenderFormat(normalized)
     ? normalized
     : RENDER_FORMAT.GLB;
 }
@@ -124,6 +144,9 @@ export function renderFormatFromExtension(extension) {
   }
   if (normalized === "dxf") {
     return RENDER_FORMAT.DXF;
+  }
+  if (normalized === RENDER_FORMAT.KICAD_PCB || normalized === RENDER_FORMAT.KICAD_SCH) {
+    return normalized;
   }
   if (normalized === "urdf") {
     return RENDER_FORMAT.URDF;

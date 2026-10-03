@@ -194,6 +194,7 @@ cache reads and writes.
 | `GET /__cad/asset?file=...` | A CAD file's or sidecar's bytes. |
 | `GET /__cad/store?file=...` | Virtual render assets from the shared store. |
 | `GET /__cad/drawing?file=...` | A `.dxf` flattened to 2D render primitives; the DXF pane's only source. |
+| `GET /__cad/plot?file=...` | A KiCad board or schematic as KiCad plots it, one SVG per sheet; the plot pane's only source. |
 | `GET /__cad/artifact?file=...` | Artifact status and advisory progress. |
 | `POST /__cad/artifact?file=...` | Start importing a foreign STEP and answer at once (`compiling`; `compiled` when there is nothing to build); `&force=1` requests a rebuild. The import is followed through `GET /__cad/artifact`, whose `failed` carries the job's reason until the file's bytes change. |
 | `GET /__cad/recents` | The model library every CAD view shares. |
@@ -284,3 +285,48 @@ drawing, ~0.7 s for 10k on a warm laptop), and the server is a
 requests for about that long. If drawings that size become routine, the
 escalation is cadgen's build pool — the same move the STEP import made — not a
 second thread pool here.
+
+## `GET /__cad/plot`
+
+A document drawn by its own tool, on the SERVER: a KiCad board or schematic is
+`kicad-cli`'s SVG plot of it (`cadgen.kicad.plot`), so the plot pane draws what KiCad
+draws and never parses KiCad's files. A board is one sheet — its layers stacked back
+to front, on KiCad's board background, with any unrouted connection drawn as a
+ratsnest line (a draft never looks finished); a schematic is one sheet per page,
+root first.
+
+`cadgen pcb snapshot` draws the SAME payload: its resolver calls
+`cadgen.kicad.plot.plot_payload_bytes` too, writes the bytes where the headless page
+can fetch them, and the page draws them with `@text-to-cad/core/lib/plot2d` — the module
+the plot pane draws with.
+
+`?file=` names the document by its absolute path, as every route does: a relative
+ref, or anything that is not a `.kicad_pcb` or `.kicad_sch`, is 400, and a missing
+file 404. A document KiCad cannot plot, and a machine with no KiCad, are 400 with the
+teaching message — the latter names how to install KiCad, which the pane shows on its
+alert card.
+
+```jsonc
+{
+  "schemaVersion": 1,
+  "kicadVersion": "10.0.6",          // the tool's version; not every kind carries one
+  "kind": "board",                   // "board" | "schematic": wording only
+  "unrouted": 1,                     // a board's unconnected pairs (in its ratsnest); null for a schematic
+  "sheets": [{ "name": "blinky", "svg": "<svg …>", "width": 40, "height": 30,
+               "background": "#001023" }]
+}
+```
+
+- **Sheets** are KiCad's SVGs, unchanged but for the timestamped `<title>` KiCad
+  stamps on them: user units are millimetres, y down, viewBox `0 0 width height`.
+  A board's SVG is transparent outside what is drawn; each sheet says the colour it
+  sits on (`#001023` behind a board, `#F5F4EF` behind a schematic sheet).
+- The client stacks the sheets top to bottom, each centred on the widest, and draws
+  them as images on a canvas (`packages/ui/docs/cad-renderer.md#plot-renderer`).
+
+The payload is derived data, cached in the store's `drawing` index under the
+document's bytes (a schematic's: every sheet beside it), the plot scheme and the
+KiCad version, so a second request re-serves stored bytes without running KiCad. A
+cold plot runs `kicad-cli` on the request thread — a DRC and an SVG export, under a
+second for a small board, tens of seconds for a large one — which is why the client
+waits up to three minutes for this route.

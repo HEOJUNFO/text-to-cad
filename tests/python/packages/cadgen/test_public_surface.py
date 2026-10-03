@@ -78,6 +78,7 @@ MIRRORS: dict[str, tuple[str, str]] = {
     "3mf snapshot": ("cadgen.threemf", "snapshot"),
     "glb snapshot": ("cadgen.glb", "snapshot"),
     "dxf snapshot": ("cadgen.dxf", "snapshot"),
+    "pcb snapshot": ("cadgen.pcb", "snapshot"),
     "urdf snapshot": ("cadgen.urdf", "snapshot"),
     "sdf snapshot": ("cadgen.sdf", "snapshot"),
     # The polymorphic door's verb has no format namespace to live on: there is
