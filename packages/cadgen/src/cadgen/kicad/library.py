@@ -43,6 +43,8 @@ __all__ = [
     "Libraries",
     "Symbol",
     "SymbolPin",
+    "find_footprints",
+    "find_symbols",
     "split_lib_id",
 ]
 
@@ -593,3 +595,81 @@ class Libraries:
             lowered = name.lower()
             close = [candidate for candidate in candidates if lowered in candidate.lower()][:5]
         return f"; did you mean {', '.join(close)}?" if close else ""
+
+
+# --- search ----------------------------------------------------------------------
+
+_SYMBOL_ENTRY = re.compile(r'\(symbol\s+"([^"]+)"')
+_PROPERTY = re.compile(r'\(property\s+"(Description|ki_keywords)"\s+"((?:[^"\\]|\\.)*)"')
+
+
+def _words(text: str) -> list[str]:
+    return [word for word in re.split(r"[\s,]+", str(text).lower()) if word]
+
+
+def _symbol_index(path: Path) -> list[tuple[str, str]]:
+    """``(name, description + keywords)`` for each top-level symbol in a ``.kicad_sym``."""
+    text = path.read_text(encoding="utf-8", errors="replace")
+    entries: list[tuple[str, str]] = []
+    matches = list(_SYMBOL_ENTRY.finditer(text))
+    for index, match in enumerate(matches):
+        name = match.group(1)
+        if re.search(r"_\d+_\d+$", name):  # a unit drawing, not a symbol
+            continue
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        about = " ".join(value for key, value in _PROPERTY.findall(text[match.end():end]))
+        entries.append((name, about))
+    return entries
+
+
+def find_symbols(text: str, *, limit: int = 20, libraries: "Libraries | None" = None) -> list[tuple[str, str]]:
+    """Symbols whose library, name, description or keywords hold every word of ``text``.
+
+    ``[("Regulator_Linear:AMS1117-3.3", "1A Low Dropout regulator ..."), ...]``,
+    names that contain the words first. Searches the project's libraries and KiCad's.
+    """
+    words = _words(text)
+    if not words:
+        raise LibraryError("find_symbols needs some words to look for, e.g. 'ldo 3.3' or 'usb c receptacle'")
+    libraries = libraries or Libraries.for_project()
+    found: list[tuple[int, str, str]] = []
+    seen: set[str] = set()
+    for folder in libraries.symbol_dirs:
+        folder = Path(folder)
+        files = [folder] if folder.is_file() else sorted(folder.glob("*.kicad_sym"))
+        for path in files:
+            library = path.stem
+            for name, about in _symbol_index(path):
+                lib_id = f"{library}:{name}"
+                if lib_id in seen:
+                    continue
+                haystack = f"{lib_id} {about}".lower()
+                if all(word in haystack for word in words):
+                    seen.add(lib_id)
+                    in_name = sum(word in lib_id.lower() for word in words)
+                    found.append((-in_name, lib_id, about.strip()))
+    found.sort()
+    return [(lib_id, about) for _rank, lib_id, about in found[:limit]]
+
+
+def find_footprints(text: str, *, limit: int = 20, libraries: "Libraries | None" = None) -> list[str]:
+    """Footprints whose ``Library:Name`` holds every word of ``text`` (``"sot-223"``, ``"0603 resistor"``).
+
+    KiCad names footprints by their package and dimensions
+    (``Package_SO:SOIC-8_3.9x4.9mm_P1.27mm``), so the words are matched against
+    that name; a library name like ``Resistor_SMD`` counts. Shortest names first.
+    """
+    words = _words(text)
+    if not words:
+        raise LibraryError("find_footprints needs some words to look for, e.g. 'soic-8' or '0603 led'")
+    libraries = libraries or Libraries.for_project()
+    found: set[str] = set()
+    for folder in libraries.footprint_dirs:
+        for pretty in sorted(Path(folder).glob("*.pretty")):
+            library = pretty.name[: -len(".pretty")]
+            for entry in pretty.glob("*.kicad_mod"):
+                lib_id = f"{library}:{entry.stem}"
+                lowered = lib_id.lower()
+                if all(word in lowered for word in words):
+                    found.add(lib_id)
+    return sorted(found, key=lambda lib_id: (len(lib_id), lib_id))[:limit]

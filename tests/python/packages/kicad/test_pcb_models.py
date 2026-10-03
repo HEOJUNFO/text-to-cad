@@ -150,10 +150,10 @@ class PcbModelsTest(unittest.TestCase):
         names = zipfile.ZipFile(io.BytesIO(gerbers)).namelist()
         self.assertIn("blinky-F_Cu.gtl", names)
         self.assertIn("blinky-PTH.drl", names)
-        placement = (self.folder / "blinky.pos.csv").read_text().splitlines()
+        placement = (self.folder / "blinky.pos.csv").read_text(encoding="utf-8").splitlines()
         self.assertEqual(placement[0], "Designator,Val,Package,Mid X,Mid Y,Rotation,Layer")
         self.assertIn("R1,1k,R_0603_1608Metric,0.000000,5.000000,90.000000,top", placement)
-        self.assertIn('"1k","R1"', (self.folder / "blinky.bom.csv").read_text())
+        self.assertIn('"1k","R1"', (self.folder / "blinky.bom.csv").read_text(encoding="utf-8"))
         self.assertEqual(self.run_script("blinky.py", "--force").returncode, 0)
         self.assertEqual((self.folder / "blinky.gerbers.zip").read_bytes(), gerbers)
 

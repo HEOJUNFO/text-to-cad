@@ -30,6 +30,8 @@ __all__ = [
     "Part",
     "Pin",
     "Rules",
+    "find_footprints",
+    "find_symbols",
     "validate",
 ]
 
@@ -96,6 +98,10 @@ def __getattr__(name: str):
         from cadgen.kicad import design
 
         return getattr(design, name)
+    if name in {"find_symbols", "find_footprints"}:
+        from cadgen.kicad import library
+
+        return getattr(library, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
