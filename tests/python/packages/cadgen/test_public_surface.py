@@ -65,9 +65,10 @@ MIRRORS: dict[str, tuple[str, str]] = {
     "sdf validate": ("cadgen.sdf", "validate"),
     "srdf validate": ("cadgen.srdf", "validate"),
     "pcb validate": ("cadgen.pcb", "validate"),
-    "gerber build": ("cadgen.gerber", "build"),
-    "bom build": ("cadgen.bom", "build"),
-    "pos build": ("cadgen.pos", "build"),
+    "pcb gerber": ("cadgen.pcb", "gerber"),
+    "pcb bom": ("cadgen.pcb", "bom"),
+    "pcb pos": ("cadgen.pcb", "pos"),
+    "harness bom": ("cadgen.harness", "bom"),
     # Snapshot was the schema's LAST adapter. Its rich options are typed
     # `str | dict | None` — one string CLI-side, a real dict library-side — so
     # there is nothing left to declare: the structural check below is the whole

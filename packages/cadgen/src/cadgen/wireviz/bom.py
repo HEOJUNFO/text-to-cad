@@ -6,8 +6,8 @@ connector housing by type, subtype and pin count; every additional component
 wire count, gauge and length; and, for loose wires (``category: bundle``), each
 wire by gauge and colour with its length -- grouped, with designators and the
 part numbers the document gives. This module stages the document's bytes, asks
-WireViz for that list and writes it as CSV, so a ``@bom`` declaration and
-``cadgen bom build`` on a saved ``.harness.yml`` cannot write different bytes.
+WireViz for that list and writes it as CSV, so ``@harness(bom=True)`` and
+``cadgen harness bom`` on a saved ``.harness.yml`` cannot write different bytes.
 It needs WireViz, not Graphviz: a list is not a drawing.
 """
 

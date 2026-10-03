@@ -386,10 +386,11 @@ waits on a request beyond the two waits above.
 ```
 src/cadgen/
   <format>.py            # public namespaces: step, stl, threemf, glb, dxf,
-                         #   urdf, srdf, sdf, pcb, gerber, bom, pos, harness
-                         #   — each binds its verbs
-  authoring.py           # @step/@dxf/@stl/@glb/@threemf/@pcb decorators and
-                         #   a board's @gerber/@bom/@pos; a call builds at top
+                         #   urdf, srdf, sdf, pcb, harness — each binds
+                         #   its verbs
+  authoring.py           # @step/@dxf/@stl/@glb/@threemf/@pcb/@harness and
+                         #   their manufacturing exports (a board's gerber=,
+                         #   bom=, pos=; a harness's bom=); a call builds at top
                          #   level and composes (a lazy child) inside a body;
                          #   a model's outputs are what they declare — a mesh
                          #   decorator alone is a model that writes no STEP,
@@ -455,8 +456,8 @@ src/cadgen/
 
 Verbs by format: `step` compile · build · snapshot;
 `stl`/`3mf`/`glb` build · snapshot; `dxf` snapshot; `urdf`/`sdf`
-validate · snapshot; `srdf` validate; `pcb` validate · snapshot;
-`harness` snapshot; `gerber`/`bom`/`pos` build (`bom` also of a harness's `.harness.yml`).
+validate · snapshot; `srdf` validate; `pcb` validate · snapshot · gerber
+· bom · pos; `harness` snapshot · bom.
 `cadgen snapshot` routes any suffix.
 `cadgen store|daemon|doctor` are status commands, `cadgen viewer
 [stop]` the CAD Viewer's launcher, and `cadgen mcp`

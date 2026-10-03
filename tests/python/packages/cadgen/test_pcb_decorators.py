@@ -21,7 +21,7 @@ from cadgen.metadata import declared_output_paths, model_function_formats, parse
 
 SCRIPT = textwrap.dedent(
     """
-    from cadgen import bom, gerber, glb, pcb, pos, step
+    from cadgen import glb, pcb, step
 
 
     @pcb
@@ -47,10 +47,7 @@ SCRIPT = textwrap.dedent(
         pass
 
 
-    @gerber
-    @bom
-    @pos
-    @pcb(out="fab/board.kicad_pcb")
+    @pcb(out="fab/board.kicad_pcb", gerber=True, bom="fab/parts.csv", pos=True)
     def fabricated():
         pass
     """
@@ -95,22 +92,22 @@ class PcbDecoratorsTest(unittest.TestCase):
         self.assertEqual(
             sorted(outputs("fabricated")),
             sorted(["fab/board.kicad_pcb", "fab/board.kicad_sch", "fab/board.kicad_pro", "fab/board.kicad_dru",
-                    "fab/board.gerbers.zip", "fab/board.bom.csv", "fab/board.pos.csv"]),
+                    "fab/board.gerbers.zip", "fab/parts.csv", "fab/board.pos.csv"]),
         )
 
-    def test_misplaced_exports_are_refused(self) -> None:
-        from cadgen import gerber, pcb, step
+    def test_manufacturing_files_are_a_boards_arguments(self) -> None:
+        from cadgen import pcb, step
 
-        with self.assertRaisesRegex(ValueError, "@gerber goes ABOVE @pcb"):
-            gerber(lambda: None)
-        with self.assertRaisesRegex(ValueError, "exports a @pcb board's manufacturing files"):
-            gerber(step(_part))
+        with self.assertRaisesRegex(ValueError, "@step takes no gerber=: those are a @pcb board's manufacturing files"):
+            step(gerber=True)
+        with self.assertRaisesRegex(ValueError, "@pcb gerber= is True or a path ending '.zip'"):
+            pcb(gerber="board.gbr")
+        with self.assertRaisesRegex(TypeError, "@pcb bom= is True .the file beside the board. or a path"):
+            pcb(bom=1)
         with self.assertRaisesRegex(ValueError, "@pcb out= names the board file"):
             pcb(out="board.step")
 
 
-def _part():
-    return None
 
 
 if __name__ == "__main__":

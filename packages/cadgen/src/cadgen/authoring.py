@@ -72,9 +72,6 @@ __all__ = [
     "step",
     "dxf",
     "pcb",
-    "gerber",
-    "bom",
-    "pos",
     "harness",
     "stl",
     "glb",
@@ -285,7 +282,8 @@ class ModelDef:
     # board, so assemblies compose it like any part.
     board: bool = False
     pcb_out: str | None = None
-    # A board's declared manufacturing exports (@gerber/@bom/@pos).
+    # Declared manufacturing exports: a board's @pcb(gerber=, bom=, pos=), a harness's
+    # @harness(bom=).
     fab_exports: tuple[FabExportDecl, ...] = ()
     # (mtime_ns, size) of the script when this definition was registered: the
     # metadata reader reuses the entry while the file on disk is those bytes.
@@ -496,7 +494,21 @@ def _checked_tolerance(value: Any, field_name: str, *, where: str) -> float | No
         raise TypeError(f"{where} {exc}") from exc
 
 
+_EXPORT_KWARGS = frozenset({"gerber", "bom", "pos"})
+
+
 def _reject_unknown_kwargs(deco_name: str, kwargs: dict[str, Any]) -> None:
+    exports = sorted(_EXPORT_KWARGS & set(kwargs))
+    if exports:
+        named = ", ".join(f"{name}=" for name in exports)
+        owner = (
+            "a @pcb board's manufacturing files (@pcb(gerber=True, pos=True)); a harness's one export is its bill "
+            "of materials, @harness(bom=True)"
+            if deco_name == "harness"
+            else "a @pcb board's manufacturing files (@pcb(gerber=True, bom=True, pos=True)), and a harness's bill "
+            "of materials (@harness(bom=True))"
+        )
+        raise ValueError(f"@{deco_name} takes no {named}: those are {owner}")
     if kwargs:
         unexpected = ", ".join(sorted(kwargs))
         raise TypeError(f"@{deco_name} got an unexpected keyword argument: {unexpected}")
@@ -730,13 +742,20 @@ def pcb(
     func: Callable[..., Any] | None = None,
     *,
     out: str | None = None,
+    gerber: bool | str = False,
+    bom: bool | str = False,
+    pos: bool | str = False,
     **unsupported: Any,
 ):
-    """Declare a printed circuit board. Usable bare (``@pcb``) or configured (``@pcb(out=...)``).
+    """Declare a printed circuit board. Usable bare (``@pcb``) or configured (``@pcb(out=..., gerber=True)``).
 
     The function returns a ``pcb.Board``; the build writes its KiCad project
-    (``.kicad_pro``, ``.kicad_sch``, ``.kicad_pcb``) after KiCad fills its zones
-    and checks it. ``out=`` names the ``.kicad_pcb``; the other two land beside it.
+    (``.kicad_pro``, ``.kicad_sch``, ``.kicad_pcb``, ``.kicad_dru``) after KiCad
+    fills its zones and checks it. ``out=`` names the ``.kicad_pcb``; the rest
+    land beside it. ``gerber=``, ``bom=`` and ``pos=`` also write its
+    manufacturing files: ``True`` beside the board, a path elsewhere. They are
+    arguments rather than decorators because they never stand alone: each is a
+    file of a board.
     """
     with _declaring_here():
         _reject_unknown_kwargs("pcb", unsupported)
@@ -746,14 +765,39 @@ def pcb(
                 f"@pcb out= names the board file and must end with '.kicad_pcb' (got {checked!r}); "
                 "the .kicad_sch and .kicad_pro are written beside it"
             )
+        exports = _declared_exports("pcb", gerber=gerber, bom=bom, pos=pos)
+
     def apply(target: Callable[..., Any]) -> Callable[..., Any]:
         with _declaring(target):
-            return _apply_pcb(target, checked)
+            return _apply_pcb(target, checked, exports)
 
     return apply(func) if func is not None else apply
 
 
-def _apply_pcb(target: Callable[..., Any], pcb_out: str | None) -> Callable[..., Any]:
+# What each manufacturing export's own path must end with.
+_EXPORT_SUFFIX = {"gerber": ".zip", "bom": ".csv", "pos": ".csv"}
+
+
+def _declared_exports(model: str, **exports: Any) -> tuple[FabExportDecl, ...]:
+    """A model's ``gerber=``/``bom=``/``pos=``: off, ``True`` (beside its document) or a path."""
+    declared = []
+    for fmt, value in exports.items():
+        if value is False or value is None:
+            continue
+        if value is True:
+            declared.append(FabExportDecl(fmt=fmt))
+            continue
+        if not isinstance(value, (str, os.PathLike)):
+            document = "board" if model == "pcb" else "harness document"
+            raise TypeError(f"@{model} {fmt}= is True (the file beside the {document}) or a path; got {value!r}")
+        out = _checked_out(os.fspath(value), where=f"@{model} {fmt}=")
+        if not out.lower().endswith(_EXPORT_SUFFIX[fmt]):
+            raise ValueError(f"@{model} {fmt}= is True or a path ending '{_EXPORT_SUFFIX[fmt]}'; got {value!r}")
+        declared.append(FabExportDecl(fmt=fmt, out=out))
+    return tuple(declared)
+
+
+def _apply_pcb(target: Callable[..., Any], pcb_out: str | None, exports: tuple[FabExportDecl, ...] = ()) -> Callable[..., Any]:
     from dataclasses import replace as _replace
 
     prior: ModelDef | None = getattr(target, "__cadgen_model__", None)
@@ -767,7 +811,7 @@ def _apply_pcb(target: Callable[..., Any], pcb_out: str | None) -> Callable[...,
             raise ValueError(f"{prior.script_path.name}: @pcb is declared twice on {prior.name}()")
         # @step or a mesh decorator below: a board with a 3D export, a geometry model.
         func = prior.func
-        defn = _replace(prior, board=True, pcb_out=pcb_out)
+        defn = _replace(prior, board=True, pcb_out=pcb_out, fab_exports=exports)
     else:
         func = target
         _validate_signature(func, fmt="pcb")
@@ -782,6 +826,7 @@ def _apply_pcb(target: Callable[..., Any], pcb_out: str | None) -> Callable[...,
             step_output=False,
             board=True,
             pcb_out=pcb_out,
+            fab_exports=exports,
             stamp=_script_stamp(script_path),
         )
     _register(defn)
@@ -792,7 +837,7 @@ def _apply_pcb(target: Callable[..., Any], pcb_out: str | None) -> Callable[...,
 # A harness is a document, never geometry or a board: nothing that makes one stacks on it.
 _NOT_ON_A_HARNESS = (
     "{script}: @{deco} cannot stack on {name}(), a @harness: a harness is one WireViz document, with no geometry "
-    "and no board. Its one export is @bom, above @harness"
+    "and no board. Its one export is its bill of materials, @harness(bom=True)"
 )
 
 
@@ -800,37 +845,39 @@ def harness(
     func: Callable[..., Any] | None = None,
     *,
     out: str | None = None,
+    bom: bool | str = False,
     **unsupported: Any,
 ):
-    """Declare a wiring harness. Usable bare (``@harness``) or configured (``@harness(out=...)``).
+    """Declare a wiring harness. Usable bare (``@harness``) or configured (``@harness(out=..., bom=True)``).
 
     The function returns a ``harness.Harness``; the build checks it (each wire
     whose ends are on boards joins pins carrying the same net, a pin takes one
     wire, every connector and cable is used) and writes it as one WireViz
-    document, ``<name>.harness.yml``. ``out=`` names that file. ``@bom`` above
-    ``@harness`` also writes its bill of materials.
+    document, ``<name>.harness.yml``. ``out=`` names that file. ``bom=`` also
+    writes its bill of materials: ``True`` beside the document, a path elsewhere.
     """
     with _declaring_here():
         _reject_unknown_kwargs("harness", unsupported)
         checked = _checked_out(out, where="@harness")
         if checked is not None and not checked.lower().endswith(".harness.yml"):
             raise ValueError(f"@harness out= names the harness document and must end with '.harness.yml' (got {checked!r})")
+        exports = _declared_exports("harness", bom=bom)
 
     def apply(target: Callable[..., Any]) -> Callable[..., Any]:
         with _declaring(target):
-            return _apply_harness(target, checked)
+            return _apply_harness(target, checked, exports)
 
     return apply(func) if func is not None else apply
 
 
-def _apply_harness(target: Callable[..., Any], out: str | None) -> Callable[..., Any]:
+def _apply_harness(target: Callable[..., Any], out: str | None, exports: tuple[FabExportDecl, ...] = ()) -> Callable[..., Any]:
     prior: ModelDef | None = getattr(target, "__cadgen_model__", None)
     if prior is not None:
         prior = _REGISTRY.get(prior.ref, prior)
         kind = "@harness" if prior.fmt == "harness" else ("@pcb" if prior.board else f"@{prior.fmt}")
         raise ValueError(
             f"{prior.script_path.name}: {prior.name}() is already a {kind} model; a @harness is a model of its own, "
-            "whose function returns a harness.Harness (its one export is @bom, above @harness)"
+            "whose function returns a harness.Harness (its one export is its bill of materials, @harness(bom=True))"
         )
     _validate_signature(target, fmt="harness")
     script_path = _script_path_of(target)
@@ -842,6 +889,7 @@ def _apply_harness(target: Callable[..., Any], out: str | None) -> Callable[...,
         mesh_tolerance=None,
         mesh_angular_tolerance=None,
         step_output=False,
+        fab_exports=exports,
         stamp=_script_stamp(script_path),
     )
     _register(defn)
@@ -849,63 +897,6 @@ def _apply_harness(target: Callable[..., Any], out: str | None) -> Callable[...,
     return _model_wrapper(target, defn)
 
 
-def _fab_export_decorator(fmt: str):
-    """Factory for ``@gerber``/``@bom``/``@pos``: a manufacturing export of a board.
-
-    They stack ABOVE ``@pcb`` (decorators apply bottom-up, so the board is a model
-    by the time they see it) and only on a board. A declared export is written on
-    every build, from the board KiCad just checked; ``@gerber`` and ``@pos`` refuse
-    a board with unrouted connections, which fails the build. ``@bom`` also stacks
-    above ``@harness``: a harness's bill of materials, as WireViz lists it.
-    """
-    from dataclasses import replace as _replace
-
-    required = ".zip" if fmt == "gerber" else ".csv"
-
-    def decorator_factory(func: Callable[..., Any] | None = None, *, out: str | None = None, **unsupported: Any):
-        with _declaring_here():
-            _reject_unknown_kwargs(fmt, unsupported)
-            out = _checked_out(out, where=f"@{fmt}")
-            if out is not None and not out.lower().endswith(required):
-                raise ValueError(f"@{fmt} out= must end with '{required}': {out!r}")
-        decl = FabExportDecl(fmt=fmt, out=out)
-
-        def attach(target: Callable[..., Any]) -> Callable[..., Any]:
-            with _declaring(target):
-                existing: ModelDef | None = getattr(target, "__cadgen_model__", None)
-                if existing is None:
-                    model = "@pcb (or @harness)" if fmt == "bom" else "@pcb"
-                    raise ValueError(
-                        f"@{fmt} goes ABOVE {model}: decorators apply bottom-up, so write\n"
-                        f"    @{fmt}\n    @pcb\n    def {getattr(target, '__name__', 'board')}(): ..."
-                    )
-                existing = _REGISTRY.get(existing.ref, existing)
-                if existing.fmt == "harness" and fmt != "bom":
-                    raise ValueError(
-                        f"@{fmt} exports a @pcb board's manufacturing files; {existing.name}() is a @harness, whose one "
-                        "export is @bom"
-                    )
-                if not existing.board and existing.fmt != "harness":
-                    owner = "a @pcb board's (or a @harness's)" if fmt == "bom" else "a @pcb board's"
-                    raise ValueError(
-                        f"@{fmt} exports {owner} manufacturing files; {existing.name}() is a @{existing.fmt} model"
-                    )
-                if any(d.fmt == fmt for d in existing.fab_exports):
-                    raise ValueError(f"@{fmt} is declared twice on {existing.name}()")
-                updated = _replace(existing, fab_exports=(decl, *existing.fab_exports))
-                _REGISTRY[updated.ref] = updated
-                target.__cadgen_model__ = updated  # type: ignore[attr-defined]
-                return target
-
-        return attach(func) if func is not None else attach
-
-    decorator_factory.__name__ = fmt
-    return decorator_factory
-
-
-gerber = _fab_export_decorator("gerber")
-bom = _fab_export_decorator("bom")
-pos = _fab_export_decorator("pos")
 
 
 _MESH_FMT_DECORATOR = {"stl": "stl", "glb": "glb", "3mf": "threemf"}

@@ -30,9 +30,6 @@ __all__ = [
     "step",
     "dxf",
     "pcb",
-    "gerber",
-    "bom",
-    "pos",
     "harness",
     "stl",
     "glb",
@@ -61,7 +58,7 @@ __all__ = [
 
 
 def __getattr__(name: str):
-    if name in {"step", "dxf", "pcb", "gerber", "bom", "pos", "harness", "stl", "glb", "threemf"}:
+    if name in {"step", "dxf", "pcb", "harness", "stl", "glb", "threemf"}:
         # A FORMAT NAMESPACE: the declaration decorator and the format's verbs in
         # one callable module (design/format-doors.md). Returning the module
         # rather than cadgen.authoring.<name> keeps a single identity —

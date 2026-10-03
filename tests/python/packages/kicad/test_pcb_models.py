@@ -158,7 +158,7 @@ class PcbModelsTest(unittest.TestCase):
         self.assertFalse(any(self.folder.glob("blinky.kicad_*")))
 
     def test_manufacturing_files_are_deterministic_and_refused_for_a_draft(self) -> None:
-        self.write("blinky.py", board_source(decorators="@gerber\n@bom\n@pos\n@pcb", imports="bom, gerber, pcb, pos"))
+        self.write("blinky.py", board_source(decorators="@pcb(gerber=True, bom=True, pos=True)"))
         built = self.run_script("blinky.py")
         self.assertEqual(built.returncode, 0, built.stderr)
         gerbers = (self.folder / "blinky.gerbers.zip").read_bytes()
@@ -172,7 +172,7 @@ class PcbModelsTest(unittest.TestCase):
         self.assertEqual(self.run_script("blinky.py", "--force").returncode, 0)
         self.assertEqual((self.folder / "blinky.gerbers.zip").read_bytes(), gerbers)
 
-        self.write("blinky.py", board_source(decorators="@gerber\n@pcb", imports="gerber, pcb", route_led=False))
+        self.write("blinky.py", board_source(decorators="@pcb(gerber=True)", route_led=False))
         (self.folder / "blinky.gerbers.zip").unlink()
         draft = self.run_script("blinky.py")
         self.assertNotEqual(draft.returncode, 0)

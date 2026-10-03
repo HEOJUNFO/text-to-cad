@@ -176,19 +176,22 @@ def led_driver(c, supply, gnd, colour="red"):
 
 ## Outputs beyond the KiCad project
 
-Stack these on the `@pcb` function, like mesh exports on a part. Each is written on every
-build from the board KiCad just checked, and each has a door for any saved board:
+The manufacturing files are arguments of `@pcb` (`True` writes the file beside the board, a
+path moves it); the 3D exports are the part decorators, stacked either side of `@pcb`. Each
+is written on every build from the board KiCad just checked, and each has a door for any
+saved board:
 
-| Decorator | Writes | Door |
+| Declaration | Writes | Door |
 | --- | --- | --- |
-| `@gerber` (above `@pcb`) | `blinky.gerbers.zip`: every copper, mask, paste and silkscreen layer, the outline, Excellon drills | `cadgen gerber build BOARD [OUT]` |
-| `@bom` | `blinky.bom.csv`: grouped by value, footprint, LCSC and MPN, JLCPCB columns | `cadgen bom build BOARD [OUT]` |
-| `@pos` | `blinky.pos.csv`: pick-and-place, millimetres from the script's origin, JLCPCB columns | `cadgen pos build BOARD [OUT]` |
-| `@step`, `@glb`, `@stl`, `@threemf` (either side of `@pcb`) | the populated board in 3D (KiCad's own model of it) | `cadgen step build`/`glb build` of the STEP |
+| `@pcb(gerber=True)` | `blinky.gerbers.zip`: every copper, mask, paste and silkscreen layer, the outline, Excellon drills: what every fab makes boards from | `cadgen pcb gerber BOARD [OUT]` |
+| `@pcb(bom=True)` | `blinky.bom.csv`: the parts to buy and place, one row per distinct part | `cadgen pcb bom BOARD [OUT]` |
+| `@pcb(pos=True)` | `blinky.pos.csv`: pick-and-place, each part's position (mm from the script's origin), rotation and side | `cadgen pcb pos BOARD [OUT]` |
+| `@step`, `@glb`, `@stl`, `@threemf` | the populated board in 3D (KiCad's own model of it) | `cadgen step build`/`glb build` of the STEP |
 
-`@gerber` and `@pos` are manufacturing files: a draft board that declares either fails its
-build, naming what is left to route. All are byte-for-byte the same for the same board.
-See [manufacturing](references/manufacturing.md) for the JLCPCB upload.
+`gerber=` and `pos=` refuse a draft: a board that declares either fails its build, naming
+what is left to route. `bom=` is allowed early, for pricing and ordering parts. All are
+byte-for-byte the same for the same board. See [manufacturing](references/manufacturing.md)
+for ordering.
 
 **A board with a 3D export is a part.** Its geometry is the populated board, in the script's
 own coordinates (the outline as drawn, z = 0 on the board's bottom face), each part labelled

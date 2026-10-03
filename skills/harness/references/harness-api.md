@@ -17,14 +17,15 @@ def cable(): ...
 def main(): ...
 
 
-@bom                                       # above @harness: also <stem>.bom.csv beside it
-@harness                                   # (@bom(out="...") moves it)
+@harness(bom=True)                         # also <stem>.bom.csv beside it
+                                           # (bom="parts/loom.csv" puts it there)
 def loom(): ...
 ```
 
 The function takes no parameters and returns a `harness.Harness`. A file may hold several
 models; models sharing a file write `<function>.harness.yml`. Nothing else stacks on a
-harness: `@step`, `@dxf`, `@pcb`, the mesh exports, `@gerber` and `@pos` are refused.
+harness: `@step`, `@dxf`, `@pcb` and the mesh exports are refused, as are `gerber=` and
+`pos=` (a board's manufacturing files).
 
 Called inside another model's build, a `@harness` function returns its `Harness`. Inside a
 harness's build a `@pcb` board returns its `pcb.Board`, 3D export or not; a `@step` part
@@ -177,5 +178,5 @@ carries no script, path or time.
 
 WireViz has more than this API writes (mating arrows, loops, images, templates, `tweak`,
 `options`, `additional_bom_items`). A hand-written WireViz document can use them, and the CAD
-Viewer, `cadgen harness snapshot` and `cadgen bom build` read any WireViz document; a document a
+Viewer, `cadgen harness snapshot` and `cadgen harness bom` read any WireViz document; a document a
 `@harness` model writes is rewritten by its next build, so do not edit one by hand.

@@ -1,4 +1,4 @@
-"""``cadgen bom build`` -- a GENERATED CLI over :func:`cadgen.bom.build`.
+"""``cadgen pcb bom`` -- a GENERATED CLI over :func:`cadgen.pcb.bom`.
 
 There is no parser here on purpose: everything the command accepts is derived
 from the verb function's signature by :mod:`cadgen._internal.cli_from_function`.
@@ -11,8 +11,8 @@ from collections.abc import Sequence
 
 from cadgen._internal.cli_from_function import generated_main, generated_parser
 
-DEFAULT_PROG = "cadgen bom build"
-VERB = ("cadgen.bom", "build")
+DEFAULT_PROG = "cadgen pcb bom"
+VERB = ("cadgen.pcb", "bom")
 
 
 def build_parser(prog: str = DEFAULT_PROG) -> argparse.ArgumentParser:

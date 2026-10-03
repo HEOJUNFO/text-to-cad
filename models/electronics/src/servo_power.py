@@ -4,7 +4,7 @@ Every connection is autorouted at build time over two ground pours; the build wr
 project, JLCPCB's Gerbers, BOM and placement files, and the populated board in 3D for the case.
 """
 
-from cadgen import bom, gerber, pcb, pos, step
+from cadgen import pcb, step
 from cadgen import build123d as bd
 
 WIDTH, HEIGHT, CORNER = 50.0, 35.0, 3.0
@@ -47,10 +47,7 @@ def ldo(c, vin, vout, gnd):
 
 
 @step(out="../STEP/servo_power.step")
-@gerber
-@bom
-@pos
-@pcb(out="../PCB/servo_power.kicad_pcb")
+@pcb(out="../PCB/servo_power.kicad_pcb", gerber=True, bom=True, pos=True)
 def servo_power():
     with bd.BuildSketch() as outline:
         bd.RectangleRounded(WIDTH, HEIGHT, CORNER)

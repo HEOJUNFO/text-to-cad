@@ -60,11 +60,12 @@ _COMMANDS: dict[str, tuple[str, str]] = {
     # doors check one KiCad project or write one manufacturing file of a saved board.
     "pcb validate": ("cadgen.cli.pcb_validate", "check a KiCad project with KiCad's ERC and DRC"),
     "pcb snapshot": ("cadgen.cli.pcb_snapshot", "render a KiCad board or schematic to an image"),
-    "gerber build": ("cadgen.cli.gerber_build", "write the Gerber and drill zip of a KiCad board"),
-    "bom build": ("cadgen.cli.bom_build", "write the bill of materials of a KiCad board or harness"),
-    "pos build": ("cadgen.cli.pos_build", "write the pick-and-place file of a KiCad board"),
+    "pcb gerber": ("cadgen.cli.pcb_gerber", "write the Gerber and drill zip of a KiCad board"),
+    "pcb bom": ("cadgen.cli.pcb_bom", "write the bill of materials of a KiCad board"),
+    "pcb pos": ("cadgen.cli.pcb_pos", "write the pick-and-place file of a KiCad board"),
     # Wiring harnesses. A harness is made by running its script; its document is drawn by WireViz.
     "harness snapshot": ("cadgen.cli.harness_snapshot", "render a wiring harness to an image"),
+    "harness bom": ("cadgen.cli.harness_bom", "write the bill of materials of a wiring harness"),
     # Robot descriptions
     "urdf validate": ("cadgen.cli.urdf_validate", "validate a URDF robot description"),
     "urdf snapshot": ("cadgen.cli.urdf_snapshot", "render a URDF to an image"),

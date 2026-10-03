@@ -1,70 +1,74 @@
-"""What the ``gerber``/``bom``/``pos`` doors share: one manufacturing file of a saved board.
+"""What a board's and a harness's manufacturing doors share: one file of a saved document.
 
-A door takes a ``.kicad_pcb`` DOCUMENT -- one a ``@pcb`` model wrote, or one a
-person drew in KiCad -- and writes only its own file, through the same exporter
-a model's ``@gerber``/``@bom``/``@pos`` declaration uses, so a door and a model
-run cannot write different bytes. It never runs a script. Gerbers and the
-placement file are refused for a board with unrouted connections or DRC errors.
+``cadgen pcb gerber|bom|pos`` take a ``.kicad_pcb`` DOCUMENT -- one a ``@pcb``
+model wrote, or one a person drew in KiCad -- and write only their own file,
+through the exporter a model's ``@pcb(gerber=, bom=, pos=)`` uses, so a door and
+a model run cannot write different bytes. A door never runs a script. Gerbers
+and the placement file are refused for a board with unrouted connections or DRC
+errors.
 
-``cadgen bom build`` also takes a wiring harness's ``.harness.yml``: its BOM is
-WireViz's list of the document's parts (``cadgen.wireviz.bom``), the exporter a
-``@bom`` above ``@harness`` writes through.
+``cadgen harness bom`` takes a wiring harness's ``.harness.yml``: its BOM is
+WireViz's list of the document's parts (``cadgen.wireviz.bom``), the exporter
+``@harness(bom=)`` writes through.
 """
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from cadgen.results import FabExportFile, FabExportResult
 
 
-def fab_build(fmt: str, target: Path, out: Path | None, *, verbose: bool = False) -> FabExportResult:
-    import sys
+def _absolute(path: Path) -> Path:
+    path = Path(path).expanduser()
+    return (path if path.is_absolute() else Path.cwd() / path).resolve()
 
-    from cadgen._internal.atomic_replace import write_bytes_atomic
-    from cadgen.kicad.fab import MANUFACTURING, export, require_finished
+
+def _destination(document: Path, suffix: str, fmt: str, out: Path | None) -> Path:
     from cadgen.metadata import FAB_SUFFIX
 
-    board = Path(target).expanduser()
-    board = (board if board.is_absolute() else Path.cwd() / board).resolve()
-    if board.name.lower().endswith(".harness.yml"):
-        if fmt != "bom":
-            raise ValueError(f"{board.name} is a wiring harness, which has a BOM but no {fmt} file: cadgen {fmt} build takes a .kicad_pcb")
-        return _harness_bom(board, out, verbose=verbose)
-    if board.suffix.lower() != ".kicad_pcb":
-        takes = "a .kicad_pcb or a .harness.yml" if fmt == "bom" else "a .kicad_pcb"
-        raise ValueError(f"{board.name} is not a KiCad board: cadgen {fmt} build takes {takes}")
-    if not board.is_file():
-        raise FileNotFoundError(f"no board at {board}")
-    stem = board.name[: -len(".kicad_pcb")]
-    destination = Path(out).expanduser() if out is not None else board.with_name(stem + FAB_SUFFIX[fmt])
-    destination = (destination if destination.is_absolute() else Path.cwd() / destination).resolve()
-    if verbose:
-        print(f"[{fmt}] {board} -> {destination}", file=sys.stderr)
-    if fmt in MANUFACTURING:
-        require_finished(board, fmt=fmt)
-    data = export(fmt, board)
+    if out is not None:
+        return _absolute(out)
+    return document.with_name(document.name[: -len(suffix)] + FAB_SUFFIX[fmt])
+
+
+def _write(destination: Path, data: bytes, fmt: str) -> FabExportResult:
+    from cadgen._internal.atomic_replace import write_bytes_atomic
+
     destination.parent.mkdir(parents=True, exist_ok=True)
     write_bytes_atomic(destination, data)
     return FabExportResult(ok=True, files=(FabExportFile(path=destination, fmt=fmt),))
 
 
-def _harness_bom(document: Path, out: Path | None, *, verbose: bool) -> FabExportResult:
-    """A harness document's BOM, through the exporter ``@bom`` above ``@harness`` uses."""
-    import sys
+def board_export(fmt: str, target: Path, out: Path | None, *, verbose: bool = False, **options) -> FabExportResult:
+    """``cadgen pcb <fmt>``: the ``fmt`` manufacturing file of the saved board ``target``."""
+    from cadgen.kicad.fab import MANUFACTURING, export, require_finished
 
-    from cadgen._internal.atomic_replace import write_bytes_atomic
-    from cadgen.metadata import FAB_SUFFIX
-    from cadgen.wireviz.bom import harness_bom
+    board = _absolute(target)
+    if board.suffix.lower() != ".kicad_pcb":
+        hint = " (a harness's BOM is cadgen harness bom)" if board.name.lower().endswith(".harness.yml") else ""
+        raise ValueError(f"{board.name} is not a KiCad board: cadgen pcb {fmt} takes a .kicad_pcb{hint}")
+    if not board.is_file():
+        raise FileNotFoundError(f"no board at {board}")
+    destination = _destination(board, ".kicad_pcb", fmt, out)
+    if verbose:
+        print(f"[pcb {fmt}] {board} -> {destination}", file=sys.stderr)
+    if fmt in MANUFACTURING:
+        require_finished(board, fmt=fmt)
+    return _write(destination, export(fmt, board, **options), fmt)
 
+
+def harness_bom(target: Path, out: Path | None, *, verbose: bool = False) -> FabExportResult:
+    """``cadgen harness bom``: a harness document's BOM, through the exporter ``@harness(bom=)`` uses."""
+    from cadgen.wireviz.bom import harness_bom as wireviz_bom
+
+    document = _absolute(target)
+    if not document.name.lower().endswith(".harness.yml"):
+        raise ValueError(f"{document.name} is not a wiring harness: cadgen harness bom takes a .harness.yml")
     if not document.is_file():
         raise FileNotFoundError(f"no harness at {document}")
-    stem = document.name[: -len(".harness.yml")]
-    destination = Path(out).expanduser() if out is not None else document.with_name(stem + FAB_SUFFIX["bom"])
-    destination = (destination if destination.is_absolute() else Path.cwd() / destination).resolve()
+    destination = _destination(document, ".harness.yml", "bom", out)
     if verbose:
-        print(f"[bom] {document} -> {destination}", file=sys.stderr)
-    data = harness_bom(document.read_bytes(), label=document.name)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    write_bytes_atomic(destination, data)
-    return FabExportResult(ok=True, files=(FabExportFile(path=destination, fmt="bom"),))
+        print(f"[harness bom] {document} -> {destination}", file=sys.stderr)
+    return _write(destination, wireviz_bom(document.read_bytes(), label=document.name), "bom")

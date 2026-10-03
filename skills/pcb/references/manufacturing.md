@@ -3,13 +3,10 @@
 A finished board (no DRC error, nothing unrouted) declares what the fab needs:
 
 ```python
-from cadgen import bom, gerber, pcb, pos
+from cadgen import pcb
 
 
-@gerber
-@bom
-@pos
-@pcb
+@pcb(gerber=True, bom=True, pos=True)
 def controller():
     ...
 ```
@@ -24,14 +21,14 @@ def controller():
 - `controller.pos.csv`: `Designator, Val, Package, Mid X, Mid Y, Rotation, Layer`, one row
   per placed part, millimetres from the script's origin; DNP parts left out.
 
-`out=` moves any of them (`@gerber(out="../fab/controller.zip")`). The same board always
-writes the same bytes. `@gerber` and `@pos` refuse a draft: the build fails and lists what
-is left to route. For a board drawn elsewhere, the doors take the `.kicad_pcb`:
+A path instead of `True` moves a file (`@pcb(gerber="../fab/controller.zip")`). The same
+board always writes the same bytes. `gerber=` and `pos=` refuse a draft: the build fails and
+lists what is left to route. For a board drawn elsewhere, the doors take the `.kicad_pcb`:
 
 ```bash
-cadgen gerber build board.kicad_pcb fab/board.gerbers.zip
-cadgen bom build board.kicad_pcb       # needs board.kicad_sch beside it
-cadgen pos build board.kicad_pcb
+cadgen pcb gerber board.kicad_pcb fab/board.gerbers.zip
+cadgen pcb bom board.kicad_pcb       # needs board.kicad_sch beside it
+cadgen pcb pos board.kicad_pcb
 ```
 
 ## Ordering from JLCPCB

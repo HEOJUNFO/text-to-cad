@@ -75,7 +75,7 @@ PCB_PACKAGE = ArtifactKind(
 )
 
 # A generated harness: the product is its one WireViz document (`.harness.yml`), and with
-# @bom its bill of materials, which WireViz lists. cadgen's own checks run in the generate
+# bom= its bill of materials, which WireViz lists. cadgen's own checks run in the generate
 # phase; nothing else takes long enough to report.
 HARNESS_PACKAGE = ArtifactKind(
     name="harness-package",

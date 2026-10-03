@@ -1,7 +1,7 @@
 """A :class:`~cadgen.wireviz.design.Harness` as a WireViz YAML document.
 
 The document is the harness: what the CAD Viewer draws (WireViz's own SVG of
-it), what ``@bom`` and ``cadgen bom build`` list, and what a person opens in
+it), what ``@harness(bom=)`` and ``cadgen harness bom`` list, and what a person opens in
 WireViz. It carries nothing about where it came from -- no script, no time --
 and its bytes are a function of the harness alone: keys in a fixed order,
 connectors and cables in the order the script declared them, connection sets

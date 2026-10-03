@@ -1,9 +1,9 @@
 """Harness documents through a real WireViz: the diagram the viewer draws, the BOM, what WireViz refuses.
 
 Two boards from the tiny test library (no KiCad) and a harness between them,
-in a fresh folder: ``python cable.py`` writes its document and, with ``@bom``,
+in a fresh folder: ``python cable.py`` writes its document and, with ``bom=True``,
 WireViz's bill of materials, the same bytes every time and the same bytes the
-``cadgen bom build`` door writes; the plot payload is WireViz's own SVG; every
+``cadgen harness bom`` door writes; the plot payload is WireViz's own SVG; every
 field cadgen writes is one WireViz reads; a document WireViz refuses comes
 back with WireViz's reason. Needs WireViz and Graphviz (scripts/test/test-harness.sh).
 """
@@ -30,14 +30,13 @@ CADGEN_SRC = add_repo_path("packages/cadgen/src")
 
 CABLE = textwrap.dedent(
     '''
-    from cadgen import bom, harness
+    from cadgen import harness
 
     from controller import controller
     from driver import driver
 
 
-    @bom
-    @harness
+    @harness(bom=True)
     def cable():
         h = harness.Harness(title="Controller to driver")
         terminal = {"type": "Crimp terminal", "mpn": "SPH-002T-P0.5S", "qty_multiplier": "populated"}
@@ -121,7 +120,7 @@ class HarnessWirevizTest(unittest.TestCase):
         self.assertEqual(forced.returncode, 0, forced.stderr)
         self.assertEqual((self.folder / "cable.bom.csv").read_bytes(), bom)
         self.assertEqual((self.folder / "cable.harness.yml").read_bytes(), document)
-        door = self.run_cadgen("-m", "cadgen.cli", "bom", "build", "cable.harness.yml", "door.bom.csv")
+        door = self.run_cadgen("-m", "cadgen.cli", "harness", "bom", "cable.harness.yml", "door.bom.csv")
         self.assertEqual(door.returncode, 0, door.stderr)
         self.assertEqual((self.folder / "door.bom.csv").read_bytes(), bom)
 

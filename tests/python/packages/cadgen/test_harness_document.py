@@ -91,7 +91,7 @@ def _harness() -> harness.Harness:
 
 SCRIPT = textwrap.dedent(
     """
-    from cadgen import bom, harness
+    from cadgen import harness
 
 
     @harness
@@ -99,8 +99,7 @@ SCRIPT = textwrap.dedent(
         pass
 
 
-    @bom
-    @harness(out="cables/main.harness.yml")
+    @harness(out="cables/main.harness.yml", bom=True)
     def main():
         pass
     """
@@ -143,7 +142,7 @@ class HarnessModelTest(unittest.TestCase):
         self.assertEqual(outputs("main"), ["cables/main.harness.yml", "cables/main.bom.csv"])
 
     def test_a_harness_is_its_own_model_and_bom_is_its_one_export(self) -> None:
-        from cadgen import authoring, bom, gerber, pcb, step
+        from cadgen import authoring, pcb, step
         from cadgen.store.index import model_ref
 
         self.addCleanup(authoring._REGISTRY.pop, model_ref(Path(__file__).resolve(), "body"), None)
@@ -158,13 +157,13 @@ class HarnessModelTest(unittest.TestCase):
             "@step cannot stack on body\\(\\), a @harness": lambda: step(harness(fresh())),
             "@pcb cannot stack on body\\(\\), a @harness": lambda: pcb(harness(fresh())),
             "body\\(\\) is already a @step model; a @harness is a model of its own": lambda: harness(step(fresh())),
-            "body\\(\\) is a @harness, whose one export is @bom": lambda: gerber(harness(fresh())),
+            "@harness takes no gerber=: those are a @pcb board's manufacturing files": lambda: harness(gerber=True),
             "@harness out= names the harness document and must end with '.harness.yml'": lambda: harness(out="cable.yml"),
         }
         for message, attempt in refusals.items():
             with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
                 attempt()
-        declared = bom(harness(fresh())).__cadgen_model__
+        declared = harness(bom=True)(fresh()).__cadgen_model__
         self.assertEqual((declared.fmt, [decl.fmt for decl in declared.fab_exports]), ("harness", ["bom"]))
 
     def test_the_catalog_lists_a_harness_document_and_not_any_yaml(self) -> None:

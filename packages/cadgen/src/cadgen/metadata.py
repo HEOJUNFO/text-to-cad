@@ -44,13 +44,13 @@ class GeneratorMetadata:
     # the outputs, at ``pcb_out_target`` (else the sibling ``<name>.kicad_pcb``).
     board: bool = False
     pcb_out_target: str | None = None
-    # Declared manufacturing exports of a board (@gerber/@bom/@pos), or a harness's @bom.
+    # Declared manufacturing exports: a board's @pcb(gerber=, bom=, pos=), a harness's @harness(bom=).
     fab_exports: "tuple[FabExportDecl, ...]" = ()
 
 
 @dataclass(frozen=True)
 class FabExportDecl:
-    """One declared manufacturing export of a board: ``@gerber``, ``@bom`` or ``@pos``.
+    """One declared manufacturing export: ``@pcb(gerber=, bom=, pos=)`` or ``@harness(bom=)``.
 
     ``out`` is the raw script-relative target, ``None`` meaning the sibling of the
     board file (``board.gerbers.zip``, ``board.bom.csv``, ``board.pos.csv``)."""
@@ -200,7 +200,7 @@ def declared_output_paths(script_path: Path | str, *, function: str | None = Non
             if fmt == "pcb":
                 continue
             if fmt == "harness":
-                # One WireViz document, and the BOM a @bom above it writes beside it.
+                # One WireViz document, and the BOM its bom= writes beside it.
                 document = resolve_model_output_path(
                     script, fmt="harness", explicit_out=metadata.out_target, function=metadata.entry_function
                 )
@@ -258,7 +258,7 @@ def _match_model_decorator(
     ``@pcb`` alone is format "pcb" (a tree-less board); ``@pcb`` with a 3D export
     (``@step`` or a mesh decorator) is format "step": the board's tree is its
     populated 3D board. ``@harness`` is format "harness" whatever else is stacked on
-    it (the decorators refuse a harness that carries anything but ``@bom``).
+    it (the decorators refuse a harness that carries any other model decorator).
     Stacking order never changes the answer."""
     seen: list[tuple[str, dict[str, ast.expr]]] = []
     for decorator in function.decorator_list:

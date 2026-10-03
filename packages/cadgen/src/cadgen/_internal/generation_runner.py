@@ -414,7 +414,7 @@ def _write_pcb_project(
     parity check) on a staged copy first. Any error fails the build before a
     byte reaches the output folder; warnings and unrouted connections are
     reported, and a board with unrouted connections is written as a draft --
-    unless it declares a manufacturing export (``@gerber``/``@pos``), which a
+    unless it declares a manufacturing export (``@pcb(gerber=, pos=)``), which a
     draft cannot have: then the build fails, naming what is left to route.
     The declared exports are written after the project, from the files just
     written.
@@ -459,8 +459,9 @@ def _write_pcb_project(
         listed = "\n  ".join(finding.render() for finding in built.findings if finding.check == "unconnected")
         raise RuntimeError(
             f"{label}: the board has {built.unrouted} unrouted connection(s), so nothing was written: "
-            f"{' and '.join('@' + fmt for fmt in manufacturing)} write manufacturing files only for a finished board. "
-            f"Route these, or drop {' and '.join('@' + fmt for fmt in manufacturing)} while the board is a draft:\n  {listed}"
+            f"@pcb({', '.join(fmt + '=' for fmt in manufacturing)}) write manufacturing files only for a finished "
+            f"board. Route these, or leave {' and '.join(fmt + '=' for fmt in manufacturing)} off while the board is "
+            f"a draft:\n  {listed}"
         )
     from cadgen.coordination.kinds import PHASE_WRITE
 
@@ -487,7 +488,7 @@ def _write_pcb_project(
 
 @dataclass(frozen=True)
 class HarnessWritten:
-    """What a @harness build wrote: its document, and its BOM when ``@bom`` declares one."""
+    """What a @harness build wrote: its document, and its BOM when ``@harness(bom=)`` declares one."""
 
     paths: tuple[Path, ...]
 
@@ -505,7 +506,7 @@ def _write_harness_document(
 
     The checks are the harness's own (``cadgen.wireviz.design``): most ran as
     the script connected it, and the last -- something connected, every
-    connector and cable used -- run here. A declared ``@bom`` is WireViz's list
+    connector and cable used -- run here. A declared ``bom=`` is WireViz's list
     of the document's parts, made from the document's bytes before either file
     is written, so a build that cannot list them writes neither.
     """

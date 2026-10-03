@@ -1,7 +1,9 @@
 """The public ``pcb`` namespace: the ``@pcb`` decorator, the board API, and its verbs.
 
-``@pcb`` DECLARES a printed circuit board model; ``pcb.Board`` is what its
-function builds and returns; ``pcb.validate(...)`` checks any KiCad project.
+``@pcb`` DECLARES a printed circuit board model (``@pcb(gerber=True, bom=True,
+pos=True)`` with its manufacturing files); ``pcb.Board`` is what its function
+builds and returns; ``pcb.validate(...)`` checks any KiCad project, and
+``pcb.gerber``/``pcb.bom``/``pcb.pos`` write a saved board's manufacturing files.
 They are the same object -- this module is callable (see
 :mod:`cadgen._internal.format_namespace`) -- so ``from cadgen import pcb``
 gives a model script all three.
@@ -26,7 +28,7 @@ from pathlib import Path
 
 from cadgen._internal.format_namespace import callable_namespace
 from cadgen._internal.snapshot_door import plot_snapshot_verb
-from cadgen.results import ValidationResult
+from cadgen.results import FabExportResult, ValidationResult
 
 __all__ = [
     "Board",
@@ -39,8 +41,11 @@ __all__ = [
     "Rules",
     "SimulationError",
     "Testbench",
+    "bom",
     "find_footprints",
     "find_symbols",
+    "gerber",
+    "pos",
     "snapshot",
     "validate",
 ]
@@ -105,6 +110,55 @@ def validate(path: Path, *, strict: bool = False, verbose: bool = False) -> Vali
         issues=tuple(issues),
         summary="" if blocking else f"OK {display_path(target)}: ERC and DRC clean ({warnings} warning(s))",
     )
+
+
+def gerber(board: Path, out: Path | None = None, *, verbose: bool = False) -> FabExportResult:
+    """Write the Gerber and drill files of the KiCad board BOARD, in one zip: what a fab makes it from.
+
+    Every copper, mask, paste and silkscreen layer and the outline, as Gerber X2,
+    and the Excellon drill files, plated and unplated apart: the files every PCB
+    fab takes. What @pcb(gerber=True) writes. Refused for a board with unrouted
+    connections or DRC errors.
+
+    board: the .kicad_pcb to export.
+    out: destination file. Omitted, writes the sibling <name>.gerbers.zip beside BOARD.
+    verbose: narrate the target on stderr.
+    """
+    from cadgen._internal.fab_door import board_export
+
+    return board_export("gerber", board, out, verbose=verbose)
+
+
+def bom(board: Path, out: Path | None = None, *, verbose: bool = False) -> FabExportResult:
+    """Write the bill of materials (CSV) of the KiCad board BOARD: what to buy, and what an assembler places.
+
+    One row per distinct part, read from the schematic beside the board; parts
+    marked do-not-populate are left out. What @pcb(bom=True) writes.
+
+    board: the .kicad_pcb to export (its .kicad_sch beside it).
+    out: destination file. Omitted, writes the sibling <name>.bom.csv beside BOARD.
+    verbose: narrate the target on stderr.
+    """
+    from cadgen._internal.fab_door import board_export
+
+    return board_export("bom", board, out, verbose=verbose)
+
+
+def pos(board: Path, out: Path | None = None, *, verbose: bool = False) -> FabExportResult:
+    """Write the pick-and-place file (CSV) of the KiCad board BOARD: where an assembler puts each part.
+
+    One row per placed part: its reference, position (millimetres from the
+    board's drill/place origin), rotation and side; do-not-populate parts are
+    left out. What @pcb(pos=True) writes. Refused for a board with unrouted
+    connections or DRC errors.
+
+    board: the .kicad_pcb to export.
+    out: destination file. Omitted, writes the sibling <name>.pos.csv beside BOARD.
+    verbose: narrate the target on stderr.
+    """
+    from cadgen._internal.fab_door import board_export
+
+    return board_export("pos", board, out, verbose=verbose)
 
 
 def __getattr__(name: str):

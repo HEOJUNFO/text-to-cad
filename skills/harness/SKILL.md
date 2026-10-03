@@ -19,7 +19,7 @@ python -m pip install -r requirements.txt
 ```
 
 cadgen writes and checks a harness on its own. Drawing it (the CAD Viewer, `cadgen harness
-snapshot`) and listing its parts (`@bom`) are done by WireViz, a separate program (GPL-3.0) that cadgen runs and never
+snapshot`) and listing its parts (`bom=True`) are done by WireViz, a separate program (GPL-3.0) that cadgen runs and never
 imports, which draws with Graphviz. Install both, WireViz in its own tool environment:
 
 - macOS: `brew install graphviz`, then `uv tool install wireviz` (or `pipx install wireviz`).
@@ -123,7 +123,7 @@ if __name__ == "__main__":
 
 ```python
 # cable.py
-from cadgen import bom, harness
+from cadgen import harness
 
 from controller import controller
 from driver import driver
@@ -131,8 +131,7 @@ from driver import driver
 NETS = ["VBUS", "GND", "SDA", "SCL"]
 
 
-@bom                                           # also write cable.bom.csv
-@harness
+@harness(bom=True)                             # also write cable.bom.csv
 def cable():
     h = harness.Harness(title="Controller to driver, I2C and power")
     a = h.connector(controller(), "J1", name="CTRL_J1", type="Dupont 2.54 mm housing, 1x4", subtype="female",
@@ -218,16 +217,16 @@ that calls one fails at the call.
 
 ## Bill of materials
 
-`@bom` above `@harness` writes `<name>.bom.csv` beside the document on every build (`out=`
-moves it): WireViz's list of the harness's parts, grouped, with designators and the part
+`@harness(bom=True)` writes `<name>.bom.csv` beside the document on every build (a path
+instead of `True` moves it): WireViz's list of the harness's parts, grouped, with designators and the part
 numbers given: each housing by type and pin count, each additional component (a terminal per
 populated pin), each jacketed cable by wire count, gauge and length, and for a bundle each wire
 by gauge and colour with its length. It needs WireViz; a build that cannot list the parts
 writes neither file. The same list of any saved document, a hand-written one included:
 
 ```bash
-cadgen bom build path/to/cable.harness.yml                 # cable.bom.csv beside it
-cadgen bom build path/to/cable.harness.yml out/cable.csv
+cadgen harness bom path/to/cable.harness.yml                # cable.bom.csv beside it
+cadgen harness bom path/to/cable.harness.yml out/cable.csv
 ```
 
 ## Looking at a document
