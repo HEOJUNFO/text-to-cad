@@ -187,6 +187,9 @@ function PlotSurface({ view, data }) {
     ? [{ resource: workspace.resource, target: { kind: "cad-selector", selectors: [...inspector.selection] } }] : []),
   [inspector.selection, workspace.resource]);
   const rootRef = useRef(null);
+  // The pane, once mounted: Display's dropdown keeps inside it, as a 3D view's keeps inside its viewer.
+  const [rootElement, setRootElement] = useState(null);
+  useEffect(() => { setRootElement(rootRef.current); }, []);
   // Draw's copy: the view with its ink, to the clipboard.
   const copyDrawing = useCallback(async () => {
     if (!boardDrawing.drawing.hasContent) return false;
@@ -358,7 +361,7 @@ function PlotSurface({ view, data }) {
         {boardChrome && drawing ? <DrawingOverlay {...boardDrawing.overlay} /> : null}
         {/* The board's Display settings in the bottom-left corner, where a 3D file's sit on its cube. */}
         {boardChrome && layered ? <div className="pointer-events-auto absolute z-20 flex items-center" style={DISPLAY_POSITION} data-viewport-actions="">
-          <DisplayPopover open={displayOpen} onOpenChange={setDisplayOpen} boundary={rootRef.current}>
+          <DisplayPopover open={displayOpen} onOpenChange={setDisplayOpen} boundary={rootElement}>
             <BoardDisplaySection display={boardDisplay} onChange={changeBoardDisplay} />
           </DisplayPopover>
         </div> : null}
