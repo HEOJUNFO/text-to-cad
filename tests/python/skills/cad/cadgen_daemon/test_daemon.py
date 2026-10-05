@@ -144,6 +144,28 @@ class CadgenDaemonTests(unittest.TestCase):
         return {int(worker["pid"]) for worker in (status.get("workers") or []) if worker.get("pid")}
 
     @classmethod
+    def _wait_for_no_requests_in_flight(cls, timeout: float = 60.0) -> None:
+        """Block until the supervisor has no request thread alive (its status's ``inflight``).
+
+        A job's thread outlives its client's answer by a moment: it closes the connection and
+        notes the store after the final frame. A stale-token request that lands in that moment
+        meets work in flight, so the supervisor drains instead of letting go of its address.
+        """
+        env = {"CADGEN_DAEMON": "1", "CADGEN_DAEMON_SOCKET": str(cls.address)}
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            with mock.patch.dict(os.environ, env):
+                os.environ.pop("CADGEN_DAEMON_CHILD", None)
+                status = daemon_client.status() or {}
+            if status.get("inflight") == 0:
+                return
+            time.sleep(0.05)
+        raise AssertionError(
+            f"the daemon still had requests in flight after {timeout:.0f}s:\n"
+            f"{cls.log_path.read_text(encoding='utf-8')}"
+        )
+
+    @classmethod
     def _wait_for_busy_worker(cls, model: str, timeout: float = 120.0) -> int:
         """Block until a pooled worker is actually running ``model``, and say which.
 
@@ -259,7 +281,10 @@ class CadgenDaemonTests(unittest.TestCase):
 
     def test_c_version_token_mismatch_triggers_restart(self) -> None:
         # Also pinned in test_daemon_routing; kept here because it is what retires the
-        # class's first daemon before test_d starts a fresh one.
+        # class's first daemon before test_d starts a fresh one. With no work in flight a
+        # stale token makes the daemon let go of its address and exit; with work in flight it
+        # drains instead. The last test's job thread may still be finishing: wait it out.
+        self._wait_for_no_requests_in_flight()
         frames = _raw_request(
             self.address,
             {"tool": "run", "argv": ["box.py"], "cwd": str(self.model_dir), "token": -1},
