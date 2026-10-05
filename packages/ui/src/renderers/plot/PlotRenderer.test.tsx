@@ -98,33 +98,33 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
-/** One pane: a host, a workspace with one KiCad file, a live binding, and the tab. */
-async function open(file: string, { strict = false } = {}) {
+/** One pane: a host, a workspace with one KiCad file (`name`, under `/models`), a live binding, and the tab. */
+async function open(name: string, { strict = false } = {}) {
+  const file = `/models/${name}`;
   const fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input));
     if (url.pathname.endsWith('/__cad/catalog')) {
-      const kind = file.endsWith('.harness.yml') ? 'harness' : file.split('.').pop();
-      return json({ rootId: 'one', entries: [{ kind, file, rootRelativeFile: file, url: `/${file}`, hash: 'one', bytes: 4096 }] });
+      const kind = name.endsWith('.harness.yml') ? 'harness' : name.split('.').pop();
+      return json({ entries: [{ kind, file, url: `/${name}`, hash: 'one', bytes: 4096 }] });
     }
-    if (url.pathname.endsWith('/__cad/server')) return json({ rootId: 'one', rootPath: '/models', backend: 'cadgen' });
+    if (url.pathname.endsWith('/__cad/server')) return json({ backend: 'cadgen' });
     if (url.pathname.endsWith('/__cad/plot')) return readPlot(url.searchParams.get('file') || '');
     return new Response('', { status: 404 });
   });
-  const client = createCadClient({ origin: 'http://viewer.test/one', workspaceId: 'one', pollIntervalMs: 0, fetch: fetch as typeof globalThis.fetch });
+  const client = createCadClient({ origin: 'http://viewer.test/one', pollIntervalMs: 0, fetch: fetch as typeof globalThis.fetch });
   await client.refresh();
   let controller: any = null;
   const live = { bind(next: unknown) { controller = next; return () => { controller = null; }; } };
   const renderers = [createPlotRenderer({ client, live })];
   const host = {
-    files: { id: 'one', rootName: 'one', stat: async (path: string) => ({ path, name: path, kind: 'file', size: 400, extension: path.split('.').pop() }),
-      list: async () => [{ path: file, name: file, kind: 'file' }] },
+    files: { id: 'one', stat: async (path: string) => ({ path, name: path.split('/').pop(), kind: 'file', size: 400, extension: path.split('.').pop() }) },
     navigation: { openFile: noop },
     environment: { colorScheme: 'light' },
     clipboard: { writeText: async (text: string | Promise<string>) => { if (refuseCopy) throw refuseCopy; copied.push(await text); }, readText: async () => '', writeImage: async () => {} },
     promptContext: { getSnapshot: () => DESTINATION, subscribe: () => noop, deliver: async () => ({ status: 'copied', partIds: [] }) }
   };
   function Pane() {
-    const [state, setState] = useState<any>({ panel: null, renderers: {} });
+    const [state, setState] = useState<any>({ renderers: {} });
     return <section data-testid="pane"><FileViewer file={file} host={host as any} renderers={renderers} state={state} onStateChange={setState} /></section>;
   }
   render(strict ? <StrictMode><Pane /></StrictMode> : <Pane />);
@@ -141,11 +141,9 @@ it('a plot with no index (a harness) opens as a picture and nothing else: no pan
   const { pane, dispose } = await open('cable.harness.yml');
   await opened(pane);
   expect(pane.querySelector('canvas')?.getAttribute('aria-label')).toBe('Harness: cable.harness.yml');
-  const panels = [...pane.querySelectorAll('[data-file-panel]')].map(button => button.getAttribute('aria-label'));
-  expect(panels).toEqual(['Show files']);
   const inPane = within(pane);
   expect(inPane.queryByRole('group', { name: 'Interaction tools' })).toBeNull();
-  for (const name of ['Orbit', 'Draw', 'Select', 'Measure', 'Preview', 'Display settings', 'Zoom in', 'Reset Zoom', 'Take snapshot']) {
+  for (const name of ['Orbit', 'Draw', 'Select', 'Measure', 'Preview', 'Display', 'Zoom in', 'Reset Zoom', 'Take snapshot']) {
     expect(inPane.queryByRole('button', { name }), name).toBeNull();
   }
   expect(pane.querySelector('[data-quick-edit]')).toBeNull();
@@ -208,6 +206,8 @@ it('a board with its index has Select and Measure, its parts and nets, and hands
   expect(within(tools).getByRole('button', { name: 'Select' }).getAttribute('aria-pressed')).toBe('true');
   expect(within(tools).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(['Select', 'Draw', 'Measure']);
   for (const name of ['Orbit', 'Explode', 'Clip', 'Position', 'Preview']) expect(inPane.queryByRole('button', { name }), name).toBeNull();
+  // A board drawn layer by layer has its Display dropdown in the bottom-left corner, where a 3D view's sits on its cube.
+  expect(inPane.getByRole('button', { name: 'Display' })).not.toBeNull();
   // The tree: parts by kind, then nets, then what KiCad reported.
   expect(inPane.getByRole('button', { name: 'Parts' })).not.toBeNull();
   expect(inPane.getByRole('button', { name: 'Nets' })).not.toBeNull();
@@ -221,7 +221,7 @@ it('a board with its index has Select and Measure, its parts and nets, and hands
   expect(reference.textContent).toContain('#R1');
   expect(pane.querySelector('[data-quick-edit]')?.textContent).toContain('1 ref');
   await act(async () => { inPane.getByRole('button', { name: 'Copy' }).click(); });
-  await waitFor(() => expect(copied).toEqual(['blinky.kicad_pcb#R1']));
+  await waitFor(() => expect(copied).toEqual(['/models/blinky.kicad_pcb#R1']));
   dispose();
 });
 
@@ -290,7 +290,7 @@ it('a schematic with its index has Select alone, its symbols and nets, and hands
   const tools = await inPane.findByRole('group', { name: 'Interaction tools' });
   // A distance or a sketch on a schematic's layout means nothing to the design: no Measure, no Draw.
   expect(within(tools).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(['Select']);
-  expect(inPane.queryByRole('button', { name: 'Display settings' })).toBeNull();
+  expect(inPane.queryByRole('button', { name: 'Display' })).toBeNull();
   expect(inPane.getByRole('list', { name: 'Schematic' })).not.toBeNull();
   expect(inPane.queryByRole('button', { name: 'Checks' })).toBeNull();
   await act(async () => { inPane.getByRole('button', { name: 'Expand ICs' }).click(); });
@@ -306,7 +306,7 @@ it('a schematic with its index has Select alone, its symbols and nets, and hands
   expect(inPane.getByText('U1 · pin 8 V+')).not.toBeNull();
   expect(pane.querySelector('[data-board-reference]')!.textContent).toContain('power in');
   await act(async () => { inPane.getByRole('button', { name: 'Copy' }).click(); });
-  await waitFor(() => expect(copied).toEqual(['blinky.kicad_sch#U1.8']));
+  await waitFor(() => expect(copied).toEqual(['/models/blinky.kicad_sch#U1.8']));
   dispose();
 });
 
@@ -350,7 +350,7 @@ it('a press on a pad selects it, a shift-press adds its neighbour, and a double-
   });
   expect(controller.readState().selection[0].target.selectors).toEqual(['#R1.1', '#R1.2']);
   await press(pane, [30, 8.73], { double: true });
-  await waitFor(() => expect(copied).toEqual(['blinky.kicad_pcb#J1.1']));
+  await waitFor(() => expect(copied).toEqual(['/models/blinky.kicad_pcb#J1.1']));
   // Bare board clears.
   await press(pane, [36, 26]);
   expect(controller.readState().selection).toEqual([]);

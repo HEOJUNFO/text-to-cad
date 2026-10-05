@@ -36,16 +36,17 @@ before(async () => {
     if (url.pathname === '/harness.js') { response.setHeader('Content-Type', 'text/javascript'); response.end(bundle); }
     else if (url.pathname === '/styles.css') { response.setHeader('Content-Type', 'text/css'); response.end(css); }
     else if (url.pathname.endsWith('/__cad/plot')) {
-      const plot = PLOTS[url.searchParams.get('file')];
+      // Asked for by the file's absolute path, which names the fixture last.
+      const plot = PLOTS[String(url.searchParams.get('file')).split('/').pop()];
       response.setHeader('Content-Type', 'application/json');
       if (!plot) { response.statusCode = 400; response.end(JSON.stringify({ error: NO_KICAD })); return; }
       response.end(JSON.stringify(plot));
     } else if (url.pathname.endsWith('/__cad/catalog')) {
       response.setHeader('Content-Type', 'application/json');
-      response.end(JSON.stringify({ rootId: root, entries: files.map(file => (
-        { kind: kindOf(file), file, rootRelativeFile: file, url: `/${file}`, hash: `${root}-${file}`, bytes: 4096 })) }));
+      response.end(JSON.stringify({ entries: files.map(file => (
+        { kind: kindOf(file), file: `/models/${file}`, url: `/${file}`, hash: `${root}-${file}`, bytes: 4096 })) }));
     } else if (url.pathname.endsWith('/__cad/server')) {
-      response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ rootId: root, rootPath: '/models', backend: 'cadgen' }));
+      response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ backend: 'cadgen' }));
     } else { response.setHeader('Content-Type', 'text/html'); response.end(`<!doctype html><html><head><link rel="stylesheet" href="/styles.css">${HARNESS_SIZE}</head><body><div id="root"></div><script type="module" src="/harness.js"></script></body></html>`); }
   });
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
@@ -182,7 +183,7 @@ test('a press on a pad’s pixels selects that pad and lights them; from the bot
   assert.ok(near(pixel(lit, x, y), highlight, 40), `the pad is lit where it is: ${pixel(lit, x, y)}`);
   // From the bottom the board is mirrored: J1 pad 2 (sheet 5, 17.54) is at the right, where the top
   // view has bare board, and a press there picks it and lights it there.
-  await pane.getByRole('button', { name: 'Settings' }).click();
+  await pane.getByRole('button', { name: 'Display', exact: true }).click();
   await page.getByRole('combobox', { name: 'View from' }).click();
   await page.getByRole('option', { name: 'Bottom' }).click();
   await page.keyboard.press('Escape');
@@ -286,7 +287,7 @@ test('the view a person chose is the file view’s camera, and comes back when t
   const canvas = await canvasOf(pane).boundingBox();
   await wheelAt(page, canvas, { x: canvas.width * 0.3, y: canvas.height * 0.6 }, deltaForFactor(3));
   const chosen = sheetBox(await frame(pane, fitted));
-  const key = JSON.stringify(['blinky.kicad_pcb', 'plot']);
+  const key = JSON.stringify(['/models/blinky.kicad_pcb', 'plot']);
   await page.waitForFunction(stateKey => window.cadHarness.state.renderers?.[stateKey]?.camera?.scale > 0, key);
   const record = await page.evaluate(stateKey => window.cadHarness.state.renderers[stateKey], key);
   assert.deepEqual(Object.keys(record.camera).sort(), ['offsetX', 'offsetY', 'scale']);

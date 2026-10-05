@@ -3,7 +3,6 @@ import { cn } from "@text-to-cad/ui/utils";
 import { parseBoardRefSelector, splitBoardRefSelectors } from "@text-to-cad/core/lib/boardRefs.js";
 import { usePromptDestination, useViewerHost } from "../../host/context.js";
 import { useViewerMobile } from "../../file-viewer/responsive.js";
-import { FILE_PANEL_TREE } from "../../file-viewer/navigation/panels.js";
 import ToolColumn from "../kit/shell/ToolColumn.jsx";
 import { useViewerShortcuts } from "../kit/shell/useViewerShortcuts.js";
 import QuickEdit from "../kit/tools/quick-edit/QuickEdit.jsx";
@@ -18,11 +17,10 @@ import { BoardMeasurePanel, BoardReferencePanel, BoardTreePanel } from "./board/
 import { BoardMeasureIcon, BoardSelectIcon } from "./board/boardModes.jsx";
 import { BoardDisplaySection, boardDrawView, readBoardDisplay } from "./board/BoardDisplay.jsx";
 import DisplayPopover from "../kit/shell/DisplayPopover.jsx";
-import { createPortal } from "react-dom";
 import ViewerAlertCard, { useAlertDismissal } from "../kit/status/ViewerAlertCard.jsx";
 import ViewerLoadingOverlay from "../kit/status/ViewerLoadingOverlay.js";
 import { ViewUpdateStatus } from "../kit/status/ViewUpdateStatus.jsx";
-import { VIEWPORT_INSET_PX, VIEWPORT_TOP_BAR_PX } from "../kit/shell/viewportLayout.js";
+import { VIEWPORT_ACTION_HEIGHT_PX, VIEWPORT_CUBE_BOTTOM_PX, VIEWPORT_INSET_PX, VIEWPORT_TOP_BAR_PX } from "../kit/shell/viewportLayout.js";
 import { ViewportTopRight } from "../kit/shell/ViewportTopRight.jsx";
 import { attachLiveBinding } from "../kit/shell/liveBinding.js";
 import { useWhenSettled } from "../kit/shell/useWhenSettled.js";
@@ -55,8 +53,10 @@ import { plotKindForPath, plotWords } from "./plotWords.js";
 const SAVE_DELAY_MS = 180;
 // A plot keeps its tool's colours whatever the theme: where its paper is the other way round from the
 // theme (a schematic's light sheet in the dark, a board's dark one in the light), the tool panels
-// over it stand nearly opaque (`kit/tools/floatingSurface.js`).
+// over it stand nearly opaque (`lib/floatingSurface.js`).
 const CONTRASTING_CHROME_ALPHA = "90%";
+// A board's Display button: in the bottom-left corner, under the tool column, which stops short of it.
+const DISPLAY_POSITION = Object.freeze({ bottom: VIEWPORT_CUBE_BOTTOM_PX, left: VIEWPORT_INSET_PX, height: VIEWPORT_ACTION_HEIGHT_PX });
 const lightColour = (hex) => {
   const match = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(hex || ""));
   if (!match) return null;
@@ -166,10 +166,11 @@ function PlotSurface({ view, data }) {
 
   // ---- what a board hands over ---------------------------------------------------
   const mobile = useViewerMobile();
-  // How a copied reference names this file: the host's, where its source spells references.
-  const referencePath = useCallback((path) => (view.source?.referencePath ? view.source.referencePath(path) : path), [view.source]);
+  // The name copied references give this file, as a STEP's do: its absolute path, so they still say
+  // which file they belong to when pasted into a prompt spanning several.
+  const referencePath = view.file.path;
   const copySelection = useCallback(async (selectors = inspector.selection) => {
-    const text = inspector.copyText(referencePath(file), selectors);
+    const text = inspector.copyText(referencePath, selectors);
     if (!text) return false;
     try {
       await host.clipboard.writeText(text);
@@ -179,7 +180,7 @@ function PlotSurface({ view, data }) {
       setActionError({ title: words.copyFailed, message: error instanceof Error ? error.message : String(error) });
       return false;
     }
-  }, [inspector, referencePath, file, host.clipboard, words]);
+  }, [inspector, referencePath, host.clipboard, words]);
   inspector.copyRef.current = copySelection;
   // What is selected, in the prompt grammar: the references a Quick Edit attaches.
   const references = useMemo(() => (inspector.selection.length
@@ -355,12 +356,13 @@ function PlotSurface({ view, data }) {
         <canvas ref={canvasRef} aria-label={`${words.label}: ${view.file.name}`} role="img"
           className={cn("absolute inset-0 block touch-none select-none", dragging ? "cursor-grabbing" : inspector.available ? "cursor-default" : "cursor-grab")} />
         {boardChrome && drawing ? <DrawingOverlay {...boardDrawing.overlay} /> : null}
-        {/* The board's Display settings among the view's controls in the navbar, as a 3D file's are. */}
-        {boardChrome && layered && view.navbarSlot ? createPortal(<DisplayPopover open={displayOpen} onOpenChange={setDisplayOpen}>
-          <BoardDisplaySection display={boardDisplay} onChange={changeBoardDisplay} />
-        </DisplayPopover>, view.navbarSlot) : null}
-        {boardChrome ? <ToolColumn tools={tools} layout={toolStack} onLayoutChange={changeToolStack} mobile={mobile}
-          invisible={view.openPanel === FILE_PANEL_TREE}>
+        {/* The board's Display settings in the bottom-left corner, where a 3D file's sit on its cube. */}
+        {boardChrome && layered ? <div className="pointer-events-auto absolute z-20 flex items-center" style={DISPLAY_POSITION} data-viewport-actions="">
+          <DisplayPopover open={displayOpen} onOpenChange={setDisplayOpen} boundary={rootRef.current}>
+            <BoardDisplaySection display={boardDisplay} onChange={changeBoardDisplay} />
+          </DisplayPopover>
+        </div> : null}
+        {boardChrome ? <ToolColumn tools={tools} layout={toolStack} onLayoutChange={changeToolStack} mobile={mobile}>
           {/* Draw's controls lead the stack while it is up, and once there is ink, Copy Drawing at their foot. */}
           {drawing ? <ToolPanel id="drawing" label="Drawing controls" collapsible={false}
             footer={boardDrawing.drawing.hasContent ? <ToolPanelFooterButton label="Copy Drawing" shortcut={mobile ? "" : copyShortcut} onClick={copyDrawing} /> : null}>
@@ -381,7 +383,7 @@ function PlotSurface({ view, data }) {
             plot survives, keeps it there, as the 3D views do. */}
         <ViewportTopRight notice={shown && !payload.loading ? view.notice : null} belowStrip={boardChrome}>
           {inspector.available && !compact ? <QuickEdit key={file} className="self-stretch" hidden={chromeHidden}
-            resource={workspace.resource} references={references} referencePath={referencePath} sketch={sketch}
+            resource={workspace.resource} references={references} sketch={sketch}
             onCopy={copyAction} onEscape={() => inspector.escape()}
             onClear={() => { inspector.clear(); if (boardDrawing.drawing.hasContent) boardDrawing.drawing.clear(); }} disabled={!ready} /> : null}
         </ViewportTopRight>

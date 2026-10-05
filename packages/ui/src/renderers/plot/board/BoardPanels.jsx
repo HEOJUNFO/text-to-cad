@@ -8,7 +8,7 @@ import {
 import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { cn } from "@text-to-cad/ui/utils";
 import ToolPanel, { ToolPanelClose, ToolPanelFooterButton, TOOL_PANEL_HEADING_TEXT_CLASS } from "../../kit/tools/ToolPanel.jsx";
-import { FLOATING_SURFACE_CLASS } from "../../kit/tools/floatingSurface.js";
+import { FLOATING_SURFACE_CLASS } from "../../../lib/floatingSurface.js";
 import { InfoRow } from "../../kit/inspector/referenceRows.jsx";
 import { useTreeSearch } from "../../kit/inspector/modelTreeSearch.js";
 import { BoardMeasureModeMenu, BoardSelectModeMenu } from "./boardModes.jsx";
