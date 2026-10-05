@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://github.com/earthtojake/text-to-cad/raw/ba35a95c880c488494a27a93e43e549cff7f9c16/apps/docs/public/brand/logo-texttocad-animated.svg" alt="text-to-cad" width="800">
+<img src="https://github.com/earthtojake/text-to-cad/raw/57fb1a998ba0d8e8ecba38de371ac14109f5eb7e/apps/docs/public/brand/logo-texttocad-animated.svg" alt="text-to-cad" width="800">
 
 Give your agent CAD superpowers.
 
@@ -15,7 +15,7 @@ Give your agent CAD superpowers.
 [![cadgen](https://img.shields.io/pypi/v/cadgen?style=for-the-badge&logo=pypi&logoColor=white&label=cadgen)](https://pypi.org/project/cadgen/)
 [![build123d](https://img.shields.io/badge/build123d-0.11-2F6FB0?style=for-the-badge)](https://github.com/gumyr/build123d)
 [![Open CASCADE](https://img.shields.io/badge/Open%20CASCADE-7.9-E2001A?style=for-the-badge)](https://dev.opencascade.org)
-[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://github.com/earthtojake/text-to-cad/blob/ba35a95c880c488494a27a93e43e549cff7f9c16/packages/cadgen/pyproject.toml)
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://github.com/earthtojake/text-to-cad/blob/57fb1a998ba0d8e8ecba38de371ac14109f5eb7e/packages/cadgen/pyproject.toml)
 [![Node.js](https://img.shields.io/badge/Node.js-20+-5FA04E?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 
 </div>
@@ -99,7 +99,7 @@ app. If Claude Desktop cannot find `uvx`, give its full path (`which uvx`).
   "mcpServers": {
     "cad": {
       "command": "uvx",
-      "args": ["--no-config", "--managed-python", "--python", "3.13", "--from", "cadgen==0.7.12", "cadgen", "mcp"],
+      "args": ["--no-config", "--managed-python", "--python", "3.13", "--from", "cadgen==0.7.13", "cadgen", "mcp"],
       "env": {"CADGEN_INSTALL_CHANNEL": "claude-desktop"}
     }
   }
@@ -144,15 +144,16 @@ before, remove the old one first (`codex plugin marketplace remove text-to-cad`)
 
 ### Cursor
 
+Cursor also loads the plugin installed with Claude Code. If the Claude Code plugin
+is installed, Cursor already has text-to-cad: skip this.
+
 ```bash
 git clone --depth 1 --branch plugin https://github.com/earthtojake/text-to-cad ~/.cursor/plugins/local/text-to-cad
 ```
 
 Cursor reads `.cursor-plugin/plugin.json`: restart Cursor after cloning. The
-`plugin` branch holds only the plugin, one commit per release. Cursor also loads
-plugins installed with Claude Code, so skip this if you installed the Claude Code
-plugin. Teams can import the repository instead, under **Dashboard → Plugins &
-MCPs → Team Marketplaces**.
+`plugin` branch holds only the plugin, one commit per release. Teams can import
+the repository instead, under **Dashboard → Plugins & MCPs → Team Marketplaces**.
 
 To update, pull the latest release, then restart Cursor:
 
@@ -168,13 +169,15 @@ rm -rf ~/.cursor/plugins/local/text-to-cad
 
 ### Grok Build
 
+Grok Build also loads the plugin installed with Claude Code. If the Claude Code
+plugin is installed, Grok Build already has text-to-cad: skip this.
+
 ```bash
 grok plugin install earthtojake/text-to-cad --trust
 grok plugin enable text-to-cad
 ```
 
-Grok Build reads the Claude plugin manifest, and also loads plugins installed
-with Claude Code: install one or the other. Grok shows tool results as text, so
+Grok Build reads the Claude plugin manifest. Grok shows tool results as text, so
 asking it to show a model gives you a CAD Viewer link.
 
 To update, run this, then restart Grok Build:
@@ -320,4 +323,4 @@ robot description files, simulation, and local review.
 ## 🛠️ Contributing
 
 Branch from `main` and open PRs against `main`. For the local workflow, testing in
-agent apps and validation, see [CONTRIBUTING.md](https://github.com/earthtojake/text-to-cad/blob/ba35a95c880c488494a27a93e43e549cff7f9c16/CONTRIBUTING.md).
+agent apps and validation, see [CONTRIBUTING.md](https://github.com/earthtojake/text-to-cad/blob/57fb1a998ba0d8e8ecba38de371ac14109f5eb7e/CONTRIBUTING.md).
