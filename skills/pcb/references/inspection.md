@@ -8,8 +8,10 @@ your script that made it. The viewer never edits; you do, in the script.
 ## Board references
 
 A reference is a token, `<file>#<selector>`, exactly as a STEP reference is: the file is the
-path under the viewer's root (JSON-quoted when it holds a space, `#`, a quote or a backslash),
-and several selectors share one `#`, comma-joined: `PCB/servo.kicad_pcb#U3,C14.2`.
+file's absolute path (JSON-quoted when it holds a space, `#`, a quote or a backslash), and
+several selectors share one `#`, comma-joined: `/work/PCB/servo.kicad_pcb#U3,C14.2`.
+`resolve()` reads the file as a path (`~` expanded, links followed, a relative one read from the
+working directory) and refuses a reference that names another document.
 
 | Selector | Names |
 | --- | --- |

@@ -12,11 +12,17 @@ repository link is only for provenance and release review.
 
 ## Setup
 
-This skill's commands are thin entrypoints over the `cadgen` distribution. Install it once:
+Run cadgen through [uv](https://docs.astral.sh/uv/), so this skill's commands share
+one installation, and its warm build daemon, with the CAD app's server:
 
-```bash
-python -m pip install -r requirements.txt
-```
+- `cadgen` below means `uvx --no-config --managed-python --python 3.13 --from cadgen==0.7.14 cadgen`
+- `python` below means `uvx --no-config --managed-python --python 3.13 --from cadgen==0.7.14 python`
+
+The first run downloads that installation and the first snapshot its headless
+browser; later runs reuse both.
+
+`cadgen doctor <skill-dir>` reports the installation in use and checks that it is
+the one this skill pins; use it for installation errors.
 
 Boards are checked and drawn by KiCad 10 itself, through its command line, `kicad-cli`.
 Install KiCad 10 (it brings `kicad-cli`, its symbol and footprint libraries, its 3D models
@@ -27,7 +33,7 @@ and the ngspice simulator):
 - Ubuntu: `sudo add-apt-repository ppa:kicad/kicad-10.0-releases && sudo apt install kicad`.
 
 cadgen finds `kicad-cli` on `PATH` or in the usual install folders; `CADGEN_KICAD_CLI`
-names one explicitly. Snapshots also need `python -m playwright install chromium`.
+names one explicitly.
 Autorouting runs Freerouting, a separate program ([routing](references/routing.md) says how to install it).
 
 ## The contract
@@ -234,29 +240,28 @@ of every schematic sheet.
 Show the user each file you create or change, and any they ask to see. Snapshots and
 validation don't replace this.
 
-- If your tools include `cad_show` (your host may prefix it), use it, and follow its
-  description for when to call it again. `cad_view` reads what the user selected;
-  `cad_screenshot` shows you what they see. Neither is a review of your own work.
-- Otherwise run the CAD Viewer from the models directory (usually `models/`, not an
-  artifact's output folder):
+- If your tools include `cad_show` (your host may prefix it), use it with the file's
+  absolute path, and follow its description for when to call it again. `cad_view` reads
+  what the user selected; `cad_screenshot` shows you what they see. Neither is a review
+  of your own work.
+- Otherwise run the CAD Viewer, from any folder:
 
   ```bash
-  cd /absolute/path/to/model-workspace && cadgen viewer --host 127.0.0.1 --json --detach
+  cadgen viewer --host 127.0.0.1 --json --detach
   ```
 
   `--detach` returns once the viewer answers requests and leaves it running in the
   background: always pass it, since a foreground viewer never exits (and piping its
-  output through `tail` can hide the URL for good). It starts or reuses the viewer.
-  Read `url` from its one JSON line (never guess the port); for each file under that
-  directory return `url?file=<URL-encoded relative path>`, or `url` alone to review the
-  directory. If it fails to launch, say so.
+  output through `tail` can hide the URL for good). It starts this machine's one viewer,
+  or reuses it. Read `url` from its one JSON line (never guess the port), and for each
+  file return `url?file=<its URL-encoded absolute path>`. If it fails to launch, say so.
 
 The viewer draws `.kicad_pcb` and `.kicad_sch` files read-only, as KiCad plots them: drag to
 pan, wheel or pinch to zoom, double-click to fit. Show the board and its schematic; a board
 with a 3D export also has its `.step`/`.glb` to show.
 
 What the user points at in the viewer reaches you as a board reference
-(`PCB/blinky.kicad_pcb#R1`, `#J1.2`, `#net:VBUS`, `#net:VBUS@x0y0`, `#@x3.5y3.5`).
+(`/work/PCB/blinky.kicad_pcb#R1`, `#J1.2`, `#net:VBUS`, `#net:VBUS@x0y0`, `#@x3.5y3.5`).
 `pcb.read_board(path).resolve(ref)` answers it in the script's coordinates, and a part's
 `.script` is the line that made it: edit that line ([inspection](references/inspection.md)).
 
