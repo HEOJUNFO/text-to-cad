@@ -128,7 +128,7 @@ class HarnessWirevizTest(unittest.TestCase):
         from cadgen.viewer.plots import plot_payload_response
 
         self.assertEqual(self.run_cadgen("cable.py").returncode, 0)
-        status, body = plot_payload_response(str(self.folder), "cable.harness.yml")
+        status, body = plot_payload_response(str(self.folder / "cable.harness.yml"))
         self.assertEqual(status, 200)
         payload = json.loads(body)
         self.assertEqual((payload["schemaVersion"], payload["kind"], payload["unrouted"]), (2, "harness", None))
@@ -140,7 +140,7 @@ class HarnessWirevizTest(unittest.TestCase):
         points = re.search(r'<svg\b[^>]*?\bwidth="([\d.]+)pt"[^>]*?\bheight="([\d.]+)pt"', sheet["svg"], re.DOTALL)
         self.assertAlmostEqual(sheet["width"], float(points.group(1)) * 25.4 / 72, places=3)  # millimetres
         self.assertAlmostEqual(sheet["height"], float(points.group(2)) * 25.4 / 72, places=3)
-        self.assertEqual(plot_payload_response(str(self.folder), "cable.harness.yml")[1], body)
+        self.assertEqual(plot_payload_response(str(self.folder / "cable.harness.yml"))[1], body)
 
     def test_every_field_cadgen_writes_is_one_wireviz_reads(self) -> None:
         from cadgen import harness

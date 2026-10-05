@@ -168,7 +168,8 @@ class HarnessModelTest(unittest.TestCase):
 
     def test_the_catalog_lists_a_harness_document_and_not_any_yaml(self) -> None:
         from cadgen.viewer.content_types import content_type_for_path, extension_of
-        from cadgen.viewer.scanner import scan_cad_directory, source_format_for_path
+        from cadgen.viewer.folders import list_folder
+        from cadgen.viewer.scanner import catalog_entry, source_format_for_path
 
         self.assertEqual(extension_of("cables/Main.Harness.YML"), ".harness.yml")
         self.assertEqual(extension_of("config.yml"), ".yml")
@@ -177,8 +178,10 @@ class HarnessModelTest(unittest.TestCase):
         self.assertTrue(content_type_for_path("main.harness.yml").startswith("application/yaml"))
         (self.folder / "main.harness.yml").write_text(EXPECTED, encoding="utf-8")
         (self.folder / "config.yml").write_text("a: 1\n", encoding="utf-8")
-        entries = scan_cad_directory(str(self.folder))["entries"]
-        self.assertEqual([(entry["file"], entry["kind"]) for entry in entries], [("main.harness.yml", "harness")])
+        listed = list_folder(str(self.folder))["entries"]
+        self.assertEqual([(entry["name"], entry["kind"]) for entry in listed], [("main.harness.yml", "file")])
+        self.assertEqual(catalog_entry(self.folder / "main.harness.yml")["kind"], "harness")
+        self.assertIsNone(catalog_entry(self.folder / "config.yml"))
 
     def test_the_plot_route_takes_a_harness_and_names_what_is_missing(self) -> None:
         from cadgen.kicad.plot import PlotError
@@ -187,11 +190,13 @@ class HarnessModelTest(unittest.TestCase):
         (self.folder / "main.harness.yml").write_text(EXPECTED, encoding="utf-8")
         (self.folder / "config.yml").write_text("a: 1\n", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "renders KiCad boards and schematics and wiring harnesses"):
-            plot_payload_response(str(self.folder), "config.yml")
-        self.assertEqual(plot_payload_response(str(self.folder), "absent.harness.yml")[0], 404)
+            plot_payload_response(str(self.folder / "config.yml"))
+        self.assertEqual(plot_payload_response(str(self.folder / "absent.harness.yml"))[0], 404)
+        with self.assertRaisesRegex(ValueError, "not an absolute path"):
+            plot_payload_response("main.harness.yml")
         with mock.patch.dict(os.environ, {"CADGEN_WIREVIZ": str(self.folder / "no-wireviz")}):
             with self.assertRaisesRegex(PlotError, "WireViz's command line, wireviz, was not found: install Graphviz"):
-                plot_payload_response(str(self.folder), "main.harness.yml")
+                plot_payload_response(str(self.folder / "main.harness.yml"))
 
 
 if __name__ == "__main__":

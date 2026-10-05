@@ -21,10 +21,10 @@ from cadgen.analytics import FILE_KINDS  # noqa: E402
 
 
 def receiver_kinds() -> set[str]:
-    text = (REPO / "apps/docs/src/lib/analytics/events.mjs").read_text(encoding="utf-8")
+    text = (REPO / "apps/docs/src/lib/api/events.mjs").read_text(encoding="utf-8")
     match = re.search(r"const KINDS = new Set\(\[([^\]]*)\]\)", text)
     if match is None:
-        raise AssertionError("apps/docs/src/lib/analytics/events.mjs has no `const KINDS = new Set([...])`")
+        raise AssertionError("apps/docs/src/lib/api/events.mjs has no `const KINDS = new Set([...])`")
     return set(re.findall(r"'([^']+)'", match.group(1)))
 
 
