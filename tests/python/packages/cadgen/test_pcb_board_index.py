@@ -9,6 +9,7 @@ reference to another file is refused. KiCad's own plot of the index is the KiCad
 
 from __future__ import annotations
 
+import json
 import math
 import sys
 import tempfile
@@ -171,7 +172,8 @@ class BoardIndexTest(unittest.TestCase):
 
     def test_a_reference_must_name_this_board(self) -> None:
         board = self.folder / "amp.kicad_pcb"
-        for ref in ("amp.kicad_pcb#U1", f"{board}#U1", f'"{board}"#U1'):
+        # A quoted path is JSON, as a copied one is: a Windows path's backslashes are escaped.
+        for ref in ("amp.kicad_pcb#U1", f"{board}#U1", f"{json.dumps(str(board))}#U1"):
             with self.subTest(ref=ref):
                 self.assertEqual(self.view.resolve(ref).ref, "U1")
         with self.assertRaisesRegex(ValueError, "reference names 'other.kicad_pcb', but this board is"):
