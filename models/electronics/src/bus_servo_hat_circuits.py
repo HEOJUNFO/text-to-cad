@@ -55,12 +55,14 @@ def schottky(c):
                   properties={"MPN": "B5819WS", **model("B5819WS", "1=K 2=A")})
 
 
-def power_input(c, vin, gnd, *, bulk_esr="0.3"):
+def power_input(c, vin, gnd, *, bulk_esr="0.16"):
     """The barrel jack straight onto VIN; the screw terminal through a P-FET that blocks reversed wires.
 
-    `bulk_esr` is the 220 uF capacitor's series resistance in ohms, which damps the supply's
-    ringing when it is plugged in. The board names no part for it: 0.3 ohm is a general-purpose
-    8 x 10 mm can's, and a testbench varies it.
+    The 220 uF capacitor's series resistance damps the supply's ringing when it is plugged in, so
+    the board names the part: Panasonic's EEE-FK1E221P, 0.16 ohm at most at 100 kHz and 20 C.
+    A capacitor of more (a general-purpose can) lets the ringing reach the TVS's clamp, at the
+    buck's absolute maximum; one of much less (a polymer) damps nothing. `bulk_esr` is its
+    resistance in ohms, which a testbench varies.
     """
     vin_raw, gate = c.net("VIN_RAW"), c.net("GATE")
     jack = c.part("Connector:Barrel_Jack_Switch", footprint="Connector_BarrelJack:BarrelJack_Horizontal",
@@ -76,7 +78,8 @@ def power_input(c, vin, gnd, *, bulk_esr="0.3"):
     tvs = c.part("Device:D_TVS", footprint="Diode_SMD:D_SMA", value="SMAJ15CA",
                  properties={"MPN": "SMAJ15CA", **model("SMAJ15CA", "1=A1 2=A2")})
     bulk = c.part("Device:C_Polarized", footprint="Capacitor_SMD:CP_Elec_8x10", value="220u 25V",
-                  properties=model("ECAP", "1=P 2=N", f"c=220u esr={bulk_esr} esl=10n"))
+                  properties={"MPN": "EEE-FK1E221P", "Manufacturer": "Panasonic", "LCSC": "C128511",
+                              **model("ECAP", "1=P 2=N", f"c=220u esr={bulk_esr} esl=10n")})
     c.connect(vin, jack[1], *[fet[n] for n in ("1", "2", "3")], zener["K"], tvs[1], bulk[1])
     c.connect(gnd, jack[2], jack[3], terminal[1], tvs[2], bulk[2])
     c.connect(vin_raw, terminal[2], *[fet[n] for n in ("5", "6", "7", "8")])
@@ -89,9 +92,11 @@ def power_input(c, vin, gnd, *, bulk_esr="0.3"):
 
 
 def buck(c, vin, v5, gnd):
-    """TPS565208, 5 A: VOUT = 0.76 V x (1 + 57.6k / 10k) = 5.14 V; the EN divider starts it as VIN rises.
+    """TPS565208, 5 A: VOUT = 0.76 V x (1 + 57.6k / 10k) = 5.14 V.
 
-    The TPS565208 itself is left out of simulation; a testbench stands in for its pins.
+    EN is 100k over 30k, against the EN pin's own 120 to 400 kOhm to ground: the buck starts at
+    about 6.6 V, and is sure to by 8.3 V, under the HAT's lowest input, 9 V. The TPS565208 itself
+    is left out of simulation; a testbench stands in for its pins.
     """
     sw, bst, fb, en = c.net("SW"), c.net("BST"), c.net("FB"), c.net("EN")
     u = c.part("Regulator_Switching:TPS565208", value="TPS565208",
@@ -102,7 +107,7 @@ def buck(c, vin, v5, gnd):
     c_in = [capacitor(c, "10u 25V", footprint=C_1206) for _ in range(2)]
     c_out = [capacitor(c, "22u 10V", footprint=C_1206) for _ in range(2)]
     c_bst = capacitor(c, "100n")
-    r_en_top, r_en_bot = resistor(c, "100k"), resistor(c, "22k")
+    r_en_top, r_en_bot = resistor(c, "100k"), resistor(c, "30k")
     r_fb_top, r_fb_bot = resistor(c, "57.6k"), resistor(c, "10k")
 
     c.connect(vin, u["VIN"], c_hf[1], c_in[0][1], c_in[1][1], r_en_top[1])

@@ -186,14 +186,18 @@ BATTERY = 12.6  # a full 3S LiPo, the top of the HAT's input range
 VIN_LOWEST = 9.0  # the bottom of its input range
 VIN_ABS_MAX = 19.0  # TPS565208 datasheet: VIN absolute maximum (17 V recommended)
 LEADS = ("300n", "1u", "2u")  # the battery lead's inductance: a lead pair has about 1 uH a metre
-ESRS = ("0.08", "0.3", "0.6")  # the 220 uF capacitor's series resistance: low-ESR, general-purpose, a poor one
+# The 220 uF capacitor's series resistance. The board's part, EEE-FK1E221P, has 0.16 ohm at most:
+# it is checked at half that, that, and double that (cold, or aged). The others are what a
+# different capacitor would do: a polymer's 0.02 ohm, a general-purpose can's 0.6.
+PART_ESRS = ("0.08", "0.16", "0.32")
+ESRS = ("0.02", *PART_ESRS, "0.6")
 # TPS565208 datasheet: the EN pin's own resistance to ground (120 to 400 kOhm, 245 typical); EN is
 # high above 1.6 V and low below 0.8 V, and typically turns on at 1.40 V and off at 1.10 V.
 EN_PIN = {"typical": 245e3, "lowest": 120e3}
 EN_ON_TYPICAL, EN_HIGH, EN_OFF_TYPICAL = 1.40, 1.6, 1.10
 
 
-def supply_bench(en_pin=EN_PIN["typical"], bulk_esr="0.3", title="HAT supply"):
+def supply_bench(en_pin=EN_PIN["typical"], bulk_esr="0.16", title="HAT supply"):
     """The input and the buck's input side; the TPS565208 itself is left out."""
     tb = pcb.Testbench(title=title)
     vin, v5 = tb.net("VIN"), tb.net("+5V")
@@ -220,7 +224,7 @@ def plug_bench(lead, esr, into):
 
 
 def check_plug_in():
-    worst = None
+    worst, worst_part = None, None
     print(f"  {'into':8} {'lead':>5} {'ESR':>5}  {'VIN peak':>8}  {'inrush':>7}  {'TVS':>6}  {'FET VGS':>7}")
     for into in ("terminal", "jack"):
         for lead in LEADS:
@@ -230,14 +234,18 @@ def check_plug_in():
                 peak = run["VIN"].max()
                 vgs = (run[power.gate] - run["VIN"]).min()
                 print(f"  {into:8} {lead + 'H':>5} {esr:>5}  {peak:6.2f} V  {run.current(inductance[1]).max():5.1f} A  "
-                      f"{run.current(power.tvs[1]).max():4.2f} A  {vgs:5.2f} V")
+                      f"{run.current(power.tvs[1]).max():4.2f} A  {vgs:5.2f} V" + ("" if esr in PART_ESRS else "  (another capacitor)"))
                 if worst is None or peak > worst[0]:
                     worst = (peak, tb, into, lead, esr)
-    peak, tb, into, lead, esr = worst
+                if esr in PART_ESRS and (worst_part is None or peak > worst_part[0]):
+                    worst_part = (peak, tb, into, lead, esr)
+    peak, tb, into, lead, esr = worst_part
     tb.transient(stop=300e-6, step=20e-9).plot(PLOTS / "hat_plug_in.png", nets=["BATTERY", "VIN_RAW", "VIN"],
                                                 title=f"Plugging in 12.6 V: {lead}H lead, {esr} ohm ESR, into the {into}")
     check(peak < VIN_ABS_MAX, f"plug-in: VIN peaks at {peak:.1f} V ({lead}H lead, {esr} ohm ESR, into the {into}); "
                               f"the TPS565208's VIN absolute maximum is {VIN_ABS_MAX:g} V")
+    print(f"  the board's capacitor: VIN peaks at {peak:.2f} V at worst ({lead}H lead, {esr} ohm, into the {into}); "
+          f"another capacitor: {worst[0]:.2f} V ({worst[3]}H lead, {worst[4]} ohm, into the {worst[2]})")
 
 
 def check_buck_start():
