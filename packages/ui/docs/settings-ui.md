@@ -227,11 +227,13 @@ Its **Animation** panel leads the stack while it is up, headed as Measure's is:
 "Animation", then its settings — the sliders button, whose dropdown holds Speed,
 Loop and Autoplay, the very settings of preview's Playback settings, kept the
 same way (see [preview](#camera-animation-and-preview)) — and its X, which puts
-it down as a second press on Animation does. Its body is rowed as Explode's and
-Clip's are: with more than one routine, the routine's dropdown across the panel
-(the routine's name is the row, so it has no label beside it; its name and hint
-are "Routine"); then the transport, play/pause — a heading's 20px button, its
-glyph on the rows' 8px line — hard against the scrubber. Taking it up leaves the model at rest
+it down as a second press on Animation does. Its body sits flush under the
+heading, whose 28px row is the room above it, 8px in at each side and 4px at the
+foot, and its 24px controls sit 4px apart: with more than one routine, the routine's dropdown across the
+panel (the routine's name is the row, so it has no label beside it; its name and
+hint are "Routine"); then the transport, play/pause — a 24px control on the
+dropdown's edge, its glyph on the dropdown's text — against the scrubber, which
+ends where the dropdown does. Taking it up leaves the model at rest
 unless Autoplay is on, which starts the routine, as entering preview does. While
 it is up the routine owns the pose and nothing on the model is picked or
 hovered; the kept effects stay as they are. Preview carries a playing routine
