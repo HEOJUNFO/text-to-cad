@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import * as THREE from "three";
 import {
   animationClipList,
   animationRenderFrame,
@@ -10,10 +9,9 @@ import {
   kinematicsModuleDefinitionFromSidecar,
   loadKinematicsModuleDefinition
 } from "@text-to-cad/core/common/kinematicsModule.js";
-import { loadSourceAnimation, validateAnimationClips } from "@text-to-cad/core/common/renderModule.js";
+import { loadSourceAnimation } from "@text-to-cad/core/common/animationRuntime.js";
 import { validateSourceSidecar } from "@text-to-cad/core/common/sourceSidecar.js";
 import { entryPoseUrl } from "@text-to-cad/core/lib/entryAssets.js";
-import { tolerantAnimationClip } from "../components/workbench/hooks/packageProgressiveLoad.js";
 import { useAnimationClockStore } from "./animationClockStore.js";
 import { cadPathForEntry, fileKey as fileKeyOf } from "./entryPaths.js";
 import { restoreMotionAnimation, restoreMotionParameters } from "./motionRestore.js";
@@ -29,7 +27,7 @@ function sourceAnimationKeyForEntry(entry) {
 
 /**
  * Where a STEP entry's motion comes from: its sidecar's kinematics module, the path the module
- * poses, and the routine source embedded in the sidecar.
+ * poses, and the routines' keyframes in the sidecar.
  */
 export function stepMotionSources(entry) {
   const moduleUrl = entryPoseUrl(entry);
@@ -47,18 +45,17 @@ export function stepMotionSources(entry) {
  * the playback over them — loaded and held apart (a model may ship either, both, or neither),
  * with one command boundary over both (`useStepMotionControls`).
  *
- * In: the entry on screen, the model it moves (a partial progressive model plays tolerantly and
- * is not validated), and the stored view to restore the pose from as the sidecar compiles.
+ * In: the entry on screen, and the stored view to restore the pose from as the sidecar loads.
  * Out: what the Position panel and the playbar read and call, what the viewport draws a frame
  * from (`animationRuntime`), and `restore`, which the file's view calls once before the
  * first paint. A routine is never restored: every open starts at rest, and the speed and
  * loop it plays with are the tab's (the shell's Playback settings).
  *
- * @param {{ entry: object, fileKey: string, resources: object, meshData: object | null, meshPartial: boolean,
+ * @param {{ entry: object, fileKey: string, resources: object,
  *   readStored: () => { pose: object | null }, clipboard: object,
  *   reportError: (message: string) => void }} options
  */
-export function useStepMotion({ entry, fileKey, resources, meshData, meshPartial, readStored, clipboard, reportError }) {
+export function useStepMotion({ entry, fileKey, resources, readStored, clipboard, reportError }) {
   const animationClock = useAnimationClockStore();
   const { resetAnimationClock, setAnimationClock } = animationClock;
   const readStoredRef = useRef(readStored);
@@ -201,15 +198,14 @@ export function useStepMotion({ entry, fileKey, resources, meshData, meshPartial
     };
   }, [fileKey, entry, cadPath, moduleUrl]);
 
-  // The animation half compiles the exact source embedded in the selected
-  // sidecar. A document with no animation resolves to no clips and no
-  // Animation tab, and a broken one reports its own error without disturbing
-  // the Pose tab.
+  // The animation half loads the keyframes in the selected sidecar. A document
+  // with no animation resolves to no clips and no Animation tab, and a broken
+  // one reports its own error without disturbing the Pose tab.
   //
   // It is keyed on the animation's own identity (`animationKey`: the file and the hash of the
-  // routine source), never on the entry: an update of the model that leaves its routines as
+  // routines' keyframes), never on the entry: an update of the model that leaves its routines as
   // they were neither stops nor rewinds one that is playing, and only a changed routine is
-  // compiled again, from rest. The source and the file's name are read when the key changes.
+  // loaded again, from rest. The keyframes are read when the key changes.
   const animationSourceRef = useRef({ sourceAnimation, entry });
   animationSourceRef.current = { sourceAnimation, entry };
   useEffect(() => {
@@ -241,10 +237,7 @@ export function useStepMotion({ entry, fileKey, resources, meshData, meshPartial
     resetAnimation();
 
     const loadMotionRevision = motionRevisionRef.current;
-    loadSourceAnimation({ animation: sourceAnimation }, {
-      signal: controller.signal,
-      name: `${fileKeyOf(entry) || "STEP"} animation`
-    })
+    loadSourceAnimation({ animation: sourceAnimation }, { signal: controller.signal })
       .then((animationModule) => {
         if (cancelled) {
           return;
@@ -285,24 +278,20 @@ export function useStepMotion({ entry, fileKey, resources, meshData, meshPartial
   const activeClip = useMemo(() => findAnimationClip(clips, animationState.activeClipId), [clips, animationState.activeClipId]);
   // Progressive publish (design/viewer-memory.md §6): a STEP package paints
   // while it loads, and the partial states carry assemblyInteractionReady=false.
-  // Embedded animation attaches on the FIRST publish and stays live: the viewer
-  // re-runs its setup on every meshData change (the same path a LOD swap
-  // takes), so occurrences bind as they arrive. Pose and animation controls
-  // act on whatever is present; only clip validation waits for the complete
-  // model, and a partial model's clip tolerates labels not yet loaded.
-  // What the viewport needs to draw one animated frame: the compiled clip and a
+  // Animation attaches on the FIRST publish and stays live: a track names
+  // occurrence ids, so it drives the ones present and the rest as they arrive.
+  // What the viewport needs to draw one animated frame: the clip and a
   // time. The render pane swaps in the live clock while playing; everything else
   // about playback stays out of the render path.
   //
   // `enabled` is internal pose ownership: paused animation holds its frame;
   // editing Position hands control back to kinematics. It is not a UI gate.
-  const playableClip = useMemo(() => (meshPartial ? tolerantAnimationClip(activeClip) : activeClip), [activeClip, meshPartial]);
   const animationRuntime = useMemo(() => animationRenderFrame({
     enabled: animationState.enabled !== false,
-    clip: playableClip,
+    clip: activeClip,
     elapsedSec: animationState.elapsedSec,
     playing: animationState.playing
-  }), [animationState.elapsedSec, animationState.enabled, animationState.playing, playableClip]);
+  }), [animationState.elapsedSec, animationState.enabled, animationState.playing, activeClip]);
 
   // A named pose is a full configuration, not a patch: every DOF the preset
   // does not mention returns to 0 (the artifact as written), so two presets in
@@ -313,24 +302,7 @@ export function useStepMotion({ entry, fileKey, resources, meshData, meshPartial
     setStepModuleParameterValues, setAppliedStepPoseName, motionRevisionRef
   });
 
-  // Embedded animation clips are checked against the compiled tree once it is
-  // in hand: a target no part carries fails HERE, in the Status tab, not the
-  // first time playback reaches that frame.
-  const validationError = useMemo(() => {
-    if (!clips || !Array.isArray(meshData?.parts) || !meshData.parts.length) {
-      return "";
-    }
-    // A partial progressive state lacks occurrences by design; validating
-    // against it would report every not-yet-loaded label as a clip error, so
-    // validation runs on the complete model only.
-    if (meshPartial) {
-      return "";
-    }
-    return validateAnimationClips(THREE, meshData, clips)
-      .map((problem) => `${problem.clip}: ${problem.error}`)
-      .join("\n");
-  }, [clips, meshData, meshPartial]);
-  const animationError = animationLoadError || validationError;
+  const animationError = animationLoadError;
 
   // Copy and Paste of the Position values, as text a person can keep and paste back.
   const { applyStepModuleParameterValues } = commands;

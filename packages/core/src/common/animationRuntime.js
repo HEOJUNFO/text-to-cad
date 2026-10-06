@@ -1,204 +1,224 @@
-import { requireTubeDeformation } from "./tubeDeformationChunk.js";
+import { loadTubeDeformation, requireTubeDeformation } from "./tubeDeformationChunk.js";
+import { normalizeSourceAnimation } from "./sourceSidecar.js";
 
-// The choreography half: evaluate the clips a document's render module
-// (embedded in the schema-v9 sidecar and loaded by renderModule.js) declares and drive raw
-// per-occurrence transforms. Total independence by construction: this module
-// knows nothing of mates, DOFs, presets, or the Pose tab; it targets
-// occurrences by label and pushes matrices/styles through the same effects
-// records the viewer already composes.
+// The choreography half: play the clips a document's sidecar carries. A clip is
+// KEYFRAMES, baked when its model built (cadgen.clip in Python, sampled by
+// cadgen/_internal/animation_bake.py); this module interpolates them into raw
+// per-occurrence transforms. It runs no model code, and knows nothing of mates,
+// DOFs, presets, or the Pose tab: it pushes matrices and styles through the same
+// effect records the viewer already composes.
 //
-// Contract (the render module's `clips` export):
-//   export const clips = {
-//     demo: { label?, duration, loop?, update(t, m) { ... } },
-//   };
-// `update` is called every frame with t in seconds and m, the model handle.
-// EVERY frame starts from rest: update(t) rebuilds state from scratch, so it
-// must be a pure function of t — scrub, loop, and seek are free, and there is
-// no persistent state to mutate.
-//
-// Handle API — m.get(target) returns an occurrence handle. A target is a
-// LABEL (canonical), or an occurrence-id ref — "#o1.3.1", "o1.3.1", or a
-// comma list "#o1.3.1,o1.3.2" — matching each id and everything beneath it
-// (dotted-prefix containment):
-//   .rotate(axisVec3, degrees, originVec3 = [0,0,0])
-//   .translate(vec3)
-//   .opacity(value 0..1)
-//   .visible(bool)
-//   .deformTube({rest, path, twistDeg = 0, maxSegmentLength = 1})
-// Tube paths and their world-space frame contract: docs/tube-deformation.md.
-// Successive transform calls PREMULTIPLY (later calls act in world space on
-// the already-moved part): h.rotate(spin about own center) then
-// h.rotate(orbit about the assembly origin) makes the spin ride the orbit.
-// m.get() with an unknown label throws — a typo'd label must never silently
-// animate nothing.
+// A clip is {id, label, duration, loop, tracks}. A track drives ONE channel of
+// the occurrences it lists (document leaf ids), with one value per time; before
+// its first time and after its last it holds the end value:
+//   transform  [dx, dy, dz, qx, qy, qz, qw, d'x, d'y, d'z, wx, wy, wz]: the
+//              track's pivot moves by d while the part turns by q about it,
+//              T(pivot + d) R(q) T(-pivot); d' is d's rate (mm/s) and w the
+//              angular velocity (rad/s, world). Between keys d, and the turn
+//              from the first key as a rotation vector, are cubic Hermite
+//              curves: a constant spin is exact.
+//   opacity    0..1, or null for the material's own; lerps between numbers.
+//   visible    true, false, or null for the rest state; held.
+//   tube       {path, twistDeg}, or null for the rest shape; the path's numbers
+//              lerp while its segment kinds match, and hold otherwise. The track
+//              carries the tube's rest path, maxSegmentLength and braid.
+// Every evaluation starts from rest: a clip is a pure function of t, so scrub,
+// loop and seek are free.
 
-function isObject(value) {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-const DEG_TO_RAD = Math.PI / 180;
-
-export function normalizeAnimationClips(rawClips) {
+/** The clips of a validated animation section, by id. */
+export function normalizeAnimationClips(block) {
   const clips = {};
-  for (const [id, raw] of Object.entries(isObject(rawClips) ? rawClips : {})) {
-    if (!isObject(raw) || typeof raw.update !== "function") {
-      continue;
-    }
-    const duration = Number(raw.duration);
-    clips[String(id)] = {
-      id: String(id),
-      label: String(raw.label || id),
-      duration: Number.isFinite(duration) && duration > 0 ? duration : 1,
-      loop: raw.loop !== false,
-      update: raw.update
-    };
+  for (const [id, clip] of Object.entries(block?.clips || {})) {
+    clips[id] = { id, label: clip.label || id, duration: clip.duration, loop: clip.loop !== false, tracks: clip.tracks };
   }
   return clips;
 }
 
-// Index meshData parts by label for m.get(). Labels are occurrence names in
-// the instance tree; every part whose name matches (or whose id sits inside a
-// matching group occurrence) belongs to the handle.
-function partIdsByLabel(meshData) {
-  const byLabel = new Map();
-  for (const part of meshData?.parts || []) {
-    const label = String(part.label || part.name || "").trim();
-    if (!label) {
-      continue;
-    }
-    if (!byLabel.has(label)) {
-      byLabel.set(label, []);
-    }
-    byLabel.get(label).push(String(part.id));
-  }
-  return byLabel;
+/** Whether `clip` is a playable clip record. */
+export function isAnimationClip(clip) {
+  return Array.isArray(clip?.tracks);
 }
 
-function partIdsForOccurrenceRefs(meshData, target) {
-  const wanted = String(target).replace(/^#/, "").split(",").map((t) => t.trim()).filter(Boolean);
-  if (!wanted.length || !wanted.every((t) => /^o[\d.]+$/.test(t))) {
-    return null;
+/** Load a sidecar's clips: `{clips}`, or null when it declares none. A clip that
+ * bends a tube needs the lazy tube runtime, so this waits for it once, here,
+ * and evaluation stays synchronous. */
+export async function loadSourceAnimation(sidecar, { signal } = {}) {
+  signal?.throwIfAborted();
+  const animation = normalizeSourceAnimation(sidecar?.animation);
+  if (!animation) return null;
+  const clips = normalizeAnimationClips(animation);
+  if (Object.values(clips).some((clip) => clip.tracks.some((track) => track.tube))) {
+    await loadTubeDeformation();
+    signal?.throwIfAborted();
   }
-  const ids = [];
-  for (const part of meshData?.parts || []) {
-    const id = String(part.id);
-    if (wanted.some((t) => id === t || id.startsWith(`${t}.`))) {
-      ids.push(id);
-    }
-  }
-  return ids.length ? ids : null;
+  return { clips };
 }
 
-// What each target names, per occurrence table. A routine asks for the same
-// targets on every frame, and a comma list of occurrence ids is a scan of every
-// part per id: on the hypercar's showcase that was about 4 ms of each frame's
-// 7 ms pose pass. The table is read-only here, so its parts array keys the index,
-// and a new table (a rebuild, a progressive publish) is a new array and a new index.
-const targetIndexes = new WeakMap();
-
-function targetIndex(meshData) {
-  const parts = Array.isArray(meshData?.parts) ? meshData.parts : null;
-  let index = parts ? targetIndexes.get(parts) : null;
-  if (!index) {
-    index = { byLabel: partIdsByLabel(meshData), resolved: new Map() };
-    if (parts) targetIndexes.set(parts, index);
+// (index of the key at or before t, fraction of the way to the next key)
+function bracket(times, t) {
+  const last = times.length - 1;
+  if (t >= times[last]) return [last, 0];
+  let lo = 0;
+  let hi = last;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (times[mid] <= t) lo = mid;
+    else hi = mid;
   }
-  return index;
+  return [lo, (t - times[lo]) / (times[hi] - times[lo])];
 }
 
-// One frame's evaluation surface. Collects per-part effects; the caller
-// applies them to display records exactly like pose/step-module effects.
-export function createAnimationFrame(THREE, meshData) {
-  const { byLabel, resolved } = targetIndex(meshData);
-  const matrices = new Map(); // partId -> THREE.Matrix4
-  const styles = new Map(); // partId -> {opacity?, visible?}
-  const deformations = new Map(); // partId -> analytic rest/posed tube paths
+function qmul([ax, ay, az, aw], [bx, by, bz, bw]) {
+  return [
+    aw * bx + ax * bw + ay * bz - az * by,
+    aw * by - ax * bz + ay * bw + az * bx,
+    aw * bz + ax * by - ay * bx + az * bw,
+    aw * bw - ax * bx - ay * by - az * bz
+  ];
+}
 
-  const handleFor = (label) => {
-    const target = String(label);
-    let partIds = resolved.get(target);
-    if (partIds === undefined) {
-      partIds = byLabel.get(target.replace(/^#/, ""))
-        || byLabel.get(target)
-        || partIdsForOccurrenceRefs(meshData, label)
-        || null;
-      resolved.set(target, partIds);
-    }
-    if (!partIds || !partIds.length) {
-      const known = [...byLabel.keys()].sort().join(", ") || "(none)";
-      throw new Error(`animation: no occurrence labeled ${JSON.stringify(label)}; labels: ${known}`);
-    }
-    const applyMatrix = (matrix) => {
-      for (const partId of partIds) {
-        const current = matrices.get(partId);
-        matrices.set(
-          partId,
-          current ? new THREE.Matrix4().multiplyMatrices(matrix, current) : matrix.clone()
-        );
+// The rotation vector (axis * radians, world frame) that turns quaternion a into b.
+function turnVector(a, b) {
+  let [x, y, z, w] = qmul(b, [-a[0], -a[1], -a[2], a[3]]);
+  if (w < 0) [x, y, z, w] = [-x, -y, -z, -w];
+  const s = Math.hypot(x, y, z);
+  if (s < 1e-12) return [2 * x, 2 * y, 2 * z];
+  const angle = 2 * Math.atan2(s, w);
+  return [x / s * angle, y / s * angle, z / s * angle];
+}
+
+// Quaternion q turned further by the rotation vector v.
+function turned(v, q) {
+  const angle = Math.hypot(v[0], v[1], v[2]);
+  const s = angle < 1e-12 ? 0.5 : Math.sin(angle / 2) / angle;
+  const out = qmul([v[0] * s, v[1] * s, v[2] * s, Math.cos(angle / 2)], q);
+  const n = Math.hypot(out[0], out[1], out[2], out[3]);
+  return [out[0] / n, out[1] / n, out[2] / n, out[3] / n];
+}
+
+// A transform key's (d, q) at fraction u toward the next key, span seconds away.
+// d is a cubic Hermite curve through the keys' values and rates; the turn from
+// the first key is one through the zero vector and the turn to the second, with
+// the keys' angular velocities, so a constant spin is a straight line there.
+function transformPose(a, b, span, u) {
+  const u2 = u * u;
+  const u3 = u2 * u;
+  const h00 = 2 * u3 - 3 * u2 + 1;
+  const h10 = u3 - 2 * u2 + u;
+  const h01 = 3 * u2 - 2 * u3;
+  const h11 = u3 - u2;
+  const turn = turnVector(a.slice(3, 7), b.slice(3, 7));
+  const d = [0, 1, 2].map((n) => h00 * a[n] + h10 * span * a[7 + n] + h01 * b[n] + h11 * span * b[7 + n]);
+  const v = [0, 1, 2].map((n) => h10 * span * a[10 + n] + h01 * turn[n] + h11 * span * b[10 + n]);
+  return [d, turned(v, a.slice(3, 7))];
+}
+
+function transformAt(THREE, track, index, u) {
+  const key = track.transform[index];
+  const [d, q] = u > 0
+    ? transformPose(key, track.transform[index + 1], track.times[index + 1] - track.times[index], u)
+    : [key.slice(0, 3), key.slice(3, 7)];
+  const n = Math.hypot(q[0], q[1], q[2], q[3]);
+  const [x, y, z, w] = [q[0] / n, q[1] / n, q[2] / n, q[3] / n];
+  const r = [
+    1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w),
+    2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w),
+    2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)
+  ];
+  const [px, py, pz] = track.pivot;
+  const t = [0, 1, 2].map((axis) => (
+    track.pivot[axis] + d[axis] - (r[axis * 3] * px + r[axis * 3 + 1] * py + r[axis * 3 + 2] * pz)
+  ));
+  return new THREE.Matrix4().set(
+    r[0], r[1], r[2], t[0],
+    r[3], r[4], r[5], t[1],
+    r[6], r[7], r[8], t[2],
+    0, 0, 0, 1
+  );
+}
+
+const lerp = (a, b, u) => a + (b - a) * u;
+const lerp3 = (a, b, u) => [lerp(a[0], b[0], u), lerp(a[1], b[1], u), lerp(a[2], b[2], u)];
+
+function samePathShape(a, b) {
+  return a.segments.length === b.segments.length
+    && a.segments.every((segment, index) => segment.kind === b.segments[index].kind);
+}
+
+function lerpPath(a, b, u) {
+  return {
+    normal: lerp3(a.normal, b.normal, u),
+    segments: a.segments.map((segment, index) => {
+      const other = b.segments[index];
+      const out = { kind: segment.kind };
+      for (const [key, value] of Object.entries(segment)) {
+        if (key === "kind") continue;
+        out[key] = typeof value === "number" ? lerp(value, other[key], u)
+          : Array.isArray(value[0]) ? value.map((point, n) => lerp3(point, other[key][n], u))
+            : lerp3(value, other[key], u);
       }
-    };
-    const setStyle = (key, value) => {
-      for (const partId of partIds) {
-        const style = styles.get(partId) || {};
-        style[key] = value;
-        styles.set(partId, style);
-      }
-    };
-    return {
-      deformTube(spec) {
-        // The one producer of a tube deformation in the whole runtime, and so
-        // the one thing that needs the lazy tube chunk. compileAnimationSource
-        // has already awaited it for every clip that can reach this line.
-        const deformation = requireTubeDeformation("deformTube").normalizeTubeDeformation(spec);
-        for (const partId of partIds) deformations.set(partId, deformation);
-        return this;
-      },
-      rotate(axis, degrees, origin = [0, 0, 0]) {
-        const axisVec = new THREE.Vector3(axis[0], axis[1], axis[2]).normalize();
-        const rotation = new THREE.Matrix4().makeRotationAxis(axisVec, (Number(degrees) || 0) * DEG_TO_RAD);
-        const toOrigin = new THREE.Matrix4().makeTranslation(-origin[0], -origin[1], -origin[2]);
-        const back = new THREE.Matrix4().makeTranslation(origin[0], origin[1], origin[2]);
-        applyMatrix(new THREE.Matrix4().multiplyMatrices(back, new THREE.Matrix4().multiplyMatrices(rotation, toOrigin)));
-        return this;
-      },
-      translate(vector) {
-        applyMatrix(new THREE.Matrix4().makeTranslation(
-          Number(vector[0]) || 0, Number(vector[1]) || 0, Number(vector[2]) || 0
-        ));
-        return this;
-      },
-      opacity(value) {
-        setStyle("opacity", Math.max(0, Math.min(1, Number(value))));
-        return this;
-      },
-      visible(value) {
-        setStyle("visible", Boolean(value));
-        return this;
-      }
-    };
+      return out;
+    })
   };
-
-  const model = {
-    get: handleFor,
-    // Labels are enumerable so a clip can iterate without hardcoding.
-    labels: () => [...byLabel.keys()].sort()
-  };
-  return { model, matrices, styles, deformations };
 }
 
-// Evaluate one clip at time t: a fresh frame each call (purity by
-// construction). Returns {matrices, styles} keyed by part id.
-export function evaluateAnimationClip(THREE, meshData, clip, t) {
-  const frame = createAnimationFrame(THREE, meshData);
+// A held key's deformation, normalized once: a tube that rests between moves
+// (a valve spring, most of an engine cycle) costs nothing per frame.
+const heldTubes = new WeakMap();
+
+function tubeAt(track, index, u) {
+  const a = track.tube[index];
+  if (!a) return null;
+  const b = u > 0 ? track.tube[index + 1] : null;
+  const runtime = requireTubeDeformation("a tube animation track");
+  const spec = { rest: track.rest, maxSegmentLength: track.maxSegmentLength, ...(track.braid ? { braid: track.braid } : {}) };
+  if (!b || !samePathShape(a.path, b.path)) {
+    let held = heldTubes.get(a);
+    if (!held) {
+      held = runtime.normalizeTubeDeformation({ ...spec, path: a.path, twistDeg: a.twistDeg });
+      heldTubes.set(a, held);
+    }
+    return held;
+  }
+  return runtime.normalizeTubeDeformation({ ...spec, path: lerpPath(a.path, b.path, u), twistDeg: lerp(a.twistDeg, b.twistDeg, u) });
+}
+
+/** Evaluate one clip at time t: `{matrices, styles, deformations}`, each keyed by
+ * occurrence id. A looping clip wraps t; one that does not holds its end. */
+export function evaluateAnimationClip(THREE, clip, t) {
   const duration = clip.duration || 1;
   let localT = Math.max(0, Number(t) || 0);
-  if (clip.loop !== false) {
-    localT = localT % duration;
-  } else {
-    localT = Math.min(localT, duration);
+  localT = clip.loop !== false ? localT % duration : Math.min(localT, duration);
+  const matrices = new Map();
+  const styles = new Map();
+  const deformations = new Map();
+  const style = (id, key, value) => {
+    const current = styles.get(id) || {};
+    current[key] = value;
+    styles.set(id, current);
+  };
+  for (const track of clip.tracks) {
+    const [index, u] = bracket(track.times, localT);
+    if (track.transform) {
+      const matrix = transformAt(THREE, track, index, u);
+      for (const id of track.targets) matrices.set(id, matrix);
+    } else if (track.opacity) {
+      const a = track.opacity[index];
+      const b = u > 0 ? track.opacity[index + 1] : null;
+      if (a === null) continue;
+      const value = b === null ? a : lerp(a, b, u);
+      for (const id of track.targets) style(id, "opacity", value);
+    } else if (track.visible) {
+      const value = track.visible[index];
+      if (value === null) continue;
+      for (const id of track.targets) style(id, "visible", value);
+    } else if (track.tube) {
+      const deformation = tubeAt(track, index, u);
+      if (!deformation) continue;
+      for (const id of track.targets) deformations.set(id, deformation);
+    }
   }
-  clip.update(localT, frame.model);
-  return { matrices: frame.matrices, styles: frame.styles, deformations: frame.deformations };
+  return { matrices, styles, deformations };
 }
 
 // Merge an evaluated frame into the viewer's per-part effect records — the same

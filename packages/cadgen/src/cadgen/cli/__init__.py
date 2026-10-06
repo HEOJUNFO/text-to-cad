@@ -39,7 +39,7 @@ _COMMANDS: dict[str, tuple[str, str]] = {
     # and the viewer compile on demand, so no skill documentation names it.
     "step build": (
         "cadgen.cli.step_build",
-        "re-emit a STEP as a new one; can add kinematics, materials, animation",
+        "re-emit a STEP as a new one; can add kinematics and materials",
     ),
     "step compile": ("cadgen.cli.step_compile", "make a STEP's tree current"),
     "step snapshot": ("cadgen.cli.step_snapshot", "render a STEP model to an image"),

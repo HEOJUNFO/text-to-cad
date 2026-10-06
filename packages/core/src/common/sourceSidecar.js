@@ -3,7 +3,7 @@
 // authored appearance into private descriptors and display wrappers owned by
 // the current reader.
 
-export const SOURCE_SIDECAR_SCHEMA_VERSION = 9;
+export const SOURCE_SIDECAR_SCHEMA_VERSION = 10;
 export const SOURCE_APPEARANCE_CHANNELS = Object.freeze([
   "baseColor",
   "roughness",
@@ -185,19 +185,76 @@ export function sourceAppearanceGeometry(meshData) {
   return appearanceGeometrySources.get(meshData) || meshData;
 }
 
+// The animation section is keyframes cadgen baked from the model's clips
+// (cadgen/_internal/animation_bake.py writes it and checks it the same way):
+// {clips: {id: {label, duration, loop, tracks}}}. animationRuntime.js says what
+// each channel means.
+const ANIMATION_CHANNELS = ["transform", "opacity", "visible", "tube"];
+const TRACK_EXTRAS = { transform: ["pivot"], tube: ["rest", "maxSegmentLength", "braid"] };
+const finite = (value) => typeof value === "number" && Number.isFinite(value);
+
+function animationError(message) {
+  return new Error(`animation: ${message}`);
+}
+
+function checkTrack(track, where, duration) {
+  if (!isObject(track)) throw animationError(`${where} must be an object`);
+  const channels = ANIMATION_CHANNELS.filter((name) => Object.hasOwn(track, name));
+  const allowed = new Set(["targets", "times", ...channels, ...(channels.length === 1 ? TRACK_EXTRAS[channels[0]] || [] : [])]);
+  if (channels.length !== 1 || Object.keys(track).some((key) => !allowed.has(key))) {
+    throw animationError(`${where} must carry targets, times and exactly one of ${ANIMATION_CHANNELS.join(", ")}`);
+  }
+  const [channel] = channels;
+  const { targets, times } = track;
+  const values = track[channel];
+  if (!Array.isArray(targets) || !targets.length || !targets.every((id) => typeof id === "string" && id)) {
+    throw animationError(`${where} targets must be a nonempty list of occurrence ids`);
+  }
+  if (!Array.isArray(times) || !times.length || !times.every(finite) || times[0] !== 0
+    || times.some((time, index) => index > 0 && time <= times[index - 1]) || times[times.length - 1] > duration + 1e-9) {
+    throw animationError(`${where} times must rise strictly from 0 to at most the duration`);
+  }
+  if (!Array.isArray(values) || values.length !== times.length) {
+    throw animationError(`${where} needs one ${channel} value per time`);
+  }
+  const valid = {
+    transform: (value) => Array.isArray(value) && value.length === 13 && value.every(finite),
+    opacity: (value) => value === null || (finite(value) && value >= 0 && value <= 1),
+    visible: (value) => value === null || typeof value === "boolean",
+    tube: (value) => value === null || (isObject(value) && Object.keys(value).length === 2
+      && isObject(value.path) && finite(value.twistDeg))
+  }[channel];
+  const bad = values.find((value) => !valid(value));
+  if (bad !== undefined) throw animationError(`${where} has a malformed ${channel} value: ${JSON.stringify(bad)}`);
+  if (channel === "transform" && !(Array.isArray(track.pivot) && track.pivot.length === 3 && track.pivot.every(finite))) {
+    throw animationError(`${where} needs its pivot, three numbers`);
+  }
+  if (channel === "tube" && !(isObject(track.rest) && finite(track.maxSegmentLength))) {
+    throw animationError(`${where} needs its rest path and maxSegmentLength`);
+  }
+}
+
 export function normalizeSourceAnimation(block) {
   if (block === undefined || block === null) return null;
-  if (!isObject(block) || Object.keys(block).length !== 2
-    || !Object.hasOwn(block, "language") || !Object.hasOwn(block, "source")) {
-    throw new Error("animation must contain only language and source");
+  if (!isObject(block) || Object.keys(block).length !== 1 || !isObject(block.clips)) {
+    throw animationError("the section must be {clips: {...}}");
   }
-  if (block.language !== "javascript") {
-    throw new Error("animation.language must be 'javascript'");
+  const entries = Object.entries(block.clips);
+  if (!entries.length) return null;
+  for (const [id, clip] of entries) {
+    const where = `clip ${JSON.stringify(id)}`;
+    const keys = isObject(clip) ? Object.keys(clip).sort().join() : "";
+    if (keys !== "duration,label,loop,tracks") {
+      throw animationError(`${where} must have exactly label, duration, loop and tracks`);
+    }
+    if (typeof clip.label !== "string" || !clip.label || !finite(clip.duration) || clip.duration <= 0
+      || typeof clip.loop !== "boolean") {
+      throw animationError(`${where} needs a label, a positive duration and a boolean loop`);
+    }
+    if (!Array.isArray(clip.tracks)) throw animationError(`${where} tracks must be a list`);
+    clip.tracks.forEach((track, index) => checkTrack(track, `${where} track ${index}`, clip.duration));
   }
-  if (typeof block.source !== "string" || !block.source.trim()) {
-    throw new Error("animation.source must be a nonempty JavaScript module");
-  }
-  return { language: "javascript", source: block.source };
+  return block;
 }
 
 // Word for word what the Python reader says (`cadgen/_internal/source_sidecar.py`):

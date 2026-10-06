@@ -577,8 +577,7 @@ def is_served_cad_asset(file_path) -> bool:
     The sidecar test matches the FULL pair of suffixes, never
     ``SOURCE_SIDECAR_SUFFIX`` alone — that is ``.json``, and serving every JSON
     file would hand out configs, secrets and anything else that happens to be
-    there. JavaScript files are not model assets; animation source is embedded in
-    the document-bound JSON sidecar.
+    there. Animation is keyframe data in the document-bound JSON sidecar.
     """
     text = str(file_path or "")
     if is_hidden_name(node_basename(text)):

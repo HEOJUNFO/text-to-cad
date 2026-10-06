@@ -10,7 +10,7 @@ Freshness rides content-keyed records in the store's ``index/mesh`` tier: a
 record is keyed by the
 WRITTEN file's bytes and names the source documents (by content hash) and the
 effective tolerances that produced it — plus, for an animated GLB, the clip
-request and embedded animation source that produced the motion, which the document's
+request and the sidecar keyframes that produced the motion, which the document's
 own bytes do not cover. Both front doors read and write the
 same ledger, so a CLI export satisfies a declaration's gate and vice versa.
 Records are best-effort: losing one costs a re-export, never correctness.
@@ -47,7 +47,7 @@ class MeshExportJob:
     ``animation`` is the GLB door's clip request (cadgen._internal.mesh_animation)
     and nothing else carries one: a clip becomes glTF node animation, which STL
     and 3MF have nowhere to put. ``animation_key`` is that request plus the
-    embedded animation source, folded into the freshness variant so an edited clip
+    sidecar's keyframes, folded into the freshness variant so a rebaked clip
     is a miss rather than a stale file reported current.
     """
 
@@ -79,9 +79,9 @@ def run_mesh_exporter(
     deterministic. Tolerances are the tessellator's units — chord RELATIVE to
     each component's bounding diagonal, angular in radians.
 
-    ``animation_source`` captures ``animation.source`` from the DOCUMENT's sidecar, and is required
-    exactly when a job carries an ``animation``: the builder compiles its pinned text through
-    the same loader the viewer uses and samples the named clip into keyframes.
+    ``animation_source`` captures the DOCUMENT sidecar's ``animation`` keyframes, and is required
+    exactly when a job carries an ``animation``: the builder loads them through the same
+    loader the viewer uses and resamples the named clip at the export's frame rate.
     Returns the builder's payload, whose per-file ``animation`` block reports
     what was baked and what the sampling could not carry."""
     import subprocess
@@ -122,15 +122,13 @@ def run_mesh_exporter(
     label = "+".join(job.fmt for job in jobs)
     with ExitStack() as resources:
         if animation_source is not None:
-            module_dir = Path(resources.enter_context(tempfile.TemporaryDirectory(
-                prefix="cadgen-animation-source-",
+            # The captured snapshot, never the mutable sidecar beside the document.
+            data_dir = Path(resources.enter_context(tempfile.TemporaryDirectory(
+                prefix="cadgen-animation-",
             )))
-            module_path = module_dir / animation_source.path.name
-            module_path.write_text(animation_source.source, encoding="utf-8", newline="")
-            # The shared loader imports text via a data URL (relative imports
-            # are unsupported). Preserve its original filename in diagnostics;
-            # the mutable document sibling is never read again by this export.
-            argv += ["--animation-source", str(module_path)]
+            data_path = data_dir / "animation.json"
+            data_path.write_text(animation_source.data, encoding="utf-8")
+            argv += ["--animation-data", str(data_path)]
         with logger.timed(f"tessellate + write {label}"):
             proc = subprocess.run(argv, capture_output=True, text=True)
     payload: dict = {}

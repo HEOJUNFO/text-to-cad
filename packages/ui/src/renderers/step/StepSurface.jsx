@@ -116,10 +116,7 @@ import {
   normalizeStepModuleParameterValues,
   resolveStepModuleFeatures
 } from "@text-to-cad/core/common/stepModule.js";
-import {
-  meshStateIsComplete,
-  retainsPreviousStepMesh
-} from "./components/workbench/hooks/packageProgressiveLoad.js";
+import { retainsPreviousStepMesh } from "./components/workbench/hooks/packageProgressiveLoad.js";
 import { meshLoadErrorForViewer, shouldStartMeshLoad } from "./components/workbench/hooks/meshLoadTarget.js";
 import { useViewerHost } from "../../host/context.js";
 import { useWorkspaceDocument } from "../workspace/useWorkspaceDocument.js";
@@ -434,12 +431,10 @@ function StepSurfaceBody({ view, data }) {
   }, [selectedMeshData, selectedSourceAppearance]);
   const handleDisplayMeshAdoption = useCallback((source, ok, detail) =>
     onMeshSourceAdoption(sourceAppearanceGeometry(source), ok, detail), [onMeshSourceAdoption]);
-  const selectedMeshPartial = selectedMeshMatches && !meshStateIsComplete(meshState);
 
   // ---- motion: the kinematics module and Position, the routines and playback -------------------
   const motion = useStepMotion({
     entry: selectedEntry, fileKey: selectedKey, resources: client.resources,
-    meshData: selectedMeshData, meshPartial: selectedMeshPartial,
     readStored: () => session.readStored(), clipboard: host.clipboard,
     reportError: (message) => shellRef.current?.reportActionError(message)
   });

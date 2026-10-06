@@ -9,23 +9,18 @@
 // two of them, so the three it cannot carry are refused by name rather than
 // dropped into a file that looks finished and moves wrong.
 //
-// What maps, and how:
+// What maps, and how (the clip's channels, animationRuntime.js):
 //
-//   .rotate / .translate  exact. The composed per-occurrence matrix is rigid,
-//                         so it decomposes to translation + quaternion with no
-//                         residue, and the pivot a rotation was taken about
-//                         comes back as the translation half of that pair.
-//   .opacity              no standard animated channel exists. Refused unless
-//                         the caller drops it, and then baked STATIC at `start`
-//                         as a material alpha.
-//   .visible              same: refused, or dropped by omitting the occurrence.
-//   .deformTube           per-VERTEX motion, not a node transform. The `deform`
-//                         mode decides; see sampleClipAnimation.
+//   transform  exact. The interpolated per-occurrence matrix is rigid, so it
+//              decomposes to translation + quaternion with no residue.
+//   opacity    no standard animated channel exists. Refused unless the caller
+//              drops it, and then baked STATIC at `start` as a material alpha.
+//   visible    same: refused, or dropped by omitting the occurrence.
+//   tube       per-VERTEX motion, not a node transform. The `deform` mode
+//              decides; see sampleClipAnimation.
 //
-// This module is PURE: no filesystem, no glTF writing. It reads a package
-// descriptor for the occurrence table the clip resolves labels against (the
-// same table meshData.js composes for the viewer, so `m.get("forearm")` names
-// the same occurrence in an export as it does on screen), and returns tracks
+// This module is PURE: no filesystem, no glTF writing. A clip's tracks name
+// document occurrence ids, the same ids the viewer draws, and it returns tracks
 // the GLB writer turns into accessors.
 
 import { Matrix4, Quaternion, Vector3 } from "three";
@@ -117,29 +112,6 @@ function isIdentityMatrix(matrix) {
     }
   }
   return true;
-}
-
-/** The occurrence table a clip resolves `m.get(...)` against.
- *
- * The shape is meshData's — `parts` with `id` and `label` — because that is
- * what `createAnimationFrame` indexes, and building it any other way here would
- * let an export resolve a label the viewer does not. Mirrors
- * buildComposedPackageMeshData's naming: the id is the occurrence id (the
- * component id when an occurrence has none), the label its display name.
- */
-export function animationTargetsFromDescriptor(descriptor) {
-  const parts = [];
-  for (const occurrence of descriptor?.occurrences || []) {
-    const occurrenceId = String(occurrence?.id || "").trim();
-    const componentId = String(occurrence?.component || "").trim();
-    const id = occurrenceId || componentId;
-    if (!id) {
-      continue;
-    }
-    const name = String(occurrence?.name || occurrenceId || componentId).trim();
-    parts.push({ id, occurrenceId: id, componentId, name, label: name });
-  }
-  return { parts };
 }
 
 function summarize(ids, limit = 6) {
@@ -259,7 +231,7 @@ function scaleIsUnit(scales, count) {
  * targets — this module stays pure and geometry-free, so the clip is evaluated
  * exactly once per grid sample and the vertices are somebody else's problem.
  */
-export function sampleClipAnimation(descriptor, clip, plan, { drop = [], deform = "refuse" } = {}) {
+export function sampleClipAnimation(clip, plan, { drop = [], deform = "refuse" } = {}) {
   const dropped = new Set(drop.map((name) => String(name).trim()));
   const unknownDrop = [...dropped].filter((name) => !ANIMATION_DROPPABLE_EFFECTS.includes(name));
   if (unknownDrop.length) {
@@ -275,7 +247,6 @@ export function sampleClipAnimation(descriptor, clip, plan, { drop = [], deform 
     );
   }
 
-  const meshData = animationTargetsFromDescriptor(descriptor);
   const toGlb = cadToGlbBasis();
   const fromGlb = glbToCadBasis();
   const posed = new Matrix4();
@@ -303,7 +274,7 @@ export function sampleClipAnimation(descriptor, clip, plan, { drop = [], deform 
     // second derivation of it: where the samples fall is the one thing the video
     // renderer and this export must not disagree about.
     const elapsed = framePlanElapsedSec(plan, gridIndex / grid.multiple);
-    const frame = evaluateAnimationClip(CLIP_THREE, meshData, clip, elapsed);
+    const frame = evaluateAnimationClip(CLIP_THREE, clip, elapsed);
     const index = gridIndex % grid.multiple === 0 ? gridIndex / grid.multiple : -1;
     if (index >= 0) {
       for (const [partId, matrix] of frame.matrices) {
@@ -536,9 +507,8 @@ export function withMorphChannels(sampled, morphChannels) {
 
 /** A sampled clip narrowed to the nodes the export actually wrote.
  *
- * The sampler resolves labels against the package DESCRIPTOR's occurrence table
- * — that is what makes `m.get("forearm")` mean the same thing here as on screen
- * — while the file's nodes are what actually TESSELLATED. An occurrence whose
+ * A clip's tracks name every occurrence of the DOCUMENT — the same ids the
+ * viewer draws — while the file's nodes are what actually TESSELLATED. An occurrence whose
  * component produced no triangles is in the first and not the second, and a
  * channel targeting a node no primitive declared is a hard throw out of
  * writeGlb: a glTF invariant reported to a user who asked about a clip. Settle

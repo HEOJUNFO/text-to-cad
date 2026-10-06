@@ -1,7 +1,7 @@
 // Refresh the hero showcase assets from the repo model. The hero renders the
 // planetary gear STEP the same way every @text-to-cad/core client does — from the
 // TREE behind the document (assembly.json + exact-surface components) plus
-// its schema-v9 SIDECAR (<name>.step.json: kinematics + embedded animation) — served
+// its schema-v10 SIDECAR (<name>.step.json: kinematics + animation keyframes) — served
 // as plain static files so production (Vercel) needs no backend and no Git LFS.
 //
 // The tree lives in cadgen's store, keyed by the STEP file's bytes, and the
@@ -80,7 +80,7 @@ try {
   }
 
   fs.copyFileSync(modelSidecar, path.join(heroDir, "planetary_gear_assembly.step.json"));
-  console.log(`Synced hero assets: ${copied} components + schema-v9 sidecar -> ${heroTreeDir}`);
+  console.log(`Synced hero assets: ${copied} components + schema-v10 sidecar -> ${heroTreeDir}`);
 } finally {
   fs.rmSync(viewDir, { recursive: true, force: true });
 }

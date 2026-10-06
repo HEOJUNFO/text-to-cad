@@ -38,7 +38,6 @@ class GeneratorMetadata:
     # other whose .step is not among its outputs and is never written.
     step_output: bool = True
     materials: object | None = None
-    animation: object | None = None
 
 
 @dataclass(frozen=True)
@@ -374,7 +373,6 @@ def parse_generator_metadata(script_path: Path, function: str | None = None) -> 
         mesh_exports=tuple(defn.mesh_exports),
         step_output=bool(defn.step_output),
         materials=defn.materials,
-        animation=defn.animation,
     )
 
 

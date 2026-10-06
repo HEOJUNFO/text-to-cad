@@ -168,41 +168,6 @@ export function shouldRetainCompleteSameFileMesh(current, entry, targetMeshHash)
     meshStateIsComplete(current);
 }
 
-// A clip's model handle for a PARTIAL composition. The runtime's m.get() throws
-// on a label no part carries (a typo must never silently animate nothing) —
-// right for the complete model, wrong while occurrences are still arriving.
-// While partial, an absent label resolves to a chainable no-op handle so the
-// clip keeps driving the occurrences that ARE present; on the next publish that
-// carries the occurrence, the same lookup binds to it. The complete model uses
-// the strict clip again, so validation still catches real typos.
-const NOOP_ANIMATION_HANDLE = Object.freeze({
-  deformTube() { return this; },
-  rotate() { return this; },
-  translate() { return this; },
-  opacity() { return this; },
-  visible() { return this; }
-});
-
-function partialAnimationModel(model) {
-  return {
-    ...model,
-    get(target) {
-      try {
-        return model.get(target);
-      } catch {
-        return NOOP_ANIMATION_HANDLE;
-      }
-    }
-  };
-}
-
-export function tolerantAnimationClip(clip) {
-  if (!clip || typeof clip.update !== "function") {
-    return clip;
-  }
-  return { ...clip, update: (t, model) => clip.update(t, partialAnimationModel(model)) };
-}
-
 // Readable memory accounting for the headless harness (design/viewer-memory.md
 // §7), following the window.__cadModelPlacement / __CAD_VIEWER_LOD__ precedent:
 // written on EVERY progressive publish, nulled on cancel, never React state.

@@ -573,9 +573,11 @@ def _generate_part_outputs(
                     sidecar_payload["appearance"] = remap_appearance(
                         appearance, stats["documentOccurrenceMap"]
                     )
-                animation = getattr(scene, "animation", None)
-                if animation is not None:
-                    sidecar_payload["animation"] = copy.deepcopy(animation)
+                clips = getattr(scene, "animation", None)
+                if clips is not None:
+                    from cadgen._internal.animation_bake import bake_document_animation
+
+                    sidecar_payload["animation"] = bake_document_animation(clips, document_tree_hash)
                 write_source_sidecar(staged_step, sidecar_payload, document_hash=exported_hash)
                 assert exported_hash is not None  # written by build_tree_through_step above
                 outputs[str(spec.step_path.expanduser().resolve())] = {"sha256": exported_hash}
@@ -685,8 +687,10 @@ def _generate_part_outputs(
         if generated:
             if getattr(scene, "materials", None) is not None:
                 record["materials"] = copy.deepcopy(scene.materials)
-            if getattr(scene, "animation", None) is not None:
-                record["animation"] = copy.deepcopy(scene.animation)
+            if sidecar_payload is not None and sidecar_payload.get("animation") is not None:
+                # The keyframes, not the clips: an annotation refresh rewrites the
+                # sidecar from the record without running the model.
+                record["animation"] = sidecar_payload["animation"]
             if sidecar_payload is not None and sidecar_payload.get("appearance") is not None:
                 record["appearance"] = copy.deepcopy(sidecar_payload["appearance"])
         if record["sourceKind"] == "python" and spec.script_path is not None:
@@ -1057,54 +1061,6 @@ def _entries_by_step_path(specs: Sequence[EntrySpec]) -> dict[Path, EntrySpec]:
     }
 
 
-def retired_render_module_path(step_path: Path) -> Path | None:
-    """The stale ``<out>.step.js`` / ``<out>.stp.js`` beside ``step_path``.
-
-    Animation used to live in a companion ES module discovered by convention.
-    It does not any more: ``@step(animation=...)`` embeds the module text in
-    the document's sidecar, which is what every renderer reads. A leftover file
-    is therefore read by nothing.
-    """
-    if step_path is None:
-        return None
-    companion = step_path.with_name(step_path.name + ".js")
-    try:
-        return companion if companion.is_file() else None
-    except OSError:
-        return None
-
-
-_WARNED_RETIRED_RENDER_MODULES: set[str] = set()
-
-
-def retired_render_module_warning(companion: Path) -> str:
-    return (
-        f"warning: {_display_path(companion)} is a retired render module and is read by nothing, "
-        "so every clip in it is missing from this model: the viewer, snapshots and mesh "
-        "exports play none of them. Migrate it now: animation is declared on the model, "
-        "@step(animation=...) embeds the module text in the document's sidecar. Move this "
-        "file's clips into the decorator, delete the file and rebuild; "
-        "see the cad skill's kinematics reference (references/kinematics.md)."
-    )
-
-
-def _warn_retired_render_module(spec: EntrySpec) -> None:
-    """A stray file nothing reads does not stop a build: the document is still
-    correct without it. It is named once per run, on stderr, with what is lost and
-    the replacement. This is the ONLY place the migration is announced (the Viewer
-    shows no badge for it), so the text has to read as a task, not a remark."""
-    if spec.source != "generated" or not spec.step_output:
-        return
-    companion = retired_render_module_path(spec.step_path)
-    if companion is None:
-        return
-    key = str(companion)
-    if key in _WARNED_RETIRED_RENDER_MODULES:
-        return
-    _WARNED_RETIRED_RENDER_MODULES.add(key)
-    print(retired_render_module_warning(companion), file=sys.stderr)
-
-
 def _validate_step_target(spec: EntrySpec, *, tool_name: str) -> None:
     if spec.step_path is None:
         raise ValueError(f"{tool_name} target has no STEP path: {spec.source_ref}")
@@ -1112,10 +1068,6 @@ def _validate_step_target(spec: EntrySpec, *, tool_name: str) -> None:
         metadata = spec.generator_metadata
         if metadata is None or metadata.format != "step":
             raise ValueError(f"{tool_name} target is not a @step model: {spec.source_ref}")
-        # Here rather than in the build: a model whose tree is already current
-        # takes the no-op path, and a retired file beside its document must be
-        # named on every run, not only the ones that rebuild geometry.
-        _warn_retired_render_module(spec)
         return
     raise ValueError(
         f"{tool_name} builds model scripts only: {spec.source_ref} is a document. A STEP/STP "

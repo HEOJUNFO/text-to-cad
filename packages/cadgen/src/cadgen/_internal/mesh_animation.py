@@ -1,9 +1,9 @@
 """``cadgen glb build --animation``: the request, and what it refuses.
 
 A GLB is the one mesh format with somewhere to put a clip, so this is the GLB
-door's half of choreography. The other half — the clip itself — is JavaScript in
-the document sidecar's ``animation.source``, evaluated by the
-Node builder; nothing here runs it.
+door's half of choreography. The other half — the clip itself — is the keyframes
+baked into the document sidecar's ``animation`` section, which the Node builder
+interpolates.
 
 Two things live here and nowhere else. The first is the request's shape: a
 closed key set (``clip``, ``fps``, ``seconds``, ``start``, ``drop``, ``deform``,
@@ -223,71 +223,55 @@ def parse_animation_option(raw_animation: object, *, where: str = "--animation")
     return normalize_animation_request({"clip": text}, where=where)
 
 
-def animation_variant_token(request: dict[str, object], animation_source_text: str) -> str:
+def animation_variant_token(request: dict[str, object], animation_data: str) -> str:
     """This animated export's identity, for the mesh-export ledger.
 
     A static mesh is a pure function of the document's bytes and its tolerances,
     which is what the ledger keys on. An ANIMATED one is also a function of the
-    request and the embedded animation source. Folding both into the variant
-    key makes an annotation edit re-export motion without rebuilding geometry.
+    request and the sidecar's keyframes. Folding both into the variant key makes
+    a rebaked animation re-export motion without rebuilding geometry.
     """
     import hashlib
 
     canonical = json.dumps(request, sort_keys=True, separators=(",", ":"))
-    # Earlier entries could bind a pre-meshing token to a later live-file read.
-    # Admit only exports produced from the same captured source as their token.
-    digest = hashlib.sha256(b"cadgen-animation-source-snapshot-v2\0")
+    # Admit only exports produced from the same captured keyframes as their token.
+    digest = hashlib.sha256(b"cadgen-animation-keyframes-v1\0")
     digest.update(canonical.encode("utf-8"))
     digest.update(b"\0")
-    digest.update(str(animation_source_text).encode("utf-8"))
+    digest.update(str(animation_data).encode("utf-8"))
     return digest.hexdigest()[:32]
 
 
 @dataclass(frozen=True)
 class AnimationSnapshot:
-    """The selected embedded module's immutable source and diagnostic name."""
+    """The sidecar's ``animation`` section as read once, canonical JSON text."""
 
-    path: Path
-    source: str
+    data: str
     document_hash: str
     appearance: dict | None
 
 
 def resolve_animation(document: Path, request: dict[str, object]) -> tuple[AnimationSnapshot, str]:
-    """``(embedded animation snapshot, variant token)`` for an animated export.
+    """``(animation snapshot, variant token)`` for an animated export.
 
-    The clip NAME is checked HERE against the module the door just read -- a
-    typo must fail as a clean CLI error naming the clips the model has, not as a
-    stack trace out of the Node builder (which repeats the check, with the
-    compiled clips in hand, as the backstop and the authority for a module that
-    builds its clips indirectly). Both the token and Node execution consume
-    this same source snapshot, even if the author edits the file during meshing.
+    The clip NAME is checked HERE -- a typo must fail as a clean CLI error naming
+    the clips the model has, not as a stack trace out of the Node builder. Both
+    the token and the Node builder consume this same snapshot, even if the
+    sidecar is rewritten during meshing.
     """
-    from cadgen._internal.animation_source import declared_clip_ids
-    from cadgen._internal.source_sidecar import read_source_sidecar, source_sidecar_path
+    from cadgen._internal.source_sidecar import read_source_sidecar
     from cadgen.catalog import artifact_file_hash
 
     document_hash = artifact_file_hash(document)
     if not document_hash:
         raise ValueError(f"Could not read STEP document: {document}")
     sidecar = read_source_sidecar(document, document_hash=document_hash) or {}
-    module_path = source_sidecar_path(document)
     animation = sidecar.get("animation")
-    module_text = animation["source"] if animation is not None else None
-    if module_text is None:
-        raise ValueError(
-            f"{Path(document).name} has no animation in its sidecar. "
-            "Declare animation= on @step or pass --animation to cadgen step build."
-        )
+    if animation is None:
+        raise ValueError(f"{Path(document).name} has no animation in its sidecar. Declare animation= on @step.")
     clip_name = str(request["clip"])
-    declared = declared_clip_ids(module_text)
-    if declared is not None and clip_name not in declared:
-        raise ValueError(
-            f"Unknown animation clip: {clip_name}. "
-            + (
-                f"This model declares: {', '.join(declared)}"
-                if declared
-                else "This model declares no animation clips"
-            )
-        )
-    return AnimationSnapshot(module_path, module_text, document_hash, sidecar.get("appearance")), animation_variant_token(request, module_text)
+    declared = list(animation["clips"])
+    if clip_name not in declared:
+        raise ValueError(f"Unknown animation clip: {clip_name}. This model declares: {', '.join(declared)}")
+    data = json.dumps(animation, sort_keys=True, separators=(",", ":"))
+    return AnimationSnapshot(data, document_hash, sidecar.get("appearance")), animation_variant_token(request, data)

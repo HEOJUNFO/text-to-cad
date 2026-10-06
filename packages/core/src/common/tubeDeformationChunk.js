@@ -3,22 +3,22 @@
 // tubeDeformation.js and the three modules under it (the GPU path, the braid
 // material and their shared shader attributes) are ~29 kB of the client's
 // initial chunk, and only one thing in the whole viewer can reach them: a
-// document's embedded animation calling `deformTube` on a clip handle. Nothing
-// else produces a deformation — a step module's effects only carry what an
-// animation frame already put there — so a document with no `animation.source`
-// can never need this code, and must never download it.
+// document's animation with a tube track. Nothing else produces a deformation —
+// a step module's effects only carry what an animation frame already put there
+// — so a document with no tube track can never need this code, and must never
+// download it.
 //
-// The load therefore happens at the one async door every clip must pass
-// through: `compileAnimationSource` in renderModule.js awaits it before a clip
-// exists to be evaluated. Frame evaluation stays synchronous and sees a loaded
-// runtime, so an animated tube renders exactly as it did when this was a static
-// import — there is no first-frame rest pose and no dropped frame.
+// The load therefore happens at the one async door every clip passes through:
+// `loadSourceAnimation` in animationRuntime.js awaits it, for a document whose
+// clips bend a tube, before a clip exists to be evaluated. Frame evaluation
+// stays synchronous and sees a loaded runtime, so an animated tube has no
+// first-frame rest pose and no dropped frame.
 //
 // `tubeDeformation()` answers null until then. Every caller outside the
 // animation path (the scene's resets, the edge-line pass) is a no-op on a
 // record that has no tube state, and a record can only acquire tube state after
 // a deformation was applied, so `tubeDeformation()?.fn(...)` is exact rather
-// than merely tolerant. `deformTube` itself, which cannot no-op, throws.
+// than merely tolerant. A tube track's evaluation, which cannot no-op, throws.
 
 let loaded = null;
 let pending = null;
@@ -52,8 +52,7 @@ export function requireTubeDeformation(what = "a tube deformation") {
   if (!loaded) {
     throw new Error(
       `${what} needs the tube runtime, which is loaded with the document's animation. `
-      + "Compile clips through compileAnimationSource/loadSourceAnimation, or await "
-      + "loadTubeDeformation() first."
+      + "Load clips through loadSourceAnimation, or await loadTubeDeformation() first."
     );
   }
   return loaded;

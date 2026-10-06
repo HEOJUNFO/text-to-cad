@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 
 import { SURF_MAGIC, SURF_VERSION } from "@text-to-cad/core/lib/surf/container.js";
 import { stepModuleFromKinematics } from "@text-to-cad/core/common/kinematicsModule.js";
-import { loadSourceAnimation } from "@text-to-cad/core/common/renderModule.js";
+import { loadSourceAnimation } from "@text-to-cad/core/common/animationRuntime.js";
 import { validateSourceSidecar } from "@text-to-cad/core/common/sourceSidecar.js";
 
 const docsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -47,7 +47,7 @@ assert.ok(
   stepModuleFromKinematics(sidecar.kinematics),
   "Hero sidecar kinematics no longer compile into a step-module definition",
 );
-const animation = await loadSourceAnimation(sidecar, { name: "hero animation" });
+const animation = await loadSourceAnimation(sidecar);
 assert.ok(animation?.clips?.meshCycle, "Hero sidecar does not declare the meshCycle clip");
 
-console.log(`Hero STEP assets are current: ${components.length} components, schema-v9 kinematics + clips OK.`);
+console.log(`Hero STEP assets are current: ${components.length} components, schema-v10 kinematics + clips OK.`);
