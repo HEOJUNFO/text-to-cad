@@ -42,7 +42,7 @@ function setup(initialClips: any = clips) {
   return { ...hook, clock };
 }
 
-// The transport preferences Animate's panel sets: not the defaults, so keeping them shows.
+// The transport preferences the Animation tool and preview set: not the defaults, so keeping them shows.
 const preferences = { activeClipId: 'close', speed: 2, loopEnabled: true };
 const pickPreferences = (result: any) => act(() => {
   result.current.handleAnimationClipSelect('close'); result.current.handleAnimationSpeedChange(2); result.current.handleAnimationLoopToggle(true);
@@ -66,7 +66,7 @@ it('a parameter edit stops live playback, keeps its transport preferences, reset
   expect(result.current.animation).toEqual({ ...preferences, enabled: true, playing: true, elapsedSec: 0 });
 });
 
-it('leaving Animate for another tool keeps the transport preferences too', () => {
+it('leaving Animation for another tool keeps the transport preferences too', () => {
   const { result, clock } = setup();
   pickPreferences(result);
   act(() => result.current.handleAnimationPlayToggle()); advance();
@@ -136,7 +136,7 @@ it.each(['playback', 'position'])('global motion reset clears %s and all pending
   act(() => stale.forEach(frame => frame(performance.now() + 500)));
   expect(result.current.values).toEqual(definition.defaultParameterValues);
   expect(result.current.pose).toBe(''); expect(result.current.frame).toBeNull();
-  // Reset is Position's: it puts the model at rest and stops the routine, and leaves Animate's
+  // Reset is Position's: it puts the model at rest and stops the routine, and leaves the routine's
   // transport preferences as the person set them.
   expect(result.current.animation).toEqual({ ...(state === 'playback' ? preferences : buildDefaultAnimationState(clips)),
     enabled: false, playing: false, elapsedSec: 0 });
@@ -197,7 +197,7 @@ it('a routine puts Position aside while it plays and gives it back when the pose
   expect(result.current.values, 'a routine plays from the model at rest').toEqual(definition.defaultParameterValues);
   act(() => { result.current.handleAnimationScrub(1); result.current.handleAnimationPlayToggle(); });
   act(() => result.current.releaseAnimation());
-  expect(result.current.values, 'leaving Animate restores what Position had set').toEqual({ hinge: 45, slide: 2 });
+  expect(result.current.values, 'leaving Animation restores what Position had set').toEqual({ hinge: 45, slide: 2 });
   expect(result.current.animation.enabled).toBe(false);
   // Handing the pose back by touching Position starts from Position's values too.
   act(() => result.current.handleAnimationPlayToggle());

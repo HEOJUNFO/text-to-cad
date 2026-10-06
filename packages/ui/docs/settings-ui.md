@@ -100,7 +100,8 @@ none.
 - **Playbar** (preview's, a file with routines only) sits at bottom-centre, on a
   line 1.75rem up (a host whose control floats over the view's bottom moves it
   with `--cad-viewport-bottom-center`), and nothing else does; a static file has
-  nothing at the bottom.
+  nothing at the bottom. Outside preview the transport is the Animation tool's
+  panel, in the stack.
 - **Model update status** sits at top-centre of the viewport, vertically centred
   in the same 34px row as the top-left toolbar in every host.
   It is renderer chrome: the navbar carries no status.
@@ -110,12 +111,12 @@ none.
 
 | File | Toolbar, left to right |
 | --- | --- |
-| STEP | Select, Position (movable joints only), Draw, Measure, Explode (two or more parts), Clip |
+| STEP | Select, Position (movable joints only), Animation (routines only), Draw, Measure, Explode (two or more parts), Clip |
 | URDF / SRDF / SDF | Select, Position (posable joints only) |
 | GLB / STL / 3MF | none |
 | DXF | none: a 2D canvas |
 
-There is no separator or activity dot. There is no Animate tool: routines play in
+There is no separator or activity dot. Routines play under the Animation tool and in
 [preview](#camera-animation-and-preview). Display is not a tool: every 3D view has
 its **Display** button on top of the view cube, before Preview (see
 [Display settings](#display-settings-and-section-primitives)). A file
@@ -139,21 +140,23 @@ owner.
 | Measure | Arms picking and shows the Measure panel: its snapping modes, then its results; a press while it is up clears the results and puts it down | Unfinished picks are cancelled; completed measurements and their panel stay |
 | Explode / Clip | Opens a neutral panel; an edit applies the effect | A neutral panel goes; an applied effect and its panel stay |
 | Position | Shows joint handles and the Position panel; its icon carries a small dot while the pose is not the default | Handles and panel hide; joint values stay |
+| Animation | Shows the Animation panel, the routine's transport and settings; starts the routine when Autoplay is on; a second press puts it down | The routine stops and rewinds, and the model is back at rest; the Routine, Speed and Loop stay |
 
 A tree is Select's panel, so it is used under Select; a tree row's menu action
 returns to Select before it acts.
 
 **Every tool's panel but Select's has an X, and no fold chevron.** The X puts
 the tool down and returns to Select, the default tool, which cannot itself be put
-down. Select's tree has an X too, which closes the tree alone and leaves Select
+down. Draw's and Animation's panels are toolbars with no heading and no X: a
+second press on the tool puts it down. Select's tree has an X too, which closes the tree alone and leaves Select
 the tool; a press on Select while it is up opens it again (see
 [Closing the tree](#the-tool-stack)). SDF folds instead.
 
 **No tool has a menu on the strip.** A press on a tool is its only action:
-it takes the tool up, and — for a tool that toggles (Draw, Measure, Explode,
-Clip) — a press while it is up puts it down. Whatever a tool can be
+it takes the tool up, and — for a tool that toggles (Draw, Animation, Measure,
+Explode, Clip) — a press while it is up puts it down. Whatever a tool can be
 set to is its panel in the stack, up while the tool is: Select's modes, Measure's
-snapping, Draw's tools, Position's joints. A tool's exclusive
+snapping, Draw's tools, Position's joints, Animation's routine and playback. A tool's exclusive
 modes are never a panel or a row of their own: they are ONE small button in its
 panel's header row, just before the fold chevron or the X — a sliders icon, the
 size of those buttons (the strip's button shows the mode in hand) — whose
@@ -216,6 +219,26 @@ writes the view with its ink to the clipboard as a PNG and then says **Copied**,
 tick where the shortcut was; the copy shortcut does the same. A sketch begun opens
 [Quick Edit](#quick-edit), whose header says **drawing** while the ink is there. Draw disables the cube without hiding it.
 
+**Animation** plays a file's routines without leaving the tools view; only a
+file with routines has it, after Position on the strip (its icon a clapperboard).
+Its **Animation** panel leads the stack while it is up, a toolbar like Drawing,
+with no heading and no X: choosing another tool, or pressing Animation again,
+puts it down. With more than one routine its first row is the routine's
+dropdown, across the panel: the routine's name is the row, so it has no label
+beside it (its name and hint are "Routine"). Then the transport — preview's
+playbar: play/pause and the scrubber — and, at that row's end, its settings: the
+sliders button, whose dropdown holds Speed, Loop and Autoplay, the very settings
+of preview's Playback settings, kept the same way (see
+[preview](#camera-animation-and-preview)). Taking it up leaves the model at rest
+unless Autoplay is on, which starts the routine, as entering preview does. While
+it is up the routine owns the pose and nothing on the model is picked or
+hovered; the kept effects stay as they are. Preview carries a playing routine
+on, and leaving preview with Animation up leaves it playing. Putting it down
+stops the routine and puts the model back at rest, with the Position values it
+set aside; the Routine, Speed and Loop stay for the next time. An update of the
+model that changes its routines keeps Animation up and its Routine chosen (while
+the model still has it), at rest; one that leaves no routine puts it down.
+
 **Measure.** Its **Measure** panel is up as soon as it is the tool, empty: a
 heading whose mode menu, beside its X, holds the four snapping
 modes — **All**, **Points**, **Edges**, **Faces**, plain rows with no title and
@@ -249,8 +272,8 @@ on the strip.
 
 ## The tool stack
 
-Under the toolbar, in one column: the shell's tool's panel (**Drawing**) while
-Draw is up; Select's **Features** (STEP; a
+Under the toolbar, in one column: the shell's tools' panels (**Drawing** while
+Draw is up, **Animation** while Animation is); Select's **Features** (STEP; a
 robot's **Links**) and, whenever something is selected, its **Reference** (then
 a `.sdf`'s **SDF**); Position's **Position**; then the panels
 of the effects a person keeps (**Measurements**, **Explode**, **Clip**). A panel
@@ -262,7 +285,7 @@ stack.
   **Position** are *resizable*: the person's to size, each on its own. The
   Reference sits under the tree as a box of its own, sized apart from it:
   sizing either changes nothing about the other. Every other panel — Drawing,
-  Measurements, Explode, Clip, SDF — is *fixed*: one width, its content's
+  Animation, Measurements, Explode, Clip, SDF — is *fixed*: one width, its content's
   height, and no grip. A renderer opts a panel in with `resizable`; nothing
   else about it changes.
 - **One width.** Every panel opens at `TOOL_PANEL_WIDTH`: 164px, a strip of
@@ -302,8 +325,8 @@ stack.
   the gap): it never runs under the cube or its controls. When the panels need more, the tree gives way first and
   scrolls inside itself, down to 128px or its content, whichever is less; then a
   details panel (Reference, Position, Measurements)
-  gives way, down to 96px or its content; a small panel (Explode, Clip, Drawing)
-  keeps its height. If what cannot give way still does not fit, the column
+  gives way, down to 96px or its content; a small panel (Explode, Clip, Drawing,
+  Animation) keeps its height. If what cannot give way still does not fit, the column
   itself scrolls — a panel is never cut. On mobile the tree starts closed and,
   opened, may take the whole column, giving way as other panels join it.
 - **Closing the tree.** Select's tree (Features, Links) does not fold: the X at
@@ -516,8 +539,8 @@ named poses are unchanged, the named pose chosen included; an update that change
 starts the pose at the new defaults, never fitting the old values onto other joints.
 Reset restores the authored
 values (an SRDF's home included), stops motion and hands control back to
-Position. A routine playing in preview sets the Position values aside and gives
-them back on leaving it. A Position edit, Reset included, stops and rewinds a
+Position. A routine playing, in preview or under Animation, sets the Position
+values aside and gives them back once it is put down. A Position edit, Reset included, stops and rewinds a
 routine but keeps its Routine, Speed and Loop for the next play. Kinematics, named poses and
 animation are separate capabilities; the absence of one never leaves empty
 controls for another.
@@ -665,15 +688,17 @@ animated file shows its playbar (play/pause and the scrubber); a static one show
 nothing there. These controls and the corner share one one-second idle deadline and a
 150ms fade: movement wakes them, and hovering their area or an open menu holds them.
 
-Routines play in preview alone: there is no Animate tool. Entering preview
-starts the routine when Autoplay is on (off by default); leaving it stops the
-routine and puts the model back at rest, keeping the Routine for the next time
-while the file is open. An update of the model that leaves its routines as they were
+Routines play in preview and under the [Animation tool](#tools-and-lifecycle).
+Entering preview starts the routine when Autoplay is on (off by default); leaving
+it stops the routine and puts the model back at rest — unless Animation is up,
+under which it carries on — keeping the Routine for the next time while the file
+is open. An update of the model that leaves its routines as they were
 neither stops nor rewinds one that is playing; a changed routine starts at rest.
 Everything in Playback settings is the file's own and is remembered between leaving
 and re-entering preview and across a reload of the tab: Orbit on or off (on by
 default) and its speed (1×), Autoplay, and a Speed or Loop once chosen — until one
-is chosen, the routine's own apply. Another file has its own, and a file the tab
+is chosen, the routine's own apply. The Animation tool's Speed, Loop and Autoplay
+are these same settings. Another file has its own, and a file the tab
 left starts at the defaults again. Nothing of the routine — which one, its time,
 whether it plays — is saved. Orbit is not an animation setting.
 

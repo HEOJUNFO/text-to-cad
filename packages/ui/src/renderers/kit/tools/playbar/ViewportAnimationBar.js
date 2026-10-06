@@ -7,17 +7,18 @@ import { ToolbarButton } from "@text-to-cad/ui/primitives/toolbar-button";
 import { FILE_SHEET_PRECISION_SLIDER_CLASSES } from "../../inspector/FileSheet.js";
 
 // The transport owns play/pause and scrubbing; routine, speed and loop are preview's Playback
-// settings (`PlaybackMenu.jsx`).
+// settings (`PlaybackMenu.jsx`), and the Animation tool's panel's (`AnimationPanel.jsx`).
 //
 // Every animation source shares this transport UI. It only edits the clip and clock state of
-// the runtime it is handed; evaluating a clip is its owner's. Routines play in preview alone,
-// where the playbar under the model is the transport.
+// the runtime it is handed; evaluating a clip is its owner's. Routines play in preview, where
+// the playbar under the model is the transport, and under the Animation tool, whose panel
+// carries the same transport.
 //
 // runtime: { clips: [{ id, label, duration }], activeClipId, playing, elapsedSec,
 //   speed, loopEnabled, clock, onClipSelect, onPlayToggle, onScrub, onSpeedChange,
 //   onLoopToggle, onRelease? }. `clock` is the owner's live AnimationClock (`animationClock.js`);
-//   `onRelease`, where the owner needs it, stops, rewinds and puts the model back at rest on
-//   leaving preview.
+//   `onRelease`, where the owner needs it, stops, rewinds and puts the model back at rest once
+//   neither preview nor the Animation tool holds the routine.
 
 export const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3];
 
@@ -47,8 +48,11 @@ function AnimationTimeControl({ playing, elapsedSec, duration, onScrub, clock, d
   );
 }
 
-/** Play/Pause and the scrubber over the renderer's live clock. Dragging the scrubber to the start is the restart. */
-function AnimationTransport({ runtime, disabled = false }) {
+/**
+ * Play/Pause and the scrubber over the renderer's live clock. Dragging the scrubber to the start is
+ * the restart. Preview's playbar, and the first of the Animation tool's controls.
+ */
+export function AnimationTransport({ runtime, disabled = false }) {
   const activeClip = runtime?.clips?.find(clip => clip.id === runtime?.activeClipId);
   const duration = Math.max(Number(activeClip?.duration) || 1, 0.001);
   const iconClass = "size-3.5";
@@ -81,7 +85,7 @@ export function ViewportAnimationBar({ runtime, disabled = false, className, tra
   </div>;
 }
 
-/** A file has animation when it has routines to play: no routines, no playbar and nothing to play in preview. */
+/** A file has animation when it has routines to play: no routines, no playbar, nothing to play in preview and no Animation tool. */
 export function animationControlsHaveContent(runtime) {
   return Array.isArray(runtime?.clips) && runtime.clips.length > 0;
 }

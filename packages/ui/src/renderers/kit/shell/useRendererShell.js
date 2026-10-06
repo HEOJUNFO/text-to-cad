@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Pencil } from "lucide-react";
+import { Clapperboard, Pencil } from "lucide-react";
 import { clonePerspectiveSnapshot } from "@text-to-cad/core/lib/perspective.js";
 import { VIEWER_SCENE_SCALE } from "@text-to-cad/core/lib/viewer/sceneScale.js";
 import { ViewerElementContext, useViewerHost, usePromptDestination } from "../../../host/context.js";
@@ -12,6 +12,7 @@ import { prefetchRenderStudio } from "../look/renderStudioChunk.js";
 import { CAD_DRAWING_DEFAULTS } from "../tools/draw/DrawingOverlay.jsx";
 import { normalizeToolStack } from "../tools/toolStackLayout.js";
 import { normalizePlayback } from "../tools/playbar/playbackPreferences.js";
+import { animationControlsHaveContent } from "../tools/playbar/ViewportAnimationBar.js";
 import { DisplaySettingsSection } from "../view-settings/DisplaySettingsSection.js";
 import { useAppliedViewSettings } from "../view-settings/useAppliedViewSettings.js";
 import { useViewSettings } from "../view-settings/useViewSettings.js";
@@ -54,8 +55,11 @@ export function presentationIsPending(state, { modelKey, key, renderMode }) {
   return state?.file !== modelKey || state?.key !== key || state?.renderMode !== renderMode || state?.preparing === true;
 }
 
-/** The tool ids the shell itself understands. A renderer's own tools use any other id. */
-export const SHELL_TOOL = Object.freeze({ DRAW: "draw" });
+/**
+ * The tool ids the shell itself understands. A renderer's own tools use any other id. A renderer
+ * that offers one of these declares it in its `toolModes` too, as a mode that toggles.
+ */
+export const SHELL_TOOL = Object.freeze({ DRAW: "draw", ANIMATE: "animate" });
 
 const SESSION_SAVE_DELAY_MS = 180;
 const EMPTY = Object.freeze({});
@@ -73,8 +77,8 @@ const NO_PREVIEW = () => {};
  *    read back before the first paint, the camera restored in place of the open-time fit;
  *  - Display settings: store, resolution against the renderer's FEATURES, the
  *    queued application to the viewport, and the content of Display's dropdown;
- *  - tools: the mode state machine and Draw's session, or none at all for a
- *    renderer whose viewport is the camera's alone;
+ *  - tools: the mode state machine, Draw's session and the Animation tool, or none
+ *    at all for a renderer whose viewport is the camera's alone;
  *  - the host contract: prompt snapshots, clipboard screenshots,
  *    preview, alerts, shortcuts (a file's controls are tool-stack panels the renderer
  *    shows with its tools, never a host panel);
@@ -117,8 +121,9 @@ const NO_PREVIEW = () => {};
  *   renderer's document load. `busy`: nothing to show yet. `updating`: a newer revision is loading behind the scene on
  *   screen. The rest are for a renderer whose document is more than a download — see `loadReport.js`.
  * @param {object | null} [options.animation]  A playbar runtime (with its own `clock`), when the file has
- *   routines. Routines play in preview alone: the shell then puts them in its Playback settings and the
- *   playbar under the model, and leaving preview hands the runtime's `onRelease` the model back at rest.
+ *   routines. They play in preview — the shell puts them in its Playback settings and the playbar under
+ *   the model — and, where the renderer puts `tools.animate` on its strip, under the Animation tool, whose
+ *   panel is the shell's. Once neither holds the routine, the runtime's `onRelease` puts the model back at rest.
  * @param {{ commands?: Record<string, (...args: any[]) => void>, declined?: Record<string, string>,
  *   state?: () => object, resource?: () => object }} [options.live]  Live commands this renderer adds (by name) or
  *   declines (name to the error its caller reads), and extra fields for the live state. Every name in
@@ -346,6 +351,9 @@ export function useRendererShell({
   // ---- tools ----------------------------------------------------------------
   const idle = viewerLoading || !scene;
   const drawToolActive = !previewing && toolMode === SHELL_TOOL.DRAW;
+  // The Animation tool is a file's with routines; while it is up its panel plays them.
+  const routines = animationControlsHaveContent(animation);
+  const animateToolActive = !previewing && routines && toolMode === SHELL_TOOL.ANIMATE;
   const selectTool = useCallback((mode) => setToolMode(current => (toolModes ? toolModes.next(current, mode) : mode)), [toolModes, setToolMode]);
   // A tool panel's X: back to the file's default tool (Select, where there is one), from any tool.
   const selectDefaultTool = useCallback(() => setToolMode(toolModes ? toolModes.defaultMode : ""), [toolModes, setToolMode]);
@@ -516,6 +524,17 @@ export function useRendererShell({
     draw: stripTool({ id: SHELL_TOOL.DRAW, label: "Draw", icon: <DrawIcon data-drawing-tool={drawing.tool} className="size-3" strokeWidth={2} aria-hidden="true" />,
       // A second press puts it down, as a kept tool's does (its mode toggles).
       onSelect: () => selectTool(SHELL_TOOL.DRAW) }),
+    // The file's routines, played without leaving the tools view: the playbar and its settings are
+    // a panel in the tool stack while it is up (`RendererShell.jsx`). Null for a file with none.
+    // Taking it up starts the routine when Autoplay is on, as entering preview does; like Draw, a
+    // second press puts it down.
+    animate: routines ? stripTool({ id: SHELL_TOOL.ANIMATE, label: "Animation",
+      icon: <Clapperboard className="size-3" strokeWidth={2} aria-hidden="true" />,
+      onSelect: () => {
+        const takingUp = toolMode !== SHELL_TOOL.ANIMATE;
+        selectTool(SHELL_TOOL.ANIMATE);
+        if (takingUp && autoplay && !animation.playing) animation.onPlayToggle();
+      } }) : null,
   };
 
   return {
@@ -544,7 +563,7 @@ export function useRendererShell({
       // Quick Edit's: the file it is about, how a copied prompt spells its paths, its sketch, and
       // the renderer's own Escape, which an empty Quick Edit passes on.
       resource, captureView, escape: escapeView,
-      drawToolActive, drawing, animation, display
+      drawToolActive, drawing, animation, animateToolActive, display
     }
   };
 }
