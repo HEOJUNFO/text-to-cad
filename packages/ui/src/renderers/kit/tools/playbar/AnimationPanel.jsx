@@ -1,10 +1,9 @@
 import { Pause, Play } from "lucide-react";
 import { DropdownMenuCheckboxItem } from "@text-to-cad/ui/primitives/dropdown-menu";
-import { cn } from "@text-to-cad/ui/utils";
 import { FileSheetSelectRow } from "../../inspector/FileSheet.js";
 import { SpeedSubmenu } from "../PlaybackMenu.jsx";
 import { ToolSettingsMenu } from "../ToolModeMenu.jsx";
-import ToolPanel, { TOOL_PANEL_BUTTON_CLASS } from "../ToolPanel.jsx";
+import ToolPanel from "../ToolPanel.jsx";
 import { AnimationTimeControl, PLAYBACK_SPEEDS } from "./ViewportAnimationBar.js";
 
 /**
@@ -39,10 +38,13 @@ export default function AnimationPanel({ runtime, autoplay, onAutoplayChange, on
         value={runtime.activeClipId} onValueChange={runtime.onClipSelect} ariaLabel="Routine"
         triggerContent={<span className="truncate">{active?.label}</span>}
         options={clips.map(clip => ({ value: clip.id, label: clip.label }))} /> : null}
-      {/* Play/pause is a 24px control as the dropdown is, on its edge, its glyph on the dropdown's text. */}
-      <div className="flex min-w-0 items-center gap-0.5" data-animation-transport="">
+      {/* Play/pause's glyph, not its box, on the title's 8px line: lucide's triangle sits 2.5px into
+          its icon, so the button reaches 6px out past the line, invisibly — it lights by colour
+          alone — and its press area runs on to the scrubber. */}
+      <div className="flex min-w-0 items-center" data-animation-transport="">
         <button type="button" aria-label={`${playing ? "Pause" : "Play"} animation`} disabled={disabled}
-          className={cn(TOOL_PANEL_BUTTON_CLASS, "size-6 rounded-md disabled:pointer-events-none disabled:opacity-50")} onClick={() => runtime.onPlayToggle()}>
+          className="-ml-1.5 flex h-6 shrink-0 items-center rounded-sm px-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/45 disabled:pointer-events-none disabled:opacity-50"
+          onClick={() => runtime.onPlayToggle()}>
           {playing ? <Pause className="size-3" aria-hidden="true" /> : <Play className="size-3" aria-hidden="true" />}
         </button>
         <div className="min-w-0 flex-1"><AnimationTimeControl runtime={runtime} disabled={disabled} /></div>
