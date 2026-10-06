@@ -207,7 +207,8 @@ class DocumentedSkillIsSelfContained(unittest.TestCase):
                 with self.subTest(document=document.name, link=target):
                     self.assertTrue(linked.is_file(), f"{document.name} links to {target}, which does not exist")
                     if anchor:
-                        headings = {_slug(h) for h in _HEADING.findall(linked.read_text(encoding="utf-8"))}
+                        prose = _FENCE.sub("", linked.read_text(encoding="utf-8"))
+                        headings = {_slug(h) for h in _HEADING.findall(prose)}
                         self.assertIn(anchor, headings, f"{linked.name} has no heading for #{anchor}")
         self.assertGreater(links, 10, "the sweep should find the skill's links")
 
