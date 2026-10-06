@@ -8,7 +8,8 @@
     "build": "vite build",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json",
-    "typecheck:server": "tsc -p tsconfig.server.json"
+    "typecheck:server": "tsc -p tsconfig.server.json",
+    "serve:export": "node test/serveExport.mjs"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",
