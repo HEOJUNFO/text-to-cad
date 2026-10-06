@@ -214,8 +214,8 @@ def _first_party_from_source():
 @dataclass(frozen=True)
 class _DeclaredKinematics:
     """What the decorator declared for the build: kinematics, named materials,
-    and the embedded animation module. None of these declarations moves
-    geometry or changes STEP bytes."""
+    and the animation clips (baked at publication). None of these declarations
+    moves geometry or changes STEP bytes."""
 
     block: dict | None
     materials: dict | None = None
@@ -230,8 +230,8 @@ def _resolve_declared_kinematics(defn: object) -> _DeclaredKinematics:
     kinematics_def = getattr(defn, "kinematics", None)
     block = dict(kinematics_def.block) if kinematics_def is not None else None
     materials = copy.deepcopy(getattr(defn, "materials", None))
-    animation = copy.deepcopy(getattr(defn, "animation", None))
-    return _DeclaredKinematics(block=block, materials=materials, animation=animation)
+    clips = getattr(defn, "animation", None)
+    return _DeclaredKinematics(block=block, materials=materials, animation=dict(clips) if clips else None)
 
 
 def _normalize_step_payload(

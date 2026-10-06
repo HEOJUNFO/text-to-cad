@@ -80,7 +80,7 @@ SUPPORTED_JOB_KEYS = frozenset(
         # angle, so it gets its own key rather than overloading one that means a sidecar.
         "jointValues",
         # One frozen frame of a STEP document's choreography: {"clip": name,
-        # "time": seconds}. The clips come from animation.source in the document sidecar;
+        # "time": seconds}. The clips are the keyframes in the document sidecar;
         # spelled the same as the --animation flag.
         # Layered over the kinematics pose exactly as the viewer layers its
         # Animation tab.

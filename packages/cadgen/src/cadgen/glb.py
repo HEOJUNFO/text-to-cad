@@ -37,8 +37,8 @@ def build(
         diagonal (default 1.5e-3), for this export only.
     mesh_angular_tolerance: max normal spread across a triangle edge in
         radians (default 0.35), for this export only.
-    animation: carry a clip of the document's embedded animation source
-        into the file as glTF animation, instead of exporting it static. A clip
+    animation: carry one of the document's animation clips into the file
+        as glTF animation, instead of exporting it static. A clip
         name, or a {clip, fps, seconds, start, drop, deform} object; `fps` is
         the sampling rate of the baked keyframes (default 30). Rotation and
         translation are supported; opacity, visibility and tube deformation are

@@ -24,7 +24,7 @@ import {
 import { resolveAnimationFrame } from "./animationClock.js";
 import { framePlanElapsedSec, resolveFramePlan } from "./framePlan.js";
 import { runHeadlessDrawingJob } from "./headlessDrawingRender.js";
-import { loadSourceAnimation } from "./renderModule.js";
+import { loadSourceAnimation } from "./animationRuntime.js";
 import {
   createHttpTessellationCacheProvider,
   createTessellationCache
@@ -94,9 +94,9 @@ async function captureFamilyScene(family, job) {
 // `job.animation` is the JOB PACKET's frame request ({clip, time}); the
 // `stepAnimation` it becomes is the SETTINGS key renderMeshScene routes to the
 // shared effects pass — the same `{clip, elapsedSec}` the viewer's Animation
-// tab hands its own pass. Choreography is the schema-v9 sidecar's embedded,
-// self-contained JavaScript module; the sidecar was already document-bound by
-// loadSource, so animation and kinematics compose against the same tree.
+// tab hands its own pass. Choreography is the sidecar's baked keyframes; the
+// sidecar was already document-bound by loadSource, so animation and
+// kinematics compose against the same tree.
 async function loadStepAnimation(job, source) {
   const request = job.animation;
   if (request === undefined || request === null) {
@@ -108,9 +108,7 @@ async function loadStepAnimation(job, source) {
   if (String(job.mode || "view").toLowerCase() !== "view") {
     throw new Error("an animation frame supports only view mode");
   }
-  const animation = await loadSourceAnimation(source.sourceSidecar, {
-    name: `${source.cadPath || "STEP document"} animation`
-  });
+  const animation = await loadSourceAnimation(source.sourceSidecar);
   if (!animation) {
     throw new Error("the document sidecar declares no animation, so there is no clip frame to render");
   }

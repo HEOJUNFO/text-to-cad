@@ -23,9 +23,9 @@ import { applyAnimationFrameToEffects, evaluateAnimationClip } from "./animation
  * stepParameterRuntime: the POSE half — {definition, parameterValues,
  *   selectorRuntime?, ...} or null. The definition's module.update folds DOF
  *   values through the FK evaluator into matrix effects.
- * animation: the CHOREOGRAPHY half — {clip, elapsedSec} or null. Evaluated
- *   pure-in-t against the live meshData; its matrices premultiply whatever
- *   the mate graph wrote. Neither half knows about the other.
+ * animation: the CHOREOGRAPHY half — {clip, elapsedSec} or null. Its keyframes
+ *   are interpolated at elapsedSec; its matrices premultiply whatever the mate
+ *   graph wrote. Neither half knows about the other.
  *
  * Returns {applied, transformDetected, effectsByPartId}. applied=false means
  * neither system had anything to say — the caller resets to rest.
@@ -80,7 +80,7 @@ export function applySceneState(THREE, {
 
   if (clip) {
     try {
-      const frame = evaluateAnimationClip(THREE, meshData, clip, Number(animation?.elapsedSec) || 0);
+      const frame = evaluateAnimationClip(THREE, clip, Number(animation?.elapsedSec) || 0);
       if (applyAnimationFrameToEffects(THREE, effectsByPartId, frame) > 0) {
         transformDetected = true;
       }

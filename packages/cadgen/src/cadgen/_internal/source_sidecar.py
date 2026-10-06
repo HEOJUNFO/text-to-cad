@@ -6,7 +6,8 @@ cache engine's world, freely evictable. The model's DECLARATIONS live in ONE
 sidecar FILE BESIDE THE MODEL, ``<name>.step.json``: KINEMATICS
 (typed mates with axes resolved to world numbers, couplings, pose presets)
 and APPEARANCE (named materials assigned to canonical document occurrences),
-plus an optional embedded ANIMATION module. The one hash here is
+plus optional ANIMATION keyframes (the model's clips, baked at build by
+``cadgen._internal.animation_bake``). The one hash here is
 ``documentHash``: an artifact binding that prevents declarations from being
 applied to different STEP bytes after a partial copy or replacement. It is not
 source identity or provenance. No source paths, closure hashes, or timestamps
@@ -56,7 +57,8 @@ SOURCE_SIDECAR_SUFFIX = ".json"
 #    is written for kinematics alone. 5 moved provenance OUT of the sidecar.
 # 8: intrinsic PBR finishes were inline occurrence annotations.
 # 9: named material libraries + assignments, and embedded animation.
-SOURCE_SIDECAR_SCHEMA_VERSION = 9
+# 10: animation is baked keyframes over document occurrences, never code.
+SOURCE_SIDECAR_SCHEMA_VERSION = 10
 
 # What a sidecar may CONTAIN: declarations plus the exact-document binding.
 # Anything source-derived-as-provenance (paths, closure hashes, timestamps)
@@ -192,20 +194,11 @@ def normalize_materials(block: object, *, where: str = "materials") -> dict[str,
     return {"definitions": normalized_definitions, "assignments": normalized_assignments}
 
 
-def normalize_animation(block: object, *, where: str = "animation") -> dict[str, str] | None:
-    if block is None:
-        return None
-    if isinstance(block, str):
-        source = block
-        block = {"language": "javascript", "source": source}
-    if not isinstance(block, dict) or set(block) != {"language", "source"}:
-        raise ValueError(f"{where} must contain only language and source")
-    if block.get("language") != "javascript":
-        raise ValueError(f"{where}.language must be 'javascript'")
-    source = block.get("source")
-    if not isinstance(source, str) or not source.strip():
-        raise ValueError(f"{where}.source must be a nonempty JavaScript module")
-    return {"language": "javascript", "source": source}
+def normalize_animation(block: object) -> dict[str, Any] | None:
+    """The baked ``animation`` section, checked (``animation_bake`` owns its shape)."""
+    from cadgen._internal.animation_bake import normalize_baked_animation
+
+    return normalize_baked_animation(block)
 
 
 def appearance_digest(block: object) -> str:

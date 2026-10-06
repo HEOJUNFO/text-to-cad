@@ -1,9 +1,10 @@
+import { isAnimationClip } from "./animationRuntime.js";
+
 // The animation TRANSPORT, shared by every client (viewer Animation tab,
 // the docs hero, any embed): which clip is active, where the clock
-// is, and how fast it runs. Choreography itself lives in the render module
-// embedded in the document sidecar, loaded by @text-to-cad/core/common/renderModule
-// and compiled by @text-to-cad/core/common/animationRuntime; this module owns only the
-// transport around it.
+// is, and how fast it runs. Choreography itself is the keyframes in the
+// document sidecar, loaded and interpolated by @text-to-cad/core/common/animationRuntime;
+// this module owns only the transport around it.
 //
 // Independence, restated in code: nothing here reads a step-module definition,
 // a DOF, or a pose preset. The Pose tab and the Animation tab share a model and
@@ -45,7 +46,7 @@ export function animationClipList(clips) {
     return [];
   }
   return Object.values(clips)
-    .filter((clip) => clip && typeof clip.update === "function")
+    .filter(isAnimationClip)
     .map((clip) => ({
       id: String(clip.id),
       label: String(clip.label || clip.id),
@@ -65,7 +66,7 @@ export function findAnimationClip(clips, clipId) {
     return null;
   }
   const clip = clips[id];
-  return clip && typeof clip.update === "function" ? clip : null;
+  return isAnimationClip(clip) ? clip : null;
 }
 
 /** The clip the transport opens on: a model's first declared clip. */

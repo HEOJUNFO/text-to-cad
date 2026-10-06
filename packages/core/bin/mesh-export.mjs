@@ -14,7 +14,7 @@
  *     --format stl|glb|3mf --out <abs path> [--chord-tolerance t] [--angle-tolerance t] \
  *       [--animation '{"clip":...}'] \
  *     [--format F --out P [--chord-tolerance t] [--angle-tolerance t] ...] \
- *     [--name N] [--animation-source <abs path>]
+ *     [--name N] [--animation-data <abs path>]
  *   `--format`/`--out` repeat as ordered pairs. Tolerance and animation flags
  *   AFTER a pair bind to that pair; tolerance flags BEFORE the first pair set
  *   the run defaults. Jobs group by their effective tolerance pair: the package
@@ -27,10 +27,10 @@
  *
  * `--animation` is the GLB door's clip request, `{clip, fps, seconds, start,
  * drop, deform, deformTolerance}` — the same shape cadgen's mesh_animation
- * normalized before spawning this. The choreography is the immutable source
- * captured from the document sidecar (`animation.source`, passed through a
- * temporary `--animation-source` file), compiled through the one loader the
- * viewer uses, sampled into per-occurrence keyframes, and
+ * normalized before spawning this. The choreography is the document sidecar's
+ * `animation` keyframes, captured once by cadgen (passed through a temporary
+ * `--animation-data` file), loaded through the one loader the viewer uses,
+ * resampled into per-occurrence keyframes at the export's fps, and
  * written as glTF animation. An animated job emits one node per occurrence
  * instead of the flat colour-grouped soup, because a channel needs a node to
  * target. With `deform: "morph"` a deforming tube's node also carries baked
@@ -76,7 +76,7 @@ import {
 import { buildTubeMorphTargets } from "../dist/lib/export/packageTubeMorph.js";
 import { animationClipList, findAnimationClip } from "../dist/common/animationClock.js";
 import { resolveFramePlan } from "../dist/common/framePlan.js";
-import { compileAnimationSource } from "../dist/common/renderModule.js";
+import { loadSourceAnimation } from "../dist/common/animationRuntime.js";
 
 function parseArgs(argv) {
   // Scalar flags are last-wins; `--format`/`--out` collect in CLI order and
@@ -219,21 +219,20 @@ if (defaultColor !== null && !/^#[0-9a-fA-F]{6}$/.test(defaultColor)) {
   fail("--default-color must be #rrggbb");
 }
 
-const animationSourcePath = String(args["animation-source"] || "");
-if (jobs.some((job) => job.animation) && !animationSourcePath) {
-  fail("--animation needs --animation-source: the clips live in the document sidecar");
+const animationDataPath = String(args["animation-data"] || "");
+if (jobs.some((job) => job.animation) && !animationDataPath) {
+  fail("--animation needs --animation-data: the clips live in the document sidecar");
 }
 
-/** Compile the immutable animation-source snapshot captured from the bound
- * sidecar by Python. The temporary file is internal transport, never adjacent
- * authored module discovery. */
-async function loadClips(sourcePath) {
-  const source = fs.readFileSync(sourcePath, "utf8");
-  return (await compileAnimationSource(source, { name: "embedded animation" })).clips;
+/** Load the keyframes cadgen captured from the bound sidecar. The temporary
+ * file is internal transport, never a file beside the document. */
+async function loadClips(dataPath) {
+  const animation = JSON.parse(fs.readFileSync(dataPath, "utf8"));
+  return (await loadSourceAnimation({ animation }))?.clips || {};
 }
 
 /** One job's sampled clip: the schedule it resolved and the tracks it baked. */
-function sampleJobAnimation(job, clips, descriptor) {
+function sampleJobAnimation(job, clips) {
   const clipName = String(job.animation.clip);
   const clip = findAnimationClip(clips, clipName);
   if (!clip) {
@@ -245,7 +244,7 @@ function sampleJobAnimation(job, clips, descriptor) {
     );
   }
   const plan = resolveFramePlan(job.animation, clip, { label: "animation" });
-  const sampled = sampleClipAnimation(descriptor, clip, plan, {
+  const sampled = sampleClipAnimation(clip, plan, {
     drop: Array.isArray(job.animation.drop) ? job.animation.drop : [],
     deform: job.animation.deform,
   });
@@ -258,9 +257,9 @@ try {
   const used = new Set(
     (descriptor.occurrences || []).map((occurrence) => String(occurrence.component || "")),
   );
-  // Compiled only when a job asks for a clip, so static export does not parse
-  // animation source it never consumes.
-  const clips = jobs.some((job) => job.animation) ? await loadClips(animationSourcePath) : null;
+  // Loaded only when a job asks for a clip, so static export does not parse
+  // keyframes it never consumes.
+  const clips = jobs.some((job) => job.animation) ? await loadClips(animationDataPath) : null;
   const groups = new Map();
   jobs.forEach((job, index) => {
     if (!groups.has(job.groupKey)) groups.set(job.groupKey, { options: job.options, members: [] });
@@ -287,7 +286,7 @@ try {
       let animation = null;
       let summary = null;
       if (job.animation) {
-        const { plan, sampled } = sampleJobAnimation(job, clips, descriptor);
+        const { plan, sampled } = sampleJobAnimation(job, clips);
         // The deformation bake runs BEFORE the primitive build, because it replaces
         // a deforming tube's geometry outright: the base mesh a morph target is a
         // delta against is the REFINED, POSED tube, not the rest tessellation the

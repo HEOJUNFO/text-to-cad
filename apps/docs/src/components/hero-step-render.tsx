@@ -14,7 +14,7 @@ import {
   firstAnimationClipId,
 } from "@text-to-cad/core/common/animationClock.js";
 import { CAD_SCENE_SCALE, buildModel } from "@text-to-cad/core/common/cadScene.js";
-import { loadSourceAnimation } from "@text-to-cad/core/common/renderModule.js";
+import { loadSourceAnimation } from "@text-to-cad/core/common/animationRuntime.js";
 import { renderModel } from "@text-to-cad/core/common/renderModel.js";
 import {
   loadSource,
@@ -30,7 +30,7 @@ import { cloneThemePresetSettings } from "@text-to-cad/core/common/themeSettings
 // the same clip the viewer's Animation tab plays drives this scene.
 const HERO_PACKAGE_BASE_URL = "/hero/planetary";
 const HERO_SIDECAR_URL = "/hero/planetary_gear_assembly.step.json";
-const HERO_DOCUMENT_HASH = "58dfc3609e12077876821915a7aff14e2333359142c0fd3770d357d55044c77d";
+const HERO_DOCUMENT_HASH = "a2212b537af600209112a09673c3691fd36fab531c0df90ff86e6dedd8f813de";
 const HERO_STEP_CAD_PATH = "models/assemblies/STEP/planetary_gear_assembly/planetary_gear_assembly.step";
 const HERO_STEP_LABEL = "PLANETARY_GEAR_ASSEMBLY.STEP";
 const HERO_CLIP_ID = "meshCycle";
@@ -256,7 +256,7 @@ export function HeroStepRender() {
           documentHash: HERO_DOCUMENT_HASH,
           cadPath: HERO_STEP_CAD_PATH,
         }, { resources });
-        const animation = await loadSourceAnimation(source.sourceSidecar, { name: "hero animation" });
+        const animation = await loadSourceAnimation(source.sourceSidecar);
         const clips = (animation?.clips ?? {}) as Parameters<typeof findAnimationClip>[0];
         if (disposed) {
           return;

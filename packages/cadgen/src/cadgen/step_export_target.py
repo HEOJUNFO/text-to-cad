@@ -170,10 +170,10 @@ def _export_mesh_jobs(
             fmt=job.fmt,
             mesh_tolerance=job.mesh_tolerance,
             mesh_angular_tolerance=job.mesh_angular_tolerance,
-            # An animated GLB is a function of the clip and the render module as
+            # An animated GLB is a function of the clip and its keyframes as
             # well as the bytes, so it is its own variant: a static file at the
-            # same path can never satisfy it, and an edited animation source
-            # makes the ledgered one a miss.
+            # same path can never satisfy it, and a rebaked animation makes the
+            # ledgered one a miss.
             animation_key=job.animation_key,
             appearance_key=appearance_key,
         )
@@ -330,11 +330,11 @@ def export_cad_target(
 
     step_path = document_target(target, suffixes=STEP_SUFFIXES)
 
-    # The clip name and embedded animation source are resolved BEFORE any tessellation:
+    # The clip name and the sidecar's keyframes are resolved BEFORE any tessellation:
     # a typo must fail as a clean CLI error naming the clips the model has, not
-    # after a minute of meshing. The token it returns is what keeps an edited
-    # animation source from being served out of the ledger. Carry the
-    # same captured text to Node so edits during preparation cannot rekey it.
+    # after a minute of meshing. The token it returns is what keeps a rebaked
+    # animation from being served out of the ledger. Carry the
+    # same captured keyframes to Node so edits during preparation cannot rekey it.
     animation_source: AnimationSnapshot | None = None
     animation_request: dict[str, object] | None = None
     animation_key: str | None = None

@@ -263,10 +263,11 @@ class ModelDef:
     # Typed mates (kinematics= dict, validated at decoration); axis refs
     # resolve at build and the block lands in the model's sidecar. STEP only.
     kinematics: KinematicsDef | None = None
-    # Named intrinsic material declarations and the document-scoped animation
-    # module. Both are validated at decoration and resolved during publication.
+    # Named intrinsic material declarations and the animation clips. Both are
+    # validated at decoration and resolved during publication, where the clips
+    # are baked to keyframes against the written document.
     materials: dict[str, Any] | None = None
-    animation: dict[str, str] | None = None
+    animation: dict[str, Any] | None = None
     # Declared mesh serializations (@stl/@glb/@threemf). STEP models only.
     mesh_exports: tuple[MeshExportDecl, ...] = ()
     # False for a MESH-ONLY model (@stl/@glb/@threemf with no @step): the same
@@ -497,10 +498,11 @@ def _decorator(
         kinematics_def = (
             normalize_kinematics(kinematics, where=f"@{fmt}") if kinematics is not None else None
         )
-        from cadgen._internal.source_sidecar import normalize_animation, normalize_materials
+        from cadgen._internal.source_sidecar import normalize_materials
+        from cadgen.animation import normalize_clips
 
         materials_def = normalize_materials(materials, where=f"@{fmt} materials=")
-        animation_def = normalize_animation(animation, where=f"@{fmt} animation=")
+        animation_def = normalize_clips(animation, where=f"@{fmt} animation=")
         out = _checked_out(out, where=f"@{fmt}")
         mesh_tolerance = _checked_tolerance(mesh_tolerance, "mesh_tolerance", where=f"@{fmt}")
         mesh_angular_tolerance = _checked_tolerance(
@@ -531,15 +533,6 @@ def _decorator(
             func = prior.func
         _validate_signature(func, fmt=fmt)
         script_path = _script_path_of(func)
-        if animation_def is not None:
-            # The renderer refuses a module exporting anything but `clips`, and
-            # every clip with it: say so here, in its words, not when it opens.
-            from cadgen._internal.animation_source import check_animation_exports
-            from cadgen.render import relative_to_cwd
-
-            check_animation_exports(
-                animation_def["source"], name=f"{relative_to_cwd(script_path)}::{func.__name__} animation"
-            )
         defn = ModelDef(
             func=func,
             fmt=fmt,
@@ -624,14 +617,15 @@ def step(
     mesh_angular_tolerance: float | None = None,
     kinematics: object = None,
     materials: object = None,
-    animation: str | None = None,
+    animation: object = None,
     **unsupported: Any,
 ):
     """Declare a STEP model. Usable bare (``@step``) or configured (``@step(...)``).
 
     ``kinematics=`` takes the typed-mates dict (see ``cadgen.kinematics``).
     ``materials=`` declares named definitions and label/group assignments;
-    ``animation=`` embeds a self-contained JavaScript ES module. No
+    ``animation=`` takes a dict of clip id -> ``cadgen.clip(update, duration=...)``,
+    baked to keyframes when the model builds (see ``cadgen.animation``). No
     decorator argument changes the geometry a model writes: the geometry is the
     function's return value; the arguments decide where the files land, how
     they are written, and what the sidecar declares. No decorator names

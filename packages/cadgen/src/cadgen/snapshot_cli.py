@@ -193,7 +193,7 @@ def parse_animation_option(raw_animation: object, raw_time: object = None) -> di
     Already an object when it came from a ``<format>.snapshot(animation={...})``
     call; from argv it is one string, told apart by shape the way ``--kinematics``
     is: text that opens with ``{`` is the inline JSON request, anything else is
-    the NAME of a clip the document's embedded animation source
+    the NAME of a clip the document's sidecar
     declares. ``--time`` is the
     second half of the same request — the moment, in seconds, defaulting to 0 —
     and is folded in here, so the job carries ONE field either way. Resolving
@@ -1138,9 +1138,8 @@ def check_step_pose_and_clip_names(
     """A pose NAME, every DOF id and the clip name, against what the model declares.
 
     A typo must fail as a clean CLI error naming what the model has, not as a
-    stack trace out of the browser runtime — which repeats these checks, with the
-    compiled clips in hand, as the backstop and the authority for a module that
-    builds its clips indirectly.
+    stack trace out of the browser runtime, which repeats these checks as the
+    backstop.
     """
     kinematics_block = sidecar.get("kinematics") if isinstance(sidecar.get("kinematics"), dict) else None
     preset = job.get("kinematics")
@@ -1177,23 +1176,11 @@ def check_step_pose_and_clip_names(
     if is_plain_object(animation_request):
         animation_block = sidecar.get("animation")
         if animation_block is None:
-            raise SnapshotError(
-                f"{input_name} has no animation in its sidecar. "
-                "Declare animation= on @step or pass --animation to cadgen step build."
-            )
-        from cadgen._internal.animation_source import declared_clip_ids
-
+            raise SnapshotError(f"{input_name} has no animation in its sidecar. Declare animation= on @step.")
         clip_name = str(animation_request["clip"])
-        declared_clips = declared_clip_ids(animation_block["source"])
-        if declared_clips is not None and clip_name not in declared_clips:
-            raise SnapshotError(
-                f"Unknown animation clip: {clip_name}. "
-                + (
-                    f"This model declares: {', '.join(declared_clips)}"
-                    if declared_clips
-                    else "This model declares no animation clips"
-                )
-            )
+        declared_clips = list(animation_block["clips"])
+        if clip_name not in declared_clips:
+            raise SnapshotError(f"Unknown animation clip: {clip_name}. This model declares: {', '.join(declared_clips)}")
 
 
 def resolve_step_render_job(
