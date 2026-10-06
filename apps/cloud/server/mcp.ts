@@ -23,6 +23,7 @@ cad_build sends the files and runs the entry script(s); without an entry it publ
 type Content = CallToolResult['content'];
 
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
 export function createMcpServer(service: Service, user: User | null): McpServer {
   const server = new McpServer({ name: 'text-to-cad-cloud', title: 'Text-to-CAD Cloud', version: pkg.version }, { instructions: INSTRUCTIONS });
@@ -38,9 +39,10 @@ export function createMcpServer(service: Service, user: User | null): McpServer 
     }
   }
 
+  /** An image as tool content; one too large for hosts to accept stays a link (in the text). */
   async function imageContent(key: string, type = 'image/png'): Promise<Content> {
     const object = await service.readObject(key);
-    if (!object) return [];
+    if (!object || object.bytes.byteLength > MAX_IMAGE_BYTES) return [];
     return [{ type: 'image', data: Buffer.from(object.bytes).toString('base64'), mimeType: type }];
   }
 

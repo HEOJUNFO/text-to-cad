@@ -265,10 +265,11 @@ def _skipped_dir(name: str) -> bool:
     return name in SKIP_DIRS or name.startswith(".cadgen")
 
 
-def scan(root: Path, *, skip_tmp: bool = True) -> dict[str, tuple[int, str]]:
+def scan(root: Path, *, skip_tmp: bool = True, hash_limit: int | None = None) -> dict[str, tuple[int, str]]:
     """Every regular file under ``root``: relative POSIX path -> (bytes, sha256).
 
-    Symlinks are never followed or reported: a job's outputs are files it wrote.
+    Symlinks are never followed or reported: a job's outputs are files it wrote. A file
+    larger than ``hash_limit`` is not read (its digest is empty): it is over the cap.
     """
     found: dict[str, tuple[int, str]] = {}
     if not root.is_dir():
@@ -287,7 +288,8 @@ def scan(root: Path, *, skip_tmp: bool = True) -> dict[str, tuple[int, str]]:
             if path.is_symlink() or not path.is_file() or name.endswith((".pyc", ".pyo")):
                 continue
             relative = path.relative_to(root).as_posix()
-            found[relative] = (path.stat().st_size, sha256_file(path))
+            size = path.stat().st_size
+            found[relative] = (size, "" if hash_limit is not None and size > hash_limit else sha256_file(path))
     return found
 
 
@@ -455,7 +457,7 @@ def run_build(job: Job) -> None:
     if job.result["error"] is not None:
         return
 
-    after = scan(job.workspace) if entries else before
+    after = scan(job.workspace, hash_limit=job.max_output_bytes) if entries else before
     outputs, dropped = [], []
     for path in changed(before, after):
         (outputs if path.lower().endswith(tuple(OUTPUT_SUFFIXES)) else dropped).append(path)

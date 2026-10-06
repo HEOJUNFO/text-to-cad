@@ -156,7 +156,8 @@ export function createAuth({ config, db, clock, jwks, fetch: fetchImpl = fetch }
       clockTolerance: 5,
     });
     if (!payload.sub) throw new Error('the token has no subject');
-    return ensureUser(payload.iss ?? config.auth.issuer, payload.sub, payload as JWTPayload & { email?: unknown; name?: unknown });
+    // One spelling of the issuer per person, whichever form (trailing slash or not) the token used.
+    return ensureUser(config.auth.issuer, payload.sub, payload as JWTPayload & { email?: unknown; name?: unknown });
   }
 
   async function verifyApiKey(key: string): Promise<User | null> {
@@ -316,7 +317,7 @@ export function createAuth({ config, db, clock, jwks, fetch: fetchImpl = fetch }
         clockTolerance: 5,
       });
       if (payload.nonce !== login.n || !payload.sub) throw forbidden('The sign-in response did not match this browser.');
-      const user = await ensureUser(payload.iss ?? config.auth.issuer!, payload.sub, payload as JWTPayload & { email?: unknown; name?: unknown });
+      const user = await ensureUser(config.auth.issuer!, payload.sub, payload as JWTPayload & { email?: unknown; name?: unknown });
       const session = seal({ u: user.id, n: b64url(randomBytes(12)), e: clock.now() + SESSION_DAYS * 86_400_000 });
       return {
         user,

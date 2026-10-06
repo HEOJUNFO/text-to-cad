@@ -208,6 +208,22 @@ export function viewsOf(paths: string[], primary: string | null): string[] {
   return primary && viewable.includes(primary) ? [primary, ...viewable.filter((path) => path !== primary)] : viewable;
 }
 
+/** `fn` over `items`, at most `limit` at a time, results in order (object-store round trips). */
+export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await fn(items[index]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+const STORE_CONCURRENCY = 16;
 const MAX_EXPORT_JSON = 64 * 1024 * 1024;
 const PROGRESS_WRITE_MS = 3000;
 const SWEEP_EVERY_MS = 60_000;
@@ -420,7 +436,7 @@ export function createService(deps: Deps) {
     });
     const id = newId();
     try {
-      for (const [path, bytes] of valid.added) await putObject(store, sha256Hex(bytes), bytes, contentTypeFor(path));
+      await mapLimit([...valid.added], STORE_CONCURRENCY, ([path, bytes]) => putObject(store, sha256Hex(bytes), bytes, contentTypeFor(path)));
       const now = iso(clock.now());
       await db.query(
         `insert into builds (id, user_id, parent_id, title, entry, pythonpath, files, dedupe_key, status, limits, reservation, created_at, updated_at)
@@ -449,11 +465,11 @@ export function createService(deps: Deps) {
   }
 
   async function workspaceFiles(refs: FileRef[]) {
-    return Promise.all(refs.map(async (file) => {
+    return mapLimit(refs, STORE_CONCURRENCY, async (file) => {
       const object = await store.get(objectKey(file.sha256));
       if (!object) throw new SandboxError(`input ${file.path} is missing from storage`);
       return { path: file.path, bytes: object.bytes };
-    }));
+    });
   }
 
   async function runBuild(build: Build, reservation: Reservation) {
@@ -492,14 +508,13 @@ export function createService(deps: Deps) {
   async function ingestBuild(build: Build, run: SandboxRun): Promise<Record<string, unknown>> {
     const result = run.result;
     if (result.kind !== 'build') throw new SandboxError('the runner answered for another kind of job');
-    const outputs: FileRef[] = [];
-    for (const path of result.outputs) {
-      const bytes = run.files.get(`workspace/${path}`);
-      if (!bytes) continue;
+    const collected = result.outputs.filter((path) => run.files.has(`workspace/${path}`));
+    const outputs: FileRef[] = await mapLimit(collected, STORE_CONCURRENCY, async (path) => {
+      const bytes = run.files.get(`workspace/${path}`)!;
       const sha256 = sha256Hex(bytes);
       await putObject(store, sha256, bytes, contentTypeFor(path));
-      outputs.push({ path, sha256, bytes: bytes.byteLength });
-    }
+      return { path, sha256, bytes: bytes.byteLength };
+    });
     outputs.sort(byPath);
     // The primary may be an input (a sent STEP or URDF), so it is checked against every file.
     const paths = [...new Set([...build.files.map((file) => file.path), ...outputs.map((file) => file.path)])];
@@ -549,13 +564,15 @@ export function createService(deps: Deps) {
       throw new Error('export.json is not a schema 1 export');
     }
     const present = new Set<string>();
+    const objects: [string, Uint8Array][] = [];
     for (const [path, bytes] of files) {
       const match = /^out\/export\/objects\/([0-9a-f]{64})$/.exec(path);
       if (!match) continue;
       if (sha256Hex(bytes) !== match[1]) throw new Error(`object ${match[1]} does not match its name`);
-      await putObject(store, match[1], bytes, 'application/octet-stream');
+      objects.push([match[1], bytes]);
       present.add(match[1]);
     }
+    await mapLimit(objects, STORE_CONCURRENCY, ([sha, bytes]) => putObject(store, sha, bytes, 'application/octet-stream'));
     for (const route of ['/__cad/asset', '/__cad/store']) {
       for (const value of Object.values((index.routes[route] ?? {}) as Record<string, any>)) {
         const sha = value?.object;
