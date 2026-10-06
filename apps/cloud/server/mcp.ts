@@ -18,7 +18,7 @@ export const INSTRUCTIONS = `Text-to-CAD Cloud builds CAD models from Python cod
 
 A model is a Python script with a parameterless function decorated with @step(out="../STEP/<name>.step") (from cadgen import step; from cadgen import build123d as bd) that returns a build123d shape, called under if __name__ == "__main__". Output paths are relative to the script. One model per entry script.
 
-cad_build sends the files and runs the entry; to change a build, pass base=<build id> with only the changed files. Links look like https://<host>/b/<id>/<path> and open in the CAD viewer; references copied from the viewer are those URLs plus #<selector>: inspect them with cad_inspect(build=<id>) and cadgen's read_scene("<path>"). Check your work with cad_snapshot, and give the person the link.`;
+cad_build sends the files and runs the entry script(s); without an entry it publishes the CAD files it is sent (STEP, STL, 3MF, GLB, DXF, URDF, SDF). To change a build, pass base=<build id> with only the changed files. Links look like https://<host>/b/<id>/<path> and open in the CAD viewer; references copied from the viewer are those URLs plus #<selector>: inspect them with cad_inspect(build=<id>) and cadgen's read_scene("<path>"). Check your work with cad_snapshot, and give the person the link.`;
 
 type Content = CallToolResult['content'];
 
@@ -67,13 +67,16 @@ export function createMcpServer(service: Service, user: User | null): McpServer 
     title: 'Build a CAD model',
     description:
       'Run CAD model code (Python with cadgen and build123d) in a fresh sandbox and get a link that opens the result in the CAD viewer. ' +
-      'Send every file the model needs in files: text, or {"base64": "..."} for binary files such as a vendor STEP. entry names the script(s) to run. ' +
+      'Send every file the model needs in files: text, or {"base64": "..."} for binary files such as a vendor STEP. entry names the script(s) to run; ' +
+      'it is optional: without it nothing runs and the CAD files sent (STEP, STL, 3MF, GLB, DXF, URDF, SRDF, SDF) are published as they are. ' +
+      'Every CAD file of the build, sent or written, opens in the viewer. ' +
       'To change an existing build, pass base=<its id> with only the changed files (and delete for removed ones); entry then defaults to the base build\'s. ' +
       `Waits up to ${wait} s: a longer build returns its id and status, then call cad_status.`,
     inputSchema: {
       files: z.record(z.string(), z.union([z.string(), z.object({ base64: z.string() })])).optional()
         .describe('Path (relative, e.g. "src/bracket.py") to content: text, or {"base64": "..."} for binary files.'),
-      entry: z.union([z.string(), z.array(z.string())]).optional().describe('The model script(s) to run, e.g. "src/bracket.py".'),
+      entry: z.union([z.string(), z.array(z.string())]).optional()
+        .describe('Optional. The model script(s) to run, e.g. "src/bracket.py". Omit it (or pass []) to publish the CAD files sent without running code.'),
       base: z.string().optional().describe('A build id (or link) whose files this build starts from.'),
       delete: z.array(z.string()).optional().describe('Paths of the base build to leave out.'),
       title: z.string().optional().describe('A short title for the link.'),

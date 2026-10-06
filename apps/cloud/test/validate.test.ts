@@ -55,7 +55,7 @@ describe('build requests', () => {
   });
 
   it.each([
-    [{ files: { 'a.py': 'x' } }, /entry is required/],
+    [{ files: { 'a.py': 'x' } }, /no entry and no CAD file to show/],
     [{ files: { 'a.py': 'x' }, entry: 'b.py' }, /not one of the build's files/],
     [{ files: { 'a.txt': 'x' }, entry: 'a.txt' }, /not a Python script/],
     [{ files: {}, entry: 'a.py' }, /files is empty/],
@@ -65,6 +65,12 @@ describe('build requests', () => {
     [{ files: { 'a.py': 'x' }, entry: 'a.py', delete: ['b.py'] }, /name the build in base/],
   ])('refuses %j', (input, message) => {
     expect(() => validateBuild(input, null, limits)).toThrow(message);
+  });
+
+  it('takes no entry for a build that only publishes CAD files', () => {
+    expect(validateBuild({ files: { 'robot.urdf': '<robot name="r"/>' } }, null, limits).entry).toEqual([]);
+    expect(validateBuild({ files: { 'parts/motor.step': 'ISO-10303-21;' }, entry: '' }, null, limits).entry).toEqual([]);
+    expect(validateBuild({ base: 'x', files: { 'parts/motor.step': 'ISO' }, entry: [] }, base, limits).entry).toEqual([]);
   });
 
   it('enforces the file count and size caps', () => {

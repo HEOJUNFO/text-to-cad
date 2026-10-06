@@ -11,8 +11,9 @@ the job with the workspace as its working directory, then writes ``out/`` and
 
 Jobs:
 
-* ``build``    run each entry script, keep what it wrote (the outputs), record the
-               viewer export of the viewable outputs, render a thumbnail.
+* ``build``    run each entry script (none for a files-only build), keep what they
+               wrote (the outputs), record the viewer export of every viewable file
+               (inputs included) and render a thumbnail of the primary one.
 * ``snapshot`` ``cadgen snapshot FILE out/snapshot.<png|svg> ARGS --json``.
 * ``inspect``  run a Python script against the workspace; images it writes under
                ``workspace/tmp/`` come back.
@@ -302,23 +303,22 @@ def file_entry(job_dir: Path, path: Path) -> dict:
     }
 
 
-def pick_primary(outputs: list[str], entries: list[str]) -> str | None:
-    viewable = [path for path in outputs if path.lower().endswith(VIEWABLE)]
-    if not viewable:
-        return None
-    stems = [Path(entry).stem for entry in entries]
+STEP_SUFFIXES = (".step", ".stp")
 
-    def rank(path: str) -> tuple:
-        name = Path(path).name.lower()
-        suffix = next(s for s in VIEWABLE if name.endswith(s))
-        stem = name[: -len(suffix)]
-        try:
-            entry_rank = stems.index(stem)
-        except ValueError:
-            entry_rank = len(stems)
-        return (entry_rank, VIEWABLE.index(suffix), path.count("/"), path)
 
-    return sorted(viewable, key=rank)[0]
+def pick_primary(viewable: list[str], entries: list[str]) -> str | None:
+    """The file a build's link opens: the STEP named for the first entry, else the
+    shallowest STEP, else the first viewable file (shallowest, then by path)."""
+    order = lambda path: (path.count("/"), path)  # noqa: E731 - one sort key, three uses
+    steps = [path for path in viewable if path.lower().endswith(STEP_SUFFIXES)]
+    if entries:
+        stem = Path(entries[0]).stem.lower()
+        named = [path for path in steps if Path(path).stem.lower() == stem]
+        if named:
+            return min(named, key=order)
+    if steps:
+        return min(steps, key=order)
+    return min(viewable, key=order) if viewable else None
 
 
 # --- jobs -------------------------------------------------------------------------------
@@ -411,6 +411,8 @@ def _relay_build_event(job: Job, entry: str):
                     "progress": event.get("progress"), "elapsed": event.get("elapsed"),
                 })
                 return True
+        if line.endswith("re-run with --verbose for the full traceback"):
+            return True  # a flag the sandbox's caller cannot pass
         log(line)
         return False
     return relay
@@ -418,10 +420,8 @@ def _relay_build_event(job: Job, entry: str):
 
 def run_build(job: Job) -> None:
     request = job.request
+    # No entries is a files-only build: nothing runs, and what was sent is published.
     entries = [str(entry) for entry in request.get("entry") or []]
-    if not entries:
-        job.fail("The build names no entry script.", kind="runner")
-        return
     pythonpath = [str(entry) for entry in request.get("pythonpath") or []]
     env = job.env(pythonpath)
     before = scan(job.workspace)
@@ -455,7 +455,7 @@ def run_build(job: Job) -> None:
     if job.result["error"] is not None:
         return
 
-    after = scan(job.workspace)
+    after = scan(job.workspace) if entries else before
     outputs, dropped = [], []
     for path in changed(before, after):
         (outputs if path.lower().endswith(tuple(OUTPUT_SUFFIXES)) else dropped).append(path)
@@ -472,10 +472,12 @@ def run_build(job: Job) -> None:
     for path in outputs:
         job.result["files"].append({"path": f"workspace/{path}", "bytes": after[path][0], "sha256": after[path][1]})
     job.result["ok"] = True
-    primary = pick_primary(outputs, entries)
+    # Every viewable file gets a view, the files that were sent included (a hand-written
+    # URDF, a purchased part's STEP), not only what the scripts wrote. Dropped files are
+    # never viewable, so the files kept are exactly the inputs plus the outputs.
+    viewable = sorted(path for path in after if path.lower().endswith(VIEWABLE) and path not in dropped)
+    primary = pick_primary(viewable, entries)
     job.result["primary"] = primary
-
-    viewable = [path for path in outputs if path.lower().endswith(VIEWABLE)]
     if viewable:
         export_dir = job.out / "export"
         args = ["viewer", "export", str(job.workspace), "--out", str(export_dir)]

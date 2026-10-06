@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { sha256Hex } from '../server/ids.ts';
+import { pickPrimary } from '../server/service.ts';
 import { objectKey } from '../server/store.ts';
 import { PNG, boxSource, fakeSandbox, gate, successfulBuild, testClock, testServer, type TestServer } from './helpers.ts';
 
@@ -45,6 +46,24 @@ describe('builds', () => {
     expect(await source.text()).toBe(boxSource());
     const step = await server.request(`/v1/builds/${build.id}/files/STEP/box.step`);
     expect(step.status).toBe(302);
+  });
+
+  it('publishes the CAD files it is sent when there is no entry, and every viewable file gets a link', async () => {
+    const sandbox = fakeSandbox(() => ({ result: { outputs: [], primary: 'parts/motor.step', thumbnail: 'out/thumbnail.png' }, files: { 'out/thumbnail.png': PNG } }));
+    server = await testServer({ sandbox });
+    const files = { 'parts/motor.step': 'ISO-10303-21;', 'robot/arm.urdf': '<robot name="arm"/>', 'notes.md': '# notes' };
+    const build = await (await post(server, { files })).json();
+    expect(build).toMatchObject({ status: 'succeeded', entry: [], outputs: [], primary: 'parts/motor.step', link: `http://cloud.test/b/${build.id}/parts/motor.step` });
+    expect(build.views.map((view: { path: string }) => view.path)).toEqual(['parts/motor.step', 'robot/arm.urdf']);
+    expect(sandbox.jobs[0].request.entry).toEqual([]);
+    expect(await (await post(server, { files: { 'notes.md': 'x' } })).json()).toMatchObject({ error: { message: expect.stringMatching(/entry is optional when you do/) } });
+  });
+
+  it('opens the STEP named for the first entry, else the shallowest STEP, else the first viewable file', () => {
+    expect(pickPrimary(['STEP/a.step', 'STEP/box.step', 'box.stl'], ['src/box.py'])).toBe('STEP/box.step');
+    expect(pickPrimary(['deep/er/x.step', 'STEP/z.step', 'a.glb'], ['src/box.py'])).toBe('STEP/z.step');
+    expect(pickPrimary(['src/box.py', 'meshes/b.stl', 'a.glb'], [])).toBe('a.glb');
+    expect(pickPrimary(['src/box.py'], ['src/box.py'])).toBeNull();
   });
 
   it('returns the existing build for an identical request, and edits from a base', async () => {

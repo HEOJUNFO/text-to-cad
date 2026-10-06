@@ -1,12 +1,17 @@
 // How builds and jobs read: JSON for REST (and MCP's structured content), and short text
 // for an agent. Text tells the agent what happened and what to do next, nothing more.
 import type { Build, Job, Service } from './service.ts';
-import { isTerminal } from './service.ts';
+import { isTerminal, viewsOf } from './service.ts';
 
 export function buildTitle(build: Build): string {
   if (build.title) return build.title;
   const from = build.primary ?? build.entry[0] ?? build.id;
   return from.split('/').pop()!.replace(/\.[^.]+$/, '');
+}
+
+/** Every file of the build the viewer opens, the primary first. */
+export function buildViews(service: Service, build: Build): string[] {
+  return viewsOf(service.buildFiles(build).map((file) => file.path), build.primary);
 }
 
 export function buildJson(service: Service, build: Build, extra: Record<string, unknown> = {}) {
@@ -17,6 +22,7 @@ export function buildJson(service: Service, build: Build, extra: Record<string, 
     link: build.status === 'succeeded' || build.primary ? service.buildLink(build) : `${service.config.publicUrl}/b/${build.id}`,
     primary: build.primary,
     outputs: build.outputs.map((file) => file.path),
+    views: build.status === 'succeeded' ? buildViews(service, build).map((path) => ({ path, link: service.buildLink(build, path) })) : [],
     entry: build.entry,
     pythonpath: build.pythonpath,
     base: build.parentId,
@@ -81,9 +87,18 @@ export function buildText(service: Service, build: Build, { deduped = false } = 
   if (build.status === 'succeeded') {
     lines.push(`Build ${build.id} (${title}) succeeded${deduped ? ' (an identical build already existed)' : ''}.`);
     lines.push(`Link: ${service.buildLink(build)}`);
+    const others = buildViews(service, build).slice(1);
+    if (others.length) {
+      const shown = others.slice(0, 8).map((path) => service.buildLink(build, path));
+      lines.push(`Also in the viewer: ${shown.join(', ')}${others.length > 8 ? ` and ${others.length - 8} more` : ''}`);
+    }
     if (build.outputs.length) lines.push(`Outputs: ${build.outputs.map((file) => file.path).join(', ')}`);
-    if (!build.exportKey) lines.push(`The link cannot show the model yet: ${build.exportError ?? 'no viewer export was recorded'}.`);
-    if (!build.primary) lines.push('No viewable CAD file was written: a model writes its outputs with a decorator, e.g. @step(out="../STEP/part.step").');
+    if (!build.entry.length) lines.push('No entry script: the files were published as sent.');
+    if (!build.primary) {
+      lines.push('The build has no viewable CAD file: a model writes its outputs with a decorator, e.g. @step(out="../STEP/part.step").');
+    } else if (!build.exportKey) {
+      lines.push(`The link cannot show the model yet: ${build.exportError ?? 'no viewer export was recorded'}.`);
+    }
   } else if (build.status === 'failed') {
     const error = build.error ?? { message: 'unknown error', kind: 'model' };
     lines.push(`Build ${build.id} failed${deduped ? ' (an identical build already failed)' : ''}: ${error.message}${where(error)}`);

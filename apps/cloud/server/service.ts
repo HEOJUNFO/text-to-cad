@@ -183,25 +183,29 @@ const byPath = (a: { path: string }, b: { path: string }) => (a.path < b.path ? 
 
 export const encodePath = (path: string) => path.split('/').map(encodeURIComponent).join('/');
 
-const VIEW_ORDER = ['.step', '.stp', '.glb', '.stl', '.3mf', '.dxf', '.urdf', '.sdf', '.srdf'];
+const isStep = (path: string) => /\.(step|stp)$/i.test(path);
+const depthThenPath = (a: string, b: string) => a.split('/').length - b.split('/').length || (a < b ? -1 : a > b ? 1 : 0);
+const stemOf = (path: string) => path.split('/').pop()!.replace(/\.[^.]*$/, '').toLowerCase();
 
-/** The output a build's link opens: the entry's own document first, STEP before meshes. */
-export function pickPrimary(outputs: string[], entry: string[]): string | null {
-  const stems = entry.map((script) => script.split('/').pop()!.replace(/\.py$/, '').toLowerCase());
-  const rank = (path: string) => {
-    const name = path.split('/').pop()!.toLowerCase();
-    const suffix = VIEW_ORDER.find((candidate) => name.endsWith(candidate))!;
-    const stem = name.slice(0, -suffix.length);
-    const entryRank = stems.indexOf(stem) >= 0 ? stems.indexOf(stem) : stems.length;
-    return [entryRank, VIEW_ORDER.indexOf(suffix), path.split('/').length, path] as const;
-  };
-  const viewable = outputs.filter(isViewable);
-  viewable.sort((a, b) => {
-    const [x, y] = [rank(a), rank(b)];
-    for (let index = 0; index < x.length; index += 1) if (x[index] !== y[index]) return x[index] < y[index] ? -1 : 1;
-    return 0;
-  });
-  return viewable[0] ?? null;
+/**
+ * The file a build's link opens: the STEP named for the first entry, else the shallowest
+ * STEP, else the first viewable file (shallowest, then by path). Inputs count: a build
+ * that only publishes files opens one of them.
+ */
+export function pickPrimary(paths: string[], entry: string[]): string | null {
+  const viewable = paths.filter(isViewable).sort(depthThenPath);
+  const steps = viewable.filter(isStep);
+  if (entry.length) {
+    const named = steps.find((path) => stemOf(path) === stemOf(entry[0]));
+    if (named) return named;
+  }
+  return steps[0] ?? viewable[0] ?? null;
+}
+
+/** The viewable files of a build, the primary first. */
+export function viewsOf(paths: string[], primary: string | null): string[] {
+  const viewable = paths.filter(isViewable).sort(depthThenPath);
+  return primary && viewable.includes(primary) ? [primary, ...viewable.filter((path) => path !== primary)] : viewable;
 }
 
 const MAX_EXPORT_JSON = 64 * 1024 * 1024;
@@ -490,7 +494,8 @@ export function createService(deps: Deps) {
       outputs.push({ path, sha256, bytes: bytes.byteLength });
     }
     outputs.sort(byPath);
-    const paths = outputs.map((file) => file.path);
+    // The primary may be an input (a sent STEP or URDF), so it is checked against every file.
+    const paths = [...new Set([...build.files.map((file) => file.path), ...outputs.map((file) => file.path)])];
     const primary = result.primary && paths.includes(result.primary) && isViewable(result.primary)
       ? result.primary
       : pickPrimary(paths, build.entry);

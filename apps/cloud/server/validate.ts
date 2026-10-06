@@ -127,9 +127,18 @@ export function validateBuild(input: unknown, base: { files: FileRef[]; entry: s
   }
   checkLayout(all);
 
-  const entry = (request.entry === undefined && base ? base.entry : asList(request.entry, 'entry')).map((value) => normalizePath(value, 'entry'));
-  if (entry.length === 0) throw badRequest('entry is required: the model script(s) to run, e.g. "src/bracket.py"');
+  // entry is optional: without one a build runs no code and publishes the CAD files it
+  // is sent. An edit keeps its base's entry unless it names one (or [] for none).
+  const entry = (request.entry === undefined && base ? base.entry : asList(request.entry, 'entry'))
+    .filter((value) => value !== '')
+    .map((value) => normalizePath(value, 'entry'));
   if (entry.length > 16) throw badRequest('a build runs at most 16 entry scripts');
+  if (entry.length === 0 && !all.some(isViewable)) {
+    throw badRequest(
+      `this build has no entry and no CAD file to show: name the model script(s) to run in entry (e.g. "src/bracket.py"), ` +
+      `or send the CAD files to publish (${VIEWABLE_SUFFIXES.map((suffix) => suffix.slice(1).toUpperCase()).join(', ')}); entry is optional when you do`,
+    );
+  }
   const present = new Set(all);
   for (const script of entry) {
     if (!script.endsWith('.py')) throw badRequest(`entry ${script} is not a Python script`);

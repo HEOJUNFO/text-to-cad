@@ -117,6 +117,28 @@ class RunnerTests(unittest.TestCase):
         self.assertTrue(result["export"] == "out/export" or result["exportError"] == "export unavailable", result["exportError"])
         self.assertFalse(result["flags"]["network"])
 
+    def test_a_build_without_entries_publishes_the_files_it_was_sent(self) -> None:
+        stl = "solid t\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid t\n"
+        result, _events, _root = self.job(
+            {"kind": "build", "entry": [], "timeoutSeconds": 120, "thumbnail": False},
+            {"meshes/part.stl": stl, "README.md": "# part"},
+        )
+        self.assertTrue(result["ok"], result["error"])
+        self.assertEqual((result["outputs"], result["primary"]), ([], "meshes/part.stl"))
+        self.assertFalse([step for step in result["steps"] if step["name"].startswith("python")])
+        self.assertTrue(result["export"] == "out/export" or result["exportError"] == "export unavailable", result["exportError"])
+
+    def test_the_primary_file_is_the_entry_step_then_the_shallowest_step_then_any_view(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("cloud_runner", RUNNER)
+        runner = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(runner)
+        self.assertEqual(runner.pick_primary(["STEP/a.step", "STEP/box.step", "box.stl"], ["src/box.py"]), "STEP/box.step")
+        self.assertEqual(runner.pick_primary(["deep/er/x.step", "STEP/z.step", "a.glb"], ["src/box.py"]), "STEP/z.step")
+        self.assertEqual(runner.pick_primary(["meshes/b.stl", "a.glb"], []), "a.glb")
+        self.assertIsNone(runner.pick_primary([], ["src/box.py"]))
+
     def test_failed_model_names_its_file_and_line(self) -> None:
         result, _events, _root = self.job(
             {"kind": "build", "entry": ["src/bad.py"], "timeoutSeconds": 240, "vcpus": 1}, {"src/bad.py": BAD},
