@@ -3,7 +3,7 @@ set -euo pipefail
 
 # The repo's Python suites.
 #
-#   scripts/test/test-python.sh [--keep-going] [--select GROUP] [--print-weights]
+#   scripts/test/test-python.sh [--keep-going] [--select GROUP] [--print-weights] [PATH...]
 #
 # --select picks one group instead of all of them:
 #   cadgen   the cadgen package suite, the CAD Viewer backend included (92% of the time)
@@ -14,6 +14,9 @@ set -euo pipefail
 #
 # --print-weights prints one `WEIGHT<TAB>path<TAB>seconds` line per slow file on
 # stdout: the first thing to read when a run is slow.
+#
+# PATHs narrow the group to the test files at or under them (repo-relative); CI passes
+# the files and directories a change selected.
 
 # shellcheck source=scripts/test/common.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
@@ -32,7 +35,8 @@ while [ "$#" -gt 0 ]; do
     --select) SELECT="${2:?--select wants a group}"; shift ;;
     --select=*) SELECT="${1#--select=}" ;;
     --print-weights) PYTHON_TEST_PRINT_WEIGHTS=1 ;;
-    *) echo "test-python.sh: unknown argument $1" >&2; exit 2 ;;
+    -*) echo "test-python.sh: unknown argument $1" >&2; exit 2 ;;
+    *) TEST_PATHS+=("$1") ;;
   esac
   shift
 done
@@ -93,10 +97,12 @@ if [ "$SELECT" = "all" ] || [ "$SELECT" = "skills" ]; then
 fi
 
 # The hosted CAD server's runner: the one Python file apps/cloud ships into a sandbox, run here
-# against this checkout's cadgen as the sandbox runs it against the released one.
+# against this checkout's cadgen as a sandbox runs it against the released one.
 if [ "$SELECT" = "all" ] || [ "$SELECT" = "cloud" ]; then
   run_suite "cloud runner Python tests" "tests/python/apps/cloud" "packages/cadgen/src"
 fi
+
+require_selected_tests
 
 if [ "${#failed_suites[@]}" -gt 0 ]; then
   printf '\n==> FAILING SUITES (%d)\n' "${#failed_suites[@]}"
