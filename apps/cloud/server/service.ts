@@ -17,6 +17,7 @@ import { isBuildId, newId, sha256Hex } from './ids.ts';
 import type { Reservation, Usage } from './limits.ts';
 import { reserve, settle, usageOf } from './limits.ts';
 import { contentTypeFor, imageType, isPng } from './mime.ts';
+import { stripModelScripts } from './sanitize.ts';
 import type { RunnerEvent, RunnerResult, SandboxProvider, SandboxRun } from './sandbox/protocol.ts';
 import { SandboxError } from './sandbox/protocol.ts';
 import type { ObjectStore } from './store.ts';
@@ -563,16 +564,17 @@ export function createService(deps: Deps) {
     if (!index || index.schema !== 1 || !Array.isArray(index.files) || !Array.isArray(index.views) || !index.routes || typeof index.routes !== 'object') {
       throw new Error('export.json is not a schema 1 export');
     }
-    const present = new Set<string>();
-    const objects: [string, Uint8Array][] = [];
+    const byHash = new Map<string, Uint8Array>();
     for (const [path, bytes] of files) {
       const match = /^out\/export\/objects\/([0-9a-f]{64})$/.exec(path);
       if (!match) continue;
       if (sha256Hex(bytes) !== match[1]) throw new Error(`object ${match[1]} does not match its name`);
-      objects.push([match[1], bytes]);
-      present.add(match[1]);
+      byHash.set(match[1], bytes);
     }
-    await mapLimit(objects, STORE_CONCURRENCY, ([sha, bytes]) => putObject(store, sha, bytes, 'application/octet-stream'));
+    // No model script reaches the viewer (sanitize.ts): stripped here, outside the sandbox.
+    stripModelScripts(index, byHash);
+    const present = new Set(byHash.keys());
+    await mapLimit([...byHash], STORE_CONCURRENCY, ([sha, bytes]) => putObject(store, sha, bytes, 'application/octet-stream'));
     for (const route of ['/__cad/asset', '/__cad/store']) {
       for (const value of Object.values((index.routes[route] ?? {}) as Record<string, any>)) {
         const sha = value?.object;
@@ -581,7 +583,7 @@ export function createService(deps: Deps) {
       }
     }
     const key = `b/${buildId}/export.json`;
-    await store.put(key, json, 'application/json');
+    await store.put(key, new TextEncoder().encode(JSON.stringify(index)), 'application/json');
     return key;
   }
 

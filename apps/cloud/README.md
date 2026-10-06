@@ -34,6 +34,12 @@ agents to use it.
    and a global daily budget. Providers rarely stop spending on their own.
 6. **A build is immutable.** An edit is a new build: a base build's files plus
    the changes.
+7. **Nothing a model sent runs in a viewer's browser.** A sidecar's animation
+   module would run on this origin, beside the account pages, so the server
+   strips every model script from an export when it ingests it
+   (`server/sanitize.ts`), outside the sandbox, whose own steps the model could
+   have tampered with. Shared models do not animate until model scripts run in
+   an isolated frame.
 
 ## Layout
 
