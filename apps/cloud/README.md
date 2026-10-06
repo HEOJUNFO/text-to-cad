@@ -113,7 +113,9 @@ its id; it creates cloud resources, so never in CI.
   is left and refuses it below `CLOUD_MIN_JOB_S`. One build and one
   snapshot/inspection at a time per person is a unique index, not a check.
   The sweeper fails jobs past their timeout plus `CLOUD_STALE_GRACE_S` and
-  charges their whole reservation.
+  charges their whole reservation; a server on PGlite fails, as it starts,
+  whatever an earlier process left running. Request bodies are capped (32 MB on
+  `/mcp` and `/v1`) before anything reads them.
 - **Access.** Builds are public by id (`/b/<id>`, `GET /v1/builds/<id>` and its
   files); jobs, lists and keys belong to their owner. MCP discovery works signed
   out and `tools/call` answers 401 with the metadata URL. API keys cannot create
