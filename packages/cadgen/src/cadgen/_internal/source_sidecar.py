@@ -195,10 +195,14 @@ def normalize_materials(block: object, *, where: str = "materials") -> dict[str,
 
 
 def normalize_animation(block: object) -> dict[str, Any] | None:
-    """The baked ``animation`` section, checked (``animation_bake`` owns its shape)."""
+    """The baked ``animation`` section, checked (``animation_bake`` owns its shape).
+    A malformed section is a sidecar this cadgen cannot read."""
     from cadgen._internal.animation_bake import normalize_baked_animation
 
-    return normalize_baked_animation(block)
+    try:
+        return normalize_baked_animation(block)
+    except ValueError as exc:
+        raise SidecarSchemaError(str(exc)) from None
 
 
 def appearance_digest(block: object) -> str:

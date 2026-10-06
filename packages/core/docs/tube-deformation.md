@@ -1,26 +1,26 @@
 # Flexible tube animation
 
-`m.get(target).deformTube({rest, path, twistDeg=0, maxSegmentLength=1, braid?})`
-animates a continuous tube or hollow sheath already present as a swept STEP
-body. It deforms the original surface and its CAD edge lines in the same shared
-pass used by CAD Viewer and snapshots. It does not create a replacement rope or
-change the STEP artifact. Subsequent rigid occurrence transforms act on the
-deformed result. The paths use assembly coordinates before those transforms.
+A tube track animates a continuous tube or hollow sheath already present as a
+swept STEP body. The model's Python clip authors it with
+`m.get(target).deform_tube(rest=..., path=..., twist_deg=0, max_segment_length=1, braid=None)`,
+and the build bakes it into the sidecar as a `tube` track: one `{path, twistDeg}`
+(or `null`, the rest shape) per key, with the track's `rest`, `maxSegmentLength`
+and optional `braid`, which stay constant through a clip. The runtime deforms
+the original surface and its CAD edge lines in the same shared pass used by CAD
+Viewer and snapshots. It does not create a replacement rope or change the STEP
+artifact. Subsequent rigid occurrence transforms act on the deformed result.
+The paths use assembly coordinates before those transforms.
 
-```js
-const rest = {
-  normal: [0, 0, 1],
-  segments: [{kind: 'line', start: [0, 0, 0], end: [10, 0, 0]}]
-};
-const bent = {
-  normal: [0, 0, 1],
-  segments: [{
-    kind: 'arc', center: [0, 5, 0], axis: [0, 0, 1],
-    start: [0, 0, 0], sweepDeg: 90
-  }]
-};
-// Inside an embedded animation clip update(t, m):
-m.get('tendon').deformTube({rest, path: bent, twistDeg: 360 * t});
+```python
+rest = {"normal": [0, 0, 1], "segments": [{"kind": "line", "start": [0, 0, 0], "end": [10, 0, 0]}]}
+bent = {
+    "normal": [0, 0, 1],
+    "segments": [{"kind": "arc", "center": [0, 5, 0], "axis": [0, 0, 1], "start": [0, 0, 0], "sweepDeg": 90}],
+}
+
+
+def bend(t, m):  # a clip's update(t, m)
+    m.get("#tendon").deform_tube(rest=rest, path=bent, twist_deg=360 * t)
 ```
 
 Each path is `{normal, segments}`. `normal` is REQUIRED on both the rest and
@@ -63,14 +63,17 @@ instead of exhausting memory. Refinement is cached until the rest path or band
 length changes. Original smooth normals are transformed by the deformation's
 local inverse-transpose; silhouettes and technical edges follow the surface.
 
-Every evaluation starts from rest. Omitting `deformTube` on a later frame or
-clearing animation restores the rest shape. Shared component meshes are never
-mutated. A changed centerline can be independently inspected without a renderer:
-`evaluateAnimationClip` returns `deformations`, keyed by occurrence ID. A
-deformation is the NUMBERS — `restSpec`, `pathSpec`, `twistDeg`,
-`maxSegmentLength`, `braid` — validated and owned, never the author's arrays and
-never a compiled path: a morph bake fits on a 96 Hz grid, and a sample that held
-its two arc-length tables would hold hundreds of KB per tube per grid sample.
+Every evaluation starts from rest. A `null` key (a sample that bent no tube)
+or clearing animation restores the rest shape. Between two keys whose paths
+have the same segment kinds, every number of the path and the twist is
+interpolated linearly; otherwise the earlier key holds. Shared component meshes
+are never mutated. A changed centerline can be independently inspected without
+a renderer: `evaluateAnimationClip(THREE, clip, t)` returns `deformations`,
+keyed by occurrence ID. A deformation is the NUMBERS — `restSpec`, `pathSpec`,
+`twistDeg`, `maxSegmentLength`, `braid` — validated and owned, never the
+sidecar's arrays and never a compiled path: a morph bake fits on a 96 Hz grid,
+and a sample that held its two arc-length tables would hold hundreds of KB per
+tube per grid sample.
 `compileDeformation` resolves the two paths through a bounded LRU, for as long
 as the caller is posing with them; `sameTubeDeformation` and `sameTubeRestShape`
 compare two deformations by value. `compileTubePath`, `sampleTubePath`, and
@@ -96,27 +99,26 @@ the same as enabling both at once.
 
 ## The runtime is a lazy chunk
 
-`deformTube` is the only producer of a tube deformation anywhere in this
+A tube track is the only producer of a tube deformation anywhere in this
 package — a step module's effects carry only what an animation frame already
-put there — so a document with no `animation.source` can never reach this code
-and must never download it. `common/tubeDeformationChunk.js` is the boundary:
-`tubeDeformation.js`, `tubeGpuDeformation.js`, `tubeBraidMaterial.js` and
-`tubeMaterialShader.js` load behind one dynamic import, ~29 kB out of the CAD
-Viewer's initial bundle.
+put there — so a document whose clips have no tube track can never reach this
+code and must never download it. `common/tubeDeformationChunk.js` is the
+boundary: `tubeDeformation.js`, `tubeGpuDeformation.js`, `tubeBraidMaterial.js`
+and `tubeMaterialShader.js` load behind one dynamic import, ~29 kB out of the
+CAD Viewer's initial bundle.
 
-The load happens at the single async door every clip must pass through:
-`compileAnimationSource` (and so `loadSourceAnimation`, and `mesh-export.mjs`)
-awaits it before any clip object exists. Declaring an animation is the gate,
-not calling `deformTube`, because a clip may reach for a tube at any `t` and a
-frame must never fall back to the rest pose. Evaluation itself stays
-synchronous and always sees a loaded runtime, so an animated tube renders
-exactly as it did when this was a static import.
+The load happens at the single async door every clip passes through:
+`loadSourceAnimation` (which `mesh-export.mjs` uses too) awaits it, once, when
+some clip of the document has a tube track, before a clip exists to be
+evaluated. The keyframes say up front whether a tube ever bends, so a frame
+never falls back to the rest pose while the chunk loads. Evaluation itself
+stays synchronous and always sees a loaded runtime.
 
 Callers outside the animation path — the scene's effect resets, the display
 edge-line pass — go through `tubeDeformation()`, which answers `null` until the
 chunk lands. That is exact rather than merely tolerant: every one of those
 calls is a reset or a replay, and a record can only hold tube state after a
-deformation was applied. `deformTube` cannot no-op, so it throws through
-`requireTubeDeformation` instead. Code that builds clips by hand rather than
-through `compileAnimationSource` — tests, mostly — awaits
+deformation was applied. A tube track's evaluation cannot no-op, so it throws
+through `requireTubeDeformation` instead. Code that builds clips by hand rather
+than through `loadSourceAnimation` — tests, mostly — awaits
 `loadTubeDeformation()` first.

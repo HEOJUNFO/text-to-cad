@@ -8,8 +8,8 @@ import { applySceneState } from "@text-to-cad/core/common/applySceneState.js";
 import { resetStepModuleRecordEffects } from "@text-to-cad/core/common/stepModuleEffects.js";
 import { loadTubeDeformation } from "@text-to-cad/core/common/tubeDeformationChunk.js";
 
-// `deformTube` needs the lazy tube runtime, which production loads through
-// compileAnimationSource. This clip is built by hand, so load it here.
+// A tube track needs the lazy tube runtime, which production loads through
+// loadSourceAnimation. This clip is built by hand, so load it here.
 await loadTubeDeformation();
 import { viewerHiddenPartIdsForRenderPane, viewerPickModeForRenderPane, viewerSelectedPartIdsForRenderPane, viewerSelectorRuntimeForRenderPane } from "./viewerPickMode.js";
 
@@ -34,7 +34,12 @@ test("Render retains picking proxies while STEP transforms and tube deformation 
     syncSelectorPickGroups(runtime, selectorRuntime);
     assert.ok(runtime.edgePickGroup.children.length > 0);
     const path = y => ({ normal: [0, 0, 1], segments: [{ kind: "line", start: [0, y, 0], end: [10, y, 0] }] });
-    const clip = { duration: 1, update(t, model) { model.get("rope").deformTube({ rest: path(0), path: path(t * 10) }).translate([0, 0, 5]); } };
+    // The rope lifts 5 mm and its centreline slides 10 mm sideways over the second.
+    const clip = { id: "lift", label: "Lift", duration: 1, loop: true, tracks: [
+      { targets: ["o1"], times: [0, 1], rest: path(0), maxSegmentLength: 1,
+        tube: [{ path: path(0), twistDeg: 0 }, { path: path(10), twistDeg: 0 }] },
+      { targets: ["o1"], times: [0], pivot: [0, 0, 0], transform: [[0, 0, 5, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]] }
+    ] };
     const result = applySceneState(THREE, {
       runtime, meshData: { parts: [{ id: "o1", label: "rope" }] }, selectorRuntime,
       animation: { clip, elapsedSec: 0.5 }, onError: ({ error }) => { throw error; }

@@ -1,3 +1,4 @@
+import { atan2, cos, sin } from "../lib/surf/trig.js";
 import { loadTubeDeformation, requireTubeDeformation } from "./tubeDeformationChunk.js";
 import { normalizeSourceAnimation } from "./sourceSidecar.js";
 
@@ -8,7 +9,8 @@ import { normalizeSourceAnimation } from "./sourceSidecar.js";
 // DOFs, presets, or the Pose tab: it pushes matrices and styles through the same
 // effect records the viewer already composes.
 //
-// A clip is {id, label, duration, loop, tracks}. A track drives ONE channel of
+// The section is {clips: [clip, ...]} in the model's declared order; a clip is
+// {id, label, duration, loop, tracks}. A track drives ONE channel of
 // the occurrences it lists (document leaf ids), with one value per time; before
 // its first time and after its last it holds the end value:
 //   transform  [dx, dy, dz, qx, qy, qz, qw, d'x, d'y, d'z, wx, wy, wz]: the
@@ -25,11 +27,16 @@ import { normalizeSourceAnimation } from "./sourceSidecar.js";
 // Every evaluation starts from rest: a clip is a pure function of t, so scrub,
 // loop and seek are free.
 
-/** The clips of a validated animation section, by id. */
+/** The clips of a validated animation section, by id. `order` is each clip's
+ * place in the model's declaration (the first is the one a viewer opens on): an
+ * object lists integer-like keys first, whatever order they were added in. */
 export function normalizeAnimationClips(block) {
   const clips = {};
-  for (const [id, clip] of Object.entries(block?.clips || {})) {
-    clips[id] = { id, label: clip.label || id, duration: clip.duration, loop: clip.loop !== false, tracks: clip.tracks };
+  for (const [order, clip] of (block?.clips || []).entries()) {
+    clips[clip.id] = {
+      id: clip.id, label: clip.label || clip.id, duration: clip.duration, loop: clip.loop !== false,
+      tracks: clip.tracks, order
+    };
   }
   return clips;
 }
@@ -77,22 +84,27 @@ function qmul([ax, ay, az, aw], [bx, by, bz, bw]) {
   ];
 }
 
+// Exactly specified arithmetic only (lib/surf/trig.js, and sqrt rather than
+// Math.hypot): a GLB export samples these, and its bytes must not depend on
+// which engine ran it.
+const norm = (...values) => Math.sqrt(values.reduce((sum, value) => sum + value * value, 0));
+
 // The rotation vector (axis * radians, world frame) that turns quaternion a into b.
 function turnVector(a, b) {
   let [x, y, z, w] = qmul(b, [-a[0], -a[1], -a[2], a[3]]);
   if (w < 0) [x, y, z, w] = [-x, -y, -z, -w];
-  const s = Math.hypot(x, y, z);
+  const s = norm(x, y, z);
   if (s < 1e-12) return [2 * x, 2 * y, 2 * z];
-  const angle = 2 * Math.atan2(s, w);
+  const angle = 2 * atan2(s, w);
   return [x / s * angle, y / s * angle, z / s * angle];
 }
 
 // Quaternion q turned further by the rotation vector v.
 function turned(v, q) {
-  const angle = Math.hypot(v[0], v[1], v[2]);
-  const s = angle < 1e-12 ? 0.5 : Math.sin(angle / 2) / angle;
-  const out = qmul([v[0] * s, v[1] * s, v[2] * s, Math.cos(angle / 2)], q);
-  const n = Math.hypot(out[0], out[1], out[2], out[3]);
+  const angle = norm(v[0], v[1], v[2]);
+  const s = angle < 1e-12 ? 0.5 : sin(angle / 2) / angle;
+  const out = qmul([v[0] * s, v[1] * s, v[2] * s, cos(angle / 2)], q);
+  const n = norm(out[0], out[1], out[2], out[3]);
   return [out[0] / n, out[1] / n, out[2] / n, out[3] / n];
 }
 
@@ -118,7 +130,7 @@ function transformAt(THREE, track, index, u) {
   const [d, q] = u > 0
     ? transformPose(key, track.transform[index + 1], track.times[index + 1] - track.times[index], u)
     : [key.slice(0, 3), key.slice(3, 7)];
-  const n = Math.hypot(q[0], q[1], q[2], q[3]);
+  const n = norm(q[0], q[1], q[2], q[3]);
   const [x, y, z, w] = [q[0] / n, q[1] / n, q[2] / n, q[3] / n];
   const r = [
     1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w),

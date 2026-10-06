@@ -75,7 +75,7 @@ comparisons ignore floating-point noise at a 1e-10 relative tolerance, measured
 against the last meaningful sample so accumulated movement still triggers work.
 Visibility, selection, quality changes and explicit retries remain meaningful.
 
-Scenes with joints, embedded animation, drawing poses or an active/collapsing
+Scenes with joints, animation clips, drawing poses or an active/collapsing
 exploded view keep conservative eligibility, including paused or disabled pose
 capabilities. Authored visibility and material flags are not LOD filters.
 

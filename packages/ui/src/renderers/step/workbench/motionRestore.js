@@ -10,7 +10,7 @@ export function restoreMotionParameters(definition, values, animation) {
 }
 
 // The animation state carried across a load, reconciled against the clips this model actually
-// compiled. A routine never resumes: every open, and every reload of the clips, starts at rest.
+// loaded. A routine never resumes: every open, and every reload of the clips, starts at rest.
 export function restoreMotionAnimation(current, clips) {
   const restored = restoreAnimationState(current, clips);
   return { ...restored, playing: false, elapsedSec: 0 };

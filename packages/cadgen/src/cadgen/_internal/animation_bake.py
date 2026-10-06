@@ -5,7 +5,10 @@ time, against the built tree's occurrence table. What ships is data — the
 ``animation`` section of the model's sidecar — and every renderer
 (``@text-to-cad/core`` ``animationRuntime.js``) interpolates it::
 
-    {"clips": {"<id>": {"label", "duration", "loop", "tracks": [<track>, ...]}}}
+    {"clips": [{"id", "label", "duration", "loop", "tracks": [<track>, ...]}, ...]}
+
+The clips keep the order ``animation=`` declares them in; the first is the one
+a viewer opens on.
 
 A track drives one CHANNEL of a set of leaf occurrences (document ids) that it
 moves identically. ``times`` start at 0, rise strictly, and end at or before
@@ -40,7 +43,8 @@ two rigid transforms differ by an affine map, whose largest displacement over
 the box is at a corner, so the corners bound the error over every point of the
 model. A key's rates are the clip's own (central differences of its samples),
 so a smooth motion needs keys only where its curve changes character, and a
-part turns at most 120 degrees between two kept keys.
+part turns at most 120 degrees between two kept keys. A tube's tolerance is
+measured on points along its centerline and on how far its cross-sections turn.
 """
 
 from __future__ import annotations
@@ -59,6 +63,9 @@ CHANNELS = ("transform", "opacity", "visible", "tube")
 TRANSFORM_TOLERANCE = 1e-4
 LENGTH_FLOOR = 1e-4
 OPACITY_TOLERANCE = 1.0 / 512.0
+# How far a tube's cross-sections may turn from where the clip put them: its
+# twist, and its path's normal (the seed of its frame).
+TUBE_TURN_TOLERANCE_DEG = 0.1
 # A quaternion's sign is chosen to continue the one before it: a part that turns
 # further than this between two samples could be turning either way, and its
 # keys would not say which.
@@ -90,6 +97,10 @@ class AnimationError(ValueError):
 # translation and a quaternion and interpolated without shearing.
 
 _IDENTITY = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0)
+
+
+def _is_identity(t: tuple) -> bool:
+    return max(abs(a - b) for a, b in zip(t, _IDENTITY)) < 1e-12
 
 
 def _compose(a: tuple, b: tuple) -> tuple:
@@ -579,18 +590,51 @@ def _transform_keys(
     return keep, pivot, [[_round(c, digits[n]) for n, c in enumerate(keys[k])] for k in keep]
 
 
-def _flat(path: Mapping[str, Any], twist: float) -> list[float]:
-    numbers = [*path["normal"], twist]
-    for segment in path["segments"]:
-        for field in _SEGMENT_FIELDS[segment["kind"]]:
-            value = segment[field]
-            if field == "points":
-                numbers.extend(c for point in value for c in point)
-            elif field == "sweepDeg":
-                numbers.append(value)
+def _lerp_path(a: Mapping[str, Any], b: Mapping[str, Any], u: float) -> dict[str, Any]:
+    """Every number of two same-shaped centerlines, lerped: what every renderer does."""
+
+    def lerp3(p: Sequence[float], q: Sequence[float]) -> list[float]:
+        return [p[n] + (q[n] - p[n]) * u for n in range(3)]
+
+    segments = []
+    for one, other in zip(a["segments"], b["segments"]):
+        segment: dict[str, Any] = {"kind": one["kind"]}
+        for field in _SEGMENT_FIELDS[one["kind"]]:
+            if field == "sweepDeg":
+                segment[field] = one[field] + (other[field] - one[field]) * u
+            elif field == "points":
+                segment[field] = [lerp3(p, q) for p, q in zip(one[field], other[field])]
             else:
-                numbers.extend(value)
-    return numbers
+                segment[field] = lerp3(one[field], other[field])
+        segments.append(segment)
+    return {"normal": lerp3(a["normal"], b["normal"]), "segments": segments}
+
+
+def _path_points(path: Mapping[str, Any]) -> list[tuple[float, float, float]]:
+    """Points ON a centerline, at fixed fractions of each segment: what a tube
+    error is measured on (an arc's center, say, is not on the tube at all)."""
+    points = []
+    for segment in path["segments"]:
+        kind = segment["kind"]
+        for f in (0.0, 0.25, 0.5, 0.75, 1.0):
+            if kind == "line":
+                s, e = segment["start"], segment["end"]
+                points.append(tuple(s[n] + (e[n] - s[n]) * f for n in range(3)))
+            elif kind == "arc":
+                turn = _rotation(_unit(segment["axis"], "arc axis"), segment["sweepDeg"] * f, tuple(segment["center"]))
+                points.append(_apply_point(turn, turn[9:], segment["start"]))
+            else:
+                p0, p1, p2, p3 = segment["points"]
+                g = 1.0 - f
+                points.append(tuple(
+                    g * g * g * p0[n] + 3 * g * g * f * p1[n] + 3 * g * f * f * p2[n] + f * f * f * p3[n] for n in range(3)
+                ))
+    return points
+
+
+def _angle_deg(a: Sequence[float], b: Sequence[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b)) / (math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b)))
+    return math.degrees(math.acos(max(-1.0, min(1.0, dot))))
 
 
 def _shape(key: Mapping[str, Any] | None) -> tuple | None:
@@ -673,6 +717,8 @@ def bake_clip(clip_id: str, clip: Any, targets: AnimationTargets, bounds: Sequen
         return groups
 
     for sequence, leaves in channel("transform", _IDENTITY).items():
+        if all(value == sequence[0] for value in sequence) and _is_identity(sequence[0]):
+            continue  # touched, never moved
         where = f"animation clip {clip_id!r} part {sorted(leaves, key=_natural)[0]}"
         keep, pivot, values = _transform_keys(times, list(sequence), corners, center, tolerance, where)
         track = _track(leaves, rounded_times, keep, "transform", values)
@@ -683,6 +729,8 @@ def bake_clip(clip_id: str, clip: Any, targets: AnimationTargets, bounds: Sequen
         values = list(sequence)
 
         def opacity_error(i: int, j: int, k: int) -> float:
+            if values[i] is None:  # a run of nulls: _runs anchors both ends, so all null, held
+                return 0.0
             u = (times[k] - times[i]) / (times[j] - times[i])
             return abs(values[i] + (values[j] - values[i]) * u - values[k])
 
@@ -712,15 +760,24 @@ def bake_clip(clip_id: str, clip: Any, targets: AnimationTargets, bounds: Sequen
     for signature, leaves in tube_sequences.items():
         specs = tube_specs[signature]
         keys = [None if s is None else {"path": s["path"], "twistDeg": s["twistDeg"]} for s in specs]
-        flats = [None if key is None else _flat(key["path"], key["twistDeg"]) for key in keys]
-        tube_tolerance = tolerance
+        truth = [None if key is None else _path_points(key["path"]) for key in keys]
 
         def tube_error(i: int, j: int, k: int) -> float:
+            # In tolerances: the centerline's points in mm, and the frame (the
+            # path's normal and the twist) in tenths of a degree.
+            a, b, c = keys[i], keys[j], keys[k]
+            if a is None:  # a run of nulls: _runs anchors both ends, so all null, held
+                return 0.0
             u = (times[k] - times[i]) / (times[j] - times[i])
-            a, b, c = flats[i], flats[j], flats[k]
-            return max(abs(a[n] + (b[n] - a[n]) * u - c[n]) for n in range(len(c)))
+            path = _lerp_path(a["path"], b["path"], u)
+            moved = max(math.dist(p, q) for p, q in zip(_path_points(path), truth[k]))
+            turned = max(
+                abs(a["twistDeg"] + (b["twistDeg"] - a["twistDeg"]) * u - c["twistDeg"]),
+                _angle_deg(path["normal"], c["path"]["normal"]),
+            )
+            return max(moved / tolerance, turned / TUBE_TURN_TOLERANCE_DEG)
 
-        keep = _keep(len(keys), tube_error, tube_tolerance, _runs(keys, _shape))
+        keep = _keep(len(keys), tube_error, 1.0, _runs(keys, _shape))
         rest = next(s for s in specs if s)
         track = _track(leaves, rounded_times, keep, "tube", [None if keys[k] is None else _rounded_tube(keys[k]) for k in keep])
         track["rest"] = _rounded_tube({"path": rest["rest"], "twistDeg": 0.0})["path"]
@@ -731,6 +788,7 @@ def bake_clip(clip_id: str, clip: Any, targets: AnimationTargets, bounds: Sequen
 
     tracks.sort(key=lambda track: (CHANNELS.index(_channel_of(track)), _natural(track["targets"][0])))
     return {
+        "id": clip_id,
         "label": clip.label or clip_id,
         "duration": clip.duration,
         "loop": clip.loop,
@@ -751,7 +809,7 @@ def _channel_of(track: Mapping[str, Any]) -> str:
 
 def bake_animation(clips: Mapping[str, Any], targets: AnimationTargets, bounds: Sequence[Sequence[float]]) -> dict[str, Any]:
     """Every clip of a model, baked: the sidecar's ``animation`` section."""
-    return {"clips": {clip_id: bake_clip(clip_id, clip, targets, bounds) for clip_id, clip in clips.items()}}
+    return {"clips": [bake_clip(clip_id, clip, targets, bounds) for clip_id, clip in clips.items()]}
 
 
 def bake_document_animation(clips: Mapping[str, Any], document_tree: str) -> dict[str, Any]:
@@ -784,14 +842,19 @@ def normalize_baked_animation(block: object) -> dict[str, Any] | None:
     Returns the block (or ``None`` for an empty one); raises with what is wrong."""
     if block is None:
         return None
-    if not isinstance(block, Mapping) or set(block) != {"clips"} or not isinstance(block["clips"], Mapping):
-        raise _fail("the section must be {'clips': {...}}")
+    if not isinstance(block, Mapping) or set(block) != {"clips"} or not isinstance(block["clips"], list):
+        raise _fail("the section must be {'clips': [...]}")
     if not block["clips"]:
         return None
-    for clip_id, clip in block["clips"].items():
+    seen: set[str] = set()
+    for index, clip in enumerate(block["clips"]):
+        if not isinstance(clip, Mapping) or set(clip) != {"id", "label", "duration", "loop", "tracks"}:
+            raise _fail(f"clip {index} must have exactly id, label, duration, loop and tracks")
+        clip_id = clip["id"]
+        if not isinstance(clip_id, str) or not clip_id or clip_id in seen:
+            raise _fail(f"clip {index} needs an id of its own, got {clip_id!r}")
+        seen.add(clip_id)
         where = f"clip {clip_id!r}"
-        if not isinstance(clip, Mapping) or set(clip) != {"label", "duration", "loop", "tracks"}:
-            raise _fail(f"{where} must have exactly label, duration, loop and tracks")
         if not isinstance(clip["label"], str) or not clip["label"] or not _finite(clip["duration"]) or clip["duration"] <= 0 or not isinstance(clip["loop"], bool):
             raise _fail(f"{where} needs a label, a positive duration and a boolean loop")
         if not isinstance(clip["tracks"], list):

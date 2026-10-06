@@ -380,15 +380,15 @@ function roundedPoint(matrix, point) {
   return new THREE.Vector3(...point).applyMatrix4(matrix).toArray().map((v) => Math.round(v * 1e6) / 1e6);
 }
 
-const SLIDE_CLIPS = normalizeAnimationClips({
-  slide: {
-    duration: 4,
-    update(t, m) {
-      // The animation runtime addresses parts by label (part.label || part.name).
-      m.get("Left").translate([t, 0, 0]);
-    }
-  }
-});
+// Left slides +X at 1 mm/s. A track names occurrence ids, and its two keys carry
+// that rate, so every moment between them is exact.
+const SLIDE_CLIPS = normalizeAnimationClips({ clips: [{
+  id: "slide", label: "Slide", duration: 4, loop: true,
+  tracks: [{ targets: ["left"], times: [0, 4], pivot: [0, 0, 0], transform: [
+    [0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0],
+    [4, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0]
+  ] }]
+}] });
 
 function liftRuntime(liftMm) {
   // A one-mate kinematics block in the sidecar's RESOLVED form (world axis
@@ -452,7 +452,7 @@ test("a snapshot frame at time t is the clip evaluated at t, on the rendered rec
   try {
     const byId = new Map(model.displayRecords.map((record) => [record.partId, record]));
     // What the viewer's pass computes for the same clip and elapsedSec.
-    const expected = evaluateAnimationClip(THREE, model.meshData, SLIDE_CLIPS.slide, 1.5);
+    const expected = evaluateAnimationClip(THREE, SLIDE_CLIPS.slide, 1.5);
     assert.deepEqual(
       roundedPoint(byId.get("left").effectMatrix, [0, 0, 0]),
       roundedPoint(expected.matrices.get("left"), [0, 0, 0])
@@ -484,7 +484,7 @@ test("a snapshot frame layers over the kinematics pose in the viewer's order", (
     const left = composed.displayRecords.find((record) => record.partId === "left");
     // Pose first, choreography on top in world space: the clip's matrix
     // PREMULTIPLIES the pose (applyAnimationFrameToEffects), never the reverse.
-    const animMatrix = evaluateAnimationClip(THREE, composed.meshData, SLIDE_CLIPS.slide, 1.5).matrices.get("left");
+    const animMatrix = evaluateAnimationClip(THREE, SLIDE_CLIPS.slide, 1.5).matrices.get("left");
     const expected = new THREE.Matrix4().multiplyMatrices(animMatrix, poseMatrix);
     assert.deepEqual(
       left.effectMatrix.elements.map((v) => Math.round(v * 1e6) / 1e6),

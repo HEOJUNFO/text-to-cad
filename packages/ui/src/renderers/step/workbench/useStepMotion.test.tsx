@@ -6,32 +6,33 @@ import { AnimationClockProvider, createAnimationClock } from '../../../../dist/r
 import { stepPosableDofs } from '../../../../dist/renderers/step/workbench/jointHandles.js';
 import { useStepMotion } from '../../../../dist/renderers/step/workbench/useStepMotion.js';
 
-// A routine's source is compiled by importing it, which this realm cannot do: each compile is
-// counted, and what it compiles to is one routine, `swing`.
-const compiled = vi.hoisted(() => ({ loads: 0 }));
-vi.mock('@text-to-cad/core/common/renderModule.js', async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  const { normalizeAnimationClips } = await import('@text-to-cad/core/common/animationRuntime.js');
-  return { ...actual, loadSourceAnimation: async () => {
-    compiled.loads += 1;
-    return { clips: normalizeAnimationClips({ swing: { label: 'Swing', duration: 4, loop: true, update() {} } }) };
+// Every load of a routine's keyframes is counted; what loads is the sidecar's own, one routine, `swing`.
+const loads = vi.hoisted(() => ({ count: 0 }));
+vi.mock('@text-to-cad/core/common/animationRuntime.js', async (importOriginal) => {
+  const actual = await importOriginal<{ loadSourceAnimation: (...args: unknown[]) => Promise<unknown> }>();
+  return { ...actual, loadSourceAnimation: (...args: unknown[]) => {
+    loads.count += 1;
+    return actual.loadSourceAnimation(...args);
   } };
 });
 
-afterEach(() => { cleanup(); compiled.loads = 0; });
+afterEach(() => { cleanup(); loads.count = 0; });
 
 const swing = { name: 'swing', kind: 'revolute', parent: '#base', child: '#flap',
   axis: { origin: [0, 0, 0], dir: [0, 0, 1] }, limits: { value: [0, 120] } };
 const OPEN = { open: { swing: 90 } };
+// The flap turning a quarter turn about +Z over the routine's 4 s, as the build bakes it.
+const SWING_CLIP = { id: 'swing', label: 'Swing', duration: 4, loop: true, tracks: [{ targets: ['o1.2'], times: [0, 4], pivot: [0, 0, 0],
+  transform: [[0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, Math.PI / 8], [0, 0, 0, 0, 0, Math.SQRT1_2, Math.SQRT1_2, 0, 0, 0, 0, 0, Math.PI / 8]] }] };
 // One save of hinge.step as the catalog lists it: new STEP bytes, and the sidecar written again
 // beside them (a new version on its URL, bound to those bytes), with its mates, named poses and
-// routine (`routine` is its source's hash, which the catalog lists as `animationHash`). No mates and
-// no routine: no sidecar.
+// routine (`routine` is its keyframes' hash, which the catalog lists as `animationHash`). No mates
+// and no routine: no sidecar.
 function saved(revision: number, { mates = [swing], poses = OPEN, routine = '' }: { mates?: object[]; poses?: object; routine?: string } = {}) {
   const documentHash = String(revision).repeat(64);
   const sidecar = { schemaVersion: SOURCE_SIDECAR_SCHEMA_VERSION, documentHash,
     ...(mates.length ? { kinematics: { mates, poses } } : {}),
-    ...(routine ? { animation: { language: 'javascript', source: `export const clips = {}; // ${routine}` } } : {}) };
+    ...(routine ? { animation: { clips: [SWING_CLIP] } } : {}) };
   return { file: 'hinge.step', kind: 'part', hash: `tree-${revision}`, documentHash,
     ...(mates.length ? { poseUrl: `/__cad/asset?file=hinge.step.json&v=${revision}` } : {}),
     ...(mates.length || routine ? { sourceSidecar: sidecar } : {}),
@@ -43,7 +44,7 @@ function mount(entry: ReturnType<typeof saved>) {
   const clock = createAnimationClock();
   const offered: boolean[] = [];
   const hook = renderHook(({ entry }) => {
-    const motion = useStepMotion({ entry, fileKey: entry.file, resources: null, meshData: null, meshPartial: false,
+    const motion = useStepMotion({ entry, fileKey: entry.file, resources: null,
       readStored: () => ({ pose: null }), clipboard: null, reportError: () => {} });
     offered.push(stepPosableDofs(motion.definition).length > 0);
     return motion;
@@ -93,7 +94,7 @@ it('a rebuild keeps the named pose chosen while the joints and named poses are t
   expect(chosen()).toEqual(['', { swing: 0 }]);
 });
 
-it('an update that leaves the routine as it was neither stops nor rewinds it, and keeps the pose it set aside; a changed routine is compiled again, at rest', async () => {
+it('an update that leaves the routine as it was neither stops nor rewinds it, and keeps the pose it set aside; a changed routine is loaded again, at rest', async () => {
   const { result, rerender } = mount(saved(1, { routine: 'swing-1' }));
   await loaded(result, 1);
   await waitFor(() => expect(result.current.animationControls.clips).toHaveLength(1));
@@ -104,17 +105,17 @@ it('an update that leaves the routine as it was neither stops nor rewinds it, an
 
   rerender({ entry: saved(2, { routine: 'swing-1' }) });
   await loaded(result, 2);
-  expect(compiled.loads).toBe(1);
+  expect(loads.count).toBe(1);
   expect(result.current.animationState).toMatchObject({ activeClipId: 'swing', enabled: true, playing: true });
   expect(result.current.animationControls.clips).toHaveLength(1);
   // Leaving preview hands the pose back as Position left it, across the update.
   act(() => result.current.releaseAnimation());
   expect(result.current.parameterValues).toEqual({ swing: 30 });
 
-  // A routine the save changed is compiled again, and is at rest.
+  // A routine the save changed is loaded again, and is at rest.
   act(() => result.current.onPlayToggle());
   rerender({ entry: saved(3, { routine: 'swing-2' }) });
-  await waitFor(() => expect(compiled.loads).toBe(2));
+  await waitFor(() => expect(loads.count).toBe(2));
   await waitFor(() => expect(result.current.animationControls.clips).toHaveLength(1));
   expect(result.current.animationState.playing).toBe(false);
 });

@@ -24,23 +24,15 @@ import {
   sequenceFrameBounds
 } from "./headlessRenderEntry.js";
 
-const SLIDE_CLIPS = normalizeAnimationClips({
-  slide: {
-    duration: 4,
-    update(t, m) {
-      m.get("Left").translate([t, 0, 0]);
-    }
-  },
-  // The same choreography that STOPS at its end. The evaluator clamps this one
-  // rather than wrapping it, so a span running past 4s buys identical frames.
-  once: {
-    duration: 4,
-    loop: false,
-    update(t, m) {
-      m.get("Left").translate([t, 0, 0]);
-    }
-  }
-});
+// Left slides +X at 1 mm/s: keys that carry the rate make every moment between
+// them exact.
+const SLIDE_CLIPS = normalizeAnimationClips({ clips: [{
+  id: "slide", label: "Slide", duration: 4, loop: true,
+  tracks: [{ targets: ["left"], times: [0, 4], pivot: [0, 0, 0], transform: [
+    [0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0],
+    [4, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0]
+  ] }]
+}] });
 
 function twoPartMeshData() {
   return {

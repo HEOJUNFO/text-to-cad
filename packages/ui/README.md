@@ -238,9 +238,9 @@ may rely on.
 
 ## CAD document updates
 
-The STEP renderer consumes the artifact, its schema-9 `.step.json`
-sidecar and immutable store views. Embedded animation, authored appearance and
-kinematics travel in the sidecar; an adjacent `.step.js` is a retired input.
+The STEP renderer consumes the artifact, its schema-10 `.step.json`
+sidecar and immutable store views. Animation keyframes, authored appearance and
+kinematics travel in the sidecar, the one file read beside the document.
 The scene uses progressive component loading and demand-driven exact surfaces.
 The Model tree shares the explorer's row and filter primitives. Its visible expansion
 controls viewport selection, exact topology and optional feature recognition;

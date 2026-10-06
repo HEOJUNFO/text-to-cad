@@ -1266,9 +1266,9 @@ playback only the transport preferences survive leaving — the routine, Speed a
 Loop, kept by a Position edit too (`activatePositionControls` in
 `useStepMotionControls.js`) for as long as the file is mounted: the next preview plays that
 routine from the start. An update of the model that leaves its routines as they were (the
-same `animationHash`) neither stops nor rewinds one that is playing: `useStepMotion` compiles
-routines per `animationKey`, never per catalog entry, and only a changed routine is compiled
-again, at rest. The routine and its time are not saved: a reloaded file starts
+same `animationHash`) neither stops nor rewinds one that is playing: `useStepMotion` loads
+the routines' keyframes per `animationKey`, never per catalog entry, and only a changed routine
+is loaded again, at rest. The routine and its time are not saved: a reloaded file starts
 at rest, with the Speed and Loop its Playback settings chose, if any, and a file opened
 again after the tab left it starts at the defaults. A routine that failed to
 load has no Playback settings to say so in; the viewport's card says
@@ -1299,8 +1299,9 @@ the tick, the clock's adaptive pacing measures a frame's real cost, and only a
 run of frames that all overran slows it (`createAnimationFramePacer` in core's
 `common/animationClock.js`): a frame that misses one vsync publishes on, where
 pacing on it held the routine still for two or three frames and then moved it
-four or five. The clip resolves each `m.get` target once per occurrence table,
-not every frame (`animationRuntime.js`). A frame that
+four or five. A routine's targets resolve when its model builds: each keyframe
+track names its occurrence ids, so a frame resolves no names
+(`animationRuntime.js`). A frame that
 only moved parts skips material and instance-membership reconciliation: the
 effects pass reports whether a style, visibility or highlight changed
 (`applyStepModuleEffectsToRecords`), and moved instances sync their own matrix.

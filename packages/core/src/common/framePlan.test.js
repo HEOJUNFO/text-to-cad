@@ -13,23 +13,13 @@ import {
   resolveFramePlan
 } from "./framePlan.js";
 
-const SLIDE_CLIPS = normalizeAnimationClips({
-  slide: {
-    duration: 4,
-    update(t, m) {
-      m.get("Left").translate([t, 0, 0]);
-    }
-  },
-  // The same choreography that STOPS at its end. The evaluator clamps this one
-  // rather than wrapping it, so a span running past 4s buys identical frames.
-  once: {
-    duration: 4,
-    loop: false,
-    update(t, m) {
-      m.get("Left").translate([t, 0, 0]);
-    }
-  }
-});
+// A schedule reads a clip's duration and whether it loops, never its tracks.
+const SLIDE_CLIPS = normalizeAnimationClips({ clips: [
+  { id: "slide", label: "Slide", duration: 4, loop: true, tracks: [] },
+  // The same span that STOPS at its end. The evaluator clamps this one rather
+  // than wrapping it, so a span running past 4s buys identical frames.
+  { id: "once", label: "Once", duration: 4, loop: false, tracks: [] }
+] });
 
 test("a span defaults to the clip's declared duration", () => {
   const plan = resolveFramePlan({ fps: 30 }, SLIDE_CLIPS.slide);

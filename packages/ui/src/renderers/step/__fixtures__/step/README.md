@@ -23,9 +23,9 @@ one revolute mate. Every property is there for a test:
 | `assembly.json` | 3,010 | `GET /__cad/store?file=<tree>/assembly.json&documentHash=…` — the view descriptor. Carries `kind: "assembly-package"`, the `tree`, the `viewId`, the attested `surfaceProducer`, two components, two occurrences and the model box. |
 | `components/552fc5fd1b854ab4.surf` | 13,966 | `GET /__cad/store?tree=…&surfaceInput=…&object=…` for the base. Exact surfaces; the client tessellates them. |
 | `components/df492f79c6123df5.surf` | 10,478 | the same, for the arm. |
-| `hinge_block.step.json` | 691 | **no request at all.** The harness puts it inline on the catalog entry as `sourceSidecar`, which is what the real scanner does, and the renderer compiles kinematics and animation straight from there. |
+| `hinge_block.step.json` | 2,298 | **no request at all.** The harness puts it inline on the catalog entry as `sourceSidecar`, which is what the real scanner does, and the renderer reads the kinematics and the routine's keyframes straight from there. |
 
-Total 28,145 bytes. No Git attribute applies here (`git check-attr -a` on these
+Total 29,752 bytes. No Git attribute applies here (`git check-attr -a` on these
 paths prints nothing), and the repository carries no LFS. Keep it that way — an
 LFS pointer would be rejected by name at `renderAssetClient.js`'s SURF reader.
 
@@ -37,7 +37,7 @@ the catalog names a store view, not the document.
 `read_source_sidecar` refuses a sidecar whose `schemaVersion` is not current or
 whose `documentHash` is not the digest of the STEP bytes being resolved, and the
 catalog entry then carries no `sourceSidecar` — so the file silently has no
-Position section and nothing to play in preview. This one is bound: `schemaVersion` is 9 and
+Position section and nothing to play in preview. This one is bound: `schemaVersion` is 10 and
 `documentHash` is
 `3c1e7edf8593d6019706ff355445199971b740e2bd0661eda6ade9b961082f58`, the SHA-256
 of the generated `hinge_block.step`, which is also the `documentHash` in
@@ -45,9 +45,12 @@ of the generated `hinge_block.step`, which is also the `documentHash` in
 
 ## Regenerating
 
-`source/hinge_block.py` is the model verbatim. Generated with cadgen **0.6.5**
-(build123d 0.11.1, OCP 7.9.3.1, scheme 19, SURF format 2), in a scratch
-directory, with a cache of its own:
+`source/hinge_block.py` is the model verbatim, its routine a Python clip. The
+view descriptor and the two `.surf` files were generated with cadgen **0.6.5**
+(build123d 0.11.1, OCP 7.9.3.1, scheme 19, SURF format 2); the sidecar was
+rewritten at schema 10 by a later build of the same model, whose STEP bytes did
+not change, so `documentHash` and every id stayed as they were. Build in a
+scratch directory, with a cache of its own:
 
 ```sh
 mkdir -p /tmp/step-fixture/{src,STEP,cache} && cd /tmp/step-fixture
@@ -64,7 +67,8 @@ is the store object named by `surfaceObject` in the **materialized** view
 The served descriptor is the unmaterialized one — that is deliberate, and is why
 the harness must implement `POST /__cad/surfaces`.
 
-Regenerate when the SURF format, the view schema or the sidecar schema moves;
-the component ids, `tree`, `viewId` and `documentHash` all change with it, and
-`stepScenario.mjs` reads every one of them out of `assembly.json` rather than
-hard-coding them.
+Regenerate when the SURF format, the view schema or the sidecar schema moves.
+When the STEP bytes or the view change, the component ids, `tree`, `viewId` and
+`documentHash` change with them, and `stepScenario.mjs` reads every one of them
+out of `assembly.json` rather than hard-coding them; a sidecar schema move that
+leaves the STEP bytes alone rewrites `hinge_block.step.json` only.

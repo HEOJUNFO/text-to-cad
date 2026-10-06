@@ -6,8 +6,8 @@ import { evaluateAnimationClip, applyAnimationFrameToEffects } from './animation
 import { applyStepModuleEffectsToRecords, resetStepModuleRecordEffects } from './stepModuleEffects.js';
 import { loadTubeDeformation } from './tubeDeformationChunk.js';
 
-// `deformTube` needs the lazy tube runtime, which production loads through
-// compileAnimationSource. These clips are built by hand, so load it here.
+// A tube track needs the lazy tube runtime, which production loads through
+// loadSourceAnimation. These clips are built by hand, so load it here.
 await loadTubeDeformation();
 const line=(a,b)=>({kind:'line',start:a,end:b});
 const straight={normal:[0,0,1],segments:[line([0,0,0],[10,0,0])]};
@@ -50,8 +50,10 @@ test('world-space paths respect an occurrence-local STEP geometry and rigid effe
   r.baseTransform=[1,0,0,100,0,1,0,0,0,0,1,0,0,0,0,1];
   const rest={segments:[line([100,0,0],[110,0,0])],normal:[0,0,1]};
   const path={segments:[line([100,10,0],[110,10,0])],normal:[0,0,1]};
-  const clip={duration:1,update(t,m){m.get('rope').deformTube({rest,path}).translate([0,0,5]);}};
-  const frame=evaluateAnimationClip(THREE,{parts:[{id:'o1',label:'rope'}]},clip,.5),effects=new Map();
+  const clip={id:'lift',label:'Lift',duration:1,loop:true,tracks:[
+    {targets:['o1'],times:[0],rest,maxSegmentLength:1,tube:[{path,twistDeg:0}]},
+    {targets:['o1'],times:[0],pivot:[0,0,0],transform:[[0,0,5,0,0,0,1,0,0,0,0,0,0]]}]};
+  const frame=evaluateAnimationClip(THREE,clip,.5),effects=new Map();
   applyAnimationFrameToEffects(THREE,effects,frame);
   applyStepModuleEffectsToRecords(THREE,[r],effects);
   near(Array.from(r.geometry.attributes.position.array.slice(0,3)),[0,10,1]);
@@ -67,9 +69,11 @@ test('twist advects authored braid offsets without moving the centerline endpoin
   near(Array.from(r.geometry.attributes.normal.array.slice(0,3)),[0,-1,0]);
 });
 test('seek order has no effect and skipping deformation restores the rest mesh',()=>{
-  const r=record(fixture()), mesh={parts:[{id:'o1',label:'rope'}]};
-  const clip={duration:1,loop:false,update(t,m){if(t>0)m.get('rope').deformTube({rest:straight,path:elbow,twistDeg:360*t});}};
-  const frame=(t)=>{const effects=new Map();applyAnimationFrameToEffects(THREE,effects,evaluateAnimationClip(THREE,mesh,clip,t));applyStepModuleEffectsToRecords(THREE,[r],effects);return r.geometry.attributes.position.array.slice();};
+  // At rest at 0, then bent and twisting: 36 degrees at 0.1 s, 360 at 1 s.
+  const r=record(fixture());
+  const clip={id:'twist',label:'Twist',duration:1,loop:false,tracks:[{targets:['o1'],times:[0,.1,1],rest:straight,maxSegmentLength:1,
+    tube:[null,{path:elbow,twistDeg:36},{path:elbow,twistDeg:360}]}]};
+  const frame=(t)=>{const effects=new Map();applyAnimationFrameToEffects(THREE,effects,evaluateAnimationClip(THREE,clip,t));applyStepModuleEffectsToRecords(THREE,[r],effects);return r.geometry.attributes.position.array.slice();};
   const expected=frame(.35);frame(.9);frame(.2);assert.deepEqual(frame(.35),expected);
   assert.deepEqual(frame(0),fixture().attributes.position.array);
 });
@@ -137,7 +141,7 @@ test('projection onto a coil spring helix lands on the exact closest point and r
 test('broken centerlines and unknown keys fail loudly rather than drawing plausible wrong ropes',()=>{
   assert.throws(()=>compileTubePath({normal:[0,0,1],segments:[line([0,0,0],[1,0,0]),line([2,0,0],[3,0,0])]}),/discontinuity/);
   assert.throws(()=>compileTubePath({normal:[0,0,1],segments:[line([0,0,0],[1,0,0]),line([1,0,0],[1,1,0])]}),/tangent-continuous/);
-  assert.throws(()=>compileTubePath({segments:[line([0,0,0],[1,0,0])]}),/deformTube: path normal is required.*both the rest and the posed path/);
+  assert.throws(()=>compileTubePath({segments:[line([0,0,0],[1,0,0])]}),/tube deformation: path normal is required.*both the rest and the posed path/);
   assert.throws(()=>compileTubePath({normal:[1,0,0],segments:[line([0,0,0],[1,0,0])]}),/transverse to first tangent/);
   assert.throws(()=>normalizeTubeDeformation({rest:straight,path:straight,typo:1}),/unknown deformation key/);
   assert.throws(()=>compileTubePath({normal:[0,0,1],segments:[{...elbow.segments[0],center:[0,5,1]}]}),/normal plane/);

@@ -173,7 +173,11 @@ export function useStepMotion({ entry, fileKey, resources, readStored, clipboard
         restored: restoredPose
       });
       setStepModuleLoadState({ ...resolved.loadState, file: fileKey });
-      const parameterValues = restoreMotionParameters(definition, resolved.parameterValues, animationStateRef.current);
+      // A first load restores the stored pose whatever the transport opened on: the clip a
+      // model's routines open with is not a routine anyone ran, and whether the clips or the
+      // kinematics load first is a race. Only a reload weighs a routine that owns the pose.
+      const parameterValues = restoreMotionParameters(definition, resolved.parameterValues,
+        reloading ? animationStateRef.current : null);
       stepModuleParameterValuesRef.current = parameterValues;
       setStepModuleParameterValues(parameterValues);
       if (!kept) setAppliedStepPoseName("");

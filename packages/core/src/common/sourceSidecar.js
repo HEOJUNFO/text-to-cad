@@ -187,8 +187,8 @@ export function sourceAppearanceGeometry(meshData) {
 
 // The animation section is keyframes cadgen baked from the model's clips
 // (cadgen/_internal/animation_bake.py writes it and checks it the same way):
-// {clips: {id: {label, duration, loop, tracks}}}. animationRuntime.js says what
-// each channel means.
+// {clips: [{id, label, duration, loop, tracks}, ...]}, in the order the model
+// declares them. animationRuntime.js says what each channel means.
 const ANIMATION_CHANNELS = ["transform", "opacity", "visible", "tube"];
 const TRACK_EXTRAS = { transform: ["pivot"], tube: ["rest", "maxSegmentLength", "braid"] };
 const finite = (value) => typeof value === "number" && Number.isFinite(value);
@@ -236,23 +236,27 @@ function checkTrack(track, where, duration) {
 
 export function normalizeSourceAnimation(block) {
   if (block === undefined || block === null) return null;
-  if (!isObject(block) || Object.keys(block).length !== 1 || !isObject(block.clips)) {
-    throw animationError("the section must be {clips: {...}}");
+  if (!isObject(block) || Object.keys(block).length !== 1 || !Array.isArray(block.clips)) {
+    throw animationError("the section must be {clips: [...]}");
   }
-  const entries = Object.entries(block.clips);
-  if (!entries.length) return null;
-  for (const [id, clip] of entries) {
-    const where = `clip ${JSON.stringify(id)}`;
+  if (!block.clips.length) return null;
+  const seen = new Set();
+  for (const [index, clip] of block.clips.entries()) {
     const keys = isObject(clip) ? Object.keys(clip).sort().join() : "";
-    if (keys !== "duration,label,loop,tracks") {
-      throw animationError(`${where} must have exactly label, duration, loop and tracks`);
+    if (keys !== "duration,id,label,loop,tracks") {
+      throw animationError(`clip ${index} must have exactly id, label, duration, loop and tracks`);
     }
+    if (typeof clip.id !== "string" || !clip.id || seen.has(clip.id)) {
+      throw animationError(`clip ${index} needs an id of its own, got ${JSON.stringify(clip.id)}`);
+    }
+    seen.add(clip.id);
+    const where = `clip ${JSON.stringify(clip.id)}`;
     if (typeof clip.label !== "string" || !clip.label || !finite(clip.duration) || clip.duration <= 0
       || typeof clip.loop !== "boolean") {
       throw animationError(`${where} needs a label, a positive duration and a boolean loop`);
     }
     if (!Array.isArray(clip.tracks)) throw animationError(`${where} tracks must be a list`);
-    clip.tracks.forEach((track, index) => checkTrack(track, `${where} track ${index}`, clip.duration));
+    clip.tracks.forEach((track, trackIndex) => checkTrack(track, `${where} track ${trackIndex}`, clip.duration));
   }
   return block;
 }

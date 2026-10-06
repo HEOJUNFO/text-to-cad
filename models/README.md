@@ -28,7 +28,7 @@ own `src/README.md` catalog.
 
 **Each cad-project has the same shape**, the one the `$cad` skill's `project-layout.md` reference
 defines: authored code in `src/` (one `@step` or `@dxf` model per file, shared
-modules in `src/lib/`, and animation source embedded in owning `@step` declarations),
+modules in `src/lib/`, and animation clips declared on their owning `@step`),
 raw artifacts in format folders (`STEP/`, `DXF/`, `3MF/`, `GLB/`, `STL/`),
 committed inputs no script regenerates in `<FORMAT>/imported/`, scratch in
 `tmp/`, and a `.gitignore` that keeps the artifacts out of the repo. A fresh
@@ -69,7 +69,7 @@ For manual edge-case checks and debugging, use [tests/](tests/README.md). Automa
   one group per assembly: `src/<assembly>/` holds the root model plus every
   part model and helper that assembly owns, with artifacts in
   `STEP/<assembly>/` (meshes in `STL|3MF|GLB/<assembly>/`). Several carry typed
-  mates and animation source embedded in their owning `@step` declarations
+  mates and animation clips on their owning `@step` declarations
   (`planetary_gear_assembly`, `mars_rover_concept`).
 - [drawings/](drawings/src/README.md): 2D `@dxf` drawings as one cad-project,
   one script each, artifacts in `DXF/`.
@@ -166,7 +166,8 @@ either.
 A project's articulation is split three ways (see the `$cad` skill's
 `kinematics.md`): geometry parameters are the model function's signature,
 typed mates are pure data under the `@step` decorator's `kinematics=`, and
-choreography is JavaScript source embedded in Python and passed to `animation=`. The retired `.params.js`
+choreography is Python clips (`cadgen.clip`) passed to `animation=`, baked to
+keyframes in the sidecar when the model builds. The retired `.params.js`
 sidecars are gone from every package here.
 
 Some packages keep a `render/` subfolder holding presentation-theme JSON,

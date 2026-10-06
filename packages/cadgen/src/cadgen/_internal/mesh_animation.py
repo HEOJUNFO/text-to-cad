@@ -270,7 +270,7 @@ def resolve_animation(document: Path, request: dict[str, object]) -> tuple[Anima
     if animation is None:
         raise ValueError(f"{Path(document).name} has no animation in its sidecar. Declare animation= on @step.")
     clip_name = str(request["clip"])
-    declared = list(animation["clips"])
+    declared = [clip["id"] for clip in animation["clips"]]
     if clip_name not in declared:
         raise ValueError(f"Unknown animation clip: {clip_name}. This model declares: {', '.join(declared)}")
     data = json.dumps(animation, sort_keys=True, separators=(",", ":"))

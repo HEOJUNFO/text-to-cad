@@ -215,9 +215,10 @@ test("actual module and animation removal restores rest records even beside a ne
       ctx.effects.transform("a1", { translate: [3, 2, 1] });
       ctx.effects.style("a1", { color: "#ff0000", opacity: .4 });
     } } } } : null;
-    const animation = kind === "animation" ? { elapsedSec: 0, clip: { duration: 1, update(t, model) {
-      model.get("a1").translate([3, 2, 1]).opacity(.4);
-    } } } : null;
+    const animation = kind === "animation" ? { elapsedSec: 0, clip: { id: "lift", label: "Lift", duration: 1, loop: true, tracks: [
+      { targets: ["a1"], times: [0], pivot: [0, 0, 0], transform: [[3, 2, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]] },
+      { targets: ["a1"], times: [0], opacity: [.4] }
+    ] } } : null;
     try {
       for (const f of [control, optimized]) {
         publish(f, source, visual, clip, false);
