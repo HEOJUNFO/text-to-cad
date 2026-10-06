@@ -23,14 +23,11 @@ import {
   replacingSameFileMesh,
   retainsPreviousStepMesh,
   shouldRetainCompleteSameFileMesh,
-  tolerantAnimationClip,
   createDecodeSizeEstimator,
   PROGRESSIVE_LOAD_MAX_INFLIGHT_BYTES,
   PROGRESSIVE_LOAD_UNMEASURED_SHARE
 } from "./packageProgressiveLoad.js";
 import { createViewerMemoryPolicy } from "../../../render/viewerMemoryPolicy.js";
-import { createAnimationFrame } from "@text-to-cad/core/common/animationRuntime.js";
-import * as THREE from "three";
 
 const IDENTITY_4X4 = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 
@@ -727,53 +724,26 @@ test("window.__cadMeshCost updates on every publish and clears on cancel", async
   }
 });
 
-test("embedded animation attaches on the FIRST publish; absent labels are no-ops until they arrive; validation waits for the complete model", async () => {
+test("a published mesh state is the complete model only on the final publish", async () => {
   const descriptor = makeDescriptor({ componentCount: 9, occurrenceCount: 18 });
   const { loadComponent } = makeLoader(descriptor);
-  // A real clip over the real runtime handle: rotates every occurrence by label.
-  const clip = {
-    id: "wave", duration: 1, loop: true,
-    update(t, m) {
-      for (const occurrence of descriptor.occurrences) {
-        m.get(occurrence.name).rotate([0, 0, 1], 90 * t);
-      }
-    }
-  };
-  const runs = [];
-  const validations = [];
+  const complete = [];
   await createProgressivePackageLoader({
     descriptor,
     loadComponent,
     concurrency: 3,
     maxComponents: 4,
     onPublish: ({ meshData, final }) => {
-      const meshState = { file: "hand.step", meshData, assemblyInteractionReady: final };
-      const complete = meshStateIsComplete(meshState);
-      validations.push(complete);
-      // The workspace hands the viewer the strict clip for the complete model
-      // and the tolerant one while partial; the module is attached either way.
-      const playable = complete ? clip : tolerantAnimationClip(clip);
-      const frame = createAnimationFrame(THREE, meshData);
-      playable.update(0.5, frame.model);
-      runs.push({ bound: frame.matrices.size, present: meshData.parts.length });
+      complete.push(meshStateIsComplete({ file: "hand.step", meshData, assemblyInteractionReady: final }));
     }
   }).run();
-  assert.equal(runs.length, 3, "invoked on every publish, the first included");
-  // Every present occurrence is bound; absent ones were no-ops (no throw).
-  for (const run of runs) {
-    assert.equal(run.bound, run.present);
-  }
-  assert.ok(runs[0].bound > 0 && runs[0].bound < 18, "partial: some occurrences bound, the rest pending");
-  assert.equal(runs.at(-1).bound, 18, "late occurrences bound once they arrived");
-  assert.deepEqual(validations, [false, false, true], "clip validation gate: complete model only");
-  // The strict clip against a partial composition is the failure the wrapper prevents.
+  assert.deepEqual(complete, [false, false, true]);
   const partial = buildComposedPackageMeshData(descriptor, { c0: fakeComponent("c0") });
-  assert.throws(() => clip.update(0.5, createAnimationFrame(THREE, partial).model), /no occurrence labeled/);
+  assert.equal(meshStateIsComplete({ meshData: partial }), false, "a composition still missing components");
   assert.equal(meshStateIsComplete(null), false);
   assert.equal(meshStateIsComplete({ meshData: { parts: null }, assemblyInteractionReady: false }), false, "assembly preview");
   assert.equal(meshStateIsComplete({ meshData: { parts: [], missingComponentIds: ["c1"] } }), false);
   assert.equal(meshStateIsComplete({ meshData: { parts: [] } }), true, "non-package meshes carry no flag");
-  assert.equal(tolerantAnimationClip(null), null);
 });
 
 test("byte-aware admission: decodes in flight stay under the byte budget, and under the count cap", async () => {

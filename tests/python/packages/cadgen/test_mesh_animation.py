@@ -1,9 +1,9 @@
 """`cadgen glb build --animation`: the request's shape, and every refusal.
 
 What Python owns of an animated export is the REQUEST — its closed key set, its
-bounds, the clip name checked against the module in the document's sidecar, and
-the freshness variant that makes an edited animation a miss. The sampling itself is
-JavaScript and is tested there (packages/core/src/lib/export).
+bounds, the clip name checked against the clips baked into the document's
+sidecar, and the freshness variant that makes a rebaked animation a miss. The
+resampling itself is JavaScript and is tested there (packages/core/src/lib/export).
 
 Every test below is a file that would otherwise have been written: a clip
 dropped into an STL, a bad fps discovered after a tessellation, a typo'd clip
@@ -39,12 +39,15 @@ from cadgen._internal.mesh_door import mesh_build  # noqa: E402
 from cadgen._internal.mesh_export import GLB_SERIALIZATION_VERSION, mesh_variant_key  # noqa: E402
 from cadgen.cli import glb_build  # noqa: E402
 
-MODULE_SOURCE = """
-export const clips = {
-  showcase: { duration: 8, update(t, m) { m.get("arm").rotate([0, 0, 1], t); } },
-  teardown: { duration: 4, update(t, m) { m.get("arm").translate([t, 0, 0]); } },
-};
-"""
+# The document sidecar's animation section, as a build bakes it: two clips of one part.
+ANIMATION = {"clips": [
+    {"id": "showcase", "label": "Showcase", "duration": 8, "loop": True,
+     "tracks": [{"targets": ["o1.2"], "times": [0], "visible": [False]}]},
+    {"id": "teardown", "label": "Teardown", "duration": 4, "loop": False,
+     "tracks": [{"targets": ["o1.2"], "times": [0, 4], "opacity": [1, 0.25]}]},
+]}
+# What an export captures of it, and keys its variant on.
+ANIMATION_DATA = json.dumps(ANIMATION, sort_keys=True, separators=(",", ":"))
 
 
 class TheRequestShape(unittest.TestCase):
@@ -67,8 +70,8 @@ class TheRequestShape(unittest.TestCase):
         self.assertEqual(expected, parse_animation_option(json.dumps(request)))
 
     def test_seconds_stays_unresolved_because_only_the_clip_knows_its_duration(self):
-        # The default is what is LEFT of the clip from `start`, which lives in
-        # JavaScript. None travels to the builder, which resolves it there.
+        # The default is what is LEFT of the clip from `start`. None travels to
+        # the builder, which reads the clip and resolves it there.
         self.assertIsNone(parse_animation_option({"clip": "showcase", "start": 2})["seconds"])
 
     def test_an_unknown_key_names_the_ones_that_exist(self):
@@ -175,11 +178,11 @@ class TheRequestShape(unittest.TestCase):
         # a bake keeps exactly the canonical form -- and the token -- it always had.
         loose = animation_variant_token(
             parse_animation_option({"clip": "showcase", "deform": "morph", "deformTolerance": 1.0}),
-            MODULE_SOURCE,
+            ANIMATION_DATA,
         )
         tight = animation_variant_token(
             parse_animation_option({"clip": "showcase", "deform": "morph", "deformTolerance": 0.25}),
-            MODULE_SOURCE,
+            ANIMATION_DATA,
         )
         self.assertNotEqual(loose, tight)
         self.assertEqual(
@@ -196,39 +199,38 @@ class TheRequestShape(unittest.TestCase):
 class TheFreshnessVariant(unittest.TestCase):
     """An animated GLB is not a function of the document's bytes alone."""
 
-    def test_the_token_moves_with_the_clip_source_and_with_the_request(self):
+    def test_the_token_moves_with_the_keyframes_and_with_the_request(self):
         request = parse_animation_option("showcase")
-        base = animation_variant_token(request, MODULE_SOURCE)
-        self.assertEqual(base, animation_variant_token(dict(request), MODULE_SOURCE))
-        # Edited embedded animation is a DIFFERENT export of the same document bytes.
-        self.assertNotEqual(base, animation_variant_token(request, MODULE_SOURCE + "\n"))
+        base = animation_variant_token(request, ANIMATION_DATA)
+        self.assertEqual(base, animation_variant_token(dict(request), ANIMATION_DATA))
+        # A rebaked animation is a DIFFERENT export of the same document bytes.
+        rebaked = ANIMATION_DATA.replace('"duration":8', '"duration":9')
+        self.assertNotEqual(ANIMATION_DATA, rebaked)
+        self.assertNotEqual(base, animation_variant_token(request, rebaked))
         # So is a different span of the same clip.
         self.assertNotEqual(
-            base, animation_variant_token(parse_animation_option({"clip": "showcase", "fps": 24}), MODULE_SOURCE)
+            base, animation_variant_token(parse_animation_option({"clip": "showcase", "fps": 24}), ANIMATION_DATA)
         )
 
-    def test_pre_snapshot_animation_ledger_cannot_satisfy_captured_source_export(self):
-        import hashlib
+    def test_an_export_ledgered_for_other_keyframes_is_not_current(self):
         from cadgen._internal.mesh_export import document_mesh_current, record_document_mesh
         from cadgen.store.records import note_document_tree
         from tests.python.support.tmp_root import generated_cad_directory
 
         request = parse_animation_option("showcase")
-        canonical = json.dumps(request, sort_keys=True, separators=(",", ":"))
-        old_token = hashlib.sha256((canonical + "\0" + MODULE_SOURCE).encode()).hexdigest()[:32]
-        captured_token = animation_variant_token(request, MODULE_SOURCE)
-        self.assertNotEqual(old_token, captured_token)
+        ledgered = animation_variant_token(request, ANIMATION_DATA)
+        rebaked = animation_variant_token(request, ANIMATION_DATA.replace('"duration":8', '"duration":9'))
         with generated_cad_directory(prefix="animation-ledger-admission-") as folder:
             root = Path(folder)
             output = root / "arm.glb"
-            output.write_bytes(b"an old export whose module may have raced")
+            output.write_bytes(b"an export of the keyframes the sidecar held then")
             with mock.patch.dict("os.environ", {"CADGEN_CACHE_DIR": str(root / "store")}):
                 note_document_tree("a" * 64, "b" * 64)
                 variant = dict(document_hash="a" * 64, fmt="glb", mesh_tolerance=None,
                                mesh_angular_tolerance=None)
-                record_document_mesh(output, **variant, animation_key=old_token)
-                self.assertTrue(document_mesh_current(output, **variant, animation_key=old_token))
-                self.assertFalse(document_mesh_current(output, **variant, animation_key=captured_token))
+                record_document_mesh(output, **variant, animation_key=ledgered)
+                self.assertTrue(document_mesh_current(output, **variant, animation_key=ledgered))
+                self.assertFalse(document_mesh_current(output, **variant, animation_key=rebaked))
 
     def test_a_static_variant_binds_absent_appearance_and_an_animated_one_cannot_collide(self):
         from cadgen._internal.source_sidecar import appearance_digest
@@ -244,7 +246,7 @@ class TheFreshnessVariant(unittest.TestCase):
 
 
 class ResolvingTheClip(unittest.TestCase):
-    """The render module beside the document, read before anything tessellates."""
+    """The keyframes in the document's sidecar, read before anything tessellates."""
 
     def setUp(self) -> None:
         stack = contextlib.ExitStack()
@@ -253,30 +255,33 @@ class ResolvingTheClip(unittest.TestCase):
         self.document = self.root / "arm.step"
         self.document.write_text("ISO-10303-21;\n", encoding="utf-8")
 
-    def _write_module(self) -> Path:
-        from cadgen._internal.source_sidecar import write_source_sidecar, source_sidecar_path
-        write_source_sidecar(self.document, {"animation": {"language": "javascript", "source": MODULE_SOURCE}})
-        return source_sidecar_path(self.document)
+    def _write_animation(self) -> None:
+        from cadgen._internal.source_sidecar import write_source_sidecar
+        write_source_sidecar(self.document, {"animation": ANIMATION})
 
     def test_a_document_with_no_animation_says_what_to_author(self):
         with self.assertRaises(ValueError) as caught:
             resolve_animation(self.document, parse_animation_option("showcase"))
-        self.assertIn("arm.step has no animation in its sidecar", str(caught.exception))
-        self.assertIn("animation=", str(caught.exception))
+        self.assertEqual(
+            "arm.step has no animation in its sidecar. Declare animation= on @step.", str(caught.exception)
+        )
 
-    def test_a_clip_the_module_does_not_declare_fails_with_the_ones_it_does(self):
-        self._write_module()
+    def test_a_clip_the_sidecar_does_not_hold_fails_with_the_ones_it_does(self):
+        self._write_animation()
         with self.assertRaises(ValueError) as caught:
             resolve_animation(self.document, parse_animation_option("showcse"))
-        self.assertIn("Unknown animation clip: showcse", str(caught.exception))
-        self.assertIn("This model declares: showcase, teardown", str(caught.exception))
+        self.assertEqual(
+            "Unknown animation clip: showcse. This model declares: showcase, teardown", str(caught.exception)
+        )
 
-    def test_a_declared_clip_resolves_to_the_module_and_a_variant_token(self):
-        module = self._write_module()
+    def test_a_declared_clip_resolves_to_the_captured_keyframes_and_a_variant_token(self):
+        import hashlib
+
+        self._write_animation()
         snapshot, token = resolve_animation(self.document, parse_animation_option("teardown"))
-        self.assertEqual(module, snapshot.path)
-        self.assertEqual(MODULE_SOURCE, snapshot.source)
-        self.assertEqual(animation_variant_token(parse_animation_option("teardown"), MODULE_SOURCE), token)
+        self.assertEqual(ANIMATION_DATA, snapshot.data)
+        self.assertEqual(hashlib.sha256(self.document.read_bytes()).hexdigest(), snapshot.document_hash)
+        self.assertEqual(animation_variant_token(parse_animation_option("teardown"), ANIMATION_DATA), token)
 
 
 class WhatCannotCarryAClip(unittest.TestCase):
@@ -290,7 +295,7 @@ class WhatCannotCarryAClip(unittest.TestCase):
         self.document = root / "arm.step"
         self.document.write_text("ISO-10303-21;\n", encoding="utf-8")
         from cadgen._internal.source_sidecar import write_source_sidecar
-        write_source_sidecar(self.document, {"animation": {"language": "javascript", "source": MODULE_SOURCE}})
+        write_source_sidecar(self.document, {"animation": ANIMATION})
 
     def test_the_stl_and_3mf_doors_refuse_a_clip_rather_than_dropping_it(self):
         # mesh_build IS those doors' body, so this is where a clip reaching a
@@ -357,7 +362,7 @@ class TheDoorPassesItThrough(unittest.TestCase):
         self.document = root / "arm.step"
         self.document.write_text("ISO-10303-21;\n", encoding="utf-8")
         from cadgen._internal.source_sidecar import write_source_sidecar
-        write_source_sidecar(self.document, {"animation": {"language": "javascript", "source": MODULE_SOURCE}})
+        write_source_sidecar(self.document, {"animation": ANIMATION})
         self.out = root / "arm-demo.glb"
 
     @contextlib.contextmanager
@@ -494,13 +499,13 @@ class WhatTheLedgerServes(unittest.TestCase):
         self.document = root / "arm.step"
         self.document.write_text("ISO-10303-21;\n", encoding="utf-8")
         from cadgen._internal.source_sidecar import write_source_sidecar
-        write_source_sidecar(self.document, {"animation": {"language": "javascript", "source": MODULE_SOURCE}})
+        write_source_sidecar(self.document, {"animation": ANIMATION})
         self.out = root / "arm-demo.glb"
 
     def _run(self, animation, *, written, baked):
         """``export_cad_target`` with the tessellation stubbed out.
 
-        The clip resolves for real against the module beside the document; only
+        The clip resolves for real against the document's sidecar; only
         the meshing is replaced, because what is under test is what the door
         REPORTS about a job the ledger already satisfied.
         """

@@ -9,8 +9,8 @@ and browser runtimes used by the CLI. Skills invoke the installed distribution.
 The HTTP layer uses Python's standard library and requires Python 3.11 or newer.
 It imports the lightweight cadgen catalog and store helpers, but never imports
 the CAD kernel at module scope. Viewing renders existing artifacts, their
-optional `<name>.step.json` kinematics sidecar and `<name>.step.js` authored
-render module, and their cached geometry. Model source changes never trigger a
+optional `<name>.step.json` sidecar (kinematics, appearance and animation
+keyframes), and their cached geometry. Model source changes never trigger a
 rebuild. The one compile operation offered by the viewer is importing a foreign
 STEP through cadgen's build worker pool.
 

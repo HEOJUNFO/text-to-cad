@@ -159,7 +159,7 @@ job carries it as one `animation` object — `time` is not a top-level job key:
 }
 ```
 
-`clip` names a clip embedded in the document sidecar's animation and is required;
+`clip` names a clip in the document's sidecar and is required;
 `time` is seconds, finite and >= 0, defaulting to 0. A bare clip name is the
 FLAG's spelling, not the job's: `"animation": "demo"` is refused, as is any key
 the job does not support — the error lists the supported set.

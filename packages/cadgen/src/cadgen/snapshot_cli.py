@@ -1178,7 +1178,7 @@ def check_step_pose_and_clip_names(
         if animation_block is None:
             raise SnapshotError(f"{input_name} has no animation in its sidecar. Declare animation= on @step.")
         clip_name = str(animation_request["clip"])
-        declared_clips = list(animation_block["clips"])
+        declared_clips = [clip["id"] for clip in animation_block["clips"]]
         if clip_name not in declared_clips:
             raise SnapshotError(f"Unknown animation clip: {clip_name}. This model declares: {', '.join(declared_clips)}")
 

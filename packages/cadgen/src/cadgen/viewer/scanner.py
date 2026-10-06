@@ -141,7 +141,7 @@ _HASH_CACHE_LIMIT = 4096
 _HASH_CACHE_LOCK = threading.Lock()
 
 # A STEP catalog row is derived from immutable geometry plus the document-bound
-# sidecar, including its optional embedded animation. Catalog
+# sidecar, including its optional animation keyframes. Catalog
 # refreshes still resolve the document digest to its current tree on every
 # read; only the expensive flattened-tree validation and annotation shaping is
 # reused when all of those inputs are unchanged. Misses build outside the lock;

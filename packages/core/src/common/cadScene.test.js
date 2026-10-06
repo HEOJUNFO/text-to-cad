@@ -26,8 +26,8 @@ import {
 import { applyRecordTubeDeformation, normalizeTubeDeformation } from "./tubeDeformation.js";
 import { loadTubeDeformation } from "./tubeDeformationChunk.js";
 
-// `deformTube` needs the lazy tube runtime, which production loads through
-// compileAnimationSource. These clips are built by hand, so load it here.
+// A tube track needs the lazy tube runtime, which production loads through
+// loadSourceAnimation. These clips are built by hand, so load it here.
 await loadTubeDeformation();
 import { applySceneState } from "./applySceneState.js";
 import { applyPartVisualState as applyViewerPartVisualState } from "../lib/viewer/partVisualState.js";
@@ -1823,14 +1823,16 @@ test("direct viewer effects and clip passes synchronize shared surfaces without 
         ctx.effects.style("o0", { color });
         if (mirror) ctx.effects.transform("o0", { scale: [-1, 2, 1] });
       } } } },
-      animation: { elapsedSec: 0, clip: { duration: 1, update(t, model) {
-        const handle = model.get("o0").visible(visible).opacity(opacity).translate([4, 2, 1]);
-        if (deform) handle.deformTube({
+      animation: { elapsedSec: 0, clip: { id: "pass", label: "Pass", duration: 1, loop: true, tracks: [
+        { targets: ["o0"], times: [0], visible: [visible] },
+        { targets: ["o0"], times: [0], opacity: [opacity] },
+        { targets: ["o0"], times: [0], pivot: [0, 0, 0], transform: [[4, 2, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]] },
+        ...(deform ? [{
+          targets: ["o0"], times: [0], maxSegmentLength: 1000,
           rest: { normal: [0, 0, 1], segments: [{ kind: "line", start: [0, 0, 0], end: [3, 0, 0] }] },
-          path: { normal: [0, 0, 1], segments: [{ kind: "line", start: [0, 0, 2], end: [0, 3, 2] }] },
-          maxSegmentLength: 1000
-        });
-      } } }
+          tube: [{ path: { normal: [0, 0, 1], segments: [{ kind: "line", start: [0, 0, 2], end: [0, 3, 2] }] }, twistDeg: 0 }]
+        }] : [])
+      ] } }
     });
     for (const item of runtime.displayRecords) applyDisplayRecordTransform(THREE, item);
     applyViewerPartVisualState(THREE, runtime.displayRecords, { showEdges: true, ...selection });

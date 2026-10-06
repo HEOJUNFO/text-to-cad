@@ -25,12 +25,12 @@ in [the drawing contract](../ui/docs/drawing.md); the mechanism is
 
 - **Viewer three-input law**: a client renders from the file, its optional
   sidecar (`<name>.step.json`), and the cache — never source, never a build.
-  Animation source is embedded in that one sidecar; no adjacent JavaScript
-  file is discovered or fetched. The
+  Animation is keyframes in that one sidecar: a document ships no code, and
+  no adjacent file is discovered or fetched. The
   code in this package must be writable against exactly those inputs.
   An explicitly attached editing session may provide an immutable preview
   tree and resolved kinematics instead; it must not alias that tree to saved
-  STEP bytes. Saved schema-9 sidecars require a matching document digest and
+  STEP bytes. Saved schema-10 sidecars require a matching document digest and
   use a closed declaration envelope. Their appearance section supplies named,
   sparse PBR materials plus canonical leaf assignments. Composition carries
   material ids and names into mesh data, owns its appearance wrappers, and never
@@ -81,21 +81,20 @@ in [the drawing contract](../ui/docs/drawing.md); the mechanism is
   clipping and explode remain model tools, outside preset selection and Custom
   comparison. View Reset clears display overrides and disables those tools. The grouped contract and the rig it drives:
   [docs/render-pipeline.md](docs/render-pipeline.md).
-- **Kinematics is data, choreography is JS, independently**: the FK
+- **Kinematics and choreography are data, independently**: the FK
   evaluator (`kinematicsRuntime.js`) folds sidecar mate data into
   transforms and is the operation-for-operation twin of the Python
   evaluator (`cadgen/_internal/kinematics_fk.py`) — a viewer slider and an
   exported bake agree to the bit. The animation runtime
-  (`animationRuntime.js`) evaluates the `clips` exported by the self-contained
-  JavaScript source in `sidecar.animation` (compiled by `renderModule.js`), with the
-  `m.get(target)` handle contract (premultiplying calls, reset to rest every
-  frame, pure in t). Neither half references the other; they
-  meet only in the effect records. Flexible swept bodies use
+  (`animationRuntime.js`) interpolates the keyframes in `sidecar.animation`,
+  `{clips: [{id, label, duration, loop, tracks}, ...]}`, which cadgen bakes
+  from the model's Python clips when it builds. Each track drives one channel
+  (transform, opacity, visible or tube) of the document occurrence ids it
+  lists; an evaluation is a pure function of t, so scrub, loop and seek are
+  free. It runs no model code and resolves no names. Neither half references
+  the other; they meet only in the effect records. Flexible swept bodies use
   [tube deformation](docs/tube-deformation.md), deforming the original STEP
   tessellation through analytic centerlines in that same shared effects pass.
-  Browser imports use temporary Blob URLs, revoked after module evaluation;
-  hosts with a content security policy allow `blob:` in `script-src`. Node
-  imports use data URLs because its ESM loader does not support Blob URLs.
 - **One scene builder per file family, two callers**: a GLB, an STL or 3MF, and a
   robot description (URDF, SRDF, SDF) are each drawn by ONE builder here
   (`lib/render/glbScene.js`, `lib/render/meshScene.js`, `lib/urdf/robotScene.js`, over
@@ -175,9 +174,7 @@ docs/              # subsystem docs (the map below)
 Contract mirrors that must stay in lockstep (each has a sync test):
 `lib/cadRefs.js` ↔ `cadgen/cad_ref_syntax.py`;
 `common/kinematicsRuntime.js` ↔ `cadgen/_internal/kinematics_fk.py`;
-tessellation v4 keys, headers and mesh-index records ↔ `cadgen/store/meshes.py`;
-`common/renderModule.js`'s animation exports and their refusals ↔ the build's
-check in `cadgen/_internal/animation_source.py` (both read `common/renderModule.parity.json`).
+tessellation v4 keys, headers and mesh-index records ↔ `cadgen/store/meshes.py`.
 
 Where the mechanism is written:
 

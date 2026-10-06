@@ -111,10 +111,9 @@ export function progressiveLoadProgress(loaded, total, detail = undefined) {
 }
 
 // Whether a published mesh state is the COMPLETE model: the final publish
-// (assemblyInteractionReady true, every component composed). Embedded animation
-// attaches on the first publish and stays live across publishes; what waits for
-// the complete state is clip validation, which
-// reports every label the composition lacks — noise against a partial one.
+// (assemblyInteractionReady true, every component composed). Animation attaches
+// on the first publish and stays live across publishes: its tracks name
+// occurrence ids, so they drive whatever has arrived.
 export function meshStateIsComplete(meshState) {
   if (!meshState?.meshData) {
     return false;

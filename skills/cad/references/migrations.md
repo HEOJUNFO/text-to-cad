@@ -13,22 +13,18 @@ native geometry; see [inspection](inspection-and-validation.md).
 ## A migration message is a task
 
 When a build, snapshot or validation reports that a model needs
-migrating (a sidecar refused for its schema version, a leftover companion file
-the build warns about, a retired decorator argument or command named by a
-teaching error), do the migration then, as part of the work in hand. Do not
-route around it, silence it, or leave it for later: the CAD Viewer does not
-flag a stale model, so an unmigrated one simply loses its kinematics,
-materials and animation and looks like a plain part.
+migrating (a sidecar refused for its schema version, a retired decorator
+argument or command named by a teaching error), do the migration then, as part
+of the work in hand. Do not route around it, silence it, or leave it for later:
+the CAD Viewer does not flag a stale model, so an unmigrated one simply loses
+its kinematics, materials and animation and looks like a plain part.
 
 - A refused sidecar (`unsupported sidecar schema N (expected M)`) is fixed by
   running the model's script again (`python <model>.py`), which writes a current
   sidecar beside the STEP. For an imported STEP that has no script, re-annotate
-  it with `cadgen step build`. Never edit `schemaVersion` by hand.
-- A leftover companion render module beside the STEP (a `.js` file named after
-  the document; the build warns it "is a retired render module") is read by
-  nothing, so its clips are missing from the model. Move them into
-  `@step(animation=...)` ([kinematics](kinematics.md)), delete the file and
-  rebuild.
+  it with `cadgen step build`; clips need a model script
+  ([schema 10](#sidecar-schema-10-animation-is-python-clips)). Never edit
+  `schemaVersion` by hand.
 - After migrating, confirm it took: the sidecar declares the current schema and
   the document's hash, the build printed no migration warning, and the model
   articulates (a `cadgen step snapshot --kinematics …` pose differs from rest,
@@ -51,10 +47,8 @@ materials and animation and looks like a plain part.
 - **A model that used to articulate renders inert**, presenting as a plain
   document with no pose and no animation. Nothing is discovered by convention:
   kinematics and animation are `kinematics=` and `animation=` on the model's
-  decorator, and the build puts both in the document's sidecar. A companion
-  JavaScript file beside the document is no longer read. A generated model's
-  build warns about the leftover file and names the replacement decorator;
-  the warning does not stop the build.
+  decorator, and the build puts both in the document's sidecar. A JavaScript
+  file beside the document is read by nothing.
 - **Meshes come out visibly coarser or finer, with no error.** Mesh tolerance
   kept its name and changed meaning — chord tolerance is a fraction of the
   component's bounding diagonal, not an absolute length — so a value carried
@@ -66,6 +60,65 @@ materials and animation and looks like a plain part.
 A migrated source may still have incompatible saved outputs. Rebuild or
 re-annotate the affected document as the error directs; preserve imported
 sources and do not delete unrelated artifacts to diagnose a version mismatch.
+
+## Sidecar schema 10: animation is Python clips
+
+A schema-10 sidecar carries animation as keyframes the build samples from
+Python clips. A schema-9 sidecar is refused, and `@step(animation=...)` refuses
+a JavaScript module string (`@step animation= must be a dict of clip id ->
+cadgen.clip(update, duration=...), got str`). Port each clip in the module's
+`export const clips` to a Python function:
+
+```python
+# Before: a JavaScript module in a string
+ANIMATION = r"""
+export const clips = {
+  demo: {
+    label: "Demo",
+    duration: 8,
+    loop: false,
+    update(t, m) {
+      const angle = 60 * (1 - Math.cos(2 * Math.PI * t / 8));
+      m.get("forearm").rotate([0, 0, 1], angle, [0, 0, 0]);
+      m.get("#o1.3,#o1.4").opacity(0.5);
+    },
+  },
+};
+"""
+```
+
+```python
+# After: Python clips
+import math
+
+import cadgen
+
+
+def demo(t, m):
+    angle = 60 * (1 - math.cos(2 * math.pi * t / 8))
+    m.get("#forearm").rotate((0, 0, 1), angle, (0, 0, 0))
+    m.get("#o1.3", "#o1.4").opacity(0.5)
+
+
+ANIMATION = {"demo": cadgen.clip(demo, duration=8, loop=False, label="Demo")}
+```
+
+- `rotate`, `translate`, `opacity` and `visible` keep their names and
+  arguments. `deformTube({rest, path, twistDeg, maxSegmentLength, braid})`
+  becomes `deform_tube(rest=..., path=..., twist_deg=...,
+  max_segment_length=..., braid=...)`; the paths keep their shape.
+- Every target starts with `#`: a bare label becomes `"#label"`, an occurrence
+  id is `"#o1.3"`, and a comma list becomes one argument per target.
+- A group's name resolves directly and moves every part beneath it, so a group
+  needs no occurrence id.
+- The module's unexported helpers and constants become ordinary Python.
+- A document annotated with `cadgen step build --animation` has no script to
+  rebuild: wrap it in a model script that reads it with `read_step`, and
+  declare the clips there.
+
+Then rebuild the model (`python <model>.py`), which writes a schema-10 sidecar.
+Targets are checked as it builds: a label no part carries fails the build,
+naming the clip and the time.
 
 ## Migration guides
 

@@ -12,51 +12,62 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { normalizeAnimationClips } from "../../common/animationRuntime.js";
 import { resolveFramePlan } from "../../common/framePlan.js";
 import { restrictAnimationToNodes, sampleClipAnimation } from "./packageAnimation.js";
 import { loadTubeDeformation } from "../../common/tubeDeformationChunk.js";
 
-// `deformTube` needs the lazy tube runtime, which production loads through
-// compileAnimationSource. These clips are built by hand, so load it here.
+// A tube track needs the lazy tube runtime, which production loads through
+// loadSourceAnimation. These clips are built by hand, so load it here.
 await loadTubeDeformation();
 
-const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+// Keyframes as cadgen bakes them, over the document's occurrence ids: o1.2 is a
+// spinner and o1.3 a lid.
+const DEG = Math.PI / 180;
 
-const DESCRIPTOR = {
-  kind: "assembly-package",
-  components: { c0: { surf: "components/c0.surf" } },
-  occurrences: [
-    { id: "o1.1", name: "base", component: "c0", transform: IDENTITY },
-    { id: "o1.2", name: "spinner", component: "c0", transform: IDENTITY },
-    { id: "o1.3", name: "lid", component: "c0", transform: IDENTITY },
-  ],
-};
-
-function clipsFor(update, { duration = 4, loop = true } = {}) {
-  return normalizeAnimationClips({ showcase: { duration, loop, update } }).showcase;
+/** A transform key: the pivot moved by `d` at `rate`, turned `deg` about CAD +Z at `degPerSec`. */
+function key(d, deg = 0, rate = [0, 0, 0], degPerSec = 0) {
+  return [...d, 0, 0, Math.sin((deg * DEG) / 2), Math.cos((deg * DEG) / 2), ...rate, 0, 0, degPerSec * DEG];
 }
 
-function sample(update, request = { fps: 10, seconds: 2 }, options = {}, clipOptions = {}) {
-  const clip = clipsFor(update, clipOptions);
+const transform = (target, times, keys, pivot = [0, 0, 0]) => ({ targets: [target], times, pivot, transform: keys });
+
+/** `target` sliding along CAD +X at `speed` mm/s for the whole 4 s clip. */
+const slide = (target, speed = 1) =>
+  transform(target, [0, 4], [key([0, 0, 0], 0, [speed, 0, 0]), key([4 * speed, 0, 0], 0, [speed, 0, 0])]);
+
+function sample(tracks, request = { fps: 10, seconds: 2 }, options = {}) {
+  const clip = { id: "showcase", label: "Showcase", duration: 4, loop: true, tracks };
   const plan = resolveFramePlan(request, clip, { label: "animation" });
-  return { plan, ...sampleClipAnimation(DESCRIPTOR, clip, plan, options) };
+  return { plan, ...sampleClipAnimation(clip, plan, options) };
 }
 
 function channelFor(result, node) {
   return result.channels.find((channel) => channel.node === node) || null;
 }
 
+function assertOneHemisphere(result) {
+  const rotation = channelFor(result, "o1.2").rotation;
+  for (let index = 1; index < result.times.length; index += 1) {
+    const previous = index * 4 - 4;
+    const current = index * 4;
+    const dot = rotation[previous] * rotation[current]
+      + rotation[previous + 1] * rotation[current + 1]
+      + rotation[previous + 2] * rotation[current + 2]
+      + rotation[previous + 3] * rotation[current + 3];
+    assert.ok(dot >= 0, `sample ${index} flipped hemisphere (dot ${dot})`);
+  }
+}
+
 test("a rotation about a non-origin pivot lands as quaternion AND translation", () => {
   // 90 degrees about CAD +Z over 4s, taken about (40, 0, 0) mm. The plan's last
   // sample is t = 1.9s, so 42.75 degrees.
-  const result = sample((t, m) => {
-    m.get("spinner").rotate([0, 0, 1], 90 * (t / 4), [40, 0, 0]);
-  });
+  const result = sample([
+    transform("o1.2", [0, 4], [key([0, 0, 0], 0, [0, 0, 0], 22.5), key([0, 0, 0], 90, [0, 0, 0], 22.5)], [40, 0, 0])
+  ]);
   const channel = channelFor(result, "o1.2");
   assert.ok(channel, "the moving occurrence has a channel");
 
-  const half = (42.75 / 2) * (Math.PI / 180);
+  const half = (42.75 / 2) * DEG;
   // CAD +Z is glTF +Y after the (x, y, z) -> (x, z, -y) change of basis, so the
   // quaternion turns about Y, not Z. Getting this wrong swings the part around
   // the wrong axis while every other assertion still passes.
@@ -67,7 +78,7 @@ test("a rotation about a non-origin pivot lands as quaternion AND translation", 
   assert.ok(Math.abs(last[3] - Math.cos(half)) < 1e-6, `qw ${last[3]}`);
 
   // The pivot is carried by the TRANSLATION half: p - R p, in metres.
-  const angle = 42.75 * (Math.PI / 180);
+  const angle = 42.75 * DEG;
   const pivot = 40 * 0.001;
   const expected = [pivot - (pivot * Math.cos(angle)), 0, pivot * Math.sin(angle)];
   const translation = channel.translation.slice(-3);
@@ -82,21 +93,17 @@ test("a rotation about a non-origin pivot lands as quaternion AND translation", 
 });
 
 test("an occurrence the clip never moves emits no channel", () => {
-  const result = sample((t, m) => {
-    m.get("spinner").translate([t, 0, 0]);
-  });
+  // The lid has a track, but its one key is the rest pose.
+  const result = sample([slide("o1.2"), transform("o1.3", [0], [key([0, 0, 0])])]);
   assert.deepEqual(result.channels.map((channel) => channel.node), ["o1.2"]);
-  assert.equal(channelFor(result, "o1.1"), null);
   assert.equal(channelFor(result, "o1.3"), null);
   // ...and nothing is written on its node either, so the file's rest pose IS the
   // geometry as baked.
-  assert.equal(result.rest.has("o1.1"), false);
+  assert.equal(result.rest.has("o1.3"), false);
 });
 
 test("a constant offset rides the node's own transform, not a channel of identical keys", () => {
-  const result = sample((_t, m) => {
-    m.get("lid").translate([0, 0, 10]);
-  });
+  const result = sample([transform("o1.3", [0], [key([0, 0, 10])])]);
   assert.deepEqual(result.channels, []);
   const rest = result.rest.get("o1.3");
   // CAD +Z (10 mm) is glTF +Y, at 0.01 m.
@@ -105,10 +112,7 @@ test("a constant offset rides the node's own transform, not a channel of identic
 });
 
 test("the time accessor IS the schedule, re-based to zero", () => {
-  const result = sample(
-    (t, m) => m.get("spinner").translate([t, 0, 0]),
-    { fps: 12, seconds: 1.5, start: 2 }
-  );
+  const result = sample([slide("o1.2")], { fps: 12, seconds: 1.5, start: 2 });
   assert.equal(result.plan.frameCount, 18);
   assert.equal(result.times.length, 18);
   // `start` picks where in the CLIP the span begins; the exported animation runs
@@ -124,7 +128,7 @@ test("the time accessor IS the schedule, re-based to zero", () => {
 });
 
 test("opacity is refused by name, and dropping it bakes the value at start", () => {
-  const fade = (t, m) => m.get("lid").opacity(t < 1 ? 1 : 0.25);
+  const fade = [{ targets: ["o1.3"], times: [0, 1], opacity: [1, 0.25] }];
   assert.throws(() => sample(fade), /animates \.opacity\(\) on o1\.3/);
   assert.throws(() => sample(fade), /drop: \["opacity"\]/);
 
@@ -135,7 +139,7 @@ test("opacity is refused by name, and dropping it bakes the value at start", () 
 });
 
 test("visibility is refused by name, and dropping it omits what is hidden at start", () => {
-  const blink = (t, m) => m.get("lid").visible(t > 1);
+  const blink = [{ targets: ["o1.3"], times: [0, 1], visible: [false, true] }];
   assert.throws(() => sample(blink), /animates \.visible\(\) on o1\.3/);
 
   const dropped = sample(blink, { fps: 10, seconds: 2 }, { drop: ["visible"] });
@@ -145,38 +149,38 @@ test("visibility is refused by name, and dropping it omits what is hidden at sta
 
 test("a dropped effect this export cannot bake is refused rather than ignored", () => {
   assert.throws(
-    () => sample((t, m) => m.get("spinner").translate([t, 0, 0]), { fps: 10, seconds: 1 },
-      { drop: ["deformTube"] }),
+    () => sample([slide("o1.2")], { fps: 10, seconds: 1 }, { drop: ["tube"] }),
     /droppable effects: opacity, visible/
   );
 });
 
-test("tube deformation: refused by default, collected under morph, explicit about rest", () => {
-  const tendon = (t, m) => m.get("spinner").deformTube({
-    rest: { normal: [0, 0, 1], segments: [{ kind: "line", start: [0, 0, 0], end: [10, 0, 0] }] },
-    path: { normal: [0, 0, 1], segments: [{ kind: "line", start: [0, 0, 0], end: [10, t, 0] }] },
-  });
-  assert.throws(() => sample(tendon), /deforms tube geometry on o1\.2/);
-  assert.throws(() => sample(tendon), /deform: "morph"/);
-  assert.throws(() => sample(tendon), /deform: "rest"/);
+const line = (end) => ({ kind: "line", start: [0, 0, 0], end });
+const STRAIGHT = { normal: [0, 0, 1], segments: [line([10, 0, 0])] };
 
-  const rest = sample(tendon, { fps: 10, seconds: 1 }, { deform: "rest" });
+/** The spinner's tendon: a straight cord whose end rises 1 mm/s over the clip. */
+const tendon = (extra = {}) => [{
+  targets: ["o1.2"], times: [0, 4], rest: STRAIGHT, maxSegmentLength: 1, ...extra,
+  tube: [{ path: STRAIGHT, twistDeg: 0 }, { path: { normal: [0, 0, 1], segments: [line([10, 4, 0])] }, twistDeg: 0 }]
+}];
+
+test("tube deformation: refused by default, collected under morph, explicit about rest", () => {
+  assert.throws(() => sample(tendon()), /deforms tube geometry on o1\.2/);
+  assert.throws(() => sample(tendon()), /deform: "morph"/);
+  assert.throws(() => sample(tendon()), /deform: "rest"/);
+
+  const rest = sample(tendon(), { fps: 10, seconds: 1 }, { deform: "rest" });
   assert.equal(rest.channels.length, 0);
   assert.equal(rest.deformations.size, 0, "rest mode collects nothing to bake");
   assert.match(rest.warnings[0], /ships o1\.2 at rest shape/);
 
   assert.throws(
-    () => sample(tendon, { fps: 10, seconds: 1 }, { deform: "freeze" }),
+    () => sample(tendon(), { fps: 10, seconds: 1 }, { deform: "freeze" }),
     /deform must be one of refuse, morph, rest/
   );
 });
 
 test("morph collects the deformation on the FIT grid, not the export's frames", () => {
-  const tendon = (t, m) => m.get("spinner").deformTube({
-    rest: { normal: [0, 0, 1], segments: [{ kind: "line", start: [0, 0, 0], end: [10, 0, 0] }] },
-    path: { normal: [0, 0, 1], segments: [{ kind: "line", start: [0, 0, 0], end: [10, t, 0] }] },
-  });
-  const morph = sample(tendon, { fps: 24, seconds: 1 }, { deform: "morph" });
+  const morph = sample(tendon(), { fps: 24, seconds: 1 }, { deform: "morph" });
   // 24 fps x 4 = 96 Hz, the floor; 24 export frames span 23 intervals, so the
   // grid is 23 * 4 + 1 samples and every export frame is one of them.
   assert.equal(morph.grid.hz, 96);
@@ -197,17 +201,19 @@ test("morph collects the deformation on the FIT grid, not the export's frames", 
     );
   }
   // A low fps still measures at the 96 Hz floor rather than certifying itself.
-  assert.equal(sample(tendon, { fps: 8, seconds: 1 }, { deform: "morph" }).grid.hz, 96);
+  assert.equal(sample(tendon(), { fps: 8, seconds: 1 }, { deform: "morph" }).grid.hz, 96);
 });
 
-test("a clip that re-routes a tube's REST path mid-span has no base mesh, and says so", () => {
-  const reroute = (t, m) => m.get("spinner").deformTube({
-    // The rest path itself moves with t: there is no one shape the targets could
-    // be deltas against, and blending toward one that was never this pose's rest
-    // would bend the tube through whatever it runs inside.
-    rest: { normal: [0, 0, 1], segments: [{ kind: "line", start: [0, 0, 0], end: [10 + t, 0, 0] }] },
-    path: { normal: [0, 0, 1], segments: [{ kind: "line", start: [0, 0, 0], end: [10 + t, t, 0] }] },
-  });
+test("a tube whose REST path changes mid-span has no base mesh, and says so", () => {
+  // A baked track carries one rest path; a document that bends o1.2 about one rest
+  // and then another, in two tracks, has no one shape the targets could be deltas
+  // against, and blending toward one that was never this pose's rest would bend
+  // the tube through whatever it runs inside.
+  const longer = { normal: [0, 0, 1], segments: [line([12, 0, 0])] };
+  const reroute = [
+    { targets: ["o1.2"], times: [0, 0.5], rest: STRAIGHT, maxSegmentLength: 1, tube: [{ path: STRAIGHT, twistDeg: 0 }, null] },
+    { targets: ["o1.2"], times: [0, 0.5], rest: longer, maxSegmentLength: 1, tube: [null, { path: longer, twistDeg: 0 }] },
+  ];
   assert.throws(
     () => sample(reroute, { fps: 10, seconds: 1 }, { deform: "morph" }),
     /changes the REST path of o1\.2/,
@@ -217,33 +223,22 @@ test("a clip that re-routes a tube's REST path mid-span has no base mesh, and sa
 });
 
 test("a braided cord under morph warns that the weave is a shader, not geometry", () => {
-  const braided = (t, m) => m.get("spinner").deformTube({
-    rest: { normal: [0, 0, 1], segments: [{ kind: "line", start: [0, 0, 0], end: [10, 0, 0] }] },
-    path: { normal: [0, 0, 1], segments: [{ kind: "line", start: [0, 0, 0], end: [10, t, 0] }] },
-    braid: { pitch: 0.8, depth: 0.02, strands: 8 },
-  });
+  const braided = tendon({ braid: { pitch: 0.8, depth: 0.02, strands: 8 } });
   const morph = sample(braided, { fps: 10, seconds: 1 }, { deform: "morph" });
   assert.match(morph.warnings.join("\n"), /o1\.2 carries a braid/);
   assert.equal(morph.warnings.length, 1, "only the unsupported braid finish needs a warning");
 });
 
 test("quaternion samples stay in one hemisphere so a keyframe never takes the long way", () => {
-  // Two and a half turns: the naive per-sample quaternion flips sign every half
-  // turn, and glTF interpolates the numbers, not the rotation.
+  // Two and a half turns, keyed every half second: the naive per-sample
+  // quaternion flips sign every half turn, and glTF interpolates the numbers,
+  // not the rotation.
+  const times = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4];
   const result = sample(
-    (t, m) => m.get("spinner").rotate([0, 0, 1], 900 * (t / 4)),
+    [transform("o1.2", times, times.map((t) => key([0, 0, 0], 225 * t, [0, 0, 0], 225)))],
     { fps: 30, seconds: 4 }
   );
-  const rotation = channelFor(result, "o1.2").rotation;
-  for (let index = 1; index < result.times.length; index += 1) {
-    const previous = index * 4 - 4;
-    const current = index * 4;
-    const dot = rotation[previous] * rotation[current]
-      + rotation[previous + 1] * rotation[current + 1]
-      + rotation[previous + 2] * rotation[current + 2]
-      + rotation[previous + 3] * rotation[current + 3];
-    assert.ok(dot >= 0, `sample ${index} flipped hemisphere (dot ${dot})`);
-  }
+  assertOneHemisphere(result);
 });
 
 test("an occurrence hidden at start loses its motion too, and is told so", () => {
@@ -252,12 +247,8 @@ test("an occurrence hidden at start loses its motion too, and is told so", () =>
   // occurrence from the file entirely, so a channel for it would target a node
   // no primitive declared — a throw out of the glTF writer, reached by
   // following the visibility refusal's own advice.
-  const reveal = (t, m) => {
-    const cover = m.get("lid");
-    cover.visible(t > 1);
-    cover.translate([10 * t, 0, 0]);
-  };
-  const result = sample(reveal, { fps: 10, seconds: 2 }, { drop: ["visible"] });
+  const hidden = { targets: ["o1.3"], times: [0, 1], visible: [false, true] };
+  const result = sample([hidden, slide("o1.3", 10)], { fps: 10, seconds: 2 }, { drop: ["visible"] });
 
   assert.deepEqual([...result.statics.hidden], ["o1.3"]);
   assert.equal(channelFor(result, "o1.3"), null, "a hidden occurrence has no channel");
@@ -266,13 +257,12 @@ test("an occurrence hidden at start loses its motion too, and is told so", () =>
 
   // An occurrence that is hidden and STILL is unaffected: nothing was lost, so
   // nothing is said about it beyond the effect being frozen.
-  const still = sample((t, m) => m.get("lid").visible(t > 1), { fps: 10, seconds: 2 },
-    { drop: ["visible"] });
+  const still = sample([hidden], { fps: 10, seconds: 2 }, { drop: ["visible"] });
   assert.equal(still.warnings.length, 1);
 });
 
 test("a channel the export has no geometry for is dropped by name, not thrown at by the writer", () => {
-  const result = sample((t, m) => m.get("spinner").translate([10 * t, 0, 0]));
+  const result = sample([slide("o1.2", 10)]);
   assert.ok(channelFor(result, "o1.2"), "the occurrence moves");
 
   // What the mesh build actually produced: o1.2 tessellated to nothing, so the
@@ -287,23 +277,16 @@ test("a channel the export has no geometry for is dropped by name, not thrown at
 });
 
 test("a track that returns to rest after passing 180 degrees stays in one hemisphere", () => {
-  // 270 degrees over the first half of the clip, then untouched: the frames
-  // after it stop are REST samples, and a rest sample pushed as a bare identity
-  // is the one pair the hemisphere alignment used to skip.
+  // 270 degrees over the first two seconds, back to rest at 2.5 s, and held there:
+  // the rest samples decompose to the identity quaternion, the far hemisphere from
+  // the samples just before them.
+  const times = [0, 0.5, 1, 1.5, 2, 2.5];
+  const degrees = [0, 67.5, 135, 202.5, 270, 360];
   const result = sample(
-    (t, m) => { if (t < 2) m.get("spinner").rotate([0, 0, 1], 270 * (t / 2)); },
+    [transform("o1.2", times, degrees.map((deg, index) => key([0, 0, 0], deg, [0, 0, 0], index < 5 ? 135 : 0)))],
     { fps: 5, seconds: 4 }
   );
-  const rotation = channelFor(result, "o1.2").rotation;
-  for (let index = 1; index < result.times.length; index += 1) {
-    const previous = index * 4 - 4;
-    const current = index * 4;
-    const dot = rotation[previous] * rotation[current]
-      + rotation[previous + 1] * rotation[current + 1]
-      + rotation[previous + 2] * rotation[current + 2]
-      + rotation[previous + 3] * rotation[current + 3];
-    assert.ok(dot >= 0, `sample ${index} flipped hemisphere (dot ${dot})`);
-  }
+  assertOneHemisphere(result);
 });
 
 // A cord shaped like a real tendon: a lead-in line and a tangent-continuous cubic.
@@ -330,8 +313,10 @@ test("the fit grid retains a deformation's NUMBERS, never the paths they compile
   // a sample that holds its two COMPILED paths holds two adaptive arc-length tables
   // — hundreds of KB each. The grid stopped being a schedule and became the model,
   // 48 times over, and the export died at the heap limit before writing a byte.
+  const times = [0, 0.25, 0.5, 0.75, 1];
   const result = sample(
-    (t, m) => m.get("spinner").deformTube({ rest: CORD_REST, path: cordAt(3 * Math.sin(t)) }),
+    [{ targets: ["o1.2"], times, rest: CORD_REST, maxSegmentLength: 1,
+      tube: times.map((t) => ({ path: cordAt(3 * Math.sin(t)), twistDeg: 0 })) }],
     { fps: 12, seconds: 1 },
     { deform: "morph" },
   );
@@ -350,32 +335,4 @@ test("the fit grid retains a deformation's NUMBERS, never the paths they compile
     // makes the rest constant, so storing it per sample is storing it 97 times.
     assert.equal(deformation.restSpec, entry.rest.restSpec);
   }
-});
-
-test("a sampled deformation OWNS its numbers: a reused control array cannot change what was sampled", () => {
-  // Authors may build one array and mutate it every frame; the old code survived
-  // that only because it stringified the spec on the spot. Now that a spec is
-  // retained for the whole bake, the copy is what keeps 27,504 samples from all
-  // aliasing the one array that is about to change under them.
-  const reused = [40, 0, 0];
-  const result = sample(
-    (t, m) => {
-      reused[1] = t;
-      m.get("spinner").deformTube({
-        rest: { normal: [0, 0, 1], segments: [{ kind: "line", start: [0, 0, 0], end: [40, 0, 0] }] },
-        path: { normal: [0, 0, 1], segments: [{ kind: "line", start: [0, 0, 0], end: reused }] },
-      });
-    },
-    { fps: 12, seconds: 1 },
-    { deform: "morph" },
-  );
-  const entry = result.deformations.get("o1.2");
-  const sampled = entry.samples.map((sample) => sample.deformation.pathSpec.segments[0].end[1]);
-  assert.ok(new Set(sampled).size > 1, "the clip really did move the endpoint");
-  reused[1] = 999;
-  assert.deepEqual(
-    entry.samples.map((sample) => sample.deformation.pathSpec.segments[0].end[1]),
-    sampled,
-    "mutating the author's array after sampling changed what had already been sampled",
-  );
 });

@@ -108,9 +108,9 @@ def normalize_clips(value: object, *, where: str) -> dict[str, Clip] | None:
         )
     clips: dict[str, Clip] = {}
     for clip_id, entry in value.items():
-        if not isinstance(clip_id, str) or not clip_id.strip():
-            raise _fail(f"{where} clip ids must be nonempty strings, got {clip_id!r}")
+        if not isinstance(clip_id, str) or not clip_id or clip_id != clip_id.strip():
+            raise _fail(f"{where} clip ids must be nonempty strings without surrounding spaces, got {clip_id!r}")
         if not isinstance(entry, Clip):
             raise _fail(f"{where}[{clip_id!r}] must be built by cadgen.clip(update, duration=...), got {type(entry).__name__}")
-        clips[clip_id.strip()] = entry
+        clips[clip_id] = entry
     return clips

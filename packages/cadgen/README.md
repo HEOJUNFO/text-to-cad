@@ -54,8 +54,8 @@ renders.
 
 - Nothing a renderer reads references the source tree: the sidecar's
   kinematics are resolved numbers and labels, its appearance uses canonical
-  leaf occurrence IDs, and its animation is an embedded self-contained ES
-  module; a tree and its
+  leaf occurrence IDs, and its animation is keyframes over those IDs, sampled
+  from the model's clips when it built — data, never code; a tree and its
   components carry no path, script or record key
   ([`STORE.md`](STORE.md) §2, the two-sides law).
 - A door never refuses a document and never auto-rebuilds: whether a
@@ -243,8 +243,9 @@ path.
 
 ### 11–14. Runtime laws (shared with the bundled JavaScript runtime)
 
-Kinematics is pure data and choreography is pure JS, fully independent
-(11). Clients render from file + sidecar + the store's artifact side and never
+Kinematics and choreography are both pure data, fully independent: resolved
+mates, and keyframes the build samples from Python clips (11). Clients render
+from file + sidecar + the store's artifact side and never
 read source, a record, or trigger source builds (12). A build's status
 (STORE §9b) carries no geometry: clients render the saved file.
 Correctness never depends on a
@@ -290,12 +291,13 @@ model. Intrinsic appearance participates in the authored tree identity so it
 inherits through pinned children, while component identities and STEP bytes
 remain unchanged.
 
-Because they cannot change geometry, literal `kinematics=`, `materials=` and
-`animation=` values can be refreshed onto a cached baseline without executing
-the model — a narrow fast path whose preconditions and fallbacks are
+Because they cannot change geometry, literal `kinematics=` and `materials=`
+values can be refreshed onto a cached baseline without executing the model — a
+narrow fast path whose preconditions and fallbacks are
 [`STORE.md`](STORE.md) §3 (the record's `unannotatedTree` and
 `geometryClosure`). It is an optimization the law permits, never a second
-way to build.
+way to build. `animation=` clips are code, never literals: an edited clip is an
+ordinary build, which bakes new keyframes and keeps the STEP's bytes.
 
 Two features were deleted for violating this: the kinematics bake point
 (`kinematics={..., "at": pose}`), which transformed the tree through its mates
@@ -314,10 +316,12 @@ beside the artifact — what a model declares about its own outputs, where a
 build came from, when it ran — belongs in the store record, never in a
 file next to the geometry.
 
-Schema 9 sidecars contain only `schemaVersion`, the saved STEP's `documentHash`,
+Schema 10 sidecars contain only `schemaVersion`, the saved STEP's `documentHash`,
 and optional `kinematics`, `appearance`, and `animation` sections. Appearance
 stores named material definitions plus canonical leaf occurrence assignments;
-animation stores a self-contained JavaScript ES module. Appearance is applied to an owned
+animation stores keyframes baked from the model's Python clips when it built —
+an ordered list of clips, each a set of tracks over canonical leaf occurrences —
+so the sidecar carries data, never code. Appearance is applied to an owned
 render/export descriptor, never to the byte-derived tree. Appearance-sensitive
 export variants include its digest, including the absence of overrides.
 The document digest binds those declarations to the artifact; it is
@@ -386,6 +390,8 @@ src/cadgen/
                          #   writes no STEP
   kinematics.py          # typed mates vocabulary (revolute/slider/
                          #   cylindrical/fastened, couple, normalize)
+  animation.py           # animation clips (cadgen.clip) for @step's
+                         #   animation=, baked to sidecar keyframes at build
   step_scene.py          # read_step and read_scene
   assembly.py            # label utilities and softly deprecated AssemblyHelper
   results.py             # the typed Results every verb returns (stdlib-only)
@@ -409,7 +415,8 @@ src/cadgen/
                          #   worker, client, transport
   _internal/             # the engine: generation pipeline, tree builder,
                          #   filetrace (every file a build opens),
-                         #   FK (kinematics_fk/resolve), mesh_export ledger,
+                         #   FK (kinematics_fk/resolve), animation_bake
+                         #   (clips to keyframes), mesh_export ledger,
                          #   cli_from_function, doors (documents by bytes),
                          #   source_sidecar, step_assemble/step_reemit
   viewer/                # the CAD Viewer's server: launcher (main),

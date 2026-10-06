@@ -4,13 +4,13 @@ import test from "node:test";
 import { stepMotionSources } from "./useStepMotion.js";
 
 test("a STEP's motion comes from its sidecar, or from an edit's preview while one is shown", () => {
-  const sidecar = { animation: { source: "export default {}" } };
+  const sidecar = { animation: { clips: [{ id: "swing", label: "Swing", duration: 4, loop: true, tracks: [] }] } };
   const entry = { file: "/models/arm/hinge.step", hash: "h1", documentHash: "d1", sourceSidecar: sidecar,
     assets: { stepModule: { url: "/__cad/store/module", hash: "m1" } } };
   const sources = stepMotionSources(entry);
   assert.equal(sources.cadPath, sources.moduleUrl ? "/models/arm/hinge" : "");
   assert.equal(sources.sourceAnimation, sidecar.animation);
-  assert.equal(sources.animationKey, "/models/arm/hinge.step:d1", "a routine is keyed by the document it was compiled from");
+  assert.equal(sources.animationKey, "/models/arm/hinge.step:d1", "a routine is keyed by the document it was baked for");
   const still = stepMotionSources({ file: "/models/block.step", hash: "h2" });
   assert.deepEqual([still.sourceAnimation, still.animationKey], [null, ""], "no routine, no key");
 });

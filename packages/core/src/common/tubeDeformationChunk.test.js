@@ -6,60 +6,36 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import * as THREE from "three";
 
-import { loadSourceAnimation } from "./renderModule.js";
-import { evaluateAnimationClip } from "./animationRuntime.js";
+import { evaluateAnimationClip, loadSourceAnimation } from "./animationRuntime.js";
 import { loadTubeDeformation, requireTubeDeformation, tubeDeformation } from "./tubeDeformationChunk.js";
 
-const MESH_DATA = { parts: [{ id: "o1", label: "rope" }] };
 const line = (start, end) => ({ kind: "line", start, end });
 const REST = { segments: [line([0, 0, 0], [10, 0, 0])], normal: [0, 0, 1] };
 const BENT = { segments: [line([0, 0, 0], [10, 4, 0])], normal: [0, 0, 1] };
 
-const TUBE_SOURCE = `
-export const clips = {
-  flex: {
-    duration: 1,
-    update(t, m) {
-      m.get("rope").deformTube({
-        rest: ${JSON.stringify(REST)},
-        path: ${JSON.stringify(BENT)}
-      });
-    }
-  }
-};
-`;
+const clip = (id, track) => ({ id, label: id, duration: 1, loop: true, tracks: [{ targets: ["o1"], times: [0], ...track }] });
+const SPIN = clip("spin", { pivot: [0, 0, 0], transform: [[0, 0, 0, 0, 0, 0.7071068, 0.7071068, 0, 0, 0, 0, 0, 0]] });
+const FLEX = clip("flex", { rest: REST, maxSegmentLength: 1, tube: [{ path: BENT, twistDeg: 0 }] });
 
-const RIGID_SOURCE = `
-export const clips = {
-  spin: { duration: 1, update(t, m) { m.get("rope").rotate([0, 0, 1], 90 * t); } }
-};
-`;
-
-// FIRST, while nothing has loaded it: a document that declares no animation
-// cannot reach deformTube, so it must not drag the tube chunk into the page.
-test("a document with no animation never loads the tube runtime", async () => {
+// FIRST, while nothing has loaded it: a document whose clips bend no tube can
+// never evaluate a tube track, so it must not drag the tube chunk into the page.
+test("a document with no tube track never loads the tube runtime", async () => {
   assert.equal(tubeDeformation(), null);
-  assert.throws(() => requireTubeDeformation("deformTube"), /loadTubeDeformation/u);
+  assert.throws(() => requireTubeDeformation("a tube animation track"), /loadTubeDeformation/u);
   assert.equal(await loadSourceAnimation({}), null);
-  assert.equal(tubeDeformation(), null, "an unanimated document fetched the tube chunk");
-});
-
-test("compiling an animation loads the runtime before any clip can run", async () => {
-  const rigid = await loadSourceAnimation({ animation: { language: "javascript", source: RIGID_SOURCE } });
+  const rigid = await loadSourceAnimation({ animation: { clips: [SPIN] } });
   assert.deepEqual(Object.keys(rigid.clips), ["spin"]);
-  // Declaring an animation is the gate, not calling deformTube: a clip may
-  // reach for a tube at any t, so the runtime is there before the first frame.
-  assert.notEqual(tubeDeformation(), null);
+  assert.equal(tubeDeformation(), null, "a document that only moves parts fetched the tube chunk");
 });
 
-test("a deformTube clip produces exactly what the eager runtime produced", async () => {
-  const { clips } = await loadSourceAnimation({ animation: { language: "javascript", source: TUBE_SOURCE } });
-  const frame = evaluateAnimationClip(THREE, MESH_DATA, clips.flex, 0.5);
-  const [[partId, deformation]] = [...frame.deformations];
+test("a tube track loads the runtime before its clip can run, and draws what the eager runtime drew", async () => {
+  const { clips } = await loadSourceAnimation({ animation: { clips: [SPIN, FLEX] } });
+  assert.notEqual(tubeDeformation(), null);
+  const [[partId, deformation]] = [...evaluateAnimationClip(THREE, clips.flex, 0.5).deformations];
   assert.equal(partId, "o1");
 
   // The same spec through the module's own entry point: the lazy boundary must
   // change nothing about the numbers the renderer draws from.
   const { normalizeTubeDeformation } = await loadTubeDeformation();
-  assert.deepEqual(deformation, normalizeTubeDeformation({ rest: REST, path: BENT }));
+  assert.deepEqual(deformation, normalizeTubeDeformation({ rest: REST, path: BENT, maxSegmentLength: 1 }));
 });

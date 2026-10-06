@@ -88,7 +88,8 @@ test("missing, partial or invalid occurrence bounds use conservative summary fal
 test("any joint/module capability, including paused or disabled state, fails open", () => {
   assert.equal(lodSceneMayMove(), false);
   for (const capability of [{ kinematics: { parameterValues: {} } },
-    { kinematicsLoading: true }, { animation: { language: "javascript" } }, { exploded: true }]) {
+    { kinematicsLoading: true }, { animation: { clips: [{ id: "swing", label: "Swing", duration: 4, loop: true, tracks: [] }] } },
+    { exploded: true }]) {
     const f = fixture([["offscreen", cube(20)]]);
     const s = sample(f, { dynamicScene: lodSceneMayMove(capability) });
     assert.ok(Number.isFinite(s.distanceFor("offscreen")));

@@ -100,7 +100,7 @@ A mesh door never writes a `.step` file. A generated model's STEP is the OUTPUT 
 
 ### Carrying a clip into the GLB
 
-GLB is the one mesh format with somewhere to put motion. `--animation` bakes a clip from the document sidecar's embedded animation into the file as glTF node animation, so an external viewer plays it:
+GLB is the one mesh format with somewhere to put motion. `--animation` resamples one of the clips in the document's sidecar into the file as glTF node animation, so an external viewer plays it:
 
 ```bash
 cadgen glb build STEP/model.step meshes/model.glb --animation demo
@@ -108,7 +108,7 @@ cadgen glb build STEP/model.step meshes/model.glb \
   --animation '{"clip": "demo", "fps": 30, "seconds": 24, "start": 0}'
 ```
 
-`fps` controls keyframe sampling. Translation and rotation are supported;
+`fps` is the rate at which the export samples the clip's keyframes. Translation and rotation are supported;
 visibility and opacity tracks are rejected unless explicitly dropped.
 Deforming tubes need the explicit morph-target option. Animated GLB requires
 an explicit OUT so the clip does not overwrite the default static export.
@@ -135,7 +135,7 @@ and the `hidden`/`off` surface styles are STEP-only and are refused by name.
 Mesh doors do not have
 `--focus`/`--hide`, `--kinematics`, or `--animation`/`--time`, and reject
 `--mode section`; meshes have no canonical CAD occurrences, kinematics,
-or render-module clips for those controls to act on. `cadgen step snapshot`
+or sidecar clips for those controls to act on. `cadgen step snapshot`
 refuses a mesh input and names the door that takes it.
 
 The picture is the scene the CAD Viewer draws for the same file, built by the same code:

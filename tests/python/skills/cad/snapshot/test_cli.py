@@ -38,12 +38,13 @@ def tearDownModule():
     _MODULE_CACHE.cleanup()
 
 
-def write_package(step_path, *, entry_kind="part", source_kind="step", kinematics=None, animation_source=None):
+def write_package(step_path, *, entry_kind="part", source_kind="step", kinematics=None, clips=None):
     """Materialize the canonical render artifact for ``step_path``: a SELF-CONTAINED
     view directory (assembly.json + components/) inside the per-folder cache
     (``__cadgen__/models/<step-filename>/assembly.json``) whose content-addressed component
     GLBs live in the tree's own ``components/<hash>.glb`` dir. Returns the view directory
-    path, mirroring ``cadgen.catalog.result_view_dir``."""
+    path, mirroring ``cadgen.catalog.result_view_dir``. ``clips`` (id -> ``cadgen.clip``)
+    are baked into the sidecar as a build bakes them, against the seeded tree."""
     from cadgen.catalog import result_view_dir
     from tests.python.support.store_fixtures import seed_result
 
@@ -52,7 +53,7 @@ def write_package(step_path, *, entry_kind="part", source_kind="step", kinematic
         step_path.parent.mkdir(parents=True, exist_ok=True)
         step_path.write_text(f"ISO-10303-21;\n{step_path.name}\n", encoding="utf-8")
     cid = hashlib.sha256(str(step_path).encode()).hexdigest()[:16]
-    seed_result(step_path, {
+    tree = seed_result(step_path, {
         "kind": "assembly-package",
         "entryKind": entry_kind,
         "rootName": step_path.stem,
@@ -75,14 +76,26 @@ def write_package(step_path, *, entry_kind="part", source_kind="step", kinematic
     sidecar = {}
     if kinematics:
         sidecar["kinematics"] = kinematics
-    if animation_source is not None:
-        sidecar["animation"] = {"language": "javascript", "source": animation_source}
+    if clips is not None:
+        from cadgen._internal.animation_bake import bake_document_animation
+
+        sidecar["animation"] = bake_document_animation(clips, tree)
     if sidecar:
-        # Source declarations share one document-bound schema-9 sidecar.
+        # Source declarations share one document-bound sidecar.
         from cadgen._internal.source_sidecar import write_source_sidecar
 
         write_source_sidecar(step_path, sidecar)
     return pkg_dir
+
+
+# Clips for write_package to bake: they move the one part it seeds, `occ`.
+def _rise(t, m):
+    m.get("#occ").translate((0, 0, t))
+
+
+def _turn(t, m):
+    m.get("#occ").rotate((0, 0, 1), 45 * t)
+
 
 add_repo_path("packages/cadgen/src")
 
@@ -90,6 +103,7 @@ add_repo_path("packages/cadgen/src")
 # `cadgen step snapshot` (cadgen.cli.step_snapshot) is the CAD entrypoint, a
 # GENERATED CLI over cadgen.step.snapshot. The skill shims are gone; these tests
 # drive the shared implementation through that cadgen verb directly.
+import cadgen
 import cadgen.snapshot_cli as snapshot_main
 # The shared implementation the CLI drives: constants, the renderer and the
 # output writers live here, and the CLI module no longer re-exports them.
@@ -2257,11 +2271,13 @@ class StepPoseParameterTests(unittest.TestCase):
         self.assertEqual("open", named["kinematics"])
 
     def test_pose_parameters_resolve_the_sidecar_url(self) -> None:
+        from cadgen._internal.source_sidecar import SOURCE_SIDECAR_SCHEMA_VERSION
+
         self._step()
         packet = self._resolve(self._job(kinematics={"stroke": 1}))
         resolved = packet["jobs"][0]["resolved"]
         self.assertIn(".step.json", str(resolved["stepParameterUrl"]))
-        self.assertEqual(resolved["sourceSidecar"]["schemaVersion"], 9)
+        self.assertEqual(resolved["sourceSidecar"]["schemaVersion"], SOURCE_SIDECAR_SCHEMA_VERSION)
         self.assertNotIn("stepParameterPath", resolved)
 
     def test_saved_appearance_is_inlined_for_the_shared_source_resolver(self) -> None:
@@ -2325,10 +2341,10 @@ class StepPoseParameterTests(unittest.TestCase):
             self._resolve(self._job(kinematics={"stroke": 1}))
 
     def test_animation_never_gates_the_parameter_url(self) -> None:
-        # Animation is independent of kinematics: an embedded animation without
-        # kinematics still gives pose values nothing to drive.
+        # Animation is independent of kinematics: baked keyframes without
+        # kinematics still give pose values nothing to drive.
         step_path = self._step(pose=False)
-        write_package(step_path, animation_source="export const clips = {};")
+        write_package(step_path, clips={"demo": cadgen.clip(_rise, duration=1)})
         with self.assertRaisesRegex(SnapshotError, "declares no kinematics"):
             self._resolve(self._job(kinematics={"stroke": 1}))
 
@@ -2354,17 +2370,15 @@ class StepPoseParameterTests(unittest.TestCase):
 class StepAnimationFrameTests(unittest.TestCase):
     """The job's `animation` key freezes ONE frame of ONE clip: `{"clip": name,
     "time": seconds}`, spelled the same as the flag (`--animation CLIP --time
-    SECONDS`). The clips come from animation.source in the document-bound
-    schema-9 sidecar. It is layered over `kinematics`
+    SECONDS`). The clips are the keyframes baked into the document-bound
+    sidecar. It is layered over `kinematics`
     the way the viewer layers its Animation tab over the Pose tab — the two
     travel independently and meet only in the renderer's effect records."""
 
-    CLIPS = (
-        "export const clips = {\n"
-        "  demo: { label: 'Demo', duration: 8, update(t, m) { m.get('ram').translate([0, 0, t]); } },\n"
-        "  spin: { duration: 2, update(t, m) { m.get('ram').rotate([0, 0, 1], 45 * t); } },\n"
-        "};\n"
-    )
+    CLIPS = {
+        "demo": cadgen.clip(_rise, duration=8, label="Demo"),
+        "spin": cadgen.clip(_turn, duration=2),
+    }
 
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -2377,7 +2391,7 @@ class StepAnimationFrameTests(unittest.TestCase):
     def _step(self, name="part.step", *, clips=CLIPS, kinematics=None):
         step_path = self.models / name
         step_path.write_text("ISO-10303-21;\nEND-ISO-10303-21;\n", encoding="utf-8")
-        write_package(step_path, kinematics=kinematics, animation_source=clips)
+        write_package(step_path, kinematics=kinematics, clips=clips)
         return step_path
 
     def _job(self, **overrides):
@@ -2464,13 +2478,16 @@ class StepAnimationFrameTests(unittest.TestCase):
         with self.assertRaisesRegex(SnapshotError, r"render job animation has unknown key\(s\): loop"):
             self._resolve(self._job(animation={"clip": "demo", "loop": False}))
 
-    def test_a_declared_clip_resolves_embedded_animation_and_normalizes_the_request(self) -> None:
-        # An animation-only model needs only its document-bound sidecar source.
-        self._step()
+    def test_a_declared_clip_resolves_the_baked_keyframes_and_normalizes_the_request(self) -> None:
+        # An animation-only model needs only its document-bound sidecar.
+        from cadgen._internal.source_sidecar import read_source_sidecar
+
+        step_path = self._step()
         packet = self._resolve(self._job(animation={"clip": "demo", "time": 2}))
         resolved_job = packet["jobs"][0]
         resolved = resolved_job["resolved"]
-        self.assertEqual(self.CLIPS, resolved["sourceSidecar"]["animation"]["source"])
+        self.assertEqual(read_source_sidecar(step_path)["animation"], resolved["sourceSidecar"]["animation"])
+        self.assertEqual(["demo", "spin"], [clip["id"] for clip in resolved["sourceSidecar"]["animation"]["clips"]])
         self.assertNotIn("stepParameterUrl", resolved)
         self.assertEqual({"clip": "demo", "time": 2.0}, resolved_job["animation"])
 
@@ -2483,26 +2500,11 @@ class StepAnimationFrameTests(unittest.TestCase):
         ):
             self._resolve(self._job(animation={"clip": "orbit"}))
 
-    def test_a_module_that_declares_no_clips_says_so(self) -> None:
-        self._step(clips="export const clips = {};")
-        with self.assertRaisesRegex(
-            SnapshotError, r"Unknown animation clip: demo\. This model declares no animation clips"
-        ):
-            self._resolve(self._job(animation={"clip": "demo"}))
-
-    def test_embedded_source_built_indirectly_defers_the_name_check_to_the_runtime(self) -> None:
-        # The CLI reads the literal the contract requires; a module that assembles
-        # its clips some other way is not refused on a guess — the runtime, with
-        # the compiled clips in hand, is the authority that names the set.
-        self._step(clips="const build = () => ({ demo: { update() {} } });\nexport const clips = build();")
-        packet = self._resolve(self._job(animation={"clip": "anything"}))
-        self.assertEqual({"clip": "anything", "time": 0.0}, packet["jobs"][0]["animation"])
-
-    def test_a_document_without_embedded_animation_has_no_frame_to_render(self) -> None:
+    def test_a_document_without_animation_has_no_frame_to_render(self) -> None:
         self._step(clips=None)
-        with self.assertRaisesRegex(SnapshotError, "has no animation in its sidecar") as caught:
+        with self.assertRaises(SnapshotError) as caught:
             self._resolve(self._job(animation={"clip": "demo"}))
-        self.assertIn("part.step", str(caught.exception))
+        self.assertIn("part.step has no animation in its sidecar. Declare animation= on @step.", str(caught.exception))
 
     def test_a_frame_is_layered_over_kinematics_not_instead_of_it(self) -> None:
         """Both fields travel through Render; each evaluator reads its own

@@ -217,7 +217,7 @@ export function stepCatalogEntry({ view, sidecar, assembly, file }) {
     documentHash: view.documentHash,
     bytes: assembly.length,
     sourceUrl: `/${file}.json`,
-    // Inline: the renderer compiles kinematics and animation from the entry and
+    // Inline: the renderer loads kinematics and animation from the entry and
     // never fetches the sidecar. The scanner only supplies it when the sidecar
     // declares the current schema AND a `documentHash` equal to the digest of
     // the STEP's bytes; a fixture failing either gate silently has no Position

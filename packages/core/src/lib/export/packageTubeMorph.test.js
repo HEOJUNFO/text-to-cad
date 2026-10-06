@@ -16,7 +16,6 @@ import { fileURLToPath } from "node:url";
 
 import * as THREE from "three";
 
-import { normalizeAnimationClips } from "../../common/animationRuntime.js";
 import { resolveFramePlan } from "../../common/framePlan.js";
 import { applyRecordTubeDeformation, normalizeTubeDeformation } from "../../common/tubeDeformation.js";
 import { buildPackageMeshPrimitives } from "./packageMeshExport.js";
@@ -24,8 +23,8 @@ import { sampleClipAnimation } from "./packageAnimation.js";
 import { MAX_MORPH_RUNTIME_BYTES, buildTubeMorphTargets } from "./packageTubeMorph.js";
 import { loadTubeDeformation } from "../../common/tubeDeformationChunk.js";
 
-// `deformTube` needs the lazy tube runtime, which production loads through
-// compileAnimationSource. These clips are built by hand, so load it here.
+// A tube track needs the lazy tube runtime, which production loads through
+// loadSourceAnimation. These clips are built by hand, so load it here.
 await loadTubeDeformation();
 
 const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
@@ -99,10 +98,12 @@ function tessellations(entry = tubeTessellation()) {
   return new Map([["c0", entry], ["c1", entry]]);
 }
 
-function bake(update, request = { fps: 12, seconds: 1 }, options = {}) {
-  const clip = normalizeAnimationClips({ flex: { duration: 2, loop: true, update } }).flex;
+/** Bake a 2 s clip whose one track bends the tendon: `{times, tube}` keys over REST. */
+function bake(keys, request = { fps: 12, seconds: 1 }, options = {}) {
+  const track = { targets: ["o1.2"], rest: REST, maxSegmentLength: 2, ...keys };
+  const clip = { id: "flex", label: "Flex", duration: 2, loop: true, tracks: [track] };
   const plan = resolveFramePlan(request, clip, { label: "animation" });
-  const sampled = sampleClipAnimation(DESCRIPTOR, clip, plan, { deform: "morph" });
+  const sampled = sampleClipAnimation(clip, plan, { deform: "morph" });
   const maps = options.tessellations || tessellations();
   const morph = buildTubeMorphTargets(DESCRIPTOR, maps, sampled.deformations, {
     grid: sampled.grid,
@@ -113,7 +114,7 @@ function bake(update, request = { fps: 12, seconds: 1 }, options = {}) {
 }
 
 /** The viewer's own answer for the same occurrence at the same moment. */
-function renderModulePositions(tessellation, deformation) {
+function viewerPositions(tessellation, deformation) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(Float32Array.from(tessellation.positions), 3));
   geometry.setAttribute("normal", new THREE.BufferAttribute(Float32Array.from(tessellation.normals), 3));
@@ -147,13 +148,15 @@ function cloudDistance(a, b) {
   return Math.sqrt(worst);
 }
 
-const flex = (sweep) => (t, m) => m.get("tendon").deformTube({
-  rest: REST,
-  path: bent(sweep * Math.sin((t / 2) * Math.PI * 2)),
-  maxSegmentLength: 2,
-});
+/** The tendon flexing between a fifth of `sweep` and all of it and back, keyed 24 times a
+ *  second. It never straightens: a straight path is one segment and a bent one two, and
+ *  between keys of different shapes the path holds rather than lerps. */
+function flex(sweep) {
+  const times = Array.from({ length: 49 }, (_, index) => index / 24);
+  return { times, tube: times.map((t) => ({ path: bent(sweep * (0.6 + 0.4 * Math.sin(Math.PI * t))), twistDeg: 0 })) };
+}
 
-test("base + delta IS what the render module draws: the bake does not fork the deformation", () => {
+test("base + delta IS what the viewer draws: the bake does not fork the deformation", () => {
   const { morph, sampled, maps } = bake(flex(60));
   const primitives = morph.overrides.get("o1.2");
   assert.ok(primitives?.length, "the deforming occurrence has prepared primitives");
@@ -166,7 +169,7 @@ test("base + delta IS what the render module draws: the bake does not fork the d
     const gridIndex = Math.round(times[key] * sampled.grid.hz);
     // The deformation the CLIP produced at that moment, pushed through the
     // viewer's own display entry point. Nothing here is reconstructed.
-    const reference = renderModulePositions(maps.get("c0"), entry.samples[gridIndex].deformation);
+    const reference = viewerPositions(maps.get("c0"), entry.samples[gridIndex].deformation);
     for (const primitive of primitives) {
       const rebuilt = new Float32Array(primitive.positions.length);
       const deltas = primitive.targets[key - 1].positionDeltas;
@@ -175,7 +178,7 @@ test("base + delta IS what the render module draws: the bake does not fork the d
       }
       assert.ok(
         cloudDistance(rebuilt, reference) < 1e-3,
-        `key ${key}: rebuilt vertices are ${cloudDistance(rebuilt, reference)}mm off the render module's`,
+        `key ${key}: rebuilt vertices are ${cloudDistance(rebuilt, reference)}mm off the viewer's`,
       );
     }
   }
@@ -217,14 +220,12 @@ test("a tube the clip holds still gets its posed shape and NO targets", () => {
   // Held at a constant bend: the file must still ship the bent tube (the rest
   // shape would be the silent freeze this mode exists to prevent) and must not
   // spend a single target saying it does not move.
-  const { morph } = bake((t, m) => m.get("tendon").deformTube({
-    rest: REST, path: bent(30), maxSegmentLength: 2,
-  }));
+  const { morph } = bake({ times: [0], tube: [{ path: bent(30), twistDeg: 0 }] });
   assert.equal(morph.channels.length, 0, "no weights channel for a tube that does not move");
   assert.equal(morph.stats.targets, 0);
   const primitives = morph.overrides.get("o1.2");
   // The base is the BENT tube, not the straight one it was tessellated as.
-  const reference = renderModulePositions(
+  const reference = viewerPositions(
     tubeTessellation(), normalizeTubeDeformation({ rest: REST, path: bent(30), maxSegmentLength: 2 }),
   );
   let maxY = 0;

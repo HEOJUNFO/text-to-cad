@@ -12,6 +12,7 @@ import {
   normalizeRenderTessellation,
   tessellationForSnapshotQuality
 } from "./source.js";
+import { SOURCE_SIDECAR_SCHEMA_VERSION } from "./sourceSidecar.js";
 import { renderAssetSourceScope } from "../lib/renderAssetSourceScope.js";
 import {
   createTessellationCache, tessellationPayloadFacts, validateTessellationProbeRow,
@@ -285,7 +286,7 @@ test("snapshot package appearance composes through the shared source resolver", 
     kind: "step",
     documentHash: "c".repeat(64),
     sourceSidecar: {
-      schemaVersion: 9,
+      schemaVersion: SOURCE_SIDECAR_SCHEMA_VERSION,
       documentHash: "c".repeat(64),
       appearance: {
         materials: { polished: { name: "Polished", clearcoat: 0.8, roughness: 0.15 } },
@@ -353,7 +354,7 @@ function setTessellationCacheProvider(provider) {
 const loadSource = (input, options = {}) => loadSourceInput(input, { tessellationCache, ...options });
 
 const HINGE_SIDECAR = {
-  schemaVersion: 9,
+  schemaVersion: SOURCE_SIDECAR_SCHEMA_VERSION,
   documentHash: "a".repeat(64),
   kinematics: {
     mates: [
@@ -429,7 +430,7 @@ test("pose VALUES still pass straight through", async (t) => {
 test("refuses a pose name against a model that declares no poses", async (t) => {
   const sidecarUrl = "/__cad/sidecar/hinge.step.json";
   stubSidecarFetch(t, sidecarUrl, {
-    schemaVersion: 9,
+    schemaVersion: SOURCE_SIDECAR_SCHEMA_VERSION,
     documentHash: HINGE_SIDECAR.documentHash,
     kinematics: { ...HINGE_SIDECAR.kinematics, poses: {} }
   });
@@ -559,7 +560,7 @@ test("loadSource leaves no source scope behind", async (t) => {
 test("loadSource accepts sidecar kinematics for STEP sources", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(JSON.stringify({
-    schemaVersion: 9,
+    schemaVersion: SOURCE_SIDECAR_SCHEMA_VERSION,
     documentHash: HINGE_SIDECAR.documentHash,
     kinematics: {
       mates: [{ name: "drive", kind: "revolute", parent: "#base", child: "#rotor",

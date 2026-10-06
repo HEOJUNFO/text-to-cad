@@ -298,8 +298,10 @@ class Manifest(unittest.TestCase):
         ):
             self.assertIn(summary, out)
         line = next(text for text in out.splitlines() if text.strip().startswith("step build"))
-        for word in ("kinematics", "materials", "animation"):
+        for word in ("kinematics", "materials"):
             self.assertIn(word, line)
+        # Clips are Python a model declares; a re-emitted document has none to bake.
+        self.assertNotIn("animation", line)
 
     def test_a_name_that_is_not_a_door_raises_the_plain_attribute_error(self):
         # No retired-surface recognition: `cadgen.dxf` has no `build` door, and

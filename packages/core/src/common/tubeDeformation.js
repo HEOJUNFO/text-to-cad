@@ -48,7 +48,7 @@ function boundsDistanceSq(bounds, point) {
 }
 
 function fail(message) {
-  throw new Error(`animation deformTube: ${message}`);
+  throw new Error(`tube deformation: ${message}`);
 }
 
 function vector(value, name) {

@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from cadgen import catalog
 from cadgen._internal.shared_read import open_shared_for_read
+from cadgen._internal.source_sidecar import SOURCE_SIDECAR_SCHEMA_VERSION
 from cadgen.viewer import scanner
 from cadgen.viewer.scanner import catalog_entry, is_served_cad_asset, source_format_for_path
 from cadgen.viewer.store_paths import result_snapshot, result_tree
@@ -74,7 +75,7 @@ class ScannerTestCase(unittest.TestCase):
     def sidecar(self, rel: str, payload: dict) -> str:
         document = Path(self.path(rel))
         body = dict(payload)
-        body["schemaVersion"] = 9
+        body["schemaVersion"] = SOURCE_SIDECAR_SCHEMA_VERSION
         body["documentHash"] = hashlib.sha256(document.read_bytes()).hexdigest()
         return self.write(f"{rel}.json", json.dumps(body))
 
@@ -352,14 +353,25 @@ class SidecarTruthiness(ScannerTestCase):
         self.assertEqual(entry["documentHash"], hashlib.sha256(b"first\n").hexdigest())
         self.assertNotEqual(entry["documentHash"], hashlib.sha256(path.read_bytes()).hexdigest())
 
-    def test_embedded_animation_is_pinned_to_the_catalog_snapshot(self):
-        animation = {"language": "javascript", "source": "export const clips = {};"}
+    def test_baked_animation_is_pinned_to_the_catalog_snapshot(self):
+        animation = {"clips": [
+            {"id": "swing", "label": "Swing", "duration": 2, "loop": True,
+             "tracks": [{"targets": ["o1"], "times": [0, 2], "opacity": [1, 0.5]}]},
+            {"id": "blink", "label": "blink", "duration": 1, "loop": False,
+             "tracks": [{"targets": ["o1"], "times": [0, 0.5], "visible": [True, False]}]},
+        ]}
         entry = self._entry(json.dumps({"animation": animation}))
+        # The keyframes as read, clips in their declared order: the first is the one a viewer opens on.
         self.assertEqual(entry["sourceSidecar"]["animation"], animation)
         self.assertEqual(len(entry["animationHash"]), 64)
 
     def test_no_animation_no_hash(self):
         self.assertNotIn("animationHash", self._entry(None))
+
+    def test_an_unreadable_animation_section_is_no_sidecar_not_a_failed_entry(self):
+        entry = self._entry(json.dumps({"animation": {"clips": "not clips"}}))
+        self.assertNotIn("sourceSidecar", entry)
+        self.assertNotIn("animationHash", entry)
 
     def test_the_catalog_publishes_no_provenance(self):
         entry = self._entry(json.dumps({"sourceKind": "step"}))

@@ -110,8 +110,9 @@ Rules the decorator enforces:
 - Options on `@step`: `out=`, `mesh_tolerance=`, `mesh_angular_tolerance=`,
   `kinematics=`, `materials=`, and `animation=` (`kinematics.md`). **No decorator argument changes the
   geometry a model produces**: they decide where the files land, how they are
-  written, and what the sidecar declares. `animation=` is a self-contained
-  JavaScript ES module string embedded in that sidecar. `materials=` is
+  written, and what the sidecar declares. `animation=` is a dict of clip id →
+  `cadgen.clip(update, duration=...)`, Python functions the build samples into
+  keyframes in that sidecar. `materials=` is
   `{"definitions": {id: material}, "assignments": [{"targets": ["#label", "#group"], "material": id}]}`;
   definitions remain available even when unassigned, and every target must
   resolve exactly. See `build123d-modeling.md` for the material channels.
@@ -251,9 +252,9 @@ Inputs join the closure too: every data file the build opens is hashed as a
 build input, whatever opens it (below). A new
 file that changes what an import finds — an `__init__.py` added to a folder, a
 package beside a module, a same-named module earlier on the path — also makes
-the model stale. Embedded `animation=` source and named
-`materials=` are decorator annotations. Imported values and helper calls
-remain ordinary source dependencies.
+the model stale. Literal `kinematics=` and named `materials=` are decorator
+annotations; `animation=` clips are code, tracked like the model body. Imported
+values and helper calls remain ordinary source dependencies.
 
 Every decorator argument is ordinary Python, evaluated when the module is
 imported: `out=f"{FOLDER}/{NAME}.step"`, `mesh_tolerance=TOL` with `TOL` from
@@ -288,7 +289,9 @@ timings with `--verbose` before splitting further.
 ### Annotation caching
 
 Annotation-only edits may reuse cached geometry; computed or imported
-annotations remain tracked dependencies and may require a rebuild.
+annotations remain tracked dependencies and may require a rebuild. Animation
+clips are always code: editing one reruns the model, which rewrites the
+sidecar's keyframes and keeps the STEP's bytes.
 
 ### Models inside a package
 
@@ -485,10 +488,11 @@ A STEP written by another kernel round-trips through cadgen with
 canonical writer emits it, so OUT's bytes are deterministic and identical on
 every run. The same command ANNOTATES a document that has no model script —
 `--kinematics` takes the whole space (`{mates, couplings, poses}`, the same
-vocabulary the decorator takes, as inline JSON or a `.json` path);
-`--materials` takes the named declaration as inline JSON or a `.json` path;
-and `--animation` takes a JavaScript module file or its source text. All
-three resolve into OUT's unified schema-9 sidecar.
+vocabulary the decorator takes, as inline JSON or a `.json` path) and
+`--materials` takes the named declaration as inline JSON or a `.json` path.
+Both resolve into OUT's unified sidecar. Animation is not an annotation
+`step build` takes: clips need a model script, such as a thin wrapper that
+reads the foreign STEP.
 
 ```bash
 cadgen step build vendor/hinge.step STEP/hinge.step \

@@ -126,7 +126,7 @@ declared meshes there too, so the two front doors never redo each other's work).
 GLB variants and model output entries also carry the final serializer revision.
 A change to GLB encoding invalidates final GLB exports without discarding
 geometry or tessellation results, or affecting STL/3MF freshness.
-Animated exports capture the sidecar's embedded animation source before mesh preparation;
+Animated exports capture the sidecar's `animation` keyframes once, before mesh preparation;
 the animation variant and the Node builder consume that same immutable text.
 Three properties, each enforced by a
 test:
@@ -441,7 +441,7 @@ identity. A real one (`link_arm`: a bar plus two placements of a pin model):
   `STEP_WRITER_SCHEME` with any change to the bytes cadgen writes for the same
   descriptor.
 
-  Finishes that STEP does not carry persist in the schema-9 sidecar's named
+  Finishes that STEP does not carry persist in the schema-10 sidecar's named
   `appearance.materials` library and `appearance.assignments` map, keyed by
   verified canonical leaf IDs. Resolved
   kinematics are remapped to exact written product nodes, with independent
@@ -530,9 +530,9 @@ A real one (`link_robot`: a base, two placements of `link_arm`, one of
   search root lacks) and would resolve to if it appeared — hashed `absent`;
   and `<import roots N>`, the digest of the first N search roots when an
   import was found past the script's own folder (a root added before those
-  could shadow it). The animation module
-  declared by `@step(animation=...)` is source annotation;
-  it is embedded in the unified sidecar and never enters geometry identity. The
+  could shadow it). The clips declared by `@step(animation=...)` are code,
+  in the closure like the rest of the model's reach; the build bakes them to
+  keyframes in the unified sidecar, and they never enter geometry identity. The
   boundary is decided statically by what the importer TAKES from a model
   file: only model functions (`from arm import arm`) → a result edge, file
   excluded, the child tracked by its pin (also when that file declares several
@@ -687,15 +687,17 @@ A real one (`link_robot`: a base, two placements of `link_arm`, one of
   constants): the gate runs it.
 - Python records may also carry `unannotatedTree`, exact document occurrence
   and node maps, and `geometryClosure`. Together they permit one narrow
-  metadata refresh: same-module literal `kinematics=`, `materials=`, or
-  `animation=` values (including literal constants used exclusively there)
-  can be reapplied to a complete cached baseline without executing the model
-  or rewriting STEP. The recorded geometry closure is derived from the exact
-  source buffer that executed. Computed and imported annotations stay in that
-  geometry fingerprint; an unchanged one can coexist with a literal edit by
-  reusing its recorded value. Changing its expression or dependency, reflection,
-  constants used anywhere else, child-pin changes, incomplete trees, and
-  changed output bytes fall back to the ordinary build.
+  metadata refresh: same-module literal `kinematics=` or `materials=` values
+  (including literal constants used exclusively there) can be reapplied to a
+  complete cached baseline without executing the model or rewriting STEP. The
+  recorded geometry closure is derived from the exact source buffer that
+  executed. Computed and imported annotations stay in that geometry
+  fingerprint; an unchanged one can coexist with a literal edit by reusing its
+  recorded value. Changing its expression or dependency, reflection, constants
+  used anywhere else, child-pin changes, incomplete trees, and changed output
+  bytes fall back to the ordinary build. `animation=` clips are always computed:
+  a refresh writes the record's baked keyframes back unchanged, and an edited
+  clip is an ordinary build.
 - A leaf has `children: []`. Roots and leaves have the same record. A record
   for an imported document (`sourceKind: "step"`) has the document's bytes as
   its closure. Cold compilation does not read earlier model/output records
@@ -1115,7 +1117,7 @@ Each rename is atomic; the group is not a transaction or compare-and-swap.
 There is a check-to-rename race with independent CLI or external writers, and
 an external writer can replace a successfully saved document later. A failure
 before publication preserves the previous pair. A crash after the STEP rename
-can leave a missing or mismatched annotation: schema 9 binds annotations to the
+can leave a missing or mismatched annotation: the sidecar binds annotations to the
 STEP's SHA-256, so readers reject that annotation instead of applying old
 mates or finishes to new geometry. Material-only saves can retain the same
 STEP digest, so refresh and output-pair conflict checks also observe sidecar

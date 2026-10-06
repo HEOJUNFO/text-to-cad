@@ -11,7 +11,7 @@ const parameters = [
 ];
 const definition = { parameters, parameterMap: Object.fromEntries(parameters.map(p => [p.id, p])),
   defaultParameterValues: { hinge: 5, slide: 2 }, manifest: { poses: { open: { hinge: 80 }, closed: { hinge: -20, slide: 7 } } } };
-const clips = { turn: { id: 'turn', duration: 4, loop: true, update() {} }, close: { id: 'close', duration: 2, loop: false, update() {} } };
+const clips = { turn: { id: 'turn', duration: 4, loop: true, tracks: [] }, close: { id: 'close', duration: 2, loop: false, tracks: [] } };
 let frames: Map<number, FrameRequestCallback>;
 beforeEach(() => {
   frames = new Map(); let id = 0;

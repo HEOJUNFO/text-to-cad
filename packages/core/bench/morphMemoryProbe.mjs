@@ -20,7 +20,7 @@
 
 import v8 from "node:v8";
 
-import { normalizeAnimationClips } from "../src/common/animationRuntime.js";
+import { loadSourceAnimation } from "../src/common/animationRuntime.js";
 import { resolveFramePlan } from "../src/common/framePlan.js";
 import { compileTubePath } from "../src/common/tubeDeformation.js";
 import { sampleClipAnimation } from "../src/lib/export/packageAnimation.js";
@@ -129,23 +129,27 @@ const descriptor = {
 };
 const tessellations = new Map(ids.map((id, index) => [`c_${id}`, tube(index ? SMALL_RINGS : BIG_RINGS)]));
 
-const clip = normalizeAnimationClips({
-  flex: {
-    duration: SECONDS,
-    loop: true,
-    // Every tube bends on its own schedule, so no two share a pose and nothing in
-    // here is deduplicated by accident.
-    update: (t, m) => {
-      ids.forEach((id, index) => {
-        m.get(id).deformTube({
-          rest: REST,
-          path: cord(6 * Math.sin(((t / SECONDS) + index / TUBES) * Math.PI * 2)),
-          maxSegmentLength: 1000,
-        });
-      });
-    },
-  },
-}).flex;
+// Every tube bends on its own schedule, so no two share a pose and nothing in here
+// is deduplicated by accident: one tube track each, keyed 24 times a second, loaded
+// through the viewer's own door (which is also what loads the lazy tube runtime).
+const times = Array.from({ length: SECONDS * 24 + 1 }, (unused, index) => index / 24);
+const { clips } = await loadSourceAnimation({ animation: { clips: [{
+  id: "flex",
+  label: "Flex",
+  duration: SECONDS,
+  loop: true,
+  tracks: ids.map((id, index) => ({
+    targets: [id],
+    times,
+    rest: REST,
+    maxSegmentLength: 1000,
+    tube: times.map((t) => ({
+      path: cord(6 * Math.sin(((t / SECONDS) + index / TUBES) * Math.PI * 2)),
+      twistDeg: 0,
+    })),
+  })),
+}] } });
+const clip = clips.flex;
 
 const plan = resolveFramePlan({ clip: "flex", fps: FPS, seconds: SECONDS }, clip, { label: "animation" });
 
@@ -157,7 +161,7 @@ const onePathBytes = settled() - floor;
 const tableEntries = compiled.segments.reduce((sum, segment) => sum + (segment.table?.length || 0), 0);
 
 const beforeSample = settled();
-const sampled = sampleClipAnimation(descriptor, clip, plan, { deform: "morph" });
+const sampled = sampleClipAnimation(clip, plan, { deform: "morph" });
 const afterSample = settled();
 
 const tubeSamples = [...sampled.deformations.values()].reduce((sum, entry) => sum + entry.samples.length, 0);
