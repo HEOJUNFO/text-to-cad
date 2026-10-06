@@ -14,7 +14,7 @@ cadgen snapshot STEP/bracket.step tmp/review.png --display render --camera front
 
 `file: "STEP/bracket.step"`, `args: ["--display", "render", "--camera", "front"]`.
 A snapshot reads a saved file and never runs model scripts, so the build must be
-finished. A user runs one snapshot or inspection at a time. A snapshot that
+finished. Each user runs one snapshot or inspection at a time. A snapshot that
 outlasts about 40 s returns a job id: poll it with `cad_status`. The result
 carries the image, and a URL for it that you can share.
 

@@ -207,7 +207,7 @@ Choose checks from the requested dimensions, clearances and topology, run them
 with `cad_inspect` against the saved STEP, and report any requirement left
 untested. A failed computation is not a pass.
 
-Finish with the link for each model created or changed, the checks that
-actually ran, the units, and material assumptions or limitations. The user
-looks at the model in the viewer, so attach snapshots only on request. Mention
-that each edit makes a new link.
+Finish with the link for each model created or changed (`cad_files` with a path
+returns a direct download URL for a STEP, mesh or other non-text file), the
+checks that actually ran, the units, and material assumptions or limitations.
+The user looks at the model in the viewer, so attach snapshots only on request.

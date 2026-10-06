@@ -13,7 +13,7 @@ of its errors, its exit code, and up to 8 PNG, SVG or JPEG images (10 MB each)
 saved under `tmp/` (create the folder first). The copy is discarded afterwards,
 nothing carries between calls, there is no network, matplotlib draws headless,
 and a call has a shorter time cap than a build (by default 3 minutes). The code
-may be at most 256 KiB, and a user runs one snapshot or inspection at a time.
+may be at most 256 KiB, and each user runs one snapshot or inspection at a time.
 Put what a question needs into one script, and make it print; a call that
 outlasts about 40 s returns a job id to poll with `cad_status`.
 
