@@ -253,11 +253,12 @@ requested separately. A manual dispatch runs every job.
 | web | web, UI, core, cadgen, infrastructure | UI and web units, the UI browser specs, bundled launch, format/camera browser checks through the backend |
 | skills | skills or runtime/host contracts | repo policy; skill CLI suites only for skills, cadgen, core or infrastructure |
 | codex | codex, UI, core, cadgen, infrastructure | the CAD app's host-adapter units (jsdom) and its one-file build |
+| cloud | cloud, UI, core, cadgen, infrastructure | the hosted CAD server's and viewer page's units, its sandbox runner, a build through the local sandbox, and Chromium drawing a real export on the built page |
 | docs | docs, skills, cadgen, core, infrastructure | `npm --prefix apps/docs run check`: static asset contract, the analytics receiver's tests (`npm test`), lint, Next build, icon verification |
 | packaging | cadgen, core, UI, web, codex, infrastructure | clean bundle, wheel contents, installed CLI behavior |
 
 Here `cadgen`, `core` and `UI` mean their package directories and tests;
-`web`, `codex` and `docs` mean their app directories. Infrastructure includes
+`web`, `codex`, `cloud` and `docs` mean their app directories. Infrastructure includes
 `scripts/`, `.github/`, the root lockfile/manifests and version/plugin metadata.
 Root prose, manual model changes and `LICENSE` run only Version Check. Skill
 and package Markdown is test input and follows its owning component.
@@ -359,6 +360,9 @@ Canonical source directories are:
   server is `cadgen mcp` (`cadgen/mcp` in `packages/cadgen`), and its one-file
   build ships inside the cadgen wheel as `cadgen/_runtime/mcp` — built at
   release time, never committed.
+- `apps/cloud/` for the hosted CAD server and its viewer page. It never imports cadgen:
+  builds, snapshots and inspection scripts run in single-use sandboxes on the released
+  wheel, through `apps/cloud/runner/`.
 - `apps/docs/` for the site.
 - `packages/cadgen/` for the Python distribution and bundled runtime assets.
 - `packages/core/` for non-React CAD/client code.
@@ -391,7 +395,7 @@ imports remain inside its directory.
 
 ## Viewer Development In This Repo
 
-The apps are `docs`, `web` and `codex`. Framework-independent CAD code lives
+The apps are `docs`, `web`, `codex` and `cloud`. Framework-independent CAD code lives
 in `@text-to-cad/core`; `@text-to-cad/ui` owns the complete FileViewer and injectable
 renderers. Apps consume compiled public exports. Apps never import another app,
 and packages never import apps. `npm run check:boundaries` checks the graph,

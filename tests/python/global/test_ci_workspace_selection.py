@@ -9,7 +9,7 @@ from tests.python.support.paths import REPO_ROOT
 
 WORKFLOW = (REPO_ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
 JOBS = dict(re.findall(r"^  ([a-z][\w-]*):\n(.*?)(?=^  [a-z][\w-]*:\n|\Z)", WORKFLOW.split("\njobs:\n", 1)[1], re.M | re.S))
-CLASSES = {"cadgen", "core", "ui", "web", "mcp", "skills", "docs", "infra"}
+CLASSES = {"cadgen", "core", "ui", "web", "mcp", "cloud", "skills", "docs", "infra"}
 
 
 def selected_jobs(*changed: str) -> set[str]:
@@ -54,6 +54,7 @@ class WorkspaceWorkflowSelection(unittest.TestCase):
             r"^scripts/test/check-(dependencies|kit-boundaries)\.test\.mjs$",  # test-js.sh
             r"^tests/python/packages/cadgen/(.*/)?test_[^/]*\.py$",      # test-python.sh cadgen
             r"^tests/python/skills/[^/]+/(.*/)?test_[^/]*\.py$",         # test-python.sh skills
+            r"^tests/python/apps/cloud/test_[^/]*\.py$",                 # test-python.sh cloud
             r"^tests/python/global/test_[^/]*\.py$",                     # test-global.sh
             r"^tests/browser/viewer-e2e\.mjs$",                          # test-viewer-browser.sh
         ]
@@ -64,13 +65,16 @@ class WorkspaceWorkflowSelection(unittest.TestCase):
         self.assertEqual([path for path in tests if not any(re.search(pattern, path) for pattern in collected)], [])
 
     def test_ui_change_reaches_both_hosts_without_engine_or_docs_suites(self):
-        self.assertEqual(selected_jobs("ui"), {"web", "mcp", "skills", "packaging"})
+        self.assertEqual(selected_jobs("ui"), {"web", "mcp", "cloud", "skills", "packaging"})
 
     def test_web_change_runs_only_web_policy_and_packaging(self):
         self.assertEqual(selected_jobs("web"), {"web", "skills", "packaging"})
 
     def test_mcp_app_change_runs_only_its_own_suite_policy_and_packaging(self):
         self.assertEqual(selected_jobs("mcp"), {"mcp", "skills", "packaging"})
+
+    def test_cloud_change_runs_only_its_own_suite_and_policy(self):
+        self.assertEqual(selected_jobs("cloud"), {"cloud", "skills"})
 
     def test_docs_change_stays_in_docs(self):
         self.assertEqual(selected_jobs("docs"), {"docs"})
@@ -100,6 +104,7 @@ class WorkspaceWorkflowSelection(unittest.TestCase):
         self.assertIn("'packages/ui/**'", JOBS["changes"])
         self.assertIn("'apps/web/**'", JOBS["changes"])
         self.assertIn("'apps/mcp/**'", JOBS["changes"])
+        self.assertIn("'apps/cloud/**'", JOBS["changes"])
 
     def test_required_check_names_are_the_jobs(self):
         # main's branch protection requires exactly these names (CONTRIBUTING.md, Repository settings).

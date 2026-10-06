@@ -42,6 +42,7 @@ jobs:
       ui: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.ui == 'true' }}
       web: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.web == 'true' }}
       mcp: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.mcp == 'true' }}
+      cloud: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.cloud == 'true' }}
       skills: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.skills == 'true' }}
       docs: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.docs == 'true' }}
       infra: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.infra == 'true' }}
@@ -67,6 +68,9 @@ jobs:
               - 'tests/browser/**'
             mcp:
               - 'apps/mcp/**'
+            cloud:
+              - 'apps/cloud/**'
+              - 'tests/python/apps/**'
             skills:
               - 'skills/**'
               - 'tests/python/skills/**'
@@ -277,12 +281,46 @@ jobs:
       - name: Run the CAD app tests and build it
         run: scripts/test/test-js.sh --select mcp
 
+  # The hosted CAD server (apps/cloud): its server and viewer-page units, the sandbox runner's
+  # tests, and two end-to-end tests: the local sandbox building a box with this checkout's
+  # cadgen, and Chromium drawing a real export on the built viewer page. It runs on a UI or
+  # core change because the page is CadViewer, and on a cadgen change because the runner and
+  # `cadgen viewer export` are what the sandbox executes.
+  cloud:
+    name: cloud
+    needs: changes
+    if: needs.changes.outputs.cloud == 'true' || needs.changes.outputs.ui == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.cadgen == 'true' || needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # setup-deps installs cadgen into the job's Python, not a .venv.
+      CLOUD_PYTHON: python
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up dependencies
+        uses: ./.github/actions/setup-deps
+        with:
+          npm: packages/core packages/ui apps/cloud
+          ui-browser: "true"
+
+      - name: Bundle production outputs
+        run: scripts/bundle/bundle.sh
+
+      - name: Run the hosted CAD server tests
+        run: scripts/test/test-js.sh --select cloud
+
+      - name: Run the sandbox runner tests
+        run: scripts/test/test-python.sh --select cloud
+
   # The policy gates read the repo's markdown and manifests; the skill suites run the
   # cadgen CLIs. Repository properties, so Linux only.
   skills:
     name: skills
     needs: changes
-    if: needs.changes.outputs.skills == 'true' || needs.changes.outputs.cadgen == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.ui == 'true' || needs.changes.outputs.web == 'true' || needs.changes.outputs.mcp == 'true'
+    if: needs.changes.outputs.skills == 'true' || needs.changes.outputs.cadgen == 'true' || needs.changes.outputs.core == 'true' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.ui == 'true' || needs.changes.outputs.web == 'true' || needs.changes.outputs.mcp == 'true' || needs.changes.outputs.cloud == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
