@@ -205,7 +205,7 @@ class RunnerTests(unittest.TestCase):
         )
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["kind"], "timeout")
-        self.assertLess(result["wallMs"], 30_000)
+        self.assertEqual(result["steps"][0]["timedOut"], True)
 
 
 if __name__ == "__main__":

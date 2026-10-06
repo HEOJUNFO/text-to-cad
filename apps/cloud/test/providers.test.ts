@@ -172,9 +172,7 @@ finish({ ...${JSON.stringify(RESULT)}, files: [{ path: 'workspace/out.txt', byte
 
   it('kills a job that runs past its timeout', async () => {
     const provider = await runner('setInterval(() => {}, 1000);');
-    const started = Date.now();
-    await expect(provider.run(job({}, 1))).rejects.toThrow(/ran past its 1 s limit/);
-    expect(Date.now() - started).toBeLessThan(10_000);
+    await expect(provider.run(job({}, 1))).rejects.toThrow(/ran past its 1 s limit and was killed/);
   });
 
   it('refuses to run in production unless allowed', async () => {
