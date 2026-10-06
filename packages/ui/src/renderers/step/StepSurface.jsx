@@ -1431,12 +1431,13 @@ function StepSurfaceBody({ view, data }) {
   const displayedResourceRef = useRef(promptResource);
   if (!retainingPreviousStepMesh) displayedResourceRef.current = promptResource;
   const viewportAnimation = motion.animationControls;
-  // Routines play in preview mode alone: the viewer with its tools put away. There is no
-  // Animate tool — the regular view is for editing, preview for watching.
+  // Routines play in preview, and under the Animation tool (the shell's, after Position on the
+  // strip), which plays them without leaving the tools view.
   const animationAvailable = animationControlsHaveContent(viewportAnimation);
-  const animateModeActive = animationAvailable && previewing;
-  // A routine owns the model's pose only inside preview. Outside it the clip is
-  // released — stopped, rewound, the pose back with Position — so selection,
+  const animateToolActive = animationAvailable && tabToolMode === TAB_TOOL_MODE.ANIMATE;
+  const animateModeActive = animationAvailable && (previewing || animateToolActive);
+  // A routine owns the model's pose only in preview or under the Animation tool. Outside them
+  // the clip is released — stopped, rewound, the pose back with Position — so selection,
   // topology and Position never meet an animated model and need no special case
   // for one. Of the playback only the routine, speed and loop survive: coming back plays
   // from the start, and a restored session that was mid-routine is released the same way.
@@ -1530,9 +1531,8 @@ function StepSurfaceBody({ view, data }) {
       editPending: editingBuildActive(editingPreview.state),
       finding: !catalogHydrated
     },
-    // The playbar belongs to preview here, not to every file with routines: leaving preview
-    // puts the model back at rest.
-    animation: animateModeActive ? viewportAnimation : null,
+    // The routines: preview's Playback settings and playbar, and the Animation tool.
+    animation: viewportAnimation,
     live: {
       commands: stepLiveCommands,
       // What the viewport is SHOWING, which is not always what is loading: a rebuild that
@@ -1557,6 +1557,11 @@ function StepSurfaceBody({ view, data }) {
   useEffect(() => {
     if (!poseAvailable && shellRef.current?.toolMode === TAB_TOOL_MODE.POSE) shellRef.current.selectTool(TAB_TOOL_MODE.REFERENCES);
   }, [poseAvailable]);
+  // Animation too, once the file has no routines left. A rebuild that changed them is not that:
+  // the routines in hand stay while the new ones load (`useStepMotion`).
+  useEffect(() => {
+    if (!animationAvailable && shellRef.current?.toolMode === TAB_TOOL_MODE.ANIMATE) shellRef.current.selectTool(TAB_TOOL_MODE.REFERENCES);
+  }, [animationAvailable]);
   useEffect(() => {
     if (!animateModeActive && animationOwnsPose) releaseAnimation?.();
   }, [animateModeActive, animationOwnsPose, releaseAnimation]);
@@ -3086,11 +3091,11 @@ function StepSurfaceBody({ view, data }) {
   }, [poseToolActive, stepPoseDefinition, selectedStepParameterRuntime, stepPoseFeatures, motion.onParameterChange]);
 
   // ---- the viewport ---------------------------------------------------------------------------
-  // What the viewport is ALLOWED to show and pick just now: nothing of the model under Pose
-  // or in preview; no topology while a previous mesh is held over an update.
+  // What the viewport is ALLOWED to show and pick just now: nothing of the model under Pose or
+  // Animation, or in preview; no topology while a previous mesh is held over an update.
   const topologySelectionDeferred = Boolean(selectedTopologyDeferredByCost && selectedMeshData);
-  // Preview is watching, and Pose offers its knobs alone.
-  const watching = previewing || Boolean(jointHandles);
+  // Preview and Animation are watching, and Pose offers its knobs alone.
+  const watching = previewing || animateToolActive || Boolean(jointHandles);
   const pickMode = watching || retainingPreviousStepMesh ? VIEWER_PICK_MODE.NONE : viewerPickModeForRenderPane({
     selectionFilter,
     topologySelectionPending: referenceSelectionPending,
@@ -3130,7 +3135,8 @@ function StepSurfaceBody({ view, data }) {
     stepParameterRuntime: selectedStepParameterRuntime,
     // {clip, elapsedSec, playing} or null. Null means no clip is selected, and the evaluator never runs.
     stepAnimationRuntime: selectedAnimationRuntime,
-    animateMode: previewing,
+    // Nothing is picked and a routine may own the pose: pick-only state stands still (`useStepPose`).
+    animateMode: previewing || animateToolActive,
     jointHandles: previewing ? null : jointHandles,
     measureState: previewing ? null : measure.state,
     activeMeasurementId: measure.activeId,
@@ -3207,6 +3213,8 @@ function StepSurfaceBody({ view, data }) {
       active: poseToolActive, disabled: toolIdle,
       // Its panel is in the tool stack for as long as it is the tool.
       onSelect: () => { if (!poseToolActive) handleSelectTabToolMode(TAB_TOOL_MODE.POSE); } }) : null,
+    // Animation follows Position; only files with routines offer it. Its panel is the shell's.
+    shell.tools.animate ? { ...shell.tools.animate, disabled: toolIdle } : null,
     { ...shell.tools.draw, disabled: toolIdle },
     shell.tools.own({ id: TAB_TOOL_MODE.MEASURE, label: "Measure",
       // Like Select's, the button shows the snapping mode in hand.
@@ -3282,7 +3290,7 @@ function StepSurfaceBody({ view, data }) {
     showAllHiddenParts: handleShowAllHiddenParts
   });
 
-  return <RendererShell shell={shell} tools={tools} playback={viewportAnimation} toolPanels={<>{stepPanels}{modelEffects.panels}</>}
+  return <RendererShell shell={shell} tools={tools} toolPanels={<>{stepPanels}{modelEffects.panels}</>}
     references={selectionActionVisible ? promptSelection : EMPTY_LIST} onClearReferences={clearAssemblySelection} copySelection={copySelection}
     contextMenuItems={selectionToolActive
       ? press => viewportContextMenuItems(press, pickAtRef.current?.(press.clientX, press.clientY) || "") : null}

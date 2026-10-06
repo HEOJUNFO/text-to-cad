@@ -78,6 +78,7 @@ export function useStepMotion({ entry, fileKey, resources, readStored, clipboard
   // both, or neither.
   const [animationLoadState, setAnimationLoadState] = useState({
     url: "",
+    file: "",
     status: "idle",
     error: "",
     clips: null
@@ -93,7 +94,12 @@ export function useStepMotion({ entry, fileKey, resources, readStored, clipboard
   const kinematicsInHand = stepModuleLoadState.url === moduleUrl ||
     (Boolean(moduleUrl) && stepModuleLoadState.file === fileKey && stepModuleLoadState.status === "ready");
   const definition = kinematicsInHand ? stepModuleLoadState.definition : null;
-  const clips = animationLoadState.url === animationKey ? animationLoadState.clips : null;
+  // The routines the same way: a rebuild that changed them reads them again, and until the new ones
+  // land the ones in hand stay, with the model at rest, so the Animation tool stays up and keeps
+  // its routine.
+  const animationInHand = animationLoadState.url === animationKey ||
+    (Boolean(animationKey) && animationLoadState.file === fileKey && animationLoadState.status === "ready");
+  const clips = animationInHand ? animationLoadState.clips : null;
   const animationStatus = animationKey ? (animationLoadState.url === animationKey ? animationLoadState.status : "loading") : "idle";
   const animationLoadError = animationLoadState.url === animationKey ? animationLoadState.error : "";
   const status = moduleUrl ? (kinematicsInHand ? stepModuleLoadState.status : "loading") : "idle";
@@ -203,8 +209,8 @@ export function useStepMotion({ entry, fileKey, resources, readStored, clipboard
   }, [fileKey, entry, cadPath, moduleUrl]);
 
   // The animation half loads the keyframes in the selected sidecar. A document
-  // with no animation resolves to no clips and no Animation tab, and a broken
-  // one reports its own error without disturbing the Pose tab.
+  // with no animation resolves to no clips and no Animation tool, and a broken
+  // one reports its own error without disturbing Position.
   //
   // It is keyed on the animation's own identity (`animationKey`: the file and the hash of the
   // routines' keyframes), never on the entry: an update of the model that leaves its routines as
@@ -212,6 +218,9 @@ export function useStepMotion({ entry, fileKey, resources, readStored, clipboard
   // loaded again, from rest. The keyframes are read when the key changes.
   const animationSourceRef = useRef({ sourceAnimation, entry });
   animationSourceRef.current = { sourceAnimation, entry };
+  // Putting the routine down (`useStepMotionControls`), which a reload below does: bound once the
+  // commands are made.
+  const releaseAnimationRef = useRef(null);
   useEffect(() => {
     const { sourceAnimation, entry } = animationSourceRef.current;
     let cancelled = false;
@@ -222,9 +231,14 @@ export function useStepMotion({ entry, fileKey, resources, readStored, clipboard
       setAnimationState(nextState);
       resetAnimationClock();
     };
+    // The same file's routines read again, because a rebuild changed or removed them: the model
+    // goes to rest as it does when a routine is put down, Position's values back, and the routine
+    // chosen keeps its place, with its speed and loop, for the new ones to restore against.
+    const reloading = animationLoadState.file === fileKey && animationLoadState.status === "ready";
+    if (reloading) releaseAnimationRef.current?.();
 
     if (!animationKey || !sourceAnimation) {
-      setAnimationLoadState({ url: "", status: "idle", error: "", clips: null });
+      setAnimationLoadState({ url: "", file: fileKey, status: "idle", error: "", clips: null });
       resetAnimation();
       return () => {
         cancelled = true;
@@ -232,13 +246,16 @@ export function useStepMotion({ entry, fileKey, resources, readStored, clipboard
       };
     }
 
-    setAnimationLoadState({
-      url: animationKey,
-      status: "loading",
-      error: "",
-      clips: null
-    });
-    resetAnimation();
+    if (!reloading) {
+      setAnimationLoadState({
+        url: animationKey,
+        file: fileKey,
+        status: "loading",
+        error: "",
+        clips: null
+      });
+      resetAnimation();
+    }
 
     const loadMotionRevision = motionRevisionRef.current;
     loadSourceAnimation({ animation: sourceAnimation }, { signal: controller.signal })
@@ -249,6 +266,7 @@ export function useStepMotion({ entry, fileKey, resources, readStored, clipboard
         const clips = animationModule?.clips || {};
         setAnimationLoadState({
           url: animationKey,
+          file: fileKey,
           status: "ready",
           error: "",
           clips
@@ -264,6 +282,7 @@ export function useStepMotion({ entry, fileKey, resources, readStored, clipboard
         }
         setAnimationLoadState({
           url: animationKey,
+          file: fileKey,
           status: "error",
           error: error instanceof Error ? error.message : String(error),
           clips: null
@@ -305,6 +324,7 @@ export function useStepMotion({ entry, fileKey, resources, readStored, clipboard
     animationState, animationStateRef, setAnimationState, stepModuleParameterValuesRef,
     setStepModuleParameterValues, setAppliedStepPoseName, motionRevisionRef
   });
+  releaseAnimationRef.current = commands.releaseAnimation;
 
   const animationError = animationLoadError;
 

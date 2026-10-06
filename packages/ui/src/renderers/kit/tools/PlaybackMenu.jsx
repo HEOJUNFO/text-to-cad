@@ -12,8 +12,9 @@ import ToolPopover from "./ToolPopover.jsx";
 export const ORBIT_SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5];
 
 // A value's submenu: its name, the value in hand at the right against the chevron, and the radio list.
-// `name` is the accessible name, for the two Speeds under their headings.
-function SpeedSubmenu({ label, name = label, value, values, onChange }) {
+// `name` is the accessible name, for the two Speeds under their headings. The Animation tool's
+// settings have the routine's Speed too (`playbar/AnimationPanel.jsx`).
+export function SpeedSubmenu({ label, name = label, value, values, onChange }) {
   const options = values.includes(value) ? values : [...values, value].sort((a, b) => a - b);
   return <DropdownMenuSub>
     <DropdownMenuSubTrigger aria-label={`${name}: ${value}×`} className="[&>svg:last-child]:ml-0 [&>svg:last-child]:size-3">
@@ -33,7 +34,7 @@ function SpeedSubmenu({ label, name = label, value, values, onChange }) {
  * more than one), its Speed, Loop and Autoplay (whether entering preview starts it, the person's
  * across files) — then, for every file, **Orbit**: on or off, and its Speed. Ticking a checkbox
  * leaves the menu open. Play, pause and the scrubber are the playbar under the model, for a file
- * with routines.
+ * with routines. Speed, Loop and Autoplay are the same settings the Animation tool's panel holds.
  *
  * @param {{ animation?: object | null, autoplay: boolean, onAutoplayChange(value: boolean): void,
  *   orbit: boolean, onOrbitChange(value: boolean): void, orbitSpeed: number, onOrbitSpeedChange(value: number): void,

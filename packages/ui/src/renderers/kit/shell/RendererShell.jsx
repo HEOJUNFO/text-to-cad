@@ -17,6 +17,7 @@ import PlaybackMenu from "../tools/PlaybackMenu.jsx";
 import FloatingToolBar from "../tools/FloatingToolBar.js";
 import ToolStack from "../tools/ToolStack.jsx";
 import { toolPanelClosed } from "../tools/toolStackLayout.js";
+import AnimationPanel from "../tools/playbar/AnimationPanel.jsx";
 import { ViewportAnimationBar, animationControlsHaveContent } from "../tools/playbar/ViewportAnimationBar.js";
 import QuickEdit from "../tools/quick-edit/QuickEdit.jsx";
 import { ViewportTopRight } from "./ViewportTopRight.jsx";
@@ -57,7 +58,6 @@ function NavbarControl({ label, disabled = false, onClick, tooltipSide, children
  * @param {{ shell: ReturnType<typeof import("./useRendererShell.js").useRendererShell>,
  *   tools: import("../tools/FloatingToolBar.js").ViewportTool[],
  *   toolPanels?: import("react").ReactNode,
- *   playback?: any,
  *   references?: readonly import("@text-to-cad/core/prompt").PromptReference[],
  *   copySelection?: (() => unknown) | null,
  *   contextMenuItems?: ((press: { clientX: number, clientY: number, shiftKey: boolean }) => object[] | null) | null,
@@ -75,9 +75,8 @@ function NavbarControl({ label, disabled = false, onClick, tooltipSide, children
  *   `toolPanels`: the tool stack's panels, top to bottom — each a `ToolPanel`
  *   (`kit/tools/ToolPanel.jsx`), shown or `hidden` by the renderer as its tools say: what
  *   the tool in hand shows (Select's tree and Reference, Position's joints), then the
- *   effects a person keeps. The stack is one column the viewer's height, gone in preview.
- *   `playback`: the playbar runtime, when the renderer hands the shell one of its own rather
- *   than through `useRendererShell`'s `animation`. Routines play in preview alone.
+ *   effects a person keeps. The stack is one column the viewer's height, gone in preview. The
+ *   shell's own tools' panels lead it: Draw's, and the Animation tool's.
  *   `references`: what is selected, in the prompt grammar — the references a Quick Edit attaches
  *   (`kit/tools/quick-edit/QuickEdit.jsx`), counted in its header; the file itself always goes. A
  *   renderer that hands none has no Quick Edit: only a view whose picks and sketches a note can
@@ -104,7 +103,7 @@ function NavbarControl({ label, disabled = false, onClick, tooltipSide, children
  *   it. The frame focuses itself on such a press whatever the renderer does; this is for a renderer
  *   that also has something to put down when the person reaches for the model.
  */
-export default function RendererShell({ shell, tools, playback = null, toolPanels = null, references = null, onClearReferences = null, copySelection = null, contextMenuItems = null,
+export default function RendererShell({ shell, tools, toolPanels = null, references = null, onClearReferences = null, copySelection = null, contextMenuItems = null,
   onContextMenuOpenChange = null, viewportOverlay = null,
   frameProvider = null, onCanvasPointerDown = null }) {
   const frame = shell.frame;
@@ -112,7 +111,7 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
   const { view, resolvedScene, viewerLoading, scene } = frame;
   // The one presentation state: every gate — the viewport's, the renderer's — reads it.
   const { previewing, setPreviewing } = shell;
-  const animation = playback || frame.animation;
+  const animation = frame.animation;
   const hasAnimation = animationControlsHaveContent(animation);
   // Speed and Loop, once chosen in Playback settings, are the file's: its routine plays with
   // them, whatever it authored, until they are chosen again. Unset, the routine's own apply.
@@ -125,8 +124,9 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
     if (chosenSpeed != null && Number(runtime.speed) !== chosenSpeed) runtime.onSpeedChange(chosenSpeed);
     if (chosenLoop != null && (runtime.loopEnabled !== false) !== chosenLoop) runtime.onLoopToggle(chosenLoop);
   }, [hasAnimation, animation?.speed, animation?.loopEnabled, animation?.activeClipId, chosenSpeed, chosenLoop]);
-  // What Playback settings change is chosen for the file and applied to its routine at once.
-  const playbackMenuRuntime = hasAnimation ? {
+  // What Playback settings — preview's, or the Animation tool's — change is chosen for the file and
+  // applied to its routine at once.
+  const playbackRuntime = hasAnimation ? {
     ...animation,
     onSpeedChange: value => { shell.setPlayback({ speed: value }); animation.onSpeedChange(value); },
     onLoopToggle: value => { shell.setPlayback({ loop: value }); animation.onLoopToggle(value); }
@@ -145,8 +145,8 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
   // tools view is drawn for working on the model, preview for looking at it.
   const renderProfile = previewing ? VIEWER_RENDER_PROFILE.PREVIEW : VIEWER_RENDER_PROFILE.TOOLS;
   const drawnScene = useMemo(() => sceneForRenderProfile(resolvedScene, renderProfile), [resolvedScene, renderProfile]);
-  // Preview is the one place routines play: entering it starts one when Autoplay is on, and
-  // leaving it puts the model back at rest (its Routine, Speed and Loop stay for the next time).
+  // Routines play in preview and under the Animation tool: entering preview starts one when
+  // Autoplay is on, as taking up the tool does (`useRendererShell`'s `tools.animate`).
   const enterPreview = () => {
     setPreviewing(true);
     if (hasAnimation && shell.autoplay && !animation.playing) animation.onPlayToggle();
@@ -159,13 +159,17 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
     onFullscreenChange?.(true);
     return () => onFullscreenChange?.(false);
   }, [previewing, onFullscreenChange]);
+  // Once neither preview nor the Animation tool holds the routine, the model goes back to rest (its
+  // Routine, Speed and Loop stay for the next time). Leaving preview with the tool up is not that:
+  // the routine carries on under the tool.
   const releaseRef = useRef(null);
   releaseRef.current = animation?.onRelease || null;
-  const wasPreviewing = useRef(previewing);
+  const routineHeld = previewing || frame.animateToolActive;
+  const wasHeld = useRef(routineHeld);
   useEffect(() => {
-    if (wasPreviewing.current && !previewing) releaseRef.current?.();
-    wasPreviewing.current = previewing;
-  }, [previewing]);
+    if (wasHeld.current && !routineHeld) releaseRef.current?.();
+    wasHeld.current = routineHeld;
+  }, [routineHeld]);
   // Every tool's panel but Select's has an X that puts the tool down, back to Select (the default
   // tool, which cannot be put down). Select's tree has an X of its own that closes the tree alone:
   // the tool it belongs to then carries the strip's corner mark, and a press on that tool while it
@@ -181,8 +185,8 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
     return { ...tool, panelClosed: true, description: tool.description || `${tool.panel.label} closed`,
       onSelect: () => { if (tool.active) reopen(); tool.onSelect(); } };
   });
-  // The shell's own tool's panel leads the stack while its tool is up: Draw's tools, color and
-  // history. The renderer's follow.
+  // The shell's own tools' panels lead the stack while their tool is up: Draw's tools, color and
+  // history, or the Animation tool's routine, transport and settings. The renderer's follow.
   // Draw's controls, and once there is ink, Copy Drawing (the view with its ink) at their foot.
   const shellPanels = <>
     {frame.drawToolActive ? <ToolPanel id="drawing" label="Drawing controls" collapsible={false}
@@ -190,6 +194,8 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
         disabled={viewerLoading || !scene} onClick={frame.copyDrawing} /> : null}>
       <DrawingToolbar drawing={frame.drawing} layout="panel" className="p-1" />
     </ToolPanel> : null}
+    {frame.animateToolActive ? <AnimationPanel runtime={playbackRuntime} autoplay={shell.autoplay}
+      onAutoplayChange={shell.setAutoplay} disabled={viewerLoading || !scene} /> : null}
   </>;
 
   const hasContent = Boolean(scene) && !viewerLoading;
@@ -310,7 +316,7 @@ export default function RendererShell({ shell, tools, playback = null, toolPanel
                   and a static file nothing at all. */}
               <PreviewChrome active={previewing} surface={frame.hostElement} cornerStyle={VIEW_CONTROLS_POSITION}
                 corner={onMenuOpenChange => <>
-                  <PlaybackMenu animation={playbackMenuRuntime} onOpenChange={onMenuOpenChange}
+                  <PlaybackMenu animation={playbackRuntime} onOpenChange={onMenuOpenChange}
                     autoplay={shell.autoplay} onAutoplayChange={shell.setAutoplay}
                     orbit={orbitPlaying} onOrbitChange={setOrbitPlaying}
                     orbitSpeed={frame.previewOrbitSpeed || 1} onOrbitSpeedChange={frame.setPreviewOrbitSpeed} />

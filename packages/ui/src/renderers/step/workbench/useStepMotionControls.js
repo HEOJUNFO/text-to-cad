@@ -31,15 +31,15 @@ export function useStepMotionControls({
   }, [selectedStepModuleDefinition, setAppliedStepPoseName, writeParameters]);
   // What Position had set when a routine took the pose. A routine plays from the model at rest,
   // so taking the pose puts Position's values aside rather than throwing them away; handing
-  // the pose back (leaving preview, or touching Position) puts them back first. They are a pose
+  // the pose back (leaving preview or the Animation tool, or touching Position) puts them back first. They are a pose
   // like any other: an update whose joints and named poses are unchanged keeps them (a routine
   // may play on through it), and one that changed them drops them.
   const heldPositionRef = useRef(null);
   const poseLogic = useMemo(() => stepPoseLogic(selectedStepModuleDefinition), [selectedStepModuleDefinition]);
   useEffect(() => { heldPositionRef.current = null; }, [poseLogic]);
   // Handing the pose to Position stops the routine and rewinds its clock, and nothing more: the
-  // transport preferences preview's Playback settings set (the routine, its speed, the loop) are the
-  // person's, and a joint nudge or a trip to another tool keeps them for the next play.
+  // transport preferences the Animation tool and preview's Playback settings set (the routine, its
+  // speed, the loop) are the person's, and a joint nudge or a trip to another tool keeps them for the next play.
   const activatePositionControls = useCallback(() => {
     motionRevisionRef.current += 1;
     const next = { ...animationStateRef.current, enabled: false, playing: false, elapsedSec: 0 };
@@ -292,7 +292,7 @@ export function useStepMotionControls({
   return { handleStepModuleParameterChange, applyStepModuleParameterValues, handleResetStepModuleParameters,
     handleApplyPose, handleAnimationClipSelect, handleAnimationPlayToggle, handleAnimationRestart,
     handleAnimationScrub, handleAnimationSpeedChange, handleAnimationLoopToggle, resetMotion, resetPosition,
-    // Leaving preview: the clip hands the pose back to Position, as Position left it, and keeps
-    // nothing of where it was — only the transport preferences, for the next play.
+    // Leaving preview or the Animation tool: the clip hands the pose back to Position, as Position
+    // left it, and keeps nothing of where it was — only the transport preferences, for the next play.
     releaseAnimation: activatePositionControls };
 }
