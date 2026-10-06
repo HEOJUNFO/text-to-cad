@@ -13,9 +13,10 @@ const APP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const python = process.env.CLOUD_PYTHON || path.resolve(APP, '../../.venv/bin/python');
 const usable = existsSync(python) &&
   spawnSync(python, ['-c', 'import importlib.util as u, sys; sys.exit(0 if u.find_spec("cadgen") and u.find_spec("build123d") else 1)']).status === 0;
-if (!usable) console.warn(`[e2e] skipped: no cadgen-capable Python at ${python} (set CLOUD_PYTHON)`);
+const skipReason = `skipped: no cadgen-capable Python at ${python} (set CLOUD_PYTHON)`;
+if (!usable) process.stderr.write(`[e2e] ${skipReason}\n`);
 
-describe.skipIf(!usable)('local sandbox, end to end', () => {
+describe.skipIf(!usable)(`local sandbox, end to end${usable ? '' : ` (${skipReason})`}`, () => {
   let server: TestServer;
   beforeAll(async () => {
     server = await testServer({
