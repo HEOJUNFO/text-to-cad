@@ -140,15 +140,15 @@ owner.
 | Measure | Arms picking and shows the Measure panel: its snapping modes, then its results; a press while it is up clears the results and puts it down | Unfinished picks are cancelled; completed measurements and their panel stay |
 | Explode / Clip | Opens a neutral panel; an edit applies the effect | A neutral panel goes; an applied effect and its panel stay |
 | Position | Shows joint handles and the Position panel; its icon carries a small dot while the pose is not the default | Handles and panel hide; joint values stay |
-| Animation | Shows the Animation panel, the routine's transport and settings; starts the routine when Autoplay is on; a second press puts it down | The routine stops and rewinds, and the model is back at rest; the Routine, Speed and Loop stay |
+| Animation | Shows the Animation panel: its settings in the heading, the routine and the transport; starts the routine when Autoplay is on; a second press, or the X, puts it down | The routine stops and rewinds, and the model is back at rest; the Routine, Speed and Loop stay |
 
 A tree is Select's panel, so it is used under Select; a tree row's menu action
 returns to Select before it acts.
 
 **Every tool's panel but Select's has an X, and no fold chevron.** The X puts
 the tool down and returns to Select, the default tool, which cannot itself be put
-down. Draw's and Animation's panels are toolbars with no heading and no X: a
-second press on the tool puts it down. Select's tree has an X too, which closes the tree alone and leaves Select
+down. Draw's panel is a toolbar with no heading and no X: a second press on Draw
+puts it down. Select's tree has an X too, which closes the tree alone and leaves Select
 the tool; a press on Select while it is up opens it again (see
 [Closing the tree](#the-tool-stack)). SDF folds instead.
 
@@ -162,7 +162,9 @@ panel's header row, just before the fold chevron or the X — a sliders icon, th
 size of those buttons (the strip's button shows the mode in hand) — whose
 dropdown lists the modes — each its glyph and its name — then any options that
 go with them (`kit/tools/ToolModeMenu.jsx`). Select's sits in the Features
-filter row, Measure's in the Measure heading. A dropdown is ordinary — under
+filter row, Measure's in the Measure heading. A tool's settings that are not
+modes are the same button and dropdown (`ToolSettingsMenu`): Animation's, in its
+heading. A dropdown is ordinary — under
 its own button, free to overlap the stack — and closes with no exit animation,
 so a quick second tap (touch included) always reaches its trigger. Choosing a
 value closes it; ticking an option leaves it open. Menu checks sit on the
@@ -221,15 +223,15 @@ tick where the shortcut was; the copy shortcut does the same. A sketch begun ope
 
 **Animation** plays a file's routines without leaving the tools view; only a
 file with routines has it, after Position on the strip (its icon a clapperboard).
-Its **Animation** panel leads the stack while it is up, a toolbar like Drawing,
-with no heading and no X: choosing another tool, or pressing Animation again,
-puts it down. With more than one routine its first row is the routine's
-dropdown, across the panel: the routine's name is the row, so it has no label
-beside it (its name and hint are "Routine"). Then the transport — preview's
-playbar: play/pause and the scrubber — and, at that row's end, its settings: the
-sliders button, whose dropdown holds Speed, Loop and Autoplay, the very settings
-of preview's Playback settings, kept the same way (see
-[preview](#camera-animation-and-preview)). Taking it up leaves the model at rest
+Its **Animation** panel leads the stack while it is up, headed as Measure's is:
+"Animation", then its settings — the sliders button, whose dropdown holds Speed,
+Loop and Autoplay, the very settings of preview's Playback settings, kept the
+same way (see [preview](#camera-animation-and-preview)) — and its X, which puts
+it down as a second press on Animation does. Its body is rowed as Explode's and
+Clip's are: with more than one routine, the routine's dropdown across the panel
+(the routine's name is the row, so it has no label beside it; its name and hint
+are "Routine"); then the transport, play/pause — a heading's 20px button, its
+glyph on the rows' 8px line — hard against the scrubber. Taking it up leaves the model at rest
 unless Autoplay is on, which starts the routine, as entering preview does. While
 it is up the routine owns the pose and nothing on the model is picked or
 hovered; the kept effects stay as they are. Preview carries a playing routine

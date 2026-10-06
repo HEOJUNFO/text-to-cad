@@ -12,7 +12,7 @@ import { FILE_SHEET_PRECISION_SLIDER_CLASSES } from "../../inspector/FileSheet.j
 // Every animation source shares this transport UI. It only edits the clip and clock state of
 // the runtime it is handed; evaluating a clip is its owner's. Routines play in preview, where
 // the playbar under the model is the transport, and under the Animation tool, whose panel
-// carries the same transport.
+// carries the same scrubber (`AnimationTimeControl`).
 //
 // runtime: { clips: [{ id, label, duration }], activeClipId, playing, elapsedSec,
 //   speed, loopEnabled, clock, onClipSelect, onPlayToggle, onScrub, onSpeedChange,
@@ -27,12 +27,16 @@ function formatSeconds(value) {
   return `${numericValue.toFixed(numericValue >= 10 ? 1 : 2)}s`;
 }
 
-// The time slider tracks the LIVE clock while playing: the elapsed time on the
-// runtime snapshot only moves when playback stops, because a playing clip
-// publishes through the clock store instead of React state.
-function AnimationTimeControl({ playing, elapsedSec, duration, onScrub, clock, disabled = false }) {
-  const liveElapsedSec = useAnimationClockValue(clock);
-  const rawElapsedSec = playing ? liveElapsedSec : elapsedSec;
+/**
+ * The scrubber over the routine in hand. It tracks the LIVE clock while playing: the elapsed time on
+ * the runtime snapshot only moves when playback stops, because a playing clip publishes through the
+ * clock store instead of React state. Preview's playbar and the Animation tool's panel both draw it.
+ */
+export function AnimationTimeControl({ runtime, disabled = false }) {
+  const activeClip = runtime?.clips?.find(clip => clip.id === runtime?.activeClipId);
+  const duration = Math.max(Number(activeClip?.duration) || 1, 0.001);
+  const liveElapsedSec = useAnimationClockValue(runtime?.clock);
+  const rawElapsedSec = runtime?.playing === true ? liveElapsedSec : runtime?.elapsedSec;
   const value = Math.min(Math.max(Number(rawElapsedSec) || 0, 0), duration);
   return (
     <Slider
@@ -42,19 +46,14 @@ function AnimationTimeControl({ playing, elapsedSec, duration, onScrub, clock, d
       min={0}
       max={duration}
       step={0.01}
-      onValueChange={(nextValue) => onScrub?.(nextValue?.[0] ?? 0)}
+      onValueChange={(nextValue) => runtime?.onScrub?.(nextValue?.[0] ?? 0)}
       thumbProps={{ "aria-label": "Animation time", "aria-valuetext": `${formatSeconds(value)} of ${formatSeconds(duration)}` }}
     />
   );
 }
 
-/**
- * Play/Pause and the scrubber over the renderer's live clock. Dragging the scrubber to the start is
- * the restart. Preview's playbar, and the first of the Animation tool's controls.
- */
-export function AnimationTransport({ runtime, disabled = false }) {
-  const activeClip = runtime?.clips?.find(clip => clip.id === runtime?.activeClipId);
-  const duration = Math.max(Number(activeClip?.duration) || 1, 0.001);
+/** Play/Pause and the scrubber over the renderer's live clock. Dragging the scrubber to the start is the restart. */
+function AnimationTransport({ runtime, disabled = false }) {
   const iconClass = "size-3.5";
   return <div className="flex h-6 min-w-0 flex-1 items-center gap-2" data-animation-transport>
     <ToolbarButton tooltip={false} disabled={disabled} tooltipSide="top"
@@ -62,8 +61,7 @@ export function AnimationTransport({ runtime, disabled = false }) {
       {runtime?.playing ? <Pause className={iconClass} strokeWidth={1.5} aria-hidden="true"/> : <Play className={iconClass} strokeWidth={1.5} aria-hidden="true"/>}
     </ToolbarButton>
     <div className="min-w-0 flex-1 px-1">
-      <AnimationTimeControl playing={runtime?.playing === true} elapsedSec={runtime?.elapsedSec}
-        duration={duration} onScrub={runtime?.onScrub} clock={runtime?.clock} disabled={disabled}/>
+      <AnimationTimeControl runtime={runtime} disabled={disabled}/>
     </div>
   </div>;
 }

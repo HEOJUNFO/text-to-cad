@@ -25,19 +25,27 @@ const OPEN = { id: 'open', label: 'Open', duration: 3 };
 const routines = (clips: object[], patch = {}) => ({ clips, activeClipId: 'turn', elapsedSec: 2, playing: false, speed: 1, loopEnabled: true,
   clock: createAnimationClock(), onPlayToggle: vi.fn(), onScrub: vi.fn(), onSpeedChange: vi.fn(), onLoopToggle: vi.fn(), onClipSelect: vi.fn(), ...patch });
 
-it('is a toolbar: the transport and its settings, with no heading and no X, and no Routine row for a single routine', () => {
-  render(<AnimationPanel runtime={routines([TURN])} autoplay={false} onAutoplayChange={vi.fn()} />);
+it('is headed as every tool panel is — Animation, its settings, its X — over the transport, with no Routine row for one routine', async () => {
+  const user = userEvent.setup();
+  const runtime = routines([TURN]);
+  const onClose = vi.fn();
+  render(<AnimationPanel runtime={runtime} autoplay={false} onAutoplayChange={vi.fn()} onClose={onClose} />);
   const panel = screen.getByRole('region', { name: 'Animation controls' });
-  expect(within(panel).queryByRole('heading')).toBeNull();
-  expect(within(panel).getAllByRole('button').map(button => button.getAttribute('aria-label'))).toEqual(['Play animation', 'Animation settings']);
+  expect(within(panel).getAllByRole('heading').map(heading => heading.textContent)).toEqual(['Animation']);
+  expect(within(panel).getAllByRole('button').map(button => button.getAttribute('aria-label')))
+    .toEqual(['Animation settings', 'Close animation controls', 'Play animation']);
   expect(within(panel).getByRole('slider', { name: 'Animation time' }).getAttribute('aria-valuetext')).toBe('2.00s of 8.00s');
   expect(within(panel).queryByRole('combobox', { name: 'Routine' })).toBeNull();
+  await user.click(within(panel).getByRole('button', { name: 'Play animation' }));
+  expect(runtime.onPlayToggle).toHaveBeenCalledOnce();
+  await user.click(within(panel).getByRole('button', { name: 'Close animation controls' }));
+  expect(onClose).toHaveBeenCalledOnce();
 });
 
 it('chooses the routine in a row above the transport when there are several', async () => {
   const user = userEvent.setup();
   const runtime = routines([TURN, OPEN]);
-  render(<AnimationPanel runtime={runtime} autoplay={false} onAutoplayChange={vi.fn()} />);
+  render(<AnimationPanel runtime={runtime} autoplay={false} onAutoplayChange={vi.fn()} onClose={vi.fn()} />);
   const routine = screen.getByRole('combobox', { name: 'Routine' });
   expect(routine.textContent).toBe('Turn');
   expect(routine.compareDocumentPosition(screen.getByRole('button', { name: 'Play animation' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -47,11 +55,11 @@ it('chooses the routine in a row above the transport when there are several', as
   expect(runtime.onClipSelect).toHaveBeenLastCalledWith('open');
 });
 
-it('holds Speed, Loop and Autoplay in its settings, as preview\'s Playback settings do', async () => {
+it('holds Speed, Loop and Autoplay in its heading\'s settings, as preview\'s Playback settings do', async () => {
   const user = userEvent.setup();
   const runtime = routines([TURN], { speed: 0.5 });
   const onAutoplayChange = vi.fn();
-  render(<AnimationPanel runtime={runtime} autoplay={false} onAutoplayChange={onAutoplayChange} />);
+  render(<AnimationPanel runtime={runtime} autoplay={false} onAutoplayChange={onAutoplayChange} onClose={vi.fn()} />);
   await user.click(screen.getByRole('button', { name: 'Animation settings' }));
   const menu = screen.getByRole('menu', { name: 'Animation settings' });
   expect(within(menu).getByRole('menuitem', { name: 'Animation speed: 0.5×' })).toBeTruthy();

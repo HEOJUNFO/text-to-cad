@@ -936,14 +936,14 @@ test('the Animation tool plays the routine in the tools view, preview carries it
   const { page, pane, errors } = view;
   const arm = () => page.evaluate(() => window.__cadDisplayRecords().find(record => record.partId === 'o1.2').matrix);
   const restArm = (await translations(page))['o1.2'];
-  // Its panel leads the stack, a toolbar like Draw's: no heading and no X, the transport and its
-  // settings, and no Routine row for the one routine.
+  // Its panel leads the stack, headed as Measure's is: Animation, its settings and its X, over the
+  // transport, with no Routine row for the one routine.
   await view.tool('Animation').click();
   const panel = pane.getByRole('region', { name: 'Animation controls', exact: true });
   assert.deepEqual(await view.stack(), ['Animation controls']);
-  assert.equal(await panel.getByRole('heading').count(), 0);
+  assert.deepEqual(await panel.getByRole('heading').allInnerTexts(), ['Animation']);
   assert.deepEqual(await panel.getByRole('button').evaluateAll(buttons => buttons.map(button => button.getAttribute('aria-label'))),
-    ['Play animation', 'Animation settings']);
+    ['Animation settings', 'Close animation controls', 'Play animation']);
   assert.equal(await panel.getByRole('combobox', { name: 'Routine' }).count(), 0);
   assert.equal(Math.round((await panel.boundingBox()).width), 164, 'one width, as every fixed panel');
   assert.deepEqual((await translations(page))['o1.2'], restArm, 'taken up, the model waits at rest: Autoplay is off');
@@ -971,7 +971,8 @@ test('the Animation tool plays the routine in the tools view, preview carries it
   await page.getByRole('menuitemcheckbox', { name: 'Autoplay', exact: true }).click();
   await page.keyboard.press('Escape');
   await page.getByRole('menu', { name: 'Animation settings' }).waitFor({ state: 'detached' });
-  await view.tool('Animation').click();
+  // Its X puts it down as the second press does.
+  await panel.getByRole('button', { name: 'Close animation controls' }).click();
   assert.deepEqual(await view.stack(), ['Features']);
   await view.tool('Animation').click();
   await panel.getByRole('button', { name: 'Pause animation' }).waitFor();

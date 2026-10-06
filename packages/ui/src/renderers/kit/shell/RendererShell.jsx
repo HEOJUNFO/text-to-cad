@@ -186,7 +186,8 @@ export default function RendererShell({ shell, tools, toolPanels = null, referen
       onSelect: () => { if (tool.active) reopen(); tool.onSelect(); } };
   });
   // The shell's own tools' panels lead the stack while their tool is up: Draw's tools, color and
-  // history, or the Animation tool's routine, transport and settings. The renderer's follow.
+  // history, or the Animation tool's routine, transport and settings, whose X puts it down, back to
+  // the default tool. The renderer's follow.
   // Draw's controls, and once there is ink, Copy Drawing (the view with its ink) at their foot.
   const shellPanels = <>
     {frame.drawToolActive ? <ToolPanel id="drawing" label="Drawing controls" collapsible={false}
@@ -195,7 +196,7 @@ export default function RendererShell({ shell, tools, toolPanels = null, referen
       <DrawingToolbar drawing={frame.drawing} layout="panel" className="p-1" />
     </ToolPanel> : null}
     {frame.animateToolActive ? <AnimationPanel runtime={playbackRuntime} autoplay={shell.autoplay}
-      onAutoplayChange={shell.setAutoplay} disabled={viewerLoading || !scene} /> : null}
+      onAutoplayChange={shell.setAutoplay} onClose={shell.selectDefaultTool} disabled={viewerLoading || !scene} /> : null}
   </>;
 
   const hasContent = Boolean(scene) && !viewerLoading;

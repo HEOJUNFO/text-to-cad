@@ -526,8 +526,8 @@ export function useRendererShell({
       onSelect: () => selectTool(SHELL_TOOL.DRAW) }),
     // The file's routines, played without leaving the tools view: the playbar and its settings are
     // a panel in the tool stack while it is up (`RendererShell.jsx`). Null for a file with none.
-    // Taking it up starts the routine when Autoplay is on, as entering preview does; like Draw, a
-    // second press puts it down.
+    // Taking it up starts the routine when Autoplay is on, as entering preview does; a second press,
+    // or the panel's X, puts it down.
     animate: routines ? stripTool({ id: SHELL_TOOL.ANIMATE, label: "Animation",
       icon: <Clapperboard className="size-3" strokeWidth={2} aria-hidden="true" />,
       onSelect: () => {
