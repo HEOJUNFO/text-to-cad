@@ -110,6 +110,8 @@ The server runs `python src/bracket.py` from the build root, writing
 - `files` maps a relative path to its text, or to `{"base64": ...}` for binary
   data. `entry` is a `.py` script, or an array of independent ones run in order
   with `python` from the build root; `pythonpath` adds import roots.
+- `entry` is optional: without one nothing runs, and the CAD files sent are
+  published as they are (a STEP built elsewhere, a hand-written URDF).
 - A build is immutable: each returns a new id and link, earlier links keep
   showing the earlier model, and an identical submission returns the existing
   build. To edit, send `base` (the previous id), only the changed files and
@@ -122,10 +124,13 @@ The server runs `python src/bracket.py` from the build root, writing
 
 ## Links
 
-Each output opens in the CAD viewer at `https://<host>/b/<id>/<path>`, and
-`https://<host>/b/<id>` opens the main file (the STEP named for the first entry).
+Each CAD file in a build, written or sent, opens in the CAD viewer at
+`https://<host>/b/<id>/<path>`; the result lists them. `https://<host>/b/<id>`
+opens the main file (the STEP named for the first entry).
 The viewer has the local viewer's tools (select, measure, section, explode, Draw,
 Quick Edit), the source files and Download. `<host>` is the server's address.
+Shared models do not animate: the hosted viewer runs no script a model declares
+(`animation=`), though kinematics and materials show as they do locally.
 
 Give the user the link for each model you create or change. Anyone with a link
 can open the build, read its source files and download them: keep secrets and
@@ -193,7 +198,9 @@ lists the rest.
 ## Limits and what is sent
 
 - A build has time, file-count and size caps (by default 10 minutes, 400 files,
-  20 MB of input) and counts against a daily compute allowance. Snapshots and
+  20 MB of input) and counts against a daily compute allowance. A server may
+  take less in one request (some hosts cap a request at 4.5 MB): send large
+  binary inputs once and edit with `base`. Snapshots and
   inspections have shorter time caps and need a finished build. Each user runs
   one build and one snapshot or inspection at a time, and a second is refused:
   submit them one after another. An error names the cap and when it resets.
