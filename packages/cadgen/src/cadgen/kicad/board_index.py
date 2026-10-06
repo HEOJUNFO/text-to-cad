@@ -407,6 +407,7 @@ class BoardIndex:
                 {
                     "part": pad.part, "number": pad.number, "name": pad.name, "net": pad.net, "type": pad.type,
                     "side": pad.side, "at": xy(pad.at), "polygon": path(pad.polygon),
+                    **({"drill": num(pad.drill)} if pad.drill else {}),
                 }
                 for pad in self.pads
             ],

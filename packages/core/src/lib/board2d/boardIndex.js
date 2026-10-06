@@ -158,7 +158,7 @@ export function createBoardIndex(board, sheet = {}) {
     if (!part || !number) continue;
     const polygon = pageList(entry.polygon);
     const pad = {
-      kind: "pad", ref: part.ref, number, name: String(entry.name ?? ""), net: String(entry.net ?? ""), type: String(entry.type ?? ""),
+      kind: "pad", ref: part.ref, number, name: String(entry.name ?? ""), net: String(entry.net ?? ""), type: String(entry.type ?? ""), drill: Number(entry.drill) || 0,
       side: entry.side === "both" ? "both" : entry.side === "bottom" ? "bottom" : "top", at: page(entry.at) || centre(polygon) || part.at, polygon,
       area: polygon.length > 2 ? polygonArea(polygon) : 0, box: polygon.length > 2 ? boxOf(polygon) : null, part
     };

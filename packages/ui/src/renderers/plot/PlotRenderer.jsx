@@ -15,7 +15,7 @@ import ToolPanel, { ToolPanelFooterButton } from "../kit/tools/ToolPanel.jsx";
 import { DRAWING_TOOLBAR_TOOLS, DrawingToolbar } from "../../drawing/toolbar.jsx";
 import { BoardMeasurePanel, BoardReferencePanel, BoardTreePanel } from "./board/BoardPanels.jsx";
 import { BoardMeasureIcon, BoardSelectIcon } from "./board/boardModes.jsx";
-import { BoardDisplaySection, boardDrawView, readBoardDisplay } from "./board/BoardDisplay.jsx";
+import { BoardDisplaySection, boardDisplayAirwires, boardDrawView, readBoardDisplay } from "./board/BoardDisplay.jsx";
 import DisplayPopover from "../kit/shell/DisplayPopover.jsx";
 import ViewerAlertCard, { useAlertDismissal } from "../kit/status/ViewerAlertCard.jsx";
 import ViewerLoadingOverlay from "../kit/status/ViewerLoadingOverlay.js";
@@ -80,7 +80,7 @@ function PlotSurface({ view, data }) {
 
   // ---- the view this file was left at ---------------------------------------
   // The file's view (`kit/shell/fileView.js`): the plot's transform as its camera, and a board's
-  // Display (side, layers, pours) as its one slice.
+  // Display (mode, side, pours) as its one slice.
   const isBoardFile = plotKindForPath(view.file.path) === "board";
   const [stored] = useState(() => readFileView(view.state, BOARD_SLICE));
   const [restored] = useState(() => readPlaneTransform(stored.camera));
@@ -126,7 +126,8 @@ function PlotSurface({ view, data }) {
   const inspector = useBoardInspector({
     plot: payload.plot, transformRef: { get current() { return viewParts.current.transformRef.current; } },
     requestPaint: useCallback(() => viewParts.current.requestPaint?.(), []),
-    canvasRef: { get current() { return viewParts.current.canvasRef.current; } }, side: shownDisplay?.side || "top"
+    canvasRef: { get current() { return viewParts.current.canvasRef.current; } }, side: shownDisplay?.side || "top",
+    placement: boardDisplayAirwires(shownDisplay)
   });
   const drawView = useMemo(() => (shownDisplay ? boardDrawView(shownDisplay, boardSheet) : null), [shownDisplay, boardSheet]);
   const plotView = usePlotView({

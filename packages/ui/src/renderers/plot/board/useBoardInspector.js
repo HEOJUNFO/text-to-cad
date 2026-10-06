@@ -32,8 +32,9 @@ let measurementSequence = 0;
  * @param {() => void} options.requestPaint
  * @param {{ current: HTMLCanvasElement|null }} options.canvasRef
  * @param {"top"|"bottom"} [options.side]  The side the board is looked at from: bottom is mirrored.
+ * @param {boolean} [options.placement]  A board's Placement display: the overlay draws its pads and airwires.
  */
-export function useBoardInspector({ plot, transformRef, requestPaint, canvasRef, side = "top" }) {
+export function useBoardInspector({ plot, transformRef, requestPaint, canvasRef, side = "top", placement = false }) {
   const layout = plot?.layout ?? null;
   const board = plot?.board ?? layout?.board ?? null;
   const schematic = board ? null : plot?.schematic ?? null;
@@ -94,7 +95,7 @@ export function useBoardInspector({ plot, transformRef, requestPaint, canvasRef,
 
   // ---- what the canvas draws over the plot -------------------------------------
   const overlayState = useRef({});
-  overlayState.current = { index, resolved, dim, markers, measurements, measureStart, mirrorX };
+  overlayState.current = { index, resolved, dim, markers, measurements, measureStart, mirrorX, placement };
   const paintOverlay = useCallback((ctx, frame) => {
     const state = overlayState.current;
     if (!state.index || !frame.transform) return;
@@ -103,7 +104,7 @@ export function useBoardInspector({ plot, transformRef, requestPaint, canvasRef,
     drawBoardOverlay(ctx, state.index, {
       transform: frame.transform, pixelRatio: frame.pixelRatio, width: frame.width, height: frame.height,
       hover: hoverRef.current, selection: state.resolved, dim: state.dim, markers: state.markers, mirrorX: state.mirrorX,
-      measure,
+      measure, placement: state.placement,
     });
     for (const measurement of state.measurements) {
       drawBoardOverlay(ctx, state.index, {
@@ -112,7 +113,7 @@ export function useBoardInspector({ plot, transformRef, requestPaint, canvasRef,
       });
     }
   }, []);
-  useEffect(() => { requestPaint?.(); }, [resolved, dim, markers, measurements, measureStart, mirrorX, requestPaint]);
+  useEffect(() => { requestPaint?.(); }, [resolved, dim, markers, measurements, measureStart, mirrorX, placement, requestPaint]);
 
   // ---- from the pane to the board ---------------------------------------------
   const toPage = useCallback(({ x, y }) => {

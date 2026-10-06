@@ -13,8 +13,15 @@
  * and what lies off screen is left out. Each item is its own path: a canvas fills and strokes many
  * small paths far faster than one path of them all. Widths are screen pixels, as the person reads
  * them, whatever the zoom.
+ *
+ * In a board's Placement display (`placement`) the plot carries no copper and no drills (a via's
+ * hole is routing), so this draws the pads (in KiCad's copper colours, the far side first), their
+ * holes and the board's own, and every connection as an airwire (`boardAirwires`), under the dim
+ * and the highlights. A net with a pour is joined by it, so its airwires are left out unless the
+ * net is selected; a selected net's airwires are highlighted.
  */
 import { pageToScreen } from "../plot2d/plot.js";
+import { boardAirwires } from "./airwires.js";
 
 /** The viewer's highlight (the CAD views' ink highlight), and how the rest steps back for a net. */
 export const BOARD_OVERLAY_COLORS = Object.freeze({
@@ -37,6 +44,11 @@ const PART_FILL = "rgba(141, 197, 255, 0.10)";
 const PART_PAD_FILL = "rgba(141, 197, 255, 0.35)";
 const ZONE_FILL = "rgba(141, 197, 255, 0.12)";
 const COPPER_ZONE_FILL = "rgba(141, 197, 255, 0.18)";
+// Placement's pads, KiCad's default theme's F.Cu and B.Cu (a through-hole pad is the side looked at),
+// and its airwires: thin, light, under everything a person points at.
+const PLACEMENT_PAD_FILL = Object.freeze({ front: "rgba(200, 52, 52, 0.9)", back: "rgba(77, 127, 196, 0.9)" });
+const AIRWIRE_COLOR = "rgba(232, 238, 245, 0.8)";
+const PLACEMENT_HOLE_FILL = "#000000";
 // Dots (vias, junctions, a pin's end) are filled a few dozen to a path.
 const DOTS_PER_PATH = 64;
 
@@ -143,6 +155,23 @@ function dots(ctx, view, list, color, radiusOf) {
 const trackWidth = (view, minimum) => (track) => Math.max(minimum * view.px, track.width);
 const viaRadius = (view, minimum) => (via) => Math.max(minimum * view.px, via.diameter / 2);
 
+/** Placement's layer: every pad, the side looked at drawn last, the holes, and the airwires of every net without a pour. */
+function placementLayer(ctx, view, index) {
+  const looked = view.mirrorX == null ? "top" : "bottom";
+  const near = [];
+  const far = [];
+  for (const pad of index.padShapes) (pad.side === "both" || pad.side === looked ? near : far).push(pad);
+  for (const [list, color] of [[far, looked === "top" ? PLACEMENT_PAD_FILL.back : PLACEMENT_PAD_FILL.front],
+    [near, looked === "top" ? PLACEMENT_PAD_FILL.front : PLACEMENT_PAD_FILL.back]]) {
+    ctx.fillStyle = color;
+    for (const pad of list) if (pad.polygon.length > 2 && view.shows(pad.box)) draw(ctx, pad.polygon, true, { fill: true });
+  }
+  dots(ctx, view, [...index.padShapes.filter((pad) => pad.drill > 0), ...index.holes], PLACEMENT_HOLE_FILL,
+    (hole) => (hole.drill || hole.diameter) / 2);
+  const poured = (name) => index.nets.get(name)?.zones.length > 0;
+  strokes(ctx, view, boardAirwires(index).filter((wire) => !poured(wire.net)), AIRWIRE_COLOR, () => view.px);
+}
+
 // ---- screen space: what keeps its size in pixels ---------------------------------
 function crosshair(ctx, view, [x, y], color, size = 7) {
   const [sx, sy] = view.project(x, y);
@@ -231,11 +260,12 @@ export function drawResolved(ctx, view, resolved, { color, toPage, weight = 1, s
  * @param {ReturnType<typeof import("./boardIndex.js").createBoardIndex> | ReturnType<typeof import("./schematicIndex.js").createSchematicIndex>} index
  * @param {{ transform: object, pixelRatio?: number, width: number, height: number, hover?: object|null,
  *   selection?: object[], dim?: boolean, measure?: { points: number[][], draft?: number[]|null }|null,
- *   markers?: number[][], mirrorX?: number|null, colors?: typeof BOARD_OVERLAY_COLORS }} frame
+ *   markers?: number[][], mirrorX?: number|null, colors?: typeof BOARD_OVERLAY_COLORS, placement?: boolean }} frame
  *   `mirrorX`: the page x the board is mirrored about (the view from the bottom), or null.
+ *   `placement`: a board's Placement display, its pads and airwires drawn here.
  */
 export function drawBoardOverlay(ctx, index, { transform, pixelRatio = 1, width, height, hover = null, selection = [], dim = false,
-  measure = null, markers = [], mirrorX = null, colors = null }) {
+  measure = null, markers = [], mirrorX = null, colors = null, placement = false }) {
   if (!ctx || !index || !transform || !(transform.scale > 0)) return;
   const schematic = index.document === "schematic";
   colors = colors || (schematic ? SCHEMATIC_OVERLAY_COLORS : BOARD_OVERLAY_COLORS);
@@ -246,6 +276,11 @@ export function drawBoardOverlay(ctx, index, { transform, pixelRatio = 1, width,
     ? (resolved, options) => drawSchematicResolved(ctx, view, resolved, { ...options, fill: colors.fill, shapesOf })
     : (resolved, options) => drawResolved(ctx, view, resolved, { ...options, toPage: index.toPage, shapesOf, crosshairs });
   ctx.save();
+  placement = placement && !schematic;
+  if (placement) {
+    pageSpace(ctx, view, pixelRatio);
+    placementLayer(ctx, view, index);
+  }
   ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
   if (dim && selection.length) {
     ctx.fillStyle = colors.dim;
@@ -253,6 +288,10 @@ export function drawBoardOverlay(ctx, index, { transform, pixelRatio = 1, width,
   }
   pageSpace(ctx, view, pixelRatio);
   for (const resolved of selection) highlight(resolved, { color: colors.selection, weight: 1.25 });
+  if (placement) {
+    const nets = new Set(selection.filter((resolved) => resolved.kind === "net").map((resolved) => resolved.net.name));
+    if (nets.size) strokes(ctx, view, boardAirwires(index).filter((wire) => nets.has(wire.net)), colors.selection, () => 2 * view.px);
+  }
   if (hover && !selection.some((resolved) => resolved.selector === hover.selector)) highlight(hover, { color: colors.hover });
   // Back to screen pixels: the crosshairs, a check's rings and a measurement keep their size.
   ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);

@@ -54,7 +54,7 @@ const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
  *
  * @typedef {object} PlotLayer
  * @property {string} id KiCad's layer (`"F.Cu"`), or `"ratsnest"`, `"drills"`.
- * @property {string} kind `"fab"`, `"silk"`, `"copper"`, `"outline"`, `"ratsnest"`, `"drill"`.
+ * @property {string} kind `"courtyard"`, `"fab"`, `"silk"`, `"copper"`, `"outline"`, `"ratsnest"`, `"drill"`.
  * @property {"front"|"back"|"both"} side
  * @property {string} svg The layer as KiCad plotted it, poured.
  * @property {string|null} unpoured A copper layer with its pours' fills removed, when it has any.
@@ -328,12 +328,16 @@ export function sheetImages(layout, images) {
   });
 }
 
-/** A sheet's layer images in the order `view` draws them, each with the picture it draws. */
+/**
+ * A sheet's layer images in the order `view` draws them, each with the picture it draws. A view
+ * that names no layers draws them all but the courtyards, which only a view naming them shows (a
+ * board's Assembly and Placement): a snapshot or a card is the board as it is made.
+ */
 function viewed(entries, view) {
   const chosen = Array.isArray(view?.layers) ? new Set(view.layers) : null;
   const poured = view?.poured !== false;
   const kept = entries
-    .filter((entry) => !chosen || chosen.has(entry.layer))
+    .filter((entry) => (chosen ? chosen.has(entry.layer) : entry.kind !== "courtyard"))
     .map((entry) => ({ ...entry, image: poured || !entry.unpoured ? entry.image : entry.unpoured }));
   if (view?.side !== "bottom") return kept;
   // From below, the stack reverses — the back layers face the viewer — while what goes through

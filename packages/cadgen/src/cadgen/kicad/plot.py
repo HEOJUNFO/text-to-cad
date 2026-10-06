@@ -72,7 +72,7 @@ __all__ = [
 PLOT_SCHEMA_VERSION = 2
 # The derivation's own revision, in the cache key beside the schema version: a fix that changes
 # what a payload holds, not its shape, bumps it so the store never serves the old payloads.
-_REVISION = 2
+_REVISION = 4
 #: KiCad's default colour theme behind a board, and behind a schematic sheet.
 BOARD_BACKGROUND = "#001023"
 SCHEMATIC_BACKGROUND = "#F5F4EF"
@@ -166,9 +166,9 @@ def _side(layer: str) -> str:
 def _board_layers(tree: list) -> list[tuple[str, str, str]]:
     """The layers a board's sheet stacks, back to front: (KiCad layer, kind, side)."""
     declared = {str(entry[1]) for entry in (sexpr.find(tree, "layers") or [])[1:] if isinstance(entry, list) and len(entry) >= 2}
-    stack = [("B.Fab", "fab"), ("B.SilkS", "silk")]
+    stack = [("B.CrtYd", "courtyard"), ("B.Fab", "fab"), ("B.SilkS", "silk")]
     stack += [(layer, "copper") for layer in _copper_order(tree)]
-    stack += [("F.SilkS", "silk"), ("F.Fab", "fab"), ("Edge.Cuts", "outline")]
+    stack += [("F.SilkS", "silk"), ("F.Fab", "fab"), ("F.CrtYd", "courtyard"), ("Edge.Cuts", "outline")]
     return [(layer, kind, _side(layer)) for layer, kind in stack if layer in declared or kind == "copper"]
 
 

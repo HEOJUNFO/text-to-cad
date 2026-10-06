@@ -130,6 +130,30 @@ test("the overlay draws the selection where it is, and from the bottom where the
   assert.deepEqual(bottom.map((v) => Math.round(v * 10) / 10), [508.5, 390.5, 524.5, 409.5]);
 });
 
+test("Placement draws the pads, the holes and airwires under the highlight; a poured net's only when selected", () => {
+  const index = createBoardIndex(BOARD);
+  const frame = { transform: { scale: 10, offsetX: 0, offsetY: 0 }, width: 400, height: 300 };
+  const plain = recordingContext();
+  drawBoardOverlay(plain.ctx, index, frame);
+  assert.equal(plain.marks.length, 0, "without Placement the overlay draws nothing of its own");
+  const airwire = (mark) => mark.op === "stroke" && mark.style === "rgba(232, 238, 245, 0.8)";
+  // GND is two pins (R1.2 and U1.3, drawn as two pads), joined by its pour: no airwire until it is selected.
+  const placed = recordingContext();
+  drawBoardOverlay(placed.ctx, index, { ...frame, placement: true });
+  // Seen from the top: U1's three bottom pads first, then R1's two; then the board's mounting hole.
+  assert.equal(placed.filled("rgba(77, 127, 196, 0.9)").length, 3);
+  assert.equal(placed.filled("rgba(200, 52, 52, 0.9)").length, 2);
+  // The hole at (3, 3) mm, 2.75 mm across: recorded from its edge (x + r) round its centre, at 10 px/mm.
+  assert.deepEqual(placed.filled("#000000"), [[30, 30, 43.75, 30]]);
+  assert.equal(placed.marks.filter(airwire).length, 0);
+  const { ctx, marks } = recordingContext();
+  drawBoardOverlay(ctx, index, { ...frame, placement: true, dim: true, selection: [index.resolve("#net:GND")] });
+  const dimmed = marks.findIndex((mark) => mark.op === "fillRect");
+  assert.ok(dimmed > 0, "the board steps back behind the net in focus");
+  assert.ok(marks.slice(dimmed).some((mark) => mark.op === "stroke" && mark.style === "#8dc5ff" && mark.points.length === 2),
+    "GND's airwire drawn in the selection's colour");
+});
+
 test("a net is highlighted whole, a check rung, and what is off screen left out", () => {
   const index = createBoardIndex(BOARD);
   const { ctx, marks, filled } = recordingContext();

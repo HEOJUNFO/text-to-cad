@@ -294,10 +294,18 @@ plot without one is the picture alone.
   pane's size too; the sketch goes with a Quick Edit as the view with its ink. A host's or the
   agent's selection while it is up shows under the ink and leaves the sketch alone, and a
   capture never carries the hover.
-- **Display** (its button in the view's bottom-left corner, one **Board** section): **View from** Top or Bottom (the
-  board mirrored, its bottom layers drawn over its top), **Layers** (All layers, Copper,
-  Silkscreen and fab) and **Copper pours** on or off — a pour hides the tracks under it. KiCad
-  drew every layer; this only chooses among them. Kept with the file's view.
+- **Display** (its button in the view's bottom-left corner, one **Display** section): **Mode**,
+  presets as a 3D view's are ([render-mode.md](./render-mode.md)) — **Board** (every layer but
+  the courtyards), **Copper**, **Assembly** (silkscreen, fab and courtyards) and **Placement** —
+  then **View from** Top or Bottom (the board mirrored, its bottom layers drawn over its top) and,
+  where the mode draws copper, **Copper pours** on or off — a pour hides the tracks under it. A
+  pour changed from its mode's reads as **Custom**; choosing a mode reapplies it and keeps the
+  side, as a 3D preset keeps the camera. **Placement** is the board before it is wired: no copper
+  and no drill layer (a via's hole is routing), the overlay drawing the pads, their holes and the
+  board's, and every connection as an airwire, routed or not — each net's pins joined by their
+  shortest tree (`board2d/airwires.js`). A net a pour joins shows its airwires only while
+  selected; a selected net's are highlighted. KiCad drew every layer; a mode only chooses among
+  them. Kept with the file's view; one stored before modes (`layers`) opens in its mode.
 
 ## A KiCad schematic
 

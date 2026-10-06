@@ -182,6 +182,22 @@ test("a view draws the layers it names, the copper without its pours, or the boa
   assert.ok(!calls.some(([name]) => name === "scale"));
 });
 
+test("courtyards are drawn only when a view names them", () => {
+  const courtyards = [layer("B.CrtYd", "courtyard", "back"), ...LAYERS, layer("F.CrtYd", "courtyard", "front")];
+  const board = { ...BOARD, sheets: [{ ...BOARD.sheets[0], layers: courtyards }] };
+  const layout = layoutPlot(board);
+  const images = courtyards.map(({ id, unpoured }) => ({ id, poured: id, unpoured: unpoured ? `${id} bare` : null }));
+  const draw = (view) => {
+    const { ctx, calls } = recorder(400, 300);
+    drawPlot(ctx, layout, { transform: { scale: 10, offsetX: 0, offsetY: 0 }, images: sheetImages(layout, [images]), view });
+    return drawnImages(calls);
+  };
+  // A snapshot or a card (no view), and a view choosing no layers: the board as it is made.
+  assert.deepEqual(draw(null), ["B.Fab", "B.Cu", "F.Cu", "F.SilkS", "Edge.Cuts", "drills"]);
+  assert.deepEqual(draw({ side: "top" }), ["B.Fab", "B.Cu", "F.Cu", "F.SilkS", "Edge.Cuts", "drills"]);
+  assert.deepEqual(draw({ layers: ["F.CrtYd", "F.SilkS"] }), ["F.SilkS", "F.CrtYd"]);
+});
+
 test("layer images name each sheet's pictures by layer, a schematic sheet as one", () => {
   assert.deepEqual(layerImages(layoutPlot(BOARD), boardImages())[0].map(({ id, side, poured, unpoured }) => [id, side, poured, unpoured]), [
     ["B.Fab", "back", "B.Fab", null], ["B.Cu", "back", "B.Cu", "B.Cu bare"], ["F.Cu", "front", "F.Cu", null],

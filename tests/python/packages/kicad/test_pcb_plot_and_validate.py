@@ -64,13 +64,13 @@ class PcbPlotAndValidateTest(unittest.TestCase):
         sheet = finished["sheets"][0]
         self.assertEqual(sheet["background"], BOARD_BACKGROUND)
         self.assertAlmostEqual(sheet["width"], 40.0, delta=0.05)
-        stack = ["B.Fab", "B.SilkS", "B.Cu", "F.Cu", "F.SilkS", "F.Fab", "Edge.Cuts"]
+        stack = ["B.CrtYd", "B.Fab", "B.SilkS", "B.Cu", "F.Cu", "F.SilkS", "F.Fab", "F.CrtYd", "Edge.Cuts"]
         self.assertEqual([layer["id"] for layer in sheet["layers"]], stack + ["drills"])
         self.assertEqual([layer["id"] for layer in draft["sheets"][0]["layers"]], stack + ["ratsnest", "drills"])
         kinds = {layer["id"]: (layer["kind"], layer["side"]) for layer in draft["sheets"][0]["layers"]}
         self.assertEqual(
-            [kinds[name] for name in ("B.Fab", "B.SilkS", "B.Cu", "F.Cu", "Edge.Cuts", "ratsnest", "drills")],
-            [("fab", "back"), ("silk", "back"), ("copper", "back"), ("copper", "front"), ("outline", "both"), ("ratsnest", "both"), ("drill", "both")],
+            [kinds[name] for name in ("B.CrtYd", "B.Fab", "B.SilkS", "B.Cu", "F.Cu", "F.CrtYd", "Edge.Cuts", "ratsnest", "drills")],
+            [("courtyard", "back"), ("fab", "back"), ("silk", "back"), ("copper", "back"), ("copper", "front"), ("courtyard", "front"), ("outline", "both"), ("ratsnest", "both"), ("drill", "both")],
         )
         for layer in sheet["layers"]:
             self.assertIn("<svg", layer["svg"][:600])
@@ -105,6 +105,9 @@ class PcbPlotAndValidateTest(unittest.TestCase):
         self.assertEqual(len(draft["board"]["tracks"]), 3)
         for pad in board["pads"]:
             self.assertTrue(_inside(pad["at"], pad["polygon"]), pad)
+        # A through-hole pad carries its hole; a surface pad none.
+        drills = {(pad["part"], pad["number"]): pad.get("drill") for pad in board["pads"]}
+        self.assertEqual((drills[("J1", "1")], drills[("R1", "1")]), (1.0, None))
         j1 = next(part for part in board["parts"] if part["ref"] == "J1")
         line = next(number for number, text in enumerate(BOARD.splitlines(), start=1) if "j1 = board.part(" in text)
         self.assertEqual((j1["script"], j1["fields"]["Script"]), (f"blinky.py:{line}", f"blinky.py:{line}"))
