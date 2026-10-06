@@ -946,6 +946,12 @@ test('the Animation tool plays the routine in the tools view, preview carries it
     ['Animation settings', 'Close animation controls', 'Play animation']);
   assert.equal(await panel.getByRole('combobox', { name: 'Routine' }).count(), 0);
   assert.equal(Math.round((await panel.boundingBox()).width), 164, 'one width, as every fixed panel');
+  // Its 24px control flush under the heading, 8px in from each side and 4px from the foot (the
+  // panel's 1px border on top of each).
+  const [panelBox, playBox, trackBox] = await Promise.all([panel.boundingBox(),
+    panel.getByRole('button', { name: 'Play animation' }).boundingBox(), panel.locator('[data-slot=slider-track]').boundingBox()]);
+  assert.deepEqual([playBox.x - panelBox.x, playBox.y - panelBox.y, playBox.height, panelBox.x + panelBox.width - trackBox.x - trackBox.width,
+    panelBox.y + panelBox.height - playBox.y - playBox.height].map(Math.round), [9, 29, 24, 9, 5]);
   assert.deepEqual((await translations(page))['o1.2'], restArm, 'taken up, the model waits at rest: Autoplay is off');
 
   await panel.getByRole('button', { name: 'Play animation' }).click();
