@@ -99,7 +99,7 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 /** One pane: a host, a workspace with one KiCad file (`name`, under `/models`), a live binding, and the tab. */
-async function open(name: string, { strict = false } = {}) {
+async function open(name: string, { strict = false, crossProbe = undefined as unknown } = {}) {
   const file = `/models/${name}`;
   const fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input));
@@ -121,7 +121,8 @@ async function open(name: string, { strict = false } = {}) {
     navigation: { openFile: noop },
     environment: { colorScheme: 'light' },
     clipboard: { writeText: async (text: string | Promise<string>) => { if (refuseCopy) throw refuseCopy; copied.push(await text); }, readText: async () => '', writeImage: async () => {} },
-    promptContext: { getSnapshot: () => DESTINATION, subscribe: () => noop, deliver: async () => ({ status: 'copied', partIds: [] }) }
+    promptContext: { getSnapshot: () => DESTINATION, subscribe: () => noop, deliver: async () => ({ status: 'copied', partIds: [] }) },
+    ...(crossProbe ? { crossProbe } : {})
   };
   function Pane() {
     const [state, setState] = useState<any>({ renderers: {} });
@@ -267,6 +268,47 @@ it('the live controller selects board references, reads them back, and refuses w
   const cleared = await controller.clearSelection();
   expect(cleared.selection).toEqual([]);
   dispose();
+});
+
+/** A cross-probe channel as a host's: what this view tells (`told`), and a way to tell it as another view would. */
+function probeChannel() {
+  const listeners = new Set<(message: any) => void>();
+  const told: any[] = [];
+  return {
+    port: { publish: (message: any) => { told.push(message); }, subscribe: (listener: (message: any) => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; } },
+    told,
+    tell: (message: any) => act(() => { for (const listener of listeners) listener(message); }),
+  };
+}
+
+it('cross-probing: a board selects what its schematic tells it, and tells what it selects', async () => {
+  readPlot = (file) => (file.endsWith('.kicad_pcb') ? json({ ...BOARD, board: INDEX }) : json(SCHEMATIC));
+  const channel = probeChannel();
+  const view = await open('blinky.kicad_pcb', { crossProbe: channel.port });
+  await opened(view.pane);
+  const controller = await waitFor(() => { expect(view.controller).not.toBeNull(); return view.controller; });
+  const selected = () => controller.readState().selection[0]?.target.selectors ?? [];
+  expect(channel.told).toEqual([], 'opening tells nothing');
+
+  // The schematic selects R1 and U1: the board has R1, and is not told it back.
+  await channel.tell({ project: '/models/blinky', from: 'schematic', selectors: ['#R1', '#U1'] });
+  await waitFor(() => expect(selected()).toEqual(['#R1']));
+  expect(channel.told).toEqual([]);
+  // Another project's selection, and one naming nothing on this board, leave it as it is.
+  await channel.tell({ project: '/models/other', from: 'schematic', selectors: ['#J1'] });
+  await channel.tell({ project: '/models/blinky', from: 'schematic', selectors: ['#U1'] });
+  expect(selected()).toEqual(['#R1']);
+
+  // What the board selects (a person, or the agent), it tells, as its project's.
+  await controller.select({ selectors: ['#J1.2'] });
+  await waitFor(() => expect(channel.told.at(-1)).toMatchObject({ project: '/models/blinky', selectors: ['#J1.2'] }));
+  expect(channel.told.at(-1).from).not.toBe('schematic');
+  // The schematic clearing clears it, and that is not told back either.
+  const count = channel.told.length;
+  await channel.tell({ project: '/models/blinky', from: 'schematic', selectors: [] });
+  await waitFor(() => expect(selected()).toEqual([]));
+  expect(channel.told).toHaveLength(count);
+  view.dispose();
 });
 
 it('a check in the tree selects what it names', async () => {

@@ -8,7 +8,11 @@ shared. Missing optional methods mean an operation is unsupported.
 
 The host contains `files`, optional native `fileActions`, `clipboard`,
 `promptContext`, the optional `attachments`, `navigation` (`openFile(path)` and an
-optional `home()`), the optional `links` (the app menu's) and `environment`. `environment` carries the resolved `colorScheme`,
+optional `home()`), the optional `links` (the app menu's), the optional `crossProbe` (a
+board and its schematic open in two views select together: each view publishes its
+selection, in board references, and subscribes to the others'; selection only, nothing
+edited or kept; the web app's is a `BroadcastChannel` between its pages,
+`apps/web/src/host/crossProbe.ts`) and `environment`. `environment` carries the resolved `colorScheme`,
 the keyboard `platform` (`darwin` shows ⌘, anything else Ctrl), the app's own
 `reducedMotion`, honoured beside the system's `prefers-reduced-motion`, and
 `compact`: a view drawn as a picture (the home draws its thumbnails this way, out

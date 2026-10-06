@@ -324,6 +324,13 @@ Reference, and having no layers it has no Display settings.
 - **The Reference**: a symbol's library entry, footprint, units, sheets (on a schematic of
   several), pins, MPN and LCSC fields and `Script`; a pin's net, name and type; a net's class,
   pins, parts and labels.
+- **Cross-probing**: a board and its schematic (one path but for `.kicad_pcb` and `.kicad_sch`)
+  open in two views select together, through the host's `crossProbe` port (`viewer-host.md`):
+  what one selects — a person's press, a tree row, the agent's `select` — the other selects too,
+  and centres when it is off screen, at the zoom it has. What names nothing there (a board's point,
+  a power symbol) is left out, and a selection naming nothing there leaves it as it was; a view in
+  Measure keeps its measurement and is left alone. A selection only: nothing is edited, and
+  nothing is kept (`board/useCrossProbe.js`).
 
 ## The tool stack
 

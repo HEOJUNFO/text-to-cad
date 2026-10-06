@@ -9,6 +9,7 @@ import QuickEdit from "../kit/tools/quick-edit/QuickEdit.jsx";
 import { normalizeToolStack } from "../kit/tools/toolStackLayout.js";
 import { BOARD_TOOL, useBoardInspector } from "./board/useBoardInspector.js";
 import { useBoardDrawing } from "./board/useBoardDrawing.js";
+import { useCrossProbe } from "./board/useCrossProbe.js";
 import { Pencil } from "lucide-react";
 import DrawingOverlay from "../kit/tools/draw/DrawingOverlay.jsx";
 import ToolPanel, { ToolPanelFooterButton } from "../kit/tools/ToolPanel.jsx";
@@ -141,6 +142,9 @@ function PlotSurface({ view, data }) {
   const { capture: captureView } = plotView;
   const capture = useCallback(() => { dropHover(); return captureView(); }, [dropHover, captureView]);
   viewParts.current = { transformRef: plotView.transformRef, requestPaint: plotView.requestPaint, canvasRef };
+  // A board and its schematic open in two views select together, through the host (selection only).
+  useCrossProbe({ port: host.crossProbe, path: view.file.path, inspector, view: plotView, canvasRef,
+    layout: payload.plot?.layout ?? null, mirrored: shownDisplay?.side === "bottom" });
   const drawing = inspector.available && inspector.tool === BOARD_TOOL.DRAW;
   const boardDrawing = useBoardDrawing({ active: drawing, transformRef: plotView.transformRef, setView: plotView.setView, paintNow: plotView.paintNow,
     settle: plotView.settle, canvasRef });
