@@ -47,6 +47,7 @@ class WorkspaceWorkflowSelection(unittest.TestCase):
             r"^packages/ui/src/.*\.test\.tsx?$",                        # packages/ui vitest.config.ts
             r"^apps/web/(src|scripts)/.*\.test\.[cm]?js$",              # apps/web/scripts/run-tests.mjs
             r"^apps/mcp/src/.*\.test\.tsx?$",                          # apps/mcp vitest.config.mjs
+            r"^apps/cloud/(server|web|test)/.*\.test\.tsx?$",          # apps/cloud vitest.config.mjs
             r"^apps/docs/src/lib/api/[^/]*\.test\.mjs$",          # apps/docs `check` (node --test)
             r"^scripts/brand/[^/]*\.test\.mjs$",                          # test-docs.sh
             r"^scripts/bench/viewer-memory/[^/]*\.test\.mjs$",          # test-js.sh --select core
