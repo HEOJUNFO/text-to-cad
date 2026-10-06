@@ -348,6 +348,8 @@ class Job:
     def env(self, pythonpath: list[str] | None = None) -> dict:
         env = dict(os.environ)
         paths = [str(SITE_DIR)] + [str(self.workspace / entry) for entry in (pythonpath or [])]
+        if env.get("PYTHONPATH"):
+            paths.append(env["PYTHONPATH"])  # where this interpreter found cadgen, if not installed
         env.update({
             "CADGEN_DAEMON": "0",
             "CADGEN_CACHE_DIR": str(self.dir / "store"),
