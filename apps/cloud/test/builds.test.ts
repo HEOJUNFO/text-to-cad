@@ -180,6 +180,22 @@ describe('builds', () => {
     await server.service.idle();
     expect((await (await server.request(`/v1/builds/${build.id}`)).json()).status).toBe('failed');
   });
+
+  it('fails everything left running when a single-process server starts', async () => {
+    const hold = gate();
+    server = await testServer({ sandbox: fakeSandbox(async (job) => (await hold.promise, successfulBuild(job))) });
+    const build = await (await post(server, { files: { 'a.py': boxSource('a') }, entry: 'a.py' }, '')).json();
+    expect(await server.service.sweep({ all: true })).toEqual({ builds: 1, jobs: 0 });
+    expect((await (await server.request(`/v1/builds/${build.id}`)).json()).error.message).toMatch(/server restarted/);
+    hold.open();
+  });
+
+  it('refuses an oversized body before reading it', async () => {
+    server = await testServer();
+    const response = await server.request('/v1/builds', { method: 'POST', body: 'x'.repeat(33 * 1024 * 1024) });
+    expect(response.status).toBe(413);
+    expect((await response.json()).error.code).toBe('too_large');
+  });
 });
 
 describe('snapshot and inspection jobs', () => {

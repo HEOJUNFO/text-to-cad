@@ -1,6 +1,7 @@
 // The cloud server as one Hono app. Every dependency is injected, so tests run the real
 // routes over an in-memory database, a temporary store and a fake sandbox.
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { errorBody, isCloudError } from './errors.ts';
 import { usageToday } from './limits.ts';
 import { handleMcp } from './mcp.ts';
@@ -34,6 +35,18 @@ export function buildApp(deps: Deps, options: AppOptions = {}): { app: Hono; ser
     });
     return c.json({ error: { code: 'internal', message: 'Something went wrong on the server.' } }, 500);
   });
+
+  // Bodies are capped before anything reads them: a build's files (20 MB, plus base64),
+  // a sketch (20 MiB), and small forms.
+  const limit = (maxSize: number) => bodyLimit({
+    maxSize,
+    onError: (c) => c.json({ error: { code: 'too_large', message: `The request body is larger than ${maxSize} bytes.` } }, 413),
+  });
+  app.use('/mcp', limit(32 * 1024 * 1024));
+  app.use('/v1/*', limit(32 * 1024 * 1024));
+  app.use('/b/*', limit(21 * 1024 * 1024));
+  app.use('/account/*', limit(64 * 1024));
+  app.use('/auth/*', limit(64 * 1024));
 
   if (options.serveFiles && deps.store.kind === 'fs') {
     const store = deps.store;

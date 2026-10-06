@@ -6,6 +6,12 @@ import { depsFromEnv } from './deps.ts';
 
 const deps = await depsFromEnv(process.env);
 const { app, service } = buildApp(deps, { serveFiles: true });
+// A PGlite database belongs to this one process: whatever it shows running was running in
+// a process that has exited, and would hold its owner's one-build slot until swept.
+if (deps.db.kind === 'pglite') {
+  const swept = await service.sweep({ all: true });
+  if (swept.builds || swept.jobs) console.log(`[cloud] failed ${swept.builds} build(s) and ${swept.jobs} job(s) left running by an earlier server`);
+}
 
 const sweeper = setInterval(() => {
   service.sweep().catch((error) => console.error('[cloud] sweep failed', error));

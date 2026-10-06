@@ -278,7 +278,7 @@ export function createService(deps: Deps) {
       notify(id);
       if (persist && Date.now() - lastWrite > PROGRESS_WRITE_MS) {
         lastWrite = Date.now();
-        db.query(`update ${table} set progress = $2::jsonb, updated_at = $3 where id = $1`, [id, JSON.stringify(progress.get(id)), iso(clock.now())])
+        db.query(`update ${table} set progress = $2::jsonb, updated_at = $3 where id = $1 and status in ('queued', 'running')`, [id, JSON.stringify(progress.get(id)), iso(clock.now())])
           .catch(() => {});
       }
     };
@@ -338,19 +338,26 @@ export function createService(deps: Deps) {
     background(sweep());
   }
 
-  /** Fail builds and jobs that outlived their timeout without finishing (their process died). */
-  async function sweep(): Promise<{ builds: number; jobs: number }> {
+  /**
+   * Fail builds and jobs that outlived their timeout without finishing (their process died).
+   * `all` fails every unfinished one: for a single-process server starting up, whose
+   * earlier process cannot still be running them.
+   */
+  async function sweep({ all = false }: { all?: boolean } = {}): Promise<{ builds: number; jobs: number }> {
     const cutoff = iso(clock.now());
     let swept = { builds: 0, jobs: 0 };
     for (const table of ['builds', 'jobs'] as const) {
       const { rows } = await db.query(
         `select id, user_id, reservation from ${table}
          where status in ('queued', 'running')
-           and coalesce(started_at, created_at) + make_interval(secs => (limits->>'timeoutSeconds')::int + $2) < $1::timestamptz`,
-        [cutoff, limits.staleGraceSeconds],
+           and ($3 or coalesce(started_at, created_at) + make_interval(secs => (limits->>'timeoutSeconds')::int + $2) < $1::timestamptz)`,
+        [cutoff, limits.staleGraceSeconds, all],
       );
       for (const row of rows) {
-        const error: JobError = { message: 'This job stopped reporting before it finished and was abandoned. Run it again.', kind: 'infra' };
+        const error: JobError = {
+          message: all ? 'The server restarted while this job ran. Run it again.' : 'This job stopped reporting before it finished and was abandoned. Run it again.',
+          kind: 'infra',
+        };
         const won = await db.transaction(async (tx) => {
           const { rowCount } = await tx.query(
             `update ${table} set status = 'failed', error = $2::jsonb, reservation = null, finished_at = $3, updated_at = $3
