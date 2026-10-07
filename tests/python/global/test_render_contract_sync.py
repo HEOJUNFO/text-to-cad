@@ -55,6 +55,23 @@ class RenderContractSyncTest(unittest.TestCase):
             "and never touches geometry identity (GEOMETRY_SCHEME).",
         )
 
+    def test_surf_versions_read_and_written_agree_everywhere(self) -> None:
+        extractor = ROOT / "packages/cadgen/src/cadgen/_internal/surface_extract.py"
+        store = ROOT / "packages/cadgen/src/cadgen/store/surfaces.py"
+        parser = ROOT / "packages/core/src/lib/surf/container.js"
+        written = _extract(r"^SURF_VERSION = (\d+)$", extractor)
+        self.assertEqual(written, _extract(r"^SURF_FORMAT = (\d+)$", store),
+                         "the store validates the format the extractor writes")
+        read = {
+            "extractor": _extract(r"^SURF_VERSIONS_READ = \(([\d, ]+)\)$", extractor),
+            "store": _extract(r"^SURF_FORMATS_READ = \(([\d, ]+)\)$", store),
+            "parser": _extract(r"^export const SURF_VERSIONS_READ = Object\.freeze\(\[([\d, ]+)\]\);$", parser),
+        }
+        versions = {name: [int(v) for v in text.replace(" ", "").split(",") if v] for name, text in read.items()}
+        self.assertEqual(len({tuple(v) for v in versions.values()}), 1,
+                         f"every reader reads the same SURF versions: {versions}")
+        self.assertIn(int(written), versions["parser"], "what is written is read")
+
     def test_sidecar_schema_matches_the_js_source_sidecar_loader(self) -> None:
         # What is genuinely cross-language is the CLIENT: the shared sidecar
         # loader runs in the browser and REFUSES any other schema.

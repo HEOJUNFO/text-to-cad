@@ -21,7 +21,7 @@ from cadgen.daemon.jobs import JobLedger
 from tests.python.support.tmp_root import generated_cad_directory
 
 
-PRODUCER = {"scheme": 19, "surfFormat": 2, "build123d": "0.10", "ocp": "7.9.3.1", "cadqueryOcp": "7.9.3.1.1"}
+PRODUCER = {"scheme": 20, "surfFormat": 3, "build123d": "0.10", "ocp": "7.9.3.1", "cadqueryOcp": "7.9.3.1.1"}
 
 
 def surface_request(**changes):

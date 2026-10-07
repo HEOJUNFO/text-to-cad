@@ -1,4 +1,4 @@
-// Selector-bundle parity (design/surface-rendering.md R3): the bundle built
+// Selector-bundle parity: the bundle built
 // from a .surf and its stored mesh must carry the same tables cadgen's own
 // selector tables carry for that SURF (cadgen._internal.surf_tables, dumped by
 // fixtures/make_fixtures.py as sun_gear.selector.json): its exact metrics, which

@@ -16,7 +16,7 @@ const O = "e".repeat(64);
 const descriptor = {
   tree: TREE,
   viewId: VIEW,
-  surfaceProducer: { scheme: 19, surfFormat: 2, producerKey: "c".repeat(64) },
+  surfaceProducer: { scheme: 20, surfFormat: 3, producerKey: "c".repeat(64) },
 };
 
 function json(value, status = 200) {

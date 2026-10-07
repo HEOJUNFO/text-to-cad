@@ -48,10 +48,13 @@ of the generated `hinge_block.step`, which is also the `documentHash` in
 
 `source/hinge_block.py` is the model verbatim, its routine a Python clip. The
 view descriptor and the two `.surf` files were generated with cadgen **0.6.5**
-(build123d 0.11.1, OCP 7.9.3.1, scheme 19, SURF format 2); the sidecar was
-rewritten at schema 10 by a later build of the same model, whose STEP bytes did
-not change, so `documentHash` and every id stayed as they were. Build in a
-scratch directory, with a cache of its own:
+(build123d 0.11.1, OCP 7.9.3.1, scheme 19, SURF format 2) and stay at format 2
+on purpose: every reader still reads format 2 (an older build may have pinned
+one in an eager-only component's identity), and this fixture is where the
+browser tests read one end to end, while core's `lib/surf/fixtures` are format 3.
+The sidecar was rewritten at schema 10 by a later build of the same model, whose
+STEP bytes did not change, so `documentHash` and every id stayed as they were.
+Build in a scratch directory, with a cache of its own:
 
 ```sh
 mkdir -p /tmp/step-fixture/{src,STEP,cache} && cd /tmp/step-fixture
@@ -78,7 +81,8 @@ with the repo's Python whenever the TESS format or the mesher moves:
 .venv/bin/python packages/ui/src/renderers/step/__fixtures__/step/source/make_meshes.py
 ```
 
-Regenerate when the SURF format, the view schema or the sidecar schema moves.
+Regenerate when the view schema or the sidecar schema moves, or when readers
+stop reading SURF format 2.
 When the STEP bytes or the view change, the component ids, `tree`, `viewId` and
 `documentHash` change with them, and `stepScenario.mjs` reads every one of them
 out of `assembly.json` rather than hard-coding them; a sidecar schema move that

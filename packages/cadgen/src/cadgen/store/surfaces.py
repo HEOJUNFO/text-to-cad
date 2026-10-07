@@ -11,8 +11,13 @@ from cadgen.store.index import read_entry, write_entry
 from cadgen.store.meshes import normalize_tessellations
 from cadgen.store.objects import put_object, read_verified_object
 
-EXTRACTION_SCHEME = 19
-SURF_FORMAT = 2
+# 20: a .surf carries no tessellation inputs (SURF format 3).
+EXTRACTION_SCHEME = 20
+# _internal/surface_extract.SURF_VERSION, without importing the kernel here.
+SURF_FORMAT = 3
+# Format 2 surfaces stay readable: an older build may have pinned one in an
+# eager-only component's geometry identity, and format 3 only removed fields.
+SURF_FORMATS_READ = (2, 3)
 SURFACE_SCHEMA = 1
 
 
@@ -112,10 +117,10 @@ def validate_surface_bytes(payload: bytes) -> dict:
     if len(payload) < 12 or payload[:4] != b"SURF":
         raise ValueError("invalid SURF container")
     version, size = struct.unpack_from("<II", payload, 4)
-    if version != SURF_FORMAT or size > len(payload) - 12 or (len(payload) - 12 - size) % 4:
+    if version not in SURF_FORMATS_READ or size > len(payload) - 12 or (len(payload) - 12 - size) % 4:
         raise ValueError("invalid SURF version/length")
     index = json.loads(payload[12:12 + size])
-    if type(index) is not dict or index.get("version") != SURF_FORMAT:
+    if type(index) is not dict or index.get("version") != version:
         raise ValueError("invalid SURF index")
     for name in ("faces", "edges"):
         rows = index.get(name)

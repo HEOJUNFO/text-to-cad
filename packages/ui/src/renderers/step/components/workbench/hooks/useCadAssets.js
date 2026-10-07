@@ -1401,8 +1401,8 @@ export function useCadAssets({
               componentBundleByCid[cid] = held.bundle;
               return;
             }
-            // Exact-surface topology (design/surface-rendering.md R3): the
-            // selector bundle is synthesized client-side from the .surf.
+            // Exact-surface topology: the selector bundle is built
+            // client-side from the .surf and the component's mesh.
             componentBundleByCid[cid] = await loadRenderSurfSelectorBundle(
               surfUrl,
               { resources, tessellationCache,

@@ -286,13 +286,19 @@ identity. A real one (`link_arm`: a bar plus two placements of a pin model):
   A forced build derives and fences every component again.
 
   `store.surfaces.request_view` captures a runtime producer separately from the
-  tree. The producer contains extraction scheme19, SURF format2 and the actual
-  loaded build123d/OCP/distribution versions. Its full input digest includes
-  every geometry/appearance/producer field. Unknown versions cannot create a
-  shared persistent namespace. `derive` runs in an artifact job, privately
-  decodes only captured inputs, verifies the SURF container and writes the
-  immutable object before the surface index. Expected output conflicts fail;
-  no source, model record, latest child or live authored shape is consulted.
+  tree. The producer contains extraction scheme 20, SURF format 3 and the
+  actual loaded build123d/OCP/distribution versions. A format-3 SURF holds what
+  its readers -- selection, measurement, feature recognition -- take and no
+  tessellation input: loops are edge references, a B-spline surface keeps its
+  degrees and pole counts (a bilinear patch its four corners), a swept surface
+  its axis or direction, a general curve its range. Format 2 stays readable:
+  an older build may have pinned one in an eager-only component's identity.
+  The surface input digest includes every geometry/appearance/producer field.
+  Unknown versions cannot create a shared persistent namespace. `derive` runs
+  in an artifact job, privately decodes only captured inputs, verifies the SURF
+  container and writes the immutable object before the surface index.
+  Expected output conflicts fail; no source, model record, latest child or live
+  authored shape is consulted.
   Geometry reads, STEP re-emits and parent materialization do not derive SURF.
   First display or selector demand pays that work when its disposable result
   is absent; faster native reads do not imply faster first display. A build's

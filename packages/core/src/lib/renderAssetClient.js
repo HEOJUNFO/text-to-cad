@@ -610,7 +610,7 @@ export function peekRenderDisplayEdgeBundle(glbUrl, { resources } = {}) {
   return peekCached(displayEdgeCache, cadResourceCacheKey(resources, glbUrl));
 }
 
-// --- Exact-surface topology (design/surface-rendering.md R3) ---------------
+// --- Exact-surface topology ------------------------------------------------
 //
 // The .surf carries the same topology the GLB's STEP_TOPOLOGY tables did.
 // Worker requests declare whether they need render data, selectors, or both.
