@@ -1,8 +1,9 @@
 """Disk management (STORE.md §8): the old operation cache retired, a size cap
 with least-recently-written eviction, the three ways an earlier version of it
 broke -- a hit that wrote, a reused object swept under a fresh record, and a
-full pass rerun while records alone overfilled the cap -- and a store a newer
-cadgen shares. Tiny stores in fresh temporary directories; no kernel."""
+full pass rerun while records alone overfilled the cap -- a store a newer
+cadgen shares, and the surfaces and meshes an older extractor or mesher left.
+Tiny stores in fresh temporary directories; no kernel."""
 
 from __future__ import annotations
 
@@ -454,6 +455,86 @@ class LeastRecentlyWritten(StoreSweepCase):
         self.assertTrue(entry_path("drawing", "f" * 64).is_file())
         self.assertTrue(has_object(digest))
 
+
+
+
+class Obsolete(StoreSweepCase):
+    """An upgrade that moves the extractor or the mesher leaves the surfaces and
+    meshes the older one wrote, which no reader asks for again: a pass retires
+    them, with the objects only they named, and keeps a newer cadgen's."""
+
+    def surface_entry(self, key: str, producer: dict | None, digest: str) -> None:
+        self.raw_entry("surface", key, {
+            "schemaVersion": 1, "surfaceInput": key, "component": "c" * 64, "brep": "b" * 64,
+            "codec": "bintools-v4", "faceColors": {}, "producer": producer, "object": digest})
+
+    def mesh_entry(self, surface_input: str, mesher: int, payload: int, digest: str) -> str:
+        key = f"{surface_input}-t{mesher}-p{payload}-l{'0' * 16}-a{'0' * 16}"
+        self.raw_entry("mesh", key, {"schemaVersion": 1, "object": digest})
+        return key
+
+    def seed_versions(self) -> dict[str, str]:
+        """Surfaces and meshes of this cadgen's versions, an older one's and a newer
+        one's; returns the objects by what wrote them."""
+        from cadgen.store import meshes, surfaces
+
+        now = {"scheme": surfaces.EXTRACTION_SCHEME, "surfFormat": surfaces.SURF_FORMAT,
+               "build123d": "0.11.1", "ocp": "7.9.3.1", "cadqueryOcp": "7.9.3.1.1"}
+        mesher, payload = meshes.TESSELLATOR_VERSION, meshes.TESS_VERSION
+        objects = {name: self.old_object(name.encode()) for name in (
+            "older surface", "current surface", "newer surface", "pinned surface",
+            "older mesher's mesh", "older surface's mesh", "current mesh", "newer mesher's mesh")}
+        self.surface_entry("1" * 64, {**now, "scheme": now["scheme"] - 1, "surfFormat": now["surfFormat"] - 1},
+                           objects["older surface"])
+        self.surface_entry("2" * 64, now, objects["current surface"])
+        self.surface_entry("3" * 64, {**now, "scheme": now["scheme"] + 1}, objects["newer surface"])
+        # An eager-only component's surface names no producer: its key carries the SURF format.
+        pinned = objects["pinned surface"]
+        self.surface_entry(surfaces._pinned_surface_input(pinned, surfaces.SURF_FORMAT - 1), None, pinned)
+        self.surface_entry(surfaces._pinned_surface_input(pinned, surfaces.SURF_FORMAT), None, pinned)
+        self.mesh_entry("2" * 64, mesher - 1, payload - 1, objects["older mesher's mesh"])
+        self.mesh_entry("1" * 64, mesher, payload, objects["older surface's mesh"])
+        self.mesh_entry("2" * 64, mesher, payload, objects["current mesh"])
+        self.mesh_entry("2" * 64, mesher + 1, payload, objects["newer mesher's mesh"])
+        return objects
+
+    def test_a_pass_retires_what_an_older_extractor_or_mesher_wrote_and_keeps_the_rest(self) -> None:
+        from cadgen.store import gc
+        from cadgen.store.objects import has_object
+
+        tree, brep = self.seed_document()
+        objects = self.seed_versions()
+        before = self.snapshot()
+        dry = gc.collect(retired_only=True, dry_run=True)
+        self.assertEqual(dry.obsolete, {"surface": 2, "mesh": 2})
+        self.assertEqual(self.snapshot(), before, "a dry run removes nothing")
+
+        report = gc.collect(retired_only=True)
+        self.assertEqual(report.obsolete, {"surface": 2, "mesh": 2})
+        gone = {"older surface", "older mesher's mesh", "older surface's mesh"}
+        self.assertEqual({name for name, digest in objects.items() if not has_object(digest)}, gone,
+                         "a pinned surface a current entry names stays, and so does a newer cadgen's work")
+        self.assertTrue(has_object(tree) and has_object(brep))
+        self.assertEqual(gc.collect(retired_only=True).obsolete, {}, "nothing is obsolete twice")
+
+    def test_the_daemon_retires_obsolete_entries_once_per_upgrade(self) -> None:
+        from cadgen.daemon.housekeeping import Housekeeper
+        from cadgen.store.objects import has_object
+
+        self.seed_document()
+        objects = self.seed_versions()
+        state = self.root / "daemon"
+        housekeeper = Housekeeper(active=lambda: False, state_dir=lambda: state)
+        line = housekeeper.look(str(self.store), 20 * 1024**3)
+        self.assertIn("retired obsolete mesh entries (2), surface entries (2)", line)
+        self.assertFalse(has_object(objects["older surface"]))
+        self.assertIsNone(housekeeper.look(str(self.store), 20 * 1024**3), "not once per idle moment")
+        self.assertIsNone(Housekeeper(active=lambda: False, state_dir=lambda: state).look(str(self.store), 20 * 1024**3),
+                          "nor once per daemon start")
+        moved = {"surface": [99, 9], "mesh": [99, 9]}
+        with mock.patch("cadgen.store.gc.producer_versions", return_value=moved):
+            self.assertIsNotNone(housekeeper.look(str(self.store), 20 * 1024**3), "an upgrade earns one more pass")
+            self.assertIsNone(housekeeper.look(str(self.store), 20 * 1024**3))
 
 if __name__ == "__main__":
     unittest.main()

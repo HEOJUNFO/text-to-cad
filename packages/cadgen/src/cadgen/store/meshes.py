@@ -42,6 +42,8 @@ _KEY = re.compile(
     rf"([0-9a-f]{{64}})-t{TESSELLATOR_VERSION}-p{TESS_VERSION}"
     rf"-l([0-9a-f]{{16}})-a([0-9a-f]{{16}})"
 )
+# Any mesher's and TESS format's key, this cadgen's or another's (``obsolete_key``).
+_ANY_KEY = re.compile(r"([0-9a-f]{64})-t(\d+)-p(\d+)-l[0-9a-f]{16}-a[0-9a-f]{16}")
 _QUALITY_FIELDS = {"chordTolerance", "chordToleranceF64", "angleTolerance", "angleToleranceF64"}
 _COUNT_FIELDS = ("positionCount", "normalCount", "faceOrdCount", "indexCount")
 _SIZE_FIELDS = {"headerBytes", "arrayBytes", "faceRangeCount", "edgeCount", "edgeClassCount", "edgeSegmentCount"}
@@ -171,6 +173,17 @@ def tessellation_key(surface_input: str, chord: float = DEFAULT_CHORD, angle: fl
     if not _digest(surface_input):
         raise ValueError("surface input must be a full lowercase content digest")
     return f"{surface_input}-t{TESSELLATOR_VERSION}-p{TESS_VERSION}-l{float64_hex(chord)}-a{float64_hex(angle)}"
+
+
+def obsolete_key(key: Any) -> bool:
+    """Whether a mesh entry's key is an older mesher's or TESS format's than this
+    cadgen's: no reader asks for it again (STORE.md §8). A newer cadgen's is not."""
+    match = _ANY_KEY.fullmatch(key) if isinstance(key, str) else None
+    if match is None:
+        return False
+    mesher, payload = int(match[2]), int(match[3])
+    return (mesher <= TESSELLATOR_VERSION and payload <= TESS_VERSION
+            and (mesher, payload) != (TESSELLATOR_VERSION, TESS_VERSION))
 
 
 def parse_key(key: Any) -> tuple[str, float, float] | None:

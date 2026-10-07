@@ -46,6 +46,7 @@ One word per concept; the code uses these words and no others.
 | **stale / current**, **gate** | the freshness state and the check that decides it |
 | **claim** | what a write does to an object it finds already present: its mtime becomes now, less two ticks of its clock, so the sweeper's grace window covers it and the claiming process keeps what it verified of it (§8) |
 | **evict** | drop a derived entry to keep the store under its cap; only the derived kinds are ever evicted (§8) |
+| **obsolete** | a surface or mesh entry an older extractor or mesher of cadgen's wrote: no reader asks for it again, and the sweeper retires it (§2, §8) |
 | **worker / spare / extra**, **job** | daemon vocabulary (the daemon's own documentation) |
 
 Retired words: node, package, manifest, ref (as a store concept), scope, blob.
@@ -83,6 +84,17 @@ cache of cadgen 0.7.4 and earlier. The sweeper removes it with every object
 only it named (§8). Retiring a kind means moving it from `INDEX_KINDS` to
 `RETIRED_KINDS`. Any other folder under `index/` belongs to a newer cadgen or
 to none, and nothing here touches it.
+
+An **obsolete** entry is the same thing one entry at a time, in a kind still
+in use: a surface entry whose producer's extraction scheme and SURF format are
+no newer than this cadgen's and not both the same
+(`surfaces.obsolete_entry`; an eager-only one, which names no producer, was
+keyed under an older SURF format), a mesh entry keyed by an older mesher or
+TESS format (`meshes.obsolete_key`), or a mesh keyed by an obsolete
+surface's input. No reader computes those keys again, so the sweeper retires
+them with every object only they named (§8). A newer cadgen's entry is never
+obsolete. Kernel versions are not ordered here: an entry of another
+build123d or OCP is left to the cap.
 
 `index/bounds` holds bounding boxes of stored geometry (`store/bounds.py`).
 A key names what was measured and how: a component's BREP object hash or a
@@ -1158,10 +1170,11 @@ One sweeper, `cadgen.store.gc`: by hand as `cadgen store gc [--dry-run]
 pass scans the store once (names, sizes, mtimes), marks once, and removes three
 kinds of thing:
 
-1. **Retired kinds.** The folders in `RETIRED_KINDS` (`index/op`, §2) go,
-   with every object only their entries named. An entry naming an object the
-   grace window still keeps waits for the next pass, so that object goes with
-   its kind rather than with the next full sweep.
+1. **Retired kinds and obsolete entries.** The folders in `RETIRED_KINDS`
+   (`index/op`, §2) go, and so do the obsolete surface and mesh entries
+   (§2), with every object only those entries named. An entry naming an object
+   the grace window still keeps waits for the next pass, so that object goes
+   with its entry rather than with the next full sweep.
 2. **Evicted entries**, only under a cap: the derived kinds -- `mesh`,
    `surface`, `component`, `bounds`, `drawing` -- least recently written
    first, until the store fits 80% of the cap. Sizes are deduplicated: an
@@ -1259,8 +1272,13 @@ with every request):
 
 - larger than `max(cap, after + cap/5)` -- `after` being where its last pass
   under that cap ended -- gets a full pass with the cap;
-- otherwise, a store holding a retired kind gets a retiring pass, which sweeps
-  only the objects the retired entries named.
+- otherwise, a store holding a retired kind, or holding surfaces or meshes and
+  last retired under other versions than this cadgen's (`gc.producer_versions`:
+  an upgrade moved the extractor or the mesher), gets a retiring pass, which
+  sweeps only the objects the retired and obsolete entries named. Obsolete
+  entries cannot be told from a stat walk, so the versions are noted beside
+  `after`: one such pass per store per upgrade, however often the daemon idles
+  or restarts.
 
 `after` is noted beside the daemon's socket, per store, in its state
 directory, so a store whose records and documents alone hold more than the

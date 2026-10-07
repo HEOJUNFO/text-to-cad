@@ -7,8 +7,13 @@ for ``QUIET_SECONDS``, one look -- a stat walk that keeps nothing per file:
    ``after`` being where that store's last pass ended under the same cap, a
    full pass with the cap (retire, evict, sweep). ``band`` is the fifth of the
    cap between the cap and its low watermark.
-2. **Otherwise, a retired index kind** (``index/op``): a pass that retires it
-   and sweeps only the objects its entries named.
+2. **Otherwise, a retired index kind** (``index/op``), **or obsolete
+   entries since an upgrade**: a pass that retires them and sweeps only the
+   objects their entries named. Obsolete entries -- the surfaces and meshes
+   an older extractor or mesher of cadgen's wrote -- cannot be told from a stat
+   walk, so the note below records the versions (``gc.producer_versions``) the
+   store's last retiring pass ran under: a store gets one such pass after each
+   upgrade that moves one, and none after.
 
 A pass that finds a newer cadgen writing to the store removes nothing and says
 so; the next one is as far off as after any other pass.
@@ -132,21 +137,28 @@ class Housekeeper:
 
     def look(self, root: str, cap: int | None) -> str | None:
         """What this store needs now, done; a log line, or None for nothing."""
-        from cadgen.store.gc import DEFAULT_GRACE_SECONDS, scan
+        from cadgen.store.gc import DEFAULT_GRACE_SECONDS, producer_versions, scan
 
         resolved = Path(root).expanduser().resolve()
         found = scan(resolved, keep=False)
+        versions = producer_versions()
         if cap is not None and found.total > self.threshold(root, cap):
             report = self._pass(resolved, ["--max-bytes", str(cap)])
             if report is None:
                 return self._resume(root, cap)
-            self._remember(root, cap, report["bytes_after"])
+            self._remember(root, cap=cap, after=int(report["bytes_after"]), versions=versions)
             return _summary(report)
-        if found.retired and self._clock() - self._retired_at.get(root, float("-inf")) >= DEFAULT_GRACE_SECONDS:
+        # A full pass retires obsolete entries too; without one, a store that holds
+        # surfaces or meshes and was last retired under other versions earns a pass.
+        upgraded = (any((resolved / "index" / kind).is_dir() for kind in ("surface", "mesh"))
+                    and (self._read_note(root) or {}).get("versions") != versions)
+        retired = found.retired and self._clock() - self._retired_at.get(root, float("-inf")) >= DEFAULT_GRACE_SECONDS
+        if upgraded or retired:
             report = self._pass(resolved, ["--retired-only"])
             if report is None:
                 return self._resume(root, cap)
             self._retired_at[root] = self._clock()
+            self._remember(root, versions=versions)
             return _summary(report)
         return None
 
@@ -223,17 +235,21 @@ class Housekeeper:
             return None
         return note if isinstance(note, dict) else None
 
-    def _remember(self, root: str, cap: int, after: int) -> None:
+    def _remember(self, root: str, **fields) -> None:
+        """Note ``fields`` for this store beside what is noted already: where its
+        last cap pass ended (``cap``, ``after``) and the versions its last
+        retiring pass ran under (``versions``)."""
         from cadgen._internal.atomic_replace import replace_atomic, temp_suffix
 
         path = self._note_path(root)
+        note = {**(self._read_note(root) or {}), **fields, "root": root, "at": time.time()}
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_name(f".{path.name}{temp_suffix()}")
-            tmp.write_text(json.dumps({"root": root, "cap": cap, "after": int(after), "at": time.time()}), encoding="utf-8")
+            tmp.write_text(json.dumps(note), encoding="utf-8")
             replace_atomic(tmp, path)
         except OSError as error:
-            self._log(f"store {root}: cannot note where the pass ended ({error}); the next look may pass again")
+            self._log(f"store {root}: cannot note what the pass did ({error}); the next look may pass again")
 
 
 def _default_state_dir() -> Path:
@@ -249,6 +265,8 @@ def _summary(report: dict) -> str:
     parts = []
     if report.get("retired"):
         parts.append("retired " + ", ".join(f"index/{kind} ({count} entries)" for kind, count in sorted(report["retired"].items())))
+    if report.get("obsolete"):
+        parts.append("retired obsolete " + ", ".join(f"{kind} entries ({count})" for kind, count in sorted(report["obsolete"].items())))
     if report.get("evicted"):
         parts.append("evicted " + ", ".join(f"{count} {kind}" for kind, count in sorted(report["evicted"].items())))
     parts.append(f"removed {report['removed']} objects ({report['removed_bytes']} bytes)")

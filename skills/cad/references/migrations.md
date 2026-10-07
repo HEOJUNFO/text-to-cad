@@ -137,6 +137,10 @@ and nothing cadgen runs needs Node. A model script needs no change:
   `mesh_angular_tolerance` below `0.005` radians.
 - `CADGEN_MESH_CACHE` is gone and nothing reads it: a mesh is an ordinary store
   entry, evicted and rebuilt like the rest.
+- Each model's first view or snapshot after upgrading derives its surfaces and
+  meshes again, once: both formats moved. What the older cadgen stored is never
+  read again; the daemon reclaims it the first time it idles after the
+  upgrade, and `cadgen store gc` does it by hand.
 
 ## Migration guides
 

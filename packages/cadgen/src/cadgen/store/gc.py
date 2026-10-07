@@ -3,9 +3,12 @@
 One pass scans the store once (names, sizes, mtimes), marks once, and removes
 three kinds of thing:
 
-- **Retired kinds.** The ``index/`` folders in ``RETIRED_KINDS`` (the
-  operation cache's ``index/op``) go, with every object only their entries
-  named.
+- **Retired kinds and obsolete entries.** The ``index/`` folders in
+  ``RETIRED_KINDS`` (the operation cache's ``index/op``) go, with every object
+  only their entries named; so do the surface and mesh entries an older
+  extractor or mesher of cadgen's wrote, which no reader asks for again
+  (``surfaces.obsolete_entry``, ``meshes.obsolete_key``, and a mesh keyed by
+  such a surface's input).
 - **Evicted entries**, only under a cap: derived entries (``DERIVED_KINDS``),
   least recently written first, until the store fits ``LOW_WATERMARK`` of the
   cap. A record, a document entry or an output entry is never evicted.
@@ -340,6 +343,19 @@ class _Entry:
     size: int
     mtime: float
     named: tuple[str, ...]
+    obsolete: bool = False
+
+
+def _obsolete(kind: str, key: str, entry: dict | None) -> bool:
+    if kind == "mesh":
+        from cadgen.store.meshes import obsolete_key
+
+        return obsolete_key(key)
+    if kind == "surface":
+        from cadgen.store.surfaces import obsolete_entry
+
+        return obsolete_entry(key, entry)
+    return False
 
 
 def _read_entries(found: Scan, kinds, should_stop: Callable[[], bool]) -> list[_Entry]:
@@ -349,9 +365,36 @@ def _read_entries(found: Scan, kinds, should_stop: Callable[[], bool]) -> list[_
         for key, (size, mtime) in found.entries.get(kind, {}).items():
             if len(rows) % _STOP_EVERY == 0 and should_stop():
                 raise _Stopped
-            named = () if kind == "bounds" else named_objects(kind, _read_json(folder / key))
-            rows.append(_Entry(kind, key, size, mtime, tuple(d for d in named if d in found.objects)))
+            entry = None if kind == "bounds" else _read_json(folder / key)
+            named = named_objects(kind, entry)
+            rows.append(_Entry(kind, key, size, mtime, tuple(d for d in named if d in found.objects),
+                               _obsolete(kind, key, entry)))
     return rows
+
+
+def _split_obsolete(rows: list[_Entry]) -> tuple[list[_Entry], list[_Entry]]:
+    """``rows`` as (current, obsolete). A mesh keyed by an obsolete surface's
+    input is obsolete with it: no reader computes that input again."""
+    gone = {row.key for row in rows if row.kind == "surface" and row.obsolete}
+    current: list[_Entry] = []
+    obsolete: list[_Entry] = []
+    for row in rows:
+        if row.obsolete or (row.kind == "mesh" and row.key[:64] in gone):
+            row.obsolete = True
+            obsolete.append(row)
+        else:
+            current.append(row)
+    return current, obsolete
+
+
+def producer_versions() -> dict[str, list[int]]:
+    """The versions an entry is obsolete against: the daemon notes, per store,
+    the ones its last retiring pass ran under, so each upgrade that moves one
+    earns that store one retiring pass (``daemon/housekeeping.py``)."""
+    from cadgen.store.meshes import TESS_VERSION, TESSELLATOR_VERSION
+    from cadgen.store.surfaces import EXTRACTION_SCHEME, SURF_FORMAT
+
+    return {"surface": [EXTRACTION_SCHEME, SURF_FORMAT], "mesh": [TESSELLATOR_VERSION, TESS_VERSION]}
 
 
 @dataclass
@@ -365,6 +408,9 @@ class GcReport:
     removed_paths: list[str] = field(default_factory=list)
     # Retired index kinds: entries removed (or that would be), by kind.
     retired: dict[str, int] = field(default_factory=dict)
+    # Obsolete surface and mesh entries removed (or that would be), by kind.
+    obsolete: dict[str, int] = field(default_factory=dict)
+    # Both of the above, in index bytes.
     retired_bytes: int = 0
     # Present when a cap was given.
     cap: int | None = None
@@ -437,8 +483,8 @@ def collect(
 ) -> GcReport:
     """One pass. ``max_bytes`` adds eviction, when the store is over that cap,
     down to :func:`eviction_target`. ``retired_only`` retires ``RETIRED_KINDS``
-    and sweeps only the objects their entries named -- the daemon's automatic
-    retirement, which collects nothing else. ``should_stop`` is polled
+    and the obsolete entries, and sweeps only the objects their entries named
+    -- the daemon's automatic retirement, which collects nothing else. ``should_stop`` is polled
     throughout; stopping early leaves a consistent store, as every step does.
     ``found`` is a scan the caller just took. A store a newer cadgen writes to
     is left alone: nothing is removed, and ``deferred`` says why."""
@@ -452,15 +498,15 @@ def collect(
     found = scan() if found is None else found
     report.records = len(found.entries["model"])
     report.bytes_before = report.bytes_after = found.total
-    if retired_only and not found.retired:
+    if retired_only and not found.retired and not (found.entries["surface"] or found.entries["mesh"]):
         return report
     try:
         if stop():
             raise _Stopped
         protected = protected_objects(found, should_stop=stop, newer_since=now - NEWER_CADGEN_SECONDS)
         report.protected_bytes = sum(found.objects[d][0] for d in protected)
-        derived = _read_entries(found, DERIVED_KINDS, stop)
-        retired = _read_entries(found, found.retired, stop)
+        derived, obsolete = _split_obsolete(_read_entries(found, DERIVED_KINDS, stop))
+        retired = _read_entries(found, found.retired, stop) + obsolete
         fresh = {digest for digest, (_, mtime) in found.objects.items() if mtime > cutoff}
 
         victims: list[_Entry] = []
@@ -539,7 +585,8 @@ def _sweep(found: Scan, digests: list[str], cutoff: float, dry_run: bool,
 
 def _retire(kinds: list[str], retired: list[_Entry], live: set[str], kept: set[str], dry_run: bool,
             stop: Callable[[], bool], report: GcReport) -> None:
-    """Remove the retired kinds' entries, then their folders once empty.
+    """Remove the retired kinds' entries and the obsolete ones, then the
+    retired kinds' folders once empty.
 
     An entry naming an object the grace window kept, and that nothing else
     reaches, stays for the pass after it, so that object still goes with its
@@ -559,7 +606,8 @@ def _retire(kinds: list[str], retired: list[_Entry], live: set[str], kept: set[s
                 pass
             except OSError:
                 continue
-        report.retired[row.kind] = report.retired.get(row.kind, 0) + 1
+        counts = report.obsolete if row.obsolete else report.retired
+        counts[row.kind] = counts.get(row.kind, 0) + 1
         report.retired_bytes += row.size
     for folder in folders if not dry_run else ():
         try:
@@ -594,10 +642,10 @@ def _clear_leftovers(found: Scan, cutoff: float, dry_run: bool, stop: Callable[[
 
 def reachable_objects() -> set[str]:
     """What a sweep keeps regardless of age: the protected trees' closures and
-    every object a derived entry names."""
+    every object a current derived entry names."""
     found = scan()
     live = protected_objects(found)
-    for row in _read_entries(found, DERIVED_KINDS, lambda: False):
+    for row in _split_obsolete(_read_entries(found, DERIVED_KINDS, lambda: False))[0]:
         live.update(row.named)
     return live
 
@@ -615,7 +663,8 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(prog="python -m cadgen.store.gc", description=main.__doc__)
     parser.add_argument("--max-bytes", type=int, default=None, help="evict to this cap")
-    parser.add_argument("--retired-only", action="store_true", help="retire, and sweep only what the retired kinds named")
+    parser.add_argument("--retired-only", action="store_true",
+                        help="retire, and sweep only what the retired kinds and obsolete entries named")
     args = parser.parse_args(argv)
     released = threading.Event()
 

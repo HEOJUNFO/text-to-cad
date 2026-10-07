@@ -102,15 +102,39 @@ def producer_identity() -> dict:
     return identity
 
 
+def _pinned_surface_input(surface_object: str, surf_format: int) -> str:
+    return hashlib.sha256(b"cadgen-pinned-surface-input-v1\0" + surface_object.encode()
+                          + b"\0" + str(surf_format).encode()).hexdigest()
+
+
 def surface_input(entry: dict, producer: dict) -> str:
     from cadgen._internal.component_package import canonical_json_bytes as canonical_bytes
     if entry.get("kind") == "eager-only":
-        return hashlib.sha256(b"cadgen-pinned-surface-input-v1\0" + entry["eagerSurface"].encode()
-                              + b"\0" + str(SURF_FORMAT).encode()).hexdigest()
+        return _pinned_surface_input(entry["eagerSurface"], SURF_FORMAT)
     definition = {"kind": "native", "contentHash": entry["contentHash"],
                   "brepObject": entry["brep"], "codec": entry["codec"],
                   "faceColors": entry["faceColors"], "producerKey": producer_key(producer)}
     return hashlib.sha256(b"cadgen-surface-input-v1\0" + canonical_bytes(definition)).hexdigest()
+
+
+def obsolete_entry(key: str, entry: Any) -> bool:
+    """Whether a surface entry is an older extraction's than this cadgen's: no
+    reader asks for it again (STORE.md §8). Its producer's extraction scheme and
+    SURF format are no newer than this cadgen's and not both the same; an
+    eager-only entry, which names no producer, was keyed under an older SURF
+    format. A newer cadgen's is not."""
+    if type(entry) is not dict:
+        return False
+    producer = entry.get("producer")
+    if type(producer) is dict:
+        scheme, surf_format = producer.get("scheme"), producer.get("surfFormat")
+        if type(scheme) is not int or type(surf_format) is not int:
+            return False
+        return (scheme <= EXTRACTION_SCHEME and surf_format <= SURF_FORMAT
+                and (scheme, surf_format) != (EXTRACTION_SCHEME, SURF_FORMAT))
+    pinned = entry.get("object")
+    return (producer is None and isinstance(pinned, str)
+            and any(key == _pinned_surface_input(pinned, older) for older in range(1, SURF_FORMAT)))
 
 
 def validate_surface_bytes(payload: bytes) -> dict:
