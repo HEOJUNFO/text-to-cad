@@ -3,8 +3,12 @@
 Every mesh serialization (STL/3MF/GLB) — a `@stl`/`@glb`/`@threemf`
 declaration produced by a model-script run, or an ad-hoc `cadgen stl|3mf|glb
 build` — funnels through :func:`run_mesh_exporter`, so the front doors cannot
-drift: one Node invocation, one tessellation per distinct tolerance pair,
-formats serialized from it (design/unified-tessellation.md).
+drift: the document's tree, the store's mesh of each component at each distinct
+tolerance pair, and every format serialized from those same meshes
+(``cadgen._internal.mesh_formats``; a clip is sampled by
+``cadgen._internal.glb_animation``). The meshes are OCCT's, of each component's
+exact BREP, derived in the build pool when the store lacks them -- the ones the
+CAD Viewer and snapshots draw. Nothing here spawns a process of its own.
 
 Freshness rides content-keyed records in the store's ``index/mesh`` tier: a
 record is keyed by the
@@ -19,17 +23,21 @@ Records are best-effort: losing one costs a re-export, never correctness.
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from cadgen._internal.mesh_animation import AnimationSnapshot
 
-MESH_EXPORT_BUILDER = "mesh-export.mjs"
-MESH_EXPORT_RECORD_KIND = "mesh-export"
-# Mirrored by packages/core/src/lib/glb/writeGlb.js. This is the final GLB serializer's
-# revision, not the glTF container version and not a tessellation-cache salt.
-GLB_SERIALIZATION_VERSION = 3
+# Each format's final-byte revision: what the ledger compares beside the document
+# and the tolerances, so a change to one format's bytes makes its ledgered exports
+# misses without touching geometry or the store's meshes. Not the glTF container
+# version and not a tessellation-cache salt. GLB 4, STL 1 and 3MF 1: OCCT's stored
+# meshes and this package's writers replaced the JavaScript tessellator and
+# serializers, so no file either wrote is reported current.
+SERIALIZATION_VERSIONS = {"glb": 4, "stl": 1, "3mf": 1}
+GLB_SERIALIZATION_VERSION = SERIALIZATION_VERSIONS["glb"]
 
 # Declarable formats, and the decorator that declares each (the digit rule
 # forbids ``@3mf``, so 3MF's decorator is ``@threemf``).
@@ -41,8 +49,9 @@ MESH_FORMAT_SUFFIX = {"stl": ".stl", "3mf": ".3mf", "glb": ".glb"}
 @dataclass(frozen=True)
 class MeshExportJob:
     """One output the exporter must write: format, destination, and the
-    tolerances it tessellates at (``None`` = the tessellator's defaults). The
-    geometry is the document's tree as stored; a mesh never moves it.
+    tolerances it meshes at (``None`` = the store's defaults,
+    ``cadgen.store.meshes.DEFAULT_CHORD``/``DEFAULT_ANGLE``). The geometry is the
+    document's tree as stored; a mesh never moves it.
 
     ``animation`` is the GLB door's clip request (cadgen._internal.mesh_animation)
     and nothing else carries one: a clip becomes glTF node animation, which STL
@@ -59,8 +68,19 @@ class MeshExportJob:
     animation_key: str | None = None
 
 
+@dataclass(frozen=True)
+class MeshSource:
+    """What an export cuts its meshes from: a geometry tree, and the saved document
+    whose bytes selected it (``None`` for a mesh-only model, whose tree is its own
+    geometry). The document's index entry may name the surface producer its meshes
+    were derived under, which spares a producer job."""
+
+    tree: str
+    document_hash: str | None = None
+
+
 def run_mesh_exporter(
-    package_dir: Path,
+    source: MeshSource,
     jobs: "list[MeshExportJob]",
     *,
     name: str,
@@ -69,111 +89,222 @@ def run_mesh_exporter(
     animation_source: AnimationSnapshot | None = None,
     appearance: object = None,
 ) -> dict:
-    """STL/3MF/GLB through the ONE tessellation path.
+    """STL/3MF/GLB through the ONE mesh path.
 
-    One Node invocation serves every job: the bundled exporter tessellates each
-    component's exact surfaces once PER DISTINCT TOLERANCE PAIR — the same
-    watertight tessellator the viewport uses — then serializes each job from
-    its pair's tessellation. Boundary vertices lie on the exact STEP edge
-    curves, colors carry per face/occurrence/part, and the bytes are
-    deterministic. Tolerances are the tessellator's units — chord RELATIVE to
-    each component's bounding diagonal, angular in radians.
+    Every job is served from the store's mesh of each component at its tolerance
+    pair -- chord RELATIVE to each component's bounding diagonal, angle in radians --
+    derived ONCE per distinct pair, in one build-pool job, for whatever the store
+    lacks. Each occurrence's placement is baked in, colours carry per
+    face/occurrence/part, and the bytes are deterministic.
 
-    ``animation_source`` captures the DOCUMENT sidecar's ``animation`` keyframes, and is required
-    exactly when a job carries an ``animation``: the builder loads them through the same
-    loader the viewer uses and resamples the named clip at the export's frame rate.
-    Returns the builder's payload, whose per-file ``animation`` block reports
-    what was baked and what the sampling could not carry."""
-    import subprocess
-    import tempfile
-    from contextlib import ExitStack
+    ``appearance`` is the document sidecar's, applied to a private projection of
+    the tree. ``animation_source`` captures the DOCUMENT sidecar's ``animation``
+    keyframes, and is required exactly when a job carries an ``animation``: that
+    job's clip is resampled at its frame rate into glTF node animation. Returns
+    ``{"ok": True, "files": [{path, format, triangleCount, animation?}, ...]}`` in
+    job order; an animated file's ``animation`` block reports what was baked and,
+    under ``warnings``, what the sampling could not carry -- the choices the
+    caller made, for its RESULT rather than the log, where ``--json`` would never
+    hear them. Anything worse raises, and a job that raises leaves no file."""
+    from cadgen.store import meshes
 
-    from cadgen._internal.node_runtime import cad_node_executable, node_builder_script
+    label = "+".join(job.fmt for job in jobs)
+    pairs = [
+        (
+            float(meshes.DEFAULT_CHORD if job.mesh_tolerance is None else job.mesh_tolerance),
+            float(meshes.DEFAULT_ANGLE if job.mesh_angular_tolerance is None else job.mesh_angular_tolerance),
+        )
+        for job in jobs
+    ]
+    _check_jobs(jobs, pairs, animation_source)
+    with logger.timed(f"tessellate + write {label}"):
+        return _export(source, jobs, pairs, name=name, default_color=default_color,
+                       animation_source=animation_source, appearance=appearance)
 
+
+def _check_jobs(jobs: "list[MeshExportJob]", pairs: list, animation_source: AnimationSnapshot | None) -> None:
+    """Refuse a request no file should come out of, before any meshing."""
+    from cadgen.store.meshes import normalize_tessellations
+
+    if not jobs:
+        raise ValueError("mesh export needs at least one output")
+    if len({job.out for job in jobs}) != len(jobs):
+        raise ValueError("mesh export outputs must be distinct paths")
+    for job, (chord, angle) in zip(jobs, pairs):
+        if job.fmt not in MESH_EXPORT_FORMATS:
+            raise ValueError(f"mesh export format must be one of {', '.join(MESH_EXPORT_FORMATS)}, got {job.fmt!r}")
+        try:
+            normalize_tessellations([{"chordTolerance": chord, "angleTolerance": angle}])
+        except ValueError as error:
+            raise ValueError(f"{job.fmt} export at chord {chord:g}, angle {angle:g}: {error}") from None
+        if job.animation is not None:
+            if job.fmt != "glb":
+                raise ValueError(f"{job.fmt} carries no animation: only glb does")
+            if animation_source is None:
+                raise ValueError("an animated export needs the document sidecar's animation keyframes")
+
+
+def _export(source: MeshSource, jobs: "list[MeshExportJob]", pairs: list, *, name: str,
+            default_color: str | None, animation_source: AnimationSnapshot | None, appearance: object) -> dict:
+    from cadgen._internal import glb_animation
+    from cadgen._internal.atomic_replace import write_bytes_atomic
+    from cadgen._internal.mesh_formats import (
+        build_primitives,
+        decode_tessellation,
+        glb_bytes,
+        stl_bytes,
+        threemf_bytes,
+        total_triangles,
+    )
+
+    descriptor, bodies = _stored_meshes(source, sorted(set(pairs)), appearance)
+    used = _used_components(descriptor)
+    # Parsed only when a job asks for a clip; the captured text, never the sidecar.
+    animation = json.loads(animation_source.data) if any(job.animation for job in jobs) and animation_source else None
+    writers = {"stl": stl_bytes, "3mf": threemf_bytes, "glb": glb_bytes}
+    files: list[dict | None] = [None] * len(jobs)
+    for pair in sorted(set(pairs)):
+        tessellations = {cid: decode_tessellation(bodies[(cid, pair)]) for cid in used}
+        # Every static job of one pair shares one primitive build. An ANIMATED job
+        # builds its own: its nodes are per occurrence, and what its clip drops (an
+        # occurrence hidden at start, one faded) changes which primitives exist.
+        static = None
+        for index, job in enumerate(jobs):
+            if pairs[index] != pair:
+                continue
+            summary = None
+            clip_data = None
+            if job.animation is not None:
+                clip = glb_animation.find_clip(animation, str(job.animation["clip"]))
+                plan = glb_animation.resolve_frame_plan(job.animation, clip)
+                sampled = glb_animation.sample_clip(clip, plan, drop=job.animation.get("drop") or ())
+                primitives = build_primitives(
+                    descriptor, tessellations, default_color=default_color, per_occurrence=True,
+                    hidden=sampled.hidden, opacity=sampled.opacity,
+                )
+                # The clip names the DOCUMENT's occurrences, the file holds what
+                # meshed: an occurrence with no geometry is a named warning, never
+                # a channel that targets nothing.
+                sampled = glb_animation.restrict_to_nodes(
+                    sampled, {primitive.node for primitive in primitives if primitive.node})
+                clip_data = sampled.gltf()
+                summary = {
+                    "clip": sampled.name, "fps": plan.fps, "samples": plan.frame_count,
+                    "seconds": plan.seconds, "start": plan.start, "channels": len(sampled.channels),
+                    "warnings": [*plan.warnings, *sampled.warnings],
+                }
+            else:
+                if static is None:
+                    static = build_primitives(descriptor, tessellations, default_color=default_color)
+                primitives = static
+            triangles = total_triangles(primitives)
+            if not triangles:
+                raise RuntimeError(f"mesh export failed for {job.fmt}: the tree produced no triangles")
+            if job.fmt == "glb":
+                payload = glb_bytes(primitives, name=name, animation=clip_data)
+            else:
+                payload = writers[job.fmt](primitives, name=name)
+            write_bytes_atomic(job.out, payload)
+            files[index] = {"path": str(job.out), "format": job.fmt, "triangleCount": triangles,
+                            **({"animation": summary} if summary is not None else {})}
+    return {"ok": True, "files": files}
+
+
+def _used_components(descriptor: dict) -> list[str]:
+    """The components the occurrences place, in first-placed order."""
+    components = descriptor.get("components") or {}
+    used: list[str] = []
+    for occurrence in descriptor.get("occurrences") or []:
+        cid = str(occurrence.get("component") or "")
+        if cid not in components:
+            raise ValueError(f"the tree's descriptor names unknown component {cid!r}")
+        if cid not in used:
+            used.append(cid)
+    return used
+
+
+def _loaded_producer() -> dict | None:
+    """This process's surface producer when its modeling kernel is already loaded
+    (a model build's), so the export asks the build pool for no producer job;
+    otherwise None, and the view takes the document's hint or asks the pool. A
+    door process may hold OCP without build123d, and importing build123d to name
+    a producer would cost more than the job it saves."""
+    if "build123d" not in sys.modules:
+        return None
+    from cadgen.store.surfaces import producer_identity
+
+    try:
+        return producer_identity()
+    except (ImportError, ValueError):
+        return None
+
+
+def _export_view(source: MeshSource, producer: dict | None, appearance: object) -> dict:
+    from cadgen.store.view import descriptor_for_view
+
+    descriptor = descriptor_for_view(source.tree, producer=producer, document_hash=source.document_hash)
+    if descriptor is None:
+        raise FileNotFoundError(f"mesh export: geometry tree missing or unreadable: {source.tree}")
     if appearance is not None:
         from cadgen._internal.source_sidecar import apply_appearance
 
-        # export_view supplies a private projection; immutable store objects
-        # and component tessellation identities remain unchanged.
-        descriptor_path = package_dir / "assembly.json"
-        descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
-        descriptor_path.write_text(json.dumps(apply_appearance(descriptor, appearance), sort_keys=True), encoding="utf-8")
+        # A private projection: immutable store objects and the component
+        # meshes' identities stay unchanged.
+        descriptor = apply_appearance(descriptor, appearance)
+    return descriptor
 
-    argv = [
-        str(cad_node_executable()),
-        str(node_builder_script(MESH_EXPORT_BUILDER)),
-        "--package-dir", str(package_dir),
-        "--name", name,
-    ]
-    for job in jobs:
-        argv += ["--format", job.fmt, "--out", str(job.out)]
-        # Job-scoped: the Node CLI binds tolerance flags to the most recent
-        # --format/--out pair (flags before any pair set the run defaults).
-        if job.mesh_tolerance is not None:
-            argv += ["--chord-tolerance", repr(float(job.mesh_tolerance))]
-        if job.mesh_angular_tolerance is not None:
-            argv += ["--angle-tolerance", repr(float(job.mesh_angular_tolerance))]
-        # Job-scoped for the same reason: a clip belongs to ONE output, and a
-        # run-level default would animate formats that cannot carry it.
-        if job.animation is not None:
-            argv += ["--animation", json.dumps(job.animation, sort_keys=True, separators=(",", ":"))]
-    if default_color is not None:
-        argv += ["--default-color", default_color]
-    label = "+".join(job.fmt for job in jobs)
-    with ExitStack() as resources:
-        if animation_source is not None:
-            # The captured snapshot, never the mutable sidecar beside the document.
-            data_dir = Path(resources.enter_context(tempfile.TemporaryDirectory(
-                prefix="cadgen-animation-",
-            )))
-            data_path = data_dir / "animation.json"
-            data_path.write_text(animation_source.data, encoding="utf-8")
-            argv += ["--animation-data", str(data_path)]
-        with logger.timed(f"tessellate + write {label}"):
-            proc = subprocess.run(argv, capture_output=True, text=True)
-    payload: dict = {}
-    for line in reversed(proc.stdout.splitlines()):
-        stripped = line.strip()
-        if stripped.startswith("{"):
+
+def _stored_meshes(source: MeshSource, pairs: list, appearance: object) -> "tuple[dict, dict]":
+    """The export's descriptor, and the stored TESS body of every placed component
+    at every pair, ``{(cid, pair): bytes}``.
+
+    What the store lacks is derived in ONE build-pool job (``surfaces.derive`` with
+    every pair: SURF where missing, then OCCT's mesh at each tolerance). A pinned
+    producer this runtime cannot implement is replaced by the current one, once,
+    as the views do (``store.view.materialize_view_surfaces``)."""
+    from cadgen.daemon.artifacts import ArtifactJobError, resolve_artifact
+    from cadgen.store import meshes, surfaces
+
+    descriptor = _export_view(source, _loaded_producer(), appearance)
+    tessellations = [{"chordTolerance": chord, "angleTolerance": angle} for chord, angle in pairs]
+    replaced = False
+    while True:
+        components = descriptor["components"]
+        keys = {
+            (cid, pair): meshes.tessellation_key(components[cid]["surfaceInput"], *pair)
+            for cid in _used_components(descriptor) for pair in pairs
+        }
+        missing = sorted({cid for (cid, _pair), key in keys.items() if meshes.probe(key) is None})
+        if missing:
+            producer = surfaces.producer_fields(descriptor["surfaceProducer"])
             try:
-                payload = json.loads(stripped)
-            except ValueError:
-                pass
-            break
-    missing = [job.out for job in jobs if not job.out.is_file()]
-    if not payload.get("ok") or missing:
-        raise RuntimeError(f"mesh export failed for {label}: {_exporter_failure_detail(proc, payload, missing)}")
-    # What the sampling could not carry -- a frozen opacity, a tube shipped at
-    # rest, a span past the end of a clip that does not loop -- rides the payload
-    # to the caller's RESULT rather than the log. The builder refuses anything
-    # worse; these are the choices the caller already made, and a file that made
-    # them silently is the whole failure this door avoids. Logging them here as
-    # well would say each one twice to a human and still leave --json silent.
-    return payload
+                resolve_artifact({"kind": "surfaces", "tree": source.tree, "cids": missing,
+                                  "producer": producer, "tessellations": tessellations})
+            except ArtifactJobError as error:
+                if replaced or not surfaces.producer_unavailable(error):
+                    raise
+                current = resolve_artifact({"kind": "producer"})
+                if surfaces.producer_key(current) == surfaces.producer_key(producer):
+                    raise
+                replaced = True
+                descriptor = _export_view(source, current, appearance)
+                if source.document_hash:
+                    from cadgen.store.records import document_entry_for_hash, note_document_tree
 
-
-def _exporter_failure_detail(proc: Any, payload: dict, missing: "list[Path]") -> str:
-    """Everything the Node exporter said about a failure, in one message.
-
-    The builder's own ``error`` comes first when it reported one -- but the exit
-    status and the tail of its stderr ride along ALWAYS. A failure that produced
-    no JSON (a crashed or killed process, an import error in the runtime) or that
-    claimed ``ok`` without writing its files used to surface as a bare ``exit 1``
-    or as nothing at all, which made a one-in-many flake undiagnosable."""
-    parts: list[str] = []
-    error = str(payload.get("error") or "").strip()
-    if error:
-        parts.append(error)
-    elif payload.get("ok") and missing:
-        parts.append("the exporter reported success but did not write " + ", ".join(path.name for path in missing))
-    elif not payload:
-        parts.append("the exporter printed no result")
-    parts.append(f"exit status {proc.returncode}")
-    stderr = str(proc.stderr or "").strip()
-    if stderr:
-        tail = stderr.splitlines()[-20:]
-        parts.append("exporter stderr:\n  " + "\n  ".join(tail))
-    return "; ".join(parts)
+                    entry = document_entry_for_hash(source.document_hash)
+                    if entry is not None and entry.get("tree") == source.tree:
+                        note_document_tree(source.document_hash, source.tree, surface_producer=current)
+                continue
+        bodies = {}
+        for (cid, (chord, angle)), key in keys.items():
+            payload = meshes.read(key)
+            if payload is None:
+                raise RuntimeError(
+                    f"mesh export failed: component {cid} has no stored mesh at chord {chord:g}, "
+                    f"angle {angle:g} after its derivation"
+                )
+            bodies[(cid, (chord, angle))] = payload
+        return descriptor, bodies
 
 
 def _tolerance_token(value: float | None) -> str:
@@ -252,7 +383,7 @@ def _appearance_key(value: str | None) -> str:
 
 
 def _serialization_version(fmt: str) -> int | None:
-    return GLB_SERIALIZATION_VERSION if str(fmt) == "glb" else None
+    return SERIALIZATION_VERSIONS.get(str(fmt))
 
 
 def mesh_variant_key(
@@ -265,7 +396,7 @@ def mesh_variant_key(
     """One mesh variant of a document — format × serializer × chord × angle × clip — the key
     of the ARTIFACT-side ledger (``index/document/<sha256(bytes)>.meshes``).
 
-    Only GLB carries a serializer revision; STL/3MF variants stay unchanged.
+    Every format carries its own serializer revision (``SERIALIZATION_VERSIONS``).
     An ANIMATED GLB appends the clip request folded with the embedded animation
     bytes (mesh_animation.animation_variant_token), so it can never be satisfied
     by the static file at the same path, nor by a GLB of a clip since edited."""

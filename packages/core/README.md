@@ -3,13 +3,13 @@
 The shared JavaScript half of cadgen: everything the distribution and its
 clients need to turn cached geometry into pixels, meshes, and motion.
 Source builds to ordinary ESM and package-owned declarations in `dist/`.
-Apps and UI consume compiled exports; Node and snapshot bundlers carry
-self-contained outputs in the Python distribution. Consumers neither alias
+Apps and UI consume compiled exports; the snapshot bundler carries a
+self-contained output in the Python distribution. Consumers neither alias
 this package's source nor supply ambient module declarations.
 
 **May depend on:** Three.js, three-mesh-bvh, meshoptimizer and framework-independent
 helpers. Never React, ReactDOM, Electron, Next.js, UI or application source.
-Browser entry points never import Node-only code. Node builders remain in `bin/`.
+Browser entry points never import Node-only code.
 
 **Consumers:** `@text-to-cad/ui`, docs, web and desktop apps, and runtime bundlers.
 `@text-to-cad/core/client` communicates with `cadgen.viewer` over HTTP; this
@@ -111,31 +111,10 @@ in [the drawing contract](../ui/docs/drawing.md); the mechanism is
   Its documents are mutable, uncached, and explicitly disposed by their one owner; a
   bounded load-time pose sample supplies a stable framing estimate rather than
   resizing the stage during playback.
-- **Byte determinism**: the tessellator and mesh serializers here produce
-  the shipped export bytes — same geometry in, same bytes out. Deterministic
-  algorithm changes advance `TESSELLATION_VERSION` and its Python mirror so
-  old cached meshes cannot masquerade as current output. Meshing preserves
-  shared trim references and treats Float32 transport precision explicitly,
-  including periodic seams and primitive poles/apices.
-  **Same bytes in every ENGINE, too**: the tessellator runs in Node for the
-  export builders and in the snapshot browser for renders, and both publish
-  into the same content-addressed mesh store, so whichever ran first decides
-  what a document exports. ECMA-262 specifies `Math.sin`, `Math.cos`,
-  `Math.hypot` and friends to no accuracy at all, and the two engines really do
-  disagree — measurably, on a few percent of arguments. So nothing that writes
-  bytes may call one, on the way into a tessellation or out of a serializer:
-  `surf/trig.js` is engine-independent `sin`, `cos`, `acos`, `atan` and `atan2`
-  (fdlibm kernels in plain arithmetic), lengths use `Math.sqrt`, which IEEE 754
-  requires correctly rounded, and an integer power is a multiplication.
-  `surf/trig.test.js` holds the line by scanning the whole import CLOSURE of
-  the tessellator and the mesh-export builder, so a new dependency is covered
-  the moment it is pulled in — and pins a golden vector, because a unit test
-  only ever runs on one engine at a time.
-  GLB material RGB decoded from sRGB hex is serialized at Float32 precision,
-  so differences in JavaScript exponentiation do not change the output bytes.
-  Every 8-bit sRGB channel survives the round trip; authored opacity and PBR
-  values keep their precision. `GLB_SERIALIZATION_VERSION` and its Python
-  mirror invalidate final GLB exports independently of cached tessellations.
+- **No shipped bytes**: core neither meshes nor writes an export. cadgen meshes
+  every component with OCCT into its store and writes STL, 3MF and GLB itself;
+  core reads those meshes and draws them. `lib/glb/writeGlb.js` writes the GLB
+  fixtures the core and UI tests load, never a file a user receives.
 - **Loud failure**: unresolved refs, unknown labels, and unknown presets
   throw with the known set listed; nothing renders a plausible wrong frame.
 
@@ -164,10 +143,8 @@ src/
                    #   parsing and loading; the robot parts and scene builder),
                    #   drawing2d/ (a GET /__cad/drawing payload -> Canvas 2D:
                    #   fit/pan/zoom maths, batched Path2D, hairline strokes),
-                   #   export/ (packageMeshExport), cadRefs (grammar,
+                   #   glb/ (a GLB writer for test fixtures), cadRefs (grammar,
                    #   parity-tested against cad_ref_syntax.py)
-bin/               # node builders the bundler ships into _runtime/node:
-                   #   mesh-export.mjs (the ONE mesh path)
 docs/              # subsystem docs (the map below)
 ```
 

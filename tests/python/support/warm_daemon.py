@@ -17,8 +17,8 @@ directly (``python -m unittest tests/...``) so a direct run can never reach -- o
 retire -- the developer's own daemon.
 
 Workers receive only the forwarded environment (cache dir, PYTHONPATH, ffmpeg, memo):
-a per-run override such as ``CADGEN_NODE`` is invisible to a warm worker, so a test
-that varies one of those per run must stay cold.
+any other per-run override is invisible to a warm worker, so a test that varies one
+per run must stay cold.
 """
 
 from __future__ import annotations

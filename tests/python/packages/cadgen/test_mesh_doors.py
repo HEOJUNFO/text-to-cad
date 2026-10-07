@@ -44,8 +44,8 @@ _WROTE_STL = {
             "format": "stl",
             "path": "/abs/sample.stl",
             "skipped": False,
-            # The engine reports the EFFECTIVE pair: the tessellator's defaults
-            # when the door was given none, never null.
+            # The engine reports the EFFECTIVE pair: the mesh defaults when the
+            # door was given none, never null.
             "meshTolerance": 1.5e-3,
             "meshAngularTolerance": 0.35,
         }
@@ -294,47 +294,15 @@ class DoorTolerances(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "@stl mesh_tolerance 2 is too large.*RELATIVE"):
             stl(mesh_tolerance=2.0)
 
+    def test_a_tolerance_finer_than_cadgen_meshes_is_refused_where_it_enters(self):
+        from cadgen import stl
+        from cadgen.metadata import MESH_ANGULAR_TOLERANCE_MIN, MESH_TOLERANCE_MIN, normalize_mesh_numeric
 
-class ExporterFailures(unittest.TestCase):
-    """A failed Node exporter is diagnosable from the error alone."""
-
-    def _fail(self, *, returncode: int, stdout: str, stderr: str) -> str:
-        import tempfile
-        from types import SimpleNamespace
-
-        from cadgen._internal import mesh_export
-
-        with tempfile.TemporaryDirectory() as raw:
-            job = mesh_export.MeshExportJob("stl", Path(raw) / "never-written.stl")
-            proc = SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
-            with mock.patch("subprocess.run", return_value=proc), \
-                    mock.patch("cadgen._internal.node_runtime.cad_node_executable", return_value="node"), \
-                    mock.patch("cadgen._internal.node_runtime.node_builder_script", return_value="mesh-export.mjs"), \
-                    self.assertRaises(RuntimeError) as caught:
-                mesh_export.run_mesh_exporter(
-                    Path(raw), [job], name="part", default_color=None, logger=mock.MagicMock(),
-                )
-        return str(caught.exception)
-
-    def test_a_crash_with_no_result_carries_its_exit_status_and_stderr(self):
-        message = self._fail(returncode=134, stdout="", stderr="FATAL ERROR: heap out of memory\n at tessellate")
-        self.assertIn("mesh export failed for stl", message)
-        self.assertIn("printed no result", message)
-        self.assertIn("exit status 134", message)
-        self.assertIn("heap out of memory", message)
-
-    def test_a_reported_error_still_carries_the_exporters_stderr(self):
-        message = self._fail(
-            returncode=1, stdout='{"ok": false, "error": "component c1 has no surfaces"}',
-            stderr="warn: retrying component c1",
-        )
-        self.assertIn("component c1 has no surfaces", message)
-        self.assertIn("exit status 1", message)
-        self.assertIn("retrying component c1", message)
-
-    def test_a_claimed_success_that_wrote_nothing_is_named(self):
-        message = self._fail(returncode=0, stdout='{"ok": true}', stderr="")
-        self.assertIn("reported success but did not write never-written.stl", message)
+        self.assertEqual(MESH_TOLERANCE_MIN, normalize_mesh_numeric(MESH_TOLERANCE_MIN, field_name="mesh_tolerance"))
+        with self.assertRaisesRegex(TypeError, "@stl mesh_tolerance 1e-06 is finer than cadgen meshes"):
+            stl(mesh_tolerance=1e-6)
+        with self.assertRaisesRegex(ValueError, "at least 0.005 radians"):
+            normalize_mesh_numeric(MESH_ANGULAR_TOLERANCE_MIN / 2, field_name="mesh_angular_tolerance")
 
 
 class DoorImports(unittest.TestCase):

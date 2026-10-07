@@ -106,8 +106,8 @@ dev install's server and skills at it (see [Test In Agent Apps](#test-in-agent-a
 
 `packages/cadgen/src/cadgen/_runtime/` is BUILT, not committed — the whole
 directory is gitignored, and the wheel is the only place those files ship. A
-fresh clone therefore has no Node builders, no snapshot browser bundle, no
-Viewer client and no file tracer -- so it builds no model -- until
+fresh clone therefore has no snapshot browser bundle, no Viewer client and no
+file tracer -- so it builds no model -- until
 `scripts/bundle/bundle.sh` runs, and cadgen says so by name the first time it
 reaches for one. `scripts/test/test-python.sh` and `scripts/test/test-global.sh`
 build the stages they read if they are missing (the tracer for this machine
@@ -471,7 +471,7 @@ cache provider and worker lease.
 The standalone launcher is `cadgen viewer`: on port 3245, or the port `--port N`
 names, as any web server; on that port a viewer of the same code is reused and one
 of other code replaced. A source
-checkout can serve the local web build; `CADGEN_VIEWER_DIST`, `CADGEN_NODE_BUILDERS_DIR` and
+checkout can serve the local web build; `CADGEN_VIEWER_DIST` and
 `CADGEN_BROWSER_RUNTIME_DIR` are explicit asset overrides. A wheel resolves its
 own bundled assets without the repository. Run `scripts/bundle/bundle.sh` after
 editing build inputs to refresh all packaged outputs.
@@ -512,8 +512,8 @@ scripts/bundle/bundle.sh --check
 ```
 
 `--clean` removes old runtime outputs before building. `--check` builds and
-asserts required Node/browser outputs; wheel validation checks the complete
-packaged viewer too. Per-stage `cadgen-runtime.sh` flags are for debugging;
+asserts the required browser and file-tracer outputs; wheel validation checks the
+complete packaged viewer too. Per-stage `cadgen-runtime.sh` flags are for debugging;
 normal iteration goes through `bundle.sh`.
 
 ## Branch Layout
@@ -558,9 +558,9 @@ the jobs each change can break ([CI](#ci)); a push whose tree its pull request
 already tested runs nothing again, and the `packaging` job builds the runtime
 from clean with `scripts/bundle/bundle.sh --clean` and checks the layout and the
 wheel. `main` commits no generated runtime at all —
-cadgen's Node builders, its snapshot bundle and the Viewer client are built from
-`packages/core`, `packages/ui` and `apps/web` on demand, and ship only inside the
-wheel. What IS committed and therefore checked for freshness is the version
+cadgen's snapshot bundle and the Viewer client are built from `packages/core`,
+`packages/ui` and `apps/web` on demand, and ship only inside the wheel. What IS
+committed and therefore checked for freshness is the version
 metadata derived from `VERSION`, asserted by the separate `Version Check` job
 (`scripts/release/check-version.sh` and `sync-version.mjs --check`).
 
@@ -577,10 +577,10 @@ wrong.
 
 ### Build artifacts live in the wheel, never in git
 
-`main` is source. Everything cadgen executes that is not Python — the Node
-builders and the snapshot browser bundle under `cadgen/_runtime/node` and
-`_runtime/browser`, the CAD Viewer client under `_runtime/viewer`, and the file
-tracer every build loads under `_runtime/native` (one C file,
+`main` is source. Everything cadgen executes that is not Python — the snapshot
+browser bundle under `cadgen/_runtime/browser`, the CAD Viewer client under
+`_runtime/viewer`, and the file tracer every build loads under
+`_runtime/native` (one C file,
 `packages/cadgen/native/filetrace.c`, cross-compiled by zig for every platform
 into the one wheel; `ziglang` comes with `requirements-dev.txt`) — is
 gitignored and produced by `scripts/bundle/bundle.sh`. Nothing built is ever
@@ -688,11 +688,11 @@ green: that is the release. `Publish Release`, on the merge commit:
    (`cad-openai-plugin-<version>`). `scripts/release/plugin_branch.py --check`
    does the same for both copies of the plugin the install branches get. Then
    `bundle.sh --clean` — which is where cadgen's whole runtime comes into
-   existence, Node builders, snapshot bundle and Viewer client alike, because
-   the release commit carries none of it — `check-builds.sh`, the
-   wheel-contents check, `python -m build`, and an `unzip -l` assertion that
-   the wheel about to ship really holds `_runtime/node`, `_runtime/browser`,
-   `_runtime/viewer` and every `_runtime/native` tracer.
+   existence, snapshot bundle and Viewer client alike, because the release
+   commit carries none of it — `check-builds.sh`, the wheel-contents check,
+   `python -m build`, and an `unzip -l` assertion that the wheel about to ship
+   really holds `_runtime/browser`, `_runtime/viewer` and every
+   `_runtime/native` tracer.
 4. **Install test.** The built wheel into a fresh venv — `cadgen --help`,
    `cadgen viewer --help`, `cadgen doctor skills/cad` — then
    `scripts/test/test-installed.sh --wheel <built-wheel>`; the distribution is

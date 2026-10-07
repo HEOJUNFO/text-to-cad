@@ -141,8 +141,9 @@ importable file.
 
 cadgen's writers are pure: the same shapes give the same bytes, in every
 format — STEP (canonicalized NAUO ids and presentation-style ordering), meshes
-(one deterministic tessellator), DXF (geometry-ordered emitter). The geometry
-kernel makes no such promise. Two runs of one model can differ in a last digit
+(the store's mesh of each component, serialized by one deterministic writer), DXF
+(geometry-ordered emitter). The geometry kernel, the mesher included, makes no
+such promise. Two runs of one model can differ in a last digit
 or in the order of the pieces a boolean returns, and cadgen neither hides that
 nor depends on it. Equal bytes mean reuse; different bytes cost a
 recomputation (a re-mesh, a parent recompose) and never a wrong answer. A
@@ -416,7 +417,8 @@ src/cadgen/
   _internal/             # the engine: generation pipeline, tree builder,
                          #   filetrace (every file a build opens),
                          #   FK (kinematics_fk/resolve), animation_bake
-                         #   (clips to keyframes), mesh_export ledger,
+                         #   (clips to keyframes), mesh_export (the mesh
+                         #   writers, a clip's GLB sampling, their ledger),
                          #   cli_from_function, doors (documents by bytes),
                          #   source_sidecar, step_assemble/step_reemit
   viewer/                # the CAD Viewer's server: launcher (main),
@@ -433,11 +435,11 @@ src/cadgen/
                          #   the viewer routes in-process (tunnel), roots,
                          #   the page (ui), and the CAD Viewer link for
                          #   a host that renders no MCP Apps (browser)
-  _runtime/              # BUILT JS (browser snapshot renderer, node
-                         #   builders, the viewer client, the MCP app page)
-                         #   and the native file tracer, one library per
-                         #   platform — produced when the wheel is packaged,
-                         #   never committed, never edited
+  _runtime/              # BUILT JS (browser snapshot renderer, the viewer
+                         #   client, the MCP app page) and the native file
+                         #   tracer, one library per platform — produced when
+                         #   the wheel is packaged, never committed, never
+                         #   edited
 ```
 
 Verbs by format: `step` compile · build · snapshot;

@@ -110,11 +110,9 @@ cadgen glb build STEP/model.step meshes/model.glb \
 
 `fps` is the rate at which the export samples the clip's keyframes. Translation and rotation are supported;
 visibility and opacity tracks are rejected unless explicitly dropped.
-Deforming tubes need the explicit morph-target option. Animated GLB requires
-an explicit OUT so the clip does not overwrite the default static export.
-STL and 3MF have no animation export. See [kinematics](kinematics.md) for clip
-requests and supported channels, or [tube deformation](animation-deformation.md)
-for morph export options.
+Animated GLB requires an explicit OUT so the clip does not overwrite the default
+static export. STL and 3MF have no animation export. See [kinematics](kinematics.md)
+for clip requests and supported channels.
 
 ## Rendering a mesh file
 
@@ -150,10 +148,11 @@ follows the skip cases in [snapshot review](snapshot-review.md).
 
 ## Mesh tolerance
 
-Mesh exports use the CAD Viewer's watertight tessellator on each component's
-exact surfaces. Viewer detail can vary with its level of detail settings;
-choose export tolerances for the output's requirements. Boundary vertices lie
-on the STEP edge curves, and identical export inputs produce identical bytes.
+Mesh exports write the same meshes the CAD Viewer draws: OCCT's mesh of each
+component's exact surfaces, at the export's tolerances. Viewer detail can vary
+with its level of detail settings; choose export tolerances for the output's
+requirements. Faces that meet share their boundary vertices, and identical
+export inputs produce identical bytes.
 
 Use these flags when the default mesh density is wrong for the part:
 

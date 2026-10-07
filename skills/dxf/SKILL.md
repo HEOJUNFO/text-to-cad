@@ -27,8 +27,8 @@ kernel load errors.
 
 Drawings are build123d geometry, so a drawing build loads the CAD kernel like a
 STEP build does (~2.5s cold; the warm daemon absorbs it on re-runs).
-`cadgen dxf snapshot` needs no Node at all: it flattens the drawing with `ezdxf`
-(which arrives with cadgen) and paints it in the bundled headless browser.
+`cadgen dxf snapshot` flattens the drawing with `ezdxf` (which arrives with
+cadgen) and paints it in the bundled headless browser.
 
 ## Purpose
 

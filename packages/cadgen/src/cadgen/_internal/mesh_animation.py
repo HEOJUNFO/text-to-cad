@@ -2,13 +2,13 @@
 
 A GLB is the one mesh format with somewhere to put a clip, so this is the GLB
 door's half of choreography. The other half — the clip itself — is the keyframes
-baked into the document sidecar's ``animation`` section, which the Node builder
-interpolates.
+baked into the document sidecar's ``animation`` section, which the export samples
+(``cadgen._internal.glb_animation``).
 
 Two things live here and nowhere else. The first is the request's shape: a
-closed key set (``clip``, ``fps``, ``seconds``, ``start``, ``drop``, ``deform``,
-``deformTolerance``) whose values are checked before a builder starts, because
-the alternative is learning that ``fps: 0`` is nonsense after a tessellation.
+closed key set (``clip``, ``fps``, ``seconds``, ``start``, ``drop``) whose values
+are checked before any meshing, because the alternative is learning that
+``fps: 0`` is nonsense after a tessellation.
 The second is what the export's freshness key has to include beyond the
 document's bytes: the
 choreography is an annotation the STEP does not hash, so an edited animation
@@ -32,9 +32,9 @@ from pathlib import Path
 
 # The request's closed vocabulary. No camera and no quality: this writes
 # geometry, not pixels, and a key that means nothing is a key that misleads.
-ANIMATION_REQUEST_KEYS = frozenset(
-    {"clip", "fps", "seconds", "start", "drop", "deform", "deformTolerance"}
-)
+ANIMATION_REQUEST_KEYS = frozenset({"clip", "fps", "seconds", "start", "drop"})
+# Retired with tube deformation (README law 8: a teaching error, never an alias).
+RETIRED_REQUEST_KEYS = frozenset({"deform", "deformTolerance"})
 
 DEFAULT_ANIMATION_FPS = 30
 MIN_ANIMATION_FPS = 1
@@ -45,35 +45,13 @@ MAX_ANIMATION_FPS = 120
 # TIMES seconds: an fps bound alone still lets `{"fps": 30, "seconds": 3000}` --
 # a caller writing milliseconds -- bake 90,000 keyframes PER MOVING OCCURRENCE,
 # each a translation, a quaternion and a time. 7200 is four minutes at 30 fps.
-# The builder enforces the same ceiling (framePlan FRAME_PLAN_MAX_FRAMES),
+# The sampler enforces the same ceiling (glb_animation.resolve_frame_plan),
 # because it is where the clip-duration default for `seconds` is resolved.
 MAX_ANIMATION_SAMPLES = 7200
 
 # Effects glTF has no animated channel for, which `drop` may bake as static
 # instead of having the export refuse them.
 DROPPABLE_EFFECTS = ("opacity", "visible")
-
-# What `deform` may say about a clip that deforms tube geometry. "refuse" stops
-# the export and names the tubes; "rest" ships them at rest shape and warns;
-# "morph" bakes the deformation as glTF morph targets and drives them from the
-# clip's own schedule.
-DEFORM_MODES = ("refuse", "morph", "rest")
-DEFAULT_DEFORM_MODE = "refuse"
-
-# How far a morph bake's blended tubes may sit from the clip's own deformation,
-# in millimetres of the model's own units.
-#
-# It is a real tolerance, not a target count: morph weights blend the RESULT of
-# two poses while the clip blends its inputs and rebuilds the path from them, so
-# the two agree only at the baked instants and the targets have to be FITTED to a
-# stated error. The default is about two thirds of a typical tendon's diameter.
-# Below ~0.25mm the bytes buy precision the rest of the file does not carry: the
-# rigid channels beside these tubes are sampled at `fps`, and fitting a cord to a
-# tenth of a millimetre while the finger it runs through moves in 1/24s steps
-# spends memory on nothing.
-DEFAULT_MORPH_TOLERANCE_MM = 1.0
-MIN_MORPH_TOLERANCE_MM = 0.01
-MAX_MORPH_TOLERANCE_MM = 10.0
 
 
 def normalize_animation_request(value: object, *, where: str) -> dict[str, object]:
@@ -82,15 +60,22 @@ def normalize_animation_request(value: object, *, where: str) -> dict[str, objec
     Both spellings land here -- the flag's clip name or inline JSON, and a real
     dict from ``glb.build(animation={...})`` -- so one validator holds the
     shape. ``seconds`` stays ``None`` when the caller named none: the default is
-    what is LEFT of the clip from ``start``, which only the builder can work out
-    (the choreography is JavaScript, and so is the duration and the loop flag it
-    declares). The sample ceiling below can therefore only be applied here to a
-    span the caller named; the builder applies it to the one it resolves.
+    what is LEFT of the clip from ``start``, which only the sampler works out,
+    holding the clip's duration and loop flag. The sample ceiling below can
+    therefore only be applied here to a span the caller named; the sampler
+    applies it to the one it resolves.
     """
     if not isinstance(value, dict):
         raise ValueError(
             f"{where} must be a clip name or a "
             f"{{{', '.join(sorted(ANIMATION_REQUEST_KEYS))}}} object"
+        )
+    retired = sorted(set(value) & RETIRED_REQUEST_KEYS)
+    if retired:
+        raise ValueError(
+            f"{where} {' and '.join(retired)} left cadgen with tube deformation: a clip moves "
+            "parts rigidly, which a GLB carries as node animation. Remove "
+            f"{' and '.join(retired)} from the request"
         )
     unknown = sorted(set(value) - ANIMATION_REQUEST_KEYS)
     if unknown:
@@ -120,7 +105,7 @@ def normalize_animation_request(value: object, *, where: str) -> dict[str, objec
         seconds = _finite_number(raw_seconds, where=where, field="seconds")
         if seconds <= 0:
             raise ValueError(f"{where} seconds must be greater than 0, got {raw_seconds!r}")
-        samples = round(seconds * raw_fps)
+        samples = math.floor(seconds * raw_fps + 0.5)  # the sampler's own rounding
         if samples > MAX_ANIMATION_SAMPLES:
             raise ValueError(
                 f"{where} {seconds:g}s at {raw_fps} fps bakes {samples} samples, past the "
@@ -147,45 +132,13 @@ def normalize_animation_request(value: object, *, where: str) -> dict[str, objec
             f"static: {', '.join(DROPPABLE_EFFECTS)}"
         )
 
-    deform = str(value.get("deform", DEFAULT_DEFORM_MODE) or DEFAULT_DEFORM_MODE).strip().lower()
-    if deform not in DEFORM_MODES:
-        raise ValueError(
-            f"{where} deform must be one of: {', '.join(DEFORM_MODES)}; got {value.get('deform')!r}"
-        )
-
-    request: dict[str, object] = {
+    return {
         "clip": clip.strip(),
         "fps": raw_fps,
         "seconds": seconds,
         "start": start,
         "drop": drop,
-        "deform": deform,
     }
-
-    # Only meaningful under "morph", so it is REFUSED anywhere else rather than
-    # accepted and ignored: a tolerance that silently did nothing would be read as
-    # a promise about the file's accuracy that the file does not keep. Absent
-    # otherwise, which also keeps every non-morph request's canonical form -- and
-    # so its ledger key -- exactly what it was.
-    raw_tolerance = value.get("deformTolerance")
-    if raw_tolerance is not None:
-        if deform != "morph":
-            raise ValueError(
-                f"{where} deformTolerance is how close a MORPH bake's targets must stay to the "
-                f"clip's own deformation, and this request's deform is {deform!r}; pass "
-                'deform: "morph" to bake the tubes, or drop deformTolerance'
-            )
-        tolerance = _finite_number(raw_tolerance, where=where, field="deformTolerance")
-        if not MIN_MORPH_TOLERANCE_MM <= tolerance <= MAX_MORPH_TOLERANCE_MM:
-            raise ValueError(
-                f"{where} deformTolerance must be {MIN_MORPH_TOLERANCE_MM}..."
-                f"{MAX_MORPH_TOLERANCE_MM} mm, got {raw_tolerance!r}"
-            )
-        request["deformTolerance"] = tolerance
-    elif deform == "morph":
-        request["deformTolerance"] = DEFAULT_MORPH_TOLERANCE_MM
-
-    return request
 
 
 def _finite_number(value: object, *, where: str, field: str) -> float:
@@ -255,9 +208,9 @@ def resolve_animation(document: Path, request: dict[str, object]) -> tuple[Anima
     """``(animation snapshot, variant token)`` for an animated export.
 
     The clip NAME is checked HERE -- a typo must fail as a clean CLI error naming
-    the clips the model has, not as a stack trace out of the Node builder. Both
-    the token and the Node builder consume this same snapshot, even if the
-    sidecar is rewritten during meshing.
+    the clips the model has, before anything is meshed. Both the token and the
+    sampler consume this same snapshot, even if the sidecar is rewritten during
+    meshing.
     """
     from cadgen._internal.source_sidecar import read_source_sidecar
     from cadgen.catalog import artifact_file_hash

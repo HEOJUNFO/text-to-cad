@@ -186,8 +186,8 @@ class SourceJobResults(unittest.TestCase):
         write_record(script, {"tree": newer, "outputs": {}})
         seen = []
 
-        def export(directory, jobs, **kwargs):
-            seen.append(json.loads((directory / "assembly.json").read_text(encoding="utf-8"))["tree"])
+        def export(source, jobs, **kwargs):
+            seen.append(source.tree)
             for job in jobs:
                 job.out.write_bytes(b"requested mesh result")
 

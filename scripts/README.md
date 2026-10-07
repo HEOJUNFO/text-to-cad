@@ -26,20 +26,18 @@ where those files ship, so these scripts are what produces them.
   metadata (which IS committed) rather than writing it. `--clean` removes the
   `_runtime` tree first. Called by `test.yml`, `release-publish.yml`,
   `check-builds.sh`, the pre-commit hook.
-- `cadgen-runtime.sh` — builds the five runtime stages: `--node` (esbuilt Node
-  builders), `--browser` (snapshot browser bundle), `--viewer` (vite build of
-  `apps/web`), `--mcp` (vite build of `apps/mcp`, one `index.html`), `--native`
-  (the file tracer, zig-compiled for every platform; `--native-host` builds this
-  machine's only). `--print-outputs` lists the three directories a bundle always
-  produces; `--check` skips the viewer and MCP stages, which need the apps'
-  `node_modules` and which nothing in a checkout reads. Called by `bundle.sh`,
-  `check-builds.sh`, `test/test-installed.sh`, and `test/common.sh` when a test
-  runner finds a stage it needs missing; pinned by
-  `tests/python/global/test_node_builder_bundles.py` and
-  `test_js_runtime_reproducibility.py`. Call it directly only to debug one stage.
-- `lib/node_builders.sh`, `lib/snapshot_runtime.sh` — sourced by
-  `cadgen-runtime.sh`; esbuild the Node builders and the browser bundle with
-  `three`/`meshoptimizer` pinned from `package-lock.json`.
+- `cadgen-runtime.sh` — builds the four runtime stages: `--browser` (snapshot
+  browser bundle), `--viewer` (vite build of `apps/web`), `--mcp` (vite build of
+  `apps/mcp`, one `index.html`), `--native` (the file tracer, zig-compiled for
+  every platform; `--native-host` builds this machine's only). `--print-outputs`
+  lists the two directories a bundle always produces; `--check` skips the viewer
+  and MCP stages, which need the apps' `node_modules` and which nothing in a
+  checkout reads. Called by `bundle.sh`, `check-builds.sh`,
+  `test/test-installed.sh`, and `test/common.sh` when a test runner finds a stage
+  it needs missing; pinned by `test_js_runtime_reproducibility.py`. Call it
+  directly only to debug one stage.
+- `lib/snapshot_runtime.sh` — sourced by `cadgen-runtime.sh`; esbuilds the browser
+  bundle with `three`/`meshoptimizer` pinned from `package-lock.json`.
 
 `test/` — test runners.
 
@@ -69,9 +67,9 @@ where those files ship, so these scripts are what produces them.
   running after 15 minutes is hung: it prints every thread's stack and fails.
 - `test-global.sh [PATH...]` — `tests/python/global`, the repo-wide policy
   suite, narrowed to PATHs as `test-python.sh` is. Like `test-python.sh`, it
-  builds the `--node` and `--browser` runtime stages and this machine's file
-  tracer first when they are absent: the suites read them and a fresh clone has
-  none. `PYTHON_TEST_RUNTIME=0` skips that build for a selection that reads none
+  builds the `--browser` runtime stage and this machine's file tracer first when
+  they are absent: the suites read them and a fresh clone has none.
+  `PYTHON_TEST_RUNTIME=0` skips that build for a selection that reads none
   of it (the skills job's light phase); a test that does read it then fails on the
   missing file.
 - `test-docs.sh` — `npm --prefix apps/docs run check`, then the animated brand
@@ -114,7 +112,7 @@ where those files ship, so these scripts are what produces them.
   lockfile and `pyproject.toml` metadata, the cadgen pins) from `VERSION`. Called
   by `bump-version.sh`, `bundle.sh`, `test.yml` (Version Check), `release-publish.yml`.
 - `check-wheel-contents.sh` — builds the wheel and asserts the Python modules and
-  `_runtime/{node,browser,viewer}` are inside it, with bytes identical to the
+  `_runtime/{browser,viewer}` are inside it, with bytes identical to the
   bundled source. The only gate on package data, which fails quietly. Called by
   `test.yml` and `release-publish.yml`.
 - `plugin_zip.py --out PATH | --check` — builds the plugin ZIP OpenAI's plugin

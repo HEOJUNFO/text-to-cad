@@ -39,11 +39,11 @@ def build(
         radians (default 0.35), for this export only.
     animation: carry one of the document's animation clips into the file
         as glTF animation, instead of exporting it static. A clip
-        name, or a {clip, fps, seconds, start, drop, deform} object; `fps` is
-        the sampling rate of the baked keyframes (default 30). Rotation and
-        translation are supported; opacity, visibility and tube deformation are
-        refused by name unless `drop`/`deform` says what to do with them. GLB
-        only; an animated export requires an explicit output path.
+        name, or a {clip, fps, seconds, start, drop} object; `fps` is the
+        sampling rate of the baked keyframes (default 30). Rotation and
+        translation are supported; opacity and visibility are refused by name
+        unless `drop` bakes them static at `start`. GLB only; an animated
+        export requires an explicit output path.
     force: re-export even where the ledger says the output is current. Never
         rebuilds the model itself — run `python <script>` for that.
     verbose: show detailed progress and timing on stderr.

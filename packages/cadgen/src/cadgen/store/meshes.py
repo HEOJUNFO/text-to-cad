@@ -21,6 +21,7 @@ import re
 import struct
 from typing import Any
 
+from cadgen.metadata import MESH_ANGULAR_TOLERANCE_MIN, MESH_TOLERANCE_MIN
 from cadgen.store.index import entry_path, write_entry
 from cadgen.store.objects import object_path, put_object
 
@@ -33,11 +34,10 @@ MAX_HEADER_BYTES = 4 * 1024 * 1024
 MAX_SAFE_INTEGER = 2**53 - 1
 DEFAULT_CHORD = 0.0015
 DEFAULT_ANGLE = 0.35
-# The finest tolerances anything may ask to have meshed: ~100x finer than the
-# defaults, beyond any display need at any output size. Below them a request is
-# not a mesh, it is a mesher that exhausts its worker's memory.
-MIN_CHORD = 1e-5
-MIN_ANGLE = 5e-3
+# The finest tolerances anything may ask to have meshed, the same floors a model's
+# or a door's tolerance is held to where it enters (cadgen.metadata).
+MIN_CHORD = MESH_TOLERANCE_MIN
+MIN_ANGLE = MESH_ANGULAR_TOLERANCE_MIN
 _KEY = re.compile(
     rf"([0-9a-f]{{64}})-t{TESSELLATOR_VERSION}-p{TESS_VERSION}"
     rf"-l([0-9a-f]{{16}})-a([0-9a-f]{{16}})"

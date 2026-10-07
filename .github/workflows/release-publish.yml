@@ -265,7 +265,7 @@ jobs:
       # The paranoid half of the same question check-wheel-contents.sh answers, asked of
       # the wheel that actually ships rather than one rebuilt in scratch: the runtime is
       # built minutes earlier by a step that could fail soft, and a wheel without it
-      # installs cleanly and then cannot render a snapshot or export a mesh.
+      # installs cleanly and then cannot render a snapshot or serve a Viewer.
       - name: Assert the shipping wheel carries its built runtime
         run: |
           wheel="$(find packages/cadgen/dist -name '*.whl' -type f | head -n 1)"
@@ -275,7 +275,6 @@ jobs:
           for required in \
             cadgen/_runtime/browser/snapshot-render.js \
             cadgen/_runtime/browser/render.html \
-            cadgen/_runtime/node/mesh-export.mjs \
             cadgen/_runtime/viewer/index.html \
             cadgen/_runtime/mcp/index.html \
             cadgen/_runtime/native/filetrace-macos-aarch64.dylib \

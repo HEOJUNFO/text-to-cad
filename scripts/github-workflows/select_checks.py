@@ -99,9 +99,8 @@ NOTHING = select()
 # phase runs with nothing installed, so one that is not fails there until it is listed here
 # with a rule for what it reads.
 HEAVY_POLICY = {
-    "test_cache_root_sync.py",              # cadgen's cache paths against core's tessellation cache
+    "test_cache_root_sync.py",              # cadgen's mesh keys against core's tessellation cache
     "test_cli_stream_contract.py",          # cadgen CLIs, run
-    "test_node_builder_bundles.py",         # the emitted Node builders (scripts/bundle)
     "test_sidecar_and_package_layering.py",  # cadgen's import layering, imported
     "test_snapshot_viewer_theme_parity.py",  # cadgen's snapshot against core's view settings
     "test_viewer_renders_emitted_dxf.py",   # a DXF cadgen emits, through the kernel
@@ -248,10 +247,9 @@ RULES: tuple[Rule, ...] = (
     # that has it.
     Rule(("apps/docs/src/**",), select(flags=["core_js"])),
     # The DXF suite renders ui's DXF fixture, and holds every JS file in packages/ to having
-    # no second layer-intent table; cadgen's suite globs packages/ for vendored node runtimes.
+    # no second layer-intent table.
     Rule(("packages/ui/src/renderers/dxf/__fixtures__/**",), select(skills=[f"{SKILL_SUITES}/dxf/test_snapshot_render.py"])),
     Rule(("packages/ui/**/*.js",), select(skills=[f"{SKILL_SUITES}/dxf/test_drawing_checks.py"])),
-    Rule(("packages/ui/**/node_runtime.py",), select(cadgen=[f"{CADGEN_SUITE}/test_node_resolve_bootstrap.py"])),
     Rule(("tests/browser/**", "tests/fixtures/cad/**"), select(flags=["web_viewer"])),
 
     # Tests: a test file runs itself.
@@ -268,9 +266,6 @@ RULES: tuple[Rule, ...] = (
     Rule(("skills/dxf/**",), select(skills=[f"{SKILL_SUITES}/dxf/test_documented_commands.py"])),
     Rule(("skills/dfam-check/**",), select(skills=[f"{SKILL_SUITES}/dfam-check"])),
     Rule(("skills/dfm/**",), select(skills=[f"{SKILL_SUITES}/dfm"])),
-    # Files that must never appear here: the test that refuses one runs when one does.
-    Rule(("skills/**/node_runtime.py",), select(cadgen=[f"{CADGEN_SUITE}/test_node_resolve_bootstrap.py"])),
-    Rule(("skills/*/scripts/packages/**",), policy("test_node_builder_bundles.py")),
 
     # The test runners and the gates each one feeds.
     Rule(("scripts/test/test-python.sh",), select(cadgen=[CADGEN_SUITE], skills=[SKILL_SUITES])),
@@ -307,9 +302,7 @@ RULES: tuple[Rule, ...] = (
 
 
 # Rules for files that must not exist: they match nothing until someone adds one.
-ABSENT_ON_PURPOSE = frozenset({
-    "skills/**/node_runtime.py", "skills/*/scripts/packages/**", "packages/ui/**/node_runtime.py",
-})
+ABSENT_ON_PURPOSE: frozenset[str] = frozenset()
 
 
 def compile_glob(pattern: str) -> re.Pattern[str]:

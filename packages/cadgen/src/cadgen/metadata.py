@@ -59,16 +59,22 @@ class MeshExportDecl:
 
 
 
-# The largest chord tolerance the tessellator honours. The value is RELATIVE --
-# a fraction of each component's bounding diagonal -- so 0.05 already lets a
-# facet sit a twentieth of the whole part away from the true surface. Past it the
-# tessellator's base grid collapses to a cell or two while its fixed angular
-# criterion keeps bisecting the slivers that leaves: a 10x20 cylinder comes out
-# with MORE triangles and a worse volume than at the default (464 triangles at
-# 1.5e-3; 13 000 at 0.2; 20% of the volume missing at 1.0), at exit 0. A number
-# that large is, in practice, an absolute millimetre deflection carried over from
-# a mesher that took one.
+# The largest chord tolerance accepted. The value is RELATIVE -- a fraction of
+# each component's bounding diagonal -- so 0.05 already lets a facet sit a
+# twentieth of the whole part away from the true surface. A number larger than
+# that is, in practice, an absolute millimetre deflection carried over from a
+# mesher that took one, so it is refused with the conversion rather than meshed.
 MESH_TOLERANCE_MAX = 0.05
+# The finest tolerances anything may ask to have meshed: ~100x finer than the
+# defaults, beyond any display need at any output size. Below them a request is
+# not a mesh, it is a mesher that exhausts its worker's memory. The store's mesh
+# keys hold to the same floors (cadgen.store.meshes).
+MESH_TOLERANCE_MIN = 1e-5
+MESH_ANGULAR_TOLERANCE_MIN = 5e-3
+_MESH_TOLERANCE_FLOORS = {
+    "mesh_tolerance": (MESH_TOLERANCE_MIN, "of the bounding diagonal (default 1.5e-3)"),
+    "mesh_angular_tolerance": (MESH_ANGULAR_TOLERANCE_MIN, "radians (default 0.35)"),
+}
 
 
 def normalize_mesh_numeric(value: object, *, field_name: str) -> float | None:
@@ -91,6 +97,9 @@ def normalize_mesh_numeric(value: object, *, field_name: str) -> float | None:
             "absolute chord deviation of X mm on a part whose bounding diagonal is D mm, "
             f"pass X/D -- {normalized:g} mm on a 200 mm part is {normalized / 200.0:g}"
         )
+    floor, unit = _MESH_TOLERANCE_FLOORS.get(field_name, (0.0, ""))
+    if normalized < floor:
+        raise ValueError(f"{field_name} {normalized:g} is finer than cadgen meshes: it must be at least {floor:g} {unit}")
     return normalized
 
 

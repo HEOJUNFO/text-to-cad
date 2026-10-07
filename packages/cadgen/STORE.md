@@ -123,11 +123,12 @@ on a new key instead of invalidating an old one in place. `index/document` is th
 tree describing those bytes (plus a mesh ledger keyed by format × tolerances
 × pose × appearance — the bare mesh doors read and write it, and a script run notes its
 declared meshes there too, so the two front doors never redo each other's work).
-GLB variants and model output entries also carry the final serializer revision.
-A change to GLB encoding invalidates final GLB exports without discarding
-geometry or tessellation results, or affecting STL/3MF freshness.
+Mesh variants and model output entries also carry their format's final serializer
+revision. A change to one format's encoding invalidates that format's final exports
+without discarding geometry or tessellation results, or affecting the other formats'
+freshness.
 Animated exports capture the sidecar's `animation` keyframes once, before mesh preparation;
-the animation variant and the Node builder consume that same immutable text.
+the animation variant and the clip sampler consume that same immutable text.
 Three properties, each enforced by a
 test:
 
@@ -468,8 +469,8 @@ identity. A real one (`link_arm`: a bar plus two placements of a pin model):
   hints. A prepared warm view can use a valid prior producer without importing
   the kernel; its concrete TESS provenance remains valid after SURF deletion.
 
-- Consumers that speak the older flat shape (the viewer client, the Node
-  exporters) read a **flattened** tree: `cadgen.store.trees.flatten` expands
+- Consumers that speak the older flat shape (the viewer client, the mesh
+  exports) read a **flattened** tree: `cadgen.store.trees.flatten` expands
   links recursively (ids rebased — a child's `o1.2` under link `o1.3` becomes
   `o1.3.2`; a part child's single occurrence takes the link's name),
   composes transforms, and merges components. `cadgen.store.view` lays that

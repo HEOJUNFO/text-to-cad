@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import json
-import shutil
 import sys
 import time
 
@@ -883,11 +882,11 @@ def _produce_declared_mesh_exports(
     RETURN the ones this call actually wrote (outputs the ledger already found
     current are not listed).
 
-    Runs through the ONE mesh engine the `cadgen stl|3mf|glb build` doors use — same Node
-    invocation, same records — so the two front doors cannot drift. Each
+    Runs through the ONE mesh engine the `cadgen stl|3mf|glb build` doors use — same
+    meshes, same writers, same records — so the two front doors cannot drift. Each
     output is gated by its content-keyed record (document hash + the tolerance
     pair the file on disk was ACTUALLY written at): current outputs cost a stat +
-    record read; stale or missing ones tessellate from the store package.
+    record read; stale or missing ones are written from the store's meshes.
     Content-gated deliberately even under --force: a byte-identical rebuild
     leaves exports byte-identical by determinism, so rewriting them is pure waste.
 
@@ -900,12 +899,11 @@ def _produce_declared_mesh_exports(
         return ()
     from cadgen._internal.mesh_export import (
         MeshExportJob,
+        MeshSource,
         mesh_export_current,
         record_mesh_export,
         run_mesh_exporter,
     )
-
-    from cadgen.store.view import export_view
 
     model = _model_for_spec(spec)
     if spec.step_output:
@@ -958,21 +956,16 @@ def _produce_declared_mesh_exports(
         return ()
     from cadgen.step_export_target import _color_hex
 
-    # The Node exporter reads a view directory (assembly.json + components/): a temporary VIEW of the
-    # tree, removed when the export is done (the store holds no result dirs).
-    view_dir = export_view(tree_hash)
-    try:
-        jobs = list(pending)
-        run_mesh_exporter(
-            view_dir,
-            jobs,
-            name=spec.step_path.stem,
-            default_color=_color_hex(spec.color),
-            logger=logger if logger is not None else CliLogger("cadgen", verbose=False),
-            appearance=appearance,
-        )
-    finally:
-        shutil.rmtree(view_dir, ignore_errors=True)
+    jobs = list(pending)
+    run_mesh_exporter(
+        # A mesh-only model's tree is its own geometry, selected by no document.
+        MeshSource(tree_hash, document_hash if spec.step_output else None),
+        jobs,
+        name=spec.step_path.stem,
+        default_color=_color_hex(spec.color),
+        logger=logger if logger is not None else CliLogger("cadgen", verbose=False),
+        appearance=appearance,
+    )
     for job in jobs:
         record_mesh_export(
             job.out,

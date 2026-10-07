@@ -1,21 +1,13 @@
 """A document's mesh bytes do not depend on what warmed the store first.
 
-Law 5: same inputs, same bytes. Meshes are tessellated by ONE tessellator, but
-two engines run it — Node, for the export builders, and the snapshot browser,
-which posts what it rendered back into the same content-addressed mesh store.
-They share a cache key, so whichever arrives first decides what every later
-export of that document writes.
-
-That made `Math.sin`/`Math.cos` a determinism hazard: ECMA-262 specifies them to
-no accuracy, and the two engines disagree on a few percent of arguments. The
-symptom was tiny and easy to miss — a cylinder's seam normal came out as
--3.8e-16 from a cold store and 6.1e-17 (cos(pi/2)) after a snapshot, eight bytes
-in one GLB accessor, no visible difference — and it still broke content
-addressing and every freshness ledger built on it. `surf/trig.js` is the fix;
-this is the door-level proof.
+Law 5: same inputs, same bytes. Every mesh is OCCT's, derived once per component
+and tolerance into the store's content-addressed mesh entries, and two paths
+reach them: a door's export, and a snapshot, which derives the meshes it draws.
+They share a key, so whichever arrives first decides what every later export of
+that document reads -- and the bytes must not care which one that was.
 
 The fixture is a box, a CYLINDER and a second box: an analytic curved face is
-what carries the seam, and a box-only model would pass either way.
+what carries a seam, and a box-only model would pass either way.
 """
 
 from __future__ import annotations
@@ -107,8 +99,8 @@ class MeshExportEngineDeterminismTest(unittest.TestCase):
         cold_store, warm_store = self.root / "store-cold", self.root / "store-warm"
 
         # The warm store renders the document FIRST, which fills the mesh store
-        # from the browser. Its exports then read those entries instead of
-        # tessellating in Node.
+        # for the snapshot. Its exports then read those entries instead of
+        # deriving their own.
         self._cli("step_snapshot", "fixture.step", "shot.png", "--width", "200", "--height", "150",
                   cwd=warm_dir, store=warm_store)
 
@@ -123,8 +115,8 @@ class MeshExportEngineDeterminismTest(unittest.TestCase):
                     cold_bytes, warm_bytes,
                     f"{fmt} exported {len(cold_bytes)} bytes from a cold store and "
                     f"{len(warm_bytes)} from a snapshot-warmed one, and they differ: the "
-                    "tessellation a document exports still depends on which engine "
-                    "reached the mesh store first (law 5)",
+                    "mesh a document exports depends on which path reached the store "
+                    "first (law 5)",
                 )
 
 

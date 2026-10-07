@@ -1,11 +1,12 @@
 // The frame SCHEDULE a `{fps, seconds, start}` request implies over one clip.
 //
 // Two consumers, one arithmetic: the snapshot page renders a span of a clip to
-// video (headlessRenderEntry), and the GLB export door SAMPLES the same span
-// into baked keyframes (lib/export/packageAnimation.js). fps means a different
-// thing to each — a playback rate there, a sampling rate here — but where the
-// samples fall does not, and two derivations of "which moments of the clip" is
-// exactly the pair that drifts by one frame and loops with a stutter.
+// video (headlessRenderEntry), and cadgen's GLB export SAMPLES the same span
+// into baked keyframes (cadgen/_internal/glb_animation.py, which mirrors this
+// rounding and these errors). fps means a different thing to each — a playback
+// rate there, a sampling rate here — but where the samples fall does not, and
+// two derivations of "which moments of the clip" is exactly the pair that drifts
+// by one frame and loops with a stutter, so change both together.
 //
 // `label` is the word the errors use, because the same wrong number is a bad
 // video request in one caller and a bad animation request in the other, and an

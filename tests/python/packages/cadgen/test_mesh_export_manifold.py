@@ -1,12 +1,10 @@
 """An exported mesh is manifold: the plate-with-one-hole end of issue #371.
 
-`skills/cad/references/supported-exports.md` promises that a mesh export is
-watertight. The tessellator's own guarantee is pinned next to it, in
-`packages/core/src/lib/surf/tessellateWatertight.test.js`; this test pins
-what a USER gets — the bytes of a written STL, read back with nothing but
-`struct` — for the ordinary part the issue reported: a rectangular plate with a
-single cylindrical through-hole. Issue #433 is the same part bent: the hole
-goes through a curved wall.
+`skills/cad/references/supported-exports.md` promises that faces which meet
+share their boundary vertices. This test pins what a USER gets — the bytes of a
+written STL, read back with nothing but `struct` — for the ordinary part the
+issue reported: a rectangular plate with a single cylindrical through-hole.
+Issue #433 is the same part bent: the hole goes through a curved wall.
 
 A cylindrical cut's rim is where the defect lived. Boundary snapping lands two
 of the bore face's vertices on one model point, and a weld that misses them
