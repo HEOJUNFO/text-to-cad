@@ -38,13 +38,17 @@ import math
 import os
 import re
 import struct
-from typing import Any
-
-import numpy as np
+from typing import TYPE_CHECKING, Any
 
 from cadgen.metadata import MESH_ANGULAR_TOLERANCE_MIN, MESH_TOLERANCE_MIN
 from cadgen.store.index import entry_path, write_entry
 from cadgen.store.objects import object_path, put_object
+
+if TYPE_CHECKING:
+    # The code that builds or views a body's arrays imports numpy where it runs: keys,
+    # probes and reads stay stdlib-only for a process that only serves stored meshes
+    # (the CAD Viewer's server).
+    import numpy as np
 
 # 6: glTF 2.0 binary replaced TESS v5 (one triangle primitive, face and edge
 # tables in buffer views, no per-vertex face ordinals).
@@ -337,10 +341,10 @@ def _table_count(cad: dict, name: str) -> int:
     return reference["count"]
 
 
-def decode_payload(payload: bytes) -> MeshPayload:
-    """One body's values and views, validated: GLB framing, the canonical JSON for its
-    values, and tables whose ordinals rise, whose ranges cover their arrays exactly
-    and whose colour and class references resolve. ValueError for anything else."""
+def _payload_json(payload: bytes) -> tuple[dict, dict, dict, int, int]:
+    """A body's GLB framing and JSON chunk, which must be the canonical JSON for its
+    values: ``(that JSON, its extras.cadgen, its counts, BIN start, BIN length)``.
+    ValueError for anything else."""
     data = memoryview(payload)
     if len(data) < 20:
         raise ValueError("truncated tessellation payload")
@@ -386,11 +390,21 @@ def decode_payload(payload: bytes) -> MeshPayload:
         raise ValueError("tessellation JSON is not the canonical JSON for its values")
     if bin_length != (expected.get("buffers") or [{"byteLength": 0}])[0]["byteLength"]:
         raise ValueError("tessellation BIN chunk does not match its buffer views")
+    return expected, cad, counts, bin_start, bin_length
+
+
+def decode_payload(payload: bytes) -> MeshPayload:
+    """One body's values and views, validated: GLB framing, the canonical JSON for its
+    values, and tables whose ordinals rise, whose ranges cover their arrays exactly
+    and whose colour and class references resolve. ValueError for anything else."""
+    import numpy as np
+
+    expected, cad, counts, bin_start, _ = _payload_json(payload)
+    vertices, indices = counts["vertexCount"], counts["indexCount"]
 
     def view(index: int, dtype: str, columns: int):
         entry = expected["bufferViews"][index]
-        width = np.dtype(dtype).itemsize
-        return np.frombuffer(payload, dtype, entry["byteLength"] // width,
+        return np.frombuffer(payload, dtype, entry["byteLength"] // int(dtype[2]),
                              bin_start + entry["byteOffset"]).reshape(-1, columns)
 
     names = [entry.get("name", "") for entry in expected.get("bufferViews", [])]
@@ -411,12 +425,17 @@ def decode_payload(payload: bytes) -> MeshPayload:
     # Both tables are (ord, start, count, reference) rows: the faces cover the triangles
     # once each, in order, and the edges their points.
     for table, name, total, multiple in ((faces, "face", indices, 3), (edges, "edge", counts["edgePointCount"], 1)):
-        ordinals, starts, sizes = (table[:, column].astype(np.int64) for column in range(3))
-        ends = np.cumsum(sizes)
-        if len(table) and (ordinals[0] < 1 or np.any(np.diff(ordinals) <= 0) or starts[0] != 0
-                           or np.any(starts[1:] != ends[:-1]) or np.any(sizes % multiple)):
+        if not len(table):
+            if total:
+                raise ValueError(f"incomplete tessellation {name} table")
+            continue
+        rows = table.astype(np.int64)
+        ordinals, starts, sizes = rows[:, 0], rows[:, 1], rows[:, 2]
+        ends = sizes.cumsum()
+        if (ordinals[0] < 1 or (ordinals[1:] <= ordinals[:-1]).any() or starts[0] != 0
+                or (starts[1:] != ends[:-1]).any() or (sizes % multiple).any()):
             raise ValueError(f"invalid tessellation {name} table")
-        if (int(ends[-1]) if len(table) else 0) != total:
+        if int(ends[-1]) != total:
             raise ValueError(f"incomplete tessellation {name} table")
     if len(faces) and int(faces[:, 3].max()) > len(cad["faceColors"]):
         raise ValueError("a tessellation face colour is not in its palette")
@@ -426,11 +445,15 @@ def decode_payload(payload: bytes) -> MeshPayload:
 
 
 def payload_record(key: str, payload: bytes) -> dict:
-    """Validate a complete body and return its canonical index facts."""
+    """Validate a complete body, its tables too, and return its canonical index facts."""
     if not valid_key(key):
         raise ValueError("invalid tessellation input or payload")
     decoded = decode_payload(payload)
-    cad = decoded.cad
+    return _record(key, payload, decoded.cad, decoded.counts)
+
+
+def _record(key: str, payload: bytes, cad: dict, counts: dict) -> dict:
+    """The index facts of a body whose JSON gave these values and counts."""
     quality = _quality(cad.get("quality"))
     surface_input, surface_object = cad.get("surfaceInput"), cad.get("surfaceObject")
     if not _digest(surface_object):
@@ -441,11 +464,11 @@ def payload_record(key: str, payload: bytes) -> dict:
         raise ValueError("tessellation payload belongs to a different input")
     record = {
         "schemaVersion": MESH_INDEX_SCHEMA, "object": hashlib.sha256(payload).hexdigest(),
-        "byteLength": len(payload), "decodedBytes": decoded_bytes(decoded.counts),
+        "byteLength": len(payload), "decodedBytes": decoded_bytes(counts),
         "surfaceInput": surface_input, "surfaceObject": surface_object,
         "tessellationInput": key, "renderIdentity": f"{key}-s{surface_object}",
         "quality": quality, "tessellatorVersion": TESSELLATOR_VERSION, "payloadVersion": PAYLOAD_VERSION,
-        **decoded.counts,
+        **counts,
     }
     if not _valid_record(key, record):
         raise ValueError("invalid tessellation index facts")
@@ -453,6 +476,8 @@ def payload_record(key: str, payload: bytes) -> dict:
 
 
 def _array(value: Any, dtype: str, columns: int) -> np.ndarray:
+    import numpy as np
+
     array = np.frombuffer(value, dtype) if isinstance(value, (bytes, bytearray, memoryview)) else np.asarray(value)
     return np.ascontiguousarray(array, dtype).reshape(-1, columns)
 
@@ -471,6 +496,8 @@ def encode_payload(*, surface_input: str, surface_object: str, chord: float, ang
     order, each polyline float32 xyz of at least two points. The result is
     validated before it is returned.
     """
+    import numpy as np
+
     quality = tessellation_quality(chord, angle)
     key = tessellation_key(surface_input, chord, angle)
     positions = _array(positions, "<f4", 3)
@@ -582,7 +609,13 @@ def read(key: str, *, expected_object: str | None = None, max_bytes: int | None 
             if os.fstat(stream.fileno()).st_size != record["byteLength"]:
                 return None
             payload = stream.read(record["byteLength"] + 1)
-        if len(payload) != record["byteLength"] or payload_record(key, payload) != record:
+        if len(payload) != record["byteLength"]:
+            return None
+        # The record's content address names the body ``write`` validated whole. A read
+        # checks the framing, the canonical JSON and the identity again; the tables are
+        # for the decoders that read them (``decode_payload``, tessellationCache.js).
+        _, cad, counts, _, _ = _payload_json(payload)
+        if _record(key, payload, cad, counts) != record:
             return None
         return payload
     except (OSError, ValueError, TypeError, KeyError, OverflowError, struct.error):

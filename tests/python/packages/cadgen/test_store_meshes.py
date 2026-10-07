@@ -8,6 +8,8 @@ import hashlib
 import json
 import os
 import struct
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -17,7 +19,7 @@ import numpy as np
 from tests.python.support.paths import add_repo_path
 from tests.python.support.tmp_root import generated_cad_directory
 
-add_repo_path("packages/cadgen/src")
+_CADGEN_SRC = str(add_repo_path("packages/cadgen/src"))
 
 from cadgen.store import meshes
 from cadgen.store.index import entry_path, write_entry
@@ -197,6 +199,23 @@ class MeshStoreContract(unittest.TestCase):
         self.assertEqual(int.from_bytes(read_tess_cache_batch(json.dumps(request).encode())[12:16], "little"), 0)
         self.assertIsNone(read_tess_cache_batch(b'{"names":[]}'))
         self.assertIsNone(read_tess_cache_probe(json.dumps({"tessellationInputs": [self.key] * 257}).encode()))
+
+    def test_serving_stored_bodies_never_imports_numpy(self):
+        # The CAD Viewer's server probes and batch-reads stored meshes and never views their
+        # arrays, so numpy stays out of that process. A fresh interpreter: this one has it.
+        row = meshes.write(self.key, self.payload)
+        entry = {"tessellationInput": self.key, "object": row["object"], "maxBytes": row["byteLength"]}
+        code = (
+            f"import json, sys; sys.path.insert(0, {_CADGEN_SRC!r})\n"
+            "from cadgen.store.tess_cache import read_tess_cache_batch, read_tess_cache_probe\n"
+            f"probed = read_tess_cache_probe({json.dumps({'tessellationInputs': [self.key]}).encode()!r})\n"
+            f"batch = read_tess_cache_batch({json.dumps({'entries': [entry]}).encode()!r})\n"
+            "print(json.dumps({'probed': len(probed['entries']), 'served': int.from_bytes(batch[12:16], 'little'),"
+            " 'numpy': 'numpy' in sys.modules}))\n"
+        )
+        result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), {"probed": 1, "served": len(self.payload), "numpy": False})
 
     def test_malformed_bodies_are_rejected_in_python_and_shared_js(self):
         cad = ["extras", "cadgen"]
