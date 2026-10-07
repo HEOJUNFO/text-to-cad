@@ -189,8 +189,11 @@ carries data, never code, and nothing runs a clip after the build.
   last pose. `label` is the name the viewer lists (the clip id when omitted).
   `fps` is the build's sampling rate, not a playback rate: raise it when the
   build reports a part turning more than 90 degrees between two samples. The
-  viewer lists clips in the order the dict declares them and opens on the
-  first.
+  keyframes hold the clip to a ten-thousandth of the model's size at every
+  sample and curve smoothly between samples, so a motion that changes speed
+  abruptly (an impact, a snap) is rounded off within one sample; raise `fps`
+  if that shows. The viewer lists clips in the order the dict declares them and
+  opens on the first.
 - `update(t, m)` must be a pure function of `t`. Every sample starts from rest,
   so the same `t` must give the same pose: no state carried between calls, no
   clock, no randomness.

@@ -23,9 +23,9 @@ one revolute mate. Every property is there for a test:
 | `assembly.json` | 3,010 | `GET /__cad/store?file=<tree>/assembly.json&documentHash=…` — the view descriptor. Carries `kind: "assembly-package"`, the `tree`, the `viewId`, the attested `surfaceProducer`, two components, two occurrences and the model box. |
 | `components/552fc5fd1b854ab4.surf` | 13,966 | `GET /__cad/store?tree=…&surfaceInput=…&object=…` for the base. Exact surfaces; the client tessellates them. |
 | `components/df492f79c6123df5.surf` | 10,478 | the same, for the arm. |
-| `hinge_block.step.json` | 2,298 | **no request at all.** The harness puts it inline on the catalog entry as `sourceSidecar`, which is what the real scanner does, and the renderer reads the kinematics and the routine's keyframes straight from there. |
+| `hinge_block.step.json` | 1,922 | **no request at all.** The harness puts it inline on the catalog entry as `sourceSidecar`, which is what the real scanner does, and the renderer reads the kinematics and the routine's keyframes straight from there. |
 
-Total 29,752 bytes. No Git attribute applies here (`git check-attr -a` on these
+Total 29,376 bytes. No Git attribute applies here (`git check-attr -a` on these
 paths prints nothing), and the repository carries no LFS. Keep it that way — an
 LFS pointer would be rejected by name at `renderAssetClient.js`'s SURF reader.
 

@@ -61,8 +61,13 @@ CORNERS = [(x, y, z) for x in (0.0, 20.0) for y in (0.0, 10.0) for z in (0.0, 5.
 NAMES = "#arm, #base, #bolt, #link, #rig"
 
 
-def _bake(clip_id: str, update, **options) -> dict:
-    return bake_clip(clip_id, cadgen.clip(update, **options), TARGETS, BOUNDS)
+def _bake(clip_id: str, update, leaf_boxes=None, **options) -> dict:
+    return bake_clip(clip_id, cadgen.clip(update, **options), TARGETS, BOUNDS, leaf_boxes)
+
+
+def _worst(track: dict, t: float, corners, expected) -> float:
+    """The farthest a renderer puts any of ``corners`` at ``t`` from where ``expected(point)`` says."""
+    return max(math.dist(_placed(track, t, corner), expected(corner)) for corner in corners)
 
 
 def _placed(track: dict, t: float, point) -> list[float]:
@@ -171,7 +176,7 @@ class BakingTransforms(unittest.TestCase):
 
         (track,) = _bake("spin", spin, duration=4)["tracks"]
         self.assertEqual(["o1.2.1"], track["targets"])
-        # The point the motion moves least is on the axis.
+        # The point whose path accelerates least is on the axis.
         self.assertAlmostEqual(10.0, track["pivot"][0], places=3)
         self.assertAlmostEqual(0.0, track["pivot"][1], places=3)
         # A constant spin is exact between keys, so only the cap on how far two
@@ -210,6 +215,67 @@ class BakingTransforms(unittest.TestCase):
         held = tracks[("o1.1",)]
         self.assertEqual([0.0], held["times"])
         self.assertEqual([[0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]], held["transform"])
+
+    def test_parts_that_move_alike_but_for_rounding_share_a_track(self) -> None:
+        # One turn reached two ways -- through 30 degrees, and through two turns of 15 --
+        # is equal to the last bits, and is one track.
+        def swing(t, m):
+            m.get("#link").rotate((0, 0, 1), 30 * t, (10, 0, 0))
+            m.get("#o1.3").rotate((0, 0, 1), 15 * t, (10, 0, 0)).rotate((0, 0, 1), 15 * t, (10, 0, 0))
+
+        (track,) = _bake("swing", swing, duration=2, fps=10)["tracks"]
+        self.assertEqual(["o1.2.1", "o1.3"], track["targets"])
+
+    def test_a_turn_left_by_rounding_never_throws_the_pivot_off_the_model(self) -> None:
+        # A solver that leaves 1e-13 degrees of turn on a part it slides 400 mm: there is
+        # no axis to find. Placing one anyway put the pivot ~1e17 mm out, and the key's
+        # quaternion, written as no turn at all, left that lever arm's swing in d.
+        def slide(t, m):
+            m.get("#link").rotate((0, 0, 1), 1e-13 * (1 + t)).translate((400 * t, 0, 0))
+
+        (track,) = _bake("slide", slide, duration=2, fps=10)["tracks"]
+        center = [(lo + hi) / 2 for lo, hi in zip(*BOUNDS)]
+        self.assertLessEqual(math.dist(track["pivot"], center), math.dist(*BOUNDS))
+        tolerance = max(LENGTH_FLOOR, TRANSFORM_TOLERANCE * math.dist(*BOUNDS))
+        for t in (0.0, 0.55, 1.0, 1.95):
+            with self.subTest(t=t):
+                self.assertLessEqual(_worst(track, t, CORNERS, lambda p: (p[0] + 400 * t, p[1], p[2])), tolerance)
+
+    def test_a_part_spinning_while_carried_is_keyed_about_its_axis(self) -> None:
+        # A rotor spinning about its own axis while the axis is carried sideways: about
+        # that axis its keys need only the spin and the carry, each exact between keys,
+        # so only the cap on how far two kept keys may turn apart splits it.
+        def run(t, m):
+            m.get("#link").rotate((0, 0, 1), 90 * t, (10, 0, 0)).translate((5 * t, 3 * t, 0))
+
+        (track,) = _bake("run", run, duration=4)["tracks"]
+        self.assertAlmostEqual(10.0, track["pivot"][0], places=3)
+        self.assertAlmostEqual(0.0, track["pivot"][1], places=3)
+        self.assertLessEqual(len(track["times"]), 5)
+
+    def test_a_track_is_measured_at_its_own_parts_box(self) -> None:
+        # A millimetre part easing through a turn about its own center: what a renderer
+        # gets wrong between keys grows with the lever arm, and the part's own corners
+        # are half a millimetre out, not the whole model's ten and more.
+        class Boxes:
+            def get(self, leaf):
+                return ((9.5, -0.5, 0.0), (10.5, 0.5, 1.0)) if leaf == "o1.2.1" else None
+
+        def ease(t, m):
+            m.get("#link").rotate((0, 0, 1), 45 * (1 - math.cos(math.pi * t)), (10, 0, 0))
+
+        whole = _bake("ease", ease, duration=2)["tracks"][0]
+        own = _bake("ease", ease, leaf_boxes=Boxes(), duration=2)["tracks"][0]
+        self.assertLess(len(own["times"]), len(whole["times"]))
+        tolerance = max(LENGTH_FLOOR, TRANSFORM_TOLERANCE * math.dist(*BOUNDS))
+        part = [(x, y, z) for x in (9.5, 10.5) for y in (-0.5, 0.5) for z in (0.0, 1.0)]
+        for t in (0.25, 0.75, 1.3, 1.9):
+            angle = math.radians(45 * (1 - math.cos(math.pi * t)))
+            c, s = math.cos(angle), math.sin(angle)
+            with self.subTest(t=t):
+                self.assertLessEqual(
+                    _worst(own, t, part, lambda p: (10 + (p[0] - 10) * c - p[1] * s, (p[0] - 10) * s + p[1] * c, p[2])),
+                    tolerance)
 
     def test_a_turn_past_ninety_degrees_between_samples_asks_for_a_higher_fps(self) -> None:
         def whirl(t, m):
