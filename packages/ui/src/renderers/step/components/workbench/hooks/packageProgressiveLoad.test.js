@@ -556,6 +556,49 @@ test("a failed lane fences sibling publishes, wakes queued admission, and preser
   assert.equal(loader.retainedComponentCount(), 0);
 });
 
+// One component cadgen could not mesh is that component's failure (`componentFailed`): every other
+// component still loads, and the final publish carries them and names it. Any other failure still
+// fences every lane, and a package whose every component failed on its own has the first's error.
+test("a component's own failure leaves it out: the rest load, and the final publish names it", async () => {
+  const descriptor = makeDescriptor({ componentCount: 4, occurrenceCount: 4 });
+  const { loadComponent } = makeLoader(descriptor);
+  const own = (cid) => Object.assign(new Error(`component ${cid}: OCCT did not mesh 2 face(s)`), { cid });
+  const componentFailed = (error, cid) => error.cid === cid;
+  const publishes = [];
+  const settled = [];
+  const loader = createProgressivePackageLoader({
+    descriptor, concurrency: 2, loadComponent, componentFailed,
+    sizeHint: async (cid) => { if (cid === "c2") throw own(cid); return 1; },
+    onRetainedChange: ({ loaded, failed }) => settled.push(loaded + failed),
+    onPublish: (publish) => publishes.push(publish),
+  });
+  const result = await loader.run();
+  assert.deepEqual([result.loaded, result.total], [3, 4]);
+  assert.deepEqual(result.failures.map(({ cid, error }) => [cid, error.message]),
+    [["c2", "component c2: OCCT did not mesh 2 face(s)"]]);
+  const finals = publishes.filter((publish) => publish.final);
+  assert.equal(finals.length, 1);
+  assert.deepEqual(Object.keys(finals[0].componentMeshDataByCid).sort(), ["c0", "c1", "c3"]);
+  assert.deepEqual(finals[0].meshData.missingComponentIds, ["c2"]);
+  assert.deepEqual(finals[0].failures.map(({ cid }) => cid), ["c2"]);
+  assert.equal(settled.at(-1), 4, "a failed component counts as settled");
+
+  const fatal = new Error("surface request capacity reached");
+  const fenced = createProgressivePackageLoader({
+    descriptor, concurrency: 2, loadComponent, componentFailed, onPublish: () => {},
+    sizeHint: async (cid) => { if (cid === "c1") throw fatal; return 1; },
+  });
+  await assert.rejects(fenced.run(), (error) => error === fatal);
+
+  const part = makeDescriptor({ componentCount: 1, occurrenceCount: 1 });
+  const lone = createProgressivePackageLoader({
+    descriptor: part, loadComponent: makeLoader(part).loadComponent, componentFailed,
+    sizeHint: async (cid) => { throw own(cid); },
+    onPublish: () => assert.fail("nothing is published"),
+  });
+  await assert.rejects(lone.run(), /component c0: OCCT did not mesh 2 face\(s\)/);
+});
+
 test("cancellation fences a queued admission before an active slot releases", async () => {
   const descriptor = makeDescriptor({ componentCount: 5, occurrenceCount: 5 });
   const fourStarted = deferred();

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createCadClient, SurfaceResolutionError } from "@text-to-cad/core/client";
 import { isTessellationCacheProbeMissError } from "@text-to-cad/core/lib/surf/tessellationCache.js";
 import { createSurfaceTicketBatches, createTessellationBodyBatches } from "./packageBatchReads.js";
 import { createInitialDisplayPlans } from "../../../render/initialDisplayLod.js";
@@ -186,6 +187,34 @@ test("a surface request that fails fails each of its components still waiting", 
     resolve: async (requested, { onReady }) => { onReady("c0", { surfUrl: "/surf/c0" }); throw failure; } });
   assert.deepEqual(await tickets.ticket("c0", {}), { surfUrl: "/surf/c0" });
   await assert.rejects(tickets.ticket("c12", {}), failure);
+});
+
+// One component cadgen could not mesh fails alone, with its own error: the components beside it in
+// its request, ready in the same response (before or after it), are answered.
+test("a component that failed in its request fails alone; the ready ones beside it are answered", async () => {
+  const hex = c => c.repeat(64);
+  const view = { tree: hex("a"), viewId: hex("b"), surfaceProducer: { scheme: 1 } };
+  const inputs = { c0: hex("1"), bad: hex("2"), c2: hex("3") };
+  const object = hex("e");
+  const ready = cid => ({ surfaceInput: inputs[cid], state: "ready", surfaceObject: object, byteLength: 10,
+    url: `/__cad/store?tree=${view.tree}&surfaceInput=${inputs[cid]}&object=${object}` });
+  const client = createCadClient({ fetch: async () => new Response(JSON.stringify({ viewId: view.viewId, components: {
+    c0: ready("c0"),
+    bad: { surfaceInput: inputs.bad, state: "failed", error: "component bad: OCCT did not mesh 2 face(s)", code: "mesh" },
+    c2: ready("c2"),
+  } }), { headers: { "content-type": "application/json" } }) });
+  const order = ["bad", "c0", "c2"];
+  const tickets = createSurfaceTicketBatches({ order, alone: 0,
+    needs: cid => ({ surfaceInput: inputs[cid] }),
+    resolve: (requested, options) => client.resolveSurfaceComponents(view, requested, options) });
+  const [bad, c0, c2] = await Promise.allSettled(order.map(cid => tickets.ticket(cid, {})));
+  assert.equal(tickets.stats().requests, 1);
+  assert.equal(bad.status, "rejected");
+  assert.ok(bad.reason instanceof SurfaceResolutionError);
+  assert.deepEqual([bad.reason.cid, bad.reason.code, bad.reason.message], ["bad", "mesh", "component bad: OCCT did not mesh 2 face(s)"]);
+  assert.deepEqual([c0.status, c0.value?.surfaceObject, c2.status, c2.value?.surfaceObject],
+    ["fulfilled", object, "fulfilled", object]);
+  client.dispose();
 });
 
 test("initial plans probe the standard tier a chunk at a time, growing from eight to 256", async () => {

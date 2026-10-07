@@ -173,9 +173,18 @@ export interface CadWorkspaceService {
   /** A `.dxf` flattened to 2D render primitives on the server; the client never parses DXF. */
   drawing(file: string, options?: CadRequestOptions): Promise<CadDrawingPayload>;
   readonly resources: CadResourceProvider;
-  /** `onReady` hears each component as soon as its row is ready, while the rest are still awaited. */
+  /**
+   * `onReady` hears each component as soon as its row is ready, while the rest are still awaited.
+   * `onFailed` hears each component cadgen could not derive or mesh, with its own error, and the
+   * request resolves with the rest; without it, a failed component fails the request.
+   * `tessellation` also has cadgen mesh each component at those tolerances.
+   */
   resolveSurfaceComponents(view: CadRuntimeView, requested: CadSurfaceComponentRequest[],
-    options?: CadRequestOptions & { onReady?: (cid: string, ticket: CadSurfaceTicket) => void }): Promise<Map<string, CadSurfaceTicket>>;
+    options?: CadRequestOptions & {
+      onReady?: (cid: string, ticket: CadSurfaceTicket) => void;
+      onFailed?: (cid: string, error: Error) => void;
+      tessellation?: { chordTolerance?: number; angleTolerance?: number };
+    }): Promise<Map<string, CadSurfaceTicket>>;
   observeEditingPreview(file: string, onUpdate: (preview: CadEditingPreview) => void, onError: (error: unknown) => void, options?: CadPreviewObserverOptions): () => void;
   createRenderSession(options?: { file?: string }): CadRenderSession;
   dispose(): void;

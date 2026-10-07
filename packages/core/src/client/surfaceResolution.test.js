@@ -103,6 +103,47 @@ test("a row ready before the rest of its request is announced at once, and once"
   assert.equal(result.size, 2);
 });
 
+// One component cadgen could not mesh is that component's failure: the ready rows beside it, before
+// or after it in the response, are announced, and the request goes on for one still pending.
+test("a failed component fails alone, with its own error, and the request goes on for the rest", async (t) => {
+  const original = globalThis.fetch;
+  t.after(() => { globalThis.fetch = original; });
+  const D2 = "f".repeat(64), D3 = "7".repeat(64), O2 = "9".repeat(64);
+  const row = (surfaceInput, object) => ({ surfaceInput, state: "ready", surfaceObject: object,
+    url: `/__cad/store?tree=${TREE}&surfaceInput=${surfaceInput}&object=${object}`, byteLength: 10 });
+  let polls = 0;
+  globalThis.fetch = async () => {
+    polls += 1;
+    return json({ viewId: VIEW, job: "job-3", components: {
+      bad: { surfaceInput: D3, state: "failed", error: "component bad: OCCT did not mesh 1 face(s)", code: "mesh" },
+      part: row(D, O),
+      other: polls === 1 ? { surfaceInput: D2, state: "pending", job: "job-3" } : row(D2, O2),
+    } });
+  };
+  const requests = [{ cid: "bad", surfaceInput: D3 }, { cid: "part", surfaceInput: D }, { cid: "other", surfaceInput: D2 }];
+  const announced = [];
+  const failures = [];
+  const result = await resolveSurfaceComponents(descriptor, requests, {
+    onReady: (cid) => announced.push([cid, polls]),
+    onFailed: (cid, error) => failures.push([cid, error]),
+  });
+  assert.deepEqual(announced, [["part", 1], ["other", 2]]);
+  assert.equal(failures.length, 1, "a failure is heard once");
+  const [[cid, error]] = failures;
+  assert.equal(cid, "bad");
+  assert.ok(error instanceof SurfaceResolutionError);
+  assert.deepEqual([error.cid, error.code, error.message], ["bad", "mesh", "component bad: OCCT did not mesh 1 face(s)"]);
+  assert.deepEqual([...result.keys()], ["part", "other"]);
+  // Without `onFailed` the first failure is the request's, once the response's ready rows are heard.
+  polls = 1;
+  const heard = [];
+  await assert.rejects(
+    resolveSurfaceComponents(descriptor, requests.slice(0, 2), { onReady: (ready) => heard.push(ready) }),
+    (rejection) => rejection instanceof SurfaceResolutionError && rejection.cid === "bad",
+  );
+  assert.deepEqual(heard, ["part"]);
+});
+
 // Settle on the events the resolver actually produces, never on a stopwatch. The
 // abort used to be timed with `setTimeout(10)` and the cancel POST read after
 // `setTimeout(0)`, which makes the assertion depend on how fast the runner drains

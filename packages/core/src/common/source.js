@@ -307,6 +307,14 @@ async function loadPackageMeshData(packageInfo, tessellation = {}, appearance = 
 
   if (diagnostics) diagnostics.cacheBatchCount = groups.length;
   let cacheHits = 0;
+  // Components the store named a mesh for whose body could not be read, even alone.
+  const unreadable = new Set();
+  const decodeEntry = (entry, bytes) => decodeComponentTessellation(bytes, {
+    surfaceInput: entry.surfaceInput,
+    surfaceObject: entry.probe.surfaceObject,
+    tessellationInput: entry.probe.tessellationInput,
+    tessellation,
+  });
   for (const entries of groups) {
     const readStarted = performance.now();
     let bodies;
@@ -324,14 +332,18 @@ async function loadPackageMeshData(packageInfo, tessellation = {}, appearance = 
     for (let index = 0; index < entries.length; index += 1) {
       const decodeStarted = performance.now();
       const entry = entries[index];
-      const decoded = decodeComponentTessellation(bodies?.[index], {
-        surfaceInput: entry.surfaceInput,
-        surfaceObject: entry.probe.surfaceObject,
-        tessellationInput: entry.probe.tessellationInput,
-        tessellation,
-      });
+      let decoded = decodeEntry(entry, bodies?.[index]);
       measure("cacheDecodeMs", decodeStarted);
       if (!decoded) {
+        // The store named this mesh: a body that did not come back is read again, alone, before
+        // the component is a miss (a batch can fail as a whole where its entries would not).
+        const rereadStarted = performance.now();
+        const body = await tessellationCache?.getCachedEntryBytes(entry.surfaceInput, tessellation, { probe: entry.probe });
+        measure("cacheReadMs", rereadStarted);
+        decoded = decodeEntry(entry, body);
+      }
+      if (!decoded) {
+        unreadable.add(entry.cid);
         misses.push(entry.cid);
         continue;
       }
@@ -347,11 +359,13 @@ async function loadPackageMeshData(packageInfo, tessellation = {}, appearance = 
   }
   // What the store could not answer: a static package's own mesh file, read
   // through a small pool (6 matches the browser's per-host connection budget),
-  // else a component nothing has meshed.
+  // else a component nothing has meshed, or whose stored mesh could not be read.
   const loadComponent = async (cid) => {
     const url = String(meshUrls[cid] || "").trim();
     if (!url) {
-      throw new Error(`Assembly package component ${cid} has no mesh at this tessellation; cadgen meshes every component before a page draws it`);
+      throw new Error(unreadable.has(cid)
+        ? `Assembly package component ${cid}: the store holds its mesh at this tessellation, but it could not be read`
+        : `Assembly package component ${cid} has no mesh at this tessellation; cadgen meshes every component before a page draws it`);
     }
     const readStarted = performance.now();
     const bytes = new Uint8Array(await fetchComponentMeshBuffer(url, cid, options));

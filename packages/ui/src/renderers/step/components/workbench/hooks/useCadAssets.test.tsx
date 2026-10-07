@@ -1,6 +1,9 @@
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
 import { createHttpCadResourceProvider, SurfaceResolutionError } from '@text-to-cad/core/client';
 import { entryHasMesh, entryHasReferences } from '@text-to-cad/core/lib/entryAssets.js';
 import { renderAssetCacheStats } from '@text-to-cad/core/lib/renderAssetClient.js';
@@ -257,4 +260,135 @@ it('has cadgen mesh a cold component in its surface request, then reads that mes
     expect(single.mock.calls.map(([row]) => row.surfaceInput).sort()).toEqual([...cold].sort());
     opened.unmount();
   } finally { owner.dispose(); }
+});
+
+// One component cadgen cannot mesh is that component's failure: the rest of the model is drawn and
+// interactive, and its failure is the load's background error, as a load that stopped part-way
+// reports one. Missing a component, the model is not kept as complete: a reopen asks again.
+it('draws the rest of a model when cadgen cannot mesh one component, and reports that one', async () => {
+  const { client, model, encoded } = warmLargeStep();
+  const cold = ['c3', 'c250'].map(cid => createHash('sha256').update(`317-component-${cid}`).digest('hex'));
+  const read = row => encoded.get(row.tessellationInput)?.bytes.slice() || null;
+  const owner = createTessellationCache({ provider: {
+    probeMany: async keys => keys.map(key => (cold.some(input => key.startsWith(input)) ? null : encoded.get(key)?.row || null)),
+    getProbed: async row => read(row), getManyProbed: async rows => rows.map(read) } });
+  const failure = 'component c250: OCCT did not mesh 1 face(s) of the component: f2';
+  const meshing = { ...client, resolveSurfaceComponents: vi.fn(async (_descriptor, requested, options) => {
+    const ready = new Map();
+    for (const { cid, surfaceInput } of requested) {
+      if (cid === 'c250') {
+        const error = new SurfaceResolutionError(failure, { cid });
+        if (!options.onFailed) throw error;
+        options.onFailed(cid, error);
+        continue;
+      }
+      ready.set(cid, { surfaceInput, surfaceObject: 'a'.repeat(64), byteLength: 100,
+        mesh: encoded.get(tessellationCacheKey(surfaceInput, options.tessellation)).row,
+        surfUrl: `https://cad-assets.test/__cad/store?surfaceInput=${surfaceInput}` });
+    }
+    return ready;
+  }) };
+  try {
+    const opened = renderHook(() => assets(model, meshing, owner.createSession()));
+    await act(() => opened.result.current.loadMeshForEntry(model));
+    const state = opened.result.current.meshState;
+    expect([opened.result.current.error, opened.result.current.status]).toEqual(['', 'ready']);
+    expect(state.meshData.parts).toHaveLength(316);
+    expect(state.meshData.missingComponentIds).toEqual(['c250']);
+    expect(state.assemblyInteractionReady).toBe(true);
+    expect(state.assemblyBackgroundError).toBe(failure);
+    opened.unmount();
+    expect(completedPackages.stats().entries).toBe(0);
+  } finally { owner.dispose(); }
+});
+
+// The core surf fixtures: a component's SURF, cadgen's standard mesh of it and that mesh's probe row.
+function surfFixtures(names: string[]) {
+  const dir = path.join(path.dirname(createRequire(import.meta.url).resolve('@text-to-cad/core/lib/surf/container.js')), 'fixtures');
+  const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'fixtures.json'), 'utf8'));
+  return names.map((name) => {
+    const bytes = new Uint8Array(fs.readFileSync(path.join(dir, `${name}.l1.tess`)));
+    const row = validateTessellationProbeRow({ schemaVersion: 1,
+      object: createHash('sha256').update(bytes).digest('hex'), ...tessellationPayloadFacts(bytes) });
+    return { ...manifest[name], bytes, row, surf: new Uint8Array(fs.readFileSync(path.join(dir, `${name}.surf`))) };
+  });
+}
+
+// Topology asked for while a package still loads cold (a part's row restored open before the first
+// paint) reaches a part cadgen has not meshed yet: its selectors' read misses, so the part's surface
+// request names the level on screen, cadgen meshes it, and the read goes on. A part whose selectors
+// still cannot be built is not published, and the next request asks for it again.
+it('has cadgen mesh a cold part for its topology, and asks again for a part whose topology failed', async () => {
+  const [gear, roller] = surfFixtures(['sun_gear', 'cam_follower_roller']);
+  const parts = { c0: gear, c1: roller };
+  const occurrences = Object.keys(parts).map((cid, i) => ({ id: `o${i}`, name: cid, component: cid,
+    transform: [1, 0, 0, i * 100, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] }));
+  const descriptor = { kind: 'assembly-package', viewId: 'cold-view', occurrences,
+    components: Object.fromEntries(Object.entries(parts).map(([cid, part]) => [cid, { surfaceInput: part.surfaceInput }])),
+    assembly: { root: { id: 'root', nodeType: 'assembly', children: occurrences.map(({ id }) => ({ id, nodeType: 'part', children: [] })) } } };
+  const surfUrl = cid => `https://cad-assets.test/__cad/store?surfaceInput=${parts[cid].surfaceInput}`;
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (String(url).includes('assembly.json')) return new Response(JSON.stringify(descriptor));
+    const cid = Object.keys(parts).find(key => String(url).includes(parts[key].surfaceInput));
+    return cid ? new Response(parts[cid].surf.slice(), { headers: { 'content-length': String(parts[cid].surf.byteLength) } })
+      : new Response(null, { status: 404 });
+  }));
+  // The host's mesh store: empty until cadgen meshes a component in a surface request naming a tier.
+  const stored = new Map();
+  const read = row => stored.get(row.tessellationInput)?.bytes.slice() || null;
+  const owner = createTessellationCache({ provider: {
+    probeMany: async keys => keys.map(key => stored.get(key)?.row || null),
+    getProbed: async row => read(row), getManyProbed: async rows => rows.map(read) } });
+  let meshed;
+  const meshing = new Promise(resolve => { meshed = resolve; });
+  const unmeshable = new Set();
+  const asked = [];
+  const client = { origin: 'https://cad-assets.test', resources: createHttpCadResourceProvider(),
+    resolveSurfaceComponents: async (_view, requested, options = {}) => {
+      asked.push([requested.map(({ cid }) => cid).join(), options.tessellation ? 'mesh' : 'surface']);
+      if (options.tessellation) await meshing;
+      const failed = options.tessellation ? requested.filter(({ cid }) => unmeshable.has(cid)) : [];
+      for (const { cid } of failed) {
+        const error = new SurfaceResolutionError(`component ${cid}: OCCT did not mesh 1 face(s)`, { cid });
+        if (!options.onFailed) throw error;
+        options.onFailed(cid, error);
+      }
+      return new Map(requested.filter(request => !failed.includes(request)).map(({ cid }) => {
+        if (options.tessellation) stored.set(parts[cid].row.tessellationInput, parts[cid]);
+        return [cid, { surfaceInput: parts[cid].surfaceInput, surfaceObject: parts[cid].surfaceObject, surfUrl: surfUrl(cid),
+          byteLength: parts[cid].surf.byteLength, ...(options.tessellation ? { mesh: parts[cid].row } : {}) }];
+      }));
+    } };
+  const model = { ...entry('cold-step', 'assembly'), sourceFormat: 'step', file: 'cold-step.step',
+    url: 'https://cad-assets.test/__cad/asset?file=/cold-step&v=one', documentHash: 'cold-document' };
+  // Stable, as the renderer's are: a new identity each render would start a new topology session.
+  const references = { entryHasReferences: () => true, buildNormalizedReferenceState: (_entry, _bundle, state) => state };
+  const session = owner.createSession();
+  const settle = () => new Promise(resolve => setTimeout(resolve, 20));
+  try {
+    const opened = renderHook(() => useCadAssets({ initialEntry: model, client, tessellationCache: session,
+      entryHasMesh, ...references }));
+    let loading, topology;
+    await act(async () => { loading = opened.result.current.loadMeshForEntry(model); await settle(); });
+    await act(async () => { topology = opened.result.current.loadReferencesForEntry(model, ['o0']); await settle(); });
+    await act(async () => { meshed(); await loading; await topology; });
+    expect(opened.result.current.error).toBe('');
+    expect(opened.result.current.meshState.meshData.parts).toHaveLength(2);
+    expect(opened.result.current.referenceState.loadedTopologyIds).toEqual(['o0']);
+    expect(opened.result.current.referenceState.selectorRuntime).toBeTruthy();
+    // The load meshed c0; the topology derived its surface, missed its mesh, and had cadgen mesh it.
+    expect(asked.filter(([cids]) => cids === 'c0')).toEqual([['c0', 'mesh'], ['c0', 'surface'], ['c0', 'mesh']]);
+
+    // c1's mesh gone from the store, and cadgen unable to make it again: o1 is not published...
+    stored.delete(roller.row.tessellationInput);
+    unmeshable.add('c1');
+    await act(() => opened.result.current.loadReferencesForEntry(model, ['o0', 'o1']));
+    expect(opened.result.current.referenceState.loadedTopologyIds).toEqual(['o0']);
+    // ...and asked for again, once cadgen can mesh it, it is.
+    unmeshable.delete('c1');
+    await act(() => opened.result.current.loadReferencesForEntry(model, ['o0', 'o1']));
+    expect(opened.result.current.referenceState.loadedTopologyIds).toEqual(['o0', 'o1']);
+    expect(asked.filter(([cids, kind]) => cids === 'c1' && kind === 'mesh')).toHaveLength(3);
+    opened.unmount();
+  } finally { session.dispose(); owner.dispose(); }
 });

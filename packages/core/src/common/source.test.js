@@ -172,6 +172,26 @@ test("a package's missing meshes are asked of the host once, then read as stored
   assert.equal(fetches, 0, "no SURF is read to draw a package");
 });
 
+// A body the store named but did not hand back is read again, alone, before its component is a
+// miss; and one that stays unreadable says so, not that nothing meshed it.
+test("a stored mesh whose batched read fails is read again alone; one that stays unreadable says so", async (t) => {
+  const store = recordingMeshStore([], { produce: [meshFixture("cam_follower_roller", 1).bytes] });
+  const batch = store.getManyProbed;
+  let batches = 0;
+  store.getManyProbed = async (rows) => { batches += 1; return batches === 1 ? null : batch(rows); };
+  setTessellationCacheProvider(store);
+  t.after(() => setTessellationCacheProvider(null));
+  const stages = {};
+  const source = await loadSource(rollerPackage(), { stageTimings: stages });
+  assert.ok(source.meshData.indices.length > 0);
+  assert.equal(stages.sourceLoad.cacheHitCount, 1);
+  assert.deepEqual([batches, store.counts.reads], [1, 1], "the failed batch's body was read once more, alone");
+  store.getManyProbed = async (rows) => rows.map(() => null);
+  store.getProbed = async () => null;
+  await assert.rejects(loadSource(rollerPackage()),
+    /component roller: the store holds its mesh at this tessellation, but it could not be read/);
+});
+
 test("a static package reads each component's own mesh file; a component nothing meshed is an error", async (t) => {
   const oldFetch = globalThis.fetch;
   const mesh = meshFixture("cam_follower_roller", 1);

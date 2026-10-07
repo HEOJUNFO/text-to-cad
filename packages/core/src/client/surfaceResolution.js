@@ -116,12 +116,17 @@ export class SurfaceResolutionError extends Error {
  * `onReady(cid, ticket)`, when given, hears each component the moment its row is
  * ready, once, while the request goes on waiting for the rest of its components:
  * a caller that asked for many need not hold the first behind the last.
+ *
+ * `onFailed(cid, error)`, when given, hears each component cadgen could not derive
+ * or mesh, once, with its own error, and the request goes on for the rest: it
+ * resolves with the ready ones. Without it, a failed component fails the request,
+ * once every ready row of the response that names it has been announced.
  */
-export async function resolveSurfaceComponents(descriptor, requested, { signal, client, onReady = null, tessellation = undefined } = {}) {
+export async function resolveSurfaceComponents(descriptor, requested, { signal, client, onReady = null, onFailed = null, tessellation = undefined } = {}) {
   if (!client) throw new TypeError("Surface resolution requires a CAD workspace service");
   const list = Array.isArray(requested) ? requested : [];
   if (list.length <= SURFACE_REQUEST_MAX_COMPONENTS) {
-    return resolveSurfaceRequest(descriptor, list, { signal, client, onReady, tessellation });
+    return resolveSurfaceRequest(descriptor, list, { signal, client, onReady, onFailed, tessellation });
   }
   // Every chunk is its own request (and subscriber job); one failing stops the others.
   const controller = new AbortController();
@@ -134,7 +139,7 @@ export async function resolveSurfaceComponents(descriptor, requested, { signal, 
       chunks.push(list.slice(start, start + SURFACE_REQUEST_MAX_COMPONENTS));
     }
     const results = await Promise.all(chunks.map((chunk) => (
-      resolveSurfaceRequest(descriptor, chunk, { signal: controller.signal, client, onReady, tessellation }).catch((error) => {
+      resolveSurfaceRequest(descriptor, chunk, { signal: controller.signal, client, onReady, onFailed, tessellation }).catch((error) => {
         controller.abort();
         throw error;
       })
@@ -157,7 +162,7 @@ function subscriberToken(payload) {
   return String(rows.find((row) => row?.job)?.job || "");
 }
 
-async function resolveSurfaceRequest(descriptor, requested, { signal, client, onReady = null, tessellation = undefined }) {
+async function resolveSurfaceRequest(descriptor, requested, { signal, client, onReady = null, onFailed = null, tessellation = undefined }) {
   const tree = digest(descriptor?.tree, "surface tree");
   const viewId = digest(descriptor?.viewId, "surface viewId");
   const producer = descriptor?.surfaceProducer;
@@ -189,6 +194,9 @@ async function resolveSurfaceRequest(descriptor, requested, { signal, client, on
   let delay = INITIAL_POLL_MS;
   const startedAt = Date.now();
   const announced = new Set();
+  // Each component settles on its own: one cadgen could not derive or mesh fails alone, with its
+  // own error, and stays failed for the rest of the request.
+  const failed = new Map();
   try {
     for (;;) {
       if (signal?.aborted) throw abortError();
@@ -219,14 +227,18 @@ async function resolveSurfaceRequest(descriptor, requested, { signal, client, on
       const ready = new Map();
       let pending = false;
       for (const request of components) {
+        if (failed.has(request.cid)) continue;
         const row = payload.components[request.cid];
         if (!row || row.surfaceInput !== request.surfaceInput) {
           throw new Error(`Surface response omitted ${request.cid}`);
         }
         if (row.state === "failed") {
-          throw new SurfaceResolutionError(String(row.error || `Surface derivation failed for ${request.cid}`), {
+          const error = new SurfaceResolutionError(String(row.error || `Surface derivation failed for ${request.cid}`), {
             code: String(row.code || ""), cid: request.cid,
           });
+          failed.set(request.cid, error);
+          onFailed?.(request.cid, error);
+          continue;
         }
         if (row.state === "pending") {
           const rowJob = String(row.job || job || "");
@@ -245,6 +257,8 @@ async function resolveSurfaceRequest(descriptor, requested, { signal, client, on
           onReady(request.cid, ticket);
         }
       }
+      // A caller that hears no failures one by one is told of the first, as the request's.
+      if (failed.size && !onFailed) throw failed.values().next().value;
       if (!pending) return ready;
       await waitForPoll(delay, signal);
       // Doubling to 640 ms hears an ordinary derivation soon after it lands. One still pending after

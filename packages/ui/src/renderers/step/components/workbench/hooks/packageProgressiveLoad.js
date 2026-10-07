@@ -294,6 +294,8 @@ export function orderComponentsForProgressiveLoad(descriptor) {
  *   isCurrent(),                       // false once the request is superseded or aborted
  *   sizeHint?(cid, component),         // -> Promise<number|{sourceBytes,cacheProbe}> before admission
  *   retryCacheProbeMiss?(error, probe),// true re-enters metadata + admission after a stale body
+ *   componentFailed?(error, cid),      // true: sizeHint's error is that component's alone (cadgen could
+ *                                      // not derive or mesh it); the rest load on without it
  *   maxInFlightBytes?,                 // estimated decoded bytes in flight (PROGRESSIVE_LOAD_MAX_INFLIGHT_BYTES)
  *   allowOversizedSingle?,             // one > maxInFlightBytes decode after reserveLoad accepts it
  *   sourceExpansionRatio?,             // conservative decoded/source estimate floor for this concrete tier
@@ -302,11 +304,11 @@ export function orderComponentsForProgressiveLoad(descriptor) {
  *   reserveLoad?({ cid, estimatedBytes }) -> { ok, token?, detail? },
  *   releaseLoad?(token), onMemoryLimitation?(detail),
  *   recoverMemoryPressure?(detail),    // one bounded reclaim attempt after admitted work drains
- *   onRetainedChange?({ loaded, total, retainedBytes }), // every unique component completion
+ *   onRetainedChange?({ loaded, failed, total, retainedBytes }), // every unique component completion
  *   swappedComponents?(),              // the live LOD working set (cid -> meshData) or null
- *   onPublish({ meshData, componentMeshDataByCid, loaded, total, final, composeMs, publishCount }),
+ *   onPublish({ meshData, componentMeshDataByCid, loaded, total, final, composeMs, publishCount, failures }),
  *   maxComponents?, maxBytes?
- * }).run() -> Promise<{ loaded, total, publishes }>
+ * }).run() -> Promise<{ loaded, total, publishes, failures }>
  *
  * Admission is count- AND byte-capped: a component starts decoding only when
  * fewer than `concurrency` are in flight and the estimated decoded bytes in
@@ -319,6 +321,11 @@ export function orderComponentsForProgressiveLoad(descriptor) {
  * LOD swap that lands mid-load is kept by the next batch rather than reverted
  * to its initially requested level. The final publish (`final: true`) carries every component and is
  * the same composition the single post-load publish produced.
+ *
+ * A component whose own failure `componentFailed` recognizes settles alone: every other component
+ * still loads, and the final publish carries the rest with `failures` ([{ cid, error }]) naming
+ * what is missing. Every other failure fences every lane, and only when every component failed on
+ * its own is the first failure the load's.
  */
 export function createProgressivePackageLoader({
   descriptor,
@@ -327,6 +334,7 @@ export function createProgressivePackageLoader({
   isCurrent = () => true,
   sizeHint = null,
   retryCacheProbeMiss = null,
+  componentFailed = null,
   maxInFlightBytes = PROGRESSIVE_LOAD_MAX_INFLIGHT_BYTES,
   allowOversizedSingle = false,
   sourceExpansionRatio = 0,
@@ -349,6 +357,8 @@ export function createProgressivePackageLoader({
   const total = componentEntries.length;
   const loadedByCid = {};
   let loaded = 0;
+  // The components that failed on their own ({ cid, error }): settled, and left out.
+  const failures = [];
   let pendingComponents = 0;
   let pendingBytes = 0;
   let publishes = 0;
@@ -357,7 +367,12 @@ export function createProgressivePackageLoader({
   let previousComposition = initialComposition;
 
   function notifyRetained() {
-    onRetainedChange?.({ loaded, total, retainedBytes });
+    onRetainedChange?.({ loaded, failed: failures.length, total, retainedBytes });
+  }
+
+  // Every component has loaded or failed on its own.
+  function settled() {
+    return loaded + failures.length === total;
   }
 
   function release() {
@@ -393,7 +408,8 @@ export function createProgressivePackageLoader({
     pendingBytes = 0;
     publishes += 1;
     publishedFinal = publishedFinal || final;
-    onPublish?.({ meshData, componentMeshDataByCid, loaded, total, final, composeMs, publishCount: publishes });
+    onPublish?.({ meshData, componentMeshDataByCid, loaded, total, final, composeMs, publishCount: publishes,
+      failures: [...failures] });
   }
 
   // Coarse and canonical tessellations have different expansion curves. Keep
@@ -543,7 +559,7 @@ export function createProgressivePackageLoader({
       loaded += 1;
       notifyRetained();
       pendingComponents += 1;
-      const final = loaded === total;
+      const final = settled();
       if (final || (publishIntermediate && progressivePublishDue(
         { pendingComponents, pendingBytes, publishCount: publishes },
         { firstComponents, firstBytes, maxComponents, maxBytes }
@@ -571,6 +587,14 @@ export function createProgressivePackageLoader({
             skipCacheProbes: cacheProbeMisses >= 2,
           });
         } catch (error) {
+          // One component cadgen could not derive or mesh is that component's failure: it settles
+          // alone, and every other component goes on loading (`run` publishes the final
+          // composition when a failure settles last).
+          if (componentFailed?.(error, cid) === true && active()) {
+            failures.push({ cid, error });
+            notifyRetained();
+            return;
+          }
           markFailed(error);
           throw error;
         }
@@ -628,7 +652,7 @@ export function createProgressivePackageLoader({
     notifyRetained();
     pendingComponents += 1;
     pendingBytes += decodedBytes;
-    const final = loaded === total;
+    const final = settled();
     if (final || (publishIntermediate && progressivePublishDue(
       { pendingComponents, pendingBytes, publishCount: publishes },
       { firstComponents, firstBytes, maxComponents, maxBytes }
@@ -662,7 +686,13 @@ export function createProgressivePackageLoader({
       if (!active()) {
         stop();
       }
+      // Every component failed on its own: there is nothing to draw, and the first one's error
+      // is the load's.
+      if (!loaded && failures.length) {
+        throw failures[0].error;
+      }
       if (!publishedFinal) {
+        // The last component to settle failed on its own: the rest are the final composition.
         // No components at all: compose anyway so the descriptor's own error
         // ("matched no renderable component GLBs") surfaces exactly as before.
         publish(true);
@@ -675,7 +705,7 @@ export function createProgressivePackageLoader({
       release();
       throw error;
     }
-    return { loaded, total, publishes };
+    return { loaded, total, publishes, failures: [...failures] };
   }
 
   return {
