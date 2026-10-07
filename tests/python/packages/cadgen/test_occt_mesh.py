@@ -3,9 +3,10 @@
 OCCT's mesher drops the odd tiny face at one deflection and meshes it at the
 next (a watch case's 0.002 mm² slivers did, and with them every component the
 same request covered). Here the component's pass is made to leave one face of a
-bored block empty, as that one did, and the mesher must mesh it alone, leave
-every other face as the pass made it, and fail only for a face it cannot mesh
-that is larger than the mesh can resolve.
+bored block empty, as that one did, and the mesher must mesh the component again,
+whole and finer, until that face has triangles (a face meshed alone would part
+from its neighbours), and fail only for a face it cannot mesh that is larger than
+the mesh can resolve.
 """
 
 import json
@@ -77,15 +78,13 @@ class EmptyFaces(unittest.TestCase):
         self.calls = len(calls)
         return body
 
-    def test_a_face_the_pass_leaves_empty_is_meshed_alone_and_the_rest_is_untouched(self):
+    def test_a_face_the_pass_leaves_empty_is_meshed_again_with_the_whole_component(self):
         whole = _faces(self.mesh(None))
         self.assertEqual(sorted(whole), [row["ord"] for row in self.index["faces"]])
         face = max(whole, key=whole.get)
         repaired = _faces(self.mesh(face))
-        self.assertGreater(self.calls, 1, "the empty face was meshed again")
-        self.assertGreater(repaired[face], 0)
-        self.assertEqual({o: n for o, n in repaired.items() if o != face},
-                         {o: n for o, n in whole.items() if o != face}, "every other face is as the pass made it")
+        self.assertGreater(self.calls, 1, "the component was meshed again")
+        self.assertTrue(all(count > 0 for count in repaired.values()), "every face has triangles")
 
     def test_a_face_no_pass_meshes_is_left_out_only_below_what_the_mesh_resolves(self):
         from cadgen._internal.occt_mesh import MeshProductionError, _bounding_diagonal

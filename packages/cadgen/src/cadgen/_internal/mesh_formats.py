@@ -13,7 +13,8 @@ reads the store or imports the kernel.
   colour and finish. The colour of a face is the first of: its own intrinsic
   colour, the occurrence's (a named material's ``baseColor``, then its STEP
   colour), the component's, the part's, the export default.
-- :func:`stl_bytes` is binary STL, colourless by format.
+- :func:`stl_bytes` is binary STL, colourless by format, without the triangles
+  that cover nothing (as the 3MF weld drops them).
 - :func:`threemf_bytes` is one ``basematerials`` group with one object per
   primitive, its vertices shared by exact position (what a slicer welds on).
 - :func:`glb_bytes` is glTF 2.0, Y-up metres: one node per primitive for a static
@@ -448,11 +449,18 @@ def _facet_normals(corners: np.ndarray) -> np.ndarray:
 
 
 def stl_bytes(primitives: list[Primitive], *, name: str = "model") -> bytes:
-    """Binary STL: an 80-byte header naming the model, then every triangle."""
+    """Binary STL: an 80-byte header naming the model, then every triangle that covers
+    something."""
     corners = np.concatenate(
         [primitive.positions[primitive.indices].reshape(-1, 9) for primitive in primitives]
         or [np.zeros((0, 9), np.float32)]
     )
+    # A triangle two of whose corners are one point (OCCT's mesh has them at a
+    # sphere's pole, a cone's apex) covers nothing and still carries its edges,
+    # which a slicer welding by position then counts four times. Left out, as the
+    # 3MF weld leaves it out; == holds -0.0 and 0.0 one point, as that weld does.
+    a, b, c = corners[:, 0:3], corners[:, 3:6], corners[:, 6:9]
+    corners = corners[~((a == b).all(axis=1) | (b == c).all(axis=1) | (c == a).all(axis=1))]
     records = np.zeros(len(corners), dtype=_STL_RECORD)
     records["normal"] = _facet_normals(corners)
     records["corners"] = corners
