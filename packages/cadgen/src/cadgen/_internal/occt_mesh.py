@@ -1,6 +1,6 @@
 """One component's display mesh: OCCT's mesher on the exact BREP, as TESS v5.
 
-cadgen's only tessellator. ``BRepMesh_IncrementalMesh`` -- the mesher build123d's
+cadgen's tessellator. ``BRepMesh_IncrementalMesh`` -- the mesher build123d's
 own exporters use -- triangulates the component's exact faces at a chord
 tolerance RELATIVE to the component's bounding diagonal and an angular one in
 radians, discretizing every edge once so the faces either side share its
@@ -15,12 +15,16 @@ index supplies what the triangles do not: each face's intrinsic colour and
 each edge's display class. OCCT's mesher drops the odd tiny face at one
 deflection and meshes it at the next, so a component whose pass leaves a face
 empty that the mesh can resolve is meshed again, whole and finer, in a fixed
-order: a face meshed on its own would discretize its edges anew and part from
-its neighbours. A face that still has none is an error (README law 10) unless it
-is smaller than the mesh can resolve -- its area under the square of the chord
-tolerance, inside the error every triangle may carry -- and such a face earns no
-finer pass. So is any failure inside OCCT. A component with no faces meshes
-nothing: its edges are sampled from their own curves.
+order. A face no whole pass meshes is one OCCT refuses -- it reads the face's
+boundary as crossing itself or open, what a boolean's leftovers do to a valid face
+-- and no setting or repair of OCCT's meshes it, so it is tessellated over its own
+parameters as cadgen's earlier tessellator did (``face_fallback``), against the
+meshed neighbours, and kept when its triangles cover the face's own area. A face
+that still has none is an error (README law 10) unless it is smaller than the mesh
+can resolve -- its area under the square of the chord tolerance, inside the error
+every triangle may carry -- and such a face earns no finer pass. So is any failure
+inside OCCT. A component with no faces meshes nothing: its edges are sampled from
+their own curves.
 
 The arrays leave OCCT through its own glTF writer (``RWGltf_CafWriter``, one
 primitive per face), not one Python call per vertex: that is what keeps a large
@@ -47,6 +51,10 @@ _SCALE_FLOOR = 1e-6
 # The deflections, as multiples of the component's, at which a component whose
 # pass left a face empty is meshed again, whole: the first that leaves none wins.
 _RETRY_SCALES = (0.5, 0.25)
+# A face OCCT refuses is tessellated over its own parameters; its triangles are kept
+# when they cover the face's own area to this share -- a chord across a curved
+# boundary takes area off a small face, nothing near this much.
+_FALLBACK_AREA_TOLERANCE = 0.25
 
 
 class MeshProductionError(ValueError):
@@ -93,8 +101,9 @@ def _empty(face_map, ordinals: list[int]) -> list[int]:
 
 def _mesh(topods, face_map, required: list[int], deflection: float, angle: float) -> None:
     """Mesh the component, and while a face of ``required`` is left empty, mesh it all
-    again, cleaned, at the retry deflections. One face meshed on its own discretizes
-    its edges anew, and its boundary no longer meets its neighbours'."""
+    again, cleaned, at the retry deflections. A face no whole pass meshes is one OCCT
+    refuses: the component is meshed at its own deflection once more, and each face
+    still empty is tessellated over its own parameters against its meshed neighbours."""
     from OCP.BRepMesh import BRepMesh_IncrementalMesh
     from OCP.BRepTools import BRepTools
     from OCP.Precision import Precision
@@ -106,6 +115,33 @@ def _mesh(topods, face_map, required: list[int], deflection: float, angle: float
         BRepTools.Clean_s(topods)
         # OCCT refuses a deflection under its confusion tolerance.
         BRepMesh_IncrementalMesh(topods, max(deflection * scale, Precision.Confusion_s()), False, angle, True)
+    if not _empty(face_map, required):
+        return
+    BRepTools.Clean_s(topods)
+    BRepMesh_IncrementalMesh(topods, deflection, False, angle, True)
+    _tessellate_refused(topods, face_map, _empty(face_map, required), deflection, angle)
+
+
+def _tessellate_refused(topods, face_map, ordinals: list[int], deflection: float, angle: float) -> None:
+    """Give each face of ``ordinals`` the triangles ``face_fallback`` builds over its
+    parameters, when they cover its own area to ``_FALLBACK_AREA_TOLERANCE``; a face
+    left without stays empty, and is the component's error."""
+    from cadgen._internal import face_fallback
+    from OCP.BRep import BRep_Builder
+    from OCP.BRepGProp import BRepGProp
+    from OCP.GProp import GProp_GProps
+    from OCP.TopoDS import TopoDS
+
+    for ordinal in ordinals:
+        face = TopoDS.Face_s(face_map.FindKey(ordinal))
+        tessellated = face_fallback.tessellate_face(topods, face, deflection, angle)
+        if tessellated is None:
+            continue
+        triangulation, covered = tessellated
+        exact = GProp_GProps()
+        BRepGProp.SurfaceProperties_s(face, exact)
+        if abs(covered - exact.Mass()) <= _FALLBACK_AREA_TOLERANCE * exact.Mass():
+            BRep_Builder().UpdateFace(face, triangulation)
 
 
 def _triangulated_faces(topods, face_map) -> list[tuple[int, Any, Any, Any]]:

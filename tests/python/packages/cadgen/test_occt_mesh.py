@@ -94,7 +94,11 @@ class EmptyFaces(unittest.TestCase):
         sliver = {**self.index, "faces": [{**row, "area": deflection * deflection / 4} if row["ord"] == face else row
                                           for row in self.index["faces"]]}
         self.assertEqual(_faces(self.mesh(face, every_pass=True, index=sliver))[face], 0, "drawn with no triangles")
-        with self.assertRaisesRegex(MeshProductionError, rf"did not mesh 1 face\(s\) of the component: f{face}\b"):
+        # A face OCCT refuses that the fallback cannot draw either is the component's error.
+        from cadgen._internal import face_fallback
+
+        with mock.patch.object(face_fallback, "tessellate_face", return_value=None), \
+                self.assertRaisesRegex(MeshProductionError, rf"did not mesh 1 face\(s\) of the component: f{face}\b"):
             self.mesh(face, every_pass=True)
 
 

@@ -1,10 +1,13 @@
 """cadgen's mesher on what an ordinary part is not, and the STL cut from it.
 
 A component of one vertex, a failure inside OCCT, a face OCCT's pass leaves
-empty, the singular points of a cone or a sphere, a free edge or vertex beside a
-solid, a mirrored placement inside a component: each once broke a mesh, the
-export cut from it or the view drawing it. Shapes are built here; meshing needs
-no store, except where a whole tree is meshed.
+empty -- meshed again whole, or refused and tessellated over its own parameters --,
+the singular points of a cone or a sphere, a free edge or vertex beside a solid, a
+mirrored placement inside a component: each once broke a mesh, the export cut
+from it or the view drawing it. Shapes are built here; meshing needs no store,
+except where a whole tree is meshed. OCCT refuses a face for what a real model's
+booleans leave in it, and a shape small enough to build here leaves nothing it
+refuses, so a test that needs a refusal makes OCCT refuse.
 """
 
 from __future__ import annotations
@@ -142,35 +145,183 @@ class StlAtSingularPoints(unittest.TestCase):
                     self.assertTrue(trimesh.load(path).is_watertight)
 
 
+def _range_area(mesh, ordinal: int) -> float:
+    row = next(row for row in mesh.face_ranges if row["ord"] == ordinal)
+    corners = mesh.positions[mesh.indices[row["indexStart"]:row["indexStart"] + row["indexCount"]]]
+    a, b, c = (corners.reshape(-1, 3, 3).astype(np.float64)[:, k] for k in range(3))
+    return float(0.5 * np.linalg.norm(np.cross(b - a, c - a), axis=1).sum())
+
+
 class EmptyFace(unittest.TestCase):
-    def test_a_face_the_pass_leaves_empty_is_meshed_with_its_whole_component_and_no_crack(self):
+    """OCCT's pass leaves the bore of a plate empty: the bore is meshed all the same."""
+
+    def setUp(self):
         from build123d import Box, Cylinder
-        from OCP import BRepMesh
-        from OCP.BRepTools import BRepTools
         from OCP.TopAbs import TopAbs_FACE
         from OCP.TopExp import TopExp
         from OCP.TopTools import TopTools_IndexedMapOfShape
 
-        topods = (Box(20, 20, 10) - Cylinder(4, 10)).wrapped
-        bore = next(row["ord"] for row in _surf_index(topods)["faces"] if row["surfaceType"] == "cylinder")
-        faces = TopTools_IndexedMapOfShape()
-        TopExp.MapShapes_s(topods, TopAbs_FACE, faces)
-        real, meshed = BRepMesh.BRepMesh_IncrementalMesh, []
+        self.topods = (Box(20, 20, 10) - Cylinder(4, 10)).wrapped
+        self.bore = next(row["ord"] for row in _surf_index(self.topods)["faces"] if row["surfaceType"] == "cylinder")
+        self.faces = TopTools_IndexedMapOfShape()
+        TopExp.MapShapes_s(self.topods, TopAbs_FACE, self.faces)
+
+    def mesh(self, refuses):
+        """Mesh the plate while OCCT leaves its bore empty after each call ``refuses``
+        names (the shape it was asked to mesh, and the call's number)."""
+        from OCP import BRepMesh
+        from OCP.BRepTools import BRepTools
+
+        real, self.meshed = BRepMesh.BRepMesh_IncrementalMesh, []
 
         def mesher(shape, *args):
             result = real(shape, *args)
-            meshed.append(shape)
-            if len(meshed) == 1:  # the component's pass leaves the bore empty
-                BRepTools.Clean_s(faces.FindKey(bore))
+            self.meshed.append(shape)
+            if refuses(shape, len(self.meshed)):
+                BRepTools.Clean_s(self.faces.FindKey(self.bore))
             return result
 
         with mock.patch.object(BRepMesh, "BRepMesh_IncrementalMesh", side_effect=mesher):
-            _body, mesh = _mesh(topods)
-        self.assertGreater(len(meshed), 1, "the component was meshed again")
-        self.assertTrue(all(shape.IsSame(topods) for shape in meshed), "always the whole component")
-        bore_range = next(row for row in mesh.face_ranges if row["ord"] == bore)
-        self.assertGreater(bore_range["indexCount"], 0)
+            return _mesh(self.topods)[1]
+
+    def assertBoreMeshed(self, mesh):
+        """The bore's range holds triangles, and they lie on the bore: radius 4 about z."""
+        bore = next(row for row in mesh.face_ranges if row["ord"] == self.bore)
+        self.assertGreater(bore["indexCount"], 0)
+        corners = mesh.positions[mesh.indices[bore["indexStart"]:bore["indexStart"] + bore["indexCount"]]]
+        np.testing.assert_allclose(np.hypot(corners[:, 0], corners[:, 1]), 4.0, atol=0.05)
+
+    def test_a_face_the_pass_leaves_empty_is_meshed_with_its_whole_component_and_no_crack(self):
+        mesh = self.mesh(lambda shape, call: call == 1)
+        self.assertGreater(len(self.meshed), 1, "the component was meshed again")
+        self.assertTrue(all(shape.IsSame(self.topods) for shape in self.meshed), "always the whole component")
+        self.assertBoreMeshed(mesh)
         self.assertEqual(_open_edges(mesh), 0, "the bore meets its neighbours along every edge")
+
+    def test_a_face_no_whole_pass_meshes_is_tessellated_over_its_parameters_and_meets_its_neighbours(self):
+        # OCCT refuses the bore whenever it meshes the component, as it refused radial's
+        # accessory case, the hand's fingertip pad and the RoArm's screw tips.
+        mesh = self.mesh(lambda shape, call: shape.IsSame(self.topods))
+        self.assertTrue(all(shape.IsSame(self.topods) for shape in self.meshed), "OCCT never meshed it alone")
+        self.assertBoreMeshed(mesh)
+        self.assertAlmostEqual(_range_area(mesh, self.bore), 2 * np.pi * 4 * 10, delta=2 * np.pi * 4 * 10 * 0.02,
+                               msg="the bore's own area, a 4 mm radius 10 deep")
+        self.assertEqual(_open_edges(mesh), 0, "the bore shares every vertex with the faces around it")
+
+    def test_a_tessellation_that_misses_the_faces_area_is_not_kept(self):
+        from cadgen._internal import face_fallback
+        from cadgen._internal.occt_mesh import MeshProductionError
+
+        real = face_fallback.tessellate_face
+
+        def overcounted(*args):
+            triangulation, covered = real(*args)
+            return triangulation, covered * 2
+
+        with mock.patch.object(face_fallback, "tessellate_face", side_effect=overcounted), \
+                self.assertRaisesRegex(MeshProductionError, rf"did not mesh 1 face\(s\) of the component: f{self.bore}\b"):
+            self.mesh(lambda shape, call: shape.IsSame(self.topods))
+
+
+def _with_a_stray_degenerated_edge(topods):
+    """``topods`` with a zero-length (degenerated) edge put into its first face's boundary at
+    a corner, where the face is not pinched -- what the booleans left where a slot cuts the
+    fillet of radial's accessory case -- and that face."""
+    from OCP.BRep import BRep_Builder
+    from OCP.BRepAdaptor import BRepAdaptor_Curve2d
+    from OCP.BRepTools import BRepTools_ReShape
+    from OCP.Geom2d import Geom2d_Line
+    from OCP.gp import gp_Dir2d
+    from OCP.TopAbs import TopAbs_FACE, TopAbs_FORWARD, TopAbs_REVERSED
+    from OCP.TopExp import TopExp, TopExp_Explorer
+    from OCP.TopoDS import TopoDS, TopoDS_Edge, TopoDS_Iterator, TopoDS_Wire
+
+    face = TopoDS.Face_s(TopExp_Explorer(topods, TopAbs_FACE).Current())
+    edges, iterator = [], TopoDS_Iterator(TopoDS_Iterator(face).Value())
+    while iterator.More():
+        edges.append(TopoDS.Edge_s(iterator.Value()))
+        iterator.Next()
+    curve = BRepAdaptor_Curve2d(edges[0], face)
+    corner = curve.Value(curve.FirstParameter() if edges[0].Orientation() == TopAbs_FORWARD else curve.LastParameter())
+    vertex = TopExp.FirstVertex_s(edges[0], True)
+    builder, stray, wire = BRep_Builder(), TopoDS_Edge(), TopoDS_Wire()
+    builder.MakeEdge(stray)
+    builder.UpdateEdge(stray, Geom2d_Line(corner, gp_Dir2d(1, 0)), face, 1e-7)
+    builder.Range(stray, face, 0.0, 0.0)
+    builder.Degenerated(stray, True)
+    builder.Add(stray, vertex.Oriented(TopAbs_FORWARD))
+    builder.Add(stray, vertex.Oriented(TopAbs_REVERSED))
+    builder.MakeWire(wire)
+    for edge in [stray, *edges]:
+        builder.Add(wire, edge)
+    strayed = TopoDS.Face_s(face.EmptyCopied())
+    builder.Add(strayed, wire)
+    reshape = BRepTools_ReShape()
+    reshape.Replace(face, strayed)
+    return reshape.Apply(topods), strayed
+
+
+class RefusedFace(unittest.TestCase):
+    """A face OCCT is made to refuse, whole or alone, is drawn over its own parameters: a
+    zero-length edge where the face is not pinched (radial's accessory case), a sphere's
+    poles, a cone's tip (the RoArm's screws) -- on its surface, closed, and joined to its
+    neighbours."""
+
+    def mesh(self, topods, face):
+        from OCP import BRepMesh
+        from OCP.BRep import BRep_Builder
+
+        real = BRepMesh.BRepMesh_IncrementalMesh
+
+        def mesher(shape, *args):
+            result = real(shape, *args)
+            if shape.IsSame(topods) or shape.IsSame(face):
+                BRep_Builder().UpdateFace(face, None)
+            return result
+
+        with mock.patch.object(BRepMesh, "BRepMesh_IncrementalMesh", side_effect=mesher):
+            return _mesh(topods)[1]
+
+    def assertDrawn(self, topods, face, area, what):
+        from OCP.TopAbs import TopAbs_FACE
+        from OCP.TopExp import TopExp
+        from OCP.TopTools import TopTools_IndexedMapOfShape
+
+        faces = TopTools_IndexedMapOfShape()
+        TopExp.MapShapes_s(topods, TopAbs_FACE, faces)
+        mesh = self.mesh(topods, face)
+        self.assertAlmostEqual(_range_area(mesh, faces.FindIndex(face)), area, delta=area * 0.02, msg=what)
+        self.assertEqual(_open_edges(mesh), 0, "the face shares every vertex with the faces around it")
+
+    def test_a_face_with_a_stray_zero_length_edge(self):
+        from build123d import Box
+
+        topods, face = _with_a_stray_degenerated_edge(Box(20, 20, 10).wrapped)
+        self.assertDrawn(topods, face, 200.0, "a 20 x 10 side")
+
+    def test_a_sphere_closed_at_its_poles(self):
+        from build123d import Sphere
+        from OCP.TopAbs import TopAbs_FACE
+        from OCP.TopExp import TopExp_Explorer
+        from OCP.TopoDS import TopoDS
+
+        topods = Sphere(10).wrapped
+        self.assertDrawn(topods, TopoDS.Face_s(TopExp_Explorer(topods, TopAbs_FACE).Current()),
+                         4 * np.pi * 10 ** 2, "a 10 mm sphere")
+
+    def test_a_cone_to_its_tip(self):
+        from build123d import Cone
+        from OCP.BRepAdaptor import BRepAdaptor_Surface
+        from OCP.GeomAbs import GeomAbs_Cone
+        from OCP.TopAbs import TopAbs_FACE
+        from OCP.TopExp import TopExp_Explorer
+        from OCP.TopoDS import TopoDS
+
+        topods = Cone(4, 0, 6).wrapped
+        explorer = TopExp_Explorer(topods, TopAbs_FACE)
+        while BRepAdaptor_Surface(TopoDS.Face_s(explorer.Current())).GetType() != GeomAbs_Cone:
+            explorer.Next()
+        self.assertDrawn(topods, TopoDS.Face_s(explorer.Current()), np.pi * 4 * np.hypot(4, 6), "a 4 mm cone 6 tall")
 
 
 class Normals(unittest.TestCase):

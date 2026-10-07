@@ -329,7 +329,8 @@ identity. A real one (`link_arm`: a bar plus two placements of a pin model):
   `tessellations` meshes each component after its surface
   (`_internal/occt_mesh.py`: OCCT's `BRepMesh_IncrementalMesh` on the exact
   BREP, the chord tolerance a fraction of the component's bounding diagonal, the
-  angle in radians) and writes each TESS body (`store/meshes.py`) before its
+  angle in radians; a face OCCT refuses is tessellated over its own parameters by
+  `_internal/face_fallback.py`) and writes each TESS body (`store/meshes.py`) before its
   `index/mesh` entry. The key is the surface input, the mesher and format
   versions and the two tolerances' float64 bits, so a mesher fix lands on new
   keys. A component is ready once its surface and every mesh asked for are
