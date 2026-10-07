@@ -1136,7 +1136,8 @@ def _tree_progress_sink(spec: EntrySpec, inner: object | None) -> Callable[[Prog
             spec, "building", phase=event.label or event.phase,
             done=event.done if event.determinate else None,
             total=event.total if event.determinate else None,
-            detail=event.detail or None,
+            # Empty, not absent: a new phase's job must not keep the last one's detail.
+            detail=event.detail or "",
         )
 
     return sink

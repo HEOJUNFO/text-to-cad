@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import hashlib
+import re
 import json
 import os
 from pathlib import Path
@@ -117,8 +118,14 @@ class ColdCompileCleanupTest(unittest.TestCase):
         self.assertEqual({os.path.realpath(event["model"]) for event in building}, {os.path.realpath(document)})
         read = next(event for event in building if str(event.get("detail", "")).startswith("Reading "))
         self.assertIn(document.name, read["detail"])
-        self.assertTrue(any(isinstance(event.get("total"), int) and event["total"] > 0 for event in building),
-                        "the parts are counted")
+        collecting = [event for event in building if event.get("phase") == "Collecting parts"]
+        self.assertTrue(collecting and all(isinstance(event.get("total"), int) and event["total"] > 0 for event in collecting),
+                        "the parts are counted as they are collected")
+        # What a person reads: no component's hash, and no phase showing the last one's detail.
+        self.assertFalse([event for event in building if re.fullmatch(r"[0-9a-f]{16}", str(event.get("detail", "")))])
+        for before, after in zip(building, building[1:]):
+            if after.get("phase") != before.get("phase") and before.get("detail"):
+                self.assertNotEqual(after.get("detail"), before["detail"], f"{after.get('phase')} kept the detail")
 
     def test_raw_compile_matches_direct_canonical_objects_cold_warm_and_force(self):
         from cadgen._internal.step_scene_package import load_step_scene_exact

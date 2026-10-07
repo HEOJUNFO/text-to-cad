@@ -249,8 +249,13 @@ def _document_walk(
         return {"id": occurrence_id, "name": name, "nodeType": "part",
                 "leafPartIds": [occurrence_id], "children": []}
 
-    progress.phase(PHASE_PACKAGE)
     roots = list(scene.roots)
+
+    def leaves(node: Any) -> int:
+        return sum(leaves(child) for child in node.children) if node.children else 1
+
+    # Counted, as collect() advances once per leaf: a large assembly's wait has a fraction.
+    progress.phase(PHASE_PACKAGE, total=sum(leaves(root) for root in roots))
     if not roots:
         raise RuntimeError("STEP has no product roots")
     if len(roots) == 1:
@@ -578,7 +583,7 @@ def _publish_tree(
                 put_object(surface, repair=True)
             built.append(cid)
         write_entry("component", cid, {"schemaVersion": 1, **entry})
-        progress.advance(detail=cid)
+        progress.advance()
 
     progress.phase(PHASE_FINALIZE)
     # Resolved intrinsic appearance has one home in schema-2 trees. Transient
