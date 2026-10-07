@@ -31,6 +31,12 @@ def surface_request(**changes):
     return request
 
 
+def done(value):
+    future = concurrent.futures.Future()
+    future.set_result(value)
+    return future
+
+
 def noticing_log():
     """A stand-in for the supervisor's ``_log``, and the event it sets once the supervisor
     notices a client leave -- whatever it then does: let the job finish, keep it for
@@ -169,6 +175,58 @@ class ArtifactRequests(unittest.TestCase):
                 with self.subTest(request=request), self.assertRaises(ValueError):
                     artifacts.submit_artifact(request)
             dispatch.assert_not_called()
+
+    def test_a_meshes_request_names_this_cadgens_mesh_keys_once_each_in_one_order(self):
+        from cadgen.store.meshes import TESSELLATOR_VERSION, tessellation_key
+
+        keys = [tessellation_key(digit * 64) for digit in "21"]
+        self.assertEqual(artifacts.normalize_request({"kind": "meshes", "keys": keys}),
+                         {"kind": "meshes", "keys": sorted(keys)})
+        self.assertEqual(artifacts.request_key({"kind": "meshes", "keys": keys}),
+                         artifacts.request_key({"kind": "meshes", "keys": keys[::-1]}), "an order splits no request")
+        older = keys[0].replace(f"-t{TESSELLATOR_VERSION}-", f"-t{TESSELLATOR_VERSION - 1}-")
+        crowd = [tessellation_key(f"{n:064x}") for n in range(artifacts.MESH_KEYS_MAX + 1)]
+        for request in ({"kind": "meshes"}, {"kind": "meshes", "keys": []}, {"kind": "meshes", "keys": keys * 2},
+                        {"kind": "meshes", "keys": keys, "tree": "a" * 64}, {"kind": "meshes", "keys": [older]},
+                        {"kind": "meshes", "keys": ["../escape"]}, {"kind": "meshes", "keys": crowd}):
+            with self.subTest(request=request), self.assertRaises(ValueError):
+                artifacts.normalize_request(request)
+
+    def test_work_is_dealt_one_job_per_cpu_slot_and_every_job_ends_before_a_failure_is_raised(self):
+        with mock.patch.object(broker, "job_limit", return_value=3):
+            self.assertEqual(artifacts.deal(range(40)), [list(range(start, 40, 3)) for start in range(3)])
+            self.assertEqual(artifacts.deal(range(20)), [list(range(0, 20, 2)), list(range(1, 20, 2))],
+                             "no job of fewer than eight")
+            self.assertEqual(artifacts.deal(range(7)), [list(range(7))], "a small model's work stays one job")
+        self.assertEqual(artifacts.deal(range(4), parts=8, at_least=1), [[0], [1], [2], [3]])
+        self.assertEqual(artifacts.deal([]), [])
+
+        release = threading.Event()
+        started, finished = [], []
+
+        def submit(request, *, store_root=None):
+            future = concurrent.futures.Future()
+            started.append(request["n"])
+
+            def run():
+                if request["n"] == 0:
+                    future.set_exception(artifacts.ArtifactJobError("the first job failed"))
+                    release.set()
+                    return
+                release.wait(3)
+                finished.append(request["n"])
+                future.set_result(request["n"])
+
+            threading.Thread(target=run).start()
+            return future
+
+        with mock.patch.object(artifacts, "submit_artifact", side_effect=submit), \
+                self.assertRaisesRegex(artifacts.ArtifactJobError, "the first job failed"):
+            artifacts.resolve_artifacts([{"n": n} for n in range(3)])
+        self.assertEqual(started, [0, 1, 2], "every job is started before any is awaited")
+        self.assertEqual(sorted(finished), [1, 2], "the failure waits for the others to finish")
+        with mock.patch.object(artifacts, "submit_artifact", side_effect=lambda request, **_: done(request["n"])):
+            self.assertEqual(artifacts.resolve_artifacts([{"n": n} for n in range(3)]), [0, 1, 2])
 
     def test_importing_artifact_client_supervisor_and_worker_is_kernel_free(self):
         script = """import sys

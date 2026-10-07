@@ -12,6 +12,7 @@ import threading
 import unittest
 from unittest import mock
 
+from tests.python.support.inline_artifacts import inline_artifacts
 from tests.python.support.paths import add_repo_path
 from tests.python.support.tmp_root import generated_cad_directory
 
@@ -267,13 +268,28 @@ assert view and all('surfaceObject' not in entry for entry in view['components']
         first, second = "a" * 64, "b" * 64
         note_document_tree(first, self.tree, surface_producer=self.producer)
         note_document_tree(second, self.tree, surface_producer=self.producer)
-        with mock.patch("cadgen.daemon.artifacts.resolve_artifact", side_effect=AssertionError("warm view did native work")):
+        with mock.patch("cadgen.daemon.artifacts.submit_artifact", side_effect=AssertionError("warm view did native work")):
             one = view_dir_for(self.tree, document_hash=first)
             two = view_dir_for(self.tree, document_hash=second)
             self.assertIsNone(descriptor_for_view("f" * 64))
         self.assertNotEqual(one, two)
         self.assertEqual(json.loads((one / "assembly.json").read_text(encoding="utf-8"))["documentHash"], first)
         self.assertEqual(json.loads((two / "assembly.json").read_text(encoding="utf-8"))["documentHash"], second)
+
+    def test_a_static_view_deals_its_missing_surfaces_across_the_pool(self):
+        from build123d import Compound, Pos, Solid
+        from cadgen.store.view import export_view
+
+        parts = [Pos(4 * n, 0, 0) * Solid.make_box(1 + n, 1, 1) for n in range(3)]
+        tree, geometry, _ = build_tree_from_compound(Compound(children=parts), root_name="row")
+        with inline_artifacts() as jobs, mock.patch("cadgen.daemon.broker.job_limit", return_value=2), \
+                mock.patch("cadgen.daemon.artifacts.DEAL_AT_LEAST", 1):
+            target = export_view(tree, self.root / "row-view", producer=self.producer)
+        dealt = [call.args[0]["cids"] for call in jobs.call_args_list if call.args[0]["kind"] == "surfaces"]
+        self.assertEqual(len(dealt), 2, "one job per CPU slot the pool runs at once")
+        self.assertEqual(sorted(cid for cids in dealt for cid in cids), sorted(geometry["components"]))
+        descriptor = json.loads((target / "assembly.json").read_text(encoding="utf-8"))
+        self.assertTrue(all(entry.get("surf") for entry in descriptor["components"].values()))
 
     def test_invalid_optional_hint_is_replaced_without_losing_geometry(self):
         from cadgen.store.index import read_entry, write_entry
@@ -305,7 +321,7 @@ assert view and all('surfaceObject' not in entry for entry in view['components']
             if request["producer"] == producer:
                 raise ArtifactJobError("worker cannot implement the request's pinned surface producer")
             return surfaces.derive(request["tree"], request["cids"], producer=request["producer"])
-        with mock.patch("cadgen.daemon.artifacts.resolve_artifact", side_effect=run):
+        with inline_artifacts(run):
             target = view_dir_for(self.tree, document_hash=digest)
         descriptor = json.loads((target / "assembly.json").read_text(encoding="utf-8"))
         self.assertEqual(descriptor["viewId"], self.view["viewId"])

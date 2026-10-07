@@ -113,15 +113,25 @@ def read_tess_cache_probe(body: bytes | None) -> dict | None:
 def produce_tess_cache(body: bytes | None) -> dict | None:
     """Mesh what a probe found missing, and answer as the probe would.
 
-    In-process kernel work: only a host that may mesh on its own thread -- the
-    snapshot host -- serves this. A key whose surface the store does not hold
-    stays missing.
+    The meshing is build-pool work (``kind: meshes`` artifact jobs), the missing
+    keys dealt across the pool (``artifacts.deal``), so a host that serves
+    this -- the snapshot host -- never imports the kernel itself. A key whose
+    surface the store does not hold, or that asks for finer than anything may be
+    meshed, stays missing. A component that fails to mesh fails the request once
+    every other key is done (``artifacts.resolve_artifacts``).
     """
-    from cadgen.store.surfaces import produce_meshes
+    from cadgen.daemon.artifacts import deal, resolve_artifacts
+    from cadgen.store.meshes import probe, valid_key
+
     inputs = _request_items(body, "tessellationInputs")
     if inputs is None or any(type(key) is not str for key in inputs):
         return None
-    return {"entries": {key: row for key, row in produce_meshes(inputs).items() if row is not None}}
+    rows = {key: probe(key) for key in dict.fromkeys(inputs)}
+    missing = [key for key, row in rows.items() if row is None and valid_key(key)]
+    if missing:
+        resolve_artifacts([{"kind": "meshes", "keys": keys} for keys in deal(missing)])
+        rows.update((key, probe(key)) for key in missing)
+    return {"entries": {key: row for key, row in rows.items() if row is not None}}
 
 
 def read_tess_cache_batch(body: bytes | None) -> bytes | None:

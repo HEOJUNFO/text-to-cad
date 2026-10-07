@@ -102,8 +102,9 @@ def materialize_view_surfaces(descriptor: dict, cids: list[str] | None = None) -
     """Complete an owned static/export view via artifact-only pooled derivation.
 
     ``cids`` limits the work to those components: only they are derived when
-    absent, and only they gain a ``surf``. The rest of the view is unchanged."""
-    from cadgen.daemon.artifacts import ArtifactJobError, resolve_artifact
+    absent, and only they gain a ``surf``. The rest of the view is unchanged.
+    The absent ones are dealt across the build pool (``artifacts.deal``)."""
+    from cadgen.daemon.artifacts import ArtifactJobError, deal, resolve_artifact, resolve_artifacts
     from cadgen.store import surfaces
 
     tree = descriptor["tree"]
@@ -113,7 +114,8 @@ def materialize_view_surfaces(descriptor: dict, cids: list[str] | None = None) -
     missing = [cid for cid in wanted if cid not in records]
     if missing:
         try:
-            resolve_artifact({"kind": "surfaces", "tree": tree, "cids": missing, "producer": producer})
+            resolve_artifacts([{"kind": "surfaces", "tree": tree, "cids": dealt, "producer": producer}
+                               for dealt in deal(missing)])
         except ArtifactJobError as error:
             if not surfaces.producer_unavailable(error):
                 raise

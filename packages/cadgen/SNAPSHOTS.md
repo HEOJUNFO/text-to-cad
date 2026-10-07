@@ -159,8 +159,8 @@ Still view renders report these measured browser durations in milliseconds:
 Exact-surface packages also report `stageTimings.sourceLoad`. Counts distinguish
 `componentCount`, `cacheBatchCount`, `cacheHitCount` and `cacheMissCount`, and
 `producedCount` when the page asked the host to mesh what its probe found
-missing. Measured durations are `probeMs` (metadata), `produceMs` (the host
-meshing the missing components, in Python, before the page reads them),
+missing. Measured durations are `probeMs` (metadata), `produceMs` (the build
+pool meshing the missing components, before the page reads them),
 `cacheReadMs` (bounded body fetch and integrity validation), `cacheDecodeMs`
 (component views and metadata), `meshBuildMs` (owned render arrays), and
 `composeMs` (occurrence composition). A static package's own mesh files measure

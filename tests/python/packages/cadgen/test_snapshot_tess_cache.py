@@ -20,6 +20,7 @@ from unittest import mock
 from tests.python.support.paths import add_repo_path
 
 add_repo_path("packages/cadgen/src")
+from tests.python.support.inline_artifacts import inline_artifacts
 from tests.python.support.tessellation import tessellation_fixture
 from tests.python.support.tmp_root import generated_cad_directory
 
@@ -201,15 +202,17 @@ class SnapshotAssetServerTests(unittest.TestCase):
         surfaces.derive(tree, producer=producer)
         [entry] = descriptor["components"].values()
         key = meshes.tessellation_key(surfaces.surface_input(entry, producer))
-        status, body, _ = self.request("POST", "/__tess_cache/produce", json.dumps({"tessellationInputs": [key]}).encode())
+        produce = json.dumps({"tessellationInputs": [key]}).encode()
+        with inline_artifacts():
+            with mock.patch("cadgen.store.surfaces.produce_meshes", side_effect=ValueError("OCCT did not mesh 1 face(s)")):
+                status, body, _ = self.request("POST", "/__tess_cache/produce", produce)
+            self.assertEqual(status, 500)
+            self.assertIn(b"OCCT did not mesh 1 face(s)", body)
+            status, body, _ = self.request("POST", "/__tess_cache/produce", produce)
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(body)["entries"], {key: meshes.probe(key)})
         status, _, _ = self.request("POST", "/__tess_cache/produce", b"not json")
         self.assertEqual(status, 400)
-        with mock.patch("cadgen.store.surfaces.produce_meshes", side_effect=ValueError("OCCT did not mesh 1 face(s)")):
-            status, body, _ = self.request("POST", "/__tess_cache/produce", json.dumps({"tessellationInputs": [key]}).encode())
-        self.assertEqual(status, 500)
-        self.assertIn(b"OCCT did not mesh 1 face(s)", body)
 
     def test_unadmitted_reads_never_reach_the_cache(self) -> None:
         from urllib.parse import urlencode
@@ -261,9 +264,9 @@ class SnapshotAssetServerTests(unittest.TestCase):
 
 
 class SnapshotBrowserTessCacheIntegrationTest(unittest.TestCase):
-    """The real snapshot page draws the meshes its host makes and stores."""
+    """The real snapshot page draws the meshes the build pool makes for its host."""
 
-    def test_a_cold_render_has_the_host_mesh_and_a_warm_one_reads_that_mesh(self) -> None:
+    def test_a_cold_render_has_the_build_pool_mesh_and_a_warm_one_reads_that_mesh(self) -> None:
         async def exercise(root: Path) -> None:
             from build123d import Box, Cylinder
             from cadgen.store import surfaces
@@ -308,7 +311,9 @@ class SnapshotBrowserTessCacheIntegrationTest(unittest.TestCase):
             self.assertFalse(mesh_index.exists(), "deriving the surface meshed nothing")
             renderer = BatchSnapshotRenderer(browser_runtime_dir(None))
             try:
-                cold = await renderer.render(job)
+                with mock.patch("cadgen.store.surfaces.produce_meshes",
+                                side_effect=AssertionError("the host meshed in its own process")):
+                    cold = await renderer.render(job)
                 self.assertTrue(cold["ok"])
                 self.assertEqual(
                     {"secure": True, "subtle": True},
@@ -317,9 +322,9 @@ class SnapshotBrowserTessCacheIntegrationTest(unittest.TestCase):
                     ),
                 )
                 mesh_entries = list(mesh_index.iterdir())
-                self.assertEqual(len(mesh_entries), 1, "the host meshed the one component the page asked for")
+                self.assertEqual(len(mesh_entries), 1, "the build pool meshed the one component the page asked for")
                 stored = mesh_entries[0].read_bytes()
-                with mock.patch("cadgen.store.surfaces.produce_meshes",
+                with mock.patch("cadgen.daemon.artifacts.submit_artifact",
                                 side_effect=AssertionError("a stored mesh is asked for nothing")):
                     warm = await renderer.render(job)
                 self.assertTrue(warm["ok"])
@@ -329,7 +334,8 @@ class SnapshotBrowserTessCacheIntegrationTest(unittest.TestCase):
 
         with generated_cad_directory(prefix="snapshot-browser-cache-") as temporary:
             root = Path(temporary).resolve()
-            with mock.patch.dict(os.environ, {"CADGEN_CACHE_DIR": str(root / "cache")}):
+            # A one-shot build-pool worker meshes for the page, as it does wherever no daemon runs.
+            with mock.patch.dict(os.environ, {"CADGEN_CACHE_DIR": str(root / "cache"), "CADGEN_DAEMON": "0"}):
                 asyncio.run(exercise(root))
 
 

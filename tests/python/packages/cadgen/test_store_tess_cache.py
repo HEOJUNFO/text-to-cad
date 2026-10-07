@@ -25,6 +25,7 @@ from cadgen.store.tess_cache import (  # noqa: E402
     read_tessellation_cache,
     tessellation_cache_dir,
 )
+from tests.python.support.inline_artifacts import inline_artifacts  # noqa: E402
 from tests.python.support.tessellation import tessellation_fixture  # noqa: E402
 
 FIXTURE = tessellation_fixture()
@@ -74,18 +75,28 @@ class TessellationCacheStoreTests(unittest.TestCase):
         wanted = meshes.tessellation_key(surface_input, 5e-4, 0.35)
         unknown = meshes.tessellation_key("f" * 64)
         too_fine = meshes.tessellation_key(surface_input, 1e-6, 0.35)
+        older = wanted.replace(f"-t{meshes.TESSELLATOR_VERSION}-", f"-t{meshes.TESSELLATOR_VERSION - 1}-")
         ask = lambda keys: read_tess_cache_probe(json.dumps({"tessellationInputs": keys}).encode())  # noqa: E731
         self.assertEqual(ask([wanted])["entries"], {}, "derivation meshed nothing it was not asked for")
-        produced = produce_tess_cache(json.dumps({"tessellationInputs": [wanted, unknown, too_fine]}).encode())
-        self.assertEqual(list(produced["entries"]), [wanted], "a surface the store lacks, or a finer request, stays missing")
-        self.assertEqual(ask([wanted])["entries"], produced["entries"], "the produced mesh is stored, and probes as made")
-        body = read_tessellation_cache(wanted, expected_object=produced["entries"][wanted]["object"])
-        self.assertEqual(meshes.payload_record(wanted, body), produced["entries"][wanted])
-        self.assertEqual(produce_tess_cache(json.dumps({"tessellationInputs": [wanted]}).encode()), produced,
-                         "asking again reads what is stored")
-        for malformed in (b"{}", b'{"tessellationInputs": [1]}', b"not json"):
-            with self.subTest(body=malformed):
-                self.assertIsNone(produce_tess_cache(malformed))
+        with inline_artifacts() as jobs, mock.patch("cadgen.daemon.broker.job_limit", return_value=2), \
+                mock.patch("cadgen.daemon.artifacts.DEAL_AT_LEAST", 1):
+            produced = produce_tess_cache(json.dumps({"tessellationInputs": [wanted, unknown, too_fine, older]}).encode())
+            self.assertEqual(list(produced["entries"]), [wanted],
+                             "a surface the store lacks, a finer request or another mesher's key stays missing")
+            requests = [call.args[0] for call in jobs.call_args_list]
+            self.assertEqual([request["kind"] for request in requests], ["meshes", "meshes"],
+                             "the missing keys are dealt across as many jobs as the pool runs at once")
+            self.assertEqual(sorted(key for request in requests for key in request["keys"]),
+                             sorted([wanted, unknown, too_fine]), "each key this cadgen writes, once")
+            self.assertEqual(ask([wanted])["entries"], produced["entries"], "the produced mesh is stored, and probes as made")
+            body = read_tessellation_cache(wanted, expected_object=produced["entries"][wanted]["object"])
+            self.assertEqual(meshes.payload_record(wanted, body), produced["entries"][wanted])
+            self.assertEqual(produce_tess_cache(json.dumps({"tessellationInputs": [wanted]}).encode()), produced,
+                             "asking again reads what is stored")
+            self.assertEqual(jobs.call_count, 2, "and starts no job")
+            for malformed in (b"{}", b'{"tessellationInputs": [1]}', b"not json"):
+                with self.subTest(body=malformed):
+                    self.assertIsNone(produce_tess_cache(malformed))
 
     def test_batch_reads_are_exact_object_and_size_bound(self) -> None:
         meshes.write(GOOD_KEY, PAYLOAD)

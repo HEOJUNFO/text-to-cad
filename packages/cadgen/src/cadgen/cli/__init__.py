@@ -109,8 +109,8 @@ def read_skill_pin(skill_path) -> str | None:
 # happen BEFORE the command's module is imported -- which is why it lives here in dispatch
 # rather than inside each command.
 #
-# Snapshot orchestration stays in the caller. Its document compilation and
-# missing surfaces already use the build pool; rendering needs no kernel.
+# Snapshot orchestration stays in the caller. Its document compilation, missing
+# surfaces and missing meshes use the build pool; rendering needs no kernel.
 #
 # ONE table: a tool's name is its command with the space dashed, and its module is
 # the command's own (`_COMMANDS`). The daemon derives what it may import from here

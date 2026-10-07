@@ -318,8 +318,10 @@ identity. A real one (`link_arm`: a bar plus two placements of a pin model):
   keys. A component is ready once its surface and every mesh asked for are
   stored: the CAD Viewer's cold components ask for the standard level in the
   surface request that derives them, a mesh export asks for its tolerances, and
-  the snapshot host meshes what its page found missing from the stored surface
-  record alone (`produce_meshes`, `POST /__tess_cache/produce`), with no tree.
+  the snapshot host has the build pool mesh what its page found missing, from
+  the stored surface record alone (`POST /__tess_cache/produce`: `meshes` jobs
+  running `produce_meshes`, the keys dealt across as many jobs as the pool runs
+  at once, at least eight keys a job), with no tree.
   Tolerances below the floors (`MIN_CHORD`, `MIN_ANGLE`) are refused, never
   meshed. No client writes a mesh: every reader probes and reads, and the routes
   refuse a POST to an entry (405).

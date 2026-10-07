@@ -23,6 +23,13 @@ from cadgen.daemon import broker
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _CID = re.compile(r"[0-9a-f]{16}\Z")
 _PRODUCER_FIELDS = {"scheme", "surfFormat", "build123d", "ocp", "cadqueryOcp"}
+# The most mesh keys one request may name: a mesh probe's bound (store/tess_cache.py).
+MESH_KEYS_MAX = 256
+# The fewest items ``deal`` gives one job. A job past the daemon's warm workers
+# starts a worker, and a worker's kernel import (about two seconds) costs what
+# meshing eight middling components does: a smaller share would cost more than
+# it saves, and a small model's work stays one job.
+DEAL_AT_LEAST = 8
 
 
 class ArtifactJobError(RuntimeError):
@@ -62,10 +69,12 @@ def normalize_request(request):
     kind = request.get("kind")
     if kind == "producer" and set(request) == {"kind"}:
         return {"kind": "producer"}
+    if kind == "meshes" and set(request) == {"kind", "keys"}:
+        return {"kind": "meshes", "keys": _mesh_keys(request["keys"])}
     fields = {"kind", "tree", "cids", "producer", "expected_objects", "force", "tessellations"}
     required = {"kind", "tree", "cids", "producer"}
     if kind != "surfaces" or not required <= set(request) or set(request) - fields:
-        raise ValueError("artifact request must be producer or surfaces with closed immutable inputs")
+        raise ValueError("artifact request must be producer, surfaces or meshes with closed immutable inputs")
     cids = request["cids"]
     if not isinstance(cids, (list, tuple)) or not cids:
         raise ValueError("artifact cids must be a nonempty list")
@@ -88,6 +97,20 @@ def normalize_request(request):
     return {"kind": kind, "tree": _digest(request["tree"], "tree"), "cids": sorted(cids),
             "producer": _producer(request["producer"]), "expected_objects": dict(sorted(expected.items())), "force": force,
             **({"tessellations": tessellations} if tessellations else {})}
+
+
+def _mesh_keys(keys):
+    """The tessellation keys a meshes request names, in one canonical order: each a
+    key this cadgen writes (``store.meshes.valid_key``), none twice."""
+    from cadgen.store.meshes import valid_key
+
+    if not isinstance(keys, (list, tuple)) or not keys or len(keys) > MESH_KEYS_MAX:
+        raise ValueError(f"artifact meshes keys must be a nonempty list of at most {MESH_KEYS_MAX}")
+    if any(not valid_key(key) for key in keys):
+        raise ValueError("artifact meshes keys must be this cadgen's tessellation keys")
+    if len(set(keys)) != len(keys):
+        raise ValueError("artifact meshes keys must not contain duplicates")
+    return sorted(keys)
 
 
 def request_key(request):
@@ -140,13 +163,16 @@ def _can_inline(root):
 def execute(request, *, keep_going=None):
     """Worker-only native entry. Source and model lookup are absent by design.
 
-    ``keep_going`` is asked before each derivation (``surfaces.derive``): a daemon
-    worker's asks its supervisor whether anyone still wants the job."""
+    ``keep_going`` is asked before each derivation and each mesh (``surfaces.derive``,
+    ``surfaces.produce_meshes``): a daemon worker's asks its supervisor whether anyone
+    still wants the job."""
     request = normalize_request(request)
     from cadgen.store import surfaces
 
     if request["kind"] == "producer":
         return surfaces.producer_identity()
+    if request["kind"] == "meshes":
+        return surfaces.produce_meshes(request["keys"], keep_going=keep_going)
     meshes = {"tessellations": request["tessellations"]} if request.get("tessellations") else {}
     return surfaces.derive(request["tree"], request["cids"], producer=request["producer"],
                            expected_objects=request["expected_objects"], force=request["force"],
@@ -404,6 +430,38 @@ def submit_artifact(request, *, store_root=None):
 def resolve_artifact(request, *, store_root=None):
     """Resolve one operation; waits yield the caller's CPU lease."""
     return submit_artifact(request, store_root=store_root).result()
+
+
+def resolve_artifacts(requests, *, store_root=None):
+    """Resolve several operations at once, each on a build-pool worker of its own
+    (only identical requests share one), and return their results in order once
+    every one has finished. The first failure is raised then, never sooner: what
+    the others stored is kept, and a retry finds it. Called where the caller holds
+    a CPU lease (a build's own work), each runs inline under it, one after another,
+    as :func:`submit_artifact` runs one."""
+    futures = [submit_artifact(request, store_root=store_root) for request in requests]
+    results, failure = [], None
+    for future in futures:
+        try:
+            results.append(future.result())
+        except Exception as error:  # noqa: BLE001 - raised once the rest are done
+            failure = failure or error
+            results.append(None)
+    if failure is not None:
+        raise failure
+    return results
+
+
+def deal(items, parts=None, *, at_least=None):
+    """``items`` dealt round-robin into nonempty lists, one per build-pool job: at
+    most ``parts`` of them, by default one per CPU slot (``broker.job_limit``) --
+    the most jobs that run at once, so splitting finer would only queue workers --
+    and none of fewer than ``at_least`` items (``DEAL_AT_LEAST``) unless that is
+    all there is."""
+    items = list(items)
+    floor = max(1, DEAL_AT_LEAST if at_least is None else int(at_least))
+    count = min(max(1, len(items) // floor), max(1, int(parts) if parts else broker.job_limit()))
+    return [items[index::count] for index in range(count)] if items else []
 
 
 def _main():
