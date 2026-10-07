@@ -11,8 +11,9 @@ The clips keep the order ``animation=`` declares them in; the first is the one
 a viewer opens on.
 
 A track drives one CHANNEL of a set of leaf occurrences (document ids) that it
-moves identically. ``times`` start at 0, rise strictly, and end at or before
-``duration``; each channel carries one value per time:
+moves alike, to far finer than a key is written at. ``times`` start at 0, rise
+strictly, and end at or before ``duration``; each channel carries one value per
+time:
 
     transform  [dx, dy, dz, qx, qy, qz, qw,   the track's "pivot" moves by d while
                 d'x, d'y, d'z, wx, wy, wz]    the part turns by q about it: the
@@ -23,7 +24,8 @@ moves identically. ``times`` start at 0, rise strictly, and end at or before
                                               curve, and so is the turn from the
                                               first key as a rotation vector -- a
                                               constant spin is exact. The pivot is
-                                              the point the motion moves least. The
+                                              the point whose path accelerates
+                                              least: on a spinning part's axis. The
                                               rest pose is the identity, and a
                                               rigid move premultiplies whatever the
                                               kinematics put there
@@ -38,18 +40,21 @@ moves identically. ``times`` start at 0, rise strictly, and end at or before
 
 A key interpolation rebuilds within tolerance is dropped (Ramer-Douglas-Peucker
 over each track), and a track whose keys are all one value keeps one key. A
-transform's tolerance is measured at the corners of the model's bounding box:
-two rigid transforms differ by an affine map, whose largest displacement over
-the box is at a corner, so the corners bound the error over every point of the
-model. A key's rates are the clip's own (central differences of its samples),
-so a smooth motion needs keys only where its curve changes character, and a
-part turns at most 120 degrees between two kept keys. A tube's tolerance is
-measured on points along its centerline and on how far its cross-sections turn.
+transform's tolerance is a fraction of the model's diagonal, measured at the
+corners of the box of the parts the track moves (the model's box where the
+store remembers none for one of them): two rigid transforms differ by an affine
+map, whose largest displacement over a box is at a corner, so the corners bound
+the error over every point of those parts. A key's rates are the clip's own
+(central differences of its samples), so a smooth motion needs keys only where
+its curve changes character, and a part turns at most 120 degrees between two
+kept keys. A tube's tolerance is measured on points along its centerline and on
+how far its cross-sections turn.
 """
 
 from __future__ import annotations
 
 import bisect
+import contextlib
 import json
 import math
 from typing import Any, Iterable, Mapping, Sequence
@@ -58,8 +63,8 @@ CHANNELS = ("transform", "opacity", "visible", "tube")
 
 # Transform error, as a fraction of the model's bounding-box diagonal, under which
 # a key is dropped: a tenth of a pixel with the whole model in view, and a pixel
-# zoomed in tenfold -- measured at the box's corners, the worst lever arm any
-# part has. The floor is the rounding the keys are written at.
+# zoomed in tenfold -- measured at the corners of the moving parts' own box, the
+# worst lever arm they have. The floor is the rounding the keys are written at.
 TRANSFORM_TOLERANCE = 1e-4
 LENGTH_FLOOR = 1e-4
 OPACITY_TOLERANCE = 1.0 / 512.0
@@ -516,30 +521,38 @@ def _solve3(a: list[list[float]], b: list[float]) -> list[float]:
     return x
 
 
-def _pivot(values: list[tuple], center: Sequence[float]) -> tuple[float, float, float]:
-    """The point the motion moves least: argmin over c of the sum of |M_k(c) - c|^2.
+def _pivot(values: list[tuple], center: Sequence[float], reach: float) -> tuple[float, float, float]:
+    """The point whose path accelerates least: argmin over c of the sum of
+    |M_{k+1}(c) - 2 M_k(c) + M_{k-1}(c)|^2.
 
-    A part turning about a fixed axis leaves that axis still, so its keys need
-    only the turn. Where the minimum is not one point -- along a fixed axis, or
-    anywhere for a pure translation -- the tie goes to the point nearest the
-    model's center."""
+    A part spinning about an axis, still or carried along, accelerates least on
+    that axis, so its keys need only the spin and the carry, each smooth. Where
+    the minimum is not one point -- along a still axis, or anywhere for a pure
+    translation -- the tie goes to the point nearest ``center``, the middle of
+    the parts the track moves. A minimum farther than ``reach`` from it comes of
+    a turn too slight to place an axis by (a solver's rounding, say): its key's
+    quaternion would be written as no turn at all while d kept the turn's lever
+    arm, so ``center`` is the pivot."""
     a = [[0.0] * 3 for _ in range(3)]
     b = [0.0] * 3
-    for v in values:
-        d = ((v[0] - 1.0, v[1], v[2]), (v[3], v[4] - 1.0, v[5]), (v[6], v[7], v[8] - 1.0))
+    for before, at, after in zip(values, values[1:], values[2:]):
+        m = [after[n] - 2.0 * at[n] + before[n] for n in range(12)]
+        rows = (m[0:3], m[3:6], m[6:9])
         for i in range(3):
             for j in range(3):
-                a[i][j] += d[0][i] * d[0][j] + d[1][i] * d[1][j] + d[2][i] * d[2][j]
-            b[i] -= d[0][i] * v[9] + d[1][i] * v[10] + d[2][i] * v[11]
+                a[i][j] += rows[0][i] * rows[0][j] + rows[1][i] * rows[1][j] + rows[2][i] * rows[2][j]
+            b[i] -= rows[0][i] * m[9] + rows[1][i] * m[10] + rows[2][i] * m[11]
     tie = 1e-9 * (a[0][0] + a[1][1] + a[2][2]) + 1e-30
     for i in range(3):
         a[i][i] += tie
         b[i] += tie * center[i]
-    return tuple(_solve3(a, b))  # type: ignore[return-value]
+    pivot = _solve3(a, b)
+    return tuple(pivot) if math.dist(pivot, center) <= reach else tuple(center)  # type: ignore[return-value]
 
 
 def _transform_keys(
-    times: list[float], values: list[tuple], corners: list[tuple], center: Sequence[float], tolerance: float, where: str
+    times: list[float], values: list[tuple], corners: list[tuple], center: Sequence[float], reach: float,
+    tolerance: float, where: str,
 ) -> tuple[list[int], tuple[float, float, float], list[list[float]]]:
     quats: list[tuple] = []
     swept = [0.0]  # degrees turned from the first sample, summed sample by sample
@@ -557,7 +570,7 @@ def _transform_keys(
                 )
             swept.append(swept[-1] + turn)
         quats.append(q)
-    pivot = tuple(_length(c) for c in _pivot(values, center))
+    pivot = tuple(_length(c) for c in _pivot(values, center, reach))
     # Each sample's key: d (where the pivot goes: M(pivot) - pivot), q, d's rate
     # and the angular velocity -- central differences, one-sided at the ends.
     moves = [[m - p for m, p in zip(_apply_point(v, v[9:], pivot), pivot)] for v in values]
@@ -685,8 +698,25 @@ def sample_times(duration: float, fps: float) -> list[float]:
     return [index / fps for index in range(count)] + [duration]
 
 
-def bake_clip(clip_id: str, clip: Any, targets: AnimationTargets, bounds: Sequence[Sequence[float]]) -> dict[str, Any]:
-    """Sample one :class:`cadgen.animation.Clip` and reduce it to tracks."""
+def _signature(channel: str, value: Any) -> Any:
+    """What two leaves' samples must share for the leaves to share a track: a
+    transform's rotation to a billionth and its translation to a millionth of a
+    millimetre, an opacity to a millionth -- far finer than a key is written at,
+    and coarse enough that a part a clip moves through its parent's numbers and
+    one it moves through the same numbers recomputed are one track."""
+    if channel == "transform":
+        return tuple(round(c, 9) for c in value[:9]) + tuple(round(c, 6) for c in value[9:])
+    if channel == "opacity" and value is not None:
+        return round(value, 6)
+    return value
+
+
+def bake_clip(
+    clip_id: str, clip: Any, targets: AnimationTargets, bounds: Sequence[Sequence[float]], leaf_boxes: Any = None,
+) -> dict[str, Any]:
+    """Sample one :class:`cadgen.animation.Clip` and reduce it to tracks. ``leaf_boxes``
+    (``get(leaf)`` -> (min, max) or None) gives each part's own box, where a track's
+    error is measured; without it, or for a part it has no box for, the model's."""
     times = sample_times(clip.duration, clip.fps)
     frames: list[_Frame] = []
     for t in times:
@@ -708,19 +738,34 @@ def bake_clip(clip_id: str, clip: Any, targets: AnimationTargets, bounds: Sequen
 
     def channel(name: str, rest: Any) -> dict[tuple, list[str]]:
         """Leaves grouped by their whole sequence on this channel: parts that move
-        identically share a track. A leaf no sample touched is left out."""
+        alike (``_signature``) share a track. A leaf no sample touched is left out."""
         leaves = dict.fromkeys(leaf for frame in frames for leaf in getattr(frame, name))
-        groups: dict[tuple, list[str]] = {}
+        exact: dict[tuple, list[str]] = {}
         for leaf in leaves:
-            sequence = tuple(getattr(frame, name).get(leaf, rest) for frame in frames)
-            groups.setdefault(sequence, []).append(leaf)
-        return groups
+            exact.setdefault(tuple(getattr(frame, name).get(leaf, rest) for frame in frames), []).append(leaf)
+        # Rounding is the costly part, so only one sequence of each exact group is rounded.
+        groups: dict[tuple, tuple[tuple, list[str]]] = {}
+        for sequence, members in exact.items():
+            groups.setdefault(tuple(_signature(name, value) for value in sequence), (sequence, []))[1].extend(members)
+        return dict(groups.values())
+
+    def measured(leaves: list[str]) -> tuple[list[tuple], tuple]:
+        """Where a transform track's error is measured: the corners of the box of the
+        parts it moves, which bound the error over every point of them (two rigid
+        transforms differ by an affine map), and that box's middle."""
+        boxes = [leaf_boxes.get(leaf) for leaf in leaves] if leaf_boxes is not None else [None]
+        if any(box is None for box in boxes):
+            return corners, center
+        low = [min(box[0][axis] for box in boxes) for axis in range(3)]
+        high = [max(box[1][axis] for box in boxes) for axis in range(3)]
+        return _corners((low, high)), tuple((lo + hi) / 2.0 for lo, hi in zip(low, high))
 
     for sequence, leaves in channel("transform", _IDENTITY).items():
         if all(value == sequence[0] for value in sequence) and _is_identity(sequence[0]):
             continue  # touched, never moved
         where = f"animation clip {clip_id!r} part {sorted(leaves, key=_natural)[0]}"
-        keep, pivot, values = _transform_keys(times, list(sequence), corners, center, tolerance, where)
+        track_corners, track_center = measured(leaves)
+        keep, pivot, values = _transform_keys(times, list(sequence), track_corners, track_center, diagonal, tolerance, where)
         track = _track(leaves, rounded_times, keep, "transform", values)
         track["pivot"] = list(pivot)
         tracks.append(track)
@@ -807,9 +852,35 @@ def _channel_of(track: Mapping[str, Any]) -> str:
     return next(name for name in CHANNELS if name in track)
 
 
-def bake_animation(clips: Mapping[str, Any], targets: AnimationTargets, bounds: Sequence[Sequence[float]]) -> dict[str, Any]:
+def bake_animation(
+    clips: Mapping[str, Any], targets: AnimationTargets, bounds: Sequence[Sequence[float]], leaf_boxes: Any = None,
+) -> dict[str, Any]:
     """Every clip of a model, baked: the sidecar's ``animation`` section."""
-    return {"clips": [bake_clip(clip_id, clip, targets, bounds) for clip_id, clip in clips.items()]}
+    return {"clips": [bake_clip(clip_id, clip, targets, bounds, leaf_boxes) for clip_id, clip in clips.items()]}
+
+
+class _LeafBoxes:
+    """Each leaf's box in a written document, from the boxes the store remembered
+    when it published it (``composed_bounds``), read when first asked for: a clip
+    that moves a few parts of a large model measures only those. None where the
+    store remembers no box."""
+
+    def __init__(self, descriptor: Mapping[str, Any]) -> None:
+        self._occurrences = {str(occurrence["id"]): occurrence for occurrence in descriptor.get("occurrences") or []}
+        self._components = descriptor.get("components") or {}
+        self._boxes: dict[str, tuple | None] = {}
+
+    def get(self, leaf: str) -> tuple | None:
+        if leaf not in self._boxes:
+            from cadgen.store._compose_readback import Ineligible, composed_bounds
+
+            occurrence, box = self._occurrences.get(leaf), None
+            if occurrence is not None:
+                with contextlib.suppress(Ineligible):
+                    found = composed_bounds([occurrence], self._components)
+                    box = (found["min"], found["max"])
+            self._boxes[leaf] = box
+        return self._boxes[leaf]
 
 
 def bake_document_animation(clips: Mapping[str, Any], document_tree: str) -> dict[str, Any]:
@@ -823,7 +894,7 @@ def bake_document_animation(clips: Mapping[str, Any], document_tree: str) -> dic
     bbox = descriptor.get("bbox") or {}
     if not bbox.get("min") or not bbox.get("max"):
         raise AnimationError("cannot bake animation: the model has no geometry to measure")
-    return bake_animation(clips, animation_targets(descriptor), (bbox["min"], bbox["max"]))
+    return bake_animation(clips, animation_targets(descriptor), (bbox["min"], bbox["max"]), _LeafBoxes(descriptor))
 
 
 # --- The section, read back ------------------------------------------------------
