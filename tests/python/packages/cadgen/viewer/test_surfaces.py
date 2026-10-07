@@ -283,7 +283,7 @@ assert view and all('surfaceObject' not in entry for entry in view['components']
         parts = [Pos(4 * n, 0, 0) * Solid.make_box(1 + n, 1, 1) for n in range(3)]
         tree, geometry, _ = build_tree_from_compound(Compound(children=parts), root_name="row")
         with inline_artifacts() as jobs, mock.patch("cadgen.daemon.broker.job_limit", return_value=2), \
-                mock.patch("cadgen.daemon.artifacts.DEAL_AT_LEAST", 1):
+                mock.patch("cadgen.daemon.artifacts.SURFACES_PER_STARTED_WORKER", 1):
             target = export_view(tree, self.root / "row-view", producer=self.producer)
         dealt = [call.args[0]["cids"] for call in jobs.call_args_list if call.args[0]["kind"] == "surfaces"]
         self.assertEqual(len(dealt), 2, "one job per CPU slot the pool runs at once")

@@ -25,11 +25,15 @@ _CID = re.compile(r"[0-9a-f]{16}\Z")
 _PRODUCER_FIELDS = {"scheme", "surfFormat", "build123d", "ocp", "cadqueryOcp"}
 # The most mesh keys one request may name: a mesh probe's bound (store/tess_cache.py).
 MESH_KEYS_MAX = 256
-# The fewest items ``deal`` gives one job. A job past the daemon's warm workers
-# starts a worker, and a worker's kernel import (about two seconds) costs what
-# meshing eight middling components does: a smaller share would cost more than
-# it saves, and a small model's work stays one job.
-DEAL_AT_LEAST = 8
+# How ``deal`` sizes build-pool jobs. A job takes a warm worker when the daemon has
+# one (``pool.spare_count``); a job past them starts a worker, whose kernel import
+# took 4-5 s on a busy 4-core machine. So the warm workers share any work of at
+# least DEAL_PER_JOB items, and a job that starts a worker is dealt only when there
+# is enough work to repay that start: about 32 components' surface extraction, or
+# 96 components' meshing (motorbike: 0.36 s and 0.11 s a component).
+DEAL_PER_JOB = 4
+SURFACES_PER_STARTED_WORKER = 32
+MESHES_PER_STARTED_WORKER = 96
 
 
 class ArtifactJobError(RuntimeError):
@@ -452,16 +456,23 @@ def resolve_artifacts(requests, *, store_root=None):
     return results
 
 
-def deal(items, parts=None, *, at_least=None):
-    """``items`` dealt round-robin into nonempty lists, one per build-pool job: at
-    most ``parts`` of them, by default one per CPU slot (``broker.job_limit``) --
-    the most jobs that run at once, so splitting finer would only queue workers --
-    and none of fewer than ``at_least`` items (``DEAL_AT_LEAST``) unless that is
-    all there is."""
+def deal(items, *, per_started_worker, parts=None):
+    """``items`` dealt round-robin into nonempty lists, one per build-pool job: the
+    daemon's warm workers share them (at least ``DEAL_PER_JOB`` items a job), and
+    one more job is dealt for every ``per_started_worker`` items -- each such job
+    starts a worker -- up to ``parts``, by default one per CPU slot
+    (``broker.job_limit``): the most jobs that run at once."""
+    from cadgen.daemon.executors import use_daemon
+    from cadgen.daemon.pool import spare_count
+
     items = list(items)
-    floor = max(1, DEAL_AT_LEAST if at_least is None else int(at_least))
-    count = min(max(1, len(items) // floor), max(1, int(parts) if parts else broker.job_limit()))
-    return [items[index::count] for index in range(count)] if items else []
+    if not items:
+        return []
+    warm = spare_count() if use_daemon() else 0
+    limit = max(1, int(parts) if parts else broker.job_limit())
+    count = max(min(warm, len(items) // DEAL_PER_JOB), len(items) // max(1, int(per_started_worker)))
+    count = min(limit, max(1, count))
+    return [items[index::count] for index in range(count)]
 
 
 def _main():

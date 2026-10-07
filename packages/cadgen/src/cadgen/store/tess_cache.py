@@ -120,7 +120,7 @@ def produce_tess_cache(body: bytes | None) -> dict | None:
     meshed, stays missing. A component that fails to mesh fails the request once
     every other key is done (``artifacts.resolve_artifacts``).
     """
-    from cadgen.daemon.artifacts import deal, resolve_artifacts
+    from cadgen.daemon.artifacts import MESHES_PER_STARTED_WORKER, deal, resolve_artifacts
     from cadgen.store.meshes import probe, valid_key
 
     inputs = _request_items(body, "tessellationInputs")
@@ -129,7 +129,8 @@ def produce_tess_cache(body: bytes | None) -> dict | None:
     rows = {key: probe(key) for key in dict.fromkeys(inputs)}
     missing = [key for key, row in rows.items() if row is None and valid_key(key)]
     if missing:
-        resolve_artifacts([{"kind": "meshes", "keys": keys} for keys in deal(missing)])
+        resolve_artifacts([{"kind": "meshes", "keys": keys}
+                           for keys in deal(missing, per_started_worker=MESHES_PER_STARTED_WORKER)])
         rows.update((key, probe(key)) for key in missing)
     return {"entries": {key: row for key, row in rows.items() if row is not None}}
 

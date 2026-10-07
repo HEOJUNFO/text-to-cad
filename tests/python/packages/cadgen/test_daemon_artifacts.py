@@ -193,13 +193,23 @@ class ArtifactRequests(unittest.TestCase):
                 artifacts.normalize_request(request)
 
     def test_work_is_dealt_one_job_per_cpu_slot_and_every_job_ends_before_a_failure_is_raised(self):
-        with mock.patch.object(broker, "job_limit", return_value=3):
-            self.assertEqual(artifacts.deal(range(40)), [list(range(start, 40, 3)) for start in range(3)])
-            self.assertEqual(artifacts.deal(range(20)), [list(range(0, 20, 2)), list(range(1, 20, 2))],
-                             "no job of fewer than eight")
-            self.assertEqual(artifacts.deal(range(7)), [list(range(7))], "a small model's work stays one job")
-        self.assertEqual(artifacts.deal(range(4), parts=8, at_least=1), [[0], [1], [2], [3]])
-        self.assertEqual(artifacts.deal([]), [])
+        from cadgen.daemon import executors, pool
+
+        def jobs(count, *, warm, per_started_worker=32, cpus=4):
+            with mock.patch.object(executors, "use_daemon", return_value=warm is not None), \
+                    mock.patch.object(pool, "spare_count", return_value=warm or 0), \
+                    mock.patch.object(broker, "job_limit", return_value=cpus):
+                dealt = artifacts.deal(range(count), per_started_worker=per_started_worker)
+            self.assertEqual(sorted(item for job in dealt for item in job), list(range(count)), "each item once")
+            return [len(job) for job in dealt]
+
+        self.assertEqual(jobs(3, warm=2), [3], "a small model's work stays one job")
+        self.assertEqual(jobs(38, warm=2), [19, 19], "the warm workers share it")
+        self.assertEqual(jobs(100, warm=2), [34, 33, 33], "a job that starts a worker has 32 items to repay it")
+        self.assertEqual(jobs(256, warm=2), [64, 64, 64, 64], "no more jobs than CPU slots")
+        self.assertEqual(jobs(38, warm=None), [38], "without a daemon every job starts a worker")
+        self.assertEqual(jobs(200, warm=None, per_started_worker=96), [100, 100])
+        self.assertEqual(artifacts.deal([], per_started_worker=1), [])
 
         release = threading.Event()
         started, finished = [], []

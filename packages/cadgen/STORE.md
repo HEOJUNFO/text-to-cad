@@ -332,8 +332,8 @@ identity. A real one (`link_arm`: a bar plus two placements of a pin model):
   surface request that derives them, a mesh export asks for its tolerances, and
   the snapshot host has the build pool mesh what its page found missing, from
   the stored surface record alone (`POST /__tess_cache/produce`: `meshes` jobs
-  running `produce_meshes`, the keys dealt across as many jobs as the pool runs
-  at once, at least eight keys a job), with no tree.
+  running `produce_meshes`, the keys dealt across the daemon's warm workers, and
+  across more only for enough keys to repay starting one), with no tree.
   Tolerances below the floors (`MIN_CHORD`, `MIN_ANGLE`) are refused, never
   meshed. No client writes a mesh: every reader probes and reads, and the routes
   refuse a POST to an entry (405).

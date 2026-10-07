@@ -79,7 +79,7 @@ class TessellationCacheStoreTests(unittest.TestCase):
         ask = lambda keys: read_tess_cache_probe(json.dumps({"tessellationInputs": keys}).encode())  # noqa: E731
         self.assertEqual(ask([wanted])["entries"], {}, "derivation meshed nothing it was not asked for")
         with inline_artifacts() as jobs, mock.patch("cadgen.daemon.broker.job_limit", return_value=2), \
-                mock.patch("cadgen.daemon.artifacts.DEAL_AT_LEAST", 1):
+                mock.patch("cadgen.daemon.artifacts.MESHES_PER_STARTED_WORKER", 1):
             produced = produce_tess_cache(json.dumps({"tessellationInputs": [wanted, unknown, too_fine, older]}).encode())
             self.assertEqual(list(produced["entries"]), [wanted],
                              "a surface the store lacks, a finer request or another mesher's key stays missing")

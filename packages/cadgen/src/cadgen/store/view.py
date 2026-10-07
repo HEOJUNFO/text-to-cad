@@ -104,7 +104,8 @@ def materialize_view_surfaces(descriptor: dict, cids: list[str] | None = None) -
     ``cids`` limits the work to those components: only they are derived when
     absent, and only they gain a ``surf``. The rest of the view is unchanged.
     The absent ones are dealt across the build pool (``artifacts.deal``)."""
-    from cadgen.daemon.artifacts import ArtifactJobError, deal, resolve_artifact, resolve_artifacts
+    from cadgen.daemon.artifacts import (
+        SURFACES_PER_STARTED_WORKER, ArtifactJobError, deal, resolve_artifact, resolve_artifacts)
     from cadgen.store import surfaces
 
     tree = descriptor["tree"]
@@ -115,7 +116,7 @@ def materialize_view_surfaces(descriptor: dict, cids: list[str] | None = None) -
     if missing:
         try:
             resolve_artifacts([{"kind": "surfaces", "tree": tree, "cids": dealt, "producer": producer}
-                               for dealt in deal(missing)])
+                               for dealt in deal(missing, per_started_worker=SURFACES_PER_STARTED_WORKER)])
         except ArtifactJobError as error:
             if not surfaces.producer_unavailable(error):
                 raise
