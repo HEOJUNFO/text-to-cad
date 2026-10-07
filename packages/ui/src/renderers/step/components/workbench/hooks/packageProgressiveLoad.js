@@ -125,6 +125,14 @@ export function meshStateIsComplete(meshState) {
   return !(Array.isArray(missing) && missing.length > 0);
 }
 
+// A load that has ended without the components cadgen could not mesh: short of their parts for good,
+// not still arriving. The viewport warns of them (buildViewerMeshAlert) instead of reading
+// "Updating model…" over a model that will not change.
+export function meshStateSettledShort(meshState) {
+  return meshState?.assemblyInteractionReady === true && !meshStateIsComplete(meshState)
+    && (meshState?.assemblyFailedParts?.length || 0) > 0;
+}
+
 // A rewritten file whose next revision is not built yet: the entry has no mesh while its render
 // artifact (re)builds, and the complete model of this same file is the one on screen. It stays
 // there, reported as an update, until the new revision replaces it atomically

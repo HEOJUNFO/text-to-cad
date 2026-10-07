@@ -18,6 +18,7 @@ import {
   progressivePublishDue,
   publishMeshCostAccounting,
   meshStateIsComplete,
+  meshStateSettledShort,
   awaitingSameFileRevision,
   meshStateAfterCancelledLoad,
   replacingSameFileMesh,
@@ -787,6 +788,16 @@ test("a published mesh state is the complete model only on the final publish", a
   assert.equal(meshStateIsComplete({ meshData: { parts: null }, assemblyInteractionReady: false }), false, "assembly preview");
   assert.equal(meshStateIsComplete({ meshData: { parts: [], missingComponentIds: ["c1"] } }), false);
   assert.equal(meshStateIsComplete({ meshData: { parts: [] } }), true, "non-package meshes carry no flag");
+});
+
+test("a load that ended without the parts cadgen could not mesh is short of them, not still arriving", () => {
+  const short = { meshData: { parts: [], missingComponentIds: ["c1"] }, assemblyInteractionReady: true,
+    assemblyFailedParts: ["accessory:case"] };
+  assert.equal(meshStateSettledShort(short), true);
+  assert.equal(meshStateSettledShort({ ...short, assemblyInteractionReady: false }), false, "components still arriving");
+  assert.equal(meshStateSettledShort({ ...short, assemblyFailedParts: [] }), false, "missing, but none failed");
+  assert.equal(meshStateSettledShort({ ...short, meshData: { parts: [] } }), false, "complete");
+  assert.equal(meshStateSettledShort(null), false);
 });
 
 test("byte-aware admission: decodes in flight stay under the byte budget, and under the count cap", async () => {

@@ -3,7 +3,7 @@ import { failedStepArtifact, stepArtifactHasRenderableGlb, stepArtifactStatusMes
 import { fileKey } from "./entryPaths.js";
 import { failureAlert, isViewerServiceFailure, noGeometryAlert } from "../../kit/status/loadAlerts.js";
 
-export function buildViewerMeshAlert(entry, hasMeshData, loadError, artifact = null, { partial = false } = {}) {
+export function buildViewerMeshAlert(entry, hasMeshData, loadError, artifact = null, { partial = false, failedParts = [] } = {}) {
   const fileRef = fileKey(entry);
   if (!fileRef) {
     return null;
@@ -37,6 +37,10 @@ export function buildViewerMeshAlert(entry, hasMeshData, loadError, artifact = n
         reload: true
       };
     }
+  }
+
+  if (loadError && hasMeshData && failedParts.length) {
+    return failedPartsAlert(fileRef, failedParts, loadError?.message || loadError);
   }
 
   if (loadError) {
@@ -119,5 +123,21 @@ export function buildViewerEditAlert(editingState, hasGeometry = false) {
       : "The model could not be prepared for display.",
     reason: actualDetail,
     recovery: "Check the diagnostic in Details, correct the model, then run it again."
+  };
+}
+
+// Parts cadgen could not mesh are missing from a model drawn without them: a warning that names
+// them, which the person can put away, never the card of a model that did not load.
+function failedPartsAlert(fileRef, parts, error) {
+  const quoted = parts.slice(0, 3).map(name => `“${name}”`);
+  const named = parts.length > 3 ? `${quoted.join(", ")} and ${parts.length - 3} more` : quoted.join(", ");
+  const summary = parts.length === 1 ? "A part couldn’t be shown" : `${parts.length} parts couldn’t be shown`;
+  return {
+    severity: "warning",
+    blocking: false,
+    summary,
+    title: summary,
+    message: `${named} couldn’t be meshed, so ${parts.length === 1 ? "it’s" : "they’re"} missing from the view. Everything else is shown.`,
+    details: `File: ${fileRef}\nParts: ${parts.join(", ")}\n${String(error || "").trim()}`,
   };
 }

@@ -118,6 +118,7 @@ import {
 } from "@text-to-cad/core/common/stepModule.js";
 import {
   meshStateIsComplete,
+  meshStateSettledShort,
   retainsPreviousStepMesh
 } from "./components/workbench/hooks/packageProgressiveLoad.js";
 import { meshLoadErrorForViewer, shouldStartMeshLoad } from "./components/workbench/hooks/meshLoadTarget.js";
@@ -435,6 +436,8 @@ function StepSurfaceBody({ view, data }) {
   const handleDisplayMeshAdoption = useCallback((source, ok, detail) =>
     onMeshSourceAdoption(sourceAppearanceGeometry(source), ok, detail), [onMeshSourceAdoption]);
   const selectedMeshPartial = selectedMeshMatches && !meshStateIsComplete(meshState);
+  // Short of the parts cadgen could not mesh for good, not still updating: the viewport warns instead.
+  const selectedMeshSettledShort = selectedMeshMatches && meshStateSettledShort(meshState);
 
   // ---- motion: the kinematics module and Position, the routines and playback -------------------
   const motion = useStepMotion({
@@ -718,7 +721,7 @@ function StepSurfaceBody({ view, data }) {
         !editingBuildActive(editingPreview.state) &&
         ["network", "timeout", "status"].includes(selectedArtifact.failure?.kind)
         ? null : selectedArtifact,
-      { partial: selectedMeshPartial }
+      { partial: selectedMeshPartial, failedParts: selectedMeshMatches ? meshState?.assemblyFailedParts || [] : [] }
     );
     return meshAlert || viewerRuntimeAlert;
   }, [
@@ -726,9 +729,11 @@ function StepSurfaceBody({ view, data }) {
     catalogError,
     error,
     meshState?.assemblyBackgroundError,
+    meshState?.assemblyFailedParts,
     selectedAssemblyHydrationFailed,
     selectedEntry,
     selectedArtifact,
+    selectedMeshMatches,
     selectedArtifactGenerating,
     selectedMeshPartial,
     selectedMeshData,
@@ -1525,7 +1530,7 @@ function StepSurfaceBody({ view, data }) {
       // retained mesh and an artifact still generating all have something to show — they are
       // `updating`, which keeps the chip saying so without taking the model off the screen.
       busy: viewportIsLoading,
-      updating: !viewportIsLoading && (effectiveViewerLoading || selectedMeshPartial),
+      updating: !viewportIsLoading && (effectiveViewerLoading || (selectedMeshPartial && !selectedMeshSettledShort)),
       progress: selectedLoadProgress || (editingPreview.state.phase ? { phase: editingPreview.state.phase, detail: editingPreview.state.detail } : null),
       alert: viewerAlert || (!selectedMeshData && catalogError ? catalogError : null) || annotationAlert,
       editPending: editingBuildActive(editingPreview.state),

@@ -264,7 +264,8 @@ it('has cadgen mesh a cold component in its surface request, then reads that mes
 
 // One component cadgen cannot mesh is that component's failure: the rest of the model is drawn and
 // interactive, and its failure is the load's background error, as a load that stopped part-way
-// reports one. Missing a component, the model is not kept as complete: a reopen asks again.
+// reports one, with the parts it would have drawn. Missing a component, the model is not kept as
+// complete: a reopen asks again.
 it('draws the rest of a model when cadgen cannot mesh one component, and reports that one', async () => {
   const { client, model, encoded } = warmLargeStep();
   const cold = ['c3', 'c250'].map(cid => createHash('sha256').update(`317-component-${cid}`).digest('hex'));
@@ -297,6 +298,8 @@ it('draws the rest of a model when cadgen cannot mesh one component, and reports
     expect(state.meshData.missingComponentIds).toEqual(['c250']);
     expect(state.assemblyInteractionReady).toBe(true);
     expect(state.assemblyBackgroundError).toBe(failure);
+    // Named as the tree names it, for the viewport's warning.
+    expect(state.assemblyFailedParts).toEqual(['c250']);
     opened.unmount();
     expect(completedPackages.stats().entries).toBe(0);
   } finally { owner.dispose(); }

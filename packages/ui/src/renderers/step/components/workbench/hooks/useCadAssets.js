@@ -22,6 +22,7 @@ import {
   validateSourceSidecar
 } from "@text-to-cad/core/common/sourceSidecar.js";
 import { mapWithConcurrency } from "@text-to-cad/core/lib/async/concurrency.js";
+import { stepProductName } from "@text-to-cad/core/lib/step/productName.js";
 import {
   LOD_DEFAULT_LEVEL,
   lodTessellationForLevel,
@@ -202,8 +203,21 @@ function completedPackageMeshState(entry, meshData) {
   return {
     file: entry.file, kind: entry.kind, meshHash: entryMeshAssetSignature(entry), meshData,
     assemblyStructureReady: true, assemblyInteractionReady: true,
-    assemblyBackgroundError: "", assemblyBackgroundErrorMeshHash: "",
+    assemblyBackgroundError: "", assemblyBackgroundErrorMeshHash: "", assemblyFailedParts: [],
   };
+}
+
+// The parts the components that failed would have drawn, by the names the tree gives them: one
+// component can be many parts (radial's nine cylinder heads share two).
+function failedPartNames(descriptor, failures) {
+  const failed = new Set(failures.map(({ cid }) => String(cid || "")));
+  const names = [];
+  for (const occurrence of descriptor?.occurrences || []) {
+    if (!failed.has(String(occurrence?.component || ""))) continue;
+    const name = String(stepProductName(occurrence?.name) || occurrence?.id || occurrence?.component).trim();
+    if (name && !names.includes(name)) names.push(name);
+  }
+  return names;
 }
 
 // A detail swap (`applyComponentLodBatch`) changes the geometry on screen, never what the load said
@@ -216,6 +230,7 @@ function detailSwapMeshState(current, entry, meshData) {
     assemblyInteractionReady: current.assemblyInteractionReady !== false,
     assemblyBackgroundError: current.assemblyBackgroundError || "",
     assemblyBackgroundErrorMeshHash: current.assemblyBackgroundErrorMeshHash || "",
+    assemblyFailedParts: current.assemblyFailedParts || [],
   };
 }
 
@@ -243,7 +258,8 @@ export function useCadAssets({
       assemblyStructureReady: !!previewMeshData.assemblyRoot,
       assemblyInteractionReady: false,
       assemblyBackgroundError: "",
-      assemblyBackgroundErrorMeshHash: ""
+      assemblyBackgroundErrorMeshHash: "",
+      assemblyFailedParts: []
     };
   }, [getAssemblyMeshHash, resources]);
 
@@ -1077,6 +1093,8 @@ export function useCadAssets({
                 error instanceof Error ? error.message : String(error)
               )))].join("; ");
               nextState.assemblyBackgroundErrorMeshHash = targetMeshHash;
+              // Named, the rest of the model drawn: the viewport warns rather than fails.
+              nextState.assemblyFailedParts = failedPartNames(packageDescriptor, failures);
             }
             const ctx = lodPackageRef.current;
             const componentLodLevelByCid = Object.fromEntries(
