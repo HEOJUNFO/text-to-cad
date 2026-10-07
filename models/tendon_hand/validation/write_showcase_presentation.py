@@ -1,32 +1,33 @@
-"""Regenerate the hand's showcase animation module.
+"""Re-solve the hand's showcase choreography.
 
-The JavaScript written here is generated output, not source: it lands in the
-gitignored ``src/hand_mechanical_candidate_r13_animation.js``, the model reads
-it back through ``lib.embedded_animation`` and passes it to ``@step(animation=)``,
-and it then travels in the STEP metadata the viewer and exporters consume.
+The numbers written here are generated output, not source: they land in the
+ignored ``validation/hand_mechanical_candidate_r13_showcase.json``, and the model
+turns them into its clips through ``lib.showcase_animation`` when it builds --
+the build samples those clips into keyframes in the model's sidecar, which the
+viewer and exporters consume.
 
 The point of this model is that finger motion comes from a cord being spooled in
 a forearm, so an animation that moves the phalanges and leaves the cords behind
 shows the wrong thing. Everything here follows from that:
 
-1. THE TIMELINE LIVES HERE, not in the module. Poses are sampled on one grid and
+1. THE TIMELINE LIVES HERE, not in the clips. Poses are sampled on one grid and
    everything else — routes, payout, body frames — is solved on that same grid,
    so the cords cannot drift out of step with the fingers.
 2. THE ROUTES ARE SOLVED, not approximated. `lib.hand_routing.full_tendon_routes`
    takes a pose and the capstan rotations and returns all 48 posed centerlines,
    asserting its own joins; at pose zero it reproduces `NEUTRAL_ROUTES` to the
-   bit, so it IS the code that owns this geometry. A render module cannot call
-   it — it is Python, and re-deriving routing in JavaScript would fork the one
-   solver — so the solved poses are baked here and the module interpolates
-   between them. Only ~13% of the control numbers move, so a keyframe is small.
+   bit, so it IS the code that owns this geometry. A solve is tens of seconds a
+   pose, far too slow for a build, so the solved poses are stored here and the
+   clips interpolate between them. Only ~13% of the control numbers move, so a
+   keyframe is small.
 3. THE PAYOUT IS THE MECHANISM'S OWN EQUATION. `lib.actuator_payout.solve_rotation`
    solves L_forearm(q) + L_downstream(pose) = L_total(neutral) per tendon: the
    capstan turns exactly enough to keep the cord's total length constant. That
    angle both re-cuts the forearm wrap and turns the spool.
 4. THE ACTUATOR PARTS MOVE BY `lib.actuator_kinematics.actuator_transform`. That
    function is small, fixed, and covered by `check_actuator_kinematics.py`, so
-   the module carries a faithful port of it rather than a baked matrix per part
-   per keyframe; `ACTUATOR_SAMPLES` pins the port against this Python.
+   the clips call it with the stored payout rather than storing a matrix per
+   part per keyframe.
 
 The one thing not solved here is WRIST motion. `full_tendon_routes` needs a
 wrist packet measured for the pose, and that transport solve is the expensive
@@ -51,18 +52,20 @@ ROOT = HERE.parents[0]
 SOURCE = ROOT / 'src'
 sys.path.insert(0, str(SOURCE))
 
-from lib.actuator_kinematics import INPUT_ROLES, OUTPUT_ROLES, actuator_transform  # noqa: E402
+from lib.actuator_kinematics import INPUT_ROLES, OUTPUT_ROLES  # noqa: E402
 from lib.actuator_payout import solve_rotation  # noqa: E402
 from lib.forearm_routing import forearm_route  # noqa: E402
 from lib.hand_routing import full_tendon_routes  # noqa: E402
-from lib.layout import FINGERS, JOINTS, NEUTRAL_FINGER_FAN, TENDONS  # noqa: E402
+from lib.layout import JOINTS, TENDONS  # noqa: E402
 from lib.neutral_routes import NEUTRAL_ROUTES  # noqa: E402
 from lib.path_analysis import path_length  # noqa: E402
+from lib.showcase_animation import data_path  # noqa: E402
 
 # Only the document whose body list this generator reads. A clip's targets are
-# checked against the compiled tree at LOAD — a label the document does not
-# carry is an error, not a silent no-op — and the earlier revisions are
-# different body sets, so they keep the static presentation they already have.
+# checked against the built tree when the model bakes its clips — a label the
+# document does not carry is an error, not a silent no-op — and the earlier
+# revisions are different body sets, so they keep the static presentation they
+# already have (lib.braided_presentation).
 TARGETS = ('hand_mechanical_candidate_r13',)
 
 TENDON_BY_NAME = {tendon['name']: tendon for tendon in TENDONS}
@@ -74,9 +77,10 @@ KEYFRAME_RATE = 4.0
 # Coordinates are rounded to keep a keyframe small. A join survives any rounding
 # — consecutive segments meet at numbers that are EQUAL before it and therefore
 # equal after it — and the tangent turn that rounding would introduce is undone
-# by the module's own seal, which makes the two handles at a join exactly
-# collinear whatever their inputs. So this is set by what the eye needs, not by
-# `compileTubePath`: a micron, on a cord 0.3 mm across.
+# by the clips' own seal (lib.showcase_animation.seal_tangents), which makes the
+# two handles at a join exactly collinear whatever their inputs. So this is set
+# by what the eye needs, not by the tube's continuity check: a micron, on a cord
+# 0.3 mm across.
 COORD_DECIMALS = 3
 
 
@@ -344,7 +348,7 @@ def split_cubic(segment):
 
 # The stored wrap is quarter-turn Beziers plus a partial (capstan_path.stored_path),
 # so its COUNT depends on how much rope is on the drum: twelve at rest, one more
-# as the spool takes rope in. The module rebuilds every keyframe from one
+# as the spool takes rope in. The clips rebuild every keyframe from one
 # template, so the count has to be constant — and it can be, exactly: splitting a
 # cubic at its midpoint reproduces the same curve as two cubics. Every wrap is
 # split up to the most any pose in range needs, which changes no geometry at all.
@@ -372,7 +376,7 @@ def wind_forearm(route, rotation):
     on a model whose whole point is that a motor spools a tendon reads as the
     cord being painted on. `forearm_route` gives the rope actually on the drum
     at that rotation; normalizing the wrap's segment count keeps the shape the
-    module's template expects.
+    clips' template expects.
     """
     forearm = forearm_route(TENDON_BY_NAME[route['name']], rotation)
     groups = [dict(group) for group in forearm['groups']]
@@ -437,10 +441,11 @@ def solve_timeline(times):
     an encoding change costs nothing. The key covers the timeline and every
     routing source, so editing a motion or the solver re-solves.
     """
-    # The routing sources and the timeline, NOT this file: how a solved route is
-    # encoded for the module changed more than once, and re-solving for that
-    # would be nine minutes to reach identical geometry.
-    sources = sorted(SOURCE.glob('lib/*.py'))
+    # The routing sources and the timeline, NOT this file and NOT the playback
+    # that reads its output (lib/showcase_animation.py): how a solved route is
+    # encoded and replayed changed more than once, and re-solving for that would
+    # be nine minutes to reach identical geometry.
+    sources = sorted(path for path in SOURCE.glob('lib/*.py') if path.name != 'showcase_animation.py')
     key = hashlib.sha256(json.dumps({
         'shape': 'groups+payout v2',
         'times': times,
@@ -479,7 +484,7 @@ def solve_timeline(times):
 # A FIXED number of pieces per arc, not one per so many degrees: the drive wrap
 # at a joint sweeps further as the joint moves, so a count derived from the
 # sweep would change the segment count between keyframes — which is exactly what
-# the module's single template cannot absorb. Four pieces hold the widest wrap
+# the clips' single template cannot absorb. Four pieces hold the widest wrap
 # here to a fraction of a micron, well inside the 0.3 mm tendon.
 ARC_PIECES = 4
 
@@ -488,9 +493,9 @@ def arc_to_beziers(segment, pieces=ARC_PIECES):
     """A circular arc as a chain of cubic Beziers.
 
     An arc is center + axis + start + sweep, and NONE of those interpolate: the
-    module blends two solved keyframes number by number, and between two arcs
+    clips blend two solved keyframes number by number, and between two arcs
     whose axes differ by up to 13 degrees the blended start no longer lies in
-    the blended axis's plane — which `compileTubePath` refuses, rightly. A
+    the blended axis's plane — which a tube path refuses, rightly. A
     Bezier carries explicit endpoints instead, and endpoints shared between
     consecutive segments blend to the same place, so the chain stays joined
     whatever the blend does.
@@ -545,26 +550,6 @@ def path_template(path):
 
 # --- emission ---------------------------------------------------------------
 
-def joint_table():
-    return [{'name': j.name, 'parent': j.parent, 'origin': list(j.origin),
-             'axis': list(j.axis), 'limits': list(j.limits), 'system': j.system}
-            for j in JOINTS]
-
-
-def fan_table():
-    return {f.name: {'deg': NEUTRAL_FINGER_FAN[f.name],
-                     'origin': [f.x, f.base_y, 0.],
-                     'parent': 'palm_cup' if f.name == 'little' else 'wrist_flexion'}
-            for f in FINGERS}
-
-
-def tendon_table():
-    """What the module needs to place an actuator part and name a rope."""
-    return [{'name': t['name'], 'joint': t['joint'], 'sign': t['sign'],
-             'center': [t['actuator_center'][0], t['actuator_center'][1], t['sign'] * 4.0]}
-            for t in TENDONS]
-
-
 def actuator_bodies(rows):
     """Body name -> [tendon index, role], for every part a capstan moves.
 
@@ -584,18 +569,6 @@ def actuator_bodies(rows):
             if role in moving or role.startswith('gearbox_planet_'):
                 table[name] = [index, role]
     return table
-
-
-def actuator_samples():
-    """(tendon, role, q) -> the matrix THIS Python produces, to pin the port."""
-    samples = []
-    for index in (0, 17, 47):
-        for role in ('capstan', 'gearbox_sun', 'gearbox_planet_2', 'gearbox_planet_pin_3'):
-            for q in (-1.1, 0.37):
-                matrix = actuator_transform(TENDONS[index], role, q)
-                samples.append({'tendon': index, 'role': role, 'q': q,
-                                'm': [round(float(v), 9) for v in matrix.reshape(-1)]})
-    return samples
 
 
 # The planetary internals: sun, three planets, carrier, spindle, bearings and
@@ -701,7 +674,7 @@ def build(rows):
     moving_guides = sorted({label for placements in guide_motion.values() for label in placements}
                            & set(guide_names))
 
-    # The module reconstructs every keyframe from ONE segment template, so a
+    # The clips reconstruct every keyframe from ONE segment template, so a
     # route whose shape changed under a pose would be silently truncated by the
     # zip below. It is an error instead.
     for time in times:
@@ -739,16 +712,12 @@ def build(rows):
                   for label in moving_guides
                   for value in (guide_motion[time].get(label) or IDENTITY_3X4)],
         })
-    frames, routed = frame_bodies(rows)
+    frames, _routed = frame_bodies(rows)
     return {
-        'joints': joint_table(),
-        'fan': fan_table(),
-        'tendons': tendon_table(),
+        'generator': f'validation/{Path(__file__).name}',
         'actuatorBodies': actuator_bodies(rows),
         'hiddenBodies': hidden_bodies(rows),
-        'actuatorSamples': actuator_samples(),
         'frames': frames,
-        'routed': routed,
         'ropeTemplates': templates,
         'ropeBase': [[round(value, COORD_DECIMALS) for value in numbers] for numbers in base],
         'ropeVarying': varying,
@@ -761,60 +730,28 @@ def build(rows):
 
 
 # The first R13 build only has to write the body-frame manifest this generator
-# reads, so `--placeholder` seeds a module with no clips to build against.
-PLACEHOLDER = (
-    '// Placeholder written by validation/write_showcase_presentation.py --placeholder.\n'
-    '// Run that generator without a flag, after the body-frame manifest exists,\n'
-    '// to replace this with the solved choreography.\n'
-    'export const clips = {};\n'
-)
-
-
-def module_path(name):
-    """The generated module `src/<name>.py` reads through lib.embedded_animation."""
-    return SOURCE / f'{name}_animation.js'
-
-
-def module_text(data, runtime):
-    dumps = lambda value: json.dumps(value, separators=(',', ':'))  # noqa: E731
-    return (
-        '// Generated by validation/write_showcase_presentation.py.\n'
-        '// The timeline, the solved tendon routes and the payout all come from there;\n'
-        '// edit the generator and its showcase_runtime.js, never this file.\n'
-        f'const JOINTS = {dumps(data["joints"])};\n'
-        'const JOINT_BY_NAME = Object.fromEntries(JOINTS.map((j) => [j.name, j]));\n'
-        f'const FAN = {dumps(data["fan"])};\n'
-        f'const FRAME_BODIES = {dumps(data["frames"])};\n'
-        f'const TENDONS = {dumps(data["tendons"])};\n'
-        f'const ACTUATOR_BODIES = {dumps(data["actuatorBodies"])};\n'
-        f'const HIDDEN_BODIES = {dumps(data["hiddenBodies"])};\n'
-        f'const ACTUATOR_SAMPLES = {dumps(data["actuatorSamples"])};\n'
-        f'const ROPE_NAMES = {dumps(data["ropeNames"])};\n'
-        f'const ROPE_NORMALS = {dumps(data["ropeNormals"])};\n'
-        f'const ROPE_TEMPLATES = {dumps(data["ropeTemplates"])};\n'
-        f'const ROPE_BASE = {dumps(data["ropeBase"])};\n'
-        f'const ROPE_VARYING = {dumps(data["ropeVarying"])};\n'
-        f'const GUIDE_BODIES = {dumps(data["guides"])};\n'
-        f'const MOTIONS = {dumps(data["motions"])};\n'
-        f'const KEYFRAMES = {dumps(data["keyframes"])};\n'
-        + runtime
-    )
+# reads, so `--placeholder` seeds an empty timeline: the model builds without
+# clips, and lib.showcase_animation still refuses a missing file outright.
+PLACEHOLDER = {
+    'generator': 'validation/write_showcase_presentation.py --placeholder',
+    'note': 'Run the generator without a flag, after the body-frame manifest exists, '
+            'to replace this with the solved choreography.',
+    'keyframes': [],
+}
 
 
 def main():
     if '--placeholder' in sys.argv[1:]:
         for name in TARGETS:
-            module_path(name).write_text(PLACEHOLDER, encoding='utf-8')
-        print(f'seeded {len(TARGETS)} placeholder animation module(s) for the first build')
+            data_path(name).write_text(json.dumps(PLACEHOLDER, indent=2) + '\n', encoding='utf-8')
+        print(f'seeded {len(TARGETS)} placeholder showcase timeline(s) for the first build')
         return
     rows = json.loads((HERE / 'mechanical_candidate_r13_frames.json').read_text())
-    runtime = (HERE / 'showcase_runtime.js').read_text()
     data = build(rows)
+    text = json.dumps(data, separators=(',', ':'))
     for name in TARGETS:
-        text = module_text(data, runtime)
-        module_path(name).write_text(text, encoding='utf-8')
-        size = len(text)
-    print(f'refreshed {len(TARGETS)} generated animation module(s), {size / 1024:.0f} KB: '
+        data_path(name).write_text(text, encoding='utf-8')
+    print(f'refreshed {len(TARGETS)} solved showcase timeline(s), {len(text) / 1024:.0f} KB: '
           f'{sum(len(v) for v in data["frames"].values())} bodies on {len(data["frames"])} frames, '
           f'{len(data["actuatorBodies"])} actuator parts, {len(data["guides"])} fitted guides, '
           f'{len(data["keyframes"])} keyframes')
