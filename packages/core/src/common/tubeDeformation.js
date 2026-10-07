@@ -1322,14 +1322,14 @@ function preparedMapping(THREE, prepared, deformation, base, gpu) {
 // The HEADLESS half of the deformation, for callers with geometry but no scene.
 //
 // `applyRecordTubeDeformation` below is the display driver: it owns a record, its
-// materials, its edge object and its GPU fallback. The GLB morph bake
-// (lib/export/packageTubeMorph.js) needs exactly the two steps in the middle of
-// that and none of the rest — refine the rest mesh, project it onto the rest
-// centerline, then write one posed shape into buffers it owns. Re-deriving those
-// analytically in the exporter would be a SECOND answer to "where does this vertex
-// go", and the two would agree until the curvature got tight; these call the same
-// prepareRestSurface / mappingFor / updateAttribute the viewer does, share the same
-// restPreparationCache, and so cannot drift from it.
+// materials, its edge object and its GPU fallback. A GLB morph bake needs exactly
+// the two steps in the middle of that and none of the rest — refine the rest mesh,
+// project it onto the rest centerline, then write one posed shape into buffers it
+// owns. These call the same prepareRestSurface / mappingFor / updateAttribute the
+// viewer does. cadgen bakes in Python (cadgen/_internal/tube_deformation.py, the
+// same steps in the same arithmetic), and tubeDeformation.parity.test.js holds this
+// half to the poses that port is held to: a change here that moves a vertex is a
+// change to every exported tube until the port and the fixture follow it.
 
 /** Refine one tube's rest mesh at its band step and map it onto the rest centerline.
  *
