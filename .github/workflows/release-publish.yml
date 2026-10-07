@@ -221,8 +221,12 @@ jobs:
       # The bundle feeds the WHEEL, and it is the only thing that does: cadgen's Node
       # builders, the snapshot browser bundle, the CAD Viewer client, the CAD app and the
       # file tracers are all gitignored, so the release commit carries none of them. Nothing
-      # here writes to git -- the wheel is the release asset.
+      # here writes to git -- the wheel is the release asset. TEXT_TO_CAD_RELEASE names the
+      # version this build releases, so the Viewer and the CAD app it bundles show it as it is;
+      # any other build shows where it came from (`-dev.<commit>`, @text-to-cad/ui/build-id).
       - name: Bundle production outputs
+        env:
+          TEXT_TO_CAD_RELEASE: ${{ needs.gate.outputs.version }}
         run: scripts/bundle/bundle.sh --clean
 
       - name: Validate production bundle layout

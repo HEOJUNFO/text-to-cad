@@ -166,7 +166,10 @@ server and skills run it through `uvx --from <wheel>`: exactly what users get,
 each build its own installation. Install again to see a skill or page edit. A page that changed under a
 running app would change its URI, and hosts drop the frames already showing it,
 which is why each install serves its own copy. A running server keeps the
-Python it started with, so restart the app after a Python-only change.
+Python it started with, so restart the app after a Python-only change. The
+app menu of every view says which build it shows: any build but the release's
+own reads `v<VERSION>-dev.<commit>` (`-dirty` when the checkout had uncommitted
+changes), the commit of the checkout the Viewer or the CAD app was built from.
 `--uninstall` removes a host's install. Its server names its install channel
 `dev` (`CADGEN_INSTALL_CHANNEL`), and a checkout's editable cadgen counts as one
 too: neither is ever offered an update. To see the update button, run a server or
@@ -689,9 +692,12 @@ green: that is the release. `Publish Release`, on the merge commit:
    does the same for both copies of the plugin the install branches get. Then
    `bundle.sh --clean` — which is where cadgen's whole runtime comes into
    existence, snapshot bundle and Viewer client alike, because the release
-   commit carries none of it — `check-builds.sh`, the wheel-contents check,
-   `python -m build`, and an `unzip -l` assertion that the wheel about to ship
-   really holds `_runtime/browser`, `_runtime/viewer` and every
+   commit carries none of it; its `TEXT_TO_CAD_RELEASE` names the version, so
+   the Viewer and the CAD app show `v<VERSION>` where every other build shows
+   `v<VERSION>-dev.<commit>` (`@text-to-cad/ui/build-id`) — `check-builds.sh`,
+   the wheel-contents check, `python -m build`, and an `unzip -l` assertion that
+   the wheel about to ship really holds `_runtime/browser`, `_runtime/viewer`
+   and every
    `_runtime/native` tracer.
 4. **Install test.** The built wheel into a fresh venv — `cadgen --help`,
    `cadgen viewer --help`, `cadgen doctor skills/cad` — then
