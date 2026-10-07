@@ -277,6 +277,23 @@ class BakingTransforms(unittest.TestCase):
                     _worst(own, t, part, lambda p: (10 + (p[0] - 10) * c - p[1] * s, (p[0] - 10) * s + p[1] * c, p[2])),
                     tolerance)
 
+    def test_a_hold_costs_its_two_ends(self) -> None:
+        # An eased lift between two holds, as a teardown moves its parts. The keys that
+        # bound each hold carry no speed, so the curve stays put through the hold, and an
+        # ease between two still keys is the curve itself.
+        def lift(t, m):
+            u = min(1.0, max(0.0, t - 1.0))
+            m.get("#link").translate((0, 0, 8 * u * u * (3 - 2 * u)))
+
+        (track,) = _bake("lift", lift, duration=4)["tracks"]
+        self.assertEqual([0.0, 1.0, 2.0, 4.0], track["times"])
+        tolerance = max(LENGTH_FLOOR, TRANSFORM_TOLERANCE * math.dist(*BOUNDS))
+        for t in (0.5, 0.99, 1.37, 1.8, 2.01, 3.5):
+            u = min(1.0, max(0.0, t - 1.0))
+            z = 8 * u * u * (3 - 2 * u)
+            with self.subTest(t=t):
+                self.assertLessEqual(_worst(track, t, CORNERS, lambda p: (p[0], p[1], p[2] + z)), tolerance)
+
     def test_a_turn_past_ninety_degrees_between_samples_asks_for_a_higher_fps(self) -> None:
         def whirl(t, m):
             m.get("#base").rotate((0, 0, 1), 1000 * t)
