@@ -1373,7 +1373,7 @@ def route_file(pathname: str, prefix: str, root: Path) -> Path:
 # exports do (immutable objects plus index/mesh; codec and key scheme in
 # cadgen/store/meshes.py and packages/core/src/lib/surf/tessellationCache.js).
 # The page cannot touch the filesystem, so the host serves the store: a probe
-# names what exists, GET /__tess_cache/<key>.tess and the batch route read
+# names what exists, GET /__tess_cache/<key>.glb and the batch route read
 # exact objects, and POST /__tess_cache/produce has cadgen mesh, here, any
 # component the probe found missing. The page never tessellates.
 #
@@ -1400,14 +1400,14 @@ def route_file(pathname: str, prefix: str, root: Path) -> Path:
 TESS_CACHE_ROUTE_PREFIX = "/__tess_cache/"
 # The route's safe filename envelope. The store additionally requires the
 # current exact surface-input/algorithm/payload/binary64-tolerance key.
-TESS_CACHE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+_-]*\.tess$")
+TESS_CACHE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+_-]*\.glb$")
 
 
 def _tessellation_cache_key(pathname: str) -> str | None:
     name = str(pathname or "")[len(TESS_CACHE_ROUTE_PREFIX):]
     if not TESS_CACHE_NAME_PATTERN.fullmatch(name) or ".." in name:
         return None
-    return name[:-len(".tess")]
+    return name[:-len(".glb")]
 
 
 def read_tessellation_cache_entry(pathname: str, *, expected_object=None, max_bytes=None) -> bytes | None:
@@ -1523,7 +1523,7 @@ class SnapshotAssetServer:
                     if body is None:
                         self._send(404, b"miss", "text/plain; charset=utf-8")
                         return
-                    self._send(200, body)
+                    self._send(200, body, "model/gltf-binary")
                     return
                 if pathname.startswith(STORE_ASSET_ROUTE_PREFIX):
                     try:

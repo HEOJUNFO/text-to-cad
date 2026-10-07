@@ -857,7 +857,7 @@ export function originPrefix(origin) {
 
 export function createHttpTessellationCacheProvider({
   origin = "",
-  entryUrl = (key) => `${originPrefix(origin)}/__tess_cache/${encodeURIComponent(key)}.tess`,
+  entryUrl = (key) => `${originPrefix(origin)}/__tess_cache/${encodeURIComponent(key)}.glb`,
   probeUrl = `${originPrefix(origin)}/__tess_cache/probe`,
   batchUrl = `${originPrefix(origin)}/__tess_cache/batch`,
   // Only a host that meshes on request serves this route (the snapshot host).

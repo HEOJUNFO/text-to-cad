@@ -846,7 +846,7 @@ class CadApp:
         if status != 200:
             response.send_empty(status)
             return
-        response.send_bytes(200, body, "application/octet-stream")
+        response.send_bytes(200, body, "model/gltf-binary")
 
     def _handle_tess_probe(self, request, response):
         if int(request.headers.get("content-length") or 0) > TESS_CACHE_METADATA_MAX_BYTES:

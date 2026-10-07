@@ -214,7 +214,7 @@ asked for through the surface request, never tessellated in the page.
 | `POST /__cad/shutdown` | Exit: a newer launch replacing this viewer, or `cadgen viewer stop`. Answers 202, then stops and frees the port. |
 | `POST /__cad/surfaces` | Resolve components' exact surfaces, deriving them in the build pool; with `tessellation`, their meshes at those tolerances too. |
 | `POST /__tess_cache/probe` | The stored meshes' index records, for keys. |
-| `GET /__tess_cache/<key>.tess` | Read a stored mesh (POST answers 405: cadgen writes every mesh). |
+| `GET /__tess_cache/<key>.glb` | Read a stored mesh, a GLB body (POST answers 405: cadgen writes every mesh). |
 | `POST /__tess_cache/batch` | Read a batch of stored meshes in a TESB container. |
 
 Every POST must send `x-cadgen-viewer: 1`. The custom header forces a browser

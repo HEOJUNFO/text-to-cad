@@ -82,47 +82,49 @@ class TessCacheTestCase(unittest.TestCase):
 
 class NameValidation(TessCacheTestCase):
     def test_the_canonical_key_is_accepted(self):
-        self.assertEqual(tess_cache_key_from_route_path(self.route(f"{GOOD_KEY}.tess")), GOOD_KEY)
+        self.assertEqual(tess_cache_key_from_route_path(self.route(f"{GOOD_KEY}.glb")), GOOD_KEY)
 
     def test_traversal_separators_hidden_names_and_spaces_are_refused(self):
         # The cache lives outside every folder a file is served from, so containment
         # cannot help here: this pattern is the whole defence.
         for name in (
-            "../escape.tess",
-            "sub/dir.tess",
-            "%2e%2e%2fescape.tess",
-            "..%2Fescape.tess",
-            ".hidden.tess",
+            "../escape.glb",
+            "sub/dir.glb",
+            "%2e%2e%2fescape.glb",
+            "..%2Fescape.glb",
+            ".hidden.glb",
             "noext",
             "",
-            "a b.tess",
-            "a..b.tess",
+            "a b.glb",
+            "a..b.glb",
             "batch",
         ):
             with self.subTest(name=name):
                 self.assertIsNone(tess_cache_key_from_route_path(self.route(name)))
 
     def test_a_malformed_percent_escape_is_a_refusal_not_a_crash(self):
-        for name in ("%zz.tess", "%.tess", "%2.tess", "%C0%AF.tess", "%ED%A0%80.tess"):
+        for name in ("%zz.glb", "%.glb", "%2.glb", "%C0%AF.glb", "%ED%A0%80.glb"):
             with self.subTest(name=name):
                 self.assertIsNone(tess_cache_key_from_route_path(self.route(name)))
 
     def test_a_trailing_newline_does_not_sneak_past_the_anchor(self):
         # Python's `$` also matches before a trailing newline; JavaScript's does
         # not. fullmatch is what keeps the two the same.
-        self.assertIsNone(tess_cache_key_from_route_path(self.route("a.tess%0A")))
+        self.assertIsNone(tess_cache_key_from_route_path(self.route("a.glb%0A")))
 
 
 class StoreRoundTrip(TessCacheTestCase):
     def test_a_stored_mesh_reads_back_exactly(self):
         meshes.write(GOOD_KEY, PAYLOAD)
-        status, body = read_tess_cache_entry(self.route(f"{GOOD_KEY}.tess"))
+        status, body = read_tess_cache_entry(self.route(f"{GOOD_KEY}.glb"))
         self.assertEqual(status, 200)
         self.assertEqual(body, PAYLOAD)
 
     def test_a_miss_is_404_and_a_refused_name_is_403(self):
-        self.assertEqual(read_tess_cache_entry(self.route("absent-t1.tess"))[0], 404)
-        self.assertEqual(read_tess_cache_entry(self.route("../escape.tess"))[0], 403)
+        self.assertEqual(read_tess_cache_entry(self.route("absent-t1.glb"))[0], 404)
+        self.assertEqual(read_tess_cache_entry(self.route("../escape.glb"))[0], 403)
+        meshes.write(GOOD_KEY, PAYLOAD)
+        self.assertEqual(read_tess_cache_entry(self.route(f"{GOOD_KEY}.tess"))[0], 403, "a mesh is a GLB body")
 
     def test_a_mesh_is_indexed_by_its_key_itself(self):
         meshes.write(GOOD_KEY, PAYLOAD)

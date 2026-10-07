@@ -131,7 +131,7 @@ class HostGate(HttpLayerTestCase):
         self.assertIn(b"'evil.example'", body)
 
     def test_the_gate_covers_every_route(self):
-        for path in ("/", "/assets/app.js", "/__cad/catalog", "/__tess_cache/a.tess", "/__cad/nope"):
+        for path in ("/", "/assets/app.js", "/__cad/catalog", "/__tess_cache/a.glb", "/__cad/nope"):
             with self.subTest(path=path):
                 status, _, _ = self.fixture.request("GET", path, headers={"Host": "attacker.example"})
                 self.assertEqual(status, 403)
@@ -710,7 +710,7 @@ class EveryRouteAnswersForReal(HttpLayerTestCase):
             with self.subTest(object_hash=object_hash, limit=limit), mock.patch(
                 "cadgen.viewer.http_app.read_tess_cache_entry", side_effect=AssertionError("unadmitted cache read"),
             ):
-                status, _, _ = self.fixture.request("GET", f"/__tess_cache/a.tess?{query}")
+                status, _, _ = self.fixture.request("GET", f"/__tess_cache/a.glb?{query}")
             self.assertEqual(status, 400)
 
     def test_tess_get_uses_the_probed_object_and_byte_limit(self):
@@ -727,11 +727,12 @@ class EveryRouteAnswersForReal(HttpLayerTestCase):
                                                  body=json.dumps({"tessellationInputs": [fixture["key"]]}).encode())
             self.assertEqual(status, 200)
             self.assertEqual(json.loads(body)["entries"][fixture["key"]], row)
-            route = f"/__tess_cache/{fixture['key']}.tess?object={row['object']}&maxBytes={row['byteLength']}"
-            status, _, body = self.fixture.request("GET", route)
+            route = f"/__tess_cache/{fixture['key']}.glb?object={row['object']}&maxBytes={row['byteLength']}"
+            status, headers, body = self.fixture.request("GET", route)
             self.assertEqual((status, body), (200, payload))
+            self.assertEqual({name.lower(): value for name, value in headers.items()}.get("content-type"), "model/gltf-binary")
             # cadgen writes every mesh: a client's write is refused, and changes nothing.
-            status, headers, _ = self.fixture.request("POST", f"/__tess_cache/{fixture['key']}.tess",
+            status, headers, _ = self.fixture.request("POST", f"/__tess_cache/{fixture['key']}.glb",
                                                       headers={"x-cadgen-viewer": "1"}, body=payload)
             self.assertEqual(status, 405)
             self.assertEqual(meshes.probe(fixture["key"]), row)
@@ -748,7 +749,7 @@ class EveryRouteAnswersForReal(HttpLayerTestCase):
             ("POST", "/__cad/artifact?file=x.step", {"x-cadgen-viewer": "1"}),
             ("GET", "/__cad/asset?file=/x.step", {}),
             ("GET", "/__cad/store?file=x", {}),
-            ("GET", "/__tess_cache/a.tess", {}),
+            ("GET", "/__tess_cache/a.glb", {}),
         ]:
             with self.subTest(method=method, path=path):
                 _, _, body = self.fixture.request(method, path, headers=headers)

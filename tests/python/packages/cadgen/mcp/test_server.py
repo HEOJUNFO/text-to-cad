@@ -539,7 +539,7 @@ class TunnelBoundTest(_Session):
             from cadgen.store import meshes
 
             meshes.write(fixture["key"], body)
-            whole, sizes, etags = self.read(f"http://cad.invalid/__tess_cache/{fixture['key']}.tess?object={digest}&maxBytes={len(body)}", part=256)
+            whole, sizes, etags = self.read(f"http://cad.invalid/__tess_cache/{fixture['key']}.glb?object={digest}&maxBytes={len(body)}", part=256)
         self.assertEqual((whole, etags), (body, {f'"{digest}"'}))
         self.assertGreaterEqual(len(sizes), 3)
 
@@ -585,7 +585,7 @@ class TunnelBodyTest(unittest.TestCase):
         self.assertEqual(int(reply["headers"]["content-length"]), len(written))
         self.assertLess(len(reply["body"]), len(base64.b64encode(written)) // 4)
         for path, method, body in (("/__cad/preview", "GET", b'{"state":"idle"}'),
-                                   ("/__tess_cache/a.tess", "GET", binary), ("/__cad/catalog", "HEAD", b"")):
+                                   ("/__tess_cache/a.glb", "GET", binary), ("/__cad/catalog", "HEAD", b"")):
             reply = call(path, method)
             self.assertNotIn("encoding", reply)
             self.assertEqual(base64.b64decode(reply["body"]), body)

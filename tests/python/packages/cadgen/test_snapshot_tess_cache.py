@@ -26,7 +26,7 @@ from tests.python.support.tmp_root import generated_cad_directory
 
 FIXTURE = tessellation_fixture()
 PAYLOAD = base64.b64decode(FIXTURE["bytes"])
-NAME = FIXTURE["key"] + ".tess"
+NAME = FIXTURE["key"] + ".glb"
 ADMITTED = {"tessellationInput": FIXTURE["key"], "object": FIXTURE["facts"]["object"], "maxBytes": len(PAYLOAD)}
 ADMISSION_QUERY = f"?object={ADMITTED['object']}&maxBytes={ADMITTED['maxBytes']}"
 

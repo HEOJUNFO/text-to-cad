@@ -395,8 +395,8 @@ export async function serveStepHarness(t, { onRequest, progressive = false, sing
       meshes.batch(response, entries);
       return;
     }
-    if (request.method === 'GET' && url.pathname.endsWith('.tess')) {
-      const key = decodeURIComponent(url.pathname.split('/__tess_cache/')[1].slice(0, -'.tess'.length));
+    if (request.method === 'GET' && url.pathname.endsWith('.glb')) {
+      const key = decodeURIComponent(url.pathname.split('/__tess_cache/')[1].slice(0, -'.glb'.length));
       // A cold component's display waits on its mesh, so that is the body a staged batch holds:
       // by INPUT, as identical components share one mesh's geometry.
       const gate = fixture.heldInputs?.get(key.slice(0, 64));

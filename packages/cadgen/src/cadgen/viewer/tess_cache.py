@@ -26,8 +26,8 @@ __all__ = [
 TESS_CACHE_ROUTE_PREFIX = "/__tess_cache/"
 TESS_CACHE_BATCH_PATH = "/__tess_cache/batch"
 TESS_CACHE_PROBE_PATH = "/__tess_cache/probe"
-_TESS_CACHE_NAME_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+_-]*\.tess")
-_TESS_SUFFIX = ".tess"
+_TESS_CACHE_NAME_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+_-]*\.glb")
+_MESH_SUFFIX = ".glb"
 
 
 def tess_cache_key_from_route_path(pathname) -> str | None:
@@ -39,7 +39,7 @@ def tess_cache_key_from_route_path(pathname) -> str | None:
         return None
     if not _TESS_CACHE_NAME_PATTERN.fullmatch(name) or ".." in name:
         return None
-    return name[:-len(_TESS_SUFFIX)]
+    return name[:-len(_MESH_SUFFIX)]
 
 
 def read_tess_cache_entry(
