@@ -59,6 +59,11 @@ dependencies = [
   # import packages cadgen does not depend on -- and the drawing IS the PDF, so
   # neither is optional.
   "matplotlib",
+  # cadgen's meshes are numpy arrays end to end: the mesher packs OCCT's
+  # triangulation into TESS bodies, and the STL/3MF/GLB writers read them back
+  # (_internal/occt_mesh.py, _internal/mesh_formats.py). build123d requires
+  # numpy 2 already; cadgen names the same range because it imports numpy itself.
+  "numpy>=2,<3",
   "pillow",
   # Snapshots render in a headless browser that Playwright drives. A dependency of every
   # install, not an extra: the CAD plugin's server and every skill run one requirement,
