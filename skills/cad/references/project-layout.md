@@ -196,9 +196,18 @@ reproducible outputs and scratch files. Keep pinned fixtures or deliverables
 when the project requires them; kernel upgrades can change bytes without
 changing geometry.
 
+Ignore every sidecar (`<name>.step.json`) by default, wherever it sits: each
+one is rebuilt by its model script, or by the `cadgen step build` command that
+annotated an imported STEP, so keep that command and any `--kinematics` or
+`--materials` JSON it reads instead. Baked animation keyframes can run a
+sidecar to hundreds of kilobytes. A STEP committed as a pinned deliverable
+carries its kinematics, materials and animation in its sidecar, so commit the
+two together.
+
 Example ignore patterns for that default:
 
 ```gitignore
+*.step.json
 /STEP/*
 !/STEP/imported/
 /DXF/*

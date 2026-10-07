@@ -143,7 +143,6 @@ entries to the relevant files or formats, for example:
 
 ```gitattributes
 STEP/imported/** filter=lfs diff=lfs merge=lfs -text
-*.step.json text
 ```
 
 Configure Git LFS before adding files covered by those rules. A file starting with

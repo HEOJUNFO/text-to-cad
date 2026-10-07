@@ -80,6 +80,11 @@ python src/bracket.py
 
 - Edit the model source when it exists, then run it to regenerate its outputs.
   Document export and snapshot commands take saved files and never run source.
+- A STEP's sidecar (`<name>.step.json`: kinematics, materials and baked
+  animation keyframes) is a build output, rewritten by every run. Gitignore
+  sidecars by default (`*.step.json`, beside imported STEPs too) and keep what
+  rebuilds them: the model script, or the `cadgen step build` command and JSON
+  inputs that annotated an imported STEP.
 - Keep meaningful dimensions explicit. Use millimeters and XY/+Z unless the
   task or project specifies another convention; choose a useful functional datum.
   Prefer closed, positive-volume solids for physical parts, while honoring
