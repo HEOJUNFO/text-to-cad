@@ -12,8 +12,12 @@ exports all draw these same bytes.
 Face and edge ordinals are ``TopExp.MapShapes`` order on the unlocated
 component -- the order its SURF index and every selector use -- and the SURF
 index supplies what the triangles do not: each face's intrinsic colour and
-each edge's display class. A face with area that does not mesh is an error,
-never a hole (README law 10).
+each edge's display class. OCCT's mesher drops the odd tiny face at one
+deflection and meshes it at the next, so a face left without triangles is
+meshed again on its own, at nearby deflections in a fixed order; its
+neighbours' triangles stay as they were. One that still has none is an error
+(README law 10) unless it is smaller than the mesh can resolve -- its area under
+the square of the chord tolerance, inside the error every triangle may carry.
 
 The arrays leave OCCT through its own glTF writer (``RWGltf_CafWriter``, one
 primitive per face), not one Python call per vertex: that is what keeps a large
@@ -36,9 +40,9 @@ import numpy as np
 # Two points closer than this, relative to the component's diagonal, are one
 # point: the floor under the scale of a component with no extent.
 _SCALE_FLOOR = 1e-6
-# A face whose exact area is below this fraction of the diagonal squared may
-# legitimately produce no triangles; anything larger must mesh.
-_NEGLIGIBLE_AREA = 1e-12
+# The deflections, as multiples of the component's, at which a face the mesher
+# left empty is meshed again on its own: the first that triangulates it wins.
+_RETRY_SCALES = (0.5, 0.25, 2.0)
 
 
 class MeshProductionError(ValueError):
@@ -67,6 +71,30 @@ def _maps(topods):
     TopExp.MapShapes_s(topods, TopAbs_FACE, faces)
     TopExp.MapShapes_s(topods, TopAbs_EDGE, edges)
     return faces, edges
+
+
+def _untriangulated(face_map) -> list[int]:
+    from OCP.BRep import BRep_Tool
+    from OCP.TopLoc import TopLoc_Location
+    from OCP.TopoDS import TopoDS
+
+    return [ordinal for ordinal in range(1, face_map.Extent() + 1)
+            if BRep_Tool.Triangulation_s(TopoDS.Face_s(face_map.FindKey(ordinal)), TopLoc_Location()) is None]
+
+
+def _mesh_alone(face_map, ordinals: list[int], deflection: float, angle: float) -> None:
+    """Mesh each face the component's pass left empty on its own, at the retry deflections."""
+    from OCP.BRep import BRep_Tool
+    from OCP.BRepMesh import BRepMesh_IncrementalMesh
+    from OCP.TopLoc import TopLoc_Location
+    from OCP.TopoDS import TopoDS
+
+    for ordinal in ordinals:
+        face = TopoDS.Face_s(face_map.FindKey(ordinal))
+        for scale in _RETRY_SCALES:
+            BRepMesh_IncrementalMesh(face, deflection * scale, False, angle, False)
+            if BRep_Tool.Triangulation_s(face, TopLoc_Location()) is not None:
+                break
 
 
 def _triangulated_faces(topods, face_map) -> list[tuple[int, Any, Any, Any]]:
@@ -248,12 +276,15 @@ def mesh_component(topods, surf_index: dict, *, surface_input: str, surface_obje
     diagonal = _bounding_diagonal(topods)
     deflection = chord * diagonal
     BRepMesh_IncrementalMesh(topods, deflection, False, angle, True)
+    empty = _untriangulated(face_map)
+    if empty:
+        _mesh_alone(face_map, empty, deflection, angle)
     triangulated = _triangulated_faces(topods, face_map)
     faces = (_faces_from_gltf(topods, triangulated) if triangulated else {})
     if faces is None:
         faces = _faces_one_by_one(triangulated)
     unmeshed = [row["ord"] for row in surf_faces
-                if row["ord"] not in faces and float(row.get("area") or 0.0) > _NEGLIGIBLE_AREA * diagonal * diagonal]
+                if row["ord"] not in faces and float(row.get("area") or 0.0) >= deflection * deflection]
     if unmeshed:
         listed = ", ".join(f"f{ordinal}" for ordinal in unmeshed[:8]) + (", ..." if len(unmeshed) > 8 else "")
         raise MeshProductionError(f"OCCT did not mesh {len(unmeshed)} face(s) of the component: {listed}")

@@ -231,11 +231,15 @@ def produce_meshes(keys: list[str], *, keep_going: Callable[[], bool] | None = N
     A key names its surface input, and the surface record that input indexes
     names the BREP it was derived from: all meshing needs, with no tree. A key
     whose surface the store does not hold (never derived, or reclaimed), or
-    that asks for tolerances finer than any request may, answers None.
+    that asks for tolerances finer than any request may, answers None. A key
+    whose component fails to mesh is reported (``MeshProductionError``) once every
+    other key is done.
     """
+    from cadgen._internal.occt_mesh import MeshProductionError
     from cadgen.store import meshes
 
     result: dict[str, dict | None] = {}
+    unmeshed: list[str] = []
     for key in keys:
         record = meshes.probe(key)
         parsed = meshes.parse_key(key) if record is None else None
@@ -248,10 +252,15 @@ def produce_meshes(keys: list[str], *, keep_going: Callable[[], bool] | None = N
             except (OSError, ValueError, TypeError, KeyError, struct.error):
                 surface = None
             if surface is not None:
-                if not _derive_meshes(_geometry_entry(surface), surface, [(chord, angle)], keep_going):
-                    break
+                try:
+                    if not _derive_meshes(_geometry_entry(surface), surface, [(chord, angle)], keep_going):
+                        break
+                except MeshProductionError as error:
+                    unmeshed.append(f"component {surface['component'][:16]}: {error}")
                 record = meshes.probe(key)
         result[key] = record
+    if unmeshed:
+        raise MeshProductionError("; ".join(unmeshed))
     return result
 
 
@@ -266,7 +275,8 @@ def derive(tree_hash: str, cids: list[str] | None = None, *, force: bool = False
 
     ``keep_going``, when given, is asked before each extraction and each mesh: False stops
     there, and the result holds the components done so far (a daemon worker asks whether
-    anyone still wants its job, ``daemon/worker.py``).
+    anyone still wants its job, ``daemon/worker.py``). A component whose mesh fails does
+    not stop the others: they are stored, then ``MeshProductionError`` names each failure.
     """
     tessellations = normalize_tessellations(tessellations)
     from cadgen.store.trees import capture_tree as capture
@@ -286,7 +296,9 @@ def derive(tree_hash: str, cids: list[str] | None = None, *, force: bool = False
     requested = list(descriptor["components"]) if cids is None else list(dict.fromkeys(cids))
     if any(cid not in descriptor["components"] for cid in requested):
         raise ValueError("surface request names an unpinned component")
-    result = {}
+    from cadgen._internal.occt_mesh import MeshProductionError
+
+    result, unmeshed = {}, []
     for cid in requested:
         entry = descriptor["components"][cid]
         expected = _expected(entry, producer)
@@ -317,9 +329,18 @@ def derive(tree_hash: str, cids: list[str] | None = None, *, force: bool = False
         # A hit is a read and writes nothing (STORE.md §8).
         if actual != prior:
             write_entry("surface", expected["surfaceInput"], actual)
-        if tessellations and not _derive_meshes(entry, actual, tessellations, keep_going):
+        try:
+            meshed = not tessellations or _derive_meshes(entry, actual, tessellations, keep_going)
+        except MeshProductionError as error:
+            # One component's mesh failing leaves the rest of the request to be done:
+            # they are stored before the failure is reported, so a retry finds them.
+            unmeshed.append(f"component {cid}: {error}")
+            continue
+        if not meshed:
             break
         result[cid] = actual
+    if unmeshed:
+        raise MeshProductionError("; ".join(unmeshed))
     return result
 
 
