@@ -30,7 +30,11 @@ TESS_VERSION = 5
 TESSELLATOR_VERSION = 10
 MESH_INDEX_SCHEMA = 1
 MAX_INDEX_BYTES = 16 * 1024
-MAX_HEADER_BYTES = 4 * 1024 * 1024
+# The header names every face and edge (about 165 bytes a face of a triangulated
+# body), so this bound is the largest component cadgen can mesh: 4 MiB stopped
+# at about 25,000 faces, which an STL-derived STEP body passes; 64 MiB holds
+# about 390,000. tessellationCache.js TESS_MAX_HEADER_BYTES is the same number.
+MAX_HEADER_BYTES = 64 * 1024 * 1024
 MAX_SAFE_INTEGER = 2**53 - 1
 DEFAULT_CHORD = 0.0015
 DEFAULT_ANGLE = 0.35
@@ -193,6 +197,14 @@ def parse_key(key: Any) -> tuple[str, float, float] | None:
     match = _KEY.fullmatch(key)
     return (match[1], struct.unpack(">d", bytes.fromhex(match[2]))[0],
             struct.unpack(">d", bytes.fromhex(match[3]))[0])
+
+
+def meshable_key(key: Any) -> tuple[str, float, float] | None:
+    """``parse_key`` for a key anything may ask to have meshed: its tolerances no
+    finer than ``MIN_CHORD``/``MIN_ANGLE``, as ``normalize_tessellations`` holds a
+    request's. None for anything else, a valid key finer than that included."""
+    parsed = parse_key(key)
+    return parsed if parsed is not None and parsed[1] >= MIN_CHORD and parsed[2] >= MIN_ANGLE else None
 
 
 def valid_key(key: Any) -> bool:

@@ -186,9 +186,13 @@ class ArtifactRequests(unittest.TestCase):
                          artifacts.request_key({"kind": "meshes", "keys": keys[::-1]}), "an order splits no request")
         older = keys[0].replace(f"-t{TESSELLATOR_VERSION}-", f"-t{TESSELLATOR_VERSION - 1}-")
         crowd = [tessellation_key(f"{n:064x}") for n in range(artifacts.MESH_KEYS_MAX + 1)]
+        # Finer than any request may ask to have meshed: refused where it enters, as a
+        # surfaces request's tessellations are.
+        too_fine = [tessellation_key("3" * 64, 1e-6, 0.35), tessellation_key("3" * 64, 1.5e-3, 1e-3)]
         for request in ({"kind": "meshes"}, {"kind": "meshes", "keys": []}, {"kind": "meshes", "keys": keys * 2},
                         {"kind": "meshes", "keys": keys, "tree": "a" * 64}, {"kind": "meshes", "keys": [older]},
-                        {"kind": "meshes", "keys": ["../escape"]}, {"kind": "meshes", "keys": crowd}):
+                        {"kind": "meshes", "keys": ["../escape"]}, {"kind": "meshes", "keys": crowd},
+                        *({"kind": "meshes", "keys": [*keys, key]} for key in too_fine)):
             with self.subTest(request=request), self.assertRaises(ValueError):
                 artifacts.normalize_request(request)
 

@@ -63,6 +63,30 @@ class MeshStoreContract(unittest.TestCase):
         self.assertEqual(meshes.read(self.key, expected_object=row["object"], max_bytes=row["byteLength"]), self.payload)
         self.assertEqual(set(path.name for path in self.store.iterdir()), {"objects", "index"})
 
+    def test_a_body_of_tens_of_thousands_of_faces_is_stored_and_read_on_both_sides(self):
+        # The header names every face and edge. A triangulated (STL-derived) body of
+        # 30,000 faces and 45,000 edges needs about 4.3 MiB of it: past the bound that
+        # once refused such a component, inside the one both sides share now.
+        from tests.python.support.tessellation import js_reader
+
+        faces, edges = 30_000, 45_000
+        key = meshes.tessellation_key("2" * 64)
+        payload = meshes.encode_payload(
+            surface_input="2" * 64, surface_object="b" * 64, chord=meshes.DEFAULT_CHORD, angle=meshes.DEFAULT_ANGLE,
+            positions=bytes(36 * faces), normals=bytes(36 * faces), face_ords=bytes(12 * faces),
+            indices=bytes(12 * faces),
+            face_ranges=[{"ord": n, "indexStart": 3 * (n - 1), "indexCount": 3} for n in range(1, faces + 1)],
+            edges=[(n, "feature", bytes(24)) for n in range(1, edges + 1)],
+            edge_classes=[[n, "feature"] for n in range(1, edges + 1)],
+            bounds={"min": [0, 0, 0], "max": [1, 1, 1]}, scale=1.0,
+        )
+        self.assertGreater(struct.unpack_from("<I", payload, 8)[0], 4 * 1024 * 1024)
+        row = meshes.write(key, payload)
+        self.assertEqual(meshes.read(key, expected_object=row["object"], max_bytes=row["byteLength"]), payload)
+        [[facts, decodes]] = js_reader([payload])
+        self.assertTrue(decodes, "the client draws it")
+        self.assertEqual(facts["decodedBytes"], row["decodedBytes"], "and admits it at the size cadgen recorded")
+
     def test_probe_never_reads_a_tessellation_body_or_surface(self):
         row = meshes.write(self.key, self.payload)
         original_open = Path.open

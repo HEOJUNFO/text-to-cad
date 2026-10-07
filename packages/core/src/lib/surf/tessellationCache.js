@@ -26,7 +26,10 @@ export const TESS_CACHE_VERSION = 5;
 export const TESSELLATION_VERSION = 10;
 export const TESS_MESH_INDEX_SCHEMA = 1;
 export const TESS_MAX_INDEX_BYTES = 16 * 1024;
-export const TESS_MAX_HEADER_BYTES = 4 * 1024 * 1024;
+// The header names every face and edge, so this is the largest component that
+// can be drawn (about 390,000 triangle faces): cadgen/store/meshes.py
+// MAX_HEADER_BYTES, the same number.
+export const TESS_MAX_HEADER_BYTES = 64 * 1024 * 1024;
 // The tolerances an empty request means (cadgen/store/meshes.py DEFAULT_CHORD
 // and DEFAULT_ANGLE): chord RELATIVE to the component's bounding diagonal,
 // angle in radians.

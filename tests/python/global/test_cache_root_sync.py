@@ -68,6 +68,22 @@ class MeshStoreContractSyncTest(unittest.TestCase):
             "(cadgen/store/meshes.py) — change both together",
         )
 
+    def test_header_bound_matches_between_python_and_js(self) -> None:
+        # The header names every face and edge, so its bound is the largest
+        # component either side takes: a body cadgen stores and the client
+        # refuses is a component the Viewer can never draw.
+        from cadgen.store.meshes import MAX_HEADER_BYTES
+
+        source = TESSELLATION_CACHE_JS.read_text(encoding="utf-8")
+        match = re.search(r"^export const TESS_MAX_HEADER_BYTES = (\d+) \* 1024 \* 1024;", source, re.MULTILINE)
+        assert match, "TESS_MAX_HEADER_BYTES not found in tessellationCache.js"
+        self.assertEqual(
+            int(match.group(1)) * 1024 * 1024,
+            MAX_HEADER_BYTES,
+            "TESS_MAX_HEADER_BYTES (tessellationCache.js) diverged from MAX_HEADER_BYTES "
+            "(cadgen/store/meshes.py) — change both together",
+        )
+
     def test_key_scheme_carries_the_version_salt(self) -> None:
         # Policy: the key must salt the algorithm version. Grep-level pin so a
         # JS-side refactor cannot drop it without failing a Python-side gate.

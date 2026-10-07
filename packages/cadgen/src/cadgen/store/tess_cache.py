@@ -117,17 +117,26 @@ def produce_tess_cache(body: bytes | None) -> dict | None:
     keys dealt across the pool (``artifacts.deal``), so a host that serves
     this -- the snapshot host -- never imports the kernel itself. A key whose
     surface the store does not hold, or that asks for finer than anything may be
-    meshed, stays missing. A component that fails to mesh fails the request once
-    every other key is done (``artifacts.resolve_artifacts``).
+    meshed, stays missing, and is never dealt: no job, or worker, starts for it.
+    A component that fails to mesh fails the request once every other key is done
+    (``artifacts.resolve_artifacts``).
     """
     from cadgen.daemon.artifacts import MESHES_PER_STARTED_WORKER, deal, resolve_artifacts
-    from cadgen.store.meshes import probe, valid_key
+    from cadgen.store.index import read_entry
+    from cadgen.store.meshes import meshable_key, probe
 
     inputs = _request_items(body, "tessellationInputs")
     if inputs is None or any(type(key) is not str for key in inputs):
         return None
     rows = {key: probe(key) for key in dict.fromkeys(inputs)}
-    missing = [key for key, row in rows.items() if row is None and valid_key(key)]
+
+    def meshable(key):
+        # The surface entry's presence, not its validity: the job verifies the
+        # record before it meshes, and a damaged one stays missing there.
+        parsed = meshable_key(key)
+        return parsed is not None and read_entry("surface", parsed[0]) is not None
+
+    missing = [key for key, row in rows.items() if row is None and meshable(key)]
     if missing:
         resolve_artifacts([{"kind": "meshes", "keys": keys}
                            for keys in deal(missing, per_started_worker=MESHES_PER_STARTED_WORKER)])

@@ -114,21 +114,39 @@ class ARequestOutlivesOneComponent(unittest.TestCase):
             real, failed = occt_mesh.mesh_component, []
 
             def mesher(topods, index, *, surface_input, **options):
-                if not failed:
-                    failed.append(surface_input)
-                    raise occt_mesh.MeshProductionError("OCCT did not mesh 1 face(s) of the component: f1")
+                # Whatever fails, not only OCCT's own refusal: the first component meshed fails
+                # every time as a body too large for its header once did, in its encoding.
+                if failed in ([], [surface_input]):
+                    failed[:] = [surface_input]
+                    raise ValueError("invalid tessellation header length")
                 return real(topods, index, surface_input=surface_input, **options)
 
             producer = surfaces.producer_identity()
+            named = r"^component [0-9a-f]{16}: ValueError: invalid tessellation header length$"
             with mock.patch.object(occt_mesh, "mesh_component", side_effect=mesher), \
-                    self.assertRaisesRegex(occt_mesh.MeshProductionError, r"^component [0-9a-f]{16}: OCCT did not mesh"):
+                    self.assertRaisesRegex(occt_mesh.MeshProductionError, named):
                 surfaces.derive(tree, producer=producer,
                                 tessellations=[{"chordTolerance": CHORD, "angleTolerance": ANGLE}])
             inputs = [surfaces.lookup(entry, producer)["surfaceInput"] for entry in geometry["components"].values()]
-            stored = {surface_input: meshes.probe(meshes.tessellation_key(surface_input, CHORD, ANGLE)) is not None
-                      for surface_input in inputs}
-            self.assertEqual(stored, {surface_input: surface_input != failed[0] for surface_input in inputs},
+            others = {surface_input: surface_input != failed[0] for surface_input in inputs}
+
+            def stored(chord, angle):
+                return {surface_input: meshes.probe(meshes.tessellation_key(surface_input, chord, angle)) is not None
+                        for surface_input in inputs}
+
+            self.assertEqual(stored(CHORD, ANGLE), others,
                              "the other component was meshed and stored before the failure was reported")
+            # A request that names mesh keys, as the snapshot host's does, outlives it the same way.
+            keys = sorted((meshes.tessellation_key(surface_input, 5e-4, ANGLE) for surface_input in inputs),
+                          key=lambda key: not key.startswith(failed[0]))
+            with mock.patch.object(occt_mesh, "mesh_component", side_effect=mesher), \
+                    self.assertRaisesRegex(occt_mesh.MeshProductionError, named):
+                surfaces.produce_meshes(keys)
+            self.assertEqual(stored(5e-4, ANGLE), others)
+            # An interrupt is not a component's failure.
+            with mock.patch.object(occt_mesh, "mesh_component", side_effect=KeyboardInterrupt), \
+                    self.assertRaises(KeyboardInterrupt):
+                surfaces.produce_meshes([meshes.tessellation_key(failed[0], 2e-3, 1.4)])
 
 
 if __name__ == "__main__":

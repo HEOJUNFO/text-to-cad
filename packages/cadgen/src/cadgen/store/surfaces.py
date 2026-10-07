@@ -1,6 +1,7 @@
 """Artifact-only surface derivation from captured immutable geometry inputs."""
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import struct
@@ -218,9 +219,26 @@ def mesh_records(entry: dict, producer: dict, tessellations) -> dict[str, dict |
             (meshes.tessellation_key(surface_key, chord, angle) for chord, angle in normalize_tessellations(tessellations))}
 
 
+@contextlib.contextmanager
+def _meshing():
+    """Whatever fails inside, as the ``MeshProductionError`` that names it (its type
+    and message): one component's failure, which its caller reports once the rest
+    of the request is stored. An interrupt is not one."""
+    from cadgen._internal.occt_mesh import MeshProductionError
+
+    try:
+        yield
+    except Exception as error:  # noqa: BLE001 - the error is the component's, reported by name
+        raise MeshProductionError(f"{type(error).__name__}: {error}") from error
+
+
 def _derive_meshes(entry: dict, surface: dict, tessellations: list[tuple[float, float]],
                    keep_going: Callable[[], bool] | None) -> bool:
-    """Mesh one component at each missing tessellation; False when told to stop."""
+    """Mesh one component at each missing tessellation; False when told to stop.
+
+    Any failure to mesh it -- reading its SURF or BREP, OCCT, the body's encoding,
+    its write -- is a ``MeshProductionError`` (``_meshing``); ``keep_going``'s stop
+    is not a failure, and its own error is the job's."""
     from cadgen._internal.component_package import decode_display_shape
     from cadgen._internal.occt_mesh import mesh_component
     from cadgen._internal.surface_extract import read_surf
@@ -231,17 +249,19 @@ def _derive_meshes(entry: dict, surface: dict, tessellations: list[tuple[float, 
                if meshes.probe(meshes.tessellation_key(surface_key, chord, angle)) is None]
     if not missing:
         return True
-    index, _floats = read_surf(read_verified_object(surface["object"]))
-    payload = read_verified_object(entry["brep"])
+    with _meshing():
+        index, _floats = read_surf(read_verified_object(surface["object"]))
+        payload = read_verified_object(entry["brep"])
     for chord, angle in missing:
         if keep_going is not None and not keep_going():
             return False
-        # Meshing stores its triangulation on the shape: each tessellation meshes
-        # a fresh private decode, so no level depends on another having run.
-        shape = decode_display_shape(entry, payload)
-        body = mesh_component(getattr(shape, "wrapped", shape), index, surface_input=surface_key,
-                              surface_object=surface["object"], chord=chord, angle=angle)
-        meshes.write(meshes.tessellation_key(surface_key, chord, angle), body)
+        with _meshing():
+            # Meshing stores its triangulation on the shape: each tessellation meshes
+            # a fresh private decode, so no level depends on another having run.
+            shape = decode_display_shape(entry, payload)
+            body = mesh_component(getattr(shape, "wrapped", shape), index, surface_input=surface_key,
+                                  surface_object=surface["object"], chord=chord, angle=angle)
+            meshes.write(meshes.tessellation_key(surface_key, chord, angle), body)
     return True
 
 
@@ -261,8 +281,8 @@ def produce_meshes(keys: list[str], *, keep_going: Callable[[], bool] | None = N
     names the BREP it was derived from: all meshing needs, with no tree. A key
     whose surface the store does not hold (never derived, or reclaimed), or
     that asks for tolerances finer than any request may, answers None. A key
-    whose component fails to mesh is reported (``MeshProductionError``) once every
-    other key is done.
+    whose component fails to mesh, however it fails, is reported
+    (``MeshProductionError``, naming each) once every other key is done.
     """
     from cadgen._internal.occt_mesh import MeshProductionError
     from cadgen.store import meshes
@@ -271,12 +291,11 @@ def produce_meshes(keys: list[str], *, keep_going: Callable[[], bool] | None = N
     unmeshed: list[str] = []
     for key in keys:
         record = meshes.probe(key)
-        parsed = meshes.parse_key(key) if record is None else None
+        parsed = meshes.meshable_key(key) if record is None else None
         if parsed is not None:
             surface_key, chord, angle = parsed
             surface = read_entry("surface", surface_key)
             try:
-                normalize_tessellations([{"chordTolerance": chord, "angleTolerance": angle}])
                 validate_surface_record(surface, surface_input_key=surface_key)
             except (OSError, ValueError, TypeError, KeyError, struct.error):
                 surface = None
@@ -304,8 +323,9 @@ def derive(tree_hash: str, cids: list[str] | None = None, *, force: bool = False
 
     ``keep_going``, when given, is asked before each extraction and each mesh: False stops
     there, and the result holds the components done so far (a daemon worker asks whether
-    anyone still wants its job, ``daemon/worker.py``). A component whose mesh fails does
-    not stop the others: they are stored, then ``MeshProductionError`` names each failure.
+    anyone still wants its job, ``daemon/worker.py``). A component whose mesh fails, however
+    it fails, does not stop the others: they are stored, then ``MeshProductionError`` names
+    each failure (the component, and the error's type and message).
     """
     tessellations = normalize_tessellations(tessellations)
     from cadgen.store.trees import capture_tree as capture
@@ -361,8 +381,9 @@ def derive(tree_hash: str, cids: list[str] | None = None, *, force: bool = False
         try:
             meshed = not tessellations or _derive_meshes(entry, actual, tessellations, keep_going)
         except MeshProductionError as error:
-            # One component's mesh failing leaves the rest of the request to be done:
-            # they are stored before the failure is reported, so a retry finds them.
+            # One component's mesh failing, whatever failed (``_meshing``), leaves the rest
+            # of the request to be done: they are stored before the failure is reported,
+            # so a retry finds them.
             unmeshed.append(f"component {cid}: {error}")
             continue
         if not meshed:

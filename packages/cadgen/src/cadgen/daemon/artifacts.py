@@ -105,13 +105,15 @@ def normalize_request(request):
 
 def _mesh_keys(keys):
     """The tessellation keys a meshes request names, in one canonical order: each a
-    key this cadgen writes (``store.meshes.valid_key``), none twice."""
-    from cadgen.store.meshes import valid_key
+    key this cadgen writes at tolerances any request may ask to have meshed
+    (``store.meshes.meshable_key``), none twice."""
+    from cadgen.store.meshes import MIN_ANGLE, MIN_CHORD, meshable_key
 
     if not isinstance(keys, (list, tuple)) or not keys or len(keys) > MESH_KEYS_MAX:
         raise ValueError(f"artifact meshes keys must be a nonempty list of at most {MESH_KEYS_MAX}")
-    if any(not valid_key(key) for key in keys):
-        raise ValueError("artifact meshes keys must be this cadgen's tessellation keys")
+    if any(meshable_key(key) is None for key in keys):
+        raise ValueError("artifact meshes keys must be this cadgen's tessellation keys, "
+                         f"at least chordTolerance {MIN_CHORD} and angleTolerance {MIN_ANGLE}")
     if len(set(keys)) != len(keys):
         raise ValueError("artifact meshes keys must not contain duplicates")
     return sorted(keys)

@@ -127,6 +127,48 @@ class SurfaceRequests(unittest.TestCase):
             with self.subTest(tessellation=bad), self.assertRaises(ValueError):
                 self.resolve({**self.request, "tessellation": bad})
 
+    def test_a_failed_completion_racing_first_lookup_reports_ready_what_it_stored(self):
+        from build123d import Compound, Pos, Solid
+        from cadgen._internal import occt_mesh
+        from cadgen.store import meshes
+
+        parts = [Pos(4 * n, 0, 0) * Solid.make_box(1 + n, 1, 1) for n in range(3)]
+        tree, _, _ = build_tree_from_compound(Compound(children=parts), root_name="row")
+        view = surfaces.request_view(tree, producer=self.producer)
+        inputs = {cid: entry["surfaceInput"] for cid, entry in sorted(view["components"].items())}
+        cids = list(inputs)
+        request = {"tree": tree, "viewId": view["viewId"], "producer": self.producer,
+                   "tessellation": {"chordTolerance": 1.5e-3, "angleTolerance": 0.35},
+                   "components": [{"cid": cid, "surfaceInput": inputs[cid]} for cid in cids]}
+        real, failing = occt_mesh.mesh_component, inputs[cids[-1]]
+
+        def mesher(topods, index, *, surface_input, **options):
+            if surface_input == failing:
+                raise occt_mesh.MeshProductionError("OCCT did not mesh 1 face(s) of the component: f3")
+            return real(topods, index, surface_input=surface_input, **options)
+
+        future = SubscriberFuture()
+
+        def submit(operation, **kwargs):
+            # The job ends after this poll's first lookup: it stores the first two
+            # components, then raises the last one's failure.
+            try:
+                with mock.patch.object(occt_mesh, "mesh_component", side_effect=mesher):
+                    surfaces.derive(tree, operation["cids"], producer=self.producer,
+                                    tessellations=operation["tessellations"])
+            except occt_mesh.MeshProductionError as error:
+                future.set_exception(error)
+            return future
+
+        with mock.patch("cadgen.daemon.artifacts.submit_artifact", side_effect=submit):
+            rows = self.resolve(request)["components"]
+        self.assertEqual({cid: row["state"] for cid, row in rows.items()},
+                         {**dict.fromkeys(cids[:-1], "ready"), cids[-1]: "failed"},
+                         "what the failed job stored is ready; only what it left missing failed")
+        self.assertIn(f"component {cids[-1]}: MeshProductionError: OCCT did not mesh", rows[cids[-1]]["error"])
+        for cid in cids[:-1]:
+            self.assertEqual(rows[cid]["mesh"], meshes.probe(meshes.tessellation_key(inputs[cid])))
+
     def test_completion_racing_first_lookup_still_returns_ready(self):
         future = SubscriberFuture()
         def submit(*args, **kwargs):

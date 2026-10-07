@@ -298,25 +298,26 @@ class SurfaceSubscribers:
                 self._start_reaper_locked()
                 self._changed.notify_all()
         if future.done():
-            error = None
             try:
                 future.result()
-                remaining = []
-                for cid in missing:
-                    record = surfaces.lookup(canonical["components"][cid], operation["producer"])
-                    expected = operation["expected_objects"].get(selected[cid]["surfaceInput"])
-                    meshes = _meshes(canonical["components"][cid], operation)
-                    if record is None or meshes is None or (expected is not None and record["object"] != expected):
-                        remaining.append(cid)
-                    else:
-                        response["components"][cid] = _ready(operation, selected[cid], record, meshes)
-                missing = remaining
-                # Recheck once after completion, including a completion that
-                # raced the first lookup. A deleted result is then a failure.
                 error = "surface derivation completed without its requested output"
             except Exception as exc:
                 LOG.warning("surface derivation failed for %s: %r", operation["tree"][:16], exc)
                 error = str(exc) or type(exc).__name__
+            # Recheck once after completion, including a completion that raced the
+            # first lookup. A deleted result is then a failure. So is a failed job's,
+            # for only the components it left missing: one component's failure is
+            # raised once the others are stored (surfaces.derive), and they are ready.
+            remaining = []
+            for cid in missing:
+                record = surfaces.lookup(canonical["components"][cid], operation["producer"])
+                expected = operation["expected_objects"].get(selected[cid]["surfaceInput"])
+                meshes = _meshes(canonical["components"][cid], operation)
+                if record is None or meshes is None or (expected is not None and record["object"] != expected):
+                    remaining.append(cid)
+                else:
+                    response["components"][cid] = _ready(operation, selected[cid], record, meshes)
+            missing = remaining
             for cid in missing:
                 response["components"][cid] = {"surfaceInput": selected[cid]["surfaceInput"], "state": "failed", "error": error}
             self.cancel(token)
