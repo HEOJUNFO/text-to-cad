@@ -287,7 +287,7 @@ per country, from each request's IP address, as weekly and monthly totals only.
 Never file names, paths, contents or prompts. It is off until you allow it
 in either app's one-time prompt (one answer counts for both); change it later with
 **Share anonymous usage data** in either app's menu (the logo at the top left, over any model), `uvx cadgen analytics on|off`, or by asking your agent to
-turn it off. `DO_NOT_TRACK=1` keeps it off. See the
+turn it off. See the
 [privacy policy](https://www.texttocad.dev/privacy-policy).
 
 ### Windows 11: Smart App Control

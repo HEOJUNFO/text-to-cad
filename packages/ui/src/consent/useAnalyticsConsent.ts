@@ -6,8 +6,8 @@ export interface AnalyticsConsent {
   /** Show the card: nothing is chosen yet, and an answer could be kept. */
   ask: boolean;
   sharing: boolean;
-  /** Why: `environment` (DO_NOT_TRACK or CADGEN_ANALYTICS decided, and no click changes it), `choice`, `unasked`, `unavailable`. */
-  reason?: "environment" | "choice" | "unasked" | "unavailable";
+  /** Why: `choice` (the person's, in their settings), `unasked`, `unavailable`. */
+  reason?: "choice" | "unasked" | "unavailable";
   /** The privacy policy the card links. */
   policy: string;
 }
@@ -26,7 +26,8 @@ export type AnswerFrom = "card" | "settings";
  * Each read and answer takes a number and only the latest one's reply is kept, so a read sent just
  * before a click (the click's own focus) can never bring the card back. An answer that did not
  * arrive is read back rather than shown as kept, and a page that answered never asks again. A view
- * that cannot ask its server asks nothing. A choice the environment made shows in the app menu as fixed.
+ * that cannot ask its server asks nothing. The toggle always turns: what it changes is the person's
+ * settings, which alone decide.
  */
 export function useAnalyticsConsent(consent: (share?: boolean, from?: AnswerFrom) => Promise<AnalyticsConsent>) {
   const [state, setState] = useState<AnalyticsConsent | null>(null);
@@ -51,10 +52,8 @@ export function useAnalyticsConsent(consent: (share?: boolean, from?: AnswerFrom
   }, [read]);
   // The same choice, changed later: the app menu's toggle.
   const appSettings = useMemo<AppSetting[] | undefined>(() => state ? [{
-    id: "analytics", checked: state.sharing, onCheckedChange: (checked: boolean) => answer(checked, "settings"),
-    ...(state.reason === "environment"
-      ? { label: "Share anonymous usage data (set by your environment)", disabled: true }
-      : { label: "Share anonymous usage data" }),
+    id: "analytics", label: "Share anonymous usage data", checked: state.sharing,
+    onCheckedChange: (checked: boolean) => answer(checked, "settings"),
   }] : undefined, [state, answer]);
   return { consent: state && answered.current ? { ...state, ask: false } : state, answer, appSettings };
 }

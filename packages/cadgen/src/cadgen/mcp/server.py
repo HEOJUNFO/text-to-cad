@@ -507,14 +507,12 @@ class Server:
         if arguments.get("action") == "off":
             if not self.analytics.choose(False, by="agent").get("saved"):
                 return _text("CAD analytics could not be turned off for good: cadgen's state directory could not be "
-                             "written. This CAD app sends nothing more until it restarts; DO_NOT_TRACK=1 in the agent "
-                             "app's environment keeps analytics off.", {"sharing": False})
+                             "written. This CAD app sends nothing more until it restarts.", {"sharing": False})
             return _text("CAD analytics are off. The install id was deleted, and the data sent under it is being deleted.",
                          {"sharing": False})
         found = self.analytics.status()
-        why = {"environment": "set by the environment (DO_NOT_TRACK or CADGEN_ANALYTICS)",
-               "choice": "the user's choice", "unasked": "off until the user answers the CAD app's prompt"}.get(
-                   found["reason"], "off: the setting could not be read")
+        why = {"choice": "the user's choice", "unasked": "off until the user answers the CAD app's prompt"}.get(
+            found["reason"], "off: the setting could not be read")
         state = "on" if found["sharing"] else "off"
         return _text(f"CAD's anonymous usage analytics are {state} ({why}). They count tool calls, view activity and "
                      f"distinct files (as one-way codes), never file names, contents or prompts. The user turns them on in the CAD app's menu (the logo at the top left of a view) or with `cadgen analytics on`. Policy: {PRIVACY_URL}",

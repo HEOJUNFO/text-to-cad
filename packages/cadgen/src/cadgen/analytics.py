@@ -26,15 +26,13 @@ nothing used in it is never sent: a server the host started and nobody used coun
 nothing. The receiver (``cadgen/_internal/api.py``) is ours, so the service behind it can change
 without a release.
 
-Nothing is sent without the person's yes, however CAD was installed. Strongest first:
-
-1. The environment: ``DO_NOT_TRACK=1`` or ``CADGEN_ANALYTICS=0`` turns it off,
-   ``CADGEN_ANALYTICS=1`` on.
-2. The person's choice, kept as the ``analytics`` section of their settings (``cadgen/settings.py``:
-   ``settings.json`` in the state directory) and shared by both apps:
-   either app's card or its menu, ``cadgen analytics on|off``, or the agent's
-   ``cad_analytics`` (off only).
-3. Otherwise nothing is sent, and whichever app the person opens first asks once.
+Nothing is sent without the person's yes, however CAD was installed. The one source of truth is
+the person's choice, kept as the ``analytics`` section of their settings (``cadgen/settings.py``:
+``settings.json`` in the state directory), which everything reads and changes: either app's card or
+its menu, ``cadgen analytics on|off``, or the agent's ``cad_analytics`` (off only). Until there is
+one, nothing is sent, and whichever app the person opens first asks once. Nothing else decides it --
+no environment variable, ``DO_NOT_TRACK`` included: a setting something outside it could overrule
+would show one thing and do another, and a menu toggle nobody can turn is no choice at all.
 
 A no, or closing the card, is kept like a yes and never asked again: not after a restart, not
 after an update, not when what is sent grows (``DISCLOSURE`` re-asks only a yes). Where an answer
@@ -121,9 +119,6 @@ FILES_PENDING = 1024  # past this, a process notes no new file until a batch goe
 # directory must not nag on every view).
 UNAVAILABLE = {"sharing": False, "reason": "unavailable", "id": None}
 
-_OFF, _ON = ("0", "off", "false", "no"), ("1", "on", "true", "yes")
-
-
 SECTION = "analytics"  # this module's part of the settings file
 
 
@@ -151,13 +146,6 @@ def _update(path: Path, change: Callable[[dict[str, Any]], dict[str, Any]]) -> d
         return None
 
 
-def _environment() -> bool | None:
-    if str(os.environ.get("DO_NOT_TRACK") or "").strip().lower() in _ON:
-        return False
-    value = str(os.environ.get("CADGEN_ANALYTICS") or "").strip().lower()
-    return False if value in _OFF else True if value in _ON else None
-
-
 def _disclosure(kept: dict[str, Any]) -> int:
     value = kept.get("disclosure")
     return value if isinstance(value, int) else 0
@@ -180,10 +168,8 @@ def _identified(kept: dict[str, Any]) -> bool:
     return isinstance(kept.get("id"), str) and _is_salt(kept.get("salt"))
 
 
-def _decide(kept: dict[str, Any], forced: bool | None) -> tuple[bool, str | None]:
+def _decide(kept: dict[str, Any]) -> tuple[bool, str | None]:
     """Whether to share, and why (``None``: nothing decided, so the question is still open)."""
-    if forced is not None:
-        return forced, "environment"
     if kept.get("choice") == "off":
         return False, "choice"
     if kept.get("choice") == "on" and _disclosure(kept) >= DISCLOSURE:
@@ -232,21 +218,20 @@ def _can_keep(path: Path) -> bool:
 def status(*, path: Path | None = None) -> dict[str, Any]:
     """``{sharing, reason, id}``: whether counts are sent, why, and under which install id.
 
-    ``reason`` is ``environment``, ``choice``, ``unasked`` (nothing is sent, and the CAD app asks) or
-    ``unavailable`` (nothing is sent, and nobody is asked: no answer could be kept).
+    ``reason`` is ``choice``, ``unasked`` (nothing is sent, and the CAD app asks) or ``unavailable``
+    (nothing is sent, and nobody is asked: no answer could be kept).
     Sharing makes the install's id and file salt where they are missing.
     """
     path = path or settings_path()
-    forced = _environment()
     kept = _read(path)
     if kept is None:  # there, but unreadable now: neither sent under nor asked about
-        return {"sharing": False, "reason": "environment", "id": None} if forced is False else dict(UNAVAILABLE)
-    sharing, reason = _decide(kept, forced)
+        return dict(UNAVAILABLE)
+    sharing, reason = _decide(kept)
     if reason is None:  # an answer that could not be kept would be asked for again on every view
         return {"sharing": False, "reason": "unasked" if _can_keep(path) else "unavailable", "id": None}
     if sharing and not _identified(kept):
         def identify(section: dict[str, Any]) -> dict[str, Any]:
-            if not _decide(section, forced)[0] or _identified(section):  # changed meanwhile: as it is now
+            if not _decide(section)[0] or _identified(section):  # changed meanwhile: as it is now
                 return section
             install_id = section["id"] if isinstance(section.get("id"), str) else str(uuid.uuid4())
             return {**section, "id": install_id, "salt": section["salt"] if _is_salt(section.get("salt")) else _new_salt()}
@@ -254,7 +239,7 @@ def status(*, path: Path | None = None) -> dict[str, Any]:
         kept = _update(path, identify)
         if kept is None:
             return dict(UNAVAILABLE)
-        sharing, reason = _decide(kept, forced)
+        sharing, reason = _decide(kept)
         if sharing and not _identified(kept):
             return dict(UNAVAILABLE)
     return {"sharing": sharing, "reason": reason, "id": kept["id"] if sharing else None}
