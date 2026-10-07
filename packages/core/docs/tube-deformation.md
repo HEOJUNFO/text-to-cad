@@ -93,6 +93,15 @@ compare two deformations by value. `compileTubePath`, `sampleTubePath`, and
 independent curvature gate. As with any CAD tessellation, a finite surface mesh
 approximates the analytic posed centerline between its vertices.
 
+The surface this deforms is cadgen's mesh of the component — the triangles
+every client draws — refined into bands as above; nothing here meshes. An
+exported GLB carries a tube's motion as glTF morph targets, baked by cadgen
+(`cadgen glb build --animation`, `deform: "morph"`): its Python port of the
+headless half below (`prepareTubeBake`, `poseTubeBake`) makes every pose the
+file stores, and `tubeDeformation.parity.test.js` holds the two halves to the
+same poses in `tubeDeformation.parity.json`. A change here that moves a vertex
+changes every exported tube until the port and the fixture follow it.
+
 For a smooth CAD core, `braid:{pitch:0.8, depth:0.02, strands:8}` adds a
 procedural braided surface finish. Pitch and normal-relief depth are millimetres;
 strands is an even carrier count from 2 to 64. Crossing helices, fine fiber
@@ -119,9 +128,8 @@ and `tubeMaterialShader.js` load behind one dynamic import, ~29 kB out of the
 CAD Viewer's initial bundle.
 
 The load happens at the single async door every clip passes through:
-`loadSourceAnimation` (which `mesh-export.mjs` uses too) awaits it, once, when
-some clip of the document has a tube track, before a clip exists to be
-evaluated. The keyframes say up front whether a tube ever bends, so a frame
+`loadSourceAnimation` awaits it, once, when some clip of the document has a tube
+track, before a clip exists to be evaluated. The keyframes say up front whether a tube ever bends, so a frame
 never falls back to the rest pose while the chunk loads. Evaluation itself
 stays synchronous and always sees a loaded runtime.
 

@@ -15,19 +15,25 @@ sample. What maps, and how (the sidecar's channels, ``animation_bake``):
   opacity    glTF has no animated channel for it. Refused unless the request
              drops it, and then baked STATIC at ``start`` as a material alpha.
   visible    the same: refused, or dropped by leaving out what is hidden at start.
+  tube       per-VERTEX motion, not a node transform. The request's ``deform``
+             decides: refused by default, shipped at rest, or collected on a
+             finer grid for ``tube_morph`` to bake into morph targets.
 
-Pure: no filesystem, no kernel, stdlib only. A clip's tracks name document
-occurrence ids, the same ids the export's per-occurrence nodes carry.
+Pure: no filesystem, no kernel. A clip's tracks name document occurrence ids,
+the same ids the export's per-occurrence nodes carry.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import struct
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
-from cadgen._internal.mesh_animation import DROPPABLE_EFFECTS, MAX_ANIMATION_SAMPLES
+from cadgen._internal import tube_deformation as td
+from cadgen._internal.animation_bake import _lerp_path, key_path
+from cadgen._internal.mesh_animation import DEFORM_MODES, DROPPABLE_EFFECTS, MAX_ANIMATION_SAMPLES
 
 # A matrix this close to identity in every element has not moved: slack enough for
 # the trig of a full turn, far tighter than any motion worth a keyframe.
@@ -37,6 +43,15 @@ IDENTITY_EPSILON = 1e-12
 # basis, C M C^-1. The scale cancels in the rotation and survives in the
 # translation: an occurrence that travels 40 mm travels 0.04 m.
 CAD_TO_GLB_SCALE = 0.001
+# How much finer than the export's own frame rate a morph bake MEASURES its fit.
+# Morph weights interpolate the RESULT of two poses while the clip interpolates its
+# own numbers and rebuilds the path from them, so the two agree only AT sampled
+# instants, and a fit measured on the frame grid certifies nothing between frames,
+# which is most of the playback. Four times finer bounds the residual between grid
+# samples at about 1/16 of the one between neighbours (chord error falls as dt^2);
+# the floor keeps an 8 fps preview from certifying itself on an 8 Hz grid.
+MORPH_FIT_GRID_MULTIPLE = 4
+MORPH_FIT_GRID_MIN_HZ = 96
 
 
 def _seconds(value: float) -> str:
@@ -57,6 +72,23 @@ class FramePlan:
     def elapsed(self, index: float) -> float:
         """The moment of the CLIP that sample ``index`` falls on."""
         return self.start + index / self.fps
+
+
+@dataclass(frozen=True)
+class FitGrid:
+    """The schedule a clip is evaluated on: the plan's frames, or under ``morph`` a
+    whole multiple of them, so every export frame is a grid sample."""
+
+    multiple: int
+    hz: float
+    count: int
+
+
+def fit_grid(plan: FramePlan, deform: str) -> FitGrid:
+    if deform != "morph":
+        return FitGrid(1, plan.fps, plan.frame_count)
+    multiple = max(MORPH_FIT_GRID_MULTIPLE, math.ceil(MORPH_FIT_GRID_MIN_HZ / plan.fps))
+    return FitGrid(multiple, plan.fps * multiple, (plan.frame_count - 1) * multiple + 1)
 
 
 def resolve_frame_plan(request: Mapping[str, Any], clip: Mapping[str, Any]) -> FramePlan:
@@ -199,14 +231,75 @@ def _transform_at(track: Mapping[str, Any], index: int, u: float) -> _Pose:
     return _Pose(r, t, (x, y, z, w))
 
 
-def evaluate_clip(clip: Mapping[str, Any], t: float) -> tuple[dict[str, _Pose], dict[str, dict]]:
-    """``(poses, styles)`` at time ``t``, each keyed by occurrence id. A looping clip
-    wraps ``t``; one that does not holds its end."""
+def _same_path_shape(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
+    return len(a["segments"]) == len(b["segments"]) and all(
+        one["kind"] == other["kind"] for one, other in zip(a["segments"], b["segments"]))
+
+
+class TubeKeys:
+    """Each tube key's deformation, normalized once per clip: a tube that holds
+    between moves costs nothing per sample, and one between two keys blends theirs.
+    Every deformation of one track shares its one canonical rest."""
+
+    def __init__(self) -> None:
+        self._keys: dict[tuple[int, int], tuple[Mapping, td.Deformation]] = {}
+        self._rests: dict[int, tuple[Mapping, dict]] = {}
+
+    def rest(self, track: Mapping[str, Any]) -> dict:
+        found = self._rests.get(id(track))
+        if found is None or found[0] is not track:
+            found = self._rests[id(track)] = (track, td.canonical_path_spec(track["rest"]))
+        return found[1]
+
+    def deformation(self, track: Mapping[str, Any], index: int) -> td.Deformation:
+        found = self._keys.get((id(track), index))
+        if found is None or found[0] is not track:
+            key = track["tube"][index]
+            deformation = td.normalize_tube_deformation({
+                "rest": track["rest"], "maxSegmentLength": track["maxSegmentLength"],
+                **({"braid": track["braid"]} if track.get("braid") else {}),
+                "path": key_path(track["rest"], key["path"]), "twistDeg": key["twistDeg"],
+                "mapsRest": "map" in key["path"],
+            }, rest_spec=self.rest(track))
+            found = self._keys[(id(track), index)] = (track, deformation)
+        return found[1]
+
+
+def _tube_at(track: Mapping[str, Any], index: int, u: float, keys: TubeKeys) -> td.Deformation | None:
+    """A tube track's deformation, or None at rest. Between two keys of one shape
+    every number lerps; otherwise, and up to a rest key, the earlier key holds.
+    Between two keys that map the rest, the path compiles from their tables."""
+    a = track["tube"][index]
+    if a is None:
+        return None
+    b = track["tube"][index + 1] if u > 0 else None
+    frm = key_path(track["rest"], a["path"])
+    to = key_path(track["rest"], b["path"]) if b is not None else None
+    if to is None or not _same_path_shape(frm, to):
+        return keys.deformation(track, index)
+    between = ((keys.deformation(track, index), keys.deformation(track, index + 1), u)
+               if "map" in a["path"] and "map" in b["path"] else None)
+    return td.normalize_tube_deformation({
+        "rest": track["rest"], "maxSegmentLength": track["maxSegmentLength"],
+        **({"braid": track["braid"]} if track.get("braid") else {}),
+        "path": _lerp_path(frm, to, u), "twistDeg": a["twistDeg"] + (b["twistDeg"] - a["twistDeg"]) * u,
+        **({"between": between} if between else {}),
+    }, rest_spec=keys.rest(track))
+
+
+def evaluate_clip(
+    clip: Mapping[str, Any], t: float, tubes: TubeKeys | None = None,
+) -> tuple[dict[str, _Pose], dict[str, dict], dict[str, td.Deformation]]:
+    """``(poses, styles, deformations)`` at time ``t``, each keyed by occurrence id.
+    A looping clip wraps ``t``; one that does not holds its end. ``tubes`` keeps
+    the clip's normalized tube keys across calls."""
     duration = float(clip.get("duration") or 0.0) or 1.0
     local = max(0.0, float(t) if math.isfinite(float(t)) else 0.0)
     local = math.fmod(local, duration) if clip.get("loop") is not False else min(local, duration)
+    tubes = TubeKeys() if tubes is None else tubes
     poses: dict[str, _Pose] = {}
     styles: dict[str, dict] = {}
+    deformations: dict[str, td.Deformation] = {}
     for track in clip.get("tracks") or []:
         index, u = _bracket(track["times"], local)
         if "transform" in track:
@@ -227,7 +320,13 @@ def evaluate_clip(clip: Mapping[str, Any], t: float) -> tuple[dict[str, _Pose], 
                 continue
             for target in track["targets"]:
                 styles.setdefault(target, {})["visible"] = value
-    return poses, styles
+        elif "tube" in track:
+            deformation = _tube_at(track, index, u, tubes)
+            if deformation is None:
+                continue
+            for target in track["targets"]:
+                deformations[target] = deformation
+    return poses, styles, deformations
 
 
 # --- sampling it into glTF ---------------------------------------------------------
@@ -283,22 +382,42 @@ def _varies(values: Sequence[float], stride: int) -> bool:
 
 
 @dataclass
+class TubeSamples:
+    """One tube's deformation over a morph bake's grid: its FIRST deformation, whose
+    rest every sample shares, and ``(grid index, deformation)`` wherever it bends."""
+
+    rest: td.Deformation
+    samples: list = field(default_factory=list)
+
+
+@dataclass
 class SampledClip:
     """A clip sampled over a plan, in glTF space."""
 
     name: str
     times: list  # float32 seconds, re-based to zero
-    channels: list  # [{node, translation?, rotation?}], sorted by node
+    channels: list  # [{node, translation?, rotation?} | {node, times, weights, targetCount}]
     rest: dict  # node -> {translation, rotation, scale}: the pose at the first sample
     opacity: dict  # occurrence -> its opacity at start (dropped effects)
     hidden: set  # occurrences hidden at start (dropped effects)
     warnings: list
+    # Empty unless deform is "morph": each deforming tube over the fit grid, keyed by
+    # occurrence id, for tube_morph to bake.
+    deformations: dict = field(default_factory=dict)
+    grid: FitGrid | None = None
 
     def gltf(self) -> dict:
         return {"name": self.name, "times": self.times, "channels": self.channels, "rest": self.rest}
 
 
-def sample_clip(clip: Mapping[str, Any], plan: FramePlan, *, drop: Sequence[str] = ()) -> SampledClip:
+def _channel_order(channel: Mapping[str, Any]) -> tuple[str, int]:
+    """By node, then a node's transform before its weights: one order, whichever the
+    sampler or the bake collected first."""
+    return (str(channel["node"]), 1 if "weights" in channel else 0)
+
+
+def sample_clip(clip: Mapping[str, Any], plan: FramePlan, *, drop: Sequence[str] = (),
+                deform: str = "refuse") -> SampledClip:
     """One clip over one plan, as per-occurrence glTF tracks.
 
     ``times`` is re-based to zero: ``start`` says where in the CLIP the span begins,
@@ -306,6 +425,14 @@ def sample_clip(clip: Mapping[str, Any], plan: FramePlan, *, drop: Sequence[str]
     is written only for an occurrence whose transform CHANGES over the span; every
     occurrence the clip moved carries its first sample as its ``rest`` pose. An
     effect glTF cannot animate is refused by name unless ``drop`` names it.
+
+    ``deform`` decides what a clip that deforms tube geometry does here. "refuse"
+    (the default) stops the export: a hand whose tendons silently froze is the file
+    this door exists not to write. "rest" ships the tubes at their rest shape and
+    says so. "morph" collects every tube's deformation at each sample of the fit
+    grid (``fit_grid``) into ``deformations``, which ``tube_morph`` bakes: the clip
+    is evaluated once per grid sample, and the rigid tracks read the samples that
+    fall on export frames.
     """
     clip_id = str(clip.get("id"))
     dropped = {str(name).strip() for name in drop}
@@ -315,13 +442,51 @@ def sample_clip(clip: Mapping[str, Any], plan: FramePlan, *, drop: Sequence[str]
             f"animation drop names {', '.join(unknown)}, which is not an effect this export can bake "
             f"static; droppable effects: {', '.join(DROPPABLE_EFFECTS)}"
         )
+    deform = str(deform or "refuse")
+    if deform not in DEFORM_MODES:
+        raise ValueError(f"animation deform must be one of {', '.join(DEFORM_MODES)}, got {deform!r}")
     tracks: dict[str, _Track] = {}
     opacity_at: dict[str, float] = {}
     hidden_at: set[str] = set()
     opacity_ids: set[str] = set()
     visible_ids: set[str] = set()
-    for index in range(plan.frame_count):
-        poses, styles = evaluate_clip(clip, plan.elapsed(index))
+    deformed_ids: set[str] = set()
+    braid_ids: set[str] = set()
+    deformations: dict[str, TubeSamples] = {}
+    tubes = TubeKeys()
+    grid = fit_grid(plan, deform)
+    for grid_index in range(grid.count):
+        # framePlan's own arithmetic at a fractional frame ordinal: where the samples
+        # fall is the one thing the video and this export must not disagree about.
+        elapsed = plan.elapsed(grid_index / grid.multiple)
+        poses, styles, bent = evaluate_clip(clip, elapsed, tubes)
+        for occurrence_id, deformation in bent.items():
+            deformed_ids.add(occurrence_id)
+            if deformation.braid:
+                braid_ids.add(occurrence_id)
+            if deform != "morph":
+                continue
+            entry = deformations.get(occurrence_id)
+            if entry is None:
+                entry = deformations[occurrence_id] = TubeSamples(deformation)
+            elif not td.same_tube_rest_shape(entry.rest, deformation):
+                # One base mesh per occurrence is what a morph target IS: deltas
+                # against a shape the file states once.
+                raise ValueError(
+                    f"clip {clip_id} changes the REST path of {occurrence_id} at {elapsed:.4f}s, so its "
+                    "geometry has no single base mesh for morph targets to be deltas against. Author "
+                    "one rest path per tube for the whole clip (move the tube with .translate/.rotate "
+                    f"instead), or export the clip as video (cadgen step snapshot --animation {clip_id} "
+                    "--video)"
+                )
+            # The rest is one for the whole clip (the refusal above holds it), so every
+            # sample shares the tube's ONE copy: by value a no-op, in memory half the grid.
+            if deformation.rest_spec is not entry.rest.rest_spec:
+                deformation = dataclasses.replace(deformation, rest_spec=entry.rest.rest_spec)
+            entry.samples.append((grid_index, deformation))
+        if grid_index % grid.multiple:
+            continue
+        index = grid_index // grid.multiple
         for occurrence_id, pose in poses.items():
             track = tracks.get(occurrence_id)
             if track is None:
@@ -359,6 +524,28 @@ def sample_clip(clip: Mapping[str, Any], plan: FramePlan, *, drop: Sequence[str]
             f".{effect}() is not an animated glTF channel: {_summarize(ids)} carries its value at "
             "start, frozen for the whole clip"
         )
+    if deformed_ids:
+        if deform == "refuse":
+            raise ValueError(
+                f"clip {clip_id} deforms tube geometry on {_summarize(deformed_ids)}: that is per-vertex "
+                'motion, which a node transform cannot carry. Pass deform: "morph" to bake it as '
+                "morph targets (bigger file, deformTolerance sets how close they track), deform: "
+                '"rest" to ship those tubes at their rest shape knowing they do not move, or export '
+                f"the clip as video (cadgen step snapshot --animation {clip_id} --video)"
+            )
+        if deform == "morph":
+            if braid_ids:
+                # The braid is a shader over a per-vertex material coordinate, not
+                # geometry, and glTF has nowhere to put it.
+                warnings.append(
+                    f"{_summarize(braid_ids)} carries a braid: the strand pattern is a shader, not geometry, "
+                    "so the exported cord has the right shape and motion and a smooth surface"
+                )
+        else:
+            warnings.append(
+                f'deform: "rest" ships {_summarize(deformed_ids)} at rest shape: the clip\'s tube deformation '
+                "is per-vertex motion this file does not carry"
+            )
     # An occurrence `drop: ["visible"]` hid is not in the file at all, so it has no
     # node to move; the motion is unobservable, but leaving it out silently is not.
     hidden_and_moving = sorted(occurrence_id for occurrence_id in hidden_at if occurrence_id in tracks)
@@ -383,12 +570,21 @@ def sample_clip(clip: Mapping[str, Any], plan: FramePlan, *, drop: Sequence[str]
             channel["rotation"] = rotations
         if len(channel) > 1:
             channels.append(channel)
-    channels.sort(key=lambda entry: entry["node"])
+    channels.sort(key=_channel_order)
     return SampledClip(
         name=clip_id,
         times=_float32_values([index / plan.fps for index in range(plan.frame_count)]),
         channels=channels, rest=rest, opacity=opacity_at, hidden=hidden_at, warnings=warnings,
+        deformations=deformations, grid=grid,
     )
+
+
+def with_morph_channels(sampled: SampledClip, channels: Sequence[Mapping[str, Any]]) -> SampledClip:
+    """The clip with a morph bake's weights channels folded in: the sampler cannot
+    know how many targets a tube needed, so the bake hands them back."""
+    if not channels:
+        return sampled
+    return dataclasses.replace(sampled, channels=sorted([*sampled.channels, *channels], key=_channel_order))
 
 
 def restrict_to_nodes(sampled: SampledClip, nodes: set[str]) -> SampledClip:
@@ -398,11 +594,10 @@ def restrict_to_nodes(sampled: SampledClip, nodes: set[str]) -> SampledClip:
     missing = [channel["node"] for channel in sampled.channels if channel["node"] not in nodes]
     if not missing:
         return sampled
-    return SampledClip(
-        name=sampled.name, times=sampled.times,
+    return dataclasses.replace(
+        sampled,
         channels=[channel for channel in sampled.channels if channel["node"] in nodes],
         rest={node: pose for node, pose in sampled.rest.items() if node in nodes},
-        opacity=sampled.opacity, hidden=sampled.hidden,
         warnings=[*sampled.warnings, f"{_summarize(missing)} moves in this clip but has no geometry in the "
                   "export, so the file carries no node to animate for it"],
     )

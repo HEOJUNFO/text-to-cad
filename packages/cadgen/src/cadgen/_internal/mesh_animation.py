@@ -6,9 +6,9 @@ baked into the document sidecar's ``animation`` section, which the export sample
 (``cadgen._internal.glb_animation``).
 
 Two things live here and nowhere else. The first is the request's shape: a
-closed key set (``clip``, ``fps``, ``seconds``, ``start``, ``drop``) whose values
-are checked before any meshing, because the alternative is learning that
-``fps: 0`` is nonsense after a tessellation.
+closed key set (``clip``, ``fps``, ``seconds``, ``start``, ``drop``, ``deform``,
+``deformTolerance``) whose values are checked before any meshing, because the
+alternative is learning that ``fps: 0`` is nonsense after a tessellation.
 The second is what the export's freshness key has to include beyond the
 document's bytes: the
 choreography is an annotation the STEP does not hash, so an edited animation
@@ -32,9 +32,9 @@ from pathlib import Path
 
 # The request's closed vocabulary. No camera and no quality: this writes
 # geometry, not pixels, and a key that means nothing is a key that misleads.
-ANIMATION_REQUEST_KEYS = frozenset({"clip", "fps", "seconds", "start", "drop"})
-# Retired with tube deformation (README law 8: a teaching error, never an alias).
-RETIRED_REQUEST_KEYS = frozenset({"deform", "deformTolerance"})
+ANIMATION_REQUEST_KEYS = frozenset(
+    {"clip", "fps", "seconds", "start", "drop", "deform", "deformTolerance"}
+)
 
 DEFAULT_ANIMATION_FPS = 30
 MIN_ANIMATION_FPS = 1
@@ -53,6 +53,28 @@ MAX_ANIMATION_SAMPLES = 7200
 # instead of having the export refuse them.
 DROPPABLE_EFFECTS = ("opacity", "visible")
 
+# What `deform` may say about a clip that deforms tube geometry. "refuse" stops
+# the export and names the tubes; "rest" ships them at rest shape and warns;
+# "morph" bakes the deformation as glTF morph targets and drives them from the
+# clip's own schedule (cadgen._internal.tube_morph).
+DEFORM_MODES = ("refuse", "morph", "rest")
+DEFAULT_DEFORM_MODE = "refuse"
+
+# How far a morph bake's blended tubes may sit from the clip's own deformation,
+# in millimetres of the model's own units.
+#
+# It is a real tolerance, not a target count: morph weights blend the RESULT of
+# two poses while the clip blends its inputs and rebuilds the path from them, so
+# the two agree only at the baked instants and the targets have to be FITTED to a
+# stated error. The default is about two thirds of a typical tendon's diameter.
+# Below ~0.25mm the bytes buy precision the rest of the file does not carry: the
+# rigid channels beside these tubes are sampled at `fps`, and fitting a cord to a
+# tenth of a millimetre while the finger it runs through moves in 1/24s steps
+# spends memory on nothing.
+DEFAULT_MORPH_TOLERANCE_MM = 1.0
+MIN_MORPH_TOLERANCE_MM = 0.01
+MAX_MORPH_TOLERANCE_MM = 10.0
+
 
 def normalize_animation_request(value: object, *, where: str) -> dict[str, object]:
     """The door's ``animation`` request, validated.
@@ -69,13 +91,6 @@ def normalize_animation_request(value: object, *, where: str) -> dict[str, objec
         raise ValueError(
             f"{where} must be a clip name or a "
             f"{{{', '.join(sorted(ANIMATION_REQUEST_KEYS))}}} object"
-        )
-    retired = sorted(set(value) & RETIRED_REQUEST_KEYS)
-    if retired:
-        raise ValueError(
-            f"{where} {' and '.join(retired)} left cadgen with tube deformation: a clip moves "
-            "parts rigidly, which a GLB carries as node animation. Remove "
-            f"{' and '.join(retired)} from the request"
         )
     unknown = sorted(set(value) - ANIMATION_REQUEST_KEYS)
     if unknown:
@@ -132,21 +147,52 @@ def normalize_animation_request(value: object, *, where: str) -> dict[str, objec
             f"static: {', '.join(DROPPABLE_EFFECTS)}"
         )
 
-    return {
+    deform = str(value.get("deform", DEFAULT_DEFORM_MODE) or DEFAULT_DEFORM_MODE).strip().lower()
+    if deform not in DEFORM_MODES:
+        raise ValueError(
+            f"{where} deform must be one of: {', '.join(DEFORM_MODES)}; got {value.get('deform')!r}"
+        )
+
+    request: dict[str, object] = {
         "clip": clip.strip(),
         "fps": raw_fps,
         "seconds": seconds,
         "start": start,
         "drop": drop,
+        "deform": deform,
     }
+    # Only meaningful under "morph", so it is REFUSED anywhere else rather than
+    # accepted and ignored: a tolerance that silently did nothing would be read as
+    # a promise about the file's accuracy that the file does not keep. Absent
+    # otherwise, which also keeps every non-morph request's canonical form -- and
+    # so its ledger key -- free of it.
+    raw_tolerance = value.get("deformTolerance")
+    if raw_tolerance is not None:
+        if deform != "morph":
+            raise ValueError(
+                f"{where} deformTolerance is how close a MORPH bake's targets must stay to the "
+                f"clip's own deformation, and this request's deform is {deform!r}; pass "
+                'deform: "morph" to bake the tubes, or drop deformTolerance'
+            )
+        tolerance = _finite_number(raw_tolerance, where=where, field="deformTolerance", unit="millimetres")
+        if not MIN_MORPH_TOLERANCE_MM <= tolerance <= MAX_MORPH_TOLERANCE_MM:
+            raise ValueError(
+                f"{where} deformTolerance must be {MIN_MORPH_TOLERANCE_MM}..."
+                f"{MAX_MORPH_TOLERANCE_MM} mm, got {raw_tolerance!r}"
+            )
+        request["deformTolerance"] = tolerance
+    elif deform == "morph":
+        request["deformTolerance"] = DEFAULT_MORPH_TOLERANCE_MM
+
+    return request
 
 
-def _finite_number(value: object, *, where: str, field: str) -> float:
+def _finite_number(value: object, *, where: str, field: str, unit: str = "seconds") -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"{where} {field} must be a number of seconds, got {value!r}")
+        raise ValueError(f"{where} {field} must be a number of {unit}, got {value!r}")
     number = float(value)
     if not math.isfinite(number):
-        raise ValueError(f"{where} {field} must be a finite number of seconds, got {value!r}")
+        raise ValueError(f"{where} {field} must be a finite number of {unit}, got {value!r}")
     return number
 
 

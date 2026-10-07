@@ -6,7 +6,8 @@ build` — funnels through :func:`run_mesh_exporter`, so the front doors cannot
 drift: the document's tree, the store's mesh of each component at each distinct
 tolerance pair, and every format serialized from those same meshes
 (``cadgen._internal.mesh_formats``; a clip is sampled by
-``cadgen._internal.glb_animation``). The meshes are OCCT's, of each component's
+``cadgen._internal.glb_animation``, its deforming tubes baked into morph targets
+by ``cadgen._internal.tube_morph``). The meshes are OCCT's, of each component's
 exact BREP, derived in the build pool when the store lacks them -- the ones the
 CAD Viewer and snapshots draw. Nothing here spawns a process of its own.
 
@@ -146,8 +147,9 @@ def _check_jobs(jobs: "list[MeshExportJob]", pairs: list, animation_source: Anim
 
 def _export(source: MeshSource, jobs: "list[MeshExportJob]", pairs: list, *, name: str,
             default_color: str | None, animation_source: AnimationSnapshot | None, appearance: object) -> dict:
-    from cadgen._internal import glb_animation
+    from cadgen._internal import glb_animation, tube_morph
     from cadgen._internal.atomic_replace import write_bytes_atomic
+    from cadgen._internal.mesh_animation import DEFAULT_MORPH_TOLERANCE_MM
     from cadgen._internal.mesh_formats import (
         build_primitives,
         decode_tessellation,
@@ -177,21 +179,38 @@ def _export(source: MeshSource, jobs: "list[MeshExportJob]", pairs: list, *, nam
             if job.animation is not None:
                 clip = glb_animation.find_clip(animation, str(job.animation["clip"]))
                 plan = glb_animation.resolve_frame_plan(job.animation, clip)
-                sampled = glb_animation.sample_clip(clip, plan, drop=job.animation.get("drop") or ())
+                sampled = glb_animation.sample_clip(
+                    clip, plan, drop=job.animation.get("drop") or (), deform=job.animation.get("deform") or "refuse")
+                # The bake runs BEFORE the primitive build because it replaces a
+                # deforming tube's geometry outright: the base its targets are deltas
+                # against is the REFINED, POSED tube, not the rest tessellation.
+                morph = tube_morph.build_tube_morph_targets(
+                    descriptor, tessellations, sampled.deformations, grid=sampled.grid,
+                    tolerance_mm=job.animation.get("deformTolerance") or DEFAULT_MORPH_TOLERANCE_MM,
+                    default_color=default_color, clip_id=sampled.name,
+                )
                 primitives = build_primitives(
                     descriptor, tessellations, default_color=default_color, per_occurrence=True,
-                    hidden=sampled.hidden, opacity=sampled.opacity,
+                    hidden=sampled.hidden, opacity=sampled.opacity, overrides=morph.overrides,
                 )
                 # The clip names the DOCUMENT's occurrences, the file holds what
                 # meshed: an occurrence with no geometry is a named warning, never
                 # a channel that targets nothing.
                 sampled = glb_animation.restrict_to_nodes(
-                    sampled, {primitive.node for primitive in primitives if primitive.node})
+                    glb_animation.with_morph_channels(sampled, morph.channels),
+                    {primitive.node for primitive in primitives if primitive.node})
                 clip_data = sampled.gltf()
                 summary = {
                     "clip": sampled.name, "fps": plan.fps, "samples": plan.frame_count,
                     "seconds": plan.seconds, "start": plan.start, "channels": len(sampled.channels),
-                    "warnings": [*plan.warnings, *sampled.warnings],
+                    **({"deform": {
+                        "mode": "morph", "nodes": morph.stats["nodes"], "targets": morph.stats["targets"],
+                        "bytes": morph.stats["bytes"], "runtimeBytes": morph.stats["runtimeBytes"],
+                        "refinedTriangles": morph.stats["refinedTriangles"],
+                        "deviationMm": round(morph.stats["deviationMm"], 4),
+                        "toleranceMm": morph.stats["toleranceMm"], "fitGridHz": sampled.grid.hz,
+                    }} if morph.stats else {}),
+                    "warnings": [*plan.warnings, *sampled.warnings, *morph.warnings],
                 }
             else:
                 if static is None:

@@ -198,10 +198,15 @@ def _ledgered_animation(job: "MeshExportJob") -> "dict | None":
 
 def _bakes_effects_static(job: "MeshExportJob") -> bool:
     """Whether this request told the sampler to FREEZE something — the only case
-    where a skipped export has warnings it is not repeating: ``drop`` bakes an
-    effect's value at start, leaving named occurrences standing still in a file
-    that otherwise moves."""
-    return bool((job.animation or {}).get("drop"))
+    where a skipped export has warnings it is not repeating.
+
+    ``drop`` bakes an effect's value at start; ``deform: "rest"`` ships a moving
+    tube at its rest shape. Both leave named occurrences standing still in a file
+    that otherwise moves. ``deform: "morph"`` freezes nothing — it bakes the
+    deformation as morph targets, which is why it exists — and ``refuse`` never
+    produced a file at all."""
+    request = job.animation or {}
+    return bool(request.get("drop")) or request.get("deform") == "rest"
 
 
 def _resolve_export_output(fmt: str, raw: str | Path | None, *, document: Path) -> Path:
@@ -346,8 +351,8 @@ def export_cad_target(
             if summary is not None and _bakes_effects_static(job):
                 warnings.append(
                     f"{job.out.name} is current for clip {summary['clip']}: a skipped export "
-                    "re-samples nothing, so the occurrences its drop froze are not named "
-                    "again — re-run with --force to hear them"
+                    "re-samples nothing, so the occurrences its drop/deform froze are not "
+                    "named again — re-run with --force to hear them"
                 )
         files.append(
             {

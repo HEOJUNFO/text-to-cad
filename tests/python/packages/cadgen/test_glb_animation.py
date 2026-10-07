@@ -3,9 +3,11 @@
 The interpolation is the viewer's (`common/animationRuntime.js`), so these pin it
 where an error would be a file that plays the wrong motion: a constant spin is
 exact, a pivot carries its translation, a looping clip wraps and one that does
-not holds. Then what the sampler makes of a clip -- the schedule, the shared
-time line, the rest pose, one hemisphere per track, the effects glTF cannot
-animate refused or baked by name -- and one real document exported end to end.
+not holds, a tube key holds or lerps or blends as the runtime's does. Then what
+the sampler makes of a clip -- the schedule, the shared time line, the rest pose,
+one hemisphere per track, the effects glTF cannot animate refused or baked by
+name, a deforming tube refused, shipped at rest or gathered for its morph bake --
+and one real document exported end to end.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from tests.python.support.paths import add_repo_path
 add_repo_path("packages/cadgen/src")
 
 from cadgen._internal.glb_animation import (  # noqa: E402
+    FitGrid,
     FramePlan,
     evaluate_clip,
     find_clip,
@@ -52,6 +55,34 @@ def spin_clip(*, duration: int = 4, loop: bool = True, pivot=(0.0, 0.0, 0.0), ex
     return {"id": "spin", "label": "Spin", "duration": duration, "loop": loop, "tracks": [track, *extra]}
 
 
+def line(end_y: float) -> dict:
+    return {"normal": [0.0, 0.0, 1.0], "segments": [{"kind": "line", "start": [0.0, 0.0, 0.0], "end": [10.0, end_y, 0.0]}]}
+
+
+def tube_clip(keys: list, times: list, *, duration: float = 1, rest: dict | None = None, braid=None,
+              extra=()) -> dict:
+    """``o1.3`` bent through ``keys`` (``{path, twistDeg}`` or None, the rest shape), as a bake keys a tube."""
+    track = {"targets": ["o1.3"], "times": times, "tube": keys, "rest": rest or line(0.0), "maxSegmentLength": 1.0}
+    if braid:
+        track["braid"] = braid
+    return {"id": "bend", "label": "Bend", "duration": duration, "loop": False, "tracks": [track, *extra]}
+
+
+def coil(height: float) -> dict:
+    """Two quarter turns of a coil about +Z, as quarter-turn Beziers."""
+    k = 4.0 / 3.0 * math.tan(math.pi / 8.0) * 5.0
+    rise = height / 2
+    segments = []
+    for quarter in range(2):
+        a0, a1 = HALF_PI * quarter, HALF_PI * (quarter + 1)
+        p0 = [5 * math.cos(a0), 5 * math.sin(a0), rise * quarter]
+        p3 = [5 * math.cos(a1), 5 * math.sin(a1), rise * (quarter + 1)]
+        p1 = [p0[0] - k * math.sin(a0), p0[1] + k * math.cos(a0), p0[2] + rise / 3]
+        p2 = [p3[0] + k * math.sin(a1), p3[1] - k * math.cos(a1), p3[2] - rise / 3]
+        segments.append({"kind": "bezier", "points": [p0, p1, p2, p3]})
+    return {"normal": [0.0, 0.0, 1.0], "segments": segments}
+
+
 class TheSchedule(unittest.TestCase):
     def test_a_clip_supplies_the_span_a_request_leaves_out(self):
         self.assertEqual(FramePlan(30, 4.0, 0.0, 120), resolve_frame_plan({"fps": 30}, spin_clip()))
@@ -74,22 +105,22 @@ class TheSchedule(unittest.TestCase):
 
 class TheRuntimesInterpolation(unittest.TestCase):
     def test_a_constant_spin_is_exact_between_its_keys(self):
-        poses, _styles = evaluate_clip(spin_clip(), 0.5)
+        poses, _styles, _tubes = evaluate_clip(spin_clip(), 0.5)
         x, y, z, w = poses["o1.2"].quaternion
         self.assertAlmostEqual(math.sin(math.radians(22.5)), z, places=12)
         self.assertAlmostEqual(math.cos(math.radians(22.5)), w, places=12)
         self.assertEqual((0.0, 0.0), (x, y))
 
     def test_a_pivot_is_carried_as_the_translation_it_implies(self):
-        poses, _styles = evaluate_clip(spin_clip(pivot=(10.0, 0.0, 0.0)), 1.0)
+        poses, _styles, _tubes = evaluate_clip(spin_clip(pivot=(10.0, 0.0, 0.0)), 1.0)
         tx, ty, tz = poses["o1.2"].translation  # 90 degrees about (10, 0, 0)
         self.assertAlmostEqual(10.0, tx, places=9)
         self.assertAlmostEqual(-10.0, ty, places=9)
         self.assertAlmostEqual(0.0, tz, places=12)
 
     def test_a_looping_clip_wraps_and_one_that_does_not_holds_its_end(self):
-        wrapped, _ = evaluate_clip(spin_clip(), 5.0)
-        held, _ = evaluate_clip(spin_clip(loop=False), 5.0)
+        wrapped, _, _ = evaluate_clip(spin_clip(), 5.0)
+        held, _, _ = evaluate_clip(spin_clip(loop=False), 5.0)
         self.assertAlmostEqual(math.sin(math.radians(45)), wrapped["o1.2"].quaternion[2], places=12)
         self.assertAlmostEqual(math.sin(math.radians(180)), held["o1.2"].quaternion[2], places=12)
 
@@ -99,10 +130,71 @@ class TheRuntimesInterpolation(unittest.TestCase):
             {"targets": ["o1.3"], "times": [0, 2], "visible": [True, False]},
             {"targets": ["o1.4"], "times": [0], "opacity": [None]},
         ])
-        _poses, styles = evaluate_clip(clip, 1.0)
+        _poses, styles, _tubes = evaluate_clip(clip, 1.0)
         self.assertEqual({"o1.1": {"opacity": 0.75}, "o1.3": {"visible": True}}, styles)
-        _poses, styles = evaluate_clip(clip, 3.0)
+        _poses, styles, _tubes = evaluate_clip(clip, 3.0)
         self.assertEqual(False, styles["o1.3"]["visible"])
+
+
+class TubeTracks(unittest.TestCase):
+    def test_a_key_holds_up_to_a_rest_key_and_across_a_change_of_shape(self):
+        arc = {"normal": [0.0, 0.0, 1.0], "segments": [
+            {"kind": "arc", "center": [0.0, 20.0, 0.0], "axis": [0.0, 0.0, 1.0], "start": [0.0, 0.0, 0.0], "sweepDeg": 30.0}]}
+        clip = tube_clip([{"path": line(0.0), "twistDeg": 0.0}, {"path": arc, "twistDeg": 0.0}, None], [0, 1, 2],
+                         duration=3)
+        # A line and an arc share no numbers to lerp, so the line holds until the arc's key;
+        # the arc holds up to the rest key, and after it the tube is at rest.
+        self.assertEqual(line(0.0), evaluate_clip(clip, 0.5)[2]["o1.3"].path_spec)
+        self.assertEqual(arc, evaluate_clip(clip, 1.5)[2]["o1.3"].path_spec)
+        self.assertEqual({}, evaluate_clip(clip, 2.5)[2])
+
+    def test_one_shape_lerps_every_number_and_two_maps_blend_from_their_keys(self):
+        clip = tube_clip([{"path": line(0.0), "twistDeg": 0.0}, {"path": line(4.0), "twistDeg": 90.0}], [0, 1])
+        tube = evaluate_clip(clip, 0.25)[2]["o1.3"]
+        self.assertEqual([10.0, 1.0, 0.0], tube.path_spec["segments"][0]["end"])
+        self.assertEqual(22.5, tube.twist_deg)
+        self.assertIsNone(tube.between)
+        squeeze = [{"path": {"normal": [0.0, 0.0, 1.0], "map": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, scale, 0]}, "twistDeg": 0.0}
+                   for scale in (0.8, 0.6)]
+        spring = evaluate_clip(tube_clip(squeeze, [0, 1], rest=coil(4.0)), 0.5)[2]["o1.3"]
+        frm, to, u = spring.between
+        self.assertEqual((True, True, 0.5), (frm.maps_rest, to.maps_rest, u))
+        self.assertAlmostEqual(0.7 * 2.0, spring.path_spec["segments"][0]["points"][3][2])
+
+    def test_deform_is_refused_by_default_shipped_at_rest_or_gathered_on_the_fit_grid(self):
+        clip = tube_clip([{"path": line(0.0), "twistDeg": 0.0}, {"path": line(4.0), "twistDeg": 0.0}], [0, 1])
+        plan = FramePlan(10, 1.0, 0.0, 10)
+        with self.assertRaisesRegex(ValueError, 'clip bend deforms tube geometry on o1.3: .* Pass deform: "morph"'):
+            sample_clip(clip, plan)
+        rest = sample_clip(clip, plan, deform="rest")
+        self.assertEqual({}, rest.deformations)
+        self.assertEqual(['deform: "rest" ships o1.3 at rest shape: the clip\'s tube deformation is per-vertex '
+                          "motion this file does not carry"], rest.warnings)
+        morph = sample_clip(clip, plan, deform="morph")
+        # Whole multiples of the frame rate, at least four and at least 96 Hz: every
+        # frame is a grid sample.
+        self.assertEqual(FitGrid(10, 100, 91), morph.grid)
+        self.assertEqual(FitGrid(4, 120, 9), sample_clip(clip, FramePlan(30, 1.0, 0.0, 3), deform="morph").grid)
+        entry = morph.deformations["o1.3"]
+        self.assertEqual(list(range(91)), [index for index, _deformation in entry.samples])
+        self.assertTrue(all(deformation.rest_spec is entry.rest.rest_spec for _index, deformation in entry.samples))
+        self.assertEqual([], morph.warnings)
+        with self.assertRaisesRegex(ValueError, "animation deform must be one of refuse, morph, rest"):
+            sample_clip(clip, plan, deform="freeze")
+
+    def test_a_braid_exports_smooth_and_a_rest_that_changes_cannot_morph(self):
+        braid = {"pitch": 2.0, "depth": 0.1, "strands": 8}
+        clip = tube_clip([{"path": line(0.0), "twistDeg": 0.0}, {"path": line(2.0), "twistDeg": 0.0}], [0, 1], braid=braid)
+        self.assertEqual(["o1.3 carries a braid: the strand pattern is a shader, not geometry, so the exported "
+                          "cord has the right shape and motion and a smooth surface"],
+                         sample_clip(clip, FramePlan(10, 1.0, 0.0, 10), deform="morph").warnings)
+        # A second track takes the tube over halfway, about another rest: one base mesh
+        # cannot be the rest of both.
+        other = {"targets": ["o1.3"], "times": [0, 0.5], "tube": [None, {"path": line(3.0), "twistDeg": 0.0}],
+                 "rest": line(1.0), "maxSegmentLength": 1.0}
+        handover = tube_clip([{"path": line(0.0), "twistDeg": 0.0}, None], [0, 0.5], extra=[other])
+        with self.assertRaisesRegex(ValueError, "clip bend changes the REST path of o1.3 at 0.5000s"):
+            sample_clip(handover, FramePlan(10, 1.0, 0.0, 10), deform="morph")
 
 
 class TheSampler(unittest.TestCase):
@@ -174,22 +266,37 @@ class TheSampler(unittest.TestCase):
 
 
 MODEL = textwrap.dedent("""\
+    import math
+
     import cadgen
     from cadgen import build123d as bd
     from cadgen import step
+
+    REST = {"normal": [0, 0, 1], "segments": [{"kind": "line", "start": [0, 10, 2], "end": [20, 10, 2]}]}
 
 
     def turn(t, m):
         m.get("#lever").rotate((0, 0, 1), 90 * t)
 
 
-    @step(out="arm.step", animation={"turn": cadgen.clip(turn, duration=1, loop=False, fps=10)})
+    def bend(t, m):
+        # The 20 mm cord curls into a quarter circle, keeping its length.
+        angle = max(t, 1e-3) * math.pi / 2
+        m.get("#cord").deform_tube(rest=REST, path={"normal": [0, 0, 1], "segments": [{
+            "kind": "arc", "center": [0, 10 + 20 / angle, 2], "axis": [0, 0, 1], "start": [0, 10, 2],
+            "sweepDeg": math.degrees(angle)}]}, max_segment_length=2)
+
+
+    @step(out="arm.step", animation={"turn": cadgen.clip(turn, duration=1, loop=False, fps=10),
+                                     "bend": cadgen.clip(bend, duration=1, loop=False, fps=10)})
     def arm():
         base = bd.Box(10, 10, 2)
         base.label = "base"
         lever = bd.Pos(10, 0, 3) * bd.Box(20, 2, 2)
         lever.label = "lever"
-        return bd.Compound(children=[base, lever], label="assembly")
+        cord = bd.sweep(bd.Plane(origin=(0, 10, 2), z_dir=(1, 0, 0)) * bd.Circle(0.8), path=bd.Edge.make_line((0, 10, 2), (20, 10, 2)))
+        cord.label = "cord"
+        return bd.Compound(children=[base, lever, cord], label="assembly")
 
 
     if __name__ == "__main__":
@@ -225,7 +332,7 @@ class ARealDocumentPlaysItsClip(unittest.TestCase):
             gltf = json.loads(data[20:20 + length])
             binary = data[28 + length:]
             names = {node["name"]: index for index, node in enumerate(gltf["nodes"])}
-            self.assertEqual({"base", "lever"}, set(names))
+            self.assertEqual({"base", "cord", "lever"}, set(names))
             self.assertTrue(all(node["extras"]["cadOccurrenceId"].startswith("o1.") for node in gltf["nodes"]))
             (clip,) = gltf["animations"]
             rotation = [channel for channel in clip["channels"] if channel["target"]["path"] == "rotation"]
@@ -238,6 +345,30 @@ class ARealDocumentPlaysItsClip(unittest.TestCase):
             self.assertAlmostEqual(math.sin(math.radians(40.5)), abs(y), places=4)
             self.assertAlmostEqual(math.cos(math.radians(40.5)), abs(w), places=4)
             self.assertLess(max(abs(x), abs(z)), 1e-4)
+
+            # The cord bends: refused unless asked, then baked into morph targets that a
+            # weights channel drives, and the result says what that cost.
+            refused = subprocess.run(
+                [sys.executable, "-m", "cadgen.cli", "glb", "build", "arm.step", "arm-bend.glb", "--animation", "bend"],
+                cwd=root, env=env, capture_output=True, text=True, timeout=600)
+            self.assertNotEqual(0, refused.returncode)
+            self.assertIn('deforms tube geometry on o1.3', refused.stdout + refused.stderr)
+            door = run("-m", "cadgen.cli", "glb", "build", "arm.step", "arm-bend.glb", "--animation",
+                       json.dumps({"clip": "bend", "deform": "morph", "deformTolerance": 0.5}), "--json")
+            (entry,) = json.loads(door.stdout.strip().splitlines()[-1])["files"]
+            deform = entry["animation"]["deform"]
+            self.assertEqual(("morph", 1, 0.5, 120), (deform["mode"], deform["nodes"], deform["toleranceMm"], deform["fitGridHz"]))
+            self.assertLessEqual(deform["deviationMm"], 0.5)
+            data = (root / "arm-bend.glb").read_bytes()
+            length = struct.unpack_from("<I", data, 12)[0]
+            gltf = json.loads(data[20:20 + length])
+            names = {node["name"]: index for index, node in enumerate(gltf["nodes"])}
+            mesh = gltf["meshes"][gltf["nodes"][names["cord"]]["mesh"]]
+            self.assertEqual([0.0] * deform["targets"], mesh["weights"])
+            self.assertTrue(all(len(primitive["targets"]) == deform["targets"] for primitive in mesh["primitives"]))
+            (clip,) = gltf["animations"]
+            self.assertEqual([(names["cord"], "weights")],
+                             [(channel["target"]["node"], channel["target"]["path"]) for channel in clip["channels"]])
 
 
 if __name__ == "__main__":

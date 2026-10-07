@@ -19,7 +19,8 @@ reads the store or imports the kernel.
 - :func:`glb_bytes` is glTF 2.0, Y-up metres: one node per primitive for a static
   file, one node per OCCURRENCE when a clip animates it (a channel needs a node
   to target), with the occurrence ids, the declared up axis and the authored PBR
-  finish carried through.
+  finish carried through. A deforming tube's primitives carry MORPH TARGETS
+  (``tube_morph``), driven by a weights channel.
 
 Determinism (README law 5): the same meshes and descriptor give the same bytes.
 Every value written is IEEE arithmetic in a fixed order -- elementwise numpy
@@ -29,6 +30,7 @@ emitted in a sorted or declared order.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 import re
@@ -93,6 +95,25 @@ def decode_tessellation(payload: bytes) -> Tessellation:
 
 
 @dataclass
+class MorphTarget:
+    """One morph target: per-vertex deltas against its primitive's base, in CAD
+    millimetres -- positions, and normals unless the bake measured them unneeded."""
+
+    position_deltas: np.ndarray  # (v, 3) float32
+    normal_deltas: np.ndarray | None = None
+
+
+@dataclass
+class MorphCheck:
+    """A strided handful of a morph primitive's vertices posed by the bake itself,
+    per target: the independent answer the writer checks ``base + delta`` against
+    once both are in the file's own space."""
+
+    vertex_ids: np.ndarray  # (k,) indices into the primitive's vertices
+    posed: list  # per target, (k, 3) float32 CAD millimetres
+
+
+@dataclass
 class Primitive:
     """Indexed, coloured triangles placed in the document's world (CAD millimetres)."""
 
@@ -107,6 +128,8 @@ class Primitive:
     material: dict | None = None  # the authored finish, channels in [0, 1]
     material_id: str = ""
     material_name: str = ""
+    targets: list | None = None  # [MorphTarget], a deforming tube's
+    check: MorphCheck | None = None
 
     @property
     def triangle_count(self) -> int:
@@ -243,6 +266,42 @@ def _place(positions: np.ndarray, normals: np.ndarray, placement: _Placement) ->
     return p.astype(np.float32), (n / length[:, None]).astype(np.float32)
 
 
+def occurrence_colors(
+    descriptor: Mapping[str, Any], occurrence: Mapping[str, Any], tessellation: Tessellation,
+    default_color: str | None = None,
+) -> list[str]:
+    """Every face range of one occurrence resolved to its export colour: its own,
+    else the occurrence's (a named material's ``baseColor``, then its STEP colour),
+    the component's, the part's, the export default. The one chain, for the soup
+    and for a morph bake that replaces an occurrence's primitives alike."""
+    cid = str(occurrence.get("component") or "")
+    base_color = str(occurrence.get("baseColor") or "")
+    occurrence_color = base_color.lower() if _HEX.fullmatch(base_color) else linear_rgb_to_hex(occurrence.get("color"))
+    component_color = linear_rgb_to_hex(((descriptor.get("components") or {}).get(cid) or {}).get("color"))
+    fallback = (occurrence_color or component_color or linear_rgb_to_hex(tessellation.part_color)
+                or (default_color or DEFAULT_COLOR).lower())
+    return [linear_rgb_to_hex(face_range.get("color")) or fallback for face_range in tessellation.face_ranges]
+
+
+def occurrence_world_mesh(
+    occurrence: Mapping[str, Any], tessellation: Tessellation,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """One occurrence's whole component, placed: (positions, normals, triangles,
+    the face range of each triangle), the triangles in face-range order and
+    re-wound under a reflection exactly as the soup places them."""
+    placement = _placement(occurrence.get("transform"))
+    positions, normals = _place(tessellation.positions, tessellation.normals, placement)
+    triangles, ranges = [], []
+    for range_index, face_range in enumerate(tessellation.face_ranges):
+        start, count = int(face_range.get("indexStart") or 0), int(face_range.get("indexCount") or 0)
+        block = tessellation.indices[start:start + count // 3 * 3].reshape(-1, 3)
+        triangles.append(block[:, [0, 2, 1]] if placement.mirrored else block)
+        ranges.append(np.full(len(block), range_index, dtype=np.int64))
+    if not triangles:
+        return positions, normals, np.zeros((0, 3), dtype=np.uint32), np.zeros(0, dtype=np.int64)
+    return positions, normals, np.concatenate(triangles).astype(np.uint32), np.concatenate(ranges)
+
+
 @dataclass
 class _Group:
     color: str
@@ -264,6 +323,7 @@ def build_primitives(
     per_occurrence: bool = False,
     hidden: frozenset[str] | set[str] = frozenset(),
     opacity: Mapping[str, float] | None = None,
+    overrides: Mapping[str, list[Primitive]] | None = None,
 ) -> list[Primitive]:
     """The descriptor's occurrences, baked into colour-grouped primitives.
 
@@ -272,13 +332,16 @@ def build_primitives(
     occurrence as well, so a GLB node is an occurrence a clip can move; it costs
     sharing across occurrences, so only an animated export asks for it. ``hidden``
     occurrences are left out and ``opacity`` overrides an occurrence's alpha --
-    the effects a clip's ``drop`` bakes at its start.
+    the effects a clip's ``drop`` bakes at its start. ``overrides`` (per
+    occurrence only) are primitives somebody else built for an occurrence -- a
+    morph bake's refined, posed tube -- spliced in where its own would sort.
     """
     if default_color is not None and not _HEX.fullmatch(default_color):
         raise ValueError(f"the default export colour must be #rrggbb, got {default_color!r}")
-    fallback_default = (default_color or DEFAULT_COLOR).lower()
-    components = descriptor.get("components") or {}
+    if overrides and not per_occurrence:
+        raise ValueError("primitive overrides are keyed by occurrence, and the flat layout has none")
     groups: dict[str, _Group] = {}
+    spliced: dict[str, Primitive] = {}
     for occurrence_index, occurrence in enumerate(descriptor.get("occurrences") or []):
         cid = str(occurrence.get("component") or "")
         tessellation = tessellations.get(cid)
@@ -287,20 +350,27 @@ def build_primitives(
         occurrence_id = str(occurrence.get("id") or cid)
         if occurrence_id in hidden:
             continue
-        base_color = str(occurrence.get("baseColor") or "")
-        occurrence_color = base_color.lower() if _HEX.fullmatch(base_color) else linear_rgb_to_hex(occurrence.get("color"))
-        component_color = linear_rgb_to_hex((components.get(cid) or {}).get("color"))
-        fallback = occurrence_color or component_color or linear_rgb_to_hex(tessellation.part_color) or fallback_default
         finish = occurrence_finish(occurrence.get("material"), occurrence.get("color"))
         material_id = str(occurrence.get("materialId") or "").strip()
         material_name = str(occurrence.get("materialName") or material_id).strip()
         finish_key = _finish_key(finish, material_id)
         placement = _placement(occurrence.get("transform"))
         name = str(occurrence.get("name") or occurrence_id)
+        override = (overrides or {}).get(occurrence_id)
+        if override is not None:
+            for ordinal, primitive in enumerate(override):
+                key = f"{occurrence_index:08d}|{primitive.color}{finish_key}|{ordinal:04d}"
+                spliced[key] = dataclasses.replace(
+                    primitive, node=occurrence_id, name=name, occurrence_id=occurrence_id,
+                    opacity=None if opacity is None else opacity.get(occurrence_id), material=finish,
+                    material_id=material_id, material_name=material_name,
+                )
+            continue
+        colors = occurrence_colors(descriptor, occurrence, tessellation, default_color)
         for range_index, face_range in enumerate(tessellation.face_ranges):
             if int(face_range.get("indexCount") or 0) < 3:
                 continue
-            color = linear_rgb_to_hex(face_range.get("color")) or fallback
+            color = colors[range_index]
             key = (f"{occurrence_index:08d}|{color}" if per_occurrence else color) + finish_key
             group = groups.get(key)
             if group is None:
@@ -326,7 +396,11 @@ def build_primitives(
         return cached
 
     primitives: list[Primitive] = []
-    for _key, group in sorted(groups.items()):
+    for key in sorted([*groups, *spliced]):
+        if key in spliced:
+            primitives.append(spliced[key])
+            continue
+        group = groups[key]
         positions, normals, indices = [], [], []
         base = 0
         for cid, range_index, placement in group.members:
@@ -499,6 +573,44 @@ def _y_up(values: np.ndarray, scale: float) -> np.ndarray:
     return np.stack([v[:, 0] * scale, v[:, 2] * scale, -(v[:, 1] * scale)], axis=1).astype(np.float32)
 
 
+# 1e-6 m is a thousandth of a millimetre: far tighter than a bake could be wrong by,
+# and about forty times the float32 rounding of `base + delta` at half a metre.
+MORPH_RECONSTRUCTION_TOLERANCE_M = 1e-6
+
+
+def _y_up_targets(primitive: Primitive) -> list[MorphTarget]:
+    """A target's position delta is a VECTOR: the same rotation and mm -> m scale as a
+    position, and no translation; a normal delta takes the rotation alone."""
+    return [MorphTarget(_y_up(target.position_deltas, CAD_TO_GLB_SCALE),
+                        None if target.normal_deltas is None else _y_up(target.normal_deltas, 1.0))
+            for target in primitive.targets or []]
+
+
+def _check_reconstruction(primitive: Primitive, positions: np.ndarray, targets: list[MorphTarget]) -> None:
+    """``base + delta`` in the file's own space against the bake's posed vertices,
+    carried across with their own arithmetic. True by construction, which is why
+    it is worth asserting: a basis change applied to the base and not the deltas,
+    a scale applied twice, a normal delta sent down the position path -- each is a
+    file that opens, moves, and is wrong."""
+    check = primitive.check
+    if check is None:
+        return
+    ids = np.asarray(check.vertex_ids, dtype=np.int64)
+    for ordinal, (target, posed) in enumerate(zip(targets, check.posed)):
+        reference = np.asarray(posed, dtype=np.float64)
+        expected = np.stack([reference[:, 0] * CAD_TO_GLB_SCALE, reference[:, 2] * CAD_TO_GLB_SCALE,
+                             -reference[:, 1] * CAD_TO_GLB_SCALE], axis=1)
+        rebuilt = positions[ids].astype(np.float64) + target.position_deltas[ids].astype(np.float64)
+        error = np.abs(rebuilt - expected)
+        if error.size and float(error.max()) > MORPH_RECONSTRUCTION_TOLERANCE_M:
+            sample, axis = np.unravel_index(int(np.argmax(error)), error.shape)
+            raise ValueError(
+                f"morph target {ordinal} of {primitive.occurrence_id or primitive.node} rebuilds vertex "
+                f"{int(ids[sample])} as {rebuilt[sample, axis]} where the posed tube is {expected[sample, axis]} "
+                f"(axis {axis}): base and deltas are not in the same space"
+            )
+
+
 def _gltf_material(primitive: Primitive) -> dict:
     # sRGB in, LINEAR out (baseColorFactor is linear), canonicalized to float32 so
     # the bytes do not hang on the last bit of a pow.
@@ -537,6 +649,8 @@ def glb_bytes(primitives: list[Primitive], *, name: str = "model", animation: Ma
     ``{name, times, channels: [{node, translation?, rotation?}], rest: {node: {translation,
     rotation}}}`` in glTF space, whose channels target the primitives' ``node`` keys.
     ``rest`` is each node's own transform: what the file shows when nothing plays it.
+    A channel may instead be ``{node, times, weights, targetCount}``: its own
+    schedule driving that node's morph targets, ``targetCount`` scalars per time.
     """
     binary: list[bytes] = []
     size = 0
@@ -584,15 +698,42 @@ def glb_bytes(primitives: list[Primitive], *, name: str = "model", animation: Ma
             "bufferView": index_view, "byteOffset": 0, "componentType": index_type,
             "count": len(primitive.indices), "type": "SCALAR",
         })
+        targets = _y_up_targets(primitive)
+        _check_reconstruction(primitive, positions, targets)
+        target_accessors = []
+        for target in targets:
+            # A target POSITION's min/max are the DELTAS' bounds, as the spec asks: a
+            # viewer sizes the morphed bounding box from them.
+            entry = {"POSITION": accessor({
+                "bufferView": view(target.position_deltas.astype("<f4").tobytes(), _ARRAY_BUFFER),
+                "byteOffset": 0, "componentType": _FLOAT, "count": count, "type": "VEC3",
+                "min": [float(value) for value in target.position_deltas.min(axis=0)],
+                "max": [float(value) for value in target.position_deltas.max(axis=0)],
+            })}
+            if target.normal_deltas is not None:
+                entry["NORMAL"] = accessor({
+                    "bufferView": view(target.normal_deltas.astype("<f4").tobytes(), _ARRAY_BUFFER),
+                    "byteOffset": 0, "componentType": _FLOAT, "count": count, "type": "VEC3",
+                })
+            target_accessors.append(entry)
         materials.append(_gltf_material(primitive))
         entry = {
             "attributes": {"POSITION": position_accessor, "NORMAL": normal_accessor},
             "indices": index_accessor, "material": len(materials) - 1, "mode": _TRIANGLES,
         }
+        if target_accessors:
+            entry["targets"] = target_accessors
         # A primitive with no node key gets a node of its own; no occurrence id
         # begins with a NUL, so the keys cannot collide.
         key = f"\0primitive:{len(groups)}" if primitive.node is None else str(primitive.node)
-        group = groups.setdefault(key, {"primitive": primitive, "primitives": []})
+        group = groups.setdefault(key, {"primitive": primitive, "primitives": [], "targets": len(target_accessors)})
+        if group["targets"] != len(target_accessors):
+            # `weights` belong to a MESH, so every primitive of one node must agree on
+            # how many targets it has, or the file's weights land on missing shapes.
+            raise ValueError(
+                f"node {key!r} mixes primitives with {group['targets']} and {len(target_accessors)} morph "
+                "targets, and glTF weights are per mesh"
+            )
         group["primitives"].append(entry)
 
     rest = (animation or {}).get("rest") or {}
@@ -601,7 +742,12 @@ def glb_bytes(primitives: list[Primitive], *, name: str = "model", animation: Ma
     node_index: dict[str, int] = {}
     for key, group in groups.items():
         first: Primitive = group["primitive"]
-        meshes.append({"primitives": group["primitives"]})
+        mesh: dict[str, Any] = {"primitives": group["primitives"]}
+        if group["targets"]:
+            # The mesh's default weights, all zero: the base is the clip's opening pose,
+            # so a file nothing plays shows the tube where the clip starts it.
+            mesh["weights"] = [0.0] * group["targets"]
+        meshes.append(mesh)
         node: dict[str, Any] = {
             "mesh": len(meshes) - 1,
             "name": sanitize_name(first.name or name, name),
@@ -624,18 +770,50 @@ def glb_bytes(primitives: list[Primitive], *, name: str = "model", animation: Ma
 
     animations = []
     if animation is not None and animation.get("channels"):
-        times = np.asarray(animation["times"], dtype=np.float32)
-        time_accessor = accessor({
-            "bufferView": view(times.astype("<f4").tobytes()), "byteOffset": 0, "componentType": _FLOAT,
-            "count": len(times), "type": "SCALAR",
-            # Required on a sampler input: a loader reads the clip's duration off them.
-            "min": [float(times[0])], "max": [float(times[-1])],
-        })
+        time_accessors: dict[bytes, int] = {}
+
+        def time_accessor(values: object) -> int:
+            """One input accessor per distinct schedule: the clip's channels share one."""
+            times = np.asarray(values, dtype="<f4")
+            payload = times.tobytes()
+            found = time_accessors.get(payload)
+            if found is None:
+                found = time_accessors[payload] = accessor({
+                    "bufferView": view(payload), "byteOffset": 0, "componentType": _FLOAT,
+                    "count": len(times), "type": "SCALAR",
+                    # Required on a sampler input: a loader reads the clip's duration off them.
+                    "min": [float(times[0])], "max": [float(times[-1])],
+                })
+            return found
+
         samplers, channels = [], []
         for channel in animation["channels"]:
             target = node_index.get(str(channel["node"]))
             if target is None:
                 raise ValueError(f"animation channel targets node {channel['node']!r}, which no primitive declared")
+            input_accessor = time_accessor(channel["times"] if channel.get("weights") is not None else animation["times"])
+            if channel.get("weights") is not None:
+                declared = int(channel["targetCount"])
+                actual = groups[str(channel["node"])]["targets"]
+                weights = np.asarray(channel["weights"], dtype="<f4")
+                schedule = channel["times"]
+                if declared != actual:
+                    raise ValueError(
+                        f"weights channel on node {channel['node']!r} declares {declared} morph targets, "
+                        f"but its mesh has {actual}"
+                    )
+                if len(weights) != len(schedule) * declared:
+                    raise ValueError(
+                        f"weights channel on node {channel['node']!r} has {len(weights)} scalars for "
+                        f"{len(schedule)} times x {declared} targets"
+                    )
+                output = accessor({
+                    "bufferView": view(weights.tobytes()), "byteOffset": 0, "componentType": _FLOAT,
+                    "count": len(weights), "type": "SCALAR",
+                })
+                samplers.append({"input": input_accessor, "output": output, "interpolation": "LINEAR"})
+                channels.append({"sampler": len(samplers) - 1, "target": {"node": target, "path": "weights"}})
+                continue
             for path, width, kind in (("translation", 3, "VEC3"), ("rotation", 4, "VEC4"), ("scale", 3, "VEC3")):
                 values = channel.get(path)
                 if values is None:
@@ -645,7 +823,7 @@ def glb_bytes(primitives: list[Primitive], *, name: str = "model", animation: Ma
                     "bufferView": view(values.astype("<f4").tobytes()), "byteOffset": 0,
                     "componentType": _FLOAT, "count": len(values) // width, "type": kind,
                 })
-                samplers.append({"input": time_accessor, "output": output, "interpolation": "LINEAR"})
+                samplers.append({"input": input_accessor, "output": output, "interpolation": "LINEAR"})
                 channels.append({"sampler": len(samplers) - 1, "target": {"node": target, "path": path}})
         animations.append({"name": sanitize_name(animation.get("name") or "clip", "clip"),
                            "samplers": samplers, "channels": channels})
