@@ -277,11 +277,14 @@ def _stored_meshes(source: MeshSource, pairs: list, appearance: object) -> "tupl
     """The export's descriptor, and the stored TESS body of every placed component
     at every pair, ``{(cid, pair): bytes}``.
 
-    What the store lacks is derived in ONE build-pool job (``surfaces.derive`` with
-    every pair: SURF where missing, then OCCT's mesh at each tolerance). A pinned
-    producer this runtime cannot implement is replaced by the current one, once,
-    as the views do (``store.view.materialize_view_surfaces``)."""
-    from cadgen.daemon.artifacts import ArtifactJobError, resolve_artifact
+    What the store lacks is derived by build-pool jobs (``surfaces.derive`` with
+    every pair: SURF where missing, then OCCT's mesh at each tolerance), the
+    missing components dealt across the pool (``artifacts.deal``) as a view's
+    are: one job did them one after another, half a cold export's wall time on
+    moonwatch. A pinned producer this runtime cannot implement is replaced by
+    the current one, once, as the views do (``store.view.materialize_view_surfaces``)."""
+    from cadgen.daemon.artifacts import (
+        SURFACES_PER_STARTED_WORKER, ArtifactJobError, deal, resolve_artifact, resolve_artifacts)
     from cadgen.store import meshes, surfaces
 
     descriptor = _export_view(source, _loaded_producer(), appearance)
@@ -297,8 +300,9 @@ def _stored_meshes(source: MeshSource, pairs: list, appearance: object) -> "tupl
         if missing:
             producer = surfaces.producer_fields(descriptor["surfaceProducer"])
             try:
-                resolve_artifact({"kind": "surfaces", "tree": source.tree, "cids": missing,
-                                  "producer": producer, "tessellations": tessellations})
+                resolve_artifacts([{"kind": "surfaces", "tree": source.tree, "cids": dealt,
+                                    "producer": producer, "tessellations": tessellations}
+                                   for dealt in deal(missing, per_started_worker=SURFACES_PER_STARTED_WORKER)])
             except ArtifactJobError as error:
                 if replaced or not surfaces.producer_unavailable(error):
                     raise
