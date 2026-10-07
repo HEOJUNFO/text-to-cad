@@ -302,18 +302,35 @@ test('a static GLB opens on its native scene with no tools: display settings, or
   assert.deepEqual(errors, []);
 });
 
-test('an animated GLB opens at rest, plays in preview, and leaving preview puts it back at rest', async (t) => {
+test('an animated GLB opens at rest with its Animation panel up, plays there and in preview, and the panel holds the routine', async (t) => {
   // The file's preview settings as a previous session left them: Orbit off, so the preview
   // camera holds still and what moves in a capture is the model alone.
   const { page, pane, errors } = await open(t, 'animated.glb', { record: { version: 2, settings: {},
     files: { [JSON.stringify(['/models/animated.glb', 'glb'])]: { version: 2, playback: { orbit: false } } } } });
   await ready(pane);
-  assert.equal(await pane.getByRole('toolbar', { name: 'Animation playback' }).count(), 0);
-  assert.equal(await pane.getByRole('button', { name: 'Animate', exact: true }).count(), 0, 'no Animate tool');
+  // Animation is its one tool, up from the open: the panel at the top-left, with no strip to take it
+  // up from and no X to put it down.
+  const panel = pane.getByRole('region', { name: 'Animation controls', exact: true });
+  await panel.waitFor();
+  assert.equal(await pane.getByRole('group', { name: 'Interaction tools' }).count(), 0, 'one tool needs no strip');
+  assert.equal(await panel.getByRole('button', { name: 'Close animation controls', exact: true }).count(), 0, 'and is never put down');
   await page.waitForFunction(() => window.cadHarness.a.controller?.readState().loading === false);
   const toolsRest = await stillCapture(page);
+  const panelTime = () => page.evaluate(() => Number(document.querySelector(
+    '[data-testid="one"] [aria-label="Animation controls"] [role="slider"][aria-label="Animation time"]')?.getAttribute('aria-valuenow')));
+  // The panel plays the clip in the tools view, and its start is the rest pose.
+  await panel.getByRole('button', { name: 'Play animation', exact: true }).click();
+  await page.waitForFunction(() => Number(document.querySelector(
+    '[data-testid="one"] [aria-label="Animation controls"] [role="slider"][aria-label="Animation time"]')?.getAttribute('aria-valuenow')) > 0.25);
+  await panel.getByRole('button', { name: 'Pause animation', exact: true }).click();
+  assert.ok(differingPixels(toolsRest, await capture(page)) > 200, 'the panel moved the rider');
+  await panel.getByRole('slider', { name: 'Animation time', exact: true }).focus();
+  await page.keyboard.press('Home');
+  assert.equal(await panelTime(), 0);
+  await captureMatching(page, toolsRest, 'the clip at its start is the rest pose');
 
   await pane.getByRole('button', { name: 'Preview', exact: true }).click();
+  await pane.getByRole('button', { name: 'Exit preview', exact: true }).waitFor();
   await pane.getByRole('button', { name: 'Play animation', exact: true }).waitFor();
   const rest = await stillCapture(page);
   // The playbar is simply there, and the file is at rest under it.
@@ -334,9 +351,14 @@ test('an animated GLB opens at rest, plays in preview, and leaving preview puts 
   const moved = await capture(page);
   assert.ok(differingPixels(rest, moved) > 200, 'the rider moved');
 
-  // Leaving preview puts the model back at rest, in the tools view's own camera.
+  // Leaving preview hands the routine back to the panel, which holds it where it stopped, in the
+  // tools view's own camera; the panel's start is the rest pose again.
   await pane.getByRole('button', { name: 'Exit preview', exact: true }).click();
   await pane.getByRole('button', { name: 'Preview', exact: true }).waitFor();
+  assert.ok(await panelTime() > 0.25, 'the panel holds the routine where preview left it');
+  assert.ok(differingPixels(toolsRest, await stillCapture(page)) > 200, 'and so does the model');
+  await panel.getByRole('slider', { name: 'Animation time', exact: true }).focus();
+  await page.keyboard.press('Home');
   await captureMatching(page, toolsRest, 'the tools view is at rest again');
 
   // In Render the studio's floor is sized from the rest placement: a playing clip never resizes it.

@@ -369,17 +369,20 @@ STEP renderer does not match `.glb`.
   flag, or the grey a STEP export stamps on uncoloured parts) takes the viewer's
   surface colour in Inspect.
 - **Display**: `EDGELESS_VIEW_FEATURES` (Solid and Render; no Edges, Clip or Explode).
-- **Tools**: none. The renderer hands the shell no tools of its own (`tools={[]}`), so
-  there is no tool strip: a GLB picks nothing, so there is no Select, no filter menu,
-  no copy-references action and no viewport context menu.
-- **Animation** (`glb/useGlbAnimation.js`): clips play in preview alone, through the
-  playbar under the model and its menus (`RendererShell.jsx`).
-  The file OPENS AT REST — one `AnimationMixer` on the native scene, built by the
-  first play, scrub or clip choice and alive only while a routine owns the pose;
-  leaving preview calls the runtime's `onRelease`, which stops it and puts the model
-  back at rest, keeping the clip, speed and loop.
-- **Panels**: none, so a GLB opens with no panel open. Preview is the shell's, as for
-  every 3D file, with the Animation settings when the file has clips.
+- **Tools**: the Animation tool alone, for a file with clips (`glb/tools.js`'s
+  `GLB_TOOL_MODES`: the shell's `animate` as the default mode). The renderer hands the
+  shell no tools for a strip (`tools={[]}`), so there is no tool strip: one tool needs none,
+  and a GLB picks nothing, so there is no Select, no filter menu, no copy-references action
+  and no viewport context menu.
+- **Animation** (`glb/useGlbAnimation.js`): clips play under the Animation tool, up from the
+  open and never put down, and in preview, through the playbar under the model and its menus
+  (`RendererShell.jsx`). The file OPENS AT REST — one `AnimationMixer` on the native scene,
+  built by the first play, scrub or clip choice — unless its Autoplay is on, which plays it at
+  the open, as taking the tool up does. The tool holds the routine, so leaving preview leaves
+  the model where the routine has it.
+- **Panels**: the Animation panel at the top-left for a file with clips, with no X (its tool
+  is never put down); none for a static file, which opens with no panel open. Preview is the
+  shell's, as for every 3D file, with the Animation settings when the file has clips.
 - **Host commands**: the base live commands; `select` and `clearSelection` are
   declined with a sentence, and a `selectReference` host request is consumed and
   acknowledged without changing the view.
@@ -1247,7 +1250,9 @@ routine's. Each format has one write path (`write` in `robot/poseStore.js`;
 Routines play under the Animation tool and in preview. **Animation** is a shell tool, as
 Draw is (`shell.tools.animate`, `SHELL_TOOL.ANIMATE`; null for a file with no routines),
 which a renderer puts on its strip and declares in its `toolModes` as a mode that
-toggles; STEP's follows Position. Its panel leads the stack (`kit/tools/playbar/AnimationPanel.jsx`,
+toggles; STEP's follows Position. A renderer whose one tool it is (a GLB's) declares it as
+its DEFAULT mode instead and puts nothing on the strip: the tool is up from the open, its
+panel has no X, and the open is when it is taken up. Its panel leads the stack (`kit/tools/playbar/AnimationPanel.jsx`,
 drawn by `RendererShell.jsx`), headed as Measure's is: "Animation", its settings
 (`ToolSettingsMenu`: Speed, Loop and Autoplay, the same settings as the playbar's, written the
 same way) and its X (`shell.selectDefaultTool`). Its body: with two or more routines, the

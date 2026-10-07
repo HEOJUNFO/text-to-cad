@@ -102,7 +102,9 @@ const NO_PREVIEW = () => {};
  * @param {{ current: object | null }} [options.viewerRef]  The ref the viewport's handle lands in, when
  *   the renderer made it itself (see `viewSettings.applied`).
  * @param {ReturnType<typeof import("../tools/toolModes.js").createToolModes> | null} [options.toolModes]  Omitted
- *   by a renderer with no tools: the shell then has no active tool and a saved tab records none.
+ *   by a renderer with no tools: the shell then has no active tool and a saved tab records none. A renderer
+ *   whose one tool is Animation declares it as the default mode and puts nothing on its strip:
+ *   the tool is up from the open and never put down, its panel at the top-left with no X.
  * @param {boolean} [options.previewable]  The renderer's view is 3D and offers Preview: the model fullscreen,
  *   orbiting, its tools put away. Each renderer of a 3D view declares it; without it (a 2D view) there is no
  *   Preview at all — no control in the navbar, not a disabled one — and anything that asks for Preview leaves
@@ -355,6 +357,15 @@ export function useRendererShell({
   // The Animation tool is a file's with routines; while it is up its panel plays them.
   const routines = animationControlsHaveContent(animation);
   const animateToolActive = !previewing && routines && toolMode === SHELL_TOOL.ANIMATE;
+  // A file whose one tool is Animation has it up from the open, so the open is when it is taken up:
+  // the routine plays then when the file's Autoplay is on, as taking the tool up plays it.
+  const animateToolFixed = toolModes?.defaultMode === SHELL_TOOL.ANIMATE;
+  const autoplayedAtOpen = useRef(false);
+  useEffect(() => {
+    if (!animateToolFixed || !animateToolActive || autoplayedAtOpen.current) return;
+    autoplayedAtOpen.current = true;
+    if (autoplay && !animation.playing) animation.onPlayToggle();
+  }, [animateToolFixed, animateToolActive, autoplay, animation]);
   const selectTool = useCallback((mode) => setToolMode(current => (toolModes ? toolModes.next(current, mode) : mode)), [toolModes, setToolMode]);
   // A tool panel's X: back to the file's default tool (Select, where there is one), from any tool.
   const selectDefaultTool = useCallback(() => setToolMode(toolModes ? toolModes.defaultMode : ""), [toolModes, setToolMode]);
@@ -564,7 +575,7 @@ export function useRendererShell({
       // Quick Edit's: the file it is about, how a copied prompt spells its paths, its sketch, and
       // the renderer's own Escape, which an empty Quick Edit passes on.
       resource, captureView, escape: escapeView,
-      drawToolActive, drawing, animation, animateToolActive, display
+      drawToolActive, drawing, animation, animateToolActive, animateToolFixed, display
     }
   };
 }

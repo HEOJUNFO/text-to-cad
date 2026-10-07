@@ -9,11 +9,12 @@ import { AnimationTimeControl, PLAYBACK_SPEEDS } from "./ViewportAnimationBar.js
 /**
  * The Animation tool's panel: a file's routines, played in the tools view. Headed as Measure's is:
  * "Animation", then its settings — Speed, Loop and Autoplay, the same settings as preview's Playback
- * settings (`PlaybackMenu.jsx`) — and its X, which puts the tool down. Its body: with more than one
+ * settings (`PlaybackMenu.jsx`) — and its X, which puts the tool down: none where Animation is the
+ * file's one tool, which is never put down (`onClose` null). Its body: with more than one
  * routine, the routine's dropdown; then play/pause and the scrubber. Ticking a checkbox leaves the
  * menu open.
  *
- * @param {{ runtime: object, autoplay: boolean, onAutoplayChange(value: boolean): void, onClose(): void,
+ * @param {{ runtime: object, autoplay: boolean, onAutoplayChange(value: boolean): void, onClose: (() => void) | null,
  *   disabled?: boolean }} props  `runtime` is the playbar runtime, its Speed and Loop already writing the
  *   file's choice.
  */

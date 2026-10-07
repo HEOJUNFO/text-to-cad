@@ -232,7 +232,8 @@ robots open in Select, whose Features (Links for a robot) panel hangs under the
 toolbar with the rest of the tool stack; Position's panel replaces it while Position
 is the tool, and the Animation tool's (a STEP with routines) while that is. The file's
 name in the navbar opens the explorer.
-STEP and robot files have a top-left toolbar; GLB, STL and 3MF have none. Every 3D
+STEP and robot files have a top-left toolbar; GLB, STL and 3MF have none, and a GLB with
+clips has the Animation panel there instead, always up. Every 3D
 file has Display (its settings, a dropdown that opens down) and Preview at the navbar's
 right end, the view cube at the bottom-left, and Quick Edit at the top-right. DXF is a 2D canvas with
 pan, zoom, snapshot and Quick Edit, without a 3D toolbar or tool stack.
