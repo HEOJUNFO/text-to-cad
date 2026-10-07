@@ -403,6 +403,19 @@ class BakingStyles(unittest.TestCase):
             str(caught.exception),
         )
 
+    def test_a_tube_that_holds_still_is_keyed_at_the_ends_of_its_hold(self) -> None:
+        # A valve spring closed for half a second, then eased shut as a cam lifts it. Its
+        # first moves are within tolerance of the rest, so a key in them could stand for
+        # the whole hold, and every frame of the hold would bend the spring anew; the
+        # hold's two ends are one value instead, and a renderer redraws nothing through it.
+        def press(t, m):
+            lift = 3.0 * max(0.0, (t - 0.5) / 0.5) ** 3
+            m.get("#link").deform_tube(rest=_coil(10.0), path=_coil(10.0 - lift))
+
+        (track,) = _bake("press", press, duration=1)["tracks"]
+        self.assertEqual([0.0, 0.5], track["times"][:2])
+        self.assertEqual(track["tube"][0], track["tube"][1])
+
     def test_a_spring_that_compresses_is_keyed_as_maps_of_its_rest(self) -> None:
         # Every turn of a compressing coil closes up alike, so each pose is the rest under
         # one affine map: a key is that map's twelve numbers, not the coil again.
