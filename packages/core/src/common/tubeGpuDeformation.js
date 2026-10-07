@@ -20,7 +20,16 @@ const MAPPING_TEXTURE_WIDTH = 1024;
 // Knots at every analytic table entry (Bézier) or at a fixed angular pitch
 // (arc), then cubic Hermite interpolation in arc length onto a uniform table:
 // 16 floats per frame — point, tangent, normal, curvature — each padded to vec4.
-function buildGpuTubeFrames(path, sample) {
+/** The rows a posed path of `length` needs: one frame every FRAME_SPACING. */
+export const gpuTubeFrameRows = (length) => Math.max(2, Math.ceil(length / FRAME_SPACING) + 1);
+
+/** A tube key's frame table at `rows` rows (at least its own), so that it pairs row
+ * for row with its neighbour's: the shader reads a row by fraction of length. */
+export function gpuTubeKeyFrames(path, sample, rows) {
+  return buildGpuTubeFrames(path, sample, rows);
+}
+
+function buildGpuTubeFrames(path, sample, rows = null) {
   const knots = [];
   for (const segment of path.segments) {
     const entries = segment.kind === "bezier" ? segment.table : null;
@@ -30,7 +39,9 @@ function buildGpuTubeFrames(path, sample) {
       const entry = entries?.[i];
       const distance = entry ? entry.s : segment.length * i / (count - 1);
       const s = segment.offset + distance;
-      const frame = entry?.curvature ? entry : sample(path, s);
+      // A table entry knows its own parameter: its knot is evaluated there, never
+      // searched for again from its arc length.
+      const frame = sample(path, s, segment, entry);
       const knot = { s, point: frame.point, tangent: frame.tangent, normal: frame.normal, curvature: frame.curvature };
       if (knots.length && s <= knots.at(-1).s + 1e-12) {
         knots[knots.length - 1] = knot;
@@ -39,7 +50,7 @@ function buildGpuTubeFrames(path, sample) {
       }
     }
   }
-  const count = Math.max(2, Math.ceil(path.length / FRAME_SPACING) + 1);
+  const count = Math.max(rows ?? 0, gpuTubeFrameRows(path.length));
   const data = new Float32Array(count * 16);
   let k = 0;
   for (let i = 0; i < count; i++) {
@@ -79,8 +90,12 @@ function buildGpuTubeFrames(path, sample) {
       data[offset + j] = h00 * a.point[j] + h10 * h * a.tangent[j] + h01 * b.point[j] + h11 * h * b.tangent[j];
       data[offset + 12 + j] = v * a.curvature[j] + u * b.curvature[j];
     }
-    data.set([t0, t1, t2], offset + 4);
-    data.set([n0, n1, n2], offset + 8);
+    data[offset + 4] = t0;
+    data[offset + 5] = t1;
+    data[offset + 6] = t2;
+    data[offset + 8] = n0;
+    data[offset + 9] = n1;
+    data[offset + 10] = n2;
   }
   return { data, count };
 }
@@ -279,7 +294,9 @@ function installRaycastGuard(THREE, record, restState, state, deformation, inver
   };
 }
 
-export function applyGpuTube(THREE, record, restState, deformation, inverse, sample, materialize) {
+/** `built` ({data, count}), when given, is the posed frame table already made: a tube
+ * between two keys lerps theirs (tubeDeformation.js, poseBetweenKeys). */
+export function applyGpuTube(THREE, record, restState, deformation, inverse, sample, materialize, built = null) {
   if (!record.gpuTubeDeformationAllowed || deformation.path.length > GPU_TUBE_MAX_PATH_LENGTH) {
     return false;
   }
@@ -296,7 +313,7 @@ export function applyGpuTube(THREE, record, restState, deformation, inverse, sam
     });
     state.cleanupInstalled = true;
   }
-  const frames = buildGpuTubeFrames(deformation.path, sample);
+  const frames = built ?? buildGpuTubeFrames(deformation.path, sample);
   if (!state.frameTexture || state.frameTexture.image.height !== frames.count) {
     state.frameTexture?.dispose();
     state.frameTexture = new THREE.DataTexture(frames.data, 4, frames.count, THREE.RGBAFormat, THREE.FloatType);

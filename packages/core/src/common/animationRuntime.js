@@ -199,27 +199,50 @@ function keyPath(track, key) {
   return path;
 }
 
-// A held key's deformation, normalized once: a tube that rests between moves
-// (a valve spring, most of an engine cycle) costs nothing per frame.
-const heldTubes = new WeakMap();
+// A key's deformation, normalized once: a tube that holds between moves (a valve
+// spring, most of an engine cycle) costs nothing per frame, and one moving between two
+// keys blends theirs.
+const keyTubes = new WeakMap();
+
+function keyDeformation(runtime, track, key) {
+  let deformation = keyTubes.get(key);
+  if (!deformation) {
+    deformation = runtime.normalizeTubeDeformation({
+      rest: track.rest,
+      maxSegmentLength: track.maxSegmentLength,
+      ...(track.braid ? { braid: track.braid } : {}),
+      path: keyPath(track, key),
+      twistDeg: key.twistDeg,
+      mapsRest: Boolean(key.path.map)
+    });
+    keyTubes.set(key, deformation);
+  }
+  return deformation;
+}
 
 function tubeAt(track, index, u) {
   const a = track.tube[index];
   if (!a) return null;
   const b = u > 0 ? track.tube[index + 1] : null;
   const runtime = requireTubeDeformation("a tube animation track");
-  const spec = { rest: track.rest, maxSegmentLength: track.maxSegmentLength, ...(track.braid ? { braid: track.braid } : {}) };
   const from = keyPath(track, a);
   const to = b && keyPath(track, b);
   if (!to || !samePathShape(from, to)) {
-    let held = heldTubes.get(a);
-    if (!held) {
-      held = runtime.normalizeTubeDeformation({ ...spec, path: from, twistDeg: a.twistDeg });
-      heldTubes.set(a, held);
-    }
-    return held;
+    return keyDeformation(runtime, track, a);
   }
-  return runtime.normalizeTubeDeformation({ ...spec, path: lerpPath(from, to, u), twistDeg: lerp(a.twistDeg, b.twistDeg, u) });
+  // Between two maps of the rest, the path compiles by blending the two keys' tables,
+  // which share the rest's parameters: a valve spring re-poses every frame it moves.
+  const between = a.path.map && b.path.map
+    ? { from: keyDeformation(runtime, track, a), to: keyDeformation(runtime, track, b), u }
+    : null;
+  return runtime.normalizeTubeDeformation({
+    rest: track.rest,
+    maxSegmentLength: track.maxSegmentLength,
+    ...(track.braid ? { braid: track.braid } : {}),
+    path: lerpPath(from, to, u),
+    twistDeg: lerp(a.twistDeg, b.twistDeg, u),
+    ...(between ? { between } : {})
+  });
 }
 
 /** Evaluate one clip at time t: `{matrices, styles, deformations}`, each keyed by

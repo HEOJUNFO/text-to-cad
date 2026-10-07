@@ -104,3 +104,67 @@ test('braid enabled after a GPU deformation reads the mapping-derived coordinate
   assert.equal(again.vertexShader,shader.vertexShader);
   assert.equal(reversed.customProgramCacheKey(),material.customProgramCacheKey());
 });
+
+// A coil spring's centerline `height` tall: quarter-turn Beziers rising evenly along +z.
+// Compressed, it is its rest under one affine map, as a tube key's map names it.
+function coilSpec(height,turns=3,r=4){
+  const k=4/3*Math.tan(Math.PI/8),n=4*turns,rise=height/n,segments=[];
+  for(let j=0;j<n;j++){
+    const a=j*Math.PI/2,b=a+Math.PI/2,z=j*rise;
+    segments.push({kind:'bezier',points:[[r*Math.cos(a),r*Math.sin(a),z],[r*(Math.cos(a)-k*Math.sin(a)),r*(Math.sin(a)+k*Math.cos(a)),z+rise/3],[r*(Math.cos(b)+k*Math.sin(b)),r*(Math.sin(b)-k*Math.cos(b)),z+2*rise/3],[r*Math.cos(b),r*Math.sin(b),z+rise]]});
+  }
+  return {normal:[0,0,1],segments};
+}
+
+/** A spring as the scene holds one: a wire swept along `rest`, with a seam edge line. */
+function coilRecord(rest){
+  const path=compileTubePath(rest),rings=241,ring=12,positions=[],normals=[],index=[],seam=[];
+  for(let i=0;i<rings;i++){
+    const f=sampleTubePath(path,path.length*i/(rings-1));
+    for(let k=0;k<ring;k++){
+      const a=2*Math.PI*k/ring,n=[0,1,2].map(j=>Math.cos(a)*f.normal[j]+Math.sin(a)*f.binormal[j]);
+      positions.push(...n.map((c,j)=>f.point[j]+.5*c));normals.push(...n);
+    }
+    seam.push(...f.normal.map((c,j)=>f.point[j]+.5*c));
+  }
+  for(let i=0;i+1<rings;i++) for(let k=0;k<ring;k++){const a=i*ring+k,b=i*ring+(k+1)%ring;index.push(a,a+ring,b,b,a+ring,b+ring);}
+  const source=new THREE.BufferGeometry();
+  source.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+  source.setAttribute('normal',new THREE.Float32BufferAttribute(normals,3));source.setIndex(index);
+  const lines=[];for(let i=0;i+1<seam.length/3;i++) lines.push(...seam.slice(3*i,3*i+6));
+  const edges=new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(lines,3)));
+  const mesh=new THREE.Mesh(source,new THREE.MeshStandardMaterial());mesh.updateMatrixWorld();
+  return {mesh,geometry:source,edges,gpuTubeDeformationAllowed:true,partBounds:{min:[-5,-5,-1],max:[5,5,11]}};
+}
+
+test('a coil between two keys that map its rest is drawn from the keys\' tables, within a micron of its own path',()=>{
+  // Two keys as close as a bake writes a spring's: the blended frames part from the
+  // exact ones as the square of the keys' spacing (4% here, half a micron at the seam).
+  const rest=coilSpec(10);
+  const lerp=(a,b,u)=>({normal:[0,0,1],segments:a.segments.map((s,i)=>({kind:'bezier',points:s.points.map((p,j)=>p.map((c,k)=>c+(b.segments[i].points[j][k]-c)*u))}))});
+  const key=(height)=>normalizeTubeDeformation({rest,path:coilSpec(height),mapsRest:true});
+  const from=key(9),to=key(8.6);
+  const between=(u)=>normalizeTubeDeformation({rest,path:lerp(coilSpec(9),coilSpec(8.6),u),between:{from,to,u}});
+  const record=coilRecord(rest);
+  for(const u of [.3,.7]){
+    const deformation=between(u);
+    applyRecordTubeDeformation(THREE,record,deformation);
+    assert.ok(record.tubeGpuState?.active);
+    // Built once each, for this pair, and lerped: nothing compiles the frame's own path.
+    assert.deepEqual([...record.tubeDeformationState.keyFrames.keys()],[from,to]);
+    const path=compileTubePath(deformation.pathSpec),{data,count}=record.tubeGpuState.frames;
+    for(let i=0;i<=2000;i++){
+      const f=i/2000*(count-1),lo=Math.floor(f),hi=Math.min(lo+1,count-1),w=f-lo;
+      const expected=sampleTubePath(path,path.length*i/2000);
+      const actual=[0,1,2].map(k=>data[lo*16+k]*(1-w)+data[hi*16+k]*w);
+      assert.ok(Math.hypot(...actual.map((v,k)=>v-expected.point[k]))<.001,`u=${u} at ${i}/2000`);
+    }
+  }
+  // Posed once, the seam lerps its keys' seams too, and lands where posing that same
+  // path exactly on the CPU puts it.
+  const exact=coilRecord(rest);exact.gpuTubeDeformationAllowed=false;
+  applyRecordTubeDeformation(THREE,exact,normalizeTubeDeformation({rest,path:lerp(coilSpec(9),coilSpec(8.6),.7)}));
+  const drawn=record.edges.geometry.attributes.position.array,want=exact.edges.geometry.attributes.position.array;
+  assert.equal(drawn.length,want.length);
+  for(let i=0;i<drawn.length;i++) assert.ok(Math.abs(drawn[i]-want[i])<.001,`seam coordinate ${i}`);
+});

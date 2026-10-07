@@ -3,6 +3,8 @@ import {
   GPU_TUBE_MAX_PATH_LENGTH,
   applyGpuTube,
   disableGpuTube,
+  gpuTubeFrameRows,
+  gpuTubeKeyFrames,
   syncGpuTubeMaterials
 } from "./tubeGpuDeformation.js";
 import { TUBE_MATERIAL_ATTRIBUTE } from "./tubeMaterialShader.js";
@@ -24,10 +26,14 @@ const TUBE_PINCH_FLOOR = 0.05;
 const MAX_REFINED_TRIANGLES = 700000;
 const COMPILED_PATH_CACHE_SIZE = 128;
 
-const add = (a, b) => a.map((x, i) => x + b[i]);
-const sub = (a, b) => a.map((x, i) => x - b[i]);
-const mul = (a, s) => a.map((x) => x * s);
-const dot = (a, b) => a.reduce((s, x, i) => s + x * b[i], 0);
+// Three-vectors, spelled out. A moving tube compiles its path every frame, and these
+// run hundreds of thousands of times a compile: Array.map's closures and garbage were
+// most of an animation frame. The arithmetic, in its order, is the general form's
+// (a sum starts from 0, so -0 sums as it did).
+const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const mul = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
+const dot = (a, b) => 0 + a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const cross = (a, b) => [
   a[1] * b[2] - a[2] * b[1],
   a[2] * b[0] - a[0] * b[2],
@@ -36,7 +42,7 @@ const cross = (a, b) => [
 // Math.sqrt of the sum of squares, never Math.hypot: this feeds baked morph
 // targets in an exported GLB, and only exactly defined arithmetic keeps those
 // bytes the same on every engine (lib/surf/trig.js).
-const length = (a) => Math.sqrt(a.reduce((s, x) => s + x * x, 0));
+const length = (a) => Math.sqrt(0 + a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
 const distanceSq = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2;
 
 function boundsDistanceSq(bounds, point) {
@@ -85,22 +91,21 @@ function rotate(v, axis, angle) {
 
 function bezierAt(points, t) {
   const q = 1 - t;
-  return [0, 1, 2].map((i) =>
-    q * q * q * points[0][i] + 3 * q * q * t * points[1][i] + 3 * q * t * t * points[2][i] + t * t * t * points[3][i]
-  );
+  const at = (i) => q * q * q * points[0][i] + 3 * q * q * t * points[1][i] + 3 * q * t * t * points[2][i] + t * t * t * points[3][i];
+  return [at(0), at(1), at(2)];
 }
 
 function bezierDerivative(points, t) {
   const q = 1 - t;
-  return [0, 1, 2].map((i) =>
-    3 * q * q * (points[1][i] - points[0][i]) + 6 * q * t * (points[2][i] - points[1][i]) + 3 * t * t * (points[3][i] - points[2][i])
-  );
+  const at = (i) =>
+    3 * q * q * (points[1][i] - points[0][i]) + 6 * q * t * (points[2][i] - points[1][i]) + 3 * t * t * (points[3][i] - points[2][i]);
+  return [at(0), at(1), at(2)];
 }
 
 function bezierSecond(points, t) {
-  return [0, 1, 2].map((i) =>
-    6 * (1 - t) * (points[2][i] - 2 * points[1][i] + points[0][i]) + 6 * t * (points[3][i] - 2 * points[2][i] + points[1][i])
-  );
+  const at = (i) =>
+    6 * (1 - t) * (points[2][i] - 2 * points[1][i] + points[0][i]) + 6 * t * (points[3][i] - 2 * points[2][i] + points[1][i]);
+  return [at(0), at(1), at(2)];
 }
 
 // Five-point Gauss-Legendre on a short interval. The adaptive subdivision below
@@ -144,12 +149,20 @@ function buildBezierTable(segment) {
   const table = [{ t: 0, s: 0, tangent: segment.tangent, normal: segment.normal }];
   const append = (lo, hi, depth = 0) => {
     const mid = (lo + hi) / 2;
+    // Wider than 1/128 of the curve, the split is forced, so nothing below decides it:
+    // it is measured only where it can stop, and every bound of a forced piece is a
+    // bound of one of those.
+    if (depth < 20 && hi - lo > 1 / 128) {
+      append(lo, mid, depth + 1);
+      append(mid, hi, depth + 1);
+      return;
+    }
     const whole = bezierLength(segment.points, lo, hi);
     const left = bezierLength(segment.points, lo, mid);
     const right = bezierLength(segment.points, mid, hi);
     const a = unit(bezierDerivative(segment.points, lo), "Bezier tangent");
     const b = unit(bezierDerivative(segment.points, hi), "Bezier tangent");
-    if (depth < 20 && (hi - lo > 1 / 128 || Math.abs(whole - left - right) > 1e-9 || dot(a, b) < 0.9999)) {
+    if (depth < 20 && (Math.abs(whole - left - right) > 1e-9 || dot(a, b) < 0.9999)) {
       append(lo, mid, depth + 1);
       append(mid, hi, depth + 1);
       return;
@@ -168,6 +181,68 @@ function buildBezierTable(segment) {
   append(0, 1);
   segment.table = table;
   segment.length = table.at(-1).s;
+}
+
+// The table of a Bézier that is an affine image of a tabulated one (a spring the
+// clip compresses along its axis), on that table's parameters: an affine image is the
+// same polynomial in the same parameter, so the pieces the adaptive split chose for
+// the original serve it, and each is integrated once. Lengths, tangents and the
+// carried normal are the image's own.
+function buildBezierTableOn(segment, parameters) {
+  const table = [{ t: 0, s: 0, tangent: segment.tangent, normal: segment.normal }];
+  for (let i = 1; i < parameters.length; i++) {
+    const previous = table[i - 1];
+    const t = parameters[i].t;
+    const tangent = unit(bezierDerivative(segment.points, t), "Bezier tangent");
+    table.push({
+      t,
+      s: previous.s + bezierLength(segment.points, previous.t, t),
+      tangent,
+      normal: transport(previous.normal, previous.tangent, tangent)
+    });
+  }
+  segment.table = table;
+  segment.length = table.at(-1).s;
+}
+
+// The path between two keys that both map the rest, from the keys' own tables: both
+// were built on the rest's parameters, so they pair entry for entry. Each entry's arc
+// length is the keys' lerped, its tangent this path's own, and its normal the keys'
+// blended and squared to that tangent -- what parallel transport gives, to within the
+// turn between two keys, at a fraction of integrating and carrying it again.
+function blendKeyPaths(raw, from, to, u) {
+  const v = 1 - u;
+  let total = 0;
+  const segments = raw.segments.map((spec, index) => {
+    const a = from.segments[index];
+    const b = to.segments[index];
+    const segment = compileSegment(spec, index);
+    const square = (n0, n1, tangent) => {
+      const n = add(mul(n0, v), mul(n1, u));
+      return unit(sub(n, mul(tangent, dot(n, tangent))), "blended normal");
+    };
+    segment.normal = square(a.normal, b.normal, segment.tangent);
+    if (segment.kind === "bezier") {
+      const table = [{ t: 0, s: 0, tangent: segment.tangent, normal: segment.normal }];
+      for (let i = 1; i < a.table.length; i++) {
+        const t = a.table[i].t;
+        const tangent = unit(bezierDerivative(segment.points, t), "Bezier tangent");
+        table.push({
+          t,
+          s: a.table[i].s * v + b.table[i].s * u,
+          tangent,
+          normal: square(a.table[i].normal, b.table[i].normal, tangent)
+        });
+      }
+      segment.table = table;
+      segment.length = table.at(-1).s;
+    }
+    segment.offset = total;
+    segment.bounds = segmentBounds(segment);
+    total += segment.length;
+    return segment;
+  });
+  return { segments, length: total };
 }
 
 function bezierParameter(segment, distance) {
@@ -214,6 +289,20 @@ function bezierFrame(segment, t, lower) {
   const second = bezierSecond(segment.points, t);
   const curvature = mul(sub(second, mul(tangent, dot(second, tangent))), 1 / (speed * speed));
   return { point: bezierAt(segment.points, t), tangent, normal, binormal: cross(tangent, normal), curvature };
+}
+
+// A GPU frame-table knot: a Bézier table entry's frame at the parameter it was
+// tabulated at, with its own tangent and normal (bezierFrame's, with nothing to
+// carry the normal across), or the path's frame at `distance` on an arc or a line.
+function knotFrame(path, distance, segment, entry) {
+  if (!entry) {
+    return sampleTubePath(path, distance);
+  }
+  const speed = length(bezierDerivative(segment.points, entry.t));
+  const second = bezierSecond(segment.points, entry.t);
+  const tangent = entry.tangent;
+  const curvature = mul(sub(second, mul(tangent, dot(second, tangent))), 1 / (speed * speed));
+  return { point: bezierAt(segment.points, entry.t), tangent, normal: entry.normal, curvature };
 }
 
 function segmentFrame(segment, distance) {
@@ -342,8 +431,12 @@ function segmentBounds(segment) {
   };
 }
 
-/** Validate a tangent-continuous path and produce exact lengths/curvatures. */
-export function compileTubePath(raw) {
+/** Validate a tangent-continuous path and produce exact lengths/curvatures.
+ *
+ * `image` is a compiled path this one is an affine image of, segment for segment (a
+ * tube key that maps its rest): its Bézier tables are built on that path's
+ * parameters rather than split adaptively again. */
+export function compileTubePath(raw, image = null) {
   const seed = pathSpecNormal(raw);
   let total = 0;
   let previous = null;
@@ -365,7 +458,12 @@ export function compileTubePath(raw) {
       );
     }
     if (segment.kind === "bezier") {
-      buildBezierTable(segment);
+      const original = image?.segments[index];
+      if (original?.kind === "bezier") {
+        buildBezierTableOn(segment, original.table);
+      } else {
+        buildBezierTable(segment);
+      }
     }
     segment.offset = total;
     segment.bounds = segmentBounds(segment);
@@ -603,13 +701,15 @@ export function projectTubePath(path, point) {
 // and its edge object share one compile of the frame they are both drawing.
 const compiledPaths = new Map();
 
-function cachedCompile(raw) {
-  const key = JSON.stringify(raw);
+function cachedCompile(raw, image = null) {
+  // A path compiled on an image's parameters is its own entry: the same numbers split
+  // adaptively are a different, equally exact table.
+  const key = image ? `image:${JSON.stringify(raw)}` : JSON.stringify(raw);
   let path = compiledPaths.get(key);
   if (path) {
     compiledPaths.delete(key);
   } else {
-    path = compileTubePath(raw);
+    path = compileTubePath(raw, image);
   }
   compiledPaths.set(key, path);
   if (compiledPaths.size > COMPILED_PATH_CACHE_SIZE) {
@@ -683,15 +783,38 @@ export function sameTubeRestShape(a, b) {
  * The caller holds the result for as long as it is posing, and no longer, which is
  * what keeps a 27,504-sample bake from retaining 27,504 tables. */
 export function compileDeformation(deformation) {
-  return {
-    ...deformation,
-    rest: cachedCompile(deformation.restSpec),
-    path: cachedCompile(deformation.pathSpec),
-  };
+  const rest = cachedCompile(deformation.restSpec);
+  const between = deformation.between;
+  if (!between) {
+    return { ...deformation, rest, path: cachedCompile(deformation.pathSpec, deformation.mapsRest ? rest : null) };
+  }
+  if (lastBlend.deformation !== deformation) {
+    const from = cachedCompile(between.from.pathSpec, rest);
+    const to = cachedCompile(between.to.pathSpec, rest);
+    lastBlend = { deformation, path: blendKeyPaths(deformation.pathSpec, from, to, between.u) };
+  }
+  return { ...deformation, rest, path: lastBlend.path };
 }
 
+// The last blend, for the next caller posing with the same deformation (a surface and
+// its edges, one after the other): a single entry, so nothing outlives its frame.
+let lastBlend = { deformation: null, path: null };
+
+/** `mapsRest` says the path is the rest under one affine map, segment for segment (a
+ * tube key that maps its rest): it is compiled on the rest's parameters, at a fraction
+ * of the cost of splitting it again. `between` ({from, to, u}: two such keys'
+ * normalized deformations, and how far this path is from one to the other) says the
+ * path is the two keys' lerp, and it is compiled by blending their tables. */
 export function normalizeTubeDeformation(spec) {
-  keys(spec, ["rest", "path", "twistDeg", "maxSegmentLength", "braid"], "deformation");
+  keys(spec, ["rest", "path", "twistDeg", "maxSegmentLength", "braid", "mapsRest", "between"], "deformation");
+  let between = null;
+  if (spec.between) {
+    const { from, to, u } = spec.between;
+    if (!from?.pathSpec || !to?.pathSpec || !Number.isFinite(u) || u < 0 || u > 1) {
+      fail("between needs two normalized key deformations and a fraction from 0 to 1");
+    }
+    between = { from, to, u };
+  }
   const twistDeg = spec.twistDeg ?? 0;
   if (!Number.isFinite(twistDeg)) {
     fail("twistDeg must be finite");
@@ -720,7 +843,9 @@ export function normalizeTubeDeformation(spec) {
     pathSpec: canonicalPathSpec(spec.path),
     twistDeg,
     maxSegmentLength,
-    braid
+    braid,
+    ...(spec.mapsRest ? { mapsRest: true } : {}),
+    ...(between ? { between } : {})
   };
 }
 
@@ -1042,6 +1167,51 @@ function refineLineGeometry(THREE, object, source, rest, base, step) {
   return geometry;
 }
 
+// Edge lines between two keys that map their rest, drawn from the keys as the surface
+// is: each key's posed positions are made once, while the line is between that key and
+// a neighbour, and every frame lerps the pair.
+function poseLinesBetweenKeys(THREE, state, deformation, base) {
+  const { from, to, u } = deformation.between;
+  const inverse = base.clone().invert();
+  // Line2's instanceStart and instanceEnd interleave one array: each array once.
+  const arrays = [...new Set(state.names.map((name) => state.geometry.attributes[name].array))];
+  const posed = state.keyPositions ??= new Map();
+  const positions = (key) => {
+    let copies = posed.get(key);
+    if (!copies) {
+      const compiled = compileDeformation(key);
+      for (const name of state.names) {
+        updateAttribute(THREE, state.geometry.attributes[name], null, state.mappings[name], compiled, inverse);
+      }
+      copies = arrays.map((array) => array.slice());
+      posed.set(key, copies);
+    }
+    return copies;
+  };
+  const fromCopies = positions(from);
+  const toCopies = positions(to);
+  for (const key of posed.keys()) {
+    if (key !== from && key !== to) {
+      posed.delete(key);
+    }
+  }
+  const v = 1 - u;
+  arrays.forEach((array, index) => {
+    const a = fromCopies[index];
+    const b = toCopies[index];
+    for (let i = 0; i < array.length; i++) {
+      array[i] = a[i] * v + b[i] * u;
+    }
+  });
+  for (const name of state.names) {
+    state.geometry.attributes[name].needsUpdate = true;
+  }
+  state.active = true;
+  state.lastSpec = deformation;
+  state.geometry.computeBoundingBox();
+  state.geometry.computeBoundingSphere();
+}
+
 // The wireframe/topology view must follow the same centerline as the surface.
 // Line2 uses interleaved instanceStart/instanceEnd, ordinary THREE lines use
 // position. Their originals are retained just like the surface mesh's buffers.
@@ -1061,6 +1231,13 @@ export function applyTubeDeformationToLineObject(THREE, object, deformation, bas
   }
   if (deformation && state?.active && sameTubeDeformation(state.lastSpec, deformation)) {
     return;
+  }
+  if (deformation?.between && state?.restKey === restMappingKey(deformation)) {
+    poseLinesBetweenKeys(THREE, state, deformation, base);
+    return;
+  }
+  if (state) {
+    state.keyPositions = null;
   }
   // Resolved once, for this call. The state remembers the SPEC it last drew, never
   // the compiled paths: two frames of one tendon must not pin two compiles.
@@ -1237,6 +1414,86 @@ function restoreRestSurface(record, state) {
 
 // Keep the source immutable. Display occurrences often share one component's
 // buffers; a clone is owned by this record and disposed with its visible mesh.
+// The exact CPU surface for `compiled`: what a pick tests against while the GPU
+// draws the tube, and what the CPU path draws.
+function materializeSurface(THREE, state, compiled, base, inverse) {
+  for (const name of ["position", "normal"]) {
+    if (state.geometry.attributes[name] === state.source.attributes[name]) {
+      state.geometry.setAttribute(name, state.source.attributes[name].clone());
+    }
+  }
+  // The exact mapping depends only on the rest path, which this state is
+  // keyed by; a hover during animation must not re-project every vertex per pose.
+  state.exactMapping ??= state.mapping.gpu
+    ? preparedMapping(THREE, state.prepared, compiled, base, false)
+    : state.mapping;
+  updateAttribute(THREE, state.geometry.attributes.position, state.geometry.attributes.normal, state.exactMapping, compiled, inverse);
+  state.geometry.computeBoundingBox();
+  state.geometry.computeBoundingSphere();
+}
+
+// A tube moving between two keys that map its rest (a valve spring), drawn from the
+// keys. Each key's frame table is built once, while the tube is between that key and
+// a neighbour, and every frame lerps the pair: both were built on the rest's
+// parameters and the shader reads a row by fraction of length, so they pair row for
+// row, and it squares the blended frame itself. The exact surface is compiled only for
+// a pick. False when the GPU cannot draw it, and the general path does.
+function poseBetweenKeys(THREE, record, deformation, base) {
+  const { from, to, u } = deformation.between;
+  const a = compileDeformation(from);
+  const b = compileDeformation(to);
+  if (!record.gpuTubeDeformationAllowed || Math.max(a.path.length, b.path.length) > GPU_TUBE_MAX_PATH_LENGTH) {
+    return false;
+  }
+  let state = record.tubeDeformationState;
+  if (!state || restMappingKey(deformation) !== state.restKey) {
+    state = record.tubeDeformationState = createDeformationState(THREE, record, state, a, base);
+  }
+  state.mapping ??= preparedMapping(THREE, state.prepared, a, base, true);
+  if (!state.mapping.gpu) {
+    return false;
+  }
+  const rows = Math.max(gpuTubeFrameRows(a.path.length), gpuTubeFrameRows(b.path.length));
+  const tables = state.keyFrames ??= new Map();
+  const table = (key, compiled) => {
+    let frames = tables.get(key);
+    if (frames?.count !== rows) {
+      frames = gpuTubeKeyFrames(compiled.path, knotFrame, rows);
+      tables.set(key, frames);
+    }
+    return frames.data;
+  };
+  const fromData = table(from, a);
+  const toData = table(to, b);
+  for (const key of tables.keys()) {
+    if (key !== from && key !== to) {
+      tables.delete(key);
+    }
+  }
+  if (state.blendedFrames?.length !== fromData.length) {
+    state.blendedFrames = new Float32Array(fromData.length);
+  }
+  const data = state.blendedFrames;
+  const v = 1 - u;
+  for (let i = 0; i < data.length; i++) {
+    data[i] = fromData[i] * v + toData[i] * u;
+  }
+  const inverse = base.clone().invert();
+  // Between the two keys' bounds, which hold every pose between them.
+  const posed = {
+    ...deformation,
+    rest: a.rest,
+    path: { length: a.path.length * v + b.path.length * u, segments: [...a.path.segments, ...b.path.segments] }
+  };
+  const materialize = () => materializeSurface(THREE, state, compileDeformation(deformation), base, inverse);
+  if (!applyGpuTube(THREE, record, state, posed, inverse, knotFrame, materialize, { data, count: rows })) {
+    return false;
+  }
+  state.active = true;
+  state.lastSpec = deformation;
+  return true;
+}
+
 export function applyRecordTubeDeformation(THREE, record, deformation) {
   if (!record?.mesh?.geometry) {
     return;
@@ -1261,6 +1518,14 @@ export function applyRecordTubeDeformation(THREE, record, deformation) {
   }
   if (!deformation && !state?.active) {
     return;
+  }
+  if (deformation?.between && poseBetweenKeys(THREE, record, deformation, base)) {
+    return;
+  }
+  if (state) {
+    // Held, at rest or drawn on the CPU: the key tables are rebuilt when it next moves.
+    state.keyFrames = null;
+    state.blendedFrames = null;
   }
   const compiled = deformation ? compileDeformation(deformation) : null;
   if (!deformation) {
@@ -1289,22 +1554,8 @@ export function applyRecordTubeDeformation(THREE, record, deformation) {
       state.geometry.setAttribute(TUBE_MATERIAL_ATTRIBUTE, new THREE.BufferAttribute(coords, 3));
     }
   }
-  const materialize = () => {
-    for (const name of ["position", "normal"]) {
-      if (state.geometry.attributes[name] === state.source.attributes[name]) {
-        state.geometry.setAttribute(name, state.source.attributes[name].clone());
-      }
-    }
-    // The exact mapping depends only on the rest path, which this state is
-    // keyed by; a hover during animation must not re-project every vertex per pose.
-    state.exactMapping ??= state.mapping.gpu
-      ? preparedMapping(THREE, state.prepared, compiled, base, false)
-      : state.mapping;
-    updateAttribute(THREE, state.geometry.attributes.position, state.geometry.attributes.normal, state.exactMapping, compiled, inverse);
-    state.geometry.computeBoundingBox();
-    state.geometry.computeBoundingSphere();
-  };
-  if (applyGpuTube(THREE, record, state, compiled, inverse, sampleTubePath, materialize)) {
+  const materialize = () => materializeSurface(THREE, state, compiled, base, inverse);
+  if (applyGpuTube(THREE, record, state, compiled, inverse, knotFrame, materialize)) {
     state.active = true;
     state.lastSpec = deformation;
     return;
