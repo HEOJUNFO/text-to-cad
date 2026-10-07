@@ -180,6 +180,12 @@ Excalidraw editor in `@text-to-cad/ui/drawing` never fetches a font from a CDN:
 wheel small; CJK text falls back to a system font. See
 [drawing](../../packages/ui/docs/drawing.md#offline-assets-and-upgrades).
 
+It also names the build, for the version the app menu shows (`__TEXT_TO_CAD_BUILD__`,
+from `@text-to-cad/ui/build-id`): none for the release's own build, whose
+environment names its version in `TEXT_TO_CAD_RELEASE` (the release workflow's bundle
+step), so it shows `v0.7.15`; for any other build, `vite dev` included, the commit of
+this checkout, with `-dirty` when it had uncommitted changes: `v0.7.15-dev.b80844940`.
+
 ## Testing
 
 ```bash
@@ -353,7 +359,8 @@ anonymous usage data, Quick edit), Send feedback (a new issue titled "Feedback: 
 GitHub, Discord and, in gray, the version (a link to its release notes) and "Made by @…"
 (X), as in the CAD app; the home shows GitHub, Discord and X under its wordmark instead.
 Display and Preview are the view's, last at the navbar's right. This host
-supplies the links (`src/host/viewerLinks.js`): its version, the GitHub (where new
+supplies the links (`src/host/viewerLinks.js`): its version (with its build's id,
+`v0.7.15-dev.b80844940`, for any build but the release's own), the GitHub (where new
 issues open) and Discord its build names (`VIEWER_GITHUB_URL`, `VIEWER_DISCORD_URL`);
 links open in a new tab. A newer text-to-cad is the blue update button's, at the navbar's right as in the CAD app: cadgen's
 daily version check, read from `/__cad/version` with the server's description as the page

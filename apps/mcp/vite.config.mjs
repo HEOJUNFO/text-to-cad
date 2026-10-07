@@ -1,6 +1,9 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { buildId } from '@text-to-cad/ui/build-id';
 import { drawingAssetFiles, localizeDrawingFontFallback } from '@text-to-cad/ui/drawing-assets';
 
 // An MCP App is one HTML resource with no asset directory behind it: the host renders it in a
@@ -116,7 +119,13 @@ function inlineDocument() {
   };
 }
 
+// Which build this is, for the version the app menu shows (src/App.tsx): none for the release's
+// own, this checkout's commit for any other (@text-to-cad/ui/build-id).
+const appRoot = fileURLToPath(new URL('.', import.meta.url));
+const { version } = JSON.parse(readFileSync(new URL('package.json', import.meta.url), 'utf8'));
+
 export default defineConfig({
+  define: { __TEXT_TO_CAD_BUILD__: JSON.stringify(buildId({ version, cwd: appRoot })) },
   plugins: [inlineWorkers(), inlineDrawingFonts(), react(), inlineDocument()],
   resolve: { dedupe: ['react', 'react-dom', 'three', 'lucide-react'] },
   build: { assetsInlineLimit: Infinity, cssCodeSplit: false, modulePreload: false },

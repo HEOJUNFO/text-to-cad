@@ -552,7 +552,8 @@ what the host supplies:
   no label (what is said may be a bug, a request or a question). Then **GitHub** and
   **Discord**.
 - Last, in gray, a footer: "v<version> · Made by @<handle>" — the version a link to its
-  release notes, the handle one to the host's X account.
+  release notes, the handle one to the host's X account. A build that is not the release's
+  own adds its id to the version: `v0.7.15-dev.b80844940`, the commit it was built from.
 
 Nothing of a file is in it: a file's view is
 [Display](#display-settings-and-section-primitives)'s. Every setting is the person's, not a

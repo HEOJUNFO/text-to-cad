@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { buildId } from "@text-to-cad/ui/build-id";
 import { drawingAssetsPlugin } from "@text-to-cad/ui/drawing-assets";
 
 import { resolveDirectoryRoot as resolveViewerDirectoryRoot } from "./scripts/directoryRoot.mjs";
@@ -27,6 +28,10 @@ const defaultDirectoryRoot = path.resolve(viewerAppRoot, "..");
 const directoryRoot = resolveDirectoryRoot();
 const viewerAllowedHosts = normalizeViewerAllowedHosts(process.env.VIEWER_ALLOWED_HOSTS ?? "");
 const viewerServerLifetimeMs = normalizeServerLifetimeMs(process.env.VIEWER_SERVER_LIFETIME_MS);
+
+function viewerVersion() {
+  return JSON.parse(fs.readFileSync(path.join(viewerAppRoot, "package.json"), "utf8")).version;
+}
 
 function normalizeViewerAllowedHosts(value) {
   return String(value || "")
@@ -184,6 +189,9 @@ function serverLifetimePlugin() {
 export default defineConfig(async ({ command }) => ({
   root: viewerAppRoot,
   envPrefix: "VIEWER_",
+  // Which build this is, for the version the app menu shows (src/host/viewerLinks.js): none for
+  // the release's own, this checkout's commit for any other (@text-to-cad/ui/build-id).
+  define: { __TEXT_TO_CAD_BUILD__: JSON.stringify(buildId({ version: viewerVersion(), cwd: viewerAppRoot })) },
   plugins: [
     // Excalidraw's fonts, served in dev and emitted into dist/excalidraw, with
     // the SDK's CDN fallback pointed back at this origin: the Viewer ships in a

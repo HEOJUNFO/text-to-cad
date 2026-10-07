@@ -53,6 +53,7 @@ are for reading and maintaining the contracts.
 | `CadViewer` (FileViewer over a CAD client, one file by absolute path or the home: the five CAD renderers, catalog following, the home, the "File does not exist" and "Could not open that file" pages, the library's pictures) | [CAD viewer](../src/cad-viewer/CadViewer.tsx) | `@text-to-cad/ui/cad-viewer` |
 | `createCadFileSource` (a CAD client as a read-only `FileSource`: `stat` through the client's `resolveEntry`, `list` through `folder`, `search` through `search`), `createCadFileActions` (the file menu's Copy path, the absolute path, and Reveal), `normalizePath`, `baseName`, `joinPath`, `contentRevision` | [Catalog](../src/cad-viewer/catalog.ts) | `@text-to-cad/ui/catalog` |
 | `ViewerLinks`, `viewerLinks` (the version, GitHub, Discord, where a new issue opens, the newest release and how to update, and how a link is followed), `issueUrl` (a new issue filled in — its title, labels and body — its address kept under `ISSUE_URL_MAX`) | [Host types](../src/host/types.ts), [links](../src/file-viewer/navigation/links.js) | `@text-to-cad/ui/links` |
+| `buildId` (for an app's Vite config: which build this is, "" for the release's own, whose environment names its version in `TEXT_TO_CAD_RELEASE`, else the checkout's commit) | [Build id](../scripts/build-id.mjs) | `@text-to-cad/ui/build-id` |
 
 Start with the actual compositions: [web App](../../../apps/web/src/App.tsx) and the
 MCP app's [ModelView](../../../apps/mcp/src/ModelView.tsx), both one `CadViewer`.
@@ -395,7 +396,11 @@ which a press turns without closing the menu; then, where the host has a tracker
 `environment.platform` — it has no label: the project has none for feedback, and what is
 said may be a bug, a request or a question — then **GitHub** and **Discord**; and last, in
 gray, "v<version> · Made by @<handle>": the version links its release notes
-(`links.release`) and `MadeBy` the host's X account. The home has GitHub, which says the
+(`links.release`) and `MadeBy` the host's X account. The version is the release's own build's
+as it is (`v0.7.15`), and any other build's with its id (`v0.7.15-dev.b80844940`, the commit
+it was built from, `-dirty` with uncommitted changes): `viewerLinks({ version, build })`,
+where each app's Vite config names the build through `@text-to-cad/ui/build-id`, and a new
+issue names it the same way. The home has GitHub, which says the
 project is open source, Discord and X as icon links under its wordmark (`HomeLinks`), in
 that order.
 
