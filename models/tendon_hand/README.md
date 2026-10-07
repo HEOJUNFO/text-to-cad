@@ -16,12 +16,14 @@ modules, choreography generator, and standalone HTML presentation.
 
 - `src/` contains runnable CAD models, render-job JSON, design reports, and
   shared factories in `src/lib/`.
-- `STEP/` is the generated geometry folder. Each owning model embeds its
-  animation through `@step(animation=...)`; for the two models whose
-  choreography is SOLVED rather than authored, that string is read at build
-  time from a generated, ignored `src/<model>_animation.js` sibling (see
-  `src/lib/embedded_animation.py`). Regenerate the sibling before building the
-  model — a missing one is a build error naming the generator.
+- `STEP/` is the generated geometry folder. A model's animation is Python
+  clips passed to `@step(animation=...)`; the build samples them into
+  keyframes in the STEP's sidecar. The review assemblies share one static
+  braided-cord clip (`src/lib/braided_presentation.py`). R13's showcase is
+  SOLVED rather than authored, so its clips (`src/lib/showcase_animation.py`)
+  replay a generated, ignored `validation/hand_mechanical_candidate_r13_showcase.json`.
+  Regenerate that timeline before building R13 — a missing one is a build
+  error naming the generator.
 - `validation/` contains validation and regeneration programs. Its `.gitignore`
   keeps generated reports, checkpoints, logs, and NumPy data local.
 - `website/` contains the standalone HTML presentation and its behavior test.
@@ -45,9 +47,9 @@ python3.12 -m venv .venv
 ./.venv/bin/python -m playwright install chromium
 ```
 
-Animated GLB export uses the unreleased `cadgen glb build --animation` support,
-and the showcase uses `deformTube`. A released cadgen without those features
-cannot rebuild the motion assets.
+Animated GLB export uses `cadgen glb build --animation`, and the clips are
+Python (`cadgen.clip`) that bend the cords with `deform_tube`. A cadgen without
+those features cannot rebuild the motion assets.
 
 ## Rebuild CAD assets
 
@@ -121,11 +123,11 @@ optional MP4 is not needed:
 The runner performs these stages in order:
 
 1. verifies the complete bootstrap checkpoint and its import receipt;
-2. tests the generated module's runtime (`showcase_runtime.test.mjs`);
-3. seeds the placeholder `src/hand_mechanical_candidate_r13_animation.js`, so
-   the manifest build has a module to read;
+2. checks the showcase playback (`check_showcase_playback.py`);
+3. seeds an empty `validation/hand_mechanical_candidate_r13_showcase.json`, so
+   the manifest build has a timeline to read;
 4. force-builds R13 once to write its body-frame manifest;
-5. regenerates the animation module from those frames;
+5. re-solves the showcase timeline from those frames;
 6. regenerates the indexed capstan overlay from those frames;
 7. rebuilds the final R13 STEP with that fresh overlay;
 8. validates every STEP placement;
@@ -169,18 +171,20 @@ example:
 
 ## Rebuild animation and website assets
 
-After the R13 STEP and its frame manifest exist, generate its animation module.
-The generator solves the common timeline, tendon routes, payout, moving guide
-frames, and actuator transforms, and writes megabytes of JavaScript to the
-ignored `src/hand_mechanical_candidate_r13_animation.js`. The tracked model
-stays small: it reads that sibling through `lib.embedded_animation` and hands
-the string to `@step(animation=...)`.
+After the R13 STEP and its frame manifest exist, solve its showcase timeline.
+The generator solves the common timeline, tendon routes, payout and moving
+guide frames, caches the expensive route solve, and writes megabytes of numbers
+to the ignored `validation/hand_mechanical_candidate_r13_showcase.json`. The
+tracked model stays small: `lib.showcase_animation` turns that timeline into
+the clips it hands to `@step(animation=...)`, moving each body with the hand's
+own kinematics (`lib.layout`, `lib.actuator_kinematics`), and the build bakes
+them into keyframes in the STEP's sidecar.
 
 ```sh
 ./.venv/bin/python models/tendon_hand/validation/write_showcase_presentation.py
 ```
 
-The first build of a fresh checkout has no module to read yet, and the loader
+The first build of a fresh checkout has no timeline to read yet, and R13
 refuses to build without one. Seed the empty placeholder, build R13 once to
 write the frame manifest the generator needs, then run the generator for real:
 
@@ -188,17 +192,16 @@ write the frame manifest the generator needs, then run the generator for real:
 ./.venv/bin/python models/tendon_hand/validation/write_showcase_presentation.py --placeholder
 ```
 
-`validation/write_progress_presentation.py` does the same for
-`src/hand_progress_review.py`, writing its static braid presentation to
-`src/hand_progress_review_animation.js`. It needs no CAD build first.
+The review assemblies need no generator: their static braid presentation is
+`src/lib/braided_presentation.py`, built from `lib.neutral_routes`.
 
-The runtime preserves identical interpolation endpoints exactly, so a held
-pose reuses the viewer's existing tendon paths and display buffers. Moving
-endpoints retain the original linear interpolation. The focused runtime check
-needs no generated assets or CAD dependencies:
+The playback preserves identical interpolation endpoints exactly, so a held
+pose keeps its tendon paths and frames bit for bit. Moving endpoints retain
+the original linear interpolation. The focused playback check needs no
+generated assets or CAD build:
 
 ```sh
-node --test models/tendon_hand/validation/showcase_runtime.test.mjs
+./.venv/bin/python models/tendon_hand/validation/check_showcase_playback.py
 ```
 
 Export the five GLBs expected by `website/index.html`. The animation request

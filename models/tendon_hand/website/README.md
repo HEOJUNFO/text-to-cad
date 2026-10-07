@@ -3,7 +3,7 @@
 Standalone presentation for the five generated animated GLBs. The interface is
 a plain local HTML page. Once the GLBs have been rebuilt beside `index.html`, no
 CAD server or web bundler is needed to view it. See the project-level
-`../README.md` for the exact CAD, render-module, GLB, video, test, and serving
+`../README.md` for the exact CAD, animation, GLB, video, test, and serving
 commands.
 
 The page keeps the source preview's Three.js version, GLB geometry, material
