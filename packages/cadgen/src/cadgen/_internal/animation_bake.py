@@ -32,11 +32,17 @@ time:
     opacity    0..1 | null                     lerp between numbers; null is the
                                               material's own, held
     visible    true | false | null             held; null is the rest state
-    tube       {"path", "twistDeg"} | null     the path's numbers lerp while its
-                                              segment kinds match, held otherwise;
-                                              the track also carries "rest",
-                                              "maxSegmentLength" and, for a braided
-                                              finish, "braid", constant through a clip
+    tube       {"path", "twistDeg"} | null     the path is {"normal", "segments"}, or
+                                              {"normal", "map"}: the track's rest
+                                              under the affine map p -> A p + b, its
+                                              rows [a, a, a, b] in turn (a centerline
+                                              that is one, as a spring compressing
+                                              along its axis; never over arcs). The
+                                              path's numbers lerp while its segment
+                                              kinds match, held otherwise; the track
+                                              also carries "rest", "maxSegmentLength"
+                                              and, for a braided finish, "braid",
+                                              constant through a clip
 
 A key interpolation rebuilds within tolerance is dropped (Ramer-Douglas-Peucker
 over each track), and a track whose keys are all one value keeps one key. A
@@ -83,6 +89,7 @@ MAX_KEY_TURN_DEG = 120.0
 
 _LENGTH_DIGITS = 4
 _QUATERNION_DIGITS = 7
+_MAP_DIGITS = 9  # a tube map's linear part, applied about the centerline's middle
 _TIME_DIGITS = 6
 _OPACITY_DIGITS = 4
 
@@ -702,6 +709,86 @@ def _rounded_tube(key: Mapping[str, Any]) -> dict[str, Any]:
     return {"path": {"normal": [_round(c, _QUATERNION_DIGITS) for c in path["normal"]], "segments": segments}, "twistDeg": _length(key["twistDeg"])}
 
 
+def _defining_points(path: Mapping[str, Any]) -> list[Sequence[float]]:
+    """Every point a line-and-Bezier centerline is defined by, segment by segment."""
+    points: list[Sequence[float]] = []
+    for segment in path["segments"]:
+        points += [segment["start"], segment["end"]] if segment["kind"] == "line" else segment["points"]
+    return points
+
+
+def _mapped(rest: Mapping[str, Any], normal: Sequence[float], m: Sequence[float]) -> dict[str, Any]:
+    """``rest`` under the affine map ``m`` (its three rows, each a, a, a, b). A line or
+    a Bezier maps to the line or Bezier through the images of its points."""
+
+    def image(p: Sequence[float]) -> list[float]:
+        return [m[4 * i] * p[0] + m[4 * i + 1] * p[1] + m[4 * i + 2] * p[2] + m[4 * i + 3] for i in range(3)]
+
+    segments = [
+        {"kind": "line", "start": image(segment["start"]), "end": image(segment["end"])} if segment["kind"] == "line"
+        else {"kind": "bezier", "points": [image(point) for point in segment["points"]]}
+        for segment in rest["segments"]
+    ]
+    return {"normal": list(normal), "segments": segments}
+
+
+def key_path(rest: Mapping[str, Any], path: Mapping[str, Any]) -> Mapping[str, Any]:
+    """A tube key's centerline: its own segments, or its track's rest under its map."""
+    return _mapped(rest, path["normal"], path["map"]) if "map" in path else path
+
+
+def _map_onto(rest: Mapping[str, Any], path: Mapping[str, Any]) -> list[float] | None:
+    """The affine map that takes ``rest`` onto ``path``, rounded as written, when one
+    does to the rounding keys are written at and is shorter than the path's points:
+    a coil spring compressing along its axis, a tube carried whole. None otherwise;
+    arcs never map, as an arc's affine image is in general no arc. The rest is
+    written rounded and the map's offset is rounded again, so a mapped key may sit
+    twice a key's rounding from the clip's path."""
+    shape = [segment["kind"] for segment in rest["segments"]]
+    if "arc" in shape or shape != [segment["kind"] for segment in path["segments"]]:
+        return None
+    source, target = _defining_points(rest), _defining_points(path)
+    if 3 * len(source) <= 12:
+        return None
+    # Least squares about the two middles, held toward the identity so that a rest in a
+    # plane or on a line still has one map: argmin |M (p - c) - (q - d)|^2 + e |M - I|^2.
+    count = len(source)
+    c = [sum(p[i] for p in source) / count for i in range(3)]
+    d = [sum(q[i] for q in target) / count for i in range(3)]
+    pp = [[0.0] * 3 for _ in range(3)]
+    pq = [[0.0] * 3 for _ in range(3)]
+    for p, q in zip(source, target):
+        u, v = [p[i] - c[i] for i in range(3)], [q[i] - d[i] for i in range(3)]
+        for i in range(3):
+            for j in range(3):
+                pp[i][j] += u[i] * u[j]
+                pq[i][j] += u[i] * v[j]
+    e = 1e-12 * (pp[0][0] + pp[1][1] + pp[2][2]) + 1e-30
+    for i in range(3):
+        pp[i][i] += e
+        pq[i][i] += e
+    m: list[float] = []
+    for i in range(3):
+        row = [_round(x, _MAP_DIGITS) for x in _solve3(pp, [pq[k][i] for k in range(3)])]
+        m += [*row, _length(d[i] - (row[0] * c[0] + row[1] * c[1] + row[2] * c[2]))]
+    mapped = _mapped(rest, path["normal"], m)
+    if max(math.dist(p, q) for p, q in zip(_path_points(mapped), _path_points(path))) > 2 * LENGTH_FLOOR:
+        return None
+    return m
+
+
+def _tube_key(key: Mapping[str, Any] | None, rest: Mapping[str, Any]) -> dict[str, Any] | None:
+    """A tube key as written: its centerline as its track's rest under a map where one
+    takes the rest onto it (``_map_onto``), else its own segments."""
+    if key is None:
+        return None
+    written = _rounded_tube(key)
+    m = _map_onto(rest, key["path"])
+    if m is not None:
+        written["path"] = {"normal": written["path"]["normal"], "map": m}
+    return written
+
+
 # --- A clip, end to end ----------------------------------------------------------
 
 
@@ -837,8 +924,9 @@ def bake_clip(
 
         keep = _keep(len(keys), tube_error, 1.0, _runs(keys, _shape))
         rest = next(s for s in specs if s)
-        track = _track(leaves, rounded_times, keep, "tube", [None if keys[k] is None else _rounded_tube(keys[k]) for k in keep])
-        track["rest"] = _rounded_tube({"path": rest["rest"], "twistDeg": 0.0})["path"]
+        rest_path = _rounded_tube({"path": rest["rest"], "twistDeg": 0.0})["path"]
+        track = _track(leaves, rounded_times, keep, "tube", [_tube_key(keys[k], rest_path) for k in keep])
+        track["rest"] = rest_path
         track["maxSegmentLength"] = rest["maxSegmentLength"]
         if rest["braid"] is not None:
             track["braid"] = rest["braid"]
@@ -948,6 +1036,20 @@ def normalize_baked_animation(block: object) -> dict[str, Any] | None:
     return dict(block)
 
 
+def _written_path(path: object, rest: object) -> bool:
+    """A tube key's centerline as written: {normal, segments}, or {normal, map}, twelve
+    numbers, over a rest without arcs."""
+    if not isinstance(path, Mapping) or set(path) not in ({"normal", "segments"}, {"normal", "map"}):
+        return False
+    if "segments" in path:
+        return True
+    segments = rest.get("segments") if isinstance(rest, Mapping) else None
+    return (
+        isinstance(path["map"], list) and len(path["map"]) == 12 and all(_finite(c) for c in path["map"])
+        and not any(isinstance(segment, Mapping) and segment.get("kind") == "arc" for segment in segments or [])
+    )
+
+
 def _check_track(track: object, where: str, duration: float) -> None:
     if not isinstance(track, Mapping):
         raise _fail(f"{where} must be an object")
@@ -975,7 +1077,10 @@ def _check_track(track: object, where: str, duration: float) -> None:
         elif channel == "visible":
             ok = value is None or isinstance(value, bool)
         else:
-            ok = value is None or (isinstance(value, Mapping) and set(value) == {"path", "twistDeg"} and _finite(value["twistDeg"]))
+            ok = value is None or (
+                isinstance(value, Mapping) and set(value) == {"path", "twistDeg"} and _finite(value["twistDeg"])
+                and _written_path(value["path"], track.get("rest"))
+            )
         if not ok:
             raise _fail(f"{where} has a malformed {channel} value: {value!r}")
     if channel == "transform":

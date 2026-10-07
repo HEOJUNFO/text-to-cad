@@ -5,7 +5,12 @@ swept STEP body. The model's Python clip authors it with
 `m.get(target).deform_tube(rest=..., path=..., twist_deg=0, max_segment_length=1, braid=None)`,
 and the build bakes it into the sidecar as a `tube` track: one `{path, twistDeg}`
 (or `null`, the rest shape) per key, with the track's `rest`, `maxSegmentLength`
-and optional `braid`, which stay constant through a clip. The runtime deforms
+and optional `braid`, which stay constant through a clip. A key's path is its
+own `{normal, segments}`, or `{normal, map}` when the clip's path is the rest
+under one affine map, as a coil spring compressing along its axis is: `map` is
+that map's three rows `[a, a, a, b]` in turn, twelve numbers in place of the
+whole centerline, and the runtime maps the rest's points with it before it
+interpolates. Arcs never map. The runtime deforms
 the original surface and its CAD edge lines in the same shared pass used by CAD
 Viewer and snapshots. It does not create a replacement rope or change the STEP
 artifact. Subsequent rigid occurrence transforms act on the deformed result.

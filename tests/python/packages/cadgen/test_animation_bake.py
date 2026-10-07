@@ -34,10 +34,13 @@ from cadgen._internal.animation_bake import (  # noqa: E402
     OPACITY_TOLERANCE,
     TRANSFORM_TOLERANCE,
     AnimationError,
+    _lerp_path,
+    _path_points,
     _pose_at,
     animation_targets,
     bake_animation,
     bake_clip,
+    key_path,
     normalize_baked_animation,
 )
 from cadgen.animation import Clip, normalize_clips  # noqa: E402
@@ -95,6 +98,28 @@ def _value_at(track: dict, channel: str, t: float):
 
 def _line(y: float) -> dict:
     return {"normal": [0.0, 0.0, 1.0], "segments": [{"kind": "line", "start": [0.0, 0.0, 0.0], "end": [10.0, y, 0.0]}]}
+
+
+def _coil(length: float, turns: int = 3, radius: float = 2.0) -> dict:
+    """A coil spring's wire centerline, ``length`` tall about +Z: quarter-turn Beziers
+    rising evenly, as a valve spring is built."""
+    k, rise = 4.0 / 3.0 * math.tan(math.pi / 8.0) * radius, length / (4 * turns)
+
+    def at(quarter: int, z: float) -> list[float]:
+        a = math.pi / 2 * quarter
+        return [radius * math.cos(a), radius * math.sin(a), z]
+
+    def ahead(quarter: int, sign: float) -> list[float]:
+        a = math.pi / 2 * quarter
+        return [-sign * k * math.sin(a), sign * k * math.cos(a), sign * rise / 3]
+
+    segments = []
+    for i in range(4 * turns):
+        p0, p3 = at(i, rise * i), at(i + 1, rise * (i + 1))
+        p1 = [p + v for p, v in zip(p0, ahead(i, 1.0))]
+        p2 = [p + v for p, v in zip(p3, ahead(i + 1, -1.0))]
+        segments.append({"kind": "bezier", "points": [p0, p1, p2, p3]})
+    return {"normal": [0.0, 0.0, 1.0], "segments": segments}
 
 
 class DeclaringClips(unittest.TestCase):
@@ -378,6 +403,38 @@ class BakingStyles(unittest.TestCase):
             str(caught.exception),
         )
 
+    def test_a_spring_that_compresses_is_keyed_as_maps_of_its_rest(self) -> None:
+        # Every turn of a compressing coil closes up alike, so each pose is the rest under
+        # one affine map: a key is that map's twelve numbers, not the coil again.
+        def press(t, m):
+            m.get("#link").deform_tube(rest=_coil(10.0), path=_coil(10.0 - 4.0 * math.sin(math.pi * t)))
+
+        (track,) = _bake("press", press, duration=1, fps=30)["tracks"]
+        self.assertGreater(len(track["times"]), 2)
+        self.assertTrue(all(set(key["path"]) == {"normal", "map"} for key in track["tube"]))
+        tolerance = max(LENGTH_FLOOR, TRANSFORM_TOLERANCE * math.dist(*BOUNDS))
+        for sample in (4, 15, 23):  # samples the keys drop: rebuilt from two maps
+            t = sample / 30
+            k = bisect.bisect_right(track["times"], t) - 1
+            u = (t - track["times"][k]) / (track["times"][k + 1] - track["times"][k])
+            a, b = (key_path(track["rest"], track["tube"][n]["path"]) for n in (k, k + 1))
+            drawn, truth = _path_points(_lerp_path(a, b, u)), _path_points(_coil(10.0 - 4.0 * math.sin(math.pi * t)))
+            with self.subTest(t=t):
+                self.assertLessEqual(max(math.dist(p, q) for p, q in zip(drawn, truth)), tolerance)
+
+        # Turns closing up faster the higher they sit are no one map: past the rest pose,
+        # those keys carry their own segments.
+        def settle(t, m):
+            path = copy.deepcopy(_coil(10.0))
+            for segment in path["segments"]:
+                for point in segment["points"]:
+                    point[2] -= 0.02 * t * point[2] ** 2
+            m.get("#link").deform_tube(rest=_coil(10.0), path=path)
+
+        (settled,) = _bake("settle", settle, duration=1, fps=10)["tracks"]
+        self.assertEqual({"normal", "map"}, set(settled["tube"][0]["path"]))
+        self.assertTrue(all(set(key["path"]) == {"normal", "segments"} for key in settled["tube"][1:]))
+
 
 class ResolvingTargets(unittest.TestCase):
     def test_a_name_an_id_and_a_group_each_resolve_to_leaves(self) -> None:
@@ -455,6 +512,24 @@ class TheBakedSection(unittest.TestCase):
             section = copy.deepcopy(baked)
             damage(section)
             with self.subTest(message=message), self.assertRaisesRegex(ValueError, "^" + re.escape(f"animation: {message}")):
+                normalize_baked_animation(section)
+
+    def test_a_tube_map_reads_back_only_as_twelve_numbers_over_a_rest_without_arcs(self) -> None:
+        def press(t, m):
+            m.get("#link").deform_tube(rest=_coil(10.0), path=_coil(10.0 - 4.0 * t))
+
+        baked = bake_animation({"press": cadgen.clip(press, duration=1, fps=10)}, TARGETS, BOUNDS)
+        self.assertEqual(baked, normalize_baked_animation(json.loads(json.dumps(baked))))
+        arc = {"kind": "arc", "center": [0.0, 0.0, 0.0], "axis": [0.0, 0.0, 1.0], "start": [2.0, 0.0, 0.0], "sweepDeg": 90.0}
+        for damage in (
+            lambda track: track["tube"][0]["path"]["map"].pop(),
+            lambda track: track["tube"][0]["path"]["map"].__setitem__(0, "1"),
+            lambda track: track["tube"][0]["path"].update(segments=[]),
+            lambda track: track["rest"]["segments"].append(arc),
+        ):
+            section = copy.deepcopy(baked)
+            damage(section["clips"][0]["tracks"][0])
+            with self.subTest(damage=damage), self.assertRaisesRegex(ValueError, "^animation: clip 'press' track 0 has a malformed tube value"):
                 normalize_baked_animation(section)
 
 

@@ -151,6 +151,26 @@ test("a tube lerps its path between keys of one shape, and holds across a change
   assert.equal(tube(3.5), undefined);
 });
 
+test("a key that maps the rest deforms as the path it maps the rest onto, and lerps as one", () => {
+  // Half a turn of coil in two Beziers; the second key halves its height and lifts it 2 mm.
+  const bezier = (points) => ({ kind: "bezier", points });
+  const rest = { normal: [0, 0, 1], segments: [
+    bezier([[2, 0, 0], [2, 1, 0.5], [1, 2, 1], [0, 2, 1.5]]),
+    bezier([[0, 2, 1.5], [-1, 2, 2], [-2, 1, 2.5], [-2, 0, 3]])
+  ] };
+  const squash = (s, lift) => ({ normal: [0, 0, 1], map: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, s, lift] });
+  const squashed = (s, lift) => ({ normal: [0, 0, 1], segments: rest.segments.map((segment) => (
+    bezier(segment.points.map(([x, y, z]) => [x, y, s * z + lift])))) });
+  const press = clip([{ targets: ["o1.2"], times: [0, 1], rest, maxSegmentLength: 2, tube: [
+    { path: squash(1, 0), twistDeg: 0 }, { path: squash(0.5, 2), twistDeg: 30 }
+  ] }]);
+  const tube = (t) => at(press, t).deformations.get("o1.2");
+  const deformed = (path, twistDeg = 0) => normalizeTubeDeformation({ rest, maxSegmentLength: 2, path, twistDeg });
+  assert.deepEqual(tube(0), deformed(squashed(1, 0)));
+  assert.deepEqual(tube(0.5), deformed(squashed(0.75, 1), 15));
+  assert.deepEqual(tube(1), deformed(squashed(0.5, 2), 30));
+});
+
 function through(matrix, point) {
   return new THREE.Vector3(...point).applyMatrix4(matrix).toArray().map((v) => Math.round(v * 1e6) / 1e6);
 }

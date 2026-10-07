@@ -21,9 +21,12 @@ import { normalizeSourceAnimation } from "./sourceSidecar.js";
 //              curves: a constant spin is exact.
 //   opacity    0..1, or null for the material's own; lerps between numbers.
 //   visible    true, false, or null for the rest state; held.
-//   tube       {path, twistDeg}, or null for the rest shape; the path's numbers
-//              lerp while its segment kinds match, and hold otherwise. The track
-//              carries the tube's rest path, maxSegmentLength and braid.
+//   tube       {path, twistDeg}, or null for the rest shape. The path is
+//              {normal, segments}, or {normal, map}: the track's rest under the
+//              affine map p -> A p + b, its rows [a, a, a, b] in turn (a spring
+//              compressing along its axis is one; never over arcs). The path's
+//              numbers lerp while its segment kinds match, and hold otherwise. The
+//              track carries the tube's rest path, maxSegmentLength and braid.
 // Every evaluation starts from rest: a clip is a pure function of t, so scrub,
 // loop and seek are free.
 
@@ -174,6 +177,28 @@ function lerpPath(a, b, u) {
   };
 }
 
+// A key's centerline: its own segments, or the track's rest under the key's
+// affine map (its three rows, each a, a, a, b), worked out once per key. A line
+// or a Bezier maps to the line or Bezier through the images of its points.
+const mappedPaths = new WeakMap();
+
+function keyPath(track, key) {
+  if (!key.path.map) return key.path;
+  let path = mappedPaths.get(key);
+  if (!path) {
+    const m = key.path.map;
+    const image = (p) => [0, 1, 2].map((i) => m[4 * i] * p[0] + m[4 * i + 1] * p[1] + m[4 * i + 2] * p[2] + m[4 * i + 3]);
+    path = {
+      normal: key.path.normal,
+      segments: track.rest.segments.map((segment) => (segment.kind === "line"
+        ? { kind: "line", start: image(segment.start), end: image(segment.end) }
+        : { kind: "bezier", points: segment.points.map(image) }))
+    };
+    mappedPaths.set(key, path);
+  }
+  return path;
+}
+
 // A held key's deformation, normalized once: a tube that rests between moves
 // (a valve spring, most of an engine cycle) costs nothing per frame.
 const heldTubes = new WeakMap();
@@ -184,15 +209,17 @@ function tubeAt(track, index, u) {
   const b = u > 0 ? track.tube[index + 1] : null;
   const runtime = requireTubeDeformation("a tube animation track");
   const spec = { rest: track.rest, maxSegmentLength: track.maxSegmentLength, ...(track.braid ? { braid: track.braid } : {}) };
-  if (!b || !samePathShape(a.path, b.path)) {
+  const from = keyPath(track, a);
+  const to = b && keyPath(track, b);
+  if (!to || !samePathShape(from, to)) {
     let held = heldTubes.get(a);
     if (!held) {
-      held = runtime.normalizeTubeDeformation({ ...spec, path: a.path, twistDeg: a.twistDeg });
+      held = runtime.normalizeTubeDeformation({ ...spec, path: from, twistDeg: a.twistDeg });
       heldTubes.set(a, held);
     }
     return held;
   }
-  return runtime.normalizeTubeDeformation({ ...spec, path: lerpPath(a.path, b.path, u), twistDeg: lerp(a.twistDeg, b.twistDeg, u) });
+  return runtime.normalizeTubeDeformation({ ...spec, path: lerpPath(from, to, u), twistDeg: lerp(a.twistDeg, b.twistDeg, u) });
 }
 
 /** Evaluate one clip at time t: `{matrices, styles, deformations}`, each keyed by
