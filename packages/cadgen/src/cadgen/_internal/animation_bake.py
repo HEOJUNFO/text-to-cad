@@ -53,10 +53,11 @@ map, whose largest displacement over a box is at a corner, so the corners bound
 the error over every point of those parts. A key's rates are the clip's own
 (central differences of its samples), so a smooth motion needs keys only where
 its curve changes character, and a part turns at most 120 degrees between two
-kept keys. A hold -- one pose at two samples running -- is entered and left at
-rest: its first and last samples are keys with no rate, and nothing between
-them is. A tube's tolerance is measured on points along its centerline and on
-how far its cross-sections turn.
+kept keys. A hold -- one value at two samples running, on any channel -- keeps
+its first and last samples as keys and nothing between them, so a renderer has
+nothing to redraw through it; a transform enters and leaves one at rest, its
+keys there carrying no rate. A tube's tolerance is measured on points along its
+centerline and on how far its cross-sections turn.
 """
 
 from __future__ import annotations
@@ -614,11 +615,7 @@ def _transform_keys(
             return None
         return bisect.bisect_right(swept, swept[i] + MAX_KEY_TURN_DEG, i + 1, j) - 1
 
-    # A hold's first and last samples are keys: between them the curve stays put, so a
-    # hold costs its two ends. Left to the splitting, a segment that runs from a hold
-    # into a move dips through the hold, and each split lands in it nearer the move.
-    edges = [k for k in range(len(values)) if still[k] != still[k + 1]]
-    keep = _keep(len(values), error, tolerance, forced=edges, reach=reach)
+    keep = _keep(len(values), error, tolerance, forced=_holds(values), reach=reach)
     digits = (_LENGTH_DIGITS,) * 3 + (_QUATERNION_DIGITS,) * 4 + (_LENGTH_DIGITS,) * 3 + (_QUATERNION_DIGITS,) * 3
     return keep, pivot, [[_round(c, digits[n]) for n, c in enumerate(keys[k])] for k in keep]
 
@@ -672,6 +669,16 @@ def _angle_deg(a: Sequence[float], b: Sequence[float]) -> float:
 
 def _shape(key: Mapping[str, Any] | None) -> tuple | None:
     return None if key is None else tuple(segment["kind"] for segment in key["path"]["segments"])
+
+
+def _holds(values: list[Any]) -> list[int]:
+    """The first and last sample of every HOLD -- one value at two samples running --
+    which stay keys: between two keys of one value nothing moves, so a hold costs its
+    two ends and a renderer has nothing to redraw through it. Left to the splitting,
+    a segment that runs from a hold into a move strays through the hold, and each
+    split lands in it nearer the move."""
+    still = [k > 0 and values[k - 1] == values[k] for k in range(len(values))] + [False]
+    return [k for k in range(len(values)) if still[k] != still[k + 1]]
 
 
 def _runs(values: list[Any], kind) -> list[int]:
@@ -879,7 +886,7 @@ def bake_clip(
             u = (times[k] - times[i]) / (times[j] - times[i])
             return abs(values[i] + (values[j] - values[i]) * u - values[k])
 
-        keep = _keep(len(values), opacity_error, OPACITY_TOLERANCE, _runs(values, lambda v: v is None))
+        keep = _keep(len(values), opacity_error, OPACITY_TOLERANCE, _runs(values, lambda v: v is None) + _holds(values))
         tracks.append(_track(leaves, rounded_times, keep, "opacity", [
             None if values[k] is None else _round(values[k], _OPACITY_DIGITS) for k in keep
         ]))
@@ -922,7 +929,7 @@ def bake_clip(
             )
             return max(moved / tolerance, turned / TUBE_TURN_TOLERANCE_DEG)
 
-        keep = _keep(len(keys), tube_error, 1.0, _runs(keys, _shape))
+        keep = _keep(len(keys), tube_error, 1.0, _runs(keys, _shape) + _holds(keys))
         rest = next(s for s in specs if s)
         rest_path = _rounded_tube({"path": rest["rest"], "twistDeg": 0.0})["path"]
         track = _track(leaves, rounded_times, keep, "tube", [_tube_key(keys[k], rest_path) for k in keep])
