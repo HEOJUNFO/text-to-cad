@@ -10,7 +10,13 @@ own `{normal, segments}`, or `{normal, map}` when the clip's path is the rest
 under one affine map, as a coil spring compressing along its axis is: `map` is
 that map's three rows `[a, a, a, b]` in turn, twelve numbers in place of the
 whole centerline, and the runtime maps the rest's points with it before it
-interpolates. Arcs never map. The runtime deforms
+interpolates. Arcs never map. A key that maps the rest compiles on the rest's own
+parameters, so every such key of a tube tabulates alike: a tube moving between two
+of them is drawn from the pair, each key's GPU frame table and posed edge lines
+built once while the tube is between it and a neighbour, and every frame lerps
+them. The blended frames part from the exact ones as the square of the keys'
+spacing, under a micron at the spacing a bake writes; the exact surface is compiled
+only for a pick. A held tube redraws nothing. The runtime deforms
 the original surface and its CAD edge lines in the same shared pass used by CAD
 Viewer and snapshots. It does not create a replacement rope or change the STEP
 artifact. Subsequent rigid occurrence transforms act on the deformed result.

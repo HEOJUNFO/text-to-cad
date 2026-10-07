@@ -138,6 +138,28 @@ test('projection onto a coil spring helix lands on the exact closest point and r
     for(const key of ['point','tangent','normal','binormal','curvature']) near(projected.frame[key],sampled[key],1e-9);
   }
 });
+// A coil spring's centerline `height` tall: quarter-turn Beziers rising evenly along +z.
+// Compressed, it is its rest under one affine map, as a tube key's map names it.
+function coilSpec(height,turns=3,r=4) {
+  const k=4/3*Math.tan(Math.PI/8),n=4*turns,rise=height/n,segments=[];
+  for(let j=0;j<n;j++) {
+    const a=j*Math.PI/2,b=a+Math.PI/2,z=j*rise;
+    segments.push({kind:'bezier',points:[[r*Math.cos(a),r*Math.sin(a),z],[r*(Math.cos(a)-k*Math.sin(a)),r*(Math.sin(a)+k*Math.cos(a)),z+rise/3],[r*(Math.cos(b)+k*Math.sin(b)),r*(Math.sin(b)-k*Math.cos(b)),z+2*rise/3],[r*Math.cos(b),r*Math.sin(b),z+rise]]});
+  }
+  return {normal:[0,0,1],segments};
+}
+
+test('an affine image of a path compiles on the original\'s parameters to the length and frames it compiles to alone',()=>{
+  const rest=compileTubePath(coilSpec(10)),squeezed=coilSpec(7);
+  const alone=compileTubePath(squeezed),image=compileTubePath(squeezed,rest);
+  assert.deepEqual(image.segments.map(s=>s.table.map(e=>e.t)),rest.segments.map(s=>s.table.map(e=>e.t)));
+  assert.ok(Math.abs(alone.length-image.length)<1e-9*alone.length);
+  for(let j=0;j<=400;j++) {
+    const d=alone.length*j/400,a=sampleTubePath(alone,d),b=sampleTubePath(image,d);
+    for(const key of ['point','tangent','normal']) near(a[key],b[key],1e-7);
+  }
+});
+
 test('broken centerlines and unknown keys fail loudly rather than drawing plausible wrong ropes',()=>{
   assert.throws(()=>compileTubePath({normal:[0,0,1],segments:[line([0,0,0],[1,0,0]),line([2,0,0],[3,0,0])]}),/discontinuity/);
   assert.throws(()=>compileTubePath({normal:[0,0,1],segments:[line([0,0,0],[1,0,0]),line([1,0,0],[1,1,0])]}),/tangent-continuous/);

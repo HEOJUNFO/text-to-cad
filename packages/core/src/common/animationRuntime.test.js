@@ -165,10 +165,18 @@ test("a key that maps the rest deforms as the path it maps the rest onto, and le
     { path: squash(1, 0), twistDeg: 0 }, { path: squash(0.5, 2), twistDeg: 30 }
   ] }]);
   const tube = (t) => at(press, t).deformations.get("o1.2");
-  const deformed = (path, twistDeg = 0) => normalizeTubeDeformation({ rest, maxSegmentLength: 2, path, twistDeg });
-  assert.deepEqual(tube(0), deformed(squashed(1, 0)));
-  assert.deepEqual(tube(0.5), deformed(squashed(0.75, 1), 15));
-  assert.deepEqual(tube(1), deformed(squashed(0.5, 2), 30));
+  const deformed = (path, twistDeg = 0, more = {}) => normalizeTubeDeformation({ rest, maxSegmentLength: 2, path, twistDeg, ...more });
+  const start = tube(0);
+  const end = tube(1);
+  assert.deepEqual(start, deformed(squashed(1, 0), 0, { mapsRest: true }));
+  assert.deepEqual(end, deformed(squashed(0.5, 2), 30, { mapsRest: true }));
+  // Between them the path is their lerp, and it names the two keys (one object each,
+  // frame after frame) so that a renderer can blend what it built for them.
+  const { between, ...middle } = tube(0.5);
+  assert.deepEqual(middle, deformed(squashed(0.75, 1), 15));
+  assert.equal(between.from, start);
+  assert.equal(between.to, end);
+  assert.equal(between.u, 0.5);
 });
 
 function through(matrix, point) {
