@@ -2053,10 +2053,10 @@ def _browser_stage_timings(value: object) -> dict[str, object]:
     source_load = value.get("sourceLoad")
     if is_plain_object(source_load):
         measured = durations(source_load, (
-            "probeMs", "cacheReadMs", "cacheDecodeMs", "meshBuildMs", "surfaceReadMs",
-            "tessellateMs", "cacheWriteMs", "composeMs",
+            "probeMs", "produceMs", "cacheReadMs", "cacheDecodeMs", "meshBuildMs",
+            "meshReadMs", "composeMs",
         ))
-        for name in ("componentCount", "cacheBatchCount", "cacheHitCount", "cacheMissCount"):
+        for name in ("componentCount", "producedCount", "cacheBatchCount", "cacheHitCount", "cacheMissCount"):
             count = source_load.get(name)
             if type(count) is int and 0 <= count <= 2**53 - 1:
                 measured[name] = count
