@@ -582,24 +582,37 @@ class Obsolete(StoreSweepCase):
         self.assertTrue(entry_path("surface", "1" * 64).is_file(), "an entry written since the scan stays")
         self.assertTrue(has_object(digest), "and the object it names is there")
 
-    def test_the_daemon_retires_obsolete_entries_once_per_upgrade(self) -> None:
-        from cadgen.daemon.housekeeping import Housekeeper
+    def test_the_daemon_retires_obsolete_entries_once_per_upgrade_then_daily(self) -> None:
+        from cadgen.daemon.housekeeping import RETIRE_INTERVAL_SECONDS, Housekeeper
         from cadgen.store.objects import has_object
 
         self.seed_document()
         objects = self.seed_versions()
-        state = self.root / "daemon"
-        housekeeper = Housekeeper(active=lambda: False, state_dir=lambda: state)
-        line = housekeeper.look(str(self.store), 20 * 1024**3)
+        state, cap, now = self.root / "daemon", 20 * 1024**3, [time.time()]
+
+        def daemon() -> Housekeeper:
+            return Housekeeper(active=lambda: False, state_dir=lambda: state, wall_clock=lambda: now[0])
+
+        housekeeper = daemon()
+        line = housekeeper.look(str(self.store), cap)
         self.assertIn("retired obsolete mesh entries (2), surface entries (2)", line)
         self.assertFalse(has_object(objects["older surface"]))
-        self.assertIsNone(housekeeper.look(str(self.store), 20 * 1024**3), "not once per idle moment")
-        self.assertIsNone(Housekeeper(active=lambda: False, state_dir=lambda: state).look(str(self.store), 20 * 1024**3),
-                          "nor once per daemon start")
+        self.assertIsNone(housekeeper.look(str(self.store), cap), "not once per idle moment")
+        self.assertIsNone(daemon().look(str(self.store), cap), "nor once per daemon start")
         moved = {"surface": [99, 9], "mesh": [99, 9]}
         with mock.patch("cadgen.store.gc.producer_versions", return_value=moved):
-            self.assertIsNotNone(housekeeper.look(str(self.store), 20 * 1024**3), "an upgrade earns one more pass")
-            self.assertIsNone(housekeeper.look(str(self.store), 20 * 1024**3))
+            self.assertIsNotNone(housekeeper.look(str(self.store), cap), "an upgrade earns one more pass")
+            self.assertIsNone(housekeeper.look(str(self.store), cap))
+        # Two releases sharing the store keep a note each: neither moves the other's.
+        self.assertIsNone(daemon().look(str(self.store), cap), "the first versions' note still stands")
+        # Nor does an older cadgen, which writes the store's other note with no versions in it.
+        housekeeper._note_path(str(self.store)).write_text(
+            json.dumps({"root": str(self.store), "cap": cap, "after": 1, "at": now[0]}), encoding="utf-8")
+        self.assertIsNone(daemon().look(str(self.store), cap), "an older cadgen's note re-arms nothing")
+        # A day on, a pass looks again: it retires what the last kept for being younger than a week.
+        now[0] += RETIRE_INTERVAL_SECONDS + 1
+        self.assertIsNotNone(daemon().look(str(self.store), cap))
+        self.assertIsNone(daemon().look(str(self.store), cap))
 
 if __name__ == "__main__":
     unittest.main()

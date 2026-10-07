@@ -7,13 +7,17 @@ for ``QUIET_SECONDS``, one look -- a stat walk that keeps nothing per file:
    ``after`` being where that store's last pass ended under the same cap, a
    full pass with the cap (retire, evict, sweep). ``band`` is the fifth of the
    cap between the cap and its low watermark.
-2. **Otherwise, a retired index kind** (``index/op``), **or obsolete
-   entries since an upgrade**: a pass that retires them and sweeps only the
-   objects their entries named. Obsolete entries -- the surfaces and meshes
-   an older extractor or mesher of cadgen's wrote -- cannot be told from a stat
-   walk, so the note below records the versions (``gc.producer_versions``) the
-   store's last retiring pass ran under: a store gets one such pass after each
-   upgrade that moves one, and none after.
+2. **Otherwise, a retired index kind** (``index/op``), **or a store holding
+   surfaces or meshes that no pass under these versions has looked at for a
+   day**: a pass that retires the retired and the week-old obsolete entries
+   and sweeps only the objects they named. Obsolete entries -- the surfaces
+   and meshes an older extractor or mesher of cadgen's wrote -- cannot be told
+   from a stat walk, so the daemon notes when its last retiring pass ran, per
+   store and per the versions it ran under (``gc.producer_versions``), in a
+   file of their own: a daemon of another release sharing the store keeps a
+   note of its own and never moves this one. A store gets one such pass after
+   each upgrade that moves a version, then at most one a day, which retires
+   the obsolete entries a pass before kept for being younger than a week.
 
 A pass that finds a newer cadgen writing to the store removes nothing and says
 so; the next one is as far off as after any other pass.
@@ -46,6 +50,10 @@ from typing import Callable
 QUIET_SECONDS = 30.0
 # How long a pass told to stop may take to reach its next step before it is killed.
 STOP_GRACE_SECONDS = 10.0
+# How often a store holding surfaces or meshes gets a retiring pass under the same
+# versions: the obsolete entries the last one kept for being younger than a week
+# (gc.OBSOLETE_RETIRE_AFTER_SECONDS) go within a day of turning a week old.
+RETIRE_INTERVAL_SECONDS = 24 * 3600.0
 
 
 class Housekeeper:
@@ -55,12 +63,14 @@ class Housekeeper:
         active: Callable[[], bool],
         log: Callable[[str], None] = lambda message: None,
         clock: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], float] = time.time,
         quiet_seconds: float = QUIET_SECONDS,
         state_dir: Callable[[], Path] | None = None,
     ) -> None:
         self.active = active
         self._log = log
         self._clock = clock
+        self._wall_clock = wall_clock
         self._quiet = float(quiet_seconds)
         self._state_dir = state_dir or _default_state_dir
         self._guard = threading.Lock()
@@ -146,19 +156,20 @@ class Housekeeper:
             report = self._pass(resolved, ["--max-bytes", str(cap)])
             if report is None:
                 return self._resume(root, cap)
-            self._remember(root, cap=cap, after=int(report["bytes_after"]), versions=versions)
+            self._remember(root, cap=cap, after=int(report["bytes_after"]))
+            self._note_retired(root, versions)
             return _summary(report)
         # A full pass retires obsolete entries too; without one, a store that holds
-        # surfaces or meshes and was last retired under other versions earns a pass.
-        upgraded = (any((resolved / "index" / kind).is_dir() for kind in ("surface", "mesh"))
-                    and (self._read_note(root) or {}).get("versions") != versions)
+        # surfaces or meshes earns a pass when none under these versions ran today.
+        obsolete = (any((resolved / "index" / kind).is_dir() for kind in ("surface", "mesh"))
+                    and self._retire_due(root, versions))
         retired = found.retired and self._clock() - self._retired_at.get(root, float("-inf")) >= DEFAULT_GRACE_SECONDS
-        if upgraded or retired:
+        if obsolete or retired:
             report = self._pass(resolved, ["--retired-only"])
             if report is None:
                 return self._resume(root, cap)
             self._retired_at[root] = self._clock()
-            self._remember(root, versions=versions)
+            self._note_retired(root, versions)
             return _summary(report)
         return None
 
@@ -237,12 +248,35 @@ class Housekeeper:
 
     def _remember(self, root: str, **fields) -> None:
         """Note ``fields`` for this store beside what is noted already: where its
-        last cap pass ended (``cap``, ``after``) and the versions its last
-        retiring pass ran under (``versions``)."""
+        last cap pass ended (``cap``, ``after``)."""
+        self._write(root, self._note_path(root), {**(self._read_note(root) or {}), **fields})
+
+    # --- when the last retiring pass ran, under which versions ----------------
+
+    def _retired_path(self, root: str, versions: dict) -> Path:
+        """This store's note for one set of versions: a file of its own, so a daemon
+        of another release sharing the store -- which writes the store's other note,
+        and a note under its own versions -- never moves it."""
+        key = hashlib.sha256(json.dumps(versions, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+        return self._note_path(root).with_name(f"{self._note_path(root).stem}-retired-{key}.json")
+
+    def _retire_due(self, root: str, versions: dict) -> bool:
+        """Whether no retiring pass under ``versions`` has run on this store for a
+        day (``RETIRE_INTERVAL_SECONDS``): never, or a note this clock cannot place."""
+        try:
+            at = json.loads(self._retired_path(root, versions).read_text(encoding="utf-8"))["at"]
+        except (OSError, ValueError, TypeError, KeyError):
+            return True
+        now = self._wall_clock()
+        return not isinstance(at, (int, float)) or not 0 <= now - at < RETIRE_INTERVAL_SECONDS
+
+    def _note_retired(self, root: str, versions: dict) -> None:
+        self._write(root, self._retired_path(root, versions), {"versions": versions})
+
+    def _write(self, root: str, path: Path, note: dict) -> None:
         from cadgen._internal.atomic_replace import replace_atomic, temp_suffix
 
-        path = self._note_path(root)
-        note = {**(self._read_note(root) or {}), **fields, "root": root, "at": time.time()}
+        note = {**note, "root": root, "at": self._wall_clock()}
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_name(f".{path.name}{temp_suffix()}")

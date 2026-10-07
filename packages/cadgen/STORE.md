@@ -1280,14 +1280,17 @@ with every request):
 
 - larger than `max(cap, after + cap/5)` -- `after` being where its last pass
   under that cap ended -- gets a full pass with the cap;
-- otherwise, a store holding a retired kind, or holding surfaces or meshes and
-  last retired under other versions than this cadgen's (`gc.producer_versions`:
-  an upgrade moved the extractor or the mesher), gets a retiring pass, which
-  retires the retired entries and the week-old obsolete ones and sweeps only
-  the objects they named. Obsolete entries cannot be told from a stat walk, so
-  the versions are noted beside `after`: one such pass per store per upgrade,
-  however often the daemon idles or restarts. An obsolete entry younger than a
-  week at that pass waits for a pass with the cap, or `cadgen store gc`.
+- otherwise, a store holding a retired kind, or holding surfaces or meshes that
+  no retiring pass under this cadgen's versions (`gc.producer_versions`: the
+  extractor's and the mesher's) has looked at for a day, gets a retiring pass,
+  which retires the retired entries and the week-old obsolete ones and sweeps
+  only the objects they named. Obsolete entries cannot be told from a stat
+  walk, so when that pass ran is noted per store and per versions, in a note of
+  its own beside `after`'s: a daemon of another release sharing the store keeps
+  its own and never moves this one. So a store gets one such pass after an
+  upgrade, then at most one a day however often the daemon idles or restarts,
+  and an obsolete entry a pass kept for being younger than a week goes within
+  a day of turning a week old (`housekeeping.RETIRE_INTERVAL_SECONDS`).
 
 `after` is noted beside the daemon's socket, per store, in its state
 directory, so a store whose records and documents alone hold more than the
