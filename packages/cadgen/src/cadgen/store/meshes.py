@@ -65,6 +65,7 @@ MIN_CHORD = MESH_TOLERANCE_MIN
 MIN_ANGLE = MESH_ANGULAR_TOLERANCE_MIN
 # The class codes of the edge table, in this order (tessellationCache.js MESH_EDGE_CLASSES).
 EDGE_CLASSES = ("none", "feature", "tangent", "seam", "degenerate", "boundary", "nonManifold", "unknown")
+_EDGE_CODES = {name: code for code, name in enumerate(EDGE_CLASSES)}
 # A component of at most this many vertices indexes in UNSIGNED_SHORT; glTF reserves 65,535.
 UNSIGNED_SHORT_VERTEX_LIMIT = 65535
 # Z-up millimetres as glTF's Y-up metres: -90 degrees about X, then 0.001.
@@ -127,18 +128,9 @@ def _read_json(payload: bytes) -> Any:
         raise ValueError("invalid tessellation JSON") from exc
 
 
-def _same(a: Any, b: Any) -> bool:
-    """JSON equality as the JavaScript reader decides it: numbers by value, a boolean
-    never a number, objects by their key sets."""
-    if type(a) is bool or type(b) is bool:
-        return type(a) is type(b) and a == b
-    if type(a) in (int, float) and type(b) in (int, float):
-        return a == b
-    if type(a) is dict and type(b) is dict:
-        return a.keys() == b.keys() and all(_same(a[key], b[key]) for key in a)
-    if type(a) is list and type(b) is list:
-        return len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b))
-    return type(a) is type(b) and a == b
+# The canonical JSON holds no boolean, and no string of it spells one: a chunk with
+# either token is not canonical, which lets ``==`` (where True == 1) decide the rest.
+_BOOLEAN_TOKENS = (b"true", b"false")
 
 
 def float64_hex(value: Any) -> str:
@@ -365,7 +357,10 @@ def decode_payload(payload: bytes) -> MeshPayload:
         bin_start += 8
         if bin_type != _BIN_CHUNK or bin_length == 0 or bin_length % 4 or bin_start + bin_length != len(data):
             raise ValueError("invalid tessellation BIN chunk")
-    gltf = _read_json(bytes(data[20:20 + json_length]))
+    text = bytes(data[20:20 + json_length])
+    if any(token in text for token in _BOOLEAN_TOKENS):
+        raise ValueError("tessellation JSON is not the canonical JSON for its values")
+    gltf = _read_json(text)
     if type(gltf) is not dict or type(gltf.get("extras")) is not dict:
         raise ValueError("invalid tessellation JSON")
     cad = gltf["extras"].get("cadgen")
@@ -387,7 +382,7 @@ def decode_payload(payload: bytes) -> MeshPayload:
         expected = canonical_gltf({name: cad[name] for name in _CAD_VALUES}, counts)
     except KeyError as exc:
         raise ValueError(f"tessellation extras lack {exc}") from exc
-    if not _same(gltf, expected):
+    if gltf != expected:
         raise ValueError("tessellation JSON is not the canonical JSON for its values")
     if bin_length != (expected.get("buffers") or [{"byteLength": 0}])[0]["byteLength"]:
         raise ValueError("tessellation BIN chunk does not match its buffer views")
@@ -488,18 +483,21 @@ def encode_payload(*, surface_input: str, surface_object: str, chord: float, ang
                            or [float(v) for v in positions.max(axis=0)] != [float(v) for v in bounds["max"]]):
         raise ValueError("a tessellation's bounds must be its positions' bounds")
     palette: dict[tuple, int] = {}
-    faces = np.zeros((len(face_ranges), _TABLE_COLUMNS), "<u4")
-    for row, face in enumerate(face_ranges):
+    rows = []
+    for face in face_ranges:
         color = face.get("color")
         reference = 0 if color is None else palette.setdefault(tuple(float(c) for c in color), len(palette) + 1)
-        faces[row] = (face["ord"], face["indexStart"], face["indexCount"], reference)
-    table = np.zeros((len(edges), _TABLE_COLUMNS), "<u4")
-    polylines, start = [], 0
-    for row, (ordinal, visibility, polyline) in enumerate(edges):
+        rows.append((face["ord"], face["indexStart"], face["indexCount"], reference))
+    faces = np.array(rows, "<u4").reshape(-1, _TABLE_COLUMNS)
+    polylines, rows, start = [], [], 0
+    for ordinal, visibility, polyline in edges:
         points = _array(polyline, "<f4", 3)
-        table[row] = (ordinal, start, len(points), EDGE_CLASSES.index(visibility))
+        if visibility not in _EDGE_CODES:
+            raise ValueError(f"unknown tessellation edge class {visibility!r}")
+        rows.append((ordinal, start, len(points), _EDGE_CODES[visibility]))
         polylines.append(points)
         start += len(points)
+    table = np.array(rows, "<u4").reshape(-1, _TABLE_COLUMNS)
     points = np.concatenate(polylines) if polylines else np.zeros((0, 3), "<f4")
     cad = {
         "payloadVersion": PAYLOAD_VERSION, "tessellatorVersion": TESSELLATOR_VERSION,
