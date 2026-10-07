@@ -346,13 +346,8 @@ class ARealDocumentPlaysItsClip(unittest.TestCase):
             self.assertAlmostEqual(math.cos(math.radians(40.5)), abs(w), places=4)
             self.assertLess(max(abs(x), abs(z)), 1e-4)
 
-            # The cord bends: refused unless asked, then baked into morph targets that a
-            # weights channel drives, and the result says what that cost.
-            refused = subprocess.run(
-                [sys.executable, "-m", "cadgen.cli", "glb", "build", "arm.step", "arm-bend.glb", "--animation", "bend"],
-                cwd=root, env=env, capture_output=True, text=True, timeout=600)
-            self.assertNotEqual(0, refused.returncode)
-            self.assertIn('deforms tube geometry on o1.3', refused.stdout + refused.stderr)
+            # The cord bends, baked into morph targets that a weights channel drives, and the
+            # result says what that cost. (Refusing it unasked is the sampler's: TubeTracks.)
             door = run("-m", "cadgen.cli", "glb", "build", "arm.step", "arm-bend.glb", "--animation",
                        json.dumps({"clip": "bend", "deform": "morph", "deformTolerance": 0.5}), "--json")
             (entry,) = json.loads(door.stdout.strip().splitlines()[-1])["files"]
