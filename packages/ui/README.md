@@ -310,4 +310,5 @@ icon, the first of the navbar's right-hand controls after the update button whil
 away, brings it back.
 Retry reloads only the selected renderer; Report Issue, where the host has a tracker, opens a
 new issue titled "Issue: ", labelled `bug`, filled in from the card, with the file's name and
-no path of the machine.
+no path of the machine. The card's Details have a copy icon at their top-right corner, which
+copies all of them through the host's clipboard.

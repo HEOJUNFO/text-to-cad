@@ -475,6 +475,14 @@ non-isolatable topology references use double-click copying. The host supplies
 `environment.platform` for the ⌘C / Ctrl+C hint; the web host derives that field
 from its browser environment.
 
+An alert card's Details have a copy icon in their box's top-right corner
+(`kit/status/ViewerAlertCard.jsx`): it copies the whole of them, however far they scroll,
+through `ClipboardPort.writeText`, and shows a tick for a moment. A host whose clipboard
+refuses the write gets a line saying so under the box, where the text stays to select; a
+view with no host clipboard gets no icon. Each host makes its port copy wherever it can: the
+web falls back to the page's copy command when the browser refuses the asynchronous
+clipboard, and so does the CAD app when its host grants its frame no clipboard.
+
 A copied reference names its file by its absolute path (`<path>#<selector>`), and so
 does a copied Quick Edit: every view spells a file the same way, so a reference pasted
 into a chat or a tool says exactly which file it means.

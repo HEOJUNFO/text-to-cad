@@ -812,7 +812,10 @@ complete silently, the Copy and Quick Edit buttons showing a tick for a moment.
 Progress stays in the viewport; a failed action is the
 viewport's alert card, whose **Retry** reloads the file and whose **Report Issue**,
 where the host has a tracker, opens a new issue titled "Issue: ", labelled `bug`, filled
-in from the card; errors handed to the host's `onError` are the host's to show. A card the
+in from the card. Its **Details** open into a box that scrolls, with a copy icon at the
+box's top-right corner, hinted **Copy**: it copies all of the details and shows a tick for a
+moment, or, where the clipboard refuses, a line under the box saying so. Errors handed to
+the host's `onError` are the host's to show. A card the
 model survives (a failed update, a warning beside the model) has an X, **Dismiss**: it puts
 the card away for as long as that alert stands, and its icon, first of the navbar's
 right-hand controls after the update button, brings it back. The dismissal goes once the alert changes or clears, or

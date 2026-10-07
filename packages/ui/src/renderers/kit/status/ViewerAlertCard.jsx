@@ -1,7 +1,8 @@
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
-import { CircleAlert, X } from "lucide-react";
+import { Check, CircleAlert, Copy, X } from "lucide-react";
 import { Button } from "@text-to-cad/ui/primitives/button";
 import { ScrollArea } from "@text-to-cad/ui/primitives/scroll-area";
+import { TooltipHint } from "@text-to-cad/ui/primitives/tooltip";
 import { cn } from "@text-to-cad/ui/utils";
 import { useFollow } from "../../../file-viewer/navigation/NavbarLinks.jsx";
 import { useViewerMobile } from "../../../file-viewer/responsive.js";
@@ -73,11 +74,63 @@ export function useAlertDismissal(alert, { hasContent = false, scope = "", onNav
   return { dismissed, dismiss };
 }
 
+/** How long a copy's tick shows: Quick Edit's. */
+export const COPIED_MS = 1600;
+
+/**
+ * The card's Details: the whole diagnostic in a box that scrolls, with a copy icon in its
+ * top-right corner, as a code block on GitHub has (the update card's prompt has one too). It
+ * copies all of the details, however far they scroll, through the host's clipboard
+ * (`ClipboardPort.writeText`); a host with no clipboard gets no icon. A copy shows a tick for a
+ * moment. A copy the clipboard refuses is said under the box, where the text stays to select.
+ */
+function AlertDetails({ details, clipboard }) {
+  const [copy, setCopy] = useState("");
+  const tick = useRef(0);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; clearTimeout(tick.current); };
+  }, []);
+  const canCopy = typeof clipboard?.writeText === "function";
+  const write = () => {
+    clearTimeout(tick.current);
+    setCopy("");
+    // The write starts inside the press: a browser lets a page write its clipboard only then.
+    let written;
+    try { written = Promise.resolve(clipboard.writeText(details)); } catch (error) { written = Promise.reject(error); }
+    written.then(() => {
+      if (!mounted.current) return;
+      setCopy("copied");
+      tick.current = setTimeout(() => setCopy(""), COPIED_MS);
+    }, () => { if (mounted.current) setCopy("failed"); });
+  };
+  const copied = copy === "copied";
+  return <>
+    <div className="relative mt-2" data-alert-details="">
+      <ScrollArea className="max-h-48 rounded-md bg-muted">
+        <pre className={cn("whitespace-pre-wrap break-words p-3 font-mono text-xs leading-5 select-text", canCopy && "pr-10")}>{details}</pre>
+      </ScrollArea>
+      {canCopy ? (
+        <TooltipHint content={copied ? "Copied" : "Copy"} side="bottom">
+          <Button type="button" variant="ghost" size="icon-xs" aria-label={copied ? "Error details copied" : "Copy error details"}
+            className="absolute right-2 top-2 size-6 text-muted-foreground hover:bg-background hover:text-foreground"
+            onClick={write} data-alert-details-copy="">
+            {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+          </Button>
+        </TooltipHint>
+      ) : null}
+    </div>
+    {copy === "failed" ? <p role="status" className="mt-1.5 leading-5">The details could not be copied. Select them above and copy them.</p> : null}
+  </>;
+}
+
 /**
  * The card over the viewport for the alert it shows. One the model survives can be put
  * away (`onDismiss`, while it stands: `useAlertDismissal`) — the previous version is there to
  * inspect and to pick from — and is brought back from its icon in the navbar. Long compiler
- * output stays complete in a scrollable diagnostic, never clipped. Retry reloads the file; where
+ * output stays complete in a scrollable diagnostic, never clipped, and its copy icon copies all
+ * of it (`AlertDetails`). Retry reloads the file; where
  * the host has a tracker (`links.issues`), Report Issue beside it opens a new issue saying what the
  * card says, about `file` (its path as the alert names it, absolute: the issue names only the file,
  * and carries no path of this machine).
@@ -119,9 +172,8 @@ export default function ViewerAlertCard({ alert: shown, hasContent, onReload, fi
             {shown.details ? (
               <details className="text-xs">
                 <summary className="w-fit cursor-pointer rounded-sm text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">Details</summary>
-                <ScrollArea className="mt-2 max-h-48 rounded-md bg-muted">
-                  <pre className="whitespace-pre-wrap break-words p-3 font-mono text-xs leading-5 select-text">{shown.details}</pre>
-                </ScrollArea>
+                {/* New details start afresh: a tick or a refusal belongs to the details it copied. */}
+                <AlertDetails key={shown.details} details={shown.details} clipboard={host?.clipboard} />
               </details>
             ) : null}
             {shown.reload || report ? (
