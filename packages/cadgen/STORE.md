@@ -69,7 +69,7 @@ One word is NOT retired, and it has exactly one meaning:
   index/component/<cid>               geometry-input entries → encoded BREP and intrinsic recipe
   index/surface/<surfaceInput>        attested extraction inputs → SURF object hash
   index/bounds/<sha256(bounds key)>   bounding boxes of stored geometry, inline
-  index/mesh/<key>                    tessellation entries → object hash
+  index/mesh/<key>                    a component's mesh at one tessellation → TESS object hash
   index/drawing/<sha256(scheme + document hash)>  a 2D drawing's render payload → object hash
 ```
 
@@ -301,6 +301,22 @@ identity. A real one (`link_arm`: a bar plus two placements of a pin model):
   their labels, with no component read, and an `axis={"ref": ...}` reads the
   SURF of the one component its occurrence places
   (`_internal/kinematics_resolve.py`).
+
+  Meshes are derived the same way, and by cadgen alone. `derive` with
+  `tessellations` meshes each component after its surface
+  (`_internal/occt_mesh.py`: OCCT's `BRepMesh_IncrementalMesh` on the exact
+  BREP, the chord tolerance a fraction of the component's bounding diagonal, the
+  angle in radians) and writes each TESS body (`store/meshes.py`) before its
+  `index/mesh` entry. The key is the surface input, the mesher and format
+  versions and the two tolerances' float64 bits, so a mesher fix lands on new
+  keys. A component is ready once its surface and every mesh asked for are
+  stored: the CAD Viewer's cold components ask for their opening level in the
+  surface request that derives them, a mesh export asks for its tolerances, and
+  the snapshot host meshes what its page found missing from the stored surface
+  record alone (`produce_meshes`, `POST /__tess_cache/produce`), with no tree.
+  Tolerances below the floors (`MIN_CHORD`, `MIN_ANGLE`) are refused, never
+  meshed. No client writes a mesh: every reader probes and reads, and the routes
+  refuse a POST to an entry (405).
 
 - `assembly.root` is the grouping the author's compound expressed; a link
   appears in it as a node of type `link`.
@@ -1467,7 +1483,7 @@ textures and worker work may have byte budgets and be reclaimed when unused.
 Admission includes replacement overlap and temporary allocations; active
 owners must not be invalidated by another scene's release. GPU and worker heap
 figures are estimates where browser APIs expose no measurement. Each live
-tessellation worker owns its highest completed-request estimate; terminating
+mesh decode worker owns its highest completed-request estimate; terminating
 that slot releases its charge. Queued temporary reservations and live-slot
 ownership are process state, never persistent geometry or cache identity. Such budgets
 do not change exact objects, canonical tree hashes or export tolerances, do

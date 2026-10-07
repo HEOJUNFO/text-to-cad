@@ -271,10 +271,10 @@ def _assembly_provenance_manifest(selector_options: SelectorOptions) -> dict[str
     and the edge classes it was built with (``tree_extra`` below takes exactly
     these two).
 
-    There is no ``mesh`` section. A tree stores surfaces, not
-    triangles; the client tessellates from ``.surf`` with the JS tessellator's
-    own relative tolerances. The deflection numbers this block used to carry
-    reached no mesher, and the adaptive ``resolution`` beside them was the
+    There is no ``mesh`` section. A tree stores geometry, not triangles:
+    each component's mesh is derived per tessellation into the store's mesh
+    entries (``cadgen.store.meshes``), keyed on its own relative tolerances. The
+    deflection numbers this block used to carry reached no mesher, and the adaptive ``resolution`` beside them was the
     INPUT to a decision whose output — ``edgeRendering.visibilityClasses`` — is
     recorded right here. No STEP hash either: nothing read it, and computing it
     read the whole saved document once per build.

@@ -151,7 +151,8 @@ docs/              # subsystem docs (the map below)
 Contract mirrors that must stay in lockstep (each has a sync test):
 `lib/cadRefs.js` ↔ `cadgen/cad_ref_syntax.py`;
 `common/kinematicsRuntime.js` ↔ `cadgen/_internal/kinematics_fk.py`;
-tessellation v4 keys, headers and mesh-index records ↔ `cadgen/store/meshes.py`.
+TESS v5 keys, bodies and mesh-index records (`lib/surf/tessellationCache.js`, a reader
+only: cadgen is the one writer) ↔ `cadgen/store/meshes.py`.
 
 Where the mechanism is written:
 
@@ -172,13 +173,12 @@ library (`recents`, `changeRecents`, `thumbnail`, `keepThumbnail`), Open
 (`pick`), Reveal (`reveal`), the person's analytics answer and features
 (`consent`, `features`), the update check (`version`) and a touch
 (`reportActivity`); every change is a POST with the viewer's guard header. `dispose()` stops polling, aborts
-requests and disposes render sessions. The client lazily owns its cache provider
-and bounded write-back queue; each render session borrows a cancellable cache
-view and owns its abort signal and worker leases. A host whose transport
+requests and disposes render sessions. The client lazily owns its mesh-store provider,
+which only reads; each render session borrows a cancellable view of it and owns
+its abort signal and worker leases. A host whose transport
 caps one reply passes `maxBatchBytes`: no batched read asks for more, nor ever
 more than the server's own bound; a longer body is the transport's to carry in
-parts, and the client sees it whole. Switching views preserves
-admitted cache writes, while disposing the client releases them. Request
+parts, and the client sees it whole. Request
 failures retain operation, URL, method, kind and HTTP status for host-owned
 error presentation.
 `serverInfo()` caches stable metadata; `serverInfo({ fresh: true })` performs

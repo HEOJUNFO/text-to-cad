@@ -120,6 +120,24 @@ Then rebuild the model (`python <model>.py`), which writes a schema-10 sidecar.
 Targets are checked as it builds: a label no part carries fails the build,
 naming the clip and the time.
 
+## Meshes come from cadgen in 0.8
+
+cadgen 0.8 meshes every component itself, with OCCT, and every client draws
+those meshes: the CAD Viewer, snapshots and the CAD app no longer tessellate,
+and nothing cadgen runs needs Node. A model script needs no change:
+`mesh_tolerance`, `mesh_angular_tolerance`, `--mesh-tolerance` and
+`--mesh-angular-tolerance` keep their names, units and defaults. What changes:
+
+- The first build or export after upgrading rewrites every STL, 3MF and GLB
+  once, with OCCT's triangles: the same surfaces within the same tolerances, in
+  different bytes and triangle counts. Compare meshes by geometry, never by
+  hash.
+- A tolerance finer than cadgen meshes is refused where it enters, before
+  anything builds: `mesh_tolerance` below `1e-5` of the bounding diagonal, or
+  `mesh_angular_tolerance` below `0.005` radians.
+- `CADGEN_MESH_CACHE` is gone and nothing reads it: a mesh is an ordinary store
+  entry, evicted and rebuilt like the rest.
+
 ## Migration guides
 
 - **cadgen 0.4 → 0.5** — generator functions became decorated model scripts, the

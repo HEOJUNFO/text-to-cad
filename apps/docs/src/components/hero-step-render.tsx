@@ -24,10 +24,10 @@ import {
 import { cloneThemePresetSettings } from "@text-to-cad/core/common/themeSettings.js";
 
 // The hero renders the planetary gear STEP the way every @text-to-cad/core client
-// renders a STEP: the model's render package (exact surfaces, tessellated in
-// the browser) plus its sidecar (kinematics for the mate graph, copied
-// animation clips for choreography). No GLB export, no site-local gear math —
-// the same clip the viewer's Animation tab plays drives this scene.
+// renders a STEP: the model's render package (each component's mesh, as cadgen
+// made it) plus its sidecar (kinematics for the mate graph, the clips' baked
+// keyframes for choreography). No GLB export, no site-local gear math — the
+// same clip the viewer's Animation tool plays drives this scene.
 const HERO_PACKAGE_BASE_URL = "/hero/planetary";
 const HERO_SIDECAR_URL = "/hero/planetary_gear_assembly.step.json";
 const HERO_DOCUMENT_HASH = "c5391553b09ef122082880d177ca8087ccaced9dcc6a009e4bf0b54691265003";
