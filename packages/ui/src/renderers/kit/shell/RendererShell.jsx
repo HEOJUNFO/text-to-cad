@@ -293,9 +293,6 @@ export default function RendererShell({ shell, tools, toolPanels = null, referen
                     preserveInteractionPixelRatio={frame.preserveInteractionPixelRatio || renderProfileKeepsPixelRatio(renderProfile)}
                     runtimeLifecycle={frame.runtimeLifecycle}
                   >{overlay}</ShellViewport>
-                  {/* The file as the alert names it (the catalog's absolute path), which Report Issue keeps out of its issue. */}
-                  {!previewing ? <ViewerAlertCard alert={frame.viewerAlert} hasContent={hasContent} dismissed={alertDismissal.dismissed} onDismiss={alertDismissal.dismiss}
-                    onReload={view.reload} file={frame.modelKey || view.file?.path} /> : null}
                 </div>
               </div>
 
@@ -356,6 +353,11 @@ export default function RendererShell({ shell, tools, toolPanels = null, referen
                 loading={frame.presentationState?.file === frame.modelKey && frame.presentationState?.covering ? null : frame.loading}
                 operationKey={frame.modelKey}
               />
+              {/* The alert card, last: over the tools, the parts tree among them, which a warning the
+                  model survives keeps on screen. The file as the alert names it (the catalog's absolute
+                  path), which Report Issue keeps out of its issue. */}
+              {!previewing ? <ViewerAlertCard alert={frame.viewerAlert} hasContent={hasContent} dismissed={alertDismissal.dismissed} onDismiss={alertDismissal.dismiss}
+                onReload={view.reload} file={frame.modelKey || view.file?.path} /> : null}
             </div>
 
           </div>
