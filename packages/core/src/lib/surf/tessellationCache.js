@@ -72,13 +72,17 @@ function requireDigest(value, label) {
   return digest;
 }
 
+const HEX_BYTES = Array.from({ length: 256 }, (_, byte) => byte.toString(16).padStart(2, "0"));
+const FLOAT64 = new DataView(new ArrayBuffer(8));
+
 export function float64Hex(value) {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
     throw new TypeError("tessellation tolerances must be positive finite binary64 values");
   }
-  const bytes = new Uint8Array(8);
-  new DataView(bytes.buffer).setFloat64(0, value, false);
-  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  FLOAT64.setFloat64(0, value, false);
+  let hex = "";
+  for (let index = 0; index < 8; index += 1) hex += HEX_BYTES[FLOAT64.getUint8(index)];
+  return hex;
 }
 
 // The tolerances are the only options a request carries, and the key spells
@@ -110,8 +114,11 @@ export function tessellationQuality(options = {}) {
 // tolerances from colliding. The payload version is part of the key, so an
 // older body can never answer for this one.
 export function tessellationCacheKey(surfaceInput, options = {}) {
-  const digest = requireDigest(surfaceInput, "surfaceInput");
-  const quality = tessellationQuality(options);
+  return keyOf(requireDigest(surfaceInput, "surfaceInput"), tessellationQuality(options));
+}
+
+// The key of a checked digest at a normalized quality (`tessellationQuality`).
+function keyOf(digest, quality) {
   return `${digest}-t${TESSELLATION_VERSION}-p${MESH_PAYLOAD_VERSION}`
     + `-l${quality.chordToleranceF64}-a${quality.angleToleranceF64}`;
 }
@@ -273,9 +280,9 @@ function decodedIdentity(cad, expected = {}) {
     });
     if (quality.chordToleranceF64 !== normalized.chordToleranceF64
       || quality.angleToleranceF64 !== normalized.angleToleranceF64) return null;
-    const tessellationInput = tessellationCacheKey(surfaceInput, normalized);
+    const tessellationInput = keyOf(surfaceInput, normalized);
     if (cad.tessellationInput !== tessellationInput) return null;
-    const renderIdentity = resolvedTessellationIdentity(surfaceInput, surfaceObject, normalized);
+    const renderIdentity = `${tessellationInput}-s${surfaceObject}`;
 
     if (expected.surfaceInput !== undefined
       && requireDigest(expected.surfaceInput, "expected surfaceInput") !== surfaceInput) return null;
@@ -457,8 +464,8 @@ export function validateTessellationProbeRow(value, expected = {}) {
     });
     if (value.quality?.chordToleranceF64 !== quality.chordToleranceF64
       || value.quality?.angleToleranceF64 !== quality.angleToleranceF64) return null;
-    const tessellationInput = tessellationCacheKey(surfaceInput, quality);
-    const renderIdentity = resolvedTessellationIdentity(surfaceInput, surfaceObject, quality);
+    const tessellationInput = keyOf(surfaceInput, quality);
+    const renderIdentity = `${tessellationInput}-s${surfaceObject}`;
     if (value.tessellationInput !== tessellationInput || value.renderIdentity !== renderIdentity) return null;
     const counts = Object.fromEntries(COUNT_FIELDS.map((field) => [field, value[field]]));
     if (!validCount(value.byteLength) || value.byteLength < 20 || value.byteLength % 4 !== 0
