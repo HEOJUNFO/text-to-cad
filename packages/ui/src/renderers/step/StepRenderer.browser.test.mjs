@@ -361,6 +361,9 @@ test('Select picks parts and faces, a selection lives only under Select, and the
   });
   await pane.getByRole('button', { name: 'Expand base', exact: true }).click();
   await pane.getByRole('button', { name: 'Select Grouped faces', exact: true }).waitFor();
+  // The feature row can arrive before the faces it names: a press picks faces once the Features
+  // panel has stopped loading the part's topology (before then, it picks the part).
+  await pane.getByRole('region', { name: 'Features', exact: true }).getByText('Loading…').waitFor({ state: 'detached' });
   await page.mouse.click(...at([6, 6, 5]));
   await page.waitForFunction(() => { const ids = window.cadHarness.a.controller.readState().selectedReferenceIds;
     return ids.length === 1 && /\.f\d+$/.test(ids[0]); });
