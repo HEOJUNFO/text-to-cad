@@ -549,6 +549,28 @@ test('under Faces or Edges, one press on a part whose faces are not loaded loads
   assert.deepEqual(errors, []);
 });
 
+test('a revision that fails to build leaves the model before it on screen, and its tree, to work with', async () => {
+  const view = await open();
+  const { page, pane, errors } = view;
+  const parts = async () => (await view.rows()).filter(label => label.startsWith('Select '));
+  assert.deepEqual(await parts(), ['Select base', 'Select arm']);
+  await pane.getByRole('button', { name: 'Hide arm', exact: true }).click();
+  await page.waitForFunction(() => window.cadHarness.a.controller.readState().hiddenPartIds.join() === 'o1.2');
+  // The file saved again, broken: the card says so over the model the view still shows, and the
+  // tree lists that model's parts -- not the bare part a file with no build is listed as. (Their
+  // features and faces are its build's, which the broken file has none of.)
+  await view.fail();
+  await pane.getByRole('alert').waitFor();
+  assert.deepEqual(await parts(), ['Select base', 'Select arm']);
+  assert.deepEqual((await view.state()).hiddenPartIds, ['o1.2'], 'what was hidden stays hidden');
+  // Nothing is coming to replace it, so it is not held as a rebuild is: it is picked from, and the
+  // view does not read as loading.
+  await pane.getByRole('button', { name: 'Select base', exact: true }).click();
+  await page.waitForFunction(() => window.cadHarness.a.controller.readState().selectedPartIds.join() === 'o1.1');
+  assert.equal((await view.state()).loading, false);
+  assert.deepEqual(errors, []);
+});
+
 // What the one part menu offers, in order, ending in the framing group. That group is
 // the viewer's ONLY zoom control — the old Inspector's percentage readout and its menu are
 // gone — so it is here, on every tree row, and on the empty-space menu below. It cannot

@@ -245,6 +245,16 @@ export function stepCatalogEntry({ view, sidecar, assembly, file }) {
 }
 
 /**
+ * How the real scanner lists a STEP whose bytes have no build: a bare part with no hash and no mesh,
+ * under bytes of its own, whatever the file held before. A rewritten file is listed so until its
+ * build lands, and for good when the build fails.
+ */
+function unbuiltEntry(listed) {
+  return { file: listed.file, kind: 'part', url: '/__cad/store?file=unbuilt-0f1e2d3c4b5a69788796a5b4', hash: '',
+    documentHash: createHash('sha256').update(`unbuilt:${listed.documentHash}`).digest('hex'), bytes: 0 };
+}
+
+/**
  * The page a spec opens, and so the viewer: it fills the page. Small, because a software renderer
  * (CI's SwiftShader) pays for every pixel of every frame; but tall enough that a tree row's
  * context menu opens below the pointer rather than being pushed up under it.
@@ -300,6 +310,8 @@ export async function serveStepHarness(t, { onRequest, progressive = false, sing
   const hold = name => { gates[name] = new Promise(resolve => { opened[name] = resolve; }); };
   for (const name of ['a', 'b']) hold(name);
   let declaring = true;
+  // Set by `fail()`: the file was saved again and its build failed.
+  let failing = false;
   let server, browser;
   const pages = new Set();
   t.after(async () => {
@@ -325,9 +337,13 @@ export async function serveStepHarness(t, { onRequest, progressive = false, sing
     if (url.pathname === '/harness.js') { response.setHeader('Content-Type', 'text/javascript'); response.end(bundle); return; }
     if (url.pathname === '/styles.css') { response.setHeader('Content-Type', 'text/css'); response.end(css); return; }
     if (url.pathname === '/harness.css') { response.setHeader('Content-Type', 'text/css'); response.end(bundledCss); return; }
-    if (url.pathname.endsWith('/__cad/catalog')) { json(response, { entries: [listed] }); return; }
+    if (url.pathname.endsWith('/__cad/catalog')) { json(response, { entries: [failing ? unbuiltEntry(listed) : listed] }); return; }
     if (url.pathname.endsWith('/__cad/server')) { json(response, { backend: 'cadgen' }); return; }
-    if (url.pathname.endsWith('/__cad/artifact')) { json(response, { state: 'compiled' }); return; }
+    if (url.pathname.endsWith('/__cad/artifact')) {
+      json(response, failing ? { state: 'failed', reason: 'build_failed', error: 'failed to read STEP file: the CAD kernel could not parse it' }
+        : { state: 'compiled' });
+      return;
+    }
     if (url.pathname.endsWith('/__cad/surfaces')) {
       const body = await readBody(request);
       const shown = views.get(body.tree) || fixture;
@@ -434,7 +450,13 @@ export async function serveStepHarness(t, { onRequest, progressive = false, sing
         return state?.revision === wanted && state.loading === false;
       }, revision);
     };
-    return { page, errors, pane: page.getByTestId('one'), update };
+    // The file saved again, broken: its build fails, and the catalog lists it as it lists any file
+    // with no build (`unbuiltEntry`) until it is saved once more. Resolves once the page has read it.
+    const fail = async () => {
+      failing = true;
+      await page.evaluate(() => window.cadHarness.a.client.refresh());
+    };
+    return { page, errors, pane: page.getByTestId('one'), update, fail };
   };
   /**
    * The file saved again (`reviseFixture`): the catalog lists the new revision from now on, and a
@@ -455,6 +477,7 @@ export async function serveStepHarness(t, { onRequest, progressive = false, sing
     pages.clear();
     current = fixture;
     listed = entry;
+    failing = false;
   };
   return { open, closePages, requests, fixture, entry, revise, port: () => server.address().port, release: gate => opened[gate]?.(), hold,
     declare: on => { declaring = on !== false; } };

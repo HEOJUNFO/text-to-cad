@@ -380,7 +380,6 @@ function StepSurfaceBody({ view, data }) {
   // What this file's view opts into: a B-rep model takes every Display section, preset and
   // surface style. The shell configures the store with it (`features`).
   const viewFeatures = ALL_VIEW_FEATURES;
-  const isAssemblyView = selectedEntry?.kind === "assembly";
   // Where this entry's motion comes from; the motion itself is `useStepMotion`'s, below.
   const {
     moduleUrl: selectedStepModuleUrl, sourceAnimation: selectedSourceAnimation, animationKey: selectedAnimationSourceKey
@@ -410,15 +409,19 @@ function StepSurfaceBody({ view, data }) {
     meshState?.assemblyBackgroundErrorMeshHash === selectedMeshHash
     ? String(meshState?.assemblyBackgroundError || "").trim()
     : "";
-  const stepInteractionBlocked = stepUpdateInProgress || retainingPreviousStepMesh;
-  const selectedAssemblyStructureReady =
-    selectedEntry?.kind === "assembly" &&
-    selectedMeshMatches &&
-    !!meshState?.assemblyStructureReady;
-  const selectedAssemblyInteractionReady =
-    selectedEntry?.kind === "assembly" &&
-    selectedMeshMatches &&
-    !!meshState?.assemblyInteractionReady;
+  // While it is held, the model on screen is the previous revision: the next one is listed as a bare
+  // part with no mesh until it is built, and stays listed so when its build fails. The view describes
+  // the model it shows -- its kind, its tree, its parts (`meshState`) -- never the listing of a
+  // revision that has none, which left the tree one row under a model that had not changed.
+  const isAssemblyView = (retainingPreviousStepMesh ? meshState?.kind : selectedEntry?.kind) === "assembly";
+  const shownMeshCurrent = selectedMeshMatches || retainingPreviousStepMesh;
+  // A rebuild still running holds the view: what is picked now would not outlive its revision. One
+  // that failed leaves the previous revision on screen for good, with nothing coming to replace it:
+  // that is the model to work with -- picked from, hidden, isolated -- until the file is fixed.
+  const previousRevisionStands = retainingPreviousStepMesh && selectedArtifact.status === "failed";
+  const stepInteractionBlocked = (stepUpdateInProgress || retainingPreviousStepMesh) && !previousRevisionStands;
+  const selectedAssemblyStructureReady = isAssemblyView && shownMeshCurrent && !!meshState?.assemblyStructureReady;
+  const selectedAssemblyInteractionReady = isAssemblyView && shownMeshCurrent && !!meshState?.assemblyInteractionReady;
   const selectedAssemblyHydrationFailed =
     selectedEntry?.kind === "assembly" &&
     !!meshState?.assemblyBackgroundError &&
@@ -895,14 +898,14 @@ function StepSurfaceBody({ view, data }) {
       setStepUpdateInProgress(false);
       return;
     }
-    if (retainedPreviousStepMeshError) {
+    if (retainedPreviousStepMeshError || previousRevisionStands) {
       setStepUpdateInProgress(false);
       return;
     }
     if (selectedMeshMatches && status !== ASSET_STATUS.LOADING) {
       setStepUpdateInProgress(false);
     }
-  }, [retainedPreviousStepMeshError, selectedEntry, selectedMeshMatches, status, stepUpdateInProgress]);
+  }, [previousRevisionStands, retainedPreviousStepMeshError, selectedEntry, selectedMeshMatches, status, stepUpdateInProgress]);
 
   // A drawing lives in the mounted editor and nowhere else, and a routine belongs
   // to its file, so a file change always ends those sessions: neither Draw nor
