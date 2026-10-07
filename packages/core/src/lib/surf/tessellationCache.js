@@ -922,8 +922,8 @@ export function createHttpTessellationCacheProvider({
         });
         if (!response.ok) return null;
         const bytes = await boundedResponseBytes(response, limit);
-        if (!bytes || await sha256Hex(bytes) !== row.object
-          || !tessellationPayloadFacts(bytes, row)) return null;
+        // The content address binds the body to its row; the cache checks its facts.
+        if (!bytes || await sha256Hex(bytes) !== row.object) return null;
         return bytes;
       } catch (error) {
         if (abortError(error, signal)) throw error;
@@ -954,10 +954,10 @@ export function createHttpTessellationCacheProvider({
         const entries = decodeTessellationCacheBatch(container);
         if (!entries || entries.length !== rows.length) return null;
         // Each entry is verified on its own: one the store no longer holds, or holds damaged, is a
-        // miss for that component alone, never for every other component in the batch.
+        // miss for that component alone, never for every other component in the batch. The
+        // content address binds an entry to its row; the cache checks its facts.
         const digests = await Promise.all(entries.map((entry) => (entry ? sha256Hex(entry) : null)));
-        return entries.map((entry, index) => (entry && digests[index] === rows[index].object
-          && tessellationPayloadFacts(entry, rows[index]) ? entry : null));
+        return entries.map((entry, index) => (entry && digests[index] === rows[index].object ? entry : null));
       } catch (error) {
         if (abortError(error, signal)) throw error;
         return null;
