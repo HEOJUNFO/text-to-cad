@@ -9,9 +9,7 @@ from its neighbours), and fail only for a face it cannot mesh that is larger tha
 the mesh can resolve.
 """
 
-import json
 import os
-import struct
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -37,9 +35,10 @@ def _component():
 
 
 def _faces(body: bytes) -> dict[int, int]:
-    """Each face's triangle count, from a TESS body (every face has a range; an empty one counts 0)."""
-    header = json.loads(body[12:12 + struct.unpack_from("<I", body, 8)[0]])
-    return {row["ord"]: row["indexCount"] // 3 for row in header["faceRanges"]}
+    """Each face's triangle count, from a stored body (every face has a range; an empty one counts 0)."""
+    from cadgen.store.meshes import decode_payload
+
+    return {row["ord"]: row["indexCount"] // 3 for row in decode_payload(body).face_ranges()}
 
 
 class EmptyFaces(unittest.TestCase):
@@ -118,14 +117,14 @@ class ARequestOutlivesOneComponent(unittest.TestCase):
 
             def mesher(topods, index, *, surface_input, **options):
                 # Whatever fails, not only OCCT's own refusal: the first component meshed fails
-                # every time as a body too large for its header once did, in its encoding.
+                # every time, as a body its encoding refuses would.
                 if failed in ([], [surface_input]):
                     failed[:] = [surface_input]
-                    raise ValueError("invalid tessellation header length")
+                    raise ValueError("invalid tessellation JSON length")
                 return real(topods, index, surface_input=surface_input, **options)
 
             producer = surfaces.producer_identity()
-            named = r"^component [0-9a-f]{16}: ValueError: invalid tessellation header length$"
+            named = r"^component [0-9a-f]{16}: ValueError: invalid tessellation JSON length$"
             with mock.patch.object(occt_mesh, "mesh_component", side_effect=mesher), \
                     self.assertRaisesRegex(occt_mesh.MeshProductionError, named):
                 surfaces.derive(tree, producer=producer,

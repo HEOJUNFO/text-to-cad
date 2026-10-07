@@ -1,7 +1,7 @@
 // THE component-mesh store interface: one key scheme, one codec, shared by
 // every consumer that draws a component — the viewer, the snapshot page and
 // the docs hero. cadgen is the only producer: OCCT meshes each component's
-// exact BREP on the server (cadgen/_internal/occt_mesh.py) and stores one TESS
+// exact BREP on the server (cadgen/_internal/occt_mesh.py) and stores one GLB
 // body per component and tolerance pair in the store's mesh index
 // (cadgen/store/meshes.py, the format's Python half). This module only reads.
 //
@@ -10,38 +10,59 @@
 // /__tess_cache/ routes (the viewer server, or the snapshot page's
 // Playwright-routed origin served by cadgen's snapshot host).
 //
-// Entry layout (little-endian): "TESS" magic u32, version u32, headerLength
-// u32, JSON header padded with trailing spaces to a 4-byte boundary, then the
-// typed-array payload — positions f32, normals f32, faceOrds f32, indices
-// u32, then each display-edge polyline f32 in header order. Every section is
-// 4-byte-sized, so decode returns zero-copy views over the source buffer.
+// A body is glTF 2.0 binary, in CAD units (millimetres, Z up). Its BIN chunk
+// holds, each section 4-byte aligned and present only when not empty: POSITION
+// and NORMAL (f32 xyz), the indices of the ONE triangle primitive (u16 for at
+// most 65,535 vertices, else u32), the face table (u32 rows: ord, indexStart,
+// indexCount, colour — 0 for none, else a palette row plus one), the edge table
+// (u32 rows: ord, pointStart, pointCount, class) and every edge's polyline (f32
+// xyz) back to back. Its JSON chunk is the canonical JSON for the values in
+// `extras.cadgen` (identity, bounds, scale, part colour, face colour palette)
+// and the counts: a node carrying the CAD -> glTF frame, one mesh, three
+// accessors, the buffer views and where each table is. A reader rebuilds that
+// JSON and requires it, then views every section in place.
 
-export const TESS_CACHE_MAGIC = 0x53534554; // "TESS" little-endian
-// v5: OCCT's meshes. v4's side ordinals, which only the browser tessellator
-// read, are gone; every other field is v4's. Non-v5 entries are misses.
-export const TESS_CACHE_VERSION = 5;
+// v6: glTF 2.0 binary replaced TESS v5. Non-v6 entries are misses.
+export const MESH_PAYLOAD_VERSION = 6;
 // The producer's revision, part of every key (cadgen/store/meshes.py
 // TESSELLATOR_VERSION). 10: OCCT BRepMesh on the exact BREP replaced the
 // browser's surface tessellator.
 export const TESSELLATION_VERSION = 10;
-export const TESS_MESH_INDEX_SCHEMA = 1;
-export const TESS_MAX_INDEX_BYTES = 16 * 1024;
-// The header names every face and edge, so this is the largest component that
-// can be drawn (about 390,000 triangle faces): cadgen/store/meshes.py
-// MAX_HEADER_BYTES, the same number.
-export const TESS_MAX_HEADER_BYTES = 64 * 1024 * 1024;
+export const MESH_INDEX_SCHEMA = 2;
+// The JSON chunk grows only with the face colour palette: cadgen/store/meshes.py
+// MAX_JSON_BYTES, the same number.
+export const MESH_MAX_JSON_BYTES = 64 * 1024 * 1024;
 // The tolerances an empty request means (cadgen/store/meshes.py DEFAULT_CHORD
 // and DEFAULT_ANGLE): chord RELATIVE to the component's bounding diagonal,
 // angle in radians.
 export const DEFAULT_TESSELLATION = Object.freeze({ chordTolerance: 1.5e-3, angleTolerance: 0.35 });
+// The edge table's class codes, in this order (cadgen/store/meshes.py EDGE_CLASSES).
+export const MESH_EDGE_CLASSES = Object.freeze([
+  "none", "feature", "tangent", "seam", "degenerate", "boundary", "nonManifold", "unknown",
+]);
+// Both tables are rows of four u32: (ord, start, count, reference).
+export const MESH_TABLE_COLUMNS = 4;
 
+const GLB_MAGIC = 0x46546c67; // "glTF" little-endian
+const GLB_VERSION = 2;
+const JSON_CHUNK = 0x4e4f534a; // "JSON"
+const BIN_CHUNK = 0x004e4942; // "BIN\0"
+const UNSIGNED_SHORT_VERTEX_LIMIT = 65535;
+// Z-up millimetres as glTF's Y-up metres: -90 degrees about X, then 0.001.
+const NODE_ROTATION = Object.freeze([-Math.SQRT1_2, 0, 0, Math.SQRT1_2]);
+const NODE_SCALE = Object.freeze([0.001, 0.001, 0.001]);
+// `extras.cadgen`'s values, in the order cadgen writes them; the class names and the
+// table references follow them.
+const CAD_VALUES = Object.freeze([
+  "payloadVersion", "tessellatorVersion", "tessellationInput", "surfaceInput", "surfaceObject",
+  "quality", "bounds", "scale", "partColor", "faceColors",
+]);
+const COUNT_FIELDS = Object.freeze(["vertexCount", "indexCount", "faceCount", "edgeCount", "edgePointCount"]);
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const QUALITY_FIELDS = new Set([
   "chordTolerance", "chordToleranceF64", "angleTolerance", "angleToleranceF64",
 ]);
-const EDGE_CLASSES = new Set([
-  "none", "feature", "tangent", "seam", "degenerate", "boundary", "nonManifold", "unknown",
-]);
+const JSON_TEXT = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 function requireDigest(value, label) {
   const digest = typeof value === "string" ? value : "";
@@ -91,11 +112,11 @@ export function tessellationQuality(options = {}) {
 export function tessellationCacheKey(surfaceInput, options = {}) {
   const digest = requireDigest(surfaceInput, "surfaceInput");
   const quality = tessellationQuality(options);
-  return `${digest}-t${TESSELLATION_VERSION}-p${TESS_CACHE_VERSION}`
+  return `${digest}-t${TESSELLATION_VERSION}-p${MESH_PAYLOAD_VERSION}`
     + `-l${quality.chordToleranceF64}-a${quality.angleToleranceF64}`;
 }
 
-// R is the concrete display/selector identity. A TESS header carries O, so R
+// R is the concrete display/selector identity. A body's extras carry O, so R
 // remains discoverable even after the SURF object and index are gone.
 export function resolvedTessellationIdentity(surfaceInput, surfaceObject, options = {}) {
   const key = tessellationCacheKey(surfaceInput, options);
@@ -110,96 +131,140 @@ function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function finiteNumber(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
 function finiteTuple(value, length) {
-  return Array.isArray(value) && value.length === length
-    && value.every((entry) => typeof entry === "number" && Number.isFinite(entry));
-}
-
-function validOrdinal(value) {
-  return Number.isSafeInteger(value) && value > 0;
-}
-
-function edgeClassMap(value) {
-  if (!Array.isArray(value)) return null;
-  const result = new Map();
-  for (const entry of value) {
-    if (!Array.isArray(entry) || entry.length !== 2
-      || !validOrdinal(entry[0]) || !EDGE_CLASSES.has(entry[1])
-      || result.has(entry[0])) return null;
-    result.set(entry[0], entry[1]);
-  }
-  return result;
-}
-
-function validRenderingMetadata(header) {
-  if (!isObject(header?.bounds)
-    || !finiteTuple(header.bounds.min, 3) || !finiteTuple(header.bounds.max, 3)
-    || header.bounds.min.some((value, index) => value > header.bounds.max[index])
-    || typeof header.scale !== "number" || !Number.isFinite(header.scale) || header.scale <= 0
-    || (header.partColor != null && !finiteTuple(header.partColor, 4))
-    || !Array.isArray(header.faceRanges) || !Array.isArray(header.edges)) return false;
-
-  const faceOrds = new Set();
-  let indexCursor = 0;
-  for (const range of header.faceRanges) {
-    if (!isObject(range) || !validOrdinal(range.ord) || faceOrds.has(range.ord)
-      || !validCount(range.indexStart) || !validCount(range.indexCount)
-      || range.indexStart % 3 !== 0 || range.indexCount % 3 !== 0
-      || range.indexStart !== indexCursor
-      || (range.color != null && !finiteTuple(range.color, 4))) return false;
-    faceOrds.add(range.ord);
-    indexCursor += range.indexCount;
-    if (!Number.isSafeInteger(indexCursor)) return false;
-  }
-  if (indexCursor !== header.indexCount) return false;
-
-  const classes = edgeClassMap(header.edgeClasses);
-  if (!classes) return false;
-  const edgeOrds = new Set();
-  for (const edge of header.edges) {
-    if (!isObject(edge) || !validOrdinal(edge.ord) || edgeOrds.has(edge.ord)
-      || !validCount(edge.count) || edge.count % 3 !== 0
-      || (edge.visibilityClass != null && !EDGE_CLASSES.has(edge.visibilityClass))
-      || !classes.has(edge.ord)
-      || (edge.visibilityClass != null && classes.get(edge.ord) !== edge.visibilityClass)) return false;
-    edgeOrds.add(edge.ord);
-  }
-  return true;
+  return Array.isArray(value) && value.length === length && value.every(finiteNumber);
 }
 
 function validCount(value) {
   return Number.isSafeInteger(value) && value >= 0;
 }
 
-export function tessellationDecodedBytes({
-  headerBytes,
-  arrayBytes,
-  faceRangeCount,
-  edgeCount,
-  edgeClassCount,
-  edgeSegmentCount,
-}) {
-  const values = [headerBytes, arrayBytes, faceRangeCount, edgeCount, edgeClassCount, edgeSegmentCount];
-  if (!values.every(validCount) || headerBytes <= 0 || headerBytes > TESS_MAX_HEADER_BYTES
-    || headerBytes % 4 !== 0 || arrayBytes % 4 !== 0) {
+// JSON equality as cadgen decides it (meshes._same): numbers by value, objects by
+// their key sets, arrays element by element.
+function sameJson(a, b) {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a)) {
+    if (a.length !== b.length) return false;
+    for (let index = 0; index < a.length; index += 1) {
+      if (!sameJson(a[index], b[index])) return false;
+    }
+    return true;
+  }
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  for (const key of keys) {
+    if (!Object.hasOwn(b, key) || !sameJson(a[key], b[key])) return false;
+  }
+  return true;
+}
+
+/**
+ * What decoding a body costs beyond its bytes (cadgen/store/meshes.py decoded_bytes): the
+ * client's mesh data (positions, normals, u32 indices, the edges' points and segment pairs),
+ * never less than what `buildMeshDataFromSurf` builds, and an allowance per face and edge
+ * for the selector tables.
+ */
+export function tessellationDecodedBytes(counts) {
+  const values = COUNT_FIELDS.map((field) => counts?.[field]);
+  if (!values.every(validCount) || counts.edgePointCount < 2 * counts.edgeCount
+    || (counts.edgeCount === 0) !== (counts.edgePointCount === 0)) {
     throw new TypeError("invalid tessellation size facts");
   }
-  const decodedBytes = arrayBytes + 8 * edgeSegmentCount + 8 * headerBytes
-    + 256 * (faceRangeCount + edgeCount + edgeClassCount);
+  const decodedBytes = 24 * counts.vertexCount + 4 * counts.indexCount + 12 * counts.edgePointCount
+    + 8 * (counts.edgePointCount - counts.edgeCount) + 256 * (counts.faceCount + counts.edgeCount);
   if (!Number.isSafeInteger(decodedBytes)) {
     throw new TypeError("tessellation decoded size exceeds the safe integer range");
   }
   return decodedBytes;
 }
 
-function decodedIdentity(header, expected = {}) {
+function meshSections({ vertexCount, indexCount, faceCount, edgeCount, edgePointCount }) {
+  const sections = [];
+  if (vertexCount) {
+    const width = vertexCount <= UNSIGNED_SHORT_VERTEX_LIMIT ? 2 : 4;
+    sections.push(["POSITION", 12 * vertexCount, 34962], ["NORMAL", 12 * vertexCount, 34962],
+      ["indices", width * indexCount, 34963]);
+  }
+  if (faceCount) sections.push(["cadgen.faces", 4 * MESH_TABLE_COLUMNS * faceCount, null]);
+  if (edgeCount) {
+    sections.push(["cadgen.edges", 4 * MESH_TABLE_COLUMNS * edgeCount, null],
+      ["cadgen.edgePoints", 12 * edgePointCount, null]);
+  }
+  return sections;
+}
+
+/**
+ * The JSON chunk of a body whose `extras.cadgen` values (identity, bounds, scale, colours) and
+ * counts these are: what cadgen writes (cadgen/store/meshes.py canonical_gltf) and what a body
+ * must hold to be read.
+ */
+export function canonicalMeshGltf(cad, counts) {
+  const views = [];
+  const tables = {};
+  let offset = 0;
+  for (const [name, byteLength, target] of meshSections(counts)) {
+    const view = { buffer: 0, byteOffset: offset, byteLength };
+    if (target !== null) {
+      view.target = target;
+    } else {
+      view.name = name;
+      tables[name.slice("cadgen.".length)] = views.length;
+    }
+    views.push(view);
+    offset += align4(byteLength);
+  }
+  const extras = { ...cad, edgeClasses: [...MESH_EDGE_CLASSES] };
+  for (const [name, count] of [["faces", counts.faceCount], ["edges", counts.edgeCount], ["edgePoints", counts.edgePointCount]]) {
+    if (name in tables) extras[name] = { bufferView: tables[name], count };
+  }
+  const gltf = { asset: { version: "2.0", generator: "cadgen" }, extras: { cadgen: extras } };
+  if (counts.vertexCount) {
+    Object.assign(gltf, {
+      scene: 0,
+      scenes: [{ nodes: [0] }],
+      nodes: [{ mesh: 0, rotation: [...NODE_ROTATION], scale: [...NODE_SCALE] }],
+      meshes: [{ primitives: [{ attributes: { POSITION: 0, NORMAL: 1 }, indices: 2, mode: 4 }] }],
+      accessors: [
+        { bufferView: 0, componentType: 5126, count: counts.vertexCount, type: "VEC3",
+          min: [...cad.bounds.min], max: [...cad.bounds.max] },
+        { bufferView: 1, componentType: 5126, count: counts.vertexCount, type: "VEC3" },
+        { bufferView: 2, componentType: counts.vertexCount <= UNSIGNED_SHORT_VERTEX_LIMIT ? 5123 : 5125,
+          count: counts.indexCount, type: "SCALAR" },
+      ],
+    });
+  }
+  if (views.length) {
+    gltf.bufferViews = views;
+    gltf.buffers = [{ byteLength: offset }];
+  }
+  return gltf;
+}
+
+function validCad(cad) {
+  if (!isObject(cad)) return false;
+  const bounds = cad.bounds;
+  if (!isObject(bounds) || Object.keys(bounds).length !== 2
+    || !finiteTuple(bounds.min, 3) || !finiteTuple(bounds.max, 3)
+    || bounds.min.some((value, index) => value > bounds.max[index])) return false;
+  if (!finiteNumber(cad.scale) || cad.scale <= 0) return false;
+  if (cad.partColor != null && !finiteTuple(cad.partColor, 4)) return false;
+  return Array.isArray(cad.faceColors) && cad.faceColors.every((color) => finiteTuple(color, 4));
+}
+
+function decodedIdentity(cad, expected = {}) {
   try {
-    if (header?.tessellatorVersion !== TESSELLATION_VERSION
-      || header?.payloadVersion !== TESS_CACHE_VERSION) return null;
-    const surfaceInput = requireDigest(header.surfaceInput, "surfaceInput");
-    const surfaceObject = requireDigest(header.surfaceDigest, "surfaceDigest");
-    const quality = header.quality;
-    if (!quality || typeof quality !== "object" || Array.isArray(quality)
+    if (cad?.tessellatorVersion !== TESSELLATION_VERSION
+      || cad?.payloadVersion !== MESH_PAYLOAD_VERSION) return null;
+    const surfaceInput = requireDigest(cad.surfaceInput, "surfaceInput");
+    const surfaceObject = requireDigest(cad.surfaceObject, "surfaceObject");
+    const quality = cad.quality;
+    if (!isObject(quality)
       || Object.keys(quality).length !== QUALITY_FIELDS.size
       || Object.keys(quality).some((key) => !QUALITY_FIELDS.has(key))) return null;
     const normalized = tessellationQuality({
@@ -209,7 +274,7 @@ function decodedIdentity(header, expected = {}) {
     if (quality.chordToleranceF64 !== normalized.chordToleranceF64
       || quality.angleToleranceF64 !== normalized.angleToleranceF64) return null;
     const tessellationInput = tessellationCacheKey(surfaceInput, normalized);
-    if (header.tessellationInput !== tessellationInput) return null;
+    if (cad.tessellationInput !== tessellationInput) return null;
     const renderIdentity = resolvedTessellationIdentity(surfaceInput, surfaceObject, normalized);
 
     if (expected.surfaceInput !== undefined
@@ -231,78 +296,135 @@ function decodedIdentity(header, expected = {}) {
       renderIdentity,
       quality: normalized,
       tessellatorVersion: TESSELLATION_VERSION,
-      payloadVersion: TESS_CACHE_VERSION,
+      payloadVersion: MESH_PAYLOAD_VERSION,
     });
   } catch {
     return null;
   }
 }
 
-function decodeEnvelope(bytes, expected = {}) {
-  if (!(bytes instanceof Uint8Array) || bytes.length < 12) return null;
+// A table reference's count: 0 when the table is absent, null when the reference is malformed.
+function tableCount(reference) {
+  if (reference === undefined || reference === null) return 0;
+  return isObject(reference) && Number.isSafeInteger(reference.count) && reference.count > 0
+    ? reference.count : null;
+}
+
+// The rows rise by ordinal and cover `total` from 0 in order; `valid(count, reference)` holds of
+// each row's count and reference.
+function validTable(table, total, valid) {
+  let previous = 0;
+  let cursor = 0;
+  for (let row = 0; row < table.length; row += MESH_TABLE_COLUMNS) {
+    const ord = table[row];
+    const count = table[row + 2];
+    if (ord <= previous || table[row + 1] !== cursor || !valid(count, table[row + 3])) return false;
+    previous = ord;
+    cursor += count;
+  }
+  return cursor === total;
+}
+
+// The validated body: its identity, counts and every section viewed in place (copied when the
+// bytes do not sit on a 4-byte boundary).
+function decodeBody(bytes, expected = {}) {
+  if (!(bytes instanceof Uint8Array) || bytes.length < 20) return null;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (view.getUint32(0, true) !== TESS_CACHE_MAGIC) return null;
-  if (view.getUint32(4, true) !== TESS_CACHE_VERSION) return null;
-  const headerLength = view.getUint32(8, true);
-  if (headerLength === 0 || headerLength > TESS_MAX_HEADER_BYTES
-    || headerLength % 4 !== 0 || 12 + headerLength > bytes.length) return null;
-  const header = JSON.parse(
-    new TextDecoder().decode(bytes.subarray(12, 12 + headerLength)),
-  );
-  const identity = decodedIdentity(header, expected);
-  if (!identity || !Array.isArray(header.edges)
-    || !Array.isArray(header.faceRanges) || !Array.isArray(header.edgeClasses)) return null;
-  const baseCounts = [
-    header.positionCount,
-    header.normalCount,
-    header.faceOrdCount,
-    header.indexCount,
-  ];
-  const edgeCounts = header.edges.map((edge) => edge?.count);
-  const counts = [...baseCounts, ...edgeCounts];
-  if (!counts.every(validCount)
-    || header.positionCount % 3 !== 0
-    || header.normalCount !== header.positionCount
-    || header.faceOrdCount * 3 !== header.positionCount
-    || header.indexCount % 3 !== 0
-    || edgeCounts.some((count) => count % 3 !== 0)
-    || !validRenderingMetadata(header)) return null;
-  const elementCount = counts.reduce((sum, count) => sum + count, 0);
-  if (!Number.isSafeInteger(elementCount) || elementCount > Number.MAX_SAFE_INTEGER / 4) return null;
-  const arrayBytes = elementCount * 4;
-  if (bytes.length !== 12 + headerLength + arrayBytes) return null;
-  const sizes = Object.freeze({
-    headerBytes: headerLength,
-    arrayBytes,
-    faceRangeCount: header.faceRanges.length,
-    edgeCount: header.edges.length,
-    edgeClassCount: header.edgeClasses.length,
-    edgeSegmentCount: edgeCounts.reduce((sum, count) => sum + Math.max(0, count / 3 - 1), 0),
-  });
-  const decodedBytes = tessellationDecodedBytes(sizes);
-  return { header, identity, sizes, decodedBytes };
+  if (view.getUint32(0, true) !== GLB_MAGIC || view.getUint32(4, true) !== GLB_VERSION
+    || view.getUint32(8, true) !== bytes.length || view.getUint32(16, true) !== JSON_CHUNK) return null;
+  const jsonLength = view.getUint32(12, true);
+  if (jsonLength === 0 || jsonLength > MESH_MAX_JSON_BYTES || jsonLength % 4 !== 0
+    || 20 + jsonLength > bytes.length) return null;
+  let binStart = 20 + jsonLength;
+  let binLength = 0;
+  if (binStart < bytes.length) {
+    if (binStart + 8 > bytes.length) return null;
+    binLength = view.getUint32(binStart, true);
+    if (view.getUint32(binStart + 4, true) !== BIN_CHUNK || binLength === 0 || binLength % 4 !== 0
+      || binStart + 8 + binLength !== bytes.length) return null;
+    binStart += 8;
+  }
+  const gltf = JSON.parse(JSON_TEXT.decode(bytes.subarray(20, 20 + jsonLength)));
+  const cad = isObject(gltf) && isObject(gltf.extras) ? gltf.extras.cadgen : null;
+  if (!validCad(cad)) return null;
+  const identity = decodedIdentity(cad, expected);
+  if (!identity) return null;
+  let vertexCount = 0;
+  let indexCount = 0;
+  if (gltf.accessors !== undefined) {
+    const accessors = gltf.accessors;
+    if (!Array.isArray(accessors) || accessors.length !== 3 || !accessors.every(isObject)
+      || !validCount(accessors[0].count) || !validCount(accessors[2].count)) return null;
+    vertexCount = accessors[0].count;
+    indexCount = accessors[2].count;
+    if (!vertexCount || !indexCount || indexCount % 3 !== 0) return null;
+  }
+  const counts = {
+    vertexCount,
+    indexCount,
+    faceCount: tableCount(cad.faces),
+    edgeCount: tableCount(cad.edges),
+    edgePointCount: tableCount(cad.edgePoints),
+  };
+  if (counts.faceCount === null || counts.edgeCount === null || counts.edgePointCount === null
+    || (counts.edgeCount === 0) !== (counts.edgePointCount === 0)) return null;
+  const values = {};
+  for (const name of CAD_VALUES) {
+    if (!Object.hasOwn(cad, name)) return null;
+    values[name] = cad[name];
+  }
+  const canonical = canonicalMeshGltf(values, counts);
+  if (!sameJson(gltf, canonical) || binLength !== (canonical.buffers?.[0].byteLength ?? 0)) return null;
+
+  const views = canonical.bufferViews || [];
+  const viewOf = (name) => views[name === "POSITION" ? 0 : name === "NORMAL" ? 1 : name === "indices" ? 2
+    : views.findIndex((entry) => entry.name === name)];
+  const take = (name, Ctor) => {
+    const entry = viewOf(name);
+    const start = bytes.byteOffset + binStart + entry.byteOffset;
+    const length = entry.byteLength / Ctor.BYTES_PER_ELEMENT;
+    return start % 4 === 0
+      ? new Ctor(bytes.buffer, start, length)
+      : new Ctor(bytes.buffer.slice(start, start + entry.byteLength));
+  };
+  const IndexArray = vertexCount <= UNSIGNED_SHORT_VERTEX_LIMIT ? Uint16Array : Uint32Array;
+  const component = {
+    positions: vertexCount ? take("POSITION", Float32Array) : new Float32Array(0),
+    normals: vertexCount ? take("NORMAL", Float32Array) : new Float32Array(0),
+    indices: vertexCount ? take("indices", IndexArray) : new Uint32Array(0),
+    faceTable: counts.faceCount ? take("cadgen.faces", Uint32Array) : new Uint32Array(0),
+    edgeTable: counts.edgeCount ? take("cadgen.edges", Uint32Array) : new Uint32Array(0),
+    edgePoints: counts.edgeCount ? take("cadgen.edgePoints", Float32Array) : new Float32Array(0),
+    faceColors: cad.faceColors,
+    bounds: cad.bounds,
+    scale: cad.scale,
+  };
+  const palette = cad.faceColors.length;
+  if (!validTable(component.faceTable, indexCount, (count, color) => count % 3 === 0 && color <= palette)
+    || !validTable(component.edgeTable, counts.edgePointCount,
+      (count, edgeClass) => count >= 2 && edgeClass < MESH_EDGE_CLASSES.length)) return null;
+  return { component, partColor: cad.partColor ?? null, identity, counts };
 }
 
 export function tessellationPayloadFacts(bytes, expected = {}) {
   try {
-    const envelope = decodeEnvelope(bytes, expected);
-    if (!envelope) return null;
+    const body = decodeBody(bytes, expected);
+    if (!body) return null;
     const facts = Object.freeze({
       byteLength: bytes.byteLength,
-      decodedBytes: envelope.decodedBytes,
-      surfaceInput: envelope.identity.surfaceInput,
-      surfaceObject: envelope.identity.surfaceObject,
-      tessellationInput: envelope.identity.tessellationInput,
-      renderIdentity: envelope.identity.renderIdentity,
-      quality: envelope.identity.quality,
+      decodedBytes: tessellationDecodedBytes(body.counts),
+      surfaceInput: body.identity.surfaceInput,
+      surfaceObject: body.identity.surfaceObject,
+      tessellationInput: body.identity.tessellationInput,
+      renderIdentity: body.identity.renderIdentity,
+      quality: body.identity.quality,
       tessellatorVersion: TESSELLATION_VERSION,
-      payloadVersion: TESS_CACHE_VERSION,
-      ...envelope.sizes,
+      payloadVersion: MESH_PAYLOAD_VERSION,
+      ...body.counts,
     });
     for (const field of [
       "byteLength", "decodedBytes", "surfaceInput", "surfaceObject", "tessellationInput",
-      "renderIdentity", "tessellatorVersion", "payloadVersion", "headerBytes", "arrayBytes",
-      "faceRangeCount", "edgeCount", "edgeClassCount", "edgeSegmentCount",
+      "renderIdentity", "tessellatorVersion", "payloadVersion", ...COUNT_FIELDS,
     ]) {
       if (expected[field] !== undefined && expected[field] !== facts[field]) return null;
     }
@@ -315,7 +437,7 @@ export function tessellationPayloadFacts(bytes, expected = {}) {
 const MESH_RECORD_FIELDS = new Set([
   "schemaVersion", "object", "byteLength", "decodedBytes", "surfaceInput", "surfaceObject",
   "tessellationInput", "renderIdentity", "quality", "tessellatorVersion", "payloadVersion",
-  "headerBytes", "arrayBytes", "faceRangeCount", "edgeCount", "edgeClassCount", "edgeSegmentCount",
+  ...COUNT_FIELDS,
 ]);
 
 export function validateTessellationProbeRow(value, expected = {}) {
@@ -323,9 +445,9 @@ export function validateTessellationProbeRow(value, expected = {}) {
     if (!value || typeof value !== "object" || Array.isArray(value)
       || Object.keys(value).length !== MESH_RECORD_FIELDS.size
       || Object.keys(value).some((key) => !MESH_RECORD_FIELDS.has(key))) return null;
-    if (value.schemaVersion !== TESS_MESH_INDEX_SCHEMA
+    if (value.schemaVersion !== MESH_INDEX_SCHEMA
       || value.tessellatorVersion !== TESSELLATION_VERSION
-      || value.payloadVersion !== TESS_CACHE_VERSION) return null;
+      || value.payloadVersion !== MESH_PAYLOAD_VERSION) return null;
     const surfaceInput = requireDigest(value.surfaceInput, "surfaceInput");
     const surfaceObject = requireDigest(value.surfaceObject, "surfaceObject");
     const object = requireDigest(value.object, "object");
@@ -338,23 +460,15 @@ export function validateTessellationProbeRow(value, expected = {}) {
     const tessellationInput = tessellationCacheKey(surfaceInput, quality);
     const renderIdentity = resolvedTessellationIdentity(surfaceInput, surfaceObject, quality);
     if (value.tessellationInput !== tessellationInput || value.renderIdentity !== renderIdentity) return null;
-    const sizeFields = {
-      headerBytes: value.headerBytes,
-      arrayBytes: value.arrayBytes,
-      faceRangeCount: value.faceRangeCount,
-      edgeCount: value.edgeCount,
-      edgeClassCount: value.edgeClassCount,
-      edgeSegmentCount: value.edgeSegmentCount,
-    };
-    if (!validCount(value.byteLength) || value.byteLength <= 0
-      || value.byteLength !== 12 + value.headerBytes + value.arrayBytes
-      || value.decodedBytes !== tessellationDecodedBytes(sizeFields)) return null;
+    const counts = Object.fromEntries(COUNT_FIELDS.map((field) => [field, value[field]]));
+    if (!validCount(value.byteLength) || value.byteLength < 20 || value.byteLength % 4 !== 0
+      || value.decodedBytes !== tessellationDecodedBytes(counts)) return null;
     if (expected.tessellationInput !== undefined && expected.tessellationInput !== tessellationInput) return null;
     if (expected.object !== undefined && expected.object !== object) return null;
     if (expected.surfaceInput !== undefined && expected.surfaceInput !== surfaceInput) return null;
     if (expected.surfaceObject !== undefined && expected.surfaceObject !== surfaceObject) return null;
     return Object.freeze({
-      schemaVersion: TESS_MESH_INDEX_SCHEMA,
+      schemaVersion: MESH_INDEX_SCHEMA,
       object,
       byteLength: value.byteLength,
       decodedBytes: value.decodedBytes,
@@ -364,78 +478,76 @@ export function validateTessellationProbeRow(value, expected = {}) {
       renderIdentity,
       quality,
       tessellatorVersion: TESSELLATION_VERSION,
-      payloadVersion: TESS_CACHE_VERSION,
-      ...sizeFields,
+      payloadVersion: MESH_PAYLOAD_VERSION,
+      ...counts,
     });
   } catch {
     return null;
   }
 }
 
+/**
+ * One stored mesh, decoded: `component` holds its sections viewed in place -- `positions` and
+ * `normals` (f32 xyz), `indices` (u16 or u32), `faceTable` and `edgeTable` (u32 rows of
+ * MESH_TABLE_COLUMNS), `edgePoints` (f32 xyz) -- with its face colour palette, bounds and scale.
+ * `meshFaceRanges` and `meshEdgePolylines` read the tables as objects. Null for anything that is
+ * not a valid body bound to `expected`: a corrupt entry is a miss, never an error.
+ */
 export function decodeComponentTessellation(bytes, expected = {}) {
   try {
-    const envelope = decodeEnvelope(bytes, expected);
-    if (!envelope) return null;
-    const { header, identity } = envelope;
-    let offset = bytes.byteOffset + 12 + envelope.sizes.headerBytes;
-    // Zero-copy views are only sound on 4-byte-aligned offsets; a misaligned
-    // source buffer (e.g. a subarray) falls back to copying via slice.
-    const aligned = offset % 4 === 0;
-    const take = (count, Ctor) => {
-      const section = aligned
-        ? new Ctor(bytes.buffer, offset, count)
-        : new Ctor(bytes.buffer.slice(offset, offset + count * 4));
-      offset += count * 4;
-      return section;
-    };
-    const positions = take(header.positionCount, Float32Array);
-    const normals = take(header.normalCount, Float32Array);
-    const faceOrds = take(header.faceOrdCount, Float32Array);
-    const indices = take(header.indexCount, Uint32Array);
-    const edges = header.edges.map((edge) => ({
-      ord: edge.ord,
-      visibilityClass: edge.visibilityClass,
-      polyline: take(edge.count, Float32Array),
-    }));
-    return {
-      component: {
-        positions,
-        normals,
-        faceOrds,
-        indices,
-        faceRanges: header.faceRanges,
-        edges,
-        bounds: header.bounds,
-        scale: header.scale,
-      },
-      partColor: header.partColor ?? null,
-      edgeClasses: Array.isArray(header.edgeClasses) ? header.edgeClasses : null,
-      identity,
-    };
+    const body = decodeBody(bytes, expected);
+    return body ? { component: body.component, partColor: body.partColor, identity: body.identity } : null;
   } catch {
-    return null; // a corrupt entry is a miss, never an error
+    return null;
   }
 }
 
-// The minimal stand-in for a parsed surf index that render consumers
-// (buildMeshDataFromSurf) read: per-edge classes and the part color, both in
-// every entry's header, so drawing a component never needs its SURF.
+/** A decoded component's faces: `[{ord, color, indexStart, indexCount}]`, a colour its palette row or null. */
+export function meshFaceRanges(component) {
+  const table = component.faceTable;
+  const ranges = [];
+  for (let row = 0; row < table.length; row += MESH_TABLE_COLUMNS) {
+    const color = table[row + 3];
+    ranges.push({
+      ord: table[row],
+      color: color ? component.faceColors[color - 1] : null,
+      indexStart: table[row + 1],
+      indexCount: table[row + 2],
+    });
+  }
+  return ranges;
+}
+
+/** A decoded component's edges: `[{ord, visibilityClass, polyline}]`, each polyline a view of its points. */
+export function meshEdgePolylines(component) {
+  const table = component.edgeTable;
+  const points = component.edgePoints;
+  const edges = [];
+  for (let row = 0; row < table.length; row += MESH_TABLE_COLUMNS) {
+    const start = table[row + 1] * 3;
+    edges.push({
+      ord: table[row],
+      visibilityClass: MESH_EDGE_CLASSES[table[row + 3]],
+      polyline: points.subarray(start, start + table[row + 2] * 3),
+    });
+  }
+  return edges;
+}
+
+// The stand-in for a parsed surf index that render consumers (buildMeshDataFromSurf) read:
+// the part colour, which every body carries, so drawing a component never needs its SURF.
 export function surfIndexFromCacheEntry(decoded) {
-  const classes = edgeClassMap(decoded?.edgeClasses);
-  if (!classes) return null;
-  return {
-    edges: [...classes].map(([ord, cls]) => ({ ord, class: cls })),
-    partColor: decoded.partColor ?? null,
-  };
+  return decoded?.component ? { partColor: decoded.partColor ?? null } : null;
 }
 
 // --- batch container ---------------------------------------------------------
 //
-// One round trip for N entries: "TESB" u32, version u32, count u32, then per
+// One round trip for N bodies: "TESB" u32, version u32, count u32, then per
 // entry u32 byteLength (0 = miss) + bytes padded to a 4-byte boundary so each
-// entry decodes zero-copy. Served by both cache hosts (the snapshot loopback
-// server and the viewer server) on POST <prefix>/batch with a JSON body of
-// entry file names; this module is the format's single home.
+// entry decodes zero-copy (a GLB body is a 4-byte multiple already). Served by
+// both cache hosts (the snapshot loopback server and the viewer server) on POST
+// <prefix>/batch with a JSON body naming the admitted objects; this module is
+// the format's single home.
 
 export const TESS_CACHE_BATCH_MAGIC = 0x42534554; // "TESB" little-endian
 export const TESS_CACHE_BATCH_VERSION = 1;

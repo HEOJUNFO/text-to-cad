@@ -1,7 +1,7 @@
 """The snapshot host's side of the store's component meshes.
 
 The page draws the meshes cadgen stores, the ones the viewer and mesh exports
-use: TESS v5 with exact input, surface and quality identity. Probes return small
+use: GLB bodies with exact input, surface and quality identity. Probes return small
 metadata before admitted body reads, batch responses have a fixed byte cap, and
 the host meshes on request what a probe found missing; the page never writes.
 """

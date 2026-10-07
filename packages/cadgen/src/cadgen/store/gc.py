@@ -400,10 +400,10 @@ def _split_obsolete(rows: list[_Entry], retire_before: float) -> tuple[list[_Ent
 def producer_versions() -> dict[str, list[int]]:
     """The versions an entry is obsolete against. The daemon notes, per store and
     per these versions, when its last retiring pass ran (``daemon/housekeeping.py``)."""
-    from cadgen.store.meshes import TESS_VERSION, TESSELLATOR_VERSION
+    from cadgen.store.meshes import PAYLOAD_VERSION, TESSELLATOR_VERSION
     from cadgen.store.surfaces import EXTRACTION_SCHEME, SURF_FORMAT
 
-    return {"surface": [EXTRACTION_SCHEME, SURF_FORMAT], "mesh": [TESSELLATOR_VERSION, TESS_VERSION]}
+    return {"surface": [EXTRACTION_SCHEME, SURF_FORMAT], "mesh": [TESSELLATOR_VERSION, PAYLOAD_VERSION]}
 
 
 @dataclass

@@ -490,7 +490,7 @@ class Obsolete(StoreSweepCase):
 
         now = {"scheme": surfaces.EXTRACTION_SCHEME, "surfFormat": surfaces.SURF_FORMAT,
                "build123d": "0.11.1", "ocp": "7.9.3.1", "cadqueryOcp": "7.9.3.1.1"}
-        mesher, payload = meshes.TESSELLATOR_VERSION, meshes.TESS_VERSION
+        mesher, payload = meshes.TESSELLATOR_VERSION, meshes.PAYLOAD_VERSION
         objects = {name: self.old_object(name.encode()) for name in (
             "older surface", "current surface", "newer surface", "pinned surface",
             "older mesher's mesh", "older surface's mesh", "current mesh", "newer mesher's mesh")}
@@ -533,7 +533,7 @@ class Obsolete(StoreSweepCase):
 
         tree, brep = self.seed_document()
         week = gc.OBSOLETE_RETIRE_AFTER_SECONDS
-        mesher, payload = meshes.TESSELLATOR_VERSION, meshes.TESS_VERSION
+        mesher, payload = meshes.TESSELLATOR_VERSION, meshes.PAYLOAD_VERSION
         objects = {name: self.old_object(name.encode()) for name in (
             "old surface", "young surface", "young surface's old mesh",
             "old surface with a young mesh", "that young mesh")}

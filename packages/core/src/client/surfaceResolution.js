@@ -104,7 +104,7 @@ export class SurfaceResolutionError extends Error {
 }
 
 /**
- * Resolve exact SURF objects for one frozen runtime view. A fully warm TESS
+ * Resolve exact SURF objects for one frozen runtime view. A fully warm mesh
  * path does not call this function. The request never computes D or producer
  * identity in JavaScript; it forwards the backend-prepared opaque pins.
  *

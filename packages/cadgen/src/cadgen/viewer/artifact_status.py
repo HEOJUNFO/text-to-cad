@@ -175,7 +175,7 @@ def _validate_step(step_path: str) -> dict:
             "descriptor": descriptor,
         }
     # result_descriptor captured the full required geometry closure. Optional
-    # SURF/TESS availability is a separate runtime capability and cannot make
+    # SURF/mesh availability is a separate runtime capability and cannot make
     # this document need another compile.
     return {"ok": True, "tree": tree, "descriptor": descriptor}
 

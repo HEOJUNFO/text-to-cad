@@ -3,21 +3,25 @@ export interface TessellationOptions {
   chordTolerance?: number;
   angleTolerance?: number;
 }
+/**
+ * One stored mesh's sections, viewed in place (`decodeComponentTessellation`): both tables are
+ * u32 rows of four, faces (ord, indexStart, indexCount, colour: 0 for none, else a `faceColors`
+ * row plus one) and edges (ord, pointStart, pointCount, class: a MESH_EDGE_CLASSES index).
+ */
 export interface TessellatedComponent {
   positions: Float32Array;
   normals: Float32Array;
-  faceOrds: Float32Array;
-  indices: Uint32Array;
-  faceRanges: { ord: number; color: number[] | null; indexStart: number; indexCount: number }[];
-  edges: { ord: number; visibilityClass?: string | null; polyline: Float32Array }[];
+  indices: Uint16Array | Uint32Array;
+  faceTable: Uint32Array;
+  edgeTable: Uint32Array;
+  edgePoints: Float32Array;
+  faceColors: number[][];
   bounds: { min: number[]; max: number[] };
   scale: number;
-  [key: string]: unknown;
 }
 export interface TessellationCacheEntry {
   component: TessellatedComponent;
   partColor: number[] | null;
-  edgeClasses: [number, string][] | null;
 }
 export interface TessellationProbe {
   schemaVersion: number;
@@ -31,12 +35,11 @@ export interface TessellationProbe {
   quality: TessellationOptions;
   tessellatorVersion: number;
   payloadVersion: number;
-  headerBytes: number;
-  arrayBytes: number;
-  faceRangeCount: number;
+  vertexCount: number;
+  indexCount: number;
+  faceCount: number;
   edgeCount: number;
-  edgeClassCount: number;
-  edgeSegmentCount: number;
+  edgePointCount: number;
 }
 export interface TessellationReadOptions {
   signal?: AbortSignal;

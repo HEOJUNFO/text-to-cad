@@ -486,8 +486,8 @@ export function stepParameterRuntime(stepParameterSource) {
 // A render package served off a plain static host (a docs site, a CDN): no
 // backend resolves component URLs or meshes there, but the descriptor already
 // names every component's surf path relative to the package directory, and
-// each component's mesh ships beside it as `<cid>.tess` (one TESS body at the
-// tessellation the page draws, written by cadgen). This maps that layout to a
+// each component's mesh ships beside it as `<cid>.glb` (its stored GLB body at
+// the tessellation the page draws, written by cadgen). This maps that layout to a
 // loadSource package input. The caller fetches `${baseUrl}/assembly.json`
 // itself (it may want to cache or inline it) and spreads extra fields
 // (stepParameterUrl, cadPath) into the returned object.
@@ -508,7 +508,7 @@ export function packageSourceFromBaseUrl(baseUrl, descriptor) {
       throw new Error(`Render package component ${cid} declares no surf path`);
     }
     componentUrls[cid] = `${base}/${surf}`;
-    meshUrls[cid] = `${base}/${surf.replace(/\.surf$/, "")}.tess`;
+    meshUrls[cid] = `${base}/${surf.replace(/\.surf$/, "")}.glb`;
   }
   return { kind: "step", package: { descriptor, componentUrls, meshUrls } };
 }

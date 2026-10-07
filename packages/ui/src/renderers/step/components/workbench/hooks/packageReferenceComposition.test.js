@@ -38,7 +38,7 @@ const FIXTURES = path.join(path.dirname(require.resolve("@text-to-cad/core/lib/s
 function loadLevel(level) {
   const buffer = fs.readFileSync(path.join(FIXTURES, "sun_gear.surf"));
   const { index } = parseSurf(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
-  const { component } = decodeComponentTessellation(new Uint8Array(fs.readFileSync(path.join(FIXTURES, `sun_gear.l${level}.tess`))));
+  const { component } = decodeComponentTessellation(new Uint8Array(fs.readFileSync(path.join(FIXTURES, `sun_gear.l${level}.glb`))));
   return {
     meshData: buildMeshDataFromSurf(index, component),
     bundle: buildSelectorBundleFromSurf(index, component),

@@ -12,7 +12,7 @@ import {
   surfWorkerMemoryStats,
 } from "./surfWorkerClient.js";
 import { createTessellationCache, isTessellationCacheProbeMissError } from "./tessellationCache.js";
-import { encodeTessFixture, probeRowFor } from "./__tests__/meshFixtures.js";
+import { encodeMeshFixture, probeRowFor } from "./__tests__/meshFixtures.js";
 
 let tessellationCache = createTessellationCache();
 function setTessellationCacheProvider(provider) {
@@ -25,9 +25,9 @@ const CACHE_IDENTITY = {
   surfaceObject: "e".repeat(64),
 };
 // One stored triangle: what a pool test's request carries when the test is not about reading it.
-const ENTRY = encodeTessFixture({
+const ENTRY = encodeMeshFixture({
   positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), normals: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]),
-  faceOrds: new Float32Array([1, 1, 1]), indices: new Uint32Array([0, 1, 2]),
+  indices: new Uint32Array([0, 1, 2]),
   faceRanges: [{ ord: 1, color: null, indexStart: 0, indexCount: 3 }], edges: [],
   bounds: { min: [0, 0, 0], max: [1, 1, 0] }, scale: Math.SQRT2,
 }, CACHE_IDENTITY);

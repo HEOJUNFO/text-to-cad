@@ -1,67 +1,109 @@
-// TEST-ONLY: synthetic TESS v5 bodies, for tests in any package that need a
-// stored mesh no producer made (a single triangle, an empty or wire-only
+// TEST-ONLY: synthetic stored-mesh bodies (GLB), for tests in any package that
+// need a stored mesh no producer made (a single triangle, an empty or wire-only
 // component, hundreds of distinct components). cadgen is the only producer of
 // real meshes (cadgen/store/meshes.py encode_payload); nothing in the product
 // imports this module. Browser-safe, so browser tests can use it too.
 
 import {
-  TESS_CACHE_MAGIC,
-  TESS_CACHE_VERSION,
+  MESH_EDGE_CLASSES,
+  MESH_PAYLOAD_VERSION,
   TESSELLATION_VERSION,
+  canonicalMeshGltf,
+  meshEdgePolylines,
+  meshFaceRanges,
   tessellationCacheKey,
   tessellationQuality,
 } from "./tessellationCache.js";
 
+const UNSIGNED_SHORT_VERTEX_LIMIT = 65535;
+
 /**
- * A synthetic TESS v5 body for `component` ({positions, normals, faceOrds, indices, faceRanges,
- * edges: [{ord, visibilityClass, polyline}], bounds, scale}), laid out as cadgen writes one.
+ * A synthetic stored-mesh body for `component`, laid out as cadgen writes one: either
+ * `{positions, normals, indices, faceRanges: [{ord, color?, indexStart, indexCount}],
+ * edges: [{ord, visibilityClass?, polyline}], bounds, scale}` or a decoded component
+ * (`decodeComponentTessellation(...).component`), whose tables it reads back.
  */
-export function encodeTessFixture(component, {
+export function encodeMeshFixture(component, {
   surfaceInput,
   surfaceObject,
   tessellation = {},
   partColor = null,
-  edgeClasses,
 } = {}) {
-  const edges = Array.isArray(component.edges) ? component.edges : [];
-  const quality = tessellationQuality(tessellation);
-  const header = {
+  const faceRanges = component.faceTable ? meshFaceRanges(component) : component.faceRanges || [];
+  const edges = component.edgeTable ? meshEdgePolylines(component) : component.edges || [];
+  const palette = new Map();
+  const faces = new Uint32Array(faceRanges.length * 4);
+  faceRanges.forEach((range, row) => {
+    let color = 0;
+    if (range.color != null) {
+      const spelling = JSON.stringify(range.color);
+      if (!palette.has(spelling)) palette.set(spelling, { row: palette.size + 1, color: [...range.color] });
+      color = palette.get(spelling).row;
+    }
+    faces.set([range.ord, range.indexStart, range.indexCount, color], row * 4);
+  });
+  const edgeTable = new Uint32Array(edges.length * 4);
+  const edgePoints = new Float32Array(edges.reduce((sum, edge) => sum + edge.polyline.length, 0));
+  let pointCursor = 0;
+  edges.forEach((edge, row) => {
+    edgePoints.set(edge.polyline, pointCursor * 3);
+    const pointCount = edge.polyline.length / 3;
+    edgeTable.set([edge.ord, pointCursor, pointCount, MESH_EDGE_CLASSES.indexOf(edge.visibilityClass ?? "none")], row * 4);
+    pointCursor += pointCount;
+  });
+  const vertexCount = component.positions.length / 3;
+  const cad = {
+    payloadVersion: MESH_PAYLOAD_VERSION,
+    tessellatorVersion: TESSELLATION_VERSION,
     tessellationInput: tessellationCacheKey(surfaceInput, tessellation),
     surfaceInput,
-    surfaceDigest: surfaceObject,
-    quality,
-    tessellatorVersion: TESSELLATION_VERSION,
-    payloadVersion: TESS_CACHE_VERSION,
-    partColor: partColor ?? null,
-    edgeClasses: edgeClasses ?? edges.map((edge) => [edge.ord, edge.visibilityClass ?? "none"]),
-    faceRanges: component.faceRanges,
+    surfaceObject,
+    quality: tessellationQuality(tessellation),
     bounds: { min: [...component.bounds.min], max: [...component.bounds.max] },
     scale: component.scale,
-    positionCount: component.positions.length,
-    normalCount: component.normals.length,
-    faceOrdCount: component.faceOrds.length,
-    indexCount: component.indices.length,
-    edges: edges.map((edge) => ({
-      ord: edge.ord, visibilityClass: edge.visibilityClass ?? null, count: edge.polyline.length,
-    })),
+    partColor: partColor ?? null,
+    faceColors: [...palette.values()].map((entry) => entry.color),
   };
-  const headerBytes = new TextEncoder().encode(JSON.stringify(header));
-  const headerLength = (headerBytes.length + 3) & ~3;
-  const arrays = [
-    [component.positions, Float32Array], [component.normals, Float32Array], [component.faceOrds, Float32Array],
-    [component.indices, Uint32Array], ...edges.map((edge) => [edge.polyline, Float32Array]),
-  ];
-  const bytes = new Uint8Array(12 + headerLength + arrays.reduce((sum, [array]) => sum + array.length * 4, 0));
+  const counts = {
+    vertexCount,
+    indexCount: component.indices.length,
+    faceCount: faceRanges.length,
+    edgeCount: edges.length,
+    edgePointCount: pointCursor,
+  };
+  const gltf = canonicalMeshGltf(cad, counts);
+  const IndexArray = vertexCount <= UNSIGNED_SHORT_VERTEX_LIMIT ? Uint16Array : Uint32Array;
+  const sections = {
+    POSITION: new Float32Array(component.positions),
+    NORMAL: new Float32Array(component.normals),
+    indices: IndexArray.from(component.indices),
+    "cadgen.faces": faces,
+    "cadgen.edges": edgeTable,
+    "cadgen.edgePoints": edgePoints,
+  };
+  const views = gltf.bufferViews || [];
+  const binLength = gltf.buffers?.[0].byteLength ?? 0;
+  const json = new TextEncoder().encode(JSON.stringify(gltf));
+  const jsonLength = (json.length + 3) & ~3;
+  const total = 20 + jsonLength + (binLength ? 8 + binLength : 0);
+  const bytes = new Uint8Array(total);
   const view = new DataView(bytes.buffer);
-  view.setUint32(0, TESS_CACHE_MAGIC, true);
-  view.setUint32(4, TESS_CACHE_VERSION, true);
-  view.setUint32(8, headerLength, true);
-  bytes.set(headerBytes, 12);
-  bytes.fill(0x20, 12 + headerBytes.length, 12 + headerLength);
-  let offset = 12 + headerLength;
-  for (const [array, Ctor] of arrays) {
-    new Ctor(bytes.buffer, offset, array.length).set(array);
-    offset += array.length * 4;
+  view.setUint32(0, 0x46546c67, true);
+  view.setUint32(4, 2, true);
+  view.setUint32(8, total, true);
+  view.setUint32(12, jsonLength, true);
+  view.setUint32(16, 0x4e4f534a, true);
+  bytes.set(json, 20);
+  bytes.fill(0x20, 20 + json.length, 20 + jsonLength);
+  if (binLength) {
+    const binStart = 20 + jsonLength + 8;
+    view.setUint32(binStart - 8, binLength, true);
+    view.setUint32(binStart - 4, 0x004e4942, true);
+    views.forEach((entry, index) => {
+      const name = entry.name ?? ["POSITION", "NORMAL", "indices"][index];
+      const array = sections[name];
+      bytes.set(new Uint8Array(array.buffer, array.byteOffset, array.byteLength), binStart + entry.byteOffset);
+    });
   }
   return bytes;
 }

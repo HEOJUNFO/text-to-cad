@@ -171,8 +171,8 @@ workers. Idle pressure reclamation preserves active and queued consumers.
 cadgen writes every stored mesh; the browser only reads them. Reads start with
 a bounded metadata probe. The client admits the encoded object and
 conservative decoded size before fetching a body, binds that fetch to the
-probed object digest and byte limit, then verifies the TESS header and content
-address before adoption.
+probed object digest and byte limit, then verifies the GLB body (its canonical
+JSON and tables) and content address before adoption.
 
 A package's open reads its cache in groups, as a snapshot does: one probe for a
 chunk of components and one TESB read for a batch of their bodies, each
@@ -218,7 +218,7 @@ a cache view does not retain an additional geometry copy.
 Imported STEP products without faces keep their occurrence identity. A product
 that holds only wires has no triangles, so its mesh's box comes from its edges'
 polylines. One with no faces or edges meshes to empty arrays, a zero-size box at
-the origin and a positive minimum scale. Either way the same TESS validation
+the origin and a positive minimum scale. Either way the same body validation
 applies. That box is only cache metadata: only triangles are
 drawn, so composition gives an occurrence without them no bounds, and it
 cannot change the assembly's framing or hide the real parts.

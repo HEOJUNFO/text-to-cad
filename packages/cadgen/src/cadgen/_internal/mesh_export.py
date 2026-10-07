@@ -274,7 +274,7 @@ def _export_view(source: MeshSource, producer: dict | None, appearance: object) 
 
 
 def _stored_meshes(source: MeshSource, pairs: list, appearance: object) -> "tuple[dict, dict]":
-    """The export's descriptor, and the stored TESS body of every placed component
+    """The export's descriptor, and the stored GLB body of every placed component
     at every pair, ``{(cid, pair): bytes}``.
 
     What the store lacks is derived by build-pool jobs (``surfaces.derive`` with

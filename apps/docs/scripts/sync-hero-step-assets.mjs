@@ -8,7 +8,7 @@
 // The tree lives in cadgen's store, keyed by the STEP file's bytes, and the
 // store holds no directories: this script asks cadgen to export a view of the
 // tree (assembly.json + components/) and to mesh every component at the
-// default tolerances (components/<cid>.tess, the one level the hero draws), and
+// default tolerances (components/<cid>.glb, the one level the hero draws), and
 // copies what the browser fetches. Run it after rebuilding the model:
 //
 //   python models/assemblies/src/planetary_gear_assembly/planetary_gear_assembly.py
@@ -56,7 +56,7 @@ const viewDir = execFileSync(
       "descriptor = json.loads((view / 'assembly.json').read_text()) if view else {}; " +
       "surfaces.derive(tree, producer=descriptor['surfaceProducer'], tessellations=[dict(" +
       "chordTolerance=meshes.DEFAULT_CHORD, angleTolerance=meshes.DEFAULT_ANGLE)]) if view else None; " +
-      "[(view / 'components' / (cid + '.tess')).write_bytes(meshes.read(meshes.tessellation_key(entry['surfaceInput']))) " +
+      "[(view / 'components' / (cid + '.glb')).write_bytes(meshes.read(meshes.tessellation_key(entry['surfaceInput']))) " +
       "for cid, entry in descriptor.get('components', {}).items()]; " +
       "print(view or '')",
     modelStep,
@@ -85,7 +85,7 @@ try {
     if (!surf) {
       throw new Error(`Component ${cid} declares no surf path in ${viewDir}/assembly.json`);
     }
-    const mesh = `${surf.replace(/\.surf$/, "")}.tess`;
+    const mesh = `${surf.replace(/\.surf$/, "")}.glb`;
     fs.copyFileSync(path.join(viewDir, mesh), path.join(heroTreeDir, mesh));
     copied += 1;
   }

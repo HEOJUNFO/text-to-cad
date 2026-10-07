@@ -42,7 +42,7 @@ from cadgen._internal.atomic_replace import write_bytes_atomic
 
 # `localhost` is a potentially trustworthy origin under the Secure Contexts
 # rules even over HTTP. The page is still entirely intercepted below; this
-# spelling gives its shared TESS provider the SubtleCrypto object required to
+# spelling gives its shared mesh provider the SubtleCrypto object required to
 # verify immutable cache bodies before use.
 SNAPSHOT_ORIGIN = "http://localhost"
 SNAPSHOT_RENDER_URL = f"{SNAPSHOT_ORIGIN}/render.html"
@@ -1426,7 +1426,7 @@ def read_tessellation_cache_entry(pathname: str, *, expected_object=None, max_by
 
 
 # Probe small index facts, then request only admitted exact objects. The shared
-# TESB container stays unchanged; store.tess_cache owns both hosts' framing.
+# TESB container frames the bodies; store.tess_cache owns both hosts' framing.
 TESS_CACHE_BATCH_PATH = "/__tess_cache/batch"
 TESS_CACHE_PROBE_PATH = "/__tess_cache/probe"
 TESS_CACHE_PRODUCE_PATH = "/__tess_cache/produce"

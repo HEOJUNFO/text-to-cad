@@ -1,6 +1,6 @@
-"""Write the fixture's stored meshes: ``components/<cid>.l<level>.tess``.
+"""Write the fixture's stored meshes: ``components/<cid>.l<level>.glb``.
 
-The harness serves these as cadgen's mesh store would: one TESS body per
+The harness serves these as cadgen's mesh store would: one GLB body per
 component and viewer LOD level (``lodPolicy.js``), bound to the component's
 ``surfaceInput`` in ``assembly.json`` and to its ``.surf``'s digest. The two
 parts are rebuilt here from ``hinge_block.py``'s shapes and meshed by cadgen's
@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import struct
 from pathlib import Path
 
 import numpy as np
@@ -30,23 +29,6 @@ def shapes():
     from cadgen import build123d as bd
 
     return {"base": bd.Box(20, 20, 10) - bd.Cylinder(3, 20), "arm": bd.Box(10, 8, 8)}
-
-
-def _arrays(body: bytes):
-    header_size = struct.unpack_from("<I", body, 8)[0]
-    header = json.loads(body[12:12 + header_size])
-    offset = 12 + header_size
-
-    def take(count, dtype):
-        nonlocal offset
-        array = np.frombuffer(body, dtype, count, offset)
-        offset += count * 4
-        return array
-
-    arrays = {name: take(header[f"{name}Count"], dtype) for name, dtype in
-              (("position", "<f4"), ("normal", "<f4"), ("faceOrd", "<f4"), ("index", "<u4"))}
-    edges = [(edge["ord"], take(edge["count"], "<f4")) for edge in header["edges"]]
-    return header, arrays, edges
 
 
 def _match(rows, fresh, key):
@@ -65,7 +47,7 @@ def main() -> None:
     from cadgen._internal import occt_mesh
     from cadgen._internal.component_package import decode_display_shape, prepare_geometry_component
     from cadgen._internal.surface_extract import extract_surface_component, read_surf
-    from cadgen.store.meshes import encode_payload
+    from cadgen.store.meshes import decode_payload, encode_payload
 
     view = json.loads((FIXTURE / "assembly.json").read_text(encoding="utf-8"))
     names = {occurrence["component"]: occurrence["name"] for occurrence in view["occurrences"]}
@@ -87,18 +69,18 @@ def main() -> None:
             body = occt_mesh.mesh_component(decode_display_shape(entry, payload).wrapped, fresh,
                                             surface_input=component["surfaceInput"], surface_object=surface_object,
                                             chord=chord, angle=angle)
-            header, arrays, polylines = _arrays(body)
+            meshed = decode_payload(body)
+            polylines = [(int(ordinal), meshed.edge_points[start:start + count])
+                         for ordinal, start, count, _class in meshed.edges.tolist()]
             remapped = sorted(((edges[ordinal], polyline) for ordinal, polyline in polylines), key=lambda item: item[0])
             body = encode_payload(
                 surface_input=component["surfaceInput"], surface_object=surface_object, chord=chord, angle=angle,
-                positions=arrays["position"].tobytes(), normals=arrays["normal"].tobytes(),
-                face_ords=arrays["faceOrd"].tobytes(), indices=arrays["index"].tobytes(),
-                face_ranges=header["faceRanges"],
-                edges=[(ordinal, classes[ordinal], polyline.tobytes()) for ordinal, polyline in remapped],
-                edge_classes=[[row["ord"], classes[row["ord"]]] for row in committed["edges"]],
-                bounds=header["bounds"], scale=header["scale"], part_color=committed.get("partColor"),
+                positions=meshed.positions, normals=meshed.normals, indices=meshed.indices.astype(np.uint32),
+                face_ranges=meshed.face_ranges(),
+                edges=[(ordinal, classes[ordinal], polyline) for ordinal, polyline in remapped],
+                bounds=meshed.cad["bounds"], scale=meshed.cad["scale"], part_color=committed.get("partColor"),
             )
-            (FIXTURE / "components" / f"{cid}.l{level}.tess").write_bytes(body)
+            (FIXTURE / "components" / f"{cid}.l{level}.glb").write_bytes(body)
             print(cid, names[cid], f"L{level}", len(body), "bytes")
 
 

@@ -25,7 +25,7 @@ const FIXTURE = new URL('../step/__fixtures__/step/', import.meta.url);
 
 const read = (name) => readFile(new URL(name, FIXTURE));
 
-// The LOD levels the fixture stores a mesh at (`components/<cid>.l<level>.tess`).
+// The LOD levels the fixture stores a mesh at (`components/<cid>.l<level>.glb`).
 const MESH_LEVELS = [0, 1, 2, 3];
 
 /**
@@ -45,7 +45,7 @@ export async function loadStepFixture() {
     const bytes = await read(`components/${cid}.surf`);
     const meshes = new Map();
     for (const level of MESH_LEVELS) {
-      meshes.set(level, decodeComponentTessellation(new Uint8Array(await read(`components/${cid}.l${level}.tess`))));
+      meshes.set(level, decodeComponentTessellation(new Uint8Array(await read(`components/${cid}.l${level}.glb`))));
     }
     surfaces.set(component.surfaceInput, { cid, bytes, object: createHash('sha256').update(bytes).digest('hex'), meshes });
   }
@@ -178,7 +178,7 @@ export function reviseFixture(fixture, revision) {
  * batch read and a single read.
  */
 async function meshStore(fixture, { warm = false } = {}) {
-  const [cache, { encodeTessFixture }, { lodTessellationForLevel }] = await Promise.all([
+  const [cache, { encodeMeshFixture }, { lodTessellationForLevel }] = await Promise.all([
     import('@text-to-cad/core/lib/surf/tessellationCache.js'),
     import('@text-to-cad/core/lib/surf/testing.js'),
     import('@text-to-cad/core/lib/surf/lodPolicy.js'),
@@ -191,9 +191,9 @@ async function meshStore(fixture, { warm = false } = {}) {
     if (!stored.has(key)) {
       // The fixture level these tolerances name, else the standard tier's shape under their key.
       const level = MESH_LEVELS.find(candidate => cache.tessellationCacheKey(surfaceInput, lodTessellationForLevel(candidate) || {}) === key) ?? 1;
-      const { component, partColor, edgeClasses } = surface.meshes.get(level);
-      const bytes = encodeTessFixture(component, { surfaceInput, surfaceObject: surface.object, tessellation, partColor, edgeClasses });
-      const row = cache.validateTessellationProbeRow({ schemaVersion: 1,
+      const { component, partColor } = surface.meshes.get(level);
+      const bytes = encodeMeshFixture(component, { surfaceInput, surfaceObject: surface.object, tessellation, partColor });
+      const row = cache.validateTessellationProbeRow({ schemaVersion: cache.MESH_INDEX_SCHEMA,
         object: createHash('sha256').update(bytes).digest('hex'), ...cache.tessellationPayloadFacts(bytes) });
       stored.set(key, { bytes: Buffer.from(bytes), row });
     }

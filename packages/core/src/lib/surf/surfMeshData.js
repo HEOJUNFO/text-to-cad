@@ -6,32 +6,30 @@
 // of the exact surfaces, in CAD units, handed on INDEXED: the mesh's shared
 // vertices, normals and index buffer are the render buffers, never expanded
 // per corner. CAD edges ride beside the triangles as indexed line segments
-// built from the same mesh's edge polylines (design/viewer-memory.md lever B).
+// built from the same mesh's edge table and points (design/viewer-memory.md
+// lever B).
 
 import { linearRgbToHex } from "../color.js";
+import { MESH_EDGE_CLASSES, MESH_TABLE_COLUMNS } from "./tessellationCache.js";
 
 // The line pass groups CAD edges by class so display.edges.classes styles each
 // one; every other edge class the extractor knows (boundary, nonManifold,
 // unknown) draws as a feature edge, `none` is not drawn at all.
 export const CAD_EDGE_LINE_CLASSES = Object.freeze(["feature", "tangent", "seam", "degenerate"]);
 
-function lineClassForEdge(edge) {
-  const visibilityClass = String(edge?.visibilityClass || "").trim();
-  if (visibilityClass === "none") {
-    return "";
-  }
-  return CAD_EDGE_LINE_CLASSES.includes(visibilityClass) ? visibilityClass : "feature";
-}
+// Each edge class code's line class (its CAD_EDGE_LINE_CLASSES index), -1 for an edge not drawn.
+const LINE_CLASS_OF_CODE = Object.freeze(MESH_EDGE_CLASSES.map((name) => (
+  name === "none" ? -1 : Math.max(0, CAD_EDGE_LINE_CLASSES.indexOf(name))
+)));
 
-// A typed array is shared when it owns its buffer and copied when it is a
-// view (a decoded .tess entry is one buffer holding positions, normals, face
-// ords, indices and every polyline; sharing a view would keep the whole entry
-// resident once the meshData outlives it).
+// The render buffers own their memory: a decoded stored mesh is one buffer
+// holding positions, normals, indices, tables and every polyline, and sharing a
+// view would keep the whole entry resident once the meshData outlives it.
 function ownedArray(array, Ctor) {
   if (array instanceof Ctor && array.byteOffset === 0 && array.byteLength === array.buffer.byteLength) {
     return array;
   }
-  return Ctor.from(array || []);
+  return new Ctor(array || []);
 }
 
 // Indexed line segments for the GL_LINES edge pass: every polyline point once
@@ -39,45 +37,59 @@ function ownedArray(array, Ctor) {
 // class in CAD_EDGE_LINE_CLASSES order so a class is a contiguous point range
 // and a contiguous segment range (`classRanges`). Per segment this is 8 bytes
 // plus ~14 bytes of shared points — about 1.5 bytes per surface triangle.
-export function buildCadEdgeLines(edges) {
-  const byClass = new Map(CAD_EDGE_LINE_CLASSES.map((classId) => [classId, []]));
+// `table` is a stored mesh's edge table (MESH_TABLE_COLUMNS u32 per edge: ord,
+// pointStart, pointCount, class code) over `points` (f32 xyz).
+export function buildCadEdgeLines(table, points) {
+  const lineClasses = CAD_EDGE_LINE_CLASSES.length;
+  const classPoints = new Array(lineClasses).fill(0);
+  const classSegments = new Array(lineClasses).fill(0);
+  const rows = table instanceof Uint32Array ? table : new Uint32Array(0);
+  for (let row = 0; row < rows.length; row += MESH_TABLE_COLUMNS) {
+    const lineClass = LINE_CLASS_OF_CODE[rows[row + 3]] ?? -1;
+    const pointCount = rows[row + 2];
+    if (lineClass < 0 || pointCount < 2) continue;
+    classPoints[lineClass] += pointCount;
+    classSegments[lineClass] += pointCount - 1;
+  }
+  const pointStarts = [];
+  const segmentStarts = [];
   let pointTotal = 0;
   let segmentTotal = 0;
-  for (const edge of Array.isArray(edges) ? edges : []) {
-    const classId = lineClassForEdge(edge);
-    const polyline = edge?.polyline;
-    if (!classId || !(polyline instanceof Float32Array) || polyline.length < 6) {
-      continue;
-    }
-    byClass.get(classId).push(polyline);
-    pointTotal += polyline.length / 3;
-    segmentTotal += polyline.length / 3 - 1;
+  for (let lineClass = 0; lineClass < lineClasses; lineClass += 1) {
+    pointStarts.push(pointTotal);
+    segmentStarts.push(segmentTotal);
+    pointTotal += classPoints[lineClass];
+    segmentTotal += classSegments[lineClass];
   }
   const positions = new Float32Array(pointTotal * 3);
   const indices = new Uint32Array(segmentTotal * 2);
-  const classRanges = [];
-  let pointCursor = 0;
-  let segmentCursor = 0;
-  for (const classId of CAD_EDGE_LINE_CLASSES) {
-    const pointStart = pointCursor;
-    const segmentStart = segmentCursor;
-    for (const polyline of byClass.get(classId)) {
-      positions.set(polyline, pointCursor * 3);
-      const pointCount = polyline.length / 3;
-      for (let point = 0; point + 1 < pointCount; point += 1) {
-        indices[segmentCursor * 2] = pointCursor + point;
-        indices[segmentCursor * 2 + 1] = pointCursor + point + 1;
-        segmentCursor += 1;
-      }
-      pointCursor += pointCount;
+  const pointCursor = [...pointStarts];
+  const segmentCursor = [...segmentStarts];
+  for (let row = 0; row < rows.length; row += MESH_TABLE_COLUMNS) {
+    const lineClass = LINE_CLASS_OF_CODE[rows[row + 3]] ?? -1;
+    const pointCount = rows[row + 2];
+    if (lineClass < 0 || pointCount < 2) continue;
+    const first = pointCursor[lineClass];
+    const start = rows[row + 1] * 3;
+    positions.set(points.subarray(start, start + pointCount * 3), first * 3);
+    let segment = segmentCursor[lineClass] * 2;
+    for (let point = 0; point + 1 < pointCount; point += 1) {
+      indices[segment] = first + point;
+      indices[segment + 1] = first + point + 1;
+      segment += 2;
     }
-    if (segmentCursor > segmentStart) {
+    pointCursor[lineClass] += pointCount;
+    segmentCursor[lineClass] += pointCount - 1;
+  }
+  const classRanges = [];
+  for (let lineClass = 0; lineClass < lineClasses; lineClass += 1) {
+    if (classSegments[lineClass] > 0) {
       classRanges.push({
-        classId,
-        pointStart,
-        pointCount: pointCursor - pointStart,
-        segmentStart,
-        segmentCount: segmentCursor - segmentStart,
+        classId: CAD_EDGE_LINE_CLASSES[lineClass],
+        pointStart: pointStarts[lineClass],
+        pointCount: classPoints[lineClass],
+        segmentStart: segmentStarts[lineClass],
+        segmentCount: classSegments[lineClass],
       });
     }
   }
@@ -90,10 +102,12 @@ export function buildMeshDataFromSurf(index, component) {
   if (!component?.positions) throw new TypeError("Display data needs the component's mesh");
   const vertices = ownedArray(component.positions, Float32Array);
   const normals = ownedArray(component.normals, Float32Array);
+  // The render pipeline and the selector runtime take u32 indices; a stored mesh of
+  // at most 65,535 vertices keeps u16 ones, widened here as they are copied.
   const indices = ownedArray(component.indices, Uint32Array);
   const vertexCount = vertices.length / 3;
   const triangleCount = indices.length / 3;
-  const cadEdges = buildCadEdgeLines(component.edges);
+  const cadEdges = buildCadEdgeLines(component.edgeTable, component.edgePoints);
 
   const bounds = {
     min: [...component.bounds.min],

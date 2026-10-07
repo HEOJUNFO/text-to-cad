@@ -21,7 +21,7 @@ import { everyKeyMeshProvider, memoryMeshProvider, meshFixture, surfFixture } fr
 // Read the producer generation from the constant rather than spelling it out:
 // this asserts the key's SHAPE, and every producer change bumps that number.
 const IDENTITY = new RegExp(
-  `^[0-9a-f]{64}-t${TESSELLATION_VERSION}-p5-l[0-9a-f]{16}-a[0-9a-f]{16}-s[0-9a-f]{64}$`,
+  `^[0-9a-f]{64}-t${TESSELLATION_VERSION}-p6-l[0-9a-f]{16}-a[0-9a-f]{16}-s[0-9a-f]{64}$`,
 );
 const SUN_GEAR = surfFixture("sun_gear");
 // The fixture's stored meshes, both levels, under its own identity.

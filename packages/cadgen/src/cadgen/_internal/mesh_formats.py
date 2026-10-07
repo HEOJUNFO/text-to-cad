@@ -1,7 +1,7 @@
 """A document's stored meshes, placed and coloured, as STL, 3MF or GLB bytes.
 
 The writer half of the one mesh path (``mesh_export.run_mesh_exporter`` is the
-engine around it). Its input is what the store already holds: one TESS body per
+engine around it). Its input is what the store already holds: one GLB body per
 component (``cadgen.store.meshes``), OCCT's mesh of the component's exact BREP --
 the triangles the CAD Viewer and snapshots draw -- and the flattened descriptor
 whose occurrences place each component in the document. Nothing here meshes,
@@ -76,22 +76,14 @@ class Tessellation:
 
 
 def decode_tessellation(payload: bytes) -> Tessellation:
-    """The arrays of one TESS v5 body (``cadgen.store.meshes.encode_payload``).
+    """The arrays of one stored mesh, a GLB body (``cadgen.store.meshes.encode_payload``),
+    viewed in place but for its indices, widened to uint32."""
+    from cadgen.store.meshes import decode_payload
 
-    The body arrives verified (``meshes.read``); this only views it."""
-    _magic, _version, header_size = struct.unpack_from("<III", payload)
-    header = json.loads(payload[12:12 + header_size])
-    offset = 12 + header_size
-    arrays = []
-    for name, dtype in (("positionCount", "<f4"), ("normalCount", "<f4"),
-                        ("faceOrdCount", "<f4"), ("indexCount", "<u4")):
-        count = int(header[name])
-        arrays.append(np.frombuffer(payload, dtype, count, offset))
-        offset += 4 * count
-    positions, normals, _face_ords, indices = arrays
+    decoded = decode_payload(payload)
     return Tessellation(
-        positions=positions.reshape(-1, 3), normals=normals.reshape(-1, 3), indices=indices,
-        face_ranges=list(header.get("faceRanges") or []), part_color=header.get("partColor"),
+        positions=decoded.positions, normals=decoded.normals, indices=decoded.indices.astype(np.uint32),
+        face_ranges=decoded.face_ranges(), part_color=decoded.cad["partColor"],
     )
 
 

@@ -38,7 +38,7 @@ def _surf_index(topods) -> dict:
 
 
 def _mesh(shape):
-    """``shape`` meshed as the store meshes a component: its TESS body, decoded."""
+    """``shape`` meshed as the store meshes a component: its GLB body, decoded."""
     from cadgen._internal.mesh_formats import decode_tessellation
     from cadgen._internal.occt_mesh import mesh_component
 

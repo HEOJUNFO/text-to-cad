@@ -7,9 +7,9 @@ import path from 'node:path';
 import { createHttpCadResourceProvider, SurfaceResolutionError } from '@text-to-cad/core/client';
 import { entryHasMesh, entryHasReferences } from '@text-to-cad/core/lib/entryAssets.js';
 import { renderAssetCacheStats } from '@text-to-cad/core/lib/renderAssetClient.js';
-import { createTessellationCache, tessellationPayloadFacts,
+import { MESH_INDEX_SCHEMA, createTessellationCache, tessellationPayloadFacts,
   tessellationCacheKey, validateTessellationProbeRow } from '@text-to-cad/core/lib/surf/tessellationCache.js';
-import { encodeTessFixture } from '@text-to-cad/core/lib/surf/testing.js';
+import { encodeMeshFixture } from '@text-to-cad/core/lib/surf/testing.js';
 import { lodTessellationForLevel } from '@text-to-cad/core/lib/surf/lodPolicy.js';
 import { completedPackages } from '../../../render/completedPackageCache.js';
 import { lodPayloadRequest } from '../../../render/lodPayloadRequest.js';
@@ -59,14 +59,14 @@ function warmLargeStep() {
     const cid = `c${i}`;
     const surfaceInput = createHash('sha256').update(`317-component-${cid}`).digest('hex');
     const surfaceObject = 'a'.repeat(64);
-    const bytes = encodeTessFixture({
+    const bytes = encodeMeshFixture({
       positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
       normals: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]),
-      faceOrds: new Float32Array([1, 1, 1]), indices: new Uint32Array([0, 1, 2]),
+      indices: new Uint32Array([0, 1, 2]),
       faceRanges: [{ ord: 1, color: null, indexStart: 0, indexCount: 3 }],
       edges: [], bounds: { min: [0, 0, 0], max: [1, 1, 0] }, scale: 1,
-    }, { surfaceInput, surfaceObject, tessellation, edgeClasses: [] });
-    const row = validateTessellationProbeRow({ schemaVersion: 1,
+    }, { surfaceInput, surfaceObject, tessellation });
+    const row = validateTessellationProbeRow({ schemaVersion: MESH_INDEX_SCHEMA,
       object: createHash('sha256').update(bytes).digest('hex'), ...tessellationPayloadFacts(bytes) });
     encoded.set(tessellationCacheKey(surfaceInput, tessellation), { bytes, row });
     components[cid] = { surfaceInput };
@@ -83,7 +83,7 @@ function warmLargeStep() {
   return { client, model, encoded, fetch };
 }
 
-it('restores all 317 STEP components after remount without a descriptor, SURF or TESS read', async () => {
+it('restores all 317 STEP components after remount without a descriptor, SURF or mesh read', async () => {
   const { client, model, encoded, fetch } = warmLargeStep();
   const probe = vi.fn(async keys => keys.map(key => encoded.get(key)?.row || null));
   const bodies = vi.fn(async row => encoded.get(row.tessellationInput)?.bytes.slice() || null);
@@ -234,13 +234,13 @@ it('has cadgen mesh a cold component in its surface request, then reads that mes
     requests.push({ cids: requested.map(({ cid }) => cid), tessellation: options.tessellation });
     return new Map(requested.map(({ cid, surfaceInput }) => {
       // What cadgen does with the request: meshes the component at that tier and stores it.
-      const bytes = encodeTessFixture({
+      const bytes = encodeMeshFixture({
         positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), normals: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]),
-        faceOrds: new Float32Array([1, 1, 1]), indices: new Uint32Array([0, 1, 2]),
+        indices: new Uint32Array([0, 1, 2]),
         faceRanges: [{ ord: 1, color: null, indexStart: 0, indexCount: 3 }],
         edges: [], bounds: { min: [0, 0, 0], max: [1, 1, 0] }, scale: 1,
-      }, { surfaceInput, surfaceObject: 'a'.repeat(64), tessellation: options.tessellation, edgeClasses: [] });
-      const mesh = validateTessellationProbeRow({ schemaVersion: 1,
+      }, { surfaceInput, surfaceObject: 'a'.repeat(64), tessellation: options.tessellation });
+      const mesh = validateTessellationProbeRow({ schemaVersion: MESH_INDEX_SCHEMA,
         object: createHash('sha256').update(bytes).digest('hex'), ...tessellationPayloadFacts(bytes) });
       encoded.set(mesh.tessellationInput, { bytes, row: mesh });
       return [cid, { surfaceInput, surfaceObject: 'a'.repeat(64), byteLength: 100, mesh,
@@ -310,8 +310,8 @@ function surfFixtures(names: string[]) {
   const dir = path.join(path.dirname(createRequire(import.meta.url).resolve('@text-to-cad/core/lib/surf/container.js')), 'fixtures');
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'fixtures.json'), 'utf8'));
   return names.map((name) => {
-    const bytes = new Uint8Array(fs.readFileSync(path.join(dir, `${name}.l1.tess`)));
-    const row = validateTessellationProbeRow({ schemaVersion: 1,
+    const bytes = new Uint8Array(fs.readFileSync(path.join(dir, `${name}.l1.glb`)));
+    const row = validateTessellationProbeRow({ schemaVersion: MESH_INDEX_SCHEMA,
       object: createHash('sha256').update(bytes).digest('hex'), ...tessellationPayloadFacts(bytes) });
     return { ...manifest[name], bytes, row, surf: new Uint8Array(fs.readFileSync(path.join(dir, `${name}.surf`))) };
   });

@@ -18,7 +18,7 @@ import {
   createTessellationCache, createHttpTessellationCacheProvider, encodeTessellationCacheBatch,
   tessellationCacheKey,
 } from "../lib/surf/tessellationCache.js";
-import { encodeTessFixture, memoryMeshProvider, meshFixture, probeRowFor, surfFixture } from "../lib/surf/__tests__/meshFixtures.js";
+import { encodeMeshFixture, memoryMeshProvider, meshFixture, probeRowFor, surfFixture } from "../lib/surf/__tests__/meshFixtures.js";
 
 // A host's mesh store that records every key probed, and meshes on request what `produce` holds.
 function recordingMeshStore(requested = [], { stored = [], produce = [] } = {}) {
@@ -198,17 +198,17 @@ test("a static package reads each component's own mesh file; a component nothing
   const fetched = [];
   globalThis.fetch = async (url) => {
     fetched.push(String(url));
-    return String(url).endsWith("/roller.tess")
+    return String(url).endsWith("/roller.glb")
       ? new Response(mesh.bytes.slice(), { status: 200 })
       : new Response(null, { status: 404 });
   };
   t.after(() => { globalThis.fetch = oldFetch; setTessellationCacheProvider(null); });
   // The docs hero: no mesh store at all, a mesh beside each surf.
   setTessellationCacheProvider(null);
-  const job = rollerPackage({ meshUrls: { roller: "/hero/components/roller.tess" } });
+  const job = rollerPackage({ meshUrls: { roller: "/hero/components/roller.glb" } });
   const source = await loadSource(job);
   assert.ok(source.meshData.indices.length > 0);
-  assert.deepEqual(fetched, ["/hero/components/roller.tess"], "only the mesh file is read");
+  assert.deepEqual(fetched, ["/hero/components/roller.glb"], "only the mesh file is read");
   // A mesh at another tessellation is not this component's mesh at that tessellation.
   await assert.rejects(loadSource({ ...job, quality: { tessellation: { chordTolerance: 2e-3, angleTolerance: 1.4 } } }),
     /is not its mesh at this tessellation/);
@@ -218,7 +218,6 @@ test("a static package reads each component's own mesh file; a component nothing
 const WARM_COMPONENT = {
   positions: new Float32Array([0, 0, 0, 2, 0, 0, 0, 3, 0]),
   normals: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]),
-  faceOrds: new Float32Array([1, 1, 1]),
   indices: new Uint32Array([0, 1, 2]),
   faceRanges: [{ ord: 1, indexStart: 0, indexCount: 3 }], edges: [],
   bounds: { min: [0, 0, 0], max: [2, 3, 0] }, scale: Math.sqrt(13),
@@ -233,7 +232,7 @@ async function loadWarmPackage(t, count, providerOptions = {}) {
   for (let n = 0; n < count; n += 1) {
     const cid = `c${n}`, surfaceInput = createHash("sha256").update(cid).digest("hex");
     const key = tessellationCacheKey(surfaceInput);
-    const body = encodeTessFixture(component, { surfaceInput, surfaceObject, edgeClasses: [] });
+    const body = encodeMeshFixture(component, { surfaceInput, surfaceObject });
     rows[key] = probeRowFor(body);
     bodies[key] = body;
     components[cid] = { surfaceInput, surfaceObject };

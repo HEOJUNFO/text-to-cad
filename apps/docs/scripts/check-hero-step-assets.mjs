@@ -36,7 +36,7 @@ for (const [cid, entry] of components) {
   const decoded = decodeComponentTessellation(new Uint8Array(fs.readFileSync(meshPath)), {
     surfaceInput: entry.surfaceInput, surfaceObject: entry.surfaceObject, tessellation: {},
   });
-  assert.ok(decoded, `${meshPath} is not component ${cid}'s mesh at the default tolerances in the current TESS format`);
+  assert.ok(decoded, `${meshPath} is not component ${cid}'s mesh at the default tolerances in the current mesh format`);
   assert.ok(decoded.component.indices.length > 0, `${meshPath} draws no triangles`);
 }
 

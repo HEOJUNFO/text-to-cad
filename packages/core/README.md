@@ -67,7 +67,7 @@ in [the drawing contract](../ui/docs/drawing.md); the mechanism is
   estimates stay on the client — never in worker messages, never in cache keys.
   Mechanism: [docs/resource-ownership.md](docs/resource-ownership.md) §4.
 - **Cache loss is never silent extra work**: a mesh-cache read probes, admits,
-  verifies the v4 header and content address, then adopts; a strict read
+  verifies the GLB body and its content address, then adopts; a strict read
   reports a typed miss before tessellation starts rather than turning a cheap
   decoded-mesh request into unbudgeted surface tessellation. Mechanism:
   [docs/resource-ownership.md](docs/resource-ownership.md) §5.
@@ -153,8 +153,9 @@ docs/              # subsystem docs (the map below)
 Contract mirrors that must stay in lockstep (each has a sync test):
 `lib/cadRefs.js` ↔ `cadgen/cad_ref_syntax.py`;
 `common/kinematicsRuntime.js` ↔ `cadgen/_internal/kinematics_fk.py`;
-TESS v5 keys, bodies and mesh-index records (`lib/surf/tessellationCache.js`, a reader
-only: cadgen is the one writer) ↔ `cadgen/store/meshes.py`.
+mesh keys, GLB bodies (their canonical JSON and tables) and mesh-index records
+(`lib/surf/tessellationCache.js`, a reader only: cadgen is the one writer) ↔
+`cadgen/store/meshes.py`.
 
 Where the mechanism is written:
 

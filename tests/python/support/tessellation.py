@@ -1,4 +1,4 @@
-"""Tiny TESS v5 fixture, encoded by cadgen's own writer (``cadgen.store.meshes``),
+"""Tiny stored-mesh (GLB) fixture, encoded by cadgen's own writer (``cadgen.store.meshes``),
 and the shared JavaScript reader every client decodes it with."""
 import base64
 from functools import lru_cache
@@ -27,9 +27,9 @@ def tessellation_fixture():
         return encode_payload(
             surface_input=surface_input, surface_object=surface_object, chord=chord, angle=angle,
             positions=_floats(0, 0, 0, 2, 0, 0, 0, 3, 0), normals=_floats(0, 0, 1, 0, 0, 1, 0, 0, 1),
-            face_ords=_floats(1, 1, 1), indices=struct.pack("<3I", 0, 1, 2),
-            face_ranges=[{"ord": 1, "indexStart": 0, "indexCount": 3}],
-            edges=[(1, "boundary", _floats(0, 0, 0, 2, 0, 0, 2, 3, 0))], edge_classes=[[1, "boundary"]],
+            indices=struct.pack("<3I", 0, 1, 2),
+            face_ranges=[{"ord": 1, "indexStart": 0, "indexCount": 3, "color": [0.2, 0.4, 0.6, 1.0]}],
+            edges=[(1, "boundary", _floats(0, 0, 0, 2, 0, 0, 2, 3, 0))],
             bounds={"min": [0, 0, 0], "max": [2, 3, 0]}, scale=scale, part_color=[0.2, 0.3, 0.4, 1],
         )
 
@@ -48,7 +48,7 @@ def js_reader(payloads: list[bytes]) -> list[list]:
     """What the shared JS reader makes of each body: ``[facts, decodes]`` (facts None for a refusal)."""
     node = shutil.which("node")
     if node is None:
-        raise RuntimeError("Node is required to verify the shared TESS contract")
+        raise RuntimeError("Node is required to verify the shared mesh contract")
     script = """
 import fs from 'node:fs';
 const api = await import(process.argv[1]);

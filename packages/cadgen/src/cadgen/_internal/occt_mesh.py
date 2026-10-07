@@ -1,13 +1,13 @@
-"""One component's display mesh: OCCT's mesher on the exact BREP, as TESS v5.
+"""One component's display mesh: OCCT's mesher on the exact BREP, as a GLB body.
 
 cadgen's tessellator. ``BRepMesh_IncrementalMesh`` -- the mesher build123d's
 own exporters use -- triangulates the component's exact faces at a chord
 tolerance RELATIVE to the component's bounding diagonal and an angular one in
 radians, discretizing every edge once so the faces either side share its
-vertices. What it writes is one TESS body (``cadgen.store.meshes``): triangles
-grouped per face, smooth normals from the exact surfaces, and one polyline per
-model edge lying exactly on the mesh boundary. The viewer, snapshots and mesh
-exports all draw these same bytes.
+vertices. What it writes is one GLB body (``cadgen.store.meshes``): one triangle
+primitive whose triangles run face by face, smooth normals from the exact
+surfaces, and one polyline per model edge lying exactly on the mesh boundary.
+The viewer, snapshots and mesh exports all draw these same bytes.
 
 Face and edge ordinals are ``TopExp.MapShapes`` order on the unlocated
 component -- the order its SURF index and every selector use -- and the SURF
@@ -312,7 +312,7 @@ def _edge_polyline(edge, adjacent: list[int], face_map, faces, deflection: float
 
 def mesh_component(topods, surf_index: dict, *, surface_input: str, surface_object: str,
                    chord: float, angle: float) -> bytes:
-    """Mesh one unlocated component and return its TESS v5 body.
+    """Mesh one unlocated component and return its GLB body.
 
     ``topods`` is a private decode of the component's BREP: meshing stores its
     triangulation on the shape, so it must not be a shape anything else holds.
@@ -365,14 +365,13 @@ def _mesh_component(topods, surf_index: dict, *, surface_input: str, surface_obj
         listed = ", ".join(f"f{ordinal}" for ordinal in unmeshed[:8]) + (", ..." if len(unmeshed) > 8 else "")
         raise MeshProductionError(f"OCCT did not mesh {len(unmeshed)} face(s) of the component: {listed}")
 
-    position_parts, normal_parts, face_ord_parts, index_parts, face_ranges = [], [], [], [], []
+    position_parts, normal_parts, index_parts, face_ranges = [], [], [], []
     vertex_base = index_start = 0
-    for row in surf_faces:
+    for row in sorted(surf_faces, key=lambda row: row["ord"]):
         ordinal = row["ord"]
         positions, normals, triangles = faces.get(ordinal, (np.zeros((0, 3), np.float32),) * 2 + (np.zeros((0, 3), np.uint32),))
         position_parts.append(positions)
         normal_parts.append(normals)
-        face_ord_parts.append(np.full(len(positions), ordinal, np.float32))
         index_parts.append(triangles.reshape(-1) + np.uint32(vertex_base))
         color = row.get("color")
         face_ranges.append({"ord": ordinal, "color": [float(c) for c in color] if color else None,
@@ -381,23 +380,21 @@ def _mesh_component(topods, surf_index: dict, *, surface_input: str, surface_obj
         index_start += int(triangles.size)
     positions = np.concatenate(position_parts).astype("<f4") if position_parts else np.zeros((0, 3), "<f4")
     normals = np.concatenate(normal_parts).astype("<f4") if normal_parts else np.zeros((0, 3), "<f4")
-    face_ords = np.concatenate(face_ord_parts).astype("<f4") if face_ord_parts else np.zeros(0, "<f4")
     indices = np.concatenate(index_parts).astype("<u4") if index_parts else np.zeros(0, "<u4")
 
     adjacent = _edge_faces(topods, face_map, edge_map)
-    edges, edge_classes = [], []
-    for row in surf_edges:
+    edges = []
+    for row in sorted(surf_edges, key=lambda row: row["ord"]):
         ordinal, visibility = row["ord"], str(row.get("class") or "none")
-        edge_classes.append([ordinal, visibility])
         polyline = _edge_polyline(TopoDS.Edge_s(edge_map.FindKey(ordinal)), adjacent[ordinal],
                                   face_map, faces, deflection, angle)
         if polyline is not None and len(polyline) >= 2:
-            edges.append((ordinal, visibility, np.ascontiguousarray(polyline, "<f4").tobytes()))
+            edges.append((ordinal, visibility, np.ascontiguousarray(polyline, "<f4").reshape(-1, 3)))
 
     if len(positions):
         low, high = positions.min(axis=0), positions.max(axis=0)
     elif edges:
-        points = np.concatenate([np.frombuffer(polyline, "<f4").reshape(-1, 3) for _, _, polyline in edges])
+        points = np.concatenate([polyline for _, _, polyline in edges])
         low, high = points.min(axis=0), points.max(axis=0)
     else:
         low = high = np.zeros(3, np.float32)
@@ -405,8 +402,7 @@ def _mesh_component(topods, surf_index: dict, *, surface_input: str, surface_obj
     part_color = surf_index.get("partColor")
     return encode_payload(
         surface_input=surface_input, surface_object=surface_object, chord=chord, angle=angle,
-        positions=positions.tobytes(), normals=normals.tobytes(), face_ords=face_ords.tobytes(),
-        indices=indices.tobytes(), face_ranges=face_ranges, edges=edges, edge_classes=edge_classes,
+        positions=positions, normals=normals, indices=indices, face_ranges=face_ranges, edges=edges,
         bounds=bounds, scale=float(diagonal),
         part_color=[float(c) for c in part_color] if part_color else None,
     )

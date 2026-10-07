@@ -1,7 +1,7 @@
 """Regenerate the surf/mesh test fixtures in this directory.
 
 Each fixture is one component as cadgen stores it: ``<name>.surf`` (its SURF:
-exact surfaces and the topology index) and ``<name>.l<level>.tess`` (cadgen's
+exact surfaces and the topology index) and ``<name>.l<level>.glb`` (cadgen's
 OCCT mesh of it at that viewer LOD level, ``lodPolicy.js``), bound to each
 other by the SURF's digest and to a fixed test surface input
 (``sha256("cadgen-test-fixture:<name>")``, recorded in ``fixtures.json``).
@@ -9,7 +9,7 @@ other by the SURF's digest and to a fixed test surface input
 tables for that SURF (``cadgen._internal.surf_tables``).
 
 The shapes are built here, not read from ``models/``. Run from the repository
-root with the repo's Python whenever cadgen's SURF or TESS output changes:
+root with the repo's Python whenever cadgen's SURF or mesh output changes:
 
     .venv/bin/python packages/core/src/lib/surf/fixtures/make_fixtures.py
 """
@@ -106,7 +106,7 @@ def main() -> None:
             body = occt_mesh.mesh_component(decode_display_shape(entry, payload).wrapped, index,
                                             surface_input=surface_input, surface_object=surface_object,
                                             chord=chord, angle=angle)
-            (HERE / f"{name}.l{level}.tess").write_bytes(body)
+            (HERE / f"{name}.l{level}.glb").write_bytes(body)
             meshes[str(level)] = {"chordTolerance": chord, "angleTolerance": angle, "byteLength": len(body)}
         manifest[name] = {"surfaceInput": surface_input, "surfaceObject": surface_object,
                           "faces": len(index["faces"]), "edges": len(index["edges"]), "meshes": meshes}

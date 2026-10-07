@@ -70,7 +70,7 @@ One word is NOT retired, and it has exactly one meaning:
   index/component/<cid>               geometry-input entries → encoded BREP and intrinsic recipe
   index/surface/<surfaceInput>        attested extraction inputs → SURF object hash
   index/bounds/<sha256(bounds key)>   bounding boxes of stored geometry, inline
-  index/mesh/<key>                    a component's mesh at one tessellation → TESS object hash
+  index/mesh/<key>                    a component's mesh at one tessellation → GLB object hash
   index/drawing/<sha256(scheme + document hash)>  a 2D drawing's render payload → object hash
 ```
 
@@ -90,7 +90,7 @@ in use: a surface entry whose producer's extraction scheme and SURF format are
 no newer than this cadgen's and not both the same
 (`surfaces.obsolete_entry`; an eager-only one, which names no producer, was
 keyed under an older SURF format), a mesh entry keyed by an older mesher or
-TESS format (`meshes.obsolete_key`), or a mesh keyed by an obsolete
+mesh format (`meshes.obsolete_key`), or a mesh keyed by an obsolete
 surface's input. No reader of this cadgen computes those keys again, but an
 older cadgen sharing the store still may, and a read never writes. So the
 sweeper retires an obsolete entry, with every object only it named, once it
@@ -330,10 +330,18 @@ identity. A real one (`link_arm`: a bar plus two placements of a pin model):
   (`_internal/occt_mesh.py`: OCCT's `BRepMesh_IncrementalMesh` on the exact
   BREP, the chord tolerance a fraction of the component's bounding diagonal, the
   angle in radians; a face OCCT refuses is tessellated over its own parameters by
-  `_internal/face_fallback.py`) and writes each TESS body (`store/meshes.py`) before its
+  `_internal/face_fallback.py`) and writes each body (`store/meshes.py`) before its
   `index/mesh` entry. The key is the surface input, the mesher and format
   versions and the two tolerances' float64 bits, so a mesher fix lands on new
-  keys. A component is ready once its surface and every mesh asked for are
+  keys. A body is glTF 2.0 binary (format 6) in the component's own units: ONE
+  triangle primitive (positions, normals, u16 indices up to 65,535 vertices,
+  else u32), a face table whose rows give each face's ordinal, contiguous index
+  range and colour, an edge table giving each edge's ordinal, class and run of
+  polyline points, and the points; the JSON chunk is the canonical JSON for the
+  body's identity, bounds, scale and colour palette, which every reader rebuilds
+  and requires before it views the arrays in place. Any glTF viewer draws it
+  (its one node turns Z-up millimetres into Y-up metres); the tables are
+  `extras`. A component is ready once its surface and every mesh asked for are
   stored: the CAD Viewer's cold components ask for the standard level in the
   surface request that derives them, a mesh export asks for its tolerances, and
   the snapshot host has the build pool mesh what its page found missing, from
@@ -509,7 +517,7 @@ identity. A real one (`link_arm`: a bar plus two placements of a pin model):
   drops both unless an attested producer is supplied. A reader selects tree and
   hint from one atomic record snapshot. Geometry ignores absent or invalid
   hints. A prepared warm view can use a valid prior producer without importing
-  the kernel; its concrete TESS provenance remains valid after SURF deletion.
+  the kernel; its concrete mesh provenance remains valid after SURF deletion.
 
 - Consumers that speak the older flat shape (the viewer client, the mesh
   exports) read a **flattened** tree: `cadgen.store.trees.flatten` expands

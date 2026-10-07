@@ -18,7 +18,9 @@ import test from "node:test";
 import { parseSurf } from "./container.js";
 import { buildMeshDataFromSurf } from "./surfMeshData.js";
 import { buildSelectorBundleFromSurf } from "./surfSelectorBundle.js";
-import { decodeComponentTessellation, surfIndexFromCacheEntry } from "./tessellationCache.js";
+import {
+  decodeComponentTessellation, meshEdgePolylines, meshFaceRanges, surfIndexFromCacheEntry,
+} from "./tessellationCache.js";
 import { meshFixture, surfFixture } from "./__tests__/meshFixtures.js";
 
 const FIXTURES = ["sun_gear", "cam_follower_roller"];
@@ -55,8 +57,9 @@ function assertCoherent(label, component, meshData, bundle) {
   const rows = faceRunRows(bundle);
   const runTriangles = rows.reduce((sum, row) => sum + row.triangleCount, 0);
   assert.equal(runTriangles, meshTriangles, `${label}: faceRuns cover exactly the mesh triangles`);
-  assert.equal(rows.length, component.faceRanges.length, `${label}: one run per face range`);
-  component.faceRanges.forEach((range, rangeIndex) => {
+  const faceRanges = meshFaceRanges(component);
+  assert.equal(rows.length, faceRanges.length, `${label}: one run per face range`);
+  faceRanges.forEach((range, rangeIndex) => {
     const row = rows[rangeIndex];
     assert.equal(row.triangleStart, range.indexStart / 3, `${label}: run ${rangeIndex} start`);
     assert.equal(row.triangleCount, range.indexCount / 3, `${label}: run ${rangeIndex} count`);
@@ -72,18 +75,19 @@ function assertCoherent(label, component, meshData, bundle) {
   assert.equal(cursor, meshTriangles, `${label}: runs tile the whole mesh`);
   // EDGE channel: the bundle's edge tables and the mesh's CAD edge lines
   // must describe the same tessellation's edges.
-  const componentEdgeOrds = new Set(component.edges.map((edge) => edge.ord));
+  const componentEdges = meshEdgePolylines(component);
+  const componentEdgeOrds = new Set(componentEdges.map((edge) => edge.ord));
   const edgeIds = bundle.buffers.edgeIds;
   assert.ok(edgeIds instanceof Uint32Array && edgeIds.length > 0, `${label}: bundle carries edge ids`);
   // Every edge row the bundle names is an edge of this mesh, or one it left undrawn.
-  assert.ok(component.edges.every((edge) => componentEdgeOrds.has(edge.ord)), `${label}: edge ordinals are unique`);
+  assert.equal(componentEdgeOrds.size, componentEdges.length, `${label}: edge ordinals are unique`);
   const lineSegments = meshData.cadEdgeIndices.length / 2;
   const rangeSegments = meshData.cadEdgeClassRanges.reduce((sum, range) => sum + range.segmentCount, 0);
   const rangePoints = meshData.cadEdgeClassRanges.reduce((sum, range) => sum + range.pointCount, 0);
   assert.equal(rangeSegments, lineSegments, `${label}: class ranges tile the CAD edge segments`);
   assert.equal(rangePoints, meshData.cadEdgePositions.length / 3, `${label}: class ranges tile the CAD edge points`);
   assert.ok(Array.from(meshData.cadEdgeIndices).every((i) => i < rangePoints), `${label}: edge indices address edge points`);
-  const polylineSegments = component.edges.reduce(
+  const polylineSegments = componentEdges.reduce(
     (sum, edge) => sum + (edge.visibilityClass === "none" ? 0 : Math.max(0, edge.polyline.length / 3 - 1)),
     0,
   );

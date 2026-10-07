@@ -701,7 +701,7 @@ function typedArrayBytesOf(value, seen, visited = new Set()) {
       return 0;
     }
     seen.add(value.buffer);
-    // A short view retains its whole backing allocation. TESS cache entries
+    // A short view retains its whole backing allocation. Stored mesh bodies
     // deliberately decode as disjoint zero-copy views over one packed buffer;
     // charging the first view's length and suppressing the rest understated
     // those entries by most of their actual retained bytes.

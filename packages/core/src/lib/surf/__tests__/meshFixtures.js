@@ -8,13 +8,13 @@ import fs from "node:fs";
 
 import { lodTessellationForLevel } from "../lodPolicy.js";
 import {
-  TESS_MESH_INDEX_SCHEMA,
+  MESH_INDEX_SCHEMA,
   decodeComponentTessellation,
   tessellationPayloadFacts,
 } from "../tessellationCache.js";
-import { encodeTessFixture } from "../testing.js";
+import { encodeMeshFixture } from "../testing.js";
 
-export { encodeTessFixture };
+export { encodeMeshFixture };
 
 const FIXTURES = new URL("../fixtures/", import.meta.url);
 const MANIFEST = JSON.parse(fs.readFileSync(new URL("fixtures.json", FIXTURES), "utf8"));
@@ -32,7 +32,7 @@ export function surfFixture(name) {
 
 /** One fixture component's stored mesh at a viewer LOD level, with its probe row. */
 export function meshFixture(name, level = 1) {
-  const bytes = new Uint8Array(fs.readFileSync(new URL(`${name}.l${level}.tess`, FIXTURES)));
+  const bytes = new Uint8Array(fs.readFileSync(new URL(`${name}.l${level}.glb`, FIXTURES)));
   const { surfaceInput, surfaceObject } = MANIFEST[name];
   return { bytes, surfaceInput, surfaceObject, tessellation: lodTessellationForLevel(level), row: probeRowFor(bytes) };
 }
@@ -40,9 +40,9 @@ export function meshFixture(name, level = 1) {
 /** The index record a host's mesh store answers a probe with, for a valid body. */
 export function probeRowFor(bytes) {
   const facts = tessellationPayloadFacts(bytes);
-  if (!facts) throw new TypeError("not a valid TESS body");
+  if (!facts) throw new TypeError("not a valid stored mesh body");
   return Object.freeze({
-    schemaVersion: TESS_MESH_INDEX_SCHEMA,
+    schemaVersion: MESH_INDEX_SCHEMA,
     object: sha256Hex(bytes),
     byteLength: facts.byteLength,
     decodedBytes: facts.decodedBytes,
@@ -53,12 +53,11 @@ export function probeRowFor(bytes) {
     quality: facts.quality,
     tessellatorVersion: facts.tessellatorVersion,
     payloadVersion: facts.payloadVersion,
-    headerBytes: facts.headerBytes,
-    arrayBytes: facts.arrayBytes,
-    faceRangeCount: facts.faceRangeCount,
+    vertexCount: facts.vertexCount,
+    indexCount: facts.indexCount,
+    faceCount: facts.faceCount,
     edgeCount: facts.edgeCount,
-    edgeClassCount: facts.edgeClassCount,
-    edgeSegmentCount: facts.edgeSegmentCount,
+    edgePointCount: facts.edgePointCount,
   });
 }
 
@@ -125,10 +124,10 @@ export function everyKeyMeshProvider(name = "sun_gear", { surfaceObject = "a".re
       const match = /^([0-9a-f]{64})-t\d+-p\d+-l([0-9a-f]{16})-a([0-9a-f]{16})$/.exec(String(key));
       if (!match) return null;
       const f64 = (hex) => new DataView(Uint8Array.from(hex.match(/../g), (pair) => parseInt(pair, 16)).buffer).getFloat64(0);
-      bodies.set(key, encodeTessFixture(decoded.component, {
+      bodies.set(key, encodeMeshFixture(decoded.component, {
         surfaceInput: match[1], surfaceObject,
         tessellation: { chordTolerance: f64(match[2]), angleTolerance: f64(match[3]) },
-        partColor: decoded.partColor, edgeClasses: decoded.edgeClasses,
+        partColor: decoded.partColor,
       }));
     }
     return bodies.get(key);

@@ -71,7 +71,7 @@ def read_tessellation_cache(
 
 
 def encode_tessellation_cache_batch(entries: Iterable[bytes | None]) -> bytes:
-    """Frame opaque entries as the browser codec's aligned TESB v1 container."""
+    """Frame opaque entries (GLB bodies) as the browser codec's aligned TESB v1 container."""
     materialized = list(entries)
     out = bytearray(struct.pack(
         "<III", TESS_CACHE_BATCH_MAGIC, TESS_CACHE_BATCH_VERSION, len(materialized),
@@ -97,7 +97,7 @@ def _request_items(body: bytes | None, field: str) -> list | None:
 
 
 def read_tess_cache_probe(body: bytes | None) -> dict | None:
-    """Return bounded index facts without loading a TESS or SURF body."""
+    """Return bounded index facts without loading a mesh or SURF body."""
     from cadgen.store.meshes import probe
     inputs = _request_items(body, "tessellationInputs")
     if inputs is None:

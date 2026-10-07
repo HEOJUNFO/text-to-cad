@@ -5,12 +5,12 @@
     "meshes": {
       "0": {
         "angleTolerance": 1.4,
-        "byteLength": 56940,
+        "byteLength": 42632,
         "chordTolerance": 0.002
       },
       "1": {
         "angleTolerance": 0.35,
-        "byteLength": 117404,
+        "byteLength": 85184,
         "chordTolerance": 0.0015
       }
     },
@@ -23,12 +23,12 @@
     "meshes": {
       "0": {
         "angleTolerance": 1.4,
-        "byteLength": 50556,
+        "byteLength": 36332,
         "chordTolerance": 0.002
       },
       "1": {
         "angleTolerance": 0.35,
-        "byteLength": 79824,
+        "byteLength": 57180,
         "chordTolerance": 0.0015
       }
     },
@@ -41,12 +41,12 @@
     "meshes": {
       "0": {
         "angleTolerance": 1.4,
-        "byteLength": 56380,
+        "byteLength": 33912,
         "chordTolerance": 0.002
       },
       "1": {
         "angleTolerance": 0.35,
-        "byteLength": 59716,
+        "byteLength": 36508,
         "chordTolerance": 0.0015
       }
     },

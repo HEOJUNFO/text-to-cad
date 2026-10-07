@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
+import { Vector3 } from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 import {
-  TESS_CACHE_MAGIC,
-  TESS_CACHE_VERSION,
+  MESH_INDEX_SCHEMA,
+  MESH_PAYLOAD_VERSION,
   TESSELLATION_VERSION,
   createHttpTessellationCacheProvider,
   decodeComponentTessellation,
@@ -12,6 +14,8 @@ import {
   encodeTessellationCacheBatch,
   float64Hex,
   isTessellationCacheProbeMissError,
+  meshEdgePolylines,
+  meshFaceRanges,
   resolvedTessellationIdentity,
   createTessellationCache,
   surfIndexFromCacheEntry,
@@ -23,7 +27,7 @@ import {
   validateTessellationProbeRow,
 } from "./tessellationCache.js";
 import { buildMeshDataFromSurf } from "./surfMeshData.js";
-import { encodeTessFixture, memoryMeshProvider, meshFixture, probeRowFor } from "./__tests__/meshFixtures.js";
+import { encodeMeshFixture, memoryMeshProvider, meshFixture, probeRowFor } from "./__tests__/meshFixtures.js";
 import { buildComposedPackageMeshData } from "../assembly/meshData.js";
 
 let tessellationCache = createTessellationCache();
@@ -42,7 +46,6 @@ function componentFixture() {
   return {
     positions: new Float32Array([0, 0, 0, 2, 0, 0, 0, 3, 0]),
     normals: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]),
-    faceOrds: new Float32Array([7, 7, 7]),
     indices: new Uint32Array([0, 1, 2]),
     faceRanges: [{ ord: 7, color: [0.2, 0.4, 0.6, 1], indexStart: 0, indexCount: 3 }],
     edges: [{
@@ -56,32 +59,50 @@ function componentFixture() {
 }
 
 function encodedEntry(overrides = {}) {
-  return encodeTessFixture(componentFixture(), {
+  return encodeMeshFixture(componentFixture(), {
     surfaceInput: D,
     surfaceObject: O,
     tessellation: Q,
     partColor: [0.6, 0.5, 0.4, 1],
-    edgeClasses: [[9, "boundary"]],
     ...overrides,
   });
 }
 
-function rewriteHeader(bytes, mutate) {
-  const sourceView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const oldHeaderLength = sourceView.getUint32(8, true);
-  const header = JSON.parse(new TextDecoder().decode(bytes.subarray(12, 12 + oldHeaderLength)));
-  mutate(header);
-  const json = new TextEncoder().encode(JSON.stringify(header));
-  const headerLength = (json.length + 3) & ~3;
-  const payload = bytes.subarray(12 + oldHeaderLength);
-  const result = new Uint8Array(12 + headerLength + payload.length);
+// The fixture triangle, decoded: what a render consumer holds.
+function solidComponent() {
+  return decodeComponentTessellation(encodedEntry()).component;
+}
+
+// The body with its JSON chunk rewritten by `mutate` and its BIN chunk kept.
+function rewriteJson(bytes, mutate) {
+  const source = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const jsonLength = source.getUint32(12, true);
+  const gltf = JSON.parse(new TextDecoder().decode(bytes.subarray(20, 20 + jsonLength)));
+  mutate(gltf);
+  const json = new TextEncoder().encode(JSON.stringify(gltf));
+  const padded = (json.length + 3) & ~3;
+  const bin = bytes.subarray(20 + jsonLength);
+  const result = new Uint8Array(20 + padded + bin.length);
   const view = new DataView(result.buffer);
-  view.setUint32(0, sourceView.getUint32(0, true), true);
-  view.setUint32(4, sourceView.getUint32(4, true), true);
-  view.setUint32(8, headerLength, true);
-  result.set(json, 12);
-  result.fill(0x20, 12 + json.length, 12 + headerLength);
-  result.set(payload, 12 + headerLength);
+  view.setUint32(0, source.getUint32(0, true), true);
+  view.setUint32(4, source.getUint32(4, true), true);
+  view.setUint32(8, result.length, true);
+  view.setUint32(12, padded, true);
+  view.setUint32(16, source.getUint32(16, true), true);
+  result.set(json, 20);
+  result.fill(0x20, 20 + json.length, 20 + padded);
+  result.set(bin, 20 + padded);
+  return result;
+}
+
+// The body with one u32 of a named table (`cadgen.faces`, `cadgen.edges`) set to `value`.
+function rewriteTable(bytes, name, word, value) {
+  const result = bytes.slice();
+  const view = new DataView(result.buffer);
+  const jsonLength = view.getUint32(12, true);
+  const gltf = JSON.parse(new TextDecoder().decode(result.subarray(20, 20 + jsonLength)));
+  const entry = gltf.bufferViews.find((bufferView) => bufferView.name === name);
+  view.setUint32(28 + jsonLength + entry.byteOffset + 4 * word, value, true);
   return result;
 }
 
@@ -129,10 +150,10 @@ test("lossless binary64 keys match Python and separate old decimal collisions", 
   // A quality read back from an entry keys as the request it spells.
   assert.equal(tessellationCacheKey(D, tessellationQuality(Q)), tessellationCacheKey(D, Q));
   // An empty request is the default pair, as cadgen keys it.
-  assert.equal(tessellationCacheKey(D), `${D}-t${TESSELLATION_VERSION}-p5-l3f589374bc6a7efa-a3fd6666666666666`);
+  assert.equal(tessellationCacheKey(D), `${D}-t${TESSELLATION_VERSION}-p6-l3f589374bc6a7efa-a3fd6666666666666`);
 });
 
-test("v5 round-trips the full typed payload and exposes exact D/O/L/Q/R", () => {
+test("a GLB body round-trips its arrays and tables as views and exposes exact D/O/L/Q/R", () => {
   const source = componentFixture();
   const bytes = encodedEntry();
   const L = tessellationCacheKey(D, Q);
@@ -145,7 +166,7 @@ test("v5 round-trips the full typed payload and exposes exact D/O/L/Q/R", () => 
     tessellation: Q,
   });
   assert.ok(decoded);
-  assert.equal(TESS_CACHE_VERSION, 5);
+  assert.equal(MESH_PAYLOAD_VERSION, 6);
   assert.deepEqual(decoded.identity, {
     surfaceInput: D,
     surfaceObject: O,
@@ -153,19 +174,22 @@ test("v5 round-trips the full typed payload and exposes exact D/O/L/Q/R", () => 
     renderIdentity: R,
     quality: tessellationQuality(Q),
     tessellatorVersion: TESSELLATION_VERSION,
-    payloadVersion: 5,
+    payloadVersion: 6,
   });
   assert.deepEqual(decoded.partColor, [0.6, 0.5, 0.4, 1]);
-  assert.deepEqual(decoded.edgeClasses, [[9, "boundary"]]);
-  for (const field of ["positions", "normals", "faceOrds", "indices"]) {
-    assert.deepEqual([...decoded.component[field]], [...source[field]], field);
-    assert.equal(decoded.component[field].buffer, bytes.buffer, `${field} is zero-copy`);
+  const { component } = decoded;
+  assert.ok(component.indices instanceof Uint16Array, "a component of at most 65,535 vertices indexes in u16");
+  for (const field of ["positions", "normals", "indices"]) {
+    assert.deepEqual([...component[field]], [...source[field]], field);
   }
-  assert.deepEqual(decoded.component.faceRanges, source.faceRanges);
-  assert.deepEqual(decoded.component.bounds, source.bounds);
-  assert.equal(decoded.component.scale, source.scale);
-  assert.deepEqual([...decoded.component.edges[0].polyline], [...source.edges[0].polyline]);
-  assert.equal(decoded.component.edges[0].polyline.buffer, bytes.buffer, "edge is zero-copy");
+  for (const field of ["positions", "normals", "indices", "faceTable", "edgeTable", "edgePoints"]) {
+    assert.equal(component[field].buffer, bytes.buffer, `${field} is zero-copy`);
+  }
+  assert.deepEqual(meshFaceRanges(component), source.faceRanges);
+  assert.deepEqual(meshEdgePolylines(component).map(({ ord, visibilityClass, polyline }) => [ord, visibilityClass, [...polyline]]),
+    [[9, "boundary", [0, 0, 0, 2, 0, 0]]]);
+  assert.deepEqual(component.bounds, source.bounds);
+  assert.equal(component.scale, source.scale);
 
   const unalignedStorage = new Uint8Array(bytes.length + 1);
   unalignedStorage.set(bytes, 1);
@@ -176,23 +200,54 @@ test("v5 round-trips the full typed payload and exposes exact D/O/L/Q/R", () => 
   assert.notEqual(copied.component.positions.buffer, unalignedStorage.buffer, "unaligned input safely copies");
 });
 
+test("a component past 65,535 vertices indexes in u32, and the render buffers are u32 either way", () => {
+  const vertices = 65536;
+  const positions = new Float32Array(3 * vertices);
+  for (let vertex = 0; vertex < vertices; vertex += 1) positions[3 * vertex] = vertex;
+  const component = {
+    positions, normals: new Float32Array(3 * vertices).fill(1 / Math.sqrt(3)),
+    indices: new Uint32Array([0, 1, vertices - 1]),
+    faceRanges: [{ ord: 1, indexStart: 0, indexCount: 3 }], edges: [],
+    bounds: { min: [0, 0, 0], max: [vertices - 1, 0, 0] }, scale: vertices - 1,
+  };
+  const wide = decodeComponentTessellation(encodeMeshFixture(component, { surfaceInput: D, surfaceObject: O }));
+  assert.ok(wide.component.indices instanceof Uint32Array);
+  assert.deepEqual([...wide.component.indices], [0, 1, vertices - 1]);
+  assert.ok(buildMeshDataFromSurf(surfIndexFromCacheEntry(wide), wide.component).indices instanceof Uint32Array);
+  assert.ok(buildMeshDataFromSurf({ partColor: null }, solidComponent()).indices instanceof Uint32Array);
+});
+
+test("a stored mesh is a glTF 2.0 file a stock GLTFLoader draws", async () => {
+  const gltf = await new GLTFLoader().parseAsync(encodedEntry().slice().buffer, "");
+  const meshes = [];
+  gltf.scene.traverse((object) => { if (object.isMesh) meshes.push(object); });
+  assert.equal(meshes.length, 1, "one mesh, one triangle primitive");
+  const geometry = meshes[0].geometry;
+  assert.deepEqual([...geometry.getAttribute("position").array], [...componentFixture().positions]);
+  assert.deepEqual([...geometry.getIndex().array], [0, 1, 2]);
+  // Its node turns Z-up millimetres into Y-up metres.
+  gltf.scene.updateMatrixWorld(true);
+  const corner = geometry.getAttribute("position");
+  const world = meshes[0].localToWorld(new Vector3(corner.getX(2), corner.getY(2), corner.getZ(2)));
+  assert.deepEqual([world.x, world.y, world.z].map((value) => Math.round(value * 1e6) / 1e6 + 0), [0, 0, -0.003]);
+});
+
 test("empty imported components round-trip through the cache without changing assembly bounds", () => {
   // What cadgen stores for a product with no faces and no edges: empty arrays, zero bounds.
   const component = {
-    positions: new Float32Array(0), normals: new Float32Array(0), faceOrds: new Float32Array(0),
+    positions: new Float32Array(0), normals: new Float32Array(0),
     indices: new Uint32Array(0), faceRanges: [], edges: [],
     bounds: { min: [0, 0, 0], max: [0, 0, 0] }, scale: 1e-6,
   };
-  const decoded = decodeComponentTessellation(encodeTessFixture(component, {
-    surfaceInput: D,
-    surfaceObject: O,
-    edgeClasses: [],
-  }));
+  const bytes = encodeMeshFixture(component, { surfaceInput: D, surfaceObject: O });
+  const decoded = decodeComponentTessellation(bytes);
   assert.ok(decoded, "an empty product entry is a valid complete payload");
-  assert.deepEqual({ ...decoded.component, positions: [...decoded.component.positions] },
-    { ...component, positions: [] });
+  assert.equal(tessellationPayloadFacts(bytes).byteLength, bytes.length, "a JSON chunk alone");
+  for (const field of ["positions", "normals", "indices", "faceTable", "edgeTable", "edgePoints"]) {
+    assert.equal(decoded.component[field].length, 0, field);
+  }
   const emptyMesh = buildMeshDataFromSurf(surfIndexFromCacheEntry(decoded), decoded.component);
-  const solidMesh = buildMeshDataFromSurf({ faces: [], edges: [] }, componentFixture());
+  const solidMesh = buildMeshDataFromSurf({ partColor: null }, solidComponent());
   const descriptor = { assembly: { root: {
     id: "root", nodeType: "assembly", children: [
       { id: "empty", nodeType: "part", children: [] },
@@ -220,7 +275,7 @@ test("a wire-only imported component draws its edges and frames nothing", () => 
   // A STEP product holding only wires (a sketch, a reference curve) has no faces: cadgen stores
   // its edges' polylines, bounded by their points, and no triangles.
   const component = {
-    positions: new Float32Array(0), normals: new Float32Array(0), faceOrds: new Float32Array(0),
+    positions: new Float32Array(0), normals: new Float32Array(0),
     indices: new Uint32Array(0), faceRanges: [],
     edges: [
       { ord: 1, visibilityClass: "feature", polyline: new Float32Array([0, 0, 0, 0, 0, 50]) },
@@ -228,13 +283,13 @@ test("a wire-only imported component draws its edges and frames nothing", () => 
     ],
     bounds: { min: [-10, 0, 0], max: [10, 10, 50] }, scale: Math.hypot(20, 10, 50),
   };
-  const decoded = decodeComponentTessellation(encodeTessFixture(component, { surfaceInput: D, surfaceObject: O }));
+  const decoded = decodeComponentTessellation(encodeMeshFixture(component, { surfaceInput: D, surfaceObject: O }));
   assert.ok(decoded, "a wire-only product is a valid complete payload");
-  assert.deepEqual(decoded.component.edges.map((edge) => edge.ord), [1, 2]);
+  assert.deepEqual(meshEdgePolylines(decoded.component).map((edge) => edge.ord), [1, 2]);
 
   const wireMesh = buildMeshDataFromSurf(surfIndexFromCacheEntry(decoded), decoded.component);
-  assert.ok(wireMesh.cadEdgePositions.length > 0, "its edges reach the mesh data");
-  const solidMesh = buildMeshDataFromSurf({ faces: [], edges: [] }, componentFixture());
+  assert.deepEqual([...wireMesh.cadEdgeIndices], [0, 1, 2, 3, 3, 4], "its edges reach the mesh data");
+  const solidMesh = buildMeshDataFromSurf({ partColor: null }, solidComponent());
   const assembly = buildComposedPackageMeshData({ assembly: { root: {
     id: "root", nodeType: "assembly", children: [
       { id: "wire", nodeType: "part", children: [] },
@@ -249,6 +304,23 @@ test("a wire-only imported component draws its edges and frames nothing", () => 
   assert.deepEqual(assembly.bounds, solidMesh.bounds, "so it cannot move the camera");
 });
 
+test("each edge class draws as its line class, and none draws nothing", () => {
+  const classes = ["feature", "tangent", "seam", "degenerate", "boundary", "nonManifold", "unknown", "none"];
+  const component = {
+    ...componentFixture(),
+    edges: classes.map((visibilityClass, index) => ({
+      ord: index + 1, visibilityClass, polyline: new Float32Array([index, 0, 0, index, 1, 0]),
+    })),
+  };
+  const decoded = decodeComponentTessellation(encodeMeshFixture(component, { surfaceInput: D, surfaceObject: O }));
+  const { cadEdgePositions, cadEdgeClassRanges } = buildMeshDataFromSurf({ partColor: null }, decoded.component);
+  assert.deepEqual(cadEdgeClassRanges.map(({ classId, pointCount, segmentCount }) => [classId, pointCount, segmentCount]),
+    [["feature", 8, 4], ["tangent", 2, 1], ["seam", 2, 1], ["degenerate", 2, 1]]);
+  // Feature first, in edge order, with the classes that draw as features (boundary,
+  // nonManifold, unknown) after the feature edge itself.
+  assert.deepEqual([0, 1, 2, 3].map((point) => cadEdgePositions[6 * point]), [0, 4, 5, 6]);
+});
+
 test("cadgen's stored meshes decode as the bodies their probe rows describe", () => {
   for (const [name, level] of [["sun_gear", 0], ["sun_gear", 1], ["cam_follower_roller", 1], ["mixed", 0]]) {
     const fixture = meshFixture(name, level);
@@ -260,10 +332,11 @@ test("cadgen's stored meshes decode as the bodies their probe rows describe", ()
       surfaceInput: fixture.surfaceInput, surfaceObject: fixture.surfaceObject, tessellation: fixture.tessellation || {},
     });
     assert.ok(decoded, `${name} L${level} decodes`);
-    assert.equal(decoded.component.positions.length, decoded.component.normals.length);
-    assert.equal(decoded.component.faceOrds.length * 3, decoded.component.positions.length);
-    assert.ok(decoded.component.indices.length > 0 && decoded.component.edges.length > 0);
-    assert.ok(surfIndexFromCacheEntry(decoded), "every stored mesh carries its display index");
+    assert.equal(decoded.component.positions.length, 3 * row.vertexCount);
+    assert.equal(decoded.component.normals.length, 3 * row.vertexCount);
+    assert.equal(decoded.component.indices.length, row.indexCount);
+    assert.ok(row.faceCount > 0 && row.edgeCount > 0);
+    assert.ok(surfIndexFromCacheEntry(decoded), "every stored mesh carries its part colour");
   }
 });
 
@@ -280,68 +353,95 @@ test("decode rejects expected and embedded identity mismatches as cache misses",
     tessellation: { ...Q, chordTolerance: fromF64Hex("3f589374bc6a7efb") },
   }), null);
 
-  assert.equal(decodeComponentTessellation(rewriteHeader(bytes, (h) => { h.surfaceInput = D2; })), null);
-  assert.equal(decodeComponentTessellation(
-    rewriteHeader(bytes, (h) => { h.surfaceDigest = O2; }),
-    { surfaceObject: O },
-  ), null);
-  assert.equal(decodeComponentTessellation(rewriteHeader(bytes, (h) => {
-    h.quality.chordToleranceF64 = "3f589374bc6a7efb";
+  const cad = (mutate) => rewriteJson(bytes, (gltf) => mutate(gltf.extras.cadgen));
+  assert.equal(decodeComponentTessellation(cad((c) => { c.surfaceInput = D2; })), null);
+  assert.equal(decodeComponentTessellation(cad((c) => { c.surfaceObject = O2; }), { surfaceObject: O }), null);
+  assert.equal(decodeComponentTessellation(cad((c) => { c.quality.chordToleranceF64 = "3f589374bc6a7efb"; })), null);
+  assert.equal(decodeComponentTessellation(cad((c) => {
+    c.tessellationInput = `${c.tessellationInput.slice(0, -1)}0`;
   })), null);
-  assert.equal(decodeComponentTessellation(rewriteHeader(bytes, (h) => {
-    h.tessellationInput = `${h.tessellationInput.slice(0, -1)}0`;
-  })), null);
-  assert.equal(decodeComponentTessellation(rewriteHeader(bytes, (h) => {
-    delete h.surfaceInput;
-  })), null, "legacy-shaped header is a miss");
+  assert.equal(decodeComponentTessellation(cad((c) => { c.payloadVersion = 5; })), null, "another format version is a miss");
+  assert.equal(decodeComponentTessellation(cad((c) => { delete c.surfaceInput; })), null);
 });
 
-test("decode rejects corrupt, truncated and legacy versions", () => {
+test("decode rejects corrupt, truncated and foreign containers", () => {
   const bytes = encodedEntry();
   assert.equal(decodeComponentTessellation(null), null);
   assert.equal(decodeComponentTessellation(new Uint8Array(4)), null);
   assert.equal(decodeComponentTessellation(bytes.subarray(0, bytes.length - 4)), null);
   const wrongMagic = bytes.slice();
-  new DataView(wrongMagic.buffer).setUint32(0, 0, true);
-  assert.equal(decodeComponentTessellation(wrongMagic), null);
-  const legacy = bytes.slice();
-  new DataView(legacy.buffer).setUint32(4, 3, true);
-  assert.equal(decodeComponentTessellation(legacy), null);
-  const badCount = rewriteHeader(bytes, (h) => { h.positionCount = -1; });
+  new DataView(wrongMagic.buffer).setUint32(0, 0x53534554, true);
+  assert.equal(decodeComponentTessellation(wrongMagic), null, "a TESS body is not one");
+  const glTF1 = bytes.slice();
+  new DataView(glTF1.buffer).setUint32(4, 1, true);
+  assert.equal(decodeComponentTessellation(glTF1), null);
+  const longer = new Uint8Array(bytes.length + 4);
+  longer.set(bytes);
+  assert.equal(decodeComponentTessellation(longer), null, "the header's length is the body's");
+  const badCount = rewriteJson(bytes, (gltf) => { gltf.accessors[0].count = -1; });
   assert.equal(decodeComponentTessellation(badCount), null);
 });
 
-test("decode rejects malformed complete-render metadata as cache misses", () => {
+test("decode rejects a JSON chunk that is not the canonical one for its values", () => {
   const bytes = encodedEntry();
   const mutations = [
-    (h) => { h.edgeClasses = [null]; },
-    (h) => { h.edgeClasses = [[9, "boundary"], [9, "boundary"]]; },
-    (h) => { h.edgeClasses = [[9, "future-class"]]; },
-    (h) => { h.edges = [null]; },
-    (h) => { h.edges[0].ord = 0; },
-    (h) => { h.edges[0].visibilityClass = "feature"; },
-    (h) => { h.edgeClasses = [[10, "boundary"]]; },
-    (h) => { h.bounds.min = [null, 0, 0]; },
-    (h) => { h.bounds.min[0] = h.bounds.max[0] + 1; },
-    (h) => { h.scale = 0; },
-    (h) => { h.partColor = [1, 0, 0]; },
-    (h) => { h.faceRanges[0].indexStart = 3; },
-    (h) => { h.faceRanges[0].indexCount = 0; },
-    (h) => { h.faceRanges[0].color = [1, 0, 0]; },
-    (h) => { h.faceRanges.push({ ord: 7, indexStart: 3, indexCount: 0 }); },
+    (g) => { g.extras.cadgen.bounds.min = [null, 0, 0]; },
+    (g) => { g.extras.cadgen.bounds.min[0] = g.extras.cadgen.bounds.max[0] + 1; },
+    (g) => { g.extras.cadgen.scale = 0; },
+    (g) => { g.extras.cadgen.partColor = [1, 0, 0]; },
+    (g) => { g.extras.cadgen.faceColors = [[1, 0, 0]]; },
+    (g) => { g.extras.cadgen.edgeClasses = ["none"]; },
+    (g) => { g.extras.cadgen.faces.count = 2; },
+    (g) => { g.extras.cadgen.edges = null; },
+    (g) => { g.extras.cadgen.extension = "refused"; },
+    (g) => { g.extras.other = {}; },
+    (g) => { g.accessors[0].max = [2, 3, 1]; },
+    (g) => { g.accessors[2].componentType = 5125; },
+    (g) => { g.accessors[2].count = 6; },
+    (g) => { g.bufferViews[3].byteOffset += 4; },
+    (g) => { g.buffers[0].byteLength += 4; },
+    (g) => { g.nodes[0].scale = [1, 1, 1]; },
+    (g) => { g.meshes[0].primitives[0].mode = 1; },
+    (g) => { g.extensionsUsed = ["KHR_mesh_quantization"]; },
   ];
-  for (const mutate of mutations) {
-    assert.equal(decodeComponentTessellation(rewriteHeader(bytes, mutate)), null);
+  for (const [index, mutate] of mutations.entries()) {
+    const mutated = rewriteJson(bytes, mutate);
+    assert.equal(decodeComponentTessellation(mutated), null, `JSON mutation ${index}`);
+    assert.equal(tessellationPayloadFacts(mutated), null, `JSON mutation ${index} has no facts`);
   }
-  assert.equal(surfIndexFromCacheEntry({ edgeClasses: [null] }), null,
-    "malformed surrogate metadata never throws in a render consumer");
+  assert.ok(decodeComponentTessellation(rewriteJson(bytes, () => {})), "the canonical JSON, re-spelled, reads");
+  assert.equal(surfIndexFromCacheEntry(null), null, "nothing decoded is nothing to draw");
+});
 
-  const extended = rewriteHeader(bytes, (h) => {
-    h.bounds.extension = "ignored";
-    h.faceRanges[0].extension = "ignored";
-    h.edges[0].extension = "ignored";
-  });
-  assert.ok(decodeComponentTessellation(extended), "extra object fields remain forward-compatible");
+test("decode rejects face and edge tables that do not cover their arrays in order", () => {
+  const bytes = encodedEntry();
+  const faces = (word, value) => rewriteTable(bytes, "cadgen.faces", word, value);
+  const edges = (word, value) => rewriteTable(bytes, "cadgen.edges", word, value);
+  const mutations = {
+    "face ordinal 0": faces(0, 0),
+    "face range start": faces(1, 3),
+    "face partial triangle": faces(2, 2),
+    "face range short of the indices": faces(2, 0),
+    "face colour past the palette": faces(3, 2),
+    "edge ordinal 0": edges(0, 0),
+    "edge points start": edges(1, 1),
+    "edge of one point": edges(2, 1),
+    "edge class past the names": edges(3, 8),
+  };
+  for (const [label, mutated] of Object.entries(mutations)) {
+    assert.equal(decodeComponentTessellation(mutated), null, label);
+  }
+  const twoFaces = encodeMeshFixture({
+    ...componentFixture(),
+    positions: new Float32Array([0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 1]),
+    normals: new Float32Array(12).fill(0.5),
+    indices: new Uint32Array([0, 1, 2, 0, 1, 3]),
+    faceRanges: [{ ord: 1, indexStart: 0, indexCount: 3 }, { ord: 2, indexStart: 3, indexCount: 3 }],
+    bounds: { min: [0, 0, 0], max: [2, 3, 1] },
+  }, { surfaceInput: D, surfaceObject: O });
+  assert.ok(decodeComponentTessellation(twoFaces));
+  assert.equal(decodeComponentTessellation(rewriteTable(twoFaces, "cadgen.faces", 4, 1)), null,
+    "face ordinals rise");
 });
 
 test("batch container preserves aligned zero-copy hits, misses and odd payloads", () => {
@@ -428,7 +528,7 @@ test("a vanished probed body is an explicit retry boundary only when requested",
   const key = tessellationCacheKey(D, Q);
   const facts = tessellationPayloadFacts(entry, { tessellationInput: key });
   const object = createHash("sha256").update(entry).digest("hex");
-  const row = validateTessellationProbeRow({ schemaVersion: 1, object, ...facts });
+  const row = validateTessellationProbeRow({ schemaVersion: MESH_INDEX_SCHEMA, object, ...facts });
   setTessellationCacheProvider({
     async probeMany() { return [row]; },
     async getProbed() { return null; },
@@ -455,7 +555,7 @@ test("HTTP provider probes metadata before an exact bounded object read", async 
   const key = tessellationCacheKey(D, Q);
   const facts = tessellationPayloadFacts(entry, { tessellationInput: key });
   const object = createHash("sha256").update(entry).digest("hex");
-  const row = validateTessellationProbeRow({ schemaVersion: 1, object, ...facts });
+  const row = validateTessellationProbeRow({ schemaVersion: MESH_INDEX_SCHEMA, object, ...facts });
   const calls = [];
   globalThis.fetch = async (url, options = {}) => {
     calls.push({ url: String(url), options });
@@ -487,7 +587,7 @@ test("HTTP provider probes metadata before an exact bounded object read", async 
 
 test("an HTTP batch read verifies each entry on its own: a damaged one is a miss for its component alone", async () => {
   const entries = [encodedEntry(), encodedEntry({ surfaceInput: D2 })];
-  const rows = entries.map((entry) => validateTessellationProbeRow({ schemaVersion: 1,
+  const rows = entries.map((entry) => validateTessellationProbeRow({ schemaVersion: MESH_INDEX_SCHEMA,
     object: createHash("sha256").update(entry).digest("hex"), ...tessellationPayloadFacts(entry) }));
   const damaged = entries[1].slice();
   damaged[damaged.length - 1] ^= 0xff;
@@ -513,7 +613,7 @@ test("a transport's batch ceiling lowers the server's bound and never raises it"
   assert.deepEqual([provider.maxBatchBytes, cache.batchMaxBytes, cache.createSession().batchMaxBytes], [8 * MIB, 8 * MIB, 8 * MIB]);
   assert.equal(createTessellationCache({ provider: createHttpTessellationCacheProvider() }).batchMaxBytes, 32 * MIB);
   // And the provider asks for no batch over it, whatever its caller allows.
-  const row = validateTessellationProbeRow({ schemaVersion: 1,
+  const row = validateTessellationProbeRow({ schemaVersion: MESH_INDEX_SCHEMA,
     object: createHash("sha256").update(encodedEntry()).digest("hex"), ...tessellationPayloadFacts(encodedEntry()) });
   const over = Array.from({ length: Math.ceil((8 * MIB) / row.byteLength) + 1 }, () => row);
   assert.equal(await provider.getManyProbed(over, { maxBytes: 32 * MIB }), null);
@@ -526,7 +626,7 @@ test("bounded probes retain other chunks when one metadata response is unavailab
   const rows = new Map(inputs.map((surfaceInput) => {
     const entry = encodedEntry({ surfaceInput });
     const facts = tessellationPayloadFacts(entry);
-    return [facts.tessellationInput, validateTessellationProbeRow({ schemaVersion: 1,
+    return [facts.tessellationInput, validateTessellationProbeRow({ schemaVersion: MESH_INDEX_SCHEMA,
       object: createHash("sha256").update(entry).digest("hex"), ...facts })];
   }));
   const calls = [];
@@ -570,7 +670,7 @@ test("render-session caches isolate exact objects and disposal", async () => {
 test("cache disposal rejects a late custom-provider response without affecting another session", async () => {
   const entry = encodedEntry();
   const facts = tessellationPayloadFacts(entry);
-  const row = validateTessellationProbeRow({ schemaVersion: 1,
+  const row = validateTessellationProbeRow({ schemaVersion: MESH_INDEX_SCHEMA,
     object: createHash("sha256").update(entry).digest("hex"), ...facts });
   let finish;
   const a = createTessellationCache({ provider: {
@@ -594,7 +694,7 @@ test("cache disposal rejects a late custom-provider response without affecting a
 
 test("borrowed view cancellation is independent while owner disposal aborts every read", async () => {
   const bytes = encodedEntry();
-  const row = validateTessellationProbeRow({ schemaVersion: 1,
+  const row = validateTessellationProbeRow({ schemaVersion: MESH_INDEX_SCHEMA,
     object: createHash("sha256").update(bytes).digest("hex"), ...tessellationPayloadFacts(bytes) });
   const pending = [];
   const owner = createTessellationCache({ provider: {

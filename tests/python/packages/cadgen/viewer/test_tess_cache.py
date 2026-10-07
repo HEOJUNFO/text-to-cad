@@ -225,7 +225,7 @@ class BatchFramingMatchesTheAuthoritativeCodec(TessCacheTestCase):
         # 1, 2 and 3 mod 4 all exercise the padding; a decoder that advances by
         # the raw length instead of the aligned one desynchronises after the
         # first such entry.
-        # Framing also accepts odd-length body readers; real TESS bodies
+        # Framing also accepts odd-length body readers; real GLB bodies
         # themselves are aligned. Keep this isolated from payload validation.
         entries = [bytes(range(size)) for size in (1, 2, 3, 4, 5)]
         with mock.patch("cadgen.store.tess_cache.read_tessellation_cache", side_effect=entries):

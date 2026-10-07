@@ -270,15 +270,15 @@ class Determinism(unittest.TestCase):
         source = cube(face_colors={3: [0.1, 0.2, 0.3, 1.0]})
         payload = encode_payload(
             surface_input="a" * 64, surface_object="b" * 64, chord=0.0015, angle=0.35,
-            positions=source.positions.astype("<f4").tobytes(), normals=source.normals.astype("<f4").tobytes(),
-            face_ords=np.repeat(np.arange(1, 7, dtype="<f4"), 4).tobytes(),
-            indices=source.indices.astype("<u4").tobytes(), face_ranges=source.face_ranges, edges=[],
-            edge_classes=[], bounds={"min": [-5.0] * 3, "max": [5.0] * 3}, scale=17.3, part_color=[1, 0, 0, 1],
+            positions=source.positions, normals=source.normals, indices=source.indices,
+            face_ranges=source.face_ranges, edges=[], bounds={"min": [-5.0] * 3, "max": [5.0] * 3},
+            scale=17.3, part_color=[1, 0, 0, 1],
         )
         decoded = decode_tessellation(payload)
         np.testing.assert_array_equal(source.positions, decoded.positions)
         np.testing.assert_array_equal(source.normals, decoded.normals)
         np.testing.assert_array_equal(source.indices, decoded.indices)
+        self.assertEqual(decoded.indices.dtype, np.uint32, "the body's u16 indices are widened for the writers")
         self.assertEqual(source.face_ranges, decoded.face_ranges)
         self.assertEqual([1, 0, 0, 1], decoded.part_color)
 

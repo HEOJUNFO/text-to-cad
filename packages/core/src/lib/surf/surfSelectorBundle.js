@@ -9,6 +9,8 @@
 // OCCT mesh of the exact surfaces, the same triangles the display draws, so
 // a face's triangle range here is its range on screen.
 
+import { meshEdgePolylines, meshFaceRanges } from "./tessellationCache.js";
+
 export const STEP_TOPOLOGY_SCHEMA_VERSION = 2;
 
 const OCCURRENCE_ID = "o1";
@@ -136,12 +138,13 @@ function faceStatistics(component, range) {
 const ANALYTIC_SURFACES = new Set(["plane", "cylinder", "cone", "sphere", "torus"]);
 
 export function buildSelectorBundleFromSurf(index, component) {
-  if (!component?.faceRanges) throw new TypeError("A selector bundle needs the component's mesh");
+  if (!component?.faceTable) throw new TypeError("A selector bundle needs the component's mesh");
   const faces = index.faces || [];
   const edges = index.edges || [];
   const shapesMeta = index.shapes || [{ ord: 1, kind: "shape", volume: null }];
 
-  const rangeByOrd = new Map(component.faceRanges.map((range) => [range.ord, range]));
+  const faceRanges = meshFaceRanges(component);
+  const rangeByOrd = new Map(faceRanges.map((range) => [range.ord, range]));
   const faceRowByOrd = new Map(faces.map((face, row) => [face.ord, row]));
   const edgeRowByOrd = new Map(edges.map((edge, row) => [edge.ord, row]));
 
@@ -174,7 +177,7 @@ export function buildSelectorBundleFromSurf(index, component) {
   const sizeFloor = Math.max(diag * diag * 1e-6, 1e-12);
 
   // --- Edge geometry from polylines ----------------------------------------
-  const polylineByOrd = new Map(component.edges.map((edge) => [edge.ord, edge.polyline]));
+  const polylineByOrd = new Map(meshEdgePolylines(component).map((edge) => [edge.ord, edge.polyline]));
   const edgeGeometry = new Map();
   let totalLength = 0;
   for (const edge of edges) {
@@ -389,7 +392,7 @@ export function buildSelectorBundleFromSurf(index, component) {
       shapeCount: shapeRows.length,
       faceCount: faceRows.length,
       edgeCount: edgeRows.length,
-      faceProxyRunCount: component.faceRanges.length,
+      faceProxyRunCount: faceRanges.length,
       edgeProxyPointCount: edgePositions.length / 3,
       edgeProxySegmentCount: edgeIds.length,
     },
@@ -428,8 +431,8 @@ export function buildSelectorBundleFromSurf(index, component) {
     buffers: { littleEndian: true },
   };
 
-  const faceRuns = new Uint32Array(component.faceRanges.length * 5);
-  component.faceRanges.forEach((range, runIndex) => {
+  const faceRuns = new Uint32Array(faceRanges.length * 5);
+  faceRanges.forEach((range, runIndex) => {
     faceRuns.set(
       [0, 0, range.indexStart / 3, range.indexCount / 3, faceRowByOrd.get(range.ord) ?? 0],
       runIndex * 5,

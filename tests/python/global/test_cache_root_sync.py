@@ -1,6 +1,6 @@
 """The mesh-store contract is CROSS-LANGUAGE.
 
-cadgen writes the store's TESS entries (cadgen/store/meshes.py) and the CAD
+cadgen writes the store's mesh entries (cadgen/store/meshes.py) and the CAD
 Viewer's client keys, probes and reads them
 (packages/core/src/lib/surf/tessellationCache.js). A one-sided change to the key
 scheme, its tessellator-version salt or the default tolerances would split "one
@@ -68,19 +68,19 @@ class MeshStoreContractSyncTest(unittest.TestCase):
             "(cadgen/store/meshes.py) — change both together",
         )
 
-    def test_header_bound_matches_between_python_and_js(self) -> None:
-        # The header names every face and edge, so its bound is the largest
-        # component either side takes: a body cadgen stores and the client
-        # refuses is a component the Viewer can never draw.
-        from cadgen.store.meshes import MAX_HEADER_BYTES
+    def test_json_bound_matches_between_python_and_js(self) -> None:
+        # A body's JSON chunk grows with its face colour palette, so its bound is
+        # a limit on the components either side takes: a body cadgen stores and
+        # the client refuses is a component the Viewer can never draw.
+        from cadgen.store.meshes import MAX_JSON_BYTES
 
         source = TESSELLATION_CACHE_JS.read_text(encoding="utf-8")
-        match = re.search(r"^export const TESS_MAX_HEADER_BYTES = (\d+) \* 1024 \* 1024;", source, re.MULTILINE)
-        assert match, "TESS_MAX_HEADER_BYTES not found in tessellationCache.js"
+        match = re.search(r"^export const MESH_MAX_JSON_BYTES = (\d+) \* 1024 \* 1024;", source, re.MULTILINE)
+        assert match, "MESH_MAX_JSON_BYTES not found in tessellationCache.js"
         self.assertEqual(
             int(match.group(1)) * 1024 * 1024,
-            MAX_HEADER_BYTES,
-            "TESS_MAX_HEADER_BYTES (tessellationCache.js) diverged from MAX_HEADER_BYTES "
+            MAX_JSON_BYTES,
+            "MESH_MAX_JSON_BYTES (tessellationCache.js) diverged from MAX_JSON_BYTES "
             "(cadgen/store/meshes.py) — change both together",
         )
 
