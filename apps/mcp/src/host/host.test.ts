@@ -438,4 +438,45 @@ describe('the frame\'s clipboard', () => {
       expect(events).toEqual(['item', 'write', 'File: /work/a.step']);
     } finally { vi.unstubAllGlobals(); }
   });
+
+  it('copies by the page\'s copy command where the host grants the frame no clipboard, and fails only when that fails too', async () => {
+    const details = ['File: /work/gear.step', 'Operation: loading geometry', 'Traceback (most recent call last):',
+      ...Array.from({ length: 40 }, (_, line) => `  File "/work/gear.py", line ${line + 1}, in build`), 'ValueError: no teeth'].join('\n');
+    // What the copy command would put on the clipboard: the selection in the focused field.
+    const copied: string[] = [];
+    const execCommand = vi.fn((command: string) => {
+      const field = document.activeElement as HTMLTextAreaElement;
+      copied.push(`${command}:${field.value.slice(field.selectionStart, field.selectionEnd)}`);
+      return true;
+    });
+    Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand });
+    const button = document.body.appendChild(document.createElement('button'));
+    const refusing = { clipboard: { writeText: async () => { throw new DOMException('Write permission denied.', 'NotAllowedError'); } } };
+    try {
+      // Granted: the clipboard API, and nothing else.
+      const written: string[] = [];
+      vi.stubGlobal('navigator', { clipboard: { writeText: async (text: string) => { written.push(text); } } });
+      await frameClipboard.writeText(details);
+      expect([written, execCommand.mock.calls.length]).toEqual([[details], 0]);
+      // Refused, or no clipboard API at all: the copy command takes the whole text, and leaves the
+      // page as it was, its field gone and the focus back on the button pressed.
+      vi.stubGlobal('navigator', refusing);
+      button.focus();
+      await frameClipboard.writeText(details);
+      expect([copied, document.querySelector('textarea'), document.activeElement]).toEqual([[`copy:${details}`], null, button]);
+      vi.stubGlobal('navigator', {});
+      await frameClipboard.writeText('File: /work/a.step');
+      await frameClipboard.writeText(Promise.resolve('File: /work/b.step'));
+      expect(copied.slice(1)).toEqual(['copy:File: /work/a.step', 'copy:File: /work/b.step']);
+      // Both refused: the copy fails, with the clipboard's refusal where there was one.
+      execCommand.mockReturnValue(false);
+      await expect(frameClipboard.writeText('File: /work/c.step')).rejects.toThrow('Copying is not available here.');
+      vi.stubGlobal('navigator', refusing);
+      await expect(frameClipboard.writeText('File: /work/c.step')).rejects.toThrow('Write permission denied.');
+    } finally {
+      vi.unstubAllGlobals();
+      delete (document as { execCommand?: unknown }).execCommand;
+      button.remove();
+    }
+  });
 });

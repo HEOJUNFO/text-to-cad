@@ -212,6 +212,7 @@ reference host `basic-host` does.
 | `prompt.ts` | Quick Edit's chat: `chatReach`, what the host's chat takes, and the prompt port over it — Queue through `ui/update-model-context` (a text block titled `Quick edit · <file>` and the sketch's image block, kept until the host clears its model context), Send through `ui/message` — with references as absolute paths (Copy Prompt spells them as copied references are) |
 | `live.ts`, `sync.ts` | the mounted view's live controller (`@text-to-cad/ui/host`'s registry), and its sync (`cad_sync`), every second: its state for the agent, the agent's requests (`show`, `capture`), the catalog's revision and its build feeds |
 | `presentation.ts` | how the host presents the page, and the election that retires older inline views |
+| `clipboard.ts` | the frame's clipboard, every copy's: the asynchronous clipboard where the host grants it (the resource asks for `clipboardWrite`), else the page's own copy command, still inside the press, for text |
 
 `ModelView.tsx` is the page: the shared `CadViewer` (`@text-to-cad/ui/cad-viewer`,
 the one the web Viewer shows) showing the launch's model, with this host's ports — its
