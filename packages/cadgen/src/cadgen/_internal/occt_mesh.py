@@ -14,12 +14,13 @@ component -- the order its SURF index and every selector use -- and the SURF
 index supplies what the triangles do not: each face's intrinsic colour and
 each edge's display class. OCCT's mesher drops the odd tiny face at one
 deflection and meshes it at the next, so a component whose pass leaves a face
-of any area empty is meshed again, whole and finer, in a fixed order: a face
-meshed on its own would discretize its edges anew and part from its neighbours.
-A face that still has none is an error (README law 10) unless it is smaller than
-the mesh can resolve -- its area under the square of the chord tolerance, inside
-the error every triangle may carry. So is any failure inside OCCT. A component
-with no faces meshes nothing: its edges are sampled from their own curves.
+empty that the mesh can resolve is meshed again, whole and finer, in a fixed
+order: a face meshed on its own would discretize its edges anew and part from
+its neighbours. A face that still has none is an error (README law 10) unless it
+is smaller than the mesh can resolve -- its area under the square of the chord
+tolerance, inside the error every triangle may carry -- and such a face earns no
+finer pass. So is any failure inside OCCT. A component with no faces meshes
+nothing: its edges are sampled from their own curves.
 
 The arrays leave OCCT through its own glTF writer (``RWGltf_CafWriter``, one
 primitive per face), not one Python call per vertex: that is what keeps a large
@@ -90,8 +91,8 @@ def _empty(face_map, ordinals: list[int]) -> list[int]:
     return empty
 
 
-def _mesh(topods, face_map, wanted: list[int], deflection: float, angle: float) -> None:
-    """Mesh the component, and while a face of ``wanted`` is left empty, mesh it all
+def _mesh(topods, face_map, required: list[int], deflection: float, angle: float) -> None:
+    """Mesh the component, and while a face of ``required`` is left empty, mesh it all
     again, cleaned, at the retry deflections. One face meshed on its own discretizes
     its edges anew, and its boundary no longer meets its neighbours'."""
     from OCP.BRepMesh import BRepMesh_IncrementalMesh
@@ -100,7 +101,7 @@ def _mesh(topods, face_map, wanted: list[int], deflection: float, angle: float) 
 
     BRepMesh_IncrementalMesh(topods, deflection, False, angle, True)
     for scale in _RETRY_SCALES:
-        if not _empty(face_map, wanted):
+        if not _empty(face_map, required):
             return
         BRepTools.Clean_s(topods)
         # OCCT refuses a deflection under its confusion tolerance.
@@ -312,13 +313,13 @@ def _mesh_component(topods, surf_index: dict, *, surface_input: str, surface_obj
     # OCCT refuses a deflection under its confusion tolerance, which a component of
     # next to no extent (a lone vertex) would otherwise ask for.
     deflection = max(chord * diagonal, Precision.Confusion_s())
-    # Every face the mesh can resolve must have triangles; a smaller one may have none,
-    # though a finer pass still covers one that has any area at all (a watch case's
-    # 0.002 mm² sliver), so the mesh has no hole where it could have none.
+    # Every face the mesh can resolve must have triangles; a smaller one may have none.
+    # Only a face that must earns the finer passes: a watch case's 0.002 mm² sliver
+    # left a 1,529-face case meshed three times over, fifteen times as long, for a
+    # face under what the mesh can resolve.
     required = [row["ord"] for row in surf_faces if float(row.get("area") or 0.0) >= deflection * deflection]
-    wanted = [row["ord"] for row in surf_faces if float(row.get("area") or 0.0) > 0.0]
     if face_map.Extent():
-        _mesh(topods, face_map, wanted, deflection, angle)
+        _mesh(topods, face_map, required, deflection, angle)
     triangulated = _triangulated_faces(topods, face_map)
     faces = (_faces_from_gltf(topods, triangulated) if triangulated else {})
     if faces is None:
