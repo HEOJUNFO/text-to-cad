@@ -190,8 +190,8 @@ once its last component has taken its body; each component's decode is still
 admitted on its own before it runs, and an entry the batch could not read or
 verify is that component's strict-read miss alone. The cold components'
 surfaces resolve up to 64 to a `/__cad/surfaces` request, each the moment its
-own row is ready; the request names the load's opening tier, so cadgen meshes
-each component there in the same job and its row carries the mesh's probe row.
+own row is ready; the request names the standard tier, so cadgen meshes each
+component there in the same job and its row carries the mesh's probe row.
 
 A validated warm entry carries the full surface-object provenance, so
 rendering does not need the SURF object or its derivation index to remain

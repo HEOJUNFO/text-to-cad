@@ -216,8 +216,8 @@ it('keeps a surface a refinement resolved through the next progressive publish',
 });
 
 // A cold component is never tessellated here: the surface request that derives its surface names
-// the tier the load opens at, cadgen meshes it there, and the ticket's mesh row is read as a warm
-// component's probe row is.
+// the standard tier, cadgen meshes it there, and the ticket's mesh row is read as a warm component's
+// probe row is.
 it('has cadgen mesh a cold component in its surface request, then reads that mesh', async () => {
   const { client, model, encoded } = warmLargeStep();
   const cold = new Set(['c3', 'c250'].map(cid => createHash('sha256').update(`317-component-${cid}`).digest('hex')));
@@ -249,10 +249,10 @@ it('has cadgen mesh a cold component in its surface request, then reads that mes
     await act(() => opened.result.current.loadMeshForEntry(model));
     expect(opened.result.current.error).toBe('');
     expect(opened.result.current.meshState.meshData.parts).toHaveLength(317);
-    // A 317-component package opens at the coarse tier, so that is the tier cadgen was asked for.
+    // Even a 317-component package opens at the standard level, so that is the tier cadgen was asked for.
     expect(requests.flatMap(({ cids }) => cids).sort()).toEqual(['c250', 'c3']);
     expect(requests.every(({ tessellation }) => tessellationCacheKey('0'.repeat(64), tessellation)
-      === tessellationCacheKey('0'.repeat(64), lodTessellationForLevel(0)))).toBe(true);
+      === tessellationCacheKey('0'.repeat(64), lodTessellationForLevel(1)))).toBe(true);
     // Their bodies were read by the rows the surface request answered, alone.
     expect(single.mock.calls.map(([row]) => row.surfaceInput).sort()).toEqual([...cold].sort());
     opened.unmount();

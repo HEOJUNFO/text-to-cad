@@ -188,28 +188,24 @@ test("a surface request that fails fails each of its components still waiting", 
   await assert.rejects(tickets.ticket("c12", {}), failure);
 });
 
-test("initial plans probe a chunk at a time, growing from eight to 256, and coarse only what standard did not admit", async () => {
+test("initial plans probe the standard tier a chunk at a time, growing from eight to 256", async () => {
   const components = cids(747).map(cid => [cid, { surfaceInput: `input-${cid}` }]);
   const calls = [];
-  // Standard entries for the even components; coarse ones for every component.
+  // Standard entries for the even components; nothing for the odd ones, which are cold.
   const plans = createInitialDisplayPlans({ components, maxInFlightBytes: 256 * MIB,
     probeEntries: async (inputs, tessellation) => {
-      const level = tessellation ? 0 : 1;
-      calls.push([level, inputs.length]);
-      return new Map(inputs.filter(input => level === 0 || Number(input.slice(7)) % 2 === 0)
-        .map(input => [input, { object: `${level}-${input}`, surfaceObject: "s", byteLength: KIB, decodedBytes: KIB }]));
+      calls.push([tessellation, inputs.length]);
+      return new Map(inputs.filter(input => Number(input.slice(7)) % 2 === 0)
+        .map(input => [input, { object: `o-${input}`, surfaceObject: "s", byteLength: KIB, decodedBytes: KIB }]));
     } });
   assert.equal(plans.peek("c0"), undefined);
   assert.equal((await plans.plan("c0")).plan.level, 1);
-  assert.equal((await plans.plan("c1")).plan.level, 0);
+  assert.equal(await plans.plan("c1"), null, "a component the store has no standard mesh for is cold");
   for (const [cid] of components) await plans.plan(cid);
-  const sizes = level => calls.filter(([probed]) => probed === level).map(([, count]) => count);
-  assert.deepEqual(sizes(1), [8, 16, 32, 64, 128, 256, 243]);
-  assert.deepEqual(sizes(0), [4, 8, 16, 32, 64, 128, 121], "coarse is probed for what standard did not admit");
-  assert.equal(plans.peek("c3").cacheProbe.object, "0-input-c3");
-  assert.equal(plans.probed("input-c3", 1), null, "a tier asked and empty");
-  assert.equal(plans.probed("input-c3", 0).object, "0-input-c3");
-  assert.equal(plans.probed("input-c3", 2), undefined, "a tier never asked");
+  assert.deepEqual(calls.map(([, count]) => count), [8, 16, 32, 64, 128, 256, 243]);
+  assert.ok(calls.every(([tessellation]) => tessellation === undefined), "no tier but the standard one is asked");
+  assert.equal(plans.peek("c2").cacheProbe.object, "o-input-c2");
+  assert.equal(plans.peek("c3"), null);
 });
 
 test("a load that is aborted, or over, asks nothing more ahead and leaves no component waiting", async () => {

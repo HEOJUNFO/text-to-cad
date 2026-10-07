@@ -316,7 +316,7 @@ identity. A real one (`link_arm`: a bar plus two placements of a pin model):
   `index/mesh` entry. The key is the surface input, the mesher and format
   versions and the two tolerances' float64 bits, so a mesher fix lands on new
   keys. A component is ready once its surface and every mesh asked for are
-  stored: the CAD Viewer's cold components ask for their opening level in the
+  stored: the CAD Viewer's cold components ask for the standard level in the
   surface request that derives them, a mesh export asks for its tolerances, and
   the snapshot host meshes what its page found missing from the stored surface
   record alone (`produce_meshes`, `POST /__tess_cache/produce`), with no tree.

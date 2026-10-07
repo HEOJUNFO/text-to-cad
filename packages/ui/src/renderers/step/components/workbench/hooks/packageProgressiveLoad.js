@@ -52,9 +52,9 @@ export const PROGRESSIVE_LOAD_MAX_INFLIGHT_BYTES = 256 * 1024 * 1024;
 // in flight until the first decode calibrates the estimate (below).
 export const PROGRESSIVE_LOAD_UNMEASURED_SHARE = 4;
 
-// Decoded-bytes estimator. A .surf is an exact surface and tessellation expands
-// it many-fold, so its fetched byte length (the HEAD content-length the hook
-// supplies as a hint) is scaled by the decoded/fetched ratio measured on the
+// Decoded-bytes estimator, for a component admitted without its stored mesh's
+// probe row (with one, admission charges exactly what the row says): a source
+// byte count hint is scaled by the decoded/source ratio measured on the
 // components already decoded; without a hint, the running mean decoded size;
 // before any decode, the unmeasured share of the budget.
 export function createDecodeSizeEstimator({

@@ -17,7 +17,7 @@ display concern only.
 
 | § | Covers |
 |---|---|
-| [1](#1-where-a-model-starts) | Coarse-first admission, cached standard meshes |
+| [1](#1-where-a-model-starts) | The standard opening level, stored and produced meshes |
 | [2](#2-what-refinement-samples) | Camera sampling, offscreen components, hysteresis |
 | [3](#3-admission-and-memory-pressure) | Budgets, reservations, coarsening caps |
 | [4](#4-the-replacement-batch) | CID caps, the first-ready deadline, adoption receipts |
@@ -27,24 +27,28 @@ display concern only.
 ## 1. Where a model starts
 
 Every mesh the viewer draws is cadgen's (OCCT's mesh of the exact BREP, stored
-by cadgen); the browser never tessellates. Assemblies with at least 64 unique
-components start at the coarser tier when standard meshes are not stored.
-Stored standard meshes are preferred immediately, subject to their probed decode
-size and admission. The tiers are probed a chunk of components at a time and the
-stored bodies read a batch at a time (`createInitialDisplayPlans`,
-`packageBatchReads.js`), the first of each the size of the first publish, so the
-first geometry waits on no more than it draws. A component with neither tier
-stored names its opening tier in the `/__cad/surfaces` request that derives its
-surface: cadgen meshes it in the same job, and the row carries the mesh's probe
-row, which the component then reads like a stored one.
-Smaller assemblies start at the standard level, except that an individually
-oversized component may start coarse. A component above the concurrent decode
-cap runs alone only when the shared Viewer memory envelope can reserve its
-complete estimate.
+by cadgen); the browser never tessellates. Every component opens at the
+standard level, whatever the size of its assembly
+(`renderers/step/render/initialDisplayLod.js`). The standard tier is probed a
+chunk of components at a time and the stored bodies read a batch at a time
+(`createInitialDisplayPlans`, `packageBatchReads.js`), the first of each the
+size of the first publish, so the first geometry waits on no more than it
+draws. A component the store holds no standard mesh for names the standard
+tier in the `/__cad/surfaces` request that derives its surface: cadgen meshes
+it in the same job, and the row carries the mesh's probe row, which the
+component then reads like a stored one. Both are sized by the stored body
+before their decode is admitted; one above the concurrent decode cap runs
+alone only when the shared Viewer memory envelope can reserve its complete
+estimate.
 
-Coarse geometry is a temporary preview: visible components automatically reach
-at least the standard level, preserving its angular smoothness even when
-projected chord error alone would permit a coarser mesh. Close inspection can
+There is no coarse opening tier. It earned its place when the browser
+tessellated: a coarse first pass painted a large assembly sooner. cadgen's
+standard meshes are light, and a cold component waits on its surface either
+way, so a coarse first mesh would only cost each component a second mesh job
+and the store a second entry. The coarse tier is memory pressure's (§3).
+
+Visible components stay at least at the standard level, preserving its angular
+smoothness even when projected chord error alone would permit a coarser mesh. Close inspection can
 request finer detail, and so does preview, which the STEP renderer draws one
 scene-quality tier up (`kit/viewport/renderProfile.js`) without changing the Display
 setting. The chrome does not report detail levels: the STEP renderer
@@ -102,8 +106,8 @@ backing allocation, including unused sections of packed buffers. GPU charges
 use uploaded view sizes; CPU-only edge inputs and picking allocations are
 accounted for separately.
 
-A component that cannot fit even at the coarse level reports a limitation and
-preserves the current view. **Estimates and sampled resource totals are a soft
+A component that cannot fit (at open, its standard mesh; under pressure, even
+the coarse level) reports a limitation and preserves the current view. **Estimates and sampled resource totals are a soft
 budget, not a hard browser RSS limit.**
 
 ## 4. The replacement batch
