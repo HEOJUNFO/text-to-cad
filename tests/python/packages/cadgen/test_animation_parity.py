@@ -66,9 +66,11 @@ def frame(clip: dict, t: float) -> dict:
             b = track["tube"][i + 1] if u > 0 else None
             if a is None:
                 continue
-            shape = [segment["kind"] for segment in a["path"]["segments"]]
-            same = b is not None and shape == [segment["kind"] for segment in b["path"]["segments"]]
-            path = ab._lerp_path(a["path"], b["path"], u) if same else a["path"]
+            pa = ab.key_path(track["rest"], a["path"])
+            pb = ab.key_path(track["rest"], b["path"]) if b is not None else None
+            shape = [segment["kind"] for segment in pa["segments"]]
+            same = pb is not None and shape == [segment["kind"] for segment in pb["segments"]]
+            path = ab._lerp_path(pa, pb, u) if same else pa
             twist = a["twistDeg"] + (b["twistDeg"] - a["twistDeg"]) * u if same else a["twistDeg"]
             for target in track["targets"]:
                 out["tubes"][target] = {"pathSpec": path, "twistDeg": twist}

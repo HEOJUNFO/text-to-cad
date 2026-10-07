@@ -227,6 +227,24 @@ test("an animation section is an ordered list of keyframed clips, and each malfo
   }
 });
 
+test("a tube key may name its centerline as twelve numbers that map a rest without arcs", () => {
+  const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0];
+  const ARC_REST = { normal: [0, 0, 1], segments: [{ kind: "arc", center: [0, 5, 0], axis: [0, 0, 1], start: [0, 0, 0], sweepDeg: 90 }] };
+  const keyed = (path, rest = REST_PATH) => ({ clips: [{ ...CLIP, tracks: [
+    { targets: ["o1.2"], times: [0], rest, maxSegmentLength: 1, tube: [{ path, twistDeg: 0 }] }
+  ] }] });
+  const mapped = keyed({ normal: [0, 0, 1], map: IDENTITY });
+  assert.equal(normalizeSourceAnimation(mapped), mapped);
+  for (const block of [
+    keyed({ normal: [0, 0, 1], map: IDENTITY.slice(1) }),
+    keyed({ normal: [0, 0, 1], map: [...IDENTITY.slice(1), "0"] }),
+    keyed({ normal: [0, 0, 1], map: IDENTITY, segments: [] }),
+    keyed({ normal: [0, 0, 1], map: IDENTITY }, ARC_REST)
+  ]) {
+    assert.throws(() => normalizeSourceAnimation(block), /has a malformed tube value/, JSON.stringify(block));
+  }
+});
+
 test("a mutable sidecar URL is never retained as immutable content", async (t) => {
   const originalFetch = globalThis.fetch;
   let fetches = 0;

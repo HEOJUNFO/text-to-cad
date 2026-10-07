@@ -40,6 +40,12 @@ motion. A sample that does not call `.deform_tube()` shows the tube at rest.
 Between keyframes the path's numbers blend while its segments keep their kinds;
 a change of segment kinds (a line becoming an arc) switches between two samples.
 
+A path that is its rest under one affine map is stored as that map, twelve
+numbers a keyframe, rather than as a copy of the whole centerline. A coil spring
+built from lines and Beziers whose turns all close up alike as it compresses
+gets this automatically. Arcs never map, and a spring whose end turns hold still
+while its middle closes stores whole paths, many times larger.
+
 `max_segment_length` controls one-time longitudinal mesh refinement in
 millimetres (default `1`, minimum `0.05`). The rest mesh, normals and topology
 remain continuous, and shared source buffers remain immutable.

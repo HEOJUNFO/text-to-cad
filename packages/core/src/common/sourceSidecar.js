@@ -197,6 +197,16 @@ function animationError(message) {
   return new Error(`animation: ${message}`);
 }
 
+// A tube key's centerline as written: {normal, segments}, or {normal, map}, twelve
+// numbers, over a rest without arcs (animationRuntime.js expands a map).
+function writtenTubePath(path, rest) {
+  if (!isObject(path)) return false;
+  const keys = Object.keys(path).sort().join();
+  if (keys === "normal,segments") return true;
+  return keys === "map,normal" && Array.isArray(path.map) && path.map.length === 12 && path.map.every(finite)
+    && !(Array.isArray(rest?.segments) && rest.segments.some((segment) => segment?.kind === "arc"));
+}
+
 function checkTrack(track, where, duration) {
   if (!isObject(track)) throw animationError(`${where} must be an object`);
   const channels = ANIMATION_CHANNELS.filter((name) => Object.hasOwn(track, name));
@@ -222,7 +232,7 @@ function checkTrack(track, where, duration) {
     opacity: (value) => value === null || (finite(value) && value >= 0 && value <= 1),
     visible: (value) => value === null || typeof value === "boolean",
     tube: (value) => value === null || (isObject(value) && Object.keys(value).length === 2
-      && isObject(value.path) && finite(value.twistDeg))
+      && finite(value.twistDeg) && writtenTubePath(value.path, track.rest))
   }[channel];
   const bad = values.find((value) => !valid(value));
   if (bad !== undefined) throw animationError(`${where} has a malformed ${channel} value: ${JSON.stringify(bad)}`);
