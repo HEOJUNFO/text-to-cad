@@ -47,7 +47,9 @@ map, whose largest displacement over a box is at a corner, so the corners bound
 the error over every point of those parts. A key's rates are the clip's own
 (central differences of its samples), so a smooth motion needs keys only where
 its curve changes character, and a part turns at most 120 degrees between two
-kept keys. A tube's tolerance is measured on points along its centerline and on
+kept keys. A hold -- one pose at two samples running -- is entered and left at
+rest: its first and last samples are keys with no rate, and nothing between
+them is. A tube's tolerance is measured on points along its centerline and on
 how far its cross-sections turn.
 """
 
@@ -572,15 +574,22 @@ def _transform_keys(
         quats.append(q)
     pivot = tuple(_length(c) for c in _pivot(values, center, reach))
     # Each sample's key: d (where the pivot goes: M(pivot) - pivot), q, d's rate
-    # and the angular velocity -- central differences, one-sided at the ends.
+    # and the angular velocity -- central differences, one-sided at the ends, and
+    # none beside a HOLD (the same pose two samples running): a part enters and
+    # leaves a hold at rest, and a central difference straddling one would carry
+    # half the move's speed into it.
     moves = [[m - p for m, p in zip(_apply_point(v, v[9:], pivot), pivot)] for v in values]
     last = len(values) - 1
+    still = [k > 0 and values[k - 1] == values[k] for k in range(len(values))] + [False]
     keys = []
     for k in range(len(values)):
-        i, j = max(0, k - 1), min(last, k + 1)
-        span = times[j] - times[i]
-        rate = [(moves[j][n] - moves[i][n]) / span for n in range(3)]
-        spin = [c / span for c in _turn_vector(quats[i], quats[j])]
+        if still[k] or still[k + 1]:
+            rate, spin = [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]
+        else:
+            i, j = max(0, k - 1), min(last, k + 1)
+            span = times[j] - times[i]
+            rate = [(moves[j][n] - moves[i][n]) / span for n in range(3)]
+            spin = [c / span for c in _turn_vector(quats[i], quats[j])]
         keys.append([*moves[k], *quats[k], *rate, *spin])
     truth = [[_apply_point(value, value[9:], corner) for corner in corners] for value in values]
     arms = [tuple(c - p for c, p in zip(corner, pivot)) for corner in corners]
@@ -598,7 +607,11 @@ def _transform_keys(
             return None
         return bisect.bisect_right(swept, swept[i] + MAX_KEY_TURN_DEG, i + 1, j) - 1
 
-    keep = _keep(len(values), error, tolerance, reach=reach)
+    # A hold's first and last samples are keys: between them the curve stays put, so a
+    # hold costs its two ends. Left to the splitting, a segment that runs from a hold
+    # into a move dips through the hold, and each split lands in it nearer the move.
+    edges = [k for k in range(len(values)) if still[k] != still[k + 1]]
+    keep = _keep(len(values), error, tolerance, forced=edges, reach=reach)
     digits = (_LENGTH_DIGITS,) * 3 + (_QUATERNION_DIGITS,) * 4 + (_LENGTH_DIGITS,) * 3 + (_QUATERNION_DIGITS,) * 3
     return keep, pivot, [[_round(c, digits[n]) for n, c in enumerate(keys[k])] for k in keep]
 
