@@ -182,18 +182,26 @@ _SYSTEM_OF_KIND = {kind: system for system, kinds in _BANKED_KINDS.items() for k
 _BLOCK_CASTING = f"#o1.1.{P.SYSTEM_MATERIALS['block'].index('cast') + 1}"
 
 
+# The banked kinds built once per cylinder: their tags lead with the cylinder's
+# number. Every other banked kind is built once per bank, and its tag leads with
+# the bank's.
+_PER_CYLINDER = frozenset({
+    "spark_plug", "spark_plug_insulator", "spark_plug_terminal", "plug_well", "plug_well_seal", "coil",
+    "coil_bolt", "exhaust_primary", "exhaust_trumpet", "exhaust_flange", "exhaust_flange_stud",
+    "exhaust_flange_nut",
+})
+
+
 def _bank_of(label: str) -> int | None:
-    """The bank a part sits on, read from its label's tag: `cam_cover:2` and
-    `turbine_wheel:1_rear` name a bank, `exhaust_flange_nut:11_3` a cylinder.
-    A tag led by 1 or 2 names a bank only on its own or before front, rear,
-    intake or exhaust; any other leading number is a cylinder's."""
-    tag = label.split(":", 1)[1] if ":" in label else ""
-    lead, *rest = tag.split("_")
-    if lead in ("1", "2") and (not rest or rest[0] in ("front", "rear", "intake", "exhaust")):
-        return int(lead)
-    if lead.isdigit():
+    """The bank a part sits on, read from its label's tag: `exhaust_flange_nut:11_3`
+    is cylinder 11's, `head_bolt:2_5` and `turbine_wheel:1_rear` name their bank."""
+    kind, _, tag = label.partition(":")
+    lead = tag.split("_")[0]
+    if not lead.isdigit():
+        return None
+    if kind in _PER_CYLINDER:
         return S.bank_of(int(lead))
-    return None
+    return int(lead) if lead in ("1", "2") else None
 
 
 class _Built:
