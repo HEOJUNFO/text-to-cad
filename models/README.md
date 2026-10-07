@@ -116,13 +116,9 @@ Models that need a **folder of their own** rather than a single loose script.
   and `explode` clips in `src/lib/animation.py`. Its hand-off notes (`REPORT.md`,
   `TODO.md`, `GAUNTLET.md`, `BUILDING.md`) sit beside the source.
 - [tendon_hand/](tendon_hand/README.md): tendon-driven research right hand —
-  24 joint DOF and 48 antagonistic tendon actuators, SOURCE ONLY (every STEP,
-  GLB, video and validation output is generated and ignored). The R13 showcase
-  solves its choreography rather than authoring it: its clips play a timeline
-  `validation/write_showcase_presentation.py` writes to an ignored
-  `validation/<model>_showcase.json`; write that first — a missing one is a build
-  error naming its generator. `validation/` and `website/` carry its validation
-  programs and standalone HTML presentation.
+  24 joint DOF and 48 antagonistic tendon actuators, SOURCE ONLY (every STEP
+  and validation output is generated and ignored). `validation/` carries its
+  validation programs.
 
 ### SpaceX reconstruction package
 

@@ -6,10 +6,5 @@
 /STEP/**/*.glb
 /STEP/**/*.json
 
-# Generated presentation assets. The HTML and its behavior test are source.
-/website/*.glb
-/website/*.mp4
-/website/*.gif
-
 # Snapshots, logs, checkpoints, and local review packets.
 /tmp/
