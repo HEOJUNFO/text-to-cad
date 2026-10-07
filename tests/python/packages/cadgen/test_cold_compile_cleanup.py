@@ -102,6 +102,24 @@ class ColdCompileCleanupTest(unittest.TestCase):
         finally:
             guard["enabled"] = False
 
+    def test_a_compile_tells_its_job_each_phase_and_counts_its_parts(self):
+        # A CAD Viewer waiting on a compile reads the daemon's job ledger: the phases
+        # must reach it as a model build's do, not stop at the terminal's line.
+        from cadgen.daemon import executors
+
+        document = self.document(nested=True)
+        events = []
+        executors.set_event_sink(events.append)
+        self.addCleanup(executors.set_event_sink, None)
+        self.assertTrue(self.compile(document)["ok"])
+        building = [event for event in events if event.get("state") == "building"]
+        self.assertTrue(building, "the compile reported nothing to its job")
+        self.assertEqual({os.path.realpath(event["model"]) for event in building}, {os.path.realpath(document)})
+        read = next(event for event in building if str(event.get("detail", "")).startswith("Reading "))
+        self.assertIn(document.name, read["detail"])
+        self.assertTrue(any(isinstance(event.get("total"), int) and event["total"] > 0 for event in building),
+                        "the parts are counted")
+
     def test_raw_compile_matches_direct_canonical_objects_cold_warm_and_force(self):
         from cadgen._internal.step_scene_package import load_step_scene_exact
         from cadgen.store.build import build_document_tree
