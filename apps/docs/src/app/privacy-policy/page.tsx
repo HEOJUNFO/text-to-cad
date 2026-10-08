@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPolicyPage() {
   return (
-    <LegalPage title="Privacy Policy" updated="October 7, 2026">
+    <LegalPage title="Privacy Policy" updated="October 4, 2026">
       <LegalSection>
         <p>
           This policy describes how Thompson Labs LLC (“we”, “us”) handles personal data for
@@ -169,10 +169,12 @@ export default function PrivacyPolicyPage() {
             analytics off, you can also ask your agent to turn off CAD analytics, or run{" "}
             <code>uvx cadgen analytics off</code>. Turning them off deletes the install ID on your
             computer, with the secret key behind the file codes, and asks our server to delete everything
-            stored under it. Turning them on again starts a new install ID and key, so nothing links the
-            two. <code>uvx cadgen analytics on</code> turns them on, and{" "}
-            <code>uvx cadgen analytics status</code> shows the setting and your install ID. Every one of
-            these changes the same setting on your computer, and that setting alone decides.
+            stored under it. Turning them on again starts a new install ID and key, so nothing links the two. Setting{" "}
+            <code>DO_NOT_TRACK=1</code> or <code>CADGEN_ANALYTICS=0</code> where CAD runs (your agent
+            app’s environment, or the shell that starts the CAD viewer) keeps them off there whatever
+            else is chosen. <code>uvx cadgen analytics
+            on</code> turns them on, and <code>uvx cadgen analytics status</code> shows the setting and
+            your install ID.
           </li>
           <li>
             Setting <code>CADGEN_UPDATE_CHECK=0</code> where cadgen runs turns the daily version check

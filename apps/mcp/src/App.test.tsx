@@ -271,7 +271,7 @@ it('a hand-made install is asked once about analytics: nothing is shared before 
   expect(queryByRole('dialog', { name: 'Allow Analytics' })).toBeNull();
 });
 
-it('an answer is never undone by a read sent just before it', async () => {
+it('an answer is never undone by a read sent just before it, and a choice the environment made is shown fixed', async () => {
   const { bridge, server } = host({ displayMode: 'fullscreen' }, {}, true);
   let releaseStaleRead: (value: unknown) => void = () => {};
   const { findByRole, getByText, queryByRole } = render(<App bridge={bridge as any} server={server as any} launch={home} />);
@@ -287,6 +287,13 @@ it('an answer is never undone by a read sent just before it', async () => {
   await act(async () => releaseStaleRead({ ask: true, sharing: false, policy: POLICY }));
   expect(queryByRole('dialog', { name: 'Allow Analytics' })).toBeNull();
   expect(viewer.props!.appSettings![0].checked).toBe(true);
+  cleanup();
+  // DO_NOT_TRACK: the setting says so, and cannot be changed here.
+  const fixed = host({ displayMode: 'fullscreen' });
+  fixed.server.answers['/__cad/analytics'] = () => ({ ask: false, sharing: false, reason: 'environment', policy: POLICY });
+  render(<App bridge={fixed.bridge as any} server={fixed.server as any} launch={home} />);
+  await act(async () => {});
+  expect(viewer.props!.appSettings![0]).toEqual(expect.objectContaining({ disabled: true, label: 'Share anonymous usage data (set by your environment)' }));
 });
 
 it("the app menu's features: Quick edit is read from the server, turned off there for every view, and handed to the viewer", async () => {

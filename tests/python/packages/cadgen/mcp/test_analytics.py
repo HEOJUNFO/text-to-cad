@@ -20,11 +20,17 @@ from cadgen.mcp.server import Server
 from cadgen.mcp.ui import AppPage
 from cadgen.viewer.recents import RecentStore
 
+QUIET = {"DO_NOT_TRACK": "", "CADGEN_ANALYTICS": ""}
+
+
 class _Tmp(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.path = self.tmp / "settings.json"
+        environment = mock.patch.dict("os.environ", QUIET)
+        environment.start()
+        self.addCleanup(environment.stop)
         # No test reaches the real receiver: a deletion is heard at once unless a test says otherwise.
         self.deleted: list[str] = []
         deletion = mock.patch("cadgen.analytics.request_deletion", side_effect=lambda id: self.deleted.append(id) or True)
@@ -78,7 +84,7 @@ class ConsentTest(_Tmp):
         choose(True, by="app", path=self.path)
         self.assertNotEqual(file_code(file_salt(self.path), "/work/bracket.step"), file_code(salt, "/work/bracket.step"))
 
-    def test_off_forgets_the_id_and_on_again_is_a_new_install(self) -> None:
+    def test_off_forgets_the_id_and_the_environment_beats_the_choice(self) -> None:
         forgotten = []
         choose(True, by="cli", path=self.path)
         first = status(path=self.path)["id"]
@@ -107,15 +113,10 @@ class ConsentTest(_Tmp):
             choose(False, by="app", path=self.path, forget=lambda id: True)
         with mock.patch("cadgen.analytics.DISCLOSURE", 3):
             self.assertEqual(status(path=self.path)["reason"], "choice")
-
-    def test_the_settings_alone_decide_whatever_the_environment_says(self) -> None:
-        # DO_NOT_TRACK neither overrules the person's choice nor fixes the menu's toggle: it turns.
         for name, value in (("DO_NOT_TRACK", "1"), ("CADGEN_ANALYTICS", "off")):
             with self.subTest(name=name), mock.patch.dict("os.environ", {name: value}):
-                choose(True, by="app", path=self.path)
-                self.assertEqual((status(path=self.path)["sharing"], status(path=self.path)["reason"]), (True, "choice"))
-                choose(False, by="app", path=self.path)
-                self.assertEqual((status(path=self.path)["sharing"], status(path=self.path)["reason"]), (False, "choice"))
+                self.assertEqual(status(path=self.path)["reason"], "environment")
+                self.assertFalse(status(path=self.path)["sharing"])
 
 
 class NoMeansNoTest(_Tmp):
@@ -214,6 +215,12 @@ class OneAnswerTest(_Tmp):
         self.assertTrue(status(path=self.path)["sharing"])
         self.consent(server, False)  # the app menu's toggle changes it whenever
         self.assertFalse(status(path=self.path)["sharing"])
+
+    def test_the_environment_turns_it_on_too(self) -> None:
+        with mock.patch.dict("os.environ", {"CADGEN_ANALYTICS": "1"}):
+            found = status(path=self.path)
+        self.assertEqual((found["sharing"], found["reason"]), (True, "environment"))
+        self.assertTrue(found["id"])
 
 
 class ServerCountsTest(_Tmp):

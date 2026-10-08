@@ -29,7 +29,7 @@ class ViewerAnalyticsTest(unittest.TestCase):
         self.root = self.tmp / "models"
         (self.root / "parts").mkdir(parents=True)
         (self.root / "parts" / "a.stl").write_bytes(STL)
-        environment = mock.patch.dict(os.environ, {"CADGEN_STATE_DIR": str(self.tmp / "state")})
+        environment = mock.patch.dict(os.environ, {"CADGEN_STATE_DIR": str(self.tmp / "state"), "DO_NOT_TRACK": "", "CADGEN_ANALYTICS": ""})
         environment.start()
         self.addCleanup(environment.stop)
         self.state = self.tmp / "state" / "settings.json"
