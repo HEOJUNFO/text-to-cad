@@ -213,6 +213,28 @@ class ResidentProcessLifecycle(unittest.TestCase):
         self.assertEqual(connect.call_count, 2)
         self.assertEqual([frame["kind"] for frame in stale.sent + current.sent], ["status", "status"])
 
+    def test_a_request_built_before_an_edit_is_asked_again_as_the_code_is_now(self):
+        # A build in flight when cadgen's code changed was resent with the token it was built
+        # under, so every daemon spawned to take over exited on it: 698 in ten minutes.
+        tokens = []
+
+        class Successor(_ScriptedChannel):
+            """A daemon started after the edit: it serves the new code's token and no other."""
+
+            def send(self, raw):
+                super().send(raw)
+                tokens.append(self.sent[-1]["token"])
+                frame = {"exit": 0} if tokens[-1] == "after" else {"restart": True}
+                self._frames = [json.dumps(frame).encode("utf-8")]
+
+        with mock.patch.object(client, "compute_version_token", return_value="after"), \
+                mock.patch.object(client, "daemon_address", return_value="test-address"), \
+                mock.patch.object(client, "_connect_or_spawn", side_effect=lambda address: Successor([])), \
+                mock.patch.object(client, "request_timeout", return_value=0.0):
+            code = client._run_with_retry({**PAYLOAD, "token": "before"}, strict=True, on_stream=lambda text: None)
+        self.assertEqual(code, 0)
+        self.assertEqual(tokens, ["before", "after"])
+
     def test_a_build_verifies_its_read_back_exactly_when_its_caller_asked(self):
         # CADGEN_VERIFY_READBACK is one build's request (STORE.md §10). It travels with the
         # job, and a job whose caller did not set it runs without it, in a daemon started with it.

@@ -352,6 +352,10 @@ def _run_with_retry(payload: dict, *, on_stream=None, on_event=None,
                 on_connection(None)
         if outcome is not _RESTART:
             return outcome if isinstance(outcome, int) else None
+        # Ask again as the code on disk is now. The token was stamped when the request was
+        # built, and a successor takes its own at start: a request built before an edit and
+        # resent as it was made every successor exit on it, until the deadline.
+        payload = {**payload, "token": compute_version_token()}
         if not restarted:
             restarted = True
             continue  # the stale daemon is going; an idle one already released its address
