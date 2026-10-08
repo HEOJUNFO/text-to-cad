@@ -1,6 +1,6 @@
 {
   "name": "@text-to-cad/core",
-  "version": "0.7.15",
+  "version": "0.7.16",
   "private": true,
   "type": "module",
   "description": "Reusable CAD render/viewer runtime for docs, CAD Viewer, and generated snapshot browser assets.",
@@ -24,7 +24,8 @@
     "./drawing": {
       "types": "./dist/drawing/index.d.ts",
       "import": "./dist/drawing/index.js"
-    }
+    },
+    "./chunk-ids": "./scripts/chunk-ids.mjs"
   },
   "scripts": {
     "test": "node scripts/run-tests.mjs",
@@ -48,6 +49,7 @@
   },
   "files": [
     "dist",
+    "scripts/chunk-ids.mjs",
     "docs",
     "README.md"
   ]
