@@ -706,6 +706,33 @@ class ReachClosure(unittest.TestCase):
         (profiles / "b.json").write_text("{}", encoding="utf-8")
         self.assert_clause_two(reference, True, "profiles/")
 
+    def test_a_listed_folder_ignores_what_a_sibling_build_writes_there_for_a_moment(self):
+        """Issue #564: a part recorded while a sibling stages its STEP in the same folder must
+        not read stale once the sibling has published and its stage folder is gone."""
+        from cadgen._internal.atomic_replace import STAGE_PREFIX, temp_suffix
+        from cadgen.store.closure import build_closure
+        from cadgen.store.index import model_ref
+        from cadgen.store.records import write_record
+
+        parts = self.root / "parts"
+        parts.mkdir()
+        (parts / "sibling.py").write_text("", encoding="utf-8")
+        stage = parts / f"{STAGE_PREFIX}sibling-k2j4x8q1"
+        stage.mkdir()
+        temp = parts / f".sibling.step{temp_suffix()}"
+        temp.write_bytes(b"")
+        script = parts / "part.py"
+        closure = build_closure(script, executed={}, listings=[parts])
+        reference = model_ref(script, "part")
+        write_record(reference, {"entryKind": "part", "sourceKind": "python", "tree": None,
+                                 "closure": closure.as_json(), "constants": closure.constants,
+                                 "children": [], "outputs": {}})
+        stage.rmdir()
+        temp.unlink()
+        self.assert_clause_two(reference, False)
+        (parts / "sibling.step").write_bytes(b"")
+        self.assert_clause_two(reference, True, "./")
+
     def test_a_binding_added_later_that_shadows_a_submodule_is_stale(self):
         reference, closure = self.record()
         self.assertIn("geo", closure.names["lib/__init__.py"], "recorded unbound")
