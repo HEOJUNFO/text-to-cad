@@ -1,10 +1,9 @@
 """Views of a tree for consumers that speak the view layout (assembly.json + components/).
 
-Two consumers cannot read objects by hash directly: the Node builders (the
-mesh exporter takes ``--package-dir``) and the browser (the viewer/snapshot
-client resolves ``assembly.json`` and ``components/<cid>.surf`` RELATIVE to a
-package URL). Neither gets a directory in the store — the store has no result
-directories. They get a **view**:
+The browser cannot read objects by hash directly: the viewer/snapshot client
+resolves ``assembly.json`` and ``components/<cid>.surf`` RELATIVE to a package
+URL. Nothing gets a directory in the store — the store has no result
+directories. A consumer of that layout gets a **view**:
 
 - :func:`export_view` writes the flattened tree (assembly.json) plus every component it
   references into a TEMPORARY directory outside the store (copies; the
@@ -218,8 +217,8 @@ def _cleanup_views() -> None:
 
 def view_dir_for(tree_hash: str, *, producer: dict | None = None, document_hash: str | None = None) -> Path:
     """A view (assembly.json + components/) of ``tree_hash``, built once per process and
-    removed at exit. The adapter for consumers that need a DIRECTORY (the Node
-    exporters, the selector-index composer, the snapshot page)."""
+    removed at exit. The adapter for consumers that need a DIRECTORY (the
+    selector-index composer, the snapshot page)."""
     global _VIEW_CLEANUP_REGISTERED
     descriptor = descriptor_for_view(tree_hash, producer=producer, document_hash=document_hash)
     if descriptor is None:

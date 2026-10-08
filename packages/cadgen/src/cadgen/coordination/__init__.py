@@ -138,10 +138,8 @@ class BuildRun:
 
 
 # The run reporting on this thread, for code that is too far from `artifact_build` to be
-# handed it. `run_node_builder` solves the same problem across a PIPE -- the Node child
-# describes its work and the parent publishes it -- and this is the in-process twin: a
-# model's entry is called with no arguments and cannot be given the BuildRun, so it looks
-# the run up instead. A ContextVar rather than a global because the viewer's warm worker
+# handed it: a model's entry is called with no arguments and cannot be given the
+# BuildRun, so it looks the run up instead. A ContextVar rather than a global because the viewer's warm worker
 # is long-lived and must never leak one build's reporter into another's.
 _CURRENT_BUILD: contextvars.ContextVar[BuildRun | None] = contextvars.ContextVar(
     "cadgen_current_build", default=None

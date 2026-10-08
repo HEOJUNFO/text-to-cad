@@ -557,9 +557,8 @@ def _run_script_generator_body(
         generator = getattr(module, entry_name, None)
         if not callable(generator):
             raise RuntimeError(f"{_display_path(spec.script_path)} does not define callable {entry_name}()")
-        # Bind the run as the ambient reporter for the generator's own code. This is
-        # the in-process twin of `run_node_builder`, which lets a Node child describe its
-        # work over a pipe: the entry function takes no arguments and so cannot be handed the run,
+        # Bind the run as the ambient reporter for the generator's own code: the entry
+        # function takes no arguments and so cannot be handed the run,
         # and without this the longest phase of most builds reports nothing at all. Silent
         # generators are unaffected -- nothing reads the binding unless they ask for it.
         from cadgen.authoring import building

@@ -234,9 +234,9 @@ jobs:
           playwright: "false"
           npm: packages/core packages/ui apps/web apps/mcp
 
-      # The bundle feeds the WHEEL, and it is the only thing that does: cadgen's Node
-      # builders, the snapshot browser bundle, the CAD Viewer client, the CAD app and the
-      # file tracers are all gitignored, so the release commit carries none of them. Nothing
+      # The bundle feeds the WHEEL, and it is the only thing that does: the snapshot
+      # browser bundle, the CAD Viewer client, the CAD app and the file tracers are all
+      # gitignored, so the release commit carries none of them. Nothing
       # here writes to git -- the wheel is the release asset. TEXT_TO_CAD_RELEASE names the
       # version this build releases, so the Viewer and the CAD app it bundles show it as it is;
       # any other build shows where it came from (`-dev.<commit>`, @text-to-cad/ui/build-id).
