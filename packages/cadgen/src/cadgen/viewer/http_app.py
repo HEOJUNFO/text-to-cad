@@ -282,8 +282,9 @@ class CadApp:
         # the identity this instance announces is the identity of the code it is actually running.
         self.identity_token = identity if identity is not None else identity_token(self.dist_dir)
         # The single development predicate (reload.py). In an installed wheel
-        # this is False and the whole mechanism is absent: nothing is watched,
-        # no request is counted, and the browser never polls for a restart.
+        # this is False and the whole mechanism is absent: nothing is watched
+        # and no request is counted. The page still asks who its server is, at
+        # an installed cadence, to reload under another install on its port.
         self.auto_reload = dev_reload.running_from_source_checkout()
         self._request_lock = threading.Lock()
         self._busy_requests = 0
@@ -319,12 +320,12 @@ class CadApp:
             "app": "cad-viewer",
             # The start-time token, NOT identity_token() re-evaluated: a
             # resident answering a reuse probe must report the code it runs,
-            # not the code now on disk. It is also what the browser's
-            # development reload watcher compares against to notice that this
-            # server has become a NEW process on the same port.
+            # not the code now on disk. It is also what the browser's reload
+            # watcher compares against to notice that this server has become
+            # other code on the same port (a restarted checkout, an upgrade).
             "identityToken": self.identity_token,
             # Whether this server watches its own code and restarts itself.
-            # False in every installed wheel; the client polls only when true.
+            # False in every installed wheel; the client polls faster when true.
             "autoReload": self.auto_reload,
             # Which file manager Reveal opens: darwin, win32 or linux.
             "platform": sys.platform if sys.platform in ("darwin", "win32") else "linux",

@@ -353,7 +353,7 @@ debounced) and once more when it unmounts, and nothing after that; the store wri
 through synchronously, so what the tab last saw is what a reload restores. Nothing
 saves document content or promises an asynchronous operation will finish during page
 exit. Web owns pagehide
-(which unmounts the app), focus, visibility, history and development reload. Desktop
+(which unmounts the app), focus, visibility, history and reload under a new server. Desktop
 owns window/runtime lifecycle and IPC.
 
 The dependency checker enforces host boundaries, including worker source. The

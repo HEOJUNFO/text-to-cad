@@ -36,7 +36,7 @@ this app. The Python wheel consumes only the production build.
 src/
   App.tsx               the CadViewer's browser host: URL, history, title, appearance, the file menu and the library
   main.tsx              host/client bootstrap and cleanup
-  host/                 browser clipboard, prompt delivery, the app menu's links and release check, development auto-reload
+  host/                 browser clipboard, prompt delivery, the app menu's links and release check, reload under a new server
   persistence/          the tab record in sessionStorage
   client/               appearance control and styling
   shared/               app build/runtime configuration helpers
@@ -264,9 +264,13 @@ compiler output, whose Retry reloads only that file and whose Report Issue opens
 new issue titled "Issue: ", labelled `bug`, filled in from the card. A failed update the
 model survives can be dismissed, leaving the previous version to inspect.
 
-A source-checkout backend can restart on Python code changes. This browser host
-polls its identity and reloads when the same endpoint is ready. Installed wheels
-report `autoReload: false` and never enter that loop. Vite 8 handles client HMR,
+The page reloads once its server is other code: it asks `/__cad/server` for its
+`identityToken` (cadgen's version and a digest of its Python and client) and
+reloads on a new one, picking up the client, and the store, that server serves. A
+source-checkout backend (`autoReload: true`) restarts on Python code changes and is
+asked every 2 s, every 0.4 s while it is down; an installed one, which changes only
+when another install replaces it on its port, every 5 s and whenever the window
+regains focus. The same install restarting does not reload. Vite 8 handles client HMR,
 uses compiled workspace exports and honors an explicit `PORT` while retaining
 strict port binding. React 19 is deduplicated with the shared packages.
 
@@ -278,7 +282,7 @@ silently copying a subset. No receipt claims that another app pasted or sent the
 content. Bundles accept at most 128 parts and one PNG up to 20 MiB; image support
 is advertised only when the browser exposes image clipboard writes. Failed
 operations can be retried, while recent successful operation IDs prevent repeated
-writes. Clipboard operations, prompt delivery and development reload live
+writes. Clipboard operations, prompt delivery and the reload watcher live
 under `src/host`; shared UI receives their explicit ports. The browser file source
 exposes no general write operations.
 
