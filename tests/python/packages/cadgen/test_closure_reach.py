@@ -733,6 +733,43 @@ class ReachClosure(unittest.TestCase):
         (parts / "sibling.step").write_bytes(b"")
         self.assert_clause_two(reference, True, "./")
 
+    def test_what_a_real_build_writes_beside_its_step_is_left_out_of_a_listing(self):
+        """Issue #564, against the folder a build really creates: the listing taken as a STEP
+        is published from its stage folder holds entries that are gone once the build ends,
+        and the listing digest must leave every one of them out."""
+        from cadgen._internal import atomic_replace
+        from cadgen._internal.atomic_replace import is_transient_name
+        from cadgen.generation import generate_step_targets
+
+        parts = self.root / "parts"
+        parts.mkdir()
+        script = parts / "sibling.py"
+        script.write_text(textwrap.dedent("""
+            from cadgen import step
+            from cadgen import build123d as bd
+
+
+            @step
+            def sibling():
+                return bd.Box(1, 1, 1)
+        """).lstrip(), encoding="utf-8")
+        listings = []
+        replace_atomic = atomic_replace.replace_atomic
+
+        def publish(temp_path, target_path):
+            source, target = Path(temp_path).resolve(), Path(target_path).resolve()
+            if target.suffix == ".step" and source.parent != target.parent:
+                listings.append(os.listdir(target.parent))
+            replace_atomic(temp_path, target_path)
+
+        quiet = {"CADGEN_DAEMON": "0", "CADGEN_JOBS": "1", "CADGEN_COMPONENT_WORKERS": "1"}
+        with mock.patch.dict(os.environ, quiet), mock.patch.object(atomic_replace, "replace_atomic", publish):
+            self.assertEqual(0, generate_step_targets([str(script)], force=True, verbose=False))
+        self.assertTrue(listings, "the STEP was published from a stage folder")
+        gone = set(listings[0]) - set(os.listdir(parts))
+        self.assertTrue(gone, "the stage folder is beside the STEP while it is published")
+        self.assertEqual([name for name in sorted(gone) if not is_transient_name(name)], [])
+
     def test_a_binding_added_later_that_shadows_a_submodule_is_stale(self):
         reference, closure = self.record()
         self.assertIn("geo", closure.names["lib/__init__.py"], "recorded unbound")
